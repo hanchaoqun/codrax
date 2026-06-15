@@ -82,7 +82,7 @@ type ExecutedCommand struct {
 
 	// Source is the typed provenance of the execution decision:
 	// llm_choice | auto_detect | no_tests_escalation |
-	// runner_missing_escalation.
+	// runner_missing_escalation | parser_error_fallback.
 	Source string `json:"source,omitempty"`
 
 	// Outcome is the typed coarse result of this entry:

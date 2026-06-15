@@ -199,6 +199,10 @@ func WriteContextPackFromExplorationHandoff(h WriteExplorationHandoff) WriteCont
 		pack.Items = append(pack.Items, writeContextItem("risk_note", WriteContextP0, note, "explore",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier, WriteConsumerApproval))
 	}
+	for _, q := range h.ExplorationQuestions {
+		pack.Items = append(pack.Items, writeContextItem("exploration_question", WriteContextP2, q, "explore",
+			WriteConsumerController, WriteConsumerPlanner))
+	}
 	for _, file := range h.TargetFiles {
 		pack.Items = append(pack.Items, writeContextItem("target_file", WriteContextP1, file, "explore",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))

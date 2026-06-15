@@ -7988,6 +7988,18 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 				logging.Debug("[orchestrator] planner scaling: complexity=%s sub-topics=%d, soft cap %d → %d",
 					complexity, nSub, base, adjusted)
 			}
+			if activeBatchHasUsableExplorationHandoff(o.busCtx.Mutable) {
+				current := agentCtx.PlannerSoftIterCapOverride
+				effectiveCurrent := current
+				if effectiveCurrent <= 0 {
+					effectiveCurrent = base
+				}
+				if adjustedCap, ok := clampPlannerSoftCapForCompletedExploration(base, current); ok {
+					agentCtx.PlannerSoftIterCapOverride = adjustedCap
+					logging.Debug("[orchestrator] planner convergence cap: usable exploration handoff for active write batch, soft cap %d → %d",
+						effectiveCurrent, adjustedCap)
+				}
+			}
 			// Stage 3: inject relevant Failure Taxonomy entries
 			// the planner should regard before emitting. The
 			// relevance score combines task kind + target-paths

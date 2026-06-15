@@ -55,6 +55,45 @@ func TestProjectWriteExplorationHandoffFromTurnARequiresRequestAndArtifacts(t *t
 	}
 }
 
+func TestProjectWriteExplorationHandoffFallsBackToEmittedEvidence(t *testing.T) {
+	mu := types.NewMutableState("degraded exploration handoff")
+	mu.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID:        "batch-1",
+		Goal:           "repair autodoc typehints",
+		CandidatePaths: []string{"sphinx/ext/autodoc/typehints.py"},
+	})
+	mu.EvidenceClosure().SetReadSet(map[string]bool{
+		"sphinx/ext/autodoc/typehints.py": true,
+	})
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "ev-record-typehints",
+		Kind:            types.EvidenceMechanism,
+		Subject:         "record_typehints",
+		Source:          "sphinx/ext/autodoc/typehints.py",
+		LineStart:       127,
+		AnchorSymbol:    "record_typehints",
+		Summary:         "autodoc records resolved annotations before description rendering",
+		GroundingStatus: types.GroundingRecovered,
+	}})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu}}
+
+	o.projectWriteExplorationHandoffFromTurnA()
+
+	handoff := mu.WriteExplorationHandoff()
+	if handoff == nil {
+		t.Fatal("expected projected handoff from emitted evidence")
+	}
+	if len(handoff.EvidenceRefs) != 1 || handoff.EvidenceRefs[0].ID != "ev-record-typehints" {
+		t.Fatalf("fallback handoff should preserve emitted evidence refs: %+v", handoff)
+	}
+	if !stringSliceContains(handoff.TargetFiles, "sphinx/ext/autodoc/typehints.py") {
+		t.Fatalf("fallback handoff should preserve closure/candidate target file: %+v", handoff.TargetFiles)
+	}
+	if ta := mu.TurnAArtifacts(); ta == nil || len(ta.EvidenceItems) != 1 {
+		t.Fatalf("fallback should materialize TurnAArtifacts for later consumers: %+v", ta)
+	}
+}
+
 func TestShouldRunWriteExplorationSubflowUsesTypedEvaluator(t *testing.T) {
 	if shouldRunWriteExplorationSubflow(types.WriteExplorationRequest{}) {
 		t.Fatal("empty request must not run exploration")
@@ -113,6 +152,15 @@ func TestExtractPhaseGoalFromPrefix(t *testing.T) {
 func writeContextViewContains(view types.WriteContextView, kind, substring string) bool {
 	for _, item := range view.Items {
 		if item.Kind == kind && strings.Contains(item.Text, substring) {
+			return true
+		}
+	}
+	return false
+}
+
+func stringSliceContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
 			return true
 		}
 	}

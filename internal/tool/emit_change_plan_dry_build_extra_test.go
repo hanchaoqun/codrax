@@ -10,6 +10,66 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestDryBuildPython_PatchSyntaxErrorRejected(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git not available; patch overlay skipped")
+	}
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("python interpreter not available; skip Python dry-build rejection test")
+	}
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "pkg.py"), []byte("def value():\n    return 1\n"), 0o644); err != nil {
+		t.Fatalf("seed pkg.py: %v", err)
+	}
+	bus := &types.BusContext{RepoRoot: repo, Mutable: types.NewMutableState("python patch dry-build")}
+	changes := []types.FileChange{{
+		Path: "pkg.py",
+		Kind: "patch",
+		Patch: `--- a/pkg.py
++++ b/pkg.py
+@@ -1,2 +1,2 @@
+ def value():
+-    return 1
++    return (
+`,
+	}}
+	rej := dryBuildPython(bus, changes)
+	if rej == "" {
+		t.Fatal("Python dry-build must reject a syntax error introduced by kind=patch")
+	}
+	if !strings.Contains(rej, "dry-build failed") || !strings.Contains(rej, "Python") {
+		t.Fatalf("rejection should name Python dry-build, got %q", rej)
+	}
+}
+
+func TestDryBuildPython_PatchValidAccepted(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git not available; patch overlay skipped")
+	}
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("python interpreter not available; skip Python dry-build acceptance test")
+	}
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "pkg.py"), []byte("def value():\n    return 1\n"), 0o644); err != nil {
+		t.Fatalf("seed pkg.py: %v", err)
+	}
+	bus := &types.BusContext{RepoRoot: repo, Mutable: types.NewMutableState("python patch dry-build")}
+	changes := []types.FileChange{{
+		Path: "pkg.py",
+		Kind: "patch",
+		Patch: `--- a/pkg.py
++++ b/pkg.py
+@@ -1,2 +1,2 @@
+ def value():
+-    return 1
++    return 2
+`,
+	}}
+	if rej := dryBuildPython(bus, changes); rej != "" {
+		t.Fatalf("valid Python patch should pass dry-build, got %q", rej)
+	}
+}
+
 // TestDryBuildRust_NoCargoTomlNoOp confirms the helper bails when
 // the repo has no Cargo.toml — the next-language helper runs.
 func TestDryBuildRust_NoCargoTomlNoOp(t *testing.T) {

@@ -1746,7 +1746,7 @@ write_enabled: false
 
 写模式主入口是 **Auto Pilot**:用户描述目标后,系统自动探索、拆批、生成 bounded plan、在隔离 worktree 中应用、跑验证、失败后按 typed 证据小批量 replan。`plan/apply/verify` 仍是内部阶段和 CLI 高级 lane,但不是日常 REPL 主路径。
 
-controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 `.codrax/plans/workflows/`。`ModePlan` 可探索并生成当前批次计划但不写入;`ModeApply` 端到端执行 plan/apply/verify 并按 allow/ask/deny 策略处理审批;`ModeVerify` 验证已有 workflow run、active batch 或导入的 plan seed。`--plan-file` 也会导入为单 batch workflow seed,不会绕过最终 risk/approval gate。安全可继续的 active run 会在下一次写模式自动续跑;REPL 启动 banner 和状态卡会主动显示当前 batch、审批需求、handoff 摘要和剩余预算。`/workflow show/list` 是审计入口,`/workflow resume` 仅用于手动选择某个保存 run 作为恢复对象,`/workflow clear` 清理 run 元数据和 context artifacts。没有显式 plan id 时,`/approve` / `/reject` 会优先绑定 active batch 的 `PlanID`。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。
+controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 `.codrax/plans/workflows/`。探索如果超时/取消但已经产生 typed `emit_evidence` 或 read-set 进展,controller 会把这些结构化证据投影为写模式 handoff,在 ledger 中保留 `degraded` 记录,并继续让当前 batch 进入 bounded planning;不会用模型散文或日志文本做硬路由。`ModePlan` 可探索并生成当前批次计划但不写入;`ModeApply` 端到端执行 plan/apply/verify 并按 allow/ask/deny 策略处理审批;`ModeVerify` 验证已有 workflow run、active batch 或导入的 plan seed。`--plan-file` 也会导入为单 batch workflow seed,不会绕过最终 risk/approval gate。安全可继续的 active run 会在下一次写模式自动续跑;REPL 启动 banner 和状态卡会主动显示当前 batch、审批需求、handoff 摘要和剩余预算。`/workflow show/list` 是审计入口,`/workflow resume` 仅用于手动选择某个保存 run 作为恢复对象,`/workflow clear` 清理 run 元数据和 context artifacts。没有显式 plan id 时,`/approve` / `/reject` 会优先绑定 active batch 的 `PlanID`。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。
 
 REPL 实际流程:
 
@@ -1827,9 +1827,11 @@ Auto Pilot 内部自动:
 3. 自动检测 runner 跑测试 — 12 种自动探测:go / node(jest/vitest)/ python(pytest/unittest/Django runtests.py)/ rust(cargo)/ java(maven 或 gradle,含 Kotlin/Android)/ ruby(rspec)/ swift / cmake(ctest)/ meson / make / hvigor(HarmonyOS ArkTS)/ cjpm(Cangjie)
 4. 测试通过 → 标记 `applied`;测试/构建真实失败 → 标记 `verify_failed`(可重试);本地缺少 runner/依赖或没有可运行测试 → 标记 `unverified`
 
+> plan 阶段会先做轻量结构化校验:例如 Python `kind=patch` 会在 scratch overlay 中应用补丁后跑 `py_compile`,能在没有 pytest/ruff 的客户环境里提前拦住语法级坏补丁;缺少 pytest 仍不会被当作代码失败硬门。
+
 > verifier agent 也可以**绕过自动探测**,显式声明 `runner=<choice>` + `working_dir`(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。Python verify 会把 active worktree 置于 import root 优先级最高处,避免误测主仓源码;Django `tests/runtests.py` runner 在未指定 suite 时会从 typed ChangePlan 路径和 `tests/` 结构推导保守 scoped suite。
 
-> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。三条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)、`parser_error` 结构化信号(测试 runner 启动但没有产出可解析报告,常见于 collection/import 阶段环境兼容问题)、`no_tests` 结构化信号(typed runner 没有执行到任何测试,例如 suite selector / harness 不匹配)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 `unverified` 并保留安装提示/failure summary。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
+> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。三条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)、`parser_error` 结构化信号(测试 runner 启动但没有产出可解析报告,常见于 collection/import 阶段环境兼容问题)、`no_tests` 结构化信号(typed runner 没有执行到任何测试,例如 suite selector / harness 不匹配)不会触发代码重规划,也不会把已应用代码硬拦成失败;它会落到 `unverified` 并保留安装提示/failure summary。pytest JSON/report 生成失败时会自动尝试禁用第三方插件的 verbose 文本 fallback;只有拿到用例级执行行才把结果当作真实 pass/fail,collection/import 启动失败仍保持 `parser_error`。fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
 
 特殊场景:
 
@@ -1895,6 +1897,7 @@ apply 成功的输出会原样给出这条命令(提交主题即 plan 摘要)。
 - `pipeline_write_retry_budget`(默认 3)允许 controller 自动把 typed build/test/path/line/command 证据写入 P2 handoff,再小批量 replan/apply/verify
 - 重试用尽仍不过 → workflow 保留失败 report/diff/surface refs 并 fail-loud;`/workflow show` 查看证据后再决定是否缩小目标或人工处理
 - 本地测试根本起不了(缺依赖、缺数据库等)时,系统会按 typed runner/surface outcome 区分 runner missing、zero tests、infra error、真实失败;跳过验证或强行合入都需要显式人工动作
+- 探索阶段超时但已有 typed evidence/read-set 时,workflow 会记录 `exploration_degraded` 并继续当前 batch 的小批量规划,而不是丢掉证据重新开一轮大范围调查
 
 **plan 阶段返回文字回答而不是改动方案**(planner 觉得这是咨询性问题):
 - Auto Pilot 优先在探索、plan、replan 之间自动收敛;只有缺少 typed missing facts、预算耗尽或风险策略阻断时才暂停
@@ -2758,7 +2761,7 @@ CLI 单次模式输出:
 → 空目录从零创建项目需要单独授权。在 yaml 里同时设 `write_auto_init_repo: true` + `write_scaffold_enabled: true`,或启动时同时加 `--auto-init-repo --allow-scaffold`。两者职责不同 — 前者授权初始化 git,后者授权凭空生成文件。
 
 **runner 检测错了 / runner 不存在**
-→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest/unittest/Django runtests.py / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。`runner_missing` 信号识别"二进制没装"(`pytest: command not found` 等),`parser_error` 信号识别"runner 启动了但没产出结构化报告"(例如 pytest collection/import 阶段因环境不兼容中止),`no_tests` 信号识别"runner 没有执行到任何测试"(例如 selector / project harness 不匹配),三者都会自动跳过 verify→plan 重试,将 plan 标记为 `unverified` 而不是 `verify_failed`,并保留安装/环境提示和 failure summary。也可以在 verifier prompt 里声明 `runner=<choice>` + `working_dir` 显式指定,绕过自动探测。
+→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest/unittest/Django runtests.py / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。`runner_missing` 信号识别"二进制没装"(`pytest: command not found` 等),`parser_error` 信号识别"runner 启动了但没产出结构化报告"(例如 pytest collection/import 阶段因环境不兼容中止),`no_tests` 信号识别"runner 没有执行到任何测试"(例如 selector / project harness 不匹配),三者都会自动跳过 verify→plan 重试,将 plan 标记为 `unverified` 而不是 `verify_failed`,并保留安装/环境提示和 failure summary。pytest JSON/report 生成失败时会自动尝试禁用第三方插件的 verbose 文本 fallback;只有拿到用例级执行行才把结果当作真实 pass/fail,collection/import 启动失败仍保持 `parser_error`。也可以在 verifier prompt 里声明 `runner=<choice>` + `working_dir` 显式指定,绕过自动探测。
 
 **`/merge` 说 "no worktree to merge from"**
 → apply 完 worktree 被清了。`codrax.yaml` 加 `pipeline_keep_worktree_on_success: true`,下次 apply 后 worktree 会保留。

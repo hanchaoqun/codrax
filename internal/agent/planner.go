@@ -293,6 +293,7 @@ func (e *plannerEvaluator) buildWriteExplorationHandoffSection(ctx *types.AgentC
 		return ""
 	}
 	if handoff.Goal == "" &&
+		len(handoff.ExplorationQuestions) == 0 &&
 		len(handoff.TargetFiles) == 0 &&
 		len(handoff.RelevantSymbols) == 0 &&
 		len(handoff.ExistingPatterns) == 0 &&
@@ -316,6 +317,7 @@ func (e *plannerEvaluator) buildWriteExplorationHandoffSection(ctx *types.AgentC
 	if handoff.Confidence != "" {
 		fmt.Fprintf(&b, "- confidence: %s\n", handoff.Confidence)
 	}
+	writePlannerList(&b, "exploration_questions", handoff.ExplorationQuestions, 8)
 	writePlannerList(&b, "target_files", handoff.TargetFiles, 10)
 	writePlannerList(&b, "relevant_symbols", handoff.RelevantSymbols, 12)
 	writePlannerList(&b, "existing_patterns", handoff.ExistingPatterns, 8)

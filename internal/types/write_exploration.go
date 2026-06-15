@@ -40,17 +40,18 @@ type WriteExplorationEvidenceRef struct {
 // WriteExplorationHandoff is the compact planner-facing projection of
 // read-mode TurnAArtifacts. It deliberately omits raw tool output.
 type WriteExplorationHandoff struct {
-	BatchID          string                        `json:"batch_id,omitempty"`
-	Goal             string                        `json:"goal,omitempty"`
-	TargetFiles      []string                      `json:"target_files,omitempty"`
-	RelevantSymbols  []string                      `json:"relevant_symbols,omitempty"`
-	ExistingPatterns []string                      `json:"existing_patterns,omitempty"`
-	Invariants       []string                      `json:"invariants,omitempty"`
-	TestSurface      []string                      `json:"test_surface,omitempty"`
-	RiskNotes        []string                      `json:"risk_notes,omitempty"`
-	Unknowns         []string                      `json:"unknowns,omitempty"`
-	EvidenceRefs     []WriteExplorationEvidenceRef `json:"evidence_refs,omitempty"`
-	Confidence       string                        `json:"confidence,omitempty"`
+	BatchID              string                        `json:"batch_id,omitempty"`
+	Goal                 string                        `json:"goal,omitempty"`
+	ExplorationQuestions []string                      `json:"exploration_questions,omitempty"`
+	TargetFiles          []string                      `json:"target_files,omitempty"`
+	RelevantSymbols      []string                      `json:"relevant_symbols,omitempty"`
+	ExistingPatterns     []string                      `json:"existing_patterns,omitempty"`
+	Invariants           []string                      `json:"invariants,omitempty"`
+	TestSurface          []string                      `json:"test_surface,omitempty"`
+	RiskNotes            []string                      `json:"risk_notes,omitempty"`
+	Unknowns             []string                      `json:"unknowns,omitempty"`
+	EvidenceRefs         []WriteExplorationEvidenceRef `json:"evidence_refs,omitempty"`
+	Confidence           string                        `json:"confidence,omitempty"`
 }
 
 // NormalizeWriteExplorationRequest trims and bounds a request without
@@ -73,6 +74,7 @@ func NormalizeWriteExplorationRequest(in WriteExplorationRequest) WriteExplorati
 func NormalizeWriteExplorationHandoff(in WriteExplorationHandoff) WriteExplorationHandoff {
 	in.BatchID = trimWriteExplorationText(in.BatchID)
 	in.Goal = trimWriteExplorationText(in.Goal)
+	in.ExplorationQuestions = dedupTrimWriteExplorationStrings(in.ExplorationQuestions, writeExplorationMaxListItems)
 	in.TargetFiles = dedupTrimWriteExplorationStrings(in.TargetFiles, writeExplorationMaxListItems)
 	in.RelevantSymbols = dedupTrimWriteExplorationStrings(in.RelevantSymbols, writeExplorationMaxListItems)
 	in.ExistingPatterns = dedupTrimWriteExplorationStrings(in.ExistingPatterns, writeExplorationMaxListItems)
@@ -95,8 +97,9 @@ func NormalizeWriteExplorationHandoff(in WriteExplorationHandoff) WriteExplorati
 func WriteExplorationHandoffFromTurnA(req WriteExplorationRequest, turnA TurnAArtifacts) WriteExplorationHandoff {
 	req = NormalizeWriteExplorationRequest(req)
 	out := WriteExplorationHandoff{
-		BatchID: req.BatchID,
-		Goal:    req.Goal,
+		BatchID:              req.BatchID,
+		Goal:                 req.Goal,
+		ExplorationQuestions: append([]string(nil), req.ExplorationQuestions...),
 	}
 	addFile := func(path string) {
 		out.TargetFiles = append(out.TargetFiles, path)
@@ -175,7 +178,6 @@ func WriteExplorationHandoffFromTurnA(req WriteExplorationRequest, turnA TurnAAr
 		addInvariant(turnA.AcceptedClosureReason)
 	}
 	out.TargetFiles = append(out.TargetFiles, req.CandidatePaths...)
-	out.Unknowns = append(out.Unknowns, req.ExplorationQuestions...)
 	out.Confidence = inferWriteExplorationConfidence(out)
 	return NormalizeWriteExplorationHandoff(out)
 }
@@ -189,6 +191,7 @@ func cloneWriteExplorationRequest(in WriteExplorationRequest) WriteExplorationRe
 }
 
 func cloneWriteExplorationHandoff(in WriteExplorationHandoff) WriteExplorationHandoff {
+	in.ExplorationQuestions = append([]string(nil), in.ExplorationQuestions...)
 	in.TargetFiles = append([]string(nil), in.TargetFiles...)
 	in.RelevantSymbols = append([]string(nil), in.RelevantSymbols...)
 	in.ExistingPatterns = append([]string(nil), in.ExistingPatterns...)

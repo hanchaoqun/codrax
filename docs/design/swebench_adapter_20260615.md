@@ -84,6 +84,19 @@ records adapter results.
   outcomes instead of code-failure replan triggers.
 - [x] Run additional Lite smoke on Astropy and Django issue shapes, manually
   audit patch satisfaction, and fix the zero-test / Django harness verify loop.
+- [x] Run additional non-Go Lite smoke on pytest/Sphinx/SymPy issue shapes,
+  manually audit patch satisfaction, and record controller/planner/verifier
+  gaps.
+- [x] Add plugin-free pytest text fallback for JSON/report parser failures while
+  preserving collection/import startup failures as `parser_error` unverified.
+- [x] Tighten completed-exploration handoff semantics so planner convergence is
+  bounded and does not restart broad investigation after a high-confidence
+  read-only exploration.
+- [x] Preserve degraded read-only exploration evidence as typed write handoff so
+  controller batches can continue to bounded planning after timeout/cancel when
+  useful evidence was already emitted.
+- [x] Include Python `kind=patch` changes in dry-build syntax validation by
+  applying patches into the scratch overlay before `py_compile`.
 - [x] Commit and push to `main`.
 
 ## Test Matrix
@@ -119,6 +132,25 @@ records adapter results.
   verify (`no_tests`, `runner_missing`, or `parser_error`), repeated plan/replan
   decisions targeting the same batch are overridden to finish, while append/split
   remains available for real follow-up batches.
+- Pytest parser fallback: if `pytest-json-report` or plugin/report generation
+  fails, `run_tests` runs a plugin-free verbose pytest text fallback. Text
+  verdicts are accepted only when the runner exposes case-level execution rows;
+  startup, collection, or import failures without executed cases remain
+  `FailureKindParserError` and therefore complete as unverified rather than
+  triggering code replanning.
+- Exploration convergence: after a controller-requested read-only exploration
+  completes and writes a typed handoff/context pack, the next planner dispatch is
+  capped to bounded ChangePlan synthesis. Exploration questions remain separate
+  from unresolved unknowns so investigated questions do not re-enter the planner
+  as open gaps.
+- Degraded exploration handoff: if read-only exploration times out or is
+  canceled after `emit_evidence`/read-set progress, write mode projects the
+  typed emitted evidence and closure read files into `WriteExplorationHandoff`
+  and marks the active batch `ready_to_plan` while preserving the explore attempt
+  status as `degraded`.
+- Python patch dry-build: `kind=patch` changes are applied into the scratch
+  overlay before Python syntax validation, so `py_compile` catches syntax
+  failures introduced by patch hunks without requiring pytest or ruff.
 
 ## Progress Ledger
 
@@ -231,3 +263,64 @@ records adapter results.
   execute `python3 tests/runtests.py responses -v 1`, run 32 tests, import
   Django from the active worktree, finish `all_verified`, and export a non-empty
   prediction consumed by the official harness dry-run.
+- 2026-06-15: Additional non-Go Lite smoke
+  `eval/results/swebench/lite-smoke-20260615-153954` ran
+  `pytest-dev__pytest-5413`, `sphinx-doc__sphinx-10451`, and
+  `sympy__sympy-11400`. The adapter validated three predictions and official
+  harness dry-run consumed the file; two patches were non-empty and one was
+  empty. Manual audit found the pytest patch likely satisfies the issue
+  (`ReprFileLocation` no longer truncates at the first newline). The Sphinx run
+  exposed a controller/planner convergence gap: read-only exploration had already
+  identified the `modify_field_list` / `augment_descriptions_with_types`
+  `*args`/`**kwargs` fix, but the planner treated the batch as another broad
+  investigation and timed out without a `ChangePlan`. The SymPy run exposed
+  verification-environment fragility: the local checkout hit pytest/report
+  parser startup failures, so Codrax could not prove the generated patch.
+- 2026-06-15: Hardened both gaps generically. Pytest verification now has a
+  plugin-free verbose text fallback after JSON/report parser failures; it
+  accepts typed pass/fail only from case-level rows and leaves startup/collection
+  failures as `parser_error` unverified, preserving patch export in imperfect
+  customer environments. Completed exploration attempts are persisted on the
+  workflow batch, exploration questions are carried as their own context-pack
+  item rather than unresolved unknowns, and the subsequent planner dispatch gets
+  an exploration-convergence hint plus a bounded soft cap so it synthesizes the
+  smallest ChangePlan instead of restarting broad exploration.
+- 2026-06-15: Re-ran the pytest Lite case at
+  `eval/results/swebench/lite-smoke-20260615-161816`. The first planner round
+  produced no plan, the typed-anchor no-plan retry fired once, the retry emitted
+  a bounded `ChangePlan`, apply succeeded, local pytest verification remained
+  unverified due to parser/startup failure, and the adapter exported a non-empty
+  patch consumed by the official harness dry-run.
+- 2026-06-15: Re-ran the Sphinx Lite case at
+  `eval/results/swebench/lite-smoke-20260615-162411`. The run still exported an
+  empty patch, but the logs isolated a stronger system gap: explorer had emitted
+  four grounded evidence items for `sphinx/ext/autodoc/typehints.py` before the
+  write-mode wall-time cancel, yet `runWriteExplorationSubflow` returned before
+  projecting those typed artifacts into `WriteExplorationHandoff`; the controller
+  recorded `exploration_degraded` and lost the chance to plan from useful
+  evidence.
+- 2026-06-15: Fixed the degraded-exploration evidence loss generically. The
+  write exploration subflow now projects typed artifacts before returning
+  errors; when TurnA handoff is unavailable, it constructs a minimal
+  `TurnAArtifacts` snapshot from `Mutable.EmittedEvidence`, `BusContext`
+  evidence, and `EvidenceClosure.CanonicalReadFiles`. The controller preserves
+  the attempt as `degraded` but advances the batch to `ready_to_plan` when the
+  resulting handoff has planning material, and the same bounded planner
+  convergence cap applies to usable degraded handoffs. Targeted tests cover
+  fallback projection, degraded-handoff controller continuation, and complete vs
+  degraded status semantics.
+- 2026-06-15: Re-ran Sphinx after the degraded-handoff fix at
+  `eval/results/swebench/lite-smoke-20260615-164323`. The adapter exported a
+  non-empty 2978-byte patch and official harness dry-run consumed it, proving
+  the controller no longer loses useful exploration/planning context. Manual
+  audit found a new quality gap: the generated Python patch was exported even
+  though local verification ended `tests_failed`, and the patch form inserted a
+  helper inside the `setup()` return dict shape. Root cause: Python dry-build
+  already ran `py_compile` for full-content create/modify changes but skipped
+  `kind=patch`, so patch hunks could bypass cheap syntax validation.
+- 2026-06-15: Fixed the Python patch validation gap generically. The shared
+  `stageOverlay` now applies `kind=patch` changes into the scratch tree before
+  dry-build, and `dryBuildPython` includes `.py` patch targets in
+  `py_compile`. Focused tests cover both invalid and valid Python patch hunks,
+  preserving the principle that missing pytest is not a hard gate while
+  syntactically invalid Python remains a typed plan-time rejection.

@@ -82,6 +82,9 @@ func parseRunnerOutputForPlan(plan runnerPlan, stdout, extraFile, cmdStr string,
 var (
 	reUnittestCaseLine = regexp.MustCompile(`^(.+?) \(([^)]+)\) \.\.\. (ok|FAIL|ERROR|skipped\b.*)$`)
 	reUnittestRan      = regexp.MustCompile(`(?m)^Ran (\d+) tests?`)
+	rePytestTextCase   = regexp.MustCompile(`(?m)^([^\s=][^\s]*?(?:::?[^\s]+)+)\s+(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b`)
+	rePytestSummary    = regexp.MustCompile(`(?m)^=+.*(?:passed|failed|error|skipped|xfailed|xpassed).*=+$`)
+	rePytestSummaryTok = regexp.MustCompile(`(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed)\b`)
 )
 
 func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, error) {
@@ -812,6 +815,127 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 			p.Summary.Skipped, p.Summary.Total)
 	}
 	return report, nil
+}
+
+func parsePytestTextOutput(stdout, cmdStr string, runErr error) (*types.ChangeReport, error) {
+	counts, sawSummary := parsePytestTextSummary(stdout)
+	if !sawSummary {
+		if strings.Contains(stdout, "no tests ran") ||
+			strings.Contains(stdout, "collected 0 items") ||
+			strings.Contains(stdout, "collected 0 item") {
+			return &types.ChangeReport{
+				Passed:         true,
+				NoTestsRunners: []string{"python"},
+			}, nil
+		}
+		return nil, fmt.Errorf("parsePytestTextOutput: no pytest summary parsed (command ran: %s). First %d bytes of pytest stdout:\n%s",
+			cmdStr, minInt(len(stdout), 400), stdoutHead(stdout, 400))
+	}
+
+	results := parsePytestTextCaseRows(stdout)
+	failed := counts["failed"] + counts["error"] + counts["xpassed"]
+	total := counts["passed"] + counts["failed"] + counts["error"] + counts["skipped"] + counts["xfailed"] + counts["xpassed"]
+	if failed > 0 && len(results) == 0 {
+		return nil, fmt.Errorf("parsePytestTextOutput: pytest reported %d failing/error outcome(s) but no test case rows were executed (command ran: %s). First %d bytes of pytest stdout:\n%s",
+			failed, cmdStr, minInt(len(stdout), 400), stdoutHead(stdout, 400))
+	}
+	passed := runErr == nil && failed == 0
+	report := &types.ChangeReport{
+		TestResults: results,
+		Passed:      passed,
+	}
+	if total == 0 && failed == 0 {
+		report.Passed = true
+		report.NoTestsRunners = []string{"python"}
+		return report, nil
+	}
+	if len(report.TestResults) == 0 {
+		report.TestResults = []types.TestResult{{
+			Kind:          types.TestResultKindUnit,
+			AssertionID:   "pytest",
+			Suite:         "pytest",
+			Passed:        passed,
+			FailureDetail: failureDetailIfNeeded(stdout, passed),
+		}}
+	}
+	if !report.Passed {
+		report.FailureSummary = fmt.Sprintf(
+			"pytest text fallback failed — %d passed, %d failed, %d error, %d skipped of %d total.",
+			counts["passed"], counts["failed"], counts["error"], counts["skipped"], total)
+	}
+	return report, nil
+}
+
+func parsePytestTextSummary(stdout string) (map[string]int, bool) {
+	counts := map[string]int{
+		"passed":  0,
+		"failed":  0,
+		"error":   0,
+		"skipped": 0,
+		"xfailed": 0,
+		"xpassed": 0,
+	}
+	matches := rePytestSummary.FindAllString(stdout, -1)
+	for _, line := range matches {
+		parsedAny := false
+		for _, m := range rePytestSummaryTok.FindAllStringSubmatch(line, -1) {
+			if len(m) != 3 {
+				continue
+			}
+			n, err := strconv.Atoi(m[1])
+			if err != nil {
+				continue
+			}
+			key := m[2]
+			if key == "errors" {
+				key = "error"
+			}
+			counts[key] += n
+			parsedAny = true
+		}
+		if parsedAny {
+			return counts, true
+		}
+	}
+	return counts, false
+}
+
+func parsePytestTextCaseRows(stdout string) []types.TestResult {
+	matches := rePytestTextCase.FindAllStringSubmatch(stdout, -1)
+	results := make([]types.TestResult, 0, len(matches))
+	seen := map[string]bool{}
+	for _, m := range matches {
+		if len(m) != 3 {
+			continue
+		}
+		nodeID := strings.TrimSpace(m[1])
+		if seen[nodeID] {
+			continue
+		}
+		seen[nodeID] = true
+		outcome := strings.TrimSpace(m[2])
+		suite, name := nodeID, nodeID
+		if idx := strings.LastIndex(nodeID, "::"); idx > 0 {
+			suite = nodeID[:idx]
+			name = nodeID[idx+2:]
+		}
+		passed := outcome == "PASSED" || outcome == "SKIPPED" || outcome == "XFAIL"
+		results = append(results, types.TestResult{
+			Kind:          types.TestResultKindUnit,
+			AssertionID:   name,
+			Suite:         suite,
+			Passed:        passed,
+			FailureDetail: failureDetailIfNeeded(stdout, passed),
+		})
+	}
+	return results
+}
+
+func failureDetailIfNeeded(stdout string, passed bool) string {
+	if passed {
+		return ""
+	}
+	return stdoutHead(stdout, 4000)
 }
 
 // ── Rust: cargo test (text output) ───────────────────────────────

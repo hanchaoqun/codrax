@@ -60,6 +60,15 @@ type runnerPlan struct {
 
 const maxTestSurfaceEscalations = 3
 
+type pytestTextFallbackResult struct {
+	Report   *types.ChangeReport
+	ParseErr error
+	Output   string
+	Command  string
+	ExitCode int
+	Duration time.Duration
+}
+
 type runnerManifest struct {
 	File     string
 	Runner   string
@@ -753,6 +762,31 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if err != nil {
 			setLastExecOutcome("parser_error")
 			logging.Warning("[run_tests] parser error for %s: %v", runnerPlanLabel(ctx.RepoRoot, plan), err)
+			if shouldAttemptPytestTextFallback(plan) {
+				fallback := runPytestTextFallback(ctx, plan, timeout, caps)
+				if fallback != nil {
+					executedCmds = append(executedCmds, types.ExecutedCommand{
+						Runner:     runner,
+						Framework:  plan.Framework,
+						WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+						Command:    fallback.Command,
+						ExitCode:   fallback.ExitCode,
+						DurationMS: fallback.Duration.Milliseconds(),
+						Source:     "parser_error_fallback",
+						Outcome:    "executed",
+					})
+					combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, fallback.Output))
+					if fallback.ParseErr == nil && fallback.Report != nil {
+						logging.Info("[run_tests] %s pytest text fallback parsed verdict passed=%v total=%d",
+							runnerPlanLabel(ctx.RepoRoot, plan), fallback.Report.Passed, len(fallback.Report.TestResults))
+						projectReports = append(projectReports, qualifyChangeReport(fallback.Report, plan, ctx.RepoRoot))
+						continue
+					}
+					if fallback.ParseErr != nil {
+						err = fmt.Errorf("%v; pytest text fallback parser failed: %v", err, fallback.ParseErr)
+					}
+				}
+			}
 			_, ref := StoreBlob(ctx, t.Name()+"-unparsed", strings.Join(combinedOutputs, "\n\n"))
 			// A parser error must still leave a typed, durable report —
 			// the audit chain and the verify state machine read reports,
@@ -822,6 +856,50 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func shouldAttemptPytestTextFallback(plan runnerPlan) bool {
+	if plan.Runner != "python" {
+		return false
+	}
+	return plan.Framework != pythonFrameworkUnittest && plan.Framework != pythonFrameworkDjango
+}
+
+func runPytestTextFallback(ctx *types.BusContext, plan runnerPlan, timeout time.Duration, caps SupervisedRunOptions) *pytestTextFallbackResult {
+	if ctx == nil {
+		return nil
+	}
+	cmdStr := buildPlainPytestFallbackCommandForPlan(plan, plan.Suite, ctx.MainRepoRoot)
+	if strings.TrimSpace(cmdStr) == "" {
+		return nil
+	}
+	label := runnerPlanLabel(ctx.RepoRoot, plan)
+	logging.Info("[run_tests] %s parser_error fallback exec: %s (cwd=%s timeout=%v)",
+		label, cmdStr, plan.Root, timeout)
+	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := NewShellCommandContext(execCtx, wrapShellCommandWithCaps(cmdStr, caps))
+	cmd.Dir = plan.Root
+	cmd.Env = runnerExecutionEnv(plan.Runner, ctx.RepoRoot, plan.Root, ctx.MainRepoRoot)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	execStart := time.Now()
+	supRes := SupervisedRun(execCtx, cmd, caps)
+	duration := time.Since(execStart)
+	output := buf.String()
+	exitCode := extractExitCode(supRes.Err)
+	logging.Info("[run_tests] %s parser_error fallback exit=%d duration=%v output_bytes=%d excerpt=%q",
+		label, exitCode, duration, len(output), truncateForLog(output, 300))
+	report, parseErr := parsePytestTextOutput(output, cmdStr, supRes.Err)
+	return &pytestTextFallbackResult{
+		Report:   report,
+		ParseErr: parseErr,
+		Output:   output,
+		Command:  cmdStr,
+		ExitCode: exitCode,
+		Duration: duration,
+	}
 }
 
 // detectRunner returns the first runnable project discovered under the
@@ -3281,6 +3359,22 @@ func firstXMLDescendant(dir string, maxDepth int) bool {
 // .venv/ is gitignored.
 func buildRunCommandForPlan(plan runnerPlan, suite, mainRoot string) (string, string) {
 	return buildRunCommandWithFramework(plan.Runner, plan.Framework, suite, plan.Root, mainRoot)
+}
+
+func buildPlainPytestFallbackCommandForPlan(plan runnerPlan, suite, mainRoot string) string {
+	interp, asModule := pythonInterpreter(plan.Root, mainRoot)
+	filter := strings.TrimSpace(suite)
+	prefix := "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "
+	if asModule {
+		if filter == "" {
+			return prefix + fmt.Sprintf("%s -m pytest -v", interp)
+		}
+		return prefix + fmt.Sprintf("%s -m pytest -v %q", interp, filter)
+	}
+	if filter == "" {
+		return prefix + fmt.Sprintf("%s -v", interp)
+	}
+	return prefix + fmt.Sprintf("%s -v %q", interp, filter)
 }
 
 func buildRunCommand(runner, suite, repoRoot, mainRoot string) (string, string) {

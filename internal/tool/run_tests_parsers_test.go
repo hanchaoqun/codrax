@@ -354,6 +354,124 @@ func TestParsePytestJSONReport_WithFailures(t *testing.T) {
 	}
 }
 
+func TestParsePytestTextOutput_AllPassed(t *testing.T) {
+	output := `============================= test session starts ==============================
+collected 2 items
+
+testing/code/test_excinfo.py::test_excinfo_str PASSED                  [ 50%]
+testing/code/test_source.py::test_source PASSED                        [100%]
+
+============================== 2 passed in 0.12s ===============================`
+	report, err := parsePytestTextOutput(output, "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest", nil)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !report.Passed {
+		t.Fatal("Passed should be true")
+	}
+	if len(report.TestResults) != 2 {
+		t.Fatalf("len(TestResults) = %d, want 2", len(report.TestResults))
+	}
+	if report.TestResults[0].Suite != "testing/code/test_excinfo.py" {
+		t.Fatalf("Suite = %q", report.TestResults[0].Suite)
+	}
+	if report.TestResults[0].AssertionID != "test_excinfo_str" {
+		t.Fatalf("AssertionID = %q", report.TestResults[0].AssertionID)
+	}
+}
+
+func TestParsePytestTextOutput_FailureSummary(t *testing.T) {
+	output := `============================= test session starts ==============================
+collected 2 items
+
+tests/test_a.py::test_ok PASSED                                         [ 50%]
+tests/test_a.py::test_bad FAILED                                        [100%]
+
+=================================== FAILURES ===================================
+___________________________________ test_bad ___________________________________
+E       AssertionError: expected 1 got 2
+=========================== 1 failed, 1 passed in 0.08s ===========================`
+	report, err := parsePytestTextOutput(output, "pytest", fmt.Errorf("exit status 1"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if report.Passed {
+		t.Fatal("Passed should be false")
+	}
+	if report.FailureKind != "" {
+		t.Fatalf("parser should not backfill FailureKind directly, got %q", report.FailureKind)
+	}
+	if !strings.Contains(report.FailureSummary, "1 failed") {
+		t.Fatalf("FailureSummary = %q", report.FailureSummary)
+	}
+	var found bool
+	for _, tr := range report.TestResults {
+		if tr.AssertionID == "test_bad" {
+			found = true
+			if tr.Passed {
+				t.Fatal("test_bad should be failed")
+			}
+			if !strings.Contains(tr.FailureDetail, "AssertionError") {
+				t.Fatalf("FailureDetail = %q", tr.FailureDetail)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("missing failed row: %+v", report.TestResults)
+	}
+}
+
+func TestParsePytestTextOutput_NoTests(t *testing.T) {
+	report, err := parsePytestTextOutput("collected 0 items\n\n============================ no tests ran in 0.01s =============================",
+		"pytest", nil)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !report.Passed {
+		t.Fatal("NoTests should be a passed unverified runner report")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "python" {
+		t.Fatalf("NoTestsRunners = %+v", report.NoTestsRunners)
+	}
+}
+
+func TestParsePytestTextOutput_StartupCrashIsParserError(t *testing.T) {
+	output := `Traceback (most recent call last):
+  File "<frozen importlib._bootstrap>", line 1072, in _find_spec
+AttributeError: 'AssertionRewritingHook' object has no attribute 'find_spec'
+`
+	if _, err := parsePytestTextOutput(output, "pytest", fmt.Errorf("exit status 1")); err == nil {
+		t.Fatal("startup crash without pytest summary should remain parser_error")
+	}
+}
+
+func TestParsePytestTextOutput_CollectionErrorWithoutCasesIsParserError(t *testing.T) {
+	output := `============================= test session starts ==============================
+collecting ... collected 0 items / 1 error
+
+==================================== ERRORS ====================================
+________________________ ERROR collecting conftest.py ________________________
+ImportError: cannot import name 'Mapping' from 'collections'
+=========================== 1 error in 0.19s ===========================`
+	if _, err := parsePytestTextOutput(output, "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -v", fmt.Errorf("exit status 2")); err == nil {
+		t.Fatal("collection/import errors without executed test rows should remain parser_error")
+	}
+}
+
+func TestBuildPlainPytestFallbackCommandIsVerbose(t *testing.T) {
+	plan := runnerPlan{Runner: "python", Framework: pythonFrameworkPytest, Root: t.TempDir(), Suite: "tests/test_a.py::test_bad"}
+	got := buildPlainPytestFallbackCommandForPlan(plan, plan.Suite, plan.Root)
+	if !strings.Contains(got, "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ") {
+		t.Fatalf("fallback command must disable third-party pytest plugin autoload, got %q", got)
+	}
+	if !strings.Contains(got, " -v ") {
+		t.Fatalf("fallback command must be verbose so text parsing sees case rows, got %q", got)
+	}
+	if !strings.Contains(got, "tests/test_a.py::test_bad") {
+		t.Fatalf("fallback command lost suite selector: %q", got)
+	}
+}
+
 // ── Cargo parser tests ───────────────────────────────────────────
 
 func TestParseCargoTestText_AllPassed(t *testing.T) {

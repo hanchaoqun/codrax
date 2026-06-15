@@ -39,6 +39,12 @@ func (s *fakeWorkflowRunStore) FindActiveRun() (*types.WriteWorkflowRun, error) 
 	return &cp, nil
 }
 
+type readExplorationRunnerFunc func(*Orchestrator) (int, error)
+
+func (f readExplorationRunnerFunc) Run(o *Orchestrator) (int, error) {
+	return f(o)
+}
+
 type capturePlanSaver struct {
 	dir   string
 	saved []*types.ChangePlan
@@ -157,12 +163,226 @@ func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 		t.Fatalf("batch refs should track apply and verify artifacts: %+v", got)
 	}
 	if !workflowBatchHasAttemptArtifact(got, "plan", "complete", "", "plan-controller-1") ||
+		!workflowBatchHasAttempt(got, "explore", "complete", "", "") ||
 		!workflowBatchHasAttemptArtifact(got, "apply", "applied", "apply_succeeded", "refs/codrax/applied/plan-controller-1") ||
 		!workflowBatchHasAttemptArtifact(got, "verify", "passed", "tests_passed", "plan-controller-1.report.json") {
 		t.Fatalf("batch attempts should track plan/apply/verify artifact refs: %+v", got.Attempts)
 	}
 	if plan := mu.ChangePlan(); plan == nil || plan.Status != types.PlanStatusApplied || plan.AppliedAt == nil {
 		t.Fatalf("verified workflow should synchronize mutable plan status to applied, got %+v", plan)
+	}
+}
+
+func TestRunWriteControllerWorkflow_DegradedExplorationHandoffContinuesToPlan(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("plan after degraded exploration")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{
+				Kind:    types.WriteTaskBugfix,
+				Scope:   types.ScopePackage,
+				Summary: "repair symptom after localized exploration",
+			},
+			ScopeAnchors: []string{"sphinx/ext/autodoc/typehints.py"},
+		},
+	})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{
+			Action:     writeflow.ActionExploreCode,
+			ReasonCode: "need_context",
+			ExplorationRequest: &types.WriteExplorationRequest{
+				BatchID:        "batch-1",
+				Goal:           "locate autodoc typehint rendering",
+				CandidatePaths: []string{"sphinx/ext/autodoc/typehints.py"},
+			},
+		},
+		{
+			Action:     writeflow.ActionPlanBatch,
+			ReasonCode: "context_ready",
+			Batch: &writeflow.WriteBatchPlan{
+				ID:            "batch-1",
+				Goal:          "repair autodoc typehint rendering",
+				ExpectedPaths: []string{"sphinx/ext/autodoc/typehints.py"},
+			},
+		},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModePlan, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetReadExplorationRunner(readExplorationRunnerFunc(func(o *Orchestrator) (int, error) {
+		o.busCtx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{
+			"sphinx/ext/autodoc/typehints.py": true,
+		})
+		o.busCtx.Mutable.AppendEvidence([]types.EvidenceItem{{
+			ID:              "ev-typehints",
+			Kind:            types.EvidenceMechanism,
+			Subject:         "record_typehints",
+			Source:          "sphinx/ext/autodoc/typehints.py",
+			LineStart:       127,
+			AnchorSymbol:    "record_typehints",
+			Summary:         "autodoc records annotations before rendering descriptions",
+			GroundingStatus: types.GroundingRecovered,
+		}})
+		o.projectWriteExplorationHandoffFromTurnA()
+		return 1, context.Canceled
+	}))
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected write stage %s", stage)
+		}
+		handoff := mu.WriteExplorationHandoff()
+		if handoff == nil || len(handoff.EvidenceRefs) != 1 {
+			t.Fatalf("planner should receive degraded exploration handoff, got %+v", handoff)
+		}
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-degraded-explore",
+			Status:      types.PlanStatusPending,
+			Summary:     "repair autodoc typehint rendering",
+			TargetPaths: []string{"sphinx/ext/autodoc/typehints.py"},
+			Changes: []types.FileChange{{
+				Path:       "sphinx/ext/autodoc/typehints.py",
+				Kind:       "modify",
+				NewContent: "# patched\n",
+			}},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("degraded exploration with typed handoff should continue to plan: %v", err)
+	}
+	if controllerCalls != 2 {
+		t.Fatalf("controller calls = %d, want 2", controllerCalls)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("plan-mode workflow should complete after planning, got %+v", store.last)
+	}
+	batch := store.last.Batches[0]
+	if !workflowBatchHasAttempt(batch, "explore", "degraded", "context canceled", "") {
+		t.Fatalf("batch should record degraded exploration attempt: %+v", batch.Attempts)
+	}
+	if batch.Status != types.WriteWorkflowBatchPlanned || batch.PlanID != "plan-degraded-explore" {
+		t.Fatalf("degraded handoff should let batch reach planned state: %+v", batch)
+	}
+	if !workflowProgressContains(store.last.ProgressLedger, "exploration_degraded_handoff_ready") {
+		t.Fatalf("progress ledger should record degraded handoff continuation: %+v", store.last.ProgressLedger)
+	}
+}
+
+func TestSeedControllerBatchPlanningHint_CompletedExplorationHandoffConverges(t *testing.T) {
+	mu := types.NewMutableState("explored repair")
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-1",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:   "explore",
+				Status: "complete",
+			}},
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		TargetFiles: []string{"pkg/fix.py"},
+		EvidenceRefs: []types.WriteExplorationEvidenceRef{{
+			ID:      "ev-1",
+			Source:  "pkg/fix.py",
+			Summary: "boundary check evidence",
+		}},
+	})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply}
+	o.seedControllerBatchPlanningHint(writeflow.WriteBatchPlan{
+		ID:            "batch-1",
+		Goal:          "repair boundary bug",
+		ExpectedPaths: []string{"pkg/fix.py"},
+	})
+	hint := mu.PlanningHint()
+	if !strings.Contains(hint, "Exploration convergence") ||
+		!strings.Contains(hint, "bounded ChangePlan synthesis step") {
+		t.Fatalf("completed exploration handoff should seed convergence hint, got:\n%s", hint)
+	}
+	if !activeBatchHasCompletedExplorationHandoff(mu) {
+		t.Fatal("typed helper should detect completed exploration handoff")
+	}
+}
+
+func TestSeedControllerBatchPlanningHint_DegradedExplorationHandoffConverges(t *testing.T) {
+	mu := types.NewMutableState("degraded explored repair")
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-1",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:   "explore",
+				Status: "degraded",
+			}},
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		TargetFiles: []string{"pkg/fix.py"},
+		EvidenceRefs: []types.WriteExplorationEvidenceRef{{
+			ID:      "ev-1",
+			Source:  "pkg/fix.py",
+			Summary: "localized failure evidence",
+		}},
+	})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply}
+	o.seedControllerBatchPlanningHint(writeflow.WriteBatchPlan{
+		ID:            "batch-1",
+		Goal:          "repair localized bug",
+		ExpectedPaths: []string{"pkg/fix.py"},
+	})
+	hint := mu.PlanningHint()
+	if !strings.Contains(hint, "Exploration convergence") ||
+		!strings.Contains(hint, "bounded ChangePlan synthesis step") {
+		t.Fatalf("degraded exploration handoff should still seed convergence hint, got:\n%s", hint)
+	}
+	if !activeBatchHasUsableExplorationHandoff(mu) {
+		t.Fatal("typed helper should detect usable degraded exploration handoff")
+	}
+	if activeBatchHasCompletedExplorationHandoff(mu) {
+		t.Fatal("degraded handoff must not be mislabeled as completed")
+	}
+}
+
+func TestClampPlannerSoftCapForCompletedExploration(t *testing.T) {
+	cases := []struct {
+		name        string
+		base        int
+		current     int
+		want        int
+		wantChanged bool
+	}{
+		{name: "scaled cap is clamped", base: 6, current: 13, want: 3, wantChanged: true},
+		{name: "zero current uses base then clamps", base: 6, current: 0, want: 3, wantChanged: true},
+		{name: "low configured base is not raised", base: 2, current: 9, want: 2, wantChanged: true},
+		{name: "already within cap", base: 6, current: 2, want: 2, wantChanged: false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed := clampPlannerSoftCapForCompletedExploration(tt.base, tt.current)
+			if got != tt.want || changed != tt.wantChanged {
+				t.Fatalf("clamp = (%d,%v), want (%d,%v)", got, changed, tt.want, tt.wantChanged)
+			}
+		})
 	}
 }
 
@@ -1672,6 +1892,74 @@ func TestNormalizeControllerTypedStateDecisionReplanWithFailureHandoffAllowed(t 
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionPlanBatchNeedsExplorationRoutesExplore(t *testing.T) {
+	mu := types.NewMutableState("needs exploration before plan")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-needs-explore",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+	}
+	decision := writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionPlanBatch,
+		Batch:  &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair exception rendering"},
+		Workflow: writeflow.WriteWorkflowPlan{
+			PlannedBatches: []writeflow.WriteBatchPlan{{
+				ID:                   "batch-1",
+				Goal:                 "repair exception rendering",
+				NeedsCodeExploration: true,
+				ExpectedPaths:        []string{"src/_pytest/_code/code.py"},
+			}},
+		},
+	}
+	got := o.normalizeControllerTypedStateDecision(decision, run)
+	if got.Action != writeflow.ActionExploreCode {
+		t.Fatalf("needs_code_exploration plan_batch should route to explore_code first, got %+v", got)
+	}
+	if got.ExplorationRequest == nil {
+		t.Fatalf("explore_code decision missing exploration_request: %+v", got)
+	}
+	if got.ExplorationRequest.BatchID != "batch-1" {
+		t.Fatalf("BatchID = %q, want batch-1", got.ExplorationRequest.BatchID)
+	}
+	if !containsString(got.ExplorationRequest.CandidatePaths, "src/_pytest/_code/code.py") {
+		t.Fatalf("candidate paths should preserve typed expected paths, got %+v", got.ExplorationRequest.CandidatePaths)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "plan_batch_needs_exploration_overridden") {
+		t.Fatalf("override progress missing: %+v", run.ProgressLedger)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionPlanBatchAfterExplorationAttemptAllowed(t *testing.T) {
+	mu := types.NewMutableState("needs exploration already attempted")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-needs-explore",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1",
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:   "explore",
+				Status: "degraded",
+			}},
+		}},
+	}
+	decision := writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionPlanBatch,
+		Batch: &writeflow.WriteBatchPlan{
+			ID:                   "batch-1",
+			Goal:                 "repair exception rendering",
+			NeedsCodeExploration: true,
+			ExpectedPaths:        []string{"src/_pytest/_code/code.py"},
+		},
+	}
+	got := o.normalizeControllerTypedStateDecision(decision, run)
+	if got.Action != writeflow.ActionPlanBatch {
+		t.Fatalf("existing exploration attempt should allow planning, got %+v", got)
+	}
+}
+
 func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
 		RunID:         "wf-active",
@@ -1847,6 +2135,15 @@ func workflowRunContextContains(run *types.WriteWorkflowRun, kind, substring str
 			if item.Kind == kind && strings.Contains(item.Text, substring) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func workflowProgressContains(progress []types.WriteWorkflowProgress, reasonCode string) bool {
+	for _, item := range progress {
+		if item.ReasonCode == reasonCode {
+			return true
 		}
 	}
 	return false
@@ -2241,6 +2538,59 @@ func TestRunControllerPlanBatch_NoPlanReplanRoundGetsOneRetry(t *testing.T) {
 	}
 	if !strings.Contains(mu.PlanningHint(), "previous planning round ended without a stored change plan") {
 		t.Fatalf("retry hint must cite the empty round, got %q", mu.PlanningHint())
+	}
+	if mu.ChangePlan() == nil {
+		t.Fatal("retry round should have installed the plan")
+	}
+}
+
+func TestRunControllerPlanBatch_NoPlanWithTypedAnchorsGetsOneRetry(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("no plan retry with typed anchors")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task:         types.WriteTask{Summary: "fix exception rendering"},
+		ScopeAnchors: []string{"src/_pytest/_code/code.py"},
+	}})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		*stepsUsed++
+		if planCalls == 1 {
+			return &agent.StageOutput{Error: "no change plan was produced this round"}, nil
+		}
+		hint := mu.PlanningHint()
+		if !strings.Contains(hint, "typed planning context") {
+			t.Fatalf("retry hint must cite typed planning context, got %q", hint)
+		}
+		if !strings.Contains(hint, "batch expected paths") || !strings.Contains(hint, "WriteAnalysisIR scope anchors") {
+			t.Fatalf("retry hint must preserve typed anchor boundary, got %q", hint)
+		}
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-anchor-retry",
+			Status:      types.PlanStatusPending,
+			Summary:     "repair exception rendering",
+			TargetPaths: []string{"src/_pytest/_code/code.py"},
+		})
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{
+		ID:            "batch-1",
+		Goal:          "repair exception rendering",
+		ExpectedPaths: []string{"src/_pytest/_code/code.py"},
+	}, &steps); err != nil {
+		t.Fatalf("one empty round with typed anchors must be retried, got %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan stage calls = %d, want 2", planCalls)
 	}
 	if mu.ChangePlan() == nil {
 		t.Fatal("retry round should have installed the plan")

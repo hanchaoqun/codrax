@@ -1095,7 +1095,7 @@ func dryBuildPython(ctx *types.BusContext, changes []types.FileChange) string {
 		if !strings.HasSuffix(path, ".py") {
 			continue
 		}
-		if c.Kind == "patch" || c.Kind == "delete" {
+		if c.Kind == "delete" {
 			continue
 		}
 		pyChanges = append(pyChanges, path)
@@ -1705,6 +1705,20 @@ func stageOverlay(ctx *types.BusContext, changes []types.FileChange, lang string
 	for _, c := range changes {
 		path := filepath.ToSlash(strings.TrimSpace(c.Path))
 		if c.Kind == "patch" {
+			if strings.TrimSpace(c.Patch) == "" {
+				continue
+			}
+			if !GitAvailable() {
+				recordUnvalidated(ctx, fmt.Sprintf("%s: patch dry-build skipped because git is not available", lang))
+				logging.Debug("[emit_change_plan] V2 %s dry-build skipped: patch overlay requires git", lang)
+				cleanup()
+				return "", func() {}, false
+			}
+			if _, err := runUnifiedDiff(scratch, c.Patch, false); err != nil {
+				logging.Warning("[emit_change_plan] V2 %s dry-build skipped: apply patch %s in scratch: %v", lang, path, err)
+				cleanup()
+				return "", func() {}, false
+			}
 			continue
 		}
 		dst := filepath.Join(scratch, filepath.FromSlash(path))

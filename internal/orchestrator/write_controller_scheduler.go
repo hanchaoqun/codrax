@@ -23,6 +23,7 @@ const (
 	defaultWriteWorkflowMaxBatches           = 5
 	defaultWriteWorkflowMaxExplorationRounds = 2
 	defaultWriteWorkflowMaxAskUserPerBatch   = 1
+	completedExplorationPlannerSoftCap       = 3
 )
 
 var errPlannerProbePassedExistingWorktree = errors.New("planner probe passed existing applied worktree")
@@ -165,9 +166,15 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			*stepsUsed += used
 			if err != nil {
 				logging.Warning("[orchestrator] write controller exploration degraded: %v", err)
+				updateWorkflowRunBatchExplore(&run, batchID, "degraded", err.Error())
 				appendControllerProgress(&run, batchID, "exploration_degraded", err.Error())
+				if activeBatchHasUsableExplorationHandoffForRun(o.busCtx.Mutable, run) {
+					updateWorkflowRunBatchStatus(&run, batchID, types.WriteWorkflowBatchReadyToPlan)
+					appendControllerProgress(&run, batchID, "exploration_degraded_handoff_ready", "typed exploration handoff available after degraded read-only exploration")
+				}
 			} else {
 				updateWorkflowRunBatchStatus(&run, batchID, types.WriteWorkflowBatchReadyToPlan)
+				updateWorkflowRunBatchExplore(&run, batchID, "complete", "")
 				appendControllerProgress(&run, batchID, "exploration_complete", "")
 			}
 			o.syncCurrentWriteContextPackToRun(&run)
@@ -745,29 +752,32 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			return errPlannerProbePassedExistingWorktree
 		}
 		// A planning round that ends with no ChangePlan installed is not
-		// terminal on its first occurrence while typed verify-failure
-		// evidence is waiting: grant exactly one re-dispatch whose planning
-		// hint cites the empty round. The condition reads typed state only
-		// (no plan installed + handoff present), never the error text.
-		if !noPlanRetried && o.busCtx.Mutable.ChangePlan() == nil && (o.busCtx.Mutable.VerifyFailureHandoff() != nil || o.busCtx.Mutable.WriteExplorationHandoff() != nil) {
+		// terminal on its first occurrence while typed planning context is
+		// waiting: grant exactly one re-dispatch whose planning hint cites the
+		// empty round. The condition reads typed state only (no plan installed
+		// + handoff or batch/write-analysis anchors), never the error text.
+		if !noPlanRetried && o.busCtx.Mutable.ChangePlan() == nil && controllerNoPlanRetryEligible(o.busCtx.Mutable, batch) {
 			noPlanRetried = true
 			o.busCtx.TaskState.LastError = ""
 			hint := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
 			if hint != "" {
 				hint += "\n\n"
 			}
-			hint += "The previous planning round ended without a stored change plan. Emit exactly one bounded ChangePlan via emit_change_plan using the typed handoff context above; do not finish the round without the emit."
+			hint += "The previous planning round ended without a stored change plan. Emit exactly one bounded ChangePlan via emit_change_plan using the typed planning context above; do not finish the round without the emit."
 			if o.busCtx.Mutable.VerifyFailureHandoff() != nil {
 				hint += " Address the verification failure section above."
 			}
 			if o.busCtx.Mutable.WriteExplorationHandoff() != nil {
 				hint += " Preserve the exploration findings and evidence refs already supplied to this planning batch."
 			}
+			if controllerHasBatchOrAnalysisAnchors(o.busCtx.Mutable, batch) {
+				hint += " Use the batch expected paths and WriteAnalysisIR scope anchors as the source boundary; only call read_file for exact current bytes or line ranges needed to construct the patch."
+			}
 			if rejection := lastPlanEmitRejectionSummary(o.busCtx.Mutable.DispatchToolResults()); rejection != "" {
 				hint += "\n\nThe previous round's plan emit was rejected by validation with this exact reason — correct it in the re-emit:\n" + rejection
 			}
 			o.busCtx.Mutable.SetPlanningHint(hint)
-			logging.Warning("[orchestrator] controller planning round produced no plan; granting one re-dispatch with typed handoff context")
+			logging.Warning("[orchestrator] controller planning round produced no plan; granting one re-dispatch with typed planning context")
 			continue
 		}
 		if err != nil {
@@ -796,6 +806,33 @@ func plannerProbePassedExistingAppliedWorktree(mu *types.MutableState, priorPlan
 		return report.Passed
 	}
 	return false
+}
+
+func controllerNoPlanRetryEligible(mu *types.MutableState, batch *writeflow.WriteBatchPlan) bool {
+	if mu == nil {
+		return false
+	}
+	if mu.VerifyFailureHandoff() != nil || mu.WriteExplorationHandoff() != nil {
+		return true
+	}
+	return controllerHasBatchOrAnalysisAnchors(mu, batch)
+}
+
+func controllerHasBatchOrAnalysisAnchors(mu *types.MutableState, batch *writeflow.WriteBatchPlan) bool {
+	if batch != nil {
+		normalized := writeflow.NormalizeBatchPlan(*batch)
+		if len(normalized.ExpectedPaths) > 0 || len(normalized.ExploreTargets) > 0 {
+			return true
+		}
+	}
+	if mu == nil {
+		return false
+	}
+	ir := mu.WriteAnalysisIR()
+	if ir == nil {
+		return false
+	}
+	return len(ir.Request.ScopeAnchors) > 0
 }
 
 func (o *Orchestrator) offScopeHighRiskReplanHint(plan *types.ChangePlan) (string, []string) {
@@ -1144,6 +1181,10 @@ func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatc
 	batch = writeflow.NormalizeBatchPlan(batch)
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Workflow batch %s\n\n", batchIDOrDefault(batch.ID, "batch-1"))
+	if activeBatchHasUsableExplorationHandoff(o.busCtx.Mutable) {
+		b.WriteString("## Exploration convergence\n\n")
+		b.WriteString("A prior read-only exploration attempt for this active batch produced a typed handoff/context pack. This planning dispatch is the bounded ChangePlan synthesis step: use the handoff as the lead context, use read-only tools only to fetch exact current bytes or line ranges needed for old_text/patch construction, then emit one ChangePlan. Do not restart broad source exploration in this dispatch; if the typed handoff is insufficient, emit the smallest bounded plan that preserves the recorded unknowns or let the no-plan retry surface the gap.\n\n")
+	}
 	if batch.Goal != "" {
 		fmt.Fprintf(&b, "Plan only this bounded batch: %s\n\n", batch.Goal)
 	}
@@ -1295,6 +1336,32 @@ func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID, planID str
 			PlanID:      strings.TrimSpace(planID),
 			ArtifactRef: strings.TrimSpace(planID),
 			FinishedAt:  time.Now(),
+		}},
+	})
+}
+
+func updateWorkflowRunBatchExplore(run *types.WriteWorkflowRun, batchID, status, reasonCode string) {
+	if run == nil || strings.TrimSpace(batchID) == "" {
+		return
+	}
+	for i := range run.Batches {
+		if run.Batches[i].ID == batchID {
+			run.Batches[i].UpdatedAt = time.Now()
+			appendWorkflowBatchAttempt(&run.Batches[i], "explore", strings.TrimSpace(status), strings.TrimSpace(reasonCode), "", "", "")
+			return
+		}
+	}
+	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+		ID:        batchID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Attempts: []types.WriteWorkflowAttempt{{
+			ID:         fmt.Sprintf("attempt-%d", 1),
+			Kind:       "explore",
+			Status:     strings.TrimSpace(status),
+			ReasonCode: strings.TrimSpace(reasonCode),
+			StartedAt:  time.Now(),
+			FinishedAt: time.Now(),
 		}},
 	})
 }
@@ -1540,6 +1607,12 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 		})
 	}
+	if plan == nil && controllerPlanDecisionRequiresInitialExploration(decision, run) {
+		explore := controllerExplorationDecisionFromPlanDecision(decision, run)
+		appendControllerProgress(run, batchIDOrDefault(explore.ExplorationRequest.BatchID, batchID), "plan_batch_needs_exploration_overridden",
+			"controller plan action suppressed because the typed batch requested code exploration and no exploration attempt exists")
+		return explore
+	}
 	if o.writePlanCanProceedWithoutApprovalPause(plan) && controllerActionDelaysReadyPlan(decision.Action) {
 		reasonCode := "ready_plan_action_overridden"
 		message := fmt.Sprintf("controller action %s suppressed because deterministic write approval policy allows the current plan to apply", decision.Action)
@@ -1575,6 +1648,251 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		}
 	}
 	return decision
+}
+
+func controllerPlanDecisionRequiresInitialExploration(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) bool {
+	switch decision.Action {
+	case writeflow.ActionPlanBatch, writeflow.ActionAppendBatch, writeflow.ActionSplitBatch:
+	default:
+		return false
+	}
+	batchID := controllerDecisionBatchID(decision, run)
+	if batchID != "" && workflowBatchHasExploreAttempt(run, batchID) {
+		return false
+	}
+	return controllerDecisionBatchNeedsExploration(decision, batchID)
+}
+
+func controllerDecisionBatchNeedsExploration(decision writeflow.WriteWorkflowDecision, batchID string) bool {
+	if batchNeedsExploration(decision.Batch, batchID) {
+		return true
+	}
+	if batchNeedsExploration(decision.Workflow.NextBatch, batchID) {
+		return true
+	}
+	for i := range decision.Workflow.PlannedBatches {
+		if batchNeedsExploration(&decision.Workflow.PlannedBatches[i], batchID) {
+			return true
+		}
+	}
+	return false
+}
+
+func batchNeedsExploration(batch *writeflow.WriteBatchPlan, batchID string) bool {
+	if batch == nil || !batch.NeedsCodeExploration {
+		return false
+	}
+	id := strings.TrimSpace(batch.ID)
+	return batchID == "" || id == "" || id == batchID
+}
+
+func controllerDecisionBatchID(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) string {
+	if decision.Batch != nil && strings.TrimSpace(decision.Batch.ID) != "" {
+		return strings.TrimSpace(decision.Batch.ID)
+	}
+	if decision.Workflow.NextBatch != nil && strings.TrimSpace(decision.Workflow.NextBatch.ID) != "" {
+		return strings.TrimSpace(decision.Workflow.NextBatch.ID)
+	}
+	for _, batch := range decision.Workflow.PlannedBatches {
+		if strings.TrimSpace(batch.ID) != "" {
+			return strings.TrimSpace(batch.ID)
+		}
+	}
+	if run != nil && strings.TrimSpace(run.ActiveBatchID) != "" {
+		return strings.TrimSpace(run.ActiveBatchID)
+	}
+	return ""
+}
+
+func controllerExplorationDecisionFromPlanDecision(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) writeflow.WriteWorkflowDecision {
+	batchID := controllerDecisionBatchID(decision, run)
+	goal := controllerDecisionBatchGoal(decision)
+	paths := controllerDecisionBatchExplorePaths(decision, batchID)
+	return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionExploreCode,
+		ReasonCode: "batch_requires_code_exploration",
+		Reason:     "typed batch requested code exploration before bounded planning",
+		ExplorationRequest: &types.WriteExplorationRequest{
+			BatchID:        batchIDOrDefault(batchID, "batch-1"),
+			Goal:           goal,
+			CandidatePaths: append([]string(nil), paths...),
+		},
+	})
+}
+
+func controllerDecisionBatchGoal(decision writeflow.WriteWorkflowDecision) string {
+	if decision.Batch != nil && strings.TrimSpace(decision.Batch.Goal) != "" {
+		return strings.TrimSpace(decision.Batch.Goal)
+	}
+	if decision.Workflow.NextBatch != nil && strings.TrimSpace(decision.Workflow.NextBatch.Goal) != "" {
+		return strings.TrimSpace(decision.Workflow.NextBatch.Goal)
+	}
+	for _, batch := range decision.Workflow.PlannedBatches {
+		if strings.TrimSpace(batch.Goal) != "" {
+			return strings.TrimSpace(batch.Goal)
+		}
+	}
+	if strings.TrimSpace(decision.Workflow.Goal) != "" {
+		return strings.TrimSpace(decision.Workflow.Goal)
+	}
+	return "Explore code needed for the active write batch"
+}
+
+func controllerDecisionBatchExplorePaths(decision writeflow.WriteWorkflowDecision, batchID string) []string {
+	var paths []string
+	addBatchPaths := func(batch *writeflow.WriteBatchPlan) {
+		if batch == nil {
+			return
+		}
+		id := strings.TrimSpace(batch.ID)
+		if batchID != "" && id != "" && id != batchID {
+			return
+		}
+		paths = append(paths, batch.ExploreTargets...)
+		paths = append(paths, batch.ExpectedPaths...)
+	}
+	addBatchPaths(decision.Batch)
+	addBatchPaths(decision.Workflow.NextBatch)
+	for i := range decision.Workflow.PlannedBatches {
+		addBatchPaths(&decision.Workflow.PlannedBatches[i])
+	}
+	return dedupTrimControllerStrings(paths)
+}
+
+func workflowBatchHasExploreAttempt(run *types.WriteWorkflowRun, batchID string) bool {
+	if run == nil || strings.TrimSpace(batchID) == "" {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != strings.TrimSpace(batchID) {
+			continue
+		}
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) == "explore" {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+func dedupTrimControllerStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, raw := range in {
+		v := strings.TrimSpace(raw)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
+}
+
+func activeBatchHasCompletedExplorationHandoff(mu *types.MutableState) bool {
+	return activeBatchHasExplorationHandoffWithStatuses(mu, map[string]bool{"complete": true})
+}
+
+func activeBatchHasUsableExplorationHandoff(mu *types.MutableState) bool {
+	return activeBatchHasExplorationHandoffWithStatuses(mu, map[string]bool{
+		"complete": true,
+		"degraded": true,
+	})
+}
+
+func activeBatchHasUsableExplorationHandoffForRun(mu *types.MutableState, run types.WriteWorkflowRun) bool {
+	if mu == nil {
+		return false
+	}
+	handoff := mu.WriteExplorationHandoff()
+	if !writeExplorationHandoffHasPlanningMaterial(handoff) {
+		return false
+	}
+	if strings.TrimSpace(run.ActiveBatchID) == "" {
+		return false
+	}
+	batchID := strings.TrimSpace(run.ActiveBatchID)
+	if strings.TrimSpace(handoff.BatchID) != "" && strings.TrimSpace(handoff.BatchID) != batchID {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != batchID {
+			continue
+		}
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) == "explore" &&
+				(strings.TrimSpace(attempt.Status) == "complete" || strings.TrimSpace(attempt.Status) == "degraded") {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+func activeBatchHasExplorationHandoffWithStatuses(mu *types.MutableState, statuses map[string]bool) bool {
+	if mu == nil {
+		return false
+	}
+	handoff := mu.WriteExplorationHandoff()
+	if !writeExplorationHandoffHasPlanningMaterial(handoff) {
+		return false
+	}
+	run := mu.WriteWorkflowRun()
+	if run == nil || strings.TrimSpace(run.ActiveBatchID) == "" {
+		return false
+	}
+	batchID := strings.TrimSpace(run.ActiveBatchID)
+	if strings.TrimSpace(handoff.BatchID) != "" && strings.TrimSpace(handoff.BatchID) != batchID {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != batchID {
+			continue
+		}
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) == "explore" &&
+				statuses[strings.TrimSpace(attempt.Status)] {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+func writeExplorationHandoffHasPlanningMaterial(handoff *types.WriteExplorationHandoff) bool {
+	if handoff == nil {
+		return false
+	}
+	normalized := types.NormalizeWriteExplorationHandoff(*handoff)
+	return len(normalized.TargetFiles) > 0 ||
+		len(normalized.RelevantSymbols) > 0 ||
+		len(normalized.ExistingPatterns) > 0 ||
+		len(normalized.Invariants) > 0 ||
+		len(normalized.TestSurface) > 0 ||
+		len(normalized.RiskNotes) > 0 ||
+		len(normalized.Unknowns) > 0 ||
+		len(normalized.EvidenceRefs) > 0
+}
+
+func clampPlannerSoftCapForCompletedExploration(base, current int) (int, bool) {
+	convergeCap := completedExplorationPlannerSoftCap
+	if base > 0 && base < convergeCap {
+		convergeCap = base
+	}
+	if current <= 0 {
+		current = base
+	}
+	if current > convergeCap {
+		return convergeCap, true
+	}
+	return current, false
 }
 
 func askUserInterruptionsForBatch(run *types.WriteWorkflowRun, batchID string) int {

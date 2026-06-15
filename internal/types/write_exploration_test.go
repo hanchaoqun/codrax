@@ -71,9 +71,14 @@ func TestWriteExplorationHandoffFromTurnAProjectsBoundedPlanningContext(t *testi
 	if !containsWriteExplorationSubstring(got.RiskNotes, "phase reset") {
 		t.Fatalf("conflict evidence not projected into risks: %+v", got.RiskNotes)
 	}
-	if !containsWriteExplorationSubstring(got.Unknowns, "verification path still unknown") ||
-		!containsWriteExplorationSubstring(got.Unknowns, "confirm retry cap source") {
-		t.Fatalf("unknowns missing flow/request context: %+v", got.Unknowns)
+	if !containsWriteExplorationSubstring(got.ExplorationQuestions, "confirm retry cap source") {
+		t.Fatalf("exploration questions missing request context: %+v", got.ExplorationQuestions)
+	}
+	if !containsWriteExplorationSubstring(got.Unknowns, "verification path still unknown") {
+		t.Fatalf("unknowns missing unresolved flow context: %+v", got.Unknowns)
+	}
+	if containsWriteExplorationSubstring(got.Unknowns, "confirm retry cap source") {
+		t.Fatalf("exploration questions must not be projected as unresolved unknowns: %+v", got.Unknowns)
 	}
 	if !containsWriteExplorationSubstring(got.Invariants, "final answer must not use handoff as citations") ||
 		!containsWriteExplorationSubstring(got.Invariants, "source exploration found planner hook points") ||
