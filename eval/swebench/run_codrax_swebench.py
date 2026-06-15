@@ -26,6 +26,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback.
+    tomllib = None  # type: ignore[assignment]
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent.parent
@@ -214,6 +219,30 @@ def is_python_project(repo_dir: Path) -> bool:
     return any(repo_dir.glob("**/*.py"))
 
 
+def pyproject_build_requires(repo_dir: Path) -> list[str]:
+    pyproject = repo_dir / "pyproject.toml"
+    if tomllib is None or not pyproject.exists() or pyproject.stat().st_size > 1_000_000:
+        return []
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    build_system = data.get("build-system")
+    if not isinstance(build_system, dict):
+        return []
+    requires = build_system.get("requires")
+    if not isinstance(requires, list):
+        return []
+    out: list[str] = []
+    for item in requires:
+        if not isinstance(item, str):
+            continue
+        value = item.strip()
+        if value:
+            out.append(value)
+    return out[:64]
+
+
 def venv_bin_dir(venv_dir: Path) -> Path:
     if os.name == "nt":
         return venv_dir / "Scripts"
@@ -296,12 +325,32 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
     record["pkg_resources_available"] = ensure_legacy_pkg_resources("legacy_pkg_resources")
 
     project_failed = False
+    build_requires = pyproject_build_requires(repo_dir)
+    if build_requires:
+        record["pyproject_build_requires"] = build_requires
+        build_req = step("install_pyproject_build_requires", [str(python), "-m", "pip", "install", *build_requires], cwd=repo_dir)
+        project_failed = project_failed or build_req.code != 0 or build_req.timed_out
+        if not ensure_legacy_pkg_resources("legacy_pkg_resources_post_build_requires"):
+            record["pkg_resources_available"] = False
+            project_failed = True
+        else:
+            record["pkg_resources_available"] = True
     requirements = repo_dir / "requirements.txt"
     if requirements.exists() and requirements.stat().st_size < 1_000_000:
         req = step("install_requirements", [str(python), "-m", "pip", "install", "-r", str(requirements)], cwd=repo_dir)
         project_failed = project_failed or req.code != 0 or req.timed_out
     if (repo_dir / "pyproject.toml").exists() or (repo_dir / "setup.py").exists() or (repo_dir / "setup.cfg").exists():
         editable = step("install_editable", [str(python), "-m", "pip", "install", "-e", "."], cwd=repo_dir)
+        if editable.code != 0 and record.get("pkg_resources_available"):
+            # Legacy projects often import pkg_resources from setup.py, but
+            # pip's isolated build env can ignore the venv setuptools pin. A
+            # bounded no-isolation retry lets the already-prepared compat
+            # environment participate without making env setup a hard gate.
+            editable = step(
+                "install_editable_no_build_isolation",
+                [str(python), "-m", "pip", "install", "--no-build-isolation", "-e", "."],
+                cwd=repo_dir,
+            )
         project_failed = project_failed or editable.code != 0 or editable.timed_out
     if not ensure_legacy_pkg_resources("legacy_pkg_resources_post_project"):
         record["pkg_resources_available"] = False
@@ -394,6 +443,33 @@ def load_plan(path: Path | None) -> dict[str, Any]:
     return row if isinstance(row, dict) else {}
 
 
+def load_report_for_plan(plan_path: Path | None) -> dict[str, Any]:
+    if not plan_path:
+        return {}
+    report_path = plan_path.with_name(plan_path.stem + ".report.json")
+    if not report_path.exists():
+        return {}
+    try:
+        row = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return row if isinstance(row, dict) else {}
+
+
+def report_verification_status(report: dict[str, Any]) -> str:
+    status = str(report.get("verification_status") or "").strip()
+    if status:
+        return status
+    failure_kind = str(report.get("failure_kind") or "").strip()
+    if failure_kind in {"runner_missing", "parser_error"}:
+        return "unavailable"
+    if report.get("no_tests_runners") and not report.get("test_results"):
+        return "unavailable"
+    if not bool(report.get("passed")):
+        return "failed"
+    return "passed"
+
+
 def commit_exists(repo_dir: Path, rev: str) -> bool:
     if not rev:
         return False
@@ -469,6 +545,15 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         if plan:
             result["plan_id"] = str(plan.get("id") or "")
             result["plan_status"] = str(plan.get("status") or "")
+        report = load_report_for_plan(plan_path)
+        if report:
+            result["report_path"] = str(plan_path.with_name(plan_path.stem + ".report.json")) if plan_path else ""
+            result["verify_status"] = report_verification_status(report)
+            result["verify_passed"] = bool(report.get("passed"))
+            result["verify_failure_kind"] = str(report.get("failure_kind") or "")
+            result["verify_summary"] = str(report.get("failure_summary") or "")
+            result["verify_no_tests_runners"] = report.get("no_tests_runners") or []
+            result["verify_test_count"] = len(report.get("test_results") or [])
         patch, source = export_patch(repo_dir, base, plan)
         prediction["model_patch"] = patch
         result["patch_source"] = source

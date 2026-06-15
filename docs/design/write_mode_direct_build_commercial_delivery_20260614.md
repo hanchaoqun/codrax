@@ -2993,3 +2993,77 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     on a separate old-Xarray/NumPy-2 import incompatibility without replanning.
   - Full regression and push are tracked by the implementation commit following
     this section.
+
+## 2026-06-15 SWE-bench Lite verifier verdict and env-isolation follow-up
+
+- Evidence source:
+  - Fresh non-Go SWE-bench Lite batch
+    `eval/results/swebench/lite-smoke-20260615-astropy-mpl-pytest-224631`.
+  - Instances:
+    - `astropy__astropy-7746`: `status=predicted`, `plan_status=unverified`,
+      `patch_bytes=934`; local verify failed before behavioural assertion
+      because the checkout environment lacked usable Astropy/Numpy setup.
+    - `matplotlib__matplotlib-24149`: `status=predicted`,
+      `plan_status=unverified`, `patch_bytes=731`; report had
+      `passed=true` with zero executed assertions, while the workflow still
+      rendered an unverified caveat.
+    - `pytest-dev__pytest-7220`: `status=predicted`, `plan_status=unverified`,
+      `patch_bytes=2578`; local pytest startup hit old-pytest/Python-3.11
+      compatibility before collection.
+  - Local prediction validation accepted all three predictions and official
+    SWE-bench harness dry-run accepted the generated command.
+- Generalized gaps fixed:
+  - Added `ChangeReport.verification_status=passed|failed|unavailable` as the
+    single typed local-verifier verdict. `Passed` remains the legacy assertion
+    aggregate; controller, verify attempt status/reason, report persistence,
+    apply summary rendering, and SWE-bench result export consume the normalized
+    status so zero-test / parser / runner-missing outcomes cannot be rendered
+    as verified success.
+  - SWE-bench adapter result rows now include `verify_status`,
+    `verify_failure_kind`, `verify_summary`, `verify_no_tests_runners`, and
+    `verify_test_count` from the persisted report.
+  - SWE-bench adapter env prep now retries editable install once with
+    `--no-build-isolation` after legacy `pkg_resources` compatibility is
+    prepared, covering old projects whose `setup.py` imports compatibility
+    modules inside pip's isolated build environment.
+  - Env prep also reads `pyproject.toml` with the standard TOML parser and
+    installs `[build-system].requires` into the same verifier venv before
+    editable install. This is a generic build-metadata path, not a package-name
+    or issue-text special case.
+- Safety and prompt hygiene:
+  - All hard routing reads typed `ChangeReport` fields, process exit codes, and
+    fixed command results. No user issue keywords, model prose, `<think>`, or
+    natural-language failure summaries drive state transitions.
+  - Missing pytest, parser startup failure, zero tests, and legacy dependency
+    incompatibility remain local `unverified` outcomes; they do not block patch
+    export or force code replanning without typed failure evidence.
+- Implementation tasks:
+  - [x] Add normalized `verification_status` field to `ChangeReport`.
+  - [x] Normalize report status on run_tests finish, report load/write, and
+    controller verify-attempt classification.
+  - [x] Render unavailable verify status as unverified in user-facing apply
+    recovery text.
+  - [x] Export report verdict fields in SWE-bench `results.jsonl`.
+  - [x] Add SWE-bench editable-install no-build-isolation retry after legacy
+    `pkg_resources` setup.
+  - [x] Add structured `pyproject.toml` build-requirements installation for
+    local verifier venv preparation.
+  - [x] Update `docs/user_guide.md`, `docs/user_guide.html`,
+    `eval/swebench/README.md`, and ledgers.
+- Verification:
+  - Focused tests passed:
+    `go test ./internal/types ./internal/tool ./internal/writeflow -run 'Test(ChangeReport|RunTests|RunPy|ParsePytest|ClassifyVerifyAttemptOutcome|NextTestSurface|WarningPassed|SyntaxCheck)'`;
+    `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(NoTests|Unverified|Parser|Pending|Verify)|TestVerify|TestRunnerMissing|TestWorktree|TestRunTaskGraph_HappyPath'`;
+    `go test ./internal/agent -run 'TestVerifier|TestWriteController'`.
+  - SWE-bench adapter Python file compiles with `python3 -m py_compile`.
+  - Full regression passed with `go test ./...`, `make test`, and `make`.
+  - After-fix SWE-bench Lite spot rerun:
+    `eval/results/swebench/lite-smoke-20260615-buildreq-after-fix-231957`
+    for `matplotlib__matplotlib-24149`; prediction validation passed, official
+    harness dry-run accepted the patch, `patch_bytes=494`,
+    `plan_status=unverified`, `verify_status=unavailable`,
+    `verify_failure_kind=parser_error`. The env-prep ledger recorded
+    `pyproject_build_requires=[certifi>=2020.06.20,numpy>=1.19,setuptools_scm>=7]`
+    and `install_pyproject_build_requires code=0`; editable/native build still
+    remained partial, but the patch exported. This proves local env gaps improve
+    best-effort confidence without becoming hard delivery gates.

@@ -441,3 +441,39 @@ records adapter results.
   to `finish(accept_unverified)`. Local prediction validation reported
   `validated 2 prediction(s); empty_patch=0`, and official harness dry-run
   accepted the file.
+- 2026-06-15: Ran a fresh non-Go Lite batch under
+  `eval/results/swebench/lite-smoke-20260615-astropy-mpl-pytest-224631` for
+  `astropy__astropy-7746`, `matplotlib__matplotlib-24149`, and
+  `pytest-dev__pytest-7220`. All three exported non-empty harness-consumable
+  patches and the official harness dry-run accepted the predictions file.
+  Manual audit exposed two generalized local-verifier gaps: reports could carry
+  legacy `passed=true` for zero-test/no-assertion runs while the workflow
+  correctly marked the plan `unverified`, and the adapter did not surface the
+  report verdict into `results.jsonl`. Old checkout environments also showed
+  more isolation drift: Astropy's setup imported `pkg_resources` inside pip's
+  isolated build env, while pytest's old runner failed before collection under
+  Python 3.11.
+- 2026-06-15: Landed typed local-verifier smoothing. `ChangeReport` now
+  persists `verification_status=passed|failed|unavailable`; controller,
+  verify-attempt classification, user-facing apply summaries, report loading,
+  and SWE-bench result export consume that typed verdict instead of inferring
+  terminal state from legacy `Passed` alone. SWE-bench `--prepare-python-env`
+  now retries editable installs once with `--no-build-isolation` after legacy
+  `pkg_resources` compatibility has been prepared. It also parses
+  `pyproject.toml` and installs structured `[build-system].requires` into the
+  verifier venv before editable install, so no package-name or issue-text
+  special cases are needed. `results.jsonl` records `verify_status`,
+  `verify_failure_kind`, `verify_summary`, no-test runners, and test count.
+  Missing pytest / parser / zero-test / legacy runtime dead-ends still export
+  patches and stay `unverified`; they are not hard code-failure gates.
+- 2026-06-15: Re-ran `matplotlib__matplotlib-24149` after the structured
+  build-requirements enhancement at
+  `eval/results/swebench/lite-smoke-20260615-buildreq-after-fix-231957`.
+  Prediction validation passed, official harness dry-run accepted the patch,
+  and `results.jsonl` recorded `patch_bytes=494`, `plan_status=unverified`,
+  `verify_status=unavailable`, `verify_failure_kind=parser_error`. Env prep
+  recorded `[build-system].requires` values
+  (`certifi>=2020.06.20`, `numpy>=1.19`, `setuptools_scm>=7`) and successful
+  `install_pyproject_build_requires`, while editable/native build remained
+  partial. This keeps local sandbox confidence best-effort without blocking
+  delivery.

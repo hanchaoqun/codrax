@@ -33,6 +33,46 @@ func TestChangeReportScore_NilReceiverReturnsSentinel(t *testing.T) {
 	}
 }
 
+func TestChangeReportNormalizeVerificationStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		report *ChangeReport
+		want   VerificationStatus
+	}{
+		{
+			name:   "assertions passed",
+			report: &ChangeReport{Passed: true, TestResults: []TestResult{{AssertionID: "TestOK", Passed: true}}},
+			want:   VerificationStatusPassed,
+		},
+		{
+			name:   "zero tests unavailable even when legacy passed flag is true",
+			report: &ChangeReport{Passed: true, NoTestsRunners: []string{"python"}},
+			want:   VerificationStatusUnavailable,
+		},
+		{
+			name:   "parser error unavailable",
+			report: &ChangeReport{Passed: false, FailureKind: FailureKindParserError},
+			want:   VerificationStatusUnavailable,
+		},
+		{
+			name:   "red assertion failed",
+			report: &ChangeReport{Passed: false, TestResults: []TestResult{{AssertionID: "TestBad", Passed: false}}},
+			want:   VerificationStatusFailed,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.report.NormalizeVerificationStatus(); got != tc.want {
+				t.Errorf("NormalizeVerificationStatus() = %q, want %q", got, tc.want)
+			}
+			tc.report.EnsureVerificationStatus()
+			if tc.report.VerificationStatus != tc.want {
+				t.Errorf("EnsureVerificationStatus() stored %q, want %q", tc.report.VerificationStatus, tc.want)
+			}
+		})
+	}
+}
+
 // TestChangeReportIsBetterThan covers the strict-improvement contract:
 // a tie keeps the existing best (returns false) so the latch never
 // thrashes between equivalent plans; nil-vs-non-nil follows obvious

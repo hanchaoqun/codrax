@@ -321,12 +321,12 @@ func (e *verifierEvaluator) ParseOutput(
 		return out, fmt.Errorf("%s", out.Error)
 	}
 
-	if report.Passed {
-		if len(report.NoTestsRunners) > 0 {
+	status := report.NormalizeVerificationStatus()
+	if status == types.VerificationStatusPassed || status == types.VerificationStatusUnavailable {
+		if status == types.VerificationStatusUnavailable {
 			logging.Info(
-				"[verifier] verify passed with no tests collected: runners=%v results=%d "+
-					"(syntax-level signal only; no test fixture exists for these languages)",
-				report.NoTestsRunners, len(report.TestResults))
+				"[verifier] local verification unavailable: runners=%v results=%d failure_kind=%s",
+				report.NoTestsRunners, len(report.TestResults), report.FailureKind)
 		} else {
 			logging.Info("[verifier] all tests passed: %d results", len(report.TestResults))
 		}

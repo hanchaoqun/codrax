@@ -50,16 +50,24 @@ verify stage can run `pytest` when the checkout supports it. The adapter install
 `env_prepare.log` for each instance, and then runs Codrax with that venv on
 `PATH`. Legacy Python projects that still import `pkg_resources` are checked
 inside the venv; if the import is missing, the adapter installs a compatible
-`setuptools<81` and records the check/recheck steps. Environment setup failures
-never block prediction export; they leave the run unverified and the official
-harness remains the scoring authority. Codrax's Python verifier also recognizes
-Django source trees with `tests/runtests.py` and uses that typed harness instead
-of plain pytest when the repository advertises it through file structure. During
-worktree verification, Codrax prepends the active worktree to `PYTHONPATH` so
-editable installs or inherited environments cannot accidentally import the
-original checkout. When a Django suite is not explicitly supplied, the verifier
-derives a conservative scoped suite from typed ChangePlan paths and the
-repository `tests/` tree before falling back to a wider run.
+`setuptools<81` and records the check/recheck steps. When `pyproject.toml`
+declares `[build-system].requires`, the adapter installs those structured build
+requirements into the same venv before editable install. If editable
+installation still fails because pip's isolated build environment did not
+inherit that legacy compatibility, the adapter performs one bounded
+`--no-build-isolation` retry.
+Environment setup failures never block prediction export; they leave the run
+unverified and the official harness remains the scoring authority. `results.jsonl`
+also includes Codrax's typed local verifier verdict (`verify_status`,
+`verify_failure_kind`, `verify_summary`, `verify_test_count`) so environment
+dead-ends are auditable without being treated as code failures. Codrax's Python
+verifier also recognizes Django source trees with `tests/runtests.py` and uses
+that typed harness instead of plain pytest when the repository advertises it
+through file structure. During worktree verification, Codrax prepends the active
+worktree to `PYTHONPATH` so editable installs or inherited environments cannot
+accidentally import the original checkout. When a Django suite is not explicitly
+supplied, the verifier derives a conservative scoped suite from typed ChangePlan
+paths and the repository `tests/` tree before falling back to a wider run.
 
 ```bash
 SWEBENCH_PREPARE_PYTHON_ENV=0 eval/swebench/smoke_lite.sh

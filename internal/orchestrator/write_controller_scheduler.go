@@ -1104,11 +1104,17 @@ func (o *Orchestrator) appliedPatchInterruptedMessage(run *types.WriteWorkflowRu
 
 func appliedPatchVerifyLine(report *types.ChangeReport, plan *types.ChangePlan, zh bool) string {
 	if report != nil {
-		if report.Passed {
+		switch report.NormalizeVerificationStatus() {
+		case types.VerificationStatusPassed:
 			if zh {
 				return "通过"
 			}
 			return "passed"
+		case types.VerificationStatusUnavailable:
+			if zh {
+				return "环境/测试不可用，代码补丁已保留"
+			}
+			return "unverified because the local verify environment or test surface was unavailable"
 		}
 		parts := []string{}
 		if report.FailureKind != "" {
@@ -2353,17 +2359,14 @@ func writeWorkflowVerifyAttemptStatus(report *types.ChangeReport, err error) str
 	if report == nil {
 		return "missing_report"
 	}
-	if reportIndicatesVerificationUnavailable(report) {
+	if report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
 		return "unverified"
 	}
 	if err != nil {
 		return "failed"
 	}
-	if !report.Passed {
+	if report.NormalizeVerificationStatus() == types.VerificationStatusFailed {
 		return "failed"
-	}
-	if len(report.NoTestsRunners) > 0 {
-		return "unverified"
 	}
 	return "passed"
 }
@@ -2372,7 +2375,7 @@ func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) str
 	if report == nil {
 		return "missing_report"
 	}
-	if reportIndicatesVerificationUnavailable(report) {
+	if report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
 		switch report.FailureKind {
 		case types.FailureKindRunnerMissing, types.FailureKindParserError:
 			return string(report.FailureKind)
@@ -2394,9 +2397,6 @@ func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) str
 	}
 	if err != nil {
 		return "verify_error"
-	}
-	if len(report.NoTestsRunners) > 0 {
-		return "no_tests"
 	}
 	return "tests_passed"
 }

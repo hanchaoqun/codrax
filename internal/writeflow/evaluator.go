@@ -96,10 +96,14 @@ func EvaluateWriteWorkflow(input EvaluationInput) WriteEvaluation {
 		return input.verdict(EvalNeedsApproval, "pending_manual_plan", "pending plan requires approval")
 	}
 	if input.Report != nil {
+		status := input.Report.NormalizeVerificationStatus()
+		if status == types.VerificationStatusUnavailable {
+			return input.verdict(EvalContinuePlan, "unverified", "plan changed code without a validating test signal")
+		}
 		if input.Report.BuildFailed {
 			return input.verdict(EvalContinuePlan, "build_failed", "build failed and needs a repair batch")
 		}
-		if !input.Report.Passed {
+		if status == types.VerificationStatusFailed {
 			return input.verdict(EvalContinuePlan, "tests_failed", "tests failed and need a repair batch")
 		}
 		if input.Plan.Status == types.PlanStatusApplied && workflow.NextBatch == nil {

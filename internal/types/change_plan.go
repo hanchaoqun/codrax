@@ -688,6 +688,13 @@ type ChangeReport struct {
 	// configured threshold. Read by CritNoRegression evaluator.
 	Passed bool `json:"passed"`
 
+	// VerificationStatus is the scheduler-facing verdict for the verify
+	// attempt. Passed remains the assertion aggregate for compatibility; this
+	// field distinguishes "all executed assertions passed" from "no
+	// authoritative local verification was available" (missing runner, parser
+	// failure, or zero executed tests).
+	VerificationStatus VerificationStatus `json:"verification_status,omitempty"`
+
 	// BuildFailed is true when the test harness short-circuited
 	// because the build/compile step failed before any test could
 	// run. evalTestsPass uses this as a top-level fast-fail so
@@ -790,6 +797,14 @@ const (
 	ChangeReportChannelPostApplyVerify ChangeReportChannel = "post_apply_verify"
 )
 
+type VerificationStatus string
+
+const (
+	VerificationStatusPassed      VerificationStatus = "passed"
+	VerificationStatusFailed      VerificationStatus = "failed"
+	VerificationStatusUnavailable VerificationStatus = "unavailable"
+)
+
 // FailureKind tags ChangeReport.FailureSummary so consumers can route
 // the retry-hint narrative on the cause rather than the symptom.
 type FailureKind string
@@ -882,6 +897,30 @@ func (r *ChangeReport) Score() (passed, total int) {
 		}
 	}
 	return passed, total
+}
+
+func (r *ChangeReport) NormalizeVerificationStatus() VerificationStatus {
+	if r == nil {
+		return ""
+	}
+	switch r.FailureKind {
+	case FailureKindRunnerMissing, FailureKindParserError:
+		return VerificationStatusUnavailable
+	}
+	if len(r.NoTestsRunners) > 0 && len(r.TestResults) == 0 {
+		return VerificationStatusUnavailable
+	}
+	if !r.Passed {
+		return VerificationStatusFailed
+	}
+	return VerificationStatusPassed
+}
+
+func (r *ChangeReport) EnsureVerificationStatus() {
+	if r == nil {
+		return
+	}
+	r.VerificationStatus = r.NormalizeVerificationStatus()
 }
 
 // IsBetterThan returns true when this report has strictly more
@@ -1024,6 +1063,7 @@ func LoadChangeReportFromFile(path string) (*ChangeReport, error) {
 	if err := json.Unmarshal(data, &report); err != nil {
 		return nil, fmt.Errorf("parse change report %s: %w", path, err)
 	}
+	report.EnsureVerificationStatus()
 	return &report, nil
 }
 
@@ -1038,6 +1078,7 @@ func WriteChangeReportToFile(report *ChangeReport, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("WriteChangeReportToFile: mkdir %s: %w", filepath.Dir(path), err)
 	}
+	report.EnsureVerificationStatus()
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		return fmt.Errorf("WriteChangeReportToFile: marshal: %w", err)

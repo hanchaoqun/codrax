@@ -41,6 +41,7 @@ func ClassifyVerifyAttemptOutcome(report *types.ChangeReport, err error) VerifyA
 			ReasonCode:        "verify_tool_not_called",
 		}
 	}
+	status := report.NormalizeVerificationStatus()
 	if report.FailureKind == types.FailureKindRunnerMissing {
 		return VerifyAttemptOutcome{
 			Kind:              VerifyOutcomeRunnerMissing,
@@ -65,7 +66,7 @@ func ClassifyVerifyAttemptOutcome(report *types.ChangeReport, err error) VerifyA
 			ReasonCode:        "no_tests",
 		}
 	}
-	if err != nil || !report.Passed {
+	if err != nil || status == types.VerificationStatusFailed {
 		return VerifyAttemptOutcome{
 			Kind:              VerifyOutcomeReportFailed,
 			Retryable:         false,

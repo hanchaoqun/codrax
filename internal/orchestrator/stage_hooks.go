@@ -976,9 +976,7 @@ func reportIndicatesVerificationUnavailable(report *types.ChangeReport) bool {
 	if report == nil {
 		return false
 	}
-	return report.FailureKind == types.FailureKindRunnerMissing ||
-		report.FailureKind == types.FailureKindParserError ||
-		len(report.NoTestsRunners) > 0
+	return report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable
 }
 
 // planTouchesNonTestCode reports whether the active ChangePlan

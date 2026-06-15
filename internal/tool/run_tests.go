@@ -358,6 +358,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if report.GeneratedAt.IsZero() {
 			report.GeneratedAt = time.Now()
 		}
+		report.EnsureVerificationStatus()
 		return report
 	}
 	// escalateToSurfaceCandidate appends the highest-ranked unexecuted
@@ -1449,6 +1450,7 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 	if len(failureSummaries) > 0 {
 		out.FailureSummary = strings.Join(failureSummaries, " | ")
 	}
+	out.EnsureVerificationStatus()
 	return out
 }
 
