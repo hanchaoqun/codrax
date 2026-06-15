@@ -93,6 +93,67 @@ func TestMergeChangeReports_PromotesMostSevereKind(t *testing.T) {
 	}
 }
 
+func TestRenderTestSummary_UnavailableDoesNotRenderAsFailedAssertions(t *testing.T) {
+	report := &types.ChangeReport{
+		Passed:      false,
+		FailureKind: types.FailureKindParserError,
+		TestResults: []types.TestResult{
+			{
+				Kind:          types.TestResultKindUnit,
+				AssertionID:   "requests",
+				Suite:         "unittest.loader._FailedTest",
+				Passed:        false,
+				FailureDetail: "ImportError: cannot import name Mapping",
+			},
+		},
+		FailureSummary: "unittest collection/import failed before executing real test cases",
+	}
+	report.EnsureVerificationStatus()
+
+	summary := renderTestSummary("python", report)
+	if !strings.Contains(summary, "verdict=UNAVAILABLE") {
+		t.Fatalf("summary should expose typed unavailable verdict, got %q", summary)
+	}
+	if strings.Contains(summary, "Failed tests:") {
+		t.Fatalf("summary should not present infrastructure diagnostics as failed tests: %q", summary)
+	}
+	if strings.Contains(summary, "1 failed") {
+		t.Fatalf("summary should not count parser diagnostics as failed assertions: %q", summary)
+	}
+}
+
+func TestRenderAggregateTestSummary_UnavailableUsesDiagnosticCounts(t *testing.T) {
+	plans := []runnerPlan{
+		{Runner: "python", Root: "/repo"},
+		{Runner: "python", Framework: pythonFrameworkUnittest, Root: "/repo"},
+	}
+	reports := []*types.ChangeReport{
+		{Passed: true, NoTestsRunners: []string{"python"}},
+		{
+			Passed:         false,
+			FailureKind:    types.FailureKindParserError,
+			FailureSummary: "unittest collection/import failed before executing real test cases",
+			TestResults: []types.TestResult{{
+				Kind:        types.TestResultKindUnit,
+				AssertionID: "requests",
+				Suite:       "unittest.loader._FailedTest",
+				Passed:      false,
+			}},
+		},
+	}
+	aggregate := mergeChangeReports(reports)
+	summary := renderAggregateTestSummary("/repo", plans, reports, aggregate)
+	if !strings.Contains(summary, "verdict=UNAVAILABLE") {
+		t.Fatalf("aggregate summary should expose unavailable verdict, got %q", summary)
+	}
+	if strings.Contains(summary, "assertion(s), 1 failed") {
+		t.Fatalf("aggregate summary should not render parser diagnostics as failed assertions: %q", summary)
+	}
+	if !strings.Contains(summary, "diagnostic row(s)") {
+		t.Fatalf("aggregate summary should mention diagnostic rows, got %q", summary)
+	}
+}
+
 // TestMakeResourceExhaustionReport_KindsExposed pins the
 // kind→FailureKind mapping so callers (run_tests Execute) can rely on
 // the surface contract. Catches a regression where a new kind ever

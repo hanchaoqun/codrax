@@ -1582,8 +1582,15 @@ func renderAggregateTestSummary(repoRoot string, plans []runnerPlan, reports []*
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "[run_tests: projects=%d] %d/%d project(s) passed; %d assertion(s), %d failed.",
-		len(plans), passedProjects, len(plans), len(aggregate.TestResults), countFailed(aggregate.TestResults))
+	status := aggregate.NormalizeVerificationStatus()
+	totalAssertions, failedAssertions := countAvailableReportAssertions(reports)
+	if status == types.VerificationStatusUnavailable {
+		fmt.Fprintf(&b, "[run_tests: projects=%d verdict=UNAVAILABLE] local verification unavailable; %d/%d project(s) produced a usable pass signal; %d diagnostic row(s), %d real assertion(s).",
+			len(plans), passedProjects, len(plans), len(aggregate.TestResults), totalAssertions)
+	} else {
+		fmt.Fprintf(&b, "[run_tests: projects=%d] %d/%d project(s) passed; %d assertion(s), %d failed.",
+			len(plans), passedProjects, len(plans), totalAssertions, failedAssertions)
+	}
 	failedShown := 0
 	for idx, report := range reports {
 		if report == nil || report.Passed || failedShown >= 3 {
@@ -3856,16 +3863,26 @@ func detectMakeTestTargetFound(repoRoot string) (string, bool) {
 // Consumed by the verifier agent's LLM turn as context; full
 // per-test detail lives in Mutable.ChangeReport.TestResults.
 func renderTestSummary(runner string, report *types.ChangeReport) string {
-	total := len(report.TestResults)
-	failed := countFailed(report.TestResults)
+	total, failed := countTestAssertions(report.TestResults)
 	passed := total - failed
 	verdict := "PASSED"
 	if !report.Passed {
 		verdict = "FAILED"
 	}
+	if report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
+		verdict = "UNAVAILABLE"
+		total = 0
+		failed = 0
+		passed = 0
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "[run_tests: runner=%s verdict=%s] %d total, %d passed, %d failed",
-		runner, verdict, total, passed, failed)
+	if verdict == "UNAVAILABLE" {
+		fmt.Fprintf(&b, "[run_tests: runner=%s verdict=%s] local verification unavailable; %d diagnostic row(s), %d real assertion(s)",
+			runner, verdict, len(report.TestResults), total)
+	} else {
+		fmt.Fprintf(&b, "[run_tests: runner=%s verdict=%s] %d total, %d passed, %d failed",
+			runner, verdict, total, passed, failed)
+	}
 	if len(report.NoTestsRunners) > 0 {
 		fmt.Fprintf(&b,
 			"\n\nNote: runner(s) %s completed cleanly but discovered zero test cases. "+
@@ -3874,11 +3891,21 @@ func renderTestSummary(runner string, report *types.ChangeReport) string {
 				"back to whatever non-test signals are available (e.g. compile / syntax check).",
 			strings.Join(report.NoTestsRunners, ", "))
 	}
+	if verdict == "UNAVAILABLE" {
+		if report.FailureSummary != "" {
+			fmt.Fprintf(&b, "\n\nDiagnostic: %s", report.FailureSummary)
+		}
+		return b.String()
+	}
 	if failed > 0 {
 		b.WriteString("\n\nFailed tests:")
 		shown := 0
 		for _, r := range report.TestResults {
-			if r.Passed {
+			kind := r.Kind
+			if kind == "" {
+				kind = types.TestResultKindUnit
+			}
+			if r.Passed || kind != types.TestResultKindUnit {
 				continue
 			}
 			shown++
@@ -3909,6 +3936,35 @@ func countFailed(results []types.TestResult) int {
 		}
 	}
 	return n
+}
+
+func countTestAssertions(results []types.TestResult) (total, failed int) {
+	for _, r := range results {
+		kind := r.Kind
+		if kind == "" {
+			kind = types.TestResultKindUnit
+		}
+		if kind != types.TestResultKindUnit {
+			continue
+		}
+		total++
+		if !r.Passed {
+			failed++
+		}
+	}
+	return total, failed
+}
+
+func countAvailableReportAssertions(reports []*types.ChangeReport) (total, failed int) {
+	for _, report := range reports {
+		if report == nil || report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
+			continue
+		}
+		t, f := countTestAssertions(report.TestResults)
+		total += t
+		failed += f
+	}
+	return total, failed
 }
 
 // synthesizeBuildFailureReport installs a single-TestResult

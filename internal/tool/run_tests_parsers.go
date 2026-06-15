@@ -755,13 +755,18 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 	data, err := os.ReadFile(reportFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Plugin missing is the #1 reason for this; surface a
-			// clean installation hint instead of a generic file-
-			// not-found error.
+			// A missing JSON artifact is an infrastructure verdict,
+			// not proof of a code regression. Pytest can fail during
+			// collection/import/startup before the plugin writes the
+			// report, and the plugin may also be absent. Keep the
+			// message explicit without claiming one root cause.
 			return nil, fmt.Errorf(
-				"parsePytestJSONReport: report file %s missing — the pytest-json-report "+
-					"plugin is required. Install with `pip install pytest-json-report` "+
-					"(command ran: %s). First %d bytes of pytest stdout:\n%s",
+				"parsePytestJSONReport: report file %s missing — pytest did not produce "+
+					"the requested JSON report. This can happen when collection/import/startup "+
+					"fails before report generation, or when pytest-json-report is unavailable. "+
+					"Install with `pip install pytest-json-report` if the plugin is missing; "+
+					"otherwise fix the local test environment. (command ran: %s). First %d bytes "+
+					"of pytest stdout:\n%s",
 				reportFile, cmdStr, minInt(len(stdout), 400), stdoutHead(stdout, 400))
 		}
 		return nil, fmt.Errorf("parsePytestJSONReport: read %s: %w", reportFile, err)

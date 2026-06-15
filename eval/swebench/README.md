@@ -52,12 +52,16 @@ verify stage can run `pytest` when the checkout supports it. The adapter install
 inside the venv; if the import is missing, the adapter installs a compatible
 `setuptools<81` and records the check/recheck steps. When `pyproject.toml`
 declares `[build-system].requires`, the adapter installs those structured build
-requirements into the same venv before editable install. Legacy projects that
-only declare dependencies in `setup.py` are parsed with Python AST; any
-structured `install_requires` / `setup_requires` entries are installed
-best-effort before editable install. If editable installation still fails
-because pip's isolated build environment did not inherit that legacy
-compatibility, the adapter performs one bounded `--no-build-isolation` retry.
+requirements into the same venv before editable install. Common runtime/test
+requirements files are installed best-effort with discovered constraints passed
+through to pip; dev requirements are used only as a bounded fallback when no
+test-focused requirements file exists. Legacy projects that only declare
+dependencies in `setup.py` are parsed with Python AST; any structured
+`install_requires` / `setup_requires` entries are installed best-effort before
+editable install. If editable installation still fails because pip's isolated
+build environment did not inherit that legacy compatibility, the adapter
+performs one bounded `--no-build-isolation` retry. Finally, a non-blocking import
+probe records whether discovered checkout import roots are usable in the venv.
 Environment setup failures never block prediction export; they leave the run
 unverified and the official harness remains the scoring authority. `results.jsonl`
 also includes Codrax's typed local verifier verdict (`verify_status`,

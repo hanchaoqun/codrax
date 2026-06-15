@@ -3282,3 +3282,70 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     delivery gate.
   - Full regression and push are tracked by the implementation commit following
     this section.
+
+## 2026-06-16 SWE-bench verifier-unavailable and env-prep clarity follow-up
+
+- Evidence source:
+  - Fresh non-Go SWE-bench Lite batch
+    `eval/results/swebench/lite-smoke-20260616-flask-requests-pytest-011017`.
+  - Instances:
+    - `pallets__flask-4045`: `status=predicted`, `patch_bytes=468`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`. The exported patch added a
+      `Blueprint.__init__` dot-name guard, but local pytest failed during
+      Flask import because the legacy checkout resolved an incompatible
+      Werkzeug version before report generation.
+    - `psf__requests-2148`: `status=predicted`, `patch_bytes=1148`,
+      `plan_status=unverified`, `verify_status=unavailable`. The exported
+      patch wraps `socket.error` from `iter_content()` as
+      `requests.exceptions.ConnectionError`; local unittest discovery reached
+      only loader/import errors under the host Python version.
+    - `pytest-dev__pytest-5103`: `status=predicted`, `patch_bytes=3883`,
+      `plan_status=unverified`, `verify_status=unavailable`. Manual audit
+      found the generated assertion-rewriter patch semantically risky despite
+      patch export; local pytest startup did not produce a parseable report.
+  - Local prediction validation accepted all three predictions and official
+    SWE-bench harness dry-run accepted the generated command.
+- Generalized gaps fixed:
+  - `parsePytestJSONReport` no longer reports a missing JSON artifact as a
+    single-cause "pytest-json-report plugin required" failure. It now describes
+    the typed condition as "pytest did not produce the requested JSON report",
+    with collection/import/startup failure and missing plugin as possible local
+    environment causes.
+  - `run_tests` summaries now render `verdict=UNAVAILABLE` for normalized
+    unavailable reports and count loader/import/parser rows as diagnostics, not
+    failed assertions. This removes a misleading cue that could push the
+    verifier/controller toward unnecessary re-explore or replan after a patch
+    has already been exported.
+  - SWE-bench adapter Python env prep now discovers common runtime/test
+    requirement files, passes discovered constraints to pip, uses dev
+    requirements only as a bounded fallback when no test-focused requirement
+    file exists, and records a non-blocking import probe for discovered checkout
+    import roots.
+- Safety and prompt hygiene:
+  - Hard routing still consumes typed `ChangeReport.verification_status`,
+    `FailureKind`, command exit codes, structured dependency metadata, and file
+    paths. No user issue keywords, model rationale, `<think>`, or natural
+    language summaries drive state transitions.
+  - Missing pytest, missing JSON report, parser errors, loader-only unittest
+    runs, and import-probe failures remain local `unverified` outcomes. They
+    must not block SWE-bench prediction export or customer patch delivery when
+    there is no typed code-failure evidence.
+- Implementation tasks:
+  - [x] Make pytest missing-report diagnostics cause-neutral and environment
+    accurate.
+  - [x] Render unavailable aggregate/single-run summaries with diagnostic rows
+    instead of failed assertion counts.
+  - [x] Add structured tests for unavailable summary rendering and pytest
+    missing-report diagnostics.
+  - [x] Extend SWE-bench env prep with requirements/constraints discovery and
+    import probing.
+  - [x] Update `docs/user_guide.md`, `docs/user_guide.html`, and
+    `eval/swebench/README.md`.
+- Verification:
+  - Focused Go tests passed:
+    `go test ./internal/tool -run 'Test(ParsePytestJSONReport_MissingReportIsInfrastructureDiagnostic|RenderTestSummary_UnavailableDoesNotRenderAsFailedAssertions|RenderAggregateTestSummary_UnavailableUsesDiagnosticCounts)'`.
+  - SWE-bench adapter compiles with `python3 -m py_compile`.
+  - `git diff --check` passed.
+  - Broader regression and push are tracked by the implementation commit that
+    follows this section.

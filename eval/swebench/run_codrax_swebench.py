@@ -331,6 +331,122 @@ def setup_py_declared_requires(repo_dir: Path) -> list[str]:
     return out[:64]
 
 
+def discover_python_requirement_files(repo_dir: Path) -> list[dict[str, str]]:
+    """Return runtime/test requirement files worth installing best-effort.
+
+    The adapter is not a full environment solver. It recognizes common Python
+    project file layouts and avoids heavyweight docs-only/dev files unless no
+    test-focused requirements are present.
+    """
+
+    max_size = 1_000_000
+    runtime = (
+        "requirements.txt",
+        "requirements/base.txt",
+        "requirements/common.txt",
+    )
+    tests = (
+        "test-requirements.txt",
+        "tests-requirements.txt",
+        "requirements-test.txt",
+        "requirements-tests.txt",
+        "requirements/test.txt",
+        "requirements/tests.txt",
+        "requirements/ci.txt",
+        "tests/requirements.txt",
+    )
+    dev = (
+        "dev-requirements.txt",
+        "requirements-dev.txt",
+        "requirements/dev.txt",
+    )
+
+    def add(out: list[dict[str, str]], seen: set[Path], kind: str, rel: str) -> None:
+        path = repo_dir / rel
+        try:
+            resolved = path.resolve()
+            rel_path = path.relative_to(repo_dir).as_posix()
+        except Exception:
+            return
+        if resolved in seen or not path.is_file():
+            return
+        try:
+            if path.stat().st_size > max_size:
+                return
+        except OSError:
+            return
+        out.append({"kind": kind, "path": rel_path})
+        seen.add(resolved)
+
+    out: list[dict[str, str]] = []
+    seen: set[Path] = set()
+    for rel in runtime:
+        add(out, seen, "runtime", rel)
+    before_tests = len(out)
+    for rel in tests:
+        add(out, seen, "test", rel)
+    found_test = len(out) > before_tests
+    if not found_test:
+        for rel in dev:
+            add(out, seen, "dev_fallback", rel)
+    return out[:16]
+
+
+def discover_python_constraint_files(repo_dir: Path) -> list[str]:
+    candidates = (
+        "constraints.txt",
+        "requirements/constraints.txt",
+        "requirements/constraints-test.txt",
+        "requirements/test-constraints.txt",
+    )
+    out: list[str] = []
+    seen: set[Path] = set()
+    for rel in candidates:
+        path = repo_dir / rel
+        try:
+            resolved = path.resolve()
+            rel_path = path.relative_to(repo_dir).as_posix()
+        except Exception:
+            continue
+        if resolved in seen or not path.is_file():
+            continue
+        try:
+            if path.stat().st_size > 1_000_000:
+                continue
+        except OSError:
+            continue
+        out.append(rel_path)
+        seen.add(resolved)
+    return out[:8]
+
+
+def discover_python_import_roots(repo_dir: Path) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    ignored = {"test", "tests", "docs", "doc", "example", "examples", "build", "dist"}
+    for base in (repo_dir, repo_dir / "src"):
+        if not base.is_dir():
+            continue
+        try:
+            entries = sorted(base.iterdir(), key=lambda item: item.name)
+        except OSError:
+            continue
+        for entry in entries:
+            name = entry.name
+            if name.startswith(".") or name.startswith("_") or name in ignored:
+                continue
+            if entry.is_dir() and (entry / "__init__.py").is_file():
+                import_name = name.replace("-", "_")
+            elif entry.is_file() and entry.suffix == ".py" and name != "setup.py":
+                import_name = entry.stem.replace("-", "_")
+            else:
+                continue
+            if import_name.isidentifier() and import_name not in seen:
+                out.append(import_name)
+                seen.add(import_name)
+    return out[:12]
+
+
 def venv_bin_dir(venv_dir: Path) -> Path:
     if os.name == "nt":
         return venv_dir / "Scripts"
@@ -398,6 +514,16 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         "VIRTUAL_ENV": str(venv_dir),
         "PATH": f"{venv_bin_dir(venv_dir)}{os.pathsep}{os.environ.get('PATH', '')}",
     }
+    constraint_files = discover_python_constraint_files(repo_dir)
+    if constraint_files:
+        record["python_constraint_files"] = constraint_files
+
+    def pip_install_cmd(*items: str) -> list[str]:
+        cmd = [str(python), "-m", "pip", "install"]
+        for rel in constraint_files:
+            cmd.extend(["-c", str(repo_dir / rel)])
+        cmd.extend(items)
+        return cmd
 
     upgraded = step("upgrade_packaging", [str(python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
     if upgraded.code != 0 or upgraded.timed_out:
@@ -405,7 +531,7 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         record["env_path"] = str(venv_dir)
         return env_updates, record
 
-    pytest = step("install_pytest", [str(python), "-m", "pip", "install", "pytest<9", "pytest-json-report"])
+    pytest = step("install_pytest", pip_install_cmd("pytest<9", "pytest-json-report"))
     if pytest.code != 0 or pytest.timed_out:
         record["status"] = "failed_pytest"
         record["env_path"] = str(venv_dir)
@@ -416,29 +542,39 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
     build_requires = pyproject_build_requires(repo_dir)
     if build_requires:
         record["pyproject_build_requires"] = build_requires
-        build_req = step("install_pyproject_build_requires", [str(python), "-m", "pip", "install", *build_requires], cwd=repo_dir)
+        build_req = step("install_pyproject_build_requires", pip_install_cmd(*build_requires), cwd=repo_dir)
         project_failed = project_failed or build_req.code != 0 or build_req.timed_out
         if not ensure_legacy_pkg_resources("legacy_pkg_resources_post_build_requires"):
             record["pkg_resources_available"] = False
             project_failed = True
         else:
             record["pkg_resources_available"] = True
+    requirement_files = discover_python_requirement_files(repo_dir)
+    if requirement_files:
+        record["python_requirement_files"] = requirement_files
+        for index, item in enumerate(requirement_files, 1):
+            kind = item.get("kind") or "requirements"
+            rel = item.get("path") or ""
+            if not rel:
+                continue
+            req = step(
+                f"install_{kind}_requirements_{index}",
+                pip_install_cmd("-r", str(repo_dir / rel)),
+                cwd=repo_dir,
+            )
+            project_failed = project_failed or req.code != 0 or req.timed_out
     setup_requires = setup_py_declared_requires(repo_dir)
     if setup_requires:
         record["setup_declared_requires"] = setup_requires
-        setup_req = step("install_setup_declared_requires", [str(python), "-m", "pip", "install", *setup_requires], cwd=repo_dir)
+        setup_req = step("install_setup_declared_requires", pip_install_cmd(*setup_requires), cwd=repo_dir)
         project_failed = project_failed or setup_req.code != 0 or setup_req.timed_out
         if not ensure_legacy_pkg_resources("legacy_pkg_resources_post_setup_requires"):
             record["pkg_resources_available"] = False
             project_failed = True
         else:
             record["pkg_resources_available"] = True
-    requirements = repo_dir / "requirements.txt"
-    if requirements.exists() and requirements.stat().st_size < 1_000_000:
-        req = step("install_requirements", [str(python), "-m", "pip", "install", "-r", str(requirements)], cwd=repo_dir)
-        project_failed = project_failed or req.code != 0 or req.timed_out
     if (repo_dir / "pyproject.toml").exists() or (repo_dir / "setup.py").exists() or (repo_dir / "setup.cfg").exists():
-        editable = step("install_editable", [str(python), "-m", "pip", "install", "-e", "."], cwd=repo_dir)
+        editable = step("install_editable", pip_install_cmd("-e", "."), cwd=repo_dir)
         if editable.code != 0 and record.get("pkg_resources_available"):
             # Legacy projects often import pkg_resources from setup.py, but
             # pip's isolated build env can ignore the venv setuptools pin. A
@@ -446,7 +582,7 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
             # environment participate without making env setup a hard gate.
             editable = step(
                 "install_editable_no_build_isolation",
-                [str(python), "-m", "pip", "install", "--no-build-isolation", "-e", "."],
+                pip_install_cmd("--no-build-isolation", "-e", "."),
                 cwd=repo_dir,
             )
         project_failed = project_failed or editable.code != 0 or editable.timed_out
@@ -455,6 +591,25 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         project_failed = True
     else:
         record["pkg_resources_available"] = True
+    import_roots = discover_python_import_roots(repo_dir)
+    if import_roots:
+        record["python_import_roots"] = import_roots
+        probe_code = (
+            "import importlib, sys\n"
+            "failed=[]\n"
+            "for name in sys.argv[1:]:\n"
+            "    try:\n"
+            "        importlib.import_module(name)\n"
+            "    except Exception as exc:\n"
+            "        failed.append(f'{name}: {type(exc).__name__}: {exc}')\n"
+            "if failed:\n"
+            "    print('\\n'.join(failed))\n"
+            "    sys.exit(1)\n"
+            "print('ok')\n"
+        )
+        probe = step("import_probe", [str(python), "-c", probe_code, *import_roots], cwd=repo_dir)
+        record["import_probe_passed"] = probe.code == 0 and not probe.timed_out
+        project_failed = project_failed or probe.code != 0 or probe.timed_out
 
     record["status"] = "partial" if project_failed else "ready"
     record["env_path"] = str(venv_dir)

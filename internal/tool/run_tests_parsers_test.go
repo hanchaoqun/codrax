@@ -372,14 +372,21 @@ func TestParsePytestJSONReport_AllPassed(t *testing.T) {
 	}
 }
 
-func TestParsePytestJSONReport_PluginMissing(t *testing.T) {
-	// Report file doesn't exist → plugin-missing hint.
-	_, err := parsePytestJSONReport("/tmp/nonexistent-b1-test.json", "pytest stdout here", "pytest ...")
+func TestParsePytestJSONReport_MissingReportIsInfrastructureDiagnostic(t *testing.T) {
+	stdout := "ImportError while loading conftest 'tests/conftest.py'\nModuleNotFoundError: No module named 'demo_dep'"
+	_, err := parsePytestJSONReport("/tmp/nonexistent-b1-test.json", stdout, "pytest ...")
 	if err == nil {
 		t.Fatal("should error when report file missing")
 	}
-	if !strings.Contains(err.Error(), "pytest-json-report") {
-		t.Errorf("error should hint at plugin install; got %q", err.Error())
+	msg := err.Error()
+	if !strings.Contains(msg, "pytest did not produce the requested JSON report") {
+		t.Errorf("error should describe missing report generically; got %q", msg)
+	}
+	if !strings.Contains(msg, "collection/import/startup") {
+		t.Errorf("error should include collection/import/startup diagnostic; got %q", msg)
+	}
+	if !strings.Contains(msg, "pytest-json-report") {
+		t.Errorf("error should still mention the plugin as one possible cause; got %q", msg)
 	}
 }
 
