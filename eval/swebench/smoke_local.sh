@@ -153,6 +153,26 @@ if 'return "bad"' not in patch or 'return "good"' not in patch:
     raise SystemExit("prediction patch does not contain the expected before/after lines")
 PY
 
+python3 - "$RESULTS" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    rows = [json.loads(line) for line in handle if line.strip()]
+row = rows[0]
+env = row.get("env_prepare") or {}
+if row.get("env_prepare_status") != "skipped" or env.get("status") != "skipped":
+    raise SystemExit(f"env prepare status not exported as skipped: row={row.get('env_prepare_status')!r} nested={env.get('status')!r}")
+if row.get("env_prepare_success") is not False or env.get("success") is not False:
+    raise SystemExit("env prepare success should be false for skipped local smoke")
+if row.get("env_prepare_env_available") is not False or env.get("env_available") is not False:
+    raise SystemExit("env prepare env_available should be false for skipped local smoke")
+if row.get("env_prepare_failed_step_names") != [] or env.get("failed_step_names") != []:
+    raise SystemExit("env prepare failed_step_names should be an empty list for skipped local smoke")
+if env.get("hard_gate") is not False:
+    raise SystemExit("env prepare telemetry must be observational, not a hard gate")
+PY
+
 DRY_RUN=1 PREDICTIONS_PATH="$PREDICTIONS" "$ROOT/eval/swebench/run_official_harness.sh" >/dev/null
 
 echo "local SWE-bench adapter smoke passed"

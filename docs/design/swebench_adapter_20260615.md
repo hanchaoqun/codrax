@@ -513,3 +513,13 @@ records adapter results.
   `patch_bytes=1555`). Local verify remained `unavailable` because the scoped
   pytest surface returned `no_tests_runners=['python']`, now exported as
   `verify_failure_kind=no_tests` for audit clarity.
+- 2026-06-16: Added stable SWE-bench environment telemetry after multi-instance
+  audit showed nested env-prep fields were hard to consume consistently. The
+  adapter now finalizes `env_prepare` with observational fields
+  `success`, `env_available`, `failure_kind`, `pytest_available`,
+  `pytest_json_report_available`, `import_probe_ok`, `import_roots`,
+  `venv_python`, `failed_step_names`, and `hard_gate=false`, and mirrors the
+  same data into top-level `results.jsonl` fields prefixed with
+  `env_prepare_`. This preserves the principle that missing pytest or partial
+  dependency setup is not a code-failure hard gate while giving eval dashboards
+  stable typed signals for environment quality.

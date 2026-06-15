@@ -63,10 +63,18 @@ build environment did not inherit that legacy compatibility, the adapter
 performs one bounded `--no-build-isolation` retry. Finally, a non-blocking import
 probe records whether discovered checkout import roots are usable in the venv.
 Environment setup failures never block prediction export; they leave the run
-unverified and the official harness remains the scoring authority. `results.jsonl`
-also includes Codrax's typed local verifier verdict (`verify_status`,
-`verify_failure_kind`, `verify_summary`, `verify_test_count`) plus plan audit
-fields (`plan_target_paths`, `plan_change_paths`, `plan_test_change_paths`,
+unverified and the official harness remains the scoring authority. `env_prepare`
+telemetry is stable both as a nested object and as top-level result fields:
+`env_prepare_status`, `env_prepare_success`, `env_prepare_env_available`,
+`env_prepare_failure_kind`, `env_prepare_pytest_available`,
+`env_prepare_pytest_json_report_available`, `env_prepare_import_probe_ok`,
+`env_prepare_import_roots`, `env_prepare_venv_python`, and
+`env_prepare_failed_step_names`. Those fields are observational only; missing
+pytest or partial dependency setup is not a hard code-failure gate.
+`results.jsonl` also includes Codrax's typed local verifier verdict
+(`verify_status`, `verify_failure_kind`, `verify_summary`,
+`verify_test_count`) plus plan audit fields (`plan_target_paths`,
+`plan_change_paths`, `plan_test_change_paths`,
 `plan_verification_probe_count`) so environment dead-ends and test-edit drift
 are auditable without being treated as code failures. When a
 `ChangePlan` carries `verification_probes[]`, Codrax runs those bounded typed

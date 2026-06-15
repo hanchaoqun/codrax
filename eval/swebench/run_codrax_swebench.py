@@ -461,6 +461,59 @@ def venv_bin_dir(venv_dir: Path) -> Path:
     return venv_dir / "bin"
 
 
+def env_prepare_failure_kind(status: str) -> str:
+    if status.startswith("failed_"):
+        return status.removeprefix("failed_")
+    if status == "partial":
+        return "project_setup_partial"
+    return ""
+
+
+def finalize_env_prepare_record(
+    record: dict[str, Any],
+    *,
+    status: str | None = None,
+    venv_dir: Path | None = None,
+    python: Path | None = None,
+) -> dict[str, Any]:
+    """Populate stable, typed telemetry fields for SWE-bench env setup.
+
+    These fields are intentionally observational. Prediction export and the
+    official harness path must keep moving even when the local verification
+    sandbox is partial or unavailable.
+    """
+
+    if status:
+        record["status"] = status
+    status = str(record.get("status") or "skipped")
+    if venv_dir is not None:
+        record["env_path"] = str(venv_dir)
+        record["venv_python"] = str(python or (venv_bin_dir(venv_dir) / "python"))
+    elif record.get("env_path") and not record.get("venv_python"):
+        record["venv_python"] = str(venv_bin_dir(Path(str(record["env_path"]))) / "python")
+
+    commands = [cmd for cmd in record.get("commands", []) if isinstance(cmd, dict)]
+    failed_steps = [
+        str(cmd.get("name") or "")
+        for cmd in commands
+        if str(cmd.get("name") or "") and (bool(cmd.get("timed_out")) or int(cmd.get("code") or 0) != 0)
+    ]
+    record["failed_step_names"] = failed_steps
+    record["failure_kind"] = env_prepare_failure_kind(status)
+    record["success"] = status == "ready"
+    record["env_available"] = bool(record.get("env_path"))
+    record["pytest_available"] = any(
+        cmd.get("name") == "install_pytest" and int(cmd.get("code") or 0) == 0 and not bool(cmd.get("timed_out"))
+        for cmd in commands
+    )
+    record["pytest_json_report_available"] = bool(record["pytest_available"])
+    roots = [str(item) for item in record.get("python_import_roots") or [] if str(item)]
+    record["import_roots"] = roots
+    record["import_probe_ok"] = record.get("import_probe_passed") if "import_probe_passed" in record else None
+    record["hard_gate"] = False
+    return record
+
+
 def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace) -> tuple[dict[str, str], dict[str, Any]]:
     """Best-effort Python verification environment for local Codrax runs.
 
@@ -475,10 +528,9 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         "commands": [],
     }
     if not args.prepare_python_env:
-        return {}, record
+        return {}, finalize_env_prepare_record(record, status="skipped")
     if not is_python_project(repo_dir):
-        record["status"] = "skipped_non_python"
-        return {}, record
+        return {}, finalize_env_prepare_record(record, status="skipped_non_python")
 
     venv_dir = inst_dir / "python-env"
     if venv_dir.exists():
@@ -510,13 +562,11 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
 
     created = step("create_venv", [sys.executable, "-m", "venv", str(venv_dir)])
     if created.code != 0 or created.timed_out:
-        record["status"] = "failed_create_venv"
-        return {}, record
+        return {}, finalize_env_prepare_record(record, status="failed_create_venv", venv_dir=venv_dir)
 
     python = venv_bin_dir(venv_dir) / "python"
     if not python.exists():
-        record["status"] = "failed_missing_python"
-        return {}, record
+        return {}, finalize_env_prepare_record(record, status="failed_missing_python", venv_dir=venv_dir, python=python)
 
     env_updates = {
         "VIRTUAL_ENV": str(venv_dir),
@@ -535,15 +585,11 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
 
     upgraded = step("upgrade_packaging", [str(python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
     if upgraded.code != 0 or upgraded.timed_out:
-        record["status"] = "failed_packaging"
-        record["env_path"] = str(venv_dir)
-        return env_updates, record
+        return env_updates, finalize_env_prepare_record(record, status="failed_packaging", venv_dir=venv_dir, python=python)
 
     pytest = step("install_pytest", pip_install_cmd("pytest<9", "pytest-json-report"))
     if pytest.code != 0 or pytest.timed_out:
-        record["status"] = "failed_pytest"
-        record["env_path"] = str(venv_dir)
-        return env_updates, record
+        return env_updates, finalize_env_prepare_record(record, status="failed_pytest", venv_dir=venv_dir, python=python)
     record["pkg_resources_available"] = ensure_legacy_pkg_resources("legacy_pkg_resources")
 
     project_failed = False
@@ -619,9 +665,8 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         record["import_probe_passed"] = probe.code == 0 and not probe.timed_out
         project_failed = project_failed or probe.code != 0 or probe.timed_out
 
-    record["status"] = "partial" if project_failed else "ready"
-    record["env_path"] = str(venv_dir)
-    return env_updates, record
+    status = "partial" if project_failed else "ready"
+    return env_updates, finalize_env_prepare_record(record, status=status, venv_dir=venv_dir, python=python)
 
 
 def build_request(instance: dict[str, Any], args: argparse.Namespace) -> str:
@@ -875,6 +920,16 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         result["base_commit_resolved"] = base
         env_updates, env_record = prepare_python_env(repo_dir, inst_dir, args)
         result["env_prepare"] = env_record
+        result["env_prepare_status"] = str(env_record.get("status") or "")
+        result["env_prepare_success"] = bool(env_record.get("success"))
+        result["env_prepare_env_available"] = bool(env_record.get("env_available"))
+        result["env_prepare_failure_kind"] = str(env_record.get("failure_kind") or "")
+        result["env_prepare_pytest_available"] = bool(env_record.get("pytest_available"))
+        result["env_prepare_pytest_json_report_available"] = bool(env_record.get("pytest_json_report_available"))
+        result["env_prepare_import_probe_ok"] = env_record.get("import_probe_ok")
+        result["env_prepare_import_roots"] = env_record.get("import_roots") or []
+        result["env_prepare_venv_python"] = str(env_record.get("venv_python") or "")
+        result["env_prepare_failed_step_names"] = env_record.get("failed_step_names") or []
         (inst_dir / "env_prepare.json").write_text(json.dumps(env_record, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         env_log = "\n\n".join(
             f"## {cmd.get('name')}\n$ {' '.join(cmd.get('cmd') or [])}\ncode={cmd.get('code')} timeout={cmd.get('timed_out')}\n{cmd.get('output_tail') or ''}"
