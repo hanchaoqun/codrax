@@ -89,6 +89,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 		*stepsUsed++
 		if err != nil {
 			if errors.Is(err, ErrCanceled) || errors.Is(err, context.Canceled) {
+				if o.publishAppliedPatchInterruptedGuidance(&run, o.busCtx.Mutable.ChangePlan(), err, "controller_dispatch_interrupted_after_applied_patch") {
+					o.persistWriteWorkflowRun(&run)
+				}
 				return err
 			}
 			var recovered bool
@@ -206,6 +209,10 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			if innerErr != nil {
 				lastInnerErr = innerErr
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
+				if o.publishAppliedPatchInterruptedGuidance(&run, plan, lastInnerErr, "plan_batch_interrupted_after_applied_patch") {
+					o.persistWriteWorkflowRun(&run)
+					return lastInnerErr
+				}
 				appendControllerProgress(&run, run.ActiveBatchID, "plan_batch_failed", lastInnerErr.Error())
 				o.persistWriteWorkflowRun(&run)
 				return lastInnerErr
@@ -702,6 +709,10 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 		priorPlan := o.busCtx.Mutable.ChangePlan()
 		o.prepareControllerPlanningState()
 		_, err := o.runControllerWriteStage(types.StagePlan, stepsUsed)
+		if err != nil && (errors.Is(err, ErrCanceled) || errors.Is(err, context.Canceled)) && changePlanHasAppliedWork(priorPlan) {
+			o.busCtx.Mutable.SetChangePlan(priorPlan)
+			return err
+		}
 		if err != nil && llm.IsStreamLevelRetryable(err) && transientUsed < o.transientRetryBudget {
 			sig := computeStallSignature(o.busCtx.Mutable.DispatchToolResults(), nil, types.StagePlan)
 			if transientHardPlateauEligible(err, sig) && sig == lastStallSignature {
@@ -997,6 +1008,148 @@ func changePlanHasAppliedWork(plan *types.ChangePlan) bool {
 		}
 	}
 	return false
+}
+
+func (o *Orchestrator) publishAppliedPatchInterruptedGuidance(run *types.WriteWorkflowRun, plan *types.ChangePlan, err error, reasonCode string) bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || plan == nil {
+		return false
+	}
+	if !changePlanHasAppliedWork(plan) {
+		return false
+	}
+	msg := o.appliedPatchInterruptedMessage(run, plan, o.busCtx.Mutable.ChangeReport(), err)
+	if strings.TrimSpace(msg) == "" {
+		return false
+	}
+	o.busCtx.Mutable.SetResultPlain(msg)
+	o.busCtx.TaskState.LastError = msg
+	appendControllerProgress(run, run.ActiveBatchID, reasonCode, "applied patch preserved; workflow interrupted before a replacement plan or terminal finish")
+	return true
+}
+
+func (o *Orchestrator) appliedPatchInterruptedMessage(run *types.WriteWorkflowRun, plan *types.ChangePlan, report *types.ChangeReport, err error) string {
+	zh := false
+	if o != nil && o.busCtx != nil {
+		zh = isChineseLang(o.busCtx.Language)
+	}
+	planID := strings.TrimSpace(plan.ID)
+	if planID == "" {
+		planID = "active"
+	}
+	status := strings.TrimSpace(plan.Status)
+	if status == "" {
+		status = "applied"
+	}
+	ref := ""
+	if plan.ID != "" {
+		ref = "refs/codrax/applied/" + plan.ID
+	}
+	verifyLine := appliedPatchVerifyLine(report, plan, zh)
+	interrupt := ""
+	if err != nil {
+		interrupt = strings.TrimSpace(err.Error())
+	}
+	var b strings.Builder
+	if zh {
+		b.WriteString("写模式已中断，但当前补丁已经应用并保留；不会把这次结果报告成“没有生成 ChangePlan”。\n")
+		fmt.Fprintf(&b, "- plan: `%s`\n", planID)
+		fmt.Fprintf(&b, "- plan status: `%s`\n", status)
+		if ref != "" {
+			fmt.Fprintf(&b, "- recovery ref: `%s`，可在主仓执行 `git cherry-pick %s` 取回补丁\n", ref, ref)
+		}
+		if wt := strings.TrimSpace(plan.WorktreePath); wt != "" {
+			fmt.Fprintf(&b, "- worktree: `%s`\n", wt)
+		}
+		if verifyLine != "" {
+			b.WriteString("- 最新验证: " + verifyLine + "\n")
+		}
+		if interrupt != "" {
+			b.WriteString("- 中断原因: " + interrupt + "\n")
+		}
+		if run != nil && strings.TrimSpace(run.RunID) != "" {
+			fmt.Fprintf(&b, "- 工作流详情: REPL 中 `/workflow show %s`\n", run.RunID)
+		}
+		b.WriteString("后续可以继续同一目标让 controller 重新规划失败点，或先取回上面的 recovery ref。")
+		return strings.TrimSpace(b.String())
+	}
+	b.WriteString("Write mode was interrupted, but the current patch was already applied and preserved; this run is not being reported as an empty ChangePlan.\n")
+	fmt.Fprintf(&b, "- plan: `%s`\n", planID)
+	fmt.Fprintf(&b, "- plan status: `%s`\n", status)
+	if ref != "" {
+		fmt.Fprintf(&b, "- recovery ref: `%s`; recover with `git cherry-pick %s` from the main repo\n", ref, ref)
+	}
+	if wt := strings.TrimSpace(plan.WorktreePath); wt != "" {
+		fmt.Fprintf(&b, "- worktree: `%s`\n", wt)
+	}
+	if verifyLine != "" {
+		b.WriteString("- latest verification: " + verifyLine + "\n")
+	}
+	if interrupt != "" {
+		b.WriteString("- interruption: " + interrupt + "\n")
+	}
+	if run != nil && strings.TrimSpace(run.RunID) != "" {
+		fmt.Fprintf(&b, "- workflow details: `/workflow show %s` in the REPL\n", run.RunID)
+	}
+	b.WriteString("Continue the same goal to let the controller replan the failed point, or recover the patch from the ref above.")
+	return strings.TrimSpace(b.String())
+}
+
+func appliedPatchVerifyLine(report *types.ChangeReport, plan *types.ChangePlan, zh bool) string {
+	if report != nil {
+		if report.Passed {
+			if zh {
+				return "通过"
+			}
+			return "passed"
+		}
+		parts := []string{}
+		if report.FailureKind != "" {
+			parts = append(parts, string(report.FailureKind))
+		}
+		if report.BuildFailed {
+			parts = append(parts, "build_failed")
+		}
+		if len(report.NoTestsRunners) > 0 {
+			parts = append(parts, "unverified")
+		}
+		summary := truncateInline(strings.TrimSpace(report.FailureSummary), 240)
+		if len(parts) == 0 {
+			parts = append(parts, "failed")
+		}
+		if summary != "" {
+			return strings.Join(parts, "/") + ": " + summary
+		}
+		return strings.Join(parts, "/")
+	}
+	switch strings.TrimSpace(plan.Status) {
+	case types.PlanStatusVerifyFailed:
+		if zh {
+			return "未通过"
+		}
+		return "failed"
+	case types.PlanStatusUnverified:
+		if zh {
+			return "环境/测试不可用，代码补丁已保留"
+		}
+		return "unverified because the local verify environment or test surface was unavailable"
+	case types.PlanStatusApplied:
+		if zh {
+			return "通过"
+		}
+		return "passed"
+	}
+	return ""
+}
+
+func truncateInline(s string, max int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return s[:max]
+	}
+	return strings.TrimSpace(s[:max-3]) + "..."
 }
 
 func changePlanAllDeclaredChangesApplied(plan *types.ChangePlan) bool {

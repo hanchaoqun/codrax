@@ -235,6 +235,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return *decodeFailure, err
 		}
 	}
+	if rej := validateRunTestsSuiteSelector(p.Suite); rej != "" {
+		return errResult(t.Name(), rej), nil
+	}
 
 	// Module E: plan-stage dry-run probes run against MainRepoRoot
 	// (no worktree provisioned in plan-only mode); reports flow to a
@@ -874,6 +877,19 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func validateRunTestsSuiteSelector(suite string) string {
+	selector := strings.TrimSpace(suite)
+	if selector == "" {
+		return ""
+	}
+	for _, tok := range strings.Fields(selector) {
+		if strings.HasPrefix(tok, "-") {
+			return fmt.Sprintf("run_tests rejected: suite=%q contains CLI option token %q. The `suite` field is a test selector only; remove runner flags from `suite` so the executor can build the command from typed parameters.", suite, tok)
+		}
+	}
+	return ""
 }
 
 func shouldAttemptPytestTextFallback(plan runnerPlan) bool {

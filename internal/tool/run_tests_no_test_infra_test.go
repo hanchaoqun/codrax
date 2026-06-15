@@ -268,6 +268,33 @@ func TestRunTestsDryRunProbe_ModeApplyStagePlanDoesNotPolluteChangeReport(t *tes
 	}
 }
 
+func TestRunTestsRejectsSuiteWithEmbeddedCLIFlags(t *testing.T) {
+	mu := types.NewMutableState("suite flag rejection")
+	ctx := &types.BusContext{Mutable: mu}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+		"suite":  "tests/test_sample.py::test_thing -v",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("suite with embedded flag must be rejected, got %+v", result)
+	}
+	if !strings.Contains(result.Summary, "contains CLI option token") || !strings.Contains(result.Summary, "-v") {
+		t.Fatalf("rejection should name the typed suite flag problem, got %q", result.Summary)
+	}
+	if got := mu.ChangeReport(); got != nil {
+		t.Fatalf("parameter rejection must not install verify ChangeReport, got %+v", got)
+	}
+}
+
+func TestValidateRunTestsSuiteSelector_AllowsSpacedTestName(t *testing.T) {
+	if got := validateRunTestsSuiteSelector("renders empty state"); got != "" {
+		t.Fatalf("spaced test-name selectors should remain valid; got %q", got)
+	}
+}
+
 func TestRunTestsDryRunFlagIgnoredOutsideStagePlan(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not available on PATH")

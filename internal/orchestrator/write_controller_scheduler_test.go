@@ -2962,6 +2962,112 @@ func TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify(
 	}
 }
 
+func TestRunWriteControllerWorkflow_ReplanCancelReportsAppliedPatch(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("interrupted after applied patch")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "repair already applied"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, ReasonCode: "initial", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "initial"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "apply"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "verify"},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "repair", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair"}},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}, Language: "en"}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(2)
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		*stepsUsed++
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			if planCalls == 1 {
+				mu.SetChangePlan(&types.ChangePlan{
+					ID:          "plan-applied-then-canceled",
+					Status:      types.PlanStatusPending,
+					Summary:     "first repair",
+					TargetPaths: []string{"src/fix.py"},
+					Changes: []types.FileChange{{
+						Path:       "src/fix.py",
+						Kind:       "modify",
+						NewContent: "def fixed():\n    return True\n",
+					}},
+				})
+				return &agent.StageOutput{}, nil
+			}
+			return nil, context.Canceled
+		case types.StageApply:
+			plan := mu.ChangePlan()
+			if plan == nil {
+				t.Fatal("apply stage needs active plan")
+			}
+			plan.WorktreePath = t.TempDir()
+			plan.AppliedCommitSHA = "sha-applied"
+			for i := range plan.Changes {
+				plan.Changes[i].Apply = &types.FileChangeApplyRecord{Status: "applied"}
+			}
+			mu.SetChangePlan(plan)
+			return &agent.StageOutput{}, nil
+		case types.StageVerify:
+			plan := mu.ChangePlan()
+			if plan == nil {
+				t.Fatal("verify stage needs active plan")
+			}
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:         plan.ID,
+				Passed:         false,
+				FailureKind:    types.FailureKindTestsFailed,
+				FailureSummary: "targeted regression failed",
+				TestResults: []types.TestResult{{
+					Kind:        types.TestResultKindUnit,
+					AssertionID: "test_fix",
+					Suite:       "tests/test_fix.py",
+					Passed:      false,
+				}},
+			})
+			return &agent.StageOutput{}, nil
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("run should preserve cancellation error, got %v", err)
+	}
+	restored := mu.ChangePlan()
+	if restored == nil || restored.ID != "plan-applied-then-canceled" {
+		t.Fatalf("applied prior plan must be restored after interrupted replan, got %+v", restored)
+	}
+	result := mu.Result()
+	for _, want := range []string{
+		"already applied and preserved",
+		"plan-applied-then-canceled",
+		"refs/codrax/applied/plan-applied-then-canceled",
+		"latest verification: failed",
+	} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("result missing %q:\n%s", want, result)
+		}
+	}
+	if !mu.ResultIsPlain() {
+		t.Fatal("interrupted applied-patch guidance must be plain text")
+	}
+	if !strings.Contains(o.busCtx.TaskState.LastError, "already applied and preserved") {
+		t.Fatalf("LastError should surface applied-patch guidance, got %q", o.busCtx.TaskState.LastError)
+	}
+	if store.last == nil || !workflowProgressHasReason(store.last.ProgressLedger, "plan_batch_interrupted_after_applied_patch") {
+		t.Fatalf("progress ledger should record interrupted applied patch, got %+v", store.last)
+	}
+}
+
 func TestRunControllerPlanBatch_NoPlanWithoutHandoffStaysTerminal(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("no plan terminal")

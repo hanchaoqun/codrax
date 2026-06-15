@@ -2825,12 +2825,33 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - [x] Wrap Python verification probes with typed outcome JSON and classify import/syntax failures as `parser_error`.
   - [x] Normalize unverified verify attempt reason codes before workflow persistence.
   - [x] Update `docs/user_guide.md` and `docs/user_guide.html`.
-- Remaining hardening backlog:
-  - [ ] Add write-analyzer typed convergence watchdog so it emits `WriteAnalysisIR` once enough source anchors/risk/scope fields are known, instead of spending a full attempt on planner-level root cause analysis.
-  - [ ] Harden planner dry-run test selectors so command flags such as `-v` are modeled as typed options or rejected before being concatenated into a suite selector.
-  - [ ] Improve wall-time salvage UX: if a verified-failed replan times out after an applied plan exists and a patch is exportable, final user messaging should report the saved patch and verification status, not the generic no-plan guidance.
+- Follow-up hardening backlog from final2:
+  - [x] Add write-analyzer convergence cap so it cannot spend a full analyzer attempt on planner-level root cause analysis before emitting `WriteAnalysisIR`.
+  - [x] Harden planner dry-run test selectors so command flags such as `-v` are rejected before being concatenated into a suite selector.
+  - [x] Improve wall-time/cancel salvage UX: if a verified-failed replan is interrupted after an applied plan exists, final user messaging reports the preserved patch and verification status, not generic no-plan guidance.
 - Verification:
   - Focused tests passed for probe import-error classification, controller plan emit retry, completed-exploration cap, and mixed no-tests aggregate no-replan.
   - SWE-bench Sphinx single rerun after emit-retry fix: `status=predicted`, `patch_bytes=1905`, `empty_patch=0`, official harness dry-run accepted the generated command.
   - SWE-bench Sphinx final2 rerun after budget/no-plan-progress fixes: `status=predicted`, `patch_bytes=1892`, `empty_patch=0`, official harness dry-run accepted the generated command. Local verify reached a real test verdict (`31 total, 30 passed, 1 failed`) and triggered typed `replan_batch`, proving failure evidence handoff is active.
   - Full regression and final push are tracked in the progress ledger for the implementation commit that follows this section.
+
+## 2026-06-15 Write-mode convergence and interrupted-patch follow-up
+
+- Evidence source:
+  - The SWE-bench Sphinx final2 run exposed three generalized controller/tool gaps after a patch had already been produced: `write_analyzer` inherited the global 20-iteration budget even though its role is only to emit the typed `WriteAnalysisIR`; planner dry-run passed `suite="... -v"` into `run_tests`, letting an execution flag masquerade as a selector; and cancellation/wall-time during replan surfaced generic no-plan guidance even though the applied patch was recoverable.
+- Generalized fixes delivered:
+  - `write_analyzer` is now a bounded classifier with a hard six-iteration cap. Heavy source investigation remains available through controller `explore_code` nodes, so the system gives the model flexibility in the DAG without letting the seed-classifier consume the whole turn.
+  - `run_tests` now validates the typed `suite` parameter before runner dispatch. CLI option tokens such as `-v` / `--maxfail` are rejected as parameter-shape errors instead of being concatenated into pytest node-ids or unittest selectors. Test names containing ordinary spaces remain valid.
+  - Controller replan cancellation now restores the previously applied `ChangePlan` before returning and publishes plain-text recovery guidance with plan id, `refs/codrax/applied/<plan-id>`, worktree path when available, and latest verification status. The cancellation error still propagates; the UX no longer hides preserved work behind an empty-plan final message.
+- Prompt and red-line notes:
+  - Hard routing continues to read only typed artifacts: agent iteration caps, JSON tool parameters, `ChangePlan` status/applied fields, `ChangeReport` fields, controller action enums, and workflow progress records.
+  - No user intent keywords, model prose, rationale, issue text, `<think>`, or natural-language summary drives the new behavior. Prompt text remains soft guidance only.
+- Implementation tasks:
+  - [x] Cap `NewWriteAnalyzerAgent` inherited ReAct budget and test cap/lower-budget preservation.
+  - [x] Add `run_tests` suite selector validator and tests for embedded CLI flags plus spaced test-name allowance.
+  - [x] Restore applied prior plan on interrupted replan and publish durable recovery guidance.
+  - [x] Add controller regression test for applied patch + failed verify + interrupted replan.
+  - [x] Update `docs/user_guide.md` and `docs/user_guide.html`.
+- Verification:
+  - Focused tests passed: `go test ./internal/agent -run 'TestNewWriteAnalyzerAgent|TestWriteAnalyzer_BuildInitialInstruction'`; `go test ./internal/tool -run 'TestRunTestsRejectsSuiteWithEmbeddedCLIFlags|TestValidateRunTestsSuiteSelector_AllowsSpacedTestName'`; `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ReplanCancelReportsAppliedPatch'`.
+  - Full package regression and final push are tracked by the implementation commit following this section.

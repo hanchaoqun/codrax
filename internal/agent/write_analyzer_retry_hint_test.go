@@ -54,3 +54,19 @@ func TestWriteAnalyzer_BuildInitialInstruction_NilSafe(t *testing.T) {
 		t.Errorf("nil mutable should yield empty supplement; got %q", got)
 	}
 }
+
+func TestNewWriteAnalyzerAgent_CapsMaxIterations(t *testing.T) {
+	deps := &Dependencies{MaxIterations: 100}
+	a := NewWriteAnalyzerAgent(deps).(*writeAnalyzer)
+	if a.base.deps.MaxIterations != writeAnalyzerIterCap {
+		t.Fatalf("MaxIterations = %d, want capped %d", a.base.deps.MaxIterations, writeAnalyzerIterCap)
+	}
+}
+
+func TestNewWriteAnalyzerAgent_PreservesLowerMaxIterations(t *testing.T) {
+	deps := &Dependencies{MaxIterations: 3}
+	a := NewWriteAnalyzerAgent(deps).(*writeAnalyzer)
+	if a.base.deps.MaxIterations != 3 {
+		t.Fatalf("MaxIterations = %d, want explicit lower cap 3", a.base.deps.MaxIterations)
+	}
+}

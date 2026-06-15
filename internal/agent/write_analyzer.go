@@ -124,17 +124,20 @@ func (a *writeAnalyzer) Execute(ctx *types.AgentContext, sk *skill.Config) (*Sta
 	return a.base.Execute(ctx, sk)
 }
 
+const writeAnalyzerIterCap = 6
+
 // NewWriteAnalyzerAgent constructs the write_analyzer with a
-// BaseAgent ReAct loop. settings inherited from deps.AgentSettings
-// (the iter-cap for this agent reuses the analyzer's range; the
-// write analyzer's pre-scan is structurally similar — 1-2 rounds of
-// read_file / list_files / repo_map plus the emit call).
+// BaseAgent ReAct loop. The write analyzer is a bounded classifier,
+// not the heavy code exploration lane; deeper investigation belongs
+// to the controller's explore_code action after a durable workflow
+// batch exists. Cap the inherited global ReAct budget so the first
+// attempt cannot spend the full analyzer budget on planner-level root
+// cause work before emit_write_analysis has even produced the typed
+// seed.
 func NewWriteAnalyzerAgent(deps *Dependencies) Agent {
 	d := *deps
-	// Borrow the analyzer's iter-cap as a sane default — the write
-	// analyzer does the same shape of pre-scan + emit work.
-	if d.MaxIterations == 0 {
-		d.MaxIterations = 6
+	if d.MaxIterations == 0 || d.MaxIterations > writeAnalyzerIterCap {
+		d.MaxIterations = writeAnalyzerIterCap
 	}
 	eval := &writeAnalyzerEvaluator{}
 	base := NewBaseAgent(types.AgentWriteAnalyzer, &d, eval)
