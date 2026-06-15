@@ -7994,11 +7994,8 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 				if effectiveCurrent <= 0 {
 					effectiveCurrent = base
 				}
-				if adjustedCap, ok := clampPlannerSoftCapForCompletedExploration(base, current); ok {
-					agentCtx.PlannerSoftIterCapOverride = adjustedCap
-					logging.Debug("[orchestrator] planner convergence cap: usable exploration handoff for active write batch, soft cap %d → %d",
-						effectiveCurrent, adjustedCap)
-				}
+				logging.Debug("[orchestrator] planner convergence budget: usable exploration handoff for active write batch, preserving soft cap %d",
+					plannerSoftCapForCompletedExploration(base, current, effectiveCurrent))
 			}
 			// Stage 3: inject relevant Failure Taxonomy entries
 			// the planner should regard before emitting. The

@@ -358,6 +358,65 @@ func TestRunTestsNoTestWorkUsesVerificationProbeVerdict(t *testing.T) {
 	}
 }
 
+func TestRunTestsVerificationProbeImportErrorIsParserError(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe import error")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-import",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "missing_dependency",
+			Language: "python",
+			Code:     "import definitely_missing_codrax_probe_dependency\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("import-error verification_probe must not pass run_tests, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	}
+	if len(report.TestResults) != 1 || report.TestResults[0].AssertionID != "missing_dependency" || report.TestResults[0].Passed {
+		t.Fatalf("verification probe result missing or wrong: %+v", report.TestResults)
+	}
+	if !strings.Contains(report.TestResults[0].FailureDetail, "structured outcome: import_error") {
+		t.Fatalf("failure detail should include structured import_error outcome, got: %s", report.TestResults[0].FailureDetail)
+	}
+	foundParserErrorCommand := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "no_tests_verification_probe" {
+			foundParserErrorCommand = true
+		}
+	}
+	if !foundParserErrorCommand {
+		t.Fatalf("executed command evidence should include parser_error probe outcome, got %+v", report.ExecutedCommands)
+	}
+}
+
 func TestRenderVerificationProbeOutputCarriesProbeSource(t *testing.T) {
 	out := renderVerificationProbeOutput([]types.VerificationProbe{{
 		ID:             "punctuation_note",

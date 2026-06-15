@@ -23,7 +23,6 @@ const (
 	defaultWriteWorkflowMaxBatches           = 5
 	defaultWriteWorkflowMaxExplorationRounds = 2
 	defaultWriteWorkflowMaxAskUserPerBatch   = 1
-	completedExplorationPlannerSoftCap       = 3
 )
 
 var errPlannerProbePassedExistingWorktree = errors.New("planner probe passed existing applied worktree")
@@ -695,7 +694,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 		o.seedControllerBatchExplorationContext(*batch)
 	}
 	transientUsed := 0
-	noPlanRetried := false
+	noPlanRetryCount := 0
 	offScopeRiskReplanRetried := false
 	testContractReplanRetried := false
 	lastStallSignature := ""
@@ -753,12 +752,17 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			return errPlannerProbePassedExistingWorktree
 		}
 		// A planning round that ends with no ChangePlan installed is not
-		// terminal on its first occurrence while typed planning context is
-		// waiting: grant exactly one re-dispatch whose planning hint cites the
-		// empty round. The condition reads typed state only (no plan installed
-		// + handoff or batch/write-analysis anchors), never the error text.
-		if !noPlanRetried && o.busCtx.Mutable.ChangePlan() == nil && controllerNoPlanRetryEligible(o.busCtx.Mutable, batch) {
-			noPlanRetried = true
+		// immediately terminal while typed planning context is waiting:
+		// grant bounded re-dispatches whose planning hint cites the empty
+		// round. A second re-dispatch is reserved for structured plan-emit
+		// validation failures (for example duplicate FileChange entries or
+		// old_text mismatch). The condition reads typed state/tool results
+		// only, never model prose.
+		rejection := lastPlanEmitRejectionSummary(o.busCtx.Mutable.DispatchToolResults())
+		if o.busCtx.Mutable.ChangePlan() == nil &&
+			noPlanRetryCount < controllerNoPlanRetryBudget(o.busCtx.Mutable, batch, rejection) &&
+			controllerNoPlanRetryEligible(o.busCtx.Mutable, batch) {
+			noPlanRetryCount++
 			o.busCtx.TaskState.LastError = ""
 			hint := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
 			if hint != "" {
@@ -774,11 +778,12 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			if controllerHasBatchOrAnalysisAnchors(o.busCtx.Mutable, batch) {
 				hint += " Use the batch expected paths and WriteAnalysisIR scope anchors as the source boundary; only call read_file for exact current bytes or line ranges needed to construct the patch."
 			}
-			if rejection := lastPlanEmitRejectionSummary(o.busCtx.Mutable.DispatchToolResults()); rejection != "" {
+			if rejection != "" {
 				hint += "\n\nThe previous round's plan emit was rejected by validation with this exact reason — correct it in the re-emit:\n" + rejection
 			}
 			o.busCtx.Mutable.SetPlanningHint(hint)
-			logging.Warning("[orchestrator] controller planning round produced no plan; granting one re-dispatch with typed planning context")
+			logging.Warning("[orchestrator] controller planning round produced no plan; granting re-dispatch %d/%d with typed planning context",
+				noPlanRetryCount, controllerNoPlanRetryBudget(o.busCtx.Mutable, batch, rejection))
 			continue
 		}
 		if err != nil {
@@ -817,6 +822,39 @@ func controllerNoPlanRetryEligible(mu *types.MutableState, batch *writeflow.Writ
 		return true
 	}
 	return controllerHasBatchOrAnalysisAnchors(mu, batch)
+}
+
+func controllerNoPlanRetryBudget(mu *types.MutableState, batch *writeflow.WriteBatchPlan, latestEmitRejection string) int {
+	if !controllerNoPlanRetryEligible(mu, batch) {
+		return 0
+	}
+	// One empty planning round is often a harmless exploration spillover.
+	// Give one additional bounded retry when the latest round produced
+	// successful read-only tool observations: the planner is still turning
+	// typed handoff into exact bytes, not free-running on prose. Structured
+	// emit validation failures get the same second correction dispatch.
+	// Inputs are tool-result records only.
+	if strings.TrimSpace(latestEmitRejection) != "" {
+		return 2
+	}
+	if planningRoundHasReadOnlyProgress(mu.DispatchToolResults()) {
+		return 2
+	}
+	return 1
+}
+
+func planningRoundHasReadOnlyProgress(results []types.ToolResult) bool {
+	for i := len(results) - 1; i >= 0; i-- {
+		r := results[i]
+		if !r.Success {
+			continue
+		}
+		switch types.CanonicalToolName(r.ToolName) {
+		case "read_file", "grep", "list_files", "repo_map", "git_diff", "git_log", "git_history_search":
+			return true
+		}
+	}
+	return false
 }
 
 func controllerHasBatchOrAnalysisAnchors(mu *types.MutableState, batch *writeflow.WriteBatchPlan) bool {
@@ -1882,18 +1920,14 @@ func writeExplorationHandoffHasPlanningMaterial(handoff *types.WriteExplorationH
 		len(normalized.EvidenceRefs) > 0
 }
 
-func clampPlannerSoftCapForCompletedExploration(base, current int) (int, bool) {
-	convergeCap := completedExplorationPlannerSoftCap
-	if base > 0 && base < convergeCap {
-		convergeCap = base
+func plannerSoftCapForCompletedExploration(base, current, effectiveCurrent int) int {
+	if effectiveCurrent > 0 {
+		return effectiveCurrent
 	}
-	if current <= 0 {
-		current = base
+	if current > 0 {
+		return current
 	}
-	if current > convergeCap {
-		return convergeCap, true
-	}
-	return current, false
+	return base
 }
 
 func askUserInterruptionsForBatch(run *types.WriteWorkflowRun, batchID string) int {
@@ -2169,6 +2203,15 @@ func writeWorkflowVerifyAttemptStatus(report *types.ChangeReport, err error) str
 func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) string {
 	if report == nil {
 		return "missing_report"
+	}
+	if reportIndicatesVerificationUnavailable(report) {
+		switch report.FailureKind {
+		case types.FailureKindRunnerMissing, types.FailureKindParserError:
+			return string(report.FailureKind)
+		}
+		if len(report.NoTestsRunners) > 0 {
+			return "no_tests"
+		}
 	}
 	switch report.FailureKind {
 	case types.FailureKindRunnerMissing, types.FailureKindParserError, types.FailureKindTimeout, types.FailureKindOOM,

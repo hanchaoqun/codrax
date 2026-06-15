@@ -363,24 +363,25 @@ func TestSeedControllerBatchPlanningHint_DegradedExplorationHandoffConverges(t *
 	}
 }
 
-func TestClampPlannerSoftCapForCompletedExploration(t *testing.T) {
+func TestPlannerSoftCapForCompletedExplorationPreservesScaledBudget(t *testing.T) {
 	cases := []struct {
-		name        string
-		base        int
-		current     int
-		want        int
-		wantChanged bool
+		name             string
+		base             int
+		current          int
+		effectiveCurrent int
+		want             int
 	}{
-		{name: "scaled cap is clamped", base: 6, current: 13, want: 3, wantChanged: true},
-		{name: "zero current uses base then clamps", base: 6, current: 0, want: 3, wantChanged: true},
-		{name: "low configured base is not raised", base: 2, current: 9, want: 2, wantChanged: true},
-		{name: "already within cap", base: 6, current: 2, want: 2, wantChanged: false},
+		{name: "scaled cap is preserved", base: 6, current: 13, effectiveCurrent: 13, want: 13},
+		{name: "zero current logs base", base: 6, current: 0, effectiveCurrent: 6, want: 6},
+		{name: "low configured override is preserved", base: 6, current: 2, effectiveCurrent: 2, want: 2},
+		{name: "fallback uses current", base: 6, current: 9, effectiveCurrent: 0, want: 9},
+		{name: "final fallback uses base", base: 6, current: 0, effectiveCurrent: 0, want: 6},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			got, changed := clampPlannerSoftCapForCompletedExploration(tt.base, tt.current)
-			if got != tt.want || changed != tt.wantChanged {
-				t.Fatalf("clamp = (%d,%v), want (%d,%v)", got, changed, tt.want, tt.wantChanged)
+			got := plannerSoftCapForCompletedExploration(tt.base, tt.current, tt.effectiveCurrent)
+			if got != tt.want {
+				t.Fatalf("plannerSoftCapForCompletedExploration = %d, want %d", got, tt.want)
 			}
 		})
 	}
@@ -2675,6 +2676,173 @@ func TestRunControllerPlanBatch_NoPlanAfterExplorationHandoffGetsOneRetry(t *tes
 	}
 }
 
+func TestRunControllerPlanBatch_ReadOnlyProgressGetsSecondRetry(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("no plan retry while planner is still reading exact bytes")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "symptom-driven repair"}}})
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		Goal:        "repair localized parser behavior",
+		TargetFiles: []string{"src/parser.py", "tests/test_parser.py"},
+		EvidenceRefs: []types.WriteExplorationEvidenceRef{{
+			ID:        "evidence-parser",
+			Kind:      "source",
+			Source:    "src/parser.py",
+			LineStart: 41,
+			LineEnd:   73,
+			Summary:   "typed exploration points at option normalization",
+		}},
+		Confidence: "medium",
+	})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		*stepsUsed++
+		mu.ResetDispatchToolResults()
+		switch planCalls {
+		case 1:
+			mu.AppendDispatchToolResult(types.ToolResult{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[src/parser.py: showing lines 40-80 of 160 total]\ncode",
+			})
+			return &agent.StageOutput{Error: "no change plan was produced this round"}, nil
+		case 2:
+			hint := mu.PlanningHint()
+			if !strings.Contains(hint, "previous planning round ended without a stored change plan") {
+				t.Fatalf("first retry hint must cite the empty round, got %q", hint)
+			}
+			mu.AppendDispatchToolResult(types.ToolResult{
+				ToolName: "grep",
+				Success:  true,
+				Summary:  "tests/test_parser.py:12: assert parse_option",
+			})
+			return &agent.StageOutput{Error: "no change plan was produced this round"}, nil
+		default:
+			hint := mu.PlanningHint()
+			if !strings.Contains(hint, "exploration findings") {
+				t.Fatalf("second retry hint should still preserve exploration handoff, got %q", hint)
+			}
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-read-progress-retry",
+				Status:      types.PlanStatusPending,
+				Summary:     "repair localized parser behavior",
+				TargetPaths: []string{"src/parser.py"},
+				Changes: []types.FileChange{{
+					Path: "src/parser.py",
+					Kind: "patch",
+					Edits: []types.StructuredEdit{{
+						Kind:    "replace",
+						OldText: "old",
+						Content: "new",
+					}},
+				}},
+			})
+			return &agent.StageOutput{}, nil
+		}
+	}
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair parser behavior"}, &steps); err != nil {
+		t.Fatalf("read-only planning progress should receive a bounded second retry, got %v", err)
+	}
+	if planCalls != 3 {
+		t.Fatalf("plan stage calls = %d, want 3 (initial + two bounded retries)", planCalls)
+	}
+	if mu.ChangePlan() == nil {
+		t.Fatal("second retry round should have installed the plan")
+	}
+}
+
+func TestRunControllerPlanBatch_PlanEmitRejectionGetsSecondRetry(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("plan emit rejection retry")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "symptom-driven repair"}}})
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		TargetFiles: []string{"sphinx/ext/autodoc/typehints.py"},
+		EvidenceRefs: []types.WriteExplorationEvidenceRef{{
+			ID:      "evidence-1",
+			Kind:    "source",
+			Source:  "sphinx/ext/autodoc/typehints.py",
+			Summary: "typed evidence identifies field-list handling",
+		}},
+		Confidence: "medium",
+	})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		*stepsUsed++
+		mu.ResetDispatchToolResults()
+		switch planCalls {
+		case 1:
+			mu.AppendDispatchToolResult(types.ToolResult{
+				ToolName: "emit_change_plan",
+				Success:  false,
+				Summary:  `emit_change_plan rejected: duplicate change for path "sphinx/ext/autodoc/typehints.py"`,
+			})
+			return &agent.StageOutput{Error: "the proposed change plan was rejected"}, nil
+		case 2:
+			hint := mu.PlanningHint()
+			if !strings.Contains(hint, "duplicate change") {
+				t.Fatalf("first retry hint must carry latest emit rejection, got %q", hint)
+			}
+			mu.AppendDispatchToolResult(types.ToolResult{
+				ToolName: "emit_change_plan",
+				Success:  false,
+				Summary:  `emit_change_plan rejected: structured edit builder: old_text mismatch`,
+			})
+			return &agent.StageOutput{Error: "the proposed change plan was rejected"}, nil
+		default:
+			hint := mu.PlanningHint()
+			if !strings.Contains(hint, "old_text mismatch") {
+				t.Fatalf("second retry hint must carry latest emit rejection, got %q", hint)
+			}
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-emit-retry",
+				Status:      types.PlanStatusPending,
+				Summary:     "repair localized typehint handling",
+				TargetPaths: []string{"sphinx/ext/autodoc/typehints.py"},
+				Changes: []types.FileChange{{
+					Path: "sphinx/ext/autodoc/typehints.py",
+					Kind: "patch",
+					Edits: []types.StructuredEdit{{
+						Kind:    "replace",
+						OldText: "old",
+						Content: "new",
+					}},
+				}},
+			})
+			return &agent.StageOutput{}, nil
+		}
+	}
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair autodoc typehints"}, &steps); err != nil {
+		t.Fatalf("structured emit rejection should receive a bounded second retry, got %v", err)
+	}
+	if planCalls != 3 {
+		t.Fatalf("plan stage calls = %d, want 3 (initial + two bounded retries)", planCalls)
+	}
+	if mu.ChangePlan() == nil {
+		t.Fatal("second retry round should have installed the plan")
+	}
+}
+
 func TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("probe pass no-op replan")
@@ -3375,7 +3543,13 @@ func TestRunWriteControllerWorkflow_NoTestsDoesNotReplan(t *testing.T) {
 			mu.SetChangePlan(&types.ChangePlan{ID: "plan-no-tests", Status: types.PlanStatusPending, Summary: "script", TargetPaths: []string{"tool.py"}})
 		case types.StageVerify:
 			verifyCalls++
-			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-no-tests", Passed: true, NoTestsRunners: []string{"python"}})
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:         "plan-no-tests",
+				Passed:         false,
+				FailureSummary: "fallback unittest loader errors after zero pytest collection",
+				FailureKind:    types.FailureKindTestsFailed,
+				NoTestsRunners: []string{"python"},
+			})
 		}
 		*stepsUsed++
 		return &agent.StageOutput{}, nil

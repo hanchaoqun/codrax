@@ -3,6 +3,8 @@ package tool
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +21,57 @@ type verificationProbeRunResult struct {
 	Output   string
 	Commands []types.ExecutedCommand
 }
+
+type pythonVerificationProbeStatus struct {
+	Outcome   string `json:"outcome,omitempty"`
+	Exception string `json:"exception,omitempty"`
+	ExitCode  int    `json:"exit_code,omitempty"`
+}
+
+const pythonVerificationProbeWrapper = `
+import base64
+import json
+import os
+import sys
+import traceback
+
+result_path = os.environ.get("CODRAX_VERIFICATION_PROBE_RESULT", "")
+encoded = os.environ.get("CODRAX_VERIFICATION_PROBE_CODE", "")
+
+def write_result(outcome, exception="", exit_code=0):
+    if not result_path:
+        return
+    with open(result_path, "w", encoding="utf-8") as handle:
+        json.dump({"outcome": outcome, "exception": exception, "exit_code": int(exit_code or 0)}, handle, sort_keys=True)
+
+try:
+    source = base64.b64decode(encoded.encode("ascii")).decode("utf-8")
+    ns = {"__name__": "__main__", "__file__": "<codrax_verification_probe>"}
+    exec(compile(source, "<codrax_verification_probe>", "exec"), ns, ns)
+except AssertionError as exc:
+    traceback.print_exc()
+    write_result("assertion_failed", exc.__class__.__name__, 1)
+    sys.exit(1)
+except SystemExit as exc:
+    code = exc.code
+    exit_code = code if isinstance(code, int) else (0 if code is None else 1)
+    write_result("passed" if exit_code == 0 else "system_exit", exc.__class__.__name__, exit_code)
+    raise
+except (ImportError, ModuleNotFoundError) as exc:
+    traceback.print_exc()
+    write_result("import_error", exc.__class__.__name__, 1)
+    sys.exit(1)
+except SyntaxError as exc:
+    traceback.print_exc()
+    write_result("syntax_error", exc.__class__.__name__, 1)
+    sys.exit(1)
+except BaseException as exc:
+    traceback.print_exc()
+    write_result("exception", exc.__class__.__name__, 1)
+    sys.exit(1)
+else:
+    write_result("passed", "", 0)
+`
 
 func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificationProbeRunResult, bool) {
 	if ctx == nil || ctx.Mutable == nil {
@@ -59,6 +112,8 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 			switch cmd.Outcome {
 			case "runner_missing":
 				failureKind = types.FailureKindRunnerMissing
+			case "parser_error":
+				failureKind = types.FailureKindParserError
 			case "timeout":
 				failureKind = types.FailureKindTimeout
 			case "oom":
@@ -166,11 +221,20 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		timeout = 30 * time.Second
 	}
 	interp := pythonRuntimeInterpreter(ctx.RepoRoot, ctx.MainRepoRoot, wd)
+	statusPath := ""
+	if f, err := os.CreateTemp("", "codrax-verification-probe-*.json"); err == nil {
+		statusPath = f.Name()
+		_ = f.Close()
+		defer os.Remove(statusPath)
+	}
 	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(execCtx, interp, "-c", probe.Code)
+	cmd := exec.CommandContext(execCtx, interp, "-c", pythonVerificationProbeWrapper)
 	cmd.Dir = wd
-	cmd.Env = runnerExecutionEnv("python", ctx.RepoRoot, wd, ctx.MainRepoRoot)
+	cmd.Env = append(runnerExecutionEnv("python", ctx.RepoRoot, wd, ctx.MainRepoRoot),
+		"CODRAX_VERIFICATION_PROBE_CODE="+base64.StdEncoding.EncodeToString([]byte(probe.Code)),
+		"CODRAX_VERIFICATION_PROBE_RESULT="+statusPath,
+	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -189,6 +253,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		output += stderr.String()
 	}
 	exitCode := extractExitCode(supRes.Err)
+	probeStatus := readPythonVerificationProbeStatus(statusPath)
 	outcome := "executed"
 	failureKind := types.FailureKindTestsFailed
 	switch supRes.ExitKind {
@@ -208,6 +273,23 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		}
 	}
 	passed := supRes.Err == nil
+	if outcome == "executed" && probeStatus.Outcome != "" {
+		switch probeStatus.Outcome {
+		case "passed":
+			passed = passed && probeStatus.ExitCode == 0
+		case "assertion_failed", "system_exit", "exception":
+			passed = false
+			failureKind = types.FailureKindTestsFailed
+		case "import_error", "syntax_error":
+			passed = false
+			outcome = "parser_error"
+			failureKind = types.FailureKindParserError
+		default:
+			passed = false
+			outcome = "parser_error"
+			failureKind = types.FailureKindParserError
+		}
+	}
 	var missingExpected []string
 	if passed && len(probe.ExpectedStdout) > 0 {
 		for _, fragment := range probe.ExpectedStdout {
@@ -226,6 +308,15 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 	detail := ""
 	if !passed {
 		detail = stdoutHead(output, 4000)
+		if probeStatus.Outcome != "" && probeStatus.Outcome != "passed" {
+			if detail != "" {
+				detail += "\n"
+			}
+			detail += fmt.Sprintf("verification probe structured outcome: %s", probeStatus.Outcome)
+			if probeStatus.Exception != "" {
+				detail += " (" + probeStatus.Exception + ")"
+			}
+		}
 		if len(missingExpected) > 0 {
 			if detail != "" {
 				detail += "\n"
@@ -301,6 +392,24 @@ func resolveVerificationProbeWorkingDir(repoRoot, workingDir string) (string, st
 		backRel = "."
 	}
 	return target, filepath.ToSlash(backRel), nil
+}
+
+func readPythonVerificationProbeStatus(path string) pythonVerificationProbeStatus {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return pythonVerificationProbeStatus{}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || len(bytes.TrimSpace(data)) == 0 {
+		return pythonVerificationProbeStatus{}
+	}
+	var status pythonVerificationProbeStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return pythonVerificationProbeStatus{}
+	}
+	status.Outcome = strings.TrimSpace(status.Outcome)
+	status.Exception = strings.TrimSpace(status.Exception)
+	return status
 }
 
 func renderVerificationProbeOutput(probes []types.VerificationProbe, outputs []string) string {

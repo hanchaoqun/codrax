@@ -2793,3 +2793,44 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - Post-fix SWE-bench Lite rerun for `pylint-dev__pylint-5859` exported a harness-consumable patch with the correct forward-boundary fix. The local verify failure exposed a model-authored bad probe and missing direct artifact path in replan handoff; the handoff/probe-evidence fixes above address that generalized gap.
   - Final local regression passed: `go test ./...`, `make test`, `make`, and `git diff --check`.
   - SWE-bench adapter validation passed for `eval/results/swebench/lite-smoke-20260615-pylint-probe-0946/predictions.jsonl`: local validator reported 1 prediction and 0 empty patches; official harness dry-run accepted the command.
+
+## 2026-06-15 SWE-bench Lite dynamic convergence follow-up
+
+- Evidence source:
+  - `eval/results/swebench/lite-smoke-20260615-current-rerun-3`: `psf__requests-2317`, `pytest-dev__pytest-5413`, `sphinx-doc__sphinx-10451`.
+  - `eval/results/swebench/lite-smoke-20260615-fix-rerun-2`: requests + Sphinx after probe wrapper and planner convergence-cap changes.
+  - `eval/results/swebench/lite-smoke-20260615-sphinx-emit-retry`: Sphinx after structured emit rejection retry.
+  - `eval/results/swebench/lite-smoke-20260615-sphinx-final2`: Sphinx after preserving the scaled planner budget and adding read-only-progress no-plan retry.
+  - Local validator accepted all predictions files above; official SWE-bench harness dry-run accepted the generated commands. Sphinx went from `empty_patch=1` to `empty_patch=0`.
+- Manual audit:
+  - `psf__requests-2317` exported a harness-consumable patch and now ends `plan_status=unverified` when old vendored urllib3 cannot import on Python 3.11; that is an environment/compat dead end, not a code-failure hard gate.
+  - `sphinx-doc__sphinx-10451` originally failed before planning because completed exploration clamped planner soft cap from 10 to 3 twice; then failed after two invalid `emit_change_plan` attempts because there was only one no-plan re-dispatch. After fixes it produced a non-empty patch. The final2 run preserved a scaled planner cap of 19, recovered from a schema rejection, applied the plan, ran `pytest tests/test_ext_autodoc_configs.py`, and exported a harness-consumable patch.
+  - Gold Sphinx patch preserves `*args` / `**kwargs` field names while mapping annotation names back to starred doc fields. Codrax produced a plausible production-only alternative by normalizing field keys with `lstrip("*")`; this is a remaining semantic-quality target for scoped verification/probe generation, but the system-level delivery gap was the empty-patch / over-replan control flow.
+  - The same final2 run still exposed follow-up hardening targets: `write_analyzer` first attempt over-explored until the retry hint forced `emit_write_analysis`; planner dry-run accepted a suite string containing `-v` as a selector and triggered noisy fallback unittest escalation; replan exceeded the 600s write wall-time after exporting a patch, so the user-facing final message still said "no change plan" even though the adapter emitted a prediction.
+- Generalized gaps fixed:
+  - Completed exploration convergence was over-compressed. A symptom-driven repair still needs exact `read_file`/`grep` calls to synthesize a bounded patch; completed-exploration planning now preserves the analyzer-scaled planner soft budget instead of compressing it to a tiny synthesis window.
+  - Structured plan emit validation failures need bounded correction dispatches. Duplicate per-file changes and structured edit `old_text` mismatches now get up to two typed correction retries, carrying the latest tool-result rejection into `PlanningHint`; schema and byte-match gates remain strict.
+  - No-plan retries now distinguish empty idleness from typed progress. If the latest no-plan planning round produced successful read-only tool results, the controller allows one additional bounded re-dispatch so source-localized repairs can finish emitting a plan.
+  - Python verification probes now execute through a small wrapper that writes a typed JSON outcome. Assertion failures remain `tests_failed`; import/syntax/runtime-wrapper failures become `parser_error` so missing project dependencies do not force code replan.
+  - Verify attempt status/reason are now a single state machine: if a report is terminal `unverified`, its durable reason is `no_tests`, `runner_missing`, or `parser_error`, never `tests_failed` even when an aggregate report includes fallback loader/collection errors.
+- Safety and prompt hygiene:
+  - All new hard routing reads typed state: `ChangeReport.FailureKind`, `NoTestsRunners`, structured probe JSON, per-dispatch `ToolResult`, batch attempt status/reason, and controller action enums.
+  - No user intent keywords, model prose, rationale, issue text, `<think>`, or natural-language failure summaries drive routing.
+  - Existing hard gates are not relaxed: structured edit old-text matching remains byte-exact, plan one-change-per-file remains enforced, and unverified completion is explicitly caveated.
+- Implementation tasks:
+  - [x] Preserve the analyzer-scaled planner budget after completed exploration instead of applying a fixed convergence cap.
+  - [x] Replace single no-plan retry boolean with bounded retry count and a structured emit-rejection retry budget.
+  - [x] Add read-only-progress no-plan retry budget for source-localized planning rounds.
+  - [x] Add `controllerNoPlanRetryBudget` and tests for duplicate-change / old-text rejection recovery.
+  - [x] Wrap Python verification probes with typed outcome JSON and classify import/syntax failures as `parser_error`.
+  - [x] Normalize unverified verify attempt reason codes before workflow persistence.
+  - [x] Update `docs/user_guide.md` and `docs/user_guide.html`.
+- Remaining hardening backlog:
+  - [ ] Add write-analyzer typed convergence watchdog so it emits `WriteAnalysisIR` once enough source anchors/risk/scope fields are known, instead of spending a full attempt on planner-level root cause analysis.
+  - [ ] Harden planner dry-run test selectors so command flags such as `-v` are modeled as typed options or rejected before being concatenated into a suite selector.
+  - [ ] Improve wall-time salvage UX: if a verified-failed replan times out after an applied plan exists and a patch is exportable, final user messaging should report the saved patch and verification status, not the generic no-plan guidance.
+- Verification:
+  - Focused tests passed for probe import-error classification, controller plan emit retry, completed-exploration cap, and mixed no-tests aggregate no-replan.
+  - SWE-bench Sphinx single rerun after emit-retry fix: `status=predicted`, `patch_bytes=1905`, `empty_patch=0`, official harness dry-run accepted the generated command.
+  - SWE-bench Sphinx final2 rerun after budget/no-plan-progress fixes: `status=predicted`, `patch_bytes=1892`, `empty_patch=0`, official harness dry-run accepted the generated command. Local verify reached a real test verdict (`31 total, 30 passed, 1 failed`) and triggered typed `replan_batch`, proving failure evidence handoff is active.
+  - Full regression and final push are tracked in the progress ledger for the implementation commit that follows this section.
