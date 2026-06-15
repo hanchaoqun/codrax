@@ -224,11 +224,11 @@ func TestRunWriteAnalyzePhase_FallbackReturnsNilAndClearsStageError(t *testing.T
 	if err != nil {
 		t.Fatalf("fallback write analysis should recover nil error, got %v", err)
 	}
-	if used != 2 {
-		t.Fatalf("used steps = %d, want 2 bounded attempts", used)
+	if used != 1 {
+		t.Fatalf("used steps = %d, want 1 no-emit attempt before fallback", used)
 	}
-	if dispatchCount != 2 {
-		t.Fatalf("dispatch count = %d, want 2", dispatchCount)
+	if dispatchCount != 1 {
+		t.Fatalf("dispatch count = %d, want 1 no-emit attempt before fallback", dispatchCount)
 	}
 	if got := o.busCtx.TaskState.LastError; got != "" {
 		t.Fatalf("fallback should clear stage LastError, got %q", got)
@@ -242,5 +242,38 @@ func TestRunWriteAnalyzePhase_FallbackReturnsNilAndClearsStageError(t *testing.T
 	}
 	if len(got.Request.ScopeAnchors) != 1 || got.Request.ScopeAnchors[0] != "src/_pytest/assertion/rewrite.py" {
 		t.Fatalf("fallback anchors = %+v", got.Request.ScopeAnchors)
+	}
+}
+
+func TestRunWriteAnalyzePhase_RetriesEmitRejectionBeforeFallback(t *testing.T) {
+	readIR := dagIR(types.AnswerContract{Language: "en"})
+	dispatchCount := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			dispatchCount++
+			return &agent.StageOutput{Error: "write_analyzer emit rejected: emit_write_analysis rejected: task.summary is empty"}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	mu := types.NewMutableState("add option")
+	o.busCtx = &types.BusContext{
+		Mode:       types.ModeApply,
+		Mutable:    mu,
+		AnalysisIR: readIR,
+	}
+
+	used, err := o.runWriteAnalyzePhase()
+	if err != nil {
+		t.Fatalf("fallback write analysis should recover nil error, got %v", err)
+	}
+	if used != 2 {
+		t.Fatalf("used steps = %d, want 2 attempts for emit rejection", used)
+	}
+	if dispatchCount != 2 {
+		t.Fatalf("dispatch count = %d, want 2 attempts for emit rejection", dispatchCount)
+	}
+	if got := mu.WriteAnalysisIR(); got == nil {
+		t.Fatal("fallback WriteAnalysisIR should be installed")
 	}
 }

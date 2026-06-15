@@ -257,6 +257,33 @@ func TestEmitChangePlan_AcceptsExtraPythonProbeWhenAnotherProbeImportsChangedTar
 	}
 }
 
+func TestEmitChangePlan_AcceptsPythonProbeImportingPublicPackageForChangedSubmodule(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix xarray public API roundtrip",
+		"summary": "Modify DataArray.to_unstacked_dataset and verify the fix through the public xarray API.",
+		"changes": [
+			{"path": "xarray/core/dataarray.py", "kind": "modify", "new_content": "class DataArray:\n    pass\n", "rationale": "update DataArray behavior"}
+		],
+		"verification_probes": [
+			{"id": "public_api_roundtrip", "language": "python", "code": "import xarray as xr\narr = xr.DataArray([1])\nassert arr is not None\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected public package import to cover changed submodule, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) != 1 {
+		t.Fatalf("expected accepted plan with one public-API probe, got: %+v", plan)
+	}
+}
+
 // TestEmitChangePlan_EmptyChangesRejected locks the hard cross-
 // field check: a plan with zero changes is meaningless and must
 // fail with a clear diagnostic.

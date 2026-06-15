@@ -2937,6 +2937,11 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 		if err != nil {
 			lastErr = err
 		}
+		if isWriteAnalyzeNoEmitError(lastErr) {
+			logging.Warning("[orchestrator] write_analyze attempt %d/%d failed in %v: %v (installing fallback IR; no-emit retry would repeat classification work)",
+				attempt+1, maxAttempts, elapsed, lastErr)
+			break
+		}
 		if attempt+1 < maxAttempts {
 			logging.Warning("[orchestrator] write_analyze attempt %d/%d failed in %v: %v (retrying with prior-failure hint)",
 				attempt+1, maxAttempts, elapsed, lastErr)
@@ -2965,6 +2970,10 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 		return used, nil
 	}
 	return used, lastErr
+}
+
+func isWriteAnalyzeNoEmitError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "write_analyzer did not call emit_write_analysis within the ReAct loop")
 }
 
 func fallbackWriteAnalysisIR(objective string, readIR *types.AnalysisIR, cause error) *types.WriteAnalysisIR {

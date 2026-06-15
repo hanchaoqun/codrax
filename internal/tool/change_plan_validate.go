@@ -437,11 +437,22 @@ func isPythonIdentifier(s string) bool {
 
 func pythonImportsCoverAnyTarget(imports, targets map[string]struct{}) bool {
 	for target := range targets {
-		if _, ok := imports[target]; ok {
-			return true
+		for imported := range imports {
+			if pythonImportCoversTarget(imported, target) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func pythonImportCoversTarget(imported, target string) bool {
+	imported = strings.TrimSpace(imported)
+	target = strings.TrimSpace(target)
+	if imported == "" || target == "" {
+		return false
+	}
+	return imported == target || strings.HasPrefix(target, imported+".")
 }
 
 func formatStringSet(values map[string]struct{}) string {

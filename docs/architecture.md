@@ -1388,6 +1388,8 @@ controller 是唯一公开写模式调度器。它通过 typed `emit_write_workf
 - `ExpectedOutcomes`：自然语言期望
 - `PhaseProposal`（可选）：多阶段拆分提议（split=`single` 或 `sequential` + 阶段列表）
 
+`write_analyzer` 是轻量 enrichment stage，不是重型代码探索 lane。若它成功调用 `emit_write_analysis` 但 schema/validator 拒绝，编排器会带 rejection hint 再给一次修正机会；若整轮没有调用 `emit_write_analysis`，编排器立即从 typed read `AnalysisIR` 投影保守 fallback `WriteAnalysisIR` 并继续 controller，不再盲目重跑同一轮分类。fallback 会保留原始用户请求、read analyzer 的 RequiredFiles/RequiredFileHints 作为 scope anchors，并加入 P0 `preserve_user_request` constraint，避免 planner 继承读模式的诊断叙事而丢掉写任务边界。
+
 产品主路径不再让用户手工调度线性 plan→apply→verify。`WriteAnalysisIR` 会 seed durable `WriteWorkflowRun`,由 controller 按当前 batch typed state 动态选择探索、规划、应用、验证、replan、split 或 finish。当前实现仍用 `BuildWriteTaskGraph` 作为内部 scheduler envelope 进入写阶段和承载历史回归测试；它不是用户可见决策面,后续功能应优先扩展 controller action/attempt/context 体系,而不是增加新的用户命令步骤。
 
 ### 8.4 Planner Agent

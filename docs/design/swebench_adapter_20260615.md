@@ -671,3 +671,51 @@ records adapter results.
   follow-up: workflow export/replan convergence should prefer a later verified
   or applicable plan, or surface terminal failed workflow state more strongly in
   controller UX and batch dashboards.
+- 2026-06-16: Ran a four-instance non-Go Lite smoke at
+  `eval/results/swebench/lite-smoke-20260616-astropy-scikit-xarray-requests-current`
+  for `astropy__astropy-6938`, `psf__requests-3362`,
+  `pydata__xarray-4094`, and `scikit-learn__scikit-learn-10949`. The adapter
+  produced four non-empty predictions, `validate_predictions.py` accepted all
+  rows, and the official SWE-bench harness dry-run accepted the predictions
+  path. Manual patch audit: Astropy assigns the `chararray.replace` return value
+  back to `output_field`; Requests falls back from `r.encoding` to
+  `r.apparent_encoding` before stream unicode decoding; Xarray drops the stacked
+  coordinate before rebuilding the `Dataset`; Scikit-learn preserves DataFrame
+  dtype before conversion so `warn_on_dtype` can fire. All four local verifies
+  remained `predicted_unverified` because old-project dependency/import
+  compatibility failed under the local Python runtime; this is acceptable
+  delivery telemetry, not a hard code-failure gate.
+- 2026-06-16: The same four-instance run exposed two smoothness gaps. First,
+  three long symptom-style issues spent two failed `write_analyzer` dispatches
+  before falling back to typed read-analysis anchors. The orchestrator now
+  distinguishes no-emit from schema rejection: a validator rejection still gets
+  one retry with an exact rejection hint, but a full no-emit round immediately
+  installs fallback `WriteAnalysisIR` and lets the controller spend budget on
+  code exploration. Second, the Python verification-probe coupling gate was too
+  narrow for public APIs: `import xarray as xr` exercises
+  `xarray.core.dataarray.DataArray.to_unstacked_dataset`, but the old gate only
+  accepted direct imports of `xarray.core.dataarray`. The gate now treats an
+  import declaration as coupled when it imports the changed module or a package
+  prefix of that module. This still rejects isolated copied-implementation
+  probes such as `import re` for a Sphinx parser change; it remains based only on
+  typed target paths and import declarations, not user intent keywords or model
+  prose.
+- 2026-06-16: Re-ran `pydata__xarray-4094` after those fixes at
+  `eval/results/swebench/lite-smoke-20260616-xarray-public-api-probe-after-fix`.
+  The run produced a non-empty prediction, prediction validation passed, and the
+  official harness dry-run accepted it. Log audit confirmed one fast no-emit
+  fallback (`installing fallback IR; no-emit retry would repeat classification
+  work`) and zero probe-coupling rejects (`public_api_false_reject=0`). The
+  rerun also surfaced a separate read/exploration convergence gap: the
+  exploration subflow needed 13 iterations and one downgraded completion before
+  closing, despite having already located the relevant `to_unstacked_dataset`,
+  `to_stacked_array`, and `MergeError` evidence. Follow-up: bounded write
+  exploration should close from sufficient P1 evidence sooner and avoid generic
+  same-lane widening after the controller has requested one focused batch.
+- 2026-06-16 follow-up ledger: the first Xarray run also showed the planner
+  calling `run_tests(dry_run=true)` without a bounded selector/probe, which
+  still caused project-level pytest/unittest discovery and produced large
+  unavailable output during planning. The current fix leaves run_tests semantics
+  untouched; the next hardening batch should split planner dry-run into a typed
+  runner/test-surface feasibility probe that cannot execute broad suites unless
+  the caller supplies a bounded selector or explicit verification probe.
