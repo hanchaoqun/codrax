@@ -2855,3 +2855,45 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
 - Verification:
   - Focused tests passed: `go test ./internal/agent -run 'TestNewWriteAnalyzerAgent|TestWriteAnalyzer_BuildInitialInstruction'`; `go test ./internal/tool -run 'TestRunTestsRejectsSuiteWithEmbeddedCLIFlags|TestValidateRunTestsSuiteSelector_AllowsSpacedTestName'`; `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ReplanCancelReportsAppliedPatch'`.
   - Full package regression and final push are tracked by the implementation commit following this section.
+
+## 2026-06-15 SWE-bench Lite environment and fallback-IR follow-up
+
+- Evidence source:
+  - Three non-Go SWE-bench Lite instances run under `eval/results/swebench/lite-smoke-20260615-more-204058`:
+    - `matplotlib__matplotlib-22711`: `status=predicted`, `plan_status=unverified`, `patch_bytes=634`; local editable install failed on Matplotlib's native build and pytest then failed before collection because `numpy` was unavailable in the worktree environment.
+    - `mwaskom__seaborn-2848`: `status=empty_patch`, `patch_bytes=0`; `write_analyzer` twice explored relevant `_core` files but never emitted `emit_write_analysis`, so the system installed a generic fallback IR with no scope anchors.
+    - `psf__requests-1963`: `status=predicted`, `plan_status=unverified`, `patch_bytes=463`; the patch changed `method = req.method` to `method = prepared_request.method`, which matches the redirect-chain issue direction. Local verify escalated from pytest zero-tests to unittest loader failures on old vendored Python code under Python 3.11, then treated those loader-only errors as ordinary `tests_failed` and allowed a replan decision.
+  - Adapter validation accepted the combined predictions file: `validated 3 prediction(s); empty_patch=1`.
+  - Official SWE-bench harness dry-run accepted the generated command for `eval/results/swebench/lite-smoke-20260615-more-204058/predictions.jsonl`.
+- Manual audit:
+  - Requests patch is directionally correct and small; local unverified status is environment/compatibility, not evidence the patch is bad.
+  - Matplotlib patch is plausible but semantically under-validated; local environment failure prevented authoritative tests, so official harness remains the arbiter.
+  - Seaborn empty patch exposed a seed-context loss: read/write exploration found useful evidence, but the degraded write fallback did not preserve typed file anchors into the controller DAG.
+- Generalized gaps fixed:
+  - Unittest loader-only discovery failures are now typed as `FailureKind=parser_error` when every parsed result is a `unittest.loader._FailedTest` row and no real test case row executed. This lets controller/verify converge to `unverified` instead of burning retry budget on Python-version or dependency environment noise.
+  - The degraded `write_analyze` fallback now projects typed read-analyzer file lanes (`EvidencePlan.RequiredFiles` and high-confidence `AnalyzerHints.RequiredFileHints`) into `WriteAnalysisIR.Request.ScopeAnchors`.
+  - The fallback maps typed `IntentRootCause` / diagnostic predicate to `WriteTaskBugfix`; otherwise it stays `misc`. It does not scan user prose for "fix"/"bug" keywords.
+  - Fallback with anchors uses `ScopePackage` rather than `ScopeMicro` so controller keeps the exploration-capable path instead of jumping directly to micro ready-to-plan.
+  - A post-fix Requests rerun proved the parser classification but exposed one more typed scheduler gap: after `batch_unverified/parser_error`, controller could still choose `explore_code` or `verify_batch` and reopen the active batch. The unverified terminal guard now suppresses `explore_code`, `plan_batch`, `apply_plan`, `verify_batch`, `replan_batch`, `ask_user`, and `block` for the completed active batch when there is no true code-failure handoff, normalizing them to `finish(accept_unverified)`.
+- Safety and prompt hygiene:
+  - Hard behavior reads only typed runner structure (`unittest.loader._FailedTest` suite rows), `FailureKind`, `NoTestsRunners`, read-analyzer typed file fields, and typed intent/predicate enums.
+  - No model prose, `<think>`, issue text, natural-language failure summaries, or user keyword tables drive routing.
+  - `emit_change_plan` Python dry-build/py_compile still catches syntax-level bad patches before apply; classifying loader-only unittest output as local `parser_error` does not relax plan validation.
+- Implementation tasks:
+  - [x] Classify unittest loader-only output as `parser_error` and add parser tests for loader-only vs real unittest failure.
+  - [x] Project typed read-analysis file anchors into fallback `WriteAnalysisIR`.
+  - [x] Add fallback-IR test for bugfix kind, package scope, path sanitization, de-duplication, and confidence thresholding.
+  - [x] Expand completed-unverified controller interruption suppression to include `explore_code`, `plan_batch`, and `apply_plan`, not only `verify_batch` / `replan_batch`.
+  - [x] Log typed controller decision normalization so users can distinguish transparent model/toolcall output from the action the scheduler actually executes.
+  - [x] Add an end-to-end controller test where `batch_unverified/parser_error` is followed by a model-requested `explore_code` follow-up batch; the read-only exploration runner must not execute.
+  - [x] Update `docs/user_guide.md` and `docs/user_guide.html`.
+- Verification:
+  - `go test ./internal/tool -run 'TestParseUnittestOutput|TestParsePytestTextOutput'` PASS.
+  - `go test ./internal/orchestrator -run 'TestFallbackWriteAnalysisIR|TestWriteAnalyze_DegradesOnEmitFailure|TestRunWriteControllerWorkflow_ParserErrorCompletesUnverifiedWithoutReplan|TestRunWriteControllerWorkflow_RunnerMissingCompletesUnverifiedWithoutReplan'` PASS.
+  - Post-fix Requests rerun `eval/results/swebench/lite-smoke-20260615-requests-parser-205852` exported a harness-consumable patch and produced a typed `failure_kind=parser_error` report for unittest loader-only errors; the follow-up guard was added immediately after this run exposed extra `explore_code` / `verify_batch` turns past unverified completion.
+  - `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_UnverifiedSuppressesFollowupExploreBatch|TestNormalizeControllerTypedStateDecisionRunnerMissingSuppressesInterruptions|TestRunWriteControllerWorkflow_ParserErrorCompletesUnverifiedWithoutReplan|TestRunWriteControllerWorkflow_NoTestsDoesNotReplan'` PASS.
+  - `go test ./internal/tool -run 'TestParseUnittestOutput'` PASS.
+  - Final Requests rerun `eval/results/swebench/lite-smoke-20260615-requests-normalized-log-211442` exported `status=predicted`, `patch_bytes=363`, and `plan_status=unverified`; local validator accepted `validated 1 prediction(s); empty_patch=0`.
+  - Official SWE-bench harness dry-run accepted `eval/results/swebench/lite-smoke-20260615-requests-normalized-log-211442/predictions.jsonl`.
+  - The final run log records the transparent model toolcall followed by typed normalization: `write controller decision normalized: action=explore_code reason=explore_verify_env disposition= -> action=finish reason=accept_unverified_without_failure_evidence disposition=accept_unverified`; no read-only exploration was executed after the unverified terminal verdict.
+  - Full regression and final push are tracked by the implementation commit following this section.

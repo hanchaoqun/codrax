@@ -90,6 +90,7 @@ var (
 func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 	lines := strings.Split(stdout, "\n")
 	results := make([]types.TestResult, 0)
+	loaderFailures := 0
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		m := reUnittestCaseLine.FindStringSubmatch(line)
@@ -103,6 +104,9 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 		detail := ""
 		if !passed {
 			detail = stdoutHead(stdout, 4000)
+		}
+		if unittestSuiteIsLoaderFailure(suite) {
+			loaderFailures++
 		}
 		results = append(results, types.TestResult{
 			Kind:          types.TestResultKindUnit,
@@ -154,8 +158,18 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 		}
 		report.FailureSummary = fmt.Sprintf("unittest failed — %d passed, %d failed/error of %d total.",
 			passedCount, failed, denom)
+		if len(results) > 0 && loaderFailures == len(results) && passedCount == 0 {
+			report.FailureKind = types.FailureKindParserError
+			report.FailureSummary = fmt.Sprintf("unittest collection/import failed before executing real test cases — %d loader error(s); local verification is unavailable.", loaderFailures)
+		}
 	}
 	return report, nil
+}
+
+func unittestSuiteIsLoaderFailure(suite string) bool {
+	suite = strings.TrimSpace(suite)
+	return suite == "unittest.loader._FailedTest" ||
+		strings.HasPrefix(suite, "unittest.loader._FailedTest.")
 }
 
 // parseMakeOutput synthesises a ChangeReport from `make <target>`

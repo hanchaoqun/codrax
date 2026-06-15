@@ -166,3 +166,36 @@ func TestWriteAnalyze_DegradesOnEmitFailure(t *testing.T) {
 		t.Fatalf("fallback should carry a preservation constraint, got %+v", got.Request.Constraints)
 	}
 }
+
+func TestFallbackWriteAnalysisIR_ProjectsTypedReadIRScope(t *testing.T) {
+	readIR := dagIR(types.AnswerContract{Language: "en"})
+	readIR.RequestModel.Intent = types.IntentRootCause
+	readIR.RequestModel.Predicates.IsDiagnosticQuestion = true
+	readIR.EvidencePlan.RequiredFiles = []string{
+		"seaborn/_core.py",
+		"./tests/../seaborn/_core.py",
+		"/tmp/outside.py",
+		"../escape.py",
+	}
+	readIR.RequestModel.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{
+		{Path: "seaborn/_oldcore.py", Confidence: 0.9},
+		{Path: "low_confidence.py", Confidence: 0.1},
+	}
+
+	got := fallbackWriteAnalysisIR("fix the crash", readIR, nil)
+	if got.Request.Task.Kind != types.WriteTaskBugfix {
+		t.Fatalf("Kind = %q, want bugfix", got.Request.Task.Kind)
+	}
+	if got.Request.Task.Scope != types.ScopePackage {
+		t.Fatalf("Scope = %q, want package so controller can explore before planning", got.Request.Task.Scope)
+	}
+	wantAnchors := []string{"seaborn/_core.py", "seaborn/_oldcore.py"}
+	if len(got.Request.ScopeAnchors) != len(wantAnchors) {
+		t.Fatalf("ScopeAnchors = %+v, want %+v", got.Request.ScopeAnchors, wantAnchors)
+	}
+	for i, want := range wantAnchors {
+		if got.Request.ScopeAnchors[i] != want {
+			t.Fatalf("ScopeAnchors[%d] = %q, want %q (all=%+v)", i, got.Request.ScopeAnchors[i], want, got.Request.ScopeAnchors)
+		}
+	}
+}

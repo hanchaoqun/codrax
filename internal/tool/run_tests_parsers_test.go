@@ -112,6 +112,65 @@ FAIL    pkg [build failed]
 	}
 }
 
+func TestParseUnittestOutput_LoaderOnlyIsParserError(t *testing.T) {
+	output := `requests (unittest.loader._FailedTest.requests) ... ERROR
+test_requests (unittest.loader._FailedTest.test_requests) ... ERROR
+
+======================================================================
+ERROR: requests (unittest.loader._FailedTest.requests)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: requests
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/unittest/loader.py", line 154, in loadTestsFromName
+    module = __import__(module_name)
+ImportError: cannot import name 'MutableMapping' from 'collections'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+FAILED (errors=2)
+`
+	report, err := parseUnittestOutput(output, fmt.Errorf("exit status 1"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if report.Passed {
+		t.Fatal("loader-only unittest result should not pass")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want %q", report.FailureKind, types.FailureKindParserError)
+	}
+	if !strings.Contains(report.FailureSummary, "collection/import failed") {
+		t.Fatalf("FailureSummary = %q", report.FailureSummary)
+	}
+}
+
+func TestParseUnittestOutput_RealTestFailureStaysUnclassified(t *testing.T) {
+	output := `test_ok (tests.test_demo.DemoTest.test_ok) ... ok
+test_bad (tests.test_demo.DemoTest.test_bad) ... FAIL
+
+======================================================================
+FAIL: test_bad (tests.test_demo.DemoTest.test_bad)
+----------------------------------------------------------------------
+AssertionError: 1 != 2
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+FAILED (failures=1)
+`
+	report, err := parseUnittestOutput(output, fmt.Errorf("exit status 1"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if report.Passed {
+		t.Fatal("real unittest failure should not pass")
+	}
+	if report.FailureKind != "" {
+		t.Fatalf("parser should not classify real test failure directly, got %q", report.FailureKind)
+	}
+}
+
 func TestParseGoTestJSONLines_PackageBuildFailWithPassingSibling(t *testing.T) {
 	output := `{"ImportPath":"github.com/example/root.test","Action":"build-output","Output":"# github.com/example/root\n"}
 {"ImportPath":"github.com/example/root.test","Action":"build-output","Output":"mux_test.go:1672:45: unknown escape sequence\n"}

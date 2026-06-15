@@ -100,7 +100,15 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				return err
 			}
 		}
+		rawDecision := decision
 		decision = o.normalizeControllerTypedStateDecision(decision, &run)
+		if rawDecision.Action != decision.Action ||
+			strings.TrimSpace(rawDecision.ReasonCode) != strings.TrimSpace(decision.ReasonCode) ||
+			rawDecision.FinishDisposition != decision.FinishDisposition {
+			logging.Info("[orchestrator] write controller decision normalized: action=%s reason=%s disposition=%s -> action=%s reason=%s disposition=%s",
+				rawDecision.Action, strings.TrimSpace(rawDecision.ReasonCode), rawDecision.FinishDisposition,
+				decision.Action, strings.TrimSpace(decision.ReasonCode), decision.FinishDisposition)
+		}
 		if activeBatchCompletedWithUnverifiedVerdict(&run) && decisionTargetsActiveBatch(decision, run.ActiveBatchID) {
 			appendControllerProgress(&run, run.ActiveBatchID, "unverified_terminal_action_overridden",
 				"active batch already completed with a typed unverified verifier outcome; finishing instead of replanning the same bytes")
@@ -2190,7 +2198,9 @@ func controllerActionDelaysPostApplyVerify(action writeflow.WorkflowAction) bool
 
 func controllerActionInterruptsUnverifiedCompletion(action writeflow.WorkflowAction) bool {
 	switch action {
-	case writeflow.ActionAskUser, writeflow.ActionBlock, writeflow.ActionReplanBatch, writeflow.ActionVerifyBatch:
+	case writeflow.ActionExploreCode, writeflow.ActionPlanBatch, writeflow.ActionApplyPlan,
+		writeflow.ActionVerifyBatch, writeflow.ActionReplanBatch, writeflow.ActionAskUser,
+		writeflow.ActionBlock:
 		return true
 	default:
 		return false
@@ -2277,6 +2287,11 @@ func decisionTargetsActiveBatch(decision writeflow.WriteWorkflowDecision, active
 		return false
 	}
 	switch decision.Action {
+	case writeflow.ActionExploreCode:
+		if decision.ExplorationRequest == nil || strings.TrimSpace(decision.ExplorationRequest.BatchID) == "" {
+			return true
+		}
+		return strings.TrimSpace(decision.ExplorationRequest.BatchID) == activeID
 	case writeflow.ActionPlanBatch, writeflow.ActionReplanBatch, writeflow.ActionApplyPlan, writeflow.ActionVerifyBatch:
 		if decision.Batch == nil || strings.TrimSpace(decision.Batch.ID) == "" {
 			return true

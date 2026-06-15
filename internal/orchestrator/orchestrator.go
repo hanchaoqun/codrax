@@ -2957,15 +2957,15 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 		lastErr = fmt.Errorf("write_analyze produced no IR after %d attempts", maxAttempts)
 	}
 	if o.busCtx != nil && o.busCtx.Mutable != nil && o.busCtx.Mutable.WriteAnalysisIR() == nil {
-		ir := fallbackWriteAnalysisIR(o.busCtx.Mutable.Objective(), lastErr)
+		ir := fallbackWriteAnalysisIR(o.busCtx.Mutable.Objective(), o.busCtx.AnalysisIR, lastErr)
 		o.busCtx.Mutable.SetWriteAnalysisIR(ir)
-		logging.Warning("[orchestrator] write_analyze degraded; installed fallback WriteAnalysisIR (kind=%s scope=%s): %v",
-			ir.Request.Task.Kind, ir.Request.Task.Scope, lastErr)
+		logging.Warning("[orchestrator] write_analyze degraded; installed fallback WriteAnalysisIR (kind=%s scope=%s anchors=%d): %v",
+			ir.Request.Task.Kind, ir.Request.Task.Scope, len(ir.Request.ScopeAnchors), lastErr)
 	}
 	return used, lastErr
 }
 
-func fallbackWriteAnalysisIR(objective string, cause error) *types.WriteAnalysisIR {
+func fallbackWriteAnalysisIR(objective string, readIR *types.AnalysisIR, cause error) *types.WriteAnalysisIR {
 	raw := strings.TrimSpace(types.StripConversationPrefix(objective))
 	summary := "Follow the user's requested code-change task"
 	if raw != "" {
@@ -2974,15 +2974,19 @@ func fallbackWriteAnalysisIR(objective string, cause error) *types.WriteAnalysis
 	if cause != nil {
 		summary = summary + " (write-analysis fallback)"
 	}
+	anchors := fallbackWriteScopeAnchors(readIR)
+	taskKind := fallbackWriteTaskKind(readIR)
+	scope := fallbackWriteScope(anchors)
 	return &types.WriteAnalysisIR{
 		Request: types.WriteRequestModel{
 			RawRequest: raw,
 			Task: types.WriteTask{
-				Kind:    types.WriteTaskMisc,
-				Scope:   types.ScopeMicro,
+				Kind:    taskKind,
+				Scope:   scope,
 				Summary: summary,
 			},
-			Risk: types.WriteRiskProfile{Overall: types.RiskBandLow},
+			Risk:         types.WriteRiskProfile{Overall: types.RiskBandLow},
+			ScopeAnchors: anchors,
 			Constraints: []types.WriteConstraint{{
 				Kind: "preserve_user_request",
 				Note: "write_analyzer did not emit a structured IR; planner must follow the original user request directly and avoid inheriting read-analyzer diagnostic framing",
@@ -2990,6 +2994,79 @@ func fallbackWriteAnalysisIR(objective string, cause error) *types.WriteAnalysis
 		},
 		PhaseProposal: types.PhaseProposal{Split: "single"},
 	}
+}
+
+func fallbackWriteTaskKind(readIR *types.AnalysisIR) types.WriteTaskKind {
+	if readIR == nil {
+		return types.WriteTaskMisc
+	}
+	if readIR.RequestModel.Intent == types.IntentRootCause || readIR.RequestModel.Predicates.IsDiagnosticQuestion {
+		return types.WriteTaskBugfix
+	}
+	return types.WriteTaskMisc
+}
+
+func fallbackWriteScope(anchors []string) types.WriteScope {
+	if len(anchors) == 0 {
+		return types.ScopeMicro
+	}
+	if len(anchors) <= 3 {
+		// A degraded write-analysis fallback should keep the controller on
+		// the exploration-capable path even when the read analyzer already
+		// supplied one likely file. ScopeMicro plus anchors is a typed
+		// short path to ready_to_plan; ScopePackage preserves the same
+		// bounded anchor set while still allowing explore_code first.
+		return types.ScopePackage
+	}
+	return types.ScopeCross
+}
+
+func fallbackWriteScopeAnchors(readIR *types.AnalysisIR) []string {
+	if readIR == nil {
+		return nil
+	}
+	out := make([]string, 0, len(readIR.EvidencePlan.RequiredFiles)+len(readIR.RequestModel.AnalyzerHints.RequiredFileHints))
+	seen := make(map[string]struct{})
+	add := func(raw string) {
+		path := normalizeFallbackScopeAnchor(raw)
+		if path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	for _, path := range readIR.EvidencePlan.RequiredFiles {
+		add(path)
+	}
+	for _, hint := range readIR.RequestModel.AnalyzerHints.RequiredFileHints {
+		if hint.Confidence < 0.5 {
+			continue
+		}
+		add(hint.Path)
+	}
+	if len(out) > 8 {
+		out = out[:8]
+	}
+	return out
+}
+
+func normalizeFallbackScopeAnchor(raw string) string {
+	path := strings.TrimSpace(raw)
+	if path == "" || strings.Contains(path, "\x00") || filepath.IsAbs(path) {
+		return ""
+	}
+	path = filepath.ToSlash(filepath.Clean(path))
+	path = strings.TrimPrefix(path, "./")
+	if path == "." || path == "" || strings.HasPrefix(path, "../") || path == ".." {
+		return ""
+	}
+	if path == ".git" || strings.HasPrefix(path, ".git/") {
+		return ""
+	}
+	return path
 }
 
 func firstLineTrimmed(s string) string {

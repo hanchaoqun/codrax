@@ -1836,7 +1836,15 @@ func TestNormalizeControllerTypedStateDecisionReplanAfterRunnerMissingFinishesUn
 
 func TestNormalizeControllerTypedStateDecisionRunnerMissingSuppressesInterruptions(t *testing.T) {
 	for _, reasonCode := range []string{"runner_missing", "parser_error"} {
-		for _, action := range []writeflow.WorkflowAction{writeflow.ActionVerifyBatch, writeflow.ActionAskUser, writeflow.ActionBlock, writeflow.ActionReplanBatch} {
+		for _, action := range []writeflow.WorkflowAction{
+			writeflow.ActionExploreCode,
+			writeflow.ActionPlanBatch,
+			writeflow.ActionApplyPlan,
+			writeflow.ActionVerifyBatch,
+			writeflow.ActionAskUser,
+			writeflow.ActionBlock,
+			writeflow.ActionReplanBatch,
+		} {
 			t.Run(reasonCode+"/"+string(action), func(t *testing.T) {
 				mu := types.NewMutableState("runner missing interruption guard")
 				o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
@@ -3672,6 +3680,85 @@ func TestRunWriteControllerWorkflow_NoTestsDoesNotReplan(t *testing.T) {
 	}
 	if workflowProgressHasReason(store.last.ProgressLedger, "mistaken_no_tests_replan") {
 		t.Fatalf("workflow should not consume the mistaken replan decision after no-tests: %+v", store.last.ProgressLedger)
+	}
+}
+
+func TestRunWriteControllerWorkflow_UnverifiedSuppressesFollowupExploreBatch(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("parser error should not start followup exploration")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "fix redirect method"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "fix redirect"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
+		{
+			Action: writeflow.ActionExploreCode,
+			ExplorationRequest: &types.WriteExplorationRequest{
+				BatchID:              "batch-2",
+				Goal:                 "inspect already applied fix",
+				ExplorationQuestions: []string{"is the code change present?"},
+				CandidatePaths:       []string{"requests/sessions.py"},
+			},
+			ReasonCode: "verify_failed_loader_error",
+		},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	explorationCalls := 0
+	o.SetReadExplorationRunner(readExplorationRunnerFunc(func(o *Orchestrator) (int, error) {
+		explorationCalls++
+		return 0, nil
+	}))
+	planCalls := 0
+	verifyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			if planCalls > 1 {
+				t.Fatalf("parser_error unverified should not replan, planCalls=%d", planCalls)
+			}
+			mu.SetChangePlan(&types.ChangePlan{ID: "plan-parser-error", Status: types.PlanStatusPending, Summary: "fix redirect", TargetPaths: []string{"requests/sessions.py"}})
+		case types.StageVerify:
+			verifyCalls++
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:         "plan-parser-error",
+				Passed:         false,
+				FailureSummary: "unittest collection/import failed before executing real test cases",
+				FailureKind:    types.FailureKindParserError,
+				NoTestsRunners: []string{"python"},
+			})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if explorationCalls != 0 {
+		t.Fatalf("follow-up exploration after parser_error unverified should be suppressed, got %d call(s)", explorationCalls)
+	}
+	if planCalls != 1 || verifyCalls != 1 {
+		t.Fatalf("stage calls plan/verify = %d/%d, want 1/1", planCalls, verifyCalls)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should finish after accepting unverified verdict, got %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "batch_unverified") {
+		t.Fatalf("parser_error completion must be recorded as unverified, got %+v", store.last.ProgressLedger)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "unverified_action_overridden") {
+		t.Fatalf("follow-up explore must be recorded as overridden, got %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "exploration_complete") {
+		t.Fatalf("suppressed follow-up explore must not run exploration: %+v", store.last.ProgressLedger)
 	}
 }
 
