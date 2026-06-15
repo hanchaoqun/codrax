@@ -59,10 +59,11 @@ type emitPlanSkeletonChange struct {
 // emitPlanSkeletonParams is the wire shape for the skeleton tool.
 // Mirrors emitChangePlanParams except changes carries metadata only.
 type emitPlanSkeletonParams struct {
-	Request         string                   `json:"request"`
-	Summary         string                   `json:"summary"`
-	Changes         []emitPlanSkeletonChange `json:"changes"`
-	AcceptanceTests []string                 `json:"acceptance_tests,omitempty"`
+	Request            string                    `json:"request"`
+	Summary            string                    `json:"summary"`
+	Changes            []emitPlanSkeletonChange  `json:"changes"`
+	AcceptanceTests    []string                  `json:"acceptance_tests,omitempty"`
+	VerificationProbes []types.VerificationProbe `json:"verification_probes,omitempty"`
 }
 
 // emitPlanSkeletonSchemaReminder is the structural-emit twin of
@@ -73,7 +74,7 @@ const emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 s
 	"summary: string (3-10 sentences explaining what + why), " +
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}, " +
-	"acceptance_tests: optional []string}. " +
+	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes}. " +
 	"Do NOT include new_content or patch here — those land via emit_plan_change once per file."
 
 func (t *EmitPlanSkeleton) Name() string { return "emit_plan_skeleton" }
@@ -114,6 +115,23 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	      "type": "array",
 	      "items": {"type": "string"},
 	      "description": "Optional list of test assertions the verify stage must cover."
+	    },
+	    "verification_probes": {
+	      "type": "array",
+	      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Initial support: language=python inline code.",
+	      "items": {
+	        "type": "object",
+	        "additionalProperties": false,
+	        "properties": {
+	          "id": {"type": "string"},
+	          "language": {"type": "string", "enum": ["python"]},
+	          "working_dir": {"type": "string"},
+	          "code": {"type": "string"},
+	          "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
+	          "expected_stdout": {"type": "array", "items": {"type": "string"}}
+	        },
+	        "required": ["language", "code"]
+	      }
 	    }
 	  },
 	  "required": ["request", "summary", "changes"]
@@ -237,23 +255,33 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	// skeleton's value is structural plan shape, not summary
 	// fidelity.
 
+	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
+	if rej != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_plan_skeleton rejected: " + rej,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
 	// Install partial plan. The factory builds the canonical struct
 	// with placeholder bodies; emit_plan_change fills them.
 	// ResetChangePlan FIRST clears any stale completed-or-partial
 	// plan from a prior dispatch (it nils both slots), then we
 	// install the fresh skeleton — order matters because Reset wipes
 	// PartialChangePlan too.
-	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests)
+	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes)
 	ctx.Mutable.ResetChangePlan()
 	ctx.Mutable.SetPartialChangePlan(plan)
 
 	pendingFiles := countNonDeleteChanges(plan.Changes)
 	summary := fmt.Sprintf(
-		"[emit_plan_skeleton: id=%s changes=%d pending_bodies=%d acceptance_tests=%d]\n"+
+		"[emit_plan_skeleton: id=%s changes=%d pending_bodies=%d acceptance_tests=%d verification_probes=%d]\n"+
 			"skeleton recorded — call emit_plan_change once per non-delete change to fill new_content / patch. "+
 			"The last emit_plan_change runs the full validators (V1 deps / V2 dry-build / V4 fidelity / patch pre-check) "+
 			"and finalizes the plan.",
-		plan.ID, len(plan.Changes), pendingFiles, len(plan.AcceptanceTests))
+		plan.ID, len(plan.Changes), pendingFiles, len(plan.AcceptanceTests), len(plan.VerificationProbes))
 	logging.Info("[emit_plan_skeleton] plan=%s changes=%d pending_bodies=%d", plan.ID, len(plan.Changes), pendingFiles)
 
 	return types.ToolResult{

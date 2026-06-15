@@ -106,6 +106,71 @@ func TestEmitChangePlan_StructuredPayloadCompatRepairsStringArrays(t *testing.T)
 	}
 }
 
+func TestEmitChangePlan_PersistsVerificationProbesInFingerprint(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a python behaviour",
+		"summary": "Modify widget.py and attach a small behavioural probe so verify can still check the contract when project pytest infrastructure is unavailable.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "value_contract", "language": "python", "code": "import widget\nassert widget.VALUE == 42\n", "timeout_seconds": 3}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected Success=true, got summary: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		t.Fatal("expected ChangePlan installed on Mutable")
+	}
+	if len(plan.VerificationProbes) != 1 {
+		t.Fatalf("verification probes not persisted: %+v", plan.VerificationProbes)
+	}
+	fingerprintWithProbe := types.PlanFingerprint(plan)
+	plan.VerificationProbes = nil
+	fingerprintWithoutProbe := types.PlanFingerprint(plan)
+	if fingerprintWithProbe == "" || fingerprintWithProbe == fingerprintWithoutProbe {
+		t.Fatalf("plan fingerprint must include verification probes, with=%q without=%q", fingerprintWithProbe, fingerprintWithoutProbe)
+	}
+}
+
+func TestEmitChangePlan_RejectsEscapingVerificationProbeWorkingDir(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a python behaviour",
+		"summary": "Modify widget.py and attach a small behavioural probe so verify can still check the contract when project pytest infrastructure is unavailable.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "value_contract", "language": "python", "working_dir": "../outside", "code": "import widget\nassert widget.VALUE == 42\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected escaping verification probe working_dir to be rejected")
+	}
+	if !strings.Contains(res.Summary, "escapes the repository") {
+		t.Fatalf("summary should mention repository escape, got: %s", res.Summary)
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected probe must not install a plan: %+v", plan)
+	}
+}
+
 // TestEmitChangePlan_EmptyChangesRejected locks the hard cross-
 // field check: a plan with zero changes is meaningless and must
 // fail with a clear diagnostic.

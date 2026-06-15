@@ -3,6 +3,7 @@ package tool
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -282,7 +283,7 @@ func composePatchRejectionReason(repoRoot, path, gitErr, patchPayload string) st
 //
 // Reused by emit_plan_change when promoting PartialChangePlan to
 // ChangePlan — same factory, same shape.
-func newChangePlanFromChanges(request, summary string, changes []types.FileChange, acceptanceTests []string) *types.ChangePlan {
+func newChangePlanFromChanges(request, summary string, changes []types.FileChange, acceptanceTests []string, verificationProbes []types.VerificationProbe) *types.ChangePlan {
 	now := time.Now()
 	plan := &types.ChangePlan{
 		ID:        fmt.Sprintf("plan-%d-%d", now.UnixNano(), os.Getpid()),
@@ -302,5 +303,87 @@ func newChangePlanFromChanges(request, summary string, changes []types.FileChang
 	if len(acceptanceTests) > 0 {
 		plan.AcceptanceTests = append([]string(nil), acceptanceTests...)
 	}
+	if len(verificationProbes) > 0 {
+		plan.VerificationProbes = append([]types.VerificationProbe(nil), verificationProbes...)
+	}
 	return plan
+}
+
+func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.VerificationProbe, string) {
+	const (
+		maxProbes            = 5
+		maxProbeCodeBytes    = 8 * 1024
+		maxExpectedFragments = 10
+		defaultProbeTimeout  = 10
+		maxProbeTimeout      = 30
+	)
+	if len(in) == 0 {
+		return nil, ""
+	}
+	if len(in) > maxProbes {
+		return nil, fmt.Sprintf("verification_probes has %d entries; maximum is %d", len(in), maxProbes)
+	}
+	out := make([]types.VerificationProbe, 0, len(in))
+	seen := map[string]struct{}{}
+	for i, probe := range in {
+		language := strings.ToLower(strings.TrimSpace(probe.Language))
+		if language != "python" {
+			return nil, fmt.Sprintf("verification_probes[%d].language=%q is unsupported; supported values: python", i, probe.Language)
+		}
+		code := strings.TrimSpace(probe.Code)
+		if code == "" {
+			return nil, fmt.Sprintf("verification_probes[%d].code is required", i)
+		}
+		if len(code) > maxProbeCodeBytes {
+			return nil, fmt.Sprintf("verification_probes[%d].code is %d bytes; maximum is %d", i, len(code), maxProbeCodeBytes)
+		}
+		id := strings.TrimSpace(probe.ID)
+		if id == "" {
+			id = fmt.Sprintf("probe-%d", i+1)
+		}
+		if _, ok := seen[id]; ok {
+			return nil, fmt.Sprintf("verification_probes has duplicate id %q", id)
+		}
+		seen[id] = struct{}{}
+		workingDir := strings.TrimSpace(probe.WorkingDir)
+		if workingDir == "" {
+			workingDir = "."
+		}
+		workingDir = filepath.Clean(workingDir)
+		if filepath.IsAbs(workingDir) {
+			return nil, fmt.Sprintf("verification_probes[%d].working_dir=%q must be repo-relative", i, probe.WorkingDir)
+		}
+		for _, seg := range strings.Split(filepath.ToSlash(workingDir), "/") {
+			if seg == ".." {
+				return nil, fmt.Sprintf("verification_probes[%d].working_dir=%q escapes the repository", i, probe.WorkingDir)
+			}
+		}
+		workingDir = filepath.ToSlash(workingDir)
+		timeout := probe.TimeoutSeconds
+		if timeout <= 0 {
+			timeout = defaultProbeTimeout
+		}
+		if timeout > maxProbeTimeout {
+			timeout = maxProbeTimeout
+		}
+		expected := make([]string, 0, len(probe.ExpectedStdout))
+		for _, fragment := range probe.ExpectedStdout {
+			fragment = strings.TrimSpace(fragment)
+			if fragment != "" {
+				expected = append(expected, fragment)
+			}
+			if len(expected) > maxExpectedFragments {
+				return nil, fmt.Sprintf("verification_probes[%d].expected_stdout has more than %d non-empty entries", i, maxExpectedFragments)
+			}
+		}
+		out = append(out, types.VerificationProbe{
+			ID:             id,
+			Language:       language,
+			WorkingDir:     workingDir,
+			Code:           code,
+			TimeoutSeconds: timeout,
+			ExpectedStdout: expected,
+		})
+	}
+	return out, ""
 }

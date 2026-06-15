@@ -1697,6 +1697,98 @@ func TestBaseAgent_EmitsToolBatchBeforeExecutingMixedContentToolResponse(t *test
 	}
 }
 
+type terminalEmitStopLLM struct {
+	calls int
+}
+
+func (l *terminalEmitStopLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	l.calls++
+	if l.calls == 1 {
+		return llm.Response{ToolCalls: []llm.ToolCall{{
+			ID:     "call-terminal",
+			Name:   "emit_test_results",
+			Params: json.RawMessage(`{}`),
+		}}}, nil
+	}
+	return llm.Response{Content: "second round should not be requested"}, nil
+}
+
+func (*terminalEmitStopLLM) ModelID() string               { return "terminal-emit-stop" }
+func (*terminalEmitStopLLM) MaxContextTokens() int         { return 128000 }
+func (*terminalEmitStopLLM) MaxOutputTokens() int          { return 4096 }
+func (*terminalEmitStopLLM) RequestTimeout() time.Duration { return 0 }
+func (*terminalEmitStopLLM) RetryMaxAttempts() int         { return 0 }
+
+type terminalEmitStopEvaluator struct {
+	emitted bool
+}
+
+func (e *terminalEmitStopEvaluator) BuildInitialInstruction(_ *types.AgentContext, _ *skill.Config) string {
+	return ""
+}
+func (e *terminalEmitStopEvaluator) ShouldStop(_ llm.Response, _ int) bool { return e.emitted }
+func (e *terminalEmitStopEvaluator) ParseOutput(
+	_ *types.AgentContext, _ []llm.Message, _ []types.ToolResult, _ []types.MCPResponse,
+) (*StageOutput, error) {
+	if !e.emitted {
+		return nil, fmt.Errorf("terminal emit was not observed")
+	}
+	return &StageOutput{}, nil
+}
+func (e *terminalEmitStopEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *StageOutput) types.MissingPiece {
+	return types.MissingNone
+}
+
+type terminalEmitStopTool struct {
+	tool.ReadOnly
+	tool.NonEvidenceTool
+	eval *terminalEmitStopEvaluator
+}
+
+func (t terminalEmitStopTool) Name() string        { return "emit_test_results" }
+func (t terminalEmitStopTool) Description() string { return "test terminal emit" }
+func (t terminalEmitStopTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","additionalProperties":false}`)
+}
+func (t terminalEmitStopTool) Execute(_ *types.BusContext, _ json.RawMessage) (types.ToolResult, error) {
+	t.eval.emitted = true
+	return types.ToolResult{
+		ToolName:  t.Name(),
+		Success:   true,
+		Summary:   "emit_test_results recorded",
+		Timestamp: time.Now(),
+	}, nil
+}
+
+func TestBaseAgentStopsImmediatelyAfterSuccessfulTerminalEmit(t *testing.T) {
+	eval := &terminalEmitStopEvaluator{}
+	registry := tool.NewRegistry()
+	registry.Register(terminalEmitStopTool{eval: eval})
+	llmAdapter := &terminalEmitStopLLM{}
+	b := NewBaseAgent(types.AgentVerifier, &Dependencies{
+		LLM:           llmAdapter,
+		Tools:         registry,
+		MaxIterations: 3,
+		Emit:          func(render.Event) {},
+	}, eval)
+
+	out, err := b.Execute(&types.AgentContext{
+		AgentName: types.AgentVerifier,
+		Stage:     types.StageVerify,
+		Mode:      types.ModeApply,
+		Mutable:   types.NewMutableState("terminal emit stop"),
+	}, &skill.Config{ToolSuggestions: []string{"emit_test_results"}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out == nil {
+		t.Fatal("Execute returned nil output")
+	}
+	if llmAdapter.calls != 1 {
+		t.Fatalf("terminal emit should stop before a second LLM call, got %d calls", llmAdapter.calls)
+	}
+}
+
 func TestBaseAgent_PersistsReasoningContentAfterStreamingPreview(t *testing.T) {
 	registry := tool.NewRegistry()
 	registry.Register(traceTool{})

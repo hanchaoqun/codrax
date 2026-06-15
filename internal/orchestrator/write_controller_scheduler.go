@@ -103,8 +103,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			appendControllerProgress(&run, run.ActiveBatchID, "unverified_terminal_action_overridden",
 				"active batch already completed with a typed unverified verifier outcome; finishing instead of replanning the same bytes")
 			decision = writeflow.WriteWorkflowDecision{
-				Action:     writeflow.ActionFinish,
-				ReasonCode: "active_batch_unverified_terminal",
+				Action:            writeflow.ActionFinish,
+				ReasonCode:        "active_batch_unverified_terminal",
+				FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 			}
 		}
 		// Typed finish gate, evaluated BEFORE the decision mutates the run
@@ -375,7 +376,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
 				appendControllerProgress(&run, run.ActiveBatchID, "verify_failed", innerErr.Error())
 				diffRef, surfaceRef := o.persistVerifyFailureEvidence(&run, report, verifyFailures[run.ActiveBatchID])
-				if handoff := types.BuildVerifyFailureHandoff(report, run.ActiveBatchID, verifyFailures[run.ActiveBatchID], diffRef, surfaceRef); handoff != nil {
+				if handoff := o.resolveVerifyFailureHandoffArtifacts(types.BuildVerifyFailureHandoff(report, run.ActiveBatchID, verifyFailures[run.ActiveBatchID], diffRef, surfaceRef)); handoff != nil {
 					o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
 				}
 				o.persistWriteWorkflowRun(&run)
@@ -2311,6 +2312,14 @@ func (o *Orchestrator) persistVerifyFailureEvidence(run *types.WriteWorkflowRun,
 	return diffName, surfaceRef
 }
 
+func (o *Orchestrator) resolveVerifyFailureHandoffArtifacts(h *types.VerifyFailureHandoff) *types.VerifyFailureHandoff {
+	if h == nil {
+		return nil
+	}
+	types.ResolveVerifyFailureHandoffArtifactPaths(h, o.ensureChangeReportDir())
+	return h
+}
+
 func (o *Orchestrator) persistVerifyFailureSurface(run *types.WriteWorkflowRun, report *types.ChangeReport, stem, planDir string, attempt int) string {
 	if report == nil || report.TestSurface == nil || run == nil {
 		return ""
@@ -2602,7 +2611,7 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 			if strings.HasSuffix(st.LatestVerifyArtifactRef, ".diff") {
 				diffRef = st.LatestVerifyArtifactRef
 			}
-			if handoff := types.BuildVerifyFailureHandoff(report, active.ID, st.FailedVerifyAttempts, diffRef, st.LatestVerifySurfaceRef); handoff != nil {
+			if handoff := o.resolveVerifyFailureHandoffArtifacts(types.BuildVerifyFailureHandoff(report, active.ID, st.FailedVerifyAttempts, diffRef, st.LatestVerifySurfaceRef)); handoff != nil {
 				o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
 				logging.Info("[orchestrator] resume: rebuilt verify-failure context from %s", st.ReportID)
 			}

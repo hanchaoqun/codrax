@@ -1,6 +1,7 @@
 package types
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -62,6 +63,27 @@ func TestBuildVerifyFailureHandoff_NilForPassedOrNil(t *testing.T) {
 	}
 	if h := BuildVerifyFailureHandoff(&ChangeReport{Passed: true}, "b", 1, "", ""); h != nil {
 		t.Fatal("passed report must not build a handoff")
+	}
+}
+
+func TestResolveVerifyFailureHandoffArtifactPaths(t *testing.T) {
+	dir := t.TempDir()
+	h := &VerifyFailureHandoff{
+		DiffArtifactRef:    "plan-1.attempt-1.diff",
+		SurfaceArtifactRef: "plan-1.attempt-1.surface.json",
+	}
+	ResolveVerifyFailureHandoffArtifactPaths(h, dir)
+	if h.DiffArtifactPath != filepath.Join(dir, "plan-1.attempt-1.diff") {
+		t.Fatalf("diff path not resolved: %+v", h)
+	}
+	if h.SurfaceArtifactPath != filepath.Join(dir, "plan-1.attempt-1.surface.json") {
+		t.Fatalf("surface path not resolved: %+v", h)
+	}
+
+	escaped := &VerifyFailureHandoff{DiffArtifactRef: "../outside.diff"}
+	ResolveVerifyFailureHandoffArtifactPaths(escaped, dir)
+	if escaped.DiffArtifactPath != "" {
+		t.Fatalf("escaped artifact ref must not resolve: %+v", escaped)
 	}
 }
 

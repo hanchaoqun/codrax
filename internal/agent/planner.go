@@ -1123,10 +1123,16 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 		fmt.Fprintf(&b, "- full runner output: %s (page with read_file offset/limit)\n", h.BlobRef)
 	}
 	if h.DiffArtifactRef != "" {
-		fmt.Fprintf(&b, "- previous attempt patch: %s (in the plan directory)\n", h.DiffArtifactRef)
+		fmt.Fprintf(&b, "- previous attempt patch: %s\n", h.DiffArtifactRef)
+		if h.DiffArtifactPath != "" {
+			fmt.Fprintf(&b, "  read_file path: %s\n", h.DiffArtifactPath)
+		}
 	}
 	if h.SurfaceArtifactRef != "" {
-		fmt.Fprintf(&b, "- test surface artifact: %s (in the plan directory)\n", h.SurfaceArtifactRef)
+		fmt.Fprintf(&b, "- test surface artifact: %s\n", h.SurfaceArtifactRef)
+		if h.SurfaceArtifactPath != "" {
+			fmt.Fprintf(&b, "  read_file path: %s\n", h.SurfaceArtifactPath)
+		}
 	}
 	if h.NextSurfaceCandidateID != "" {
 		fmt.Fprintf(&b, "- unexecuted runnable test candidate: %s\n", h.NextSurfaceCandidateID)

@@ -302,6 +302,84 @@ func TestRunTestsDryRunFlagIgnoredOutsideStagePlan(t *testing.T) {
 	}
 }
 
+func TestRunTestsNoTestWorkUsesVerificationProbeVerdict(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 41\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe verdict")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "value_contract",
+			Language: "python",
+			Code:     "import widget\nassert widget.VALUE == 42\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("failing verification_probe must fail run_tests, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.FailureKind != types.FailureKindTestsFailed {
+		t.Fatalf("FailureKind = %q, want tests_failed; report=%+v", report.FailureKind, report)
+	}
+	if len(report.TestResults) != 1 || report.TestResults[0].AssertionID != "value_contract" || report.TestResults[0].Passed {
+		t.Fatalf("verification probe result missing or wrong: %+v", report.TestResults)
+	}
+	foundProbeCommand := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.Framework == "python" && cmd.Source == "no_tests_verification_probe" {
+			foundProbeCommand = true
+		}
+	}
+	if !foundProbeCommand {
+		t.Fatalf("executed command evidence should include verification_probe source, got %+v", report.ExecutedCommands)
+	}
+}
+
+func TestRenderVerificationProbeOutputCarriesProbeSource(t *testing.T) {
+	out := renderVerificationProbeOutput([]types.VerificationProbe{{
+		ID:             "punctuation_note",
+		Language:       "python",
+		WorkingDir:     "src",
+		TimeoutSeconds: 2,
+		ExpectedStdout: []string{"ok"},
+		Code:           "print('ok')\n",
+	}}, []string{"ok\n"})
+	for _, want := range []string{
+		"#### punctuation_note",
+		"language=python working_dir=src timeout_seconds=2",
+		"expected_stdout=[\"ok\"]",
+		"source:\n```python\nprint('ok')\n```",
+		"output:\nok",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("probe output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestDetectPythonTestFramework(t *testing.T) {
 	t.Run("django runtests wins", func(t *testing.T) {
 		root := t.TempDir()

@@ -250,7 +250,9 @@ func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
 		FailureSummary:         "1 of 3 tests failed",
 		BlobRef:                "/tmp/blob/run.txt",
 		DiffArtifactRef:        "plan-1.attempt-1.diff",
+		DiffArtifactPath:       "/tmp/codrax/plans/plan-1.attempt-1.diff",
 		SurfaceArtifactRef:     "plan-1.attempt-1.surface.json",
+		SurfaceArtifactPath:    "/tmp/codrax/plans/plan-1.attempt-1.surface.json",
 		NextSurfaceCandidateID: "make@.",
 	})
 	eval := &plannerEvaluator{}
@@ -264,7 +266,9 @@ func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
 		"build_error: src/x.c:42",
 		"full runner output: /tmp/blob/run.txt",
 		"previous attempt patch: plan-1.attempt-1.diff",
+		"read_file path: /tmp/codrax/plans/plan-1.attempt-1.diff",
 		"test surface artifact: plan-1.attempt-1.surface.json",
+		"read_file path: /tmp/codrax/plans/plan-1.attempt-1.surface.json",
 		"unexecuted runnable test candidate: make@.",
 	} {
 		if !strings.Contains(section, want) {

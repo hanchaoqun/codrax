@@ -2640,6 +2640,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}
 		}
 
+		currentToolResults := allToolResults[toolResultsStart:]
+		currentMCPResponses := allMCPResponses[mcpResponsesStart:]
+		if toolResultsContainSuccessfulTerminalEmit(currentToolResults) && b.eval.ShouldStop(resp, i) {
+			logging.Debug("[diag %s] STOP at iter=%d (post-tool terminal emit)", b.name, i)
+			break
+		}
+
 		// Mid-loop check: give the LoopController a chance to detect
 		// drift and inject a corrective hint between tool batches.
 		// Unlike PhaseSoftStop (which only fires when the LLM
@@ -2657,9 +2664,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Response:            resp,
 				LastToolResult:      lastToolResultPtr,
 				AllToolResults:      allToolResults,
-				CurrentToolResults:  allToolResults[toolResultsStart:],
+				CurrentToolResults:  currentToolResults,
 				AllMCPResponses:     allMCPResponses,
-				CurrentMCPResponses: allMCPResponses[mcpResponsesStart:],
+				CurrentMCPResponses: currentMCPResponses,
 				ToolSurfaceKnown:    true,
 				AvailableToolNames:  effectiveToolNames,
 				IdleStreak:          idle,
@@ -2748,6 +2755,28 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	}
 
 	return output, nil
+}
+
+func toolResultsContainSuccessfulTerminalEmit(results []types.ToolResult) bool {
+	for _, result := range results {
+		if result.Success && isTerminalEmitToolName(result.ToolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func isTerminalEmitToolName(name string) bool {
+	switch types.CanonicalToolName(name) {
+	case "emit_change_plan",
+		"emit_plan_change",
+		"emit_test_results",
+		"emit_write_analysis",
+		"emit_write_workflow_decision":
+		return true
+	default:
+		return false
+	}
 }
 
 // readFilePathMissMarkers lists substrings that identify a read_file

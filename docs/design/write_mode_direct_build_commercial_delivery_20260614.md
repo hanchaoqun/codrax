@@ -2757,3 +2757,39 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `make` PASS.
 - Progress:
   - Implementation commit: `17b1ab59` (`write-mode: harden no-tests workflow convergence`), pushed to `origin/main` with ledger follow-up `2a7b60fd`.
+
+## 2026-06-15 SWE-bench Lite semantic-verification hardening
+
+- Evidence source:
+  - Non-Go Lite smoke under `eval/results/swebench/lite-smoke-20260615-nongo-0903`.
+  - Completed predictions for `matplotlib__matplotlib-18869` and `pylint-dev__pylint-5859`; `scikit-learn__scikit-learn-10297` clone was manually interrupted during a large mirror fetch.
+  - Manual audit: Matplotlib patch likely matched the requested `version_info` exposure but local pytest remained infrastructure-unverified; Pylint patch was behaviourally wrong (`(?<!\w)` instead of the required forward boundary), proving syntax-only validation is insufficient when project tests are unavailable.
+- Generalized gap:
+  - Successful structured emit tools were only observed by evaluator stop logic on the next model turn, causing planner/controller to do one more LLM round after `emit_change_plan` had already installed a plan.
+  - `parser_error`/`runner_missing` local verification dead-ends could still be interrupted by same-batch `verify_batch`/`replan_batch` actions after the batch was already complete-unverified.
+  - Customer/SWE-bench environments often lack exact pytest/plugin dependencies; missing pytest must not be a hard code-failure gate, but the system still needs a typed way to catch small semantic regressions when the model can supply a deterministic behavioural probe.
+- Target architecture:
+  - Post-tool terminal-stop is a BaseAgent control-flow primitive scoped to write-mode terminal emit tools. It reads tool result success and evaluator typed state only; it never parses model prose.
+  - `ChangePlan.verification_probes[]` is the typed behavioural fallback lane. Planner may emit bounded Python probes; `run_tests` executes them only from the structured field on `no_tests`, `runner_missing`, or `parser_error` dead-ends.
+  - Probe verdicts are persisted in `ChangeReport.TestResults` and `ExecutedCommands`, giving controller, planner handoff, and audit UI the same typed consumer surface as normal test results.
+  - Verify-failure handoff carries both portable artifact refs and resolved `read_file` paths for failed-attempt patch/test-surface evidence. Retry planning consumes those exact artifact paths instead of guessing the plan directory.
+  - Verification probe raw output carries language/cwd/timeout/expected stdout plus a bounded source snippet, so a retry can audit bad-probe-vs-bad-code failures without natural-language hard routing.
+  - Completed-unverified batches normalize same-batch interrupt actions to `finish` with `finish_disposition=accept_unverified` unless a verify-failure handoff exists.
+- Safety and prompt hygiene:
+  - No `acceptance_tests` prose, user keywords, issue text, model rationale, or `<think>` output is parsed for hard routing.
+  - Probe schema is bounded: language enum, repo-relative working directory, short timeout, small code payload, optional exact stdout fragments.
+  - Read mode and non-write modes are not retimed; post-tool stop intentionally excludes read-mode evidence emit tools.
+- Implementation tasks:
+  - [x] Add post-tool terminal emit stop in BaseAgent for write-mode terminal emits.
+  - [x] Add `types.VerificationProbe` and include probes in plan fingerprint.
+  - [x] Extend `emit_change_plan` and `emit_plan_skeleton` strict schemas with `verification_probes[]`.
+  - [x] Execute typed probes from `run_tests` on no-test, runner-missing, and parser-error dead-ends.
+  - [x] Normalize parser-error/runner-missing/no-tests completed batches to finish with unverified caveat for same-batch interruptions.
+  - [x] Resolve verify-failure patch/test-surface artifact refs into direct `read_file` paths for new failures and resume rebuilds.
+  - [x] Include bounded verification-probe source/metadata in raw output for evidence-preserving replans.
+  - [x] Update user guide Markdown and HTML.
+- Verification:
+  - Focused tests passed for BaseAgent terminal emit stop, controller parser-error/runner-missing suppression, emit schema fingerprinting, and no-test verification probe verdict.
+  - Post-fix SWE-bench Lite rerun for `pylint-dev__pylint-5859` exported a harness-consumable patch with the correct forward-boundary fix. The local verify failure exposed a model-authored bad probe and missing direct artifact path in replan handoff; the handoff/probe-evidence fixes above address that generalized gap.
+  - Final local regression passed: `go test ./...`, `make test`, `make`, and `git diff --check`.
+  - SWE-bench adapter validation passed for `eval/results/swebench/lite-smoke-20260615-pylint-probe-0946/predictions.jsonl`: local validator reported 1 prediction and 0 empty patches; official harness dry-run accepted the command.

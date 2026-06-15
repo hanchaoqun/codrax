@@ -429,6 +429,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// py_compile on the plan file → succeeds → verify passes.
 		if runnerHasNoTestWork(runner, runnerRoot) {
 			label := runnerPlanLabel(ctx.RepoRoot, plan)
+			if probe, ok := runPlanVerificationProbes(ctx, "no_tests_verification_probe"); ok {
+				executedCmds = append(executedCmds, probe.Commands...)
+				projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
+				combinedOutputs = append(combinedOutputs, probe.Output)
+				continue
+			}
 			exts := syntaxCheckExtensions(runner)
 			if len(exts) > 0 {
 				files := planFilesByExt(ctx, runnerRoot, exts)
@@ -699,6 +705,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				plans = append(plans, *next)
 				continue
 			}
+			if probe, ok := runPlanVerificationProbes(ctx, "runner_missing_verification_probe"); ok {
+				executedCmds = append(executedCmds, probe.Commands...)
+				projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
+				combinedOutputs = append(combinedOutputs, probe.Output)
+				continue
+			}
 			_, ref := StoreBlob(ctx, t.Name()+"-runner-missing", strings.Join(combinedOutputs, "\n\n"))
 			report := makeRunnerMissingReport(runner, missingBinary, output, ctx.Language, missingReason, execExit)
 			// env_recommend integration: when enabled, replace the
@@ -786,6 +798,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 						err = fmt.Errorf("%v; pytest text fallback parser failed: %v", err, fallback.ParseErr)
 					}
 				}
+			}
+			if probe, ok := runPlanVerificationProbes(ctx, "parser_error_verification_probe"); ok {
+				executedCmds = append(executedCmds, probe.Commands...)
+				projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
+				combinedOutputs = append(combinedOutputs, probe.Output)
+				continue
 			}
 			_, ref := StoreBlob(ctx, t.Name()+"-unparsed", strings.Join(combinedOutputs, "\n\n"))
 			// A parser error must still leave a typed, durable report —

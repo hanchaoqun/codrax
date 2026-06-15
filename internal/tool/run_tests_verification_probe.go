@@ -1,0 +1,355 @@
+package tool
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+type verificationProbeRunResult struct {
+	Report   *types.ChangeReport
+	Output   string
+	Commands []types.ExecutedCommand
+}
+
+func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificationProbeRunResult, bool) {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil, false
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) == 0 {
+		return nil, false
+	}
+	var (
+		results  []types.TestResult
+		outputs  []string
+		commands []types.ExecutedCommand
+	)
+	for _, probe := range plan.VerificationProbes {
+		res := runSingleVerificationProbe(ctx, probe, source)
+		results = append(results, res.Report.TestResults...)
+		if strings.TrimSpace(res.Output) != "" {
+			outputs = append(outputs, res.Output)
+		} else if strings.TrimSpace(res.Report.FailureSummary) != "" && !res.Report.Passed {
+			outputs = append(outputs, res.Report.FailureSummary)
+		} else {
+			outputs = append(outputs, "")
+		}
+		commands = append(commands, res.Commands...)
+	}
+	passed := true
+	var failureKind types.FailureKind
+	for _, result := range results {
+		if !result.Passed {
+			passed = false
+			break
+		}
+	}
+	if !passed {
+		failureKind = types.FailureKindTestsFailed
+		for _, cmd := range commands {
+			switch cmd.Outcome {
+			case "runner_missing":
+				failureKind = types.FailureKindRunnerMissing
+			case "timeout":
+				failureKind = types.FailureKindTimeout
+			case "oom":
+				failureKind = types.FailureKindOOM
+			case "cpu_limit":
+				failureKind = types.FailureKindCPULimit
+			}
+			if failureKind != types.FailureKindTestsFailed {
+				break
+			}
+		}
+	}
+	summary := ""
+	if !passed {
+		summary = strings.TrimSpace(strings.Join(outputs, "\n\n"))
+		if summary == "" {
+			summary = "verification probe failed"
+		}
+	}
+	report := &types.ChangeReport{
+		PlanID:         plan.ID,
+		TestResults:    results,
+		Passed:         passed,
+		FailureKind:    failureKind,
+		FailureSummary: summary,
+	}
+	return &verificationProbeRunResult{
+		Report:   report,
+		Output:   renderVerificationProbeOutput(plan.VerificationProbes, outputs),
+		Commands: commands,
+	}, true
+}
+
+func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, source string) verificationProbeRunResult {
+	id := strings.TrimSpace(probe.ID)
+	if id == "" {
+		id = "probe"
+	}
+	lang := strings.ToLower(strings.TrimSpace(probe.Language))
+	if lang == "" {
+		lang = "python"
+	}
+	wd, rel, dirErr := resolveVerificationProbeWorkingDir(ctx.RepoRoot, probe.WorkingDir)
+	if dirErr != nil {
+		detail := dirErr.Error()
+		return verificationProbeRunResult{
+			Report: &types.ChangeReport{
+				TestResults: []types.TestResult{{
+					Kind:          types.TestResultKindUnit,
+					AssertionID:   id,
+					Suite:         "verification_probe/" + lang,
+					Passed:        false,
+					FailureDetail: detail,
+				}},
+				Passed:         false,
+				FailureKind:    types.FailureKindTestsFailed,
+				FailureSummary: detail,
+			},
+			Output: detail,
+			Commands: []types.ExecutedCommand{{
+				Runner:     "verification_probe",
+				Framework:  lang,
+				WorkingDir: rel,
+				Source:     source,
+				Outcome:    "probe_config_error",
+			}},
+		}
+	}
+	switch lang {
+	case "python":
+		return runPythonVerificationProbe(ctx, probe, id, wd, rel, source)
+	default:
+		detail := fmt.Sprintf("verification probe %q has unsupported language %q", id, probe.Language)
+		return verificationProbeRunResult{
+			Report: &types.ChangeReport{
+				TestResults: []types.TestResult{{
+					Kind:          types.TestResultKindUnit,
+					AssertionID:   id,
+					Suite:         "verification_probe/" + lang,
+					Passed:        false,
+					FailureDetail: detail,
+				}},
+				Passed:         false,
+				FailureKind:    types.FailureKindTestsFailed,
+				FailureSummary: detail,
+			},
+			Output: detail,
+			Commands: []types.ExecutedCommand{{
+				Runner:     "verification_probe",
+				Framework:  lang,
+				WorkingDir: rel,
+				Source:     source,
+				Outcome:    "probe_config_error",
+			}},
+		}
+	}
+}
+
+func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
+	timeout := time.Duration(probe.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	if timeout > 30*time.Second {
+		timeout = 30 * time.Second
+	}
+	interp := pythonRuntimeInterpreter(ctx.RepoRoot, ctx.MainRepoRoot, wd)
+	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(execCtx, interp, "-c", probe.Code)
+	cmd.Dir = wd
+	cmd.Env = runnerExecutionEnv("python", ctx.RepoRoot, wd, ctx.MainRepoRoot)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	start := time.Now()
+	caps := verifyResourceCaps()
+	if timeoutSeconds := uint64(timeout.Seconds()); timeoutSeconds > 0 && caps.CPULimitSeconds > timeoutSeconds {
+		caps.CPULimitSeconds = timeoutSeconds
+	}
+	supRes := SupervisedRun(execCtx, cmd, caps)
+	duration := time.Since(start)
+	output := stdout.String()
+	if stderr.Len() > 0 {
+		if output != "" {
+			output += "\n"
+		}
+		output += stderr.String()
+	}
+	exitCode := extractExitCode(supRes.Err)
+	outcome := "executed"
+	failureKind := types.FailureKindTestsFailed
+	switch supRes.ExitKind {
+	case SupervisedExitTimeout:
+		outcome = "timeout"
+		failureKind = types.FailureKindTimeout
+	case SupervisedExitOOM:
+		outcome = "oom"
+		failureKind = types.FailureKindOOM
+	case SupervisedExitCPULimit:
+		outcome = "cpu_limit"
+		failureKind = types.FailureKindCPULimit
+	default:
+		if missing, _, _ := detectRunnerMissing("python", supRes.Err, output); missing {
+			outcome = "runner_missing"
+			failureKind = types.FailureKindRunnerMissing
+		}
+	}
+	passed := supRes.Err == nil
+	var missingExpected []string
+	if passed && len(probe.ExpectedStdout) > 0 {
+		for _, fragment := range probe.ExpectedStdout {
+			if !strings.Contains(stdout.String(), fragment) {
+				missingExpected = append(missingExpected, fragment)
+			}
+		}
+		if len(missingExpected) > 0 {
+			passed = false
+			outcome = "expected_stdout_missing"
+		}
+	}
+	if passed {
+		failureKind = ""
+	}
+	detail := ""
+	if !passed {
+		detail = stdoutHead(output, 4000)
+		if len(missingExpected) > 0 {
+			if detail != "" {
+				detail += "\n"
+			}
+			detail += "missing expected stdout fragments: " + strings.Join(missingExpected, ", ")
+		}
+		if detail == "" {
+			detail = fmt.Sprintf("verification probe %q exited with code %d", id, exitCode)
+		}
+	}
+	logging.Info("[run_tests] verification_probe id=%s lang=python cwd=%s outcome=%s exit=%d duration=%v",
+		id, rel, outcome, exitCode, duration)
+	return verificationProbeRunResult{
+		Report: &types.ChangeReport{
+			TestResults: []types.TestResult{{
+				Kind:          types.TestResultKindUnit,
+				AssertionID:   id,
+				Suite:         "verification_probe/python",
+				Passed:        passed,
+				Duration:      duration,
+				FailureDetail: detail,
+			}},
+			Passed:         passed,
+			FailureKind:    failureKind,
+			FailureSummary: detail,
+		},
+		Output: output,
+		Commands: []types.ExecutedCommand{{
+			Runner:     "verification_probe",
+			Framework:  "python",
+			WorkingDir: rel,
+			Command:    "python -c <verification_probe:" + id + ">",
+			ExitCode:   exitCode,
+			DurationMS: duration.Milliseconds(),
+			Source:     source,
+			Outcome:    outcome,
+		}},
+	}
+}
+
+func resolveVerificationProbeWorkingDir(repoRoot, workingDir string) (string, string, error) {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return "", "", fmt.Errorf("verification probe requires repo root")
+	}
+	rootAbs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		rootAbs = repoRoot
+	}
+	rel := strings.TrimSpace(workingDir)
+	if rel == "" {
+		rel = "."
+	}
+	cleaned := filepath.Clean(rel)
+	if filepath.IsAbs(cleaned) {
+		return "", filepath.ToSlash(cleaned), fmt.Errorf("verification probe working_dir %q must be repo-relative", workingDir)
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(cleaned), "/") {
+		if seg == ".." {
+			return "", filepath.ToSlash(cleaned), fmt.Errorf("verification probe working_dir %q escapes the repository", workingDir)
+		}
+	}
+	target := filepath.Join(rootAbs, cleaned)
+	backRel, err := filepath.Rel(rootAbs, target)
+	if err != nil || strings.HasPrefix(filepath.ToSlash(backRel), "../") || backRel == ".." {
+		return "", filepath.ToSlash(cleaned), fmt.Errorf("verification probe working_dir %q resolves outside the repository", workingDir)
+	}
+	info, err := os.Stat(target)
+	if err != nil || !info.IsDir() {
+		return "", filepath.ToSlash(cleaned), fmt.Errorf("verification probe working_dir %q does not exist or is not a directory", workingDir)
+	}
+	if backRel == "" {
+		backRel = "."
+	}
+	return target, filepath.ToSlash(backRel), nil
+}
+
+func renderVerificationProbeOutput(probes []types.VerificationProbe, outputs []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "### verification_probes (%d)\n", len(probes))
+	for i, probe := range probes {
+		id := strings.TrimSpace(probe.ID)
+		if id == "" {
+			id = fmt.Sprintf("probe-%d", i+1)
+		}
+		lang := strings.ToLower(strings.TrimSpace(probe.Language))
+		if lang == "" {
+			lang = "python"
+		}
+		workingDir := strings.TrimSpace(probe.WorkingDir)
+		if workingDir == "" {
+			workingDir = "."
+		}
+		timeout := probe.TimeoutSeconds
+		if timeout <= 0 {
+			timeout = 10
+		}
+		if timeout > 30 {
+			timeout = 30
+		}
+		fmt.Fprintf(&b, "#### %s\n", id)
+		fmt.Fprintf(&b, "language=%s working_dir=%s timeout_seconds=%d\n", lang, workingDir, timeout)
+		if len(probe.ExpectedStdout) > 0 {
+			fmt.Fprintf(&b, "expected_stdout=%q\n", probe.ExpectedStdout)
+		}
+		code := strings.TrimRight(probe.Code, "\n")
+		if code != "" {
+			b.WriteString("source:\n")
+			fmt.Fprintf(&b, "```%s\n", lang)
+			b.WriteString(stdoutHead(code, 2000))
+			if !strings.HasSuffix(code, "\n") {
+				b.WriteString("\n")
+			}
+			b.WriteString("```\n")
+		}
+		b.WriteString("output:\n")
+		if i < len(outputs) && strings.TrimSpace(outputs[i]) != "" {
+			b.WriteString(outputs[i])
+			if !strings.HasSuffix(outputs[i], "\n") {
+				b.WriteString("\n")
+			}
+		} else {
+			b.WriteString("(no output)\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}

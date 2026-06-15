@@ -1834,34 +1834,40 @@ func TestNormalizeControllerTypedStateDecisionReplanAfterRunnerMissingFinishesUn
 }
 
 func TestNormalizeControllerTypedStateDecisionRunnerMissingSuppressesInterruptions(t *testing.T) {
-	for _, action := range []writeflow.WorkflowAction{writeflow.ActionVerifyBatch, writeflow.ActionAskUser, writeflow.ActionBlock} {
-		t.Run(string(action), func(t *testing.T) {
-			mu := types.NewMutableState("runner missing interruption guard")
-			o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
-			run := &types.WriteWorkflowRun{
-				RunID:         "wf-runner-missing",
-				Status:        types.WriteWorkflowRunInProgress,
-				ActiveBatchID: "batch-1",
-				Batches: []types.WriteWorkflowBatch{{
-					ID:     "batch-1",
-					Status: types.WriteWorkflowBatchComplete,
-					Attempts: []types.WriteWorkflowAttempt{
-						{Kind: "apply", Status: "applied", PlanID: "plan-1"},
-						{Kind: "verify", Status: "unverified", ReasonCode: "runner_missing", PlanID: "plan-1"},
-					},
-				}},
-			}
-			got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
-				Action:     action,
-				ReasonCode: "missing_runner",
-			}, run)
-			if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
-				t.Fatalf("%s should finish with unverified caveat, got %+v", action, got)
-			}
-			if !workflowProgressHasReason(run.ProgressLedger, "unverified_action_overridden") {
-				t.Fatalf("override progress missing: %+v", run.ProgressLedger)
-			}
-		})
+	for _, reasonCode := range []string{"runner_missing", "parser_error"} {
+		for _, action := range []writeflow.WorkflowAction{writeflow.ActionVerifyBatch, writeflow.ActionAskUser, writeflow.ActionBlock, writeflow.ActionReplanBatch} {
+			t.Run(reasonCode+"/"+string(action), func(t *testing.T) {
+				mu := types.NewMutableState("runner missing interruption guard")
+				o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+				run := &types.WriteWorkflowRun{
+					RunID:         "wf-unverified",
+					Status:        types.WriteWorkflowRunInProgress,
+					ActiveBatchID: "batch-1",
+					Batches: []types.WriteWorkflowBatch{{
+						ID:     "batch-1",
+						Status: types.WriteWorkflowBatchComplete,
+						Attempts: []types.WriteWorkflowAttempt{
+							{Kind: "apply", Status: "applied", PlanID: "plan-1"},
+							{Kind: "verify", Status: "unverified", ReasonCode: reasonCode, PlanID: "plan-1"},
+						},
+					}},
+				}
+				got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+					Action:     action,
+					ReasonCode: reasonCode,
+				}, run)
+				if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+					t.Fatalf("%s should finish with unverified caveat, got %+v", action, got)
+				}
+				if action == writeflow.ActionReplanBatch {
+					if !workflowProgressHasReason(run.ProgressLedger, "replan_without_failure_evidence_overridden") {
+						t.Fatalf("replan override progress missing: %+v", run.ProgressLedger)
+					}
+				} else if !workflowProgressHasReason(run.ProgressLedger, "unverified_action_overridden") {
+					t.Fatalf("override progress missing: %+v", run.ProgressLedger)
+				}
+			})
+		}
 	}
 }
 
@@ -2493,6 +2499,9 @@ func TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears(t *te
 	if handoffSeenAtReplan.SurfaceArtifactRef != "plan-1.attempt-1.surface.json" {
 		t.Fatalf("handoff should carry the persisted test surface ref, got %q", handoffSeenAtReplan.SurfaceArtifactRef)
 	}
+	if handoffSeenAtReplan.SurfaceArtifactPath != filepath.Join(planDir, "plan-1.attempt-1.surface.json") {
+		t.Fatalf("handoff should carry resolved test surface path, got %q", handoffSeenAtReplan.SurfaceArtifactPath)
+	}
 	if _, err := types.LoadTestSurfaceFromFile(filepath.Join(planDir, handoffSeenAtReplan.SurfaceArtifactRef)); err != nil {
 		t.Fatalf("persisted test surface should be readable: %v", err)
 	}
@@ -3091,8 +3100,14 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 	if handoffAtApply.DiffArtifactRef != "plan-resume.attempt-1.diff" {
 		t.Fatalf("resume carrier should reference the persisted attempt diff, got %q", handoffAtApply.DiffArtifactRef)
 	}
+	if handoffAtApply.DiffArtifactPath != filepath.Join(planDir, "plan-resume.attempt-1.diff") {
+		t.Fatalf("resume carrier should carry resolved attempt diff path, got %q", handoffAtApply.DiffArtifactPath)
+	}
 	if handoffAtApply.SurfaceArtifactRef != "plan-resume.attempt-1.surface.json" {
 		t.Fatalf("resume carrier should reference the persisted test surface, got %q", handoffAtApply.SurfaceArtifactRef)
+	}
+	if handoffAtApply.SurfaceArtifactPath != filepath.Join(planDir, "plan-resume.attempt-1.surface.json") {
+		t.Fatalf("resume carrier should carry resolved test surface path, got %q", handoffAtApply.SurfaceArtifactPath)
 	}
 }
 

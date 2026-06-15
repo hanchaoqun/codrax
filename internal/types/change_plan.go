@@ -344,6 +344,13 @@ type ChangePlan struct {
 	// verify trivially.
 	AcceptanceTests []string `json:"acceptance_tests,omitempty"`
 
+	// VerificationProbes are optional, typed, bounded behavioural
+	// checks the verify stage may execute when the project runner is
+	// unavailable or its output cannot be parsed. They are not parsed
+	// from acceptance_tests prose: the planner must emit this structured
+	// lane explicitly, and run_tests consumes only the fields below.
+	VerificationProbes []VerificationProbe `json:"verification_probes,omitempty"`
+
 	// TargetPaths is the declared write scope — the set of files
 	// the apply stage is allowed to modify. Populated from Changes
 	// but also stored independently so the apply-stage pre-flight
@@ -474,23 +481,25 @@ func PlanFingerprint(plan *ChangePlan) string {
 		return ""
 	}
 	payload := struct {
-		ID              string       `json:"id"`
-		Request         string       `json:"request,omitempty"`
-		Summary         string       `json:"summary,omitempty"`
-		Changes         []FileChange `json:"changes"`
-		AcceptanceTests []string     `json:"acceptance_tests,omitempty"`
-		TargetPaths     []string     `json:"target_paths"`
-		PhaseGroupID    string       `json:"phase_group_id,omitempty"`
-		PhaseIndex      int          `json:"phase_index,omitempty"`
+		ID                 string              `json:"id"`
+		Request            string              `json:"request,omitempty"`
+		Summary            string              `json:"summary,omitempty"`
+		Changes            []FileChange        `json:"changes"`
+		AcceptanceTests    []string            `json:"acceptance_tests,omitempty"`
+		VerificationProbes []VerificationProbe `json:"verification_probes,omitempty"`
+		TargetPaths        []string            `json:"target_paths"`
+		PhaseGroupID       string              `json:"phase_group_id,omitempty"`
+		PhaseIndex         int                 `json:"phase_index,omitempty"`
 	}{
-		ID:              plan.ID,
-		Request:         plan.Request,
-		Summary:         plan.Summary,
-		Changes:         append([]FileChange(nil), plan.Changes...),
-		AcceptanceTests: append([]string(nil), plan.AcceptanceTests...),
-		TargetPaths:     append([]string(nil), plan.TargetPaths...),
-		PhaseGroupID:    plan.PhaseGroupID,
-		PhaseIndex:      plan.PhaseIndex,
+		ID:                 plan.ID,
+		Request:            plan.Request,
+		Summary:            plan.Summary,
+		Changes:            append([]FileChange(nil), plan.Changes...),
+		AcceptanceTests:    append([]string(nil), plan.AcceptanceTests...),
+		VerificationProbes: append([]VerificationProbe(nil), plan.VerificationProbes...),
+		TargetPaths:        append([]string(nil), plan.TargetPaths...),
+		PhaseGroupID:       plan.PhaseGroupID,
+		PhaseIndex:         plan.PhaseIndex,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -498,6 +507,19 @@ func PlanFingerprint(plan *ChangePlan) string {
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// VerificationProbe is a bounded, structured behavioural check attached to a
+// ChangePlan. The initial executor supports python inline probes only; the
+// schema is language-tagged so additional runners can be added without parsing
+// natural language acceptance_tests.
+type VerificationProbe struct {
+	ID             string   `json:"id,omitempty"`
+	Language       string   `json:"language"`
+	WorkingDir     string   `json:"working_dir,omitempty"`
+	Code           string   `json:"code"`
+	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
+	ExpectedStdout []string `json:"expected_stdout,omitempty"`
 }
 
 // FileChange describes one file-level modification the apply stage

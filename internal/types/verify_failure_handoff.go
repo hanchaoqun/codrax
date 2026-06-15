@@ -1,6 +1,7 @@
 package types
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -44,9 +45,19 @@ type VerifyFailureHandoff struct {
 	// (<stem>.attempt-N.diff) in the plan directory.
 	DiffArtifactRef string `json:"diff_artifact_ref,omitempty"`
 
+	// DiffArtifactPath is the resolved local path to DiffArtifactRef when the
+	// orchestrator knows the artifact directory. It is a read-only handoff
+	// convenience for planner/verifier consumers; durable workflow state still
+	// stores the portable ref above.
+	DiffArtifactPath string `json:"diff_artifact_path,omitempty"`
+
 	// SurfaceArtifactRef names the persisted runnable test surface
 	// (<stem>.attempt-N.surface.json) in the plan directory.
 	SurfaceArtifactRef string `json:"surface_artifact_ref,omitempty"`
+
+	// SurfaceArtifactPath is the resolved local path to SurfaceArtifactRef when
+	// the orchestrator knows the artifact directory.
+	SurfaceArtifactPath string `json:"surface_artifact_path,omitempty"`
 
 	// NextSurfaceCandidateID names the highest-ranked unexecuted test
 	// surface candidate with real test work, when one exists — the typed
@@ -125,4 +136,50 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 		}
 	}
 	return h
+}
+
+// ResolveVerifyFailureHandoffArtifactPaths annotates a handoff with concrete
+// local paths for its portable artifact refs. It does not affect hard routing:
+// refs remain the durable identity, while paths are a model-facing convenience
+// so a retry planner can call read_file on the exact failed-attempt evidence
+// instead of guessing where the plan directory lives.
+func ResolveVerifyFailureHandoffArtifactPaths(h *VerifyFailureHandoff, artifactDir string) {
+	if h == nil {
+		return
+	}
+	artifactDir = strings.TrimSpace(artifactDir)
+	if artifactDir == "" {
+		return
+	}
+	if p := resolveHandoffArtifactPath(artifactDir, h.DiffArtifactRef); p != "" {
+		h.DiffArtifactPath = p
+	}
+	if p := resolveHandoffArtifactPath(artifactDir, h.SurfaceArtifactRef); p != "" {
+		h.SurfaceArtifactPath = p
+	}
+}
+
+func resolveHandoffArtifactPath(artifactDir, ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ""
+	}
+	cleanRef := filepath.Clean(ref)
+	if cleanRef == "." {
+		return ""
+	}
+	if filepath.IsAbs(cleanRef) {
+		return cleanRef
+	}
+	slash := filepath.ToSlash(cleanRef)
+	if slash == ".." || strings.HasPrefix(slash, "../") {
+		return ""
+	}
+	dir := filepath.Clean(artifactDir)
+	if !filepath.IsAbs(dir) {
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+	}
+	return filepath.Join(dir, cleanRef)
 }

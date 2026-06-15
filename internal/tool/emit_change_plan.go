@@ -33,7 +33,7 @@ const emitChangePlanSchemaReminder = "REQUIRED schema: {request: string (1-3 sen
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), edits: optional structured line edits for kind=patch, " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}}. " +
-	"OPTIONAL: acceptance_tests: array of strings. " +
+	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes. " +
 	"Do NOT call the tool with empty/null parameters — emit the FULL JSON body as a single function-call argument."
 
 // emitMinPayloadBytes is the threshold below which the params blob is
@@ -73,10 +73,11 @@ type EmitChangePlan struct {
 // in sync with the JSON schema below; Execute uses DisallowUnknownFields
 // so any drift fails loudly rather than silently losing fields.
 type emitChangePlanParams struct {
-	Request         string                 `json:"request"`
-	Summary         string                 `json:"summary"`
-	Changes         []emitChangePlanChange `json:"changes"`
-	AcceptanceTests []string               `json:"acceptance_tests,omitempty"`
+	Request            string                    `json:"request"`
+	Summary            string                    `json:"summary"`
+	Changes            []emitChangePlanChange    `json:"changes"`
+	AcceptanceTests    []string                  `json:"acceptance_tests,omitempty"`
+	VerificationProbes []types.VerificationProbe `json:"verification_probes,omitempty"`
 }
 
 // emitChangePlanChange mirrors types.FileChange but lives in the tool
@@ -180,6 +181,27 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
       "type": "array",
       "description": "Optional list of test assertions the verify stage must cover. Natural-language in B0; formalized to Criterion IR in B1.",
       "items": {"type": "string"}
+    },
+    "verification_probes": {
+      "type": "array",
+      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Each probe must be deterministic, bounded, and exit non-zero on failure. Initial support: language=python inline code.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "description": "Stable short probe identifier, e.g. version_info_boundary."},
+          "language": {"type": "string", "enum": ["python"], "description": "Probe runtime. Initial support is python only."},
+          "working_dir": {"type": "string", "description": "Repo-relative working directory. Empty or . means repo root."},
+          "code": {"type": "string", "description": "Inline probe code. It should import/use the changed code and exit non-zero on failure."},
+          "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Optional timeout. Defaults to 10 seconds; capped at 30."},
+          "expected_stdout": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional exact substrings that must appear in stdout for the probe to pass."
+          }
+        },
+        "required": ["language", "code"]
+      }
     }
   },
   "required": ["request", "summary", "changes"]
@@ -343,9 +365,19 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	//    success summary for planner self-correction and audit visibility;
 	//    hard acceptance stays governed by typed validators above.
 
+	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
+	if rej != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_change_plan rejected: " + rej,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
 	// Build the internal ChangePlan + populate target_paths from
 	// the (already converted + already validated) changes slice.
-	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests)
+	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes)
 
 	// Drain any per-language "unvalidated" reasons collected by the
 	// dry-build helpers (commit 7 P1-E gap-fix) into the finalised
@@ -370,12 +402,12 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	ctx.Mutable.SetChangePlan(plan)
 
 	summary := fmt.Sprintf(
-		"[emit_change_plan: id=%s changes=%d target_paths=%d acceptance_tests=%d]\n"+
+		"[emit_change_plan: id=%s changes=%d target_paths=%d acceptance_tests=%d verification_probes=%d]\n"+
 			"emit_change_plan recorded",
-		plan.ID, len(plan.Changes), len(plan.TargetPaths), len(plan.AcceptanceTests))
+		plan.ID, len(plan.Changes), len(plan.TargetPaths), len(plan.AcceptanceTests), len(plan.VerificationProbes))
 	summary += patchStyleAdvisoryNote(plan.Changes)
-	logging.Info("[emit_change_plan] plan=%s changes=%d paths=%d tests=%d",
-		plan.ID, len(plan.Changes), len(plan.TargetPaths), len(plan.AcceptanceTests))
+	logging.Info("[emit_change_plan] plan=%s changes=%d paths=%d tests=%d probes=%d",
+		plan.ID, len(plan.Changes), len(plan.TargetPaths), len(plan.AcceptanceTests), len(plan.VerificationProbes))
 
 	return types.ToolResult{
 		ToolName:  t.Name(),

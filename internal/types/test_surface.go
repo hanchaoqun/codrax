@@ -82,13 +82,14 @@ type ExecutedCommand struct {
 
 	// Source is the typed provenance of the execution decision:
 	// llm_choice | auto_detect | no_tests_escalation |
-	// runner_missing_escalation | parser_error_fallback.
+	// runner_missing_escalation | parser_error_fallback |
+	// *_verification_probe.
 	Source string `json:"source,omitempty"`
 
 	// Outcome is the typed coarse result of this entry:
 	// executed | synthetic_no_tests | syntax_check_fallback |
 	// runner_missing | timeout | oom | cpu_limit | parser_error |
-	// not_configured.
+	// not_configured | probe_config_error | expected_stdout_missing.
 	Outcome string `json:"outcome,omitempty"`
 }
 

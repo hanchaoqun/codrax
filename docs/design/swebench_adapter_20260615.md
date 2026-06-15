@@ -324,3 +324,68 @@ records adapter results.
   `py_compile`. Focused tests cover both invalid and valid Python patch hunks,
   preserving the principle that missing pytest is not a hard gate while
   syntactically invalid Python remains a typed plan-time rejection.
+- 2026-06-15: Ran another non-Go Lite smoke with
+  `matplotlib__matplotlib-18869`, `scikit-learn__scikit-learn-10297`, and
+  `pylint-dev__pylint-5859` at
+  `eval/results/swebench/lite-smoke-20260615-nongo-0903`. Matplotlib and
+  Pylint exported non-empty predictions; the scikit-learn clone was manually
+  interrupted during the large mirror fetch, exposing an eval-infra progress
+  visibility gap for huge repositories. The exported `predictions.jsonl`
+  validated locally with 2 predictions and 0 empty patches, and the official
+  SWE-bench harness dry-run accepted the file. Manual patch audit found the
+  Matplotlib prediction plausibly correct but locally unverified because the
+  checkout environment shadowed stdlib modules during pytest startup. The
+  Pylint prediction was semantically wrong: it emitted `(?<!\w)` where the
+  intended behavioural boundary is `(?!\w)`, so punctuation-only note tags pass
+  but word note tags like `YES:` fail.
+- 2026-06-15: Root-cause fixes from that smoke were landed generically rather
+  than as case patches. `BaseAgent` now performs a post-tool terminal-stop
+  check after successful write-mode structured emit tools
+  (`emit_change_plan`, `emit_plan_change`, `emit_test_results`,
+  `emit_write_analysis`, `emit_write_workflow_decision`), preventing the extra
+  LLM round that previously let the planner re-open investigation and
+  duplicate/rewrite a successful `emit_change_plan`. The guard is intentionally
+  scoped to write-mode terminal emit tools so read-mode evidence gathering is
+  not retimed.
+- 2026-06-15: Added typed `ChangePlan.verification_probes[]` and a bounded
+  verify executor for environment-imperfect cases. Planner may emit explicit
+  Python inline probes with repo-relative `working_dir`, short timeout, and
+  optional exact stdout fragments. `run_tests` consumes only this typed field,
+  never `acceptance_tests` prose, and runs probes on `no_tests`,
+  `runner_missing`, and `parser_error` dead-ends before falling back to
+  unverified. Probe pass/fail is persisted in `ChangeReport.TestResults` and
+  `ExecutedCommands`, so controller/handoff consume typed verdicts while
+  missing pytest remains an unverified environment caveat instead of a hard
+  code-failure gate.
+- 2026-06-15: Tightened unverified terminal semantics. Active batches already
+  completed with typed `runner_missing`, `parser_error`, or `no_tests`
+  verifier outcomes and no verify-failure handoff now normalize same-batch
+  `verify_batch`, `ask_user`, `block`, and `replan_batch` decisions to
+  `finish` with `finish_disposition=accept_unverified`. This prevents the
+  controller from restarting verification/planning over unchanged bytes after a
+  local infrastructure dead-end.
+- 2026-06-15: Re-ran `pylint-dev__pylint-5859` under
+  `eval/results/swebench/lite-smoke-20260615-pylint-probe-0946` after the
+  terminal-stop/probe changes. The exported patch switched to the correct
+  forward boundary shape `(?![a-zA-Z0-9_])` and official harness dry-run
+  accepted the one-row predictions file. The run still ended locally as
+  `verify_failed` because the model-authored inline probe contradicted the
+  issue behaviour: it tested an isolated copied regex and expected `YES:` to
+  fail while the actual defect requires word tags like `YES:` to pass. That is
+  now recorded as a handoff/evidence problem, not a case-specific Pylint
+  problem.
+- 2026-06-15: Generalized the follow-up fix. `VerifyFailureHandoff` now carries
+  resolved `read_file` paths for failed-attempt patch and test-surface
+  artifacts in addition to the durable short refs, including resume rebuilds.
+  The planner retry prompt renders those paths so replan can inspect the exact
+  applied diff/test surface instead of guessing the plan directory. Verification
+  probe raw output now includes language, working directory, timeout, expected
+  stdout, and a bounded source snippet, so a retry can distinguish bad code from
+  a bad inline probe without parsing prose. Planner soft guidance now asks
+  probes to exercise the changed code and the external behaviour directly; hard
+  gates still consume only typed fields.
+- 2026-06-15: Final adapter smoke validation passed for
+  `eval/results/swebench/lite-smoke-20260615-pylint-probe-0946/predictions.jsonl`:
+  local validator reported 1 prediction and 0 empty patches, and
+  `DRY_RUN=1 eval/swebench/run_official_harness.sh` accepted the official
+  harness command.
