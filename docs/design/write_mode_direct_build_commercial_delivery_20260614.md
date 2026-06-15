@@ -3349,3 +3349,100 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check` passed.
   - Broader regression and push are tracked by the implementation commit that
     follows this section.
+
+## 2026-06-16 SWE-bench probe-first verification hardening
+
+- Evidence source:
+  - Fresh non-Go SWE-bench Lite batch
+    `eval/results/swebench/lite-smoke-20260616-seaborn-xarray-pylint-sphinx-013041`.
+  - Instances:
+    - `mwaskom__seaborn-3407`: `status=predicted`, `patch_bytes=1156`,
+      `plan_status=verify_failed`, `verify_status=failed`,
+      `verify_failure_kind=tests_failed`. The planner produced an issue-local
+      verification probe, but the old verifier ignored it because pytest test
+      infrastructure existed, then ran a broad project suite with 2252 tests and
+      failed 1002 unrelated cases. This is the concrete customer-like failure:
+      local suite breadth/environment should not become the hard gate when the
+      plan provides a bounded typed behavior probe.
+    - `pydata__xarray-4248`: `status=predicted`, `patch_bytes=1237`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`. Exploration correctly localized the
+      issue through `dataset_repr -> coords_repr/data_vars_repr ->
+      summarize_variable`, but local import failed on a legacy xarray checkout
+      under modern NumPy before executable test evidence was available.
+    - `pylint-dev__pylint-7080`: `status=predicted`, `patch_bytes=1084`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`. Symptom-driven exploration found
+      `_discover_files` and existing recursive-ignore behavior, while local
+      unittest collection produced only loader/import diagnostics.
+    - `sphinx-doc__sphinx-7975`: `status=predicted`, `patch_bytes=983`,
+      `plan_status=unverified`, `verify_status=unavailable`,
+      `verify_failure_kind=parser_error`,
+      `dropped_test_patch_paths=["tests/test_environment_indexentries.py"]`.
+      The adapter correctly stripped generated test diffs from the official
+      prediction, but the planner still re-read broad files after handoff and
+      emitted long reasoning around Unicode normalization.
+  - Local prediction validation accepted all four predictions (`empty_patch=0`)
+    and official SWE-bench harness dry-run accepted the generated predictions
+    path.
+- Generalized gaps fixed:
+  - `ChangePlan.verification_probes[]` are now executed first in verify stage
+    before any project-level suite. Passing probes produce a typed local
+    `passed` verdict for the current batch; failing probes produce typed
+    `tests_failed` evidence; unavailable probes fall back to the existing
+    runner/unverified path.
+  - When bounded probes pass and a project suite candidate exists, the suite is
+    retained as `TestSurface` diagnostics plus an `ExecutedCommand` with
+    `source=probe_primary_suite_skipped` and `outcome=suite_skipped`. It no
+    longer blocks delivery as a hard gate merely because pytest or a large
+    legacy suite is present.
+  - Existing no-test/runner-missing/parser-error fallback behavior remains:
+    missing pytest, import incompatibility, loader-only unittest, and parser
+    dead ends still normalize to `unavailable/unverified` unless there is typed
+    code-failure evidence.
+  - Planner guidance now recommends typed bounded probes whenever a small
+    deterministic runtime assertion can check the requested behavior, not only
+    when the normal project runner may be unavailable.
+- Safety and prompt hygiene:
+  - Hard routing consumes only typed artifacts:
+    `ChangePlan.VerificationProbes`, probe exit code, normalized
+    `ChangeReport.verification_status`, `FailureKind`, `TestSurface`, and
+    `ExecutedCommand` outcomes.
+  - No user intent keywords, model rationale, `<think>`, summary prose, or
+    natural-language acceptance-test text drives verification routing.
+  - Transparent `<think>` and raw tool-call logging remain expected user-facing
+    behavior; this section does not treat them as a defect.
+- Implementation tasks:
+  - [x] Run `verification_probes[]` before project-level suites in verify
+    stage.
+  - [x] Treat passing probes as the current batch's typed local behavior
+    verdict and preserve skipped project-suite diagnostics.
+  - [x] Keep failing probes as real `tests_failed` evidence for small-batch
+    replan.
+  - [x] Keep unavailable probes on the existing runner/unverified path so local
+    dependency gaps do not hard-block patch delivery.
+  - [x] Add focused tests for probe-primary verification with a failing project
+    pytest suite.
+  - [x] Update planner soft guidance, `docs/user_guide.md`,
+    `docs/user_guide.html`, and `eval/swebench/README.md`.
+- Verification:
+  - Focused tests passed:
+    `go test ./internal/tool -run 'TestRunTests(NoTestWorkUsesVerificationProbeVerdict|VerificationProbePassSkipsProjectSuiteHardGate|VerificationProbeImportErrorIsParserError|RenderVerificationProbeOutputCarriesProbeSource|NoTest)'`.
+  - Package-level focused regression passed:
+    `go test ./internal/tool ./internal/types ./internal/skill -run 'TestRunTests|TestChangeReport|TestPrompt|TestSkill|Test.*Verification'`.
+  - Final full regression passed: `make test`.
+  - Whitespace and patch hygiene passed: `git diff --check`.
+  - SWE-bench adapter still compiles: `python3 -m py_compile
+    eval/swebench/run_codrax_swebench.py`.
+  - Local binary build passed: `make`.
+- Remaining system gaps to track:
+  - The old SWE-bench run used the pre-fix binary. A future post-fix SWE-bench
+    rerun should confirm end-to-end probe-first behavior on real instances, but
+    the core decision is covered by unit tests.
+  - Some generated patches can remain semantically risky even when exportable;
+    official SWE-bench harness and hidden tests remain the scoring authority.
+  - Controller soft reasoning can still narrate unavailable local verification
+    as a possible code defect; typed normalizers already prevent hard replan,
+    but future UX should render the typed verdict more prominently.
+  - Planner handoff consumption should be further bounded so rich P0/P1/P2
+    evidence is consumed before broad file rereads on Unicode/path-heavy issues.

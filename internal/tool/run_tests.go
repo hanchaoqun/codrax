@@ -368,6 +368,54 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		report.EnsureVerificationStatus()
 		return report
 	}
+	var preSuiteProbe *verificationProbeRunResult
+	preSuiteProbeConsumed := false
+	if shouldRunPreSuiteVerificationProbes(ctx, dryRunProbe) {
+		if probe, ok := runPlanVerificationProbes(ctx, "pre_suite_verification_probe"); ok {
+			preSuiteProbe = probe
+			executedCmds = append(executedCmds, probe.Commands...)
+			if strings.TrimSpace(probe.Output) != "" {
+				combinedOutputs = append(combinedOutputs, probe.Output)
+			}
+			probeStatus := probe.Report.NormalizeVerificationStatus()
+			switch probeStatus {
+			case types.VerificationStatusPassed:
+				if cand := selectedSurfaceCandidate(surface); cand != nil && cand.HasTestSignal {
+					executedCmds = append(executedCmds, types.ExecutedCommand{
+						Runner:     cand.Runner,
+						Framework:  cand.Framework,
+						WorkingDir: cand.WorkingDir,
+						Command:    cand.Command,
+						Source:     "probe_primary_suite_skipped",
+						Outcome:    "suite_skipped",
+					})
+				}
+				report := probe.Report
+				_, ref := StoreBlob(ctx, t.Name()+"-verification-probes", strings.Join(combinedOutputs, "\n\n"))
+				installRunTestsReport(ctx, finishReport(report), dryRunProbe)
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   true,
+					Summary:   renderVerificationProbePrimarySummary(report, surface),
+					RawRef:    ref,
+					Timestamp: time.Now(),
+				}, nil
+			case types.VerificationStatusFailed:
+				report := probe.Report
+				_, ref := StoreBlob(ctx, t.Name()+"-verification-probes", strings.Join(combinedOutputs, "\n\n"))
+				installRunTestsReport(ctx, finishReport(report), dryRunProbe)
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   renderVerificationProbePrimarySummary(report, surface),
+					RawRef:    ref,
+					Timestamp: time.Now(),
+				}, nil
+			case types.VerificationStatusUnavailable:
+				logging.Warning("[run_tests] pre-suite verification_probe unavailable; continuing to typed project test surface")
+			}
+		}
+	}
 	// escalateToSurfaceCandidate appends the highest-ranked unexecuted
 	// candidate with typed test work to the plan queue, bounded by
 	// maxTestSurfaceEscalations. Trigger sites are typed dead ends:
@@ -450,6 +498,11 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// py_compile on the plan file → succeeds → verify passes.
 		if runnerHasNoTestWork(runner, runnerRoot) {
 			label := runnerPlanLabel(ctx.RepoRoot, plan)
+			if preSuiteProbe != nil && !preSuiteProbeConsumed {
+				preSuiteProbeConsumed = true
+				projectReports = append(projectReports, qualifyChangeReport(preSuiteProbe.Report, plan, ctx.RepoRoot))
+				continue
+			}
 			if probe, ok := runPlanVerificationProbes(ctx, "no_tests_verification_probe"); ok {
 				executedCmds = append(executedCmds, probe.Commands...)
 				projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
@@ -908,6 +961,58 @@ func validateRunTestsSuiteSelector(suite string) string {
 		}
 	}
 	return ""
+}
+
+func shouldRunPreSuiteVerificationProbes(ctx *types.BusContext, dryRunProbe bool) bool {
+	return ctx != nil && ctx.PipelineStage == types.StageVerify && !dryRunProbe
+}
+
+func selectedSurfaceCandidate(surface types.TestSurface) *types.TestSurfaceCandidate {
+	if strings.TrimSpace(surface.SelectedID) != "" {
+		for i := range surface.Candidates {
+			if surface.Candidates[i].ID == surface.SelectedID {
+				cand := surface.Candidates[i]
+				return &cand
+			}
+		}
+	}
+	if len(surface.Candidates) == 0 {
+		return nil
+	}
+	cand := surface.Candidates[0]
+	return &cand
+}
+
+func renderVerificationProbePrimarySummary(report *types.ChangeReport, surface types.TestSurface) string {
+	status := report.NormalizeVerificationStatus()
+	passed, total := report.Score()
+	if total < 0 {
+		total = 0
+	}
+	if passed < 0 {
+		passed = 0
+	}
+	verdict := "UNAVAILABLE"
+	switch status {
+	case types.VerificationStatusPassed:
+		verdict = "PASSED"
+	case types.VerificationStatusFailed:
+		verdict = "FAILED"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[run_tests: verification_probes verdict=%s] bounded verification probes: %d/%d passed.",
+		verdict, passed, total)
+	if cand := selectedSurfaceCandidate(surface); cand != nil && cand.HasTestSignal {
+		if status == types.VerificationStatusPassed {
+			fmt.Fprintf(&b, " Project suite candidate %s was recorded in TestSurface and skipped as a hard gate because the plan supplied passing bounded probes.", cand.ID)
+		} else {
+			fmt.Fprintf(&b, " Project suite candidate %s remains available in TestSurface for follow-up diagnostics.", cand.ID)
+		}
+	}
+	if status != types.VerificationStatusPassed && strings.TrimSpace(report.FailureSummary) != "" {
+		fmt.Fprintf(&b, " %s", strings.TrimSpace(report.FailureSummary))
+	}
+	return b.String()
 }
 
 func inheritRunTestsScopeFromVerifyFailureHandoff(ctx *types.BusContext, p *runTestsParams) bool {

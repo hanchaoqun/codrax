@@ -376,12 +376,94 @@ func TestRunTestsNoTestWorkUsesVerificationProbeVerdict(t *testing.T) {
 	}
 	foundProbeCommand := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Framework == "python" && cmd.Source == "no_tests_verification_probe" {
+		if cmd.Runner == "verification_probe" && cmd.Framework == "python" && cmd.Source == "pre_suite_verification_probe" {
 			foundProbeCommand = true
 		}
 	}
 	if !foundProbeCommand {
 		t.Fatalf("executed command evidence should include verification_probe source, got %+v", report.ExecutedCommands)
+	}
+}
+
+func TestRunTestsVerificationProbePassSkipsProjectSuiteHardGate(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\n"), 0o644); err != nil {
+		t.Fatalf("write pyproject: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tests", "test_project_suite.py"), []byte("def test_project_suite_would_fail():\n    assert False\n"), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	mu := types.NewMutableState("probe primary")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-pass",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "value_contract",
+			Language: "python",
+			Code:     "import widget\nassert widget.VALUE == 42\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner":    "python",
+		"framework": "pytest",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("passing verification_probe should pass without project-suite hard gate, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("VerificationStatus = %q, want passed; report=%+v", report.NormalizeVerificationStatus(), report)
+	}
+	if len(report.TestResults) != 1 || report.TestResults[0].AssertionID != "value_contract" || !report.TestResults[0].Passed {
+		t.Fatalf("verification probe result missing or wrong: %+v", report.TestResults)
+	}
+	foundProbeCommand := false
+	foundSkippedSuite := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.Source == "pre_suite_verification_probe" && cmd.Outcome == "executed" {
+			foundProbeCommand = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Source == "probe_primary_suite_skipped" && cmd.Outcome == "suite_skipped" {
+			foundSkippedSuite = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Source == "llm_choice" && cmd.Outcome == "executed" {
+			t.Fatalf("project pytest suite should not execute after passing bounded probe: %+v", report.ExecutedCommands)
+		}
+	}
+	if !foundProbeCommand {
+		t.Fatalf("executed command evidence should include pre-suite verification_probe, got %+v", report.ExecutedCommands)
+	}
+	if !foundSkippedSuite {
+		t.Fatalf("executed command evidence should record skipped project suite, got %+v", report.ExecutedCommands)
+	}
+	if report.TestSurface == nil || report.TestSurface.SelectedID == "" {
+		t.Fatalf("probe-primary report must retain test surface, got %+v", report.TestSurface)
+	}
+	if !strings.Contains(result.Summary, "verification_probes verdict=PASSED") {
+		t.Fatalf("summary should explain probe-primary verdict, got %q", result.Summary)
 	}
 }
 
@@ -530,7 +612,7 @@ func TestRunTestsVerificationProbeImportErrorIsParserError(t *testing.T) {
 	}
 	foundParserErrorCommand := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "no_tests_verification_probe" {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "pre_suite_verification_probe" {
 			foundParserErrorCommand = true
 		}
 	}

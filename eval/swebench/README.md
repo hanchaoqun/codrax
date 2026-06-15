@@ -66,17 +66,22 @@ Environment setup failures never block prediction export; they leave the run
 unverified and the official harness remains the scoring authority. `results.jsonl`
 also includes Codrax's typed local verifier verdict (`verify_status`,
 `verify_failure_kind`, `verify_summary`, `verify_test_count`) so environment
-dead-ends are auditable without being treated as code failures. By default the
-exported SWE-bench prediction strips repository test/spec path changes and
+dead-ends are auditable without being treated as code failures. When a
+`ChangePlan` carries `verification_probes[]`, Codrax runs those bounded typed
+probes before any project-level suite; passing probes become the local behavior
+verdict while the project suite is retained as typed `TestSurface` diagnostics
+instead of a hard gate. Failing probes remain real `tests_failed` evidence, and
+unavailable probes fall back to the normal runner/unverified path. By default
+the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only
-when debugging Codrax's own generated test edits. Codrax's Python
-verifier also recognizes Django source trees with `tests/runtests.py` and uses
-that typed harness instead of plain pytest when the repository advertises it
-through file structure. During worktree verification, Codrax prepends the active
-worktree to `PYTHONPATH` so editable installs or inherited environments cannot
-accidentally import the original checkout. When a Django suite is not explicitly
-supplied, the verifier derives a conservative scoped suite from typed ChangePlan
-paths and the repository `tests/` tree before falling back to a wider run.
+when debugging Codrax's own generated test edits. Codrax's Python verifier also
+recognizes Django source trees with `tests/runtests.py` and uses that typed
+harness instead of plain pytest when the repository advertises it through file
+structure. During worktree verification, Codrax prepends the active worktree to
+`PYTHONPATH` so editable installs or inherited environments cannot accidentally
+import the original checkout. When a Django suite is not explicitly supplied,
+the verifier derives a conservative scoped suite from typed ChangePlan paths and
+the repository `tests/` tree before falling back to a wider run.
 
 ```bash
 SWEBENCH_PREPARE_PYTHON_ENV=0 eval/swebench/smoke_lite.sh
