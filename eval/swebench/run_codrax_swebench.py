@@ -1389,7 +1389,7 @@ def prediction_verdict(
     confidence_downgrade_reason: str = "",
 ) -> tuple[str, str, bool]:
     if not patch.strip():
-        return "empty_patch", "none", False
+        return "empty_patch", "none", bool(audit_block_reason)
     status = str(verify_status or "").strip()
     plan = str(plan_status or "").strip()
     if status == "failed" or plan == "verify_failed":
@@ -1558,6 +1558,43 @@ def prediction_audit_block_reason(
     if not final_plan_source_paths:
         return "final_plan_missing_source_paths"
     return ""
+
+
+def empty_patch_reason(
+    *,
+    patch: str,
+    workflow_status: str = "",
+    plan_path: str = "",
+    codrax_timed_out: bool = False,
+    codrax_exit_code: int = 0,
+) -> str:
+    """Return a typed audit reason for an empty exported patch.
+
+    Official SWE-bench predictions may still contain an empty patch, but local
+    Codrax audit must explain whether the empty output came from timeout, a
+    non-terminal workflow, a blocked workflow, or missing durable plan state.
+    This reads only process status and durable typed workflow/plan fields.
+    """
+
+    if str(patch or "").strip():
+        return ""
+    workflow = str(workflow_status or "").strip()
+    has_plan = bool(str(plan_path or "").strip())
+    if codrax_timed_out:
+        return "codrax_timeout_empty_patch"
+    if workflow == "in_progress":
+        if not has_plan:
+            return "workflow_in_progress_no_plan"
+        return "workflow_in_progress_empty_patch"
+    if workflow == "blocked":
+        if not has_plan:
+            return "workflow_blocked_no_plan"
+        return "workflow_blocked_empty_patch"
+    if int(codrax_exit_code or 0) != 0:
+        return "codrax_failed_empty_patch"
+    if not has_plan:
+        return "no_plan_empty_patch"
+    return "empty_patch"
 
 
 def commit_exists(repo_dir: Path, rev: str) -> bool:
@@ -1777,6 +1814,16 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             verify_status=str(result.get("verify_status") or ""),
             plan_status=str(result.get("plan_status") or ""),
         )
+        empty_reason = empty_patch_reason(
+            patch=patch,
+            workflow_status=str(result.get("workflow_status") or ""),
+            plan_path=str(result.get("plan_path") or ""),
+            codrax_timed_out=bool(result.get("codrax_timed_out")),
+            codrax_exit_code=int(result.get("codrax_exit_code") or 0),
+        )
+        result["empty_patch_reason"] = empty_reason
+        if empty_reason and not audit_block_reason:
+            audit_block_reason = empty_reason
         result["prediction_audit_block_reason"] = audit_block_reason
         confidence_downgrade_reason = prediction_confidence_downgrade_reason(
             plan=plan,

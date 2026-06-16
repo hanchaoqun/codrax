@@ -1684,3 +1684,50 @@ Red-line check:
 - It remains soft P2 context. It does not block apply/verify and does not use
   user text, model prose, summaries, rationale, stdout, repository names,
   SWE-bench ids, or `<think>` text for control.
+
+## 2026-06-17 Empty Patch: Non-terminal Workflow Must Be Auditable
+
+Follow-up from the `sympy__sympy-18532` Lite run:
+
+- Codrax entered write mode, seeded `batch-1`, and the controller chose
+  `plan_batch`.
+- The planner consumed multiple read/search rounds but never emitted a
+  `ChangePlan`.
+- The durable workflow stayed `status=in_progress`, `batch.status=ready_to_plan`,
+  with no `plan_path`; the adapter exported an empty patch and had no
+  `prediction_audit_block_reason`.
+- This is a general terminal-state/audit gap. The official harness can consume
+  empty predictions, but Codrax local audit must explain why no patch exists and
+  workflow state should not remain silently resumable after a bounded terminal
+  planning failure.
+
+Core fix:
+
+- `runWriteControllerWorkflow` now marks non-canceled terminal
+  `plan_batch` failure as `WriteWorkflowRunBlocked` and the active batch as
+  `blocked`.
+- The progress ledger records `plan_batch_failed_blocked` with the exact
+  planner error after bounded retries.
+- Canceled runs keep the previous non-terminal behavior so intentional
+  interruption can still resume.
+
+Adapter fix:
+
+- `empty_patch_reason()` records typed reasons such as
+  `workflow_in_progress_no_plan`, `workflow_blocked_no_plan`,
+  `codrax_timeout_empty_patch`, or `codrax_failed_empty_patch`.
+- Empty patches with an audit reason now set
+  `prediction_blocks_local_acceptance=true` while still writing official
+  SWE-bench-compatible predictions JSONL.
+
+Verification:
+
+- Added `TestRunWriteControllerWorkflow_NoPlanBlocksDurableRun`.
+- Added SWE-bench local smoke checks for empty-patch audit reasons.
+
+Red-line check:
+
+- The fix consumes controller errors, workflow status, plan path presence,
+  process exit/timeout, and durable typed workflow state.
+- It does not inspect issue text, model prose, stdout summaries, repository
+  names, SWE-bench ids, gold patches, or `<think>` text for control.

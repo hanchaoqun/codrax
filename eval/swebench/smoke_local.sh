@@ -339,6 +339,35 @@ verdict = mod.prediction_verdict("diff --git a/src/pkg.py b/src/pkg.py\n", "pass
 if verdict != ("predicted_audit_blocked", "failed", True):
     raise SystemExit(f"unexpected audit-blocked verdict: {verdict!r}")
 
+empty_reason = mod.empty_patch_reason(
+    patch="",
+    workflow_status="in_progress",
+    plan_path="",
+    codrax_timed_out=False,
+    codrax_exit_code=0,
+)
+if empty_reason != "workflow_in_progress_no_plan":
+    raise SystemExit(f"unexpected in-progress empty-patch reason: {empty_reason!r}")
+verdict = mod.prediction_verdict("", "", "", empty_reason)
+if verdict != ("empty_patch", "none", True):
+    raise SystemExit(f"empty patch with audit reason must block local acceptance: {verdict!r}")
+
+empty_reason = mod.empty_patch_reason(
+    patch="",
+    workflow_status="blocked",
+    plan_path="",
+    codrax_timed_out=False,
+    codrax_exit_code=0,
+)
+if empty_reason != "workflow_blocked_no_plan":
+    raise SystemExit(f"unexpected blocked empty-patch reason: {empty_reason!r}")
+if mod.empty_patch_reason(
+    patch="diff --git a/src/pkg.py b/src/pkg.py\n",
+    workflow_status="in_progress",
+    plan_path="",
+) != "":
+    raise SystemExit("non-empty patch must not get an empty-patch reason")
+
 reason = mod.prediction_audit_block_reason(
     exported_source_paths=["src/pkg.py"],
     final_plan_source_paths=["src/pkg.py"],

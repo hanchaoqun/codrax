@@ -241,6 +241,15 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					o.persistWriteWorkflowRun(&run)
 					return lastInnerErr
 				}
+				if !errors.Is(lastInnerErr, ErrCanceled) && !errors.Is(lastInnerErr, context.Canceled) {
+					run.Status = types.WriteWorkflowRunBlocked
+					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+					appendControllerProgress(&run, run.ActiveBatchID, "plan_batch_failed_blocked",
+						"planner did not produce a ChangePlan after bounded retries: "+lastInnerErr.Error())
+					o.persistWriteWorkflowRun(&run)
+					o.publishBlockedRunGuidance(&run, "plan_batch_failed")
+					return lastInnerErr
+				}
 				appendControllerProgress(&run, run.ActiveBatchID, "plan_batch_failed", lastInnerErr.Error())
 				o.persistWriteWorkflowRun(&run)
 				return lastInnerErr

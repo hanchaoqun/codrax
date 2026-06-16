@@ -3494,6 +3494,51 @@ func TestRunControllerPlanBatch_NoPlanWithoutHandoffStaysTerminal(t *testing.T) 
 	}
 }
 
+func TestRunWriteControllerWorkflow_NoPlanBlocksDurableRun(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("no plan blocks")
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "first"}},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		*stepsUsed++
+		return &agent.StageOutput{Error: "no change plan was produced this round"}, nil
+	}
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil || !strings.Contains(err.Error(), "no ChangePlan") {
+		t.Fatalf("workflow should fail-loud on terminal no-plan, got %v", err)
+	}
+	if controllerCalls != 1 || planCalls != 1 {
+		t.Fatalf("calls controller=%d plan=%d, want 1/1", controllerCalls, planCalls)
+	}
+	if store.last == nil {
+		t.Fatal("workflow run should be persisted")
+	}
+	if store.last.Status != types.WriteWorkflowRunBlocked {
+		t.Fatalf("workflow status = %s, want blocked: %+v", store.last.Status, store.last)
+	}
+	if len(store.last.Batches) != 1 || store.last.Batches[0].Status != types.WriteWorkflowBatchBlocked {
+		t.Fatalf("active batch should be blocked after terminal no-plan: %+v", store.last.Batches)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "plan_batch_failed_blocked") {
+		t.Fatalf("progress ledger missing plan_batch_failed_blocked: %+v", store.last.ProgressLedger)
+	}
+}
+
 func TestSeedWriteWorkflowRun_MicroScopeStartsReadyToPlan(t *testing.T) {
 	mu := types.NewMutableState("micro short path")
 	ir := &types.WriteAnalysisIR{}
