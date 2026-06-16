@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 func TestPendingAppliesForActivePlanScopeUsesActiveSlice(t *testing.T) {
@@ -152,6 +153,135 @@ func TestUpdateWorkflowRunActiveSliceObserveSkipped(t *testing.T) {
 	}
 }
 
+func TestInitializeWorkflowBatchSlicesFromPlanResetsPriorPlanState(t *testing.T) {
+	batch := types.WriteWorkflowBatch{
+		ID:            "batch-1",
+		PlanID:        "plan-old",
+		ActiveSliceID: "slice-001",
+		Slices: []types.WriteWorkflowSlice{{
+			ID:            "slice-001",
+			Status:        types.ChangePlanSliceFailed,
+			PlanID:        "plan-old",
+			ChangeIndexes: []int{0},
+			Paths:         []string{"old.go"},
+		}},
+		SliceEvents: []types.WriteWorkflowSliceEvent{{
+			SliceID: "slice-001",
+			Event:   types.WriteWorkflowSliceEventFailed,
+			Status:  types.ChangePlanSliceFailed,
+			PlanID:  "plan-old",
+		}},
+	}
+	plan := onlineSlicePlanForTest("plan-new")
+	initializeWorkflowBatchSlicesFromPlan(&batch, plan, "plan-old")
+	if batch.ActiveSliceID != "slice-001" {
+		t.Fatalf("active slice = %q, want slice-001", batch.ActiveSliceID)
+	}
+	if len(batch.Slices) != 2 || batch.Slices[0].Status != types.ChangePlanSlicePending {
+		t.Fatalf("new plan slices should reset to pending, got %+v", batch.Slices)
+	}
+	if batch.Slices[0].PlanID != "plan-new" || batch.Slices[0].Paths[0] != "a.go" {
+		t.Fatalf("new slice metadata not derived from new plan: %+v", batch.Slices[0])
+	}
+}
+
+func TestAdvanceWorkflowAfterSuccessfulSliceObserveAdvancesNextSlice(t *testing.T) {
+	plan := onlineSlicePlanForTest("plan-slice")
+	run := types.WriteWorkflowRun{
+		RunID:         "wf",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchVerifying,
+			PlanID:        "plan-slice",
+			ActiveSliceID: "slice-001",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:            "slice-001",
+				Status:        types.ChangePlanSliceVerified,
+				PlanID:        "plan-slice",
+				ChangeIndexes: []int{0},
+				Paths:         []string{"a.go"},
+			}, {
+				ID:            "slice-002",
+				Status:        types.ChangePlanSlicePending,
+				PlanID:        "plan-slice",
+				ChangeIndexes: []int{1},
+				Paths:         []string{"b.go"},
+			}},
+		}},
+	}
+	mu := types.NewMutableState("test")
+	mu.SetChangePlan(plan)
+	mu.SetWriteWorkflowRun(&run)
+	mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-slice", Passed: true})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu}}
+
+	handled := o.advanceWorkflowAfterSuccessfulSliceObserve(&run, writeflow.VerifyAttemptOutcome{
+		Kind:       writeflow.VerifyOutcomeReportPassed,
+		ReasonCode: "tests_passed",
+	})
+	if !handled {
+		t.Fatal("expected online slice transition to handle verified active slice")
+	}
+	if run.Batches[0].ActiveSliceID != "slice-002" || run.Batches[0].Status != types.WriteWorkflowBatchPlanned {
+		t.Fatalf("run did not advance to next slice: %+v", run.Batches[0])
+	}
+	if got := mu.ChangePlan(); got == nil || got.Status != types.PlanStatusPending {
+		t.Fatalf("plan should be reset to pending for next active slice, got %+v", got)
+	}
+	if mu.ChangeReport() != nil {
+		t.Fatalf("change report should be cleared before next slice apply, got %+v", mu.ChangeReport())
+	}
+	pending := mu.WriteClosure().PendingApplies()
+	if len(pending) != 1 || pending[0].Path != "b.go" || pending[0].Origin != "online_slice" {
+		t.Fatalf("pending queue = %+v, want only next slice path b.go", pending)
+	}
+}
+
+func TestAdvanceWorkflowAfterSuccessfulSliceObserveCompletesBatch(t *testing.T) {
+	plan := onlineSlicePlanForTest("plan-slice")
+	run := onlineSliceRunForTest()
+	run.Batches[0].Slices[1].Status = types.ChangePlanSliceVerified
+	run.Batches[0].Slices[1].Completion = &types.WriteWorkflowCompletion{Verdict: types.WriteWorkflowCompletionVerified}
+	mu := types.NewMutableState("test")
+	mu.SetChangePlan(plan)
+	mu.SetWriteWorkflowRun(&run)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu}}
+
+	handled := o.advanceWorkflowAfterSuccessfulSliceObserve(&run, writeflow.VerifyAttemptOutcome{
+		Kind:       writeflow.VerifyOutcomeReportPassed,
+		ReasonCode: "tests_passed",
+	})
+	if !handled {
+		t.Fatal("expected online slice transition to complete final verified slice")
+	}
+	if run.Batches[0].Status != types.WriteWorkflowBatchComplete {
+		t.Fatalf("batch status = %q, want complete", run.Batches[0].Status)
+	}
+	if run.Batches[0].Completion == nil || run.Batches[0].Completion.Verdict != types.WriteWorkflowCompletionVerified {
+		t.Fatalf("batch completion not verified: %+v", run.Batches[0].Completion)
+	}
+}
+
+func TestMarkWorkflowRunActiveSliceObservingForRestoredPlan(t *testing.T) {
+	run := onlineSliceRunForTest()
+	run.Batches[0].Slices[1].Status = types.ChangePlanSliceFailed
+	plan := onlineSlicePlanForTest("plan-slice")
+	plan.AppliedCommitSHA = "sha"
+	plan.WorktreePath = "/tmp/wt"
+
+	markWorkflowRunActiveSliceObservingForRestoredPlan(&run, "batch-1", plan, "planner_probe_passed_existing_worktree")
+	slice := run.Batches[0].Slices[1]
+	if slice.Status != types.ChangePlanSliceObserving {
+		t.Fatalf("slice status = %q, want observing", slice.Status)
+	}
+	if len(run.Batches[0].SliceEvents) != 1 ||
+		run.Batches[0].SliceEvents[0].Event != types.WriteWorkflowSliceEventObserveStarted {
+		t.Fatalf("observe-start event not recorded: %+v", run.Batches[0].SliceEvents)
+	}
+}
+
 func onlineSliceRunForTest() types.WriteWorkflowRun {
 	return types.WriteWorkflowRun{
 		RunID:         "wf",
@@ -173,6 +303,32 @@ func onlineSliceRunForTest() types.WriteWorkflowRun {
 				PlanID:        "plan-slice",
 				ChangeIndexes: []int{1},
 			}},
+		}},
+	}
+}
+
+func onlineSlicePlanForTest(id string) *types.ChangePlan {
+	return &types.ChangePlan{
+		ID:          id,
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"a.go", "b.go"},
+		Changes: []types.FileChange{{
+			Path:      "a.go",
+			Kind:      "modify",
+			Rationale: "a",
+		}, {
+			Path:      "b.go",
+			Kind:      "modify",
+			Rationale: "b",
+		}},
+		Slices: []types.ChangePlanSlice{{
+			ID:            "slice-001",
+			Status:        types.ChangePlanSlicePending,
+			ChangeIndexes: []int{0},
+		}, {
+			ID:            "slice-002",
+			Status:        types.ChangePlanSlicePending,
+			ChangeIndexes: []int{1},
 		}},
 	}
 }

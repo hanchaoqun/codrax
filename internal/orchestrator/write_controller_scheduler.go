@@ -202,11 +202,12 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			plan := o.busCtx.Mutable.ChangePlan()
 			if plan != nil {
 				o.stampWorkflowPlanForActiveBatch(plan, &run)
-				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan.ID)
+				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan)
 				run = attachPlanContextPackToWorkflowRun(run, plan)
 			}
 			if errors.Is(innerErr, errPlannerProbePassedExistingWorktree) {
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchVerifying)
+				markWorkflowRunActiveSliceObservingForRestoredPlan(&run, run.ActiveBatchID, plan, "planner_probe_passed_existing_worktree")
 				appendControllerProgress(&run, run.ActiveBatchID, "planner_probe_passed_existing_worktree", "planner dry-run probe passed after replan without a new ChangePlan; run post-apply verify on the current worktree")
 				o.mirrorActivePlanToImportFile(importedPlanMirror)
 				o.syncCurrentWriteContextPackToRun(&run)
@@ -285,7 +286,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				if recoveredApplyError {
 					applyReason = "apply_transport_recovered_all_changes"
 				}
-				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan.ID)
+				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan)
 				updateWorkflowRunBatchApply(&run, run.ActiveBatchID, plan, applyStatus, applyReason)
 				run = attachPlanContextPackToWorkflowRun(run, plan)
 			}
@@ -382,6 +383,12 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			if outcome.Kind == writeflow.VerifyOutcomeRunnerMissing ||
 				outcome.Kind == writeflow.VerifyOutcomeParserError ||
 				outcome.Kind == writeflow.VerifyOutcomeNoTests {
+				if o.advanceWorkflowAfterSuccessfulSliceObserve(&run, outcome) {
+					o.mirrorActivePlanToImportFile(importedPlanMirror)
+					o.syncCurrentWriteContextPackToRun(&run)
+					o.persistWriteWorkflowRun(&run)
+					continue
+				}
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
 				updateWorkflowRunBatchCompletion(&run, run.ActiveBatchID, types.WriteWorkflowCompletionUnverified, outcome.ReasonCode, "verify_attempt")
 				appendControllerProgress(&run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
@@ -412,6 +419,12 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					return innerErr
 				}
 				o.busCtx.TaskState.LastError = ""
+				continue
+			}
+			if o.advanceWorkflowAfterSuccessfulSliceObserve(&run, outcome) {
+				o.mirrorActivePlanToImportFile(importedPlanMirror)
+				o.syncCurrentWriteContextPackToRun(&run)
+				o.persistWriteWorkflowRun(&run)
 				continue
 			}
 			updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
@@ -606,14 +619,6 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 			if o.busCtx.Mode == types.ModeVerify && o.reuseWorktreePath == "" && plan.WorktreePath != "" {
 				o.reuseWorktreePath = plan.WorktreePath
 			}
-			wc := o.busCtx.Mutable.WriteClosure()
-			for _, c := range plan.Changes {
-				wc.EnqueuePendingApply(types.PendingApply{
-					Path:      c.Path,
-					Rationale: c.Rationale,
-					Origin:    "workflow_seed_plan_file",
-				})
-			}
 			if strings.TrimSpace(plan.Request) != "" {
 				goal = strings.TrimSpace(plan.Request)
 			} else if strings.TrimSpace(plan.Summary) != "" {
@@ -634,7 +639,7 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 		},
 	}
 	if importedPlan != nil {
-		run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+		batch := types.WriteWorkflowBatch{
 			ID:        run.ActiveBatchID,
 			Goal:      strings.TrimSpace(importedPlan.Summary),
 			Status:    types.WriteWorkflowBatchPlanned,
@@ -642,7 +647,9 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 			PlanRef:   importedPlan.ID,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
-		})
+		}
+		initializeWorkflowBatchSlicesFromPlan(&batch, importedPlan, "")
+		run.Batches = append(run.Batches, batch)
 		run.Budget.BatchesUsed = 1
 		run = attachPlanContextPackToWorkflowRun(run, importedPlan)
 	} else if seed.NextBatch != nil {
@@ -678,6 +685,10 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 	}
 	run = types.NormalizeWriteWorkflowRun(run)
 	o.busCtx.Mutable.SetWriteWorkflowRun(&run)
+	if importedPlan != nil {
+		pending, _ := pendingAppliesForActivePlanScope(o.busCtx.Mutable, importedPlan, "workflow_seed_plan_file")
+		o.busCtx.Mutable.WriteClosure().ReplacePendingApplies(pending)
+	}
 	return run
 }
 
@@ -1598,34 +1609,188 @@ func updateWorkflowRunBatchCompletion(run *types.WriteWorkflowRun, batchID strin
 	})
 }
 
-func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID, planID string) {
+func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan) {
 	if run == nil || strings.TrimSpace(batchID) == "" {
 		return
 	}
+	planID := ""
+	if plan != nil {
+		plan.Slices = types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{})
+		planID = strings.TrimSpace(plan.ID)
+	}
 	for i := range run.Batches {
 		if run.Batches[i].ID == batchID {
-			run.Batches[i].PlanID = strings.TrimSpace(planID)
-			run.Batches[i].PlanRef = strings.TrimSpace(planID)
+			priorPlanID := strings.TrimSpace(run.Batches[i].PlanID)
+			if workflowBatchHasFailedExecutionState(run.Batches[i]) {
+				priorPlanID = ""
+			}
+			run.Batches[i].PlanID = planID
+			run.Batches[i].PlanRef = planID
+			initializeWorkflowBatchSlicesFromPlan(&run.Batches[i], plan, priorPlanID)
 			run.Batches[i].UpdatedAt = time.Now()
-			appendWorkflowBatchAttempt(&run.Batches[i], "plan", "complete", "", strings.TrimSpace(planID), "", strings.TrimSpace(planID))
+			appendWorkflowBatchAttempt(&run.Batches[i], "plan", "complete", "", planID, "", planID)
 			return
 		}
 	}
-	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+	batch := types.WriteWorkflowBatch{
 		ID:        batchID,
-		PlanID:    strings.TrimSpace(planID),
-		PlanRef:   strings.TrimSpace(planID),
+		PlanID:    planID,
+		PlanRef:   planID,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Attempts: []types.WriteWorkflowAttempt{{
 			ID:          fmt.Sprintf("attempt-%d", 1),
 			Kind:        "plan",
 			Status:      "complete",
-			PlanID:      strings.TrimSpace(planID),
-			ArtifactRef: strings.TrimSpace(planID),
+			PlanID:      planID,
+			ArtifactRef: planID,
 			FinishedAt:  time.Now(),
 		}},
-	})
+	}
+	initializeWorkflowBatchSlicesFromPlan(&batch, plan, "")
+	run.Batches = append(run.Batches, batch)
+}
+
+func initializeWorkflowBatchSlicesFromPlan(batch *types.WriteWorkflowBatch, plan *types.ChangePlan, priorPlanID string) {
+	if batch == nil || plan == nil {
+		return
+	}
+	planID := strings.TrimSpace(plan.ID)
+	if len(plan.Changes) == 0 {
+		if strings.TrimSpace(priorPlanID) != planID {
+			batch.Slices = nil
+			batch.ActiveSliceID = ""
+			batch.SliceEvents = nil
+		}
+		return
+	}
+	plan.Slices = types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{})
+	derived := types.WriteWorkflowSlicesFromChangePlan(plan)
+	if len(derived) == 0 {
+		if strings.TrimSpace(priorPlanID) != planID {
+			batch.Slices = nil
+			batch.ActiveSliceID = ""
+			batch.SliceEvents = nil
+		}
+		return
+	}
+	now := time.Now()
+	if strings.TrimSpace(priorPlanID) == planID && workflowSlicesAlign(batch.Slices, derived) {
+		mergeWorkflowBatchSlices(batch, derived, planID, now)
+	} else {
+		batch.Slices = derived
+		for i := range batch.Slices {
+			batch.Slices[i].PlanID = planID
+			if batch.Slices[i].CreatedAt.IsZero() {
+				batch.Slices[i].CreatedAt = now
+			}
+			if batch.Slices[i].UpdatedAt.IsZero() {
+				batch.Slices[i].UpdatedAt = now
+			}
+			batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+				SliceID: batch.Slices[i].ID,
+				Event:   types.WriteWorkflowSliceEventPlanned,
+				Status:  batch.Slices[i].Status,
+				PlanID:  planID,
+				At:      now,
+			})
+		}
+	}
+	batch.ActiveSliceID = workflowBatchActiveSliceID(batch)
+}
+
+func workflowSlicesAlign(existing, derived []types.WriteWorkflowSlice) bool {
+	if len(existing) == 0 || len(existing) != len(derived) {
+		return false
+	}
+	for i := range existing {
+		if strings.TrimSpace(existing[i].ID) != strings.TrimSpace(derived[i].ID) {
+			return false
+		}
+		if !sameIntSet(existing[i].ChangeIndexes, derived[i].ChangeIndexes) {
+			return false
+		}
+	}
+	return true
+}
+
+func mergeWorkflowBatchSlices(batch *types.WriteWorkflowBatch, derived []types.WriteWorkflowSlice, planID string, now time.Time) {
+	if batch == nil {
+		return
+	}
+	existing := make(map[string]types.WriteWorkflowSlice, len(batch.Slices))
+	for _, slice := range batch.Slices {
+		if id := strings.TrimSpace(slice.ID); id != "" {
+			existing[id] = slice
+		}
+	}
+	out := make([]types.WriteWorkflowSlice, 0, len(derived))
+	for _, slice := range derived {
+		id := strings.TrimSpace(slice.ID)
+		if prior, ok := existing[id]; ok {
+			slice.Status = prior.Status
+			slice.ApplyRef = prior.ApplyRef
+			slice.ObserveRef = prior.ObserveRef
+			slice.VerifyRef = prior.VerifyRef
+			slice.ApprovalRef = prior.ApprovalRef
+			slice.ContextPackIDs = append([]string(nil), prior.ContextPackIDs...)
+			slice.Completion = prior.Completion
+			slice.Attempts = append([]types.WriteWorkflowAttempt(nil), prior.Attempts...)
+			slice.CreatedAt = prior.CreatedAt
+			slice.UpdatedAt = prior.UpdatedAt
+		}
+		if slice.Status == "" {
+			slice.Status = types.ChangePlanSlicePending
+		}
+		slice.PlanID = planID
+		if slice.CreatedAt.IsZero() {
+			slice.CreatedAt = now
+		}
+		if slice.UpdatedAt.IsZero() {
+			slice.UpdatedAt = now
+		}
+		out = append(out, slice)
+	}
+	batch.Slices = out
+}
+
+func workflowBatchActiveSliceID(batch *types.WriteWorkflowBatch) string {
+	if batch == nil || len(batch.Slices) == 0 {
+		return ""
+	}
+	current := strings.TrimSpace(batch.ActiveSliceID)
+	if current != "" {
+		for _, slice := range batch.Slices {
+			if strings.TrimSpace(slice.ID) == current && !workflowSliceStatusTerminal(slice.Status) {
+				return current
+			}
+		}
+	}
+	for _, slice := range batch.Slices {
+		if !workflowSliceStatusTerminal(slice.Status) {
+			return strings.TrimSpace(slice.ID)
+		}
+	}
+	return strings.TrimSpace(batch.Slices[len(batch.Slices)-1].ID)
+}
+
+func sameIntSet(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := map[int]int{}
+	for _, v := range a {
+		seen[v]++
+	}
+	for _, v := range b {
+		seen[v]--
+	}
+	for _, n := range seen {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func updateWorkflowRunBatchExplore(run *types.WriteWorkflowRun, batchID, status, reasonCode string) {
@@ -1667,10 +1832,11 @@ func updateWorkflowRunBatchApply(run *types.WriteWorkflowRun, batchID string, pl
 			}
 			run.Batches[i].UpdatedAt = time.Now()
 			appendWorkflowBatchAttempt(&run.Batches[i], "apply", status, reasonCode, planID, "", applyRef)
+			updateWorkflowBatchActiveSliceApply(&run.Batches[i], plan, status, reasonCode, applyRef)
 			return
 		}
 	}
-	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+	batch := types.WriteWorkflowBatch{
 		ID:        batchID,
 		ApplyRef:  applyRef,
 		CreatedAt: time.Now(),
@@ -1684,7 +1850,119 @@ func updateWorkflowRunBatchApply(run *types.WriteWorkflowRun, batchID string, pl
 			ArtifactRef: applyRef,
 			FinishedAt:  time.Now(),
 		}},
+	}
+	initializeWorkflowBatchSlicesFromPlan(&batch, plan, "")
+	updateWorkflowBatchActiveSliceApply(&batch, plan, status, reasonCode, applyRef)
+	run.Batches = append(run.Batches, batch)
+}
+
+func updateWorkflowBatchActiveSliceApply(batch *types.WriteWorkflowBatch, plan *types.ChangePlan, status, reasonCode, applyRef string) {
+	if batch == nil || plan == nil || strings.TrimSpace(batch.ActiveSliceID) == "" {
+		return
+	}
+	slice := activeWorkflowSliceForUpdate(batch)
+	if slice == nil {
+		return
+	}
+	now := time.Now()
+	planID := strings.TrimSpace(plan.ID)
+	status = strings.TrimSpace(status)
+	reasonCode = strings.TrimSpace(reasonCode)
+	applyRef = strings.TrimSpace(applyRef)
+	slice.PlanID = firstNonEmptyController(planID, slice.PlanID)
+	if applyRef != "" {
+		slice.ApplyRef = applyRef
+	}
+	switch status {
+	case "applied":
+		slice.Status = types.ChangePlanSliceObserving
+		slice.Completion = nil
+	case "partial", "failed":
+		slice.Status = types.ChangePlanSliceFailed
+		slice.Completion = nil
+	case "blocked":
+		slice.Status = types.ChangePlanSliceBlocked
+		slice.Completion = &types.WriteWorkflowCompletion{
+			Verdict:    types.WriteWorkflowCompletionAcceptedFailed,
+			ReasonCode: reasonCode,
+			Source:     "slice_apply",
+			At:         now,
+		}
+	default:
+		return
+	}
+	appendWorkflowSliceAttempt(slice, "apply", status, reasonCode, planID, "", applyRef)
+	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+		SliceID:     slice.ID,
+		Event:       types.WriteWorkflowSliceEventApplyCompleted,
+		Status:      slice.Status,
+		ReasonCode:  reasonCode,
+		PlanID:      planID,
+		ArtifactRef: applyRef,
+		At:          now,
 	})
+	if slice.Status == types.ChangePlanSliceFailed {
+		batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+			SliceID:     slice.ID,
+			Event:       types.WriteWorkflowSliceEventFailed,
+			Status:      slice.Status,
+			ReasonCode:  reasonCode,
+			PlanID:      planID,
+			ArtifactRef: applyRef,
+			At:          now,
+		})
+	}
+	if slice.Status == types.ChangePlanSliceBlocked {
+		batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+			SliceID:     slice.ID,
+			Event:       types.WriteWorkflowSliceEventBlocked,
+			Status:      slice.Status,
+			ReasonCode:  reasonCode,
+			PlanID:      planID,
+			ArtifactRef: applyRef,
+			At:          now,
+		})
+	}
+	slice.UpdatedAt = now
+	batch.UpdatedAt = now
+}
+
+func markWorkflowRunActiveSliceObservingForRestoredPlan(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan, reasonCode string) {
+	if run == nil || plan == nil || strings.TrimSpace(batchID) == "" {
+		return
+	}
+	batch := activeWorkflowBatchForUpdate(run, batchID)
+	if batch == nil {
+		return
+	}
+	if len(batch.Slices) == 0 {
+		initializeWorkflowBatchSlicesFromPlan(batch, plan, strings.TrimSpace(batch.PlanID))
+	}
+	if strings.TrimSpace(batch.ActiveSliceID) == "" {
+		batch.ActiveSliceID = workflowBatchActiveSliceID(batch)
+	}
+	slice := activeWorkflowSliceForUpdate(batch)
+	if slice == nil {
+		return
+	}
+	now := time.Now()
+	planID := strings.TrimSpace(plan.ID)
+	slice.PlanID = firstNonEmptyController(planID, slice.PlanID)
+	slice.Status = types.ChangePlanSliceObserving
+	slice.Completion = nil
+	if slice.ApplyRef == "" {
+		slice.ApplyRef = writeWorkflowApplyRef(plan, "applied")
+	}
+	slice.UpdatedAt = now
+	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+		SliceID:    slice.ID,
+		Event:      types.WriteWorkflowSliceEventObserveStarted,
+		Status:     slice.Status,
+		ReasonCode: strings.TrimSpace(reasonCode),
+		PlanID:     planID,
+		At:         now,
+	})
+	batch.UpdatedAt = now
 }
 
 func updateWorkflowRunBatchVerify(run *types.WriteWorkflowRun, batchID string, report *types.ChangeReport, status, reasonCode string) {
@@ -1832,6 +2110,165 @@ func updateWorkflowRunActiveSliceObserveSkipped(run *types.WriteWorkflowRun, bat
 		At:         now,
 	})
 	batch.UpdatedAt = now
+}
+
+func (o *Orchestrator) advanceWorkflowAfterSuccessfulSliceObserve(run *types.WriteWorkflowRun, outcome writeflow.VerifyAttemptOutcome) bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return false
+	}
+	batch := activeWorkflowBatchForUpdate(run, run.ActiveBatchID)
+	if batch == nil || len(batch.Slices) == 0 || strings.TrimSpace(batch.ActiveSliceID) == "" {
+		return false
+	}
+	active := activeWorkflowSliceForUpdate(batch)
+	if active == nil {
+		return false
+	}
+	if active.Status != types.ChangePlanSliceVerified && active.Status != types.ChangePlanSliceUnverified {
+		return false
+	}
+	if nextID := nextRunnableWorkflowSliceID(batch); nextID != "" {
+		now := time.Now()
+		batch.ActiveSliceID = nextID
+		if next := activeWorkflowSliceForUpdate(batch); next != nil {
+			if next.Status == "" {
+				next.Status = types.ChangePlanSlicePending
+			}
+			next.UpdatedAt = now
+			batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+				SliceID:    next.ID,
+				Event:      types.WriteWorkflowSliceEventPlanned,
+				Status:     next.Status,
+				ReasonCode: "next_slice_selected",
+				PlanID:     next.PlanID,
+				At:         now,
+			})
+		}
+		batch.Status = types.WriteWorkflowBatchPlanned
+		batch.Completion = nil
+		batch.UpdatedAt = now
+		run.Status = types.WriteWorkflowRunInProgress
+		appendControllerProgress(run, batch.ID, "slice_observed_advance", nextID)
+		o.prepareMutableStateForNextWorkflowSlice(run)
+		return true
+	}
+	verdict, reasonCode := workflowBatchSliceCompletion(batch, outcome)
+	if verdict == "" {
+		return false
+	}
+	updateWorkflowRunBatchStatus(run, batch.ID, types.WriteWorkflowBatchComplete)
+	updateWorkflowRunBatchCompletion(run, batch.ID, verdict, reasonCode, "slice_observe")
+	if verdict == types.WriteWorkflowCompletionUnverified {
+		appendControllerProgress(run, batch.ID, "batch_unverified", reasonCode)
+	} else {
+		appendControllerProgress(run, batch.ID, "batch_verified", reasonCode)
+	}
+	o.busCtx.TaskState.LastError = ""
+	o.busCtx.Mutable.ResetVerifyFailureHandoff()
+	return true
+}
+
+func (o *Orchestrator) prepareMutableStateForNextWorkflowSlice(run *types.WriteWorkflowRun) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return
+	}
+	o.busCtx.Mutable.SetWriteWorkflowRun(run)
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil {
+		return
+	}
+	plan.Slices = types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{})
+	plan.Status = types.PlanStatusPending
+	plan.AppliedAt = nil
+	o.busCtx.Mutable.SetChangePlan(plan)
+	o.busCtx.Mutable.ResetChangeReport()
+	pending, _ := pendingAppliesForActivePlanScope(o.busCtx.Mutable, plan, "online_slice")
+	o.busCtx.Mutable.WriteClosure().ReplacePendingApplies(pending)
+	o.persistCurrentChangePlanSnapshot()
+}
+
+func nextRunnableWorkflowSliceID(batch *types.WriteWorkflowBatch) string {
+	if batch == nil || len(batch.Slices) == 0 {
+		return ""
+	}
+	activeID := strings.TrimSpace(batch.ActiveSliceID)
+	activeIndex := -1
+	statusByID := make(map[string]types.ChangePlanSliceStatus, len(batch.Slices))
+	for i, slice := range batch.Slices {
+		id := strings.TrimSpace(slice.ID)
+		statusByID[id] = slice.Status
+		if id == activeID {
+			activeIndex = i
+		}
+	}
+	for i, slice := range batch.Slices {
+		if activeIndex >= 0 && i <= activeIndex {
+			continue
+		}
+		if workflowSliceStatusTerminal(slice.Status) {
+			continue
+		}
+		if workflowSliceDepsSatisfied(slice, statusByID) {
+			return strings.TrimSpace(slice.ID)
+		}
+	}
+	for _, slice := range batch.Slices {
+		if workflowSliceStatusTerminal(slice.Status) {
+			continue
+		}
+		if workflowSliceDepsSatisfied(slice, statusByID) {
+			return strings.TrimSpace(slice.ID)
+		}
+	}
+	return ""
+}
+
+func workflowSliceDepsSatisfied(slice types.WriteWorkflowSlice, statusByID map[string]types.ChangePlanSliceStatus) bool {
+	for _, dep := range slice.DependsOnSlices {
+		status := statusByID[strings.TrimSpace(dep)]
+		if status != types.ChangePlanSliceVerified && status != types.ChangePlanSliceUnverified {
+			return false
+		}
+	}
+	return true
+}
+
+func workflowBatchSliceCompletion(batch *types.WriteWorkflowBatch, outcome writeflow.VerifyAttemptOutcome) (types.WriteWorkflowCompletionVerdict, string) {
+	if batch == nil || len(batch.Slices) == 0 {
+		return "", ""
+	}
+	reason := strings.TrimSpace(outcome.ReasonCode)
+	verdict := types.WriteWorkflowCompletionVerified
+	for _, slice := range batch.Slices {
+		switch slice.Status {
+		case types.ChangePlanSliceVerified:
+			continue
+		case types.ChangePlanSliceUnverified:
+			verdict = types.WriteWorkflowCompletionUnverified
+			if reason == "" && slice.Completion != nil {
+				reason = strings.TrimSpace(slice.Completion.ReasonCode)
+			}
+		default:
+			return "", ""
+		}
+	}
+	if reason == "" {
+		if verdict == types.WriteWorkflowCompletionVerified {
+			reason = "all_slices_verified"
+		} else {
+			reason = "slice_unverified"
+		}
+	}
+	return verdict, reason
+}
+
+func workflowSliceStatusTerminal(status types.ChangePlanSliceStatus) bool {
+	switch status {
+	case types.ChangePlanSliceVerified, types.ChangePlanSliceUnverified, types.ChangePlanSliceFailed, types.ChangePlanSliceBlocked:
+		return true
+	default:
+		return false
+	}
 }
 
 func activeWorkflowBatchForUpdate(run *types.WriteWorkflowRun, batchID string) *types.WriteWorkflowBatch {
@@ -2505,10 +2942,41 @@ func activeBatchNeedsReplan(run *types.WriteWorkflowRun) (types.WriteWorkflowBat
 		if strings.TrimSpace(batch.ID) != activeID {
 			continue
 		}
+		if workflowBatchActiveSliceFailed(batch) {
+			return batch, true
+		}
 		state := writeflow.DeriveBatchAttemptState(batch)
 		return batch, state.Phase == writeflow.BatchPhaseNeedsReplan
 	}
 	return types.WriteWorkflowBatch{}, false
+}
+
+func workflowBatchActiveSliceFailed(batch types.WriteWorkflowBatch) bool {
+	activeID := strings.TrimSpace(batch.ActiveSliceID)
+	if activeID == "" {
+		return false
+	}
+	for _, slice := range batch.Slices {
+		if strings.TrimSpace(slice.ID) != activeID {
+			continue
+		}
+		return slice.Status == types.ChangePlanSliceFailed || slice.Status == types.ChangePlanSliceBlocked
+	}
+	return false
+}
+
+func workflowBatchHasFailedExecutionState(batch types.WriteWorkflowBatch) bool {
+	if workflowBatchActiveSliceFailed(batch) {
+		return true
+	}
+	for i := len(batch.Attempts) - 1; i >= 0; i-- {
+		attempt := batch.Attempts[i]
+		if strings.TrimSpace(attempt.Kind) != "verify" {
+			continue
+		}
+		return strings.TrimSpace(attempt.Status) == "failed"
+	}
+	return false
 }
 
 func controllerActionReusesStalePlanAfterFailedVerify(action writeflow.WorkflowAction) bool {
@@ -2531,6 +2999,15 @@ func activeBatchAppliedPlanPendingVerify(run *types.WriteWorkflowRun, plan *type
 	for _, batch := range run.Batches {
 		if strings.TrimSpace(batch.ID) != strings.TrimSpace(run.ActiveBatchID) {
 			continue
+		}
+		if len(batch.Slices) > 0 && strings.TrimSpace(batch.ActiveSliceID) != "" {
+			for _, slice := range batch.Slices {
+				if strings.TrimSpace(slice.ID) != strings.TrimSpace(batch.ActiveSliceID) {
+					continue
+				}
+				return slice.Status == types.ChangePlanSliceObserving
+			}
+			return false
 		}
 		lastApply := -1
 		for i, attempt := range batch.Attempts {
