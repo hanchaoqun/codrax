@@ -1325,3 +1325,72 @@ New residual gap:
   This should feed the compatibility/semantic-contract work: probes and
   context packs need to carry "negative surface must disappear without
   mutating unrelated expression text" as a typed behavioral invariant.
+
+## 2026-06-17 Lite Smoke: Failed Verify Must Not Reuse Stale Plan
+
+Command shape:
+
+```bash
+WORKDIR=eval/results/swebench/lite-smoke-20260617-django11964-sklearn14983-sphinx11445-current
+INSTANCE_IDS_FILE=[django__django-11964, scikit-learn__scikit-learn-14983, sphinx-doc__sphinx-11445]
+SWEBENCH_SMOKE_LIMIT=3
+MAX_STEPS=70
+CODRAX_TIMEOUT=1800
+SWEBENCH_ENV_PREPARE_TIMEOUT=900
+eval/swebench/smoke_lite.sh
+```
+
+Artifacts:
+
+- Predictions:
+  `eval/results/swebench/lite-smoke-20260617-django11964-sklearn14983-sphinx11445-current/predictions.jsonl`
+- Results:
+  `eval/results/swebench/lite-smoke-20260617-django11964-sklearn14983-sphinx11445-current/results.jsonl`
+- Local validator accepted 3 predictions; `empty_patch=0`.
+- Official SWE-bench harness dry-run accepted the predictions path.
+
+Telemetry summary:
+
+| Instance | Export | Typed status | Manual audit |
+| --- | --- | --- | --- |
+| `django__django-11964` | source patch exported | `prediction_verdict=predicted_failed_verify`, `workflow_status=in_progress`, `plan_status=verify_failed`, probe failed with `Expected "first", got 'MyChoice.FIRST_CHOICE'` | Patch targeted `Field.__get__/__set__/to_python`; upstream fix is `Choices.__str__`. Local probe correctly caught failure, but workflow remained non-terminal after stale replan. |
+| `scikit-learn__scikit-learn-14983` | source patch exported | `prediction_verdict=predicted_unverified`, `workflow_status=complete`, `verify_status=unavailable`, `reason_code=verification_probe_import_error` | Patch adds `__repr__` and direct `n_splits` storage. It is plausibly close, but gold fixes `_build_repr` fallback from `cvargs`; local environment could not import built sklearn. |
+| `sphinx-doc__sphinx-11445` | source patch exported, test patch stripped | `prediction_verdict=predicted_failed_verify`, `workflow_status=in_progress`, `plan_status=verify_failed`, probe failed with title underline assertion | Patch excluded only lines starting with ``:` `` and missed `:mod:`; upstream uses docutils `Body.patterns['field_marker']`. Probe correctly caught failure, but workflow remained non-terminal after stale replan. |
+
+Systemic gap:
+
+- After a post-apply verification failure, the controller asked for `replan`.
+  The planner re-emitted or preserved the same failed ChangePlan instead of a
+  replacement plan. The scheduler recorded another plan attempt and left the
+  workflow `in_progress/ready_to_plan`, so the adapter exported the old failed
+  patch as a harness-consumable prediction.
+- This is not a Django/Sphinx-specific patch-quality issue. It is an online
+  convergence state-machine gap: failed verify must force a different
+  apply-relevant plan fingerprint, a typed passing planner probe on the
+  already-applied worktree, or a terminal blocked state.
+
+Fix landed in this batch:
+
+- Controller now records the failed plan's typed `PlanFingerprint` before
+  `replan_batch`. If replan returns the same apply-relevant fingerprint, the
+  scheduler treats it as no replacement plan, preserves the applied-patch
+  guidance, and marks the workflow/batch `blocked` for non-cancel errors.
+- Ctrl+C / cancellation still preserves the resumable applied-patch guidance
+  without force-blocking the workflow.
+- SWE-bench adapter now records typed audit blockers for
+  `workflow_incomplete_after_failed_verify` and
+  `workflow_blocked_after_failed_verify`. Predictions remain official-harness
+  consumable, but local acceptance is blocked and failed-verify verdicts stay
+  explicit.
+
+Verification:
+
+- `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_Replan(CancelReportsAppliedPatch|FailureAfterAppliedPatchBlocksRun)|TestRunControllerPlanBatch' -count=1` PASS.
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py` PASS.
+- `bash eval/swebench/smoke_local.sh` PASS.
+
+Red-line check:
+
+- The stale-plan guard reads only typed plan fingerprints, typed workflow
+  attempt state, and cancellation sentinels. It does not parse user issue text,
+  model rationale, summaries, logs, SWE-bench ids, or `<think>` text.

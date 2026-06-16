@@ -198,8 +198,21 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.publishBlockedRunGuidance(&run, "max_batches_reached")
 				return fmt.Errorf("write workflow blocked: max batch budget reached")
 			}
+			priorPlan := o.busCtx.Mutable.ChangePlan()
+			priorPlanFingerprint := types.PlanFingerprint(priorPlan)
+			replanFromFailedVerify := false
+			if decision.Action == writeflow.ActionReplanBatch {
+				_, replanFromFailedVerify = activeBatchNeedsReplan(&before)
+			}
 			innerErr := o.runControllerPlanBatch(decision.Batch, stepsUsed)
 			plan := o.busCtx.Mutable.ChangePlan()
+			if innerErr == nil && replanFromFailedVerify && replanReusedFailedPlan(priorPlanFingerprint, plan) {
+				innerErr = fmt.Errorf("write controller replan reused the failed ChangePlan fingerprint without producing a replacement plan")
+				if !changePlanHasAppliedWork(plan) && priorPlan != nil {
+					o.busCtx.Mutable.SetChangePlan(priorPlan)
+					plan = priorPlan
+				}
+			}
 			if plan != nil {
 				o.stampWorkflowPlanForActiveBatch(plan, &run)
 				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan)
@@ -219,6 +232,12 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				lastInnerErr = innerErr
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
 				if o.publishAppliedPatchInterruptedGuidance(&run, plan, lastInnerErr, "plan_batch_interrupted_after_applied_patch") {
+					if !errors.Is(lastInnerErr, ErrCanceled) && !errors.Is(lastInnerErr, context.Canceled) {
+						run.Status = types.WriteWorkflowRunBlocked
+						updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+						appendControllerProgress(&run, run.ActiveBatchID, "plan_batch_interrupted_after_applied_patch_blocked",
+							"failed verification needed a replacement plan, but planning stopped before producing one")
+					}
 					o.persistWriteWorkflowRun(&run)
 					return lastInnerErr
 				}
@@ -854,6 +873,14 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 		}
 		return errors.New("write controller plan_batch produced no ChangePlan")
 	}
+}
+
+func replanReusedFailedPlan(priorFingerprint string, plan *types.ChangePlan) bool {
+	priorFingerprint = strings.TrimSpace(priorFingerprint)
+	if priorFingerprint == "" || plan == nil {
+		return false
+	}
+	return types.PlanFingerprint(plan) == priorFingerprint
 }
 
 func changePlanIsNoChangeRequired(plan *types.ChangePlan) bool {

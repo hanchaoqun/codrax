@@ -1207,16 +1207,16 @@ def prediction_verdict(
 ) -> tuple[str, str, bool]:
     if not patch.strip():
         return "empty_patch", "none", False
-    if audit_block_reason:
-        return "predicted_audit_blocked", "failed", True
     status = str(verify_status or "").strip()
     plan = str(plan_status or "").strip()
+    if status == "failed" or plan == "verify_failed":
+        return "predicted_failed_verify", "failed", True
+    if audit_block_reason:
+        return "predicted_audit_blocked", "failed", True
     if status == "passed":
         if confidence_downgrade_reason:
             return "predicted_passed_low_confidence", "unknown", False
         return "predicted_passed", "high", False
-    if status == "failed" or plan == "verify_failed":
-        return "predicted_failed_verify", "failed", True
     if status == "unavailable" or plan == "unverified":
         return "predicted_unverified", "unknown", False
     return "predicted_unchecked", "unknown", False
@@ -1341,6 +1341,9 @@ def prediction_audit_block_reason(
     final_plan_source_paths: list[str],
     final_plan_test_only: bool,
     final_plan_covers_exported_source_patch: bool | None,
+    workflow_status: str = "",
+    verify_status: str = "",
+    plan_status: str = "",
 ) -> str:
     """Return a typed local-acceptance blocker for final-plan/export drift.
 
@@ -1352,6 +1355,13 @@ def prediction_audit_block_reason(
 
     if not exported_source_paths:
         return ""
+    workflow = str(workflow_status or "").strip()
+    verify = str(verify_status or "").strip()
+    plan = str(plan_status or "").strip()
+    if workflow == "in_progress" and (verify == "failed" or plan == "verify_failed"):
+        return "workflow_incomplete_after_failed_verify"
+    if workflow == "blocked" and (verify == "failed" or plan == "verify_failed"):
+        return "workflow_blocked_after_failed_verify"
     if final_plan_test_only:
         return "final_plan_test_only_exported_source_patch"
     if final_plan_covers_exported_source_patch is False:
@@ -1570,6 +1580,9 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             final_plan_source_paths=plan_source_paths,
             final_plan_test_only=bool(result["final_plan_test_only"]),
             final_plan_covers_exported_source_patch=result["final_plan_covers_exported_source_patch"],
+            workflow_status=str(result.get("workflow_status") or ""),
+            verify_status=str(result.get("verify_status") or ""),
+            plan_status=str(result.get("plan_status") or ""),
         )
         result["prediction_audit_block_reason"] = audit_block_reason
         confidence_downgrade_reason = prediction_confidence_downgrade_reason(

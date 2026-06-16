@@ -338,6 +338,21 @@ verdict = mod.prediction_verdict("diff --git a/src/pkg.py b/src/pkg.py\n", "pass
 if verdict != ("predicted_audit_blocked", "failed", True):
     raise SystemExit(f"unexpected audit-blocked verdict: {verdict!r}")
 
+reason = mod.prediction_audit_block_reason(
+    exported_source_paths=["src/pkg.py"],
+    final_plan_source_paths=["src/pkg.py"],
+    final_plan_test_only=False,
+    final_plan_covers_exported_source_patch=True,
+    workflow_status="in_progress",
+    verify_status="failed",
+    plan_status="verify_failed",
+)
+if reason != "workflow_incomplete_after_failed_verify":
+    raise SystemExit(f"unexpected incomplete-workflow audit block reason: {reason!r}")
+verdict = mod.prediction_verdict("diff --git a/src/pkg.py b/src/pkg.py\n", "failed", "verify_failed", reason)
+if verdict != ("predicted_failed_verify", "failed", True):
+    raise SystemExit(f"failed verify verdict should remain specific despite audit blocker: {verdict!r}")
+
 weak_plan = {
     "behavior_contracts": [
         {"id": "c1", "required": True, "source": "write_analyzer"},
