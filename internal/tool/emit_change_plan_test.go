@@ -437,6 +437,109 @@ func TestEmitChangePlan_AcceptsPythonProbeImportingRepoLocalSiblingPublicPackage
 	}
 }
 
+func TestEmitChangePlan_RejectsPythonDiscardBindingNameThatIsNeverRead(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("python interpreter not available; skip Python discard-binding validation test")
+	}
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = t.TempDir()
+	path := "src/_pytest/_code/code.py"
+	if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, "src/_pytest/_code"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := "class TracebackEntry:\n" +
+		"    def getsource(self):\n" +
+		"        start = self.getfirstlinesource()\n" +
+		"        try:\n" +
+		"            astnode, _, end = getstatementrange_ast(\n" +
+		"                self.lineno, source, astnode=astnode\n" +
+		"            )\n" +
+		"        except SyntaxError:\n" +
+		"            end = self.lineno + 1\n" +
+		"        return source[start:end]\n"
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(path)), []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	params := json.RawMessage(`{
+		"request": "fix pytest assertion source range",
+		"summary": "Capture the start returned by getstatementrange_ast so assertion output can use the exact statement range.",
+		"changes": [
+			{
+				"path": "src/_pytest/_code/code.py",
+				"kind": "patch",
+				"patch": "--- a/src/_pytest/_code/code.py\n+++ b/src/_pytest/_code/code.py\n@@ -2,7 +2,7 @@ class TracebackEntry:\n     def getsource(self):\n         start = self.getfirstlinesource()\n         try:\n-            astnode, _, end = getstatementrange_ast(\n+            astnode, ast_start, end = getstatementrange_ast(\n                 self.lineno, source, astnode=astnode\n             )\n         except SyntaxError:\n",
+				"rationale": "capture ast_start from getstatementrange_ast"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected dead discard-binding replacement to be rejected")
+	}
+	for _, want := range []string{"discard binding", "ast_start", "never reads"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary should contain %q, got: %s", want, res.Summary)
+		}
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected dead edit plan must not install ChangePlan: %+v", plan)
+	}
+}
+
+func TestEmitChangePlan_AcceptsPythonDiscardBindingNameWhenRead(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("python interpreter not available; skip Python discard-binding validation test")
+	}
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = t.TempDir()
+	path := "src/_pytest/_code/code.py"
+	if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, "src/_pytest/_code"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := "class TracebackEntry:\n" +
+		"    def getsource(self):\n" +
+		"        start = self.getfirstlinesource()\n" +
+		"        try:\n" +
+		"            astnode, _, end = getstatementrange_ast(\n" +
+		"                self.lineno, source, astnode=astnode\n" +
+		"            )\n" +
+		"        except SyntaxError:\n" +
+		"            end = self.lineno + 1\n" +
+		"        return source[start:end]\n"
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(path)), []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	params := json.RawMessage(`{
+		"request": "fix pytest assertion source range",
+		"summary": "Use the start returned by getstatementrange_ast when slicing traceback source.",
+		"changes": [
+			{
+				"path": "src/_pytest/_code/code.py",
+				"kind": "patch",
+				"patch": "--- a/src/_pytest/_code/code.py\n+++ b/src/_pytest/_code/code.py\n@@ -2,12 +2,11 @@ class TracebackEntry:\n     def getsource(self):\n-        start = self.getfirstlinesource()\n         try:\n-            astnode, _, end = getstatementrange_ast(\n+            astnode, ast_start, end = getstatementrange_ast(\n                 self.lineno, source, astnode=astnode\n             )\n         except SyntaxError:\n             end = self.lineno + 1\n-        return source[start:end]\n+        return source[ast_start:end]\n",
+				"rationale": "use ast_start from getstatementrange_ast for the returned source slice"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected used discard-binding replacement to be accepted, got: %s", res.Summary)
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan == nil {
+		t.Fatal("accepted plan should install ChangePlan")
+	}
+}
+
 func TestEmitChangePlan_RejectsStructuredEditDuplicatePythonDefinitionStutter(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()

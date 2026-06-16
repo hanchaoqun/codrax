@@ -1244,8 +1244,199 @@ func dryBuildPython(ctx *types.BusContext, changes []types.FileChange) string {
 		displayArgs = append(displayArgs, pyChanges...)
 		return formatDryBuildRejection("Python", strings.Join(displayArgs, " "), out, len(out))
 	}
+	if rej := validatePythonDiscardBindingUsage(ctx.RepoRoot, scratch, changes); rej != "" {
+		return rej
+	}
 	logging.Debug("[emit_change_plan] V2 Python dry-build PASS for files: %v", pyChanges)
 	return ""
+}
+
+type pythonDiscardBindingIntro struct {
+	Path      string
+	Name      string
+	AddedLine string
+}
+
+func validatePythonDiscardBindingUsage(repoRoot, finalRoot string, changes []types.FileChange) string {
+	if strings.TrimSpace(repoRoot) == "" || strings.TrimSpace(finalRoot) == "" {
+		return ""
+	}
+	intros := pythonDiscardBindingIntroductions(repoRoot, changes)
+	if len(intros) == 0 {
+		return ""
+	}
+	type key struct {
+		path string
+		name string
+	}
+	addedCounts := make(map[key]int)
+	addedLines := make(map[key]string)
+	for _, intro := range intros {
+		k := key{path: intro.Path, name: intro.Name}
+		addedCounts[k] += pythonIdentifierOccurrenceCount(intro.AddedLine, intro.Name)
+		if addedLines[k] == "" {
+			addedLines[k] = strings.TrimSpace(intro.AddedLine)
+		}
+	}
+	for k, assignmentCount := range addedCounts {
+		if assignmentCount <= 0 {
+			assignmentCount = 1
+		}
+		data, err := os.ReadFile(filepath.Join(finalRoot, filepath.FromSlash(k.path)))
+		if err != nil {
+			continue
+		}
+		if pythonIdentifierOccurrenceCount(string(data), k.name) <= assignmentCount {
+			return fmt.Sprintf("change %q replaces a Python discard binding `_` with %q but the planned file never reads %q. This is a dead edit; either use the named value in the relevant logic or keep `_` as the discard target. Added line: %s",
+				k.path, k.name, k.name, addedLines[k])
+		}
+	}
+	return ""
+}
+
+func pythonDiscardBindingIntroductions(repoRoot string, changes []types.FileChange) []pythonDiscardBindingIntro {
+	var out []pythonDiscardBindingIntro
+	for _, change := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if path == "" || !strings.HasSuffix(path, ".py") || strings.TrimSpace(change.Kind) != "patch" {
+			continue
+		}
+		patch := strings.TrimSpace(change.Patch)
+		if patch == "" && len(change.Edits) > 0 {
+			compiled, err := compileStructuredEditsToPatch(repoRoot, &change)
+			if err != nil {
+				continue
+			}
+			patch = compiled
+		}
+		if patch == "" {
+			continue
+		}
+		out = append(out, pythonDiscardBindingIntroductionsFromPatch(path, patch)...)
+	}
+	return out
+}
+
+func pythonDiscardBindingIntroductionsFromPatch(path, patch string) []pythonDiscardBindingIntro {
+	var out []pythonDiscardBindingIntro
+	var minusQueue []string
+	for _, raw := range strings.Split(patch, "\n") {
+		switch {
+		case strings.HasPrefix(raw, "@@"):
+			minusQueue = nil
+		case strings.HasPrefix(raw, "---") || strings.HasPrefix(raw, "+++"):
+			continue
+		case strings.HasPrefix(raw, "-"):
+			minusQueue = append(minusQueue, strings.TrimPrefix(raw, "-"))
+		case strings.HasPrefix(raw, "+"):
+			added := strings.TrimPrefix(raw, "+")
+			if len(minusQueue) == 0 {
+				continue
+			}
+			removed := minusQueue[0]
+			minusQueue = minusQueue[1:]
+			for _, name := range pythonDiscardBindingNamesIntroduced(removed, added) {
+				out = append(out, pythonDiscardBindingIntro{
+					Path:      path,
+					Name:      name,
+					AddedLine: added,
+				})
+			}
+		default:
+			minusQueue = nil
+		}
+	}
+	return out
+}
+
+func pythonDiscardBindingNamesIntroduced(removed, added string) []string {
+	oldTarget, oldRHS, ok := splitPythonSimpleAssignment(removed)
+	if !ok {
+		return nil
+	}
+	newTarget, newRHS, ok := splitPythonSimpleAssignment(added)
+	if !ok || strings.TrimSpace(oldRHS) != strings.TrimSpace(newRHS) {
+		return nil
+	}
+	oldAtoms := pythonAssignmentTargetAtoms(oldTarget)
+	newAtoms := pythonAssignmentTargetAtoms(newTarget)
+	if len(oldAtoms) == 0 || len(oldAtoms) != len(newAtoms) {
+		return nil
+	}
+	var out []string
+	for i := range oldAtoms {
+		if oldAtoms[i] == "_" && pythonDiscardReplacementIdentifier(newAtoms[i]) {
+			out = append(out, newAtoms[i])
+		}
+	}
+	return out
+}
+
+func splitPythonSimpleAssignment(line string) (target, rhs string, ok bool) {
+	for i := 0; i < len(line); i++ {
+		if line[i] != '=' {
+			continue
+		}
+		prev := byte(0)
+		next := byte(0)
+		if i > 0 {
+			prev = line[i-1]
+		}
+		if i+1 < len(line) {
+			next = line[i+1]
+		}
+		if prev == '=' || prev == '!' || prev == '<' || prev == '>' || prev == ':' || next == '=' {
+			continue
+		}
+		return line[:i], line[i+1:], true
+	}
+	return "", "", false
+}
+
+func pythonAssignmentTargetAtoms(target string) []string {
+	target = strings.TrimSpace(target)
+	if target == "" || strings.Contains(target, ".") {
+		return nil
+	}
+	for {
+		trimmed := strings.TrimSpace(target)
+		if len(trimmed) >= 2 {
+			first, last := trimmed[0], trimmed[len(trimmed)-1]
+			if (first == '(' && last == ')') || (first == '[' && last == ']') {
+				target = trimmed[1 : len(trimmed)-1]
+				continue
+			}
+		}
+		break
+	}
+	parts := strings.Split(target, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(part), "*"))
+		if idx := strings.Index(part, ":"); idx >= 0 {
+			part = strings.TrimSpace(part[:idx])
+		}
+		if part == "" {
+			return nil
+		}
+		out = append(out, part)
+	}
+	return out
+}
+
+func pythonDiscardReplacementIdentifier(name string) bool {
+	if name == "" || name == "_" || strings.HasPrefix(name, "_") {
+		return false
+	}
+	return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(name)
+}
+
+func pythonIdentifierOccurrenceCount(content, name string) int {
+	if name == "" {
+		return 0
+	}
+	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
+	return len(re.FindAllStringIndex(content, -1))
 }
 
 type pythonDryBuildRunner struct {

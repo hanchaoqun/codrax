@@ -294,4 +294,8 @@ Acceptance:
   validated and official harness dry-run consumed them.
 - 2026-06-16: Manual audit found G1-G6 above. Batch 1 implementation starts
   from the Python discard-binding dead-edit validator.
-
+- 2026-06-16: Batch 1 implemented locally. Python plan validation now rejects
+  patches that replace `_` unpack discard targets with a named variable that is
+  never read in the final planned file. Targeted tests passed:
+  `go test ./internal/tool -run 'DiscardBinding|EmitChangePlan'` and
+  `go test ./internal/tool -run 'StructuredEdit|RunTests|Pytest'`.
