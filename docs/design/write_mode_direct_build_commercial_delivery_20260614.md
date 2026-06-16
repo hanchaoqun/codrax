@@ -4143,3 +4143,78 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - Context pack Top-N still rendered a large tail (`+70` items in the SymPy
     controller handoff), increasing LLM dispatch latency even after the target
     file was known.
+
+## 2026-06-16 SWE-bench smoke 12: planner tool-surface convergence follow-up
+
+- Evidence source:
+  - Fair-isolated non-Go SWE-bench Lite batch:
+    `eval/results/swebench/lite-smoke-20260616-sklearn13241-sphinx7738-pytest8906-mpl23987-current`.
+  - Instances requested: `matplotlib__matplotlib-23987`,
+    `pytest-dev__pytest-8906`, `scikit-learn__scikit-learn-13241`,
+    `sphinx-doc__sphinx-7738`.
+  - Adapter validation accepted 4 prediction rows with `empty_patch=0`.
+    Official SWE-bench harness dry-run accepted the generated
+    `predictions.jsonl` command.
+- Result summary:
+  - `matplotlib__matplotlib-23987`: `predicted_unverified/parser_error`.
+    Codrax changed the `subplots_adjust()` warning guard; gold instead avoids
+    installing the constrained layout engine when `constrained_layout=False`.
+    The predicted patch is near the symptom but not the causal initialization
+    site and may dereference a nil layout engine.
+  - `pytest-dev__pytest-8906`: `predicted_unverified/parser_error`. Codrax
+    added a new `skip_module()` API and imported it; gold only improves the
+    existing module-level `pytest.skip()` error message in
+    `src/_pytest/python.py`. The SWE-bench exporter correctly stripped the
+    generated test edit from the prediction.
+  - `scikit-learn__scikit-learn-13241`:
+    `predicted_unverified/parser_error`. Codrax implemented sign flipping in
+    `KernelPCA`; gold uses the existing `svd_flip` helper before sorting. The
+    behavior is close, but the patch repeats an existing utility instead of
+    reusing the local abstraction.
+  - `sphinx-doc__sphinx-7738`: `predicted_unverified/parser_error`. Codrax
+    removed trailing-underscore escaping unconditionally; gold keeps it behind
+    `strip_signature_backslash`. This is overbroad and exposes the need for a
+    config-sensitive behavior probe.
+- Generalized gap fixed:
+  - In this batch the planner attempted repository-reading tools after the
+    handoff synthesis/read budget had already narrowed the current schema to
+    `emit_change_plan`, `emit_plan_skeleton`, `emit_plan_change`, and
+    `run_tests`. The logs recorded 7 unavailable plan-turn read/search tool
+    attempts across Matplotlib, Pytest, and scikit-learn.
+  - The hard gate already rejected those calls and the planner stopped after a
+    second violation, but the first wasted turn made write-mode feel less
+    smooth and sometimes delayed convergence after the causal file was known.
+  - Strengthened the dynamic current-tool-surface directive so each narrowed
+    turn explicitly states that the next tool call must use one of the exact
+    callable names and must not call unlisted tools to read/search/fetch more
+    context.
+- Safety and prompt hygiene:
+  - This remains soft guidance only. The hard route is still the typed tool
+    schema plus `ToolRepair.Code=unavailable_tool_surface`; no user intent
+    keywords, issue prose, model rationale, natural-language summaries, or
+    `<think>` content drive routing.
+  - The directive is generic and applies to dynamic tool-surface narrowing
+    across stages; it does not special-case SWE-bench, Matplotlib, Pytest,
+    scikit-learn, Sphinx, or any issue phrase.
+- Implementation tasks:
+  - [x] Strengthen dynamic current-tool-surface directive.
+  - [x] Add regression assertion that the directive names exact callable
+    tools and forbids unlisted read/search attempts.
+  - [x] Record SWE-bench smoke 12 evidence and manual gold audit.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/agent -run 'TestCurrentTurnToolSurfaceDirective|TestUnavailableToolResultListsExactCurrentSurface|TestPlanner' -count=1`.
+  - Affected packages passed:
+    `go test ./internal/agent ./internal/orchestrator ./internal/tool ./internal/types -count=1`.
+  - Full Go regression passed: `go test ./...`.
+  - Diff hygiene passed: `git diff --check`.
+  - Build passed: `make`.
+  - SWE-bench adapter smoke passed: `eval/swebench/smoke_local.sh`.
+- Remaining system gaps to track:
+  - Behavior-localization needs stronger typed probes before plan emission:
+    this batch had three symptom-near but non-gold causal-site misses.
+  - Planner should reuse existing local abstractions more reliably when the
+    codebase already exposes a helper (`svd_flip` in scikit-learn).
+  - Config-sensitive fixes need probes that exercise both enabled and disabled
+    configuration paths, as seen in the Sphinx `strip_signature_backslash`
+    case.

@@ -241,7 +241,7 @@ func TestCurrentTurnToolSurfaceDirectiveOnlyNamesCallableTools(t *testing.T) {
 	if got == "" {
 		t.Fatal("expected directive for narrowed tool surface")
 	}
-	for _, want := range []string{"`emit_evidence`", "`emit_investigation_complete`", "current tool schema is authoritative"} {
+	for _, want := range []string{"`emit_evidence`", "`emit_investigation_complete`", "current tool schema is authoritative", "must use one of these exact tool names", "Do not call unlisted tools to read"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("directive missing %q: %s", want, got)
 		}

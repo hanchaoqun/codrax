@@ -4766,7 +4766,7 @@ func currentTurnToolSurfaceDirective(base, effective []llm.ToolSchema) string {
 	return fmt.Sprintf(
 		"[current tool surface]\n"+
 			"For this turn, callable tools are: %s.\n"+
-			"The current tool schema is authoritative. Use only these tool names. Continue from the visible transcript and stable checkpoints; earlier workflow text, examples, or previous tool-call history may mention other tools, but they are not callable in this turn. If these tools are insufficient, state the limitation in the appropriate structured emit instead of calling an unlisted tool.",
+			"The current tool schema is authoritative. Your next tool call, if any, must use one of these exact tool names. Do not call unlisted tools to read, search, inspect, browse, or fetch more context. Continue from the visible transcript and stable checkpoints; earlier workflow text, examples, or previous tool-call history may mention other tools, but they are not callable in this turn. If these tools are insufficient, state the limitation in the appropriate structured emit instead of calling an unlisted tool.",
 		strings.Join(quoted, ", "))
 }
 
