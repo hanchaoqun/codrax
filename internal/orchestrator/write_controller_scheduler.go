@@ -250,7 +250,11 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					o.publishBlockedRunGuidance(&run, "plan_batch_failed")
 					return lastInnerErr
 				}
-				appendControllerProgress(&run, run.ActiveBatchID, "plan_batch_failed", lastInnerErr.Error())
+				reasonCode := "plan_batch_failed"
+				if errors.Is(lastInnerErr, ErrCanceled) || errors.Is(lastInnerErr, context.Canceled) {
+					reasonCode = "plan_batch_canceled"
+				}
+				appendControllerProgress(&run, run.ActiveBatchID, reasonCode, lastInnerErr.Error())
 				o.persistWriteWorkflowRun(&run)
 				return lastInnerErr
 			}

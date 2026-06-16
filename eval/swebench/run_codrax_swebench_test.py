@@ -134,5 +134,29 @@ class ContextCoverageTests(unittest.TestCase):
         self.assertEqual(missing, ["pkg/a.py", "pkg/b.py"])
 
 
+class EmptyPatchReasonTests(unittest.TestCase):
+    def test_wall_time_progress_reason_overrides_in_progress_no_plan(self) -> None:
+        reason = adapter.empty_patch_reason(
+            patch="",
+            workflow_status="in_progress",
+            plan_path="",
+            workflow_latest_reason_code="plan_batch_canceled",
+            workflow_latest_message="canceled at stage=write_controller_plan_retry iter=7: write mode wall-time exceeded (600s)",
+        )
+
+        self.assertEqual(reason, "write_wall_time_empty_patch")
+
+    def test_legacy_wall_time_progress_message_is_still_auditable(self) -> None:
+        reason = adapter.empty_patch_reason(
+            patch="",
+            workflow_status="in_progress",
+            plan_path="",
+            workflow_latest_reason_code="plan_batch_failed",
+            workflow_latest_message="canceled at stage=write_controller_plan_retry iter=7: write mode wall-time exceeded (600s)",
+        )
+
+        self.assertEqual(reason, "write_wall_time_empty_patch")
+
+
 if __name__ == "__main__":
     unittest.main()

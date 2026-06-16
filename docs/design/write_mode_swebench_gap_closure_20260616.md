@@ -1731,3 +1731,55 @@ Red-line check:
   process exit/timeout, and durable typed workflow state.
 - It does not inspect issue text, model prose, stdout summaries, repository
   names, SWE-bench ids, gold patches, or `<think>` text for control.
+
+## 2026-06-17 Lite Batch: Wall-time Empty Patch Needs Typed Progress Reason
+
+Batch:
+
+- Workdir:
+  `eval/results/swebench/lite-smoke-20260617-noplan18532-django13933-sphinx10451-current`
+- Instances:
+  `django__django-13933`, `sphinx-doc__sphinx-10451`,
+  `sympy__sympy-18532`
+- `validate_predictions.py` accepted all 3 predictions; `empty_patch=1`.
+- Official harness dry-run accepted the predictions path.
+
+Manual audit:
+
+| Instance | Local verdict | Human audit | System signal |
+| --- | --- | --- | --- |
+| `django__django-13933` | `predicted_failed_verify` | Source patch is close to gold and arguably more complete: it updates `ModelChoiceField.default_error_messages['invalid_choice']` to include `%(value)s` and passes the original invalid value in `ValidationError.params`. Gold only passes `params={'value': value}` because the test overrides the message. | Online loop worked: apply -> verify fail -> replan -> apply. It later blocked on verify infra/wall-time with `verify_tool_not_called`, so local confidence stayed failed rather than false-pass. |
+| `sphinx-doc__sphinx-10451` | `empty_patch` | No patch. Gold changes `sphinx/ext/autodoc/typehints.py` to normalize documented `*args` / `**kwargs` names before adding type fields. | Exploration succeeded and context pack had `sphinx/ext/autodoc/typehints.py`, but planning exceeded write wall-time before `ChangePlan`. Adapter previously reported this as `workflow_in_progress_no_plan`, which hides the typed cancellation reason. |
+| `sympy__sympy-18532` | `predicted_passed_low_confidence` | Patch is semantically equivalent to gold for `atoms()` default behavior, though less compact. It did not include tests in exported patch, as expected for SWE-bench source-only export. | Verify probe passed, but confidence correctly downgraded with `verification_probe_changed_source_not_context_covered` because no prior P0/P1 localization context covered `sympy/core/basic.py`. |
+
+Systemic gap:
+
+- `WriteWorkflowRun.progress_ledger` already carried the precise runtime
+  cancellation: `plan_batch_failed` with message `write mode wall-time
+  exceeded`.
+- The adapter ignored the latest progress reason/message when explaining empty
+  patches, so a wall-time cancellation collapsed into generic
+  `workflow_in_progress_no_plan`.
+- This is a general eval/audit gap. It affects any single-shot workflow that is
+  intentionally resumable after cancellation but still needs an honest local
+  prediction reason.
+
+Fix landed in this batch:
+
+- Core write controller now records canceled plan attempts with
+  `plan_batch_canceled`, distinct from terminal planning failure.
+- SWE-bench adapter exports latest workflow progress fields:
+  `workflow_latest_progress`, `workflow_latest_progress_stage`,
+  `workflow_latest_progress_status`, `workflow_latest_progress_reason_code`,
+  and `workflow_latest_progress_message`.
+- `empty_patch_reason()` now prioritizes typed progress reasons such as
+  `plan_batch_canceled`, legacy `plan_batch_failed` with wall-time message, and
+  `verify_infra_retry_budget_exhausted`, producing
+  `write_wall_time_empty_patch` where appropriate.
+
+Red-line check:
+
+- The fix consumes durable workflow progress fields and system-generated
+  cancellation/error strings.
+- It does not parse model rationale, final prose, stdout logs, issue text,
+  repository names, SWE-bench ids, gold patches, or `<think>` text.

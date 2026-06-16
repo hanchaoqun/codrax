@@ -1071,16 +1071,22 @@ def build_request(instance: dict[str, Any], args: argparse.Namespace) -> str:
 
 
 def latest_workflow_progress(workflow: dict[str, Any]) -> str:
-    progress = [row for row in workflow.get("progress_ledger") or [] if isinstance(row, dict)]
-    if not progress:
+    latest = latest_workflow_progress_event(workflow)
+    if not latest:
         return ""
-    latest = progress[-1]
     parts = []
     for key in ("stage", "status", "reason_code"):
         value = str(latest.get(key) or "").strip()
         if value:
             parts.append(value)
     return "/".join(parts)
+
+
+def latest_workflow_progress_event(workflow: dict[str, Any]) -> dict[str, Any]:
+    progress = [row for row in workflow.get("progress_ledger") or [] if isinstance(row, dict)]
+    if not progress:
+        return {}
+    return progress[-1]
 
 
 def active_workflow_batch_summary(workflow: dict[str, Any]) -> str:
@@ -1567,6 +1573,8 @@ def empty_patch_reason(
     plan_path: str = "",
     codrax_timed_out: bool = False,
     codrax_exit_code: int = 0,
+    workflow_latest_reason_code: str = "",
+    workflow_latest_message: str = "",
 ) -> str:
     """Return a typed audit reason for an empty exported patch.
 
@@ -1580,8 +1588,22 @@ def empty_patch_reason(
         return ""
     workflow = str(workflow_status or "").strip()
     has_plan = bool(str(plan_path or "").strip())
+    latest_reason = str(workflow_latest_reason_code or "").strip()
+    latest_message = str(workflow_latest_message or "").strip()
     if codrax_timed_out:
         return "codrax_timeout_empty_patch"
+    if latest_reason == "plan_batch_canceled":
+        if "write mode wall-time exceeded" in latest_message:
+            return "write_wall_time_empty_patch"
+        return "workflow_canceled_empty_patch"
+    if latest_reason == "plan_batch_failed" and "write mode wall-time exceeded" in latest_message:
+        return "write_wall_time_empty_patch"
+    if latest_reason == "verify_infra_retry_budget_exhausted":
+        if "write mode wall-time exceeded" in latest_message:
+            return "write_wall_time_empty_patch"
+        return "verify_infra_budget_empty_patch"
+    if latest_reason == "plan_batch_failed_blocked" and not has_plan:
+        return "workflow_blocked_no_plan"
     if workflow == "in_progress":
         if not has_plan:
             return "workflow_in_progress_no_plan"
@@ -1759,6 +1781,12 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         if workflow:
             result["workflow_run_id"] = str(workflow.get("run_id") or "")
             result["workflow_status"] = str(workflow.get("status") or "")
+            latest_progress = latest_workflow_progress_event(workflow)
+            result["workflow_latest_progress"] = latest_workflow_progress(workflow)
+            result["workflow_latest_progress_stage"] = str(latest_progress.get("stage") or "")
+            result["workflow_latest_progress_status"] = str(latest_progress.get("status") or "")
+            result["workflow_latest_progress_reason_code"] = str(latest_progress.get("reason_code") or "")
+            result["workflow_latest_progress_message"] = str(latest_progress.get("message") or "")
             target_paths = result.get("plan_target_paths") if isinstance(result.get("plan_target_paths"), list) else []
             change_paths = result.get("plan_change_paths") if isinstance(result.get("plan_change_paths"), list) else []
             result.update(summarize_plan_context_coverage(workflow, target_paths, change_paths))
@@ -1820,6 +1848,8 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             plan_path=str(result.get("plan_path") or ""),
             codrax_timed_out=bool(result.get("codrax_timed_out")),
             codrax_exit_code=int(result.get("codrax_exit_code") or 0),
+            workflow_latest_reason_code=str(result.get("workflow_latest_progress_reason_code") or ""),
+            workflow_latest_message=str(result.get("workflow_latest_progress_message") or ""),
         )
         result["empty_patch_reason"] = empty_reason
         if empty_reason and not audit_block_reason:

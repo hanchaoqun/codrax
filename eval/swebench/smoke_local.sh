@@ -367,6 +367,24 @@ if mod.empty_patch_reason(
     plan_path="",
 ) != "":
     raise SystemExit("non-empty patch must not get an empty-patch reason")
+empty_reason = mod.empty_patch_reason(
+    patch="",
+    workflow_status="in_progress",
+    plan_path="",
+    workflow_latest_reason_code="plan_batch_canceled",
+    workflow_latest_message="canceled at stage=write_controller_plan_retry iter=7: write mode wall-time exceeded (600s)",
+)
+if empty_reason != "write_wall_time_empty_patch":
+    raise SystemExit(f"unexpected wall-time empty-patch reason: {empty_reason!r}")
+legacy_empty_reason = mod.empty_patch_reason(
+    patch="",
+    workflow_status="in_progress",
+    plan_path="",
+    workflow_latest_reason_code="plan_batch_failed",
+    workflow_latest_message="canceled at stage=write_controller_plan_retry iter=7: write mode wall-time exceeded (600s)",
+)
+if legacy_empty_reason != "write_wall_time_empty_patch":
+    raise SystemExit(f"unexpected legacy wall-time empty-patch reason: {legacy_empty_reason!r}")
 
 reason = mod.prediction_audit_block_reason(
     exported_source_paths=["src/pkg.py"],
