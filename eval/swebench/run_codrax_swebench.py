@@ -500,6 +500,56 @@ def discover_python_import_roots(repo_dir: Path) -> list[str]:
     return out[:12]
 
 
+def discover_python_source_roots(repo_dir: Path) -> list[Path]:
+    roots: list[Path] = []
+    seen: set[str] = set()
+    ignored = {"test", "tests", "docs", "doc", "example", "examples", "build", "dist"}
+    for base in (repo_dir / "src", repo_dir / "lib", repo_dir):
+        if not base.is_dir():
+            continue
+        try:
+            entries = sorted(base.iterdir(), key=lambda item: item.name)
+        except OSError:
+            continue
+        has_importable = False
+        for entry in entries:
+            name = entry.name
+            if name.startswith(".") or name in ignored:
+                continue
+            if entry.is_dir() and (entry / "__init__.py").is_file():
+                has_importable = True
+                break
+            if entry.is_file() and entry.suffix == ".py" and name != "setup.py":
+                has_importable = True
+                break
+        if not has_importable:
+            continue
+        key = str(base.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(base)
+    return roots
+
+
+def prepend_pythonpath(env: dict[str, str], roots: list[Path]) -> str:
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: str) -> None:
+        value = value.strip()
+        if not value or value in seen:
+            return
+        seen.add(value)
+        out.append(value)
+
+    for root in roots:
+        add(str(root))
+    for item in env.get("PYTHONPATH", "").split(os.pathsep):
+        add(item)
+    return os.pathsep.join(out)
+
+
 def venv_bin_dir(venv_dir: Path) -> Path:
     if os.name == "nt":
         return venv_dir / "Scripts"
@@ -554,6 +604,8 @@ def finalize_env_prepare_record(
     record["pytest_json_report_available"] = bool(record["pytest_available"])
     roots = [str(item) for item in record.get("python_import_roots") or [] if str(item)]
     record["import_roots"] = roots
+    source_roots = [str(item) for item in record.get("python_source_roots") or [] if str(item)]
+    record["source_roots"] = source_roots
     record["import_probe_ok"] = record.get("import_probe_passed") if "import_probe_passed" in record else None
     record["hard_gate"] = False
     return record
@@ -582,8 +634,8 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         shutil.rmtree(venv_dir)
     py_timeout = int(args.env_prepare_timeout)
 
-    def step(name: str, cmd: list[str], *, cwd: Path | None = None) -> CommandResult:
-        result = run_cmd(cmd, cwd=cwd, timeout=py_timeout)
+    def step(name: str, cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> CommandResult:
+        result = run_cmd(cmd, cwd=cwd, env=env, timeout=py_timeout)
         record["commands"].append(
             {
                 "name": name,
@@ -617,6 +669,13 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         "VIRTUAL_ENV": str(venv_dir),
         "PATH": f"{venv_bin_dir(venv_dir)}{os.pathsep}{os.environ.get('PATH', '')}",
     }
+    source_roots = discover_python_source_roots(repo_dir)
+    if source_roots:
+        record["python_source_roots"] = [str(root.relative_to(repo_dir)) for root in source_roots]
+        env_base = os.environ.copy()
+        env_base.update(env_updates)
+        env_updates["PYTHONPATH"] = prepend_pythonpath(env_base, source_roots)
+        record["pythonpath"] = env_updates["PYTHONPATH"]
     constraint_files = discover_python_constraint_files(repo_dir)
     if constraint_files:
         record["python_constraint_files"] = constraint_files
@@ -706,7 +765,9 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
             "    sys.exit(1)\n"
             "print('ok')\n"
         )
-        probe = step("import_probe", [str(python), "-c", probe_code, *import_roots], cwd=repo_dir)
+        probe_env = os.environ.copy()
+        probe_env.update(env_updates)
+        probe = step("import_probe", [str(python), "-c", probe_code, *import_roots], cwd=repo_dir, env=probe_env)
         record["import_probe_passed"] = probe.code == 0 and not probe.timed_out
         project_failed = project_failed or probe.code != 0 or probe.timed_out
 
@@ -1072,6 +1133,7 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         result["env_prepare_pytest_json_report_available"] = bool(env_record.get("pytest_json_report_available"))
         result["env_prepare_import_probe_ok"] = env_record.get("import_probe_ok")
         result["env_prepare_import_roots"] = env_record.get("import_roots") or []
+        result["env_prepare_source_roots"] = env_record.get("source_roots") or []
         result["env_prepare_venv_python"] = str(env_record.get("venv_python") or "")
         result["env_prepare_failed_step_names"] = env_record.get("failed_step_names") or []
         (inst_dir / "env_prepare.json").write_text(json.dumps(env_record, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")

@@ -1811,6 +1811,27 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		}
 		return decision
 	}
+	if batch, ok := activeBatchNeedsReplan(run); ok && controllerActionReusesStalePlanAfterFailedVerify(decision.Action) {
+		appendControllerProgress(run, batchID, "needs_replan_stale_action_overridden",
+			fmt.Sprintf("controller action %s suppressed because the active batch has a failed post-apply verify attempt; a new bounded plan is required before applying or verifying again", decision.Action))
+		goal := strings.TrimSpace(batch.Goal)
+		if goal == "" && run != nil {
+			goal = strings.TrimSpace(run.Goal)
+		}
+		if goal == "" {
+			goal = "replan active batch"
+		}
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionReplanBatch,
+			ReasonCode: "needs_replan_after_failed_verify",
+			Reason:     "active batch has a failed post-apply verify attempt; replan the failed point before re-applying or re-verifying",
+			Batch: &writeflow.WriteBatchPlan{
+				ID:     batch.ID,
+				Goal:   goal,
+				Status: writeflow.BatchReadyForChangePlan,
+			},
+		})
+	}
 	if decision.Action == writeflow.ActionReplanBatch &&
 		activeBatchCompletedWithUnverifiedVerdict(run) &&
 		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) {
@@ -2240,6 +2261,33 @@ func controllerActionInterruptsUnverifiedCompletion(action writeflow.WorkflowAct
 	case writeflow.ActionExploreCode, writeflow.ActionPlanBatch, writeflow.ActionApplyPlan,
 		writeflow.ActionVerifyBatch, writeflow.ActionReplanBatch, writeflow.ActionAskUser,
 		writeflow.ActionBlock:
+		return true
+	default:
+		return false
+	}
+}
+
+func activeBatchNeedsReplan(run *types.WriteWorkflowRun) (types.WriteWorkflowBatch, bool) {
+	if run == nil {
+		return types.WriteWorkflowBatch{}, false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return types.WriteWorkflowBatch{}, false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != activeID {
+			continue
+		}
+		state := writeflow.DeriveBatchAttemptState(batch)
+		return batch, state.Phase == writeflow.BatchPhaseNeedsReplan
+	}
+	return types.WriteWorkflowBatch{}, false
+}
+
+func controllerActionReusesStalePlanAfterFailedVerify(action writeflow.WorkflowAction) bool {
+	switch action {
+	case writeflow.ActionApplyPlan, writeflow.ActionVerifyBatch, writeflow.ActionPlanBatch:
 		return true
 	default:
 		return false

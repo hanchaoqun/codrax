@@ -3689,3 +3689,88 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     imprecise evidence rows after P1 root-cause evidence is sufficient. The
     planner-side read budget prevents empty-patch collapse, but exploration
     closure can still become smoother.
+
+## 2026-06-16 SWE-bench smoke 5: probe cwd and needs-replan state-machine hardening
+
+- Evidence source:
+  - Fresh fair-isolated non-Go SWE-bench Lite batch
+    `eval/results/swebench/lite-smoke-20260616-mpl23964-sphinx11445-pytest7432-current`.
+  - Instances requested: `matplotlib__matplotlib-23964`,
+    `sphinx-doc__sphinx-11445`, `pytest-dev__pytest-7432`.
+  - The run was intentionally interrupted during the first Matplotlib instance
+    after it produced enough system evidence: apply succeeded, then the
+    verification probe executed from `lib/matplotlib`, where package-local
+    `collections.py` shadowed the Python stdlib `collections` module and
+    produced an environment import failure unrelated to the patch.
+- Generalized gaps fixed:
+  - Python `verification_probes[]` now treat repo-relative `working_dir` as a
+    safe scope hint. When the hint points inside a package directory, execution
+    is lifted to the nearest Python project root discovered through structural
+    filesystem markers (`pyproject.toml`, `setup.py`, `setup.cfg`,
+    `pytest.ini`, `tox.ini`, `noxfile.py`, `manage.py`). This preserves
+    worktree import roots while avoiding package-internal cwd stdlib shadowing.
+  - Controller normalization now rejects stale-plan reuse after failed
+    post-apply verification. If the active batch's typed attempt state derives
+    `needs_replan`, controller actions `apply_plan`, `verify_batch`, and
+    `plan_batch` are normalized into a bounded `replan_batch` for that active
+    batch instead of reapplying or reverifying the old plan.
+- Safety and prompt hygiene:
+  - Hard gates consume typed attempt records, controller action enums,
+    repo-relative paths, and filesystem markers only.
+  - No branch depends on user intent keywords, issue text, model rationale,
+    natural-language summaries, or `<think>` content. `<think>` remains visible
+    in logs for user transparency.
+- Implementation tasks:
+  - [x] Add Python verification-probe project-root cwd resolution.
+  - [x] Add tests for package-internal cwd stdlib shadowing.
+  - [x] Add needs-replan stale-action normalization and tests.
+  - [x] Update `docs/user_guide.md`, `docs/user_guide.html`, and SWE-bench
+    ledger.
+- Verification:
+  - Focused tool tests passed:
+    `go test ./internal/tool -run 'TestRunTestsVerificationProbe(PythonPackageWorkingDirExecutesAtProjectRoot|ImportErrorIsParserError|UnhandledExceptionIsParserError|Fail|Pass)'`.
+  - Focused controller tests passed:
+    `go test ./internal/orchestrator -run 'TestNormalizeControllerTypedStateDecision(NeedsReplanRejectsStalePlanActions|ReplanWithFailureHandoffAllowed|UnverifiedCompletion|PlanBatchNeedsExplorationRoutesExplore)'`.
+  - Full regression and post-fix SWE-bench rerun are tracked by the
+    implementation commit following this section.
+
+## 2026-06-16 SWE-bench smoke 6: partial Python env source-root telemetry
+
+- Evidence source:
+  - Post-fix rerun:
+    `eval/results/swebench/lite-smoke-20260616-mpl23964-probe-cwd-after-fix`.
+  - Instance: `matplotlib__matplotlib-23964`.
+  - Result: `status=predicted`, `prediction_verdict=predicted_unverified`,
+    `patch_bytes=1183`, `empty_patch=0`, source patch exported for
+    `lib/matplotlib/backends/backend_ps.py`.
+- Generalized system conclusion:
+  - Local verification can be unavailable for legitimate customer/eval
+    environments even when pytest exists. In this case Matplotlib editable
+    install failed while building native extensions, so behavior probes could
+    see source roots but still could not import runnable Matplotlib. This must
+    stay an `unverified` delivery state rather than a hard block; official
+    SWE-bench harness or a customer-prepared environment can still score/run the
+    exported patch.
+  - The eval adapter previously had weaker source-root telemetry than Codrax's
+    verifier. It now discovers structural Python source roots (`src/`, `lib/`,
+    or repo root containing importable modules), prepends them to the Codrax
+    child process `PYTHONPATH`, runs its import probe under the same environment,
+    and records `python_source_roots` / `source_roots` alongside
+    `python_import_roots`.
+- Safety and prompt hygiene:
+  - This is typed environment setup and telemetry only. It does not alter write
+    risk/approval gates, does not infer from user issue keywords, and does not
+    parse model prose, summaries, rationale, or `<think>`.
+  - Missing pytest, partial editable install, zero local tests, native-extension
+    import errors, and unavailable probes remain non-hard local-verification
+    states. They can lower local confidence but must not prevent patch export.
+- Implementation tasks:
+  - [x] Discover Python source roots structurally in the SWE-bench adapter.
+  - [x] Mirror source roots into adapter import probes and Codrax child env.
+  - [x] Record source-root telemetry in `env_prepare.json` and `results.jsonl`.
+  - [x] Update SWE-bench README and design ledgers.
+- Verification:
+  - Adapter syntax passed:
+    `python3 -m py_compile eval/swebench/run_codrax_swebench.py`.
+  - Post-fix Matplotlib run validated prediction export with `empty_patch=0`.
+  - Full Go regression and local build are tracked by the implementation commit.

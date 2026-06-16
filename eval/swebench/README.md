@@ -101,8 +101,11 @@ fields are typed exporter behavior instead of prompt instructions. Codrax's
 Python verifier also recognizes Django source trees with `tests/runtests.py` and
 uses that typed harness instead of plain pytest when the repository advertises it
 through file structure. During worktree verification, Codrax prepends the active
-worktree to `PYTHONPATH` so editable installs or inherited environments cannot
-accidentally import the original checkout. When a Django suite is not explicitly
+worktree plus discovered `src/` or `lib/` source roots to `PYTHONPATH` so editable
+installs or inherited environments cannot accidentally import the original
+checkout. The SWE-bench adapter mirrors those structural source roots into the
+per-instance Python environment and records them as typed telemetry; a partial
+project install still exports a patch instead of becoming a hard gate. When a Django suite is not explicitly
 supplied, the verifier derives a conservative scoped suite from typed ChangePlan
 paths plus the repository `tests/` tree before falling back to a wider run.
 

@@ -156,7 +156,7 @@ func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 	if lang == "" {
 		lang = "python"
 	}
-	wd, rel, dirErr := resolveVerificationProbeWorkingDir(ctx.RepoRoot, probe.WorkingDir)
+	wd, rel, dirErr := resolveVerificationProbeWorkingDir(ctx.RepoRoot, probe.WorkingDir, lang)
 	if dirErr != nil {
 		detail := dirErr.Error()
 		return verificationProbeRunResult{
@@ -361,7 +361,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 	}
 }
 
-func resolveVerificationProbeWorkingDir(repoRoot, workingDir string) (string, string, error) {
+func resolveVerificationProbeWorkingDir(repoRoot, workingDir, language string) (string, string, error) {
 	repoRoot = strings.TrimSpace(repoRoot)
 	if repoRoot == "" {
 		return "", "", fmt.Errorf("verification probe requires repo root")
@@ -395,7 +395,61 @@ func resolveVerificationProbeWorkingDir(repoRoot, workingDir string) (string, st
 	if backRel == "" {
 		backRel = "."
 	}
+	if strings.EqualFold(strings.TrimSpace(language), "python") {
+		if root, ok := nearestPythonProbeProjectRoot(rootAbs, target); ok {
+			rootRel, err := filepath.Rel(rootAbs, root)
+			if err == nil {
+				if rootRel == "" {
+					rootRel = "."
+				}
+				rootRel = filepath.ToSlash(rootRel)
+				if rootRel != filepath.ToSlash(backRel) {
+					logging.Info("[run_tests] verification_probe python working_dir %q executes at project root %q to avoid package-internal cwd import shadowing",
+						filepath.ToSlash(backRel), rootRel)
+				}
+				return root, rootRel, nil
+			}
+		}
+	}
 	return target, filepath.ToSlash(backRel), nil
+}
+
+func nearestPythonProbeProjectRoot(repoRoot, target string) (string, bool) {
+	repoRoot = filepath.Clean(repoRoot)
+	target = filepath.Clean(target)
+	if !pathWithinRoot(repoRoot, target) {
+		return "", false
+	}
+	for dir := target; ; dir = filepath.Dir(dir) {
+		if pythonProbeProjectRootMarker(dir) {
+			return dir, true
+		}
+		if samePath(dir, repoRoot) {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
+	return "", false
+}
+
+func pythonProbeProjectRootMarker(dir string) bool {
+	for _, name := range []string{
+		"pyproject.toml",
+		"setup.py",
+		"setup.cfg",
+		"pytest.ini",
+		"tox.ini",
+		"noxfile.py",
+		"manage.py",
+	} {
+		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func readPythonVerificationProbeStatus(path string) pythonVerificationProbeStatus {

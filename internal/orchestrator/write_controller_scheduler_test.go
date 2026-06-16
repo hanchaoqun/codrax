@@ -1911,6 +1911,49 @@ func TestNormalizeControllerTypedStateDecisionReplanWithFailureHandoffAllowed(t 
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionNeedsReplanRejectsStalePlanActions(t *testing.T) {
+	for _, action := range []writeflow.WorkflowAction{
+		writeflow.ActionApplyPlan,
+		writeflow.ActionVerifyBatch,
+		writeflow.ActionPlanBatch,
+	} {
+		t.Run(string(action), func(t *testing.T) {
+			mu := types.NewMutableState("failed verify stale action")
+			o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+			run := &types.WriteWorkflowRun{
+				RunID:         "wf-needs-replan",
+				Status:        types.WriteWorkflowRunInProgress,
+				ActiveBatchID: "batch-1",
+				Batches: []types.WriteWorkflowBatch{{
+					ID:     "batch-1",
+					Goal:   "repair failing behavior",
+					Status: types.WriteWorkflowBatchReadyToPlan,
+					PlanID: "plan-1",
+					Attempts: []types.WriteWorkflowAttempt{
+						{Kind: "plan", Status: "planned", PlanID: "plan-1"},
+						{Kind: "apply", Status: "applied", PlanID: "plan-1"},
+						{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-1"},
+					},
+				}},
+			}
+			decision := writeflow.WriteWorkflowDecision{
+				Action: action,
+				Batch:  &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair failing behavior"},
+			}
+			got := o.normalizeControllerTypedStateDecision(decision, run)
+			if got.Action != writeflow.ActionReplanBatch {
+				t.Fatalf("needs_replan must normalize %s to replan_batch, got %+v", action, got)
+			}
+			if got.Batch == nil || got.Batch.ID != "batch-1" || got.Batch.Goal != "repair failing behavior" {
+				t.Fatalf("replan decision should preserve active batch identity, got %+v", got.Batch)
+			}
+			if !workflowProgressHasReason(run.ProgressLedger, "needs_replan_stale_action_overridden") {
+				t.Fatalf("override progress missing: %+v", run.ProgressLedger)
+			}
+		})
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionPlanBatchNeedsExplorationRoutesExplore(t *testing.T) {
 	mu := types.NewMutableState("needs exploration before plan")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
@@ -3414,9 +3457,12 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 	store := &fakeWorkflowRunStore{active: active}
 	mu := types.NewMutableState("resume hydration")
 	decisions := []writeflow.WriteWorkflowDecision{
-		// Resumed run can go straight to apply because the plan is hydrated.
+		// Resumed failed-verify runs must replan with the hydrated handoff
+		// before reusing the worktree. The first apply request is normalized
+		// to replan_batch by typed batch state.
 		{Action: writeflow.ActionApplyPlan, ReasonCode: "resume_apply"},
 		{Action: writeflow.ActionVerifyBatch, ReasonCode: "resume_verify"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
 		{Action: writeflow.ActionFinish, ReasonCode: "done"},
 	}
 	controllerCalls := 0
@@ -3429,13 +3475,22 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 	o.writeWorkflowRunStore = store
 	o.reportDir = planDir
 	o.SetWriteRetryBudget(3)
+	var handoffAtPlan *types.VerifyFailureHandoff
 	var handoffAtApply *types.VerifyFailureHandoff
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
+		case types.StagePlan:
+			handoffAtPlan = mu.VerifyFailureHandoff()
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-resume-replan",
+				Status:      types.PlanStatusPending,
+				Summary:     "resume replan",
+				TargetPaths: []string{"pkg/file.py"},
+			})
 		case types.StageApply:
 			handoffAtApply = mu.VerifyFailureHandoff()
 		case types.StageVerify:
-			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-resume", Passed: true})
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-resume-replan", Passed: true})
 		}
 		*stepsUsed++
 		return &agent.StageOutput{}, nil
@@ -3443,6 +3498,9 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 	steps := 0
 	if err := o.runWriteControllerWorkflow(&steps); err != nil {
 		t.Fatalf("resumed run should complete: %v", err)
+	}
+	if handoffAtPlan == nil || handoffAtPlan.PlanID != "plan-resume" || len(handoffAtPlan.FailingTests) != 1 {
+		t.Fatalf("resume must rebuild the verify-failure carrier before replan, got %+v", handoffAtPlan)
 	}
 	if handoffAtApply == nil || handoffAtApply.PlanID != "plan-resume" || len(handoffAtApply.FailingTests) != 1 {
 		t.Fatalf("resume must rebuild the verify-failure carrier from the durable report, got %+v", handoffAtApply)

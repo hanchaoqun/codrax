@@ -724,6 +724,70 @@ func TestRunTestsVerificationProbeImportErrorIsParserError(t *testing.T) {
 	}
 }
 
+func TestRunTestsVerificationProbePythonPackageWorkingDirExecutesAtProjectRoot(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "setup.py"), []byte("from setuptools import setup\nsetup(name='shadow-demo')\n"), 0o644); err != nil {
+		t.Fatalf("write setup.py: %v", err)
+	}
+	pkg := filepath.Join(root, "lib", "matplotlib")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatalf("mkdir package: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "__init__.py"), []byte(""), 0o644); err != nil {
+		t.Fatalf("write __init__.py: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "collections.py"), []byte("raise RuntimeError('package collections shadowed stdlib')\n"), 0o644); err != nil {
+		t.Fatalf("write collections.py: %v", err)
+	}
+	mu := types.NewMutableState("probe package cwd")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-cwd",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"lib/matplotlib/backend_ps.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:         "stdlib_collections_visible",
+			Language:   "python",
+			WorkingDir: "lib/matplotlib",
+			Code:       "from collections import deque\nq = deque([1])\nassert q.pop() == 1\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("verification_probe should execute at project root and pass, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("VerificationStatus = %q, want passed; report=%+v", report.NormalizeVerificationStatus(), report)
+	}
+	foundProjectRootCWD := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.Framework == "python" {
+			foundProjectRootCWD = cmd.WorkingDir == "."
+		}
+	}
+	if !foundProjectRootCWD {
+		t.Fatalf("verification_probe should record project-root cwd, got %+v", report.ExecutedCommands)
+	}
+}
+
 func TestRunTestsVerificationProbeUnhandledExceptionIsParserError(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

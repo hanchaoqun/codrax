@@ -1008,3 +1008,43 @@ records adapter results.
   unknown `rationale` field. Those are schema/repair UX gaps, not safety
   bypasses: all rejections came from typed validators, and medium-risk apply
   still proceeded without user approval once a valid bounded plan existed.
+- 2026-06-16: Started a fair-isolated three-instance batch at
+  `eval/results/swebench/lite-smoke-20260616-mpl23964-sphinx11445-pytest7432-current`
+  for `matplotlib__matplotlib-23964`, `sphinx-doc__sphinx-11445`, and
+  `pytest-dev__pytest-7432`; interrupted it during the Matplotlib instance
+  after it exposed two generalized write-mode gaps. The product patch was
+  straightforward, but the generated Python verification probe requested
+  `working_dir=lib/matplotlib`, which made Python start inside a package
+  directory and let local `collections.py` shadow the stdlib `collections`
+  module. The verifier then treated the environment-generated failure as a
+  repeated failed-verify loop, and the controller could emit `apply_plan` while
+  the active batch was in derived `needs_replan` state. The fix keeps hard
+  behavior structural: Python verification probes still validate repo-relative
+  `working_dir`, but execute at the nearest Python project root found from
+  typed filesystem markers (`pyproject.toml`, `setup.py`, `setup.cfg`,
+  `pytest.ini`, `tox.ini`, `noxfile.py`, `manage.py`) to avoid package-internal
+  cwd import shadowing; controller normalization now maps stale
+  `apply_plan` / `verify_batch` / `plan_batch` actions in `needs_replan` to a
+  bounded `replan_batch` for the active batch. The gate consumes typed batch
+  attempts, action enums, paths, and filesystem markers only; it does not parse
+  user intent keywords, model rationale, summaries, issue text, or `<think>`.
+- 2026-06-16: Re-ran `matplotlib__matplotlib-23964` after the verification
+  cwd/state-machine fixes at
+  `eval/results/swebench/lite-smoke-20260616-mpl23964-probe-cwd-after-fix`.
+  The adapter produced a non-empty source patch (`patch_bytes=1183`) for
+  `lib/matplotlib/backends/backend_ps.py`, validated one prediction with
+  `empty_patch=0`, and printed the official SWE-bench harness command. Local
+  verification correctly remained `predicted_unverified`: the per-instance
+  Python environment had pytest available, but editable install failed while
+  building Matplotlib native extensions, and inline probes degraded to
+  `parser_error` rather than blocking patch export. This exposed an eval
+  telemetry gap rather than a write-mode hard-gate bug: the adapter's own
+  `import_probe` was not mirroring Codrax's structural `src/` / `lib/`
+  `PYTHONPATH` source-root behavior, so a source-layout project could be
+  misreported as "module not found" instead of "source visible but project
+  install/native extension unavailable." The adapter now records
+  `python_source_roots` / `source_roots`, prepends those typed structural roots
+  to `PYTHONPATH` for the Codrax child process, and runs its import probe with
+  the same environment. These fields are audit telemetry only; prediction
+  export and write-mode completion still do not depend on prompt prose, issue
+  keywords, model summaries, or local environment success.
