@@ -3723,18 +3723,55 @@ func buildRunCommandForPlan(plan runnerPlan, suite, mainRoot string) (string, st
 
 func buildPlainPytestFallbackCommandForPlan(plan runnerPlan, suite, mainRoot string) string {
 	interp, asModule := pythonInterpreter(plan.Root, mainRoot)
-	filter := strings.TrimSpace(suite)
+	filter := shellQuotePytestSelectors(suite)
 	prefix := "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "
 	if asModule {
 		if filter == "" {
 			return prefix + fmt.Sprintf("%s -m pytest -v", interp)
 		}
-		return prefix + fmt.Sprintf("%s -m pytest -v %q", interp, filter)
+		return prefix + fmt.Sprintf("%s -m pytest -v %s", interp, filter)
 	}
 	if filter == "" {
 		return prefix + fmt.Sprintf("%s -v", interp)
 	}
-	return prefix + fmt.Sprintf("%s -v %q", interp, filter)
+	return prefix + fmt.Sprintf("%s -v %s", interp, filter)
+}
+
+func shellQuotePytestSelectors(suite string) string {
+	selectors := splitPytestSuiteSelectors(suite)
+	if len(selectors) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(selectors))
+	for _, selector := range selectors {
+		quoted = append(quoted, shellQuoteWord(selector))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func splitPytestSuiteSelectors(suite string) []string {
+	selector := strings.TrimSpace(suite)
+	if selector == "" {
+		return nil
+	}
+	fields := strings.Fields(selector)
+	if len(fields) <= 1 {
+		return []string{selector}
+	}
+	for _, field := range fields {
+		if !looksLikePytestSelectorToken(field) {
+			return []string{selector}
+		}
+	}
+	return fields
+}
+
+func looksLikePytestSelectorToken(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.HasPrefix(s, "-") {
+		return false
+	}
+	return strings.Contains(s, "::") || strings.Contains(filepath.ToSlash(s), ".py")
 }
 
 func buildRunCommand(runner, suite, repoRoot, mainRoot string) (string, string) {
@@ -3790,7 +3827,6 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		// --json-report-file. We use a temp file in the repo's
 		// worktree so the report doesn't escape.
 		tmpFile := filepath.Join(repoRoot, ".codrax-pytest-report.json")
-		filter := strings.TrimSpace(suite)
 		// Resolve interpreter: prefer the project's venv when one
 		// exists (so pytest runs against the project's installed
 		// deps, not whatever is on PATH); fall back to system
@@ -3807,17 +3843,18 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		// running inside the worktree still finds the venv at the
 		// user's mainRoot.
 		interp, asModule := pythonInterpreter(repoRoot, mainRoot)
+		filterArgs := shellQuotePytestSelectors(suite)
 		if asModule {
-			if filter == "" {
+			if filterArgs == "" {
 				return fmt.Sprintf("%s -m pytest --json-report --json-report-file=%q", interp, tmpFile), tmpFile
 			}
-			return fmt.Sprintf("%s -m pytest %q --json-report --json-report-file=%q", interp, filter, tmpFile), tmpFile
+			return fmt.Sprintf("%s -m pytest %s --json-report --json-report-file=%q", interp, filterArgs, tmpFile), tmpFile
 		}
 		// Bare pytest fallback (no python interpreter resolvable).
-		if filter == "" {
+		if filterArgs == "" {
 			return fmt.Sprintf("%s --json-report --json-report-file=%q", interp, tmpFile), tmpFile
 		}
-		return fmt.Sprintf("%s %q --json-report --json-report-file=%q", interp, filter, tmpFile), tmpFile
+		return fmt.Sprintf("%s %s --json-report --json-report-file=%q", interp, filterArgs, tmpFile), tmpFile
 	case "rust":
 		filter := strings.TrimSpace(suite)
 		if filter == "" {

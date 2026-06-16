@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -590,6 +591,38 @@ func TestBuildPlainPytestFallbackCommandIsVerbose(t *testing.T) {
 	}
 	if !strings.Contains(got, "tests/test_a.py::test_bad") {
 		t.Fatalf("fallback command lost suite selector: %q", got)
+	}
+}
+
+func TestSplitPytestSuiteSelectors_MultipleNodeIDs(t *testing.T) {
+	suite := "xarray/tests/test_groupby.py::test_groupby_repr xarray/tests/test_groupby.py::test_groupby_repr_datetime"
+	got := splitPytestSuiteSelectors(suite)
+	want := []string{
+		"xarray/tests/test_groupby.py::test_groupby_repr",
+		"xarray/tests/test_groupby.py::test_groupby_repr_datetime",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("selectors = %#v, want %#v", got, want)
+	}
+	cmd, _ := buildRunCommandWithFramework("python", pythonFrameworkPytest, suite, t.TempDir(), t.TempDir())
+	if !strings.Contains(cmd, want[0]+" "+want[1]) {
+		t.Fatalf("pytest command should pass nodeids as separate argv tokens, got %q", cmd)
+	}
+	if strings.Contains(cmd, shellQuoteWord(suite)) {
+		t.Fatalf("pytest command still quoted the whole multi-selector suite: %q", cmd)
+	}
+}
+
+func TestSplitPytestSuiteSelectors_KeepsSingleSelectorWithSpaces(t *testing.T) {
+	suite := "tests/test_widgets.py::test_label[param value]"
+	got := splitPytestSuiteSelectors(suite)
+	want := []string{suite}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("selectors = %#v, want %#v", got, want)
+	}
+	quoted := shellQuotePytestSelectors(suite)
+	if !strings.Contains(quoted, suite) || !strings.HasPrefix(quoted, "'") {
+		t.Fatalf("single selector with spaces should remain one shell-quoted argv, got %q", quoted)
 	}
 }
 

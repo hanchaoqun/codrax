@@ -3832,3 +3832,67 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     `emit_investigation_complete` support-ref/member-set repairs after enough
     P1 evidence already exists. This should be smoothed at the exploration
     contract/budget layer rather than by issue-specific prompts.
+
+## 2026-06-16 SWE-bench smoke 8: multi-selector pytest argv and manual patch audit
+
+- Evidence source:
+  - Fair-isolated non-Go SWE-bench Lite batch:
+    `eval/results/swebench/lite-smoke-20260616-flask4992-requests2674-xarray5131-current`.
+  - Instances requested: `pallets__flask-4992`,
+    `psf__requests-2674`, `pydata__xarray-5131`.
+  - Result: all three instances reached `status=predicted`, exported non-empty
+    source patches, `validate_predictions.py` accepted the predictions JSONL,
+    and the smoke wrapper printed the official SWE-bench harness command with
+    the generated predictions path.
+- Manual patch audit:
+  - `pydata__xarray-5131`: source patch is semantically aligned with the
+    official source fix: remove the trailing space before `\n` in
+    `DatasetGroupBy.__repr__`. The test patch was stripped from the official
+    prediction as expected.
+  - `pallets__flask-4992`: source patch adds a `mode` keyword and opens with
+    `open(filename, mode)`, satisfying the user-facing binary-load behavior.
+    The official patch uses a `text` boolean instead, so the API spelling
+    differs even though the requested behavior is covered.
+  - `psf__requests-2674`: source patch is not semantically aligned. It changes
+    exception inheritance and vendored exception aliases, while the official
+    source fix wraps `ClosedPoolError` in `requests.adapters`. This is a
+    behavior-grounding gap, not a prediction-format or exporter bug.
+- Generalized gap fixed:
+  - Xarray verification exposed that `run_tests.suite` can legitimately carry
+    more than one pytest nodeid. Pre-fix, the command builder quoted the entire
+    string as one pytest selector, so
+    `xarray/tests/test_groupby.py::test_groupby_repr xarray/tests/test_groupby.py::test_groupby_repr_datetime`
+    became a single invalid selector and pytest returned `found no collectors`.
+  - `run_tests` now structurally splits pytest suite text into multiple argv
+    selectors only when every whitespace-separated token looks like a pytest
+    file/nodeid selector (`.py` path or `::` nodeid). If a selector contains a
+    parameter/name with spaces, it remains a single shell-quoted argv. The
+    same helper is used by the JSON-report command and the verbose text
+    fallback.
+- Safety and prompt hygiene:
+  - The new behavior consumes typed `runner=python`, `framework=pytest`, and
+    selector syntax only. It does not branch on issue keywords, user intent
+    text, model rationale, natural-language summaries, or `<think>`.
+  - CLI option tokens in `suite` remain rejected before execution, and
+    TestSurface candidate ids remain rejected as non-selector values.
+- Implementation tasks:
+  - [x] Add conservative pytest multi-selector splitting.
+  - [x] Apply it to primary pytest JSON-report commands and text fallback.
+  - [x] Add focused tests for multiple nodeids and spaced single selectors.
+  - [x] Update SWE-bench adapter ledger, write-mode ledger, and user guide.
+- Verification:
+  - Focused tests passed:
+    `go test ./internal/tool -run 'TestSplitPytestSuiteSelectors|TestBuildPlainPytestFallbackCommandIsVerbose|TestRunTestsRejectsSuiteWithEmbeddedCLIFlags|TestValidateRunTestsSuiteSelector_AllowsSpacedTestName' -count=1`.
+  - Affected package passed: `go test ./internal/tool -count=1`.
+  - Full regression and build are tracked by the implementation commit
+    following this section.
+- Remaining system gaps to track:
+  - Requests demonstrates that issue descriptions mentioning low-level
+    exception names can still pull the planner toward public type hierarchy
+    changes instead of the actual throw/catch boundary. The controller/planner
+    should require behavior-grounded evidence around the call path before
+    changing exported exception classes or aliases.
+  - Planner repair still spends extra rounds on overlapping edits and short
+    file insert anchors. Validators are catching the unsafe shape, but the
+    repair UX should bias toward whole-file replace for very small files and
+    avoid duplicating import headers.

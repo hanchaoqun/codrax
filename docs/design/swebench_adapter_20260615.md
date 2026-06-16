@@ -1080,3 +1080,30 @@ records adapter results.
   are tracked separately: planner dry-run can still choose an expensive full
   suite, and exploration completion repair can spend extra rounds after enough
   evidence already exists.
+- 2026-06-16: Completed a fresh fair-isolated three-instance Lite batch at
+  `eval/results/swebench/lite-smoke-20260616-flask4992-requests2674-xarray5131-current`
+  for `pallets__flask-4992`, `psf__requests-2674`, and
+  `pydata__xarray-5131`. All three produced non-empty predictions
+  (`patch_bytes`: 2054, 2005, 571), `validate_predictions.py` accepted all
+  rows with `empty_patch=0`, and the smoke wrapper printed the official
+  `swebench.harness.run_evaluation` command in dry-run mode, proving the
+  generated predictions JSONL is consumable by the official harness entrypoint.
+  Local verification stayed `predicted_unverified` for all three because the
+  per-instance Python environments were only partially usable; this remains an
+  audit signal, not a hard export blocker. Manual patch audit:
+  Xarray's source patch matched the official source fix shape (remove the
+  trailing space in `DatasetGroupBy.__repr__`); Flask's source patch satisfied
+  the user-facing binary-open behavior with a `mode` parameter, although the
+  official patch chose a `text` boolean API; Requests was semantically wrong,
+  changing exception inheritance/aliases while the official source fix wraps
+  `ClosedPoolError` in `requests.adapters`. The Xarray run exposed a
+  generalized verifier defect: when the verifier supplied two pytest nodeids in
+  one typed `suite` string, `run_tests` quoted the whole string as one selector,
+  producing `found no collectors`. `run_tests` now structurally splits a pytest
+  suite into multiple argv selectors only when every whitespace-separated token
+  looks like a pytest file/nodeid selector; selectors with parameter ids or
+  names containing spaces remain a single quoted argv. This behavior consumes
+  typed runner/framework/suite fields and selector syntax only; it does not use
+  user intent keywords, issue text, model prose, summaries, rationale, or
+  `<think>`. Remaining gap: Requests shows the planner still needs stronger
+  behavior-grounded localization before changing public exception hierarchy.
