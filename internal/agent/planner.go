@@ -293,6 +293,9 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 		b.WriteString("- behavior contracts:\n")
 		for _, c := range ir.Request.BehaviorContracts {
 			fmt.Fprintf(&b, "  - id=%s kind=%s operator=%s", c.ID, c.Kind, c.Operator)
+			if c.Polarity != "" {
+				fmt.Fprintf(&b, " polarity=%s", c.Polarity)
+			}
 			if c.Subject != "" {
 				fmt.Fprintf(&b, " subject=%s", c.Subject)
 			}

@@ -1382,13 +1382,16 @@ controller 是唯一公开写模式调度器。它通过 typed `emit_write_workf
 
 读模式 analyzer 跑完后，写模式额外跑一次独立 `write_analyzer` 阶段，用 `emit_write_analysis` 写 `WriteAnalysisIR`：
 
-- `Kind`：feature / fix / chore（任务类型）
-- `Scope`：用户请求里命名的目录/包/文件
-- `RiskFlags`：（可选）涉及高敏感区域的标记
-- `ExpectedOutcomes`：自然语言期望
+- `Kind`：feature / bugfix / refactor / test / docs / config / misc（任务类型）
+- `Scope`：micro / package / cross / project
+- `RiskFlags`：`affects_public_api` / `changes_persistence` / `changes_build_system` + `overall`
+- `ExpectedOutcomes`：自然语言期望，仅作软指导和 fallback contract 来源
+- `BehaviorContracts`：typed atoms，字段包括 `kind`、`operator`、`polarity`、`subject`、`expected`、`required`、`evidence_ref`
 - `PhaseProposal`（可选）：多阶段拆分提议（split=`single` 或 `sequential` + 阶段列表）
 
 `write_analyzer` 是轻量 enrichment stage，不是重型代码探索 lane。若它成功调用 `emit_write_analysis` 但 schema/validator 拒绝，编排器会带 rejection hint 再给一次修正机会；若整轮没有调用 `emit_write_analysis`，编排器立即从 typed read `AnalysisIR` 投影保守 fallback `WriteAnalysisIR` 并继续 controller，不再盲目重跑同一轮分类。fallback 会保留原始用户请求、read analyzer 的 RequiredFiles/RequiredFileHints 作为 scope anchors，并加入 P0 `preserve_user_request` constraint，避免 planner 继承读模式的诊断叙事而丢掉写任务边界。
+
+Behavior contracts 是写模式的硬覆盖信号。`operator` 是 schema enum（如 `raises` / `not_raises` / `equals` / `not_equals` / `contains` / `not_contains` / `exists` / `not_exists` / `returns` / `satisfies`），未知值在 `emit_write_analysis` 阶段 fail-loud 并返回可修正 enum 列表，不能静默降级为散文。`polarity=expected|forbidden` 表示修复后必须满足/避免的目标；`polarity=observed` 表示前序现象、traceback 或探索证据，只进入 handoff，不作为 P0 completion target，也不要求 verification probe 覆盖。硬门只读这些 typed enum 和 id 引用，不从用户关键词、SWE-bench id、模型 summary/rationale、日志或 `<think>` 推断语义。
 
 产品主路径不再让用户手工调度线性 plan→apply→verify。`WriteAnalysisIR` 会 seed durable `WriteWorkflowRun`,由 controller 按当前 batch typed state 动态选择探索、规划、应用、验证、replan、split 或 finish。当前实现仍用 `BuildWriteTaskGraph` 作为内部 scheduler envelope 进入写阶段和承载历史回归测试；它不是用户可见决策面,后续功能应优先扩展 controller action/attempt/context 体系,而不是增加新的用户命令步骤。
 

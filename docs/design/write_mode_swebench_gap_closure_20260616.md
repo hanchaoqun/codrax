@@ -462,7 +462,8 @@ Acceptance:
 
 Progress:
 
-- Implemented locally in this batch; pending full regression and commit/push.
+- Implemented, regression tested, committed, and pushed as
+  `8fde24ea write: record workflow completion verdicts`.
 
 #### Batch 5B: Unified PlanRepairPack
 
@@ -531,3 +532,84 @@ Acceptance:
   users to learn slash-command sequences.
 - User intervention is limited to high-risk approval, explicit merge/reject, or
   genuinely missing user-owned facts.
+
+## 2026-06-16 SWE-bench Lite Batch: Contract Polarity Audit
+
+Run:
+
+```text
+WORKDIR=eval/results/swebench/lite-smoke-20260616-mpl25498-sklearn14087-sympy13480-current
+INSTANCE_IDS_FILE=[matplotlib__matplotlib-25498, scikit-learn__scikit-learn-14087, sympy__sympy-13480]
+SWEBENCH_SMOKE_LIMIT=3
+MAX_STEPS=60
+CODRAX_TIMEOUT=1800
+SWEBENCH_ISOLATE_GIT_HISTORY=1
+SWEBENCH_RUN_OFFICIAL=0
+eval/swebench/smoke_lite.sh
+```
+
+Artifacts:
+
+- Predictions:
+  `eval/results/swebench/lite-smoke-20260616-mpl25498-sklearn14087-sympy13480-current/predictions.jsonl`
+- Results:
+  `eval/results/swebench/lite-smoke-20260616-mpl25498-sklearn14087-sympy13480-current/results.jsonl`
+- `validate_predictions.py` passed for 3 predictions; `empty_patch=0`.
+- Official harness dry-run consumed the same predictions path.
+
+Observed instance outcomes:
+
+| Instance | Export | Local verify | Manual audit |
+| --- | --- | --- | --- |
+| `matplotlib__matplotlib-25498` | non-empty source patch | `unavailable/parser_error` | Likely incorrect. Analyzer emitted the observed `ZeroDivisionError` as a required `operator=raises` contract while success criteria said it should no longer raise. The patch then set `LogNorm` vmin/vmax fallback to `0/1`, preserving the original divide-by-zero shape. |
+| `scikit-learn__scikit-learn-14087` | non-empty source patch | `unavailable/parser_error` | Plausible one-line fix (`self.multi_class` -> local `multi_class`) but unverified because env prep did not install/build NumPy/scikit-learn extension requirements. Analyzer emitted `not_raises`, but current enum normalization displayed it as `satisfies`, losing precision. |
+| `sympy__sympy-13480` | non-empty source patch | `unavailable/parser_error` | Correct-looking typo fix (`cotm` -> `cothm`). Planner probe validators worked: first probe was rejected for print-only/no executable failure signal, second probe passed after adding `SystemExit(1)` on `NameError`. |
+
+New systemic gaps:
+
+- **G7: Contract polarity missing.** Runtime traceback facts and target fixed
+  behavior were both represented as `WriteBehaviorContract` without a typed
+  polarity. This allowed observed bad behavior to become a required completion
+  target. Fix direction: add `polarity=expected|forbidden|observed`, keep
+  observed facts in handoff, but exclude them from required probe coverage.
+- **G8: Unsupported contract operators silently degrade.** `operator=not_raises`
+  was emitted by the analyzer but normalized/rendered as `satisfies`. Fix
+  direction: add negative operators as schema enums and reject unknown operator
+  values with a structured repair message.
+- **G9: Controller unavailable-verdict view is still ambiguous.** For
+  Matplotlib, controller attempted `replan_batch` after seeing a traceback even
+  though typed scheduling correctly normalized env/import unavailable to
+  `finish accept_unverified`. Fix direction: expose failure subreason and
+  unavailable semantics in the controller state view, or bypass an extra model
+  turn when deterministic unavailable policy already applies.
+- **G10: Planner dry-run test semantics are too broad.** Planner `run_tests`
+  requires `dry_run=true`, but the implementation still runs real pytest and
+  may spend time on environment failures. Fix direction: split planner probes
+  into bounded typed feasibility/probe execution and keep full suite execution
+  in verifier.
+- **G11: Python env prep still misses legacy build/runtime requirements.**
+  scikit-learn needed NumPy before editable build and extension import, but
+  setup remained partial. Fix direction: extend structured requirement
+  discovery for legacy setup/pyproject projects and record dependency
+  unavailable subreasons without blocking prediction export.
+
+### Batch 5A.1: Contract Polarity And Strict Operator Repair
+
+- Add `WriteBehaviorPolarity`: `expected`, `forbidden`, `observed`.
+- Add negative behavior operators such as `not_raises`, `not_contains`, and
+  `not_equals`.
+- Make `emit_write_analysis` reject unsupported behavior contract enum values
+  with explicit repair guidance instead of silently downgrading them.
+- Normalize `polarity=observed` contracts to non-required completion evidence.
+- Render polarity in controller, planner, and context pack views.
+- Keep observed contracts available as handoff evidence while excluding them
+  from required verification-probe coverage.
+
+Acceptance:
+
+- `operator=not_raises` round-trips as typed data.
+- `polarity=observed required=true` remains visible but does not become a P0
+  completion target and does not force probe coverage.
+- Unknown behavior contract operators fail loudly with the supported enum list.
+- No prompt or hard gate relies on user keywords, SWE-bench ids, model prose,
+  summaries, or `<think>` text.

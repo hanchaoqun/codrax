@@ -12,6 +12,7 @@ import (
 type WriteBehaviorContract struct {
 	ID          string                    `json:"id"`
 	Kind        WriteBehaviorContractKind `json:"kind"`
+	Polarity    WriteBehaviorPolarity     `json:"polarity,omitempty"`
 	Subject     string                    `json:"subject,omitempty"`
 	Operator    WriteBehaviorOperator     `json:"operator,omitempty"`
 	Expected    string                    `json:"expected,omitempty"`
@@ -36,13 +37,24 @@ const (
 type WriteBehaviorOperator string
 
 const (
-	WriteBehaviorOpSatisfies WriteBehaviorOperator = "satisfies"
-	WriteBehaviorOpEquals    WriteBehaviorOperator = "equals"
-	WriteBehaviorOpContains  WriteBehaviorOperator = "contains"
-	WriteBehaviorOpExists    WriteBehaviorOperator = "exists"
-	WriteBehaviorOpNotExists WriteBehaviorOperator = "not_exists"
-	WriteBehaviorOpRaises    WriteBehaviorOperator = "raises"
-	WriteBehaviorOpReturns   WriteBehaviorOperator = "returns"
+	WriteBehaviorOpSatisfies   WriteBehaviorOperator = "satisfies"
+	WriteBehaviorOpEquals      WriteBehaviorOperator = "equals"
+	WriteBehaviorOpNotEquals   WriteBehaviorOperator = "not_equals"
+	WriteBehaviorOpContains    WriteBehaviorOperator = "contains"
+	WriteBehaviorOpNotContains WriteBehaviorOperator = "not_contains"
+	WriteBehaviorOpExists      WriteBehaviorOperator = "exists"
+	WriteBehaviorOpNotExists   WriteBehaviorOperator = "not_exists"
+	WriteBehaviorOpRaises      WriteBehaviorOperator = "raises"
+	WriteBehaviorOpNotRaises   WriteBehaviorOperator = "not_raises"
+	WriteBehaviorOpReturns     WriteBehaviorOperator = "returns"
+)
+
+type WriteBehaviorPolarity string
+
+const (
+	WriteBehaviorPolarityExpected  WriteBehaviorPolarity = "expected"
+	WriteBehaviorPolarityForbidden WriteBehaviorPolarity = "forbidden"
+	WriteBehaviorPolarityObserved  WriteBehaviorPolarity = "observed"
 )
 
 func IsKnownWriteBehaviorContractKind(v string) bool {
@@ -58,9 +70,19 @@ func IsKnownWriteBehaviorContractKind(v string) bool {
 
 func IsKnownWriteBehaviorOperator(v string) bool {
 	switch WriteBehaviorOperator(v) {
-	case WriteBehaviorOpSatisfies, WriteBehaviorOpEquals, WriteBehaviorOpContains,
-		WriteBehaviorOpExists, WriteBehaviorOpNotExists, WriteBehaviorOpRaises,
+	case WriteBehaviorOpSatisfies, WriteBehaviorOpEquals, WriteBehaviorOpNotEquals,
+		WriteBehaviorOpContains, WriteBehaviorOpNotContains, WriteBehaviorOpExists,
+		WriteBehaviorOpNotExists, WriteBehaviorOpRaises, WriteBehaviorOpNotRaises,
 		WriteBehaviorOpReturns:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsKnownWriteBehaviorPolarity(v string) bool {
+	switch WriteBehaviorPolarity(v) {
+	case WriteBehaviorPolarityExpected, WriteBehaviorPolarityForbidden, WriteBehaviorPolarityObserved:
 		return true
 	default:
 		return false
@@ -82,6 +104,13 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		c.Kind = WriteBehaviorContractKind(strings.ToLower(strings.TrimSpace(string(c.Kind))))
 		if !IsKnownWriteBehaviorContractKind(string(c.Kind)) {
 			c.Kind = WriteBehaviorObservable
+		}
+		c.Polarity = WriteBehaviorPolarity(strings.ToLower(strings.TrimSpace(string(c.Polarity))))
+		if !IsKnownWriteBehaviorPolarity(string(c.Polarity)) {
+			c.Polarity = WriteBehaviorPolarityExpected
+		}
+		if c.Polarity == WriteBehaviorPolarityObserved {
+			c.Required = false
 		}
 		c.Operator = WriteBehaviorOperator(strings.ToLower(strings.TrimSpace(string(c.Operator))))
 		if !IsKnownWriteBehaviorOperator(string(c.Operator)) {
@@ -117,6 +146,7 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 			out = append(out, WriteBehaviorContract{
 				ID:       id,
 				Kind:     WriteBehaviorObservable,
+				Polarity: WriteBehaviorPolarityExpected,
 				Operator: WriteBehaviorOpSatisfies,
 				Expected: outcome,
 				Required: true,
@@ -129,6 +159,23 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		out = out[:maxContracts]
 	}
 	return out
+}
+
+func RequiredWriteBehaviorContractIDs(contracts []WriteBehaviorContract, includeFallback bool) map[string]struct{} {
+	ids := make(map[string]struct{}, len(contracts))
+	for _, c := range contracts {
+		if !c.Required || strings.TrimSpace(c.ID) == "" {
+			continue
+		}
+		if c.Polarity == WriteBehaviorPolarityObserved {
+			continue
+		}
+		if !includeFallback && strings.TrimSpace(c.Source) == "expected_outcome_fallback" {
+			continue
+		}
+		ids[c.ID] = struct{}{}
+	}
+	return ids
 }
 
 func WriteBehaviorContractIDs(contracts []WriteBehaviorContract) map[string]struct{} {

@@ -174,7 +174,7 @@ func WriteContextPackFromWriteAnalysisIR(ir *WriteAnalysisIR) WriteContextPack {
 			continue
 		}
 		priority := WriteContextP1
-		if contract.Required {
+		if contract.Required && contract.Polarity != WriteBehaviorPolarityObserved {
 			priority = WriteContextP0
 		}
 		item := writeContextItem("behavior_contract", priority, text, "write_analysis",
@@ -768,6 +768,9 @@ func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 	}
 	if c.Operator != "" {
 		parts = append(parts, "operator="+string(c.Operator))
+	}
+	if c.Polarity != "" {
+		parts = append(parts, "polarity="+string(c.Polarity))
 	}
 	if c.Subject != "" {
 		parts = append(parts, "subject="+c.Subject)

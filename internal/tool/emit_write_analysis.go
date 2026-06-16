@@ -205,6 +205,9 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 	}
 
 	expectedOutcomes := dedupAndTrim(p.ExpectedOutcomes)
+	if msg := validateWriteBehaviorContractEnums(p.BehaviorContracts); msg != "" {
+		return errResult(t.Name(), msg), nil
+	}
 	contracts := types.NormalizeWriteBehaviorContracts(p.BehaviorContracts, expectedOutcomes)
 	ir := &types.WriteAnalysisIR{
 		Request: types.WriteRequestModel{
@@ -264,6 +267,24 @@ func dedupAndTrim(in []string) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+func validateWriteBehaviorContractEnums(contracts []types.WriteBehaviorContract) string {
+	for i, c := range contracts {
+		kind := strings.ToLower(strings.TrimSpace(string(c.Kind)))
+		if kind != "" && !types.IsKnownWriteBehaviorContractKind(kind) {
+			return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].kind=%q is unsupported; use one of observable, exception, output_path, stdout, status_code, file_layout, command_result, invariant", i, c.Kind)
+		}
+		operator := strings.ToLower(strings.TrimSpace(string(c.Operator)))
+		if operator != "" && !types.IsKnownWriteBehaviorOperator(operator) {
+			return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].operator=%q is unsupported; use one of satisfies, equals, not_equals, contains, not_contains, exists, not_exists, raises, not_raises, returns", i, c.Operator)
+		}
+		polarity := strings.ToLower(strings.TrimSpace(string(c.Polarity)))
+		if polarity != "" && !types.IsKnownWriteBehaviorPolarity(polarity) {
+			return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].polarity=%q is unsupported; use expected, forbidden, or observed", i, c.Polarity)
+		}
+	}
+	return ""
 }
 
 func buildEmitWriteAnalysisSchema() map[string]any {
@@ -351,7 +372,12 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 						},
 						"operator": map[string]any{
 							"type": "string",
-							"enum": []string{"satisfies", "equals", "contains", "exists", "not_exists", "raises", "returns"},
+							"enum": []string{"satisfies", "equals", "not_equals", "contains", "not_contains", "exists", "not_exists", "raises", "not_raises", "returns"},
+						},
+						"polarity": map[string]any{
+							"type":        "string",
+							"enum":        []string{"expected", "forbidden", "observed"},
+							"description": "expected means the fixed code must satisfy this behavior; forbidden means the fixed code must avoid this behavior; observed means this is pre-fix evidence or a current failure, not a completion target. Do not mark observed facts as required.",
 						},
 						"expected": map[string]any{
 							"type":        "string",
@@ -368,7 +394,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 					},
 					"required": []string{"id", "kind", "expected"},
 				},
-				"description": "Optional typed observables the plan/probes should satisfy. Prefer these when the request names exception type, output path/layout, status code, command result, stdout text, or a concrete invariant. Do not infer from keywords; emit only facts grounded in the request or light repo inspection.",
+				"description": "Optional typed observables the plan/probes should satisfy or preserve. Prefer these when the request names exception type, output path/layout, status code, command result, stdout text, or a concrete invariant. Separate observed pre-fix failures from expected fixed behavior with polarity=observed vs polarity=expected/forbidden. For bugs that should stop raising, use operator=not_raises with polarity=expected; use operator=raises only when the fixed behavior is supposed to raise. Do not infer from keywords; emit only facts grounded in the request or light repo inspection.",
 			},
 			"phase_proposal": map[string]any{
 				"type": "object",

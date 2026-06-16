@@ -138,6 +138,9 @@ func renderWriteControllerTaskSection(ctx *types.AgentContext) string {
 		b.WriteString("- behavior_contracts:\n")
 		for _, c := range ir.Request.BehaviorContracts {
 			fmt.Fprintf(&b, "  - id=%s kind=%s operator=%s expected=%s", c.ID, c.Kind, c.Operator, c.Expected)
+			if c.Polarity != "" {
+				fmt.Fprintf(&b, " polarity=%s", c.Polarity)
+			}
 			if c.Subject != "" {
 				fmt.Fprintf(&b, " subject=%s", c.Subject)
 			}

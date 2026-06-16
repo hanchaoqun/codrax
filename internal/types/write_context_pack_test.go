@@ -25,6 +25,7 @@ func TestWriteContextPackFromWriteAnalysisIRPreservesP0Constraints(t *testing.T)
 			BehaviorContracts: []WriteBehaviorContract{{
 				ID:       "approval-gate",
 				Kind:     WriteBehaviorInvariant,
+				Polarity: WriteBehaviorPolarityExpected,
 				Operator: WriteBehaviorOpSatisfies,
 				Expected: "all writes pass apply-pre approval gate",
 				Required: true,
@@ -49,6 +50,45 @@ func TestWriteContextPackFromWriteAnalysisIRPreservesP0Constraints(t *testing.T)
 	}
 	if !writeContextViewContains(view, "behavior_contract", "id=approval-gate") {
 		t.Fatalf("behavior contract missing from view: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "behavior_contract", "polarity=expected") {
+		t.Fatalf("behavior contract polarity missing from view: %+v", view.Items)
+	}
+}
+
+func TestWriteContextPackFromWriteAnalysisIR_ObservedContractNotP0(t *testing.T) {
+	ir := &WriteAnalysisIR{
+		Request: WriteRequestModel{
+			Task: WriteTask{Summary: "fix observed crash"},
+			BehaviorContracts: []WriteBehaviorContract{{
+				ID:       "observed-crash",
+				Kind:     WriteBehaviorException,
+				Polarity: WriteBehaviorPolarityObserved,
+				Operator: WriteBehaviorOpRaises,
+				Subject:  "update_normal",
+				Expected: "ZeroDivisionError",
+				Required: true,
+				Source:   "write_analyzer",
+			}},
+		},
+	}
+	pack := WriteContextPackFromWriteAnalysisIR(ir)
+	view := pack.View(WriteConsumerPlanner, 10)
+	var found *WriteContextItem
+	for i := range view.Items {
+		if strings.Contains(view.Items[i].Text, "id=observed-crash") {
+			found = &view.Items[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("observed contract should remain visible in handoff: %+v", view.Items)
+	}
+	if found.Priority == WriteContextP0 {
+		t.Fatalf("observed pre-fix fact must not become a P0 completion target: %+v", *found)
+	}
+	if !strings.Contains(found.Text, "polarity=observed") {
+		t.Fatalf("observed polarity missing from handoff text: %+v", *found)
 	}
 }
 

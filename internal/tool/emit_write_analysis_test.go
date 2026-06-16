@@ -85,7 +85,7 @@ func TestEmitWriteAnalysis_PreservesExplicitBehaviorContracts(t *testing.T) {
 		"risk": {"affects_public_api": true, "changes_persistence": false, "changes_build_system": false, "overall": "medium"},
 		"expected_outcomes": ["dotted blueprint names are rejected"],
 		"behavior_contracts": [
-			{"id": "dotted-blueprint-name", "kind": "exception", "subject": "Blueprint(name)", "operator": "raises", "expected": "ValueError", "required": true}
+			{"id": "dotted-blueprint-name", "kind": "exception", "polarity": "expected", "subject": "Blueprint(name)", "operator": "raises", "expected": "ValueError", "required": true}
 		]
 	}`)
 	res, err := tool.Execute(bus, params)
@@ -101,11 +101,66 @@ func TestEmitWriteAnalysis_PreservesExplicitBehaviorContracts(t *testing.T) {
 	}
 	got := ir.Request.BehaviorContracts[0]
 	if got.ID != "dotted-blueprint-name" || got.Kind != types.WriteBehaviorException ||
+		got.Polarity != types.WriteBehaviorPolarityExpected ||
 		got.Operator != types.WriteBehaviorOpRaises || got.Expected != "ValueError" || !got.Required {
 		t.Fatalf("contract fields drifted: %+v", got)
 	}
 	if got.Source != "write_analyzer" {
 		t.Fatalf("explicit contract source drifted: %+v", got)
+	}
+}
+
+func TestEmitWriteAnalysis_PreservesNotRaisesContract(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "fix crash in colorbar update",
+		"task": {"kind": "bugfix", "scope": "micro", "summary": "stop colorbar update crash"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"},
+		"behavior_contracts": [
+			{"id": "no-zerodiv", "kind": "exception", "polarity": "expected", "subject": "cb.update_bruteforce(plot)", "operator": "not_raises", "expected": "ZeroDivisionError", "required": true},
+			{"id": "observed-zerodiv", "kind": "exception", "polarity": "observed", "subject": "cb.update_bruteforce(plot)", "operator": "raises", "expected": "ZeroDivisionError", "required": true}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected Success=true, got: %s", res.Summary)
+	}
+	contracts := bus.Mutable.WriteAnalysisIR().Request.BehaviorContracts
+	if len(contracts) != 2 {
+		t.Fatalf("contracts len = %d, want 2: %+v", len(contracts), contracts)
+	}
+	if contracts[0].Operator != types.WriteBehaviorOpNotRaises || contracts[0].Polarity != types.WriteBehaviorPolarityExpected || !contracts[0].Required {
+		t.Fatalf("not_raises target drifted: %+v", contracts[0])
+	}
+	if contracts[1].Polarity != types.WriteBehaviorPolarityObserved || contracts[1].Required {
+		t.Fatalf("observed failure should be preserved but not required: %+v", contracts[1])
+	}
+}
+
+func TestEmitWriteAnalysis_RejectsUnknownBehaviorOperator(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "fix crash",
+		"task": {"kind": "bugfix", "scope": "micro", "summary": "fix crash"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"},
+		"behavior_contracts": [
+			{"id": "bad-op", "kind": "exception", "operator": "does_not_raise", "expected": "ZeroDivisionError", "required": true}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected unknown operator rejection, got success: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "operator") || !strings.Contains(res.Summary, "not_raises") {
+		t.Fatalf("rejection should carry enum repair guidance, got: %s", res.Summary)
 	}
 }
 

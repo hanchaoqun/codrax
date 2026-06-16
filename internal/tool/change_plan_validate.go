@@ -1383,13 +1383,7 @@ func validateVerificationProbeContractRefs(ctx *types.BusContext, probes []types
 		return ""
 	}
 	ids := types.WriteBehaviorContractIDs(contracts)
-	explicitRequired := map[string]struct{}{}
-	for _, c := range contracts {
-		if !c.Required || strings.TrimSpace(c.ID) == "" || strings.TrimSpace(c.Source) == "expected_outcome_fallback" {
-			continue
-		}
-		explicitRequired[c.ID] = struct{}{}
-	}
+	explicitRequired := types.RequiredWriteBehaviorContractIDs(contracts, false)
 	coveredExplicitRequired := false
 	for i, probe := range probes {
 		for _, ref := range probe.ContractRefs {
