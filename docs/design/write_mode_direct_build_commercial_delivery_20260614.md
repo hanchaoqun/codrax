@@ -4492,3 +4492,12 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - Broad regression passed: `go test ./internal/tool`, `go test ./...`,
     `make test`, `make`, `git diff --check`, and
     `eval/swebench/smoke_local.sh`.
+  - Post-fix targeted SWE-bench Lite rerun passed the safety/export objective:
+    `sympy__sympy-12481` at
+    `eval/results/swebench/lite-smoke-20260616-sympy12481-post-truncation-gate`
+    exported a non-empty bounded source patch (`patch_bytes=794`),
+    `validate_predictions.py` accepted `empty_patch=0`, and the official
+    harness dry-run consumed the predictions JSONL. Local verification stayed
+    `unavailable/parser_error` because historical SymPy imports
+    `collections.Mapping` under Python 3.11, but the prior 78KB truncated
+    full-file rewrite did not recur.

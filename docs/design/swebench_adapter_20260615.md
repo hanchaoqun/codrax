@@ -1430,3 +1430,17 @@ records adapter results.
   truncation gate and scoped pytest selector rebase: `go test ./internal/tool`,
   `go test ./...`, `make test`, `make`, `git diff --check`, and
   `eval/swebench/smoke_local.sh`.
+- 2026-06-16: Post-fix targeted Lite rerun for `sympy__sympy-12481`
+  completed at
+  `eval/results/swebench/lite-smoke-20260616-sympy12481-post-truncation-gate`.
+  The run exported a non-empty bounded source patch (`patch_bytes=794`) instead
+  of the previous 78KB catastrophic full-file rewrite, `validate_predictions.py`
+  accepted the JSONL with `empty_patch=0`, and the official harness dry-run
+  consumed the generated prediction. The exported patch touched only
+  `sympy/combinatorics/permutations.py` and covered the issue's core behavior
+  by removing the special `ValueError` branch for repeated elements in cycle
+  notation. Local verify remained `unavailable/parser_error` because the
+  historical SymPy checkout imports `collections.Mapping`, which fails under
+  the local Python 3.11 runtime. This confirms the new plan-validation guard
+  preserves prediction/harness export while preventing the destructive
+  truncated large-file artifact.
