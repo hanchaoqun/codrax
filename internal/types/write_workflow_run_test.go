@@ -23,15 +23,16 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 			ApprovalRef:    " approval-ref ",
 			ContextPackIDs: []string{" pack-1 ", "pack-1"},
 			Attempts: []WriteWorkflowAttempt{{
-				ID:          " attempt-1 ",
-				Kind:        " plan ",
-				Status:      " complete ",
-				ReasonCode:  " ok ",
-				PlanID:      " plan-1 ",
-				ReportID:    " plan-1.report.json ",
-				ArtifactRef: " refs/codrax/applied/plan-1 ",
-				SurfaceRef:  " plan-1.attempt-1.surface.json ",
-				StartedAt:   time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC),
+				ID:                " attempt-1 ",
+				Kind:              " plan ",
+				Status:            " complete ",
+				ReasonCode:        " ok ",
+				FailureReasonCode: " subreason ",
+				PlanID:            " plan-1 ",
+				ReportID:          " plan-1.report.json ",
+				ArtifactRef:       " refs/codrax/applied/plan-1 ",
+				SurfaceRef:        " plan-1.attempt-1.surface.json ",
+				StartedAt:         time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC),
 			}},
 		}},
 		Edges: []WriteWorkflowEdge{{
@@ -84,6 +85,7 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 	}
 	if len(got.Batches[0].Attempts) != 1 || got.Batches[0].Attempts[0].ID != "attempt-1" ||
 		got.Batches[0].Attempts[0].PlanID != "plan-1" ||
+		got.Batches[0].Attempts[0].FailureReasonCode != "subreason" ||
 		got.Batches[0].Attempts[0].ReportID != "plan-1.report.json" ||
 		got.Batches[0].Attempts[0].ArtifactRef != "refs/codrax/applied/plan-1" ||
 		got.Batches[0].Attempts[0].SurfaceRef != "plan-1.attempt-1.surface.json" ||

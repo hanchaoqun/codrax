@@ -2106,7 +2106,8 @@ func updateWorkflowRunBatchVerify(run *types.WriteWorkflowRun, batchID string, r
 		if run.Batches[i].ID == batchID {
 			run.Batches[i].VerifyRef = reportID
 			run.Batches[i].UpdatedAt = time.Now()
-			appendWorkflowBatchAttempt(&run.Batches[i], "verify", status, reasonCode, planID, reportID, reportID)
+			appendWorkflowBatchAttemptWithFailureReason(&run.Batches[i], "verify", status, reasonCode,
+				writeWorkflowVerifyAttemptFailureReason(report), planID, reportID, reportID)
 			return
 		}
 	}
@@ -2116,14 +2117,15 @@ func updateWorkflowRunBatchVerify(run *types.WriteWorkflowRun, batchID string, r
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Attempts: []types.WriteWorkflowAttempt{{
-			ID:          fmt.Sprintf("attempt-%d", 1),
-			Kind:        "verify",
-			Status:      strings.TrimSpace(status),
-			ReasonCode:  strings.TrimSpace(reasonCode),
-			PlanID:      planID,
-			ReportID:    reportID,
-			ArtifactRef: reportID,
-			FinishedAt:  time.Now(),
+			ID:                fmt.Sprintf("attempt-%d", 1),
+			Kind:              "verify",
+			Status:            strings.TrimSpace(status),
+			ReasonCode:        strings.TrimSpace(reasonCode),
+			FailureReasonCode: strings.TrimSpace(writeWorkflowVerifyAttemptFailureReason(report)),
+			PlanID:            planID,
+			ReportID:          reportID,
+			ArtifactRef:       reportID,
+			FinishedAt:        time.Now(),
 		}},
 	})
 }
@@ -2184,7 +2186,8 @@ func updateWorkflowRunActiveSliceObserve(run *types.WriteWorkflowRun, batchID st
 	} else {
 		slice.Completion = nil
 	}
-	appendWorkflowSliceAttempt(slice, "observe", strings.TrimSpace(status), strings.TrimSpace(reasonCode), planID, reportID, reportID)
+	appendWorkflowSliceAttemptWithFailureReason(slice, "observe", strings.TrimSpace(status), strings.TrimSpace(reasonCode),
+		writeWorkflowVerifyAttemptFailureReason(report), planID, reportID, reportID)
 	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
 		SliceID:     slice.ID,
 		Event:       types.WriteWorkflowSliceEventObserveCompleted,
@@ -2455,19 +2458,24 @@ func observeSliceStatusFromVerifyAttempt(status string, report *types.ChangeRepo
 }
 
 func appendWorkflowSliceAttempt(slice *types.WriteWorkflowSlice, kind, status, reasonCode, planID, reportID, artifactRef string) {
+	appendWorkflowSliceAttemptWithFailureReason(slice, kind, status, reasonCode, "", planID, reportID, artifactRef)
+}
+
+func appendWorkflowSliceAttemptWithFailureReason(slice *types.WriteWorkflowSlice, kind, status, reasonCode, failureReasonCode, planID, reportID, artifactRef string) {
 	if slice == nil {
 		return
 	}
 	slice.Attempts = append(slice.Attempts, types.WriteWorkflowAttempt{
-		ID:          fmt.Sprintf("attempt-%d", len(slice.Attempts)+1),
-		Kind:        strings.TrimSpace(kind),
-		Status:      strings.TrimSpace(status),
-		ReasonCode:  strings.TrimSpace(reasonCode),
-		PlanID:      strings.TrimSpace(planID),
-		ReportID:    strings.TrimSpace(reportID),
-		ArtifactRef: strings.TrimSpace(artifactRef),
-		StartedAt:   time.Now(),
-		FinishedAt:  time.Now(),
+		ID:                fmt.Sprintf("attempt-%d", len(slice.Attempts)+1),
+		Kind:              strings.TrimSpace(kind),
+		Status:            strings.TrimSpace(status),
+		ReasonCode:        strings.TrimSpace(reasonCode),
+		FailureReasonCode: strings.TrimSpace(failureReasonCode),
+		PlanID:            strings.TrimSpace(planID),
+		ReportID:          strings.TrimSpace(reportID),
+		ArtifactRef:       strings.TrimSpace(artifactRef),
+		StartedAt:         time.Now(),
+		FinishedAt:        time.Now(),
 	})
 }
 
@@ -2487,7 +2495,7 @@ func updateWorkflowRunBatchVerifyInfra(run *types.WriteWorkflowRun, batchID, pla
 	for i := range run.Batches {
 		if run.Batches[i].ID == batchID {
 			run.Batches[i].UpdatedAt = time.Now()
-			appendWorkflowBatchAttempt(&run.Batches[i], "verify", status, reasonCode, strings.TrimSpace(planID), "", "")
+			appendWorkflowBatchAttemptWithFailureReason(&run.Batches[i], "verify", status, reasonCode, reasonCode, strings.TrimSpace(planID), "", "")
 			return
 		}
 	}
@@ -2496,12 +2504,13 @@ func updateWorkflowRunBatchVerifyInfra(run *types.WriteWorkflowRun, batchID, pla
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Attempts: []types.WriteWorkflowAttempt{{
-			ID:         fmt.Sprintf("attempt-%d", 1),
-			Kind:       "verify",
-			Status:     strings.TrimSpace(status),
-			ReasonCode: strings.TrimSpace(reasonCode),
-			PlanID:     strings.TrimSpace(planID),
-			FinishedAt: time.Now(),
+			ID:                fmt.Sprintf("attempt-%d", 1),
+			Kind:              "verify",
+			Status:            strings.TrimSpace(status),
+			ReasonCode:        strings.TrimSpace(reasonCode),
+			FailureReasonCode: strings.TrimSpace(reasonCode),
+			PlanID:            strings.TrimSpace(planID),
+			FinishedAt:        time.Now(),
 		}},
 	})
 }
@@ -3316,6 +3325,25 @@ func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) str
 	return "tests_passed"
 }
 
+func writeWorkflowVerifyAttemptFailureReason(report *types.ChangeReport) string {
+	if report == nil {
+		return ""
+	}
+	if reason := strings.TrimSpace(report.FailureReasonCode); reason != "" {
+		return reason
+	}
+	if report.FailureKind != "" {
+		return string(report.FailureKind)
+	}
+	if report.BuildFailed {
+		return "build_failed"
+	}
+	if !report.Passed {
+		return "tests_failed"
+	}
+	return ""
+}
+
 func writeWorkflowReportID(report *types.ChangeReport) string {
 	if report == nil {
 		return ""
@@ -3328,19 +3356,24 @@ func writeWorkflowReportID(report *types.ChangeReport) string {
 }
 
 func appendWorkflowBatchAttempt(batch *types.WriteWorkflowBatch, kind, status, reasonCode, planID, reportID, artifactRef string) {
+	appendWorkflowBatchAttemptWithFailureReason(batch, kind, status, reasonCode, "", planID, reportID, artifactRef)
+}
+
+func appendWorkflowBatchAttemptWithFailureReason(batch *types.WriteWorkflowBatch, kind, status, reasonCode, failureReasonCode, planID, reportID, artifactRef string) {
 	if batch == nil {
 		return
 	}
 	batch.Attempts = append(batch.Attempts, types.WriteWorkflowAttempt{
-		ID:          fmt.Sprintf("attempt-%d", len(batch.Attempts)+1),
-		Kind:        strings.TrimSpace(kind),
-		Status:      strings.TrimSpace(status),
-		ReasonCode:  strings.TrimSpace(reasonCode),
-		PlanID:      strings.TrimSpace(planID),
-		ReportID:    strings.TrimSpace(reportID),
-		ArtifactRef: strings.TrimSpace(artifactRef),
-		StartedAt:   time.Now(),
-		FinishedAt:  time.Now(),
+		ID:                fmt.Sprintf("attempt-%d", len(batch.Attempts)+1),
+		Kind:              strings.TrimSpace(kind),
+		Status:            strings.TrimSpace(status),
+		ReasonCode:        strings.TrimSpace(reasonCode),
+		FailureReasonCode: strings.TrimSpace(failureReasonCode),
+		PlanID:            strings.TrimSpace(planID),
+		ReportID:          strings.TrimSpace(reportID),
+		ArtifactRef:       strings.TrimSpace(artifactRef),
+		StartedAt:         time.Now(),
+		FinishedAt:        time.Now(),
 	})
 }
 

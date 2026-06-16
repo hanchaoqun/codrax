@@ -145,16 +145,17 @@ type WriteWorkflowBatch struct {
 }
 
 type WriteWorkflowAttempt struct {
-	ID          string    `json:"id,omitempty"`
-	Kind        string    `json:"kind,omitempty"`
-	Status      string    `json:"status,omitempty"`
-	ReasonCode  string    `json:"reason_code,omitempty"`
-	PlanID      string    `json:"plan_id,omitempty"`
-	ReportID    string    `json:"report_id,omitempty"`
-	ArtifactRef string    `json:"artifact_ref,omitempty"`
-	SurfaceRef  string    `json:"surface_ref,omitempty"`
-	StartedAt   time.Time `json:"started_at,omitempty"`
-	FinishedAt  time.Time `json:"finished_at,omitempty"`
+	ID                string    `json:"id,omitempty"`
+	Kind              string    `json:"kind,omitempty"`
+	Status            string    `json:"status,omitempty"`
+	ReasonCode        string    `json:"reason_code,omitempty"`
+	FailureReasonCode string    `json:"failure_reason_code,omitempty"`
+	PlanID            string    `json:"plan_id,omitempty"`
+	ReportID          string    `json:"report_id,omitempty"`
+	ArtifactRef       string    `json:"artifact_ref,omitempty"`
+	SurfaceRef        string    `json:"surface_ref,omitempty"`
+	StartedAt         time.Time `json:"started_at,omitempty"`
+	FinishedAt        time.Time `json:"finished_at,omitempty"`
 }
 
 type WriteWorkflowEdge struct {
@@ -391,12 +392,13 @@ func normalizeWriteWorkflowAttempts(in []WriteWorkflowAttempt) []WriteWorkflowAt
 		attempt.Kind = trimWriteWorkflowRunText(attempt.Kind)
 		attempt.Status = trimWriteWorkflowRunText(attempt.Status)
 		attempt.ReasonCode = trimWriteWorkflowRunText(attempt.ReasonCode)
+		attempt.FailureReasonCode = trimWriteWorkflowRunText(attempt.FailureReasonCode)
 		attempt.PlanID = trimWriteWorkflowRunText(attempt.PlanID)
 		attempt.ReportID = trimWriteWorkflowRunText(attempt.ReportID)
 		attempt.ArtifactRef = trimWriteWorkflowRunText(attempt.ArtifactRef)
 		attempt.SurfaceRef = trimWriteWorkflowRunText(attempt.SurfaceRef)
 		if attempt.ID == "" && attempt.Kind == "" && attempt.Status == "" && attempt.ReasonCode == "" &&
-			attempt.PlanID == "" && attempt.ReportID == "" && attempt.ArtifactRef == "" && attempt.SurfaceRef == "" &&
+			attempt.FailureReasonCode == "" && attempt.PlanID == "" && attempt.ReportID == "" && attempt.ArtifactRef == "" && attempt.SurfaceRef == "" &&
 			attempt.StartedAt.IsZero() && attempt.FinishedAt.IsZero() {
 			continue
 		}

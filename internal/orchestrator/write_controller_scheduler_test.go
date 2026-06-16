@@ -1353,11 +1353,12 @@ func TestRunWriteControllerWorkflow_ParserErrorCompletesUnverifiedWithoutReplan(
 			mu.SetChangePlan(&types.ChangePlan{ID: "plan-parser-error", Status: types.PlanStatusPending, Summary: "attempt", TargetPaths: []string{"fix.go"}})
 		case types.StageVerify:
 			mu.SetChangeReport(&types.ChangeReport{
-				PlanID:         "plan-parser-error",
-				Channel:        types.ChangeReportChannelPostApplyVerify,
-				Passed:         false,
-				FailureKind:    types.FailureKindParserError,
-				FailureSummary: "pytest report missing after collection import error",
+				PlanID:            "plan-parser-error",
+				Channel:           types.ChangeReportChannelPostApplyVerify,
+				Passed:            false,
+				FailureKind:       types.FailureKindParserError,
+				FailureReasonCode: "pytest_import_startup_error",
+				FailureSummary:    "pytest report missing after collection import error",
 			})
 		}
 		*stepsUsed++
@@ -1388,6 +1389,10 @@ func TestRunWriteControllerWorkflow_ParserErrorCompletesUnverifiedWithoutReplan(
 	}
 	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "unverified", "parser_error", "plan-parser-error.report.json") {
 		t.Fatalf("parser_error verify attempt missing: %+v", store.last.Batches[0].Attempts)
+	}
+	verifyAttempt := latestWorkflowBatchAttempt(store.last.Batches[0], "verify")
+	if verifyAttempt == nil || verifyAttempt.FailureReasonCode != "pytest_import_startup_error" {
+		t.Fatalf("parser_error verify attempt should retain failure subreason: %+v", verifyAttempt)
 	}
 	if plan := mu.ChangePlan(); plan == nil || plan.Status != types.PlanStatusUnverified {
 		t.Fatalf("parser_error should leave plan unverified, got %+v", plan)
@@ -2235,6 +2240,15 @@ func workflowBatchHasAttempt(batch types.WriteWorkflowBatch, kind, status, reaso
 		}
 	}
 	return false
+}
+
+func latestWorkflowBatchAttempt(batch types.WriteWorkflowBatch, kind string) *types.WriteWorkflowAttempt {
+	for i := len(batch.Attempts) - 1; i >= 0; i-- {
+		if batch.Attempts[i].Kind == kind {
+			return &batch.Attempts[i]
+		}
+	}
+	return nil
 }
 
 func workflowBatchHasAttemptArtifact(batch types.WriteWorkflowBatch, kind, status, reasonCode, artifactRef string) bool {
