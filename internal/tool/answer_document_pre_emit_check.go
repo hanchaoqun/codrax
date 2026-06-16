@@ -987,10 +987,14 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 		}
 		for _, item := range b.Items {
 			label := strings.TrimSpace(item.Label)
-			if label == "" || !preEmitLabelNeedsCitationAlignment(label) {
+			if label == "" {
 				continue
 			}
 			text := preEmitItemNonLabelSurface(item)
+			if !preEmitLabelNeedsCitationAlignment(label) &&
+				!preEmitItemMatchesPrincipalAggregateMemberWithContext(pctx, label, text) {
+				continue
+			}
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}
@@ -1195,10 +1199,14 @@ func detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc *types.Ans
 				continue
 			}
 			label := strings.TrimSpace(item.Label)
-			if label == "" || !preEmitLabelNeedsCitationAlignment(label) {
+			if label == "" {
 				continue
 			}
 			text := preEmitItemNonLabelSurface(*item)
+			if !preEmitLabelNeedsCitationAlignment(label) &&
+				!preEmitItemMatchesPrincipalAggregateMemberWithContext(pctx, label, text) {
+				continue
+			}
 			cit := pctx.canonicalCitation(doc.Citations[item.CitationRef])
 			if types.AnswerLocationLabelMatchesCitation(label, cit) ||
 				preEmitEnumerationDirectoryLabelCitationScoped(*block, label, cit) ||
@@ -5304,7 +5312,12 @@ func preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx *preEmitC
 			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
 				continue
 			}
-			if source, line, ok := preEmitAggregateMemberSupportLocation(fact, idx, member); ok {
+			if source, line, kind, ok := preEmitAggregateMemberSupportLocationClassified(fact, idx, member); ok {
+				if kind != preEmitAggregateSupportExplicit &&
+					!preEmitAggregateMemberCanUseInferredSupportRef(member) &&
+					!preEmitCitationLocationHasAggregateMemberEvidenceSupport(pctx, member, source, line) {
+					continue
+				}
 				add(source, line)
 			}
 			for _, ev := range pctx.evidenceItems() {
@@ -5341,11 +5354,22 @@ func preEmitCitationSupportsAggregateItemWithContext(pctx *preEmitCheckContext, 
 			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
 				continue
 			}
-			if preEmitAggregateMemberCitationMatches(fact, idx, member, cit) {
+			if preEmitAggregateMemberCitationMatchesExplicit(fact, idx, member, cit) {
 				return true
 			}
 			evidence, found := pctx.citedEvidenceItems(cit)
 			if !found {
+				continue
+			}
+			if preEmitAggregateMemberCitationMatches(fact, idx, member, cit) {
+				if preEmitAggregateMemberCanUseInferredSupportRef(member) {
+					return true
+				}
+				for _, ev := range evidence {
+					if preEmitEvidenceSupportsAggregateMemberCitation(ev, member) {
+						return true
+					}
+				}
 				continue
 			}
 			for _, ev := range evidence {
@@ -6187,6 +6211,20 @@ func preEmitAggregateMemberLabelTextMatches(label, text, member string) bool {
 	return false
 }
 
+func preEmitItemMatchesPrincipalAggregateMemberWithContext(pctx *preEmitCheckContext, label, text string) bool {
+	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
+		return false
+	}
+	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(pctx.ctx, pctx.ctx.Mutable.StableInvestigationAggregateFacts()) {
+		for _, member := range ref.Fact.Members {
+			if preEmitAggregateMemberLabelTextMatches(label, text, member) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func preEmitDecoratedAggregateMemberAppearsInText(member, surface string) bool {
 	base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(member)
 	if !ok {
@@ -6324,12 +6362,53 @@ func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, membe
 	return false
 }
 
+func preEmitAggregateMemberCitationMatchesExplicit(fact types.AnswerAggregateFact, memberIdx int, member string, cit types.Citation) bool {
+	source, line, kind, ok := preEmitAggregateMemberSupportLocationClassified(fact, memberIdx, member)
+	if !ok || kind != preEmitAggregateSupportExplicit {
+		return false
+	}
+	return preEmitCitationMatchesSourceLocation(cit, types.AnswerSourceLocationSurface{
+		File:      source,
+		LineStart: line,
+	})
+}
+
+func preEmitAggregateMemberCanUseInferredSupportRef(member string) bool {
+	member = strings.TrimSpace(strings.Trim(member, "`\"' "))
+	if member == "" {
+		return false
+	}
+	if types.IsCodeIdentitySurface(member) {
+		return true
+	}
+	if left, right, ok := preEmitAggregateMemberLabelRelationParts(member); ok {
+		return types.IsCodeIdentitySurface(left) && types.IsCodeIdentitySurface(right)
+	}
+	if base, _, ok := types.AnswerAggregateDecoratedLabelParts(member); ok {
+		return types.IsCodeIdentitySurface(base)
+	}
+	return false
+}
+
+type preEmitAggregateSupportKind int
+
+const (
+	preEmitAggregateSupportUnknown preEmitAggregateSupportKind = iota
+	preEmitAggregateSupportExplicit
+	preEmitAggregateSupportInferredPosition
+)
+
 func preEmitAggregateMemberSupportLocation(fact types.AnswerAggregateFact, memberIdx int, member string) (source string, line int, ok bool) {
+	source, line, _, ok = preEmitAggregateMemberSupportLocationClassified(fact, memberIdx, member)
+	return source, line, ok
+}
+
+func preEmitAggregateMemberSupportLocationClassified(fact types.AnswerAggregateFact, memberIdx int, member string) (source string, line int, kind preEmitAggregateSupportKind, ok bool) {
 	if surface, parsed := types.ParseAnswerSourceLocationSurface(member); parsed {
-		return surface.File, surface.LineStart, true
+		return surface.File, surface.LineStart, preEmitAggregateSupportExplicit, true
 	}
 	if label, loc, parsed := preEmitAggregateSupportRefMemberLocation(member); parsed && strings.TrimSpace(label) != "" {
-		return loc.File, loc.LineStart, true
+		return loc.File, loc.LineStart, preEmitAggregateSupportExplicit, true
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
 	var bareRefs []types.AnswerSourceLocationSurface
@@ -6348,26 +6427,26 @@ func preEmitAggregateMemberSupportLocation(fact types.AnswerAggregateFact, membe
 			continue
 		}
 		if strings.ToLower(strings.TrimSpace(refMember)) == memberKey {
-			return loc.File, loc.LineStart, true
+			return loc.File, loc.LineStart, preEmitAggregateSupportExplicit, true
 		}
 	}
 	if len(genericRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(genericRefs) {
 		loc := genericRefs[memberIdx]
-		return loc.File, loc.LineStart, true
+		return loc.File, loc.LineStart, preEmitAggregateSupportInferredPosition, true
 	}
 	if len(genericRefs) == 1 && len(fact.Members) == 1 {
 		loc := genericRefs[0]
-		return loc.File, loc.LineStart, true
+		return loc.File, loc.LineStart, preEmitAggregateSupportInferredPosition, true
 	}
 	if len(bareRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(bareRefs) {
 		loc := bareRefs[memberIdx]
-		return loc.File, loc.LineStart, true
+		return loc.File, loc.LineStart, preEmitAggregateSupportInferredPosition, true
 	}
 	if len(bareRefs) == 1 {
 		loc := bareRefs[0]
-		return loc.File, loc.LineStart, true
+		return loc.File, loc.LineStart, preEmitAggregateSupportInferredPosition, true
 	}
-	return "", 0, false
+	return "", 0, preEmitAggregateSupportUnknown, false
 }
 
 func preEmitCitationMatchesAggregateEvidence(ctx *types.BusContext, member string, cit types.Citation) bool {
@@ -6376,6 +6455,22 @@ func preEmitCitationMatchesAggregateEvidence(ctx *types.BusContext, member strin
 
 func preEmitCitationMatchesAggregateEvidenceWithContext(pctx *preEmitCheckContext, member string, cit types.Citation) bool {
 	evidence, found := pctx.citedEvidenceItems(cit)
+	if !found {
+		return false
+	}
+	for _, ev := range evidence {
+		if preEmitEvidenceSupportsAggregateMemberCitation(ev, member) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitCitationLocationHasAggregateMemberEvidenceSupport(pctx *preEmitCheckContext, member, source string, line int) bool {
+	if pctx == nil || strings.TrimSpace(source) == "" || line <= 0 {
+		return false
+	}
+	evidence, found := pctx.citedEvidenceItems(types.Citation{File: source, Line: line})
 	if !found {
 		return false
 	}

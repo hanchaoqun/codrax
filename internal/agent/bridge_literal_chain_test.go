@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -555,6 +556,93 @@ func (s *SubExplorer) Name() string {
 	}
 	if !foundConsumerGate {
 		t.Fatalf("Pass D consumer_gate chain missing; got: %+v", got)
+	}
+}
+
+func TestRelationConsumerGateValues_ScansSameDirectoryGateForRegistration(t *testing.T) {
+	subagent := `package agent
+
+func RegisterDefaultSubAgents(r *SubAgentRegistry, deps *Dependencies) {
+	r.Register(NewSubExplorer(deps))
+}
+`
+	subExplorer := `package agent
+
+type SubExplorer struct{ base *BaseAgent }
+
+func NewSubExplorer(deps *Dependencies) *SubExplorer {
+	return &SubExplorer{base: nil}
+}
+
+func (s *SubExplorer) Name() string {
+	return "explorer"
+}
+`
+	agentFile := `package agent
+
+type BaseAgent struct{ deps *Dependencies; name string }
+type Dependencies struct{ SubAgents *SubAgentRegistry }
+
+func (b *BaseAgent) buildToolSchemas() {
+	if _, err := b.deps.SubAgents.Get(string(b.name)); err == nil {
+		_ = err
+	}
+}
+`
+	files := map[string][]repomap.Symbol{
+		"subagent.go": {
+			{Name: "RegisterDefaultSubAgents", Kind: "function", File: "subagent.go", Line: 3, EndLine: 5},
+		},
+		"sub_explorer.go": {
+			{Name: "SubExplorer", Kind: "type", File: "sub_explorer.go", Line: 3, EndLine: 3},
+			{Name: "NewSubExplorer", Kind: "function", File: "sub_explorer.go", Line: 5, EndLine: 7},
+			{Name: "Name", Kind: "method", File: "sub_explorer.go", Line: 9, EndLine: 11, Receiver: "SubExplorer"},
+		},
+		"agent.go": {
+			{Name: "BaseAgent", Kind: "type", File: "agent.go", Line: 3, EndLine: 3},
+			{Name: "buildToolSchemas", Kind: "method", File: "agent.go", Line: 6, EndLine: 10, Receiver: "BaseAgent"},
+		},
+	}
+	contents := map[string]string{
+		"subagent.go":     subagent,
+		"sub_explorer.go": subExplorer,
+		"agent.go":        agentFile,
+	}
+	graph, root := buildFakeGraph(t, files, contents)
+	e := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisRegister,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqRegistration)},
+		}},
+		requiredFiles: []string{"subagent.go"},
+	}
+
+	values := e.relationConsumerGateValues(context.Background(), graph, root, map[string]bool{"subagent.go": true})
+	foundGate := false
+	for _, v := range values {
+		if v.file == "agent.go" &&
+			v.method == "BaseAgent.buildToolSchemas" &&
+			strings.Contains(v.value, "SubAgents.Get") {
+			foundGate = true
+		}
+	}
+	if !foundGate {
+		t.Fatalf("expected relation consumer gate from agent.go, got %+v", values)
+	}
+
+	joined := extractBridgeLiteralEvidence(graph, root, values)
+	foundConsumerGate := false
+	for _, it := range joined.chains {
+		if it.Producer == "consumer_gate" &&
+			it.Source == "agent.go" &&
+			strings.Contains(it.Summary, "BaseAgent.buildToolSchemas") &&
+			strings.Contains(it.Summary, `"explorer"`) {
+			foundConsumerGate = true
+		}
+	}
+	if !foundConsumerGate {
+		t.Fatalf("expected joined consumer_gate evidence, got %+v", joined.chains)
 	}
 }
 

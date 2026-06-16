@@ -569,6 +569,9 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	if len(aggregateFacts) == 0 && ctx != nil && ctx.Mutable != nil {
 		aggregateFacts = ctx.Mutable.StableInvestigationAggregateFacts()
 	}
+	if len(aggregateFacts) > 0 && ctx != nil && ctx.AnalysisIR != nil {
+		aggregateFacts = types.NormalizeAggregateFactRolesForRequest(aggregateFacts, &ctx.AnalysisIR.RequestModel)
+	}
 	if reason == "" && resultKind == "" && len(aggregateFacts) == 0 {
 		return ""
 	}

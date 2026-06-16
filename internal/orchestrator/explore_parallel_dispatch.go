@@ -522,6 +522,9 @@ func parallelExploreMustWaitForSiblingHandoffs(rm types.RequestModel, contract *
 		rm.Intent == types.IntentEnumerate {
 		return true
 	}
+	if parallelExploreMechanismNeedsSiblingHandoffs(rm) {
+		return true
+	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
 		return true
 	}
@@ -537,6 +540,30 @@ func parallelExploreMustWaitForSiblingHandoffs(rm types.RequestModel, contract *
 	// into adjacent details. Explicit buckets, exhaustive sets, relation sets,
 	// field/value, and change-impact contracts above remain the typed blockers.
 	return false
+}
+
+func parallelExploreMechanismNeedsSiblingHandoffs(rm types.RequestModel) bool {
+	if len(rm.SubTopics) < 2 {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.Predicates.IsCrossComponent {
+		return false
+	}
+	kind := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+	switch {
+	case rm.Intent == types.IntentTrace:
+		return true
+	case kind == types.ReqCallChain || kind == types.ReqMechanism || kind == types.ReqRegistration:
+		return true
+	case types.IsArchitectureNarrativeExplanation(rm):
+		return true
+	default:
+		return false
+	}
 }
 
 func parallelExploreMixedOriginNeedsSiblingHandoffs(rm types.RequestModel, contract *types.AnswerContract) bool {

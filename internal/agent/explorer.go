@@ -4148,6 +4148,207 @@ func coverageSnapshot(scope []string, readSet map[string]bool) (readCount int, c
 	return readCount, coverage, unread
 }
 
+const (
+	relationConsumerGateMaxFiles  = 80
+	relationConsumerGateMaxValues = 80
+)
+
+func (e *explorerEvaluator) shouldScanRelationConsumerGates() bool {
+	if e == nil || e.analysisIR == nil {
+		return false
+	}
+	rm := e.analysisIR.RequestModel
+	if rm.Predicates.IsHistoryLookup || rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	kind := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+	switch {
+	case rm.Intent == types.IntentTrace:
+		return true
+	case rm.PredicateAxis == types.AxisCall || rm.PredicateAxis == types.AxisRegister:
+		return true
+	case kind == types.ReqCallChain || kind == types.ReqRegistration:
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *explorerEvaluator) relationConsumerGateValues(ctx context.Context, graph *repomap.Graph, repoRoot string, frontier map[string]bool) []concreteValue {
+	if ctx == nil {
+		ctx = context.TODO()
+	}
+	if e == nil || graph == nil || repoRoot == "" || !e.shouldScanRelationConsumerGates() {
+		return nil
+	}
+	seedDirs := e.relationConsumerGateSeedDirs(frontier)
+	if len(seedDirs) == 0 {
+		return nil
+	}
+	candidates := make([]string, 0, len(graph.Files))
+	seenCandidate := make(map[string]bool, len(graph.Files))
+	for _, fi := range graph.Files {
+		if fi == nil {
+			continue
+		}
+		file := canonicalExplorerPath(fi.RelPath)
+		if file == "" || isNoisePath(file) || seenCandidate[file] {
+			continue
+		}
+		if !seedDirs[filepath.Dir(file)] {
+			continue
+		}
+		seenCandidate[file] = true
+		candidates = append(candidates, file)
+	}
+	sort.Strings(candidates)
+	if len(candidates) > relationConsumerGateMaxFiles {
+		candidates = candidates[:relationConsumerGateMaxFiles]
+	}
+
+	fileCache := make(map[string][]string)
+	loadLines := func(rel string) []string {
+		rel = canonicalExplorerPath(rel)
+		if rel == "" {
+			return nil
+		}
+		if lines, ok := fileCache[rel]; ok {
+			return lines
+		}
+		f, err := os.Open(filepath.Join(repoRoot, rel))
+		if err != nil {
+			fileCache[rel] = nil
+			return nil
+		}
+		defer f.Close()
+		var lines []string
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for sc.Scan() {
+			lines = append(lines, sc.Text())
+		}
+		fileCache[rel] = lines
+		return lines
+	}
+	bodyForSymbol := func(rel string, start, end int) string {
+		lines := loadLines(rel)
+		if lines == nil || start < 1 || end > len(lines) || start > end {
+			return ""
+		}
+		return strings.Join(lines[start-1:end], "\n")
+	}
+
+	candidateSet := make(map[string]bool, len(candidates))
+	for _, file := range candidates {
+		candidateSet[file] = true
+	}
+	var out []concreteValue
+	seenValue := make(map[string]bool)
+	for _, file := range candidates {
+		if ctx.Err() != nil {
+			return out
+		}
+		fi := graph.FileIndex[file]
+		if fi == nil {
+			continue
+		}
+		for i := range fi.Symbols {
+			if len(out) >= relationConsumerGateMaxValues {
+				break
+			}
+			sym := &fi.Symbols[i]
+			if sym.Kind != "function" && sym.Kind != "method" {
+				continue
+			}
+			if sym.EndLine == 0 || sym.Line <= 0 || sym.EndLine < sym.Line {
+				continue
+			}
+			if sym.EndLine-sym.Line > 160 {
+				continue
+			}
+			body := bodyForSymbol(file, sym.Line, sym.EndLine)
+			if body == "" || !strings.Contains(body, ".Get(") {
+				continue
+			}
+			owner := sym.Receiver
+			if owner == "" {
+				owner = sym.Parent
+			}
+			qual := sym.Name
+			if owner != "" {
+				qual = owner + "." + sym.Name
+			}
+			for _, cv := range extractConcreteValues(body, fi.Language) {
+				if cv.kind != "assigns" || parseConsumerGateField(cv.value) == "" {
+					continue
+				}
+				line := concreteValueAbsoluteLine(sym.Line, cv.lineOffset)
+				key := file + "\x00" + strconv.Itoa(line) + "\x00" + qual + "\x00" + cv.value
+				if seenValue[key] {
+					continue
+				}
+				seenValue[key] = true
+				out = append(out, concreteValue{
+					file:     file,
+					receiver: owner,
+					method:   qual,
+					kind:     cv.kind,
+					value:    cv.value,
+					line:     line,
+				})
+				if len(out) >= relationConsumerGateMaxValues {
+					break
+				}
+			}
+		}
+	}
+	if len(out) > 0 {
+		logging.Debug("[explorer] relation consumer gates: %d values from %d structural candidate files", len(out), len(candidateSet))
+	}
+	return out
+}
+
+func (e *explorerEvaluator) relationConsumerGateSeedDirs(frontier map[string]bool) map[string]bool {
+	seedDirs := make(map[string]bool)
+	add := func(file string) {
+		file = canonicalExplorerPath(file)
+		if file == "" || isNoisePath(file) {
+			return
+		}
+		dir := filepath.Dir(file)
+		if dir == "" {
+			dir = "."
+		}
+		seedDirs[dir] = true
+	}
+	for file := range frontier {
+		add(file)
+	}
+	for _, file := range e.requiredFiles {
+		add(file)
+	}
+	for _, file := range e.preScannedFiles {
+		add(file)
+	}
+	for _, file := range e.primaryEntityFiles() {
+		add(file)
+	}
+	for i, file := range e.allScoredFiles {
+		if i >= 16 {
+			break
+		}
+		add(file)
+	}
+	return seedDirs
+}
+
+func bridgeLiteralChainOrigin(item types.EvidenceItem) string {
+	if item.Producer == "consumer_gate" {
+		return "consumer_gate"
+	}
+	return "bridge_literal"
+}
+
 func filterEvidenceItemsByFileSet(items []types.EvidenceItem, allowed map[string]bool) []types.EvidenceItem {
 	if len(items) == 0 || len(allowed) == 0 {
 		return items
@@ -12484,7 +12685,7 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 				break
 			}
 		}
-		if !anyAnchorFileInReadSet {
+		if !anyAnchorFileInReadSet && anchor.Origin != "consumer_gate" {
 			x1Skipped++
 			logging.Debug("[CGEC] X1 chain_promotion: chain %q anchored entirely outside ReadSet (origin=%s, subjectConfidence=%.2f) — skipping PendingRead",
 				anchor.Summary, anchor.Origin, subjectConfidence)
@@ -12527,7 +12728,7 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 			// Fail-open default (IsDefFile slice empty / true) keeps
 			// legacy paths working; only triggers when computeIsDefFile
 			// confidently determined the anchor file is USAGE-only.
-			if i < len(anchor.IsDefFile) && !anchor.IsDefFile[i] {
+			if anchor.Origin != "consumer_gate" && i < len(anchor.IsDefFile) && !anchor.IsDefFile[i] {
 				logging.Debug("[CGEC] X2 chain_promotion: skipping usage-only anchor file=%s origin=%s — terminal not defined here",
 					f, anchor.Origin)
 				continue
@@ -13848,13 +14049,42 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	// to the per-file extractConcreteValues + multi-pass tracer above,
 	// this pass is graph-wide and bounded by symbol-name matching.
 	// See memory/project_baseline_2026_04_13_post_phase4.md.
-	bridgeEvidence := extractBridgeLiteralEvidence(graph, repoRoot, allRelevantForEvidence)
+	relationGateValues := e.relationConsumerGateValues(ctx, graph, repoRoot, filesToScan)
+	bridgeConsumerValues := allRelevantForEvidence
+	if len(relationGateValues) > 0 {
+		bridgeConsumerValues = append(append([]concreteValue(nil), allRelevantForEvidence...), relationGateValues...)
+		if closure != nil {
+			scanned := closure.ScannedSet()
+			if scanned == nil {
+				scanned = make(map[string]bool)
+			}
+			for _, v := range relationGateValues {
+				if v.file != "" {
+					scanned[v.file] = true
+				}
+			}
+			closure.SetScannedSet(scanned)
+		}
+	}
+	bridgeEvidence := extractBridgeLiteralEvidence(graph, repoRoot, bridgeConsumerValues)
 	bridgeTerminalItems := filterEvidenceItemsByFileSet(bridgeEvidence.terminalReturns, filesToScan)
 	if len(bridgeTerminalItems) > 0 {
 		logging.Debug("[explorer] bridge literal terminal returns: %d items", len(bridgeTerminalItems))
 		cvEvidence = append(cvEvidence, bridgeTerminalItems...)
 	}
-	bridgeItems := filterEvidenceItemsByFileSet(bridgeEvidence.chains, filesToScan)
+	bridgeAllowedFiles := filesToScan
+	if len(relationGateValues) > 0 {
+		bridgeAllowedFiles = make(map[string]bool, len(filesToScan)+len(relationGateValues))
+		for file := range filesToScan {
+			bridgeAllowedFiles[file] = true
+		}
+		for _, v := range relationGateValues {
+			if v.file != "" {
+				bridgeAllowedFiles[v.file] = true
+			}
+		}
+	}
+	bridgeItems := filterEvidenceItemsByFileSet(bridgeEvidence.chains, bridgeAllowedFiles)
 	if len(bridgeItems) > 0 {
 		logging.Debug("[explorer] bridge literal chains: %d items", len(bridgeItems))
 		// CGEC: record per-item anchor file so the promotion helper
@@ -13875,7 +14105,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 				Files:     files,
 				FileLines: []int{it.LineStart},
 				IsDefFile: isDefFile,
-				Origin:    "bridge_literal",
+				Origin:    bridgeLiteralChainOrigin(it),
 			})
 		}
 		cvEvidence = append(cvEvidence, bridgeItems...)

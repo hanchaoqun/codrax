@@ -203,6 +203,40 @@ func TestApplyChainPromotion_NonConcretePartialAnchorQueuesPendingRead(t *testin
 	}
 }
 
+func TestApplyChainPromotion_ConsumerGateQueuesUnreadUsageAnchor(t *testing.T) {
+	chain := "`BaseAgent.buildToolSchemas()` gates on SubAgents.Get(...) — registry populated by `RegisterDefaultSubAgents()` binding NewSubExplorer → `SubExplorer.Name()` returns \"explorer\""
+	in := concreteValuesResult{
+		markdown: "### Resolution Chains\n\n- " + chain + "\n\n",
+		evidence: []types.EvidenceItem{
+			{Kind: types.EvidenceDataflowPath, Predicate: "resolution_chain", Subject: chain, Summary: chain, Source: "internal/agent/agent.go"},
+		},
+		chainAnchors: []chainAnchorInfo{
+			{
+				Summary:   chain,
+				Files:     []string{"internal/agent/agent.go"},
+				FileLines: []int{3412},
+				IsDefFile: []bool{false},
+				Origin:    "consumer_gate",
+			},
+		},
+	}
+	closure := types.NewEvidenceClosure("")
+	closure.SetScannedSet(map[string]bool{"internal/agent/agent.go": true})
+
+	_ = applyChainPromotion(in, map[string]bool{}, closure, "", 0, nil)
+
+	pendings := closure.PendingReads()
+	if len(pendings) != 1 || pendings[0].File != "internal/agent/agent.go" {
+		t.Fatalf("consumer_gate should queue its unread gate source despite X1/X2, got %v", pendings)
+	}
+	if pendings[0].Origin != "chain_promotion.consumer_gate" {
+		t.Fatalf("pending origin = %q, want chain_promotion.consumer_gate", pendings[0].Origin)
+	}
+	if len(pendings[0].LineRanges) == 0 {
+		t.Fatalf("line-backed consumer_gate should request a surgical read, got %+v", pendings[0])
+	}
+}
+
 func TestApplyChainPromotion_NonConcreteLineAnchorQueuesSurgicalRead(t *testing.T) {
 	chain := "`A.foo()` binds NewB → `B.bar()` returns \"x\""
 	in := concreteValuesResult{

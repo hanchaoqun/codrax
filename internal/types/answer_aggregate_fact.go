@@ -1061,6 +1061,9 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 		if AggregateMemberSetIsScalarCountSupport(rm, ref.Fact) {
 			continue
 		}
+		if AggregateMemberSetIsScalarRoleLookupSupport(rm, ref.Fact) {
+			continue
+		}
 		if AggregateMemberSetIsNoHitWindowSupport(rm, facts, ref.Index) {
 			continue
 		}
@@ -1417,6 +1420,17 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 				out[i].Provenance = appendAggregateFactProvenance(
 					out[i].Provenance,
 					"demoted:scalar_count_support_member_set",
+				)
+				changed = true
+			}
+			continue
+		}
+		if AggregateMemberSetIsScalarRoleLookupSupport(rm, out[i]) {
+			if role != AnswerAggregateRoleSupportingCoverage {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:scalar_role_lookup_support_member_set",
 				)
 				changed = true
 			}
@@ -2089,10 +2103,16 @@ func AnswerAggregateFactRoleForRequest(fact AnswerAggregateFact, rm *RequestMode
 		if role == AnswerAggregateRolePrincipalAnswer && AggregateCountFactMembersAreSupportOnlyForRequest(rm, fact) {
 			return AnswerAggregateRoleSupportingCoverage
 		}
+		if role == AnswerAggregateRolePrincipalAnswer && AggregateMemberSetIsScalarRoleLookupSupport(rm, fact) {
+			return AnswerAggregateRoleSupportingCoverage
+		}
 		return role
 	}
 	if fact.Kind == AnswerAggregateMemberSet {
 		if AggregateMemberSetIsScalarCountSupport(rm, fact) {
+			return AnswerAggregateRoleSupportingCoverage
+		}
+		if AggregateMemberSetIsScalarRoleLookupSupport(rm, fact) {
 			return AnswerAggregateRoleSupportingCoverage
 		}
 		if rm != nil && !aggregateRequestRequiresPathMemberSetAsPrincipal(*rm) &&
@@ -2289,6 +2309,43 @@ func AggregateMemberSetIsScalarCountSupport(rm *RequestModel, fact AnswerAggrega
 	return rm.Predicates.IsHistoryLookup ||
 		rm.Intent == IntentReturnValue ||
 		rm.AnswerSubject.Kind == SubjectNumeric
+}
+
+// AggregateMemberSetIsScalarRoleLookupSupport reports whether a model-emitted
+// member_set is a context ledger behind a scalar role-location answer rather
+// than the visible principal answer itself.
+//
+// Role lookup questions ask for the component that satisfies a role, not a
+// bag of every helper, tool, dispatcher, or runtime touched while explaining
+// the route to that component. If the analyzer classified the answer as
+// scalar/role-location and a model emits multiple members anyway, keep that
+// set as supporting coverage so downstream stages must still materialize the
+// scalar answer from typed answer symbols, evidence, or a single-member
+// aggregate. The predicate is schema-only: it consumes RequestModel booleans,
+// aggregate kind, and member count; it never reads user prose, aggregate
+// labels, closure rationale, or model thinking.
+func AggregateMemberSetIsScalarRoleLookupSupport(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if rm == nil || fact.Kind != AnswerAggregateMemberSet || len(fact.Members) <= 1 {
+		return false
+	}
+	if rm.Intent != IntentExplain {
+		return false
+	}
+	if !rm.Predicates.IsScalarAnswer && !rm.Predicates.IsRoleLocateLookup {
+		return false
+	}
+	if rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	if rm.QuestionStructure().HasAnyObligation() ||
+		RequiresExhaustiveEnumerationMemberSetHandoff(*rm) ||
+		RequiresRelationMemberSetHandoff(*rm) {
+		return false
+	}
+	return true
 }
 
 // AggregateCountFactMembersAreSupportOnlyForRequest reports whether a count

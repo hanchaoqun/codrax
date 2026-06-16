@@ -427,6 +427,78 @@ func TestDispatchExploreWindowsParallel_EnumerationWaitsForSiblingHandoffs(t *te
 	}
 }
 
+func TestDispatchExploreWindowsParallel_MechanismSubtopicsWaitForSiblingHandoffs(t *testing.T) {
+	var slowStarted sync.Once
+	slowStartedCh := make(chan struct{})
+	doneFinishedCh := make(chan struct{})
+	var slowCanceled int32
+
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			switch ctx.ExploreDispatchKey {
+			case "runtime":
+				<-slowStartedCh
+				ctx.Mutable.SetInvestigationComplete("runtime branch found Orchestrator.Run path")
+				close(doneFinishedCh)
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					StageReport:   "runtime branch report",
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			case "registry":
+				slowStarted.Do(func() { close(slowStartedCh) })
+				select {
+				case <-ctx.Context().Done():
+					atomic.StoreInt32(&slowCanceled, 1)
+					return nil, ctx.Context().Err()
+				case <-doneFinishedCh:
+				}
+				ctx.Mutable.SetInvestigationComplete("registry branch found same-name SubAgent gate")
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					StageReport:   "registry branch report",
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			default:
+				t.Fatalf("unexpected dispatch key %q", ctx.ExploreDispatchKey)
+				return nil, nil
+			}
+		},
+	})
+	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		PipelineStage: types.StageAnalyze,
+		ActiveAgent:   types.AgentAnalyzer,
+		Mutable:       types.NewMutableState("parallel explore mechanism"),
+		Signals:       types.ExecutionSignals{},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind: string(types.ReqMechanism),
+			},
+			SubTopics: []types.SubTopic{
+				{Summary: "runtime invocation", Entities: []string{"SubAgentRuntime"}},
+				{Summary: "registered agent gate", Entities: []string{"SubAgentRegistry"}},
+			},
+		}},
+	}
+
+	_, err := o.dispatchExploreWindowsParallel([][]*types.TaskNode{
+		{{ID: "runtime"}},
+		{{ID: "registry"}},
+	}, nil, 2)
+	if err != nil {
+		t.Fatalf("mechanism siblings should finish instead of being canceled: %v", err)
+	}
+	if atomic.LoadInt32(&slowCanceled) != 0 {
+		t.Fatal("mechanism sibling was canceled even though analyzer split typed subtopics")
+	}
+	if len(o.busCtx.StageReports) != 2 {
+		t.Fatalf("stage reports = %+v, want one per completed mechanism branch", o.busCtx.StageReports)
+	}
+}
+
 func TestParallelExploreAllowsEarlyConvergence_DiagramPresentationAloneConverges(t *testing.T) {
 	o := &Orchestrator{busCtx: &types.BusContext{
 		AnalysisIR: &types.AnalysisIR{

@@ -191,6 +191,151 @@ func TestReconcileSetValuedRoleLocatePredicates(t *testing.T) {
 	}
 }
 
+func TestNormalizeRoleBindingScalarShape_StabilizesMechanismRoleLookup(t *testing.T) {
+	preds := types.SemanticPredicates{
+		IsRelationalLookup: true,
+	}
+	profile := &types.AnswerRoleProfile{
+		IsRoleBindingRequested: true,
+		RequiredCandidateRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleAgent},
+		SourceQuotes:           []string{"agent"},
+		Confidence:             0.9,
+	}
+
+	gotPreds, gotSubject, gotTopics, reason := normalizeRoleBindingScalarShape(
+		types.IntentExplain,
+		"mechanism",
+		types.AxisCall,
+		preds,
+		profile,
+		types.AnswerSubject{Kind: types.SubjectGeneric, Confidence: 0.4},
+		[]types.SubTopic{{Summary: "follow the role binding"}},
+	)
+
+	if reason == "" {
+		t.Fatal("expected normalization reason")
+	}
+	if !gotPreds.IsScalarAnswer || !gotPreds.IsRoleLocateLookup {
+		t.Fatalf("role-binding lookup must be scalar role-locate: %+v", gotPreds)
+	}
+	if gotPreds.IsRelationalLookup || gotPreds.IsCategoryEnumeration {
+		t.Fatalf("scalar role binding must not keep relation/category lane: %+v", gotPreds)
+	}
+	if gotSubject.Kind != types.SubjectTypeName {
+		t.Fatalf("answer subject = %q, want type_name", gotSubject.Kind)
+	}
+	if len(gotTopics) != 0 {
+		t.Fatalf("exploratory subtopics should be dropped for scalar role binding: %+v", gotTopics)
+	}
+}
+
+func TestNormalizeRoleBindingScalarShape_PreservesSetValuedEnumeration(t *testing.T) {
+	preds := types.SemanticPredicates{
+		IsCategoryEnumeration: true,
+	}
+	profile := &types.AnswerRoleProfile{
+		IsRoleBindingRequested: true,
+		RequiredCandidateRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleAgent},
+		SourceQuotes:           []string{"agents"},
+		Confidence:             0.9,
+	}
+
+	gotPreds, gotSubject, _, reason := normalizeRoleBindingScalarShape(
+		types.IntentEnumerate,
+		"enumeration",
+		types.AxisCall,
+		preds,
+		profile,
+		types.AnswerSubject{Kind: types.SubjectGeneric, Confidence: 0.7},
+		nil,
+	)
+
+	if reason != "" {
+		t.Fatalf("enumeration must not be scalar-normalized, got reason=%q", reason)
+	}
+	if gotPreds.IsScalarAnswer || gotPreds.IsRoleLocateLookup || !gotPreds.IsCategoryEnumeration {
+		t.Fatalf("enumeration predicates should be preserved: %+v", gotPreds)
+	}
+	if gotSubject.Kind != types.SubjectGeneric {
+		t.Fatalf("enumeration subject should be preserved, got %+v", gotSubject)
+	}
+}
+
+func TestEmitAnalysis_Execute_NormalizesRoleBindingMechanismToScalarRoleLookup(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("哪个 agent 可以调用 SubAgent?")
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["agent", "subagent", "call"],
+		"entities": ["SubAgent"],
+		"question_kind": "mechanism",
+		"predicate_axis": "call",
+		"answer_subject": {"kind": "generic", "confidence": 0.4},
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": true,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false, "has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.8
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": true,
+			"required_candidate_roles": ["agent"],
+			"source_quotes": ["agent"],
+			"confidence": 0.9
+		}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("role-binding mechanism should normalize instead of rejecting, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "role_locate=true") || !strings.Contains(res.Summary, "required_roles=agent") {
+		t.Fatalf("summary should disclose normalized role lookup and role profile, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if !rm.Predicates.IsScalarAnswer || !rm.Predicates.IsRoleLocateLookup || rm.Predicates.IsRelationalLookup {
+		t.Fatalf("predicates not normalized to scalar role lookup: %+v", rm.Predicates)
+	}
+	if rm.AnswerSubject.Kind != types.SubjectTypeName {
+		t.Fatalf("answer_subject.kind = %q, want type_name", rm.AnswerSubject.Kind)
+	}
+	if rm.AnswerRoleProfile == nil || !rm.AnswerRoleProfile.Active() ||
+		rm.AnswerRoleProfile.RequiredCandidateRoles[0] != types.AnswerCandidateRoleAgent {
+		t.Fatalf("answer_role_profile not persisted as agent: %+v", rm.AnswerRoleProfile)
+	}
+	if got := types.ResolveQuestionFamily(*rm); got != types.QFRoleLookup {
+		t.Fatalf("family = %q, want role_lookup", got)
+	}
+}
+
 func TestEmitAnalysis_SetValuedRoleLocateNormalizesToEnumeration(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

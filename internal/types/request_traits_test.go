@@ -1165,6 +1165,14 @@ func TestIsSingleTopicMechanismExplanation_TypedOnly(t *testing.T) {
 	}
 	rm.Predicates.IsCategoryEnumeration = false
 
+	rm.Predicates.IsRoleLocateLookup = true
+	rm.Predicates.IsScalarAnswer = true
+	if IsSingleTopicMechanismExplanation(rm) {
+		t.Fatal("scalar role-locate lookup must not be stolen by the lightweight mechanism lane")
+	}
+	rm.Predicates.IsRoleLocateLookup = false
+	rm.Predicates.IsScalarAnswer = false
+
 	rm.Predicates.IsCrossComponent = false
 	rm.SubTopics = nil
 	rm.CompletenessObligation = nil

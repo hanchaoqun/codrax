@@ -10636,7 +10636,7 @@ func readModeStageBindingIdentifiers(binding types.StageBinding) (stageIdent str
 }
 
 func answerDocumentCanUseStageBindingAuthority(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
-	if answerDocumentHasStageBindingSource(ctx, doc) {
+	if answerDocumentCitesStageBindingSource(doc) {
 		return true
 	}
 	if !answerDocumentHasStageWorkflowRequestedDimension(ctx) {
@@ -10665,18 +10665,13 @@ func verifiedStageBindingLine(lines []string, want verifiedStageBindingRow) int 
 	return 0
 }
 
-func answerDocumentHasStageBindingSource(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+func answerDocumentCitesStageBindingSource(doc *types.AnswerDocumentV2) bool {
 	const sourceRel = "internal/types/stage_binding.go"
 	if doc != nil {
 		for _, cit := range doc.Citations {
 			if normalizedStageBindingSourcePath(cit.File) == sourceRel {
 				return true
 			}
-		}
-	}
-	for _, item := range answerDocumentAuthorityEvidencePool(ctx) {
-		if normalizedStageBindingSourcePath(item.Source) == sourceRel && item.LineStart > 0 {
-			return true
 		}
 	}
 	return false

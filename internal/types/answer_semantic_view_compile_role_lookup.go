@@ -10,7 +10,7 @@ package types
 //
 //	1× BlockSummary           — name the subject + the role result
 //	1× BlockScalar            — the resolved literal (function name /
-//	                            handler / config key / etc.) with
+//	                            handler / config key / type / etc.) with
 //	                            authoritative file:line.
 //
 // Optional:
@@ -45,7 +45,7 @@ func compileRoleLookup(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 				ClaimLiteralValueFact,
 			},
 			Rationale: "The single literal that plays the asked-for role (entry function name / " +
-				"handler symbol / config key / owner type) with its authoritative file:line.",
+				"handler symbol / config key / owner type / agent-like component) with its authoritative file:line.",
 			SurfaceRoleHint: SurfacePrincipal,
 		},
 	}

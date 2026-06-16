@@ -6515,6 +6515,10 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsVerifiedStageBindingSuppleme
 			SurfaceRole: types.SurfacePrincipal,
 			Text:        "模型成文只概述了 pipeline，会在最后一公里补充已核验的阶段绑定。",
 		}},
+		Citations: []types.Citation{{
+			File: "internal/types/stage_binding.go",
+			Line: 18,
+		}},
 	})
 	ctx := &types.AgentContext{RepoRoot: repo, Mutable: mu}
 	e := &answerDocumentEvaluator{language: "zh"}
@@ -6538,6 +6542,42 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsVerifiedStageBindingSuppleme
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
 		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendStageBindingForAmbientEvidenceOnly(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	mu := types.NewMutableState("")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:           "stage-binding",
+		Kind:         types.EvidenceRelationship,
+		Subject:      "StageBinding",
+		Predicate:    "maps stage to agent",
+		Object:       "AgentExplorer",
+		Source:       "internal/types/stage_binding.go",
+		LineStart:    18,
+		Scope:        types.ScopeLine,
+		AnchorKind:   types.AnchorDefinition,
+		AnchorSymbol: "builtinStageBindings",
+	}})
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "主答案没有请求 stage workflow 维度，也没有引用 stage_binding.go。",
+		}},
+	})
+	ctx := &types.AgentContext{RepoRoot: repo, Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：阶段绑定核对") {
+		t.Fatalf("ambient evidence alone must not append stage binding supplement:\n%s", out.FinalAnswer)
 	}
 }
 

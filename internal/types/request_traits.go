@@ -706,6 +706,7 @@ func IsArchitectureNarrativeExplanation(rm RequestModel) bool {
 		return false
 	}
 	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
 		rm.Predicates.IsRelationalLookup ||
 		rm.Predicates.IsCountQuestion ||
 		rm.Predicates.IsHistoryLookup ||
@@ -749,6 +750,7 @@ func IsSingleTopicMechanismExplanation(rm RequestModel) bool {
 		return false
 	}
 	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
 		rm.Predicates.IsRelationalLookup ||
 		rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsCountQuestion ||

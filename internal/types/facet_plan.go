@@ -574,7 +574,8 @@ type FacetCoverageContract struct {
 //     → QFGeneric (mechanism/condition explanation, not architecture)
 //
 //  7. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
-//     SubjectConfigKey, SubjectStructField, SubjectInterface}
+//     SubjectConfigKey, SubjectStructField, SubjectInterface}, or
+//     SubjectTypeName with IsRoleLocateLookup=true,
 //     AND QuestionStructure.HasAnyObligation()=false
 //     AND IsCategoryEnumerationAnswerShape(rm)=false
 //     → QFRoleLookup (typical "what's the X for Y" questions)
@@ -692,6 +693,10 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		case SubjectFunctionName, SubjectHandlerRoute,
 			SubjectConfigKey, SubjectStructField, SubjectInterface:
 			return QFRoleLookup
+		case SubjectTypeName:
+			if rm.Predicates.IsRoleLocateLookup {
+				return QFRoleLookup
+			}
 		}
 	}
 

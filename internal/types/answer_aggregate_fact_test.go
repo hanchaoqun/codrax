@@ -2076,6 +2076,71 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesScalarCountMemberSetAtSour
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_DemotesScalarRoleLookupMultiMemberSetAtSource(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "role lookup implementation components",
+		Value: "4",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Agent",
+			"ProposeSubAgents",
+			"SubAgentProposal",
+			"SubAgentRuntime.Run",
+		},
+		SupportRefs: []string{
+			"internal/agent/agent.go:156",
+			"internal/tool/propose_sub_agents.go:18",
+			"internal/types/subagent.go:7",
+			"internal/agent/subagent_runtime.go:220",
+		},
+	}}
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		PredicateAxis: AxisCall,
+		Predicates: SemanticPredicates{
+			IsScalarAnswer:     true,
+			IsRoleLocateLookup: true,
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.9},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("scalar role lookup multi-member set should be support context, got %+v", got[0])
+	}
+	if !strings.Contains(got[0].Provenance, "demoted:scalar_role_lookup_support_member_set") {
+		t.Fatalf("scalar role lookup demotion provenance missing: %+v", got[0])
+	}
+	if role := AnswerAggregateFactRoleForRequest(facts[0], &rm); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("explicit principal multi-member set should project as support for scalar role lookup, got %q", role)
+	}
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm); len(refs) != 0 {
+		t.Fatalf("scalar role lookup support member_set must not create principal rows, got %+v", refs)
+	}
+
+	single := cloneAnswerAggregateFacts(facts)
+	single[0].Value = "1"
+	single[0].Members = []string{"SubExplorer"}
+	single[0].SupportRefs = []string{"internal/agent/sub_explorer.go:12"}
+	normalizedSingle := NormalizeAggregateFactRolesForRequest(single, &rm)
+	if normalizedSingle[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("single-member scalar role answer should remain principal, got %+v", normalizedSingle[0])
+	}
+
+	enumeration := rm
+	enumeration.Intent = IntentEnumerate
+	enumeration.Predicates.IsScalarAnswer = false
+	enumeration.Predicates.IsRoleLocateLookup = false
+	enumeration.Predicates.IsRelationalLookup = true
+	enumeration.Predicates.IsCategoryEnumeration = true
+	normalizedEnum := NormalizeAggregateFactRolesForRequest(facts, &enumeration)
+	if normalizedEnum[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("true relation enumeration member_set should remain principal, got %+v", normalizedEnum[0])
+	}
+}
+
 func TestNormalizeAggregateFactRolesForRequest_DemotesNoHitWindowMemberSetAtSource(t *testing.T) {
 	facts := []AnswerAggregateFact{
 		{

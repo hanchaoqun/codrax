@@ -1305,6 +1305,20 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, bucketsWarn)
 	}
 	answerSubject := parseAnswerSubject(p.AnswerSubject)
+	if normalizedPreds, normalizedSubject, normalizedSubTopics, warning := normalizeRoleBindingScalarShape(
+		intent,
+		kind,
+		axis,
+		predicates,
+		answerRoleProfile,
+		answerSubject,
+		subTopics,
+	); warning != "" {
+		predicates = normalizedPreds
+		answerSubject = normalizedSubject
+		subTopics = normalizedSubTopics
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if normalized, warning := normalizeRuntimeArtifactRoleLocateAnswerSubject(ctx, artifactOnlyRuntime, predicates, answerSubject); warning != "" {
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
@@ -3076,6 +3090,149 @@ func normalizeRuntimeArtifactScalarIntent(artifactOnlyRuntime bool, intent types
 		return types.IntentReturnValue, types.ScenarioGeneric, "normalized observation-only runtime scalar answer to intent=return_value"
 	default:
 		return intent, scenario, ""
+	}
+}
+
+func normalizeRoleBindingScalarShape(
+	intent types.Intent,
+	kind string,
+	axis types.PredicateAxis,
+	predicates types.SemanticPredicates,
+	profile *types.AnswerRoleProfile,
+	answerSubject types.AnswerSubject,
+	subTopics []types.SubTopic,
+) (types.SemanticPredicates, types.AnswerSubject, []types.SubTopic, string) {
+	if !roleBindingScalarShapeEligible(intent, predicates, profile, subTopics) {
+		return predicates, answerSubject, subTopics, ""
+	}
+	role := profile.RequiredCandidateRoles[0]
+	var reasons []string
+	if !predicates.IsScalarAnswer {
+		predicates.IsScalarAnswer = true
+		reasons = append(reasons, "set is_scalar_answer=true from single required answer role")
+	}
+	if !predicates.IsRoleLocateLookup {
+		predicates.IsRoleLocateLookup = true
+		reasons = append(reasons, "set is_role_locate_lookup=true from single required answer role")
+	}
+	if predicates.IsRelationalLookup {
+		predicates.IsRelationalLookup = false
+		reasons = append(reasons, "cleared is_relational_lookup for scalar role binding")
+	}
+	if predicates.IsCategoryEnumeration {
+		predicates.IsCategoryEnumeration = false
+		reasons = append(reasons, "cleared is_category_enumeration for scalar role binding")
+	}
+	if len(trimSubTopicsForConsistency(subTopics)) == 1 {
+		subTopics = nil
+		reasons = append(reasons, "dropped exploratory sub_topics for scalar role binding")
+	}
+	if subject, reason := inferAnswerSubjectForRequiredCandidateRole(role, kind, axis); reason != "" {
+		if roleBindingShouldRebindAnswerSubject(role, answerSubject.Kind, subject.Kind) {
+			if answerSubject.Confidence > subject.Confidence {
+				subject.Confidence = answerSubject.Confidence
+			}
+			answerSubject = subject
+			reasons = append(reasons, reason)
+		}
+	}
+	if len(reasons) == 0 {
+		return predicates, answerSubject, subTopics, ""
+	}
+	return predicates, answerSubject, subTopics, strings.Join(reasons, "; ")
+}
+
+func roleBindingScalarShapeEligible(
+	intent types.Intent,
+	predicates types.SemanticPredicates,
+	profile *types.AnswerRoleProfile,
+	subTopics []types.SubTopic,
+) bool {
+	if profile == nil || !profile.Active() || len(profile.RequiredCandidateRoles) != 1 {
+		return false
+	}
+	if intent == types.IntentEnumerate || intent == types.IntentRootCause {
+		return false
+	}
+	if predicates.IsCountQuestion ||
+		predicates.IsHistoryLookup ||
+		predicates.IsDiagnosticQuestion ||
+		predicates.HasPerMemberTable {
+		return false
+	}
+	if predicates.IsCategoryEnumeration && !predicates.IsRoleLocateLookup {
+		return false
+	}
+	return len(trimSubTopicsForConsistency(subTopics)) <= 1
+}
+
+func inferAnswerSubjectForRequiredCandidateRole(role types.AnswerCandidateRole, kind string, axis types.PredicateAxis) (types.AnswerSubject, string) {
+	switch role {
+	case types.AnswerCandidateRoleFunction,
+		types.AnswerCandidateRoleMethod,
+		types.AnswerCandidateRoleHelper:
+		return types.AnswerSubject{Kind: types.SubjectFunctionName, EntityAxes: []string{"role → function"}, Confidence: 0.72},
+			"defaulted answer_subject.kind=function_name from required candidate role"
+	case types.AnswerCandidateRoleType,
+		types.AnswerCandidateRoleAgent:
+		return types.AnswerSubject{Kind: types.SubjectTypeName, EntityAxes: []string{"role → type"}, Confidence: 0.72},
+			"defaulted answer_subject.kind=type_name from required candidate role"
+	case types.AnswerCandidateRoleRoute:
+		return types.AnswerSubject{Kind: types.SubjectHandlerRoute, EntityAxes: []string{"role → route"}, Confidence: 0.72},
+			"defaulted answer_subject.kind=handler_route from required candidate role"
+	case types.AnswerCandidateRoleConfigKey:
+		return types.AnswerSubject{Kind: types.SubjectConfigKey, EntityAxes: []string{"role → config_key"}, Confidence: 0.72},
+			"defaulted answer_subject.kind=config_key from required candidate role"
+	case types.AnswerCandidateRoleFile,
+		types.AnswerCandidateRoleConfigFile:
+		return types.AnswerSubject{Kind: types.SubjectFilePath, EntityAxes: []string{"role → file_path"}, Confidence: 0.72},
+			"defaulted answer_subject.kind=file_path from required candidate role"
+	case types.AnswerCandidateRoleField:
+		return types.AnswerSubject{Kind: types.SubjectStructField, EntityAxes: []string{"role → field"}, Confidence: 0.72},
+			"defaulted answer_subject.kind=struct_field from required candidate role"
+	case types.AnswerCandidateRoleLiteralValue,
+		types.AnswerCandidateRoleToolName,
+		types.AnswerCandidateRoleImportPath,
+		types.AnswerCandidateRoleCommitHash,
+		types.AnswerCandidateRoleGuardCondition:
+		return types.AnswerSubject{Kind: types.SubjectStringLiteral, EntityAxes: []string{"role → literal"}, Confidence: 0.68},
+			"defaulted answer_subject.kind=string_literal from required candidate role"
+	case types.AnswerCandidateRoleBudgetCap,
+		types.AnswerCandidateRoleAttemptCounter:
+		return types.AnswerSubject{Kind: types.SubjectNumeric, EntityAxes: []string{"role → numeric"}, Confidence: 0.68},
+			"defaulted answer_subject.kind=numeric from required candidate role"
+	}
+	return inferTypedRoleLocateAnswerSubject(kind, axis)
+}
+
+func roleBindingShouldRebindAnswerSubject(role types.AnswerCandidateRole, current, inferred types.AnswerSubjectKind) bool {
+	if inferred == types.SubjectUnknown {
+		return false
+	}
+	switch current {
+	case types.SubjectUnknown, types.SubjectGeneric:
+		return true
+	}
+	if current == inferred {
+		return false
+	}
+	switch role {
+	case types.AnswerCandidateRoleFunction,
+		types.AnswerCandidateRoleMethod,
+		types.AnswerCandidateRoleHelper,
+		types.AnswerCandidateRoleAgent,
+		types.AnswerCandidateRoleRoute,
+		types.AnswerCandidateRoleConfigKey,
+		types.AnswerCandidateRoleFile,
+		types.AnswerCandidateRoleConfigFile,
+		types.AnswerCandidateRoleField,
+		types.AnswerCandidateRoleToolName,
+		types.AnswerCandidateRoleBudgetCap,
+		types.AnswerCandidateRoleAttemptCounter,
+		types.AnswerCandidateRoleGuardCondition:
+		return true
+	default:
+		return !roleLocateSubjectKindAllowed(current)
 	}
 }
 

@@ -94,6 +94,23 @@ func TestResolveQuestionFamily_RoleLookup(t *testing.T) {
 	}
 }
 
+func TestResolveQuestionFamily_TypeNameNeedsRoleLocateForRoleLookup(t *testing.T) {
+	plain := RequestModel{
+		Intent:        IntentExplain,
+		AnswerSubject: AnswerSubject{Kind: SubjectTypeName, Confidence: 0.8},
+	}
+	if got := ResolveQuestionFamily(plain); got == QFRoleLookup {
+		t.Fatalf("plain type_name explanation must not be narrowed to role_lookup")
+	}
+
+	roleLocate := plain
+	roleLocate.Predicates.IsRoleLocateLookup = true
+	roleLocate.Predicates.IsScalarAnswer = true
+	if got := ResolveQuestionFamily(roleLocate); got != QFRoleLookup {
+		t.Fatalf("role-locate type_name should route to role_lookup, got %q", got)
+	}
+}
+
 func TestResolveQuestionFamily_ObligationOverridesRoleLookup(t *testing.T) {
 	// AnswerSubject says FunctionName (which would go RoleLookup)
 	// BUT EnumerationBoundary is set — obligation wins.

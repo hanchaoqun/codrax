@@ -2536,6 +2536,63 @@ func TestPreEmitAggregateMemberGenericSupportRef_CitesMemberLocation(t *testing.
 	}
 }
 
+func TestPreEmitAggregateMemberGenericSupportRef_RejectsUncorroboratedPositionalCitation(t *testing.T) {
+	mu := types.NewMutableState("subagent call chain handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "SubAgent call-chain nodes",
+		Value: "2",
+		Members: []string{
+			"Explorer Agent (LLM 调用 propose_sub_agents 工具)",
+			"SubAgentRuntime.Run (执行 SubAgent 并合并结果)",
+		},
+		SupportRefs: []string{
+			"Member @ internal/agent/subagent.go:12",
+			"Member @ internal/agent/subagent_runtime.go:220",
+		},
+	}})
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "subagent-interface",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/subagent.go",
+		LineStart:       12,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "SubAgent",
+		Subject:         "SubAgent",
+		Snippet:         "type SubAgent interface {",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	label := "Explorer Agent (LLM 调用 propose_sub_agents 工具)"
+	text := "Explorer Agent 通过 buildToolSchemas 注入的 propose_sub_agents 工具发起请求。"
+	citation := types.Citation{File: "internal/agent/subagent.go", Line: 12}
+
+	if preEmitCitationSupportsAggregateItem(ctx, label, text, citation) {
+		t.Fatal("positional generic support_ref must not let a natural-language hop borrow an unrelated SubAgent interface citation")
+	}
+	if got := preEmitCandidateCitationLocationsForAggregateItem(ctx, label, text, 4); len(got) != 0 {
+		t.Fatalf("uncorroborated positional support_ref should not be suggested as a candidate, got %v", got)
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{citation},
+		Blocks: []types.AnswerBlock{{
+			ID:   "chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "h1",
+				Label:       label,
+				Text:        text,
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) == 0 {
+		t.Fatal("misaligned positional support_ref citation should produce a citation-alignment hint")
+	}
+}
+
 func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
