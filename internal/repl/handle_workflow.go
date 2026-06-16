@@ -473,12 +473,34 @@ func writeWorkflowBatchLines(b *strings.Builder, lang string, run types.WriteWor
 		if strings.TrimSpace(batch.VerifyRef) != "" {
 			refPart += fmt.Sprintf(" verify `%s`", batch.VerifyRef)
 		}
+		slicePart := writeWorkflowBatchSlicePart(lang, batch)
 		goal := strings.TrimSpace(batch.Goal)
 		if goal != "" {
 			goal = " - " + goal
 		}
-		fmt.Fprintf(b, "%s `%s` `%s`%s%s%s\n", marker, batch.ID, batch.Status, planPart, refPart, goal)
+		fmt.Fprintf(b, "%s `%s` `%s`%s%s%s%s\n", marker, batch.ID, batch.Status, planPart, refPart, slicePart, goal)
 	}
+}
+
+func writeWorkflowBatchSlicePart(lang string, batch types.WriteWorkflowBatch) string {
+	if len(batch.Slices) == 0 {
+		return ""
+	}
+	view := types.DeriveWriteWorkflowNextActionView(types.WriteWorkflowRun{
+		RunID:         "slice-view",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: batch.ID,
+		Batches:       []types.WriteWorkflowBatch{batch},
+	})
+	if view.TotalSlices == 0 {
+		return ""
+	}
+	active := firstNonEmptyString(view.ActiveSliceID, "none")
+	status := firstNonEmptyString(string(view.ActiveSliceStatus), "unknown")
+	if isZh(lang) {
+		return fmt.Sprintf(" slice `%s` `%s` %d/%d", active, status, view.CompletedSlices, view.TotalSlices)
+	}
+	return fmt.Sprintf(" slice `%s` `%s` %d/%d", active, status, view.CompletedSlices, view.TotalSlices)
 }
 
 func writeWorkflowApprovalLines(b *strings.Builder, lang string, batch types.WriteWorkflowBatch, hasBatch bool, plan *types.ChangePlan) {
@@ -621,11 +643,20 @@ func writeWorkflowListMarkdown(lang string, infos []WorkflowRunInfo) string {
 	}
 	for i := 0; i < limit; i++ {
 		info := infos[i]
-		fmt.Fprintf(&b, "- `%s` status=`%s` active=`%s` batch_status=`%s` next=`%s` action=`%s` user=%t batches=%d packs=%d\n",
+		slice := "none"
+		if info.TotalSlices > 0 {
+			slice = fmt.Sprintf("%s:%s:%d/%d",
+				firstNonEmptyString(info.ActiveSliceID, "none"),
+				firstNonEmptyString(info.ActiveSliceStatus, "unknown"),
+				info.CompletedSlices,
+				info.TotalSlices)
+		}
+		fmt.Fprintf(&b, "- `%s` status=`%s` active=`%s` batch_status=`%s` slice=`%s` next=`%s` action=`%s` user=%t batches=%d packs=%d\n",
 			info.ID,
 			firstNonEmptyString(info.Status, "unknown"),
 			firstNonEmptyString(info.ActiveBatchID, "none"),
 			firstNonEmptyString(info.ActiveBatchStatus, "unknown"),
+			slice,
 			firstNonEmptyString(info.NextState, "unknown"),
 			firstNonEmptyString(info.NextAction, "none"),
 			info.RequiresUser,
@@ -646,36 +677,46 @@ func writeWorkflowBannerLine(lang string, run types.WriteWorkflowRun, view types
 	runID := firstNonEmptyString(strings.TrimSpace(run.RunID), strings.TrimSpace(view.RunID), "unknown")
 	batchID := firstNonEmptyString(strings.TrimSpace(view.BatchID), strings.TrimSpace(run.ActiveBatchID), "none")
 	planID := firstNonEmptyString(strings.TrimSpace(view.PlanID), "none")
+	slice := writeWorkflowBannerSlice(view)
 	if isZh(lang) {
 		switch view.State {
 		case types.WriteWorkflowNextNeedsApproval:
-			return fmt.Sprintf("write workflow `%s` 需要审批 · batch `%s` plan `%s`; fingerprint/diff 可在 /workflow show 审计", runID, batchID, planID)
+			return fmt.Sprintf("write workflow `%s` 需要审批 · batch `%s`%s plan `%s`; fingerprint/diff 可在 /workflow show 审计", runID, batchID, slice, planID)
 		case types.WriteWorkflowNextRunning:
-			return fmt.Sprintf("write workflow `%s` 正在自动推进 · batch `%s`; 暂不需要用户操作", runID, batchID)
+			return fmt.Sprintf("write workflow `%s` 正在自动推进 · batch `%s`%s; 暂不需要用户操作", runID, batchID, slice)
 		case types.WriteWorkflowNextPlanReady:
-			return fmt.Sprintf("write workflow `%s` 的计划已生成 · plan `%s`; 可审阅后再决定是否执行", runID, planID)
+			return fmt.Sprintf("write workflow `%s` 的计划已生成%s · plan `%s`; 可审阅后再决定是否执行", runID, slice, planID)
 		case types.WriteWorkflowNextComplete:
 			return fmt.Sprintf("write workflow `%s` 已验证完成 · 准备发布时显式 /merge", runID)
 		case types.WriteWorkflowNextBlocked:
-			return fmt.Sprintf("write workflow `%s` 已阻塞 · /workflow show 可查看 reason/evidence", runID)
+			return fmt.Sprintf("write workflow `%s` 已阻塞%s · /workflow show 可查看 reason/evidence", runID, slice)
 		default:
 			return fmt.Sprintf("write workflow `%s` 已保存 · /workflow show 可查看当前状态", runID)
 		}
 	}
 	switch view.State {
 	case types.WriteWorkflowNextNeedsApproval:
-		return fmt.Sprintf("write workflow `%s` needs approval · batch `%s` plan `%s`; /workflow show audits fingerprint/diff", runID, batchID, planID)
+		return fmt.Sprintf("write workflow `%s` needs approval · batch `%s`%s plan `%s`; /workflow show audits fingerprint/diff", runID, batchID, slice, planID)
 	case types.WriteWorkflowNextRunning:
-		return fmt.Sprintf("write workflow `%s` is running automatically · batch `%s`; no user action needed", runID, batchID)
+		return fmt.Sprintf("write workflow `%s` is running automatically · batch `%s`%s; no user action needed", runID, batchID, slice)
 	case types.WriteWorkflowNextPlanReady:
-		return fmt.Sprintf("write workflow `%s` plan is ready · plan `%s`; review before applying", runID, planID)
+		return fmt.Sprintf("write workflow `%s` plan is ready%s · plan `%s`; review before applying", runID, slice, planID)
 	case types.WriteWorkflowNextComplete:
 		return fmt.Sprintf("write workflow `%s` is verified complete · merge explicitly when ready", runID)
 	case types.WriteWorkflowNextBlocked:
-		return fmt.Sprintf("write workflow `%s` is blocked · /workflow show can inspect reason/evidence", runID)
+		return fmt.Sprintf("write workflow `%s` is blocked%s · /workflow show can inspect reason/evidence", runID, slice)
 	default:
 		return fmt.Sprintf("write workflow `%s` is saved · /workflow show can inspect current state", runID)
 	}
+}
+
+func writeWorkflowBannerSlice(view types.WriteWorkflowNextActionView) string {
+	if view.TotalSlices <= 0 {
+		return ""
+	}
+	active := firstNonEmptyString(view.ActiveSliceID, "none")
+	status := firstNonEmptyString(string(view.ActiveSliceStatus), "unknown")
+	return fmt.Sprintf(" slice `%s` `%s` %d/%d", active, status, view.CompletedSlices, view.TotalSlices)
 }
 
 func writeWorkflowResumedMsg(lang, runID, batchID string) string {

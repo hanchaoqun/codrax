@@ -23,6 +23,42 @@ func TestDeriveWriteWorkflowNextActionViewReadyToPlanKeepsAutoPilotRunning(t *te
 	}
 }
 
+func TestDeriveWriteWorkflowNextActionViewSurfacesActiveSliceProgress(t *testing.T) {
+	view := DeriveWriteWorkflowNextActionView(WriteWorkflowRun{
+		RunID:         "wf-slice",
+		Status:        WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        WriteWorkflowBatchVerifying,
+			ActiveSliceID: "slice-002",
+			Slices: []WriteWorkflowSlice{{
+				ID:     "slice-001",
+				Status: ChangePlanSliceVerified,
+				Completion: &WriteWorkflowCompletion{
+					Verdict:    WriteWorkflowCompletionVerified,
+					ReasonCode: "tests_passed",
+				},
+			}, {
+				ID:     "slice-002",
+				Status: ChangePlanSliceObserving,
+			}, {
+				ID:     "slice-003",
+				Status: ChangePlanSlicePending,
+			}},
+		}},
+	})
+	if view.ActiveSliceID != "slice-002" || view.ActiveSliceStatus != ChangePlanSliceObserving {
+		t.Fatalf("active slice not surfaced: %+v", view)
+	}
+	if view.CompletedSlices != 1 || view.TotalSlices != 3 {
+		t.Fatalf("slice progress = %d/%d, want 1/3", view.CompletedSlices, view.TotalSlices)
+	}
+	if view.LastSliceVerdict != WriteWorkflowCompletionVerified || view.LastSliceReasonCode != "tests_passed" {
+		t.Fatalf("last slice verdict not surfaced: %+v", view)
+	}
+}
+
 func TestDeriveWriteWorkflowNextActionViewPendingApprovalRequiresBatchDecision(t *testing.T) {
 	view := DeriveWriteWorkflowNextActionView(WriteWorkflowRun{
 		RunID:         "wf-approval",

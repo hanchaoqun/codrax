@@ -37,6 +37,12 @@ type WriteWorkflowNextActionView struct {
 	RunID                string                         `json:"run_id,omitempty"`
 	BatchID              string                         `json:"batch_id,omitempty"`
 	BatchStatus          WriteWorkflowBatchStatus       `json:"batch_status,omitempty"`
+	ActiveSliceID        string                         `json:"active_slice_id,omitempty"`
+	ActiveSliceStatus    ChangePlanSliceStatus          `json:"active_slice_status,omitempty"`
+	CompletedSlices      int                            `json:"completed_slices,omitempty"`
+	TotalSlices          int                            `json:"total_slices,omitempty"`
+	LastSliceVerdict     WriteWorkflowCompletionVerdict `json:"last_slice_verdict,omitempty"`
+	LastSliceReasonCode  string                         `json:"last_slice_reason_code,omitempty"`
 	CompletionVerdict    WriteWorkflowCompletionVerdict `json:"completion_verdict,omitempty"`
 	CompletionReasonCode string                         `json:"completion_reason_code,omitempty"`
 	PlanID               string                         `json:"plan_id,omitempty"`
@@ -59,6 +65,7 @@ func DeriveWriteWorkflowNextActionView(run WriteWorkflowRun) WriteWorkflowNextAc
 	}
 	view.BatchID = strings.TrimSpace(batch.ID)
 	view.BatchStatus = batch.Status
+	populateWorkflowNextActionSliceView(&view, batch)
 	if batch.Completion != nil {
 		view.CompletionVerdict = batch.Completion.Verdict
 		view.CompletionReasonCode = strings.TrimSpace(batch.Completion.ReasonCode)
@@ -117,6 +124,53 @@ func DeriveWriteWorkflowNextActionView(run WriteWorkflowRun) WriteWorkflowNextAc
 		view.AdvancedActions = []WriteWorkflowNextActionID{WriteWorkflowNextActionInspectWorkflow}
 	}
 	return view
+}
+
+func populateWorkflowNextActionSliceView(view *WriteWorkflowNextActionView, batch WriteWorkflowBatch) {
+	if view == nil || len(batch.Slices) == 0 {
+		return
+	}
+	view.TotalSlices = len(batch.Slices)
+	activeID := strings.TrimSpace(batch.ActiveSliceID)
+	activeIndex := -1
+	for i, slice := range batch.Slices {
+		if writeWorkflowSliceStatusTerminalForView(slice.Status) {
+			view.CompletedSlices++
+			if slice.Completion != nil {
+				view.LastSliceVerdict = slice.Completion.Verdict
+				view.LastSliceReasonCode = strings.TrimSpace(slice.Completion.ReasonCode)
+			}
+		}
+		if activeID != "" && strings.TrimSpace(slice.ID) == activeID {
+			activeIndex = i
+		}
+	}
+	if activeIndex < 0 {
+		for i, slice := range batch.Slices {
+			if !writeWorkflowSliceStatusTerminalForView(slice.Status) {
+				activeIndex = i
+				activeID = strings.TrimSpace(slice.ID)
+				break
+			}
+		}
+	}
+	if activeIndex >= 0 {
+		view.ActiveSliceID = strings.TrimSpace(batch.Slices[activeIndex].ID)
+		view.ActiveSliceStatus = batch.Slices[activeIndex].Status
+		if batch.Slices[activeIndex].Completion != nil {
+			view.LastSliceVerdict = batch.Slices[activeIndex].Completion.Verdict
+			view.LastSliceReasonCode = strings.TrimSpace(batch.Slices[activeIndex].Completion.ReasonCode)
+		}
+	}
+}
+
+func writeWorkflowSliceStatusTerminalForView(status ChangePlanSliceStatus) bool {
+	switch status {
+	case ChangePlanSliceVerified, ChangePlanSliceUnverified, ChangePlanSliceFailed, ChangePlanSliceBlocked:
+		return true
+	default:
+		return false
+	}
 }
 
 func writeWorkflowRunHasProgressReason(run WriteWorkflowRun, reasonCode string) bool {

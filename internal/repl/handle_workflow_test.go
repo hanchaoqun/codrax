@@ -43,12 +43,20 @@ func TestWorkflowShowDisplaysActiveWriteWorkflow(t *testing.T) {
 			ExplorationRoundsUsed: 1,
 		},
 		Batches: []types.WriteWorkflowBatch{{
-			ID:        "batch-1",
-			Goal:      "show active batch",
-			Status:    types.WriteWorkflowBatchPendingApproval,
-			PlanID:    "p1",
-			ApplyRef:  "applied/p1",
-			VerifyRef: "p1.report.json",
+			ID:            "batch-1",
+			Goal:          "show active batch",
+			Status:        types.WriteWorkflowBatchPendingApproval,
+			PlanID:        "p1",
+			ApplyRef:      "applied/p1",
+			VerifyRef:     "p1.report.json",
+			ActiveSliceID: "slice-002",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-001",
+				Status: types.ChangePlanSliceVerified,
+			}, {
+				ID:     "slice-002",
+				Status: types.ChangePlanSlicePending,
+			}},
 		}},
 		ContextPacks: []types.WriteContextPack{{
 			PackID:  "pack-1",
@@ -94,6 +102,7 @@ func TestWorkflowShowDisplaysActiveWriteWorkflow(t *testing.T) {
 		"plan `p1`",
 		"apply `applied/p1`",
 		"verify `p1.report.json`",
+		"slice `slice-002` `pending` 1/2",
 		"policy=`auto_safe` risk=`high` action=`ask`",
 		"fingerprint=`fp-show`",
 		"Handoff context: 1 pack(s), P0=1 P1=1",
@@ -454,9 +463,17 @@ func TestWorkflowListDisplaysSavedWriteWorkflowSnapshots(t *testing.T) {
 		Status:        types.WriteWorkflowRunInProgress,
 		ActiveBatchID: "batch-a",
 		Batches: []types.WriteWorkflowBatch{{
-			ID:     "batch-a",
-			Status: types.WriteWorkflowBatchPendingApproval,
-			PlanID: "plan-a",
+			ID:            "batch-a",
+			Status:        types.WriteWorkflowBatchPendingApproval,
+			PlanID:        "plan-a",
+			ActiveSliceID: "slice-a2",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-a1",
+				Status: types.ChangePlanSliceVerified,
+			}, {
+				ID:     "slice-a2",
+				Status: types.ChangePlanSlicePending,
+			}},
 		}},
 		ContextPacks: []types.WriteContextPack{{
 			PackID:  "pack-a",
@@ -528,13 +545,13 @@ func TestWorkflowListDisplaysSavedWriteWorkflowSnapshots(t *testing.T) {
 	for _, want := range []string{
 		"Writeworkflows",
 		"`wf-list-a`status=`in_progress`active=`batch-a`",
-		"batch_status=`pending_approval`next=`needs_approval`action=`approve_batch`user=true",
+		"batch_status=`pending_approval`slice=`slice-a2:pending:1/2`next=`needs_approval`action=`approve_batch`user=true",
 		"`wf-list-b`status=`blocked`active=`batch-b`",
-		"batch_status=`blocked`next=`blocked`action=`inspect_evidence`user=true",
+		"batch_status=`blocked`slice=`none`next=`blocked`action=`inspect_evidence`user=true",
 		"`wf-list-c`status=`in_progress`active=`batch-c`",
-		"batch_status=`ready_to_plan`next=`running`action=`wait`user=false",
+		"batch_status=`ready_to_plan`slice=`none`next=`running`action=`wait`user=false",
 		"`wf-list-d`status=`in_progress`active=`batch-d`",
-		"batch_status=`planned`next=`running`action=`wait`user=false",
+		"batch_status=`planned`slice=`none`next=`running`action=`wait`user=false",
 		"packs=1",
 		"packs=0",
 	} {
@@ -552,9 +569,17 @@ func TestActiveWriteWorkflowBannerLineUsesTypedNextAction(t *testing.T) {
 		Status:        types.WriteWorkflowRunInProgress,
 		ActiveBatchID: "batch-running",
 		Batches: []types.WriteWorkflowBatch{{
-			ID:     "batch-running",
-			Status: types.WriteWorkflowBatchPlanned,
-			PlanID: "plan-running",
+			ID:            "batch-running",
+			Status:        types.WriteWorkflowBatchPlanned,
+			PlanID:        "plan-running",
+			ActiveSliceID: "slice-002",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-001",
+				Status: types.ChangePlanSliceVerified,
+			}, {
+				ID:     "slice-002",
+				Status: types.ChangePlanSliceApplying,
+			}},
 		}},
 		ProgressLedger: []types.WriteWorkflowProgress{{
 			BatchID:    "batch-running",
@@ -568,7 +593,7 @@ func TestActiveWriteWorkflowBannerLineUsesTypedNextAction(t *testing.T) {
 		writeWorkflowRunStore: workflowStore,
 	}
 	got := r.activeWriteWorkflowBannerLine()
-	for _, want := range []string{"wf-banner-running", "running automatically", "batch-running", "no user action needed"} {
+	for _, want := range []string{"wf-banner-running", "running automatically", "batch-running", "slice `slice-002` `applying` 1/2", "no user action needed"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("running workflow banner missing %q: %q", want, got)
 		}

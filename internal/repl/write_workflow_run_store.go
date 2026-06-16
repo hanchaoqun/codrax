@@ -196,6 +196,10 @@ type WorkflowRunInfo struct {
 	Status            string
 	ActiveBatchID     string
 	ActiveBatchStatus string
+	ActiveSliceID     string
+	ActiveSliceStatus string
+	CompletedSlices   int
+	TotalSlices       int
 	Batches           int
 	ContextPacks      int
 	NextState         string
@@ -275,6 +279,10 @@ func (s *WriteWorkflowRunStore) List() ([]WorkflowRunInfo, error) {
 			Status:            status,
 			ActiveBatchID:     activeBatchID,
 			ActiveBatchStatus: activeBatchStatus,
+			ActiveSliceID:     next.ActiveSliceID,
+			ActiveSliceStatus: string(next.ActiveSliceStatus),
+			CompletedSlices:   next.CompletedSlices,
+			TotalSlices:       next.TotalSlices,
 			Batches:           len(run.Batches),
 			ContextPacks:      len(run.ContextPacks),
 			NextState:         string(next.State),
