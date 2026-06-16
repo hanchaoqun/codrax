@@ -958,9 +958,13 @@ func renderAnalyzerOverviewPrescanCaution(graph *repomap.Graph, objective string
 
 func extractAnalyzerOverviewCautionTokens(objective string) []string {
 	seen := make(map[string]bool)
+	rejectedBacktickRuns := analyzerOverviewRejectedBacktickRunKeys(objective)
 	var out []string
 	scanQuestionTokens(objective, func(tok string, src tokenSource) {
 		tok = strings.TrimSpace(strings.Trim(tok, "(){}[]?!.,;:'\""))
+		if !analyzerOverviewCautionTokenAdmissible(tok) {
+			return
+		}
 		if len(tok) < 4 {
 			return
 		}
@@ -977,6 +981,9 @@ func extractAnalyzerOverviewCautionTokens(objective string) []string {
 			return
 		}
 		key := strings.ToLower(strings.ReplaceAll(tok, `\`, `/`))
+		if src == tokenRun && rejectedBacktickRuns[key] {
+			return
+		}
 		if seen[key] {
 			return
 		}
@@ -984,6 +991,60 @@ func extractAnalyzerOverviewCautionTokens(objective string) []string {
 		out = append(out, tok)
 	})
 	return out
+}
+
+func analyzerOverviewRejectedBacktickRunKeys(objective string) map[string]bool {
+	out := map[string]bool{}
+	rest := objective
+	for {
+		start := strings.Index(rest, "`")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(rest[start+1:], "`")
+		if end < 0 {
+			break
+		}
+		segment := strings.TrimSpace(strings.Trim(rest[start+1:start+1+end], "(){}[]?!.,;:'\""))
+		if !analyzerOverviewCautionTokenAdmissible(segment) {
+			scanQuestionTokens(segment, func(tok string, src tokenSource) {
+				if src != tokenRun {
+					return
+				}
+				tok = strings.TrimSpace(strings.Trim(tok, "(){}[]?!.,;:'\""))
+				if tok == "" {
+					return
+				}
+				out[strings.ToLower(strings.ReplaceAll(tok, `\`, `/`))] = true
+			})
+		}
+		rest = rest[start+1+end+1:]
+	}
+	return out
+}
+
+func analyzerOverviewCautionTokenAdmissible(tok string) bool {
+	tok = strings.TrimSpace(tok)
+	if tok == "" || len(tok) > 128 {
+		return false
+	}
+	wordish := 0
+	for _, r := range tok {
+		if unicode.IsControl(r) || unicode.IsSpace(r) {
+			return false
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			wordish++
+			continue
+		}
+		switch r {
+		case '_', '.', '/', '\\', '-', ':', '@', '$', '#':
+			wordish++
+		default:
+			return false
+		}
+	}
+	return wordish > 0
 }
 
 func analyzerTopFilesForQuery(graph *repomap.Graph, query string, topN int) []*repomap.FileInfo {

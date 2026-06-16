@@ -24,6 +24,27 @@ func TestExtractAnalyzerOverviewCautionTokens(t *testing.T) {
 	}
 }
 
+func TestExtractAnalyzerOverviewCautionTokens_SkipsMultilineAndCodeFragments(t *testing.T) {
+	got := extractAnalyzerOverviewCautionTokens("`cbook._safe_first_finite` `lib/matplotlib/axes/_axes.py` `python import numpy as np` `Traceback (most recent call last):\n  File \"x.py\", line 1, in <module>` `foo(bar)` " +
+		strings.Repeat("veryLongIdentifierSegment.", 8))
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"cbook._safe_first_finite", "lib/matplotlib/axes/_axes.py"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected valid token %q in %v", want, got)
+		}
+	}
+	for _, reject := range []string{
+		"python import numpy",
+		"Traceback",
+		"foo(bar)",
+		"veryLongIdentifierSegment",
+	} {
+		if strings.Contains(joined, reject) {
+			t.Fatalf("expected noisy token containing %q to be filtered, got %v", reject, got)
+		}
+	}
+}
+
 func TestRenderAnalyzerOverviewPrescanCaution_FlagsAuxiliaryOnlyAndUnresolved(t *testing.T) {
 	docDef := &repomap.Symbol{Name: "explore_mid_loop_hint_budget", File: "docs/reference.md", Line: 12}
 	docFile := &repomap.FileInfo{

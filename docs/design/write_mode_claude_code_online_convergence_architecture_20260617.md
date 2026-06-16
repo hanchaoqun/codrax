@@ -770,7 +770,7 @@ Primary files:
 | Batch | Status | Notes |
 | --- | --- | --- |
 | 0 | complete | Architecture ledger added and ready for commit. |
-| 1 | pending | Pre-scan/context hygiene. |
+| 1 | complete | Added analyzer overview caution token hygiene for multiline/code-fragment/traceback-shaped candidates, with valid symbol/path retention tests. |
 | 2 | pending | Observation confidence contract. |
 | 3 | pending | Active slice state machine. |
 | 4 | pending | Localizer worker and evidence coverage. |
