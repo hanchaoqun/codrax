@@ -68,6 +68,45 @@ func TestEmitWriteAnalysis_HappyPath(t *testing.T) {
 	if len(ir.Request.ExpectedOutcomes) != 2 {
 		t.Errorf("ExpectedOutcomes len = %d; want 2", len(ir.Request.ExpectedOutcomes))
 	}
+	if len(ir.Request.BehaviorContracts) != 2 || ir.Request.BehaviorContracts[0].ID != "outcome-1" {
+		t.Fatalf("expected outcomes should project fallback behavior contracts: %+v", ir.Request.BehaviorContracts)
+	}
+	if ir.Request.BehaviorContracts[0].Source != "expected_outcome_fallback" {
+		t.Fatalf("fallback contract source drifted: %+v", ir.Request.BehaviorContracts[0])
+	}
+}
+
+func TestEmitWriteAnalysis_PreservesExplicitBehaviorContracts(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "fix blueprint names with dots",
+		"task": {"kind": "bugfix", "scope": "micro", "summary": "reject dotted Flask blueprint names"},
+		"risk": {"affects_public_api": true, "changes_persistence": false, "changes_build_system": false, "overall": "medium"},
+		"expected_outcomes": ["dotted blueprint names are rejected"],
+		"behavior_contracts": [
+			{"id": "dotted-blueprint-name", "kind": "exception", "subject": "Blueprint(name)", "operator": "raises", "expected": "ValueError", "required": true}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected Success=true, got: %s", res.Summary)
+	}
+	ir := bus.Mutable.WriteAnalysisIR()
+	if ir == nil || len(ir.Request.BehaviorContracts) != 1 {
+		t.Fatalf("explicit contract not stored: %+v", ir)
+	}
+	got := ir.Request.BehaviorContracts[0]
+	if got.ID != "dotted-blueprint-name" || got.Kind != types.WriteBehaviorException ||
+		got.Operator != types.WriteBehaviorOpRaises || got.Expected != "ValueError" || !got.Required {
+		t.Fatalf("contract fields drifted: %+v", got)
+	}
+	if got.Source != "write_analyzer" {
+		t.Fatalf("explicit contract source drifted: %+v", got)
+	}
 }
 
 func TestEmitWriteAnalysis_StructuredPayloadCompatRepairsStringArrays(t *testing.T) {

@@ -74,7 +74,7 @@ const emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 s
 	"summary: string (3-10 sentences explaining what + why), " +
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}, " +
-	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes}. " +
+	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes with optional contract_refs/changed_symbol_refs}. " +
 	"Do NOT include new_content or patch here — those land via emit_plan_change once per file."
 
 func (t *EmitPlanSkeleton) Name() string { return "emit_plan_skeleton" }
@@ -128,7 +128,10 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	          "working_dir": {"type": "string"},
 	          "code": {"type": "string"},
 	          "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
-	          "expected_stdout": {"type": "array", "items": {"type": "string"}}
+	          "expected_stdout": {"type": "array", "items": {"type": "string"}},
+	          "contract_refs": {"type": "array", "items": {"type": "string"}},
+	          "changed_symbol_refs": {"type": "array", "items": {"type": "string"}},
+	          "expects_baseline_failure": {"type": "boolean"}
 	        },
 	        "required": ["language", "code"]
 	      }
@@ -272,6 +275,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	// install the fresh skeleton — order matters because Reset wipes
 	// PartialChangePlan too.
 	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes)
+	attachWriteBehaviorContracts(ctx, plan)
 	ctx.Mutable.ResetChangePlan()
 	ctx.Mutable.SetPartialChangePlan(plan)
 

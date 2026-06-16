@@ -918,17 +918,23 @@ func TestRunTestsVerificationProbeUnhandledExceptionIsParserError(t *testing.T) 
 
 func TestRenderVerificationProbeOutputCarriesProbeSource(t *testing.T) {
 	out := renderVerificationProbeOutput([]types.VerificationProbe{{
-		ID:             "punctuation_note",
-		Language:       "python",
-		WorkingDir:     "src",
-		TimeoutSeconds: 2,
-		ExpectedStdout: []string{"ok"},
-		Code:           "print('ok')\n",
+		ID:                     "punctuation_note",
+		Language:               "python",
+		WorkingDir:             "src",
+		TimeoutSeconds:         2,
+		ExpectedStdout:         []string{"ok"},
+		ContractRefs:           []string{"quiet-stdout"},
+		ChangedSymbolRefs:      []string{"pkg.module.func"},
+		ExpectsBaselineFailure: true,
+		Code:                   "print('ok')\n",
 	}}, []string{"ok\n"})
 	for _, want := range []string{
 		"#### punctuation_note",
 		"language=python working_dir=src timeout_seconds=2",
 		"expected_stdout=[\"ok\"]",
+		"contract_refs=[\"quiet-stdout\"]",
+		"changed_symbol_refs=[\"pkg.module.func\"]",
+		"expects_baseline_failure=true",
 		"source:\n```python\nprint('ok')\n```",
 		"output:\nok",
 	} {

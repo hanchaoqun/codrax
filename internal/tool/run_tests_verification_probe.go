@@ -498,6 +498,15 @@ func renderVerificationProbeOutput(probes []types.VerificationProbe, outputs []s
 		if len(probe.ExpectedStdout) > 0 {
 			fmt.Fprintf(&b, "expected_stdout=%q\n", probe.ExpectedStdout)
 		}
+		if len(probe.ContractRefs) > 0 {
+			fmt.Fprintf(&b, "contract_refs=%q\n", probe.ContractRefs)
+		}
+		if len(probe.ChangedSymbolRefs) > 0 {
+			fmt.Fprintf(&b, "changed_symbol_refs=%q\n", probe.ChangedSymbolRefs)
+		}
+		if probe.ExpectsBaselineFailure {
+			b.WriteString("expects_baseline_failure=true\n")
+		}
 		code := strings.TrimRight(probe.Code, "\n")
 		if code != "" {
 			b.WriteString("source:\n")

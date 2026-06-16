@@ -33,7 +33,7 @@ const emitChangePlanSchemaReminder = "REQUIRED schema: {request: string (1-3 sen
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), edits: optional structured line edits for kind=patch, " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}}. " +
-	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes. " +
+	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes with optional contract_refs/changed_symbol_refs. " +
 	"Do NOT call the tool with empty/null parameters — emit the FULL JSON body as a single function-call argument."
 
 // emitMinPayloadBytes is the threshold below which the params blob is
@@ -198,6 +198,20 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
             "type": "array",
             "items": {"type": "string"},
             "description": "Optional exact substrings that must appear in stdout for the probe to pass."
+          },
+          "contract_refs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional behavior_contract ids from the task framing that this probe directly verifies."
+          },
+          "changed_symbol_refs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional changed symbols/modules this probe imports or executes."
+          },
+          "expects_baseline_failure": {
+            "type": "boolean",
+            "description": "True when this probe is meant to fail before the patch and pass after it."
           }
         },
         "required": ["language", "code"]
@@ -392,6 +406,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// Build the internal ChangePlan + populate target_paths from
 	// the (already converted + already validated) changes slice.
 	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes)
+	attachWriteBehaviorContracts(ctx, plan)
 
 	// Drain any per-language "unvalidated" reasons collected by the
 	// dry-build helpers (commit 7 P1-E gap-fix) into the finalised

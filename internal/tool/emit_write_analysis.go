@@ -35,6 +35,7 @@ type emitWriteAnalysisParams struct {
 	ScopeAnchors       []string                        `json:"scope_anchors,omitempty"`
 	Constraints        []emitWriteAnalysisConstraint   `json:"constraints,omitempty"`
 	ExpectedOutcomes   []string                        `json:"expected_outcomes,omitempty"`
+	BehaviorContracts  []types.WriteBehaviorContract   `json:"behavior_contracts,omitempty"`
 	PhaseProposal      *emitWriteAnalysisPhaseProposal `json:"phase_proposal,omitempty"`
 	ApplicablePitfalls []string                        `json:"applicable_pitfalls,omitempty"`
 }
@@ -203,6 +204,8 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 		})
 	}
 
+	expectedOutcomes := dedupAndTrim(p.ExpectedOutcomes)
+	contracts := types.NormalizeWriteBehaviorContracts(p.BehaviorContracts, expectedOutcomes)
 	ir := &types.WriteAnalysisIR{
 		Request: types.WriteRequestModel{
 			RawRequest: strings.TrimSpace(p.RawRequest),
@@ -217,9 +220,10 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 				ChangesBuildSystem: p.Risk.ChangesBuildSystem,
 				Overall:            overall,
 			},
-			ScopeAnchors:     dedupAndTrim(p.ScopeAnchors),
-			Constraints:      constraints,
-			ExpectedOutcomes: dedupAndTrim(p.ExpectedOutcomes),
+			ScopeAnchors:      dedupAndTrim(p.ScopeAnchors),
+			Constraints:       constraints,
+			ExpectedOutcomes:  expectedOutcomes,
+			BehaviorContracts: contracts,
 		},
 		PhaseProposal:   phase,
 		PitfallsApplied: dedupAndTrim(p.ApplicablePitfalls),
@@ -227,17 +231,17 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 
 	ctx.Mutable.SetWriteAnalysisIR(ir)
 
-	logging.Debug("[emit_write_analysis] stored: kind=%s scope=%s overall=%s constraints=%d outcomes=%d phases=%s/%d",
+	logging.Debug("[emit_write_analysis] stored: kind=%s scope=%s overall=%s constraints=%d outcomes=%d contracts=%d phases=%s/%d",
 		ir.Request.Task.Kind, ir.Request.Task.Scope, ir.Request.Risk.Overall,
-		len(ir.Request.Constraints), len(ir.Request.ExpectedOutcomes),
+		len(ir.Request.Constraints), len(ir.Request.ExpectedOutcomes), len(ir.Request.BehaviorContracts),
 		ir.PhaseProposal.Split, len(ir.PhaseProposal.Phases))
 
 	return types.ToolResult{
 		ToolName: t.Name(),
 		Success:  true,
-		Summary: fmt.Sprintf("write analysis stored: kind=%s scope=%s risk=%s outcomes=%d",
+		Summary: fmt.Sprintf("write analysis stored: kind=%s scope=%s risk=%s outcomes=%d contracts=%d",
 			ir.Request.Task.Kind, ir.Request.Task.Scope, ir.Request.Risk.Overall,
-			len(ir.Request.ExpectedOutcomes)),
+			len(ir.Request.ExpectedOutcomes), len(ir.Request.BehaviorContracts)),
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -327,6 +331,44 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 				"type":        "array",
 				"items":       map[string]any{"type": "string"},
 				"description": "2-4 short concrete signals that the change is correctly done. The reflector reads these to judge whether retries are moving toward the goal.",
+			},
+			"behavior_contracts": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"id": map[string]any{
+							"type":        "string",
+							"description": "Stable short id, e.g. c1 or raises-valueerror. Used by verification_probes.contract_refs.",
+						},
+						"kind": map[string]any{
+							"type": "string",
+							"enum": []string{"observable", "exception", "output_path", "stdout", "status_code", "file_layout", "command_result", "invariant"},
+						},
+						"subject": map[string]any{
+							"type":        "string",
+							"description": "Path, symbol, command, endpoint, or runtime surface this contract describes.",
+						},
+						"operator": map[string]any{
+							"type": "string",
+							"enum": []string{"satisfies", "equals", "contains", "exists", "not_exists", "raises", "returns"},
+						},
+						"expected": map[string]any{
+							"type":        "string",
+							"description": "Exact observable value or concise behavior to preserve/satisfy.",
+						},
+						"evidence_ref": map[string]any{
+							"type":        "string",
+							"description": "Optional source such as issue text, log ref, or file:line evidence.",
+						},
+						"required": map[string]any{
+							"type":        "boolean",
+							"description": "True when this observable is required for task completion.",
+						},
+					},
+					"required": []string{"id", "kind", "expected"},
+				},
+				"description": "Optional typed observables the plan/probes should satisfy. Prefer these when the request names exception type, output path/layout, status code, command result, stdout text, or a concrete invariant. Do not infer from keywords; emit only facts grounded in the request or light repo inspection.",
 			},
 			"phase_proposal": map[string]any{
 				"type": "object",

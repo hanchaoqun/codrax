@@ -134,6 +134,19 @@ func renderWriteControllerTaskSection(ctx *types.AgentContext) string {
 	if len(ir.Request.ExpectedOutcomes) > 0 {
 		fmt.Fprintf(&b, "- expected_outcomes: %s\n", strings.Join(ir.Request.ExpectedOutcomes, " | "))
 	}
+	if len(ir.Request.BehaviorContracts) > 0 {
+		b.WriteString("- behavior_contracts:\n")
+		for _, c := range ir.Request.BehaviorContracts {
+			fmt.Fprintf(&b, "  - id=%s kind=%s operator=%s expected=%s", c.ID, c.Kind, c.Operator, c.Expected)
+			if c.Subject != "" {
+				fmt.Fprintf(&b, " subject=%s", c.Subject)
+			}
+			if c.Required {
+				b.WriteString(" required=true")
+			}
+			b.WriteByte('\n')
+		}
+	}
 	return strings.TrimSpace(b.String())
 }
 

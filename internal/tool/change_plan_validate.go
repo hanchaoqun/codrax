@@ -254,6 +254,9 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 	if rej := validatePlanProjectLint(ctx, changes); rej != "" {
 		return rej
 	}
+	if rej := validateVerificationProbeContractRefs(ctx, verificationProbes); rej != "" {
+		return rej
+	}
 	if rej := validatePythonVerificationProbeCoupling(ctx.RepoRoot, changes, verificationProbes); rej != "" {
 		return rej
 	}
@@ -1240,6 +1243,17 @@ func newChangePlanFromChanges(request, summary string, changes []types.FileChang
 	return plan
 }
 
+func attachWriteBehaviorContracts(ctx *types.BusContext, plan *types.ChangePlan) {
+	if ctx == nil || ctx.Mutable == nil || plan == nil {
+		return
+	}
+	ir := ctx.Mutable.WriteAnalysisIR()
+	if ir == nil || len(ir.Request.BehaviorContracts) == 0 {
+		return
+	}
+	plan.BehaviorContracts = append([]types.WriteBehaviorContract(nil), ir.Request.BehaviorContracts...)
+}
+
 func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.VerificationProbe, string) {
 	const (
 		maxProbes            = 5
@@ -1310,16 +1324,87 @@ func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.Verifica
 		if len(expected) == 0 && !pythonVerificationProbeHasExecutableFailureSignal(code) {
 			return nil, fmt.Sprintf("verification_probes[%d].code must include an executable failure signal (assert, raise, sys.exit/exit, pytest.fail, or expected_stdout); printing failure text without a non-zero exit path can falsely pass verification", i)
 		}
+		contractRefs, rej := normalizeProbeStringRefs(probe.ContractRefs, maxExpectedFragments, fmt.Sprintf("verification_probes[%d].contract_refs", i))
+		if rej != "" {
+			return nil, rej
+		}
+		changedSymbolRefs, rej := normalizeProbeStringRefs(probe.ChangedSymbolRefs, maxExpectedFragments, fmt.Sprintf("verification_probes[%d].changed_symbol_refs", i))
+		if rej != "" {
+			return nil, rej
+		}
 		out = append(out, types.VerificationProbe{
-			ID:             id,
-			Language:       language,
-			WorkingDir:     workingDir,
-			Code:           code,
-			TimeoutSeconds: timeout,
-			ExpectedStdout: expected,
+			ID:                     id,
+			Language:               language,
+			WorkingDir:             workingDir,
+			Code:                   code,
+			TimeoutSeconds:         timeout,
+			ExpectedStdout:         expected,
+			ContractRefs:           contractRefs,
+			ChangedSymbolRefs:      changedSymbolRefs,
+			ExpectsBaselineFailure: probe.ExpectsBaselineFailure,
 		})
 	}
 	return out, ""
+}
+
+func normalizeProbeStringRefs(in []string, max int, field string) ([]string, string) {
+	if len(in) == 0 {
+		return nil, ""
+	}
+	out := make([]string, 0, len(in))
+	seen := map[string]struct{}{}
+	for _, ref := range in {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		out = append(out, ref)
+		if len(out) > max {
+			return nil, fmt.Sprintf("%s has more than %d non-empty entries", field, max)
+		}
+	}
+	return out, ""
+}
+
+func validateVerificationProbeContractRefs(ctx *types.BusContext, probes []types.VerificationProbe) string {
+	if len(probes) == 0 || ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	ir := ctx.Mutable.WriteAnalysisIR()
+	if ir == nil {
+		return ""
+	}
+	contracts := ir.Request.BehaviorContracts
+	if len(contracts) == 0 {
+		return ""
+	}
+	ids := types.WriteBehaviorContractIDs(contracts)
+	explicitRequired := map[string]struct{}{}
+	for _, c := range contracts {
+		if !c.Required || strings.TrimSpace(c.ID) == "" || strings.TrimSpace(c.Source) == "expected_outcome_fallback" {
+			continue
+		}
+		explicitRequired[c.ID] = struct{}{}
+	}
+	coveredExplicitRequired := false
+	for i, probe := range probes {
+		for _, ref := range probe.ContractRefs {
+			if _, ok := ids[ref]; !ok {
+				return fmt.Sprintf("verification_probes[%d].contract_refs contains unknown behavior_contract id %q; use one of %s", i, ref, formatStringSet(ids))
+			}
+			if _, ok := explicitRequired[ref]; ok {
+				coveredExplicitRequired = true
+			}
+		}
+	}
+	if len(explicitRequired) > 0 && !coveredExplicitRequired {
+		return fmt.Sprintf("verification_probes must reference at least one required explicit behavior_contract via contract_refs; available required ids: %s", formatStringSet(explicitRequired))
+	}
+	return ""
 }
 
 func pythonVerificationProbeHasExecutableFailureSignal(code string) bool {

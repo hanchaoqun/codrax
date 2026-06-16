@@ -34,6 +34,15 @@ func TestPlannerTaskFraming_RendersIRFields(t *testing.T) {
 				"the --quiet flag suppresses INFO output",
 				"existing tests still pass",
 			},
+			BehaviorContracts: []types.WriteBehaviorContract{{
+				ID:       "quiet-stdout",
+				Kind:     types.WriteBehaviorStdout,
+				Operator: types.WriteBehaviorOpNotExists,
+				Subject:  "--quiet command output",
+				Expected: "INFO",
+				Required: true,
+				Source:   "write_analyzer",
+			}},
 		},
 	})
 	ctx := &types.AgentContext{Mutable: mu}
@@ -50,6 +59,9 @@ func TestPlannerTaskFraming_RendersIRFields(t *testing.T) {
 		"preserve_api",
 		"do not break existing flags",
 		"the --quiet flag suppresses INFO output",
+		"id=quiet-stdout",
+		"kind=stdout",
+		"operator=not_exists",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered task framing missing %q; got:\n%s", want, got)

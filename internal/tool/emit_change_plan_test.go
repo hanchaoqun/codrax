@@ -144,6 +144,138 @@ func TestEmitChangePlan_PersistsVerificationProbesInFingerprint(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_PersistsBehaviorContractsAndProbeRefs(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "fix widget value"},
+			BehaviorContracts: []types.WriteBehaviorContract{{
+				ID:       "widget-value",
+				Kind:     types.WriteBehaviorObservable,
+				Operator: types.WriteBehaviorOpEquals,
+				Subject:  "widget.VALUE",
+				Expected: "42",
+				Required: true,
+				Source:   "write_analyzer",
+			}},
+		},
+	})
+	params := json.RawMessage(`{
+		"request": "fix widget value",
+		"summary": "Modify widget.py and attach a bounded probe that imports the changed module and verifies the typed contract.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "value_contract", "language": "python", "code": "import widget\nassert widget.VALUE == 42\n", "contract_refs": ["widget-value"], "changed_symbol_refs": ["widget.VALUE"], "expects_baseline_failure": true}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected Success=true, got summary: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		t.Fatal("expected ChangePlan installed on Mutable")
+	}
+	if len(plan.BehaviorContracts) != 1 || plan.BehaviorContracts[0].ID != "widget-value" {
+		t.Fatalf("behavior contract snapshot missing: %+v", plan.BehaviorContracts)
+	}
+	if len(plan.VerificationProbes) != 1 {
+		t.Fatalf("verification probe missing: %+v", plan.VerificationProbes)
+	}
+	probe := plan.VerificationProbes[0]
+	if len(probe.ContractRefs) != 1 || probe.ContractRefs[0] != "widget-value" {
+		t.Fatalf("contract refs not preserved: %+v", probe)
+	}
+	if len(probe.ChangedSymbolRefs) != 1 || probe.ChangedSymbolRefs[0] != "widget.VALUE" || !probe.ExpectsBaselineFailure {
+		t.Fatalf("changed-symbol/baseline metadata not preserved: %+v", probe)
+	}
+}
+
+func TestEmitChangePlan_RejectsUnknownBehaviorContractRef(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "fix widget value"},
+			BehaviorContracts: []types.WriteBehaviorContract{{
+				ID:       "widget-value",
+				Kind:     types.WriteBehaviorObservable,
+				Operator: types.WriteBehaviorOpEquals,
+				Expected: "42",
+				Required: true,
+				Source:   "write_analyzer",
+			}},
+		},
+	})
+	params := json.RawMessage(`{
+		"request": "fix widget value",
+		"summary": "Modify widget.py and attach a bounded probe with a stale contract reference.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "value_contract", "language": "python", "code": "import widget\nassert widget.VALUE == 42\n", "contract_refs": ["missing-contract"]}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected unknown behavior contract ref to be rejected")
+	}
+	if !strings.Contains(res.Summary, "unknown behavior_contract id") {
+		t.Fatalf("summary should name unknown contract ref, got: %s", res.Summary)
+	}
+}
+
+func TestEmitChangePlan_RequiresProbeCoverageForExplicitRequiredContract(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "fix widget value"},
+			BehaviorContracts: []types.WriteBehaviorContract{{
+				ID:       "widget-value",
+				Kind:     types.WriteBehaviorObservable,
+				Operator: types.WriteBehaviorOpEquals,
+				Expected: "42",
+				Required: true,
+				Source:   "write_analyzer",
+			}},
+		},
+	})
+	params := json.RawMessage(`{
+		"request": "fix widget value",
+		"summary": "Modify widget.py and attach a bounded probe that forgot to name which contract it covers.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "value_contract", "language": "python", "code": "import widget\nassert widget.VALUE == 42\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected missing explicit contract coverage to be rejected")
+	}
+	if !strings.Contains(res.Summary, "must reference at least one required explicit behavior_contract") {
+		t.Fatalf("summary should name missing contract coverage, got: %s", res.Summary)
+	}
+}
+
 func TestEmitChangePlan_RejectsEscapingVerificationProbeWorkingDir(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()

@@ -22,6 +22,14 @@ func TestWriteContextPackFromWriteAnalysisIRPreservesP0Constraints(t *testing.T)
 				Note:   "do not change read scheduler byte identity",
 			}},
 			ExpectedOutcomes: []string{"plan-file apply passes approval gate"},
+			BehaviorContracts: []WriteBehaviorContract{{
+				ID:       "approval-gate",
+				Kind:     WriteBehaviorInvariant,
+				Operator: WriteBehaviorOpSatisfies,
+				Expected: "all writes pass apply-pre approval gate",
+				Required: true,
+				Source:   "write_analyzer",
+			}},
 		},
 		RepoFacts: WriteRepoFacts{TestRunner: "go"},
 	}
@@ -38,6 +46,9 @@ func TestWriteContextPackFromWriteAnalysisIRPreservesP0Constraints(t *testing.T)
 	}
 	if !writeContextViewContains(view, "risk_profile", "changes_build_system=true") {
 		t.Fatalf("risk profile missing from view: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "behavior_contract", "id=approval-gate") {
+		t.Fatalf("behavior contract missing from view: %+v", view.Items)
 	}
 }
 

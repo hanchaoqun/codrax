@@ -168,6 +168,21 @@ func WriteContextPackFromWriteAnalysisIR(ir *WriteAnalysisIR) WriteContextPack {
 		pack.Items = append(pack.Items, writeContextItem("success_criterion", WriteContextP1, outcome, "write_analysis",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 	}
+	for _, contract := range ir.Request.BehaviorContracts {
+		text := renderWriteBehaviorContractContext(contract)
+		if text == "" {
+			continue
+		}
+		priority := WriteContextP1
+		if contract.Required {
+			priority = WriteContextP0
+		}
+		item := writeContextItem("behavior_contract", priority, text, "write_analysis",
+			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+		item.SourceID = contract.ID
+		item.ID = writeContextStableID("behavior_contract", contract.ID, string(contract.Kind), contract.Subject, contract.Expected)
+		pack.Items = append(pack.Items, item)
+	}
 	for _, manifest := range ir.RepoFacts.Manifests {
 		pack.Items = append(pack.Items, writeContextItem("manifest", WriteContextP2, manifest, "write_analysis",
 			WriteConsumerPlanner, WriteConsumerVerifier))
@@ -739,6 +754,32 @@ func renderExecutedCommandContext(cmd ExecutedCommand) string {
 	}
 	if len(parts) == 1 && parts[0] == "exit=0" {
 		return ""
+	}
+	return trimWriteContextText(strings.Join(parts, " "))
+}
+
+func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
+	parts := []string{}
+	if c.ID != "" {
+		parts = append(parts, "id="+c.ID)
+	}
+	if c.Kind != "" {
+		parts = append(parts, "kind="+string(c.Kind))
+	}
+	if c.Operator != "" {
+		parts = append(parts, "operator="+string(c.Operator))
+	}
+	if c.Subject != "" {
+		parts = append(parts, "subject="+c.Subject)
+	}
+	if c.Expected != "" {
+		parts = append(parts, "expected="+c.Expected)
+	}
+	if c.Required {
+		parts = append(parts, "required=true")
+	}
+	if c.EvidenceRef != "" {
+		parts = append(parts, "evidence_ref="+c.EvidenceRef)
 	}
 	return trimWriteContextText(strings.Join(parts, " "))
 }

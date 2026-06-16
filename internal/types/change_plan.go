@@ -361,6 +361,11 @@ type ChangePlan struct {
 	// lane explicitly, and run_tests consumes only the fields below.
 	VerificationProbes []VerificationProbe `json:"verification_probes,omitempty"`
 
+	// BehaviorContracts is the write_analyzer contract snapshot visible when
+	// this plan was emitted. It lets verify/probe coverage reference stable
+	// atom IDs instead of re-reading mutable task prose after retries.
+	BehaviorContracts []WriteBehaviorContract `json:"behavior_contracts,omitempty"`
+
 	// TargetPaths is the declared write scope — the set of files
 	// the apply stage is allowed to modify. Populated from Changes
 	// but also stored independently so the apply-stage pre-flight
@@ -524,12 +529,15 @@ func PlanFingerprint(plan *ChangePlan) string {
 // schema is language-tagged so additional runners can be added without parsing
 // natural language acceptance_tests.
 type VerificationProbe struct {
-	ID             string   `json:"id,omitempty"`
-	Language       string   `json:"language"`
-	WorkingDir     string   `json:"working_dir,omitempty"`
-	Code           string   `json:"code"`
-	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
-	ExpectedStdout []string `json:"expected_stdout,omitempty"`
+	ID                     string   `json:"id,omitempty"`
+	Language               string   `json:"language"`
+	WorkingDir             string   `json:"working_dir,omitempty"`
+	Code                   string   `json:"code"`
+	TimeoutSeconds         int      `json:"timeout_seconds,omitempty"`
+	ExpectedStdout         []string `json:"expected_stdout,omitempty"`
+	ContractRefs           []string `json:"contract_refs,omitempty"`
+	ChangedSymbolRefs      []string `json:"changed_symbol_refs,omitempty"`
+	ExpectsBaselineFailure bool     `json:"expects_baseline_failure,omitempty"`
 }
 
 // FileChange describes one file-level modification the apply stage

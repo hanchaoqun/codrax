@@ -289,6 +289,25 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 			fmt.Fprintf(&b, "  - %s\n", o)
 		}
 	}
+	if len(ir.Request.BehaviorContracts) > 0 {
+		b.WriteString("- behavior contracts:\n")
+		for _, c := range ir.Request.BehaviorContracts {
+			fmt.Fprintf(&b, "  - id=%s kind=%s operator=%s", c.ID, c.Kind, c.Operator)
+			if c.Subject != "" {
+				fmt.Fprintf(&b, " subject=%s", c.Subject)
+			}
+			if c.Expected != "" {
+				fmt.Fprintf(&b, " expected=%s", c.Expected)
+			}
+			if c.Required {
+				b.WriteString(" required=true")
+			}
+			if c.EvidenceRef != "" {
+				fmt.Fprintf(&b, " evidence_ref=%s", c.EvidenceRef)
+			}
+			b.WriteByte('\n')
+		}
+	}
 	return b.String()
 }
 

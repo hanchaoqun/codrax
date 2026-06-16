@@ -46,13 +46,17 @@ type WriteAnalysisIR struct {
 //     done correctly. The reflector reads these so its critique can
 //     judge "does the plan move toward the goal" not just "did tests
 //     pass".
+//   - BehaviorContracts: optional typed observables that downstream plan and
+//     verify artifacts can reference by ID. These replace prose parsing for
+//     hard coverage checks.
 type WriteRequestModel struct {
-	RawRequest       string            `json:"raw_request"`
-	Task             WriteTask         `json:"task"`
-	Risk             WriteRiskProfile  `json:"risk"`
-	ScopeAnchors     []string          `json:"scope_anchors,omitempty"`
-	Constraints      []WriteConstraint `json:"constraints,omitempty"`
-	ExpectedOutcomes []string          `json:"expected_outcomes,omitempty"`
+	RawRequest        string                  `json:"raw_request"`
+	Task              WriteTask               `json:"task"`
+	Risk              WriteRiskProfile        `json:"risk"`
+	ScopeAnchors      []string                `json:"scope_anchors,omitempty"`
+	Constraints       []WriteConstraint       `json:"constraints,omitempty"`
+	ExpectedOutcomes  []string                `json:"expected_outcomes,omitempty"`
+	BehaviorContracts []WriteBehaviorContract `json:"behavior_contracts,omitempty"`
 }
 
 // WriteTask is the LLM's category + scope + one-line restatement.
@@ -196,7 +200,7 @@ type WriteConstraint struct {
 // through to a multi-phase TaskGraph. Until then this field is
 // informational and validate-only.
 type PhaseProposal struct {
-	Split  string      `json:"split"`           // "single" | "sequential" | "parallel"
+	Split  string      `json:"split"` // "single" | "sequential" | "parallel"
 	Phases []PhaseSeed `json:"phases,omitempty"`
 }
 

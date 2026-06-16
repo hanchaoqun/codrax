@@ -310,3 +310,17 @@ Acceptance:
   Targeted tests passed:
   `go test ./internal/tool -run 'PytestParser|ParsePytest|RunTests'` and
   `go test ./internal/types -run 'WriteContextPack|VerifyFailureHandoff'`.
+- 2026-06-16: Batch 2 full `go test ./...` passed, then committed and pushed
+  as `d6cfb36b write: classify verify parser subreasons`.
+- 2026-06-16: Batch 3 implemented locally. Added typed
+  `WriteBehaviorContract` atoms, analyzer schema support, ChangePlan contract
+  snapshots, probe `contract_refs` / `changed_symbol_refs` /
+  `expects_baseline_failure`, planner/controller/context-pack rendering, and
+  structural plan validation for explicit required contract coverage. The
+  hard gate only reads typed contract IDs/enums and probe metadata; it does not
+  parse user prose, model rationale, or natural-language expected outcomes.
+  Targeted tests passed:
+  `go test ./internal/tool -run 'EmitWriteAnalysis|EmitChangePlan|VerificationProbe|RunTests'`,
+  `go test ./internal/types -run 'WriteContextPack|WriteAnalysisIR|ChangePlan|BehaviorContract'`,
+  `go test ./internal/agent -run 'Planner|WriteController|Prompt'`, and
+  `go test ./internal/skill`.
