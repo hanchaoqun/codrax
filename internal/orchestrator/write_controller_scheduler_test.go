@@ -39,6 +39,50 @@ func (s *fakeWorkflowRunStore) FindActiveRun() (*types.WriteWorkflowRun, error) 
 	return &cp, nil
 }
 
+func TestSeedWriteWorkflowRunPersistsWriteAnalysisContextForDirectPlan(t *testing.T) {
+	mu := types.NewMutableState("fix direct plan")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{
+				Summary: "fix direct plan",
+				Scope:   types.ScopeMicro,
+			},
+			ScopeAnchors:     []string{"pkg/bug.py"},
+			ExpectedOutcomes: []string{"bug path works"},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+
+	run := o.seedWriteWorkflowRun()
+	if len(run.ContextPacks) == 0 {
+		t.Fatalf("expected write analysis context pack on direct-plan seed: %+v", run)
+	}
+	analysisPack := run.ContextPacks[0]
+	view := analysisPack.View(types.WriteConsumerPlanner, 10)
+	if !writeContextViewContains(view, "scope_anchor", "pkg/bug.py") {
+		t.Fatalf("seeded write-analysis pack missing scope anchor: %+v", view.Items)
+	}
+	if active := run.Batches[0]; active.Status != types.WriteWorkflowBatchReadyToPlan {
+		t.Fatalf("micro-scope direct plan should still start ready_to_plan, got %s", active.Status)
+	}
+
+	plan := &types.ChangePlan{
+		ID:          "plan-direct",
+		Summary:     "fix direct plan",
+		TargetPaths: []string{"pkg/bug.py"},
+		Changes:     []types.FileChange{{Path: "pkg/bug.py", Kind: "modify"}},
+	}
+	run = attachPlanContextPackToWorkflowRun(run, plan)
+	merged := types.MergeWriteContextPacks("batch-1", "fix direct plan", run.ContextPacks...)
+	coverage := merged.View(types.WriteConsumerPlanner, 30)
+	if !writeContextViewContains(coverage, "plan_context_coverage", "covered=1/1") {
+		t.Fatalf("plan context coverage should consume seeded write-analysis scope anchors: %+v", coverage.Items)
+	}
+	if writeContextViewContains(coverage, "plan_context_missing_source_path", "pkg/bug.py") {
+		t.Fatalf("seeded scope anchor should not be reported as missing prior context: %+v", coverage.Items)
+	}
+}
+
 type readExplorationRunnerFunc func(*Orchestrator) (int, error)
 
 func (f readExplorationRunnerFunc) Run(o *Orchestrator) (int, error) {

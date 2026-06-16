@@ -575,6 +575,53 @@ Required direction:
 - if a plan edits outside the evidence-backed localization set, confidence
   should downgrade or the controller should re-explore while budget remains.
 
+2026-06-17 direct-plan handoff follow-up:
+
+- `pytest-dev__pytest-5227` and `scikit-learn__scikit-learn-25500` started from
+  typed micro-scope `ready_to_plan` seeds and skipped the read-only exploration
+  node. Both runs had useful `WriteAnalysisIR.ScopeAnchors`, but the durable
+  workflow context pack contained only risk/plan items before this fix. As a
+  result, SWE-bench audit reported `plan_context_missing_source_paths` for files
+  that had in fact been identified by write analysis.
+- Generalized fix: every new `WriteWorkflowRun` now persists a
+  `WriteContextPackFromWriteAnalysisIR` pack before plan context coverage is
+  computed. This is durable backend handoff, not a prompt routing hack: planner
+  and controller already receive `WriteAnalysisIR` through their typed task
+  sections, and the seeded pack is used by run persistence, adapter audit,
+  recovery, and later context projection.
+- Verification: a focused controller test proves a direct-plan micro-scope
+  workflow seeds `scope_anchor` context and that `attachPlanContextPackToWorkflowRun`
+  reports `covered=1/1` instead of a missing source path. A follow-up
+  `pytest-dev__pytest-5227` run exported the same source patch and changed
+  `plan_context_missing_source_paths` from `['src/_pytest/logging.py']` to `[]`.
+
+### G3.1: Planner can choose the symptom site instead of the owner boundary
+
+The new `scikit-learn__scikit-learn-25500` run produced a harness-consumable
+patch, but manual audit against the SWE-bench gold fix found a wrong-layer
+repair:
+
+- Codrax patched `_CalibratedClassifier.predict_proba` with
+  `np.ravel(calibrator.predict(this_pred))`.
+- The gold fix changes `IsotonicRegression.predict` so it bypasses the
+  `transform_output="pandas"` wrapper and always returns an ndarray by calling
+  a private `_transform` helper.
+- Codrax's patch may satisfy the explicit CalibratedClassifier symptom, but it
+  leaves the broader owner invariant unresolved: `predict()` should not inherit
+  `transform()`'s configured container wrapping.
+
+Required direction:
+
+- Add an owner-boundary/root-cause depth signal for plans whose proposed change
+  edits the consumer/caller while the observed failure is caused by a typed
+  callee return-shape or wrapper/configuration boundary.
+- The signal must be structural: call graph edges, changed-symbol refs,
+  behavior-contract subjects, and prior context packs. It must not use issue
+  keywords, model rationale, or gold patches.
+- Initially keep this as audit/confidence and planner handoff guidance; promote
+  to a hard re-explore action only after repeated evidence shows low false
+  positives.
+
 ### G4: Tool-output and request preprocessing can inject noisy entities
 
 Recent evaluation showed analyzer pre-scan caution can treat large code or
@@ -1334,7 +1381,8 @@ Primary files:
 | 6 | in_progress | Permission engine unification. This pass fixed task-level `WriteAnalysisIR.Request.Risk.Overall=high` so it remains hard `RiskHigh` and `auto_safe` pauses for approval; individual noisy risk booleans remain medium advisory unless corroborated by precise structural policy. |
 | 7 | pending | Context shaping and durable sidechains. |
 | 8 | in_progress | UX Auto Pilot polish. This pass adds typed SWE-bench/Codrax workflow heartbeats for long instance runs: the adapter streams Codrax output to `codrax.out` and emits interval progress from durable workflow JSON (`workflow`, active batch/slice, latest progress reason), preserving raw transparency without parsing stdout/prose for control. |
-| 9 | in_progress | Ran `matplotlib__matplotlib-24149` after Batch 2, `django__django-11964`/`scikit-learn__scikit-learn-14983`/`sphinx-doc__sphinx-11445` after Batch 6, `django__django-11848`/`scikit-learn__scikit-learn-15535`/`sphinx-doc__sphinx-8721` after Batch 8, `pydata__xarray-4094`/`pylint-dev__pylint-6506`/`pytest-dev__pytest-5413`, `scikit-learn__scikit-learn-14894`/`sphinx-doc__sphinx-8713`/`sympy__sympy-18199`, `sympy__sympy-18532`/`sphinx-doc__sphinx-8282`, and `django__django-13933`/`sphinx-doc__sphinx-10451` follow-up. Official harness dry-runs accepted generated prediction files. Manual audit exposed failed-verify stale-plan reuse, raw-diff Python unreachable edits, probe-only high confidence without prior context, missing persisted prior-context coverage, non-terminal empty-patch export when planner produced no `ChangePlan`, and wall-time canceled empty patches being overcollapsed to generic no-plan. Current fixes block durable workflows on terminal `plan_batch` failure, add typed empty-patch audit reasons, and export/latest-progress-driven wall-time classification without parsing stdout/prose. More non-Go and symptom-only cases remain. |
+| 9 | in_progress | Ran `matplotlib__matplotlib-24149` after Batch 2, `django__django-11964`/`scikit-learn__scikit-learn-14983`/`sphinx-doc__sphinx-11445` after Batch 6, `django__django-11848`/`scikit-learn__scikit-learn-15535`/`sphinx-doc__sphinx-8721` after Batch 8, `pydata__xarray-4094`/`pylint-dev__pylint-6506`/`pytest-dev__pytest-5413`, `scikit-learn__scikit-learn-14894`/`sphinx-doc__sphinx-8713`/`sympy__sympy-18199`, `sympy__sympy-18532`/`sphinx-doc__sphinx-8282`, `django__django-13933`/`sphinx-doc__sphinx-10451`, and `pytest-dev__pytest-5227`/`matplotlib__matplotlib-26020`/`scikit-learn__scikit-learn-25500` follow-up. Official harness dry-runs accepted generated prediction files. Manual audit exposed failed-verify stale-plan reuse, raw-diff Python unreachable edits, probe-only high confidence without prior context, missing persisted prior-context coverage, non-terminal empty-patch export when planner produced no `ChangePlan`, wall-time canceled empty patches being overcollapsed to generic no-plan, and a wrong-layer scikit-learn repair where the caller was patched instead of the owner `IsotonicRegression.predict` boundary. Current fixes block durable workflows on terminal `plan_batch` failure, add typed empty-patch audit reasons, export/latest-progress-driven wall-time classification, and seed durable write-analysis context packs for direct-plan workflows without parsing stdout/prose. More non-Go and symptom-only cases remain. |
 | 10 | pending | Commercial hardening. |
 | Paper review addendum | complete | Re-read the public paper and official Claude Code architecture/permission/subagent/hook documentation, then added an evidence-boundary section, R11-R14 design takeaways, and Batches 11-15 for the Codrax-specific runtime kernel, internal hooks/effect ledger, shared command policy parser, context-cost accounting, and slice checkpoint/rewind/fork readiness. |
 | Verify-infra authority | complete | Fixed the typed status boundary for missing verify reports. `verifyPostHook` and controller infra-budget exhaustion now mark active plans `unverified` instead of `verify_failed` when no `ChangeReport` exists; SWE-bench adapter now classifies blocked verify-infra runs as `workflow_blocked_after_verify_infra`. Focused Go and adapter tests pass. |
+| Direct-plan write-analysis handoff | complete | Seeded durable `WriteContextPackFromWriteAnalysisIR` into every new `WriteWorkflowRun`, so micro-scope ready-to-plan workflows preserve P0/P1 write-analysis anchors and behavior contracts even when they do not trigger `explore_code`. The seed is stored on the run for backend consumption and plan-context coverage; planner/controller prompt sections continue to consume `WriteAnalysisIR` through their existing typed task framing. Focused controller test and `pytest-dev__pytest-5227` SWE-bench re-run confirm coverage becomes `1.0` with no missing source paths. |

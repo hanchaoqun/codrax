@@ -717,8 +717,9 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 		})
 		run.Budget.BatchesUsed = 1
 	}
+	run = o.withSeededWriteAnalysisContextPack(run, goal)
 	if pack := o.busCtx.Mutable.WriteContextPack(); pack != nil {
-		run.ContextPacks = append(run.ContextPacks, *pack)
+		run = upsertWorkflowRunContextPack(run, *pack)
 	}
 	run = types.NormalizeWriteWorkflowRun(run)
 	o.busCtx.Mutable.SetWriteWorkflowRun(&run)
@@ -727,6 +728,27 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 		o.busCtx.Mutable.WriteClosure().ReplacePendingApplies(pending)
 	}
 	return run
+}
+
+func (o *Orchestrator) withSeededWriteAnalysisContextPack(run types.WriteWorkflowRun, goal string) types.WriteWorkflowRun {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return run
+	}
+	ir := o.busCtx.Mutable.WriteAnalysisIR()
+	if ir == nil {
+		return run
+	}
+	pack := types.WriteContextPackFromWriteAnalysisIR(ir)
+	if len(pack.Items) == 0 {
+		return run
+	}
+	if batchID := strings.TrimSpace(run.ActiveBatchID); batchID != "" {
+		pack.BatchID = batchID
+	}
+	if strings.TrimSpace(pack.Goal) == "" {
+		pack.Goal = strings.TrimSpace(goal)
+	}
+	return upsertWorkflowRunContextPack(run, pack)
 }
 
 func (o *Orchestrator) dispatchWriteControllerDecision() (writeflow.WriteWorkflowDecision, error) {
