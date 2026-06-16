@@ -1813,6 +1813,45 @@ func TestRelationMemberSetCoverageGaps_DoesNotForceSupportingRegistrationEvidenc
 	}
 }
 
+func TestGenericForcedReadBoundarySatisfiedByCompleteRelationMemberSet(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceRegistration,
+		Subject:         "RegisterFeature",
+		Object:          "FeatureA",
+		Source:          "internal/registry.go",
+		LineStart:       42,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "FeatureA",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+		Scope:           types.ScopeLine,
+		Salience:        types.SalienceExhaustListed,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisRegister,
+			Predicates: types.SemanticPredicates{
+				IsRelationalLookup:    true,
+				IsCategoryEnumeration: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Entities: []string{"FeatureA"}},
+		}},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "FeatureA registrations",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"RegisterFeature"},
+		SupportRefs: []string{"RegisterFeature: internal/registry.go:42"},
+	}}
+	if !genericForcedReadBoundarySatisfied(bus, facts, mut.EmittedEvidence()) {
+		t.Fatal("complete typed relation member_set should satisfy generic forced-read boundary")
+	}
+}
+
 func TestEmitInvestigationComplete_CallChainRejectsLargeTailGapAfterLateEvidence(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.AppendEvidence([]types.EvidenceItem{
