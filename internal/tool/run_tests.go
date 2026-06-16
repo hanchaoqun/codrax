@@ -1004,6 +1004,11 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			setLastExecOutcome("zero_tests")
 			label := runnerPlanLabel(ctx.RepoRoot, plan)
 			logging.Info("[run_tests] %s parser reported zero executed tests despite typed test signal", label)
+			if shouldPreservePythonPytestZeroTests(plan) {
+				logging.Info("[run_tests] %s zero-test outcome is from an explicit pytest surface; preserving NoTestsRunners instead of escalating to unittest", label)
+				projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
+				continue
+			}
 			if next := escalateToSurfaceCandidate("zero_tests_escalation"); next != nil {
 				projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
 				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
@@ -1675,6 +1680,12 @@ func runnerPlanHasTypedTestSignal(surface types.TestSurface, plan runnerPlan, re
 		}
 	}
 	return false
+}
+
+func shouldPreservePythonPytestZeroTests(plan runnerPlan) bool {
+	return plan.Runner == "python" &&
+		plan.Framework == pythonFrameworkPytest &&
+		hasPythonPytestConfig(plan.Root)
 }
 
 func makeZeroTestsFailureReport(plan runnerPlan, output string) *types.ChangeReport {

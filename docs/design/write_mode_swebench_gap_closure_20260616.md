@@ -980,3 +980,83 @@ Red-line check:
   drives the new behavior. The adapter consumes typed filesystem markers,
   ConfigParser/TOML/AST parsed dependency declarations, API probe exit codes,
   and command results.
+
+## 2026-06-16 Multi-Instance Online Smoke Follow-up
+
+Evidence:
+
+```text
+WORKDIR=eval/results/swebench/lite-smoke-20260616-django-requests-pytest-xarray-online-current
+INSTANCE_IDS_FILE=[django__django-11133, psf__requests-2317, pytest-dev__pytest-11148, pydata__xarray-4248]
+SWEBENCH_SMOKE_LIMIT=4
+MAX_STEPS=70
+CODRAX_TIMEOUT=1800
+SWEBENCH_ENV_PREPARE_TIMEOUT=900
+eval/swebench/smoke_lite.sh
+```
+
+Artifacts:
+
+- Predictions:
+  `eval/results/swebench/lite-smoke-20260616-django-requests-pytest-xarray-online-current/predictions.jsonl`
+- Results:
+  `eval/results/swebench/lite-smoke-20260616-django-requests-pytest-xarray-online-current/results.jsonl`
+- `validate_predictions.py` accepted 4 predictions, `empty_patch=0`, and the
+  official harness dry-run command was emitted.
+
+Manual audit:
+
+| Instance | Local verdict | Human audit | System signal |
+| --- | --- | --- | --- |
+| `django__django-11133` | `predicted_passed`, high confidence | Likely correct; `memoryview` is treated like bytes before response coercion. | Local typed verify passed. |
+| `psf__requests-2317` | `predicted_unverified` | Patch direction is plausible: byte method values decode before `builtin_str(method)`. | Historical Requests import environment is incompatible with Python 3.11 collections APIs; remains non-blocking unavailable. |
+| `pytest-dev__pytest-11148` | `predicted_passed_low_confidence` | Plausible but confidence should stay cautious because import-cache behavior is subtle. | Source patch exported; test patch stripped for official prediction; local verify passed but confidence downgrade remains useful. |
+| `pydata__xarray-4248` | initially `predicted_unverified`; focused rerun later locally passed | Focused rerun generated a patch that likely placed units after dims/dtype rather than immediately after the variable name. | Probe only checked substring presence, not ordering; this is a generic behavior-contract/probe-coupling gap. |
+
+Follow-up focused rerun:
+
+```text
+WORKDIR=eval/results/swebench/lite-smoke-20260616-xarray4248-pytest-noise-after-fix
+INSTANCE_ID=pydata__xarray-4248
+SWEBENCH_SMOKE_LIMIT=1
+MAX_STEPS=70
+CODRAX_TIMEOUT=1800
+SWEBENCH_ENV_PREPARE_TIMEOUT=900
+eval/swebench/smoke_lite.sh
+```
+
+The focused rerun produced a non-empty prediction, passed local verification
+with two bounded probes, and emitted an official harness dry-run command. Manual
+audit still judged the patch semantically weak because the probe did not cover
+the exact format ordering requirement.
+
+Systemic gaps closed in this batch:
+
+- `setup.cfg` dependency lines can contain inline comments. The adapter now
+  strips inline comments after ConfigParser extraction before passing
+  requirements to pip.
+- Explicit Python/pytest surfaces with project pytest config should preserve a
+  zero-test outcome as typed `no_tests` instead of escalating into noisy
+  standard-library unittest discovery. This avoids turning pytest selector or
+  environment mismatch into unrelated `unittest.loader._FailedTest` noise.
+- Required behavior contracts with `source=expected_outcome_fallback` now
+  participate in local confidence downgrade. A passed probe that omits
+  `contract_refs` for required fallback contracts cannot produce high local
+  confidence, but prediction export remains unblocked for the official harness.
+
+Remaining boundary:
+
+- The xarray audit shows why the next architecture batch should implement the
+  `Observation Confidence Spine` from
+  `docs/design/write_mode_claude_code_control_plane_20260616.md`: probes need
+  typed behavior-contract coupling and changed-code coupling strong enough to
+  distinguish substring existence from exact observable semantics. This remains
+  audit/confidence logic, not a hard delivery blocker.
+
+Red-line check:
+
+- New behavior is driven by ConfigParser output, typed runner/framework state,
+  pytest config file presence, `ChangePlan.behavior_contracts[]`,
+  `verification_probes[].contract_refs`, and typed verify reports. It does not
+  parse issue text, SWE-bench ids, user keywords, model summaries, rationale,
+  or `<think>` logs.

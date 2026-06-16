@@ -1218,6 +1218,26 @@ func TestDetectPythonTestFramework(t *testing.T) {
 	})
 }
 
+func TestShouldPreservePythonPytestZeroTestsForExplicitPytestSurface(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[tool.pytest.ini_options]\ntestpaths = [\"xarray/tests\"]\n"), 0o644); err != nil {
+		t.Fatalf("write pyproject.toml: %v", err)
+	}
+	plan := runnerPlan{Runner: "python", Framework: pythonFrameworkPytest, Root: root}
+	if !shouldPreservePythonPytestZeroTests(plan) {
+		t.Fatal("pytest zero-tests should stay no_tests when an explicit pytest surface exists")
+	}
+	plan.Framework = pythonFrameworkUnittest
+	if shouldPreservePythonPytestZeroTests(plan) {
+		t.Fatal("unittest zero-tests must not use pytest preservation")
+	}
+	plainRoot := t.TempDir()
+	plan = runnerPlan{Runner: "python", Framework: pythonFrameworkPytest, Root: plainRoot}
+	if shouldPreservePythonPytestZeroTests(plan) {
+		t.Fatal("bare python roots without pytest config may still escalate to another typed candidate")
+	}
+}
+
 func TestRunTestsPythonUnittestFrameworkPasses(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

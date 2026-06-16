@@ -290,7 +290,7 @@ with tempfile.TemporaryDirectory() as tmp:
         "[options]\n"
         "install_requires =\n"
         "    pyerfa>=2.0\n"
-        "    numpy>=1.21\n"
+        "    numpy>=1.21  # runtime floor\n"
         "tests_require = pytest-astropy\n"
         "setup_requires =\n"
         "    setuptools_scm\n"
@@ -353,6 +353,22 @@ if downgrade != "verification_probe_missing_required_contract_ref":
 verdict = mod.prediction_verdict("diff --git a/src/pkg.py b/src/pkg.py\n", "passed", "applied", "", downgrade)
 if verdict != ("predicted_passed_low_confidence", "unknown", False):
     raise SystemExit(f"unexpected downgraded verdict: {verdict!r}")
+
+fallback_plan = {
+    "behavior_contracts": [
+        {"id": "outcome-1", "required": True, "source": "expected_outcome_fallback"},
+    ],
+    "verification_probes": [
+        {"id": "probe", "language": "python", "code": "assert ', in mm' in repr(obj)", "changed_symbol_refs": ["pkg.repr"]},
+    ],
+}
+fallback_downgrade = mod.prediction_confidence_downgrade_reason(
+    plan=fallback_plan,
+    report=probe_report,
+    verify_status="passed",
+)
+if fallback_downgrade != "verification_probe_missing_required_contract_ref":
+    raise SystemExit(f"unexpected fallback-contract downgrade reason: {fallback_downgrade!r}")
 
 strong_plan = {
     "behavior_contracts": [

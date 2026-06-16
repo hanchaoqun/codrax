@@ -409,7 +409,7 @@ def setup_cfg_declared_requires(repo_dir: Path) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for item in raw:
-        value = item.strip()
+        value = item.split("#", 1)[0].strip()
         if not value or value.startswith("#"):
             continue
         if value not in seen:
@@ -1216,14 +1216,14 @@ def prediction_verdict(
     return "predicted_unchecked", "unknown", False
 
 
-def explicit_required_behavior_contract_ids(plan: dict[str, Any]) -> set[str]:
+def required_behavior_contract_ids(plan: dict[str, Any], *, include_fallback: bool = False) -> set[str]:
     ids: set[str] = set()
     for contract in plan.get("behavior_contracts") or []:
         if not isinstance(contract, dict):
             continue
         if not bool(contract.get("required")):
             continue
-        if str(contract.get("source") or "").strip() == "expected_outcome_fallback":
+        if not include_fallback and str(contract.get("source") or "").strip() == "expected_outcome_fallback":
             continue
         cid = str(contract.get("id") or "").strip()
         if cid:
@@ -1271,7 +1271,7 @@ def prediction_confidence_downgrade_reason(
     probes = [probe for probe in plan.get("verification_probes") or [] if isinstance(probe, dict)]
     if not probes or not report_passed_by_verification_probe(report):
         return ""
-    required_contracts = explicit_required_behavior_contract_ids(plan)
+    required_contracts = required_behavior_contract_ids(plan, include_fallback=True)
     covered_contracts: set[str] = set()
     changed_symbols: set[str] = set()
     baseline_expected = False

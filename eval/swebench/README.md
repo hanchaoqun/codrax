@@ -56,9 +56,11 @@ requirements into the same venv before editable install. Common runtime/test
 requirements files are installed best-effort with discovered constraints passed
 through to pip; dev requirements are used only as a bounded fallback when no
 test-focused requirements file exists. Legacy projects that only declare
-dependencies in `setup.py` are parsed with Python AST; any structured
-`install_requires` / `setup_requires` entries are installed best-effort before
-editable install. For historical projects with broad lower-bound-only
+dependencies in `setup.py` or `setup.cfg` are parsed with Python AST or
+ConfigParser; structured `install_requires` / `setup_requires` entries are
+installed best-effort before editable install, and ConfigParser-extracted
+requirement values have inline comments stripped before pip sees them. For
+historical projects with broad lower-bound-only
 dependency declarations, the adapter may add temporary compatibility constraints
 to the eval venv, such as `numpy<2` when the project declares NumPy without a
 major-version ceiling; pass `--disable-python-compat-constraints` to turn this
@@ -106,7 +108,10 @@ unavailable probes fall back to the normal runner/unverified path. When a passed
 local verdict depends only on verification probes that do not carry typed
 contract/symbol coverage, the adapter lowers local confidence via
 `prediction_confidence_downgrade_reason` but still exports the patch for the
-official harness. By default
+official harness. Required behavior contracts sourced from
+`expected_outcome_fallback` also participate in this downgrade, so a weak
+probe cannot produce high local confidence without explicit contract coverage.
+By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only
 when debugging Codrax's own generated test edits. The adapter keeps SWE-bench
@@ -129,6 +134,9 @@ executable tests is persisted as `verification_status=unavailable` with
 `Passed=true` in the raw report. When a Django suite is not explicitly
 supplied, the verifier derives a conservative scoped suite from typed ChangePlan
 paths plus the repository `tests/` tree before falling back to a wider run.
+When an explicit Python/pytest surface is selected and a pytest config is
+present, zero discovered tests stay in the typed `no_tests/unavailable` lane
+instead of escalating to standard-library unittest discovery.
 
 Per-instance run artifacts intentionally redact SWE-bench gold fields such as
 `patch`, `test_patch`, `FAIL_TO_PASS`, and `PASS_TO_PASS` from
