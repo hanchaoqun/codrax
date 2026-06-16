@@ -3750,16 +3750,13 @@ func preCheckRelationMemberSetAnswerShape(doc *types.AnswerDocumentV2, ctxOpt ..
 		return nil
 	}
 	ctx := ctxOpt[0]
-	refs := preEmitPrincipalRelationMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
+	refs := preEmitPrincipalRelationShapeMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
 	if len(refs) == 0 {
 		return nil
 	}
 	var missing []string
 	for _, ref := range refs {
 		fact := ref.Fact
-		if len(fact.Members) <= 1 {
-			continue
-		}
 		if preEmitStructuredMemberBlockCoversFact(doc, fact) {
 			continue
 		}
@@ -3774,10 +3771,23 @@ func preCheckRelationMemberSetAnswerShape(doc *types.AnswerDocumentV2, ctxOpt ..
 	}
 	return []emitFixHint{{
 		Field: "blocks[kind=ordered_list|bullet_list|table].items[]",
-		ExpectedShape: "render every multi-member relation principal member_set as direct list/table rows before mechanism explanation: " +
+		ExpectedShape: "render every principal relation member_set as direct list/table rows before mechanism explanation: " +
 			strings.Join(missing, "; "),
 		Reason: "relation lookups ask for qualifying members plus proof; a mechanism-only paragraph or compressed prose can hide members and recreate the original off-topic architecture answer.",
 	}}
+}
+
+func preEmitPrincipalRelationShapeMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	if len(facts) == 0 {
+		return nil
+	}
+	// Typed-only boundary: set-valued relation requests may use plain member
+	// labels, while relation-surface aggregate members carry their own structural
+	// relation shape. Do not inspect aggregate labels, raw requests, or prose.
+	if ctx != nil && ctx.AnalysisIR != nil && types.RequiresRelationMemberSetHandoff(ctx.AnalysisIR.RequestModel) {
+		return preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
+	}
+	return preEmitPrincipalRelationMemberSetFactRefs(ctx, facts)
 }
 
 type preEmitAggregateCountClaim struct {

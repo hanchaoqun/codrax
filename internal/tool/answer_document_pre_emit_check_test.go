@@ -936,6 +936,130 @@ func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFa
 	}
 }
 
+func TestPreCheckRelationMemberSetAnswerShape_RequiresSingletonCarrierForTypedRelation(t *testing.T) {
+	mu := types.NewMutableState("which workers can invoke capability Y")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "workers that can invoke capability Y",
+		Value:   "1",
+		Members: []string{"WorkerA"},
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+	}})
+	mu.SetInvestigationComplete("typed relation singleton member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsRelationalLookup:    true,
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "WorkerA is the only qualifying member; the runtime dispatcher is support context.",
+	}}}
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("summary text still visibly preserves the member, got aggregate coverage hint %+v", got)
+	}
+	hints := preCheckRelationMemberSetAnswerShape(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("typed relation singleton must require a structured carrier, got %+v", hints)
+	}
+	for _, want := range []string{"principal relation member_set", "label=\"workers that can invoke capability Y\" members=1"} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("singleton relation hint missing %q: %+v", want, hints[0])
+		}
+	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:   "members",
+		Kind: types.BlockOrderedList,
+		Items: []types.AnswerBlockItem{{
+			ID:    "worker-a",
+			Label: "WorkerA",
+			Text:  "qualifies by the grounded relation evidence",
+		}},
+	})
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) != 0 {
+		t.Fatalf("structured singleton member carrier should satisfy relation shape, got %+v", got)
+	}
+}
+
+func TestPreCheckRelationMemberSetAnswerShape_SkipsMechanismOnlyPlainMemberSet(t *testing.T) {
+	mu := types.NewMutableState("explain how workers invoke capability Y")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "mechanism support members",
+		Value:   "1",
+		Members: []string{"WorkerA"},
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+	}})
+	mu.SetInvestigationComplete("mechanism support member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsRelationalLookup: true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "WorkerA participates in the mechanism, but this turn did not carry a typed set-valued relation contract.",
+	}}}
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) != 0 {
+		t.Fatalf("mechanism-only plain member_set should not trigger relation carrier hard gate, got %+v", got)
+	}
+}
+
+func TestPreCheckRelationMemberSetAnswerShape_RelationSurfaceSingletonRequiresCarrier(t *testing.T) {
+	mu := types.NewMutableState("explain relation member surface")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "caller relation",
+		Value:   "1",
+		Members: []string{"Worker -> Helper"},
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+	}})
+	mu.SetInvestigationComplete("relation surface singleton member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentExplain},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "Worker reaches Helper through the run path.",
+	}}}
+	hints := preCheckRelationMemberSetAnswerShape(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("single explicit relation surface should require structured carrier, got %+v", hints)
+	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:   "relation",
+		Kind: types.BlockBulletList,
+		Items: []types.AnswerBlockItem{{
+			ID:    "worker-helper",
+			Label: "Worker -> Helper",
+		}},
+	})
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) != 0 {
+		t.Fatalf("structured relation-surface item should satisfy carrier, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_AcceptsCodeIdentityProjection(t *testing.T) {
 	mu := types.NewMutableState("subagent call-chain aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
