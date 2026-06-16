@@ -247,6 +247,9 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej := validatePythonDuplicateDefinitionStutter(ctx, changes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "python_duplicate_definition_stutter", rej, []string{"$.changes[].edits", "$.changes[].patch", "$.changes[].new_content"}, nil)
 	}
+	if rej := validatePythonUnreachableAddedStatements(ctx, changes); rej != "" {
+		return rej, planRepairPackFromReason(toolName, "python_unreachable_added_statement", rej, []string{"$.changes[].edits", "$.changes[].patch", "$.changes[].new_content"}, nil)
+	}
 	if rej := validatePlanPatchDuplicateInsertions(changes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "patch_duplicate_insertions", rej, []string{"$.changes[].patch", "$.changes[].edits"}, nil)
 	}
@@ -538,6 +541,154 @@ func validatePythonDuplicateDefinitionStutter(ctx *types.BusContext, changes []t
 	return ""
 }
 
+func validatePythonUnreachableAddedStatements(ctx *types.BusContext, changes []types.FileChange) string {
+	if ctx == nil {
+		return ""
+	}
+	for _, change := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if path == "" || !strings.HasSuffix(path, ".py") {
+			continue
+		}
+		planned, ok, rej := plannedPythonContent(ctx.RepoRoot, change)
+		if rej != "" {
+			return rej
+		}
+		if !ok {
+			continue
+		}
+		original, _ := readOriginalPythonContent(ctx.RepoRoot, change)
+		added := pythonAddedLineNumbers(original, planned)
+		if len(added) == 0 {
+			continue
+		}
+		if lineNo, terminalLine, statement, ok := firstPythonUnreachableAddedStatement(planned, added); ok {
+			return fmt.Sprintf(
+				"change %q adds Python statement %q at line %d after a terminal statement at line %d in the same block. "+
+					"Newly added unreachable code usually means the patch landed in the wrong function or after an early return; move the edit before the terminal statement or into the intended target block.",
+				path, statement, lineNo, terminalLine)
+		}
+	}
+	return ""
+}
+
+func pythonAddedLineNumbers(original, planned string) map[int]bool {
+	counts := map[string]int{}
+	for _, line := range strings.Split(original, "\n") {
+		counts[line]++
+	}
+	added := map[int]bool{}
+	for i, line := range strings.Split(planned, "\n") {
+		if counts[line] > 0 {
+			counts[line]--
+			continue
+		}
+		added[i+1] = true
+	}
+	return added
+}
+
+type pythonTerminalBlock struct {
+	Indent int
+	Line   int
+}
+
+func firstPythonUnreachableAddedStatement(content string, added map[int]bool) (lineNo int, terminalLine int, statement string, ok bool) {
+	if len(added) == 0 {
+		return 0, 0, "", false
+	}
+	var terminal *pythonTerminalBlock
+	inTriple := ""
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		currentLine := i + 1
+		if inTriple != "" {
+			if pythonTripleQuoteCount(line, inTriple)%2 == 1 {
+				inTriple = ""
+			}
+			continue
+		}
+		code := stripPythonLineComment(line)
+		trimmed := strings.TrimSpace(code)
+		if trimmed == "" {
+			continue
+		}
+		if delim, ok := pythonOpeningTripleQuote(trimmed); ok {
+			if pythonTripleQuoteCount(trimmed, delim)%2 == 1 {
+				inTriple = delim
+			}
+			continue
+		}
+		indent := pythonLeadingIndent(line)
+		if terminal != nil && indent < terminal.Indent {
+			terminal = nil
+		}
+		if terminal != nil && indent == terminal.Indent && currentLine > terminal.Line && added[currentLine] {
+			return currentLine, terminal.Line, trimmed, true
+		}
+		if pythonSimpleTerminalStatement(trimmed) {
+			terminal = &pythonTerminalBlock{Indent: indent, Line: currentLine}
+			continue
+		}
+		if terminal != nil && indent == terminal.Indent {
+			// Pre-existing or non-added same-block code after a terminal statement
+			// means the file already has a shape this gate cannot safely judge.
+			terminal = nil
+		}
+	}
+	return 0, 0, "", false
+}
+
+func pythonSimpleTerminalStatement(trimmed string) bool {
+	if trimmed == "return" || trimmed == "raise" || trimmed == "break" || trimmed == "continue" {
+		return true
+	}
+	for _, prefix := range []string{"return ", "raise "} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return pythonStatementLooksSingleLine(trimmed)
+		}
+	}
+	return false
+}
+
+func pythonStatementLooksSingleLine(trimmed string) bool {
+	if strings.HasSuffix(trimmed, "\\") {
+		return false
+	}
+	balance := 0
+	var quote rune
+	escaped := false
+	for _, r := range trimmed {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		switch r {
+		case '(', '[', '{':
+			balance++
+		case ')', ']', '}':
+			if balance > 0 {
+				balance--
+			}
+		}
+	}
+	return quote == 0 && balance == 0
+}
+
 func plannedPythonContent(repoRoot string, change types.FileChange) (string, bool, string) {
 	kind := strings.TrimSpace(change.Kind)
 	switch kind {
@@ -547,17 +698,60 @@ func plannedPythonContent(repoRoot string, change types.FileChange) (string, boo
 		}
 		return change.NewContent, true, ""
 	case "patch":
-		if len(change.Edits) == 0 {
-			return "", false, ""
+		if len(change.Edits) > 0 {
+			_, newContent, err := compileStructuredEditsToContent(repoRoot, &change)
+			if err != nil {
+				return "", false, enrichStructuredEditReplanDiagnostic(nil, err.Error())
+			}
+			return newContent, true, ""
 		}
-		_, newContent, err := compileStructuredEditsToContent(repoRoot, &change)
-		if err != nil {
-			return "", false, enrichStructuredEditReplanDiagnostic(nil, err.Error())
+		if strings.TrimSpace(change.Patch) != "" {
+			if strings.TrimSpace(repoRoot) == "" {
+				return "", false, ""
+			}
+			newContent, err := applyUnifiedDiffToTempAndRead(repoRoot, change)
+			if err != nil {
+				return "", false, err.Error()
+			}
+			return newContent, true, ""
 		}
-		return newContent, true, ""
+		return "", false, ""
 	default:
 		return "", false, ""
 	}
+}
+
+func applyUnifiedDiffToTempAndRead(repoRoot string, change types.FileChange) (string, error) {
+	root := strings.TrimSpace(repoRoot)
+	path := filepath.ToSlash(strings.TrimSpace(change.Path))
+	patch := strings.TrimSpace(change.Patch)
+	if root == "" || path == "" || patch == "" {
+		return "", fmt.Errorf("change %q cannot be materialized from patch without repo root, path, and patch bytes", path)
+	}
+	original, ok := readOriginalPythonContent(root, change)
+	if !ok {
+		return "", fmt.Errorf("change %q cannot be materialized because the current file bytes are unavailable", path)
+	}
+	tmp, err := os.MkdirTemp("", "codrax-plan-patch-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp patch workspace: %w", err)
+	}
+	defer os.RemoveAll(tmp)
+	target := filepath.Join(tmp, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return "", fmt.Errorf("create temp patch parent: %w", err)
+	}
+	if err := os.WriteFile(target, []byte(original), 0o644); err != nil {
+		return "", fmt.Errorf("write temp patch source: %w", err)
+	}
+	if err := applyUnifiedDiff(tmp, change.Patch); err != nil {
+		return "", fmt.Errorf("change %q patch could not be materialized for validation: %v", path, err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return "", fmt.Errorf("read temp patch result: %w", err)
+	}
+	return string(data), nil
 }
 
 func findPythonDuplicateDefinitionStutter(content string) (pythonDefinitionStutter, bool) {

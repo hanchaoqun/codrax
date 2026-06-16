@@ -1435,3 +1435,74 @@ Red-line check:
 - The progress renderer reads typed durable workflow JSON with parsed fields.
   It does not use user keywords, issue ids, model prose, summaries, natural
   language logs, or `<think>` text as hard control input.
+
+## 2026-06-17 Lite Smoke: Online Convergence And Unreachable Patch Guard
+
+Command shape:
+
+```bash
+WORKDIR=eval/results/swebench/lite-smoke-20260617-django11848-sphinx8721-sklearn15535-current
+INSTANCE_IDS_FILE=[django__django-11848, sphinx-doc__sphinx-8721, scikit-learn__scikit-learn-15535]
+SWEBENCH_SMOKE_LIMIT=3
+MAX_STEPS=70
+CODRAX_TIMEOUT=1800
+SWEBENCH_ENV_PREPARE_TIMEOUT=900
+CODRAX_PROGRESS_INTERVAL=60
+eval/swebench/smoke_lite.sh
+```
+
+Artifacts:
+
+- Predictions:
+  `eval/results/swebench/lite-smoke-20260617-django11848-sphinx8721-sklearn15535-current/predictions.jsonl`
+- Results:
+  `eval/results/swebench/lite-smoke-20260617-django11848-sphinx8721-sklearn15535-current/results.jsonl`
+- `validate_predictions.py` accepted 3 predictions; `empty_patch=0`.
+- Official SWE-bench harness dry-run command was emitted and accepted the
+  predictions path.
+
+Telemetry and audit:
+
+| Instance | Local verdict | Human audit | System signal |
+| --- | --- | --- | --- |
+| `django__django-11848` | `predicted_failed_verify`, workflow `blocked` | Source patch is close to the gold dynamic-century logic but final test edit/import interaction failed local Django tests. This is correctly blocked locally, not treated as success. | Online loop observed multiple verify/replan rounds and then hit retry budget with typed `tests_failed`. |
+| `scikit-learn__scikit-learn-15535` | `predicted_unverified` | Source patch matches the gold behavior: add `dtype=None` to both `check_array()` calls in `check_clusterings`. | Local env lacked usable numpy/import surface after partial project setup, so adapter exported a harness-consumable unverified patch. |
+| `sphinx-doc__sphinx-8721` | `predicted_unverified` | Source patch is semantically wrong: the plan intended to guard `collect_pages()`, but the raw diff inserted the guard after `return True` in the previous function, making it unreachable. Gold adds the guard at the start of `collect_pages()`. | Syntax preflight passed and local verification was unavailable due a Jinja2 compatibility import error, so the unreachable code escaped as `unverified`. |
+
+Systemic gap:
+
+- This is not a Sphinx-specific issue. The planner's typed summary and
+  `changed_symbol_refs` named the right target (`collect_pages`), but the raw
+  unified diff hunk landed in the previous Python block after an unconditional
+  `return`.
+- Existing deterministic gates covered malformed diffs, duplicate definitions,
+  syntax errors, and verification-probe coupling. They did not materialize raw
+  patch content for Python semantic-shape validation and did not detect newly
+  added unreachable statements.
+- When local verification is unavailable, this class of wrong-anchor patch can
+  be exported as `predicted_unverified`. That is better than false success, but
+  still below commercial quality because the patch is obviously unreachable
+  from static structure alone.
+
+Fix landed in this batch:
+
+- `plannedPythonContent()` now materializes raw unified-diff `kind=patch`
+  changes into a temporary single-file workspace, so Python validators can
+  inspect planned bytes for both structured edits and raw diffs.
+- New deterministic validator rejects newly added Python statements that appear
+  after a same-block terminal statement (`return`, `raise`, `break`,
+  `continue`) before any dedent.
+- The rejection points the planner to move the edit before the terminal
+  statement or into the intended target block. This is a generic Python
+  control-flow/anchor check, not a Sphinx/viewcode/epub keyword rule.
+
+Verification:
+
+- `go test ./internal/tool -run 'TestEmitChangePlan_(RejectsPythonAddedStatementAfterReturn|AllowsPythonAddedStatementBeforeReturn|RejectsPythonDiscardBindingNameThatIsNeverRead|RejectsStructuredEditDuplicatePythonDefinitionStutter)' -count=1` PASS.
+
+Red-line check:
+
+- The new hard gate consumes only planned Python bytes, original file bytes,
+  exact added-line membership, indentation, and terminal-statement syntax. It
+  does not inspect user issue text, SWE-bench ids, model prose, summaries,
+  rationale, logs, or `<think>` text.

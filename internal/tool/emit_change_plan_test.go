@@ -781,6 +781,93 @@ func TestEmitChangePlan_AcceptsPythonDiscardBindingNameWhenRead(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_RejectsPythonAddedStatementAfterReturn(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = t.TempDir()
+	path := "sphinx/ext/viewcode.py"
+	if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, "sphinx/ext"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := "def should_generate_module_page(app, modname):\n" +
+		"    return True\n" +
+		"\n" +
+		"\n" +
+		"def collect_pages(app):\n" +
+		"    env = app.builder.env\n" +
+		"    return []\n"
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(path)), []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	params := json.RawMessage(`{
+		"request": "prevent epub viewcode pages",
+		"summary": "Add the epub guard to collect_pages.",
+		"changes": [
+			{
+				"path": "sphinx/ext/viewcode.py",
+				"kind": "patch",
+				"patch": "diff --git a/sphinx/ext/viewcode.py b/sphinx/ext/viewcode.py\n--- a/sphinx/ext/viewcode.py\n+++ b/sphinx/ext/viewcode.py\n@@ -1,6 +1,8 @@\n def should_generate_module_page(app, modname):\n     return True\n \n+    if app.builder.name.startswith(\"epub\"):\n+        return []\n \n def collect_pages(app):\n     env = app.builder.env\n",
+				"rationale": "guard epub generation"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected unreachable Python insertion to be rejected")
+	}
+	for _, want := range []string{"unreachable", "after a terminal statement", "wrong function"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary should contain %q, got: %s", want, res.Summary)
+		}
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected unreachable edit plan must not install ChangePlan: %+v", plan)
+	}
+}
+
+func TestEmitChangePlan_AllowsPythonAddedStatementBeforeReturn(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = t.TempDir()
+	path := "sphinx/ext/viewcode.py"
+	if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, "sphinx/ext"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := "def collect_pages(app):\n" +
+		"    env = app.builder.env\n" +
+		"    return []\n"
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(path)), []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	params := json.RawMessage(`{
+		"request": "prevent epub viewcode pages",
+		"summary": "Add the epub guard to collect_pages before returning pages.",
+		"changes": [
+			{
+				"path": "sphinx/ext/viewcode.py",
+				"kind": "patch",
+				"patch": "diff --git a/sphinx/ext/viewcode.py b/sphinx/ext/viewcode.py\n--- a/sphinx/ext/viewcode.py\n+++ b/sphinx/ext/viewcode.py\n@@ -1,3 +1,5 @@\n def collect_pages(app):\n     env = app.builder.env\n+    if app.builder.name.startswith(\"epub\"):\n+        return []\n     return []\n",
+				"rationale": "guard epub generation before returning collected pages"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected reachable Python insertion to be accepted, got: %s", res.Summary)
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan == nil {
+		t.Fatal("accepted reachable edit should install ChangePlan")
+	}
+}
+
 func TestEmitChangePlan_RejectsStructuredEditDuplicatePythonDefinitionStutter(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
