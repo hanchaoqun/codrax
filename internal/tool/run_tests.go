@@ -452,6 +452,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		return "auto_detect"
 	}
+	syntaxPreflightDone := map[string]bool{}
 	for planIdx := 0; planIdx < len(plans); planIdx++ {
 		plan := plans[planIdx]
 		runnerRoot := plan.Root
@@ -572,6 +573,28 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				plans = append(plans, *next)
 			}
 			continue
+		}
+
+		if report, syntaxOutput, ok := runSyntaxPreflightForPlan(ctx, runnerPlanLabel(ctx.RepoRoot, plan), runnerRoot, runner, syntaxPreflightDone); ok {
+			combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, syntaxOutput))
+			executedCmds = append(executedCmds, types.ExecutedCommand{
+				Runner:     runner,
+				Framework:  plan.Framework,
+				WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+				Source:     planSourceFor(plan),
+				Outcome:    "syntax_preflight",
+			})
+			if report != nil && !report.Passed {
+				installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
+				_, ref := StoreBlob(ctx, t.Name()+"-syntax-preflight", strings.Join(combinedOutputs, "\n\n"))
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   fmt.Sprintf("[run_tests: %s] syntax preflight failed before project tests; raw output stored for inspection", runnerPlanLabel(ctx.RepoRoot, plan)),
+					RawRef:    ref,
+					Timestamp: time.Now(),
+				}, nil
+			}
 		}
 
 		// MainRepoRoot is threaded through for python venv probing:
@@ -2723,6 +2746,46 @@ func runSyntaxCheckFallback(ctx *types.BusContext, label, runnerRoot, runner str
 		return report, output, true
 	}
 	return nil, "", false
+}
+
+func runSyntaxPreflightForPlan(ctx *types.BusContext, label, runnerRoot, runner string, done map[string]bool) (*types.ChangeReport, string, bool) {
+	exts := syntaxCheckExtensions(runner)
+	if len(exts) == 0 {
+		return nil, "", false
+	}
+	files := planFilesByExt(ctx, runnerRoot, exts)
+	if len(files) == 0 {
+		return nil, "", false
+	}
+	key := runner + "\x00" + runnerRoot + "\x00" + strings.Join(files, "\x00")
+	if done != nil {
+		if done[key] {
+			return nil, "", false
+		}
+		done[key] = true
+	}
+	report, output, ok := runSyntaxCheckFallback(ctx, label, runnerRoot, runner, files)
+	if !ok {
+		return nil, "", false
+	}
+	output = strings.Replace(output,
+		"fallback (no test infrastructure detected; runner not invoked)",
+		"syntax preflight (before project test runner)",
+		1)
+	if report != nil && !report.Passed {
+		lang := ""
+		if ctx != nil {
+			lang = ctx.Language
+		}
+		if isZh(lang) {
+			report.FailureSummary = fmt.Sprintf("%s 语法预检在 %d 个 plan 文件中发现 %d 处语法/解析错误 —— 项目测试尚未运行;请先修复列出的源文件。",
+				runner, len(files), len(report.TestResults))
+		} else {
+			report.FailureSummary = fmt.Sprintf("%s syntax preflight found %d syntax/parse error(s) across %d plan file(s) before project tests were run; fix the listed source files first.",
+				runner, len(report.TestResults), len(files))
+		}
+	}
+	return report, output, true
 }
 
 // runNodeCheckFallback runs `node --check <file>` per JS file. node

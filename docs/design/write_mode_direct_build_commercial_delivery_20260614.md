@@ -4007,3 +4007,70 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `eval/swebench/smoke_local.sh` already checks both sides: default adapter
     runs do not pass `--eval-disable-git-history`; fair adapter runs do pass it
     and record enabled isolation telemetry.
+
+## 2026-06-16 SWE-bench smoke 10: source syntax preflight and manual gold audit
+
+- Evidence source:
+  - Fair-isolated non-Go SWE-bench Lite batch:
+    `eval/results/swebench/lite-smoke-20260616-mpl25332-sklearn13142-sphinx8627-pytest7432-rerun`.
+  - Instances requested: `matplotlib__matplotlib-25332`,
+    `scikit-learn__scikit-learn-13142`, `sphinx-doc__sphinx-8627`,
+    `pytest-dev__pytest-7432`.
+  - Adapter validation accepted 4 prediction rows with `empty_patch=0`.
+    Official SWE-bench harness dry-run accepted the generated
+    `predictions.jsonl` command.
+- Result summary:
+  - `pytest-dev__pytest-7432`: exported source patch matches the gold source
+    fix in `src/_pytest/skipping.py`.
+  - `scikit-learn__scikit-learn-13142`: exported source patch matches the gold
+    source fix in `sklearn/mixture/base.py`.
+  - `sphinx-doc__sphinx-8627`: exported patch is in the wrong layer
+    (`sphinx/domains/python.py`), while the gold fix is in
+    `sphinx/util/typing.py`. This remains a behavior-localization gap that
+    needs typed runtime probes or stronger mechanism evidence, not a prompt
+    keyword route.
+  - `matplotlib__matplotlib-25332`: exported patch placed indented
+    `Grouper.__getstate__` / `__setstate__` methods at EOF, producing a
+    syntactically invalid source patch. Local verify was `unavailable` because
+    the project runner path ended in a parser/environment error, so the syntax
+    issue was not caught before prediction export.
+- Generalized gap fixed:
+  - `run_tests` now performs a syntax preflight over plan-touched source files
+    for runners with known syntax-only checkers before invoking the project
+    runner. For Python this means `py_compile` over the current `ChangePlan`
+    source paths.
+  - Syntax/parse failures become typed `build_failure` / `failed` results and
+    stop before the project runner. Missing pytest, third-party dependencies,
+    plugins, or test harness support still remain typed `unavailable`, so
+    customer delivery and SWE-bench prediction export are not blocked by local
+    environment gaps.
+  - The executed-command evidence records `Outcome=syntax_preflight`, and the
+    failure rows keep the original source path and compiler output for P2
+    handoff.
+- Safety and prompt hygiene:
+  - The gate consumes only `ChangePlan.TargetPaths`, repo-relative path
+    resolution, runner-to-extension mapping, and compiler/parser output.
+  - It does not read user intent keywords, issue text, model rationale,
+    natural-language summaries, or `<think>` content for hard routing.
+- Implementation tasks:
+  - [x] Add verify-stage source syntax preflight before project runners.
+  - [x] Preserve `unavailable` semantics for missing pytest/dependency/harness
+    environments.
+  - [x] Add focused Python regression coverage.
+  - [x] Update user guide, HTML guide, SWE-bench README, and this ledger.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/tool -run 'TestRunTestsPythonSyntaxPreflightFailsBeforeProjectRunner|TestRunPyCompileFallback|TestRunTests(NoTestWorkUsesVerificationProbeVerdict|VerificationProbePassSkipsProjectSuiteHardGate|VerificationProbeImportErrorIsParserError|VerificationProbeUnhandledExceptionIsParserError)' -count=1`.
+  - Tool package regression passed: `go test ./internal/tool -count=1`.
+  - Full Go regression passed: `go test ./...`.
+  - Build passed: `make`.
+  - SWE-bench adapter smoke passed: `eval/swebench/smoke_local.sh`.
+- Remaining system gaps to track:
+  - Sphinx-like symptom-heavy issues still need behavior-localized typed probes
+    so the controller can distinguish public API resolver hypotheses from the
+    actual stringification/restify path.
+  - Planner context packs should carry higher-priority exact source snippets
+    and line-backed evidence after exploration; some runs still show planners
+    trying unavailable read tools once the tool surface has narrowed.
+  - Official SWE-bench hidden tests remain the scoring authority; manual gold
+    comparison is an audit lens, not a product hard gate.

@@ -105,7 +105,11 @@ worktree plus discovered `src/` or `lib/` source roots to `PYTHONPATH` so editab
 installs or inherited environments cannot accidentally import the original
 checkout. The SWE-bench adapter mirrors those structural source roots into the
 per-instance Python environment and records them as typed telemetry; a partial
-project install still exports a patch instead of becoming a hard gate. When a Django suite is not explicitly
+project install still exports a patch instead of becoming a hard gate. During
+verify, Codrax runs a syntax preflight over plan-touched Python source files
+before the project runner; syntax/parse failures become typed `build_failure`
+results, while missing pytest, dependencies, plugins, or harness support remain
+`unavailable` and do not block prediction export. When a Django suite is not explicitly
 supplied, the verifier derives a conservative scoped suite from typed ChangePlan
 paths plus the repository `tests/` tree before falling back to a wider run.
 

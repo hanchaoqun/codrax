@@ -229,6 +229,72 @@ func TestRunPyCompileFallback_FailOnSyntaxError(t *testing.T) {
 	}
 }
 
+func TestRunTestsPythonSyntaxPreflightFailsBeforeProjectRunner(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python dry-build runner on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[tool.pytest.ini_options]\n"), 0o644); err != nil {
+		t.Fatalf("write pyproject: %v", err)
+	}
+	bad := filepath.Join(root, "pkg", "bad.py")
+	if err := os.MkdirAll(filepath.Dir(bad), 0o755); err != nil {
+		t.Fatalf("mkdir pkg: %v", err)
+	}
+	if err := os.WriteFile(bad, []byte("def broken(:\n    pass\n"), 0o644); err != nil {
+		t.Fatalf("write bad.py: %v", err)
+	}
+	mu := types.NewMutableState("syntax preflight")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-syntax-preflight",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"pkg/bad.py"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner":    "python",
+		"framework": "pytest",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("syntax-broken changed Python source must fail before pytest, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed; report=%+v", got, report)
+	}
+	if report.FailureKind != types.FailureKindBuildFailure || !report.BuildFailed {
+		t.Fatalf("syntax preflight should be build_failure, got kind=%q build_failed=%v report=%+v",
+			report.FailureKind, report.BuildFailed, report)
+	}
+	if len(report.TestResults) != 1 || report.TestResults[0].Suite != "py_compile" || report.TestResults[0].AssertionID != "pkg/bad.py" {
+		t.Fatalf("py_compile failure row missing: %+v", report.TestResults)
+	}
+	foundPreflight := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Outcome == "syntax_preflight" {
+			foundPreflight = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Outcome == "executed" {
+			t.Fatalf("project pytest should not execute after syntax preflight failure: %+v", report.ExecutedCommands)
+		}
+	}
+	if !foundPreflight {
+		t.Fatalf("executed command evidence should record syntax_preflight, got %+v", report.ExecutedCommands)
+	}
+}
+
 func TestRunTestsDryRunProbe_ModeApplyStagePlanDoesNotPolluteChangeReport(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not available on PATH")
