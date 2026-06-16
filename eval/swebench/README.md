@@ -131,6 +131,13 @@ derived from ChangePlan edit ASTs, not issue text or model prose. It lowers
 local confidence when no stronger verifier/environment downgrade already
 applies, because such patches can be symptom-site repairs that leave the callee
 or wrapper owner boundary unresolved.
+The same AST-only audit lane now flags two additional symptom-workaround shapes:
+conditionally suppressing an existing diagnostic call such as `logger.warning`
+and writing an external object's private attribute (for example `obj._state =`
+outside `self`). These appear in `plan_owner_boundary_signals` with typed reason
+codes such as `diagnostic_signal_conditionally_suppressed` and
+`external_private_state_sync_workaround`; they lower local confidence but do not
+block exporting the official SWE-bench prediction.
 By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only

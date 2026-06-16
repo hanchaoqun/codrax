@@ -92,6 +92,48 @@ def plan_with_caller_return_adapter() -> dict:
     }
 
 
+def plan_with_warning_suppression() -> dict:
+    return {
+        "changes": [
+            {
+                "path": "sphinx/domains/std.py",
+                "kind": "patch",
+                "edits": [
+                    {
+                        "kind": "replace",
+                        "old_text": "        except ValueError:\n            logger.warning(_('no number is assigned'), labelid,\n                           location=node)\n            return contnode",
+                        "content": "        except ValueError:\n            if figtype != 'table':\n                logger.warning(_('no number is assigned'), labelid,\n                               location=node)\n            return contnode",
+                    }
+                ],
+            }
+        ],
+        "behavior_contracts": [
+            {
+                "id": "contract-1",
+                "required": True,
+            }
+        ],
+    }
+
+
+def plan_with_external_private_state_write() -> dict:
+    return {
+        "changes": [
+            {
+                "path": "lib/matplotlib/cm.py",
+                "kind": "patch",
+                "edits": [
+                    {
+                        "kind": "insert_after",
+                        "old_text": "        self.norm = norm",
+                        "content": "        self.norm = norm\n        for ref in self._colorbar_cids:\n            colorbar = ref()\n            if colorbar is not None:\n                colorbar._norm = self.norm",
+                    }
+                ],
+            }
+        ]
+    }
+
+
 class PredictionConfidenceTests(unittest.TestCase):
     def test_probe_only_pass_downgrades_when_changed_source_lacks_context(self) -> None:
         reason = adapter.prediction_confidence_downgrade_reason(
@@ -161,6 +203,22 @@ class PredictionConfidenceTests(unittest.TestCase):
 
         self.assertEqual(reason, "caller_return_shape_adapter")
 
+    def test_project_pass_downgrades_for_structural_patch_quality_signal(self) -> None:
+        signals = adapter.plan_owner_boundary_signals(plan_with_warning_suppression())
+        reason_codes = [row["reason_code"] for row in signals]
+        report = probe_only_report()
+        report["test_results"][0]["suite"] = "tests/test_domain_std.py"
+        report["executed_commands"][0]["runner"] = "python"
+
+        reason = adapter.prediction_confidence_downgrade_reason(
+            plan=plan_with_warning_suppression(),
+            report=report,
+            verify_status="passed",
+            owner_boundary_reason_codes=reason_codes,
+        )
+
+        self.assertEqual(reason, "diagnostic_signal_conditionally_suppressed")
+
 
 class ContextCoverageTests(unittest.TestCase):
     def test_symbol_qualified_context_paths_cover_file_level_change(self) -> None:
@@ -202,6 +260,35 @@ class OwnerBoundarySignalTests(unittest.TestCase):
         plan["changes"][0]["edits"][0]["content"] = "proba[:, class_idx] = validate(calibrator.predict(this_pred))"
 
         self.assertEqual(adapter.plan_owner_boundary_signals(plan), [])
+
+    def test_detects_conditionally_suppressed_warning(self) -> None:
+        signals = adapter.plan_owner_boundary_signals(plan_with_warning_suppression())
+
+        self.assertEqual(
+            signals,
+            [
+                {
+                    "reason_code": "diagnostic_signal_conditionally_suppressed",
+                    "path": "sphinx/domains/std.py",
+                    "edit_index": 0,
+                }
+            ],
+        )
+
+    def test_detects_external_private_state_sync_workaround(self) -> None:
+        signals = adapter.plan_owner_boundary_signals(plan_with_external_private_state_write())
+
+        self.assertEqual(
+            signals,
+            [
+                {
+                    "reason_code": "external_private_state_sync_workaround",
+                    "targets": ["colorbar._norm"],
+                    "path": "lib/matplotlib/cm.py",
+                    "edit_index": 0,
+                }
+            ],
+        )
 
 
 class EmptyPatchReasonTests(unittest.TestCase):

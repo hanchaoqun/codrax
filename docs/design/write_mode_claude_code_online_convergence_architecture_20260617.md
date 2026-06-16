@@ -100,6 +100,42 @@ red lines: typed hard gates, no prompt/prose routing, no user-intent keyword
 matching, worktree isolation, read-mode byte preservation, visible reasoning
 transparency, and stable non-write modes.
 
+## 2026-06-17 Public Research Refresh
+
+The latest external check reconfirmed four architecture lessons that should
+shape the Codrax write-mode control plane:
+
+- The arXiv paper frames Claude Code as a small model/tool while-loop wrapped
+  by a much thicker production harness: permissions, tool routing, context
+  management, subagent orchestration, recovery, and append-oriented session
+  storage. Codrax should therefore keep the online controller simple and put
+  commercial reliability into deterministic state assembly, action validation,
+  permission brokerage, effect execution, observation normalization, context
+  projection, and event appending.
+- Official Claude Code documentation describes the product loop as repeated
+  model evaluation, tool calls, observations, and continuation until no further
+  tool calls are needed. It also documents that practical bug-fix work may run
+  tests, read files, edit, and rerun tests in multiple turns. Codrax should make
+  `edit -> run -> observe` the write-mode execution invariant rather than a
+  prompt suggestion layered on top of batch apply.
+- Official context/session documentation highlights automatic compaction,
+  context-cost visibility, deferred tool schemas, skills loaded on demand, and
+  subagents with separate context windows that return summaries. Codrax should
+  rebuild model-facing write context from durable typed views and artifact refs,
+  while keeping raw logs and visible reasoning available for user transparency.
+- Official safety documentation highlights checkpoints and permissions as
+  complementary controls: permissions decide what can be attempted without
+  asking, while checkpoints/isolated execution reduce blast radius. Codrax
+  should approve or deny immediately before each bounded slice effect, bind
+  high-risk approval to slice fingerprints, and keep file restore metadata for
+  each applied slice.
+
+These points do not justify importing Claude Code's product surface wholesale.
+Codrax is a repository-bound code-analysis and change system, so the correct
+architecture is a task harness: one durable workflow loop, role-scoped tools,
+typed permissions, priority handoff, worktree isolation, and command-light Auto
+Pilot UX.
+
 ## Research Takeaways
 
 ### R1: The loop is simple; the harness is the product
@@ -1397,9 +1433,11 @@ Primary files:
 | 6 | in_progress | Permission engine unification. This pass fixed task-level `WriteAnalysisIR.Request.Risk.Overall=high` so it remains hard `RiskHigh` and `auto_safe` pauses for approval; individual noisy risk booleans remain medium advisory unless corroborated by precise structural policy. |
 | 7 | pending | Context shaping and durable sidechains. |
 | 8 | in_progress | UX Auto Pilot polish. This pass adds typed SWE-bench/Codrax workflow heartbeats for long instance runs: the adapter streams Codrax output to `codrax.out` and emits interval progress from durable workflow JSON (`workflow`, active batch/slice, latest progress reason), preserving raw transparency without parsing stdout/prose for control. |
-| 9 | in_progress | Ran `matplotlib__matplotlib-24149` after Batch 2, `django__django-11964`/`scikit-learn__scikit-learn-14983`/`sphinx-doc__sphinx-11445` after Batch 6, `django__django-11848`/`scikit-learn__scikit-learn-15535`/`sphinx-doc__sphinx-8721` after Batch 8, `pydata__xarray-4094`/`pylint-dev__pylint-6506`/`pytest-dev__pytest-5413`, `scikit-learn__scikit-learn-14894`/`sphinx-doc__sphinx-8713`/`sympy__sympy-18199`, `sympy__sympy-18532`/`sphinx-doc__sphinx-8282`, `django__django-13933`/`sphinx-doc__sphinx-10451`, and `pytest-dev__pytest-5227`/`matplotlib__matplotlib-26020`/`scikit-learn__scikit-learn-25500` follow-up. Official harness dry-runs accepted generated prediction files. Manual audit exposed failed-verify stale-plan reuse, raw-diff Python unreachable edits, probe-only high confidence without prior context, missing persisted prior-context coverage, non-terminal empty-patch export when planner produced no `ChangePlan`, wall-time canceled empty patches being overcollapsed to generic no-plan, and a wrong-layer scikit-learn repair where the caller was patched instead of the owner `IsotonicRegression.predict` boundary. Current fixes block durable workflows on terminal `plan_batch` failure, add typed empty-patch audit reasons, export/latest-progress-driven wall-time classification, and seed durable write-analysis context packs for direct-plan workflows without parsing stdout/prose. More non-Go and symptom-only cases remain. |
+| 9 | in_progress | Ran `matplotlib__matplotlib-24149` after Batch 2, `django__django-11964`/`scikit-learn__scikit-learn-14983`/`sphinx-doc__sphinx-11445` after Batch 6, `django__django-11848`/`scikit-learn__scikit-learn-15535`/`sphinx-doc__sphinx-8721` after Batch 8, `pydata__xarray-4094`/`pylint-dev__pylint-6506`/`pytest-dev__pytest-5413`, `scikit-learn__scikit-learn-14894`/`sphinx-doc__sphinx-8713`/`sympy__sympy-18199`, `sympy__sympy-18532`/`sphinx-doc__sphinx-8282`, `django__django-13933`/`sphinx-doc__sphinx-10451`, `pytest-dev__pytest-5227`/`matplotlib__matplotlib-26020`/`scikit-learn__scikit-learn-25500`, and `matplotlib__matplotlib-25079`/`scikit-learn__scikit-learn-25747`/`sphinx-doc__sphinx-8474` follow-up. Official harness dry-runs accepted generated prediction files. Manual audit exposed failed-verify stale-plan reuse, raw-diff Python unreachable edits, probe-only high confidence without prior context, missing persisted prior-context coverage, non-terminal empty-patch export when planner produced no `ChangePlan`, wall-time canceled empty patches being overcollapsed to generic no-plan, a wrong-layer scikit-learn repair where the caller was patched instead of the owner `IsotonicRegression.predict` boundary, a Matplotlib patch that directly wrote an external object's private `_norm` state instead of fixing callback/autoscale ownership, a Sphinx patch that conditionally suppressed warning output while gold changed the diagnostic message, and repeated `emit_change_plan` retries where a typed `PLAN_REPAIR_PACK` listed missing contract refs but the next model turn resent the same JSON. Current fixes block durable workflows on terminal `plan_batch` failure, add typed empty-patch audit reasons, export/latest-progress-driven wall-time classification, seed durable write-analysis context packs for direct-plan workflows, and downgrade passed/predicted confidence for AST-detected caller return adapters, conditional diagnostic suppression, and external private-state sync workarounds without parsing stdout/prose. More non-Go and symptom-only cases remain, especially deterministic repair-pack application and stage tool-surface materialization. |
 | 10 | pending | Commercial hardening. |
 | Paper review addendum | complete | Re-read the public paper and official Claude Code architecture/permission/subagent/hook documentation, then added an evidence-boundary section, R11-R14 design takeaways, and Batches 11-15 for the Codrax-specific runtime kernel, internal hooks/effect ledger, shared command policy parser, context-cost accounting, and slice checkpoint/rewind/fork readiness. |
 | Verify-infra authority | complete | Fixed the typed status boundary for missing verify reports. `verifyPostHook` and controller infra-budget exhaustion now mark active plans `unverified` instead of `verify_failed` when no `ChangeReport` exists; SWE-bench adapter now classifies blocked verify-infra runs as `workflow_blocked_after_verify_infra`. Focused Go and adapter tests pass. |
 | Direct-plan write-analysis handoff | complete | Seeded durable `WriteContextPackFromWriteAnalysisIR` into every new `WriteWorkflowRun`, so micro-scope ready-to-plan workflows preserve P0/P1 write-analysis anchors and behavior contracts even when they do not trigger `explore_code`. The seed is stored on the run for backend consumption and plan-context coverage; planner/controller prompt sections continue to consume `WriteAnalysisIR` through their existing typed task framing. Focused controller test and `pytest-dev__pytest-5227` SWE-bench re-run confirm coverage becomes `1.0` with no missing source paths. |
 | Owner-boundary audit telemetry | complete | Added AST-based SWE-bench adapter audit for caller-side return-shape adapters around existing calls. Results expose `plan_owner_boundary_signals` / `plan_owner_boundary_reason_codes`, and probe-only passes can be downgraded by `caller_return_shape_adapter`. This is audit/confidence only; no runtime hard gate and no prose/keyword routing. |
+| Public research refresh | complete | Rechecked the arXiv Claude Code design-space paper, the companion public repository, and official Claude Code docs for agent loop, context, hooks, subagents, memory, and permissions. Added the 2026-06-17 public research refresh section that maps the findings to Codrax's task-harness control plane: deterministic state assembler/action validator/permission broker/effect executor/observation normalizer/context projector/event appender around a flexible model loop. |
+| Symptom-workaround audit telemetry | complete | Extended the SWE-bench adapter's structural AST audit so successful predictions can be confidence-downgraded when a Python edit conditionally suppresses existing diagnostic output or writes an external object's private state. This caught the latest Sphinx passed-but-wrong warning suppression and Matplotlib private `_norm` sync workaround as typed `diagnostic_signal_conditionally_suppressed` / `external_private_state_sync_workaround` signals. |

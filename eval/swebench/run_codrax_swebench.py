@@ -24,6 +24,7 @@ import signal
 import subprocess
 import sys
 import threading
+import textwrap
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -1393,17 +1394,116 @@ def plan_owner_boundary_signals(plan: dict[str, Any] | None) -> list[dict[str, A
                 continue
             old_expr = python_changed_line_expr(edit.get("old_text"))
             new_expr = python_changed_line_expr(edit.get("content"))
-            if old_expr is None or new_expr is None:
+            if old_expr is not None and new_expr is not None:
+                signal = caller_return_adapter_signal(old_expr, new_expr)
+                if signal:
+                    signal.update({
+                        "reason_code": "caller_return_shape_adapter",
+                        "path": path,
+                        "edit_index": idx,
+                    })
+                    out.append(signal)
+            for signal in python_patch_quality_signals(edit.get("old_text"), edit.get("content")):
+                signal.update({
+                    "path": path,
+                    "edit_index": idx,
+                })
+                out.append(signal)
+    return out
+
+
+def python_patch_quality_signals(old_text: Any, new_text: Any) -> list[dict[str, Any]]:
+    """Return typed audit signals for likely symptom-level Python patches.
+
+    The checks are structural and audit-only. They inspect Python AST produced
+    from the structured edit payload, never issue text, model summaries, or
+    natural-language rationales.
+    """
+
+    old_body = parse_python_edit_body(old_text)
+    new_body = parse_python_edit_body(new_text)
+    if not new_body:
+        return []
+    out: list[dict[str, Any]] = []
+    if old_body and warning_call_count(old_body) > 0 and warning_call_count(new_body) > 0:
+        if warning_call_under_conditional_count(new_body) > warning_call_under_conditional_count(old_body):
+            out.append({"reason_code": "diagnostic_signal_conditionally_suppressed"})
+    private_writes = external_private_attribute_assignments(new_body)
+    if private_writes:
+        out.append({
+            "reason_code": "external_private_state_sync_workaround",
+            "targets": sorted(private_writes),
+        })
+    return out
+
+
+def parse_python_edit_body(raw: Any) -> list[ast.stmt]:
+    text = str(raw or "").rstrip()
+    if not text.strip():
+        return []
+    candidates = [text]
+    stripped = textwrap.dedent(text)
+    if stripped != text:
+        candidates.append(stripped)
+    if stripped.startswith("except ") or stripped.startswith("except:") or stripped.startswith("finally:"):
+        candidates.append("try:\n    pass\n" + stripped)
+    indented = "\n".join("    " + line if line.strip() else line for line in stripped.splitlines())
+    candidates.append("def __codrax_edit__():\n" + indented)
+    for candidate in candidates:
+        try:
+            module = ast.parse(candidate)
+        except SyntaxError:
+            continue
+        if (
+            len(module.body) == 1
+            and isinstance(module.body[0], ast.FunctionDef)
+            and module.body[0].name == "__codrax_edit__"
+        ):
+            return list(module.body[0].body)
+        return list(module.body)
+    return []
+
+
+def warning_call_count(body: list[ast.stmt]) -> int:
+    return sum(1 for node in ast.walk(ast.Module(body=body, type_ignores=[])) if is_warning_call(node))
+
+
+def warning_call_under_conditional_count(body: list[ast.stmt]) -> int:
+    count = 0
+    for stmt in ast.walk(ast.Module(body=body, type_ignores=[])):
+        if not isinstance(stmt, ast.If):
+            continue
+        count += sum(1 for node in ast.walk(stmt) if is_warning_call(node))
+    return count
+
+
+def is_warning_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    name = python_call_name(node)
+    if not name:
+        return False
+    tail = name.rsplit(".", 1)[-1]
+    return tail in {"warn", "warning"}
+
+
+def external_private_attribute_assignments(body: list[ast.stmt]) -> set[str]:
+    out: set[str] = set()
+    for node in ast.walk(ast.Module(body=body, type_ignores=[])):
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets.extend(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets.append(node.target)
+        elif isinstance(node, ast.AugAssign):
+            targets.append(node.target)
+        for target in targets:
+            if not isinstance(target, ast.Attribute) or not target.attr.startswith("_"):
                 continue
-            signal = caller_return_adapter_signal(old_expr, new_expr)
-            if not signal:
+            owner = python_expr_name(target.value)
+            if not owner or owner == "self" or owner.startswith("self."):
                 continue
-            signal.update({
-                "reason_code": "caller_return_shape_adapter",
-                "path": path,
-                "edit_index": idx,
-            })
-            out.append(signal)
+            out.add(owner + "." + target.attr)
     return out
 
 
@@ -1474,6 +1574,19 @@ def python_func_name(node: ast.AST) -> str:
         return node.attr
     if isinstance(node, ast.Call):
         return python_func_name(node.func)
+    return ""
+
+
+def python_expr_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = python_expr_name(node.value)
+        if parent:
+            return parent + "." + node.attr
+        return node.attr
+    if isinstance(node, ast.Call):
+        return python_expr_name(node.func)
     return ""
 
 
@@ -1602,6 +1715,10 @@ def prediction_confidence_downgrade_reason(
         return "local_verification_" + status
     if not plan or not report:
         return ""
+    for reason in owner_boundary_reason_codes or []:
+        reason = str(reason or "").strip()
+        if reason:
+            return reason
     probes = [probe for probe in plan.get("verification_probes") or [] if isinstance(probe, dict)]
     if not probes or not report_passed_by_verification_probe(report):
         return ""
@@ -1623,10 +1740,6 @@ def prediction_confidence_downgrade_reason(
         missing_source_context = plan_source_paths_missing_prior_context(plan_source_paths, plan_context_paths)
         if missing_source_context:
             return "verification_probe_changed_source_not_context_covered"
-    for reason in owner_boundary_reason_codes or []:
-        reason = str(reason or "").strip()
-        if reason:
-            return reason
     return ""
 
 
