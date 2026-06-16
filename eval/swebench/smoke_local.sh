@@ -293,6 +293,52 @@ if reason != "final_plan_test_only_exported_source_patch":
 verdict = mod.prediction_verdict("diff --git a/src/pkg.py b/src/pkg.py\n", "passed", "applied", reason)
 if verdict != ("predicted_audit_blocked", "failed", True):
     raise SystemExit(f"unexpected audit-blocked verdict: {verdict!r}")
+
+weak_plan = {
+    "behavior_contracts": [
+        {"id": "c1", "required": True, "source": "write_analyzer"},
+    ],
+    "verification_probes": [
+        {"id": "probe", "language": "python", "code": "print('ok')"},
+    ],
+}
+probe_report = {
+    "verification_status": "passed",
+    "passed": True,
+    "executed_commands": [
+        {"runner": "verification_probe", "outcome": "executed", "exit_code": 0},
+    ],
+    "test_results": [
+        {"suite": "verification_probe/python", "assertion_id": "probe", "passed": True},
+    ],
+}
+downgrade = mod.prediction_confidence_downgrade_reason(
+    plan=weak_plan,
+    report=probe_report,
+    verify_status="passed",
+)
+if downgrade != "verification_probe_missing_required_contract_ref":
+    raise SystemExit(f"unexpected weak-probe downgrade reason: {downgrade!r}")
+verdict = mod.prediction_verdict("diff --git a/src/pkg.py b/src/pkg.py\n", "passed", "applied", "", downgrade)
+if verdict != ("predicted_passed_low_confidence", "unknown", False):
+    raise SystemExit(f"unexpected downgraded verdict: {verdict!r}")
+
+strong_plan = {
+    "behavior_contracts": [
+        {"id": "c1", "required": True, "source": "write_analyzer"},
+    ],
+    "verification_probes": [
+        {
+            "id": "probe",
+            "language": "python",
+            "code": "import pkg\nassert pkg.ok()",
+            "contract_refs": ["c1"],
+            "changed_symbol_refs": ["pkg.ok"],
+        },
+    ],
+}
+if mod.prediction_confidence_downgrade_reason(plan=strong_plan, report=probe_report, verify_status="passed") != "":
+    raise SystemExit("strong contract-coupled probe should not downgrade local confidence")
 PY
 
 FAIR_PREDICTIONS="$WORK/predictions-fair.jsonl"

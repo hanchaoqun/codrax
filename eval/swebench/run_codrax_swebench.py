@@ -993,6 +993,7 @@ def prediction_verdict(
     verify_status: str,
     plan_status: str,
     audit_block_reason: str = "",
+    confidence_downgrade_reason: str = "",
 ) -> tuple[str, str, bool]:
     if not patch.strip():
         return "empty_patch", "none", False
@@ -1001,12 +1002,86 @@ def prediction_verdict(
     status = str(verify_status or "").strip()
     plan = str(plan_status or "").strip()
     if status == "passed":
+        if confidence_downgrade_reason:
+            return "predicted_passed_low_confidence", "unknown", False
         return "predicted_passed", "high", False
     if status == "failed" or plan == "verify_failed":
         return "predicted_failed_verify", "failed", True
     if status == "unavailable" or plan == "unverified":
         return "predicted_unverified", "unknown", False
     return "predicted_unchecked", "unknown", False
+
+
+def explicit_required_behavior_contract_ids(plan: dict[str, Any]) -> set[str]:
+    ids: set[str] = set()
+    for contract in plan.get("behavior_contracts") or []:
+        if not isinstance(contract, dict):
+            continue
+        if not bool(contract.get("required")):
+            continue
+        if str(contract.get("source") or "").strip() == "expected_outcome_fallback":
+            continue
+        cid = str(contract.get("id") or "").strip()
+        if cid:
+            ids.add(cid)
+    return ids
+
+
+def report_passed_by_verification_probe(report: dict[str, Any]) -> bool:
+    commands = [cmd for cmd in report.get("executed_commands") or [] if isinstance(cmd, dict)]
+    probe_commands = [
+        cmd for cmd in commands
+        if str(cmd.get("runner") or "").strip() == "verification_probe"
+    ]
+    if not probe_commands:
+        return False
+    non_probe_executed = [
+        cmd for cmd in commands
+        if str(cmd.get("runner") or "").strip() != "verification_probe"
+        and str(cmd.get("outcome") or "").strip() == "executed"
+        and int(cmd.get("exit_code") or 0) == 0
+    ]
+    if non_probe_executed:
+        return False
+    test_results = [row for row in report.get("test_results") or [] if isinstance(row, dict)]
+    return bool(test_results) and all(
+        str(row.get("suite") or "").strip() == "verification_probe/python"
+        for row in test_results
+    )
+
+
+def prediction_confidence_downgrade_reason(
+    *,
+    plan: dict[str, Any] | None,
+    report: dict[str, Any] | None,
+    verify_status: str,
+) -> str:
+    """Return a typed reason why a local passed verdict should not be high.
+
+    This is audit telemetry only. It does not block SWE-bench prediction export
+    and does not route on user text or model prose.
+    """
+
+    if str(verify_status or "").strip() != "passed" or not plan or not report:
+        return ""
+    probes = [probe for probe in plan.get("verification_probes") or [] if isinstance(probe, dict)]
+    if not probes or not report_passed_by_verification_probe(report):
+        return ""
+    required_contracts = explicit_required_behavior_contract_ids(plan)
+    covered_contracts: set[str] = set()
+    changed_symbols: set[str] = set()
+    baseline_expected = False
+    for probe in probes:
+        covered_contracts.update(str(ref).strip() for ref in probe.get("contract_refs") or [] if str(ref).strip())
+        changed_symbols.update(str(ref).strip() for ref in probe.get("changed_symbol_refs") or [] if str(ref).strip())
+        baseline_expected = baseline_expected or bool(probe.get("expects_baseline_failure"))
+    if required_contracts and not (required_contracts & covered_contracts):
+        return "verification_probe_missing_required_contract_ref"
+    if required_contracts and not changed_symbols:
+        return "verification_probe_missing_changed_symbol_ref"
+    if baseline_expected:
+        return "verification_probe_baseline_not_run"
+    return ""
 
 
 def prediction_audit_block_reason(
@@ -1243,11 +1318,18 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             final_plan_covers_exported_source_patch=result["final_plan_covers_exported_source_patch"],
         )
         result["prediction_audit_block_reason"] = audit_block_reason
+        confidence_downgrade_reason = prediction_confidence_downgrade_reason(
+            plan=plan,
+            report=report,
+            verify_status=str(result.get("verify_status") or ""),
+        )
+        result["prediction_confidence_downgrade_reason"] = confidence_downgrade_reason
         verdict, confidence, blocks_local_acceptance = prediction_verdict(
             patch,
             str(result.get("verify_status") or ""),
             str(result.get("plan_status") or ""),
             audit_block_reason,
+            confidence_downgrade_reason,
         )
         result["prediction_verdict"] = verdict
         result["prediction_local_confidence"] = confidence

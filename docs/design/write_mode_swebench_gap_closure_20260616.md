@@ -324,3 +324,12 @@ Acceptance:
   `go test ./internal/types -run 'WriteContextPack|WriteAnalysisIR|ChangePlan|BehaviorContract'`,
   `go test ./internal/agent -run 'Planner|WriteController|Prompt'`, and
   `go test ./internal/skill`.
+- 2026-06-16: Batch 3 full `go test ./...` passed, then committed and pushed
+  as `cbab9c9a write: add typed behavior contract coverage`.
+- 2026-06-16: Batch 4 implemented locally for the SWE-bench adapter confidence
+  lane. A local passed verdict that depends only on verification probes now
+  gets `prediction_confidence_downgrade_reason` when explicit required
+  behavior contracts are not referenced, changed symbols are missing, or a
+  baseline-failure probe lacks a baseline run. This is audit telemetry only:
+  predictions still export for the official harness, and environment/setup
+  unavailability remains non-blocking.

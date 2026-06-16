@@ -81,7 +81,8 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `exported_patch_paths`, `exported_patch_source_paths`,
 `exported_patch_test_paths`, `final_plan_source_paths`,
 `final_plan_test_only`, `final_plan_covers_exported_source_patch`,
-`prediction_audit_block_reason`, `prediction_verdict`,
+`prediction_audit_block_reason`,
+`prediction_confidence_downgrade_reason`, `prediction_verdict`,
 `prediction_local_confidence`, and `prediction_blocks_local_acceptance`) so
 environment dead-ends, test-edit drift, planner handoff coverage, failed local
 verification, and final-plan-vs-exported-source drift are auditable without
@@ -96,7 +97,11 @@ runs those bounded typed probes before any project-level suite; passing probes
 become the local behavior
 verdict while the project suite is retained as typed `TestSurface` diagnostics
 instead of a hard gate. Failing probes remain real `tests_failed` evidence, and
-unavailable probes fall back to the normal runner/unverified path. By default
+unavailable probes fall back to the normal runner/unverified path. When a passed
+local verdict depends only on verification probes that do not carry typed
+contract/symbol coverage, the adapter lowers local confidence via
+`prediction_confidence_downgrade_reason` but still exports the patch for the
+official harness. By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only
 when debugging Codrax's own generated test edits. The adapter keeps SWE-bench
