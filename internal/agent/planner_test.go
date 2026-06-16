@@ -326,6 +326,176 @@ func TestPlannerFilterToolSchemas_StructuredEmitRepairKeepsReadTools(t *testing.
 	}
 }
 
+func TestPlannerFilterToolSchemas_StructuredEmitRepairReadBudgetNarrows(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("handoff synthesis")
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		Items: []types.WriteContextItem{{
+			Priority:    types.WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/fix.py",
+			SourceStage: "explore",
+		}},
+	})
+	_ = e.BuildInitialInstruction(&types.AgentContext{Mutable: mu}, nil)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "run_tests"},
+		{Name: emitChangePlanToolName},
+		{Name: emitPlanSkeletonToolName},
+		{Name: emitPlanChangeToolName},
+	}
+	for i := 0; i < e.handoffSynthesisReadBudget; i++ {
+		e.ObserveToolResults(nil, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "grep",
+				Success:  true,
+			}},
+		})
+	}
+	e.ObserveToolResults(nil, LoopObservation{
+		CurrentToolResults: []types.ToolResult{{
+			ToolName: emitChangePlanToolName,
+			Success:  false,
+		}},
+	})
+	for i := 0; i < plannerStructuredEmitRepairReadBudget; i++ {
+		e.ObserveToolResults(nil, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "read_file",
+				Success:  true,
+			}},
+		})
+	}
+
+	got := e.FilterToolSchemas(&types.AgentContext{Mutable: mu}, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "run_tests,emit_change_plan,emit_plan_skeleton,emit_plan_change" {
+		t.Fatalf("structured repair exhausted tool surface = %s", names)
+	}
+	if !e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, e.effectiveSoftCap()) {
+		t.Fatalf("read_file should not extend beyond soft cap after structured repair reads are exhausted")
+	}
+	if e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: emitChangePlanToolName}}}, e.effectiveSoftCap()) {
+		t.Fatalf("emit_change_plan should remain callable after structured repair read budget is exhausted")
+	}
+}
+
+func TestPlannerObserve_MaterializationOnlyUnavailableReadHintsThenStops(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("handoff synthesis")
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		Items: []types.WriteContextItem{{
+			Priority:    types.WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/fix.py",
+			SourceStage: "explore",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	for i := 0; i < e.handoffSynthesisReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "grep",
+				Success:  true,
+			}},
+		})
+	}
+	unavailable := types.ToolResult{
+		ToolName: "read_file",
+		Success:  false,
+		Repair:   &types.ToolRepair{Code: unavailableToolSurfaceCode},
+	}
+	obs := LoopObservation{
+		Phase:              PhaseMidLoop,
+		CurrentToolResults: []types.ToolResult{unavailable},
+		AvailableToolNames: map[string]bool{
+			"run_tests":              true,
+			emitChangePlanToolName:   true,
+			emitPlanSkeletonToolName: true,
+			emitPlanChangeToolName:   true,
+		},
+	}
+
+	e.ObserveToolResults(ctx, obs)
+	first := e.Observe(ctx, obs)
+	if !first.HintRequested || first.HintKey != "planner.materialization-tool-surface" || first.StopRequested {
+		t.Fatalf("first unavailable read should inject materialization hint, got %+v", first)
+	}
+
+	e.ObserveToolResults(ctx, obs)
+	second := e.Observe(ctx, obs)
+	if !second.StopRequested || second.HintRequested {
+		t.Fatalf("second unavailable read should stop dirty dispatch, got %+v", second)
+	}
+}
+
+func TestPlannerObserve_StructuredRepairUnavailableReadUsesDistinctHintKey(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("handoff synthesis")
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		Items: []types.WriteContextItem{{
+			Priority:    types.WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/fix.py",
+			SourceStage: "explore",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	for i := 0; i < e.handoffSynthesisReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "grep",
+				Success:  true,
+			}},
+		})
+	}
+	unavailable := types.ToolResult{
+		ToolName: "read_file",
+		Success:  false,
+		Repair:   &types.ToolRepair{Code: unavailableToolSurfaceCode},
+	}
+	obs := LoopObservation{
+		Phase:              PhaseMidLoop,
+		CurrentToolResults: []types.ToolResult{unavailable},
+	}
+
+	e.ObserveToolResults(ctx, obs)
+	first := e.Observe(ctx, obs)
+	if !first.HintRequested || first.HintKey != "planner.materialization-tool-surface" || first.StopRequested {
+		t.Fatalf("first materialization violation should use ordinary hint key, got %+v", first)
+	}
+
+	e.ObserveToolResults(ctx, LoopObservation{
+		CurrentToolResults: []types.ToolResult{{
+			ToolName: emitChangePlanToolName,
+			Success:  false,
+		}},
+	})
+	for i := 0; i < plannerStructuredEmitRepairReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "grep",
+				Success:  true,
+			}},
+		})
+	}
+
+	e.ObserveToolResults(ctx, obs)
+	repair := e.Observe(ctx, obs)
+	if !repair.HintRequested || repair.HintKey != "planner.structured-emit-repair-tool-surface" || repair.StopRequested {
+		t.Fatalf("post-repair violation should use distinct hint key, got %+v", repair)
+	}
+
+	e.ObserveToolResults(ctx, obs)
+	stop := e.Observe(ctx, obs)
+	if !stop.StopRequested || stop.HintRequested {
+		t.Fatalf("second post-repair violation should stop dirty dispatch, got %+v", stop)
+	}
+}
+
 func TestPlannerShouldStop_BuildInitialInstructionClearsTypedEmitRepair(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 	e.ObserveToolResults(nil, LoopObservation{

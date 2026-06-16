@@ -901,6 +901,48 @@ records adapter results.
   normal product read/write runs and direct adapter runs keep git history
   enabled by default; only SWE-bench fair smoke enables isolation by default via
   `SWEBENCH_ISOLATE_GIT_HISTORY=1`.
+- 2026-06-16: Started a new fair-isolated Lite batch at
+  `eval/results/swebench/lite-smoke-20260616-mpl23476-scikit11040-sphinx11445-sympy11897-current`
+  for `matplotlib__matplotlib-23476`,
+  `scikit-learn__scikit-learn-11040`, `sphinx-doc__sphinx-11445`, and
+  `sympy__sympy-11897`; interrupted it during the first Matplotlib instance
+  after it exposed a planner convergence gap. The explorer localized the
+  MacOSX DPI pickle path and handed off grounded evidence. Planner then
+  exhausted its handoff read budget, narrowed the tool surface, produced a
+  rejected duplicate-definition plan, reopened repair reads, and continued
+  broad current-source investigation instead of converging to a corrected
+  bounded plan. The fix is a generic planner state-machine bound: structured
+  emit validator repair now has its own exact-read budget, exhausted repair
+  windows narrow back to materialization/probe tools, and repeated typed
+  `unavailable_tool_surface` read attempts in materialization-only mode first
+  inject a materialization hint and then force-stop the dirty dispatch for a
+  clean controller re-dispatch. The gate reads tool names, success flags,
+  repair codes, current tool-surface state, and counters only; it does not
+  inspect issue text, user-intent keywords, model rationale, or natural-language
+  summaries.
+- 2026-06-16: Re-ran `matplotlib__matplotlib-23476` after the planner repair
+  budget fix at
+  `eval/results/swebench/lite-smoke-20260616-mpl23476-planner-repair-budget-after-fix`.
+  The run completed with `status=predicted`, `patch_bytes=999`, prediction
+  validation accepted `empty_patch=0`, and the official SWE-bench harness
+  dry-run wrapper printed a valid `run_evaluation` command for the JSONL. The
+  log confirms the generic planner convergence guard fired: once handoff reads
+  were exhausted, an unavailable `read_file` call produced the typed
+  `planner.materialization-tool-surface` hint and the planner switched to
+  `emit_change_plan` instead of restarting a broad investigation. A follow-up
+  state-machine gap was found and fixed in the same
+  layer: after a structured emit validator rejection opens a bounded repair
+  read window, the first post-repair unavailable read now uses a distinct typed
+  hint key (`planner.structured-emit-repair-tool-surface`) so it is not swallowed
+  by LoopPolicy's earlier materialization hint de-duplication; a second
+  post-repair violation still force-stops the dirty dispatch. The prediction is
+  intentionally recorded as `predicted_unverified`: Matplotlib's editable build
+  failed in the local smoke environment, `run_tests` produced
+  `verdict=UNAVAILABLE` with zero real tests, and the patch is therefore an
+  exportable candidate rather than a locally verified fix. This preserves the
+  customer-facing rule that missing or partial project test environments do not
+  hard-block useful code delivery, while typed result fields prevent the
+  controller/adapter from mislabeling unavailable verification as passed.
 - 2026-06-16: Started a fair-isolated four-instance Lite batch at
   `eval/results/swebench/lite-smoke-20260616-fair-batch-sympy-sphinx-scikit-django`
   for `django__django-11742`, `sympy__sympy-12481`,

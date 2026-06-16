@@ -91,6 +91,19 @@ type plannerEvaluator struct {
 	// planning cannot restart a broad investigation loop.
 	handoffSynthesisReadBudget int
 	handoffSynthesisReadCalls  int
+
+	// structuredEmitRepairReadCalls bounds the exact-read window reopened after
+	// a structured plan emit validator rejects a plan. This is deliberately
+	// separate from the initial handoff synthesis budget: validation repair can
+	// need a small current-byte check, but it must not reopen broad planning
+	// exploration after the explorer has already localized the batch.
+	structuredEmitRepairReadCalls int
+
+	// materializationSurfaceViolations counts typed unavailable-tool-surface
+	// read attempts while the planner is in materialization-only mode. The
+	// first violation gets a corrective hint; the second force-stops the dirty
+	// dispatch so the controller can re-dispatch with a clean planning hint.
+	materializationSurfaceViolations int
 }
 
 // plannerInvestigationTopN bounds the file list rendered into the
@@ -107,6 +120,7 @@ const plannerTestSurfaceMaxItems = 8
 const (
 	plannerHandoffSynthesisBaseReadBudget = 2
 	plannerHandoffSynthesisMaxReadBudget  = 4
+	plannerStructuredEmitRepairReadBudget = 2
 )
 
 // BuildInitialInstruction captures the Mutable pointer + per-dispatch
@@ -134,6 +148,8 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	e.handoffSynthesisActive = plannerContextHasWriteHandoffMaterial(ctx)
 	e.handoffSynthesisReadBudget = plannerHandoffSynthesisReadBudget(ctx)
 	e.handoffSynthesisReadCalls = 0
+	e.structuredEmitRepairReadCalls = 0
+	e.materializationSurfaceViolations = 0
 	if ctx != nil {
 		e.mu = ctx.Mutable
 		if ctx.PlannerSoftIterCapOverride > 0 {
@@ -919,7 +935,8 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 		return false
 	}
 	handoffReadAllowed := e.handoffSynthesisActive && !e.handoffSynthesisReadBudgetExhausted()
-	if (e.structuredEmitRepairActive || handoffReadAllowed) && plannerResponseCallsAny(resp, plannerStructuredEmitRepairTools()...) {
+	repairReadAllowed := e.structuredEmitRepairActive && !e.structuredEmitRepairReadBudgetExhausted()
+	if (repairReadAllowed || handoffReadAllowed) && plannerResponseCallsAny(resp, plannerStructuredEmitRepairTools()...) {
 		return false
 	}
 	return true
@@ -936,7 +953,14 @@ func (e *plannerEvaluator) FilterToolSchemas(_ *types.AgentContext, schemas []ll
 	if e == nil || len(schemas) == 0 {
 		return schemas
 	}
-	if !e.handoffSynthesisActive || e.structuredEmitRepairActive || !e.handoffSynthesisReadBudgetExhausted() {
+	if !e.handoffSynthesisActive {
+		return schemas
+	}
+	if e.structuredEmitRepairActive {
+		if !e.structuredEmitRepairReadBudgetExhausted() {
+			return schemas
+		}
+	} else if !e.handoffSynthesisReadBudgetExhausted() {
 		return schemas
 	}
 	allowed := plannerHandoffSynthesisMaterializationToolNames()
@@ -949,8 +973,13 @@ func (e *plannerEvaluator) FilterToolSchemas(_ *types.AgentContext, schemas []ll
 	if len(out) == 0 {
 		return schemas
 	}
-	logging.Debug("[planner] handoff synthesis read budget exhausted (%d/%d); narrowed tool surface to %s",
-		e.handoffSynthesisReadCalls, e.handoffSynthesisReadBudget, strings.Join(sortedToolSchemaNames(out), ","))
+	if e.structuredEmitRepairActive {
+		logging.Debug("[planner] structured emit repair read budget exhausted (%d/%d); narrowed tool surface to %s",
+			e.structuredEmitRepairReadCalls, plannerStructuredEmitRepairReadBudget, strings.Join(sortedToolSchemaNames(out), ","))
+	} else {
+		logging.Debug("[planner] handoff synthesis read budget exhausted (%d/%d); narrowed tool surface to %s",
+			e.handoffSynthesisReadCalls, e.handoffSynthesisReadBudget, strings.Join(sortedToolSchemaNames(out), ","))
+	}
 	return out
 }
 
@@ -1015,6 +1044,23 @@ func (e *plannerEvaluator) handoffSynthesisReadBudgetExhausted() bool {
 		return false
 	}
 	return e.handoffSynthesisReadCalls >= e.handoffSynthesisReadBudget
+}
+
+func (e *plannerEvaluator) structuredEmitRepairReadBudgetExhausted() bool {
+	if e == nil || !e.structuredEmitRepairActive {
+		return false
+	}
+	return e.structuredEmitRepairReadCalls >= plannerStructuredEmitRepairReadBudget
+}
+
+func (e *plannerEvaluator) materializationOnlySurfaceActive() bool {
+	if e == nil || !e.handoffSynthesisActive {
+		return false
+	}
+	if e.structuredEmitRepairActive {
+		return e.structuredEmitRepairReadBudgetExhausted()
+	}
+	return e.handoffSynthesisReadBudgetExhausted()
 }
 
 func plannerToolResultsContainFailedStructuredEmit(results []types.ToolResult) bool {
@@ -1098,21 +1144,91 @@ func plannerExplorationPackLocalizationKind(kind string) bool {
 // result metadata, never model prose, so it can widen the planner recovery
 // window without creating a prompt-routing hard gate.
 func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObservation) {
-	if e.handoffSynthesisActive && !e.structuredEmitRepairActive {
-		readTools := plannerReadSynthesisToolNames()
-		for _, result := range obs.CurrentToolResults {
-			if readTools[strings.TrimSpace(result.ToolName)] {
-				e.handoffSynthesisReadCalls++
-			}
+	readAttempts := plannerReadSynthesisToolAttemptCount(obs.CurrentToolResults)
+	if e.handoffSynthesisActive {
+		if e.structuredEmitRepairActive {
+			e.structuredEmitRepairReadCalls += readAttempts
+		} else {
+			e.handoffSynthesisReadCalls += readAttempts
 		}
 	}
 	if plannerToolResultsContainSuccessfulStructuredEmit(obs.CurrentToolResults) {
 		e.structuredEmitRepairActive = false
+		e.structuredEmitRepairReadCalls = 0
 		return
 	}
 	if plannerToolResultsContainFailedStructuredEmit(obs.CurrentToolResults) {
 		e.structuredEmitRepairActive = true
+		e.structuredEmitRepairReadCalls = 0
+		e.materializationSurfaceViolations = 0
+		return
 	}
+	if e.materializationOnlySurfaceActive() && plannerToolResultsContainUnavailableReadTool(obs.CurrentToolResults) {
+		e.materializationSurfaceViolations++
+	}
+}
+
+// Observe implements LoopController for planner-local materialization
+// convergence. The signal reads only typed tool names, current tool-surface
+// availability, and ToolRepair.Code values. It does not inspect request text,
+// model rationale, or natural-language summaries.
+func (e *plannerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase != PhaseMidLoop || e == nil || !e.materializationOnlySurfaceActive() {
+		return LoopSignal{}
+	}
+	if !plannerToolResultsContainUnavailableReadTool(obs.CurrentToolResults) {
+		return LoopSignal{}
+	}
+	if e.materializationSurfaceViolations >= 2 {
+		return LoopSignal{
+			StopRequested: true,
+			StopReason:    "planner materialization-only tool surface ignored twice",
+		}
+	}
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        e.materializationSurfaceHintKey(),
+		BypassThrottle: true,
+		BypassBudget:   true,
+		Hint:           "The planning read/repair budget for this batch is exhausted. Do not call repository-reading tools in this planning round. Use the typed handoff, prior tool results, and any validator rejection already visible to emit a bounded ChangePlan now via `emit_change_plan`, or use `emit_plan_skeleton` followed by `emit_plan_change` for a large plan. `run_tests` is available only for typed dry-run probes.",
+	}
+}
+
+func (e *plannerEvaluator) materializationSurfaceHintKey() string {
+	if e != nil && e.structuredEmitRepairActive {
+		return "planner.structured-emit-repair-tool-surface"
+	}
+	return "planner.materialization-tool-surface"
+}
+
+func plannerReadSynthesisToolAttemptCount(results []types.ToolResult) int {
+	if len(results) == 0 {
+		return 0
+	}
+	readTools := plannerReadSynthesisToolNames()
+	n := 0
+	for _, result := range results {
+		if readTools[strings.TrimSpace(result.ToolName)] {
+			n++
+		}
+	}
+	return n
+}
+
+func plannerToolResultsContainUnavailableReadTool(results []types.ToolResult) bool {
+	if len(results) == 0 {
+		return false
+	}
+	readTools := plannerReadSynthesisToolNames()
+	for _, result := range results {
+		if !readTools[strings.TrimSpace(result.ToolName)] || result.Repair == nil {
+			continue
+		}
+		if strings.TrimSpace(result.Repair.Code) == unavailableToolSurfaceCode {
+			return true
+		}
+	}
+	return false
 }
 
 func plannerHandoffSynthesisReadBudget(ctx *types.AgentContext) int {
