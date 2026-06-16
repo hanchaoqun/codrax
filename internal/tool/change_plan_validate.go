@@ -210,6 +210,9 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 	if rej := compileStructuredEditPatches(ctx, changes); rej != "" {
 		return rej
 	}
+	if rej := validatePythonDuplicateDefinitionStutter(ctx, changes); rej != "" {
+		return rej
+	}
 	if rej := validatePlanPatchDuplicateInsertions(changes); rej != "" {
 		return rej
 	}
@@ -244,13 +247,13 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 	if rej := validatePlanProjectLint(ctx, changes); rej != "" {
 		return rej
 	}
-	if rej := validatePythonVerificationProbeCoupling(changes, verificationProbes); rej != "" {
+	if rej := validatePythonVerificationProbeCoupling(ctx.RepoRoot, changes, verificationProbes); rej != "" {
 		return rej
 	}
 	return ""
 }
 
-func validatePythonVerificationProbeCoupling(changes []types.FileChange, probes []types.VerificationProbe) string {
+func validatePythonVerificationProbeCoupling(repoRoot string, changes []types.FileChange, probes []types.VerificationProbe) string {
 	if len(probes) == 0 {
 		return ""
 	}
@@ -272,7 +275,7 @@ func validatePythonVerificationProbeCoupling(changes []types.FileChange, probes 
 		for imported := range imports {
 			importsSeen[imported] = struct{}{}
 		}
-		if pythonImportsCoverAnyTarget(imports, targets) {
+		if pythonImportsCoverAnyTarget(imports, targets) || pythonImportsCoverRepoLocalPublicPackage(repoRoot, changes, imports) {
 			return ""
 		}
 	}
@@ -283,6 +286,249 @@ func validatePythonVerificationProbeCoupling(changes []types.FileChange, probes 
 		return fmt.Sprintf("verification_probes do not include any Python import declarations for changed production modules %s; at least one Python probe must import the changed module under test instead of checking an isolated copy", formatStringSet(targets))
 	}
 	return fmt.Sprintf("verification_probes import %s but do not import any changed Python production module %s; at least one Python probe must exercise the changed code, not a copied implementation fragment", formatStringSet(importsSeen), formatStringSet(targets))
+}
+
+const pythonDuplicateDefinitionStutterMaxGap = 6
+
+type pythonDefinitionStutter struct {
+	Kind       string
+	Name       string
+	Scope      string
+	FirstLine  int
+	SecondLine int
+}
+
+type pythonDefinitionSeen struct {
+	Kind   string
+	Line   int
+	Indent int
+}
+
+type pythonScopeFrame struct {
+	Indent  int
+	Segment string
+}
+
+func validatePythonDuplicateDefinitionStutter(ctx *types.BusContext, changes []types.FileChange) string {
+	if ctx == nil {
+		return ""
+	}
+	for _, change := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if path == "" || !strings.HasSuffix(path, ".py") {
+			continue
+		}
+		content, ok, rej := plannedPythonContent(ctx.RepoRoot, change)
+		if rej != "" {
+			return rej
+		}
+		if !ok {
+			continue
+		}
+		dup, found := findPythonDuplicateDefinitionStutter(content)
+		if !found {
+			continue
+		}
+		scope := "module"
+		if strings.TrimSpace(dup.Scope) != "" {
+			scope = dup.Scope
+		}
+		return fmt.Sprintf("change %q would create duplicate Python %s %q in scope %s at lines %d and %d. This usually means a structured insert landed next to the existing definition; replace the existing definition/body instead of inserting a second one.",
+			path, dup.Kind, dup.Name, scope, dup.FirstLine, dup.SecondLine)
+	}
+	return ""
+}
+
+func plannedPythonContent(repoRoot string, change types.FileChange) (string, bool, string) {
+	kind := strings.TrimSpace(change.Kind)
+	switch kind {
+	case "create", "modify":
+		if strings.TrimSpace(change.NewContent) == "" {
+			return "", false, ""
+		}
+		return change.NewContent, true, ""
+	case "patch":
+		if len(change.Edits) == 0 {
+			return "", false, ""
+		}
+		_, newContent, err := compileStructuredEditsToContent(repoRoot, &change)
+		if err != nil {
+			return "", false, enrichStructuredEditReplanDiagnostic(nil, err.Error())
+		}
+		return newContent, true, ""
+	default:
+		return "", false, ""
+	}
+}
+
+func findPythonDuplicateDefinitionStutter(content string) (pythonDefinitionStutter, bool) {
+	seen := map[string]pythonDefinitionSeen{}
+	var stack []pythonScopeFrame
+	inTriple := ""
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		lineNo := i + 1
+		if inTriple != "" {
+			if pythonTripleQuoteCount(line, inTriple)%2 == 1 {
+				inTriple = ""
+			}
+			continue
+		}
+		code := stripPythonLineComment(line)
+		trimmed := strings.TrimSpace(code)
+		if trimmed == "" {
+			continue
+		}
+		if delim, ok := pythonOpeningTripleQuote(trimmed); ok {
+			if pythonTripleQuoteCount(trimmed, delim)%2 == 1 {
+				inTriple = delim
+			}
+			continue
+		}
+		kind, name, ok := pythonDefinitionHeader(trimmed)
+		if !ok {
+			continue
+		}
+		indent := pythonLeadingIndent(line)
+		for len(stack) > 0 && indent <= stack[len(stack)-1].Indent {
+			stack = stack[:len(stack)-1]
+		}
+		scope := pythonScopePath(stack)
+		key := scope + "\x00" + name
+		if prev, exists := seen[key]; exists &&
+			lineNo-prev.Line <= pythonDuplicateDefinitionStutterMaxGap &&
+			!pythonDuplicateDefinitionHasInterveningControlFlow(lines, prev.Line, lineNo, indent) {
+			return pythonDefinitionStutter{
+				Kind:       kind,
+				Name:       name,
+				Scope:      scope,
+				FirstLine:  prev.Line,
+				SecondLine: lineNo,
+			}, true
+		}
+		seen[key] = pythonDefinitionSeen{Kind: kind, Line: lineNo, Indent: indent}
+		stack = append(stack, pythonScopeFrame{
+			Indent:  indent,
+			Segment: kind + " " + name,
+		})
+	}
+	return pythonDefinitionStutter{}, false
+}
+
+func pythonDuplicateDefinitionHasInterveningControlFlow(lines []string, firstLine, secondLine, definitionIndent int) bool {
+	if firstLine < 1 || secondLine <= firstLine || secondLine > len(lines) {
+		return false
+	}
+	for i := firstLine; i < secondLine-1; i++ {
+		line := stripPythonLineComment(lines[i])
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		indent := pythonLeadingIndent(line)
+		if indent > definitionIndent {
+			continue
+		}
+		if pythonControlFlowHeader(trimmed) {
+			return true
+		}
+	}
+	return false
+}
+
+func pythonControlFlowHeader(trimmed string) bool {
+	if !strings.HasSuffix(trimmed, ":") {
+		return false
+	}
+	for _, prefix := range []string{
+		"if ", "elif ", "else", "try", "except", "finally", "for ", "while ", "with ", "match ", "case ",
+	} {
+		if trimmed == strings.TrimSuffix(prefix, " ") || strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func pythonDefinitionHeader(trimmed string) (kind string, name string, ok bool) {
+	switch {
+	case strings.HasPrefix(trimmed, "async def "):
+		name = pythonIdentifierAfterPrefix(trimmed, "async def ")
+		kind = "function"
+	case strings.HasPrefix(trimmed, "def "):
+		name = pythonIdentifierAfterPrefix(trimmed, "def ")
+		kind = "function"
+	case strings.HasPrefix(trimmed, "class "):
+		name = pythonIdentifierAfterPrefix(trimmed, "class ")
+		kind = "class"
+	default:
+		return "", "", false
+	}
+	if !isPythonIdentifier(name) {
+		return "", "", false
+	}
+	return kind, name, true
+}
+
+func pythonIdentifierAfterPrefix(line, prefix string) string {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	for i, r := range rest {
+		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+			return rest[:i]
+		}
+	}
+	return rest
+}
+
+func pythonLeadingIndent(line string) int {
+	indent := 0
+	for _, r := range line {
+		switch r {
+		case ' ':
+			indent++
+		case '\t':
+			indent += 8
+		default:
+			return indent
+		}
+	}
+	return indent
+}
+
+func pythonScopePath(stack []pythonScopeFrame) string {
+	if len(stack) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(stack))
+	for _, frame := range stack {
+		parts = append(parts, frame.Segment)
+	}
+	return strings.Join(parts, ".")
+}
+
+func pythonOpeningTripleQuote(trimmed string) (string, bool) {
+	if strings.HasPrefix(trimmed, `"""`) {
+		return `"""`, true
+	}
+	if strings.HasPrefix(trimmed, `'''`) {
+		return `'''`, true
+	}
+	return "", false
+}
+
+func pythonTripleQuoteCount(line, delim string) int {
+	if delim == "" {
+		return 0
+	}
+	count := 0
+	for {
+		idx := strings.Index(line, delim)
+		if idx < 0 {
+			return count
+		}
+		count++
+		line = line[idx+len(delim):]
+	}
 }
 
 func pythonProductionModuleCandidates(changes []types.FileChange) map[string]struct{} {
@@ -456,6 +702,101 @@ func pythonImportCoversTarget(imported, target string) bool {
 		return true
 	}
 	return pythonTopLevelModule(imported) == pythonTopLevelModule(target)
+}
+
+func pythonImportsCoverRepoLocalPublicPackage(repoRoot string, changes []types.FileChange, imports map[string]struct{}) bool {
+	publicPackages := pythonRepoLocalPublicPackagesForChanges(repoRoot, changes)
+	if len(publicPackages) == 0 {
+		return false
+	}
+	for imported := range imports {
+		top := pythonTopLevelModule(imported)
+		if top == "" {
+			continue
+		}
+		if _, ok := publicPackages[top]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func pythonRepoLocalPublicPackagesForChanges(repoRoot string, changes []types.FileChange) map[string]struct{} {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return nil
+	}
+	out := map[string]struct{}{}
+	seenRoots := map[string]struct{}{}
+	for _, change := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if path == "" || !strings.HasSuffix(path, ".py") || types.LooksLikeTestFilePath(path) {
+			continue
+		}
+		sourceRootRel := pythonSourceRootForPath(path)
+		if _, seen := seenRoots[sourceRootRel]; seen {
+			continue
+		}
+		seenRoots[sourceRootRel] = struct{}{}
+		sourceRoot := filepath.Join(repoRoot, filepath.FromSlash(sourceRootRel))
+		entries, err := os.ReadDir(sourceRoot)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			stem := strings.TrimSuffix(name, ".py")
+			if !isPythonIdentifier(stem) || strings.HasPrefix(stem, "_") {
+				continue
+			}
+			full := filepath.Join(sourceRoot, name)
+			switch {
+			case entry.IsDir():
+				if pythonDirectoryLooksImportable(full) {
+					out[name] = struct{}{}
+				}
+			case strings.HasSuffix(name, ".py"):
+				out[stem] = struct{}{}
+			}
+		}
+	}
+	return out
+}
+
+func pythonSourceRootForPath(relPath string) string {
+	relPath = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(relPath)), "./")
+	for _, root := range []string{"src", "lib"} {
+		if relPath == root || strings.HasPrefix(relPath, root+"/") {
+			return root
+		}
+	}
+	return "."
+}
+
+func pythonDirectoryLooksImportable(path string) bool {
+	if _, err := os.Stat(filepath.Join(path, "__init__.py")); err == nil {
+		return true
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			if strings.HasPrefix(name, "_") {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(path, name, "__init__.py")); err == nil {
+				return true
+			}
+			continue
+		}
+		if strings.HasSuffix(name, ".py") && !strings.HasPrefix(name, "_") {
+			return true
+		}
+	}
+	return false
 }
 
 func pythonTopLevelModule(name string) string {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -68,5 +69,55 @@ func TestNewWriteAnalyzerAgent_PreservesLowerMaxIterations(t *testing.T) {
 	a := NewWriteAnalyzerAgent(deps).(*writeAnalyzer)
 	if a.base.deps.MaxIterations != 3 {
 		t.Fatalf("MaxIterations = %d, want explicit lower cap 3", a.base.deps.MaxIterations)
+	}
+}
+
+func TestWriteAnalyzer_FilterToolSchemas_AllowsInitialPrescan(t *testing.T) {
+	eval := &writeAnalyzerEvaluator{}
+	schemas := writeAnalyzerTestSchemas()
+
+	got := eval.FilterToolSchemas(&types.AgentContext{}, schemas)
+	if len(got) != len(schemas) {
+		t.Fatalf("initial write_analyzer surface should be unchanged, got %+v", got)
+	}
+}
+
+func TestWriteAnalyzer_FilterToolSchemas_EmitOnlyAfterPrescanBudget(t *testing.T) {
+	eval := &writeAnalyzerEvaluator{}
+	eval.ObserveToolResults(nil, LoopObservation{
+		CurrentToolResults: []types.ToolResult{
+			{ToolName: "repo_map", Success: true},
+			{ToolName: "grep", Success: true},
+			{ToolName: "read_file", Success: true},
+			{ToolName: "list_files", Success: true},
+			{ToolName: "emit_write_analysis", Success: false},
+			{ToolName: "run_tests", Success: true},
+			{ToolName: "repo_map", Success: false},
+		},
+	})
+
+	got := eval.FilterToolSchemas(&types.AgentContext{}, writeAnalyzerTestSchemas())
+	if len(got) != 1 || got[0].Name != "emit_write_analysis" {
+		t.Fatalf("prescan budget exhaustion should leave only emit_write_analysis, got %+v", got)
+	}
+}
+
+func TestWriteAnalyzer_BuildInitialInstruction_ResetsPrescanBudget(t *testing.T) {
+	eval := &writeAnalyzerEvaluator{prescanToolCalls: writeAnalyzerPrescanToolBudget}
+	eval.BuildInitialInstruction(&types.AgentContext{Mutable: types.NewMutableState("test")}, nil)
+
+	got := eval.FilterToolSchemas(&types.AgentContext{}, writeAnalyzerTestSchemas())
+	if len(got) != len(writeAnalyzerTestSchemas()) {
+		t.Fatalf("new dispatch should reset write_analyzer prescan budget, got %+v", got)
+	}
+}
+
+func writeAnalyzerTestSchemas() []llm.ToolSchema {
+	return []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "list_files"},
+		{Name: "repo_map"},
+		{Name: "grep"},
+		{Name: "emit_write_analysis"},
 	}
 }

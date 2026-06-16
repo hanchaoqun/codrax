@@ -58,44 +58,57 @@ func newStructuredEditDiagnosticError(message string, diagnostic structuredEditD
 }
 
 func compileStructuredEditsToPatch(repoRoot string, change *types.FileChange) (string, error) {
+	oldContent, newContent, err := compileStructuredEditsToContent(repoRoot, change)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.ToSlash(strings.TrimSpace(change.Path))
+	patch := udiff.Unified("a/"+path, "b/"+path, oldContent, newContent)
+	if strings.TrimSpace(patch) == "" {
+		return "", fmt.Errorf("structured edit builder: change %q produced an empty diff", path)
+	}
+	return patch, nil
+}
+
+func compileStructuredEditsToContent(repoRoot string, change *types.FileChange) (string, string, error) {
 	if change == nil {
-		return "", fmt.Errorf("structured edit builder: nil change")
+		return "", "", fmt.Errorf("structured edit builder: nil change")
 	}
 	path := filepath.ToSlash(strings.TrimSpace(change.Path))
 	if path == "" {
-		return "", fmt.Errorf("structured edit builder: empty path")
+		return "", "", fmt.Errorf("structured edit builder: empty path")
 	}
 	if strings.TrimSpace(change.Kind) != "patch" {
-		return "", fmt.Errorf("structured edit builder: change %q uses edits with kind=%s; edits are only valid for kind=patch", path, change.Kind)
+		return "", "", fmt.Errorf("structured edit builder: change %q uses edits with kind=%s; edits are only valid for kind=patch", path, change.Kind)
 	}
 	if len(change.Edits) == 0 {
-		return "", fmt.Errorf("structured edit builder: change %q has no edits", path)
+		return "", "", fmt.Errorf("structured edit builder: change %q has no edits", path)
 	}
 	root := strings.TrimSpace(repoRoot)
 	if root == "" {
-		return "", fmt.Errorf("structured edit builder: repo root is empty")
+		return "", "", fmt.Errorf("structured edit builder: repo root is empty")
 	}
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return "", fmt.Errorf("structured edit builder: resolve repo root: %w", err)
+		return "", "", fmt.Errorf("structured edit builder: resolve repo root: %w", err)
 	}
 	absPath := filepath.Join(absRoot, filepath.FromSlash(path))
 	absPath, err = filepath.Abs(absPath)
 	if err != nil {
-		return "", fmt.Errorf("structured edit builder: resolve %s: %w", path, err)
+		return "", "", fmt.Errorf("structured edit builder: resolve %s: %w", path, err)
 	}
 	if rel, err := filepath.Rel(absRoot, absPath); err != nil || strings.HasPrefix(rel, "..") {
-		return "", fmt.Errorf("structured edit builder: path %q escapes repo root", path)
+		return "", "", fmt.Errorf("structured edit builder: path %q escapes repo root", path)
 	}
 	data, err := os.ReadFile(absPath)
 	if err != nil {
-		return "", fmt.Errorf("structured edit builder: read %s: %w", path, err)
+		return "", "", fmt.Errorf("structured edit builder: read %s: %w", path, err)
 	}
 	oldContent := string(data)
 	lines := splitContentLines(oldContent)
 	compiled, err := normalizeStructuredEdits(path, lines, change.Edits)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	newLines := append([]string(nil), lines...)
 	sort.SliceStable(compiled, func(i, j int) bool {
@@ -126,13 +139,9 @@ func compileStructuredEditsToPatch(repoRoot string, change *types.FileChange) (s
 	}
 	newContent := strings.Join(newLines, "")
 	if newContent == oldContent {
-		return "", fmt.Errorf("structured edit builder: change %q is a no-op", path)
+		return "", "", fmt.Errorf("structured edit builder: change %q is a no-op", path)
 	}
-	patch := udiff.Unified("a/"+path, "b/"+path, oldContent, newContent)
-	if strings.TrimSpace(patch) == "" {
-		return "", fmt.Errorf("structured edit builder: change %q produced an empty diff", path)
-	}
-	return patch, nil
+	return oldContent, newContent, nil
 }
 
 func normalizeStructuredEdits(path string, lines []string, edits []types.StructuredEdit) ([]compiledStructuredEdit, error) {

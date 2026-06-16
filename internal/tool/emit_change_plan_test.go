@@ -311,6 +311,108 @@ func TestEmitChangePlan_AcceptsPythonProbeImportingSiblingPublicAPIForChangedSub
 	}
 }
 
+func TestEmitChangePlan_AcceptsPythonProbeImportingRepoLocalSiblingPublicPackage(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = t.TempDir()
+	for _, path := range []string{
+		"lib/matplotlib",
+		"lib/mpl_toolkits",
+		"lib/mpl_toolkits/mplot3d",
+	} {
+		if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, filepath.FromSlash(path)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", path, err)
+		}
+		if err := os.WriteFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(path), "__init__.py"), []byte(""), 0o644); err != nil {
+			t.Fatalf("write %s __init__: %v", path, err)
+		}
+	}
+	params := json.RawMessage(`{
+		"request": "fix 3D axes visibility",
+		"summary": "Modify Axes3D.draw and verify the behavior through Matplotlib's public pyplot entrypoint, which lives in a sibling top-level package under the same lib source root.",
+		"changes": [
+			{"path": "lib/mpl_toolkits/mplot3d/axes3d.py", "kind": "modify", "new_content": "class Axes3D:\n    def draw(self, renderer):\n        if not self.get_visible():\n            return\n", "rationale": "add the visibility guard"}
+		],
+		"verification_probes": [
+			{"id": "public_pyplot_entrypoint", "language": "python", "code": "import matplotlib.pyplot as plt\nfig = plt.figure()\nassert fig is not None\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected repo-local sibling public package probe to be accepted, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) != 1 {
+		t.Fatalf("expected accepted plan with one public-entrypoint probe, got: %+v", plan)
+	}
+}
+
+func TestEmitChangePlan_RejectsStructuredEditDuplicatePythonDefinitionStutter(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = t.TempDir()
+	path := "lib/mpl_toolkits/mplot3d/axes3d.py"
+	if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, "lib/mpl_toolkits/mplot3d"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(path)), []byte("class Axes3D:\n    @allow_rasterization\n    def draw(self, renderer):\n        self._unstale_viewLim()\n        self.patch.draw(renderer)\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	params := json.RawMessage(`{
+		"request": "fix 3D axes visibility",
+		"summary": "Modify Axes3D.draw by adding a visibility guard.",
+		"changes": [
+			{
+				"path": "lib/mpl_toolkits/mplot3d/axes3d.py",
+				"kind": "patch",
+				"edits": [
+					{
+						"kind": "insert_before",
+						"start_line": 3,
+						"old_text": "    def draw(self, renderer):\n",
+						"content": "    def draw(self, renderer):\n        if not self.get_visible():\n            return\n        self._unstale_viewLim()\n"
+					}
+				],
+				"rationale": "add guard before drawing"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected duplicate Python definition stutter to be rejected")
+	}
+	for _, want := range []string{"duplicate Python function", "draw", "replace the existing definition"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary should contain %q, got: %s", want, res.Summary)
+		}
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected duplicate definition plan must not install ChangePlan: %+v", plan)
+	}
+}
+
+func TestPythonDuplicateDefinitionStutter_AllowsConditionalCompatibilityDefinitions(t *testing.T) {
+	content := `class Compat:
+    if FEATURE:
+        def render(self):
+            return "new"
+    else:
+        def render(self):
+            return "old"
+`
+	if dup, ok := findPythonDuplicateDefinitionStutter(content); ok {
+		t.Fatalf("conditional compatibility definitions should not be stutter rejected: %+v", dup)
+	}
+}
+
 // TestEmitChangePlan_EmptyChangesRejected locks the hard cross-
 // field check: a plan with zero changes is meaningless and must
 // fail with a clear diagnostic.

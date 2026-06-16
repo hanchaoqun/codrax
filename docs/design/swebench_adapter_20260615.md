@@ -833,3 +833,47 @@ records adapter results.
   product follow-up: exploration/planner should verify runtime/library
   hypotheses with bounded typed probes earlier, because a faster handoff can
   still converge on an incorrect patch if the localized causal theory is wrong.
+- 2026-06-16: Ran a four-instance non-Go Lite smoke at
+  `eval/results/swebench/lite-smoke-20260616-mpl-pytest-pylint-sphinx-new-current`
+  for `matplotlib__matplotlib-23314`, `pylint-dev__pylint-7993`,
+  `pytest-dev__pytest-11148`, and `sphinx-doc__sphinx-10325`. This run was
+  started before the fixes below were built, so treat it as gap evidence from
+  the previous binary. All four instances exported non-empty official
+  predictions; prediction schema validation and official harness dry-run
+  accepted the JSONL with `empty_patch=0`. Sphinx produced a local
+  `predicted_passed` source patch for `sphinx/ext/autodoc/__init__.py` and the
+  adapter stripped the test patch as intended. Matplotlib, Pylint, and Pytest
+  exported `predicted_unverified` patches because local verification surfaced
+  `no_tests` or `parser_error` environment/test-surface outcomes, confirming
+  that unavailable local verification remains a delivery caveat rather than a
+  hard code-failure gate. Manual log audit exposed four generalized follow-ups:
+  (1) `write_analyzer` repeatedly performed useful code exploration but failed
+  to emit `emit_write_analysis` before its ReAct cap; the analyzer now counts
+  only typed pre-scan tool results and physically narrows to
+  `emit_write_analysis` after four successful lightweight reads/searches.
+  (2) Matplotlib's public `matplotlib.pyplot` probe legitimately exercised a
+  changed `lib/mpl_toolkits/...` submodule through a sibling repo-local public
+  package; the Python probe-coupling validator now accepts repo-local public
+  packages under the same `src`/`lib` source root while still rejecting isolated
+  copied-implementation probes. (3) The same Matplotlib plan used a structured
+  `insert_before` edit that created a second same-scope `def draw`, leaving the
+  old definition to override the fix; `emit_change_plan` now rejects Python
+  structured edits whose final planned content contains near-neighbor duplicate
+  `def`/`class` stutter in the same scope, using only final-content structure
+  and line numbers. (4) The Pytest run found and inspected historical commit
+  `2f7415cf` via `git_show`; this is useful product behavior but a SWE-bench
+  fairness gap. Future fair-eval runs should disable or shallow/cut VCS history
+  beyond the base checkout, while normal product write/read modes can retain
+  structured git tools.
+- 2026-06-16: Re-ran `matplotlib__matplotlib-23314` after the write-analyzer,
+  public-probe, and duplicate-definition-stutter fixes at
+  `eval/results/swebench/lite-smoke-20260616-mpl23314-after-writeanalyzer-probe-dupfix`.
+  The run exported a non-empty source patch (`patch_bytes=468`), validation and
+  official harness dry-run accepted the prediction, and local verification
+  remained correctly `predicted_unverified`/`no_tests` rather than a hard
+  failure. The log shows the new write-analyzer runtime gate narrowing the tool
+  surface to `emit_write_analysis` after the bounded pre-scan instead of
+  degrading to fallback IR. The exported patch now modifies the existing
+  `Axes3D.draw()` body by adding `if not self.get_visible(): return` after
+  `_unstale_viewLim()`, with no duplicate `def draw` stutter. The previous
+  repo-local public probe false rejection did not recur.

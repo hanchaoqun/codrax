@@ -19,7 +19,8 @@ import (
 // rounds (read_file / list_files / repo_map) to ground its
 // classification, then emit.
 type writeAnalyzerEvaluator struct {
-	emitSeen bool
+	emitSeen         bool
+	prescanToolCalls int
 }
 
 // BuildInitialInstruction: skill owns the structural prompt; the
@@ -36,6 +37,7 @@ type writeAnalyzerEvaluator struct {
 // half-wired; commit 13 closes the loop.)
 func (e *writeAnalyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *skill.Config) string {
 	e.emitSeen = false
+	e.prescanToolCalls = 0
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
@@ -51,6 +53,41 @@ func (e *writeAnalyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext
 // ShouldStop — primary gate is the emit observation; this hook is
 // the secondary check BaseAgent consults between iterations.
 func (e *writeAnalyzerEvaluator) ShouldStop(_ llm.Response, _ int) bool { return e.emitSeen }
+
+// FilterToolSchemas keeps write_analyzer as a bounded classifier. The
+// controller owns deeper code investigation after emit_write_analysis creates a
+// durable typed seed, so the analyzer gets a small structured pre-scan budget
+// and then a physically emit-only tool surface. This is runtime control, not
+// prompt routing: it consumes only typed tool names and counts.
+func (e *writeAnalyzerEvaluator) FilterToolSchemas(_ *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
+	if len(schemas) == 0 || e.prescanToolCalls < writeAnalyzerPrescanToolBudget {
+		return schemas
+	}
+	out := make([]llm.ToolSchema, 0, 1)
+	for _, schema := range schemas {
+		if strings.TrimSpace(schema.Name) == "emit_write_analysis" {
+			out = append(out, schema)
+		}
+	}
+	if len(out) == 0 {
+		return schemas
+	}
+	return out
+}
+
+// ObserveToolResults tracks only the lightweight repository navigation tools
+// that write_analyzer is allowed to use before emitting. It deliberately does
+// not inspect model prose, summaries, or user keywords.
+func (e *writeAnalyzerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObservation) {
+	for _, result := range obs.CurrentToolResults {
+		if !result.Success {
+			continue
+		}
+		if writeAnalyzerPrescanToolName(result.ToolName) {
+			e.prescanToolCalls++
+		}
+	}
+}
 
 // Observe watches mid-loop tool results; a successful
 // emit_write_analysis flips emitSeen and requests termination.
@@ -125,6 +162,16 @@ func (a *writeAnalyzer) Execute(ctx *types.AgentContext, sk *skill.Config) (*Sta
 }
 
 const writeAnalyzerIterCap = 6
+const writeAnalyzerPrescanToolBudget = 4
+
+func writeAnalyzerPrescanToolName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "read_file", "list_files", "repo_map", "grep":
+		return true
+	default:
+		return false
+	}
+}
 
 // NewWriteAnalyzerAgent constructs the write_analyzer with a
 // BaseAgent ReAct loop. The write analyzer is a bounded classifier,
