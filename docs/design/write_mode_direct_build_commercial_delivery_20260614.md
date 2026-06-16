@@ -4432,3 +4432,63 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     marks the generated patch as semantically weaker than gold because it warns
     instead of raising `ValueError`, so strict API-contract inference remains a
     future planner-quality item rather than a validator/control-plane failure.
+
+## 2026-06-16 SWE-bench smoke 18: full-file modify truncation gate and scoped pytest selector rebase
+
+- Evidence source:
+  - Fair-isolated 4-instance Lite batch:
+    `eval/results/swebench/lite-smoke-20260616-mpl24970-sklearn13779-sphinx8435-sympy12481-current`
+    with `matplotlib__matplotlib-24970`,
+    `scikit-learn__scikit-learn-13779`, `sphinx-doc__sphinx-8435`, and
+    `sympy__sympy-12481`.
+  - `predictions.jsonl` contained four non-empty rows, the local validator
+    reported `empty_patch=0`, and the official SWE-bench harness dry-run
+    accepted the same predictions file.
+  - Manual audit found one high-confidence generated patch
+    (`scikit-learn__scikit-learn-13779`), two wrong-localization or
+    wrong-semantics patches, and one catastrophic SymPy patch that rewrote
+    `sympy/combinatorics/permutations.py` as a much smaller partial file.
+- Gap observed:
+  - The SymPy log showed a planner switching from a surgical patch path to
+    `kind=modify` after an anchor mismatch. Because the emitted `new_content`
+    was syntactically valid Python, existing dry-build could pass while most of
+    the current large file was deleted.
+  - This is a systemic artifact-boundary issue: the apply/export path needs to
+    validate the shape and completeness of the typed `ChangePlan`, independent
+    of whether a local project runner is available.
+  - The same batch showed a verification ergonomics issue where pytest ran with
+    `working_dir=sklearn` but a suite selector still started with `sklearn/`,
+    effectively duplicating the package root under the runner cwd.
+- Generalized fixes:
+  - `ChangePlan` validation now enforces legal content carriers by
+    `FileChange.kind`: `create`/`modify` require full `new_content`;
+    `patch` may use patch or structured edits but not `new_content`; `delete`
+    and `rename` carry no content fields. This prevents malformed mixed-carrier
+    plans from leaking full-file overwrite bytes into a surgical patch lane.
+  - Existing large-file `modify` changes are compared with current repository
+    bytes before apply/export. A `modify` is rejected if its `new_content` is a
+    strict prefix/truncated subset of the current file or if it deletes most of
+    a large file by line/byte thresholds. The rejection steers the planner to
+    use `kind=patch` for localized edits, `kind=delete` for intentional
+    deletion, or a complete full-file rewrite with comparable scope.
+  - Python/pytest command construction now normalizes suite selectors against
+    the actual runner cwd: if a file/nodeid selector does not exist under the
+    selected `working_dir`, the builder tries dropping leading path components
+    and rebases only when the resulting file exists. Root-relative selectors
+    that already exist and single parameterized selectors with spaces are left
+    unchanged.
+- Prompt and hard-gate hygiene:
+  - The hard gates consume only typed `FileChange.kind`, legal content fields,
+    repo-relative path resolution, current file bytes/line counts, pytest
+    selector shape, and filesystem existence under the runner cwd.
+  - No SWE-bench ids, issue text, user intent keywords, model prose,
+    summaries/rationale, natural-language logs, or `<think>` content are used
+    for routing.
+  - Missing pytest or historical dependency incompatibility remains a typed
+    `unavailable/parser_error` outcome, not a hard block on exportable code.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/tool -run 'TestValidatePlanFullContent_Rejects|TestEmitPlanChange_RejectsLargeModifyTruncationBeforeFinalize|TestSplitPytestSuiteSelectors|TestShellQuotePytestSelectorsForRoot'`.
+  - Broad regression passed: `go test ./internal/tool`, `go test ./...`,
+    `make test`, `make`, `git diff --check`, and
+    `eval/swebench/smoke_local.sh`.

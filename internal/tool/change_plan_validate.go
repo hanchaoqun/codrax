@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -207,6 +208,12 @@ func validatePlanScopeKindAlignment(ctx *types.BusContext, changes []types.FileC
 }
 
 func validatePlanFullContent(ctx *types.BusContext, summary string, changes []types.FileChange, verificationProbes []types.VerificationProbe) string {
+	if rej := validatePlanContentCarriers(changes); rej != "" {
+		return rej
+	}
+	if rej := validateFullModifyCompleteness(ctx, changes); rej != "" {
+		return rej
+	}
 	if rej := compileStructuredEditPatches(ctx, changes); rej != "" {
 		return rej
 	}
@@ -251,6 +258,134 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 		return rej
 	}
 	return ""
+}
+
+func validatePlanContentCarriers(changes []types.FileChange) string {
+	for _, change := range changes {
+		path := strings.TrimSpace(change.Path)
+		kind := strings.TrimSpace(change.Kind)
+		hasNewContent := strings.TrimSpace(change.NewContent) != ""
+		hasPatch := strings.TrimSpace(change.Patch) != ""
+		hasEdits := len(change.Edits) > 0
+		switch kind {
+		case "create", "modify":
+			if hasPatch || hasEdits {
+				return fmt.Sprintf("change %q has kind=%s but also carries patch/edits content; create/modify require new_content as the only content carrier", path, kind)
+			}
+			if !hasNewContent {
+				return fmt.Sprintf("change %q has kind=%s but new_content is empty; provide the full file body or choose kind=delete/patch as appropriate", path, kind)
+			}
+		case "patch":
+			if hasNewContent {
+				return fmt.Sprintf("change %q has kind=patch but also carries new_content; patch changes must use only patch or edits[] so full-file overwrite bytes cannot leak into a surgical plan", path)
+			}
+			if !hasPatch && !hasEdits {
+				return fmt.Sprintf("change %q has kind=patch but Patch is empty (unified-diff required)", path)
+			}
+		case "delete":
+			if hasNewContent || hasPatch || hasEdits {
+				return fmt.Sprintf("change %q has kind=delete but carries content fields; delete changes must not include new_content, patch, or edits[]", path)
+			}
+		case "rename":
+			if hasNewContent || hasPatch || hasEdits {
+				return fmt.Sprintf("change %q has kind=rename but carries content fields; use a separate modify/patch change for content edits", path)
+			}
+		}
+	}
+	return ""
+}
+
+const (
+	fullModifyLargeFileLineThreshold     = 400
+	fullModifyLargeFileByteThreshold     = 20 * 1024
+	fullModifyPrefixTruncationPct        = 80
+	fullModifyDrasticLineShrinkPct       = 50
+	fullModifyDrasticByteShrinkPct       = 50
+	fullModifyMinDeletedLinesForHardGate = 300
+	fullModifyMinDeletedBytesForHardGate = 20 * 1024
+)
+
+func validateFullModifyCompleteness(ctx *types.BusContext, changes []types.FileChange) string {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return ""
+	}
+	repoRootAbs, err := filepath.Abs(ctx.RepoRoot)
+	if err != nil {
+		return ""
+	}
+	for _, change := range changes {
+		if strings.TrimSpace(change.Kind) != "modify" {
+			continue
+		}
+		path := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if path == "" {
+			continue
+		}
+		abs := filepath.Clean(filepath.Join(repoRootAbs, filepath.FromSlash(path)))
+		absCanonical, err := filepath.Abs(abs)
+		if err != nil {
+			continue
+		}
+		if absCanonical != repoRootAbs && !strings.HasPrefix(absCanonical, repoRootAbs+string(filepath.Separator)) {
+			continue
+		}
+		oldBytes, err := os.ReadFile(absCanonical)
+		if err != nil || len(oldBytes) == 0 {
+			continue
+		}
+		newBytes := []byte(change.NewContent)
+		if bytes.Equal(oldBytes, newBytes) {
+			continue
+		}
+		oldLines := countPlanContentLines(string(oldBytes))
+		newLines := countPlanContentLines(change.NewContent)
+		largeByLines := oldLines >= fullModifyLargeFileLineThreshold
+		largeByBytes := len(oldBytes) >= fullModifyLargeFileByteThreshold
+		if !largeByLines && !largeByBytes {
+			continue
+		}
+		deletedLines := oldLines - newLines
+		deletedBytes := len(oldBytes) - len(newBytes)
+		if looksLikePrefixTruncation(oldBytes, newBytes, deletedLines, deletedBytes) {
+			return fmt.Sprintf("change %q uses kind=modify on an existing large file but new_content is a strict prefix/truncated subset of the current file (%d→%d lines, %d→%d bytes). Use kind=patch for localized edits or provide the complete full file body for an intentional rewrite.",
+				path, oldLines, newLines, len(oldBytes), len(newBytes))
+		}
+		if looksLikeCatastrophicFullModifyShrink(oldLines, newLines, len(oldBytes), len(newBytes), deletedLines, deletedBytes) {
+			return fmt.Sprintf("change %q uses kind=modify on an existing large file and removes most of the file (%d→%d lines, %d→%d bytes). This is likely a partial generated file body. Use kind=patch for surgical edits, kind=delete for intentional removal, or provide a complete full-file rewrite with comparable scope.",
+				path, oldLines, newLines, len(oldBytes), len(newBytes))
+		}
+	}
+	return ""
+}
+
+func countPlanContentLines(content string) int {
+	if content == "" {
+		return 0
+	}
+	lines := strings.Count(content, "\n")
+	if !strings.HasSuffix(content, "\n") {
+		lines++
+	}
+	return lines
+}
+
+func looksLikePrefixTruncation(oldBytes, newBytes []byte, deletedLines, deletedBytes int) bool {
+	if len(newBytes) == 0 || len(newBytes) >= len(oldBytes) {
+		return false
+	}
+	if !bytes.HasPrefix(oldBytes, newBytes) {
+		return false
+	}
+	if len(newBytes)*100 >= len(oldBytes)*fullModifyPrefixTruncationPct {
+		return false
+	}
+	return deletedLines >= 100 || deletedBytes >= 4096
+}
+
+func looksLikeCatastrophicFullModifyShrink(oldLines, newLines, oldByteLen, newByteLen, deletedLines, deletedBytes int) bool {
+	lineShrink := oldLines > 0 && newLines*100 < oldLines*fullModifyDrasticLineShrinkPct && deletedLines >= fullModifyMinDeletedLinesForHardGate
+	byteShrink := oldByteLen > 0 && newByteLen*100 < oldByteLen*fullModifyDrasticByteShrinkPct && deletedBytes >= fullModifyMinDeletedBytesForHardGate
+	return lineShrink || byteShrink
 }
 
 func validatePythonVerificationProbeCoupling(repoRoot string, changes []types.FileChange, probes []types.VerificationProbe) string {

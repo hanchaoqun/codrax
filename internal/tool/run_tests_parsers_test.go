@@ -626,6 +626,86 @@ func TestSplitPytestSuiteSelectors_KeepsSingleSelectorWithSpaces(t *testing.T) {
 	}
 }
 
+func TestShellQuotePytestSelectorsForRoot_StripsWorkingDirPrefixWhenFileExists(t *testing.T) {
+	repo := t.TempDir()
+	wd := filepath.Join(repo, "sklearn")
+	path := filepath.Join(wd, "ensemble", "tests")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir test path: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "test_voting.py"), []byte("def test_soft_voting():\n\tpass\n"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	suite := "sklearn/ensemble/tests/test_voting.py::test_soft_voting"
+	got := shellQuotePytestSelectorsForRoot(suite, wd)
+	if strings.Contains(got, "sklearn/ensemble") {
+		t.Fatalf("selector should be rebased under working_dir, got %q", got)
+	}
+	if !strings.Contains(got, "ensemble/tests/test_voting.py::test_soft_voting") {
+		t.Fatalf("selector lost path/nodeid after rebase, got %q", got)
+	}
+	cmd, _ := buildRunCommandWithFramework("python", pythonFrameworkPytest, suite, wd, repo)
+	if strings.Contains(cmd, "sklearn/ensemble") {
+		t.Fatalf("pytest command should not duplicate working_dir prefix, got %q", cmd)
+	}
+}
+
+func TestShellQuotePytestSelectorsForRoot_RebasesMultipleNodeIDs(t *testing.T) {
+	repo := t.TempDir()
+	wd := filepath.Join(repo, "pkg", "core")
+	path := filepath.Join(wd, "tests")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir test path: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "test_cli.py"), []byte("def test_a():\n\tpass\n\ndef test_b():\n\tpass\n"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	suite := "pkg/core/tests/test_cli.py::test_a pkg/core/tests/test_cli.py::test_b"
+	got := shellQuotePytestSelectorsForRoot(suite, wd)
+	if strings.Contains(got, "pkg/core/tests") {
+		t.Fatalf("selectors should be rebased under working_dir, got %q", got)
+	}
+	if !strings.Contains(got, "tests/test_cli.py::test_a tests/test_cli.py::test_b") {
+		t.Fatalf("multiple nodeids should remain separate rebased argv tokens, got %q", got)
+	}
+}
+
+func TestShellQuotePytestSelectorsForRoot_KeepsSelectorWhenOriginalFileExists(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sklearn", "ensemble", "tests")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir test path: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "test_voting.py"), []byte("def test_soft_voting():\n\tpass\n"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	suite := "sklearn/ensemble/tests/test_voting.py::test_soft_voting"
+	got := shellQuotePytestSelectorsForRoot(suite, root)
+	if !strings.Contains(got, suite) {
+		t.Fatalf("selector should remain repo-relative when it already exists under cwd, got %q", got)
+	}
+}
+
+func TestShellQuotePytestSelectorsForRoot_KeepsSpacedSelector(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "tests")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir test path: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "test_widgets.py"), []byte("def test_label():\n\tpass\n"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	suite := "pkg/tests/test_widgets.py::test_label[param value]"
+	got := shellQuotePytestSelectorsForRoot(suite, root)
+	if !strings.Contains(got, suite) || !strings.HasPrefix(got, "'") {
+		t.Fatalf("selector with spaces should stay one quoted argv token, got %q", got)
+	}
+}
+
 // ── Cargo parser tests ───────────────────────────────────────────
 
 func TestParseCargoTestText_AllPassed(t *testing.T) {

@@ -104,6 +104,13 @@ records adapter results.
 - [x] Stop verifier immediately after `run_tests` produces a typed passed or
   unavailable `ChangeReport`, preventing duplicate test runs on parser/env
   unavailable outcomes.
+- [x] Run another fair-isolated 4-instance Lite batch on Matplotlib,
+  scikit-learn, Sphinx, and SymPy; verify predictions JSONL and official
+  harness dry-run consumption.
+- [x] Add typed ChangePlan carrier/completeness hardening so large existing
+  files cannot be silently truncated by a malformed full-file `modify`.
+- [x] Rebase pytest suite selectors against a typed nested `working_dir` when
+  the rebased file path exists, avoiding duplicated package-root selectors.
 - [x] Commit and push to `main`.
 
 ## Test Matrix
@@ -173,6 +180,15 @@ records adapter results.
   after any report exists, the verifier schema filter removes `run_tests` from
   later turns while preserving `emit_test_results` for structured failed-test
   classification.
+- ChangePlan content carriers: each file-change kind has exactly one legal
+  content channel before apply/export. `create`/`modify` require `new_content`,
+  `patch` uses patch/structured edits, and delete/rename do not carry body
+  fields. Large existing-file `modify` plans are rejected when `new_content`
+  looks like a strict prefix or catastrophic shrink of current bytes.
+- Scoped pytest verification: Python/pytest selectors are shell-quoted as
+  separate argv tokens only for typed pytest selectors. When a verifier also
+  sets a nested `working_dir`, repo-root-prefixed file/nodeid selectors are
+  rebased only if the resulting file exists under the actual runner cwd.
 
 ## Progress Ledger
 
@@ -1374,3 +1390,43 @@ records adapter results.
   solution-quality gap around choosing strict error semantics from issue
   intent/API contract, but the system-level accessor-stutter gate regression is
   fixed and harness export remains healthy.
+- 2026-06-16: New fair-isolated 4-instance Lite batch completed at
+  `eval/results/swebench/lite-smoke-20260616-mpl24970-sklearn13779-sphinx8435-sympy12481-current`
+  for `matplotlib__matplotlib-24970`,
+  `scikit-learn__scikit-learn-13779`, `sphinx-doc__sphinx-8435`, and
+  `sympy__sympy-12481`. Codrax exported four non-empty predictions
+  (`patch_bytes`: 667, 636, 2584, 78574), `validate_predictions.py` accepted
+  all rows with `empty_patch=0`, and the official SWE-bench harness dry-run
+  consumed the generated `predictions.jsonl`. All four ran with
+  `git_history_isolated=true`. Local verify remained
+  `unavailable/parser_error` for every row because the historical project
+  environments were not fully runnable in the local sandbox; per the product
+  policy, that did not block exportable patches.
+  Manual gold-patch audit: scikit-learn matched the official semantics;
+  Matplotlib was near the warning site but used modulo normalization rather
+  than moving integer casts under `np.errstate`; Sphinx changed the wrong
+  autodoc path; SymPy produced a catastrophic large-file rewrite that deleted
+  most of `sympy/combinatorics/permutations.py`. The SymPy case exposed a
+  generalized write-mode hard-gate gap: a planner can switch from surgical
+  patching to full-file `modify` after an anchor mismatch, and a syntactically
+  valid but truncated large Python file can pass local dry-build while being
+  semantically destructive.
+  Fixes landed generically: `ChangePlan` validation now enforces content
+  carrier alignment by file-change kind and rejects large existing-file
+  `modify` plans whose `new_content` is a strict prefix/truncated subset or a
+  catastrophic net shrink of current file bytes. The gate consumes only typed
+  `FileChange.kind`, legal content fields, repo-relative path resolution, and
+  current file bytes/line counts; it does not read SWE-bench ids, issue text,
+  user keywords, model prose, summaries/rationale, natural-language logs, or
+  `<think>`.
+  The same batch also showed a scoped-verification ergonomics issue where
+  pytest was invoked from `working_dir=sklearn` with a suite selector still
+  prefixed by `sklearn/`. The pytest command builder now rebases file/nodeid
+  selectors against the actual runner cwd only when the rebased file exists,
+  preserving explicit root-relative selectors and parameterized selectors with
+  spaces. This normalization is filesystem-typed and does not inspect natural
+  language.
+- 2026-06-16: Final validation before push passed for the full-file modify
+  truncation gate and scoped pytest selector rebase: `go test ./internal/tool`,
+  `go test ./...`, `make test`, `make`, `git diff --check`, and
+  `eval/swebench/smoke_local.sh`.

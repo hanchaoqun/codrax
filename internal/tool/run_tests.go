@@ -3817,7 +3817,7 @@ func buildPlainPytestFallbackCommandForPlan(plan runnerPlan, suite, mainRoot str
 
 func buildPlainPytestFallbackCommandsForPlan(plan runnerPlan, suite, mainRoot string) []string {
 	interp, asModule := pythonInterpreter(plan.Root, mainRoot)
-	filter := shellQuotePytestSelectors(suite)
+	filter := shellQuotePytestSelectorsForRoot(suite, plan.Root)
 	prefix := "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "
 	var commands []string
 	if asModule {
@@ -3852,15 +3852,69 @@ func buildPlainPytestFallbackCommandsForPlan(plan runnerPlan, suite, mainRoot st
 }
 
 func shellQuotePytestSelectors(suite string) string {
+	return shellQuotePytestSelectorsForRoot(suite, "")
+}
+
+func shellQuotePytestSelectorsForRoot(suite, repoRoot string) string {
 	selectors := splitPytestSuiteSelectors(suite)
 	if len(selectors) == 0 {
 		return ""
 	}
 	quoted := make([]string, 0, len(selectors))
 	for _, selector := range selectors {
+		selector = normalizePytestSelectorForRoot(selector, repoRoot)
 		quoted = append(quoted, shellQuoteWord(selector))
 	}
 	return strings.Join(quoted, " ")
+}
+
+func normalizePytestSelectorForRoot(selector, repoRoot string) string {
+	selector = strings.TrimSpace(selector)
+	repoRoot = strings.TrimSpace(repoRoot)
+	if selector == "" || repoRoot == "" {
+		return selector
+	}
+	pathPart, suffix, ok := splitPytestSelectorPath(selector)
+	if !ok || pathPart == "" || filepath.IsAbs(pathPart) {
+		return selector
+	}
+	pathPart = filepath.ToSlash(filepath.Clean(pathPart))
+	if pathPart == "." || strings.HasPrefix(pathPart, "../") || strings.Contains(pathPart, "/../") {
+		return selector
+	}
+	if pytestSelectorFileExists(filepath.Join(repoRoot, filepath.FromSlash(pathPart))) {
+		return selector
+	}
+	parts := strings.Split(pathPart, "/")
+	for i := 1; i < len(parts); i++ {
+		candidate := strings.Join(parts[i:], "/")
+		if candidate == "" || !pytestSelectorFileExists(filepath.Join(repoRoot, filepath.FromSlash(candidate))) {
+			continue
+		}
+		return candidate + suffix
+	}
+	return selector
+}
+
+func splitPytestSelectorPath(selector string) (pathPart, suffix string, ok bool) {
+	selector = strings.TrimSpace(selector)
+	if selector == "" || strings.ContainsAny(selector, " \t\r\n") {
+		return "", "", false
+	}
+	pathPart = selector
+	if idx := strings.Index(selector, "::"); idx >= 0 {
+		pathPart = selector[:idx]
+		suffix = selector[idx:]
+	}
+	if !strings.Contains(filepath.ToSlash(pathPart), ".py") {
+		return "", "", false
+	}
+	return pathPart, suffix, true
+}
+
+func pytestSelectorFileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func splitPytestSuiteSelectors(suite string) []string {
@@ -3957,7 +4011,7 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		// running inside the worktree still finds the venv at the
 		// user's mainRoot.
 		interp, asModule := pythonInterpreter(repoRoot, mainRoot)
-		filterArgs := shellQuotePytestSelectors(suite)
+		filterArgs := shellQuotePytestSelectorsForRoot(suite, repoRoot)
 		if asModule {
 			if filterArgs == "" {
 				return fmt.Sprintf("%s -m pytest --json-report --json-report-file=%q", interp, tmpFile), tmpFile
