@@ -941,3 +941,42 @@ batches with tests and ledger updates, not as single-case patches.
    - Require: non-empty predictions, official harness consumability, local
      typed verdict, manual patch audit, context-pack evidence audit, and
      regression checks for read/log/trace/data/operation isolation.
+
+## 2026-06-16 Env Prepare Follow-up
+
+Evidence:
+
+- Ran `astropy__astropy-12907` after adding setup.cfg dependency installation:
+  `eval/results/swebench/lite-smoke-20260616-env-setup-astropy12907`.
+- Ran the same instance after adding test extras and legacy build-ext fallback:
+  `eval/results/swebench/lite-smoke-20260616-env-setuptools65-astropy12907`.
+- Both runs produced non-empty predictions, `validate_predictions.py` accepted
+  them, and the official harness dry-run command was emitted.
+
+Systemic gap closed:
+
+- `setup.cfg` runtime dependencies were parsed but not installed by the local
+  verification sandbox. The adapter now installs the unified
+  `setup.py`/`setup.cfg` declared requirements.
+- `setup.cfg` test dependencies were not represented. The adapter now installs
+  structured `tests_require` plus `test` / `tests` / `testing` extras as a
+  best-effort verification assist.
+- Legacy extension projects that fail editable install can require old
+  setuptools APIs but still need a version compatible with build helpers. The
+  adapter now probes `setuptools.dep_util`, installs `setuptools>=64,<66` when
+  needed, and attempts `python setup.py build_ext --inplace`.
+
+Remaining boundary:
+
+- `astropy__astropy-12907` still remained `predicted_unverified` locally
+  because the macOS/Python 3.11 extension build failed at clang C-extension
+  compilation. This is correctly recorded as `env_prepare_status=partial` and
+  `verify_status=unavailable`; it does not block prediction export or official
+  harness consumption.
+
+Red-line check:
+
+- No user-intent keyword, issue text, model prose, or natural-language summary
+  drives the new behavior. The adapter consumes typed filesystem markers,
+  ConfigParser/TOML/AST parsed dependency declarations, API probe exit codes,
+  and command results.

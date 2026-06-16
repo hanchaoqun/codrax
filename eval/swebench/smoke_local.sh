@@ -274,6 +274,8 @@ PY
 python3 - "$ROOT/eval/swebench/run_codrax_swebench.py" <<'PY'
 import importlib.util
 import sys
+import tempfile
+from pathlib import Path
 
 path = sys.argv[1]
 spec = importlib.util.spec_from_file_location("run_codrax_swebench", path)
@@ -281,6 +283,35 @@ mod = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
+
+with tempfile.TemporaryDirectory() as tmp:
+    repo = Path(tmp)
+    (repo / "setup.cfg").write_text(
+        "[options]\n"
+        "install_requires =\n"
+        "    pyerfa>=2.0\n"
+        "    numpy>=1.21\n"
+        "tests_require = pytest-astropy\n"
+        "setup_requires =\n"
+        "    setuptools_scm\n"
+        "[options.extras_require]\n"
+        "test =\n"
+        "    pytest-xdist\n"
+        "    pytest-astropy-header!=0.2.0\n"
+        "docs =\n"
+        "    sphinx\n",
+        encoding="utf-8",
+    )
+    (repo / "requirements.txt").write_text("hypothesis\n", encoding="utf-8")
+    setup_requires = mod.setup_declared_requires(repo)
+    if setup_requires != ["pyerfa>=2.0", "numpy>=1.21", "setuptools_scm"]:
+        raise SystemExit(f"unexpected setup.cfg declared requires: {setup_requires!r}")
+    declared = mod.declared_python_requirements(repo, [{"path": "requirements.txt", "kind": "requirements"}])
+    if declared != ["pyerfa>=2.0", "numpy>=1.21", "setuptools_scm", "hypothesis"]:
+        raise SystemExit(f"unexpected combined declared requires: {declared!r}")
+    test_requires = mod.setup_test_requires(repo)
+    if test_requires != ["pytest-astropy", "pytest-xdist", "pytest-astropy-header!=0.2.0"]:
+        raise SystemExit(f"unexpected setup.cfg test requires: {test_requires!r}")
 
 reason = mod.prediction_audit_block_reason(
     exported_source_paths=["src/pkg.py"],

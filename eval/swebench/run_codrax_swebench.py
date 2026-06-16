@@ -51,6 +51,7 @@ PYTHON_COMPAT_CONSTRAINT_POLICIES = {
         "reason_code": "lower_bound_without_major_ceiling",
     },
 }
+SETUP_CFG_TEST_EXTRA_KEYS = {"test", "tests", "testing"}
 
 
 @dataclass
@@ -417,6 +418,52 @@ def setup_cfg_declared_requires(repo_dir: Path) -> list[str]:
     return out[:64]
 
 
+def setup_cfg_test_requires(repo_dir: Path) -> list[str]:
+    setup_cfg = repo_dir / "setup.cfg"
+    if not setup_cfg.exists() or setup_cfg.stat().st_size > 2_000_000:
+        return []
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read(setup_cfg, encoding="utf-8")
+    except Exception:
+        return []
+    raw: list[str] = []
+    if parser.has_section("options") and parser.has_option("options", "tests_require"):
+        raw.extend(parser.get("options", "tests_require").splitlines())
+    if parser.has_section("options.extras_require"):
+        for key, value in parser.items("options.extras_require"):
+            if key.strip().lower() in SETUP_CFG_TEST_EXTRA_KEYS:
+                raw.extend(value.splitlines())
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        value = item.split("#", 1)[0].strip()
+        if not value or value in seen:
+            continue
+        out.append(value)
+        seen.add(value)
+    return out[:64]
+
+
+def setup_declared_requires(repo_dir: Path) -> list[str]:
+    raw: list[str] = []
+    raw.extend(setup_py_declared_requires(repo_dir))
+    raw.extend(setup_cfg_declared_requires(repo_dir))
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        value = item.strip()
+        if not value or value in seen:
+            continue
+        out.append(value)
+        seen.add(value)
+    return out[:64]
+
+
+def setup_test_requires(repo_dir: Path) -> list[str]:
+    return setup_cfg_test_requires(repo_dir)
+
+
 def requirement_lines_from_file(path: Path) -> list[str]:
     if not path.is_file():
         return []
@@ -454,8 +501,7 @@ def requirement_has_major_ceiling(requirement: str) -> bool:
 
 def declared_python_requirements(repo_dir: Path, requirement_files: list[dict[str, str]]) -> list[str]:
     raw: list[str] = []
-    raw.extend(setup_py_declared_requires(repo_dir))
-    raw.extend(setup_cfg_declared_requires(repo_dir))
+    raw.extend(setup_declared_requires(repo_dir))
     for item in requirement_files:
         rel = item.get("path") or ""
         if rel:
@@ -766,6 +812,19 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         recheck = step(label + "_recheck", [str(python), "-c", "import pkg_resources"])
         return recheck.code == 0 and not recheck.timed_out
 
+    def ensure_legacy_setuptools_dep_util(label: str) -> bool:
+        check = step(label + "_check", [str(python), "-c", "from setuptools.dep_util import newer_group"])
+        if check.code == 0 and not check.timed_out:
+            return True
+        compat = step(
+            label + "_install_setuptools_compat",
+            [str(python), "-m", "pip", "install", "setuptools>=64,<66"],
+        )
+        if compat.code != 0 or compat.timed_out:
+            return False
+        recheck = step(label + "_recheck", [str(python), "-c", "from setuptools.dep_util import newer_group"])
+        return recheck.code == 0 and not recheck.timed_out
+
     created = step("create_venv", [sys.executable, "-m", "venv", str(venv_dir)])
     if created.code != 0 or created.timed_out:
         return {}, finalize_env_prepare_record(record, status="failed_create_venv", venv_dir=venv_dir)
@@ -848,7 +907,7 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
                 cwd=repo_dir,
             )
             project_failed = project_failed or req.code != 0 or req.timed_out
-    setup_requires = setup_py_declared_requires(repo_dir)
+    setup_requires = setup_declared_requires(repo_dir)
     if setup_requires:
         record["setup_declared_requires"] = setup_requires
         setup_req = step("install_setup_declared_requires", pip_install_cmd(*setup_requires), cwd=repo_dir)
@@ -858,7 +917,13 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
             project_failed = True
         else:
             record["pkg_resources_available"] = True
+    test_requires = setup_test_requires(repo_dir)
+    if test_requires:
+        record["setup_test_requires"] = test_requires
+        test_req = step("install_setup_test_requires", pip_install_cmd(*test_requires), cwd=repo_dir)
+        project_failed = project_failed or test_req.code != 0 or test_req.timed_out
     if (repo_dir / "pyproject.toml").exists() or (repo_dir / "setup.py").exists() or (repo_dir / "setup.cfg").exists():
+        project_install_failed = False
         editable = step("install_editable", pip_install_cmd("-e", "."), cwd=repo_dir)
         if editable.code != 0 and record.get("pkg_resources_available"):
             # Legacy projects often import pkg_resources from setup.py, but
@@ -870,7 +935,15 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
                 pip_install_cmd("--no-build-isolation", "-e", "."),
                 cwd=repo_dir,
             )
-        project_failed = project_failed or editable.code != 0 or editable.timed_out
+        project_install_failed = editable.code != 0 or editable.timed_out
+        if project_install_failed and (repo_dir / "setup.py").exists():
+            if ensure_legacy_setuptools_dep_util("legacy_setuptools_dep_util"):
+                record["legacy_setuptools_dep_util_available"] = True
+                build_ext = step("build_ext_inplace", [str(python), "setup.py", "build_ext", "--inplace"], cwd=repo_dir)
+                project_install_failed = build_ext.code != 0 or build_ext.timed_out
+            else:
+                record["legacy_setuptools_dep_util_available"] = False
+        project_failed = project_failed or project_install_failed
     if not ensure_legacy_pkg_resources("legacy_pkg_resources_post_project"):
         record["pkg_resources_available"] = False
         project_failed = True

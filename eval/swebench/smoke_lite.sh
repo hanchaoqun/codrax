@@ -33,35 +33,35 @@ if [[ ! -x "$CODRAX_BIN" ]]; then
   exit 2
 fi
 
-instance_args=()
-if [[ -n "$INSTANCE_ID" ]]; then
-  instance_args+=(--instance-id "$INSTANCE_ID")
-fi
-if [[ -n "$INSTANCE_IDS_FILE" ]]; then
-  instance_args+=(--instance-ids-file "$INSTANCE_IDS_FILE")
-fi
 env_prepare_args=(--env-prepare-timeout "$SWEBENCH_ENV_PREPARE_TIMEOUT")
 if [[ "$SWEBENCH_PREPARE_PYTHON_ENV" == "1" ]]; then
   env_prepare_args+=(--prepare-python-env)
 fi
-history_args=()
+
+cmd=(
+  "$PYTHON" "$ROOT/eval/swebench/run_codrax_swebench.py"
+  --dataset-name "$DATASET_NAME"
+  --split "$SPLIT"
+  --limit "$SWEBENCH_SMOKE_LIMIT"
+  --workdir "$WORKDIR"
+  --predictions-path "$PREDICTIONS_PATH"
+  --results-path "$RESULTS_PATH"
+  --codrax-bin "$CODRAX_BIN"
+  --max-steps "$MAX_STEPS"
+  --codrax-timeout "$CODRAX_TIMEOUT"
+)
+if [[ -n "$INSTANCE_ID" ]]; then
+  cmd+=(--instance-id "$INSTANCE_ID")
+fi
+if [[ -n "$INSTANCE_IDS_FILE" ]]; then
+  cmd+=(--instance-ids-file "$INSTANCE_IDS_FILE")
+fi
+cmd+=("${env_prepare_args[@]}")
 if [[ "$SWEBENCH_ISOLATE_GIT_HISTORY" == "1" ]]; then
-  history_args+=(--isolate-git-history)
+  cmd+=(--isolate-git-history)
 fi
 
-"$PYTHON" "$ROOT/eval/swebench/run_codrax_swebench.py" \
-  --dataset-name "$DATASET_NAME" \
-  --split "$SPLIT" \
-  --limit "$SWEBENCH_SMOKE_LIMIT" \
-  "${instance_args[@]}" \
-  "${env_prepare_args[@]}" \
-  "${history_args[@]}" \
-  --workdir "$WORKDIR" \
-  --predictions-path "$PREDICTIONS_PATH" \
-  --results-path "$RESULTS_PATH" \
-  --codrax-bin "$CODRAX_BIN" \
-  --max-steps "$MAX_STEPS" \
-  --codrax-timeout "$CODRAX_TIMEOUT"
+"${cmd[@]}"
 
 "$PYTHON" "$ROOT/eval/swebench/validate_predictions.py" "$PREDICTIONS_PATH"
 
