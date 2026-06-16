@@ -252,7 +252,7 @@ type dockRowState struct {
 	toolCount             int    // 0 = hide, ≥1 shows "N 工具"
 	streamChars           int    // finalize-only "已收到 N 字" counter; 0 = hide
 
-	// Row 3 — time layer.
+	// Row 3 — time / affordance layer.
 	stageElapsed string // "5s" or empty
 	totalElapsed string // "45s"
 	cancelHint   string // "Ctrl+C 取消" — empty = hide
@@ -436,17 +436,24 @@ func composeDockRow2(s dockRowState) string {
 	return b.String()
 }
 
-// composeDockRow3 renders the time row:
+// composeDockRow3 renders the time / affordance row:
 //
 //	"  · 本 12s · 总 45s · Ctrl+C 取消"
+//	"  · Ctrl+C 取消"
 //
-// glyph · in statusMeta (darkest). stageElapsed prefixed with "本 / stage"
-// when present; totalElapsed always shown; cancelHint suffix when set.
+// glyph · in statusMeta (darkest). When a cancel hint is visible, it owns the
+// live row and suppresses elapsed timers so the interactive affordance stays
+// visually stable while the spinner row animates. Non-cancellable contexts keep
+// the timer-only row.
 func composeDockRow3(s dockRowState) string {
 	var b strings.Builder
 	b.WriteString("  ")
 	b.WriteString(statusMeta.Sprint("·"))
 	b.WriteString(" ")
+	if s.cancelHint != "" {
+		b.WriteString(statusMeta.Sprint(s.cancelHint))
+		return b.String()
+	}
 	wrote := false
 	if s.stageElapsed != "" {
 		b.WriteString(statusMeta.Sprint(stageElapsedPhrase(s.stageElapsed, s.lang)))
@@ -460,14 +467,6 @@ func composeDockRow3(s dockRowState) string {
 		}
 		b.WriteString(statusMeta.Sprint(totalElapsedPhrase(s.totalElapsed, s.lang)))
 		wrote = true
-	}
-	if s.cancelHint != "" {
-		if wrote {
-			b.WriteString(" ")
-			b.WriteString(statusMeta.Sprint("·"))
-			b.WriteString(" ")
-		}
-		b.WriteString(statusMeta.Sprint(s.cancelHint))
 	}
 	return b.String()
 }

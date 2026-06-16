@@ -431,11 +431,24 @@ func TestComposeDockRow2_ShowsModelAndContextTokens(t *testing.T) {
 }
 
 // TestComposeDockRow3_TimeOnly verifies the row-3 minimum content:
-// at least the "总 Xs" segment when total elapsed is non-zero. The
-// time row carries the slowest-changing data and is the user's
-// participation reference (they look here when other rows go quiet
-// to verify the run is still moving).
+// at least the "总 Xs" segment when total elapsed is non-zero and no
+// interactive affordance owns the row.
 func TestComposeDockRow3_TimeOnly(t *testing.T) {
+	state := dockRowState{
+		stageElapsed: "5s",
+		totalElapsed: "12s",
+		lang:         "zh",
+	}
+	row := composeDockRow3(state)
+	plain := stripAnsiEscapes(row)
+	for _, want := range []string{"本 5s", "总 12s"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("row 3 must contain %q; got %q", want, plain)
+		}
+	}
+}
+
+func TestComposeDockRow3_CancelHintSuppressesLiveElapsed(t *testing.T) {
 	state := dockRowState{
 		stageElapsed: "5s",
 		totalElapsed: "12s",
@@ -444,9 +457,12 @@ func TestComposeDockRow3_TimeOnly(t *testing.T) {
 	}
 	row := composeDockRow3(state)
 	plain := stripAnsiEscapes(row)
-	for _, want := range []string{"本 5s", "总 12s", "Ctrl+C 取消"} {
-		if !strings.Contains(plain, want) {
-			t.Errorf("row 3 must contain %q; got %q", want, plain)
+	if !strings.Contains(plain, "Ctrl+C 取消") {
+		t.Fatalf("row 3 must keep the cancel hint; got %q", plain)
+	}
+	for _, unwanted := range []string{"本 5s", "总 12s"} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("cancel-owned row 3 must suppress %q; got %q", unwanted, plain)
 		}
 	}
 }
