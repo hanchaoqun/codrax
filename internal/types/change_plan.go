@@ -769,13 +769,14 @@ type ChangeReport struct {
 	// verifier prompt drive a syntax-only fallback when appropriate.
 	NoTestsRunners []string `json:"no_tests_runners,omitempty"`
 
-	// FailureKind classifies the terminal state when Passed=false so
-	// the verify→plan retry hint can surface resource exhaustion
-	// distinctly from a normal red test ("tests_failed"). Empty +
-	// Passed=false defaults to "tests_failed". Set by run_tests when
-	// the SupervisedRun exit kind is timeout / OOM / cpu_limit, and
-	// preserved through merge/qualify so the heuristic hint reads it
-	// before the planner re-dispatches.
+	// FailureKind classifies terminal failed and unavailable states so
+	// the verify→plan retry hint can surface resource exhaustion,
+	// missing runners, parser dead-ends, and no-test outcomes distinctly
+	// from a normal red test ("tests_failed"). Empty + Passed=false
+	// defaults to "tests_failed". Set by run_tests when the
+	// SupervisedRun exit kind is timeout / OOM / cpu_limit, and preserved
+	// through merge/qualify so the heuristic hint reads it before the
+	// planner re-dispatches.
 	//
 	// Provenance: the OOM-killed pytest event (RSS 2.47 GiB after 9 h
 	// of CPU) demonstrated that a generic "tests failed" hint sends
@@ -879,6 +880,14 @@ const (
 	// wrong. Treat it as terminal unverified for the local run so the
 	// planner does not chase infrastructure noise.
 	FailureKindParserError FailureKind = "parser_error"
+
+	// FailureKindNoTests — the selected runner completed or was skipped
+	// cleanly but produced no executable tests for this plan. This is an
+	// unavailable local verification signal, not proof of code failure.
+	// The report may keep Passed=true for legacy no-test parser
+	// compatibility; consumers must rely on VerificationStatus and this
+	// typed reason rather than the legacy boolean alone.
+	FailureKindNoTests FailureKind = "no_tests"
 )
 
 // Score returns the (passed, total) test counts for this report,
@@ -914,7 +923,7 @@ func (r *ChangeReport) NormalizeVerificationStatus() VerificationStatus {
 		return ""
 	}
 	switch r.FailureKind {
-	case FailureKindRunnerMissing, FailureKindParserError:
+	case FailureKindRunnerMissing, FailureKindParserError, FailureKindNoTests:
 		return VerificationStatusUnavailable
 	}
 	if len(r.NoTestsRunners) > 0 && len(r.TestResults) == 0 {
@@ -929,6 +938,9 @@ func (r *ChangeReport) NormalizeVerificationStatus() VerificationStatus {
 func (r *ChangeReport) EnsureVerificationStatus() {
 	if r == nil {
 		return
+	}
+	if len(r.NoTestsRunners) > 0 && len(r.TestResults) == 0 && r.FailureKind == "" {
+		r.FailureKind = FailureKindNoTests
 	}
 	r.VerificationStatus = r.NormalizeVerificationStatus()
 }

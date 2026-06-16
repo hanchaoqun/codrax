@@ -109,7 +109,10 @@ project install still exports a patch instead of becoming a hard gate. During
 verify, Codrax runs a syntax preflight over plan-touched Python source files
 before the project runner; syntax/parse failures become typed `build_failure`
 results, while missing pytest, dependencies, plugins, or harness support remain
-`unavailable` and do not block prediction export. When a Django suite is not explicitly
+`unavailable` and do not block prediction export. A runner that discovers no
+executable tests is persisted as `verification_status=unavailable` with
+`failure_kind=no_tests`, even when legacy parser compatibility keeps
+`Passed=true` in the raw report. When a Django suite is not explicitly
 supplied, the verifier derives a conservative scoped suite from typed ChangePlan
 paths plus the repository `tests/` tree before falling back to a wider run.
 

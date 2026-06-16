@@ -73,6 +73,17 @@ func TestChangeReportNormalizeVerificationStatus(t *testing.T) {
 	}
 }
 
+func TestChangeReportEnsureVerificationStatusBackfillsNoTestsFailureKind(t *testing.T) {
+	report := &ChangeReport{Passed: true, NoTestsRunners: []string{"python"}}
+	report.EnsureVerificationStatus()
+	if report.VerificationStatus != VerificationStatusUnavailable {
+		t.Fatalf("VerificationStatus = %q, want unavailable", report.VerificationStatus)
+	}
+	if report.FailureKind != FailureKindNoTests {
+		t.Fatalf("FailureKind = %q, want %q", report.FailureKind, FailureKindNoTests)
+	}
+}
+
 // TestChangeReportIsBetterThan covers the strict-improvement contract:
 // a tie keeps the existing best (returns false) so the latch never
 // thrashes between equivalent plans; nil-vs-non-nil follows obvious

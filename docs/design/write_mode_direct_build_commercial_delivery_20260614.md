@@ -4074,3 +4074,72 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     trying unavailable read tools once the tool surface has narrowed.
   - Official SWE-bench hidden tests remain the scoring authority; manual gold
     comparison is an audit lens, not a product hard gate.
+
+## 2026-06-16 SWE-bench smoke 11: no-tests verdict state-machine hardening
+
+- Evidence source:
+  - Fair-isolated non-Go SWE-bench Lite batch:
+    `eval/results/swebench/lite-smoke-20260616-django11179-mpl23913-pytest7490-sympy12419-current`.
+  - Instances requested: `django__django-11179`,
+    `matplotlib__matplotlib-23913`, `pytest-dev__pytest-7490`,
+    `sympy__sympy-12419`.
+  - Adapter validation accepted 4 prediction rows with `empty_patch=0`.
+    Official SWE-bench harness dry-run accepted the generated
+    `predictions.jsonl` command.
+- Result summary:
+  - `django__django-11179`: `predicted_passed`; Django `delete` suite ran
+    41 tests and passed. Predicted patch uses `instance.pk = None`; gold uses
+    `setattr(instance, model._meta.pk.attname, None)`. The behavior target is
+    aligned, though the exact source shape differs.
+  - `matplotlib__matplotlib-23913`: `predicted_unverified/parser_error`;
+    source patch is semantically close to gold (`draggable` kwarg, docstring,
+    and `set_draggable` call) but local import failed on missing compiled
+    matplotlib extension support, so official harness remains authority.
+  - `pytest-dev__pytest-7490`: `predicted_passed`; Codrax generated a
+    source-only patch in `src/_pytest/skipping.py` and a typed
+    `verification_probe/python` passed. The patch is not gold-shaped but
+    re-evaluates dynamically added xfail markers at report time.
+  - `sympy__sympy-12419`: `predicted_unverified/no_tests`; source patch
+    changes `Identity._entry` to return `KroneckerDelta(i, j)` when symbolic
+    equality is indeterminate. This is semantically aligned with the gold
+    source patch, but local Python 3.11 / old SymPy compatibility left the
+    project suite unavailable.
+- Generalized gap fixed:
+  - The persisted SymPy `ChangeReport` had
+    `verification_status=unavailable` but also legacy `passed=true` and empty
+    `failure_kind`; the SWE-bench exporter inferred `verify_failure_kind` as
+    `no_tests`, but durable report consumers still had to reconstruct that
+    reason from `NoTestsRunners`.
+  - Added typed `FailureKindNoTests` and centralized the backfill in
+    `ChangeReport.EnsureVerificationStatus()`. A no-tests report now persists
+    `verification_status=unavailable` and `failure_kind=no_tests` together,
+    while preserving legacy `Passed=true` parser compatibility.
+- Safety and prompt hygiene:
+  - The fix consumes only typed report fields (`NoTestsRunners`, `TestResults`,
+    `FailureKind`) at persistence time.
+  - It does not read user request keywords, issue text, model rationale,
+    natural-language summaries, or `<think>` content for hard routing.
+- Implementation tasks:
+  - [x] Add `FailureKindNoTests`.
+  - [x] Backfill no-tests reason in `EnsureVerificationStatus()`.
+  - [x] Update focused type/tool tests.
+  - [x] Update user guide, HTML guide, SWE-bench README, and this ledger.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/types ./internal/tool -run 'TestChangeReport|TestRunTests_UnittestZeroTests|TestRenderAggregateTestSummary|TestParse.*NoTests|TestRunTestsNoTest|Test.*NoTests' -count=1`.
+  - Affected packages passed:
+    `go test ./internal/types ./internal/tool ./internal/writeflow ./internal/orchestrator -count=1`.
+  - Full Go regression passed: `go test ./...`.
+  - Diff hygiene passed: `git diff --check`.
+  - Build passed: `make`.
+  - SWE-bench adapter smoke passed: `eval/swebench/smoke_local.sh`.
+- Remaining system gaps to track:
+  - SymPy exploration took 11 rounds after already locating
+    `Identity._entry`; controller/explorer should stop earlier when a
+    high-confidence line-backed root cause and bounded fix shape are present.
+  - Pytest long-issue exploration/planning produced a correct local probe but
+    included contradictory reasoning about `_store.get(..., None)` semantics.
+    This reinforces the need for behavior probes and typed evidence over prose.
+  - Context pack Top-N still rendered a large tail (`+70` items in the SymPy
+    controller handoff), increasing LLM dispatch latency even after the target
+    file was known.

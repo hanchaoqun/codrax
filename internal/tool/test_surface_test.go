@@ -406,8 +406,8 @@ func TestRunTests_ParserZeroTestsWithoutEscalationFinishesUnverified(t *testing.
 	if !sawUnittestZero {
 		t.Fatalf("executed commands must record parser zero-tests outcome: %+v", report.ExecutedCommands)
 	}
-	if report.FailureKind != "" {
-		t.Fatalf("zero-tests should not be classified as tests_failed, got %q", report.FailureKind)
+	if report.FailureKind != types.FailureKindNoTests {
+		t.Fatalf("zero-tests should be classified as no_tests, got %q", report.FailureKind)
 	}
 	if len(report.NoTestsRunners) == 0 {
 		t.Fatalf("NoTestsRunners must preserve the unverified reason: %+v", report)
