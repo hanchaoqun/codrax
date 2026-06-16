@@ -187,6 +187,64 @@ func TestRunPyCompileFallback_PassWhenAllFilesParse(t *testing.T) {
 	}
 }
 
+func TestRunTestsEmptyParamsUsesPlanTouchedSyntaxFallback(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python dry-build runner on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "guess_number.py"), []byte("def main():\n    print('hello')\n\nmain()\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	mu := types.NewMutableState("empty params syntax fallback")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-empty-params-syntax",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"guess_number.py"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("empty run_tests params should pass via plan-touched syntax fallback, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "python" {
+		t.Fatalf("report should preserve no-tests runner evidence after syntax fallback: %+v", report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("syntax fallback without real tests should remain unavailable confidence, got %q report=%+v", got, report)
+	}
+	foundDefaultFallback := false
+	foundCompileConfidence := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "python" && cmd.Outcome == "syntax_check_fallback" && cmd.Source == "test_surface_default" {
+			foundDefaultFallback = true
+		}
+	}
+	if !foundDefaultFallback {
+		t.Fatalf("executed command evidence should record system default syntax fallback, got %+v", report.ExecutedCommands)
+	}
+	for _, confidence := range report.VerificationConfidence {
+		if confidence.Category == "source_compile" && confidence.Status == "satisfied" && confidence.ReasonCode == "source_compile_ok" {
+			foundCompileConfidence = true
+		}
+	}
+	if !foundCompileConfidence {
+		t.Fatalf("verification confidence should record syntax fallback success, got %+v", report.VerificationConfidence)
+	}
+}
+
 // TestRunPyCompileFallback_FailOnSyntaxError verifies broken syntax
 // produces a build_error TestResult with the file as AssertionID
 // and a non-empty FailureDetail. Skipped when no usable Python

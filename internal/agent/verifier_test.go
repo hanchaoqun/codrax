@@ -294,7 +294,7 @@ func TestVerifier_BuildInitialInstruction_EmptyAcceptanceTests(t *testing.T) {
 	}
 	// No acceptance / baseline sections when both are empty — the
 	// stage-stating directive is the whole content.
-	for _, unwanted := range []string{"## Plan acceptance criteria", "Pre-existing baseline failures"} {
+	for _, unwanted := range []string{"## Plan acceptance criteria", "Pre-existing baseline failures", "Briefly inspect the worktree"} {
 		if strings.Contains(inst, unwanted) {
 			t.Errorf("instruction should not render %q when both slots are empty; got %q", unwanted, inst)
 		}
@@ -404,11 +404,14 @@ func TestVerifier_BuildInitialInstruction_TargetPathsAndLanguages(t *testing.T) 
 		"guess_number.py",
 		"Languages touched:",
 		"python",
-		"Pick the runner whose language matches FIRST",
+		"run_tests reads these target paths",
 	} {
 		if !strings.Contains(inst, want) {
 			t.Errorf("instruction missing %q anchor; got:\n%s", want, inst)
 		}
+	}
+	if strings.Contains(inst, "python3 -m py_compile") || strings.Contains(inst, "via exec_command") {
+		t.Fatalf("verifier prompt should route syntax fallback through run_tests, got:\n%s", inst)
 	}
 }
 

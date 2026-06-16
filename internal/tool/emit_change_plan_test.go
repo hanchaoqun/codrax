@@ -299,7 +299,7 @@ func TestEmitChangePlan_RejectsUnknownBehaviorContractRef(t *testing.T) {
 	}
 }
 
-func TestEmitChangePlan_RequiresProbeCoverageForExplicitRequiredContract(t *testing.T) {
+func TestEmitChangePlan_AcceptsProbeWithoutExplicitRequiredContractRefs(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
 	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
@@ -330,16 +330,22 @@ func TestEmitChangePlan_RequiresProbeCoverageForExplicitRequiredContract(t *test
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if res.Success {
-		t.Fatal("expected missing explicit contract coverage to be rejected")
+	if !res.Success {
+		t.Fatalf("expected plan emit to accept structurally valid probe metadata, got: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "must reference every required behavior_contract") ||
-		!strings.Contains(res.Summary, "widget-value") {
-		t.Fatalf("summary should name missing contract coverage, got: %s", res.Summary)
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		t.Fatal("expected ChangePlan installed on Mutable")
+	}
+	if len(plan.BehaviorContracts) != 1 || plan.BehaviorContracts[0].ID != "widget-value" {
+		t.Fatalf("behavior contract snapshot missing: %+v", plan.BehaviorContracts)
+	}
+	if len(plan.VerificationProbes) != 1 || len(plan.VerificationProbes[0].ContractRefs) != 0 {
+		t.Fatalf("probe contract refs should remain exactly as emitted for verify confidence accounting: %+v", plan.VerificationProbes)
 	}
 }
 
-func TestEmitChangePlan_RequiresProbeCoverageForEveryRequiredContract(t *testing.T) {
+func TestEmitChangePlan_AcceptsPartialRequiredContractProbeCoverage(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
 	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
@@ -377,11 +383,18 @@ func TestEmitChangePlan_RequiresProbeCoverageForEveryRequiredContract(t *testing
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if res.Success {
-		t.Fatal("expected partial required contract coverage to be rejected")
+	if !res.Success {
+		t.Fatalf("expected plan emit to accept partial probe coverage and defer confidence to verify, got: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "missing ids") || !strings.Contains(res.Summary, "outcome-1") {
-		t.Fatalf("summary should name the uncovered required contract, got: %s", res.Summary)
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		t.Fatal("expected ChangePlan installed on Mutable")
+	}
+	if len(plan.BehaviorContracts) != 2 {
+		t.Fatalf("behavior contract snapshot missing: %+v", plan.BehaviorContracts)
+	}
+	if len(plan.VerificationProbes) != 1 || len(plan.VerificationProbes[0].ContractRefs) != 1 || plan.VerificationProbes[0].ContractRefs[0] != "widget-value" {
+		t.Fatalf("partial contract refs should be preserved for verify confidence accounting: %+v", plan.VerificationProbes)
 	}
 }
 

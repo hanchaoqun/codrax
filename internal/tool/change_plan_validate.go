@@ -1703,21 +1703,12 @@ func validateVerificationProbeContractRefs(ctx *types.BusContext, probes []types
 		return ""
 	}
 	ids := types.WriteBehaviorContractIDs(contracts)
-	required := types.RequiredWriteBehaviorContractIDs(contracts, true)
-	coveredRequired := map[string]struct{}{}
 	for i, probe := range probes {
 		for _, ref := range probe.ContractRefs {
 			if _, ok := ids[ref]; !ok {
 				return fmt.Sprintf("verification_probes[%d].contract_refs contains unknown behavior_contract id %q; use one of %s", i, ref, formatStringSet(ids))
 			}
-			if _, ok := required[ref]; ok {
-				coveredRequired[ref] = struct{}{}
-			}
 		}
-	}
-	missing := subtractStringSet(required, coveredRequired)
-	if len(missing) > 0 {
-		return fmt.Sprintf("verification_probes must reference every required behavior_contract via contract_refs; missing ids: %s; available required ids: %s", formatStringSet(missing), formatStringSet(required))
 	}
 	return ""
 }

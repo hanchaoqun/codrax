@@ -441,9 +441,9 @@ func TestRunTests_EscalatedCandidateFailureFailsVerdict(t *testing.T) {
 	}
 }
 
-// Escalation is bounded and auto-detect, which already runs every candidate,
-// never escalates.
-func TestRunTests_AutoDetectDoesNotEscalate(t *testing.T) {
+// Escalation is bounded and the default TestSurface queue must not mark its
+// first candidate as an escalation row.
+func TestRunTests_DefaultTestSurfaceDoesNotEscalate(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not available on PATH")
 	}
@@ -464,8 +464,11 @@ func TestRunTests_AutoDetectDoesNotEscalate(t *testing.T) {
 		t.Fatal("report missing")
 	}
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Source != "auto_detect" {
-			t.Fatalf("auto-detect run must not contain escalation rows: %+v", report.ExecutedCommands)
+		if strings.Contains(cmd.Source, "escalation") {
+			t.Fatalf("default test-surface run must not contain escalation rows: %+v", report.ExecutedCommands)
+		}
+		if cmd.Source != "test_surface_default" {
+			t.Fatalf("default run should record test_surface_default provenance: %+v", report.ExecutedCommands)
 		}
 	}
 }
@@ -549,5 +552,23 @@ func TestBuildTestSurface_PytestCandidateGainsUnittestSibling(t *testing.T) {
 	next := nextTestSurfaceEscalation(surface, executed)
 	if next == nil || next.Framework != "unittest" {
 		t.Fatalf("pytest dead end must escalate to the unittest sibling, got %+v", next)
+	}
+}
+
+func TestDefaultRunnerPlansFromTestSurface_PrefersPlanTouchedRunner(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "go.mod", "module example.com/app\n\ngo 1.22\n")
+	writeSurfaceFile(t, root, "main_test.go", "package app\n\nimport \"testing\"\n\nfunc TestOK(t *testing.T) {}\n")
+
+	surface := BuildTestSurface(root, "")
+	if len(surface.Candidates) == 0 || surface.Candidates[0].Runner != "go" {
+		t.Fatalf("expected Go surface candidate, got %+v", surface.Candidates)
+	}
+	plans := defaultRunnerPlansFromTestSurface(root, surface, "python")
+	if len(plans) == 0 {
+		t.Fatal("expected at least one default plan")
+	}
+	if plans[0].Runner != "python" || plans[0].Manifest != "(plan-touched)" {
+		t.Fatalf("plan-touched Python runner should lead the default queue, got %+v", plans)
 	}
 }

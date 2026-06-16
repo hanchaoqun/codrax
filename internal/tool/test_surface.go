@@ -188,6 +188,52 @@ func runnerPlanFromSurfaceCandidate(repoRoot string, cand types.TestSurfaceCandi
 	}
 }
 
+// defaultRunnerPlansFromTestSurface builds the system-owned verify queue for a
+// run_tests call with no explicit runner. It consumes only typed filesystem
+// surface data plus an optional plan-touched runner preference. The model no
+// longer needs a pre-verification directory-inspection turn just to select the
+// first runner; dead-end escalation still reuses the same TestSurface later.
+func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurface, preferredRunner string) []runnerPlan {
+	surface = types.NormalizeTestSurface(surface)
+	preferredRunner = strings.TrimSpace(preferredRunner)
+	var out []runnerPlan
+	seenDirs := map[string]bool{}
+	add := func(cand types.TestSurfaceCandidate) {
+		workingDir := strings.TrimSpace(cand.WorkingDir)
+		if workingDir == "" {
+			workingDir = "."
+		}
+		if seenDirs[workingDir] {
+			return
+		}
+		seenDirs[workingDir] = true
+		out = append(out, runnerPlanFromSurfaceCandidate(repoRoot, cand))
+	}
+	if preferredRunner != "" {
+		if cand := nextTestSurfaceEscalationForRunner(surface, nil, preferredRunner); cand != nil {
+			add(*cand)
+		} else {
+			root := repoRoot
+			framework := ""
+			if preferredRunner == "python" {
+				framework = normalizePythonFrameworkChoice(root, "")
+			}
+			out = append(out, runnerPlan{
+				Runner:    preferredRunner,
+				Root:      root,
+				Manifest:  "(plan-touched)",
+				Priority:  0,
+				Framework: framework,
+			})
+			seenDirs["."] = true
+		}
+	}
+	for _, cand := range surface.Candidates {
+		add(cand)
+	}
+	return out
+}
+
 func surfaceCandidateSuite(cand types.TestSurfaceCandidate) string {
 	if cand.Runner == "make" {
 		return strings.TrimSpace(cand.MakeTarget)

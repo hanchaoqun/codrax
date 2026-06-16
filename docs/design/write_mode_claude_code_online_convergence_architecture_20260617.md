@@ -1407,6 +1407,50 @@ Primary files:
 - SWE-bench predictions are harness-consumable and carry confidence/verdict
   metadata suitable for manual audit.
 
+## 2026-06-17 Online Verify And Plan-State Alignment
+
+Latest gap after the non-Go SWE-bench and pytest-repo write-mode runs:
+
+- `emit_change_plan` treated partial/missing verification-probe
+  `contract_refs` as a hard plan-emission failure, while `run_tests` already
+  represented the same condition as typed verification confidence. This
+  created a contradictory state machine and caused repeated plan emits when a
+  typed `PLAN_REPAIR_PACK` named missing ids but the next model turn reused the
+  same plan body.
+- The verifier prompt still asked the model to inspect the worktree with
+  `list_files` / `grep` before calling `run_tests`, even though `run_tests`
+  owns typed test-surface detection, syntax fallback, no-tests fallback, and
+  dead-end escalation. This added an avoidable LLM/tool round after successful
+  apply and made the flow feel like a restarted investigation.
+
+Commercial design decision:
+
+- Plan emit hard gates now validate structure only: unknown behavior-contract
+  ids remain a hard rejection, but missing/partial coverage is not a plan
+  emission blocker. Coverage strength is evaluated later by
+  `VerificationConfidenceRecord` and projected into P2 context for controller
+  / planner consumption.
+- Verifier default is now online and mechanical: first call is `run_tests({})`.
+  `run_tests` builds a deterministic `TestSurface` queue, biases it with the
+  typed plan-touched runner when exactly one runner is implied by target paths,
+  synthesizes that runner when a bare source file has no manifest/test infra,
+  and records `ExecutedCommand.Source=test_surface_default`.
+- Customer environments missing pytest/dependencies continue producing usable
+  code: syntax/no-tests fallback yields `VerificationStatus=unavailable` plus
+  `source_compile_ok` confidence, not a hard code failure. The controller can
+  continue delivery while surfacing the confidence caveat.
+- Prompt text no longer tells verifier to run `exec_command` for syntax checks;
+  syntax fallback is owned by `run_tests`, preserving the typed verifier
+  verdict boundary.
+
+Red-line status:
+
+- No user-request keyword matching.
+- No parsing model rationale/prose or `<think>`.
+- No case-specific SWE-bench routing.
+- Hard gates read only schema, ids, typed paths, TestSurface candidates,
+  ChangePlan target paths, and ChangeReport confidence/verdict fields.
+
 ## Prompt And Routing Red Lines
 
 - Prompt text may guide, but cannot enforce.
@@ -1426,7 +1470,7 @@ Primary files:
 | --- | --- | --- |
 | 0 | complete | Architecture ledger added and ready for commit. |
 | 1 | complete | Added analyzer overview caution token hygiene for multiline/code-fragment/traceback-shaped candidates, with valid symbol/path retention tests. |
-| 2 | complete | Required expected/forbidden behavior contracts now default to completion targets; distinct expected_outcomes append as required fallback contracts even when explicit contracts exist; plan probes must reference every required contract; verification confidence records partial covered/missing contract refs; SWE-bench adapter records typed confidence downgrade reasons for unavailable/unverified local verification without blocking export. |
+| 2 | complete | Required expected/forbidden behavior contracts now default to completion targets; distinct expected_outcomes append as required fallback contracts even when explicit contracts exist; plan probes preserve known contract refs, while missing/partial probe coverage is evaluated as typed verification confidence instead of blocking plan emission; SWE-bench adapter records typed confidence downgrade reasons for unavailable/unverified local verification without blocking export. |
 | 3 | complete | Active slice is the scheduler execution unit with durable transitions. This pass added the missing apply-start transition and later fixed failed-verify replan convergence: `replan_batch` from a failed slice must produce a different typed `PlanFingerprint`, a typed passing planner probe on the already-applied worktree, or a blocked workflow. Reusing the same failed plan no longer leaves the run `in_progress`. |
 | 4 | in_progress | Localizer worker and evidence coverage. This pass added prior-context plan coverage as a persisted soft audit/handoff signal: coverage reads P0/P1 non-plan context, excludes test paths and plan-authored target paths, and is attached to the active batch's change-plan pack; SWE-bench adapter applies the same self-coverage exclusion. |
 | 5 | complete | PlanRepairPack implemented across `emit_change_plan`, `emit_plan_skeleton`, and `emit_plan_change`: plan emit rejections now attach `ToolResult.Repair.Code=write_plan_repair_pack`, compact typed metadata, accepted enums, failing field paths, exact structured-edit current bytes, and retained-partial retry guidance. Planner prompt guidance consumes the typed repair packet as soft retry input while hard gates still read validators. Verification passed: focused `internal/tool`, `internal/types`, `internal/skill`; `python3 -m py_compile eval/swebench/run_codrax_swebench.py`; `bash eval/swebench/smoke_local.sh`; `git diff --check`; `go test ./...`; `make`. |
@@ -1441,3 +1485,4 @@ Primary files:
 | Owner-boundary audit telemetry | complete | Added AST-based SWE-bench adapter audit for caller-side return-shape adapters around existing calls. Results expose `plan_owner_boundary_signals` / `plan_owner_boundary_reason_codes`, and probe-only passes can be downgraded by `caller_return_shape_adapter`. This is audit/confidence only; no runtime hard gate and no prose/keyword routing. |
 | Public research refresh | complete | Rechecked the arXiv Claude Code design-space paper, the companion public repository, and official Claude Code docs for agent loop, context, hooks, subagents, memory, and permissions. Added the 2026-06-17 public research refresh section that maps the findings to Codrax's task-harness control plane: deterministic state assembler/action validator/permission broker/effect executor/observation normalizer/context projector/event appender around a flexible model loop. |
 | Symptom-workaround audit telemetry | complete | Extended the SWE-bench adapter's structural AST audit so successful predictions can be confidence-downgraded when a Python edit conditionally suppresses existing diagnostic output or writes an external object's private state. This caught the latest Sphinx passed-but-wrong warning suppression and Matplotlib private `_norm` sync workaround as typed `diagnostic_signal_conditionally_suppressed` / `external_private_state_sync_workaround` signals. |
+| Online verify/default runner alignment | complete | Unified plan/verify state semantics and removed a verifier pre-investigation round. `emit_change_plan` now hard-rejects only unknown behavior-contract ids, while coverage gaps flow to `VerificationConfidenceRecord`; verifier prompts the model to call `run_tests({})` first; `run_tests` defaults to typed `TestSurface` plus plan-touched runner preference, synthesizes bare-source syntax fallback lanes, and records `test_surface_default` command provenance. Verification passed: focused agent/tool tests, `go test ./...`, `make`, SWE-bench adapter unit tests, `git diff --check`, and `bash eval/swebench/smoke_local.sh`. |

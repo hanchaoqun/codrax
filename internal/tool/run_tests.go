@@ -89,17 +89,16 @@ type runTestsParams struct {
 	// (default 300 = 5 minutes). Operators bump for large suites.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 
-	// Runner is the LLM-decided test runner choice. Empty = let the
-	// system fall back to manifest-keyword auto-detect (the legacy
-	// path; brittle for repos without a canonical manifest, e.g. a
-	// bare Python directory with `*_test.py` files but no
-	// pyproject.toml — see eval/results: grade-school task).
+	// Runner is an optional typed verifier override. Empty = let the
+	// system select from the deterministic TestSurface queue, biased
+	// by plan-touched file language when there is exactly one. That
+	// default covers bare source directories and missing pytest-style
+	// environments by using syntax/no-tests fallbacks without requiring
+	// the verifier model to inspect the repo first.
 	//
 	// Non-empty MUST be one of the whitelisted runners
-	// (allowedRunners). The verifier agent inspects the repo first
-	// (list_files / read_file / repo_map) and supplies its choice
-	// here. The system then short-circuits manifest detection,
-	// validates the choice against the whitelist, and dispatches the
+	// (allowedRunners). The system then short-circuits default
+	// selection, validates the choice against the whitelist, and dispatches the
 	// canonical command template — same template the auto-detect
 	// path uses, so safety + determinism are preserved while runner
 	// SELECTION moves from a hard-coded keyword table to LLM
@@ -211,7 +210,7 @@ func (t *RunTests) Parameters() json.RawMessage {
     "runner": {
       "type": "string",
       "enum": ["go", "node", "python", "rust", "java", "ruby", "swift", "cmake", "meson", "make", "hvigor", "cjpm"],
-      "description": "Test runner you have decided to use after inspecting the repo. STRONGLY PREFERRED — if you supply this, the system skips manifest auto-detect and runs your choice directly (works for repos without a canonical manifest, e.g. a bare Python directory with *_test.py files). Empty falls back to manifest auto-detect (brittle; misses bare repos)."
+      "description": "Optional test runner override. Empty lets the system select from the typed test-surface queue, biased by plan-touched file language, with syntax/no-tests fallbacks and dead-end escalation. Supply only when you need to force a specific runner."
     },
     "framework": {
       "type": "string",
@@ -302,15 +301,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 	// Two paths to a runner plan list:
 	//   (1) Typed verifier choice (`runner`, or Python `framework`
-	//       without runner) — short-circuit manifest detection. The
-	//       verifier agent has already inspected the repo (list_files /
-	//       read_file / repo_map) and committed to a test lane; the
+	//       without runner) — short-circuit default selection. The
+	//       verifier agent has committed to a test lane; the
 	//       system validates the choice against the whitelist +
 	//       working_dir against the worktree boundary, then dispatches.
-	//   (2) Empty typed choice — fall back to legacy manifest keyword
-	//       detect. Brittle for bare-directory repos; kept as a
-	//       backstop so old eval cases / direct CLI calls keep
-	//       working.
+	//   (2) Empty typed choice — use the deterministic TestSurface queue,
+	//       biased by the plan-touched runner when it is unambiguous. This
+	//       is the verifier default: the model can call run_tests with {}
+	//       on the first turn and let the system own runner selection.
 	// Multi-repo: confine manifest discovery to ActiveSubRepo's
 	// root only when that root is inside the active verification
 	// tree. Repo-scoped write mode rewrites RepoRoot to the selected
@@ -414,15 +412,19 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		logging.Info("[run_tests] typed-selected runner=%s framework=%s working_dir=%s source=%s (manifest auto-detect bypassed)",
 			choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice), selectedSource)
 	} else {
-		plans = detectRunnerPlans(ctx.RepoRoot, walkRoot)
+		preferredRunner := preferredRunnerFromChangePlan(ctx)
+		plans = defaultRunnerPlansFromTestSurface(ctx.RepoRoot, surface, preferredRunner)
 		if len(plans) == 0 {
 			return errResult(t.Name(),
-				"run_tests: no supported test runner detected in "+ctx.RepoRoot+
-					" — supply the `runner` parameter (one of: "+strings.Join(allowedRunnerList(), ", ")+
-					") after inspecting the repo with list_files / read_file / repo_map. "+
-					"Manifest auto-detect looked recursively for go.mod / package.json / pyproject.toml / pytest.ini / setup.py / Cargo.toml / Package.swift / pom.xml / build.gradle[.kts] / Gemfile / CMakeLists.txt / meson.build / Makefile / oh-package.json5 / hvigorfile.ts / cjpm.toml and found none — common cause: a bare-directory repo (e.g. exercise stub) without a canonical manifest."), nil
+				"run_tests: no supported test surface detected in "+ctx.RepoRoot+
+					" — no manifest, test-file convention, Makefile target, configured native build dir, or plan-touched source language produced a runnable candidate. "+
+					"Supported runners are: "+strings.Join(allowedRunnerList(), ", ")+"."), nil
 		}
-		logging.Info("[run_tests] manifest auto-detect found %d runnable project(s) in %s", len(plans), ctx.RepoRoot)
+		for _, plan := range plans {
+			planSources[testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))] = "test_surface_default"
+		}
+		logging.Info("[run_tests] test-surface default selected %d runnable project(s) in %s (preferred_runner=%s)",
+			len(plans), ctx.RepoRoot, preferredRunner)
 	}
 
 	var (

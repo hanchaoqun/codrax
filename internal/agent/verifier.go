@@ -109,12 +109,11 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 	var s strings.Builder
 	s.WriteString("## Verify phase\n\n")
 	s.WriteString("The plan has been applied to the worktree. " +
-		"Your job is mechanical: call run_tests EXACTLY ONCE with the runner that matches the " +
-		"plan-touched language, then stop. The system completes the stage as soon as run_tests " +
+		"Your job is mechanical: call run_tests EXACTLY ONCE, then stop. The system completes the stage as soon as run_tests " +
 		"installs the test results.\n\n" +
 		"Workflow:\n" +
-		"  1. Briefly inspect the worktree (list_files / grep on test-file patterns) so you can pick the runner whose language matches the plan-touched files. Skip lengthy probes — one or two list_files calls is enough.\n" +
-		"  2. Call run_tests EXACTLY ONCE with `runner=<choice>` and (optionally) `working_dir=<repo-relative dir>`. Supported runners: go / node / python / rust / java / ruby / swift / cmake / meson / make / hvigor / cjpm.\n" +
+		"  1. Call run_tests EXACTLY ONCE with `{}` by default. run_tests owns typed test-surface detection, plan-touched language preference, syntax/no-tests fallback, and dead-end escalation.\n" +
+		"  2. Pass `runner`, `framework`, or `working_dir` only when a prior typed handoff already names a specific verifier target. Supported runners: go / node / python / rust / java / ruby / swift / cmake / meson / make / hvigor / cjpm.\n" +
 		"  3. STOP after run_tests returns. Read its tool result:\n" +
 		"     - verdict=PASSED → done; the verify stage will succeed. If the result also lists `NoTestsRunners=[...]`, that means the selected runner found no direct test work or used a syntax fallback. run_tests automatically escalates to another typed runnable candidate before returning when one exists, so do not invent additional checks.\n" +
 		"     - verdict=FAILED → optionally call emit_test_results once with a 1-4 sentence failure_summary narrative + classification arrays. Do not re-run tests; the verify→plan retry loop owns recovery.\n\n" +
@@ -153,11 +152,10 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		langs := collectPathLanguages(plan.TargetPaths)
 		if len(langs) > 0 {
 			fmt.Fprintf(&s, "\nLanguages touched: %s\n", strings.Join(langs, ", "))
-			fmt.Fprintf(&s, "Pick the runner whose language matches FIRST. Manifests like "+
-				"go.mod / Cargo.toml only matter when the plan's touched language has tests "+
-				"in the repo. A plan that creates a single .py file in a Go repo MUST verify "+
-				"with the python runner (or `python3 -m py_compile <file>` via exec_command if "+
-				"no test fixture exists), NOT by running the unrelated Go suite.\n")
+			fmt.Fprintf(&s, "run_tests reads these target paths and prefers the matching runner "+
+				"before unrelated repository manifests. A plan that creates a single .py file "+
+				"in a Go repo should flow through the python runner and syntax/no-tests fallback "+
+				"before any unrelated Go suite is considered.\n")
 		}
 	}
 	if section := renderVerifierTestSurfaceSection(ctx.RepoRoot); section != "" {
@@ -481,8 +479,7 @@ func renderVerifierTestSurfaceSection(repoRoot string) string {
 		s.WriteString(line + "\n")
 	}
 	s.WriteString("\nPrefer the highest-ranked candidate with test_work=yes; pass its runner " +
-		"(plus working_dir when it is not \".\"). Only deviate when the plan-touched language " +
-		"clearly requires another listed candidate. If your choice reports zero tests, uses a " +
+		"(plus working_dir when it is not \".\") only when a typed handoff requires a specific target; otherwise call run_tests with {}. If the selected candidate reports zero tests, uses a " +
 		"syntax fallback, or hits a missing binary, the system runs the next candidate with " +
 		"test work automatically.\n")
 	return s.String()
