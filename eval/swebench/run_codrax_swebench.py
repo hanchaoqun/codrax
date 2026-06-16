@@ -988,9 +988,16 @@ def report_failure_kind(report: dict[str, Any]) -> str:
     return ""
 
 
-def prediction_verdict(patch: str, verify_status: str, plan_status: str) -> tuple[str, str, bool]:
+def prediction_verdict(
+    patch: str,
+    verify_status: str,
+    plan_status: str,
+    audit_block_reason: str = "",
+) -> tuple[str, str, bool]:
     if not patch.strip():
         return "empty_patch", "none", False
+    if audit_block_reason:
+        return "predicted_audit_blocked", "failed", True
     status = str(verify_status or "").strip()
     plan = str(plan_status or "").strip()
     if status == "passed":
@@ -1000,6 +1007,32 @@ def prediction_verdict(patch: str, verify_status: str, plan_status: str) -> tupl
     if status == "unavailable" or plan == "unverified":
         return "predicted_unverified", "unknown", False
     return "predicted_unchecked", "unknown", False
+
+
+def prediction_audit_block_reason(
+    *,
+    exported_source_paths: list[str],
+    final_plan_source_paths: list[str],
+    final_plan_test_only: bool,
+    final_plan_covers_exported_source_patch: bool | None,
+) -> str:
+    """Return a typed local-acceptance blocker for final-plan/export drift.
+
+    SWE-bench predictions may still be exported for the official harness. This
+    reason only controls Codrax's local confidence so a passed local verifier
+    cannot hide that the final durable plan no longer owns the source patch
+    being submitted.
+    """
+
+    if not exported_source_paths:
+        return ""
+    if final_plan_test_only:
+        return "final_plan_test_only_exported_source_patch"
+    if final_plan_covers_exported_source_patch is False:
+        return "final_plan_exported_source_drift"
+    if not final_plan_source_paths:
+        return "final_plan_missing_source_paths"
+    return ""
 
 
 def commit_exists(repo_dir: Path, rev: str) -> bool:
@@ -1203,10 +1236,18 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             None if not exported_source_paths else all(path in plan_source_path_set for path in exported_source_paths)
         )
         result["patch_bytes"] = len(patch.encode("utf-8"))
+        audit_block_reason = prediction_audit_block_reason(
+            exported_source_paths=exported_source_paths,
+            final_plan_source_paths=plan_source_paths,
+            final_plan_test_only=bool(result["final_plan_test_only"]),
+            final_plan_covers_exported_source_patch=result["final_plan_covers_exported_source_patch"],
+        )
+        result["prediction_audit_block_reason"] = audit_block_reason
         verdict, confidence, blocks_local_acceptance = prediction_verdict(
             patch,
             str(result.get("verify_status") or ""),
             str(result.get("plan_status") or ""),
+            audit_block_reason,
         )
         result["prediction_verdict"] = verdict
         result["prediction_local_confidence"] = confidence

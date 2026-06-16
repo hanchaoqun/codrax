@@ -176,7 +176,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 						FileLineCount: lineCount,
 						StartLine:     edit.StartLine,
 						EndLine:       endLine,
-						SafeEditKinds: structuredEditSafeInsertKinds(lines),
+						SafeEditKinds: structuredEditSafeInsertKinds(path, lines),
 					})
 				}
 			}
@@ -207,7 +207,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 							CurrentByteLen:   len(got),
 							SuppliedByteLen:  len(edit.OldText),
 							RetryInstruction: "resend this edit with old_text exactly equal to expected_old_text; keep start_line/end_line aligned to that snippet, omit end_line for a single-line edit, or omit old_text when the line numbers came from the latest read_file view",
-							SafeEditKinds:    structuredEditSafeInsertKinds(lines),
+							SafeEditKinds:    structuredEditSafeInsertKinds(path, lines),
 						})
 					}
 				}
@@ -234,7 +234,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 						ExpectedOldText:  oldBytes,
 						CurrentByteLen:   len(oldBytes),
 						RetryInstruction: "remove the duplicated copy of expected_old_text from content; keep one preserved copy only when the old line/block should remain, then add only the new neighboring lines",
-						SafeEditKinds:    structuredEditSafeInsertKinds(lines),
+						SafeEditKinds:    structuredEditSafeInsertKinds(path, lines),
 					})
 				}
 			}
@@ -252,7 +252,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 					Path:          path,
 					EditIndex:     i,
 					FileLineCount: lineCount,
-					SafeEditKinds: structuredEditSafeInsertKinds(lines),
+					SafeEditKinds: structuredEditSafeInsertKinds(path, lines),
 				})
 			}
 			start, err := insertionIndex(kind, edit.StartLine, lineCount)
@@ -264,7 +264,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 					EditIndex:     i,
 					FileLineCount: lineCount,
 					StartLine:     edit.StartLine,
-					SafeEditKinds: structuredEditSafeInsertKinds(lines),
+					SafeEditKinds: structuredEditSafeInsertKinds(path, lines),
 				})
 			}
 			var anchorLines []string
@@ -303,7 +303,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 							CurrentByteLen:   len(anchor),
 							SuppliedByteLen:  len(edit.OldText),
 							RetryInstruction: "resend this insertion with old_text exactly equal to expected_old_text for the anchor line, or omit old_text when line anchoring alone is acceptable",
-							SafeEditKinds:    structuredEditSafeInsertKinds(lines),
+							SafeEditKinds:    structuredEditSafeInsertKinds(path, lines),
 						})
 					}
 				} else {
@@ -329,7 +329,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 					ExpectedOldText:  anchorBytes,
 					CurrentByteLen:   len(anchorBytes),
 					RetryInstruction: "remove the duplicated copy of expected_old_text from content; for insert_before/insert_after, content must contain only the new bytes being inserted",
-					SafeEditKinds:    structuredEditSafeInsertKinds(lines),
+					SafeEditKinds:    structuredEditSafeInsertKinds(path, lines),
 				})
 			}
 			key := fmt.Sprintf("%s:%d", kind, start)
@@ -342,6 +342,17 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 			if edit.Content == "" {
 				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] %s requires non-empty content", path, i, kind)
 			}
+			if kind == "insert_at_eof" && structuredEditRejectPythonIndentedEOF(path, edit.Content) {
+				msg := fmt.Sprintf("structured edit builder: change %q edits[%d] insert_at_eof cannot append indented Python code to a source file", path, i)
+				return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+					ReasonCode:       "python_indented_eof_insert",
+					Path:             path,
+					EditIndex:        i,
+					FileLineCount:    lineCount,
+					RetryInstruction: "Python indentation defines scope. Use insert_before/insert_after with a current read_file line anchor inside the intended function/class, or kind=modify with the full corrected file body. insert_at_eof is only safe for unindented top-level Python additions.",
+					SafeEditKinds:    structuredEditSafeInsertKinds(path, lines),
+				})
+			}
 			start := lineCount
 			if kind == "insert_before_final_brace" {
 				var ok bool
@@ -353,7 +364,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 						Path:          path,
 						EditIndex:     i,
 						FileLineCount: lineCount,
-						SafeEditKinds: []string{"insert_at_eof"},
+						SafeEditKinds: structuredEditSafeInsertKinds(path, lines),
 					})
 				}
 			}
@@ -442,12 +453,32 @@ func finalBraceInsertionIndex(lines []string) (int, bool) {
 	return 0, false
 }
 
-func structuredEditSafeInsertKinds(lines []string) []string {
-	out := []string{"insert_at_eof"}
+func structuredEditSafeInsertKinds(path string, lines []string) []string {
+	out := []string{"insert_before", "insert_after"}
+	if !structuredEditPythonSourcePath(path) {
+		out = append(out, "insert_at_eof")
+	}
 	if _, ok := finalBraceInsertionIndex(lines); ok {
 		out = append(out, "insert_before_final_brace")
 	}
 	return out
+}
+
+func structuredEditPythonSourcePath(path string) bool {
+	return strings.EqualFold(filepath.Ext(filepath.ToSlash(strings.TrimSpace(path))), ".py")
+}
+
+func structuredEditRejectPythonIndentedEOF(path, content string) bool {
+	if !structuredEditPythonSourcePath(path) {
+		return false
+	}
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		return strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
+	}
+	return false
 }
 
 func insertionIndex(kind string, line, lineCount int) (int, error) {

@@ -81,11 +81,15 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `exported_patch_paths`, `exported_patch_source_paths`,
 `exported_patch_test_paths`, `final_plan_source_paths`,
 `final_plan_test_only`, `final_plan_covers_exported_source_patch`,
-`prediction_verdict`, `prediction_local_confidence`, and
-`prediction_blocks_local_acceptance`) so environment dead-ends, test-edit drift,
-planner handoff coverage, failed local verification, and
-final-plan-vs-exported-source drift are auditable without changing the official
-predictions JSONL shape. Context coverage is derived only from persisted
+`prediction_audit_block_reason`, `prediction_verdict`,
+`prediction_local_confidence`, and `prediction_blocks_local_acceptance`) so
+environment dead-ends, test-edit drift, planner handoff coverage, failed local
+verification, and final-plan-vs-exported-source drift are auditable without
+changing the official predictions JSONL shape. When the exported source patch is
+not owned by the final durable plan (for example a later test-only replan
+verified successfully), the adapter still writes the official prediction but
+marks local confidence as `predicted_audit_blocked` with
+`prediction_blocks_local_acceptance=true`. Context coverage is derived only from persisted
 workflow/context-pack typed fields when present; it is audit telemetry, not an
 apply/verify gate. When a `ChangePlan` carries `verification_probes[]`, Codrax
 runs those bounded typed probes before any project-level suite; passing probes

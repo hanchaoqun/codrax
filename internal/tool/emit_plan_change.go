@@ -68,7 +68,7 @@ func (t *EmitPlanChange) Parameters() json.RawMessage {
 	          "kind": {"type": "string", "enum": ["replace", "delete", "insert_before", "insert_after", "insert_at_eof", "insert_before_final_brace"]},
 	          "start_line": {"type": "integer", "minimum": 1, "description": "Required for replace/delete and for line-addressed insert_before/insert_after. Ignored for insert_at_eof and insert_before_final_brace."},
 	          "end_line": {"type": "integer", "minimum": 1},
-	          "content": {"type": "string"},
+	          "content": {"type": "string", "description": "Replacement or insertion bytes. Use insert_at_eof only for top-level, unindented additions; indentation-sensitive source such as Python must use line-anchored insert_before/insert_after or full modify for in-scope code."},
 	          "old_text": {"type": "string"}
 	        },
 	        "required": ["kind"]

@@ -618,6 +618,33 @@ func TestCompileStructuredEdits_InsertAtEOFWithoutLineCount(t *testing.T) {
 	}
 }
 
+func TestCompileStructuredEdits_RejectsIndentedPythonInsertAtEOF(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/flask/blueprints.py", "class Blueprint:\n    def route(self):\n        return f\n")
+	change := &types.FileChange{
+		Path: "src/flask/blueprints.py",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:    "insert_at_eof",
+			Content: "\n\n        assert \".\" not in name, \"Blueprint name should not contain dots\"\n",
+		}},
+	}
+	_, err := compileStructuredEditsToPatch(root, change)
+	if err == nil {
+		t.Fatal("indented Python insert_at_eof must be rejected")
+	}
+	if !strings.Contains(err.Error(), "python_indented_eof_insert") {
+		t.Fatalf("diagnostic should identify the Python EOF indentation hazard, got: %v", err)
+	}
+	var diag *structuredEditDiagnosticError
+	if !errors.As(err, &diag) {
+		t.Fatalf("expected structured diagnostic error, got %T: %v", err, err)
+	}
+	if containsStructuredEditString(diag.diagnostic.SafeEditKinds, "insert_at_eof") {
+		t.Fatalf("safe edit kinds should not recommend insert_at_eof for Python source, got: %+v", diag.diagnostic.SafeEditKinds)
+	}
+}
+
 func TestCompileStructuredEdits_InsertBeforeFinalBrace(t *testing.T) {
 	root := t.TempDir()
 	writeSurfaceFile(t, root, "src/A.java", "class A {\n    String value;\n}\n")

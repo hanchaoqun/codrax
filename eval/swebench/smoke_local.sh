@@ -258,6 +258,8 @@ if row.get("prediction_blocks_local_acceptance") is not False:
         "fake run has no failed verify report, so it should not block local acceptance: "
         f"{row.get('prediction_blocks_local_acceptance')!r}"
     )
+if row.get("prediction_audit_block_reason") not in ("", None):
+    raise SystemExit(f"unexpected prediction_audit_block_reason: {row.get('prediction_audit_block_reason')!r}")
 if row.get("git_history_isolated") is not False:
     raise SystemExit(f"default adapter run must not isolate git history: {row.get('git_history_isolated')!r}")
 if (row.get("git_history_isolation") or {}).get("enabled") is not False:
@@ -267,6 +269,30 @@ with open(argv_path, encoding="utf-8") as handle:
     argv = handle.read().splitlines()
 if "--eval-disable-git-history" in argv:
     raise SystemExit("default adapter run unexpectedly passed --eval-disable-git-history to Codrax")
+PY
+
+python3 - "$ROOT/eval/swebench/run_codrax_swebench.py" <<'PY'
+import importlib.util
+import sys
+
+path = sys.argv[1]
+spec = importlib.util.spec_from_file_location("run_codrax_swebench", path)
+mod = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = mod
+spec.loader.exec_module(mod)
+
+reason = mod.prediction_audit_block_reason(
+    exported_source_paths=["src/pkg.py"],
+    final_plan_source_paths=[],
+    final_plan_test_only=True,
+    final_plan_covers_exported_source_patch=False,
+)
+if reason != "final_plan_test_only_exported_source_patch":
+    raise SystemExit(f"unexpected audit block reason: {reason!r}")
+verdict = mod.prediction_verdict("diff --git a/src/pkg.py b/src/pkg.py\n", "passed", "applied", reason)
+if verdict != ("predicted_audit_blocked", "failed", True):
+    raise SystemExit(f"unexpected audit-blocked verdict: {verdict!r}")
 PY
 
 FAIR_PREDICTIONS="$WORK/predictions-fair.jsonl"
