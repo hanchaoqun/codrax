@@ -439,18 +439,24 @@ func composeDockRow2(s dockRowState) string {
 // composeDockRow3 renders the time / affordance row:
 //
 //	"  · 本 12s · 总 45s · Ctrl+C 取消"
-//	"  · Ctrl+C 取消"
+//	"  · 总 45s · Ctrl+C 取消"
 //
-// glyph · in statusMeta (darkest). When a cancel hint is visible, it owns the
-// live row and suppresses elapsed timers so the interactive affordance stays
-// visually stable while the spinner row animates. Non-cancellable contexts keep
-// the timer-only row.
+// glyph · in statusMeta (darkest). When a cancel hint is visible, keep the
+// total elapsed time for user orientation, but suppress the stage-local timer:
+// "本 0s" resets across stage transitions and was the visually noisy segment.
+// Non-cancellable contexts keep the full timer row.
 func composeDockRow3(s dockRowState) string {
 	var b strings.Builder
 	b.WriteString("  ")
 	b.WriteString(statusMeta.Sprint("·"))
 	b.WriteString(" ")
 	if s.cancelHint != "" {
+		if s.totalElapsed != "" {
+			b.WriteString(statusMeta.Sprint(totalElapsedPhrase(s.totalElapsed, s.lang)))
+			b.WriteString(" ")
+			b.WriteString(statusMeta.Sprint("·"))
+			b.WriteString(" ")
+		}
 		b.WriteString(statusMeta.Sprint(s.cancelHint))
 		return b.String()
 	}

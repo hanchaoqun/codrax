@@ -460,10 +460,11 @@ func TestComposeDockRow3_CancelHintSuppressesLiveElapsed(t *testing.T) {
 	if !strings.Contains(plain, "Ctrl+C 取消") {
 		t.Fatalf("row 3 must keep the cancel hint; got %q", plain)
 	}
-	for _, unwanted := range []string{"本 5s", "总 12s"} {
-		if strings.Contains(plain, unwanted) {
-			t.Fatalf("cancel-owned row 3 must suppress %q; got %q", unwanted, plain)
-		}
+	if !strings.Contains(plain, "总 12s") {
+		t.Fatalf("cancel-owned row 3 must preserve total elapsed; got %q", plain)
+	}
+	if strings.Contains(plain, "本 5s") {
+		t.Fatalf("cancel-owned row 3 must suppress stage-local elapsed; got %q", plain)
 	}
 }
 
