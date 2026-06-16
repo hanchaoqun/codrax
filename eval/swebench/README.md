@@ -80,7 +80,7 @@ telemetry is stable both as a nested object and as top-level result fields:
 pytest or partial dependency setup is not a hard code-failure gate.
 `results.jsonl` also includes Codrax's typed local verifier verdict
 (`verify_status`, `verify_failure_kind`, `verify_failure_reason_code`,
-`verify_summary`, `verify_test_count`) plus plan audit fields (`plan_target_paths`,
+`verify_summary`, `verify_test_count`, `verify_confidence_reason_codes`) plus plan audit fields (`plan_target_paths`,
 `plan_change_paths`, `plan_test_change_paths`,
 `plan_verification_probe_count`, `workflow_run_id`, `workflow_status`,
 `plan_context_paths`, `plan_context_covered_paths`,
@@ -111,6 +111,9 @@ contract/symbol coverage, the adapter lowers local confidence via
 official harness. Required behavior contracts sourced from
 `expected_outcome_fallback` also participate in this downgrade, so a weak
 probe cannot produce high local confidence without explicit contract coverage.
+Newer Codrax reports include `verification_confidence[]`; the adapter consumes
+those report-native reason codes first and also exposes a deduped
+`verify_confidence_reason_codes` list in `results.jsonl`.
 By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only

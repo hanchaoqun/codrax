@@ -2465,6 +2465,61 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 	return patched, repaired, true
 }
 
+func repairSelectedStringWrappedArrayFields(raw json.RawMessage, fields ...string) (json.RawMessage, []string, bool) {
+	if len(raw) == 0 || len(fields) == 0 {
+		return raw, nil, false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return raw, nil, false
+	}
+	subset := make(map[string]json.RawMessage, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		if val, ok := probe[field]; ok {
+			subset[field] = val
+		}
+	}
+	if len(subset) == 0 {
+		return raw, nil, false
+	}
+	subsetRaw, err := json.Marshal(subset)
+	if err != nil {
+		return raw, nil, false
+	}
+	repairedSubset, repairedFields, ok := repairStringWrappedArrayFields(subsetRaw)
+	if !ok || len(repairedFields) == 0 {
+		return raw, nil, false
+	}
+	var repairedMap map[string]json.RawMessage
+	if err := json.Unmarshal(repairedSubset, &repairedMap); err != nil {
+		return raw, nil, false
+	}
+	var repaired []string
+	for _, field := range repairedFields {
+		if field == "<outer-normalisation>" {
+			continue
+		}
+		val, ok := repairedMap[field]
+		if !ok {
+			continue
+		}
+		probe[field] = val
+		repaired = append(repaired, field)
+	}
+	if len(repaired) == 0 {
+		return raw, nil, false
+	}
+	patched, err := json.Marshal(probe)
+	if err != nil {
+		return raw, nil, false
+	}
+	return patched, repaired, true
+}
+
 func repairStringWrappedArrayJSON(trimmed string) (json.RawMessage, bool) {
 	for _, candidate := range toolparam.JSONRepairCandidates(trimmed) {
 		if candidate == trimmed {

@@ -353,6 +353,15 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 		pack.Items[len(pack.Items)-1].ID = writeVerificationDiagnosticContextID(diag)
 	}
+	for _, confidence := range report.VerificationConfidence {
+		text := renderVerificationConfidenceContext(confidence)
+		if text == "" {
+			continue
+		}
+		pack.Items = append(pack.Items, writeContextItem("verification_confidence", WriteContextP2, text, "verify",
+			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		pack.Items[len(pack.Items)-1].ID = writeVerificationConfidenceContextID(confidence)
+	}
 	for _, result := range report.TestResults {
 		if result.Passed {
 			continue
@@ -650,7 +659,7 @@ func writeContextMinimumP0InLimitedView(limit int) int {
 
 func writeContextVerifyFailureKind(kind string) bool {
 	switch kind {
-	case "verify_failure", "build_failure", "failed_test", "build_error", "regression_assertion", "no_tests_runner", "executed_command", "failure_summary_blob_ref":
+	case "verify_failure", "build_failure", "failed_test", "build_error", "regression_assertion", "no_tests_runner", "executed_command", "failure_summary_blob_ref", "failure_reason_code", "verification_diagnostic", "verification_confidence":
 		return true
 	default:
 		return false
@@ -805,6 +814,35 @@ func renderVerificationDiagnosticContext(diag VerificationDiagnostic) string {
 	return trimWriteContextText(strings.Join(parts, " "))
 }
 
+func renderVerificationConfidenceContext(conf VerificationConfidenceRecord) string {
+	parts := []string{}
+	if conf.Category != "" {
+		parts = append(parts, "category="+conf.Category)
+	}
+	if conf.Status != "" {
+		parts = append(parts, "status="+conf.Status)
+	}
+	if conf.Severity != "" {
+		parts = append(parts, "severity="+conf.Severity)
+	}
+	if conf.ReasonCode != "" {
+		parts = append(parts, "reason_code="+conf.ReasonCode)
+	}
+	if len(conf.ContractRefs) > 0 {
+		parts = append(parts, "contract_refs="+strings.Join(conf.ContractRefs, ","))
+	}
+	if len(conf.ChangedSymbolRefs) > 0 {
+		parts = append(parts, "changed_symbol_refs="+strings.Join(conf.ChangedSymbolRefs, ","))
+	}
+	if conf.Source != "" {
+		parts = append(parts, "source="+conf.Source)
+	}
+	if conf.Detail != "" {
+		parts = append(parts, "detail="+conf.Detail)
+	}
+	return trimWriteContextText(strings.Join(parts, " "))
+}
+
 func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 	parts := []string{}
 	if c.ID != "" {
@@ -870,6 +908,15 @@ func writeVerificationDiagnosticContextID(diag VerificationDiagnostic) string {
 	}
 	return writeContextStableID("verification_diagnostic", diag.Source, diag.Category, diag.Severity,
 		diag.ReasonCode, diag.Runner, diag.Framework, diag.WorkingDir, diag.Command, diag.Outcome)
+}
+
+func writeVerificationConfidenceContextID(conf VerificationConfidenceRecord) string {
+	if strings.TrimSpace(conf.Category) == "" && strings.TrimSpace(conf.ReasonCode) == "" &&
+		strings.TrimSpace(conf.Status) == "" {
+		return ""
+	}
+	return writeContextStableID("verification_confidence", conf.Source, conf.Category, conf.Status,
+		conf.Severity, conf.ReasonCode, strings.Join(conf.ContractRefs, ","), strings.Join(conf.ChangedSymbolRefs, ","))
 }
 
 func writeContextStableID(parts ...string) string {

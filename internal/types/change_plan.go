@@ -760,6 +760,15 @@ type ChangeReport struct {
 	// never from model prose.
 	VerificationDiagnostics []VerificationDiagnostic `json:"verification_diagnostics,omitempty"`
 
+	// VerificationConfidence records why a local verdict should or should not
+	// be treated as strong evidence. This lane is separate from pass/fail:
+	// missing pytest can leave delivery unverified without being a code
+	// failure, while a passing probe can still be low-confidence when it does
+	// not cover required behavior contracts or changed symbols. Records are
+	// derived from ChangePlan probes/contracts, command outcomes, and typed
+	// diagnostics; they are never inferred from model prose.
+	VerificationConfidence []VerificationConfidenceRecord `json:"verification_confidence,omitempty"`
+
 	// RegressionAssertions lists test AssertionIDs the verifier LLM
 	// classified as "passed in baseline, fails now — caused by this
 	// plan". Authoritative for evalNoRegression — populated by
@@ -937,6 +946,21 @@ type VerificationDiagnostic struct {
 	Outcome    string `json:"outcome,omitempty"`
 	ExitCode   int    `json:"exit_code,omitempty"`
 	Detail     string `json:"detail,omitempty"`
+}
+
+// VerificationConfidenceRecord is a typed confidence signal for a local verify
+// attempt. It intentionally does not replace VerificationStatus. Consumers use
+// it to decide how much to trust a local pass/unavailable result without
+// parsing natural-language summaries.
+type VerificationConfidenceRecord struct {
+	Source            string   `json:"source,omitempty"`
+	Category          string   `json:"category,omitempty"`
+	Status            string   `json:"status,omitempty"`
+	Severity          string   `json:"severity,omitempty"`
+	ReasonCode        string   `json:"reason_code,omitempty"`
+	ContractRefs      []string `json:"contract_refs,omitempty"`
+	ChangedSymbolRefs []string `json:"changed_symbol_refs,omitempty"`
+	Detail            string   `json:"detail,omitempty"`
 }
 
 // Score returns the (passed, total) test counts for this report,

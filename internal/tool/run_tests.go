@@ -355,6 +355,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			report.VerificationDiagnostics,
 			verificationDiagnosticsFromExecutedCommands(report.ExecutedCommands),
 		)
+		report.VerificationConfidence = mergeVerificationConfidenceRecords(
+			report.VerificationConfidence,
+			verificationConfidenceRecordsFromReport(ctx.Mutable.ChangePlan(), report),
+		)
 		if !report.Passed && strings.TrimSpace(report.FailureReasonCode) == "" {
 			report.FailureReasonCode = failureReasonCodeFromExecutedCommands(report.ExecutedCommands)
 		}
@@ -2023,6 +2027,254 @@ func mergeVerificationDiagnostics(existing, next []types.VerificationDiagnostic)
 		return nil
 	}
 	return out
+}
+
+func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *types.ChangeReport) []types.VerificationConfidenceRecord {
+	if report == nil {
+		return nil
+	}
+	var out []types.VerificationConfidenceRecord
+	status := report.NormalizeVerificationStatus()
+	if status == types.VerificationStatusUnavailable {
+		reason := strings.TrimSpace(report.FailureReasonCode)
+		if reason == "" && report.FailureKind != "" {
+			reason = string(report.FailureKind)
+		}
+		out = append(out, types.VerificationConfidenceRecord{
+			Source:     "run_tests",
+			Category:   "project_runner",
+			Status:     "unavailable",
+			Severity:   "warning",
+			ReasonCode: firstNonEmptyRunTests(reason, "project_runner_unavailable"),
+			Detail:     "local project verification was unavailable; delivery may continue but local confidence is not high",
+		})
+	}
+	for _, cmd := range report.ExecutedCommands {
+		out = append(out, verificationConfidenceFromCommand(cmd, status)...)
+	}
+	if plan != nil && reportPassedOnlyByVerificationProbes(report) {
+		required := types.RequiredWriteBehaviorContractIDs(plan.BehaviorContracts, true)
+		covered := map[string]struct{}{}
+		changed := map[string]struct{}{}
+		baselineExpected := false
+		for _, probe := range plan.VerificationProbes {
+			for _, ref := range probe.ContractRefs {
+				ref = strings.TrimSpace(ref)
+				if ref != "" {
+					covered[ref] = struct{}{}
+				}
+			}
+			for _, ref := range probe.ChangedSymbolRefs {
+				ref = strings.TrimSpace(ref)
+				if ref != "" {
+					changed[ref] = struct{}{}
+				}
+			}
+			if probe.ExpectsBaselineFailure {
+				baselineExpected = true
+			}
+		}
+		if len(required) > 0 {
+			matched := intersectStringSets(required, covered)
+			if len(matched) == 0 {
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:     "verification_probe",
+					Category:   "probe_contract_refs",
+					Status:     "missing",
+					Severity:   "warning",
+					ReasonCode: "verification_probe_missing_required_contract_ref",
+					Detail:     "passed verification probes did not reference required behavior contracts",
+				})
+			} else {
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:       "verification_probe",
+					Category:     "probe_contract_refs",
+					Status:       "satisfied",
+					Severity:     "info",
+					ReasonCode:   "verification_probe_contract_ref_covered",
+					ContractRefs: matched,
+					Detail:       "passed verification probes referenced required behavior contracts",
+				})
+			}
+			changedRefs := sortedStringSet(changed)
+			if len(changedRefs) == 0 {
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:     "verification_probe",
+					Category:   "probe_changed_symbol",
+					Status:     "missing",
+					Severity:   "warning",
+					ReasonCode: "verification_probe_missing_changed_symbol_ref",
+					Detail:     "passed verification probes did not name changed symbols",
+				})
+			} else {
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:            "verification_probe",
+					Category:          "probe_changed_symbol",
+					Status:            "satisfied",
+					Severity:          "info",
+					ReasonCode:        "verification_probe_changed_symbol_coupled",
+					ChangedSymbolRefs: changedRefs,
+					Detail:            "passed verification probes named changed symbols",
+				})
+			}
+		}
+		if baselineExpected {
+			out = append(out, types.VerificationConfidenceRecord{
+				Source:     "verification_probe",
+				Category:   "probe_baseline",
+				Status:     "missing",
+				Severity:   "warning",
+				ReasonCode: "verification_probe_baseline_not_run",
+				Detail:     "probe expected a baseline failure but no baseline probe result is attached",
+			})
+		}
+	}
+	return mergeVerificationConfidenceRecords(nil, out)
+}
+
+func verificationConfidenceFromCommand(cmd types.ExecutedCommand, status types.VerificationStatus) []types.VerificationConfidenceRecord {
+	outcome := strings.TrimSpace(cmd.Outcome)
+	runner := strings.TrimSpace(cmd.Runner)
+	reason := strings.TrimSpace(cmd.ReasonCode)
+	var out []types.VerificationConfidenceRecord
+	if outcome == "syntax_check_fallback" && status != types.VerificationStatusFailed {
+		out = append(out, types.VerificationConfidenceRecord{
+			Source:     firstNonEmptyRunTests(strings.TrimSpace(cmd.Source), "syntax_preflight"),
+			Category:   "source_compile",
+			Status:     "satisfied",
+			Severity:   "info",
+			ReasonCode: "source_compile_ok",
+			Detail:     "plan-touched source parsed under syntax preflight",
+		})
+	}
+	if runner == "verification_probe" {
+		switch outcome {
+		case "parser_error", "runner_missing", "timeout", "oom", "cpu_limit", "probe_config_error":
+			out = append(out, types.VerificationConfidenceRecord{
+				Source:     firstNonEmptyRunTests(strings.TrimSpace(cmd.Source), "verification_probe"),
+				Category:   "probe_execution",
+				Status:     "unavailable",
+				Severity:   "warning",
+				ReasonCode: firstNonEmptyRunTests(reason, "verification_probe_unavailable"),
+				Detail:     "verification probe did not produce a behavior verdict",
+			})
+		case "expected_stdout_missing":
+			out = append(out, types.VerificationConfidenceRecord{
+				Source:     firstNonEmptyRunTests(strings.TrimSpace(cmd.Source), "verification_probe"),
+				Category:   "probe_contract",
+				Status:     "missing",
+				Severity:   "error",
+				ReasonCode: "verification_probe_expected_stdout_missing",
+				Detail:     "verification probe passed execution but missed expected stdout fragments",
+			})
+		}
+	}
+	return out
+}
+
+func reportPassedOnlyByVerificationProbes(report *types.ChangeReport) bool {
+	if report == nil || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		return false
+	}
+	probeCommand := false
+	for _, cmd := range report.ExecutedCommands {
+		runner := strings.TrimSpace(cmd.Runner)
+		outcome := strings.TrimSpace(cmd.Outcome)
+		if runner == "verification_probe" {
+			probeCommand = true
+			continue
+		}
+		if outcome == "executed" && cmd.ExitCode == 0 {
+			return false
+		}
+	}
+	if !probeCommand || len(report.TestResults) == 0 {
+		return false
+	}
+	for _, row := range report.TestResults {
+		if strings.TrimSpace(row.Suite) != "verification_probe/python" {
+			return false
+		}
+	}
+	return true
+}
+
+func mergeVerificationConfidenceRecords(existing, next []types.VerificationConfidenceRecord) []types.VerificationConfidenceRecord {
+	if len(existing) == 0 && len(next) == 0 {
+		return nil
+	}
+	out := make([]types.VerificationConfidenceRecord, 0, len(existing)+len(next))
+	seen := map[string]bool{}
+	add := func(rec types.VerificationConfidenceRecord) {
+		rec.Source = strings.TrimSpace(rec.Source)
+		rec.Category = strings.TrimSpace(rec.Category)
+		rec.Status = strings.TrimSpace(rec.Status)
+		rec.Severity = strings.TrimSpace(rec.Severity)
+		rec.ReasonCode = strings.TrimSpace(rec.ReasonCode)
+		rec.ContractRefs = dedupStrings(rec.ContractRefs)
+		rec.ChangedSymbolRefs = dedupStrings(rec.ChangedSymbolRefs)
+		rec.Detail = strings.TrimSpace(rec.Detail)
+		if rec.Category == "" && rec.ReasonCode == "" && rec.Status == "" {
+			return
+		}
+		key := strings.Join([]string{
+			rec.Source,
+			rec.Category,
+			rec.Status,
+			rec.Severity,
+			rec.ReasonCode,
+			strings.Join(rec.ContractRefs, ","),
+			strings.Join(rec.ChangedSymbolRefs, ","),
+			rec.Detail,
+		}, "\x00")
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, rec)
+	}
+	for _, rec := range existing {
+		add(rec)
+	}
+	for _, rec := range next {
+		add(rec)
+	}
+	return out
+}
+
+func intersectStringSets(a, b map[string]struct{}) []string {
+	if len(a) == 0 || len(b) == 0 {
+		return nil
+	}
+	out := make([]string, 0)
+	for k := range a {
+		if _, ok := b[k]; ok {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return dedupStrings(out)
+}
+
+func sortedStringSet(in map[string]struct{}) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for k := range in {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return dedupStrings(out)
+}
+
+func firstNonEmptyRunTests(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func renderAggregateTestSummary(repoRoot string, plans []runnerPlan, reports []*types.ChangeReport, aggregate *types.ChangeReport) string {

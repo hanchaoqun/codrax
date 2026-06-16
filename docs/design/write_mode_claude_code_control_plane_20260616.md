@@ -18,6 +18,14 @@ Primary references:
   Systems*: <https://arxiv.org/abs/2604.14228>
 - Public companion analysis repository:
   <https://github.com/VILA-Lab/Dive-into-Claude-Code>
+- Claude Code Agent SDK loop, permissions, subagents, checkpointing,
+  observability, and task-tracking docs:
+  <https://code.claude.com/docs/en/agent-sdk/agent-loop>,
+  <https://code.claude.com/docs/en/agent-sdk/permissions>,
+  <https://code.claude.com/docs/en/agent-sdk/subagents>,
+  <https://code.claude.com/docs/en/agent-sdk/file-checkpointing>,
+  <https://code.claude.com/docs/en/agent-sdk/observability>,
+  <https://code.claude.com/docs/en/agent-sdk/todo-tracking>
 - Public architecture synthesis of Claude Code tools, memory, hooks, MCP,
   sandboxing, and permissions:
   <https://www.penligent.ai/hackinglabs/inside-claude-code-the-architecture-behind-tools-memory-hooks-and-mcp/>
@@ -131,6 +139,37 @@ Codrax implication:
   completion verdicts are append-only audit data.
 - UI status cards and eval adapters should render from typed state, never from
   model prose or progress text.
+
+## Design-Space Mapping To Codrax
+
+The paper frames Claude Code as one point in a broader design space. Codrax
+should choose a nearby, but not identical, point: keep the model's local
+freedom, but make every irreversible boundary a typed harness decision. The
+following mapping is the canonical product direction for write mode.
+
+| Design question | Claude Code/public pattern | Codrax write-mode answer |
+| --- | --- | --- |
+| Where does reasoning live? | Model decides the next tool call; harness validates and executes. | Controller/planner/verifier decide with typed tools; scheduler/risk/validator/store enforce. No scheduler branch reads prose. |
+| What is the loop shape? | Evaluate, execute tool(s), observe results, repeat until no tool calls. | Observe typed state, apply one bounded slice, run focused check, append typed observation, then continue/replan/split/block/finish. |
+| How many engines? | One loop reused by CLI/SDK/IDE; surfaces only render differently. | CLI, REPL, plan-file, SWE-bench adapter, and advanced recovery commands all enter the same durable workflow engine. |
+| How much upfront planning? | Planning is lightweight guidance; the loop adapts online. | Initial plan is a rolling slice graph, not a full final answer. The controller may append/split/replan nodes as observations arrive. |
+| How are approvals reduced without losing safety? | Deny-first rules, permission modes, hooks, and scoped approvals. | Low/medium typed risk auto-runs; high risk asks once per slice fingerprint; critical denies. Approval fatigue is treated as a safety bug. |
+| What consumes context? | Context window is the scarce runtime resource; subagents and compaction reduce pressure. | Context packs store full evidence by ref and render per-consumer Top-N views. Exploration summaries must carry typed file/symbol/evidence/test refs. |
+| How is noisy work isolated? | Subagents run in separate contexts and return summary-only results. | Read-only exploration runners/localizers collect evidence outside coder context; planner/coder/verifier consume typed handoff views, not raw transcript dumps. |
+| How is state recoverable? | Append-oriented transcripts, subagent sidechains, and checkpoints support resume/fork/rewind. | `WriteWorkflowRun` is append-style durable state with slice events, attempts, approvals, diagnostics, and completion verdicts. Checkpoint/rewind maps to git worktree isolation and slice-scoped applied refs. |
+| How are tasks surfaced to users? | Task/todo streams show progress without making the user schedule each step. | REPL/CLI status cards show next-action state. `/workflow` and `/plan` are recovery/audit surfaces, not routine steering commands. |
+| How is production governance handled? | Telemetry reports tool/model/cost/failure spans. | Codrax emits typed ledger fields for eval and audit: local verdict, confidence, context coverage, exported patch coverage, approval/refusal, and completion reason. |
+
+This mapping rejects two tempting but unsafe directions:
+
+- do not turn prompts into a hidden state machine;
+- do not hard-code issue text, SWE-bench IDs, model summaries, or `<think>` logs
+  into routing.
+
+It also rejects the opposite overcorrection:
+
+- do not make the harness a rigid LangGraph-style graph that prevents the model
+  from choosing timely exploration, local probes, or smaller repair slices.
 
 ## Codrax Current Gap Reframe
 
@@ -461,6 +500,69 @@ Acceptance:
   permission or diagnostics code.
 - Worktree cleanup and no-auto-merge invariants remain intact.
 
+### Batch C9: Claude-Code-Style Harness Consolidation
+
+- Collapse routine write-mode status into one next-action card backed by
+  `WriteWorkflowNextActionView`.
+- Ensure every surface renders from the same run/batch/slice/completion fields:
+  REPL, CLI, SWE-bench adapter, report HTML, and docs examples.
+- Add regression tests that mutate model-authored reason text and prove workflow
+  routing, completion verdict, approval state, and user action requirements do
+  not change.
+
+Acceptance:
+
+- Users do not need to learn `/workflow` for safe routine Auto Pilot runs.
+- Prose/thinking/log rendering can change without changing hard workflow state.
+
+### Batch C10: Exploration Delegation And Context Budgeting
+
+- Add an explicit `ExplorationBudget` projection to controller state:
+  remaining rounds, candidate paths, known evidence refs, and unanswered typed
+  questions.
+- Let the controller launch read-only localization when typed state lacks target
+  files/symbols/test surfaces or when observation diagnostics identify a new
+  failure path outside the active slice.
+- Persist the exploration side transcript as an artifact ref; only the typed
+  handoff enters planner/verifier prompt views.
+
+Acceptance:
+
+- Symptom-first bugs trigger localization without the user writing
+  implementation hints.
+- Repeated exploration is bounded by typed budget counters, not by prompt
+  exhortation.
+
+### Batch C11: Checkpoint And Rewind Semantics
+
+- Add slice-level restore metadata to the workflow run:
+  pre-slice git diff hash, applied paths, and worktree checkpoint ref.
+- Allow verifier/controller to request a typed rewind of the active slice when
+  an apply attempt produces structural corruption or repeated no-progress
+  replan packets.
+- Keep rewind inside the isolated worktree; main repo HEAD and merge state
+  remain untouched.
+
+Acceptance:
+
+- A bad later slice can be rewound without discarding verified earlier slices.
+- Rewind decisions are typed state transitions, not narrative instructions to
+  the model.
+
+### Batch C12: Observability And Cost Governance
+
+- Add per-run counters for model turns, tool calls, apply attempts, verify
+  attempts, context-pack item counts, and approval pauses.
+- Export a compact JSONL event stream under `.codrax/plans/workflows/` for
+  external observability without introducing a new service dependency.
+- Record runaway-loop guard trips as typed events with reason codes.
+
+Acceptance:
+
+- A failed or long write run can be audited from durable JSON without replaying
+  raw logs.
+- Cost/latency regressions are visible per stage and per slice.
+
 ## Test Matrix
 
 | Area | Required tests |
@@ -478,3 +580,10 @@ Acceptance:
 | Date | Item | Status | Evidence |
 | --- | --- | --- | --- |
 | 2026-06-16 | C0 | validated locally | Public Claude Code design-space paper, companion repository, and public architecture synthesis reviewed; Codrax-specific control-plane mapping recorded here. Local validation for the companion code/doc batch: `go test ./...`, `eval/swebench/smoke_local.sh`, Python py_compile, shell syntax check, and `git diff --check`. |
+| 2026-06-16 | C1 | implemented locally | Added `ChangeReport.verification_confidence[]`, derived from typed plan contracts/probes, command outcomes, syntax preflight, and unavailable verdicts. Context packs, verify-failure handoff, planner replan prompt, and SWE-bench results telemetry now consume the same typed confidence lane. Focused tests passed for `internal/tool`, `internal/types`, and `internal/agent`. |
+| 2026-06-16 | C4 evidence carrier follow-up | implemented locally | SWE-bench smoke 19 showed replan prompts referenced prior attempt diff/surface artifacts through `read_file` after the materialization-only schema had removed repository read tools. Planner now inlines bounded previews of typed `VerifyFailureHandoff` diff/surface artifacts so failure evidence survives tool-surface narrowing. |
+| 2026-06-16 | JSON schema cognitive-load follow-up | implemented locally | SWE-bench smoke 19 showed a model placing `verification_probes[]` inside the relevant `changes[]` row. `emit_change_plan` now accepts change-local probes and merges them into the canonical plan-level probe lane before typed validation, reducing model JSON burden without adding prose routing. |
+| 2026-06-16 | SWE-bench smoke 19 | audited | `pallets__flask-4045`, `pytest-dev__pytest-9359`, and `sphinx-doc__sphinx-8273` all exported non-empty predictions and official harness dry-run consumed the predictions file. Manual audit found compatibility/correctness gaps: Flask stable `ValueError` surface, Pytest decorator-boundary logic, and Sphinx compatibility config/default behavior. These feed C10-C12 and compatibility-contract work. |
+| 2026-06-16 | duplicate-definition gate hardening | implemented locally | Targeted `pytest-dev__pytest-9359` rerun exposed a false positive where a plan modifying `_get_assertion_exprs` was blocked by existing `Source.__getitem__` typing overloads. The stutter validator now allows typed `@overload` definitions and compares pre-plan/post-plan duplicate counts so unrelated pre-existing structure does not block current-slice progress. |
+| 2026-06-16 | selected JSON carrier repair for plan tools | implemented locally | The same targeted rerun exposed `changes` arriving as a JSON-encoded string. Plan tools now apply selected structural repair for schema-known array fields (`changes`, `acceptance_tests`, `verification_probes`, `edits`) before strict decode. This reduces model JSON burden through typed JSON repair, not prompt keyword routing. |
+| 2026-06-16 | SWE-bench targeted rerun | validated | `pytest-dev__pytest-9359` rerun at `eval/results/swebench/lite-smoke-20260616-pytest9359-after-json-repair` exported a 562-byte non-empty source patch, local adapter validation accepted `empty_patch=0`, official harness command accepted the predictions path, and workflow reached verify. Local confidence remained `predicted_unverified` with typed `pytest_import_startup_error`, correctly avoiding a hard block on environment/report startup failure. |

@@ -1268,6 +1268,9 @@ def prediction_confidence_downgrade_reason(
 
     if str(verify_status or "").strip() != "passed" or not plan or not report:
         return ""
+    from_report = prediction_confidence_downgrade_reason_from_report(report)
+    if from_report:
+        return from_report
     probes = [probe for probe in plan.get("verification_probes") or [] if isinstance(probe, dict)]
     if not probes or not report_passed_by_verification_probe(report):
         return ""
@@ -1286,6 +1289,37 @@ def prediction_confidence_downgrade_reason(
     if baseline_expected:
         return "verification_probe_baseline_not_run"
     return ""
+
+
+def prediction_confidence_downgrade_reason_from_report(report: dict[str, Any] | None) -> str:
+    if not report:
+        return ""
+    for record in report.get("verification_confidence") or []:
+        if not isinstance(record, dict):
+            continue
+        status = str(record.get("status") or "").strip()
+        reason = str(record.get("reason_code") or "").strip()
+        if status != "missing" or not reason:
+            continue
+        if reason.startswith("verification_probe_"):
+            return reason
+    return ""
+
+
+def verification_confidence_reason_codes(report: dict[str, Any] | None) -> list[str]:
+    if not report:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for record in report.get("verification_confidence") or []:
+        if not isinstance(record, dict):
+            continue
+        reason = str(record.get("reason_code") or "").strip()
+        if not reason or reason in seen:
+            continue
+        seen.add(reason)
+        out.append(reason)
+    return out
 
 
 def prediction_audit_block_reason(
@@ -1496,6 +1530,7 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             result["verify_summary"] = str(report.get("failure_summary") or "")
             result["verify_no_tests_runners"] = report.get("no_tests_runners") or []
             result["verify_test_count"] = len(report.get("test_results") or [])
+            result["verify_confidence_reason_codes"] = verification_confidence_reason_codes(report)
         patch, source, dropped_test_paths, exported_paths = export_patch(repo_dir, base, plan, bool(args.include_test_patches))
         exported_test_paths = [path for path in exported_paths if is_test_patch_path(path)]
         exported_source_paths = [path for path in exported_paths if not is_test_patch_path(path)]

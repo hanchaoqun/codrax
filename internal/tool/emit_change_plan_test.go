@@ -144,6 +144,68 @@ func TestEmitChangePlan_PersistsVerificationProbesInFingerprint(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_MergesChangeLocalVerificationProbes(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a python behaviour",
+		"summary": "Modify widget.py and keep the bounded behavioural probe next to the change that it exercises.",
+		"changes": [
+			{
+				"path": "widget.py",
+				"kind": "modify",
+				"new_content": "VALUE = 42\n",
+				"rationale": "set the corrected value",
+				"verification_probes": [
+					{"id": "value_contract", "language": "python", "code": "import widget\nassert widget.VALUE == 42\n", "changed_symbol_refs": ["widget.VALUE"]}
+				]
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected Success=true, got summary: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		t.Fatal("expected ChangePlan installed on Mutable")
+	}
+	if len(plan.VerificationProbes) != 1 {
+		t.Fatalf("change-local verification probes were not merged: %+v", plan.VerificationProbes)
+	}
+	probe := plan.VerificationProbes[0]
+	if probe.ID != "value_contract" || len(probe.ChangedSymbolRefs) != 1 || probe.ChangedSymbolRefs[0] != "widget.VALUE" {
+		t.Fatalf("unexpected merged probe: %+v", probe)
+	}
+}
+
+func TestEmitChangePlan_RepairsStringWrappedChangesArray(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	changes := `[{"path":"main.py","kind":"modify","new_content":"VALUE = 1\n","rationale":"set the corrected value"}]`
+	params := json.RawMessage(`{
+		"request": "fix a python value",
+		"summary": "Modify main.py with a small deterministic value update.",
+		"changes": ` + jsonString(changes) + `
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected string-wrapped changes[] to be repaired, got summary: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.Changes) != 1 || plan.Changes[0].Path != "main.py" {
+		t.Fatalf("repaired changes[] did not install expected plan: %+v", plan)
+	}
+}
+
 func TestEmitChangePlan_PersistsBehaviorContractsAndProbeRefs(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
@@ -720,6 +782,36 @@ func TestEmitChangePlan_RejectsStructuredEditDuplicatePythonDefinitionStutter(t 
 	}
 }
 
+func TestValidatePythonDuplicateDefinitionStutter_AllowsUnrelatedEditWithPreexistingDuplicate(t *testing.T) {
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = t.TempDir()
+	path := "pkg/module.py"
+	if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	oldContent := "class Existing:\n" +
+		"    def stable(self):\n" +
+		"        return 1\n" +
+		"\n" +
+		"    def stable(self):\n" +
+		"        return 2\n" +
+		"\n" +
+		"def target():\n" +
+		"    return 'old'\n"
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(path)), []byte(oldContent), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	newContent := strings.Replace(oldContent, "return 'old'", "return 'new'", 1)
+	change := types.FileChange{
+		Path:       path,
+		Kind:       "modify",
+		NewContent: newContent,
+	}
+	if rej := validatePythonDuplicateDefinitionStutter(ctx, []types.FileChange{change}); rej != "" {
+		t.Fatalf("preexisting unrelated duplicate should not reject this change: %s", rej)
+	}
+}
+
 func TestEmitChangePlan_RejectsStructuredInsertContainingAnchorBlock(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
@@ -799,6 +891,26 @@ func TestPythonDuplicateDefinitionStutter_AllowsPropertyAccessorDefinitions(t *t
 `
 	if dup, ok := findPythonDuplicateDefinitionStutter(content); ok {
 		t.Fatalf("property accessor definitions should not be stutter rejected: %+v", dup)
+	}
+}
+
+func TestPythonDuplicateDefinitionStutter_AllowsTypingOverloads(t *testing.T) {
+	content := `from typing import Union, overload
+
+class Source:
+    @overload
+    def __getitem__(self, key: int) -> str:
+        ...
+
+    @overload
+    def __getitem__(self, key: slice) -> "Source":
+        ...
+
+    def __getitem__(self, key: Union[int, slice]) -> Union[str, "Source"]:
+        return self
+`
+	if dup, ok := findPythonDuplicateDefinitionStutter(content); ok {
+		t.Fatalf("typing overload definitions should not be stutter rejected: %+v", dup)
 	}
 }
 

@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -649,6 +651,15 @@ func TestAgentSettings_RejectsCollapsedRecoveryWindow(t *testing.T) {
 }
 
 func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
+	dir := t.TempDir()
+	diffPath := filepath.Join(dir, "plan-1.attempt-1.diff")
+	surfacePath := filepath.Join(dir, "plan-1.attempt-1.surface.json")
+	if err := os.WriteFile(diffPath, []byte("--- a/src/x.c\n+++ b/src/x.c\n@@ -1 +1 @@\n-old\n+new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(surfacePath, []byte(`{"candidates":[{"id":"make@.","has_test_signal":true}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	mu := types.NewMutableState("handoff render")
 	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
 		PlanID:      "plan-1",
@@ -666,6 +677,13 @@ func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
 			Outcome:    "parser_error",
 			WorkingDir: ".",
 		}},
+		Confidence: []types.VerificationConfidenceRecord{{
+			Category:   "probe_contract_refs",
+			Status:     "missing",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_missing_required_contract_ref",
+			Source:     "verification_probe",
+		}},
 		FailingTests: []types.TestResult{
 			{AssertionID: "TestAscii", Suite: "RandomStringUtilsTest", Passed: false, FailureDetail: "fast path must require end <= 0x7f"},
 		},
@@ -673,9 +691,9 @@ func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
 		FailureSummary:         "1 of 3 tests failed",
 		BlobRef:                "/tmp/blob/run.txt",
 		DiffArtifactRef:        "plan-1.attempt-1.diff",
-		DiffArtifactPath:       "/tmp/codrax/plans/plan-1.attempt-1.diff",
+		DiffArtifactPath:       diffPath,
 		SurfaceArtifactRef:     "plan-1.attempt-1.surface.json",
-		SurfaceArtifactPath:    "/tmp/codrax/plans/plan-1.attempt-1.surface.json",
+		SurfaceArtifactPath:    surfacePath,
 		NextSurfaceCandidateID: "make@.",
 	})
 	eval := &plannerEvaluator{}
@@ -686,13 +704,17 @@ func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
 		"plan: plan-1 attempt: 2 failure_kind: tests_failed",
 		"command: `make check` (cwd=., exit=2, runner=make)",
 		"diagnostic: category=probe_authoring severity=warning reason_code=verification_probe_name_error runner=verification_probe outcome=parser_error cwd=.",
+		"confidence: category=probe_contract_refs status=missing severity=warning reason_code=verification_probe_missing_required_contract_ref source=verification_probe",
 		"failing_test: TestAscii (suite=RandomStringUtilsTest)",
 		"build_error: src/x.c:42",
 		"full runner output: /tmp/blob/run.txt",
 		"previous attempt patch: plan-1.attempt-1.diff",
-		"read_file path: /tmp/codrax/plans/plan-1.attempt-1.diff",
+		"read_file path: " + diffPath,
+		"    --- a/src/x.c",
+		"    +new",
 		"test surface artifact: plan-1.attempt-1.surface.json",
-		"read_file path: /tmp/codrax/plans/plan-1.attempt-1.surface.json",
+		"read_file path: " + surfacePath,
+		`    {"candidates":[{"id":"make@.","has_test_signal":true}]}`,
 		"unexecuted runnable test candidate: make@.",
 	} {
 		if !strings.Contains(section, want) {

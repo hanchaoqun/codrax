@@ -84,14 +84,29 @@ type emitChangePlanParams struct {
 // package so the wire-format is independent of the internal struct
 // (which may grow new fields post-B0 without breaking old plans).
 type emitChangePlanChange struct {
-	Path       string                 `json:"path"`
-	Kind       string                 `json:"kind"`
-	NewContent string                 `json:"new_content,omitempty"`
-	Patch      string                 `json:"patch,omitempty"`
-	Edits      []types.StructuredEdit `json:"edits,omitempty"`
-	NewPath    string                 `json:"new_path,omitempty"`
-	Rationale  string                 `json:"rationale"`
-	DependsOn  []string               `json:"depends_on,omitempty"`
+	Path               string                    `json:"path"`
+	Kind               string                    `json:"kind"`
+	NewContent         string                    `json:"new_content,omitempty"`
+	Patch              string                    `json:"patch,omitempty"`
+	Edits              []types.StructuredEdit    `json:"edits,omitempty"`
+	NewPath            string                    `json:"new_path,omitempty"`
+	Rationale          string                    `json:"rationale"`
+	DependsOn          []string                  `json:"depends_on,omitempty"`
+	VerificationProbes []types.VerificationProbe `json:"verification_probes,omitempty"`
+}
+
+func changeLocalVerificationProbes(changes []emitChangePlanChange) []types.VerificationProbe {
+	if len(changes) == 0 {
+		return nil
+	}
+	var out []types.VerificationProbe
+	for _, change := range changes {
+		if len(change.VerificationProbes) == 0 {
+			continue
+		}
+		out = append(out, change.VerificationProbes...)
+	}
+	return out
 }
 
 // Name returns the tool's stable identifier. Used by the planner
@@ -172,6 +187,41 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
             "type": "array",
             "items": {"type": "string"},
             "description": "Repo-relative paths of OTHER changes in THIS plan that must apply before this one. Empty or omitted = no explicit ordering (declaration order wins). Use when a create or modify here relies on the output of another change (e.g. modify Y imports new-created X → Y depends_on [X]). Every entry MUST appear as another changes[].path; cycles are rejected."
+          },
+          "verification_probes": {
+            "type": "array",
+            "description": "Optional change-local bounded probes that exercise this file's behavior. The tool merges these into the plan-level verification_probes lane before validation so probes stay attached to typed plan state, not prose.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {"type": "string", "description": "Stable short probe identifier, e.g. version_info_boundary."},
+                "language": {"type": "string", "enum": ["python"], "description": "Probe runtime. Initial support is python only."},
+                "working_dir": {"type": "string", "description": "Repo-relative working directory. Empty or . means repo root."},
+                "code": {"type": "string", "description": "Inline probe code. It should import/use the changed code and exit non-zero on failure."},
+                "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Optional timeout. Defaults to 10 seconds; capped at 30."},
+                "expected_stdout": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Optional exact substrings that must appear in stdout for the probe to pass."
+                },
+                "contract_refs": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Optional behavior_contract ids from the task framing that this probe directly verifies."
+                },
+                "changed_symbol_refs": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Optional changed symbols/modules this probe imports or executes."
+                },
+                "expects_baseline_failure": {
+                  "type": "boolean",
+                  "description": "True when this probe is meant to fail before the patch and pass after it."
+                }
+              },
+              "required": ["language", "code"]
+            }
           }
         },
         "required": ["path", "kind", "rationale"]
@@ -260,7 +310,12 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 			Timestamp: time.Now(),
 		}, nil
 	}
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+	params = applyStructuredPayloadCompatWithSelectedStringFieldRepair(
+		t.Name(),
+		params,
+		t.Parameters(),
+		[]string{"changes", "acceptance_tests", "verification_probes"},
+	)
 
 	// Strict decode — unknown fields fail loudly so a schema drift
 	// surfaces during development, not as silent data loss. On decode
@@ -272,6 +327,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	if err := dec.Decode(&p); err != nil {
 		return failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, params, "emit_change_plan rejected: ", ". "+emitChangePlanSchemaReminder)
 	}
+	p.VerificationProbes = append(p.VerificationProbes, changeLocalVerificationProbes(p.Changes)...)
 
 	if strings.TrimSpace(p.Summary) == "" {
 		return types.ToolResult{

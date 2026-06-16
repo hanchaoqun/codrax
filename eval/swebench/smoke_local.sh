@@ -370,6 +370,33 @@ fallback_downgrade = mod.prediction_confidence_downgrade_reason(
 if fallback_downgrade != "verification_probe_missing_required_contract_ref":
     raise SystemExit(f"unexpected fallback-contract downgrade reason: {fallback_downgrade!r}")
 
+report_confidence_downgrade = mod.prediction_confidence_downgrade_reason(
+    plan=fallback_plan,
+    report={
+        "executed_commands": [{"runner": "verification_probe", "outcome": "executed"}],
+        "test_results": [{"suite": "verification_probe/python"}],
+        "verification_confidence": [
+            {
+                "category": "probe_contract_refs",
+                "status": "missing",
+                "reason_code": "verification_probe_missing_required_contract_ref",
+            }
+        ],
+    },
+    verify_status="passed",
+)
+if report_confidence_downgrade != "verification_probe_missing_required_contract_ref":
+    raise SystemExit(f"unexpected report-confidence downgrade reason: {report_confidence_downgrade!r}")
+confidence_reasons = mod.verification_confidence_reason_codes({
+    "verification_confidence": [
+        {"reason_code": "source_compile_ok"},
+        {"reason_code": "source_compile_ok"},
+        {"reason_code": "verification_probe_missing_required_contract_ref"},
+    ]
+})
+if confidence_reasons != ["source_compile_ok", "verification_probe_missing_required_contract_ref"]:
+    raise SystemExit(f"unexpected confidence reason export: {confidence_reasons!r}")
+
 strong_plan = {
     "behavior_contracts": [
         {"id": "c1", "required": True, "source": "write_analyzer"},

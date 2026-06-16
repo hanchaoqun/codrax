@@ -104,7 +104,12 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}, nil
 	}
 
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+	params = applyStructuredPayloadCompatWithSelectedStringFieldRepair(
+		t.Name(),
+		params,
+		t.Parameters(),
+		[]string{"edits"},
+	)
 
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()

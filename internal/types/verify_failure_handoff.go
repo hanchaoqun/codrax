@@ -11,6 +11,7 @@ const (
 	maxHandoffBuildErrors  = 10
 	maxHandoffCommands     = 6
 	maxHandoffDiagnostics  = 8
+	maxHandoffConfidence   = 8
 )
 
 // VerifyFailureHandoff is the typed carrier that brings a failed post-apply
@@ -42,6 +43,12 @@ type VerifyFailureHandoff struct {
 	// authoring errors or environment startup failures without forcing
 	// consumers to parse FailureSummary.
 	Diagnostics []VerificationDiagnostic `json:"diagnostics,omitempty"`
+
+	// Confidence carries bounded typed confidence records such as weak probe
+	// coverage, missing changed-symbol coupling, or unavailable local runner
+	// evidence. It is separate from pass/fail so replan can improve evidence
+	// quality without treating environment gaps as product-code failures.
+	Confidence []VerificationConfidenceRecord `json:"confidence,omitempty"`
 
 	// FailingTests are the failed assertion rows (bounded).
 	FailingTests []TestResult `json:"failing_tests,omitempty"`
@@ -110,6 +117,12 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 			break
 		}
 		h.Diagnostics = append(h.Diagnostics, diag)
+	}
+	for _, confidence := range report.VerificationConfidence {
+		if len(h.Confidence) >= maxHandoffConfidence {
+			break
+		}
+		h.Confidence = append(h.Confidence, confidence)
 	}
 	for _, tr := range report.TestResults {
 		if tr.Passed {

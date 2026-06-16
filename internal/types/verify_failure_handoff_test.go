@@ -30,6 +30,13 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 			Runner:     "verification_probe",
 			Outcome:    "parser_error",
 		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Category:   "probe_contract_refs",
+			Status:     "missing",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_missing_required_contract_ref",
+			Source:     "verification_probe",
+		}},
 		TestSurface: &TestSurface{Candidates: []TestSurfaceCandidate{
 			{ID: "make@.", Runner: "make", WorkingDir: ".", HasTestSignal: true},
 			{ID: "go@sub", Runner: "go", WorkingDir: "sub", HasTestSignal: true},
@@ -56,6 +63,9 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 	}
 	if len(h.Diagnostics) != 1 || h.Diagnostics[0].ReasonCode != "verification_probe_name_error" {
 		t.Fatalf("diagnostics must carry over: %+v", h.Diagnostics)
+	}
+	if len(h.Confidence) != 1 || h.Confidence[0].ReasonCode != "verification_probe_missing_required_contract_ref" {
+		t.Fatalf("confidence records must carry over: %+v", h.Confidence)
 	}
 	if h.DiffArtifactRef != "plan-1.attempt-2.diff" ||
 		h.SurfaceArtifactRef != "plan-1.attempt-2.surface.json" ||

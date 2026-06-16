@@ -559,6 +559,15 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteHardGate(t *testing.T) {
 		ID:          "plan-probe-pass",
 		Status:      types.PlanStatusPending,
 		TargetPaths: []string{"widget.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "widget value is 42",
+			Required: true,
+			Source:   "expected_outcome_fallback",
+		}},
 		VerificationProbes: []types.VerificationProbe{{
 			ID:       "value_contract",
 			Language: "python",
@@ -613,6 +622,9 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteHardGate(t *testing.T) {
 	}
 	if report.TestSurface == nil || report.TestSurface.SelectedID == "" {
 		t.Fatalf("probe-primary report must retain test surface, got %+v", report.TestSurface)
+	}
+	if !changeReportHasVerificationConfidence(report, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
+		t.Fatalf("probe-only pass without contract refs should carry confidence downgrade evidence: %+v", report.VerificationConfidence)
 	}
 	if !strings.Contains(result.Summary, "verification_probes verdict=PASSED") {
 		t.Fatalf("summary should explain probe-primary verdict, got %q", result.Summary)
@@ -1095,6 +1107,94 @@ func TestVerificationDiagnosticsPreserveProbeAndSuiteSignals(t *testing.T) {
 	}
 }
 
+func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan-confidence",
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "repr shows units",
+			Required: true,
+			Source:   "expected_outcome_fallback",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "probe",
+			Language: "python",
+			Code:     "assert True",
+		}},
+	}
+	report := &types.ChangeReport{
+		Passed: true,
+		TestResults: []types.TestResult{{
+			AssertionID: "probe",
+			Suite:       "verification_probe/python",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:    "verification_probe",
+			Framework: "python",
+			Source:    "pre_suite_verification_probe",
+			Outcome:   "executed",
+		}, {
+			Runner:  "python",
+			Source:  "probe_primary_suite_skipped",
+			Outcome: "suite_skipped",
+		}},
+	}
+	records := verificationConfidenceRecordsFromReport(plan, report)
+	if !verificationConfidenceContains(records, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
+		t.Fatalf("missing contract-ref confidence record absent: %+v", records)
+	}
+	if !verificationConfidenceContains(records, "probe_changed_symbol", "missing", "verification_probe_missing_changed_symbol_ref") {
+		t.Fatalf("missing changed-symbol confidence record absent: %+v", records)
+	}
+
+	plan.VerificationProbes[0].ContractRefs = []string{"outcome-1"}
+	plan.VerificationProbes[0].ChangedSymbolRefs = []string{"widget.repr"}
+	records = verificationConfidenceRecordsFromReport(plan, report)
+	if verificationConfidenceContains(records, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
+		t.Fatalf("covered contract refs should not emit missing record: %+v", records)
+	}
+	if !verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
+		t.Fatalf("covered contract refs should emit satisfied record: %+v", records)
+	}
+	if !verificationConfidenceContains(records, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") {
+		t.Fatalf("changed symbol coupling should emit satisfied record: %+v", records)
+	}
+}
+
+func TestVerificationConfidenceRecordsFromUnavailableAndSyntaxFallback(t *testing.T) {
+	unavailable := &types.ChangeReport{
+		Passed:            false,
+		FailureKind:       types.FailureKindParserError,
+		FailureReasonCode: "pytest_import_startup_error",
+	}
+	records := verificationConfidenceRecordsFromReport(nil, unavailable)
+	if !verificationConfidenceContains(records, "project_runner", "unavailable", "pytest_import_startup_error") {
+		t.Fatalf("project runner unavailable confidence missing: %+v", records)
+	}
+
+	syntax := &types.ChangeReport{
+		Passed: true,
+		TestResults: []types.TestResult{{
+			AssertionID: "py_compile",
+			Suite:       "py_compile",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:  "python",
+			Source:  "auto_detect",
+			Outcome: "syntax_check_fallback",
+		}},
+	}
+	records = verificationConfidenceRecordsFromReport(nil, syntax)
+	if !verificationConfidenceContains(records, "source_compile", "satisfied", "source_compile_ok") {
+		t.Fatalf("source compile confidence missing: %+v", records)
+	}
+}
+
 func TestRunTestsVerificationProbeProductNameErrorIsTestFailure(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
@@ -1486,6 +1586,22 @@ func changeReportHasVerificationDiagnostic(report *types.ChangeReport, category,
 		return false
 	}
 	return verificationDiagnosticsContain(report.VerificationDiagnostics, category, reasonCode)
+}
+
+func changeReportHasVerificationConfidence(report *types.ChangeReport, category, status, reasonCode string) bool {
+	if report == nil {
+		return false
+	}
+	return verificationConfidenceContains(report.VerificationConfidence, category, status, reasonCode)
+}
+
+func verificationConfidenceContains(records []types.VerificationConfidenceRecord, category, status, reasonCode string) bool {
+	for _, record := range records {
+		if record.Category == category && record.Status == status && record.ReasonCode == reasonCode {
+			return true
+		}
+	}
+	return false
 }
 
 func verificationDiagnosticsContain(diags []types.VerificationDiagnostic, category, reasonCode string) bool {

@@ -56,6 +56,28 @@ func applyStructuredPayloadCompatWithLegacyStringFieldRepair(toolName string, ra
 	return applyStructuredPayloadCompat(toolName, raw, schema)
 }
 
+func applyStructuredPayloadCompatWithSelectedStringFieldRepair(toolName string, raw json.RawMessage, schema json.RawMessage, arrayFields []string, objectFields ...string) json.RawMessage {
+	if len(arrayFields) > 0 {
+		if repaired, fields, ok := repairSelectedStringWrappedArrayFields(raw, arrayFields...); ok {
+			logging.Warning("[structured_payload_compat] tool=%s string-wrapped array field(s) repaired before schema normalization: %s",
+				toolName, strings.Join(fields, ", "))
+			raw = repaired
+		}
+	} else if repaired, fields, ok := repairStringWrappedArrayFields(raw); ok {
+		logging.Warning("[structured_payload_compat] tool=%s legacy string-wrapped array field(s) repaired before schema normalization: %s",
+			toolName, strings.Join(fields, ", "))
+		raw = repaired
+	}
+	if len(objectFields) > 0 {
+		if repaired, fields, ok := repairStringWrappedObjectFields(raw, objectFields...); ok {
+			logging.Warning("[structured_payload_compat] tool=%s string-wrapped object field(s) repaired before schema normalization: %s",
+				toolName, strings.Join(fields, ", "))
+			raw = repaired
+		}
+	}
+	return applyStructuredPayloadCompat(toolName, raw, schema)
+}
+
 func topLevelArrayLengthSummary(raw json.RawMessage) string {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil || len(obj) == 0 {

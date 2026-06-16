@@ -169,6 +169,13 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 			Runner:     "verification_probe",
 			Outcome:    "parser_error",
 		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:     "verification_probe",
+			Category:   "probe_contract_refs",
+			Status:     "missing",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_missing_required_contract_ref",
+		}},
 		RegressionAssertions: []string{"TestExisting"},
 	}
 	pack := WriteContextPackFromChangeReport(report)
@@ -182,6 +189,8 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 		{"failure_reason_code", "pytest_import_startup_error"},
 		{"verification_diagnostic", "category=probe_authoring"},
 		{"verification_diagnostic", "reason_code=verification_probe_name_error"},
+		{"verification_confidence", "category=probe_contract_refs"},
+		{"verification_confidence", "reason_code=verification_probe_missing_required_contract_ref"},
 		{"failed_test", "undefined: Foo"},
 		{"build_error", "internal/foo.go:10 Foo undefined: Foo"},
 		{"executed_command", "reason_code=pytest_import_startup_error"},

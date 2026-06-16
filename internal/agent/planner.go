@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1558,6 +1559,34 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 		}
 		fmt.Fprintf(&b, "- diagnostic: %s\n", strings.Join(parts, " "))
 	}
+	for _, confidence := range h.Confidence {
+		if strings.TrimSpace(confidence.Category) == "" && strings.TrimSpace(confidence.ReasonCode) == "" {
+			continue
+		}
+		parts := []string{}
+		if confidence.Category != "" {
+			parts = append(parts, "category="+confidence.Category)
+		}
+		if confidence.Status != "" {
+			parts = append(parts, "status="+confidence.Status)
+		}
+		if confidence.Severity != "" {
+			parts = append(parts, "severity="+confidence.Severity)
+		}
+		if confidence.ReasonCode != "" {
+			parts = append(parts, "reason_code="+confidence.ReasonCode)
+		}
+		if len(confidence.ContractRefs) > 0 {
+			parts = append(parts, "contract_refs="+strings.Join(confidence.ContractRefs, ","))
+		}
+		if len(confidence.ChangedSymbolRefs) > 0 {
+			parts = append(parts, "changed_symbol_refs="+strings.Join(confidence.ChangedSymbolRefs, ","))
+		}
+		if confidence.Source != "" {
+			parts = append(parts, "source="+confidence.Source)
+		}
+		fmt.Fprintf(&b, "- confidence: %s\n", strings.Join(parts, " "))
+	}
 	const maxRows = 10
 	shown := 0
 	for _, tr := range h.FailingTests {
@@ -1598,16 +1627,54 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 		fmt.Fprintf(&b, "- previous attempt patch: %s\n", h.DiffArtifactRef)
 		if h.DiffArtifactPath != "" {
 			fmt.Fprintf(&b, "  read_file path: %s\n", h.DiffArtifactPath)
+			if preview := readVerifyFailureArtifactPreview(h.DiffArtifactPath); preview != "" {
+				fmt.Fprintf(&b, "  preview:\n%s\n", indentPlannerHandoffPreview(preview, "    "))
+			}
 		}
 	}
 	if h.SurfaceArtifactRef != "" {
 		fmt.Fprintf(&b, "- test surface artifact: %s\n", h.SurfaceArtifactRef)
 		if h.SurfaceArtifactPath != "" {
 			fmt.Fprintf(&b, "  read_file path: %s\n", h.SurfaceArtifactPath)
+			if preview := readVerifyFailureArtifactPreview(h.SurfaceArtifactPath); preview != "" {
+				fmt.Fprintf(&b, "  preview:\n%s\n", indentPlannerHandoffPreview(preview, "    "))
+			}
 		}
 	}
 	if h.NextSurfaceCandidateID != "" {
 		fmt.Fprintf(&b, "- unexecuted runnable test candidate: %s\n", h.NextSurfaceCandidateID)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func readVerifyFailureArtifactPreview(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	const maxBytes = 4096
+	if len(data) > maxBytes {
+		return string(data[:maxBytes]) + "\n[truncated]"
+	}
+	return string(data)
+}
+
+func indentPlannerHandoffPreview(s, prefix string) string {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }

@@ -1060,3 +1060,200 @@ Red-line check:
   `verification_probes[].contract_refs`, and typed verify reports. It does not
   parse issue text, SWE-bench ids, user keywords, model summaries, rationale,
   or `<think>` logs.
+
+## 2026-06-16 C1 Observation Confidence Spine
+
+Systemic gap:
+
+- SWE-bench adapter confidence downgrade logic was useful, but it lived outside
+  Codrax's core typed verify artifact. REPL, controller, planner replan, and
+  context-pack consumers could see `passed/failed/unavailable` and diagnostics,
+  but not a first-class reason why a local pass was weak or why an unavailable
+  environment should not be treated as a code failure.
+
+Implementation:
+
+- Added `ChangeReport.verification_confidence[]`.
+- `run_tests` now derives records from typed evidence:
+  - `project_runner/unavailable` for unavailable local verification.
+  - `source_compile/satisfied` when syntax preflight proves plan-touched source
+    parses.
+  - `probe_contract_refs/missing|satisfied` for passed probe coverage of
+    required behavior contracts, including `expected_outcome_fallback`.
+  - `probe_changed_symbol/missing|satisfied` for changed-symbol coupling.
+  - `probe_baseline/missing` when a probe expects a baseline failure but no
+    baseline result exists.
+  - `probe_execution/unavailable` for probe authoring/import/runtime
+    infrastructure gaps.
+- Projected confidence records into `WriteContextPack`, `VerifyFailureHandoff`,
+  planner replan prompts, and SWE-bench `results.jsonl` via
+  `verify_confidence_reason_codes`.
+- SWE-bench adapter now prefers report-native `verification_confidence[]` for
+  local confidence downgrade, falling back to its prior plan/probe audit logic
+  when older reports lack the field.
+
+Acceptance evidence:
+
+- Focused tests passed:
+  `go test ./internal/tool -run 'VerificationConfidence|VerificationDiagnostics|VerificationProbePassSkipsProjectSuiteHardGate'`
+  `go test ./internal/types -run 'WriteContextPack|VerifyFailureHandoff'`
+  `go test ./internal/agent -run 'BuildVerifyFailureHandoffSection|Planner|Prompt'`
+- Python and shell syntax checks passed for the SWE-bench adapter scripts.
+
+Red-line check:
+
+- Confidence records are derived from typed `ChangePlan.behavior_contracts[]`,
+  `ChangePlan.verification_probes[]`, `ExecutedCommand`, `ChangeReport`
+  verdicts, and parser/runner outcomes. No hard logic reads user keywords,
+  issue text, model prose, summaries, rationale, or `<think>` logs.
+- The lane is audit/handoff evidence. It does not convert missing pytest,
+  missing dependencies, or parser startup gaps into hard code failures.
+
+## 2026-06-16 SWE-bench Smoke 19: Claude-Code Control-Plane Audit
+
+Evidence:
+
+```text
+WORKDIR=eval/results/swebench/lite-smoke-20260616-confidence-spine-current
+INSTANCE_IDS_FILE=[pallets__flask-4045, pytest-dev__pytest-9359, sphinx-doc__sphinx-8273]
+SWEBENCH_SMOKE_LIMIT=3
+MAX_STEPS=70
+CODRAX_TIMEOUT=1800
+SWEBENCH_ENV_PREPARE_TIMEOUT=900
+eval/swebench/smoke_lite.sh
+```
+
+Artifacts:
+
+- Predictions:
+  `eval/results/swebench/lite-smoke-20260616-confidence-spine-current/predictions.jsonl`
+- Results:
+  `eval/results/swebench/lite-smoke-20260616-confidence-spine-current/results.jsonl`
+- Local validator accepted 3 predictions with `empty_patch=0`.
+- Official SWE-bench harness dry-run accepted the predictions path and emitted:
+  `python -m swebench.harness.run_evaluation --dataset_name SWE-bench/SWE-bench_Lite --split test --predictions_path .../predictions.jsonl --max_workers 1 --run_id codrax-swebench-lite-smoke`.
+
+Telemetry summary:
+
+| Instance | Local verdict | Export status | Key typed signals |
+| --- | --- | --- | --- |
+| `pallets__flask-4045` | `predicted_unverified` | source patch exported, test patch stripped | `verify_status=unavailable`, `failure_kind=parser_error`, `reason_code=pytest_import_startup_error`, `env_prepare_status=partial`, `final_plan_covers_exported_source_patch=true` |
+| `pytest-dev__pytest-9359` | `predicted_failed_verify` | source patch exported | `verify_status=failed`, `failure_kind=tests_failed`, one bounded verification probe failed, workflow remained `in_progress` |
+| `sphinx-doc__sphinx-8273` | `predicted_unverified` | source patch exported, test patch stripped | `verify_status=unavailable`, `failure_kind=parser_error`, `reason_code=verification_probe_import_error`, controller normalized unsafe re-explore-after-unavailable into `finish(accept_unverified)` |
+
+Manual post-run audit:
+
+| Instance | Human audit |
+| --- | --- |
+| `pallets__flask-4045` | Patch adds `assert "." not in name`; likely insufficient for production/hidden tests because Flask should raise a stable `ValueError` and endpoint/view-function dot checks also need stable errors. |
+| `pytest-dev__pytest-9359` | Patch direction is wrong. The local verification probe caught the bug still present; post-run gold comparison confirms the expected fix adds decorator boundary lines rather than clearing decorator lists. |
+| `sphinx-doc__sphinx-8273` | Patch creates `man<section>/` directories unconditionally. It is directionally related but misses the compatibility config surface that upstream uses to avoid a breaking default. |
+
+Systemic gaps exposed:
+
+- Replan handoff contained `DiffArtifactPath` and `SurfaceArtifactPath`, but the
+  planner materialization-only tool surface removed `read_file`, so the model
+  was asked to consume artifacts through a tool it could no longer call. This
+  is a handoff/control-plane mismatch, not a prompt wording issue.
+- `emit_change_plan`'s rejection reminder said `verification_probes` are
+  supported, but a model naturally attached a probe to the relevant
+  `changes[]` row and strict decode rejected it as an unknown nested field.
+  The tool schema and the cognitive model of scoped probes were misaligned.
+- The Pytest run proved typed verification probes are useful: the probe caught
+  an incorrect patch before export, but replan still had friction consuming the
+  previous attempt's patch and surface evidence.
+- The Flask/Sphinx audits show compatibility reasoning remains weak: generated
+  patches can be directionally plausible while missing public API error
+  stability or opt-in/default compatibility boundaries.
+- Long silent SWE-bench turns make the current UX feel batch-like. Durable
+  typed events exist, but stdout/status cards need C12-style progress/cost
+  projection so users are not left guessing.
+
+Fixes landed in this batch:
+
+- `emit_change_plan` now supports change-local `verification_probes[]` and
+  merges them into the canonical plan-level probe lane before validation.
+  Hard logic still consumes typed `ChangePlan.VerificationProbes`; no model
+  prose or issue text is parsed.
+- Planner replan prompts now inline bounded previews of the prior attempt diff
+  and runnable surface artifacts from typed `VerifyFailureHandoff` paths. This
+  keeps failure evidence available even when materialization mode has removed
+  repository-reading tools.
+
+Next commercial direction:
+
+- Turn the artifact-preview fix into a fuller `PlanRepairPack` with reason
+  code, previous diff preview, surface preview, validator rejection, latest
+  probe failure, and safe carrier recommendation.
+- Add compatibility-contract extraction for public API error type/message and
+  opt-in/default config surfaces, derived from typed analysis/exploration and
+  local code evidence rather than issue keywords.
+- Add status-card progress events for long eval/customer runs: active instance,
+  active slice, current stage, latest typed event, elapsed time, and local
+  confidence state.
+
+Red-line check:
+
+- The new fixes read typed JSON/tool schemas, `changes[]` probe fields,
+  `VerifyFailureHandoff` artifact paths, and bounded file bytes from generated
+  Codrax artifacts. No routing logic reads SWE-bench IDs, issue text, user
+  keywords, model summaries, rationale, or `<think>` logs.
+
+## 2026-06-16 Targeted Pytest Rerun: Validator And JSON Repair
+
+Command shape:
+
+```bash
+WORKDIR=eval/results/swebench/lite-smoke-20260616-pytest9359-after-json-repair
+INSTANCE_ID=pytest-dev__pytest-9359
+SWEBENCH_SMOKE_LIMIT=1
+MAX_STEPS=70
+CODRAX_TIMEOUT=1800
+SWEBENCH_ENV_PREPARE_TIMEOUT=900
+eval/swebench/smoke_lite.sh
+```
+
+Artifacts:
+
+- Predictions:
+  `eval/results/swebench/lite-smoke-20260616-pytest9359-after-json-repair/predictions.jsonl`
+- Results:
+  `eval/results/swebench/lite-smoke-20260616-pytest9359-after-json-repair/results.jsonl`
+- Local validator accepted 1 prediction with `empty_patch=0`.
+- Official SWE-bench harness command accepted the predictions path.
+
+Telemetry summary:
+
+| Instance | Export status | Key typed signals |
+| --- | --- | --- |
+| `pytest-dev__pytest-9359` | `status=predicted`, `patch_bytes=562`, source patch exported | `workflow_status=complete`, `verify_status=unavailable`, `failure_kind=parser_error`, `reason_code=pytest_import_startup_error`, `verify_confidence_reason_codes=["pytest_import_startup_error"]`, `git_history_isolated=true` |
+
+Systemic fixes validated by the rerun:
+
+- The previous false positive `duplicate Python function "__getitem__"` did
+  not recur. The duplicate-definition stutter gate now allows typed Python
+  `@overload` definitions and compares pre-plan vs post-plan stutter counts so
+  unrelated pre-existing duplicates do not block a new plan.
+- The previous string-carrier failure for `changes` no longer recurred. Plan
+  tools now use selected structural JSON array repair for schema-known fields
+  such as `changes`, `acceptance_tests`, `verification_probes`, and `edits`.
+- The run reached apply and verify, generated a non-empty prediction, and the
+  SWE-bench adapter exported a harness-consumable JSONL prediction.
+
+Manual audit:
+
+- The generated patch changes `_get_assertion_exprs` from `lines.append(line)`
+  to `lines.append(line.lstrip())`. This is directionally related to removing
+  extra indentation/decorator display but remains lower-confidence than the
+  upstream-style decorator-boundary fix observed in prior gold comparison.
+- Local verify was unavailable because pytest startup failed before producing
+  the JSON report. This is correctly represented as `predicted_unverified`
+  with a typed confidence reason instead of blocking patch export.
+
+New residual gap:
+
+- Symptom localization improved, but the planner can still choose a shallow
+  text-normalization patch when the deeper invariant is a token/AST boundary.
+  This should feed the compatibility/semantic-contract work: probes and
+  context packs need to carry "negative surface must disappear without
+  mutating unrelated expression text" as a typed behavioral invariant.

@@ -464,16 +464,29 @@ func validatePythonDuplicateDefinitionStutter(ctx *types.BusContext, changes []t
 		if !ok {
 			continue
 		}
-		dup, found := findPythonDuplicateDefinitionStutter(content)
-		if !found {
+		dups := findPythonDuplicateDefinitionStutters(content)
+		if len(dups) == 0 {
 			continue
 		}
-		scope := "module"
-		if strings.TrimSpace(dup.Scope) != "" {
-			scope = dup.Scope
+		originalCounts := map[string]int{}
+		if original, ok := readOriginalPythonContent(ctx.RepoRoot, change); ok {
+			for _, dup := range findPythonDuplicateDefinitionStutters(original) {
+				originalCounts[pythonDefinitionStutterKey(dup)]++
+			}
 		}
-		return fmt.Sprintf("change %q would create duplicate Python %s %q in scope %s at lines %d and %d. This usually means a structured insert landed next to the existing definition; replace the existing definition/body instead of inserting a second one.",
-			path, dup.Kind, dup.Name, scope, dup.FirstLine, dup.SecondLine)
+		for _, dup := range dups {
+			key := pythonDefinitionStutterKey(dup)
+			if originalCounts[key] > 0 {
+				originalCounts[key]--
+				continue
+			}
+			scope := "module"
+			if strings.TrimSpace(dup.Scope) != "" {
+				scope = dup.Scope
+			}
+			return fmt.Sprintf("change %q would create duplicate Python %s %q in scope %s at lines %d and %d. This usually means a structured insert landed next to the existing definition; replace the existing definition/body instead of inserting a second one.",
+				path, dup.Kind, dup.Name, scope, dup.FirstLine, dup.SecondLine)
+		}
 	}
 	return ""
 }
@@ -501,8 +514,17 @@ func plannedPythonContent(repoRoot string, change types.FileChange) (string, boo
 }
 
 func findPythonDuplicateDefinitionStutter(content string) (pythonDefinitionStutter, bool) {
+	dups := findPythonDuplicateDefinitionStutters(content)
+	if len(dups) == 0 {
+		return pythonDefinitionStutter{}, false
+	}
+	return dups[0], true
+}
+
+func findPythonDuplicateDefinitionStutters(content string) []pythonDefinitionStutter {
 	seen := map[string]pythonDefinitionSeen{}
 	var stack []pythonScopeFrame
+	var dups []pythonDefinitionStutter
 	inTriple := ""
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
@@ -538,14 +560,15 @@ func findPythonDuplicateDefinitionStutter(content string) (pythonDefinitionStutt
 		if prev, exists := seen[key]; exists &&
 			lineNo-prev.Line <= pythonDuplicateDefinitionStutterMaxGap &&
 			!pythonDuplicateDefinitionHasInterveningControlFlow(lines, prev.Line, lineNo, indent) &&
-			!pythonDuplicateDefinitionAccessorPair(name, prev.Decorators, decorators) {
-			return pythonDefinitionStutter{
+			!pythonDuplicateDefinitionAccessorPair(name, prev.Decorators, decorators) &&
+			!pythonDuplicateDefinitionOverloadPair(prev.Decorators, decorators) {
+			dups = append(dups, pythonDefinitionStutter{
 				Kind:       kind,
 				Name:       name,
 				Scope:      scope,
 				FirstLine:  prev.Line,
 				SecondLine: lineNo,
-			}, true
+			})
 		}
 		seen[key] = pythonDefinitionSeen{Kind: kind, Line: lineNo, Indent: indent, Decorators: decorators}
 		stack = append(stack, pythonScopeFrame{
@@ -553,7 +576,37 @@ func findPythonDuplicateDefinitionStutter(content string) (pythonDefinitionStutt
 			Segment: kind + " " + name,
 		})
 	}
-	return pythonDefinitionStutter{}, false
+	return dups
+}
+
+func pythonDefinitionStutterKey(dup pythonDefinitionStutter) string {
+	return dup.Kind + "\x00" + dup.Name + "\x00" + dup.Scope
+}
+
+func readOriginalPythonContent(repoRoot string, change types.FileChange) (string, bool) {
+	root := strings.TrimSpace(repoRoot)
+	path := filepath.ToSlash(strings.TrimSpace(change.Path))
+	if root == "" || path == "" {
+		return "", false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	absPath := filepath.Join(absRoot, filepath.FromSlash(path))
+	absPath, err = filepath.Abs(absPath)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
 }
 
 func pythonDecoratorsForDefinition(lines []string, defIndex int, defIndent int) []string {
@@ -604,6 +657,21 @@ func pythonPropertyAccessorKind(name string, decorators []string) string {
 		}
 	}
 	return ""
+}
+
+func pythonDuplicateDefinitionOverloadPair(prevDecorators, currentDecorators []string) bool {
+	return pythonDecoratorsContainTypingOverload(prevDecorators) || pythonDecoratorsContainTypingOverload(currentDecorators)
+}
+
+func pythonDecoratorsContainTypingOverload(decorators []string) bool {
+	for _, raw := range decorators {
+		dec := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "@"))
+		dec = strings.TrimSpace(strings.TrimSuffix(dec, "()"))
+		if dec == "overload" || dec == "typing.overload" {
+			return true
+		}
+	}
+	return false
 }
 
 func pythonDuplicateDefinitionHasInterveningControlFlow(lines []string, firstLine, secondLine, definitionIndent int) bool {

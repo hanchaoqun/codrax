@@ -52,6 +52,7 @@ func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
 		src := string(raw)
 		if !strings.Contains(src, "applyStructuredPayloadCompat(") &&
 			!strings.Contains(src, "applyStructuredPayloadCompatWithLegacyStringFieldRepair(") &&
+			!strings.Contains(src, "applyStructuredPayloadCompatWithSelectedStringFieldRepair(") &&
 			!strings.Contains(src, "decodeStrictToolParams(") {
 			t.Fatalf("%s must route structured tool payloads through applyStructuredPayloadCompat", name)
 		}
