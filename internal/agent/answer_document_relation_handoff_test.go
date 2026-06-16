@@ -121,6 +121,66 @@ func TestRenderAnswerDocRelationSurfaceHandoffIncludesStructuredBoundaryRows(t *
 	}
 }
 
+func TestRenderAnswerDocRelationSurfaceHandoffPrioritizesStructuredGateRows(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisCall,
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "gate-1",
+			Kind:            types.EvidenceDataflowPath,
+			Source:          "internal/consumer.go",
+			LineStart:       24,
+			LineEnd:         24,
+			Subject:         "`Consumer.Build()` gates on Registry.Get(...) — registry populated by `RegisterDefaults()` binding NewWorker → `Worker.Name()` returns \"worker\"",
+			Summary:         "`Consumer.Build()` gates on Registry.Get(...) — registry populated by `RegisterDefaults()` binding NewWorker → `Worker.Name()` returns \"worker\"",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        "consumer_gate",
+		}, {
+			ID:              "reg-1",
+			Kind:            types.EvidenceRegistration,
+			Source:          "internal/registry.go",
+			LineStart:       17,
+			LineEnd:         17,
+			Subject:         "RegisterDefaults",
+			Object:          "NewWorker",
+			Summary:         "RegisterDefaults binds NewWorker.",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        "test",
+		}, {
+			ID:              "runtime-1",
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/runtime.go",
+			LineStart:       41,
+			LineEnd:         41,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "Runtime",
+			Object:          "Worker.Run",
+			Summary:         "Runtime dispatches Worker.Run after a proposal is accepted.",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        "test",
+		}},
+	}
+	got := renderAnswerDocRelationSurfaceHandoff(ctx)
+	for _, want := range []string{
+		"Role priority",
+		"role=`qualifying_gate`",
+		"role=`registration_or_binding`",
+		"role=`call_or_invocation`",
+		"global registry, tool catalog, dispatcher, or runtime row",
+		"must not replace qualifying members",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("gate-priority relation handoff missing %q:\n%s", want, got)
+		}
+	}
+	gateIdx := strings.Index(got, "role=`qualifying_gate`")
+	regIdx := strings.Index(got, "role=`registration_or_binding`")
+	if gateIdx < 0 || regIdx < 0 || gateIdx > regIdx {
+		t.Fatalf("qualifying gate row should sort before registration support row:\n%s", got)
+	}
+}
+
 func TestRequiresRelationMemberSetHandoffStillSkipsMechanismOnlyRelation(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentExplain,

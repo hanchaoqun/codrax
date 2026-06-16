@@ -4391,6 +4391,7 @@ func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {
 	b.WriteString("## Relation Role Handoff (Advisory)\n\n")
 	b.WriteString("- The rows below come only from structured exploration carriers: accepted `EvidenceItem` fields and typed relation surfaces. They do not parse raw user text or free-form investigation prose.\n")
 	b.WriteString("- Advisory boundary: these rows can help preserve relation roles during answer-writing, but they are not a system-authored final answer set. Do not invent principal members from them.\n")
+	b.WriteString("- Role priority: principal relation `member_set` facts are the answer-member carrier; principal enumeration rows / support lanes add richer notes and citations; role=`qualifying_gate` rows constrain which members qualify; role=`registration_or_binding` and role=`registry_identity_chain` rows prove population or identity; dispatcher/runtime/tool-registration/helper rows explain support flow and must not replace qualifying members.\n")
 	if len(relationRefs) > 0 {
 		b.WriteString("- A principal relation `member_set` is already present above. That required member set is the answer-member carrier; use these rows only for per-member explanation, boundaries, and citations.\n")
 	} else if types.RequiresRelationMemberSetHandoff(rm) {
@@ -4398,6 +4399,7 @@ func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {
 	} else {
 		b.WriteString("- No hard principal relation `member_set` is active for this dispatch. Keep the direct answer aligned with the user's requested relation, and separate qualifying members from dispatchers, registries, helpers, runtimes, or other supporting roles.\n")
 	}
+	b.WriteString("- If a global registry, tool catalog, dispatcher, or runtime row appears together with a qualifying gate or identity chain, treat the global row as support context. Do not infer that every broad interface implementer or every registered helper qualifies unless a principal member_set or same-member grounded row says so.\n")
 	b.WriteString("- If a row conflicts with citations, aggregate facts, source-inventory counts, or required principal members, prefer the typed/structured contract and state the boundary rather than silently dropping a user-requested side.\n\n")
 
 	for _, row := range rows {
@@ -4526,6 +4528,11 @@ func answerDocEvidenceHasStructuredRelationSurface(item types.EvidenceItem, incl
 		(strings.TrimSpace(item.Object) != "" || strings.TrimSpace(item.AnchorSymbol) != "")
 	switch item.Kind {
 	case types.EvidenceRelationship, types.EvidenceRegistration, types.EvidenceDataflowPath:
+		if item.Kind == types.EvidenceDataflowPath &&
+			answerDocStructuredRelationChainProducer(item.Producer) &&
+			(strings.TrimSpace(item.Subject) != "" || strings.TrimSpace(item.Summary) != "") {
+			return true
+		}
 		return hasEndpoint || strings.TrimSpace(item.AnchorSymbol) != ""
 	}
 	if hasEndpoint {
@@ -4567,6 +4574,12 @@ func answerDocRelationSurfaceLabel(item types.EvidenceItem) string {
 }
 
 func answerDocRelationSurfaceRole(item types.EvidenceItem) string {
+	switch item.Producer {
+	case "consumer_gate":
+		return "qualifying_gate"
+	case "bridge_literal":
+		return "registry_identity_chain"
+	}
 	switch item.Kind {
 	case types.EvidenceRegistration:
 		return "registration_or_binding"
@@ -4627,6 +4640,12 @@ func answerDocRelationSurfaceScore(item types.EvidenceItem) int {
 	if item.SalienceLockedForScoring() {
 		score += 10
 	}
+	switch item.Producer {
+	case "consumer_gate":
+		score += 18
+	case "bridge_literal":
+		score += 10
+	}
 	switch item.ContextRole {
 	case types.EvidenceContextRoleDefining:
 		score += 6
@@ -4639,6 +4658,15 @@ func answerDocRelationSurfaceScore(item types.EvidenceItem) int {
 		score += 3
 	}
 	return score
+}
+
+func answerDocStructuredRelationChainProducer(producer string) bool {
+	switch strings.TrimSpace(producer) {
+	case "consumer_gate", "bridge_literal":
+		return true
+	default:
+		return false
+	}
 }
 
 func answerDocRelationSurfaceRowKey(row answerDocRelationSurfaceRow) string {
