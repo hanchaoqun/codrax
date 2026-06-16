@@ -97,6 +97,26 @@ func TestAnalysisSkill_GoalNamesSemanticPredicatesAndConfidence(t *testing.T) {
 	}
 }
 
+func TestAnalysisSkill_RelationMemberLookupContractPinned(t *testing.T) {
+	block := semanticPredicatesBlock(t)
+	for _, want := range []string{
+		"filtering/selecting/counting members of source set X by a relationship to target Y",
+		"which member(s) of a role/category qualify",
+		"`intent=enumerate` for concrete member names",
+		"`intent=return_value` with `is_count_question=true` for a pure count",
+		"Pair concrete member-name answers with `is_category_enumeration=true`",
+		"Dispatchers, registries, helpers, runtimes, and broad interfaces are supporting roles",
+		"which role members can call capability Y",
+	} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("semantic relation-member contract missing %q:\n%s", want, block)
+		}
+	}
+	if strings.Contains(block, "propose_sub_agents") || strings.Contains(block, "SubExplorer") {
+		t.Fatalf("relation-member contract must stay generic, got:\n%s", block)
+	}
+}
+
 func TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField(t *testing.T) {
 	// Pin that the rule explicitly names every intent field —
 	// without explicit enumeration, the LLM can read the rule as

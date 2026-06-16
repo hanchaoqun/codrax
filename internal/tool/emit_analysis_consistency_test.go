@@ -170,6 +170,21 @@ func TestEmitAnalysisSchemaRequiresSemanticPredicates(t *testing.T) {
 			t.Errorf("predicates.is_diagnostic_question schema description missing %q; got: %q", want, desc)
 		}
 	}
+	relationDesc := prop.Properties["is_relational_lookup"].Description
+	for _, want := range []string{
+		"filtering/selecting/counting members of source set X",
+		"relationship to target Y",
+		"role/category members that can invoke capability Y",
+		"is_category_enumeration=true",
+		"is_count_question=true",
+	} {
+		if !strings.Contains(relationDesc, want) {
+			t.Errorf("predicates.is_relational_lookup schema description missing %q; got: %q", want, relationDesc)
+		}
+	}
+	if strings.Contains(relationDesc, "propose_sub_agents") || strings.Contains(relationDesc, "SubExplorer") {
+		t.Fatalf("relation schema description must remain generic, got: %q", relationDesc)
+	}
 }
 
 func TestEmitAnalysisSchemaRequiresDiagnosticProfile(t *testing.T) {
