@@ -2287,6 +2287,28 @@ func TestAttachPlanContextPackToWorkflowRunPersistsPriorContextCoverage(t *testi
 	}
 }
 
+func TestAttachPlanContextPackToWorkflowRunPersistsMissingPriorContext(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "run-1",
+		ActiveBatchID: "batch-1",
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-1",
+		Summary:     "repair bug",
+		TargetPaths: []string{"pkg/a.py"},
+		Changes:     []types.FileChange{{Path: "pkg/a.py", Kind: "modify"}},
+	}
+
+	got := attachPlanContextPackToWorkflowRun(run, plan)
+	if !workflowRunContextContains(&got, "plan_context_coverage", "covered=0/0") ||
+		!workflowRunContextContains(&got, "plan_context_missing_source_path", "pkg/a.py") {
+		t.Fatalf("missing prior context coverage should persist with workflow run: %+v", got.ContextPacks)
+	}
+	if !workflowRunContextContains(&got, "target_file", "pkg/a.py") {
+		t.Fatalf("change-plan context should remain present: %+v", got.ContextPacks)
+	}
+}
+
 func TestRunWriteControllerWorkflow_FinishGateRequiresTypedDisposition(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("finish after failed verify")

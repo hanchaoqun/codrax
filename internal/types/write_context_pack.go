@@ -322,10 +322,10 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 		return WriteContextPack{}
 	}
 	contextPaths := writeContextCoveragePriorPaths(prior)
-	if len(contextPaths) == 0 {
+	planPaths := writeContextCoveragePlanPaths(plan)
+	if len(contextPaths) == 0 && len(planPaths) == 0 {
 		return WriteContextPack{}
 	}
-	planPaths := writeContextCoveragePlanPaths(plan)
 	planSet := map[string]struct{}{}
 	for _, p := range planPaths {
 		planSet[p] = struct{}{}
@@ -354,11 +354,20 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 		formatWriteContextCoveragePaths(contextPaths),
 		formatWriteContextCoveragePaths(covered),
 		formatWriteContextCoveragePaths(uncovered))
+	if len(contextPaths) == 0 && len(planPaths) > 0 {
+		text += " missing_source_paths=" + formatWriteContextCoveragePaths(planPaths)
+	}
 	pack.Items = append(pack.Items, writeContextItem("plan_context_coverage", WriteContextP2, text, "plan_context",
 		WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 	for _, p := range uncovered {
 		pack.Items = append(pack.Items, writeContextItem("plan_context_uncovered_path", WriteContextP2, p, "plan_context",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+	}
+	if len(contextPaths) == 0 {
+		for _, p := range planPaths {
+			pack.Items = append(pack.Items, writeContextItem("plan_context_missing_source_path", WriteContextP2, p, "plan_context",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		}
 	}
 	return NormalizeWriteContextPack(pack)
 }
@@ -522,6 +531,12 @@ func writeContextCoveragePath(raw string) string {
 	}
 	cleaned := path.Clean(raw)
 	cleaned = strings.TrimPrefix(cleaned, "./")
+	if idx := strings.Index(cleaned, ":"); idx > 0 {
+		head := cleaned[:idx]
+		if strings.Contains(head, "/") || path.Ext(head) != "" {
+			cleaned = head
+		}
+	}
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.HasPrefix(cleaned, "/") {
 		return ""
 	}

@@ -191,6 +191,61 @@ func TestWriteContextPackFromPlanContextCoverageExcludesPlanSelfContext(t *testi
 	}
 }
 
+func TestWriteContextPackFromPlanContextCoverageReportsMissingPriorContext(t *testing.T) {
+	plan := &ChangePlan{
+		ID:          "plan-1",
+		Summary:     "repair bug",
+		TargetPaths: []string{"pkg/a.py", "pkg/tests/test_a.py"},
+		Changes: []FileChange{
+			{Path: "pkg/a.py", Kind: "modify"},
+			{Path: "pkg/b.py", Kind: "modify"},
+			{Path: "pkg/tests/test_a.py", Kind: "modify"},
+		},
+	}
+
+	pack := WriteContextPackFromPlanContextCoverage("batch-1", "repair", nil, plan)
+	view := pack.View(WriteConsumerPlanner, 10)
+	if !writeContextViewContains(view, "plan_context_coverage", "covered=0/0") ||
+		!writeContextViewContains(view, "plan_context_coverage", "missing_source_paths=[pkg/a.py,pkg/b.py]") {
+		t.Fatalf("coverage summary should report source paths when prior context is absent: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "plan_context_missing_source_path", "pkg/a.py") ||
+		!writeContextViewContains(view, "plan_context_missing_source_path", "pkg/b.py") {
+		t.Fatalf("missing source paths should be typed context items: %+v", view.Items)
+	}
+	if writeContextViewContains(view, "plan_context_missing_source_path", "pkg/tests/test_a.py") {
+		t.Fatalf("test paths should not be reported as missing source context: %+v", view.Items)
+	}
+}
+
+func TestWriteContextPackFromPlanContextCoverageNormalizesSymbolAnchorsToFiles(t *testing.T) {
+	prior := []WriteContextPack{{
+		PackID:      "exploration-handoff",
+		BatchID:     "batch-1",
+		SourceStage: "explore",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "src/_pytest/python_api.py:RaisesContext",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}},
+	}}
+	plan := &ChangePlan{
+		ID:          "plan-1",
+		Summary:     "repair bug",
+		TargetPaths: []string{"src/_pytest/python_api.py"},
+		Changes:     []FileChange{{Path: "src/_pytest/python_api.py", Kind: "modify"}},
+	}
+
+	pack := WriteContextPackFromPlanContextCoverage("batch-1", "repair", prior, plan)
+	view := pack.View(WriteConsumerPlanner, 10)
+	if !writeContextViewContains(view, "plan_context_coverage", "covered=1/1") ||
+		writeContextViewContains(view, "plan_context_uncovered_path", "src/_pytest/python_api.py") {
+		t.Fatalf("symbol-qualified context anchors should cover the changed source file: %+v", view.Items)
+	}
+}
+
 func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 	report := &ChangeReport{
 		PlanID:                "plan-1",

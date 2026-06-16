@@ -1648,3 +1648,39 @@ Red-line check:
   verification status, and executed-command/probe metadata.
 - It does not inspect issue text, repository names, SWE-bench ids, gold patches,
   model rationale, stdout prose, or `<think>` text for control.
+
+## 2026-06-17 Core Handoff: Missing Prior Context Persisted In Workflow
+
+Follow-up from the `sympy__sympy-18199` audit:
+
+- The adapter could now downgrade missing prior context, but the durable
+  write workflow itself still omitted `plan_context_coverage` when no P0/P1
+  prior context existed.
+- That meant controller/planner/verifier consumers could miss the exact typed
+  reason that a probe-only pass had weak localization evidence.
+
+Core fix:
+
+- `WriteContextPackFromPlanContextCoverage()` now emits a P2
+  `plan_context_coverage` item even when prior context is empty, as long as the
+  plan has source paths.
+- It also emits one `plan_context_missing_source_path` item per changed
+  production source path.
+- Symbol-qualified anchors such as `src/_pytest/python_api.py:RaisesContext`
+  are normalized to the file path before coverage comparison.
+- `attachPlanContextPackToWorkflowRun()` persists these items in the durable
+  workflow run alongside the `change-plan` pack, so later controller/planner/
+  verifier views can consume them without relying on the SWE-bench adapter.
+
+Verification:
+
+- `go test ./internal/types -run 'TestWriteContextPackFromPlanContextCoverage' -count=1` PASS.
+- `go test ./internal/orchestrator -run 'TestAttachPlanContextPackToWorkflowRunPersists' -count=1` PASS.
+
+Red-line check:
+
+- The core handoff signal consumes only typed context-pack items and
+  ChangePlan paths.
+- It remains soft P2 context. It does not block apply/verify and does not use
+  user text, model prose, summaries, rationale, stdout, repository names,
+  SWE-bench ids, or `<think>` text for control.
