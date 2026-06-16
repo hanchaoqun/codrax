@@ -154,6 +154,19 @@ workflow = {
                 "consumers": ["planner"],
             },
         ],
+    }, {
+        "pack_id": "change-plan",
+        "batch_id": "batch-1",
+        "source_stage": "plan",
+        "items": [
+            {
+                "priority": "p1",
+                "kind": "target_file",
+                "text": "self.py",
+                "source_stage": "plan",
+                "consumers": ["planner"],
+            }
+        ],
     }],
 }
 Path(sys.argv[1]).write_text(json.dumps(workflow, indent=2, sort_keys=True), encoding="utf-8")

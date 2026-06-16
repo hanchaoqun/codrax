@@ -132,6 +132,65 @@ func TestWriteContextPackFromExplorationHandoffPrioritizesEvidence(t *testing.T)
 	}
 }
 
+func TestWriteContextPackFromPlanContextCoverageExcludesPlanSelfContext(t *testing.T) {
+	prior := []WriteContextPack{{
+		PackID:      "exploration-handoff",
+		BatchID:     "batch-1",
+		SourceStage: "explore",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "bug.py",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}, {
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "helper.py",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}, {
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "tests/test_bug.py",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}},
+	}, {
+		PackID:      "change-plan",
+		BatchID:     "batch-1",
+		SourceStage: "plan",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "self.py",
+			SourceStage: "plan",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}},
+	}}
+	plan := &ChangePlan{
+		ID:          "plan-1",
+		Summary:     "repair bug",
+		TargetPaths: []string{"bug.py"},
+		Changes:     []FileChange{{Path: "bug.py", Kind: "modify"}},
+	}
+
+	pack := WriteContextPackFromPlanContextCoverage("batch-1", "repair", prior, plan)
+	view := pack.View(WriteConsumerPlanner, 10)
+	if !writeContextViewContains(view, "plan_context_coverage", "covered=1/2") ||
+		!writeContextViewContains(view, "plan_context_coverage", "ratio=0.5000") ||
+		!writeContextViewContains(view, "plan_context_coverage", "uncovered_paths=[helper.py]") {
+		t.Fatalf("coverage summary should be based on prior non-test context only: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "plan_context_uncovered_path", "helper.py") {
+		t.Fatalf("missing uncovered production path: %+v", view.Items)
+	}
+	if writeContextViewContains(view, "plan_context_coverage", "tests/test_bug.py") ||
+		writeContextViewContains(view, "plan_context_coverage", "self.py") {
+		t.Fatalf("coverage must exclude test paths and plan-authored self context: %+v", view.Items)
+	}
+}
+
 func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 	report := &ChangeReport{
 		PlanID:                "plan-1",

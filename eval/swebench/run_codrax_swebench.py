@@ -1125,8 +1125,14 @@ def workflow_context_paths(workflow: dict[str, Any]) -> list[str]:
     for pack in workflow.get("context_packs") or []:
         if not isinstance(pack, dict):
             continue
+        pack_stage = str(pack.get("source_stage") or "").strip()
+        pack_id = str(pack.get("pack_id") or "").strip()
+        if pack_stage == "plan" or pack_id == "change-plan":
+            continue
         for item in pack.get("items") or []:
             if not isinstance(item, dict):
+                continue
+            if str(item.get("source_stage") or "").strip() == "plan":
                 continue
             priority = str(item.get("priority") or "").strip().lower()
             kind = str(item.get("kind") or "").strip()

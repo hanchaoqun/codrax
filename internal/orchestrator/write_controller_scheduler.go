@@ -1550,6 +1550,11 @@ func attachPlanContextPackToWorkflowRun(run types.WriteWorkflowRun, plan *types.
 	if strings.TrimSpace(run.ActiveBatchID) != "" {
 		pack.BatchID = strings.TrimSpace(run.ActiveBatchID)
 	}
+	coverage := types.WriteContextPackFromPlanContextCoverage(pack.BatchID, pack.Goal, run.ContextPacks, plan)
+	if len(coverage.Items) > 0 {
+		pack.Items = append(pack.Items, coverage.Items...)
+		pack = types.NormalizeWriteContextPack(pack)
+	}
 	return upsertWorkflowRunContextPack(run, pack)
 }
 

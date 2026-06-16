@@ -160,6 +160,21 @@ Codrax implication:
   policies;
 - UI and eval adapters should render from typed state, not progress prose.
 
+## Research To Codrax Decision Matrix
+
+The following matrix translates the public research into Codrax-specific
+architecture. It is intentionally phrased as implementation decisions rather
+than prompt tips.
+
+| Research signal | Codrax design decision | Hard-gate boundary |
+| --- | --- | --- |
+| Agent loop blends gather/action/verify and repeats until done. | Replace write-mode batch thinking with an online slice loop: localize, apply one bounded slice, observe, then continue/replan/split. | Controller consumes only `WriteWorkflowDecision`, slice state, `ChangeReport`, and policy records. |
+| Production value lives around the simple loop: permission, context, persistence, recovery. | Keep prompts small; put commercial behavior into typed stores, validators, event ledgers, context packs, and approval records. | No state transition is inferred from model prose, rationale, summaries, logs, or `<think>`. |
+| Permissions use deny-first policy and mode-specific auto approval. | Low/medium deterministic writes continue automatically; high-risk slice fingerprints ask; critical paths/commands deny. | Path/content/command policy consumes normalized paths, parsers, fingerprints, and typed command classification only. |
+| Subagents preserve context and enforce tool boundaries. | Localizer/probe/verifier workers return typed artifacts with evidence refs; coder does not inherit broad exploration privileges. | Worker summaries are soft guidance until converted into `WriteContextPack`, `WriteExplorationHandoff`, `ChangePlan`, or `ChangeReport`. |
+| Long sessions need compaction, resume, checkpoints, and artifact sidechains. | `WriteWorkflowRun` is append-oriented durable state; large outputs live as artifact refs; active-slice state persists before and after edits. | Resume rebuilds trust from current policy plus persisted typed records, not old conversation text. |
+| Public best practices emphasize verification and early course correction. | Verification confidence, probe coverage, failure evidence, and prior-context coverage become explicit audit signals; unavailable local env lowers confidence without blocking patch export. | Confidence signals can trigger soft re-explore/replan decisions but do not become hidden keyword gates. |
+
 ## Current Codrax Baseline
 
 Current main already contains major foundations:
@@ -646,6 +661,10 @@ Primary files:
 - Add a typed evidence-coverage gate: if a plan edits outside evidence-backed
   localization and budget remains, downgrade confidence or request
   re-exploration.
+- Ensure coverage is computed from prior non-plan context only, so planner
+  target paths cannot self-certify evidence coverage.
+- Keep evidence coverage as an explicit soft audit/handoff signal until a
+  later policy decision promotes any portion of it to a typed controller action.
 
 Primary files:
 
@@ -788,7 +807,7 @@ Primary files:
 | 1 | complete | Added analyzer overview caution token hygiene for multiline/code-fragment/traceback-shaped candidates, with valid symbol/path retention tests. |
 | 2 | complete | Required expected/forbidden behavior contracts now default to completion targets; distinct expected_outcomes append as required fallback contracts even when explicit contracts exist; plan probes must reference every required contract; verification confidence records partial covered/missing contract refs; SWE-bench adapter records typed confidence downgrade reasons for unavailable/unverified local verification without blocking export. |
 | 3 | complete | Active slice is the scheduler execution unit with durable transitions. This pass added the missing apply-start transition: before coder/apply runs, the active slice now records `status=applying`, an `apply/started` attempt, and a `slice_apply_started` event; existing observe/advance logic carries applying -> observing -> verified/unverified/failed/blocked and advances only runnable dependency-satisfied slices. |
-| 4 | pending | Localizer worker and evidence coverage. |
+| 4 | in_progress | Localizer worker and evidence coverage. This pass added prior-context plan coverage as a persisted soft audit/handoff signal: coverage reads P0/P1 non-plan context, excludes test paths and plan-authored target paths, and is attached to the active batch's change-plan pack; SWE-bench adapter applies the same self-coverage exclusion. |
 | 5 | pending | PlanRepairPack. |
 | 6 | pending | Permission engine unification. |
 | 7 | pending | Context shaping and durable sidechains. |

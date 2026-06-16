@@ -2231,6 +2231,62 @@ func workflowProgressContains(progress []types.WriteWorkflowProgress, reasonCode
 	return false
 }
 
+func TestAttachPlanContextPackToWorkflowRunPersistsPriorContextCoverage(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "run-1",
+		ActiveBatchID: "batch-1",
+		ContextPacks: []types.WriteContextPack{{
+			PackID:      "exploration-handoff",
+			BatchID:     "batch-1",
+			SourceStage: "explore",
+			Items: []types.WriteContextItem{{
+				Priority:    types.WriteContextP1,
+				Kind:        "target_file",
+				Text:        "bug.py",
+				SourceStage: "explore",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+			}, {
+				Priority:    types.WriteContextP1,
+				Kind:        "target_file",
+				Text:        "helper.py",
+				SourceStage: "explore",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+			}},
+		}, {
+			PackID:      "change-plan",
+			BatchID:     "batch-1",
+			SourceStage: "plan",
+			Items: []types.WriteContextItem{{
+				Priority:    types.WriteContextP1,
+				Kind:        "target_file",
+				Text:        "self.py",
+				SourceStage: "plan",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+			}},
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-1",
+		Summary:     "repair bug",
+		TargetPaths: []string{"bug.py"},
+		Changes:     []types.FileChange{{Path: "bug.py", Kind: "modify"}},
+	}
+
+	got := attachPlanContextPackToWorkflowRun(run, plan)
+	if !workflowRunContextContains(&got, "plan_context_coverage", "covered=1/2") ||
+		!workflowRunContextContains(&got, "plan_context_uncovered_path", "helper.py") {
+		t.Fatalf("plan context coverage should persist with workflow run: %+v", got.ContextPacks)
+	}
+	if !workflowRunContextContains(&got, "target_file", "bug.py") {
+		t.Fatalf("change-plan context should remain present: %+v", got.ContextPacks)
+	}
+	for _, pack := range got.ContextPacks {
+		if pack.BatchID == "batch-1" && pack.SourceStage == "plan" && pack.PackID != "change-plan" {
+			t.Fatalf("plan context pack identity should remain stable, got %+v", pack)
+		}
+	}
+}
+
 func TestRunWriteControllerWorkflow_FinishGateRequiresTypedDisposition(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("finish after failed verify")

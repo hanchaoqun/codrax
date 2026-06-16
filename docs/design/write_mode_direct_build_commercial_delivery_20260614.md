@@ -4573,3 +4573,35 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
 - Verification:
   - Focused regression passed:
     `go test ./internal/orchestrator -run 'TestMarkWorkflowRunActiveSliceApplying|TestPendingAppliesForActivePlanScope|TestUpdateWorkflowRunActiveSliceObserve|TestAdvanceWorkflowAfterSuccessfulSliceObserve|TestRunWriteControllerWorkflow_NoTests|TestRunWriteControllerWorkflow_UnverifiedSuppressesFollowupExploreBatch' -count=1`.
+
+## 2026-06-17 Prior-context plan coverage and self-coverage audit
+
+- Gap observed:
+  - The workflow already persisted rich `WriteContextPack` handoff, but
+    downstream audit could count planner-authored `change-plan` target paths as
+    prior evidence. That creates a self-coverage illusion: a plan can appear to
+    cover discovered context because the plan itself declared the same path.
+  - This is a system-level handoff gap, not a single SWE-bench case issue.
+- Generalized fix:
+  - `WriteContextPackFromPlanContextCoverage` computes a typed P2 soft audit
+    pack from prior P0/P1 non-plan context only.
+  - It excludes test paths and all plan-authored packs/items, then records
+    `covered`, `uncovered`, and `ratio` as explicit typed context items.
+  - `attachPlanContextPackToWorkflowRun` appends this soft signal to the active
+    batch's stable `change-plan|batch` context pack before persisting the run.
+  - The SWE-bench adapter applies the same plan-source exclusion when exporting
+    `plan_context_*` telemetry, so external eval rows do not self-certify
+    evidence coverage.
+- Safety and prompt hygiene:
+  - This is an audit/handoff signal only. It does not block prediction export,
+    apply, verify, or official SWE-bench harness consumption.
+  - Hard routing still consumes only typed workflow state, plan/report schema,
+    risk policy, approval records, and verification verdicts. It does not read
+    user keywords, model prose, summaries, rationale, logs, or `<think>`.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/types -run 'TestWriteContextPackFromPlanContextCoverage|TestWriteContextPackFromExplorationHandoff|TestWriteContextPackFromChangeReport' -count=1`.
+  - Orchestrator regression passed:
+    `go test ./internal/orchestrator -run 'TestAttachPlanContextPackToWorkflowRunPersistsPriorContextCoverage|TestRunWriteControllerWorkflow_ExplorePlanFinish|TestRunWriteControllerWorkflow_VerifyFailureReplansWithEvidence' -count=1`.
+  - SWE-bench adapter smoke passed with an injected plan-authored self path:
+    `bash eval/swebench/smoke_local.sh`.

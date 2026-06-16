@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 )
@@ -316,6 +317,52 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 	return NormalizeWriteContextPack(pack)
 }
 
+func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []WriteContextPack, plan *ChangePlan) WriteContextPack {
+	if plan == nil {
+		return WriteContextPack{}
+	}
+	contextPaths := writeContextCoveragePriorPaths(prior)
+	if len(contextPaths) == 0 {
+		return WriteContextPack{}
+	}
+	planPaths := writeContextCoveragePlanPaths(plan)
+	planSet := map[string]struct{}{}
+	for _, p := range planPaths {
+		planSet[p] = struct{}{}
+	}
+	var covered []string
+	var uncovered []string
+	for _, p := range contextPaths {
+		if _, ok := planSet[p]; ok {
+			covered = append(covered, p)
+		} else {
+			uncovered = append(uncovered, p)
+		}
+	}
+	ratio := 0.0
+	if len(contextPaths) > 0 {
+		ratio = float64(len(covered)) / float64(len(contextPaths))
+	}
+	pack := WriteContextPack{
+		PackID:      "plan-context-coverage",
+		BatchID:     trimWriteContextText(batchID),
+		Goal:        trimWriteContextText(goal),
+		SourceStage: "plan_context",
+	}
+	text := fmt.Sprintf("covered=%d/%d ratio=%.4f context_paths=%s covered_paths=%s uncovered_paths=%s",
+		len(covered), len(contextPaths), ratio,
+		formatWriteContextCoveragePaths(contextPaths),
+		formatWriteContextCoveragePaths(covered),
+		formatWriteContextCoveragePaths(uncovered))
+	pack.Items = append(pack.Items, writeContextItem("plan_context_coverage", WriteContextP2, text, "plan_context",
+		WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+	for _, p := range uncovered {
+		pack.Items = append(pack.Items, writeContextItem("plan_context_uncovered_path", WriteContextP2, p, "plan_context",
+			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+	}
+	return NormalizeWriteContextPack(pack)
+}
+
 func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 	if report == nil {
 		return WriteContextPack{}
@@ -402,6 +449,120 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 		pack.Items[len(pack.Items)-1].ID = writeContextStableID("no_tests_runner", runner)
 	}
 	return NormalizeWriteContextPack(pack)
+}
+
+func writeContextCoveragePriorPaths(packs []WriteContextPack) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, pack := range packs {
+		pack = NormalizeWriteContextPack(pack)
+		if pack.PackID == "change-plan" || pack.SourceStage == "plan" {
+			continue
+		}
+		for _, item := range pack.Items {
+			if item.SourceStage == "plan" || (item.Priority != WriteContextP0 && item.Priority != WriteContextP1) {
+				continue
+			}
+			var p string
+			switch item.Kind {
+			case "target_file", "scope_anchor":
+				p = writeContextCoveragePath(item.Text)
+			case "evidence_ref":
+				if item.EvidenceRef != nil {
+					p = writeContextCoveragePath(item.EvidenceRef.Source)
+				}
+			default:
+				continue
+			}
+			if p == "" || writeContextCoveragePathIsTest(p) {
+				continue
+			}
+			if _, ok := seen[p]; ok {
+				continue
+			}
+			seen[p] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func writeContextCoveragePlanPaths(plan *ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(raw string) {
+		p := writeContextCoveragePath(raw)
+		if p == "" || writeContextCoveragePathIsTest(p) {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	for _, p := range plan.TargetPaths {
+		add(p)
+	}
+	for _, change := range plan.Changes {
+		add(change.Path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func writeContextCoveragePath(raw string) string {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/"))
+	if raw == "" {
+		return ""
+	}
+	cleaned := path.Clean(raw)
+	cleaned = strings.TrimPrefix(cleaned, "./")
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.HasPrefix(cleaned, "/") {
+		return ""
+	}
+	return cleaned
+}
+
+func writeContextCoveragePathIsTest(p string) bool {
+	p = strings.Trim(strings.ToLower(strings.ReplaceAll(p, "\\", "/")), "/")
+	if p == "" {
+		return false
+	}
+	parts := strings.Split(p, "/")
+	for _, part := range parts[:maxInt(0, len(parts)-1)] {
+		switch part {
+		case "test", "tests", "spec", "specs", "__tests__":
+			return true
+		}
+	}
+	name := parts[len(parts)-1]
+	return strings.HasPrefix(name, "test_") ||
+		strings.HasSuffix(name, "_test.py") ||
+		strings.HasSuffix(name, "_test.go") ||
+		strings.HasSuffix(name, ".test.js") ||
+		strings.HasSuffix(name, ".spec.js") ||
+		strings.HasSuffix(name, ".test.ts") ||
+		strings.HasSuffix(name, ".spec.ts") ||
+		strings.HasSuffix(name, "_spec.rb")
+}
+
+func formatWriteContextCoveragePaths(paths []string) string {
+	if len(paths) == 0 {
+		return "[]"
+	}
+	return "[" + strings.Join(paths, ",") + "]"
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func normalizeWriteContextItem(in WriteContextItem) WriteContextItem {
