@@ -622,6 +622,22 @@ Required direction:
   to a hard re-explore action only after repeated evidence shows low false
   positives.
 
+2026-06-17 owner-boundary audit follow-up:
+
+- Added SWE-bench adapter telemetry for Python ChangePlans whose structured
+  edits wrap an existing call result in a return-shape/type adapter
+  (`np.ravel(...)`, `np.asarray(...)`, `.to_numpy()`, etc.).
+- The signal is derived from ChangePlan edit ASTs: old expression call sites,
+  new expression adapter calls, and nested old-call identity. It does not parse
+  issue text, model rationale, plan summaries, stdout, or gold patches.
+- The adapter now exports `plan_owner_boundary_signals` and
+  `plan_owner_boundary_reason_codes`; when a probe-only local pass has no
+  stronger downgrade, `caller_return_shape_adapter` lowers local confidence.
+- Historical validation on `scikit-learn__scikit-learn-25500` flags
+  `adapter=np.ravel`, `inner_call=calibrator.predict`,
+  `path=sklearn/calibration.py`, matching the manually audited wrong-layer
+  symptom-site repair without hard-blocking official prediction export.
+
 ### G4: Tool-output and request preprocessing can inject noisy entities
 
 Recent evaluation showed analyzer pre-scan caution can treat large code or
@@ -1386,3 +1402,4 @@ Primary files:
 | Paper review addendum | complete | Re-read the public paper and official Claude Code architecture/permission/subagent/hook documentation, then added an evidence-boundary section, R11-R14 design takeaways, and Batches 11-15 for the Codrax-specific runtime kernel, internal hooks/effect ledger, shared command policy parser, context-cost accounting, and slice checkpoint/rewind/fork readiness. |
 | Verify-infra authority | complete | Fixed the typed status boundary for missing verify reports. `verifyPostHook` and controller infra-budget exhaustion now mark active plans `unverified` instead of `verify_failed` when no `ChangeReport` exists; SWE-bench adapter now classifies blocked verify-infra runs as `workflow_blocked_after_verify_infra`. Focused Go and adapter tests pass. |
 | Direct-plan write-analysis handoff | complete | Seeded durable `WriteContextPackFromWriteAnalysisIR` into every new `WriteWorkflowRun`, so micro-scope ready-to-plan workflows preserve P0/P1 write-analysis anchors and behavior contracts even when they do not trigger `explore_code`. The seed is stored on the run for backend consumption and plan-context coverage; planner/controller prompt sections continue to consume `WriteAnalysisIR` through their existing typed task framing. Focused controller test and `pytest-dev__pytest-5227` SWE-bench re-run confirm coverage becomes `1.0` with no missing source paths. |
+| Owner-boundary audit telemetry | complete | Added AST-based SWE-bench adapter audit for caller-side return-shape adapters around existing calls. Results expose `plan_owner_boundary_signals` / `plan_owner_boundary_reason_codes`, and probe-only passes can be downgraded by `caller_return_shape_adapter`. This is audit/confidence only; no runtime hard gate and no prose/keyword routing. |

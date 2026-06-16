@@ -61,6 +61,37 @@ def plan_with_probe() -> dict:
     }
 
 
+def plan_with_caller_return_adapter() -> dict:
+    return {
+        "changes": [
+            {
+                "path": "sklearn/calibration.py",
+                "kind": "patch",
+                "edits": [
+                    {
+                        "kind": "replace",
+                        "old_text": "proba[:, class_idx] = calibrator.predict(this_pred)",
+                        "content": "proba[:, class_idx] = np.ravel(calibrator.predict(this_pred))",
+                    }
+                ],
+            }
+        ],
+        "behavior_contracts": [
+            {
+                "id": "contract-1",
+                "required": True,
+            }
+        ],
+        "verification_probes": [
+            {
+                "id": "probe-1",
+                "contract_refs": ["contract-1"],
+                "changed_symbol_refs": ["sklearn.calibration._CalibratedClassifier"],
+            }
+        ],
+    }
+
+
 class PredictionConfidenceTests(unittest.TestCase):
     def test_probe_only_pass_downgrades_when_changed_source_lacks_context(self) -> None:
         reason = adapter.prediction_confidence_downgrade_reason(
@@ -115,6 +146,21 @@ class PredictionConfidenceTests(unittest.TestCase):
 
         self.assertEqual(reason, "")
 
+    def test_probe_only_pass_downgrades_for_caller_return_adapter_signal(self) -> None:
+        signals = adapter.plan_owner_boundary_signals(plan_with_caller_return_adapter())
+        reason_codes = [row["reason_code"] for row in signals]
+
+        reason = adapter.prediction_confidence_downgrade_reason(
+            plan=plan_with_caller_return_adapter(),
+            report=probe_only_report(),
+            verify_status="passed",
+            plan_source_paths=["sklearn/calibration.py"],
+            plan_context_paths=["sklearn/calibration.py"],
+            owner_boundary_reason_codes=reason_codes,
+        )
+
+        self.assertEqual(reason, "caller_return_shape_adapter")
+
 
 class ContextCoverageTests(unittest.TestCase):
     def test_symbol_qualified_context_paths_cover_file_level_change(self) -> None:
@@ -132,6 +178,30 @@ class ContextCoverageTests(unittest.TestCase):
         )
 
         self.assertEqual(missing, ["pkg/a.py", "pkg/b.py"])
+
+
+class OwnerBoundarySignalTests(unittest.TestCase):
+    def test_detects_python_caller_return_shape_adapter(self) -> None:
+        signals = adapter.plan_owner_boundary_signals(plan_with_caller_return_adapter())
+
+        self.assertEqual(
+            signals,
+            [
+                {
+                    "adapter": "np.ravel",
+                    "inner_call": "calibrator.predict",
+                    "reason_code": "caller_return_shape_adapter",
+                    "path": "sklearn/calibration.py",
+                    "edit_index": 0,
+                }
+            ],
+        )
+
+    def test_ignores_non_adapter_call_wrappers(self) -> None:
+        plan = plan_with_caller_return_adapter()
+        plan["changes"][0]["edits"][0]["content"] = "proba[:, class_idx] = validate(calibrator.predict(this_pred))"
+
+        self.assertEqual(adapter.plan_owner_boundary_signals(plan), [])
 
 
 class EmptyPatchReasonTests(unittest.TestCase):

@@ -86,6 +86,7 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `plan_context_paths`, `plan_context_covered_paths`,
 `plan_context_uncovered_paths`, `plan_context_coverage_ratio`,
 `plan_context_missing_source_paths`,
+`plan_owner_boundary_signals`, `plan_owner_boundary_reason_codes`,
 `exported_patch_paths`, `exported_patch_source_paths`,
 `exported_patch_test_paths`, `final_plan_source_paths`,
 `final_plan_test_only`, `final_plan_covers_exported_source_patch`,
@@ -123,6 +124,13 @@ behavior verdict. A probe-only passed verdict is also downgraded when the
 changed source file has no prior P0/P1 context-pack coverage; this consumes only
 typed ChangePlan paths and durable context-pack paths and is audit telemetry, not
 an apply/verify hard gate.
+The adapter also emits owner-boundary audit telemetry for Python plans whose
+structured edits wrap an existing call result in a return-shape/type adapter
+such as `np.ravel(...)`, `np.asarray(...)`, or `.to_numpy()`. That signal is
+derived from ChangePlan edit ASTs, not issue text or model prose. It lowers
+local confidence when no stronger verifier/environment downgrade already
+applies, because such patches can be symptom-site repairs that leave the callee
+or wrapper owner boundary unresolved.
 By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only

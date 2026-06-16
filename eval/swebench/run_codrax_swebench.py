@@ -53,6 +53,16 @@ PYTHON_COMPAT_CONSTRAINT_POLICIES = {
     },
 }
 SETUP_CFG_TEST_EXTRA_KEYS = {"test", "tests", "testing"}
+CALLER_RETURN_ADAPTER_NAMES = {
+    "array",
+    "asarray",
+    "flatten",
+    "ravel",
+    "reshape",
+    "squeeze",
+    "to_numpy",
+    "tolist",
+}
 
 
 @dataclass
@@ -1360,6 +1370,120 @@ def plan_source_paths_missing_prior_context(
     return sorted(out)
 
 
+def plan_owner_boundary_signals(plan: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Return typed audit hints that a plan may be fixing the caller boundary.
+
+    This is deliberately audit-only. It consumes structured ChangePlan edits and
+    Python expression ASTs. It does not read issue text, model rationale, or
+    natural-language summaries.
+    """
+
+    if not plan:
+        return []
+    out: list[dict[str, Any]] = []
+    for change in plan.get("changes") or []:
+        if not isinstance(change, dict):
+            continue
+        path = normalize_repo_rel_file_path(change.get("path"))
+        if not path.endswith(".py"):
+            continue
+        edits = change.get("edits") or []
+        for idx, edit in enumerate(edits):
+            if not isinstance(edit, dict):
+                continue
+            old_expr = python_changed_line_expr(edit.get("old_text"))
+            new_expr = python_changed_line_expr(edit.get("content"))
+            if old_expr is None or new_expr is None:
+                continue
+            signal = caller_return_adapter_signal(old_expr, new_expr)
+            if not signal:
+                continue
+            signal.update({
+                "reason_code": "caller_return_shape_adapter",
+                "path": path,
+                "edit_index": idx,
+            })
+            out.append(signal)
+    return out
+
+
+def python_changed_line_expr(raw: Any) -> ast.AST | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        module = ast.parse(text)
+    except SyntaxError:
+        return None
+    if len(module.body) != 1:
+        return None
+    stmt = module.body[0]
+    if isinstance(stmt, ast.Assign) and stmt.value is not None:
+        return stmt.value
+    if isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+        return stmt.value
+    if isinstance(stmt, ast.Return) and stmt.value is not None:
+        return stmt.value
+    if isinstance(stmt, ast.Expr):
+        return stmt.value
+    return None
+
+
+def caller_return_adapter_signal(old_expr: ast.AST, new_expr: ast.AST) -> dict[str, Any] | None:
+    old_calls = {
+        ast_identity(call): call
+        for call in ast.walk(old_expr)
+        if isinstance(call, ast.Call)
+    }
+    if not old_calls:
+        return None
+    for call in ast.walk(new_expr):
+        if not isinstance(call, ast.Call):
+            continue
+        adapter = python_call_name(call)
+        if not is_return_adapter_call(adapter):
+            continue
+        for nested in ast.walk(call):
+            if not isinstance(nested, ast.Call) or nested is call:
+                continue
+            key = ast_identity(nested)
+            if key not in old_calls:
+                continue
+            return {
+                "adapter": adapter,
+                "inner_call": python_call_name(nested),
+            }
+    return None
+
+
+def ast_identity(node: ast.AST) -> str:
+    return ast.dump(node, include_attributes=False)
+
+
+def python_call_name(call: ast.Call) -> str:
+    return python_func_name(call.func)
+
+
+def python_func_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = python_func_name(node.value)
+        if parent:
+            return parent + "." + node.attr
+        return node.attr
+    if isinstance(node, ast.Call):
+        return python_func_name(node.func)
+    return ""
+
+
+def is_return_adapter_call(name: str) -> bool:
+    if not name:
+        return False
+    tail = name.rsplit(".", 1)[-1]
+    return tail in CALLER_RETURN_ADAPTER_NAMES
+
+
 def report_verification_status(report: dict[str, Any]) -> str:
     status = str(report.get("verification_status") or "").strip()
     if status:
@@ -1458,6 +1582,7 @@ def prediction_confidence_downgrade_reason(
     verify_status: str,
     plan_source_paths: Iterable[str] | None = None,
     plan_context_paths: Iterable[str] | None = None,
+    owner_boundary_reason_codes: Iterable[str] | None = None,
 ) -> str:
     """Return a typed reason why local confidence is below high.
 
@@ -1498,6 +1623,10 @@ def prediction_confidence_downgrade_reason(
         missing_source_context = plan_source_paths_missing_prior_context(plan_source_paths, plan_context_paths)
         if missing_source_context:
             return "verification_probe_changed_source_not_context_covered"
+    for reason in owner_boundary_reason_codes or []:
+        reason = str(reason or "").strip()
+        if reason:
+            return reason
     return ""
 
 
@@ -1838,6 +1967,13 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             plan_source_paths,
             result.get("plan_context_paths") if isinstance(result.get("plan_context_paths"), list) else [],
         )
+        owner_boundary_signals = plan_owner_boundary_signals(plan)
+        result["plan_owner_boundary_signals"] = owner_boundary_signals
+        result["plan_owner_boundary_reason_codes"] = sorted({
+            str(signal.get("reason_code") or "").strip()
+            for signal in owner_boundary_signals
+            if str(signal.get("reason_code") or "").strip()
+        })
         result["patch_bytes"] = len(patch.encode("utf-8"))
         audit_block_reason = prediction_audit_block_reason(
             exported_source_paths=exported_source_paths,
@@ -1868,6 +2004,7 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             verify_status=str(result.get("verify_status") or ""),
             plan_source_paths=plan_source_paths,
             plan_context_paths=result.get("plan_context_paths") if isinstance(result.get("plan_context_paths"), list) else [],
+            owner_boundary_reason_codes=result.get("plan_owner_boundary_reason_codes") if isinstance(result.get("plan_owner_boundary_reason_codes"), list) else [],
         )
         result["prediction_confidence_downgrade_reason"] = confidence_downgrade_reason
         verdict, confidence, blocks_local_acceptance = prediction_verdict(
