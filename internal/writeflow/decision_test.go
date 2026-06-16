@@ -84,6 +84,50 @@ func TestValidateWriteWorkflowDecisionRequiresTypedPayloads(t *testing.T) {
 	}
 }
 
+func TestValidateWriteWorkflowDecisionNamesMissingBatchGoal(t *testing.T) {
+	decision := NormalizeWriteWorkflowDecision(WriteWorkflowDecision{
+		Action: ActionReplanBatch,
+		Batch: &WriteBatchPlan{
+			ID:     "batch-1",
+			Status: BatchReadyForChangePlan,
+		},
+	})
+	if decision.Batch == nil || decision.Batch.ID != "batch-1" {
+		t.Fatalf("normalization must preserve non-empty typed batch payload: %+v", decision)
+	}
+	errs := ValidateWriteWorkflowDecision(decision)
+	if !strings.Contains(strings.Join(errs, "\n"), "replan_batch requires batch.goal") {
+		t.Fatalf("missing goal should be precise, got %v", errs)
+	}
+}
+
+func TestHydrateWriteWorkflowDecisionFromRunFillsActiveBatchGoal(t *testing.T) {
+	decision := WriteWorkflowDecision{
+		Action: ActionReplanBatch,
+		Batch: &WriteBatchPlan{
+			ID:     "batch-1",
+			Status: BatchReadyForChangePlan,
+		},
+	}
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Goal:          "overall change",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair the failing behavior",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	got := HydrateWriteWorkflowDecisionFromRun(decision, run)
+	if got.Batch == nil || got.Batch.Goal != "repair the failing behavior" {
+		t.Fatalf("hydrated decision = %+v", got)
+	}
+	if errs := ValidateWriteWorkflowDecision(got); len(errs) != 0 {
+		t.Fatalf("hydrated decision should validate: %v", errs)
+	}
+}
+
 func TestValidateWriteWorkflowDecisionRejectsDeprecatedActionAliases(t *testing.T) {
 	for _, alias := range []WorkflowAction{"plan_change_batch", "apply_ready_plan", "verify"} {
 		decision := NormalizeWriteWorkflowDecision(WriteWorkflowDecision{Action: alias})

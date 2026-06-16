@@ -109,6 +109,10 @@ func TestDeriveWriteWorkflowNextActionViewCompleteDoesNotBlockCompletion(t *test
 			ID:     "batch-1",
 			Status: WriteWorkflowBatchComplete,
 			PlanID: "plan-1",
+			Completion: &WriteWorkflowCompletion{
+				Verdict:    WriteWorkflowCompletionUnverified,
+				ReasonCode: "runner_missing",
+			},
 		}},
 	})
 	if view.State != WriteWorkflowNextComplete {
@@ -119,5 +123,8 @@ func TestDeriveWriteWorkflowNextActionViewCompleteDoesNotBlockCompletion(t *test
 	}
 	if view.PrimaryAction != WriteWorkflowNextActionMerge {
 		t.Fatalf("complete primary action = %q, want merge", view.PrimaryAction)
+	}
+	if view.CompletionVerdict != WriteWorkflowCompletionUnverified || view.CompletionReasonCode != "runner_missing" {
+		t.Fatalf("completion verdict not surfaced: %+v", view)
 	}
 }

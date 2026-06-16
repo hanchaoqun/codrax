@@ -84,6 +84,66 @@ func TestApplyWorkflowDecisionToRunFinishAndBlock(t *testing.T) {
 	}
 }
 
+func TestApplyWorkflowDecisionToRunFinishCarriesTypedCompletionVerdict(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "unverified",
+				ReasonCode: "parser_error",
+			}},
+		}},
+	}
+	done, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{
+		Action:            ActionFinish,
+		FinishDisposition: FinishDispositionAcceptUnverified,
+	})
+	if err != nil {
+		t.Fatalf("finish failed: %v", err)
+	}
+	if done.Batches[0].Completion == nil || done.Batches[0].Completion.Verdict != types.WriteWorkflowCompletionUnverified {
+		t.Fatalf("batch completion verdict missing: %+v", done.Batches[0].Completion)
+	}
+	if done.Completion == nil || done.Completion.Verdict != types.WriteWorkflowCompletionUnverified {
+		t.Fatalf("run completion verdict missing: %+v", done.Completion)
+	}
+}
+
+func TestApplyWorkflowDecisionToRunFinishRejectsFailedVerifyWithoutDisposition(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "failed",
+				ReasonCode: "tests_failed",
+			}},
+		}},
+	}
+	if _, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{Action: ActionFinish}); err == nil {
+		t.Fatal("finish should reject failed verify without typed disposition")
+	}
+	done, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{
+		Action:            ActionFinish,
+		FinishDisposition: FinishDispositionAcceptUnverified,
+	})
+	if err != nil {
+		t.Fatalf("accept_unverified should permit finish: %v", err)
+	}
+	if done.Completion == nil || done.Completion.Verdict != types.WriteWorkflowCompletionAcceptedFailed {
+		t.Fatalf("accepted failed completion not recorded: %+v", done.Completion)
+	}
+}
+
 func TestApplyWorkflowDecisionToRunDoesNotInferFromReasonProse(t *testing.T) {
 	_, err := ApplyWorkflowDecisionToRun(types.WriteWorkflowRun{RunID: "wf-1"}, WriteWorkflowDecision{
 		Action: ActionExploreCode,

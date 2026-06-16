@@ -72,6 +72,42 @@ func TestEmitWriteWorkflowDecisionRejectsMissingTypedPayload(t *testing.T) {
 	}
 }
 
+func TestEmitWriteWorkflowDecisionHydratesBatchGoalFromActiveRun(t *testing.T) {
+	mut := types.NewMutableState("change request")
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Goal:          "overall goal",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair failing parser behavior",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	mut.SetWriteWorkflowRun(run)
+	bus := &types.BusContext{Mutable: mut, Mode: types.ModeApply}
+	tool := &EmitWriteWorkflowDecision{}
+
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"action": "replan_batch",
+		"reason_code": "needs_repair",
+		"batch": {"id": "batch-1", "status": "ready_for_change_plan"}
+	}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute rejected hydrated decision: %s", res.Summary)
+	}
+	var got writeflow.WriteWorkflowDecision
+	if err := json.Unmarshal(mut.WriteWorkflowDecisionJSON(), &got); err != nil {
+		t.Fatalf("stored decision must unmarshal: %v", err)
+	}
+	if got.Batch == nil || got.Batch.Goal != "repair failing parser behavior" {
+		t.Fatalf("decision batch goal not hydrated: %+v", got)
+	}
+}
+
 func TestEmitWriteWorkflowDecision_ModePlanMasksApplyVerify(t *testing.T) {
 	tl := &EmitWriteWorkflowDecision{}
 

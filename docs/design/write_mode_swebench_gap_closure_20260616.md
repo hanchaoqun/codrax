@@ -333,3 +333,201 @@ Acceptance:
   baseline-failure probe lacks a baseline run. This is audit telemetry only:
   predictions still export for the official harness, and environment/setup
   unavailability remains non-blocking.
+
+## 2026-06-16 Architecture Reframe: From Case Fixes To A Control-Plane Contract
+
+Later SWE-bench Lite smoke runs exposed enough recurring patterns that the
+remaining work should not continue as case-by-case patching. The systemic issue
+is a control-plane contract gap: controller, planner, verifier, CLI/REPL, and
+eval all need to consume the same typed state and repair artifacts, while model
+prompts remain soft guidance only.
+
+Additional evidence:
+
+```text
+WORKDIR=eval/results/swebench/lite-smoke-20260616-astropy-pylint-sympy-contract-current
+INSTANCE_IDS_FILE=[astropy__astropy-12907, pylint-dev__pylint-7228, sympy__sympy-12419]
+SWEBENCH_SMOKE_LIMIT=3
+SWEBENCH_ISOLATE_GIT_HISTORY=1
+SWEBENCH_RUN_OFFICIAL=0
+eval/swebench/smoke_lite.sh
+```
+
+Outcomes:
+
+- All three predictions exported non-empty patches and `validate_predictions.py`
+  accepted the JSONL; official harness dry-run command was emitted.
+- `astropy__astropy-12907`: plausible bounded source patch, local verify
+  `unavailable/parser_error` because the historical checkout could not import
+  `erfa`.
+- `pylint-dev__pylint-7228`: exported patch was likely semantically wrong
+  (`re.UNICODE` does not add `\p{...}` support); local verify was unavailable
+  due missing dependency, so control-plane confidence stayed unknown.
+- `sympy__sympy-12419`: exported patch referenced `fuzzy_not` without an
+  import; historical SymPy import failed under local Python before tests could
+  catch it.
+- All three durable workflow runs had `status=complete` while final plan/report
+  stayed `unverified/unavailable`. That is acceptable as a delivery outcome, but
+  not as an audit signal unless completion has a first-class typed verdict.
+- One controller decision emitted `replan_batch` with typed `batch.id/status`
+  but omitted `batch.goal`, producing a vague `requires batch` retry. The system
+  should hydrate from the active durable batch instead of forcing the model to
+  restate known typed state.
+
+### Root Cause
+
+The recurring gaps cluster into four architecture-level contracts:
+
+1. **Terminal state contract**: `status=complete` overloaded "controller
+   converged" and "locally verified". That made audit consumers and state cards
+   infer verification quality from result prose, progress ledger text, or plan
+   status combinations.
+2. **Decision repair/hydration contract**: tool JSON validation rejected small
+   omissions even when the durable run had a precise typed value. This created
+   extra model retries and unnecessary user-visible churn.
+3. **Semantic verify contract**: local environment gaps must not hard-block code
+   delivery, but confidence must degrade when probes or available checks do not
+   prove changed behavior. This requires typed contracts and source-coupled
+   evidence, not prose acceptance criteria.
+4. **Handoff/repair contract**: planner and controller need compact typed
+   repair packets and priority consumer views. Long prose hints and logs are
+   insufficient; rich evidence must persist and be selected by consumer.
+
+### Target Design
+
+```mermaid
+flowchart TD
+  R["durable WriteWorkflowRun"] --> S["single typed state model"]
+  S --> D["emit_write_workflow_decision repair/hydration"]
+  S --> UI["REPL/CLI next-action card"]
+  S --> EVAL["SWE-bench/eval audit"]
+  V["ChangeReport verification_status + failure_kind"] --> C["WriteWorkflowCompletion"]
+  C --> S
+  P["planner validator rejection"] --> RP["PlanRepairPack"]
+  RP --> P2["planner retry with bounded repair scope"]
+  CP["WriteContextPack P0-P3"] --> VIEW["consumer Top-N views"]
+  VIEW --> P2
+  VIEW --> V2["verifier"]
+  VIEW --> D
+```
+
+Hard gates continue to read only precise signals:
+
+- JSON/schema-validated tool fields and action enums.
+- Durable run/batch ids, goals, attempts, completion verdicts, plan ids.
+- ChangePlan paths, structured edits, AST/parser results, command exit status,
+  `ChangeReport.verification_status`, and typed `failure_kind`.
+- Context pack item priorities, evidence refs, and consumer tags.
+
+Hard gates must not read user intent keywords, SWE-bench ids, model rationale,
+free-form summaries, `<think>`, or natural-language logs.
+
+### Updated Delivery Tasks
+
+#### Batch 5A: Terminal Completion Verdict And Decision Hydration
+
+- Add `WriteWorkflowCompletion` to run and batch:
+  `verified | unverified | accepted_failed`.
+- Backfill completion verdicts from latest typed verify attempts when loading
+  old durable runs.
+- Record `verified` for passed post-apply verify, `unverified` for
+  runner-missing/parser-error/no-tests, and `accepted_failed` only through typed
+  `finish_disposition=accept_unverified` on a failed latest verify.
+- Surface completion verdict through `BatchAttemptState` and
+  `WriteWorkflowNextActionView`.
+- Enforce finish hard gate inside `ApplyWorkflowDecisionToRun` as well as the
+  scheduler.
+- Preserve non-empty batch payloads even when `goal` is omitted; validate as
+  `batch.goal` rather than vague `requires batch`.
+- Hydrate missing `batch.goal` from the active durable run before validation in
+  both `emit_write_workflow_decision` and scheduler dispatch.
+- Update `docs/architecture.md`, `docs/user_guide.md`, and
+  `docs/user_guide.html`.
+
+Acceptance:
+
+- A completed unverified workflow persists
+  `completion.verdict=unverified`, and CLI/REPL/eval can distinguish it from
+  `verified`.
+- `finish` after failed verify is rejected by the writeflow package unless the
+  typed disposition is present.
+- `replan_batch` with matching typed `batch.id` can reuse the durable batch
+  goal without another model round.
+- Tests:
+  `go test ./internal/types -run WriteWorkflow`,
+  `go test ./internal/writeflow`,
+  `go test ./internal/tool -run EmitWriteWorkflowDecision`,
+  `go test ./internal/orchestrator -run 'RunWriteControllerWorkflow_(RunnerMissing|ParserError|NoTests|Budget)|Unverified|Workflow'`,
+  and full `go test ./...`.
+
+Progress:
+
+- Implemented locally in this batch; pending full regression and commit/push.
+
+#### Batch 5B: Unified PlanRepairPack
+
+- Introduce a typed repair packet shared by `emit_change_plan`,
+  `emit_plan_skeleton`, `emit_plan_change`, and controller retry rendering.
+- Fields: `reason_code`, `path`, `change_index`, `current_ref`,
+  `expected_ref`, `safe_edit_kinds`, `retry_scope`, `consumer`, and
+  `evidence_ref`.
+- Emit this packet for anchor mismatch, duplicate/stutter validators,
+  full-file truncation guards, unsupported content carriers, and probe
+  confidence downgrade.
+- Planner sees one compact repair section before prose; repeated identical
+  repair packets let controller switch carrier or block.
+
+Acceptance:
+
+- Wrong-anchor and no-op replan loops converge without repeated generic
+  exploration.
+- Hard logic consumes packet fields only, never model/tool-result prose.
+
+#### Batch 5C: Semantic Verify Confidence Layer
+
+- Add typed static/runtime confidence records separate from pass/fail:
+  `source_compile_ok`, `changed_symbol_coupled`, `contract_refs_covered`,
+  `baseline_failed`, `probe_unavailable`, `project_runner_unavailable`.
+- Add Python changed-identifier/import sanity checks scoped to newly introduced
+  identifiers in changed source hunks, with conservative false-positive
+  avoidance.
+- Keep env/test unavailability non-blocking for delivery/export, but record
+  low confidence when behavior is unproved.
+
+Acceptance:
+
+- Pylint/SymPy style wrong patches are surfaced as low-confidence or failed
+  static/probe evidence when a precise structural signal exists.
+- Missing pytest/dependencies still exports predictions and leaves code
+  recoverable.
+
+#### Batch 5D: Priority Handoff Consumer Views
+
+- Persist P0-P3 context pack artifacts by ref, not only inline summaries.
+- Build consumer views:
+  controller = P0 state/risk/budget + active batch + completion verdict;
+  planner = P0 contracts + P1 localized source evidence + P2 repair packets;
+  verifier = P0 contracts + changed paths/symbols + P2 runner/probe evidence.
+- Deduplicate by path/symbol/contract/evidence ref and enforce Top-N per view.
+
+Acceptance:
+
+- Rich exploration evidence is available to later planner/verifier/controller
+  consumers even after retries or process resume.
+- Context coverage improves without stuffing raw logs into prompts.
+
+#### Batch 5E: UX Automation And Fewer Commands
+
+- REPL/CLI state card should default to "keep going" when no high-risk approval
+  or external missing fact is required.
+- `/workflow` commands remain audit/recovery, not normal operation.
+- `pending_approval`, `unverified`, and `accepted_failed` cards explain the
+  typed reason and the next automatic or explicit action.
+- Continue transparent logs, including visible `<think>` and tool calls.
+
+Acceptance:
+
+- Safe active workflows auto-resume and finish/verify/replan without requiring
+  users to learn slash-command sequences.
+- User intervention is limited to high-risk approval, explicit merge/reject, or
+  genuinely missing user-owned facts.

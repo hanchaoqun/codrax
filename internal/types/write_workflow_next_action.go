@@ -32,15 +32,17 @@ const (
 // slash-command hints, but scheduler/safety logic must continue consuming the
 // underlying workflow, plan, approval, and report artifacts directly.
 type WriteWorkflowNextActionView struct {
-	State            WriteWorkflowNextActionState `json:"state,omitempty"`
-	RequiresUser     bool                         `json:"requires_user,omitempty"`
-	RunID            string                       `json:"run_id,omitempty"`
-	BatchID          string                       `json:"batch_id,omitempty"`
-	BatchStatus      WriteWorkflowBatchStatus     `json:"batch_status,omitempty"`
-	PlanID           string                       `json:"plan_id,omitempty"`
-	PrimaryAction    WriteWorkflowNextActionID    `json:"primary_action,omitempty"`
-	SecondaryActions []WriteWorkflowNextActionID  `json:"secondary_actions,omitempty"`
-	AdvancedActions  []WriteWorkflowNextActionID  `json:"advanced_actions,omitempty"`
+	State                WriteWorkflowNextActionState   `json:"state,omitempty"`
+	RequiresUser         bool                           `json:"requires_user,omitempty"`
+	RunID                string                         `json:"run_id,omitempty"`
+	BatchID              string                         `json:"batch_id,omitempty"`
+	BatchStatus          WriteWorkflowBatchStatus       `json:"batch_status,omitempty"`
+	CompletionVerdict    WriteWorkflowCompletionVerdict `json:"completion_verdict,omitempty"`
+	CompletionReasonCode string                         `json:"completion_reason_code,omitempty"`
+	PlanID               string                         `json:"plan_id,omitempty"`
+	PrimaryAction        WriteWorkflowNextActionID      `json:"primary_action,omitempty"`
+	SecondaryActions     []WriteWorkflowNextActionID    `json:"secondary_actions,omitempty"`
+	AdvancedActions      []WriteWorkflowNextActionID    `json:"advanced_actions,omitempty"`
 }
 
 func DeriveWriteWorkflowNextActionView(run WriteWorkflowRun) WriteWorkflowNextActionView {
@@ -57,6 +59,10 @@ func DeriveWriteWorkflowNextActionView(run WriteWorkflowRun) WriteWorkflowNextAc
 	}
 	view.BatchID = strings.TrimSpace(batch.ID)
 	view.BatchStatus = batch.Status
+	if batch.Completion != nil {
+		view.CompletionVerdict = batch.Completion.Verdict
+		view.CompletionReasonCode = strings.TrimSpace(batch.Completion.ReasonCode)
+	}
 	view.PlanID = strings.TrimSpace(batch.PlanID)
 	switch batch.Status {
 	case WriteWorkflowBatchPendingApproval:

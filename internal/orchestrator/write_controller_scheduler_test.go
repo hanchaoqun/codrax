@@ -1251,6 +1251,16 @@ func TestRunWriteControllerWorkflow_RunnerMissingCompletesUnverifiedWithoutRepla
 	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
 		t.Fatalf("workflow should complete, got %+v", store.last)
 	}
+	if store.last.Batches[0].Completion == nil ||
+		store.last.Batches[0].Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		store.last.Batches[0].Completion.ReasonCode != "runner_missing" {
+		t.Fatalf("runner_missing completion verdict missing: %+v", store.last.Batches[0].Completion)
+	}
+	if store.last.Completion == nil ||
+		store.last.Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		store.last.Completion.ReasonCode != "runner_missing" {
+		t.Fatalf("runner_missing run completion verdict missing: %+v", store.last.Completion)
+	}
 	if !workflowProgressHasReason(store.last.ProgressLedger, "batch_unverified") {
 		t.Fatalf("runner_missing should complete as batch_unverified: %+v", store.last.ProgressLedger)
 	}
@@ -1312,6 +1322,16 @@ func TestRunWriteControllerWorkflow_ParserErrorCompletesUnverifiedWithoutReplan(
 	}
 	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
 		t.Fatalf("workflow should complete, got %+v", store.last)
+	}
+	if store.last.Batches[0].Completion == nil ||
+		store.last.Batches[0].Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		store.last.Batches[0].Completion.ReasonCode != "parser_error" {
+		t.Fatalf("parser_error completion verdict missing: %+v", store.last.Batches[0].Completion)
+	}
+	if store.last.Completion == nil ||
+		store.last.Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		store.last.Completion.ReasonCode != "parser_error" {
+		t.Fatalf("parser_error run completion verdict missing: %+v", store.last.Completion)
 	}
 	if !workflowProgressHasReason(store.last.ProgressLedger, "batch_unverified") {
 		t.Fatalf("parser_error should complete as batch_unverified: %+v", store.last.ProgressLedger)

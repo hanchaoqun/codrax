@@ -63,7 +63,11 @@ func (t *EmitWriteWorkflowDecision) Execute(ctx *types.BusContext, params json.R
 	if err := dec.Decode(&decision); err != nil {
 		return failStrictDecodeWithError(t.Name(), now, err, nil, params)
 	}
-	decision = writeflow.NormalizeWriteWorkflowDecision(decision)
+	if run := ctx.Mutable.WriteWorkflowRun(); run != nil {
+		decision = writeflow.HydrateWriteWorkflowDecisionFromRun(decision, *run)
+	} else {
+		decision = writeflow.NormalizeWriteWorkflowDecision(decision)
+	}
 	if errs := writeflow.ValidateWriteWorkflowDecision(decision); len(errs) > 0 {
 		return errResult(t.Name(), "emit_write_workflow_decision rejected: "+strings.Join(errs, "; ")), nil
 	}

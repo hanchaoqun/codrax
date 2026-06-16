@@ -39,6 +39,9 @@ type BatchAttemptState struct {
 	PlanID   string `json:"plan_id,omitempty"`
 	ReportID string `json:"report_id,omitempty"`
 
+	CompletionVerdict    types.WriteWorkflowCompletionVerdict `json:"completion_verdict,omitempty"`
+	CompletionReasonCode string                               `json:"completion_reason_code,omitempty"`
+
 	// LatestVerifyStatus / LatestVerifyArtifactRef / LatestVerifySurfaceRef
 	// expose the newest verify attempt's typed status ("passed", "failed",
 	// "unverified", ...), its artifact ref (the persisted attempt diff for
@@ -74,6 +77,10 @@ func DeriveBatchAttemptState(batch types.WriteWorkflowBatch) BatchAttemptState {
 	st := BatchAttemptState{
 		Phase:  BatchAttemptPhase(batch.Status),
 		PlanID: strings.TrimSpace(batch.PlanID),
+	}
+	if batch.Completion != nil {
+		st.CompletionVerdict = batch.Completion.Verdict
+		st.CompletionReasonCode = strings.TrimSpace(batch.Completion.ReasonCode)
 	}
 	for _, a := range batch.Attempts {
 		if a.Kind == "verify" && a.Status == "failed" {

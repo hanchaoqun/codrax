@@ -67,7 +67,7 @@ func NormalizeWriteWorkflowDecision(decision WriteWorkflowDecision) WriteWorkflo
 	decision.Workflow = NormalizeWorkflowPlan(decision.Workflow)
 	if decision.Batch != nil {
 		batch := NormalizeBatchPlan(*decision.Batch)
-		if batch.Goal == "" {
+		if batchPlanIsEmpty(batch) {
 			decision.Batch = nil
 		} else {
 			decision.Batch = &batch
@@ -86,6 +86,56 @@ func NormalizeWriteWorkflowDecision(decision WriteWorkflowDecision) WriteWorkflo
 	decision.SafetyNotes = dedupTrimWorkflowStrings(decision.SafetyNotes)
 	decision.FinishDisposition = strings.TrimSpace(decision.FinishDisposition)
 	return decision
+}
+
+func batchPlanIsEmpty(batch WriteBatchPlan) bool {
+	return batch.ID == "" &&
+		batch.Goal == "" &&
+		batch.Purpose == "" &&
+		batch.Status == BatchPending &&
+		batch.WhyThisBatch == "" &&
+		!batch.NeedsCodeExploration &&
+		len(batch.ExploreTargets) == 0 &&
+		len(batch.ExpectedChangeKinds) == 0 &&
+		len(batch.ExpectedPaths) == 0 &&
+		len(batch.SuccessCriteria) == 0 &&
+		len(batch.DependsOn) == 0
+}
+
+// HydrateWriteWorkflowDecisionFromRun fills small typed omissions from the
+// durable workflow envelope. It reads only run/batch fields, never prose: when
+// the controller emits a batch object with an ID/status but omits goal, the
+// active run's matching batch goal is the canonical source of that value.
+func HydrateWriteWorkflowDecisionFromRun(decision WriteWorkflowDecision, run types.WriteWorkflowRun) WriteWorkflowDecision {
+	decision = NormalizeWriteWorkflowDecision(decision)
+	if decision.Batch == nil || strings.TrimSpace(decision.Batch.Goal) != "" {
+		return decision
+	}
+	run = types.NormalizeWriteWorkflowRun(run)
+	goal := workflowRunBatchGoal(run, decision.Batch.ID)
+	if goal == "" && strings.TrimSpace(decision.Batch.ID) == "" {
+		goal = workflowRunBatchGoal(run, run.ActiveBatchID)
+	}
+	if goal == "" && (strings.TrimSpace(decision.Batch.ID) == "" || strings.TrimSpace(decision.Batch.ID) == strings.TrimSpace(run.ActiveBatchID)) {
+		goal = strings.TrimSpace(run.Goal)
+	}
+	if goal != "" {
+		decision.Batch.Goal = goal
+	}
+	return NormalizeWriteWorkflowDecision(decision)
+}
+
+func workflowRunBatchGoal(run types.WriteWorkflowRun, batchID string) string {
+	batchID = strings.TrimSpace(batchID)
+	if batchID == "" {
+		return ""
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == batchID {
+			return strings.TrimSpace(batch.Goal)
+		}
+	}
+	return ""
 }
 
 func normalizeMissingUserFacts(in []MissingUserFact) []MissingUserFact {
@@ -150,6 +200,8 @@ func ValidateWriteWorkflowDecision(decision WriteWorkflowDecision) []string {
 	case ActionPlanBatch, ActionAppendBatch, ActionSplitBatch, ActionReplanBatch:
 		if decision.Batch == nil {
 			errs = append(errs, fmt.Sprintf("%s requires batch", decision.Action))
+		} else if strings.TrimSpace(decision.Batch.Goal) == "" {
+			errs = append(errs, fmt.Sprintf("%s requires batch.goal", decision.Action))
 		}
 	case ActionApplyPlan, ActionVerifyBatch, ActionFinish:
 	case ActionAskUser:

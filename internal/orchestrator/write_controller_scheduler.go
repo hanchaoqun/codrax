@@ -379,6 +379,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				outcome.Kind == writeflow.VerifyOutcomeParserError ||
 				outcome.Kind == writeflow.VerifyOutcomeNoTests {
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
+				updateWorkflowRunBatchCompletion(&run, run.ActiveBatchID, types.WriteWorkflowCompletionUnverified, outcome.ReasonCode, "verify_attempt")
 				appendControllerProgress(&run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
 				o.busCtx.TaskState.LastError = ""
 				o.busCtx.Mutable.ResetVerifyFailureHandoff()
@@ -411,14 +412,17 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 			updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
 			if outcome.Kind == writeflow.VerifyOutcomeNoTests {
+				updateWorkflowRunBatchCompletion(&run, run.ActiveBatchID, types.WriteWorkflowCompletionUnverified, outcome.ReasonCode, "verify_attempt")
 				appendControllerProgress(&run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
 			} else {
+				updateWorkflowRunBatchCompletion(&run, run.ActiveBatchID, types.WriteWorkflowCompletionVerified, outcome.ReasonCode, "verify_attempt")
 				appendControllerProgress(&run, run.ActiveBatchID, "batch_verified", "")
 			}
 			o.busCtx.Mutable.ResetVerifyFailureHandoff()
 			o.persistWriteWorkflowRun(&run)
 		case writeflow.ActionFinish:
 			run.Status = types.WriteWorkflowRunComplete
+			writeflow.MarkWorkflowRunCompletionFromBatches(&run)
 			o.busCtx.Mutable.ResetVerifyFailureHandoff()
 			o.persistWriteWorkflowRun(&run)
 			if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
@@ -697,7 +701,11 @@ func (o *Orchestrator) dispatchWriteControllerDecision() (writeflow.WriteWorkflo
 	if err := json.Unmarshal(raw, &decision); err != nil {
 		return writeflow.WriteWorkflowDecision{}, fmt.Errorf("write controller decision parse failed: %w", err)
 	}
-	decision = writeflow.NormalizeWriteWorkflowDecision(decision)
+	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+		decision = writeflow.HydrateWriteWorkflowDecisionFromRun(decision, *run)
+	} else {
+		decision = writeflow.NormalizeWriteWorkflowDecision(decision)
+	}
 	if errs := writeflow.ValidateWriteWorkflowDecision(decision); len(errs) > 0 {
 		return writeflow.WriteWorkflowDecision{}, fmt.Errorf("write controller decision rejected: %s", strings.Join(errs, "; "))
 	}
@@ -1528,6 +1536,9 @@ func updateWorkflowRunBatchStatus(run *types.WriteWorkflowRun, batchID string, s
 	for i := range run.Batches {
 		if run.Batches[i].ID == batchID {
 			run.Batches[i].Status = status
+			if status != types.WriteWorkflowBatchComplete {
+				run.Batches[i].Completion = nil
+			}
 			if run.Batches[i].CreatedAt.IsZero() {
 				run.Batches[i].CreatedAt = time.Now()
 			}
@@ -1540,6 +1551,34 @@ func updateWorkflowRunBatchStatus(run *types.WriteWorkflowRun, batchID string, s
 		Status:    status,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
+	})
+}
+
+func updateWorkflowRunBatchCompletion(run *types.WriteWorkflowRun, batchID string, verdict types.WriteWorkflowCompletionVerdict, reasonCode, source string) {
+	if run == nil || strings.TrimSpace(batchID) == "" || verdict == "" {
+		return
+	}
+	completion := &types.WriteWorkflowCompletion{
+		Verdict:    verdict,
+		ReasonCode: strings.TrimSpace(reasonCode),
+		Source:     strings.TrimSpace(source),
+		At:         time.Now(),
+	}
+	for i := range run.Batches {
+		if run.Batches[i].ID == batchID {
+			run.Batches[i].Completion = completion
+			if run.Batches[i].CreatedAt.IsZero() {
+				run.Batches[i].CreatedAt = time.Now()
+			}
+			run.Batches[i].UpdatedAt = time.Now()
+			return
+		}
+	}
+	run.Batches = append(run.Batches, types.WriteWorkflowBatch{
+		ID:         batchID,
+		Completion: completion,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
 	})
 }
 
@@ -2760,12 +2799,15 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 		updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
 		switch outcome.Kind {
 		case writeflow.VerifyOutcomeNoTests, writeflow.VerifyOutcomeRunnerMissing, writeflow.VerifyOutcomeParserError:
+			updateWorkflowRunBatchCompletion(run, run.ActiveBatchID, types.WriteWorkflowCompletionUnverified, outcome.ReasonCode, "verify_attempt")
 			appendControllerProgress(run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
 		default:
+			updateWorkflowRunBatchCompletion(run, run.ActiveBatchID, types.WriteWorkflowCompletionVerified, outcome.ReasonCode, "verify_attempt")
 			appendControllerProgress(run, run.ActiveBatchID, "batch_verified", "")
 		}
 		o.busCtx.Mutable.ResetVerifyFailureHandoff()
 		run.Status = types.WriteWorkflowRunComplete
+		writeflow.MarkWorkflowRunCompletionFromBatches(run)
 		o.persistWriteWorkflowRun(run)
 		if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
 			result := "write workflow complete"

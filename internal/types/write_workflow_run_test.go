@@ -106,6 +106,60 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 	}
 }
 
+func TestNormalizeWriteWorkflowRunBackfillsCompletionVerdicts(t *testing.T) {
+	finished := time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC)
+	got := NormalizeWriteWorkflowRun(WriteWorkflowRun{
+		RunID:         "wf-unverified",
+		Status:        WriteWorkflowRunComplete,
+		ActiveBatchID: "batch-1",
+		Batches: []WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: WriteWorkflowBatchComplete,
+			Attempts: []WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "unverified",
+				ReasonCode: "parser_error",
+				FinishedAt: finished,
+			}},
+		}},
+	})
+	if got.Batches[0].Completion == nil ||
+		got.Batches[0].Completion.Verdict != WriteWorkflowCompletionUnverified ||
+		got.Batches[0].Completion.ReasonCode != "parser_error" {
+		t.Fatalf("batch completion not backfilled: %+v", got.Batches[0].Completion)
+	}
+	if got.Completion == nil ||
+		got.Completion.Verdict != WriteWorkflowCompletionUnverified ||
+		got.Completion.ReasonCode != "parser_error" {
+		t.Fatalf("run completion not backfilled: %+v", got.Completion)
+	}
+}
+
+func TestNormalizeWriteWorkflowRunClearsNonTerminalCompletion(t *testing.T) {
+	got := NormalizeWriteWorkflowRun(WriteWorkflowRun{
+		RunID:  "wf-in-progress",
+		Status: WriteWorkflowRunInProgress,
+		Completion: &WriteWorkflowCompletion{
+			Verdict:    WriteWorkflowCompletionVerified,
+			ReasonCode: "stale",
+		},
+		Batches: []WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: WriteWorkflowBatchReadyToPlan,
+			Completion: &WriteWorkflowCompletion{
+				Verdict:    WriteWorkflowCompletionUnverified,
+				ReasonCode: "stale",
+			},
+		}},
+	})
+	if got.Completion != nil {
+		t.Fatalf("non-terminal run completion should be cleared: %+v", got.Completion)
+	}
+	if got.Batches[0].Completion != nil {
+		t.Fatalf("non-terminal batch completion should be cleared: %+v", got.Batches[0].Completion)
+	}
+}
+
 func TestWriteWorkflowRunToFileRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wf-1.json")
 	run := &WriteWorkflowRun{

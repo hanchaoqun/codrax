@@ -9,17 +9,18 @@ import (
 // introduces the schema so priority context packs have a durable home; Batch 4
 // adds the store and controller that write this object.
 type WriteWorkflowRun struct {
-	RunID          string                  `json:"run_id"`
-	Goal           string                  `json:"goal,omitempty"`
-	Status         WriteWorkflowRunStatus  `json:"status,omitempty"`
-	ActiveBatchID  string                  `json:"active_batch_id,omitempty"`
-	CreatedAt      time.Time               `json:"created_at,omitempty"`
-	UpdatedAt      time.Time               `json:"updated_at,omitempty"`
-	Batches        []WriteWorkflowBatch    `json:"batches,omitempty"`
-	Edges          []WriteWorkflowEdge     `json:"edges,omitempty"`
-	ContextPacks   []WriteContextPack      `json:"context_packs,omitempty"`
-	Budget         WriteWorkflowBudget     `json:"budget,omitempty"`
-	ProgressLedger []WriteWorkflowProgress `json:"progress_ledger,omitempty"`
+	RunID          string                   `json:"run_id"`
+	Goal           string                   `json:"goal,omitempty"`
+	Status         WriteWorkflowRunStatus   `json:"status,omitempty"`
+	Completion     *WriteWorkflowCompletion `json:"completion,omitempty"`
+	ActiveBatchID  string                   `json:"active_batch_id,omitempty"`
+	CreatedAt      time.Time                `json:"created_at,omitempty"`
+	UpdatedAt      time.Time                `json:"updated_at,omitempty"`
+	Batches        []WriteWorkflowBatch     `json:"batches,omitempty"`
+	Edges          []WriteWorkflowEdge      `json:"edges,omitempty"`
+	ContextPacks   []WriteContextPack       `json:"context_packs,omitempty"`
+	Budget         WriteWorkflowBudget      `json:"budget,omitempty"`
+	ProgressLedger []WriteWorkflowProgress  `json:"progress_ledger,omitempty"`
 }
 
 type WriteWorkflowRunStatus string
@@ -44,6 +45,27 @@ const (
 	WriteWorkflowBatchBlocked          WriteWorkflowBatchStatus = "blocked"
 )
 
+type WriteWorkflowCompletionVerdict string
+
+const (
+	WriteWorkflowCompletionVerified       WriteWorkflowCompletionVerdict = "verified"
+	WriteWorkflowCompletionUnverified     WriteWorkflowCompletionVerdict = "unverified"
+	WriteWorkflowCompletionAcceptedFailed WriteWorkflowCompletionVerdict = "accepted_failed"
+)
+
+// WriteWorkflowCompletion is the typed terminal verdict for a completed run or
+// batch. Status="complete" means the controller has converged; Completion says
+// whether that convergence was locally verified, unverified because the
+// environment/test surface was unavailable, or explicitly accepted despite a
+// failed verification. Consumers must read this field instead of inferring from
+// prose or progress-ledger text.
+type WriteWorkflowCompletion struct {
+	Verdict    WriteWorkflowCompletionVerdict `json:"verdict,omitempty"`
+	ReasonCode string                         `json:"reason_code,omitempty"`
+	Source     string                         `json:"source,omitempty"`
+	At         time.Time                      `json:"at,omitempty"`
+}
+
 type WriteWorkflowEdgeKind string
 
 const (
@@ -61,6 +83,7 @@ type WriteWorkflowBatch struct {
 	ID             string                   `json:"id"`
 	Goal           string                   `json:"goal,omitempty"`
 	Status         WriteWorkflowBatchStatus `json:"status,omitempty"`
+	Completion     *WriteWorkflowCompletion `json:"completion,omitempty"`
 	DependsOn      []string                 `json:"depends_on,omitempty"`
 	PlanID         string                   `json:"plan_id,omitempty"`
 	PlanRef        string                   `json:"plan_ref,omitempty"`
@@ -115,7 +138,14 @@ func NormalizeWriteWorkflowRun(in WriteWorkflowRun) WriteWorkflowRun {
 	in.Goal = trimWriteWorkflowRunText(in.Goal)
 	in.ActiveBatchID = trimWriteWorkflowRunText(in.ActiveBatchID)
 	in.Status = normalizeWriteWorkflowRunStatus(in.Status)
+	in.Completion = normalizeWriteWorkflowCompletionPtr(in.Completion)
+	if in.Status != WriteWorkflowRunComplete {
+		in.Completion = nil
+	}
 	in.Batches = normalizeWriteWorkflowBatches(in.Batches)
+	if in.Status == WriteWorkflowRunComplete && in.Completion == nil {
+		in.Completion = inferWriteWorkflowRunCompletionFromBatches(in.Batches)
+	}
 	in.Edges = normalizeWriteWorkflowEdges(in.Edges)
 	in.ContextPacks = normalizeWriteWorkflowContextPacks(in.ContextPacks)
 	in.ProgressLedger = normalizeWriteWorkflowProgress(in.ProgressLedger)
@@ -158,6 +188,36 @@ func normalizeWriteWorkflowBatchStatus(in WriteWorkflowBatchStatus) WriteWorkflo
 	}
 }
 
+func normalizeWriteWorkflowCompletionPtr(in *WriteWorkflowCompletion) *WriteWorkflowCompletion {
+	if in == nil {
+		return nil
+	}
+	out := normalizeWriteWorkflowCompletion(*in)
+	if out.Verdict == "" && out.ReasonCode == "" && out.Source == "" && out.At.IsZero() {
+		return nil
+	}
+	return &out
+}
+
+func normalizeWriteWorkflowCompletion(in WriteWorkflowCompletion) WriteWorkflowCompletion {
+	in.Verdict = normalizeWriteWorkflowCompletionVerdict(in.Verdict)
+	in.ReasonCode = trimWriteWorkflowRunText(in.ReasonCode)
+	in.Source = trimWriteWorkflowRunText(in.Source)
+	if in.Verdict == "" && in.ReasonCode == "" && in.Source == "" && in.At.IsZero() {
+		return WriteWorkflowCompletion{}
+	}
+	return in
+}
+
+func normalizeWriteWorkflowCompletionVerdict(in WriteWorkflowCompletionVerdict) WriteWorkflowCompletionVerdict {
+	switch in {
+	case WriteWorkflowCompletionVerified, WriteWorkflowCompletionUnverified, WriteWorkflowCompletionAcceptedFailed:
+		return in
+	default:
+		return ""
+	}
+}
+
 func normalizeWriteWorkflowEdgeKind(in WriteWorkflowEdgeKind) WriteWorkflowEdgeKind {
 	switch in {
 	case WriteWorkflowEdgeSeed, WriteWorkflowEdgeExplore, WriteWorkflowEdgePlan, WriteWorkflowEdgeApply,
@@ -183,11 +243,91 @@ func normalizeWriteWorkflowBatches(in []WriteWorkflowBatch) []WriteWorkflowBatch
 		batch.VerifyRef = trimWriteWorkflowRunText(batch.VerifyRef)
 		batch.ApprovalRef = trimWriteWorkflowRunText(batch.ApprovalRef)
 		batch.Status = normalizeWriteWorkflowBatchStatus(batch.Status)
+		batch.Completion = normalizeWriteWorkflowCompletionPtr(batch.Completion)
+		if batch.Status != WriteWorkflowBatchComplete {
+			batch.Completion = nil
+		}
+		if batch.Status == WriteWorkflowBatchComplete && batch.Completion == nil {
+			batch.Completion = inferWriteWorkflowCompletionFromAttempts(batch.Attempts)
+		}
 		batch.ContextPackIDs = dedupTrimWriteWorkflowRunStrings(batch.ContextPackIDs)
 		batch.Attempts = normalizeWriteWorkflowAttempts(batch.Attempts)
 		out = append(out, batch)
 	}
 	return out
+}
+
+func inferWriteWorkflowCompletionFromAttempts(attempts []WriteWorkflowAttempt) *WriteWorkflowCompletion {
+	for i := len(attempts) - 1; i >= 0; i-- {
+		attempt := attempts[i]
+		if trimWriteWorkflowRunText(attempt.Kind) != "verify" {
+			continue
+		}
+		reason := trimWriteWorkflowRunText(attempt.ReasonCode)
+		if reason == "" {
+			reason = trimWriteWorkflowRunText(attempt.Status)
+		}
+		out := WriteWorkflowCompletion{
+			ReasonCode: reason,
+			Source:     "attempts_backfill",
+			At:         attempt.FinishedAt,
+		}
+		switch trimWriteWorkflowRunText(attempt.Status) {
+		case "passed":
+			out.Verdict = WriteWorkflowCompletionVerified
+		case "unverified":
+			out.Verdict = WriteWorkflowCompletionUnverified
+		case "failed":
+			out.Verdict = WriteWorkflowCompletionAcceptedFailed
+		default:
+			return nil
+		}
+		return &out
+	}
+	return nil
+}
+
+func inferWriteWorkflowRunCompletionFromBatches(batches []WriteWorkflowBatch) *WriteWorkflowCompletion {
+	sawComplete := false
+	out := WriteWorkflowCompletion{
+		Verdict:    WriteWorkflowCompletionVerified,
+		ReasonCode: "all_batches_verified",
+		Source:     "batch_completion_backfill",
+	}
+	for _, batch := range batches {
+		if batch.Status != WriteWorkflowBatchComplete {
+			continue
+		}
+		sawComplete = true
+		if batch.Completion == nil {
+			out.Verdict = WriteWorkflowCompletionUnverified
+			out.ReasonCode = "missing_terminal_verify_verdict"
+			continue
+		}
+		switch batch.Completion.Verdict {
+		case WriteWorkflowCompletionAcceptedFailed:
+			return &WriteWorkflowCompletion{
+				Verdict:    WriteWorkflowCompletionAcceptedFailed,
+				ReasonCode: batch.Completion.ReasonCode,
+				Source:     "batch_completion_backfill",
+				At:         batch.Completion.At,
+			}
+		case WriteWorkflowCompletionUnverified:
+			if out.Verdict != WriteWorkflowCompletionAcceptedFailed {
+				out.Verdict = WriteWorkflowCompletionUnverified
+				out.ReasonCode = batch.Completion.ReasonCode
+				out.At = batch.Completion.At
+			}
+		case WriteWorkflowCompletionVerified:
+			if out.At.IsZero() {
+				out.At = batch.Completion.At
+			}
+		}
+	}
+	if !sawComplete {
+		return nil
+	}
+	return &out
 }
 
 func normalizeWriteWorkflowAttempts(in []WriteWorkflowAttempt) []WriteWorkflowAttempt {
