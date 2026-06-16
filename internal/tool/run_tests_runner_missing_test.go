@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -263,6 +264,109 @@ func TestPythonInterpreter_PrefersStandalonePytestOverPython3(t *testing.T) {
 	}
 	if asModule {
 		t.Errorf("standalone pytest must be invoked bare (asModule=false); got asModule=true")
+	}
+}
+
+func TestBuildPlainPytestFallbackCommands_BarePytestAddsModuleFallback(t *testing.T) {
+	dir := t.TempDir()
+	pytestBin := filepath.Join(dir, "pytest")
+	if err := os.WriteFile(pytestBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write pytest: %v", err)
+	}
+	python3Bin := filepath.Join(dir, "python3")
+	if err := os.WriteFile(python3Bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write python3: %v", err)
+	}
+	t.Setenv("PATH", dir)
+
+	repo := t.TempDir()
+	plan := runnerPlan{Runner: "python", Framework: pythonFrameworkPytest, Root: repo}
+	got := buildPlainPytestFallbackCommandsForPlan(plan, "", "")
+	want := []string{
+		"PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -v",
+		"PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest -v",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("fallback commands = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("fallback command[%d] = %q, want %q (all=%#v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestBuildPlainPytestFallbackCommands_VenvDoesNotAddBareFallback(t *testing.T) {
+	dir := t.TempDir()
+	pytestBin := filepath.Join(dir, "pytest")
+	if err := os.WriteFile(pytestBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write pytest: %v", err)
+	}
+	python3Bin := filepath.Join(dir, "python3")
+	if err := os.WriteFile(python3Bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write python3: %v", err)
+	}
+	t.Setenv("PATH", dir)
+
+	repo := t.TempDir()
+	venvPython := filepath.Join(repo, ".venv", "bin", "python")
+	if err := os.MkdirAll(filepath.Dir(venvPython), 0o755); err != nil {
+		t.Fatalf("mkdir venv: %v", err)
+	}
+	if err := os.WriteFile(venvPython, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write venv python: %v", err)
+	}
+	plan := runnerPlan{Runner: "python", Framework: pythonFrameworkPytest, Root: repo}
+	got := buildPlainPytestFallbackCommandsForPlan(plan, "", "")
+	if len(got) != 1 {
+		t.Fatalf("fallback commands = %#v, want exactly one venv module command", got)
+	}
+	want := "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 " + filepath.ToSlash(venvPython) + " -m pytest -v"
+	if got[0] != want {
+		t.Fatalf("fallback command = %q, want %q", got[0], want)
+	}
+}
+
+func TestRunPytestTextFallback_UsesModuleFallbackAfterBadConsoleScript(t *testing.T) {
+	dir := t.TempDir()
+	pytestBin := filepath.Join(dir, "pytest")
+	if err := os.WriteFile(pytestBin, []byte("#!/bin/sh\necho 'Traceback: stale pytest console script'\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write pytest: %v", err)
+	}
+	python3Bin := filepath.Join(dir, "python3")
+	python3Script := `#!/bin/sh
+if [ "$1" = "-m" ] && [ "$2" = "pytest" ]; then
+  echo "============================= test session starts ============================="
+  echo "collected 1 item"
+  echo ""
+  echo "test_sample.py::test_ok PASSED"
+  echo ""
+  echo "============================== 1 passed in 0.01s =============================="
+  exit 0
+fi
+echo "unexpected python invocation: $@"
+exit 3
+`
+	if err := os.WriteFile(python3Bin, []byte(python3Script), 0o755); err != nil {
+		t.Fatalf("write python3: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/bin"+string(os.PathListSeparator)+"/usr/bin")
+
+	repo := t.TempDir()
+	ctx := &types.BusContext{RepoRoot: repo, MainRepoRoot: repo}
+	plan := runnerPlan{Runner: "python", Framework: pythonFrameworkPytest, Root: repo}
+	result := runPytestTextFallback(ctx, plan, 5*time.Second, SupervisedRunOptions{})
+	if result == nil {
+		t.Fatal("expected fallback result")
+	}
+	if result.ParseErr != nil {
+		t.Fatalf("module fallback should parse pytest text output: %v\noutput:\n%s", result.ParseErr, result.Output)
+	}
+	if result.Report == nil || !result.Report.Passed {
+		t.Fatalf("module fallback report should pass, got %+v", result.Report)
+	}
+	if !strings.Contains(result.Command, "python3 -m pytest") {
+		t.Fatalf("expected successful command to be module fallback, got %q", result.Command)
 	}
 }
 

@@ -1183,13 +1183,36 @@ func runPytestTextFallback(ctx *types.BusContext, plan runnerPlan, timeout time.
 	if ctx == nil {
 		return nil
 	}
-	cmdStr := buildPlainPytestFallbackCommandForPlan(plan, plan.Suite, ctx.MainRepoRoot)
+	commands := buildPlainPytestFallbackCommandsForPlan(plan, plan.Suite, ctx.MainRepoRoot)
+	if len(commands) == 0 {
+		return nil
+	}
+	var last *pytestTextFallbackResult
+	for i, cmdStr := range commands {
+		result := runPytestTextFallbackCommand(ctx, plan, timeout, caps, cmdStr, i+1, len(commands))
+		if result == nil {
+			continue
+		}
+		if result.ParseErr == nil && result.Report != nil {
+			return result
+		}
+		last = result
+	}
+	return last
+}
+
+func runPytestTextFallbackCommand(ctx *types.BusContext, plan runnerPlan, timeout time.Duration, caps SupervisedRunOptions, cmdStr string, attempt, total int) *pytestTextFallbackResult {
 	if strings.TrimSpace(cmdStr) == "" {
 		return nil
 	}
 	label := runnerPlanLabel(ctx.RepoRoot, plan)
-	logging.Info("[run_tests] %s parser_error fallback exec: %s (cwd=%s timeout=%v)",
-		label, cmdStr, plan.Root, timeout)
+	if total > 1 {
+		logging.Info("[run_tests] %s parser_error fallback exec[%d/%d]: %s (cwd=%s timeout=%v)",
+			label, attempt, total, cmdStr, plan.Root, timeout)
+	} else {
+		logging.Info("[run_tests] %s parser_error fallback exec: %s (cwd=%s timeout=%v)",
+			label, cmdStr, plan.Root, timeout)
+	}
 	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := NewShellCommandContext(execCtx, wrapShellCommandWithCaps(cmdStr, caps))
@@ -3722,19 +3745,47 @@ func buildRunCommandForPlan(plan runnerPlan, suite, mainRoot string) (string, st
 }
 
 func buildPlainPytestFallbackCommandForPlan(plan runnerPlan, suite, mainRoot string) string {
+	commands := buildPlainPytestFallbackCommandsForPlan(plan, suite, mainRoot)
+	if len(commands) == 0 {
+		return ""
+	}
+	return commands[0]
+}
+
+func buildPlainPytestFallbackCommandsForPlan(plan runnerPlan, suite, mainRoot string) []string {
 	interp, asModule := pythonInterpreter(plan.Root, mainRoot)
 	filter := shellQuotePytestSelectors(suite)
 	prefix := "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "
+	var commands []string
 	if asModule {
 		if filter == "" {
-			return prefix + fmt.Sprintf("%s -m pytest -v", interp)
+			return []string{prefix + fmt.Sprintf("%s -m pytest -v", interp)}
 		}
-		return prefix + fmt.Sprintf("%s -m pytest -v %s", interp, filter)
+		return []string{prefix + fmt.Sprintf("%s -m pytest -v %s", interp, filter)}
 	}
 	if filter == "" {
-		return prefix + fmt.Sprintf("%s -v", interp)
+		commands = append(commands, prefix+fmt.Sprintf("%s -v", interp))
+	} else {
+		commands = append(commands, prefix+fmt.Sprintf("%s -v %s", interp, filter))
 	}
-	return prefix + fmt.Sprintf("%s -v %s", interp, filter)
+	moduleInterp := pythonRuntimeInterpreter(plan.Root, mainRoot)
+	var moduleCmd string
+	if filter == "" {
+		moduleCmd = prefix + fmt.Sprintf("%s -m pytest -v", moduleInterp)
+	} else {
+		moduleCmd = prefix + fmt.Sprintf("%s -m pytest -v %s", moduleInterp, filter)
+	}
+	duplicate := false
+	for _, cmd := range commands {
+		if cmd == moduleCmd {
+			duplicate = true
+			break
+		}
+	}
+	if !duplicate {
+		commands = append(commands, moduleCmd)
+	}
+	return commands
 }
 
 func shellQuotePytestSelectors(suite string) string {

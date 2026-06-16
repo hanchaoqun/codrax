@@ -1175,3 +1175,43 @@ records adapter results.
   failure artifact or re-explore/split strategy, and behavior-grounded
   localization still needs strengthening when the issue is symptom-heavy and
   the first plausible file is not the official fix site.
+- 2026-06-16: Completed a new fair-isolated four-instance Lite batch at
+  `eval/results/swebench/lite-smoke-20260616-mpl25311-pytest8365-sklearn13439-sphinx8595-current`
+  for `matplotlib__matplotlib-25311`, `pytest-dev__pytest-8365`,
+  `scikit-learn__scikit-learn-13439`, and `sphinx-doc__sphinx-8595`.
+  All four exported non-empty predictions (`patch_bytes`: 1216, 841, 485,
+  638), `validate_predictions.py` accepted all rows with `empty_patch=0`,
+  and the official harness dry-run command accepted the generated JSONL.
+  Every row used `git_history_isolated=true` and had a durable
+  `workflow_path`. Manual gold-patch audit: scikit-learn and Sphinx matched
+  the official source-patch semantics; pytest solved the reproduced
+  backslash-username path by sanitizing `get_user()` while the official patch
+  uses a more conservative mkdir-failure fallback; Matplotlib was
+  semantically wrong, appending `__getstate__/__setstate__` monkeypatches that
+  remove nonexistent `_canvas/_cids` fields, keep the real `self.canvas`
+  reference, and call a nonexistent `_connect_callbacks()` method. This
+  exposes a remaining write-mode quality gap when project verification is
+  unavailable and no bounded behavioural probe exercises the changed runtime
+  path: syntax/dry-build gates can pass while semantic object-state fixes are
+  wrong. This is not a prompt-routing issue; the hard gates continued to read
+  typed ChangePlan/ChangeReport/risk artifacts only.
+- 2026-06-16: Landed a generalized pytest runner fallback fix from the same
+  batch. The failed pytest run showed `pytest`'s console script could be stale
+  after editable-installing a self-hosted pytest checkout: the entrypoint
+  imported `pytest.console_main` from a source version that did not expose the
+  same API, while `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest` could
+  still reach the project runner. `run_tests` now treats pytest text fallback
+  as an ordered typed command sequence: keep the existing bare `pytest -v`
+  fallback first, then, only if it fails to yield a parsed text report, try the
+  matching `python -m pytest -v` fallback with plugin autoload disabled. Unit
+  coverage locks both command construction and execution order with a fake bad
+  console script followed by a passing module invocation. A focused rerun at
+  `eval/results/swebench/lite-smoke-20260616-pytest8365-pytest-module-fallback-after-fix`
+  still produced a consumable prediction and, because the planner supplied a
+  repo-coupled verification probe in that run, finished as
+  `predicted_passed/high` with `verify_status=passed`, `verify_test_count=1`,
+  `plan_context_coverage_ratio=1.0`, and `git_history_isolated=true`.
+  Remaining gaps are tracked for later batches: environment readiness should
+  eventually include a lightweight project-root runner probe, and object-state
+  fixes like Matplotlib need stronger bounded probe generation or typed
+  post-apply semantic linting.
