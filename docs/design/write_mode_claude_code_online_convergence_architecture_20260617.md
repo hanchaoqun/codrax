@@ -53,14 +53,12 @@ Research and public architecture references consulted on 2026-06-17:
   <https://github.com/VILA-Lab/Dive-into-Claude-Code>
 - Claude Code "How Claude Code works":
   <https://code.claude.com/docs/en/how-claude-code-works>
-- Claude Agent SDK agent loop:
-  <https://code.claude.com/docs/en/agent-sdk/agent-loop>
 - Claude Code permissions:
   <https://code.claude.com/docs/en/permissions>
-- Claude Code hooks:
-  <https://code.claude.com/docs/en/hooks>
-- Claude Code subagents:
-  <https://code.claude.com/docs/en/sub-agents>
+- Claude Agent SDK hooks:
+  <https://code.claude.com/docs/en/agent-sdk/hooks>
+- Claude Agent SDK subagents:
+  <https://code.claude.com/docs/en/agent-sdk/subagents>
 - Claude Code settings scopes:
   <https://code.claude.com/docs/en/settings>
 - VILA-Lab companion architecture deep dive:
@@ -79,6 +77,28 @@ Research and public architecture references consulted on 2026-06-17:
 Only public documentation, public research summaries, and the paper's own
 analysis are used here. This design does not depend on copying proprietary
 source code or private material.
+
+## Evidence Boundary
+
+This design deliberately treats the paper and public Claude Code material as
+architecture research, not as an implementation source. The useful signal is
+the design-space shape:
+
+- production coding agents converge on a small model loop surrounded by a thick
+  deterministic harness;
+- the public product loop blends context gathering, action, and verification
+  rather than forcing a one-shot plan;
+- the paper's seven-component decomposition is a vocabulary for choosing
+  Codrax boundaries, not a file-by-file recipe;
+- public permission, hook, and subagent docs explain product semantics and
+  failure modes that Codrax can adopt with its own typed artifacts;
+- any source-leak-specific detail that is not reproduced in the paper or
+  official/public documentation remains out of scope.
+
+The resulting Codrax design must therefore be evaluated against Codrax's own
+red lines: typed hard gates, no prompt/prose routing, no user-intent keyword
+matching, worktree isolation, read-mode byte preservation, visible reasoning
+transparency, and stable non-write modes.
 
 ## Research Takeaways
 
@@ -251,6 +271,77 @@ Codrax implication:
 - command tools that can mutate files must either be prohibited for write roles
   or tracked as explicit effects with restore metadata. Otherwise they stay in
   read-only/probe lanes.
+
+### R11: Authority and approval fatigue must be designed together
+
+The paper's value framing treats human decision authority and safety as
+separate but coupled concerns. Public permission material also shows why
+argument-pattern approval rules are fragile for shell commands and why
+read-only command recognition should be structural.
+
+Codrax implication:
+
+- user authority should appear at high-value boundaries: high-risk active
+  slice approval, explicit merge/publish, and true missing facts;
+- routine low/medium edits and read-only investigation should continue without
+  interrupting the user;
+- approval records must be narrow, typed, fingerprinted, and resumable;
+- command policy should parse command structure, wrappers, compounds, argv, cwd
+  and environment effects instead of relying on prompt instructions or broad
+  textual allow rules;
+- "more prompts" is not safer when it trains operators to approve blindly.
+
+### R12: OpenClaw contrast argues for a task harness, not a gateway clone
+
+The paper contrasts Claude Code with OpenClaw and notes that recurring design
+questions stay stable while deployment answers differ. OpenClaw's gateway
+control plane is a good answer for multi-channel personal assistants; Codrax is
+repo-bound and code-change focused.
+
+Codrax implication:
+
+- keep write mode as a repository harness centered on worktree, typed plan,
+  typed observe, and durable workflow state;
+- do not add a broad gateway plugin/MCP write surface as part of this redesign;
+- operation/data/computer workflows can keep their own provider DAGs, while
+  write mode exposes only typed handoff boundaries to them;
+- subagent-like workers should be specialized internal workers first
+  (`LocalizerWorker`, `ProbeWorker`, `VerifierWorker`) before user-configurable
+  nested agent hierarchies are introduced.
+
+### R13: Long-horizon success depends on checkpoints and state derivation
+
+The paper's persistence discussion and public session/checkpoint docs point to
+one lesson: resume cannot trust live context. Executable state must be derived
+from persisted events and current policy.
+
+Codrax implication:
+
+- `WriteWorkflowRun` is the only durable authority for write progress;
+- each active slice needs pre-apply restore metadata, effect refs, observe
+  refs, confidence records, and completion verdicts;
+- resume should recompute permission/approval validity from current policy and
+  fingerprints, not replay old model text;
+- future fork/rewind support should use the same slice event store and worktree
+  snapshots, not a second state system.
+
+### R14: Tool schema exposure is part of context management
+
+The paper calls out deferred tool schemas and result budgets as context
+controls. Public subagent docs similarly emphasize narrow tool access and
+summary-only parent returns.
+
+Codrax implication:
+
+- controller turns should see only controller actions and typed state view;
+- localizer turns should see read/search/code-map tools and bounded output
+  artifact refs;
+- planner turns should see exact-byte windows, dry-run probes, prior context,
+  and plan emit tools;
+- coder turns should see only the active slice plan and apply tool;
+- verifier turns should see test/probe/build tools and typed observation emit;
+- large tool outputs must become artifacts with previews before the next model
+  call.
 
 ## Research To Codrax Decision Matrix
 
@@ -1041,6 +1132,142 @@ Primary files:
   - visible `<think>` remains allowed in user-facing logs;
   - worktree cleanup invariant holds.
 
+### Batch 11: Write Loop Runtime Kernel
+
+Refactor the controller implementation into the seven deterministic components
+described above without changing non-write schedulers:
+
+- `StateAssembler`: builds a compact `WriteWorkflowStateView` from durable run,
+  active slice, policy, budget, context pack, and diagnostics;
+- `ActionValidator`: validates controller actions against schema, mode, state,
+  budget, and supported action set;
+- `PermissionBroker`: computes `allow / ask / deny` from typed policy signals;
+- `EffectExecutor`: runs exactly one bounded effect;
+- `ObservationNormalizer`: converts command/probe/test/build output into typed
+  diagnostics and confidence;
+- `ContextProjector`: emits per-consumer Top-N context views and artifact refs;
+- `EventAppender`: appends immutable workflow/slice events and restore metadata.
+
+Acceptance:
+
+- `runWriteControllerWorkflow` becomes orchestration glue over these
+  components, not a large mixed state machine;
+- hard transitions still read only typed state;
+- existing slice/apply/verify tests remain green;
+- read/log/trace/data/operation/computer schedulers are untouched.
+
+Primary files:
+
+- `internal/orchestrator/write_controller_scheduler.go`
+- `internal/writeflow/`
+- `internal/types/write_workflow_run.go`
+- `internal/types/write_workflow_next_action.go`
+
+### Batch 12: Internal Hook And Effect Ledger
+
+Introduce internal lifecycle hooks as typed scheduler events before exposing
+any user-configurable write hooks:
+
+- `pre_effect`: policy, budget, approval, worktree boundary, and restore-point
+  checks;
+- `post_effect`: artifact capture, observation normalization, event append;
+- `pre_tool`: role/tool allowlist and command policy;
+- `post_tool`: preview budget, artifact ref, context-pack projection;
+- `idle_or_terminal`: status card and recovery guidance rendering.
+
+Acceptance:
+
+- hooks are Go interfaces/events, not shell callbacks;
+- they cannot bypass permission or approval;
+- all effect metadata is available to eval and `/workflow show`;
+- no prompt prose or log text controls hook decisions.
+
+Primary files:
+
+- `internal/writeflow/`
+- `internal/orchestrator/write_controller_scheduler.go`
+- `internal/orchestrator/write_run_guidance.go`
+- `internal/repl/`
+
+### Batch 13: Command Policy Parser Unification
+
+Implement a shared command policy layer inspired by public permission docs'
+structural command treatment, adapted to Codrax:
+
+- parse argv/compound commands/wrappers/cwd/env instead of broad string rules;
+- classify read-only, verify-safe, write-capable, network, privileged,
+  destructive, and unknown operations;
+- keep low-risk read-only commands automatic;
+- ask for high-risk but potentially legitimate commands;
+- deny critical commands, external destructive effects, and untracked writes;
+- share the classifier between write mode and operation mode where applicable.
+
+Acceptance:
+
+- no keyword matching of user requests or model summaries;
+- compound command tests prove each subcommand is classified independently;
+- wrapper tests prove runner wrappers do not hide destructive inner commands;
+- write-mode `exec_command` policy is role-aware.
+
+Primary files:
+
+- `internal/tool/exec_supervisor.go`
+- `internal/operation/approval.go`
+- `internal/writeflow/risk.go`
+- new shared package only if it removes duplication.
+
+### Batch 14: Context-Cost Accounting And Deferred Tool Surface
+
+Make context cost a first-class online-loop resource:
+
+- attach byte/token preview budgets to each tool result;
+- store verbose outputs as artifact refs with typed summaries;
+- render only role-scoped tool schemas and context-pack views;
+- add context-cost telemetry to workflow/eval results;
+- fail-loud on compaction thrash or repeated no-progress planning, with
+  artifact refs for audit.
+
+Acceptance:
+
+- localizer can explore heavily without dumping full transcript into planner;
+- planner/verifier receive P0/P1/P2 must-carry evidence but not raw noise;
+- SWE-bench adapter exports context coverage and confidence without parsing
+  stdout/prose;
+- `<think>` remains visible in user logs but is never consumed as state.
+
+Primary files:
+
+- `internal/types/write_context_pack.go`
+- `internal/agent/write_context_pack_prompt.go`
+- `internal/orchestrator/write_exploration_subflow.go`
+- `eval/swebench/run_codrax_swebench.py`
+
+### Batch 15: Slice Checkpoint, Rewind, And Fork Readiness
+
+Prepare long-horizon write mode for safe recovery without adding routine user
+commands:
+
+- persist pre-apply diff/worktree metadata per active slice;
+- record effect refs and restore metadata before marking a slice applied;
+- allow internal rollback of the active failed slice when a replan needs clean
+  bytes, while preserving verified prior slices;
+- design future fork/rewind as state derived from the event ledger, not from
+  chat history.
+
+Acceptance:
+
+- verified slices are not reopened unless dependency impact marks them stale;
+- failed slice rollback is bounded to active slice paths;
+- worktree cleanup invariant remains unconditional;
+- no automatic main-branch merge is introduced.
+
+Primary files:
+
+- `internal/types/write_workflow_run.go`
+- `internal/orchestrator/write_controller_scheduler.go`
+- `internal/worktree/`
+- `internal/tool/apply_patch.go`
+
 ## Acceptance Criteria
 
 - Write mode runs a true online loop: edit one bounded slice, observe, then
@@ -1089,3 +1316,4 @@ Primary files:
 | 8 | in_progress | UX Auto Pilot polish. This pass adds typed SWE-bench/Codrax workflow heartbeats for long instance runs: the adapter streams Codrax output to `codrax.out` and emits interval progress from durable workflow JSON (`workflow`, active batch/slice, latest progress reason), preserving raw transparency without parsing stdout/prose for control. |
 | 9 | in_progress | Ran `matplotlib__matplotlib-24149` after Batch 2, `django__django-11964`/`scikit-learn__scikit-learn-14983`/`sphinx-doc__sphinx-11445` after Batch 6, `django__django-11848`/`scikit-learn__scikit-learn-15535`/`sphinx-doc__sphinx-8721` after Batch 8, `pydata__xarray-4094`/`pylint-dev__pylint-6506`/`pytest-dev__pytest-5413`, and `scikit-learn__scikit-learn-14894`/`sphinx-doc__sphinx-8713`/`sympy__sympy-18199` in this pass. All predictions were non-empty and official harness dry-run accepted them. Manual audit exposed failed-verify stale-plan reuse, now fixed by typed fingerprint blocking; a raw-diff Python unreachable edit gap, now guarded by planned-byte terminal-statement validation; probe-only high confidence without prior context coverage, now downgraded by typed local-confidence telemetry; and empty prior-context coverage now persisted as `plan_context_missing_source_path` in the durable workflow, not only adapter audit. More non-Go and symptom-only cases remain. |
 | 10 | pending | Commercial hardening. |
+| Paper review addendum | complete | Re-read the public paper and official Claude Code architecture/permission/subagent/hook documentation, then added an evidence-boundary section, R11-R14 design takeaways, and Batches 11-15 for the Codrax-specific runtime kernel, internal hooks/effect ledger, shared command policy parser, context-cost accounting, and slice checkpoint/rewind/fork readiness. |
