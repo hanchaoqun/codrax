@@ -1582,3 +1582,69 @@ Red-line check:
   executed-command/probe metadata.
 - It does not inspect user issue text, SWE-bench ids, model prose, summaries,
   rationale, stdout text, or `<think>` text.
+
+## 2026-06-17 Lite Smoke: Missing Prior Context Is Also Low Confidence
+
+Command shape:
+
+```bash
+WORKDIR=eval/results/swebench/lite-smoke-20260617-sklearn14894-sphinx8713-sympy18199-current
+INSTANCE_IDS_FILE=[scikit-learn__scikit-learn-14894, sphinx-doc__sphinx-8713, sympy__sympy-18199]
+SWEBENCH_SMOKE_LIMIT=3
+MAX_STEPS=80
+CODRAX_TIMEOUT=1800
+SWEBENCH_ENV_PREPARE_TIMEOUT=900
+CODRAX_PROGRESS_INTERVAL=60
+eval/swebench/smoke_lite.sh
+```
+
+Artifacts:
+
+- Predictions:
+  `eval/results/swebench/lite-smoke-20260617-sklearn14894-sphinx8713-sympy18199-current/predictions.jsonl`
+- Results:
+  `eval/results/swebench/lite-smoke-20260617-sklearn14894-sphinx8713-sympy18199-current/results.jsonl`
+- `validate_predictions.py` accepted 3 predictions; `empty_patch=0`.
+- Official SWE-bench harness dry-run command was emitted and accepted the
+  predictions path.
+
+Telemetry and audit:
+
+| Instance | Local verdict | Human audit | System signal |
+| --- | --- | --- | --- |
+| `scikit-learn__scikit-learn-14894` | `predicted_unverified` | Source patch is close to gold: it guards the empty `support_vectors_` path in `sklearn/svm/base.py`. Gold uses `sp.csr_matrix([])` while Codrax uses an explicit `(n_class, 0)` sparse shape. Local verification was unavailable because the prepared env lacked usable NumPy. | Good non-blocking env behavior: official patch exported, local confidence unknown, no false pass. |
+| `sphinx-doc__sphinx-8713` | `predicted_unverified` | Source patch is semantically equivalent to gold for `napoleon_use_param` in `Other Parameters`; local pytest startup failed. | Context coverage was complete for `sphinx/ext/napoleon/docstring.py`; unverified status came from typed environment/test parser failure, not handoff loss. |
+| `sympy__sympy-18199` | `predicted_passed_low_confidence` | Source patch is too narrow: it fixes the visible `a % p == 0` prime-modulus case but misses gold's broader composite modulus implementation. | Probe passed, but local confidence was downgraded by `verification_probe_missing_changed_symbol_ref`. Workflow had no prior context paths, exposing a remaining audit gap if a future probe supplies changed symbol refs without any localization evidence. |
+
+Systemic gap:
+
+- Previous probe-only confidence downgrade handled "changed source not covered by
+  existing prior context", but `plan_context_missing_source_paths` returned
+  empty when there were no prior context paths at all.
+- A future probe-only pass could therefore become high confidence if it supplied
+  contract and changed-symbol refs but the workflow carried no P0/P1
+  localization context.
+- This is a general confidence/audit issue. It must stay soft because a missing
+  context pack is not a precise proof of wrong code.
+
+Fix landed in this batch:
+
+- `plan_source_paths_missing_prior_context()` now reports all changed source
+  paths when no prior P0/P1 context paths are present.
+- Probe-only passed predictions with source changes and no prior context now
+  receive `verification_probe_changed_source_not_context_covered`.
+- Project-runner passes are still not downgraded by this signal.
+
+Verification:
+
+- `python3 eval/swebench/run_codrax_swebench_test.py` PASS.
+- Existing `sympy__sympy-18199` artifact demonstrates the gap: probe-only pass,
+  source change in `sympy/ntheory/residue_ntheory.py`, and empty
+  `plan_context_paths`.
+
+Red-line check:
+
+- The fix consumes only typed ChangePlan paths, durable context-pack paths,
+  verification status, and executed-command/probe metadata.
+- It does not inspect issue text, repository names, SWE-bench ids, gold patches,
+  model rationale, stdout prose, or `<think>` text for control.

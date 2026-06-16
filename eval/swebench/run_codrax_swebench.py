@@ -1339,12 +1339,17 @@ def plan_source_paths_missing_prior_context(
         for path in (normalize_repo_rel_file_path(p) for p in context_paths)
         if path and not is_test_patch_path(path)
     }
-    if not context:
-        return []
-    out = {
+    source = {
         path
         for path in (normalize_repo_rel_file_path(p) for p in plan_source_paths)
-        if path and not is_test_patch_path(path) and path not in context
+        if path and not is_test_patch_path(path)
+    }
+    if not context:
+        return sorted(source)
+    out = {
+        path
+        for path in source
+        if path not in context
     }
     return sorted(out)
 

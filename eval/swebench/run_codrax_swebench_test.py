@@ -84,6 +84,17 @@ class PredictionConfidenceTests(unittest.TestCase):
 
         self.assertEqual(reason, "")
 
+    def test_probe_only_pass_downgrades_when_prior_context_is_missing(self) -> None:
+        reason = adapter.prediction_confidence_downgrade_reason(
+            plan=plan_with_probe(),
+            report=probe_only_report(),
+            verify_status="passed",
+            plan_source_paths=["sympy/ntheory/residue_ntheory.py"],
+            plan_context_paths=[],
+        )
+
+        self.assertEqual(reason, "verification_probe_changed_source_not_context_covered")
+
     def test_project_runner_pass_is_not_downgraded_by_context_coverage(self) -> None:
         report = probe_only_report()
         report["executed_commands"].append(
@@ -113,6 +124,14 @@ class ContextCoverageTests(unittest.TestCase):
         )
 
         self.assertEqual(missing, [])
+
+    def test_missing_context_reports_all_changed_source_paths(self) -> None:
+        missing = adapter.plan_source_paths_missing_prior_context(
+            ["pkg/a.py", "pkg/tests/test_a.py", "pkg/b.py"],
+            [],
+        )
+
+        self.assertEqual(missing, ["pkg/a.py", "pkg/b.py"])
 
 
 if __name__ == "__main__":
