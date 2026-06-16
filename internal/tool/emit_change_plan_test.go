@@ -548,6 +548,40 @@ func TestPythonDuplicateDefinitionStutter_AllowsConditionalCompatibilityDefiniti
 	}
 }
 
+func TestPythonDuplicateDefinitionStutter_AllowsPropertyAccessorDefinitions(t *testing.T) {
+	content := `class Ticker:
+    @property
+    def locator(self):
+        return self._locator
+
+    @locator.setter
+    def locator(self, locator):
+        self._locator = locator
+
+    @locator.deleter
+    def locator(self):
+        del self._locator
+`
+	if dup, ok := findPythonDuplicateDefinitionStutter(content); ok {
+		t.Fatalf("property accessor definitions should not be stutter rejected: %+v", dup)
+	}
+}
+
+func TestPythonDuplicateDefinitionStutter_RejectsAdjacentDuplicateDefinitions(t *testing.T) {
+	content := `class Ticker:
+    def locator(self):
+        return self._locator
+
+    def locator(self):
+        return self._other_locator
+`
+	if dup, ok := findPythonDuplicateDefinitionStutter(content); !ok {
+		t.Fatal("expected adjacent duplicate definitions to be stutter rejected")
+	} else if dup.Name != "locator" || dup.FirstLine != 2 || dup.SecondLine != 5 {
+		t.Fatalf("unexpected duplicate report: %+v", dup)
+	}
+}
+
 // TestEmitChangePlan_EmptyChangesRejected locks the hard cross-
 // field check: a plan with zero changes is meaningless and must
 // fail with a clear diagnostic.
@@ -657,6 +691,60 @@ func TestEmitChangePlan_ReplanNoOpStructuredEditPointsToTypedProbeSentinel(t *te
 	}
 	if plan := ctx.Mutable.ChangePlan(); plan != nil {
 		t.Fatalf("rejected no-op edit must not install a plan: %+v", plan)
+	}
+}
+
+func TestEmitChangePlan_ReplanOldTextMismatchWithPassedProbePointsToTypedProbeSentinel(t *testing.T) {
+	tool := &EmitChangePlan{}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ctx := newTestBusCtx()
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	ctx.RepoRoot = root
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-applied",
+		BatchID: "batch-1",
+		Attempt: 1,
+	})
+	ctx.Mutable.AppendPlanStageProbeReport(&types.ChangeReport{
+		Channel:            types.ChangeReportChannelPlannerProbe,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			AssertionID: "tests/test_widget.py::test_value",
+			Kind:        types.TestResultKindUnit,
+			Passed:      true,
+		}},
+	})
+	params := json.RawMessage(`{
+		"request": "replan after verify failure",
+		"summary": "Try to re-emit a value change that is already present in the worktree.",
+		"changes": [
+			{
+				"path": "widget.py",
+				"kind": "patch",
+				"rationale": "the worktree already has this value",
+				"edits": [{"kind": "replace", "start_line": 1, "end_line": 1, "old_text": "VALUE = 41\n", "content": "VALUE = 42\n"}]
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected stale structured edit to be rejected")
+	}
+	for _, want := range []string{"old_text mismatch", "run_tests(dry_run=true)", types.PlanStatusNoChangeRequired} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("replan stale-anchor rejection should mention %q, got: %s", want, res.Summary)
+		}
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected stale structured edit must not install a plan: %+v", plan)
 	}
 }
 

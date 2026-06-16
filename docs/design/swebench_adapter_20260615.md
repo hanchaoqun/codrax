@@ -1309,3 +1309,68 @@ records adapter results.
   option/default surface when practical. This remains soft guidance only; hard
   gates continue to consume typed artifacts, schema fields, current file bytes,
   and parser/test verdicts.
+- 2026-06-16: New fair-isolated 4-instance SWE-bench Lite batch completed at
+  `eval/results/swebench/lite-smoke-20260616-django11001-sympy11897-mpl24334-sklearn13584-current`.
+  The adapter exported four non-empty predictions, `validate_predictions.py`
+  accepted the JSONL with `empty_patch=0`, and the official SWE-bench harness
+  dry-run consumed the same `predictions.jsonl`. Results:
+  `django__django-11001` ended `predicted_failed_verify` with one failing local
+  verify result; `matplotlib__matplotlib-24334`,
+  `scikit-learn__scikit-learn-13584`, and `sympy__sympy-11897` exported
+  `predicted_unverified` patches because the historical project runners were
+  unavailable or parser-erroring in the local sandbox. Manual gold audit:
+  Django normalized each SQL expression at call sites while gold fixed the
+  multiline regex; Matplotlib chose the right API boundary but used a
+  `TypeError` where gold uses `ValueError`; scikit-learn switched array
+  comparison to `np.array_equal` while gold compares `repr`; SymPy changed
+  printer multiplication/power logic while gold brackets Piecewise factors.
+  Generalized system gaps found from logs: (1) verify-failure replan could
+  prove the already-applied worktree with a typed planner probe, then still
+  emit a stale structured edit and loop on `old_text mismatch`; (2) the Python
+  duplicate-definition guard treated legitimate `@property` + `@name.setter`
+  accessors as adjacent duplicate functions, causing the planner to bypass a
+  structured edit path with raw patch. Fixes landed generically: planner probe
+  history now renders a no-change sentinel lane only when typed
+  `VerifyFailureHandoff` plus the latest `planner_probe` reports all scoped
+  tests passing, and structured edit rejection now points stale-anchor
+  replans at `changes: []` only under that same typed pass signal. The Python
+  duplicate-definition hard gate now reads decorator structure and allows
+  property setter/deleter accessor pairs while still rejecting plain adjacent
+  duplicate `def`/`class` stutter. No hard route consumes SWE-bench ids, issue
+  prose, user keywords, model summaries/rationale, natural-language logs, or
+  `<think>`.
+- 2026-06-16: A post-fix targeted rerun for `django__django-11001` and
+  `matplotlib__matplotlib-24334` was intentionally interrupted after the first
+  Django instance reproduced one more generalized controller/planner
+  convergence gap. Django verification still fell back to the full
+  `tests/runtests.py -v 1` runner because the existing typed Django suite
+  inference could not safely map `django/db/models/sql/compiler.py` to a
+  unique test label. That full-suite failure then entered replan. The planner
+  observed current bytes already contained the intended fix, but after the
+  planning tool surface narrowed to `emit_change_plan` /
+  `emit_plan_skeleton` / `emit_plan_change` / `run_tests`, it retried
+  unavailable `grep` instead of using the typed dry-run/no-change lane. The
+  generic fix landed in the agent tool-surface rejection path: for write-mode
+  plan turns with a typed `VerifyFailureHandoff` and `run_tests` available,
+  unavailable read-tool results now explicitly point to
+  `run_tests(dry_run=true)` and, if that typed probe passes, `changes: []` /
+  `no_change_required`. This is a soft repair hint only; the hard sentinel
+  acceptance still requires typed probe evidence, and no route consumes
+  SWE-bench ids, issue prose, model rationale, natural-language logs, or
+  `<think>`.
+- 2026-06-16: Focused post-fix rerun for `matplotlib__matplotlib-24334`
+  completed at
+  `eval/results/swebench/lite-smoke-20260616-mpl24334-accessor-fix-rerun`.
+  The run exported a non-empty prediction (`patch_bytes=1571`), local
+  prediction validation accepted it with `empty_patch=0`, and official
+  SWE-bench harness dry-run accepted the same predictions JSONL. The Codrax
+  log no longer contains the previous false-positive
+  `duplicate Python function "locator"` rejection; the plan/apply path
+  completed normally after writing `lib/matplotlib/axis.py`. Local
+  verification remained `unavailable/no_tests`, consistent with the historical
+  checkout environment. Manual gold audit: the generated patch validates
+  kwargs by issuing warnings when labels are absent, while the official fix
+  raises `ValueError` immediately for kwargs without labels. This leaves a
+  solution-quality gap around choosing strict error semantics from issue
+  intent/API contract, but the system-level accessor-stutter gate regression is
+  fixed and harness export remains healthy.

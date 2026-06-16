@@ -690,7 +690,10 @@ func (e *plannerEvaluator) buildProbeHistorySection(ctx *types.AgentContext) str
 	}
 	var b strings.Builder
 	b.WriteString("## Probe results\n\n")
-	b.WriteString("Each entry is a run_tests(dry_run=true) probe you fired earlier in this Run. The probes ran the EXISTING test suite (before any plan was applied) so you can see what passes / fails today.\n\n")
+	b.WriteString("Each entry is a run_tests(dry_run=true) probe you fired earlier in this Run. First-plan probes describe the existing suite before apply; verify-failure replan probes describe the current already-applied worktree. The rows are typed probe facts with pass/fail counts and runner output.\n\n")
+	if plannerProbeHistorySupportsNoChangeSentinel(ctx.Mutable) {
+		b.WriteString("No-change sentinel available: the latest planner probe reports all scoped tests passing during a verify-failure replan. A bounded ChangePlan with `changes: []` records `no_change_required` when the current already-applied worktree satisfies the failure point, avoiding a duplicate edit against stale bytes.\n\n")
+	}
 	for i, r := range probes {
 		if r == nil {
 			continue
@@ -723,6 +726,25 @@ func (e *plannerEvaluator) buildProbeHistorySection(ctx *types.AgentContext) str
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func plannerProbeHistorySupportsNoChangeSentinel(mu *types.MutableState) bool {
+	if mu == nil || mu.VerifyFailureHandoff() == nil {
+		return false
+	}
+	probes := mu.PlanStageProbeReports()
+	for i := len(probes) - 1; i >= 0; i-- {
+		report := probes[i]
+		if report == nil || report.Channel != types.ChangeReportChannelPlannerProbe {
+			continue
+		}
+		if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+			return false
+		}
+		passed, total := report.Score()
+		return total > 0 && passed == total
+	}
+	return false
 }
 
 // buildIterationHistorySection renders Module C's iteration ledger

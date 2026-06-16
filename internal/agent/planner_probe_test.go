@@ -38,7 +38,41 @@ func TestPlannerBuildInitialInstruction_ProbeHistorySection(t *testing.T) {
 	if !strings.Contains(got, "1 of 2 existing tests failed") {
 		t.Errorf("probe section should carry verbatim FailureSummary; got:\n%s", got)
 	}
+	if strings.Contains(got, "no_change_required") {
+		t.Errorf("plain probe history must not advertise the replan no-change sentinel; got:\n%s", got)
+	}
 	// Forbidden — must not classify what the failure means.
+	for _, banned := range []string{"Most common", "you should", "Revise to"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("probe section must not contain prescriptive prose %q; got:\n%s", banned, got)
+		}
+	}
+}
+
+func TestPlannerBuildInitialInstruction_ProbeHistoryNoChangeSentinel(t *testing.T) {
+	mu := types.NewMutableState("plan probe test")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-applied",
+		BatchID: "batch-1",
+		Attempt: 1,
+	})
+	mu.AppendPlanStageProbeReport(&types.ChangeReport{
+		Channel:            types.ChangeReportChannelPlannerProbe,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{
+			{AssertionID: "tests/test_routes.py::test_route_registration", Passed: true},
+		},
+	})
+	e := &plannerEvaluator{}
+	ctx := &types.AgentContext{Mutable: mu}
+	got := e.BuildInitialInstruction(ctx, nil)
+
+	for _, want := range []string{"## Probe results", "No-change sentinel available", "changes: []", "no_change_required"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in no-change sentinel probe section; got:\n%s", want, got)
+		}
+	}
 	for _, banned := range []string{"Most common", "you should", "Revise to"} {
 		if strings.Contains(got, banned) {
 			t.Errorf("probe section must not contain prescriptive prose %q; got:\n%s", banned, got)

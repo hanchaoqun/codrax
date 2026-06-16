@@ -2525,6 +2525,41 @@ func TestUnavailableToolResultListsExactCurrentSurface(t *testing.T) {
 	}
 }
 
+func TestUnavailableToolResultPlanReplanPointsToDryRunNoChangeSentinel(t *testing.T) {
+	mu := types.NewMutableState("verify replan")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-applied",
+		BatchID: "batch-1",
+		Attempt: 1,
+	})
+	got := unavailableToolResult(
+		&types.AgentContext{
+			Stage:   types.StagePlan,
+			Mode:    types.ModeApply,
+			Mutable: mu,
+		},
+		llm.ToolCall{Name: "grep"},
+		map[string]bool{"emit_change_plan": true, "run_tests": true},
+	)
+	if got == nil || got.Success {
+		t.Fatalf("unavailable tool result should fail, got %+v", got)
+	}
+	for _, want := range []string{"verify-failure replan", "run_tests with dry_run=true", "changes: []", "no_change_required"} {
+		if !strings.Contains(got.Summary, want) {
+			t.Fatalf("summary missing %q: %q", want, got.Summary)
+		}
+	}
+
+	plain := unavailableToolResult(
+		&types.AgentContext{Stage: types.StagePlan, Mode: types.ModeApply, Mutable: types.NewMutableState("plain")},
+		llm.ToolCall{Name: "grep"},
+		map[string]bool{"emit_change_plan": true, "run_tests": true},
+	)
+	if strings.Contains(plain.Summary, "no_change_required") {
+		t.Fatalf("plain plan unavailable-tool result must not advertise no-change sentinel: %q", plain.Summary)
+	}
+}
+
 func countNoticeKind(events []render.Event, kind render.OrchestratorNoticeKind) int {
 	count := 0
 	for _, ev := range events {

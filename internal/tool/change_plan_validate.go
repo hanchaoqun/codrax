@@ -299,9 +299,10 @@ type pythonDefinitionStutter struct {
 }
 
 type pythonDefinitionSeen struct {
-	Kind   string
-	Line   int
-	Indent int
+	Kind       string
+	Line       int
+	Indent     int
+	Decorators []string
 }
 
 type pythonScopeFrame struct {
@@ -390,6 +391,7 @@ func findPythonDuplicateDefinitionStutter(content string) (pythonDefinitionStutt
 			continue
 		}
 		indent := pythonLeadingIndent(line)
+		decorators := pythonDecoratorsForDefinition(lines, i, indent)
 		for len(stack) > 0 && indent <= stack[len(stack)-1].Indent {
 			stack = stack[:len(stack)-1]
 		}
@@ -397,7 +399,8 @@ func findPythonDuplicateDefinitionStutter(content string) (pythonDefinitionStutt
 		key := scope + "\x00" + name
 		if prev, exists := seen[key]; exists &&
 			lineNo-prev.Line <= pythonDuplicateDefinitionStutterMaxGap &&
-			!pythonDuplicateDefinitionHasInterveningControlFlow(lines, prev.Line, lineNo, indent) {
+			!pythonDuplicateDefinitionHasInterveningControlFlow(lines, prev.Line, lineNo, indent) &&
+			!pythonDuplicateDefinitionAccessorPair(name, prev.Decorators, decorators) {
 			return pythonDefinitionStutter{
 				Kind:       kind,
 				Name:       name,
@@ -406,13 +409,63 @@ func findPythonDuplicateDefinitionStutter(content string) (pythonDefinitionStutt
 				SecondLine: lineNo,
 			}, true
 		}
-		seen[key] = pythonDefinitionSeen{Kind: kind, Line: lineNo, Indent: indent}
+		seen[key] = pythonDefinitionSeen{Kind: kind, Line: lineNo, Indent: indent, Decorators: decorators}
 		stack = append(stack, pythonScopeFrame{
 			Indent:  indent,
 			Segment: kind + " " + name,
 		})
 	}
 	return pythonDefinitionStutter{}, false
+}
+
+func pythonDecoratorsForDefinition(lines []string, defIndex int, defIndent int) []string {
+	if defIndex <= 0 || defIndex > len(lines) {
+		return nil
+	}
+	var decorators []string
+	for i := defIndex - 1; i >= 0; i-- {
+		line := stripPythonLineComment(lines[i])
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			break
+		}
+		if pythonLeadingIndent(line) != defIndent || !strings.HasPrefix(trimmed, "@") {
+			break
+		}
+		decorators = append(decorators, trimmed)
+	}
+	for i, j := 0, len(decorators)-1; i < j; i, j = i+1, j-1 {
+		decorators[i], decorators[j] = decorators[j], decorators[i]
+	}
+	return decorators
+}
+
+func pythonDuplicateDefinitionAccessorPair(name string, prevDecorators, currentDecorators []string) bool {
+	prevKind := pythonPropertyAccessorKind(name, prevDecorators)
+	currentKind := pythonPropertyAccessorKind(name, currentDecorators)
+	if currentKind == "setter" || currentKind == "deleter" {
+		return prevKind == "property" || prevKind == "setter" || prevKind == "deleter"
+	}
+	return false
+}
+
+func pythonPropertyAccessorKind(name string, decorators []string) string {
+	if !isPythonIdentifier(name) {
+		return ""
+	}
+	for _, raw := range decorators {
+		dec := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "@"))
+		dec = strings.TrimSpace(strings.TrimSuffix(dec, "()"))
+		switch dec {
+		case "property":
+			return "property"
+		case name + ".setter":
+			return "setter"
+		case name + ".deleter":
+			return "deleter"
+		}
+	}
+	return ""
 }
 
 func pythonDuplicateDefinitionHasInterveningControlFlow(lines []string, firstLine, secondLine, definitionIndent int) bool {
@@ -976,10 +1029,31 @@ func enrichStructuredEditReplanDiagnostic(ctx *types.BusContext, msg string) str
 	if ctx.Mutable.VerifyFailureHandoff() == nil {
 		return msg
 	}
-	if !strings.Contains(msg, " is a no-op") {
+	hasNoOp := strings.Contains(msg, " is a no-op")
+	hasOldTextMismatch := strings.Contains(msg, "old_text mismatch")
+	if !hasNoOp && !(hasOldTextMismatch && structuredEditReplanProbePassed(ctx)) {
 		return msg
 	}
 	return msg + ". In a verify-failure replan, a no-op edit means the applied worktree may already contain the intended code. Run a typed planner probe with run_tests(dry_run=true) against the scoped failure; if it passes, emit changes: [] to record the no_change_required sentinel. If it fails, re-read the current bytes and emit a real non-no-op edit."
+}
+
+func structuredEditReplanProbePassed(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	probes := ctx.Mutable.PlanStageProbeReports()
+	for i := len(probes) - 1; i >= 0; i-- {
+		report := probes[i]
+		if report == nil || report.Channel != types.ChangeReportChannelPlannerProbe {
+			continue
+		}
+		if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+			return false
+		}
+		passed, total := report.Score()
+		return total > 0 && passed == total
+	}
+	return false
 }
 
 // composePatchRejectionReason mirrors composePatchRejection but

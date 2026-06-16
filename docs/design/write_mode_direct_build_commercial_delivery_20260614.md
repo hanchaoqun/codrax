@@ -4377,3 +4377,58 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
 - Verification:
   - Focused regression passed:
     `go test ./internal/agent ./internal/tool ./internal/orchestrator -run 'TestPlannerCompatibilityRiskGuidance|TestValidateWriteAnalyzerToolPolicy|TestValidateWriteExplorationReadOnlyToolCall|TestValidateWritePlannerToolPolicy|TestApplyWriteExplorationRoundBudgetForDispatch|TestRunWriteExplorationSubflowAppliesMaxRoundsOverride|TestRunControllerPlanBatch_NoPlanDoesNotSpendRetryAfterCancel|TestEmitChangePlan_RejectsStructuredInsertContainingAnchorBlock|TestEmitChangePlan_RejectsStructuredEditDuplicatePythonDefinitionStutter|TestEmitChangePlan_ReplanNoOpStructuredEditPointsToTypedProbeSentinel' -count=1`.
+
+## 2026-06-16 SWE-bench smoke 17: no-change replan sentinel and Python accessor stutter carve-out
+
+- Evidence source:
+  - Fair-isolated 4-instance Lite batch:
+    `eval/results/swebench/lite-smoke-20260616-django11001-sympy11897-mpl24334-sklearn13584-current`
+    with `django__django-11001`, `sympy__sympy-11897`,
+    `matplotlib__matplotlib-24334`, and `scikit-learn__scikit-learn-13584`.
+  - `predictions.jsonl` contained four non-empty rows, the local validator
+    reported `empty_patch=0`, and official SWE-bench harness dry-run accepted
+    the same predictions file.
+  - Manual audit found solution-quality gaps in all four generated patches,
+    but two logs exposed clear system-level convergence bugs independent of
+    the specific issues.
+- Generalized fixes:
+  - Verify-failure replan now gives planner a typed no-change lane when the
+    latest `planner_probe` reports all scoped tests passing against the current
+    already-applied worktree. The prompt section is soft guidance only; the
+    hard acceptance of `changes: []` remains in `emit_change_plan` and still
+    requires typed `VerifyFailureHandoff` plus a passing planner probe.
+  - Structured edit rejection now points `old_text mismatch` replans at the
+    same no-change sentinel only when that typed planner-probe pass is present.
+    Ordinary stale anchors still require re-reading current bytes and emitting
+    a real patch.
+  - Unavailable repository-read tool results in write-mode verify-failure
+    replans now include the same dry-run/no-change exit lane when the current
+    tool surface contains `run_tests`. This addresses the observed loop where
+    the planner saw current bytes already contained the intended Django fix,
+    but, after the materialization tool surface had narrowed to
+    `emit_*`/`run_tests`, retried unavailable `grep` instead of producing a
+    typed planner probe or a no-change sentinel.
+  - Python duplicate-definition stutter validation now reads decorator
+    structure and allows legitimate property accessor definitions
+    (`@property`, `@name.setter`, `@name.deleter`) in the same class while
+    preserving the rejection for plain adjacent duplicate `def`/`class` blocks.
+- Prompt and hard-gate hygiene:
+  - No hard gate reads SWE-bench ids, issue text, user intent keywords, model
+    prose, summaries/rationale, natural-language logs, or `<think>`.
+  - The no-change sentinel path is unlocked by typed `ChangeReport` channel,
+    verification status, assertion counts, and `VerifyFailureHandoff`.
+  - The unavailable-tool replan hint is gated by typed mode/stage,
+    `VerifyFailureHandoff`, and current tool-surface membership; it does not
+    inspect the unavailable tool's rationale or model prose.
+  - The Python carve-out reads current planned file bytes and decorator tokens
+    only; it does not infer intent from comments or natural language.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/agent ./internal/tool -run 'TestUnavailableToolResult|TestPythonDuplicateDefinitionStutter|TestEmitChangePlan_Replan|TestEmitChangePlan_EmptyChanges|TestPlannerBuildInitialInstruction_ProbeHistory' -count=1`.
+  - SWE-bench focused rerun for `matplotlib__matplotlib-24334` completed with
+    `patch_bytes=1571`, `validate_predictions.py empty_patch=0`, and official
+    harness dry-run acceptance. The prior false duplicate-definition rejection
+    for `Ticker.locator` no longer appears in the log. Manual audit still
+    marks the generated patch as semantically weaker than gold because it warns
+    instead of raising `ValueError`, so strict API-contract inference remains a
+    future planner-quality item rather than a validator/control-plane failure.

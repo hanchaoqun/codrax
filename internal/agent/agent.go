@@ -4951,6 +4951,9 @@ func unavailableToolResult(ctx *types.AgentContext, tc llm.ToolCall, available m
 	if allowedNames := sortedToolNames(available); len(allowedNames) > 0 {
 		msg += "; available tools now: " + strings.Join(allowedNames, ", ")
 	}
+	if extra := unavailableToolVerifyReplanHint(ctx, available); extra != "" {
+		msg += ". " + extra
+	}
 	result := &types.ToolResult{
 		ToolName:  name,
 		Summary:   msg,
@@ -4962,6 +4965,16 @@ func unavailableToolResult(ctx *types.AgentContext, tc llm.ToolCall, available m
 		Hint: result.Summary + ". Use only the tools currently shown in this turn; if the needed tool is unavailable, continue with the structured emit/caveat path instead of retrying that tool.",
 	}
 	return result
+}
+
+func unavailableToolVerifyReplanHint(ctx *types.AgentContext, available map[string]bool) string {
+	if ctx == nil || ctx.Mutable == nil || ctx.Stage != types.StagePlan || !ctx.Mode.IsWrite() {
+		return ""
+	}
+	if ctx.Mutable.VerifyFailureHandoff() == nil || !available["run_tests"] {
+		return ""
+	}
+	return "This is a verify-failure replan with repository-reading tools unavailable. If already-visible current bytes show the intended repair, call run_tests with dry_run=true against the scoped failure or target area; if that typed probe passes, emit_change_plan with changes: [] to record no_change_required. If the probe fails, emit a real bounded edit using the already-visible current bytes."
 }
 
 func sortedToolSchemaNames(schemas []llm.ToolSchema) []string {
