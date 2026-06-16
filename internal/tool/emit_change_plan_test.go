@@ -173,6 +173,92 @@ func TestEmitChangePlan_RejectsEscapingVerificationProbeWorkingDir(t *testing.T)
 	}
 }
 
+func TestEmitChangePlan_RejectsPythonProbeWithoutExecutableFailureSignal(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a python behaviour",
+		"summary": "Modify widget.py and attach a behavioural probe that only prints failure text.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "prints_fail", "language": "python", "code": "import widget\nif widget.VALUE != 42:\n    print('FAIL: wrong value')\nelse:\n    print('PASS')\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected print-only verification probe to be rejected")
+	}
+	if !strings.Contains(res.Summary, "executable failure signal") {
+		t.Fatalf("summary should explain missing executable failure signal, got: %s", res.Summary)
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected probe must not install a plan: %+v", plan)
+	}
+}
+
+func TestEmitChangePlan_AcceptsPythonProbeWithExpectedStdoutWithoutAssert(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a python behaviour",
+		"summary": "Modify widget.py and attach a stdout-contract probe.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "stdout_contract", "language": "python", "code": "import widget\nprint('VALUE=%s' % widget.VALUE)\n", "expected_stdout": ["VALUE=42"]}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected stdout-contract probe to be accepted, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) != 1 {
+		t.Fatalf("expected accepted plan with one probe, got: %+v", plan)
+	}
+	if got := plan.VerificationProbes[0].ExpectedStdout; len(got) != 1 || got[0] != "VALUE=42" {
+		t.Fatalf("expected_stdout not preserved: %+v", got)
+	}
+}
+
+func TestEmitChangePlan_AcceptsPythonProbeWithInlineRaiseFailureSignal(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a python behaviour",
+		"summary": "Modify widget.py and attach a probe that raises on failed behavior.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "inline_raise", "language": "python", "code": "import widget\nif widget.VALUE != 42: raise AssertionError('wrong value')\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected inline-raise probe to be accepted, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) != 1 {
+		t.Fatalf("expected accepted plan with one probe, got: %+v", plan)
+	}
+}
+
 func TestEmitChangePlan_RejectsPythonProbeThatCopiesImplementationInsteadOfImportingTarget(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()

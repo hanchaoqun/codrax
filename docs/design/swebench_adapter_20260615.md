@@ -943,6 +943,32 @@ records adapter results.
   customer-facing rule that missing or partial project test environments do not
   hard-block useful code delivery, while typed result fields prevent the
   controller/adapter from mislabeling unavailable verification as passed.
+- 2026-06-16: Ran `scikit-learn__scikit-learn-11040` with clean
+  `codrax 0.1.20260616` at
+  `eval/results/swebench/lite-smoke-20260616-scikit11040-after-planner-repair-fix`.
+  The run completed with `status=predicted`, `patch_bytes=1268`,
+  `prediction_verdict=predicted_unverified`, and prediction validation accepted
+  `empty_patch=0`. The write-analyzer pre-scan gate narrowed to
+  `emit_write_analysis` after bounded reads, explorer preserved grounded
+  evidence while rejecting a speculative line-339 evidence item, and planner
+  honored the new materialization guard: after handoff reads were exhausted, an
+  unavailable `grep/read_file` attempt injected
+  `planner.materialization-tool-surface`; the next plan emit removed a rejected
+  nonessential Cython comment change and produced a bounded single-file patch.
+  Manual audit exposed a generalized verification-probe contract gap:
+  planner-generated Python probes printed `FAIL` text but did not use `assert`,
+  `raise`, `sys.exit`, or `expected_stdout`, so a runnable environment could
+  have treated a printed failure as exit-0 success. The fix is now in the
+  canonical `normalizeVerificationProbes` path shared by `emit_change_plan`,
+  `emit_plan_skeleton`, and `emit_plan_change`: Python inline probes without
+  `expected_stdout` must contain an executable failure signal after comments and
+  strings are stripped. This gate consumes probe source structure and typed
+  probe fields only; it does not inspect user-intent keywords, model rationale,
+  or natural-language summaries. Local verification for this instance remained
+  `UNAVAILABLE/parser_error` because the legacy scikit-learn checkout failed
+  editable install/import probes (`pkg_resources`, `Cython`, and
+  `sklearn.__check_build`), so the patch remains an exportable candidate rather
+  than a locally verified fix.
 - 2026-06-16: Started a fair-isolated four-instance Lite batch at
   `eval/results/swebench/lite-smoke-20260616-fair-batch-sympy-sphinx-scikit-django`
   for `django__django-11742`, `sympy__sympy-12481`,

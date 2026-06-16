@@ -1098,6 +1098,9 @@ func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.Verifica
 				return nil, fmt.Sprintf("verification_probes[%d].expected_stdout has more than %d non-empty entries", i, maxExpectedFragments)
 			}
 		}
+		if len(expected) == 0 && !pythonVerificationProbeHasExecutableFailureSignal(code) {
+			return nil, fmt.Sprintf("verification_probes[%d].code must include an executable failure signal (assert, raise, sys.exit/exit, pytest.fail, or expected_stdout); printing failure text without a non-zero exit path can falsely pass verification", i)
+		}
 		out = append(out, types.VerificationProbe{
 			ID:             id,
 			Language:       language,
@@ -1108,4 +1111,138 @@ func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.Verifica
 		})
 	}
 	return out, ""
+}
+
+func pythonVerificationProbeHasExecutableFailureSignal(code string) bool {
+	stripped := stripPythonProbeStringsAndComments(code)
+	for _, ident := range pythonProbeIdentifiers(stripped) {
+		switch ident {
+		case "assert", "raise":
+			return true
+		}
+	}
+	compact := compactPythonProbeSignalSurface(stripped)
+	for _, signal := range []string{
+		"sys.exit(",
+		"exit(",
+		"pytest.fail(",
+	} {
+		if strings.Contains(compact, signal) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripPythonProbeStringsAndComments(src string) string {
+	var b strings.Builder
+	b.Grow(len(src))
+	inString := false
+	quote := byte(0)
+	triple := false
+	escaped := false
+	for i := 0; i < len(src); i++ {
+		ch := src[i]
+		if inString {
+			if ch == '\n' {
+				b.WriteByte('\n')
+				if !triple {
+					inString = false
+				}
+				escaped = false
+				continue
+			}
+			b.WriteByte(' ')
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				if triple {
+					if i+2 < len(src) && src[i+1] == quote && src[i+2] == quote {
+						b.WriteString("  ")
+						i += 2
+						inString = false
+						triple = false
+					}
+				} else {
+					inString = false
+				}
+			}
+			continue
+		}
+		if ch == '#' {
+			for i < len(src) && src[i] != '\n' {
+				b.WriteByte(' ')
+				i++
+			}
+			if i < len(src) && src[i] == '\n' {
+				b.WriteByte('\n')
+			}
+			continue
+		}
+		if ch == '\'' || ch == '"' {
+			inString = true
+			quote = ch
+			triple = i+2 < len(src) && src[i+1] == ch && src[i+2] == ch
+			b.WriteByte(' ')
+			if triple {
+				b.WriteString("  ")
+				i += 2
+			}
+			continue
+		}
+		b.WriteByte(ch)
+	}
+	return b.String()
+}
+
+func pythonProbeIdentifiers(src string) []string {
+	var out []string
+	for i := 0; i < len(src); {
+		r := rune(src[i])
+		if !isPythonIdentifierStart(r) {
+			i++
+			continue
+		}
+		start := i
+		i++
+		for i < len(src) && isPythonIdentifierPart(rune(src[i])) {
+			i++
+		}
+		out = append(out, src[start:i])
+	}
+	return out
+}
+
+func compactPythonProbeSignalSurface(src string) string {
+	var b strings.Builder
+	b.Grow(len(src))
+	for i := 0; i < len(src); i++ {
+		ch := src[i]
+		if isPythonProbeASCIILetter(ch) || isPythonProbeASCIIDigit(ch) || ch == '_' || ch == '.' || ch == '(' {
+			b.WriteByte(ch)
+		}
+	}
+	return b.String()
+}
+
+func isPythonIdentifierStart(r rune) bool {
+	return r == '_' || ('A' <= r && r <= 'Z') || ('a' <= r && r <= 'z')
+}
+
+func isPythonIdentifierPart(r rune) bool {
+	return isPythonIdentifierStart(r) || ('0' <= r && r <= '9')
+}
+
+func isPythonProbeASCIILetter(ch byte) bool {
+	return ('A' <= ch && ch <= 'Z') || ('a' <= ch && ch <= 'z')
+}
+
+func isPythonProbeASCIIDigit(ch byte) bool {
+	return '0' <= ch && ch <= '9'
 }
