@@ -443,6 +443,21 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			probeStatus := probe.Report.NormalizeVerificationStatus()
 			switch probeStatus {
 			case types.VerificationStatusPassed:
+				if reasonCode := verificationProbePassProjectSuiteContinuationReason(ctx, surface); reasonCode != "" {
+					if cand := selectedSurfaceCandidate(surface); cand != nil && cand.HasTestSignal {
+						executedCmds = append(executedCmds, types.ExecutedCommand{
+							Runner:     cand.Runner,
+							Framework:  cand.Framework,
+							WorkingDir: cand.WorkingDir,
+							Command:    cand.Command,
+							Source:     "probe_primary_suite_continued",
+							Outcome:    "suite_continued",
+							ReasonCode: reasonCode,
+						})
+					}
+					logging.Info("[run_tests] pre-suite verification_probe passed; continuing to project suite reason=%s", reasonCode)
+					break
+				}
 				if cand := selectedSurfaceCandidate(surface); cand != nil && cand.HasTestSignal {
 					executedCmds = append(executedCmds, types.ExecutedCommand{
 						Runner:     cand.Runner,
@@ -1098,6 +1113,77 @@ func validateRunTestsSuiteSelectorAgainstSurface(suite string, surface types.Tes
 
 func shouldRunPreSuiteVerificationProbes(ctx *types.BusContext, dryRunProbe bool) bool {
 	return ctx != nil && ctx.PipelineStage == types.StageVerify && !dryRunProbe
+}
+
+func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, surface types.TestSurface) string {
+	if cand := selectedSurfaceCandidate(surface); cand == nil || !cand.HasTestSignal {
+		return ""
+	}
+	var plan *types.ChangePlan
+	if ctx != nil && ctx.Mutable != nil {
+		plan = ctx.Mutable.ChangePlan()
+	}
+	if missing := verificationProbeMissingRequiredContractRefs(plan); len(missing) > 0 {
+		return "verification_probe_missing_required_contract_ref"
+	}
+	if changePlanTouchesTestOrSpecPath(plan) {
+		return "plan_touches_test_path"
+	}
+	if verificationProbeMissingChangedSymbolRefs(plan) {
+		return "verification_probe_missing_changed_symbol_ref"
+	}
+	return ""
+}
+
+func verificationProbeMissingRequiredContractRefs(plan *types.ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	required := types.RequiredWriteBehaviorContractIDs(plan.BehaviorContracts, true)
+	if len(required) == 0 {
+		return nil
+	}
+	covered := map[string]struct{}{}
+	for _, probe := range plan.VerificationProbes {
+		for _, ref := range probe.ContractRefs {
+			ref = strings.TrimSpace(ref)
+			if ref != "" {
+				covered[ref] = struct{}{}
+			}
+		}
+	}
+	return sortedStringSet(subtractStringSet(required, covered))
+}
+
+func verificationProbeMissingChangedSymbolRefs(plan *types.ChangePlan) bool {
+	if plan == nil || len(types.RequiredWriteBehaviorContractIDs(plan.BehaviorContracts, true)) == 0 {
+		return false
+	}
+	for _, probe := range plan.VerificationProbes {
+		for _, ref := range probe.ChangedSymbolRefs {
+			if strings.TrimSpace(ref) != "" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func changePlanTouchesTestOrSpecPath(plan *types.ChangePlan) bool {
+	if plan == nil {
+		return false
+	}
+	for _, p := range plan.TargetPaths {
+		if types.LooksLikeTestFilePath(p) {
+			return true
+		}
+	}
+	for _, change := range plan.Changes {
+		if types.LooksLikeTestFilePath(change.Path) {
+			return true
+		}
+	}
+	return false
 }
 
 func selectedSurfaceCandidate(surface types.TestSurface) *types.TestSurfaceCandidate {

@@ -88,8 +88,9 @@ type ExecutedCommand struct {
 
 	// Outcome is the typed coarse result of this entry:
 	// executed | synthetic_no_tests | syntax_check_fallback | suite_skipped |
-	// runner_missing | timeout | oom | cpu_limit | parser_error |
-	// not_configured | probe_config_error | expected_stdout_missing.
+	// suite_continued | runner_missing | timeout | oom | cpu_limit |
+	// parser_error | not_configured | probe_config_error |
+	// expected_stdout_missing.
 	Outcome string `json:"outcome,omitempty"`
 
 	// ReasonCode is a bounded typed subreason for the outcome, when the

@@ -595,7 +595,7 @@ func TestRunTestsNoTestWorkUsesVerificationProbeVerdict(t *testing.T) {
 	}
 }
 
-func TestRunTestsVerificationProbePassSkipsProjectSuiteHardGate(t *testing.T) {
+func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenProbeComplete(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
 	}
@@ -603,13 +603,14 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteHardGate(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "tests"), 0o755); err != nil {
 		t.Fatalf("mkdir tests: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\n"), 0o644); err != nil {
-		t.Fatalf("write pyproject: %v", err)
+	if err := os.WriteFile(filepath.Join(root, "tests", "__init__.py"), []byte(""), 0o644); err != nil {
+		t.Fatalf("write tests package marker: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "tests", "test_project_suite.py"), []byte("def test_project_suite_would_fail():\n    assert False\n"), 0o644); err != nil {
+	testBody := "import unittest\n\nclass ProjectSuite(unittest.TestCase):\n    def test_project_suite_would_fail(self):\n        self.assertTrue(False)\n"
+	if err := os.WriteFile(filepath.Join(root, "tests", "test_project_suite.py"), []byte(testBody), 0o644); err != nil {
 		t.Fatalf("write test: %v", err)
 	}
 	mu := types.NewMutableState("probe primary")
@@ -627,9 +628,11 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteHardGate(t *testing.T) {
 			Source:   "expected_outcome_fallback",
 		}},
 		VerificationProbes: []types.VerificationProbe{{
-			ID:       "value_contract",
-			Language: "python",
-			Code:     "import widget\nassert widget.VALUE == 42\n",
+			ID:                "value_contract",
+			Language:          "python",
+			Code:              "import widget\nassert widget.VALUE == 42\n",
+			ContractRefs:      []string{"outcome-1"},
+			ChangedSymbolRefs: []string{"widget.VALUE"},
 		}},
 	})
 	ctx := &types.BusContext{
@@ -641,7 +644,7 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteHardGate(t *testing.T) {
 	}
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
 		"runner":    "python",
-		"framework": "pytest",
+		"framework": "unittest",
 	}))
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
@@ -665,11 +668,11 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteHardGate(t *testing.T) {
 		if cmd.Runner == "verification_probe" && cmd.Source == "pre_suite_verification_probe" && cmd.Outcome == "executed" {
 			foundProbeCommand = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Source == "probe_primary_suite_skipped" && cmd.Outcome == "suite_skipped" {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_skipped" && cmd.Outcome == "suite_skipped" {
 			foundSkippedSuite = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Source == "llm_choice" && cmd.Outcome == "executed" {
-			t.Fatalf("project pytest suite should not execute after passing bounded probe: %+v", report.ExecutedCommands)
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == "executed" {
+			t.Fatalf("project unittest suite should not execute after passing bounded probe: %+v", report.ExecutedCommands)
 		}
 	}
 	if !foundProbeCommand {
@@ -681,11 +684,101 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteHardGate(t *testing.T) {
 	if report.TestSurface == nil || report.TestSurface.SelectedID == "" {
 		t.Fatalf("probe-primary report must retain test surface, got %+v", report.TestSurface)
 	}
-	if !changeReportHasVerificationConfidence(report, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
-		t.Fatalf("probe-only pass without contract refs should carry confidence downgrade evidence: %+v", report.VerificationConfidence)
+	if changeReportHasVerificationConfidence(report, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
+		t.Fatalf("complete probe should not carry missing contract-ref downgrade: %+v", report.VerificationConfidence)
+	}
+	if !changeReportHasVerificationConfidence(report, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
+		t.Fatalf("complete probe should carry covered contract-ref evidence: %+v", report.VerificationConfidence)
 	}
 	if !strings.Contains(result.Summary, "verification_probes verdict=PASSED") {
 		t.Fatalf("summary should explain probe-primary verdict, got %q", result.Summary)
+	}
+}
+
+func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanTouchesTests(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tests", "__init__.py"), []byte(""), 0o644); err != nil {
+		t.Fatalf("write tests package marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	testBody := "import unittest\n\nclass ProjectSuite(unittest.TestCase):\n    def test_project_suite_would_fail(self):\n        self.assertTrue(False)\n"
+	if err := os.WriteFile(filepath.Join(root, "tests", "test_project_suite.py"), []byte(testBody), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	mu := types.NewMutableState("probe primary continues")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-pass-continue",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py", "tests/test_project_suite.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "widget value is 42",
+			Required: true,
+			Source:   "expected_outcome_fallback",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "value_contract",
+			Language:          "python",
+			Code:              "import widget\nassert widget.VALUE == 42\n",
+			ContractRefs:      []string{"outcome-1"},
+			ChangedSymbolRefs: []string{"widget.VALUE"},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner":    "python",
+		"framework": "unittest",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("project-suite failure should fail after probe continuation, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.NormalizeVerificationStatus() != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed; report=%+v", report.NormalizeVerificationStatus(), report)
+	}
+	foundProbeCommand := false
+	foundContinuedSuite := false
+	foundExecutedSuite := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.Source == "pre_suite_verification_probe" && cmd.Outcome == "executed" {
+			foundProbeCommand = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_continued" &&
+			cmd.Outcome == "suite_continued" && cmd.ReasonCode == "plan_touches_test_path" {
+			foundContinuedSuite = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == "executed" {
+			foundExecutedSuite = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_skipped" {
+			t.Fatalf("suite must not be marked skipped when continuation is required: %+v", report.ExecutedCommands)
+		}
+	}
+	if !foundProbeCommand || !foundContinuedSuite || !foundExecutedSuite {
+		t.Fatalf("expected probe, continuation, and suite command evidence; got %+v", report.ExecutedCommands)
 	}
 }
 
