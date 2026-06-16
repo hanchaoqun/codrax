@@ -141,6 +141,9 @@ FAILED (errors=2)
 	if report.FailureKind != types.FailureKindParserError {
 		t.Fatalf("FailureKind = %q, want %q", report.FailureKind, types.FailureKindParserError)
 	}
+	if report.FailureReasonCode != unittestLoaderImportErrorReasonCode {
+		t.Fatalf("FailureReasonCode = %q, want %q", report.FailureReasonCode, unittestLoaderImportErrorReasonCode)
+	}
 	if !strings.Contains(report.FailureSummary, "collection/import failed") {
 		t.Fatalf("FailureSummary = %q", report.FailureSummary)
 	}

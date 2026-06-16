@@ -87,6 +87,8 @@ var (
 	rePytestSummaryTok = regexp.MustCompile(`(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed)\b`)
 )
 
+const unittestLoaderImportErrorReasonCode = "unittest_loader_import_error"
+
 func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 	lines := strings.Split(stdout, "\n")
 	results := make([]types.TestResult, 0)
@@ -160,6 +162,7 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 			passedCount, failed, denom)
 		if len(results) > 0 && loaderFailures == len(results) && passedCount == 0 {
 			report.FailureKind = types.FailureKindParserError
+			report.FailureReasonCode = unittestLoaderImportErrorReasonCode
 			report.FailureSummary = fmt.Sprintf("unittest collection/import failed before executing real test cases — %d loader error(s); local verification is unavailable.", loaderFailures)
 		}
 	}

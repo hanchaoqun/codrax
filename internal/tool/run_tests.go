@@ -362,6 +362,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return nil
 		}
 		report.ExecutedCommands = append([]types.ExecutedCommand(nil), executedCmds...)
+		if !report.Passed && strings.TrimSpace(report.FailureReasonCode) == "" {
+			report.FailureReasonCode = failureReasonCodeFromExecutedCommands(report.ExecutedCommands)
+		}
 		surfaceCopy := surface
 		surfaceCopy.Candidates = append([]types.TestSurfaceCandidate(nil), surface.Candidates...)
 		report.TestSurface = &surfaceCopy
@@ -1766,7 +1769,11 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 		if report.FailureSummary != "" {
 			failureSummaries = append(failureSummaries, report.FailureSummary)
 		}
-		failureReasonCodes = appendFailureReasonCodes(failureReasonCodes, report.FailureReasonCode)
+		reasonCode := report.FailureReasonCode
+		if strings.TrimSpace(reasonCode) == "" {
+			reasonCode = failureReasonCodeFromExecutedCommands(report.ExecutedCommands)
+		}
+		failureReasonCodes = appendFailureReasonCodes(failureReasonCodes, reasonCode)
 		// FailureKind precedence: resource-exhaustion kinds (oom,
 		// cpu_limit, timeout) win over build_failure / tests_failed
 		// because they describe a more specific failure mode the
@@ -1801,6 +1808,17 @@ func appendFailureReasonCodes(dst []string, raw string) []string {
 		}
 	}
 	return dst
+}
+
+func failureReasonCodeFromExecutedCommands(commands []types.ExecutedCommand) string {
+	var reasonCodes []string
+	for _, cmd := range commands {
+		reasonCodes = appendFailureReasonCodes(reasonCodes, cmd.ReasonCode)
+	}
+	if len(reasonCodes) == 0 {
+		return ""
+	}
+	return strings.Join(dedupStrings(reasonCodes), ",")
 }
 
 func renderAggregateTestSummary(repoRoot string, plans []runnerPlan, reports []*types.ChangeReport, aggregate *types.ChangeReport) string {

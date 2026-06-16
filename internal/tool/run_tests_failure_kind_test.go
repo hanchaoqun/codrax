@@ -93,6 +93,22 @@ func TestMergeChangeReports_PromotesMostSevereKind(t *testing.T) {
 	}
 }
 
+func TestMergeChangeReports_BackfillsFailureReasonFromCommandEvidence(t *testing.T) {
+	report := &types.ChangeReport{
+		Passed:      false,
+		FailureKind: types.FailureKindParserError,
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "verification_probe",
+			Outcome:    "parser_error",
+			ReasonCode: "verification_probe_exception",
+		}},
+	}
+	merged := mergeChangeReports([]*types.ChangeReport{report})
+	if merged.FailureReasonCode != "verification_probe_exception" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_exception", merged.FailureReasonCode)
+	}
+}
+
 func TestRenderTestSummary_UnavailableDoesNotRenderAsFailedAssertions(t *testing.T) {
 	report := &types.ChangeReport{
 		Passed:      false,

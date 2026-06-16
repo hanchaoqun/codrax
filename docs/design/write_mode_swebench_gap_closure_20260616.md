@@ -647,3 +647,69 @@ Progress:
   `go test ./internal/tool ./internal/types ./internal/agent ./internal/orchestrator ./internal/writeflow`,
   `python3 -m py_compile eval/swebench/run_codrax_swebench.py`,
   `git diff --check`, and `go test ./...`.
+
+### Batch 5A.3: SWE-bench Lite Follow-up Evidence
+
+Run:
+
+- Workdir:
+  `eval/results/swebench/lite-smoke-20260616-astropy12907-pytest5221-xarray4094-current`
+- Instances:
+  `astropy__astropy-12907`, `pydata__xarray-4094`,
+  `pytest-dev__pytest-5221`
+- Command shape:
+  `INSTANCE_IDS_FILE=<ids> SWEBENCH_SMOKE_LIMIT=3 MAX_STEPS=70 CODRAX_TIMEOUT=1800 SWEBENCH_ISOLATE_GIT_HISTORY=1 SWEBENCH_RUN_OFFICIAL=0 eval/swebench/smoke_lite.sh`
+- Adapter verification:
+  `validated 3 prediction(s); empty_patch=0`; official harness dry-run printed
+  a consumable `swebench.harness.run_evaluation` command.
+
+Results:
+
+- `astropy__astropy-12907`: exported source patch exactly matched the SWE-bench
+  gold patch. Local verify remained `unavailable/parser_error` because the
+  historical checkout missed `erfa`; `verify_failure_reason_code` correctly
+  surfaced `verification_probe_module_not_found`.
+- `pydata__xarray-4094`: exported a non-empty source patch, but manual gold
+  audit found it likely wrong. Correct patch adds `drop=True` to
+  `self.sel({variable_dim: k}, drop=True)`; generated patch changed
+  `Dataset(data_dict, compat="override")`. Local behavior probe could not run
+  because dependency resolution installed NumPy 2.x for a historical xarray
+  checkout that still imports `np.unicode_`.
+- `pytest-dev__pytest-5221`: exported a non-empty source patch, but manual gold
+  audit found output-format drift. Correct patch prints `[session scope]` only
+  for non-function scopes and preserves terminal-writer coloring/newline
+  behavior; generated patch emitted `[session]` in the verbose line. Local verify
+  was unavailable due pytest report/text parser startup failure.
+
+New gaps:
+
+- P0: `ChangeReport.failure_reason_code` can still be empty when an unavailable
+  pre-suite verification probe recorded `ExecutedCommand.reason_code` but a
+  later project runner produced the aggregate parser report.
+- P0: historical Python dependency resolution needs a typed compatibility lane;
+  broad lower bounds such as `numpy>=1.15` can resolve to modern incompatible
+  majors, disabling behavior probes and letting wrong patches pass to
+  `predicted_unverified`.
+- P1: plan/context coverage telemetry currently treats symbol labels such as
+  `_cstack function` as uncovered paths; audit metrics should separate path
+  refs from symbol refs instead of lowering path coverage with mixed namespaces.
+- P1: plan status may briefly say `pending_approval` while the approval record is
+  already `auto_execute`; Auto Pilot keeps moving, but the durable state model
+  should expose one canonical user-facing state.
+
+### Batch 5A.4: Verify Reason Handoff Closure
+
+- Backfill `ChangeReport.failure_reason_code` from typed
+  `ExecutedCommand.reason_code` in the final report installation boundary.
+- Backfill merge aggregates from command evidence when child reports omitted
+  their own reason code.
+- Classify unittest loader-only collection/import failures as
+  `unittest_loader_import_error` so environment/test-surface failures retain a
+  bounded subreason without parsing model prose or user intent.
+
+Acceptance:
+
+- Pre-suite probe unavailability followed by project runner parser failure still
+  produces a single `unavailable/parser_error` verdict, but the aggregate report
+  carries the command-derived reason codes for downstream controller, handoff,
+  and SWE-bench adapter consumers.
