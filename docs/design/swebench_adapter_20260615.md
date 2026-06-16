@@ -877,3 +877,17 @@ records adapter results.
   `Axes3D.draw()` body by adding `if not self.get_visible(): return` after
   `_unstale_viewLim()`, with no duplicate `def draw` stutter. The previous
   repo-local public probe false rejection did not recur.
+- 2026-06-16: Implemented the fair-eval git history isolation follow-up as an
+  explicit opt-in flag. `run_codrax_swebench.py --isolate-git-history` now
+  keeps each instance checkout at SWE-bench `base_commit`, deletes all
+  branch/tag refs in the per-instance clone, expires reflogs, prunes
+  unreachable objects, records `git_history_isolation` in `result.json`, and
+  invokes Codrax with `--eval-disable-git-history`. The Codrax flag defaults
+  off and is wired as a typed BusContext/AgentContext signal; when enabled,
+  structured `git_show` / `git_log` / `git_history_search`, ref/range
+  `git_diff`, and shell `exec_command` git history subcommands refuse before
+  exposing VCS history. `smoke_lite.sh` enables the adapter flag by default via
+  `SWEBENCH_ISOLATE_GIT_HISTORY=1`; normal product read/write modes and direct
+  adapter runs without the flag retain git history tooling. The gate consumes
+  typed CLI/config state and parsed git subcommands only, not user intent
+  keywords, model prose, summaries, or issue text.

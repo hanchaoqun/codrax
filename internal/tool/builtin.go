@@ -435,6 +435,9 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		return *decodeFailure, err
 	}
 	command := p.Command
+	if evalGitHistoryDisabled(ctx) && execCommandUsesGitHistoryForEval(command) {
+		return evalGitHistoryDisabledToolResult(t.Name(), fmt.Sprintf("$ %s", sanitizeForBanner(command))), nil
+	}
 	var compatibilityNote string
 	if shouldGateExecCommandAsReadOnly(ctx) {
 		command, compatibilityNote = normalizeReadOnlyExecCommand(command)
@@ -839,6 +842,53 @@ func execCommandHasGitHistoryCommand(command string) bool {
 		}
 	}
 	return false
+}
+
+func execCommandUsesGitHistoryForEval(command string) bool {
+	for _, segment := range shellCommandSegments(command) {
+		tokens := shellWordsForOrigin(segment)
+		if len(tokens) == 0 {
+			continue
+		}
+		gitIdx := effectiveGitTokenIndex(tokens)
+		if gitIdx < 0 {
+			continue
+		}
+		_, subcmd := gitSubcommand(tokens[gitIdx+1:])
+		if gitHistorySubcommandForEval(subcmd) {
+			return true
+		}
+	}
+	return false
+}
+
+func gitHistorySubcommandForEval(subcmd string) bool {
+	switch subcmd {
+	case "show", "log", "rev-list", "rev-parse", "branch", "tag", "describe",
+		"merge-base", "shortlog", "for-each-ref", "blame",
+		"diff", "diff-tree", "diff-index", "format-patch":
+		return true
+	default:
+		return false
+	}
+}
+
+func evalGitHistoryDisabled(ctx *types.BusContext) bool {
+	return ctx != nil && ctx.EvalDisableGitHistory
+}
+
+func evalGitHistoryDisabledToolResult(toolName, operation string) types.ToolResult {
+	operation = strings.TrimSpace(operation)
+	prefix := toolName
+	if operation != "" {
+		prefix = fmt.Sprintf("%s %s", toolName, operation)
+	}
+	return types.ToolResult{
+		ToolName:  toolName,
+		Success:   false,
+		Summary:   fmt.Sprintf("%s refused: git history is disabled by --eval-disable-git-history for fair evaluation; use current checkout files or working-tree-only diff evidence instead.", prefix),
+		Timestamp: time.Now(),
+	}
 }
 
 func shellCommandSegments(command string) []string {
@@ -3467,6 +3517,9 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
 		return *decodeFailure, err
 	}
+	if evalGitHistoryDisabled(ctx) && strings.TrimSpace(p.Ref) != "" {
+		return evalGitHistoryDisabledToolResult(t.Name(), "ref/range diff"), nil
+	}
 
 	stagedStr := ""
 	if p.Staged {
@@ -3587,6 +3640,9 @@ func (t *GitShow) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 	var p gitShowParams
 	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
 		return *decodeFailure, err
+	}
+	if evalGitHistoryDisabled(ctx) {
+		return evalGitHistoryDisabledToolResult(t.Name(), "commit/ref show"), nil
 	}
 	ref, refErr := normalizeGitRefParam(p.Ref, true)
 	if refErr != "" {
@@ -3727,6 +3783,9 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 	var p gitLogParams
 	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
 		return *decodeFailure, err
+	}
+	if evalGitHistoryDisabled(ctx) {
+		return evalGitHistoryDisabledToolResult(t.Name(), "history log"), nil
 	}
 
 	count := p.Count
@@ -3888,6 +3947,9 @@ func (t *GitHistorySearch) Execute(ctx *types.BusContext, params json.RawMessage
 	var p gitHistorySearchParams
 	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
 		return *decodeFailure, err
+	}
+	if evalGitHistoryDisabled(ctx) {
+		return evalGitHistoryDisabledToolResult(t.Name(), "history search"), nil
 	}
 	dir, pathErr := resolveRepoScopedToolDir(ctx, p.RepoPath)
 	if pathErr != "" {

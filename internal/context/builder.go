@@ -76,7 +76,8 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		// gate vs write-mode classifier-only) without reaching back
 		// to BusContext. Zero-value preserves pre-write-mode
 		// behaviour byte-identically.
-		Mode: bus.Mode,
+		Mode:                  bus.Mode,
+		EvalDisableGitHistory: bus.EvalDisableGitHistory,
 		// Read-only handles + value-types that downstream tools need.
 		// Pre-this-fix these were stripped at the agent boundary; the
 		// recall_memory tool returned "unavailable" and the env_recommend

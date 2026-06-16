@@ -903,6 +903,64 @@ func TestDecideWriteModeExecPermission(t *testing.T) {
 	}
 }
 
+func TestEvalDisableGitHistoryGates(t *testing.T) {
+	ctx := &types.BusContext{EvalDisableGitHistory: true}
+	t.Run("exec command refuses git history", func(t *testing.T) {
+		tool := &ExecCommand{}
+		params, _ := json.Marshal(execCommandParams{Command: "git show HEAD"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success || !strings.Contains(result.Summary, "--eval-disable-git-history") {
+			t.Fatalf("git show should be refused by eval history gate, got success=%v summary=%q", result.Success, result.Summary)
+		}
+	})
+
+	t.Run("structured history tools refuse", func(t *testing.T) {
+		cases := []struct {
+			name string
+			tool interface {
+				Execute(*types.BusContext, json.RawMessage) (types.ToolResult, error)
+			}
+			params any
+		}{
+			{"git_show", &GitShow{}, gitShowParams{Ref: "HEAD"}},
+			{"git_log", &GitLog{}, gitLogParams{Count: 1}},
+			{"git_history_search", &GitHistorySearch{}, gitHistorySearchParams{WindowPath: ".", Contains: "needle"}},
+			{"git_diff_ref", &GitDiff{}, gitDiffParams{Ref: "HEAD~1..HEAD"}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				params, _ := json.Marshal(tc.params)
+				result, err := tc.tool.Execute(ctx, params)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if result.Success || !strings.Contains(result.Summary, "--eval-disable-git-history") {
+					t.Fatalf("%s should be refused by eval history gate, got success=%v summary=%q", tc.name, result.Success, result.Summary)
+				}
+			})
+		}
+	})
+
+	t.Run("working tree git diff remains available", func(t *testing.T) {
+		diffCtx := gitWorktreeFixture(t, "old\n")
+		diffCtx.EvalDisableGitHistory = true
+		if err := os.WriteFile(filepath.Join(diffCtx.RepoRoot, "file.txt"), []byte("old\nnew\n"), 0o644); err != nil {
+			t.Fatalf("modify fixture file: %v", err)
+		}
+		params, _ := json.Marshal(gitDiffParams{NameOnly: true})
+		result, err := (&GitDiff{}).Execute(diffCtx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success || !strings.Contains(result.Summary, "file.txt") {
+			t.Fatalf("working-tree git_diff should remain available, got success=%v summary=%q", result.Success, result.Summary)
+		}
+	})
+}
+
 // fakeActiveSetGater is a stand-in for *multigraph.MultiGraph that
 // can't be imported here without a cycle (internal/tool/repomap →
 // internal/tool). We only need to verify that ExecCommand wires

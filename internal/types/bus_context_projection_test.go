@@ -202,6 +202,8 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		ac.EnvFacts = &EnvFacts{}
 	case "EnvRecommendSettings":
 		ac.EnvRecommendSettings = EnvRecommendSettings{Enabled: true}
+	case "EvalDisableGitHistory":
+		ac.EvalDisableGitHistory = true
 	default:
 		return false
 	}
@@ -241,6 +243,8 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		bc.EnvFacts = &EnvFacts{}
 	case "EnvRecommendSettings":
 		bc.EnvRecommendSettings = EnvRecommendSettings{Enabled: true}
+	case "EvalDisableGitHistory":
+		bc.EvalDisableGitHistory = true
 	default:
 		return false
 	}

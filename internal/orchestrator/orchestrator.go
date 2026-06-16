@@ -124,6 +124,14 @@ type Orchestrator struct {
 	// for the lifetime of a single Run().
 	mode types.PipelineMode
 
+	// evalDisableGitHistory is a benchmark-only fairness guard wired by
+	// cmd/root.go from --eval-disable-git-history. Default false keeps
+	// normal product read/write history workflows unchanged. When true,
+	// Run() stamps BusContext.EvalDisableGitHistory so structured git
+	// history tools and shell git-history commands refuse before
+	// consulting repository history.
+	evalDisableGitHistory bool
+
 	// planPath is the absolute path of an existing ChangePlan
 	// JSON file that the apply stage hook should load before dispatching
 	// the coder agent. Populated via SetPlanPath (called by
@@ -953,6 +961,14 @@ func (o *Orchestrator) Mode() types.PipelineMode {
 	return o.mode
 }
 
+// SetEvalDisableGitHistory installs the eval-only fairness guard for
+// subsequent Run() calls. It is deliberately separate from PipelineMode:
+// normal product flows can still use history tools, while benchmark
+// adapters can opt into current-checkout-only behavior.
+func (o *Orchestrator) SetEvalDisableGitHistory(on bool) {
+	o.evalDisableGitHistory = on
+}
+
 // SetPlanPath installs the plan file path for subsequent Run()
 // calls. Used when Mode is ModeApply / ModeVerify to tell
 // the apply stage hook where to load the ChangePlan from. Empty string
@@ -1715,7 +1731,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// depends on this — a caller who never invokes SetMode
 		// reaches this line with o.mode == "" and the switch below
 		// dispatches to the unchanged runTaskPhase.
-		Mode: o.mode.Normalize(),
+		Mode:                  o.mode.Normalize(),
+		EvalDisableGitHistory: o.evalDisableGitHistory,
 		// PlanPath propagates the --plan-file flag / REPL state into
 		// the bus so the apply stage hook / the verify stage hook read a single
 		// authoritative source. Empty for plan-mode and read-mode

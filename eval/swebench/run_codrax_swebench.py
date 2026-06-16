@@ -192,7 +192,47 @@ def ensure_repo_cache(instance: dict[str, Any], args: argparse.Namespace) -> Pat
     return mirror
 
 
-def checkout_instance(instance: dict[str, Any], mirror: Path, repo_dir: Path, args: argparse.Namespace) -> str:
+def isolate_git_history(repo_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
+    """Prune refs/history not reachable from the checked-out base commit.
+
+    Fair SWE-bench runs should not expose future fix commits through `git show`
+    or shell git history. The adapter keeps HEAD at the original base commit
+    (so patches remain comparable) but deletes branch/tag refs, expires reflogs,
+    and prunes unreachable objects inside the per-instance clone.
+    """
+
+    head = run_cmd(["git", "rev-parse", "HEAD"], cwd=repo_dir, timeout=args.git_timeout, check=True).output.strip()
+    refs_result = run_cmd(["git", "for-each-ref", "--format=%(refname)"], cwd=repo_dir, timeout=args.git_timeout, check=True)
+    refs = [line.strip() for line in refs_result.output.splitlines() if line.strip()]
+    deleted_refs: list[str] = []
+    for ref in refs:
+        result = run_cmd(["git", "update-ref", "-d", ref], cwd=repo_dir, timeout=args.git_timeout)
+        if result.code != 0:
+            raise RuntimeError(f"git update-ref -d {ref} failed\n{result.output[-4000:]}")
+        deleted_refs.append(ref)
+    for cmd in (
+        ["git", "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"],
+        ["git", "gc", "--prune=now", "--quiet"],
+    ):
+        result = run_cmd(cmd, cwd=repo_dir, timeout=args.git_timeout)
+        if result.code != 0:
+            raise RuntimeError(f"{' '.join(cmd)} failed\n{result.output[-4000:]}")
+    after = run_cmd(["git", "rev-parse", "HEAD"], cwd=repo_dir, timeout=args.git_timeout, check=True).output.strip()
+    if after != head:
+        raise RuntimeError(f"git history isolation changed HEAD: before={head} after={after}")
+    refs_after = run_cmd(["git", "for-each-ref", "--format=%(refname)"], cwd=repo_dir, timeout=args.git_timeout, check=True)
+    remaining_refs = [line.strip() for line in refs_after.output.splitlines() if line.strip()]
+    if remaining_refs:
+        raise RuntimeError(f"git history isolation left refs behind: {remaining_refs[:20]}")
+    return {
+        "enabled": True,
+        "head": head,
+        "deleted_ref_count": len(deleted_refs),
+        "deleted_refs_preview": deleted_refs[:20],
+    }
+
+
+def checkout_instance(instance: dict[str, Any], mirror: Path, repo_dir: Path, args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     base_commit = required_field(instance, "base_commit")
     if repo_dir.exists():
         shutil.rmtree(repo_dir)
@@ -211,7 +251,12 @@ def checkout_instance(instance: dict[str, Any], mirror: Path, repo_dir: Path, ar
         if result.code != 0:
             raise RuntimeError(f"{' '.join(cmd)} failed\n{result.output[-4000:]}")
     resolved = run_cmd(["git", "rev-parse", "HEAD"], cwd=repo_dir, timeout=args.git_timeout, check=True)
-    return resolved.output.strip()
+    head = resolved.output.strip()
+    isolation = {"enabled": False}
+    if args.isolate_git_history:
+        isolation = isolate_git_history(repo_dir, args)
+        head = str(isolation.get("head") or head)
+    return head, isolation
 
 
 def is_python_project(repo_dir: Path) -> bool:
@@ -707,9 +752,10 @@ def run_codrax(
         args.log_level,
         "--log-dir",
         str(log_dir),
-        "--request",
-        build_request(instance, args),
     ]
+    if args.isolate_git_history:
+        cmd.append("--eval-disable-git-history")
+    cmd.extend(["--request", build_request(instance, args)])
     if args.providers:
         cmd[1:1] = ["--providers", str(Path(args.providers).resolve())]
     result = run_cmd(cmd, cwd=repo_dir, env=env, timeout=args.codrax_timeout)
@@ -1012,8 +1058,10 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
     }
     try:
         mirror = ensure_repo_cache(instance, args)
-        base = checkout_instance(instance, mirror, repo_dir, args)
+        base, history_isolation = checkout_instance(instance, mirror, repo_dir, args)
         result["base_commit_resolved"] = base
+        result["git_history_isolated"] = bool(history_isolation.get("enabled"))
+        result["git_history_isolation"] = history_isolation
         env_updates, env_record = prepare_python_env(repo_dir, inst_dir, args)
         result["env_prepare"] = env_record
         result["env_prepare_status"] = str(env_record.get("status") or "")
@@ -1145,6 +1193,11 @@ def parse_args() -> argparse.Namespace:
         "--include-test-patches",
         action="store_true",
         help="Include repository test/spec file changes in exported predictions; default strips them for SWE-bench scoring",
+    )
+    parser.add_argument(
+        "--isolate-git-history",
+        action="store_true",
+        help="Fair-eval: keep checkout at base_commit but prune future git refs/history and pass --eval-disable-git-history to Codrax",
     )
     parser.add_argument("--env-prepare-timeout", type=int, default=600, help="Timeout in seconds per Python environment setup command")
     parser.add_argument("--no-fetch", action="store_true", help="Do not fetch existing mirror caches")

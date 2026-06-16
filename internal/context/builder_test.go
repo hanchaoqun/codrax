@@ -13,12 +13,13 @@ import (
 
 func TestBuildAgentContext(t *testing.T) {
 	bus := &types.BusContext{
-		PipelineStage: types.StageExplore,
-		ActiveAgent:   types.AgentExplorer,
-		RepoRoot:      "/tmp/repo",
-		Branch:        "main",
-		Commit:        "abc123",
-		Mutable:       types.NewMutableState("Fix the bug"),
+		PipelineStage:         types.StageExplore,
+		ActiveAgent:           types.AgentExplorer,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Commit:                "abc123",
+		EvalDisableGitHistory: true,
+		Mutable:               types.NewMutableState("Fix the bug"),
 		TaskState: types.TaskState{
 			Stage:   types.StageExplore,
 			Missing: types.MissingFacts,
@@ -46,6 +47,9 @@ func TestBuildAgentContext(t *testing.T) {
 		}
 		if ac.RepoRoot != "/tmp/repo" {
 			t.Errorf("got repo %q, want %q", ac.RepoRoot, "/tmp/repo")
+		}
+		if !ac.EvalDisableGitHistory {
+			t.Errorf("EvalDisableGitHistory was not propagated")
 		}
 	})
 

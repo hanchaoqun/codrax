@@ -102,18 +102,19 @@ const (
 
 // CLI flag variables.
 var (
-	flagProviders string
-	flagRepo      string
-	flagBranch    string
-	flagRequest   string
-	flagMaxSteps  int
-	flagLogDir    string
-	flagLogLevel  string
-	flagLogStdout bool
-	flagMemoryDir string
-	flagCacheDir  string
-	flagLang      string
-	flagColor     string
+	flagProviders             string
+	flagRepo                  string
+	flagBranch                string
+	flagRequest               string
+	flagMaxSteps              int
+	flagLogDir                string
+	flagLogLevel              string
+	flagLogStdout             bool
+	flagMemoryDir             string
+	flagCacheDir              string
+	flagLang                  string
+	flagColor                 string
+	flagEvalDisableGitHistory bool
 	// flagFocus is the multi-repo focus pin set passed at process
 	// startup. Empty (default) = no pin; the routing fold's A
 	// channel is empty and the auto-active set falls back to
@@ -529,6 +530,7 @@ func init() {
 	f.StringVar(&flagCacheDir, "cache-dir", "", "base directory for repo map caches (empty = ~/.codrax/cache; %USERPROFILE%\\.codrax\\cache on Windows)")
 	f.StringVar(&flagLang, "lang", defaultLang, "default response language (zh/en/...); 'off' to disable")
 	f.StringVar(&flagColor, "color", "auto", "color mode for diff rendering: auto (TTY-detect, default) | always | never. NO_COLOR env always forces never.")
+	f.BoolVar(&flagEvalDisableGitHistory, "eval-disable-git-history", false, "eval-only: disable git history tools for fair benchmarks; default false")
 	// --focus pins one or more sub-repos into the multi-repo active
 	// set at startup. Repeatable + comma-separated values supported
 	// (`--focus repoA --focus repoB,repoC`). Each value is a
@@ -3729,6 +3731,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 	}
 	orch.SetMode(effectiveMode)
+	orch.SetEvalDisableGitHistory(flagEvalDisableGitHistory)
 	// B1.2 wiring: plumb the --plan-file value + the worktree base
 	// directory into the orchestrator so the apply stage hook can load the
 	// ChangePlan and provision a worktree. Both calls are safe to

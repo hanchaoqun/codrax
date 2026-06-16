@@ -5582,6 +5582,14 @@ type BusContext struct {
 	// internal/types/pipeline_mode.go for constants.
 	Mode PipelineMode `json:"mode,omitempty"`
 
+	// EvalDisableGitHistory is an eval-only fairness guard. Normal
+	// product runs leave it false so VCS history tools keep working;
+	// SWE-bench style fair runs may set it to force tools to consume
+	// only the current checkout/worktree state. Because tool dispatches
+	// receive narrowed BusContext views, this field is mirrored in
+	// AgentContext and listed in projectionTypedSignalFields.
+	EvalDisableGitHistory bool `json:"eval_disable_git_history,omitempty"`
+
 	// MainRepoRoot is the original target repo root the user passed
 	// via --repo. In read-only mode equals RepoRoot throughout the
 	// Run. In write modes the apply/verify stages swap RepoRoot to
@@ -5888,6 +5896,10 @@ type AgentContext struct {
 	Branch   string `json:"branch"`
 	Commit   string `json:"commit"`
 	WorkDir  string `json:"work_dir,omitempty"`
+
+	// EvalDisableGitHistory mirrors BusContext.EvalDisableGitHistory
+	// through agent/tool projections. Eval-only; default false.
+	EvalDisableGitHistory bool `json:"eval_disable_git_history,omitempty"`
 
 	// MainRepoRoot mirrors BusContext.MainRepoRoot — the original
 	// user-supplied target repo path BEFORE any worktree swap that

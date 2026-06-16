@@ -150,6 +150,7 @@ Run against Hugging Face SWE-bench Lite:
 eval/results/swebench/.venv/bin/python eval/swebench/run_codrax_swebench.py \
   --dataset-name SWE-bench/SWE-bench_Lite \
   --split test \
+  --isolate-git-history \
   --prepare-python-env \
   --limit 10
 ```
@@ -167,3 +168,12 @@ All run artifacts live under `eval/results/swebench/`, which is ignored by Git.
 The adapter invokes Codrax through its public CLI and exports the already
 materialized applied ref or worktree diff, so read mode, trace/log/data paths,
 and the write-mode runtime remain unchanged.
+
+Fair-eval git history isolation is opt-in on the adapter with
+`--isolate-git-history` and enabled by default only in `smoke_lite.sh`
+(`SWEBENCH_ISOLATE_GIT_HISTORY=1`). When enabled, the per-instance checkout
+stays at the SWE-bench `base_commit`, but branch/tag refs are deleted, reflogs
+are expired, unreachable objects are pruned, and Codrax is invoked with
+`--eval-disable-git-history` so structured git history tools and shell git
+history commands refuse before exposing future fix commits. Normal Codrax runs
+and direct adapter runs without this flag keep git history tools available.
