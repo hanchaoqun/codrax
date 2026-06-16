@@ -1506,3 +1506,79 @@ Red-line check:
   exact added-line membership, indentation, and terminal-statement syntax. It
   does not inspect user issue text, SWE-bench ids, model prose, summaries,
   rationale, logs, or `<think>` text.
+
+## 2026-06-17 Lite Smoke: Probe-Only Confidence And Prior Context Coverage
+
+Command shape:
+
+```bash
+WORKDIR=eval/results/swebench/lite-smoke-20260617-pytest5413-pylint6506-xarray4094-current
+INSTANCE_IDS_FILE=[pytest-dev__pytest-5413, pylint-dev__pylint-6506, pydata__xarray-4094]
+SWEBENCH_SMOKE_LIMIT=3
+MAX_STEPS=80
+CODRAX_TIMEOUT=1800
+SWEBENCH_ENV_PREPARE_TIMEOUT=900
+CODRAX_PROGRESS_INTERVAL=60
+eval/swebench/smoke_lite.sh
+```
+
+Artifacts:
+
+- Predictions:
+  `eval/results/swebench/lite-smoke-20260617-pytest5413-pylint6506-xarray4094-current/predictions.jsonl`
+- Results:
+  `eval/results/swebench/lite-smoke-20260617-pytest5413-pylint6506-xarray4094-current/results.jsonl`
+- `validate_predictions.py` accepted 3 predictions; `empty_patch=0`.
+- Official SWE-bench harness dry-run command was emitted and accepted the
+  predictions path.
+
+Telemetry and audit:
+
+| Instance | Local verdict before fix | Human audit | System signal |
+| --- | --- | --- | --- |
+| `pydata__xarray-4094` | `predicted_failed_verify`, workflow still `in_progress` | Patch is wrong and verify correctly failed. It changed `concat.py` / `dataset.py`; gold fixes `dataarray.py::to_unstacked_dataset`. | Online loop performed explore -> plan -> apply -> verify fail -> replan cycles. Adapter already marked `final_plan_covers_exported_source_patch=false` and blocked local acceptance. |
+| `pylint-dev__pylint-6506` | `predicted_passed`, `prediction_local_confidence=high` | Patch is too shallow: it catches `_UnrecognizedOptionError` in `pylint/__init__.py`; gold fixes `config_initialization.py` by using argparse error handling. | Local verdict was based only on model-authored verification probes. Prior P1 context paths were `pylint/config/exceptions.py`, `pylint/lint/run.py`, and `pylint/config/config_initialization.py`; final source path `pylint/__init__.py` had no prior context coverage. |
+| `pytest-dev__pytest-5413` | `predicted_unverified` | Patch adds `RaisesContext.__str__`, while gold removes `ExceptionInfo.__str__`; local runner was unavailable due parser error. | Exploration saw `src/_pytest/_code/code.py`, `src/_pytest/outcomes.py`, and `src/_pytest/python_api.py`; verify did not prove behavior. |
+
+Systemic gap:
+
+- `plan_context_coverage` existed, but it was not part of local prediction
+  confidence. A patch could be marked high confidence when:
+  - verification passed only through planner-authored probes;
+  - the changed source file had no P0/P1 prior localization coverage;
+  - project-level suites were merely skipped as test-surface diagnostics.
+- This is not a Pylint-specific issue. It is a general "self-probe proves the
+  model's chosen entrypoint, not necessarily the localized root-cause layer"
+  failure mode.
+- The fix must remain soft/audit-only. Prior context coverage is a localization
+  strength signal, not a precise semantic proof; using it as an apply hard gate
+  would violate the precise-signal hard-gate rule and hurt stable scenarios.
+
+Fix landed in this batch:
+
+- SWE-bench adapter now exposes `plan_context_missing_source_paths`.
+- `file.py:Symbol` context anchors are normalized to file-level paths for
+  coverage comparison.
+- `prediction_confidence_downgrade_reason()` now returns
+  `verification_probe_changed_source_not_context_covered` when local success
+  depends only on verification probes and the changed source file lacks prior
+  P0/P1 context-pack coverage.
+- Official predictions remain exported for the SWE-bench harness. The change
+  only prevents weak localization from being labeled high local confidence.
+
+Verification:
+
+- `python3 eval/swebench/run_codrax_swebench_test.py` PASS.
+- Existing three-instance artifacts demonstrate the pre-fix gap:
+  `pylint-dev__pylint-6506` had `plan_context_coverage_ratio=0.0`,
+  `plan_context_paths=[pylint/config/exceptions.py, pylint/lint/run.py,
+  pylint/config/config_initialization.py]`, and
+  `final_plan_source_paths=[pylint/__init__.py]`.
+
+Red-line check:
+
+- The confidence downgrade consumes only typed ChangePlan paths,
+  durable workflow/context-pack paths, typed report verdicts, and typed
+  executed-command/probe metadata.
+- It does not inspect user issue text, SWE-bench ids, model prose, summaries,
+  rationale, stdout text, or `<think>` text.

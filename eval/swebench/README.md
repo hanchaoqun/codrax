@@ -85,6 +85,7 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `plan_verification_probe_count`, `workflow_run_id`, `workflow_status`,
 `plan_context_paths`, `plan_context_covered_paths`,
 `plan_context_uncovered_paths`, `plan_context_coverage_ratio`,
+`plan_context_missing_source_paths`,
 `exported_patch_paths`, `exported_patch_source_paths`,
 `exported_patch_test_paths`, `final_plan_source_paths`,
 `final_plan_test_only`, `final_plan_covers_exported_source_patch`,
@@ -118,7 +119,10 @@ failed local verification remains non-blocking for official SWE-bench export
 when a source patch exists, but the adapter records the typed reason in
 `prediction_confidence_downgrade_reason` so local confidence never looks high
 when the project environment, probe, build, or tests could not produce a
-behavior verdict.
+behavior verdict. A probe-only passed verdict is also downgraded when the
+changed source file has no prior P0/P1 context-pack coverage; this consumes only
+typed ChangePlan paths and durable context-pack paths and is audit telemetry, not
+an apply/verify hard gate.
 By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only

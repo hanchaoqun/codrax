@@ -1230,6 +1230,23 @@ def normalize_repo_rel_path(raw: Any) -> str:
     return "/".join(parts)
 
 
+def normalize_repo_rel_file_path(raw: Any) -> str:
+    """Normalize a repo-relative path-like token for file-level comparison.
+
+    Context packs sometimes carry symbol-qualified anchors such as
+    `src/pkg/module.py:ClassName`. SWE-bench audit coverage compares changed
+    source files, not symbols, so collapse those anchors to their file path.
+    """
+
+    path = normalize_repo_rel_path(raw)
+    if not path or ":" not in path:
+        return path
+    head, _tail = path.split(":", 1)
+    if head and ("/" in head or "." in Path(head).name):
+        return head
+    return path
+
+
 def load_latest_workflow_run(repo_dir: Path, inst_dir: Path) -> tuple[dict[str, Any], str]:
     candidates: list[tuple[float, Path]] = []
     for root in (
@@ -1277,9 +1294,9 @@ def workflow_context_paths(workflow: dict[str, Any]) -> list[str]:
             path = ""
             evidence = item.get("evidence_ref")
             if kind == "evidence_ref" and isinstance(evidence, dict):
-                path = normalize_repo_rel_path(evidence.get("source"))
+                path = normalize_repo_rel_file_path(evidence.get("source"))
             elif kind in {"target_file", "scope_anchor"}:
-                path = normalize_repo_rel_path(item.get("text"))
+                path = normalize_repo_rel_file_path(item.get("text"))
             if path and not is_test_patch_path(path):
                 paths.append(path)
     return sorted(set(paths))
@@ -1292,7 +1309,7 @@ def summarize_plan_context_coverage(
 ) -> dict[str, Any]:
     context_paths = workflow_context_paths(workflow)
     plan_paths = sorted(set(
-        path for path in (normalize_repo_rel_path(p) for p in [*target_paths, *change_paths]) if path
+        path for path in (normalize_repo_rel_file_path(p) for p in [*target_paths, *change_paths]) if path
     ))
     covered = [path for path in context_paths if path in plan_paths]
     uncovered = [path for path in context_paths if path not in plan_paths]
@@ -1305,6 +1322,31 @@ def summarize_plan_context_coverage(
         "plan_context_uncovered_paths": uncovered,
         "plan_context_coverage_ratio": ratio,
     }
+
+
+def plan_source_paths_missing_prior_context(
+    plan_source_paths: Iterable[str],
+    context_paths: Iterable[str],
+) -> list[str]:
+    """Return changed source files that lack prior typed localization context.
+
+    This is intentionally audit-only. It consumes persisted typed context-pack
+    paths and ChangePlan paths; it never reads issue text or model prose.
+    """
+
+    context = {
+        path
+        for path in (normalize_repo_rel_file_path(p) for p in context_paths)
+        if path and not is_test_patch_path(path)
+    }
+    if not context:
+        return []
+    out = {
+        path
+        for path in (normalize_repo_rel_file_path(p) for p in plan_source_paths)
+        if path and not is_test_patch_path(path) and path not in context
+    }
+    return sorted(out)
 
 
 def report_verification_status(report: dict[str, Any]) -> str:
@@ -1401,6 +1443,8 @@ def prediction_confidence_downgrade_reason(
     plan: dict[str, Any] | None,
     report: dict[str, Any] | None,
     verify_status: str,
+    plan_source_paths: Iterable[str] | None = None,
+    plan_context_paths: Iterable[str] | None = None,
 ) -> str:
     """Return a typed reason why local confidence is below high.
 
@@ -1437,6 +1481,10 @@ def prediction_confidence_downgrade_reason(
         return "verification_probe_missing_changed_symbol_ref"
     if baseline_expected:
         return "verification_probe_baseline_not_run"
+    if plan_source_paths is not None and plan_context_paths is not None:
+        missing_source_context = plan_source_paths_missing_prior_context(plan_source_paths, plan_context_paths)
+        if missing_source_context:
+            return "verification_probe_changed_source_not_context_covered"
     return ""
 
 
@@ -1710,6 +1758,10 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         result["final_plan_covers_exported_source_patch"] = (
             None if not exported_source_paths else all(path in plan_source_path_set for path in exported_source_paths)
         )
+        result["plan_context_missing_source_paths"] = plan_source_paths_missing_prior_context(
+            plan_source_paths,
+            result.get("plan_context_paths") if isinstance(result.get("plan_context_paths"), list) else [],
+        )
         result["patch_bytes"] = len(patch.encode("utf-8"))
         audit_block_reason = prediction_audit_block_reason(
             exported_source_paths=exported_source_paths,
@@ -1725,6 +1777,8 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             plan=plan,
             report=report,
             verify_status=str(result.get("verify_status") or ""),
+            plan_source_paths=plan_source_paths,
+            plan_context_paths=result.get("plan_context_paths") if isinstance(result.get("plan_context_paths"), list) else [],
         )
         result["prediction_confidence_downgrade_reason"] = confidence_downgrade_reason
         verdict, confidence, blocks_local_acceptance = prediction_verdict(
