@@ -58,7 +58,11 @@ through to pip; dev requirements are used only as a bounded fallback when no
 test-focused requirements file exists. Legacy projects that only declare
 dependencies in `setup.py` are parsed with Python AST; any structured
 `install_requires` / `setup_requires` entries are installed best-effort before
-editable install. If editable installation still fails because pip's isolated
+editable install. For historical projects with broad lower-bound-only
+dependency declarations, the adapter may add temporary compatibility constraints
+to the eval venv, such as `numpy<2` when the project declares NumPy without a
+major-version ceiling; pass `--disable-python-compat-constraints` to turn this
+off. If editable installation still fails because pip's isolated
 build environment did not inherit that legacy compatibility, the adapter
 performs one bounded `--no-build-isolation` retry. Finally, a non-blocking import
 probe records whether discovered checkout import roots are usable in the venv.
@@ -68,7 +72,8 @@ telemetry is stable both as a nested object and as top-level result fields:
 `env_prepare_status`, `env_prepare_success`, `env_prepare_env_available`,
 `env_prepare_failure_kind`, `env_prepare_pytest_available`,
 `env_prepare_pytest_json_report_available`, `env_prepare_import_probe_ok`,
-`env_prepare_import_roots`, `env_prepare_venv_python`, and
+`env_prepare_import_roots`, `env_prepare_source_roots`,
+`env_prepare_python_compat_constraints`, `env_prepare_venv_python`, and
 `env_prepare_failed_step_names`. Those fields are observational only; missing
 pytest or partial dependency setup is not a hard code-failure gate.
 `results.jsonl` also includes Codrax's typed local verifier verdict

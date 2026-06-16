@@ -857,7 +857,7 @@ func TestRunTestsVerificationProbePythonPackageWorkingDirExecutesAtProjectRoot(t
 	}
 }
 
-func TestRunTestsVerificationProbeUnhandledExceptionIsParserError(t *testing.T) {
+func TestRunTestsVerificationProbeRuntimeExceptionIsTestFailure(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
 	}
@@ -896,14 +896,14 @@ func TestRunTestsVerificationProbeUnhandledExceptionIsParserError(t *testing.T) 
 	if report == nil {
 		t.Fatal("run_tests should populate ChangeReport")
 	}
-	if report.FailureKind != types.FailureKindParserError {
-		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	if report.FailureKind != types.FailureKindTestsFailed {
+		t.Fatalf("FailureKind = %q, want tests_failed; report=%+v", report.FailureKind, report)
 	}
 	if report.FailureReasonCode != "verification_probe_exception" {
 		t.Fatalf("FailureReasonCode = %q, want verification_probe_exception; report=%+v", report.FailureReasonCode, report)
 	}
-	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
-		t.Fatalf("VerificationStatus = %q, want unavailable", got)
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed", got)
 	}
 	if len(report.TestResults) != 1 || report.TestResults[0].AssertionID != "missing_xml_artifact" || report.TestResults[0].Passed {
 		t.Fatalf("verification probe result missing or wrong: %+v", report.TestResults)
@@ -911,14 +911,114 @@ func TestRunTestsVerificationProbeUnhandledExceptionIsParserError(t *testing.T) 
 	if !strings.Contains(report.TestResults[0].FailureDetail, "structured outcome: exception") {
 		t.Fatalf("failure detail should include structured exception outcome, got: %s", report.TestResults[0].FailureDetail)
 	}
-	foundParserErrorCommand := false
+	foundFailedCommand := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_exception" {
-			foundParserErrorCommand = true
+		if cmd.Runner == "verification_probe" && cmd.Outcome == "executed" && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_exception" {
+			foundFailedCommand = true
 		}
 	}
-	if !foundParserErrorCommand {
-		t.Fatalf("executed command evidence should include parser_error probe reason_code, got %+v", report.ExecutedCommands)
+	if !foundFailedCommand {
+		t.Fatalf("executed command evidence should include failing probe reason_code, got %+v", report.ExecutedCommands)
+	}
+}
+
+func TestRunTestsVerificationProbeNameErrorIsParserError(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe name error")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-name-error",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "bad_probe_symbol",
+			Language: "python",
+			Code:     "missing_probe_symbol\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("NameError verification_probe must not pass run_tests, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode != "verification_probe_name_error" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_name_error; report=%+v", report.FailureReasonCode, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("VerificationStatus = %q, want unavailable", got)
+	}
+}
+
+func TestRunTestsVerificationProbeProductNameErrorIsTestFailure(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("def explode():\n    return missing_product_symbol\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("product name error")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-product-name-error",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "product_name_error",
+			Language: "python",
+			Code:     "import widget\nwidget.explode()\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("product NameError verification_probe must not pass run_tests, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.FailureKind != types.FailureKindTestsFailed {
+		t.Fatalf("FailureKind = %q, want tests_failed; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode != "verification_probe_name_error" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_name_error; report=%+v", report.FailureReasonCode, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed", got)
 	}
 }
 

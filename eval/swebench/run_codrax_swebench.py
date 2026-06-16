@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import configparser
 import json
 import os
 import re
@@ -43,6 +44,12 @@ GOLD_ARTIFACT_FIELDS = {
     "PASS_TO_PASS",
     "fail_to_pass",
     "pass_to_pass",
+}
+PYTHON_COMPAT_CONSTRAINT_POLICIES = {
+    "numpy": {
+        "constraint": "numpy<2",
+        "reason_code": "lower_bound_without_major_ceiling",
+    },
 }
 
 
@@ -384,6 +391,108 @@ def setup_py_declared_requires(repo_dir: Path) -> list[str]:
     return out[:64]
 
 
+def setup_cfg_declared_requires(repo_dir: Path) -> list[str]:
+    setup_cfg = repo_dir / "setup.cfg"
+    if not setup_cfg.exists() or setup_cfg.stat().st_size > 2_000_000:
+        return []
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read(setup_cfg, encoding="utf-8")
+    except Exception:
+        return []
+    raw: list[str] = []
+    if parser.has_section("options"):
+        for key in ("install_requires", "setup_requires"):
+            if parser.has_option("options", key):
+                raw.extend(parser.get("options", key).splitlines())
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        value = item.strip()
+        if not value or value.startswith("#"):
+            continue
+        if value not in seen:
+            out.append(value)
+            seen.add(value)
+    return out[:64]
+
+
+def requirement_lines_from_file(path: Path) -> list[str]:
+    if not path.is_file():
+        return []
+    try:
+        if path.stat().st_size > 1_000_000:
+            return []
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return []
+    out: list[str] = []
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line or line.startswith(("-", "http://", "https://", ".")):
+            continue
+        out.append(line)
+    return out[:256]
+
+
+def requirement_package_name(requirement: str) -> str:
+    text = requirement.strip()
+    if not text:
+        return ""
+    match = re.match(r"^([A-Za-z0-9_.-]+)", text)
+    if not match:
+        return ""
+    return match.group(1).replace("_", "-").lower()
+
+
+def requirement_has_major_ceiling(requirement: str) -> bool:
+    text = requirement.split(";", 1)[0].strip()
+    if not text:
+        return False
+    return any(op in text for op in ("<", "~=", "===", "=="))
+
+
+def declared_python_requirements(repo_dir: Path, requirement_files: list[dict[str, str]]) -> list[str]:
+    raw: list[str] = []
+    raw.extend(setup_py_declared_requires(repo_dir))
+    raw.extend(setup_cfg_declared_requires(repo_dir))
+    for item in requirement_files:
+        rel = item.get("path") or ""
+        if rel:
+            raw.extend(requirement_lines_from_file(repo_dir / rel))
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        value = item.strip()
+        if value and value not in seen:
+            out.append(value)
+            seen.add(value)
+    return out[:512]
+
+
+def python_compat_constraints(requirements: list[str]) -> list[dict[str, str]]:
+    by_name: dict[str, list[str]] = {}
+    for req in requirements:
+        name = requirement_package_name(req)
+        if name:
+            by_name.setdefault(name, []).append(req)
+    out: list[dict[str, str]] = []
+    for package, policy in sorted(PYTHON_COMPAT_CONSTRAINT_POLICIES.items()):
+        package_reqs = by_name.get(package, [])
+        if not package_reqs:
+            continue
+        if any(requirement_has_major_ceiling(req) for req in package_reqs):
+            continue
+        out.append(
+            {
+                "package": package,
+                "constraint": str(policy["constraint"]),
+                "reason_code": str(policy["reason_code"]),
+            }
+        )
+    return out
+
+
 def discover_python_requirement_files(repo_dir: Path) -> list[dict[str, str]]:
     """Return runtime/test requirement files worth installing best-effort.
 
@@ -677,13 +786,32 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         env_updates["PYTHONPATH"] = prepend_pythonpath(env_base, source_roots)
         record["pythonpath"] = env_updates["PYTHONPATH"]
     constraint_files = discover_python_constraint_files(repo_dir)
+    requirement_files = discover_python_requirement_files(repo_dir)
+    declared_requires = declared_python_requirements(repo_dir, requirement_files)
+    if declared_requires:
+        record["python_declared_requires"] = declared_requires
+    compat_constraint_path: Path | None = None
+    compat_constraints: list[dict[str, str]] = []
+    if not bool(args.disable_python_compat_constraints):
+        compat_constraints = python_compat_constraints(declared_requires)
+        if compat_constraints:
+            compat_constraint_path = inst_dir / "python-compat-constraints.txt"
+            compat_constraint_path.write_text(
+                "\n".join(item["constraint"] for item in compat_constraints) + "\n",
+                encoding="utf-8",
+            )
+            record["python_compat_constraints"] = compat_constraints
+            record["python_compat_constraints_path"] = str(compat_constraint_path)
     if constraint_files:
         record["python_constraint_files"] = constraint_files
+    constraint_paths = [repo_dir / rel for rel in constraint_files]
+    if compat_constraint_path is not None:
+        constraint_paths.append(compat_constraint_path)
 
     def pip_install_cmd(*items: str) -> list[str]:
         cmd = [str(python), "-m", "pip", "install"]
-        for rel in constraint_files:
-            cmd.extend(["-c", str(repo_dir / rel)])
+        for path in constraint_paths:
+            cmd.extend(["-c", str(path)])
         cmd.extend(items)
         return cmd
 
@@ -707,7 +835,6 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
             project_failed = True
         else:
             record["pkg_resources_available"] = True
-    requirement_files = discover_python_requirement_files(repo_dir)
     if requirement_files:
         record["python_requirement_files"] = requirement_files
         for index, item in enumerate(requirement_files, 1):
@@ -1246,6 +1373,7 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         result["env_prepare_import_probe_ok"] = env_record.get("import_probe_ok")
         result["env_prepare_import_roots"] = env_record.get("import_roots") or []
         result["env_prepare_source_roots"] = env_record.get("source_roots") or []
+        result["env_prepare_python_compat_constraints"] = env_record.get("python_compat_constraints") or []
         result["env_prepare_venv_python"] = str(env_record.get("venv_python") or "")
         result["env_prepare_failed_step_names"] = env_record.get("failed_step_names") or []
         (inst_dir / "env_prepare.json").write_text(json.dumps(env_record, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
@@ -1390,6 +1518,11 @@ def parse_args() -> argparse.Namespace:
         help="Fair-eval: keep checkout at base_commit but prune future git refs/history and pass --eval-disable-git-history to Codrax",
     )
     parser.add_argument("--env-prepare-timeout", type=int, default=600, help="Timeout in seconds per Python environment setup command")
+    parser.add_argument(
+        "--disable-python-compat-constraints",
+        action="store_true",
+        help="Disable adapter-generated Python compatibility constraints for broad lower-bound-only dependency specs",
+    )
     parser.add_argument("--no-fetch", action="store_true", help="Do not fetch existing mirror caches")
     return parser.parse_args()
 

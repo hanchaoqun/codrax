@@ -23,9 +23,10 @@ type verificationProbeRunResult struct {
 }
 
 type pythonVerificationProbeStatus struct {
-	Outcome   string `json:"outcome,omitempty"`
-	Exception string `json:"exception,omitempty"`
-	ExitCode  int    `json:"exit_code,omitempty"`
+	Outcome       string `json:"outcome,omitempty"`
+	Exception     string `json:"exception,omitempty"`
+	ExitCode      int    `json:"exit_code,omitempty"`
+	ProbeTopLevel bool   `json:"probe_top_level,omitempty"`
 }
 
 const pythonVerificationProbeWrapper = `
@@ -38,11 +39,19 @@ import traceback
 result_path = os.environ.get("CODRAX_VERIFICATION_PROBE_RESULT", "")
 encoded = os.environ.get("CODRAX_VERIFICATION_PROBE_CODE", "")
 
-def write_result(outcome, exception="", exit_code=0):
+def probe_top_level_exception(exc):
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames:
+        return False
+    has_probe_frame = any(frame.filename == "<codrax_verification_probe>" for frame in frames)
+    has_product_frame = any(frame.filename not in ("<string>", "<codrax_verification_probe>") for frame in frames)
+    return bool(has_probe_frame and not has_product_frame)
+
+def write_result(outcome, exception="", exit_code=0, probe_top_level=False):
     if not result_path:
         return
     with open(result_path, "w", encoding="utf-8") as handle:
-        json.dump({"outcome": outcome, "exception": exception, "exit_code": int(exit_code or 0)}, handle, sort_keys=True)
+        json.dump({"outcome": outcome, "exception": exception, "exit_code": int(exit_code or 0), "probe_top_level": bool(probe_top_level)}, handle, sort_keys=True)
 
 try:
     source = base64.b64decode(encoded.encode("ascii")).decode("utf-8")
@@ -67,7 +76,7 @@ except SyntaxError as exc:
     sys.exit(1)
 except BaseException as exc:
     traceback.print_exc()
-    write_result("exception", exc.__class__.__name__, 1)
+    write_result("exception", exc.__class__.__name__, 1, probe_top_level_exception(exc))
     sys.exit(1)
 else:
     write_result("passed", "", 0)
@@ -286,15 +295,20 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		case "assertion_failed", "system_exit":
 			passed = false
 			failureKind = types.FailureKindTestsFailed
-		// Unhandled probe exceptions are probe/runtime failures, not an
-		// authoritative product-code assertion. Keep them out of the
-		// verify->replan hard-failure lane; the project runner can still
-		// provide a stronger verdict after this pre-suite probe degrades.
-		case "import_error", "syntax_error", "exception":
+		case "import_error", "syntax_error":
 			passed = false
 			outcome = "parser_error"
 			failureKind = types.FailureKindParserError
 			reasonCode = pythonVerificationProbeReasonCode(probeStatus)
+		case "exception":
+			passed = false
+			reasonCode = pythonVerificationProbeReasonCode(probeStatus)
+			if pythonVerificationProbeExceptionIsInfrastructure(probeStatus) {
+				outcome = "parser_error"
+				failureKind = types.FailureKindParserError
+			} else {
+				failureKind = types.FailureKindTestsFailed
+			}
 		default:
 			passed = false
 			outcome = "parser_error"
@@ -387,6 +401,10 @@ func pythonVerificationProbeReasonCode(status pythonVerificationProbeStatus) str
 	case "syntax_error":
 		return "verification_probe_syntax_error"
 	case "exception":
+		switch exception {
+		case "NameError":
+			return "verification_probe_name_error"
+		}
 		if exception != "" {
 			return "verification_probe_exception"
 		}
@@ -396,6 +414,18 @@ func pythonVerificationProbeReasonCode(status pythonVerificationProbeStatus) str
 			return "verification_probe_unclassified_" + strings.ReplaceAll(outcome, "-", "_")
 		}
 		return "verification_probe_unclassified"
+	}
+}
+
+func pythonVerificationProbeExceptionIsInfrastructure(status pythonVerificationProbeStatus) bool {
+	if !status.ProbeTopLevel {
+		return false
+	}
+	switch strings.TrimSpace(status.Exception) {
+	case "NameError":
+		return true
+	default:
+		return false
 	}
 }
 

@@ -713,3 +713,40 @@ Acceptance:
   produces a single `unavailable/parser_error` verdict, but the aggregate report
   carries the command-derived reason codes for downstream controller, handoff,
   and SWE-bench adapter consumers.
+
+### Batch 5A.5: SWE-bench Python Compatibility Constraints
+
+- Generate temporary eval-only pip constraints from structured Python dependency
+  declarations when a historical project declares broad lower-bound-only
+  requirements with no major-version ceiling.
+- Initial policy: if declared requirements include NumPy but no NumPy major
+  ceiling, add `numpy<2` to the per-instance venv constraints. This is typed
+  dependency policy, not problem-text or model-output matching.
+- Expose telemetry as `env_prepare_python_compat_constraints`; allow exact
+  environment debugging with `--disable-python-compat-constraints`.
+
+Acceptance:
+
+- Historical Python projects that are incompatible with dependency major
+  releases can run behavior probes more often, while prediction export remains
+  non-blocking and official SWE-bench scoring remains authoritative.
+
+### Batch 5A.6: Verification Probe Runtime Verdicts
+
+- Treat Python verification probe runtime exceptions as typed behavior failures
+  when traceback structure shows the exception reached product code or an
+  executable behavior assertion.
+- Keep probe-infrastructure failures out of the hard replan lane by using the
+  structured `probe_top_level` status emitted by the probe wrapper; a top-level
+  probe `NameError` remains `parser_error/unavailable`.
+- This avoids the xarray-style gap where a wrong behavioral change raises a
+  runtime exception during the probe but the controller incorrectly accepts the
+  run as locally unverified.
+
+Acceptance:
+
+- Product-code runtime exceptions from bounded probes normalize to
+  `tests_failed/failed` and feed failure evidence into controller replan.
+- Probe authoring/configuration failures normalize to
+  `parser_error/unavailable`, preserving the rule that missing or broken local
+  test harnesses do not hard-block delivery.
