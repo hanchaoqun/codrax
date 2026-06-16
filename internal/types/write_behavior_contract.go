@@ -96,6 +96,7 @@ func IsKnownWriteBehaviorPolarity(v string) bool {
 func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcomes []string) []WriteBehaviorContract {
 	out := make([]WriteBehaviorContract, 0, len(in)+len(expectedOutcomes))
 	seen := map[string]struct{}{}
+	seenExpected := map[string]struct{}{}
 	for i, c := range in {
 		c.ID = strings.TrimSpace(c.ID)
 		if c.ID == "" {
@@ -111,6 +112,8 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		}
 		if c.Polarity == WriteBehaviorPolarityObserved {
 			c.Required = false
+		} else {
+			c.Required = true
 		}
 		c.Operator = WriteBehaviorOperator(strings.ToLower(strings.TrimSpace(string(c.Operator))))
 		if !IsKnownWriteBehaviorOperator(string(c.Operator)) {
@@ -130,35 +133,59 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 			continue
 		}
 		seen[c.ID] = struct{}{}
+		if key := writeBehaviorContractExpectedKey(c.Expected); key != "" {
+			seenExpected[key] = struct{}{}
+		}
 		out = append(out, c)
 	}
-	if len(out) == 0 {
-		for i, outcome := range expectedOutcomes {
-			outcome = strings.TrimSpace(outcome)
-			if outcome == "" {
-				continue
-			}
-			id := fmt.Sprintf("outcome-%d", i+1)
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			out = append(out, WriteBehaviorContract{
-				ID:       id,
-				Kind:     WriteBehaviorObservable,
-				Polarity: WriteBehaviorPolarityExpected,
-				Operator: WriteBehaviorOpSatisfies,
-				Expected: outcome,
-				Required: true,
-				Source:   "expected_outcome_fallback",
-			})
+	for i, outcome := range expectedOutcomes {
+		outcome = strings.TrimSpace(outcome)
+		if outcome == "" {
+			continue
 		}
+		if key := writeBehaviorContractExpectedKey(outcome); key != "" {
+			if _, ok := seenExpected[key]; ok {
+				continue
+			}
+			seenExpected[key] = struct{}{}
+		}
+		id := uniqueWriteBehaviorContractID(fmt.Sprintf("outcome-%d", i+1), seen)
+		seen[id] = struct{}{}
+		out = append(out, WriteBehaviorContract{
+			ID:       id,
+			Kind:     WriteBehaviorObservable,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpSatisfies,
+			Expected: outcome,
+			Required: true,
+			Source:   "expected_outcome_fallback",
+		})
 	}
 	const maxContracts = 12
 	if len(out) > maxContracts {
 		out = out[:maxContracts]
 	}
 	return out
+}
+
+func writeBehaviorContractExpectedKey(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
+}
+
+func uniqueWriteBehaviorContractID(base string, seen map[string]struct{}) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "outcome"
+	}
+	if _, ok := seen[base]; !ok {
+		return base
+	}
+	for i := 2; ; i++ {
+		id := fmt.Sprintf("%s-%d", base, i)
+		if _, ok := seen[id]; !ok {
+			return id
+		}
+	}
 }
 
 func RequiredWriteBehaviorContractIDs(contracts []WriteBehaviorContract, includeFallback bool) map[string]struct{} {

@@ -271,6 +271,21 @@ Required direction:
 - behavior probes and contract coverage should drive confidence even when full
   suite is unavailable.
 
+2026-06-17 SWE-bench follow-up:
+
+- `matplotlib__matplotlib-24149` now emits required behavior contracts for the
+  explicit bug and every distinct `expected_outcomes` fallback. The accepted
+  plan's probes referenced all required contracts, including the previously
+  missed `ax.bar([np.nan], [0])` path.
+- The generated patch modified both `_safe_first_finite` exception handlers in
+  `lib/matplotlib/axes/_axes.py`, matching the manually audited issue need.
+- Local Matplotlib verification remained unavailable because the historical
+  checkout's C extension/import setup fails on the host. This is not a hard
+  export blocker, but `results.jsonl` now records
+  `prediction_verdict=predicted_unverified`,
+  `prediction_confidence_downgrade_reason=no_tests`, and
+  `verify_confidence_reason_codes=[no_tests, verification_probe_import_error]`.
+
 ### G7: UX still exposes too many recovery controls
 
 `/workflow`, `/plan`, `/approve`, `/reject`, `/verify`, `/merge` are useful for
@@ -771,12 +786,12 @@ Primary files:
 | --- | --- | --- |
 | 0 | complete | Architecture ledger added and ready for commit. |
 | 1 | complete | Added analyzer overview caution token hygiene for multiline/code-fragment/traceback-shaped candidates, with valid symbol/path retention tests. |
-| 2 | pending | Observation confidence contract. |
+| 2 | complete | Required expected/forbidden behavior contracts now default to completion targets; distinct expected_outcomes append as required fallback contracts even when explicit contracts exist; plan probes must reference every required contract; verification confidence records partial covered/missing contract refs; SWE-bench adapter records typed confidence downgrade reasons for unavailable/unverified local verification without blocking export. |
 | 3 | pending | Active slice state machine. |
 | 4 | pending | Localizer worker and evidence coverage. |
 | 5 | pending | PlanRepairPack. |
 | 6 | pending | Permission engine unification. |
 | 7 | pending | Context shaping and durable sidechains. |
 | 8 | pending | UX Auto Pilot polish. |
-| 9 | pending | SWE-bench/customer-style eval. |
+| 9 | in_progress | Ran `matplotlib__matplotlib-24149` after Batch 2: prediction non-empty, official harness dry-run accepted, patch manually audited as satisfying both nan-x paths, local verification correctly marked unverified due environment/no-tests diagnostics. More non-Go and symptom-only cases remain. |
 | 10 | pending | Commercial hardening. |

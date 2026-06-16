@@ -2076,16 +2076,19 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 		}
 		if len(required) > 0 {
 			matched := intersectStringSets(required, covered)
-			if len(matched) == 0 {
+			missing := sortedStringSet(subtractStringSet(required, covered))
+			if len(missing) > 0 {
 				out = append(out, types.VerificationConfidenceRecord{
-					Source:     "verification_probe",
-					Category:   "probe_contract_refs",
-					Status:     "missing",
-					Severity:   "warning",
-					ReasonCode: "verification_probe_missing_required_contract_ref",
-					Detail:     "passed verification probes did not reference required behavior contracts",
+					Source:       "verification_probe",
+					Category:     "probe_contract_refs",
+					Status:       "missing",
+					Severity:     "warning",
+					ReasonCode:   "verification_probe_missing_required_contract_ref",
+					ContractRefs: missing,
+					Detail:       "passed verification probes did not reference every required behavior contract",
 				})
-			} else {
+			}
+			if len(matched) > 0 {
 				out = append(out, types.VerificationConfidenceRecord{
 					Source:       "verification_probe",
 					Category:     "probe_contract_refs",

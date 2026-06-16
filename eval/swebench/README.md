@@ -113,7 +113,12 @@ official harness. Required behavior contracts sourced from
 probe cannot produce high local confidence without explicit contract coverage.
 Newer Codrax reports include `verification_confidence[]`; the adapter consumes
 those report-native reason codes first and also exposes a deduped
-`verify_confidence_reason_codes` list in `results.jsonl`.
+`verify_confidence_reason_codes` list in `results.jsonl`. Unavailable or
+failed local verification remains non-blocking for official SWE-bench export
+when a source patch exists, but the adapter records the typed reason in
+`prediction_confidence_downgrade_reason` so local confidence never looks high
+when the project environment, probe, build, or tests could not produce a
+behavior verdict.
 By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only

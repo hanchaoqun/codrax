@@ -96,7 +96,7 @@ func TestEmitWriteAnalysis_PreservesExplicitBehaviorContracts(t *testing.T) {
 		t.Fatalf("expected Success=true, got: %s", res.Summary)
 	}
 	ir := bus.Mutable.WriteAnalysisIR()
-	if ir == nil || len(ir.Request.BehaviorContracts) != 1 {
+	if ir == nil || len(ir.Request.BehaviorContracts) != 2 {
 		t.Fatalf("explicit contract not stored: %+v", ir)
 	}
 	got := ir.Request.BehaviorContracts[0]
@@ -107,6 +107,37 @@ func TestEmitWriteAnalysis_PreservesExplicitBehaviorContracts(t *testing.T) {
 	}
 	if got.Source != "write_analyzer" {
 		t.Fatalf("explicit contract source drifted: %+v", got)
+	}
+	fallback := ir.Request.BehaviorContracts[1]
+	if fallback.Source != "expected_outcome_fallback" || fallback.ID != "outcome-1" || !fallback.Required {
+		t.Fatalf("expected outcome fallback should be retained alongside explicit contracts: %+v", fallback)
+	}
+}
+
+func TestEmitWriteAnalysis_DefaultsExpectedContractsToRequired(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "fix all-nan bar crash",
+		"task": {"kind": "bugfix", "scope": "micro", "summary": "fix all-nan bar crash"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"},
+		"behavior_contracts": [
+			{"id": "bar-nan-not-raises", "kind": "observable", "polarity": "expected", "operator": "not_raises", "expected": "ax.bar([np.nan], [0]) does not raise"}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected Success=true, got: %s", res.Summary)
+	}
+	contracts := bus.Mutable.WriteAnalysisIR().Request.BehaviorContracts
+	if len(contracts) != 1 {
+		t.Fatalf("contracts len = %d, want 1: %+v", len(contracts), contracts)
+	}
+	if !contracts[0].Required {
+		t.Fatalf("expected contract should default to required so plan probes must cover it: %+v", contracts[0])
 	}
 }
 

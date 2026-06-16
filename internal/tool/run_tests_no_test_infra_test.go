@@ -1165,6 +1165,63 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 	}
 }
 
+func TestVerificationConfidenceRecordsFromProbeReportRecordsPartialMissingContracts(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan-confidence-partial",
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "c1",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "first behavior",
+			Required: true,
+			Source:   "write_analyzer",
+		}, {
+			ID:       "c2",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "second behavior",
+			Required: true,
+			Source:   "expected_outcome_fallback",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:           "probe",
+			Language:     "python",
+			Code:         "assert True",
+			ContractRefs: []string{"c1"},
+		}},
+	}
+	report := &types.ChangeReport{
+		Passed: true,
+		TestResults: []types.TestResult{{
+			AssertionID: "probe",
+			Suite:       "verification_probe/python",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:  "verification_probe",
+			Source:  "pre_suite_verification_probe",
+			Outcome: "executed",
+		}},
+	}
+	records := verificationConfidenceRecordsFromReport(plan, report)
+	if !verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
+		t.Fatalf("partial coverage should still record covered contract refs: %+v", records)
+	}
+	var missing []string
+	for _, record := range records {
+		if record.Category == "probe_contract_refs" && record.Status == "missing" &&
+			record.ReasonCode == "verification_probe_missing_required_contract_ref" {
+			missing = record.ContractRefs
+			break
+		}
+	}
+	if len(missing) != 1 || missing[0] != "c2" {
+		t.Fatalf("missing contract refs = %+v, want [c2]; records=%+v", missing, records)
+	}
+}
+
 func TestVerificationConfidenceRecordsFromUnavailableAndSyntaxFallback(t *testing.T) {
 	unavailable := &types.ChangeReport{
 		Passed:            false,

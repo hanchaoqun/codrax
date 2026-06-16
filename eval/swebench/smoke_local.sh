@@ -397,6 +397,33 @@ confidence_reasons = mod.verification_confidence_reason_codes({
 if confidence_reasons != ["source_compile_ok", "verification_probe_missing_required_contract_ref"]:
     raise SystemExit(f"unexpected confidence reason export: {confidence_reasons!r}")
 
+unavailable_downgrade = mod.prediction_confidence_downgrade_reason(
+    plan=fallback_plan,
+    report={
+        "verification_status": "unavailable",
+        "failure_reason_code": "verification_probe_import_error",
+        "verification_confidence": [
+            {
+                "category": "probe_execution",
+                "status": "unavailable",
+                "reason_code": "verification_probe_import_error",
+            }
+        ],
+    },
+    verify_status="unavailable",
+)
+if unavailable_downgrade != "verification_probe_import_error":
+    raise SystemExit(f"unexpected unavailable downgrade reason: {unavailable_downgrade!r}")
+verdict = mod.prediction_verdict(
+    "diff --git a/src/pkg.py b/src/pkg.py\n",
+    "unavailable",
+    "unverified",
+    "",
+    unavailable_downgrade,
+)
+if verdict != ("predicted_unverified", "unknown", False):
+    raise SystemExit(f"unexpected unverified verdict with downgrade reason: {verdict!r}")
+
 strong_plan = {
     "behavior_contracts": [
         {"id": "c1", "required": True, "source": "write_analyzer"},

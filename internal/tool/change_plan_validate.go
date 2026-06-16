@@ -1451,22 +1451,37 @@ func validateVerificationProbeContractRefs(ctx *types.BusContext, probes []types
 		return ""
 	}
 	ids := types.WriteBehaviorContractIDs(contracts)
-	explicitRequired := types.RequiredWriteBehaviorContractIDs(contracts, false)
-	coveredExplicitRequired := false
+	required := types.RequiredWriteBehaviorContractIDs(contracts, true)
+	coveredRequired := map[string]struct{}{}
 	for i, probe := range probes {
 		for _, ref := range probe.ContractRefs {
 			if _, ok := ids[ref]; !ok {
 				return fmt.Sprintf("verification_probes[%d].contract_refs contains unknown behavior_contract id %q; use one of %s", i, ref, formatStringSet(ids))
 			}
-			if _, ok := explicitRequired[ref]; ok {
-				coveredExplicitRequired = true
+			if _, ok := required[ref]; ok {
+				coveredRequired[ref] = struct{}{}
 			}
 		}
 	}
-	if len(explicitRequired) > 0 && !coveredExplicitRequired {
-		return fmt.Sprintf("verification_probes must reference at least one required explicit behavior_contract via contract_refs; available required ids: %s", formatStringSet(explicitRequired))
+	missing := subtractStringSet(required, coveredRequired)
+	if len(missing) > 0 {
+		return fmt.Sprintf("verification_probes must reference every required behavior_contract via contract_refs; missing ids: %s; available required ids: %s", formatStringSet(missing), formatStringSet(required))
 	}
 	return ""
+}
+
+func subtractStringSet(want, got map[string]struct{}) map[string]struct{} {
+	if len(want) == 0 {
+		return nil
+	}
+	out := map[string]struct{}{}
+	for key := range want {
+		if _, ok := got[key]; ok {
+			continue
+		}
+		out[key] = struct{}{}
+	}
+	return out
 }
 
 func pythonVerificationProbeHasExecutableFailureSignal(code string) bool {

@@ -26,6 +26,36 @@ func TestNormalizeWriteBehaviorContracts_PreservesNotRaisesAndPolarity(t *testin
 	}
 }
 
+func TestNormalizeWriteBehaviorContracts_DefaultsExpectedAndForbiddenToRequired(t *testing.T) {
+	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{
+		{
+			ID:       "no-crash",
+			Kind:     WriteBehaviorException,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpNotRaises,
+			Expected: "request no longer crashes",
+			Source:   "write_analyzer",
+		},
+		{
+			ID:       "no-regression",
+			Kind:     WriteBehaviorInvariant,
+			Polarity: WriteBehaviorPolarityForbidden,
+			Operator: WriteBehaviorOpRaises,
+			Expected: "old regression does not return",
+			Source:   "write_analyzer",
+		},
+	}, nil)
+	if len(got) != 2 {
+		t.Fatalf("contracts len = %d, want 2: %+v", len(got), got)
+	}
+	ids := RequiredWriteBehaviorContractIDs(got, false)
+	for _, want := range []string{"no-crash", "no-regression"} {
+		if _, ok := ids[want]; !ok {
+			t.Fatalf("expected %q to be required after normalization: contracts=%+v ids=%+v", want, got, ids)
+		}
+	}
+}
+
 func TestNormalizeWriteBehaviorContracts_ObservedIsNotRequiredTarget(t *testing.T) {
 	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
 		ID:       "current-crash",
@@ -62,6 +92,35 @@ func TestNormalizeWriteBehaviorContracts_FallbacksAreExpectedTargets(t *testing.
 		t.Fatalf("explicit-required view should exclude fallback ids: %+v", ids)
 	}
 	if ids := RequiredWriteBehaviorContractIDs(got, true); len(ids) != 1 {
+		t.Fatalf("fallback-inclusive required ids missing: %+v", ids)
+	}
+}
+
+func TestNormalizeWriteBehaviorContracts_AppendsDistinctExpectedOutcomes(t *testing.T) {
+	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
+		ID:       "nan-height",
+		Kind:     WriteBehaviorException,
+		Polarity: WriteBehaviorPolarityExpected,
+		Operator: WriteBehaviorOpNotRaises,
+		Expected: "ax.bar([np.nan], [0]) does not raise",
+		Source:   "write_analyzer",
+	}}, []string{
+		"ax.bar([np.nan], [0]) does not raise",
+		"ax.bar([np.nan], [np.nan]) does not raise",
+	})
+	if len(got) != 2 {
+		t.Fatalf("contracts len = %d, want explicit plus one distinct fallback: %+v", len(got), got)
+	}
+	if got[0].ID != "nan-height" || !got[0].Required || got[0].Source != "write_analyzer" {
+		t.Fatalf("explicit required contract drifted: %+v", got[0])
+	}
+	if got[1].Source != "expected_outcome_fallback" || got[1].ID != "outcome-2" || !got[1].Required {
+		t.Fatalf("distinct expected outcome should append as required fallback: %+v", got[1])
+	}
+	if ids := RequiredWriteBehaviorContractIDs(got, false); len(ids) != 1 {
+		t.Fatalf("explicit-required view should exclude fallback ids: %+v", ids)
+	}
+	if ids := RequiredWriteBehaviorContractIDs(got, true); len(ids) != 2 {
 		t.Fatalf("fallback-inclusive required ids missing: %+v", ids)
 	}
 }

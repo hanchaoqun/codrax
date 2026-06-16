@@ -333,8 +333,55 @@ func TestEmitChangePlan_RequiresProbeCoverageForExplicitRequiredContract(t *test
 	if res.Success {
 		t.Fatal("expected missing explicit contract coverage to be rejected")
 	}
-	if !strings.Contains(res.Summary, "must reference at least one required explicit behavior_contract") {
+	if !strings.Contains(res.Summary, "must reference every required behavior_contract") ||
+		!strings.Contains(res.Summary, "widget-value") {
 		t.Fatalf("summary should name missing contract coverage, got: %s", res.Summary)
+	}
+}
+
+func TestEmitChangePlan_RequiresProbeCoverageForEveryRequiredContract(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "fix widget value and label"},
+			BehaviorContracts: []types.WriteBehaviorContract{{
+				ID:       "widget-value",
+				Kind:     types.WriteBehaviorObservable,
+				Operator: types.WriteBehaviorOpEquals,
+				Expected: "42",
+				Required: true,
+				Source:   "write_analyzer",
+			}, {
+				ID:       "outcome-1",
+				Kind:     types.WriteBehaviorObservable,
+				Operator: types.WriteBehaviorOpSatisfies,
+				Expected: "label remains visible",
+				Required: true,
+				Source:   "expected_outcome_fallback",
+			}},
+		},
+	})
+	params := json.RawMessage(`{
+		"request": "fix widget value and label",
+		"summary": "Modify widget.py and attach a bounded probe that only covers one required contract.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "value_contract", "language": "python", "code": "import widget\nassert widget.VALUE == 42\n", "contract_refs": ["widget-value"]}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected partial required contract coverage to be rejected")
+	}
+	if !strings.Contains(res.Summary, "missing ids") || !strings.Contains(res.Summary, "outcome-1") {
+		t.Fatalf("summary should name the uncovered required contract, got: %s", res.Summary)
 	}
 }
 

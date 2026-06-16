@@ -4501,3 +4501,56 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     `unavailable/parser_error` because historical SymPy imports
     `collections.Mapping` under Python 3.11, but the prior 78KB truncated
     full-file rewrite did not recur.
+
+## 2026-06-17 SWE-bench behavior-contract coverage and unverified confidence audit
+
+- Evidence source:
+  - Targeted Lite reruns for `matplotlib__matplotlib-24149`:
+    `eval/results/swebench/lite-smoke-20260617-mpl24149-all-contracts` and
+    `eval/results/swebench/lite-smoke-20260617-mpl24149-downgrade-reason`.
+  - Both reruns produced non-empty predictions (`patch_bytes=731`), local
+    prediction validation reported `empty_patch=0`, and the official
+    SWE-bench harness dry-run accepted the predictions file.
+  - Manual audit of the final patch found both `_safe_first_finite` handlers in
+    `lib/matplotlib/axes/_axes.py` now catch `StopIteration`, covering
+    `ax.bar([np.nan], [np.nan])` and `ax.bar([np.nan], [0])`.
+- Gap observed:
+  - Earlier runs let an explicit behavior contract plus weak fallback handling
+    miss a distinct expected outcome. A plan could reference one required
+    contract and still ship with another required behavior unprobed.
+  - `results.jsonl` could also mark the prediction as unverified while leaving
+    `prediction_confidence_downgrade_reason` empty, making the local-confidence
+    audit less explicit when project verification was unavailable.
+- Generalized fixes:
+  - Expected and forbidden `WriteBehaviorContract`s now default to required
+    completion targets; observed pre-fix failures remain non-required facts.
+  - Distinct `expected_outcomes[]` append required fallback contracts even when
+    the analyzer also emitted explicit contracts.
+  - `emit_change_plan` validation now requires `verification_probes[].contract_refs`
+    to cover every required behavior contract, including fallback contracts.
+  - Verification confidence records now preserve partial coverage: covered
+    contract refs and missing required refs can be emitted together.
+  - SWE-bench adapter confidence telemetry now records typed downgrade reasons
+    for unavailable/unverified local verification without blocking official
+    prediction export.
+- Prompt and hard-gate hygiene:
+  - The hard gates consume only typed behavior contract ids, required flags,
+    source tags, probe `contract_refs`, verification confidence records, and
+    report status/reason codes.
+  - No SWE-bench ids, user-intent keywords, issue prose, model summaries,
+    rationale text, natural-language logs, or `<think>` content are used for
+    routing.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/types -run 'TestNormalizeWriteBehaviorContracts' -count=1`
+    and
+    `go test ./internal/tool -run 'TestEmitWriteAnalysis|TestEmitChangePlan|TestVerificationConfidenceRecordsFromProbeReport' -count=1`.
+  - Broad regression passed: `python3 -m py_compile
+    eval/swebench/run_codrax_swebench.py`, `bash eval/swebench/smoke_local.sh`,
+    `go test ./...`, `make`, and `git diff --check`.
+  - Final targeted SWE-bench result:
+    `prediction_verdict=predicted_unverified`,
+    `prediction_local_confidence=unknown`,
+    `prediction_confidence_downgrade_reason=no_tests`,
+    `verify_status=unavailable`, and
+    `verify_confidence_reason_codes=[no_tests, verification_probe_import_error]`.

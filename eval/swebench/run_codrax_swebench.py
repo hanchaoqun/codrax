@@ -1260,17 +1260,24 @@ def prediction_confidence_downgrade_reason(
     report: dict[str, Any] | None,
     verify_status: str,
 ) -> str:
-    """Return a typed reason why a local passed verdict should not be high.
+    """Return a typed reason why local confidence is below high.
 
     This is audit telemetry only. It does not block SWE-bench prediction export
     and does not route on user text or model prose.
     """
 
-    if str(verify_status or "").strip() != "passed" or not plan or not report:
+    status = str(verify_status or "").strip()
+    if report:
+        from_report = prediction_confidence_downgrade_reason_from_report(report)
+        if from_report:
+            return from_report
+        failure_reason = report_failure_reason_code(report)
+        if status in {"failed", "unavailable"} and failure_reason:
+            return failure_reason
+    if status and status != "passed":
+        return "local_verification_" + status
+    if not plan or not report:
         return ""
-    from_report = prediction_confidence_downgrade_reason_from_report(report)
-    if from_report:
-        return from_report
     probes = [probe for probe in plan.get("verification_probes") or [] if isinstance(probe, dict)]
     if not probes or not report_passed_by_verification_probe(report):
         return ""
@@ -1299,9 +1306,9 @@ def prediction_confidence_downgrade_reason_from_report(report: dict[str, Any] | 
             continue
         status = str(record.get("status") or "").strip()
         reason = str(record.get("reason_code") or "").strip()
-        if status != "missing" or not reason:
+        if status not in {"missing", "unavailable", "failed", "error"} or not reason:
             continue
-        if reason.startswith("verification_probe_"):
+        if reason:
             return reason
     return ""
 
