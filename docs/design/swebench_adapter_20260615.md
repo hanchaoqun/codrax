@@ -1048,3 +1048,35 @@ records adapter results.
   the same environment. These fields are audit telemetry only; prediction
   export and write-mode completion still do not depend on prompt prose, issue
   keywords, model summaries, or local environment success.
+- 2026-06-16: Confirmed the fair-eval future-history guard is an explicit
+  eval-only flag chain, not product-default behavior. Normal Codrax starts with
+  `--eval-disable-git-history=false`; direct adapter runs start with
+  `--isolate-git-history=false`; only the SWE-bench smoke wrapper enables
+  `SWEBENCH_ISOLATE_GIT_HISTORY=1` by default and then passes
+  `--isolate-git-history` to the adapter, which prunes branch/tag refs and
+  invokes Codrax with `--eval-disable-git-history`. The local adapter smoke
+  covers both sides: a default run must not pass the Codrax eval flag, while a
+  fair run must preserve `HEAD == base_commit`, delete refs, and pass the flag.
+  The runtime gate consumes typed CLI/env flags, resolved repo paths/refs, and
+  parsed git subcommands only; it does not inspect issue text, user intent
+  keywords, model prose, summaries, rationale, or `<think>`.
+- 2026-06-16: Started a fair-isolated three-instance Lite batch at
+  `eval/results/swebench/lite-smoke-20260616-django11001-sphinx8273-pytest5227-current`
+  for `django__django-11001`, `sphinx-doc__sphinx-8273`, and
+  `pytest-dev__pytest-5227`; intentionally interrupted it during the Django
+  instance after collecting enough system evidence. The first plan produced a
+  plausible source edit and full Django verification ran, but the unittest
+  parser preserved only the progress/head output instead of the actual
+  `FAIL:`/traceback tail. The next replan inherited the synthetic suite label
+  `unittest` as if it were a reusable selector, producing
+  `python3 tests/runtests.py unittest -v 1` and a misleading loader failure.
+  The fix is generalized at the typed verification/handoff boundary:
+  unittest parsing now extracts `FAIL:`/`ERROR:` blocks plus summary tail before
+  falling back to stdout head, and verify-failure scope inheritance ignores
+  synthetic aggregate suites such as `unittest`, loader failures,
+  `verification_probe/*`, build/syntax fallback labels, and runner-missing
+  rows. Real unique suites such as Django test classes can still be inherited
+  for small reverify/replan loops. Remaining smoothness gaps from the same run
+  are tracked separately: planner dry-run can still choose an expensive full
+  suite, and exploration completion repair can spend extra rounds after enough
+  evidence already exists.

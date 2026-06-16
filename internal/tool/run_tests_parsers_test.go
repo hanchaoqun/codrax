@@ -169,6 +169,61 @@ FAILED (failures=1)
 	if report.FailureKind != "" {
 		t.Fatalf("parser should not classify real test failure directly, got %q", report.FailureKind)
 	}
+	if len(report.TestResults) != 2 {
+		t.Fatalf("TestResults len = %d, want 2", len(report.TestResults))
+	}
+	var failed types.TestResult
+	for _, result := range report.TestResults {
+		if !result.Passed {
+			failed = result
+			break
+		}
+	}
+	if !strings.Contains(failed.FailureDetail, "FAIL: test_bad (tests.test_demo.DemoTest.test_bad)") ||
+		!strings.Contains(failed.FailureDetail, "AssertionError: 1 != 2") {
+		t.Fatalf("FailureDetail should preserve the unittest failure block, got %q", failed.FailureDetail)
+	}
+}
+
+func TestParseUnittestOutput_ProgressOnlyFailurePreservesFailureTail(t *testing.T) {
+	output := `Creating test database for alias 'default'...
+....................................................................................................................................F....................................................................................................................................
+
+======================================================================
+FAIL: test_multiline_rawsql_ordering (queries.tests.RawSQLOrderingTests.test_multiline_rawsql_ordering)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/queries/tests.py", line 1234, in test_multiline_rawsql_ordering
+    self.assertIn("ORDER BY", sql)
+AssertionError: 'ORDER BY' not found in 'SELECT ...'
+
+----------------------------------------------------------------------
+Ran 12812 tests in 164.571s
+
+FAILED (failures=1, skipped=402)
+Destroying test database for alias 'default'...
+`
+	report, err := parseUnittestOutput(output, fmt.Errorf("exit status 1"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if report.Passed {
+		t.Fatal("progress-only unittest failure should not pass")
+	}
+	if len(report.TestResults) != 1 {
+		t.Fatalf("TestResults len = %d, want synthetic aggregate row", len(report.TestResults))
+	}
+	detail := report.TestResults[0].FailureDetail
+	for _, want := range []string{
+		"FAIL: test_multiline_rawsql_ordering",
+		"AssertionError: 'ORDER BY' not found",
+		"Ran 12812 tests",
+		"FAILED (failures=1",
+	} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("FailureDetail missing %q; got %q", want, detail)
+		}
+	}
 }
 
 func TestParseGoTestJSONLines_PackageBuildFailWithPassingSibling(t *testing.T) {

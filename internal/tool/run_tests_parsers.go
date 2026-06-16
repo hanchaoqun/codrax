@@ -103,7 +103,7 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 		passed := status == "ok" || strings.HasPrefix(status, "skipped")
 		detail := ""
 		if !passed {
-			detail = stdoutHead(stdout, 4000)
+			detail = unittestFailureDetail(stdout, name, suite)
 		}
 		if unittestSuiteIsLoaderFailure(suite) {
 			loaderFailures++
@@ -139,7 +139,7 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 			AssertionID:   "unittest",
 			Suite:         "unittest",
 			Passed:        passed,
-			FailureDetail: stdoutHead(stdout, 4000),
+			FailureDetail: unittestAggregateFailureDetail(stdout),
 		}}
 		if !passed {
 			failed = 1
@@ -170,6 +170,89 @@ func unittestSuiteIsLoaderFailure(suite string) bool {
 	suite = strings.TrimSpace(suite)
 	return suite == "unittest.loader._FailedTest" ||
 		strings.HasPrefix(suite, "unittest.loader._FailedTest.")
+}
+
+func unittestFailureDetail(stdout, name, suite string) string {
+	blocks := unittestFailureBlocks(stdout)
+	for _, block := range blocks {
+		first := firstNonEmptyLine(block)
+		if strings.Contains(first, ": "+name+" ("+suite+")") {
+			return truncateDetail(block, 4000)
+		}
+	}
+	if len(blocks) > 0 {
+		return truncateDetail(blocks[0], 4000)
+	}
+	return unittestAggregateFailureDetail(stdout)
+}
+
+func unittestAggregateFailureDetail(stdout string) string {
+	blocks := unittestFailureBlocks(stdout)
+	if len(blocks) == 0 {
+		if tail := unittestSummaryTail(stdout); tail != "" {
+			return truncateDetail(tail, 4000)
+		}
+		return stdoutHead(stdout, 4000)
+	}
+	var b strings.Builder
+	maxBlocks := len(blocks)
+	if maxBlocks > 3 {
+		maxBlocks = 3
+	}
+	for i := 0; i < maxBlocks; i++ {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(blocks[i])
+	}
+	if len(blocks) > maxBlocks {
+		fmt.Fprintf(&b, "\n\n…[%d additional unittest failure block(s) omitted]", len(blocks)-maxBlocks)
+	}
+	if tail := unittestSummaryTail(stdout); tail != "" && !strings.Contains(b.String(), tail) {
+		b.WriteString("\n\n")
+		b.WriteString(tail)
+	}
+	return truncateDetail(b.String(), 4000)
+}
+
+func unittestFailureBlocks(stdout string) []string {
+	parts := strings.Split(stdout, "\n======================================================================\n")
+	if len(parts) <= 1 {
+		return nil
+	}
+	blocks := make([]string, 0, len(parts)-1)
+	for _, part := range parts[1:] {
+		trimmed := strings.TrimSpace(part)
+		if strings.HasPrefix(trimmed, "FAIL: ") || strings.HasPrefix(trimmed, "ERROR: ") {
+			blocks = append(blocks, "======================================================================\n"+trimmed)
+		}
+	}
+	return blocks
+}
+
+func unittestSummaryTail(stdout string) string {
+	for _, marker := range []string{
+		"\n----------------------------------------------------------------------\nRan ",
+		"\nRan ",
+	} {
+		if idx := strings.LastIndex(stdout, marker); idx >= 0 {
+			return strings.TrimSpace(stdout[idx:])
+		}
+	}
+	if idx := strings.LastIndex(stdout, "\nFAILED ("); idx >= 0 {
+		return strings.TrimSpace(stdout[idx:])
+	}
+	return ""
+}
+
+func firstNonEmptyLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "=") {
+			return line
+		}
+	}
+	return ""
 }
 
 // parseMakeOutput synthesises a ChangeReport from `make <target>`

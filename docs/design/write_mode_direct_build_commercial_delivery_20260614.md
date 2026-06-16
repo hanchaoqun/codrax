@@ -3774,3 +3774,61 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     `python3 -m py_compile eval/swebench/run_codrax_swebench.py`.
   - Post-fix Matplotlib run validated prediction export with `empty_patch=0`.
   - Full Go regression and local build are tracked by the implementation commit.
+
+## 2026-06-16 SWE-bench smoke 7: unittest failure evidence and selector handoff hardening
+
+- Evidence source:
+  - Fair-isolated non-Go SWE-bench Lite batch:
+    `eval/results/swebench/lite-smoke-20260616-django11001-sphinx8273-pytest5227-current`.
+  - Instances requested: `django__django-11001`,
+    `sphinx-doc__sphinx-8273`, `pytest-dev__pytest-5227`.
+  - The run was intentionally interrupted during the first Django instance
+    after it exposed a reusable verify-handoff defect. The initial apply
+    succeeded and full Django verification ran, but the persisted
+    `TestResult.FailureDetail` retained progress/head output instead of the
+    actual `FAIL:` block and traceback tail. The next verify/replan loop then
+    inherited the synthetic suite label `unittest` and executed
+    `python3 tests/runtests.py unittest -v 1`, creating a loader failure that
+    was narrower but not semantically related to the product bug.
+- Generalized gaps fixed:
+  - The unittest parser now preserves typed failure evidence before handoff:
+    `FAIL:` / `ERROR:` blocks are extracted from the runner output, bounded to
+    the first few blocks, and combined with the final `Ran ...` /
+    `FAILED (...)` summary tail. Only when no failure block or summary tail is
+    present does the parser fall back to stdout head. This keeps the failure
+    path, line, assertion message, and runner summary available to controller,
+    planner, verifier, reports, and SWE-bench telemetry.
+  - Verify-failure scope inheritance now filters non-reusable synthetic suites
+    before narrowing the next run. Aggregate labels (`unittest`), loader-only
+    rows (`unittest.loader._FailedTest...`), typed probe rows
+    (`verification_probe/*`), build/syntax fallback labels, runner-missing
+    rows, and generic build/make rows are preserved as evidence but are not
+    reused as executable selectors. A real unique suite remains eligible, so
+    the controller can still converge with small targeted verification when
+    the test runner provides a reusable selector.
+- Safety and prompt hygiene:
+  - Hard behavior consumes structured `TestResult` rows, runner outcomes,
+    suite strings emitted by parsers, and typed verify-failure handoff only.
+  - No branch depends on issue keywords, user intent keywords, model rationale,
+    natural-language summaries, or `<think>` content. `<think>` remains visible
+    in logs for transparency.
+- Implementation tasks:
+  - [x] Preserve unittest failure blocks and summary tail in
+    `FailureDetail`.
+  - [x] Keep synthetic aggregate failures as evidence but exclude them from
+    reusable suite selector inheritance.
+  - [x] Add focused parser and handoff selector tests.
+  - [x] Update SWE-bench adapter ledger, write-mode ledger, and user guide.
+- Verification:
+  - Focused parser/handoff tests passed:
+    `go test ./internal/tool -run 'TestParseUnittestOutput|TestUniqueVerifyFailureSuite|TestInferDjangoSuiteFromChangePlan|TestRunTestsDryRunProbe_ModeApplyStagePlanDoesNotPolluteChangeReport|TestRunTestsDryRunFlagIgnoredOutsideStagePlan' -count=1`.
+  - Full Go regression and local build are tracked by the implementation
+    commit following this section.
+- Remaining system gaps to track:
+  - Planner dry-run still needs a typed budget-aware test/build lane so plan
+    exploration cannot accidentally spend a large full-suite timeout while
+    looking for a bounded signal.
+  - Exploration completion repair can still spend extra rounds on
+    `emit_investigation_complete` support-ref/member-set repairs after enough
+    P1 evidence already exists. This should be smoothed at the exploration
+    contract/budget layer rather than by issue-specific prompts.

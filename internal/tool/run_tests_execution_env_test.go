@@ -130,6 +130,27 @@ func TestInferDjangoSuiteFromChangePlan_AmbiguousDirectoryLabelReturnsEmpty(t *t
 	}
 }
 
+func TestUniqueVerifyFailureSuite_IgnoresSyntheticSuites(t *testing.T) {
+	results := []types.TestResult{
+		{Suite: "unittest", Passed: false},
+		{Suite: "verification_probe/python", Passed: false},
+		{Suite: "queries.tests.RawSQLOrderingTests", Passed: false},
+	}
+	if got := uniqueVerifyFailureSuite(results); got != "queries.tests.RawSQLOrderingTests" {
+		t.Fatalf("suite = %q, want real reusable suite", got)
+	}
+}
+
+func TestUniqueVerifyFailureSuite_OnlySyntheticReturnsEmpty(t *testing.T) {
+	results := []types.TestResult{
+		{Suite: "unittest", Passed: false},
+		{Suite: "unittest.loader._FailedTest.unittest", Passed: false},
+	}
+	if got := uniqueVerifyFailureSuite(results); got != "" {
+		t.Fatalf("suite = %q, want empty for synthetic-only failures", got)
+	}
+}
+
 func writeRunTestsEnvFixture(t *testing.T, root, rel string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))

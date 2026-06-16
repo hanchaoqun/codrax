@@ -1132,6 +1132,9 @@ func uniqueVerifyFailureSuite(results []types.TestResult) string {
 		if suite == "" {
 			continue
 		}
+		if !verifyFailureSuiteReusableAsSelector(suite) {
+			continue
+		}
 		if unique == "" {
 			unique = suite
 			continue
@@ -1141,6 +1144,24 @@ func uniqueVerifyFailureSuite(results []types.TestResult) string {
 		}
 	}
 	return unique
+}
+
+func verifyFailureSuiteReusableAsSelector(suite string) bool {
+	suite = strings.TrimSpace(suite)
+	if suite == "" {
+		return false
+	}
+	switch suite {
+	case "unittest", "py_compile", "node_check", "ruby_check", "runner_missing", "build", "make-test":
+		return false
+	}
+	if strings.HasPrefix(suite, "unittest.loader._FailedTest") {
+		return false
+	}
+	if strings.HasPrefix(suite, "verification_probe/") {
+		return false
+	}
+	return true
 }
 
 func normalizeRunTestsWorkingDir(dir string) string {
