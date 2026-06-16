@@ -954,6 +954,12 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		o.persistPlanStatus(types.PlanStatusUnverified, &now)
 		return nil
 	}
+	if report == nil && out != nil && out.Error != "" {
+		o.busCtx.Mutable.SetResult(existing + renderVerifyUnverified(nil, o.busCtx.Language))
+		now := time.Now()
+		o.persistPlanStatus(types.PlanStatusUnverified, &now)
+		return nil
+	}
 	if out != nil && out.Error != "" {
 		o.busCtx.Mutable.SetResult(renderVerifyFailure(report, out.Error, o.busCtx.Language))
 		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)

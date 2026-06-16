@@ -632,6 +632,26 @@ Required direction:
   `prediction_confidence_downgrade_reason=no_tests`, and
   `verify_confidence_reason_codes=[no_tests, verification_probe_import_error]`.
 
+2026-06-17 verify-infra follow-up:
+
+- `django__django-13933` exposed a final-state authority gap: the active plan
+  had applied bytes and no final `ChangeReport`, but lower-level verify
+  post-hook status could still leave the durable plan as `verify_failed`.
+- This is a control-plane bug, not a Django-specific bug. `verify_failed` must
+  mean a typed report/build/test verdict found a code failure for the active
+  plan. Missing report, canceled verifier, wall-time, or executor transport
+  failure are infra/unavailable observations.
+- Generalized fix: no-report verify post-hook marks the plan `unverified`, and
+  the controller verify-infra budget exhaustion path also marks the active plan
+  `unverified` before blocking the run. SWE-bench audit classification reads
+  the latest typed workflow progress reason and reports
+  `workflow_blocked_after_verify_infra` instead of collapsing the situation
+  into `workflow_blocked_after_failed_verify`.
+- Hard boundary: the fix reads only report presence, `ChangeReport` typed
+  fields, plan status, workflow progress reason codes, and controller outcome
+  enums. It does not parse stdout, model prose, user text, or visible
+  `<think>`.
+
 ### G7: UX still exposes too many recovery controls
 
 `/workflow`, `/plan`, `/approve`, `/reject`, `/verify`, `/merge` are useful for
@@ -1317,3 +1337,4 @@ Primary files:
 | 9 | in_progress | Ran `matplotlib__matplotlib-24149` after Batch 2, `django__django-11964`/`scikit-learn__scikit-learn-14983`/`sphinx-doc__sphinx-11445` after Batch 6, `django__django-11848`/`scikit-learn__scikit-learn-15535`/`sphinx-doc__sphinx-8721` after Batch 8, `pydata__xarray-4094`/`pylint-dev__pylint-6506`/`pytest-dev__pytest-5413`, `scikit-learn__scikit-learn-14894`/`sphinx-doc__sphinx-8713`/`sympy__sympy-18199`, `sympy__sympy-18532`/`sphinx-doc__sphinx-8282`, and `django__django-13933`/`sphinx-doc__sphinx-10451` follow-up. Official harness dry-runs accepted generated prediction files. Manual audit exposed failed-verify stale-plan reuse, raw-diff Python unreachable edits, probe-only high confidence without prior context, missing persisted prior-context coverage, non-terminal empty-patch export when planner produced no `ChangePlan`, and wall-time canceled empty patches being overcollapsed to generic no-plan. Current fixes block durable workflows on terminal `plan_batch` failure, add typed empty-patch audit reasons, and export/latest-progress-driven wall-time classification without parsing stdout/prose. More non-Go and symptom-only cases remain. |
 | 10 | pending | Commercial hardening. |
 | Paper review addendum | complete | Re-read the public paper and official Claude Code architecture/permission/subagent/hook documentation, then added an evidence-boundary section, R11-R14 design takeaways, and Batches 11-15 for the Codrax-specific runtime kernel, internal hooks/effect ledger, shared command policy parser, context-cost accounting, and slice checkpoint/rewind/fork readiness. |
+| Verify-infra authority | complete | Fixed the typed status boundary for missing verify reports. `verifyPostHook` and controller infra-budget exhaustion now mark active plans `unverified` instead of `verify_failed` when no `ChangeReport` exists; SWE-bench adapter now classifies blocked verify-infra runs as `workflow_blocked_after_verify_infra`. Focused Go and adapter tests pass. |

@@ -1398,6 +1398,8 @@ def prediction_verdict(
         return "empty_patch", "none", bool(audit_block_reason)
     status = str(verify_status or "").strip()
     plan = str(plan_status or "").strip()
+    if audit_block_reason == "workflow_blocked_after_verify_infra" and status != "failed":
+        return "predicted_audit_blocked", "unknown", True
     if status == "failed" or plan == "verify_failed":
         return "predicted_failed_verify", "failed", True
     if audit_block_reason:
@@ -1539,6 +1541,7 @@ def prediction_audit_block_reason(
     workflow_status: str = "",
     verify_status: str = "",
     plan_status: str = "",
+    workflow_latest_reason_code: str = "",
 ) -> str:
     """Return a typed local-acceptance blocker for final-plan/export drift.
 
@@ -1553,6 +1556,9 @@ def prediction_audit_block_reason(
     workflow = str(workflow_status or "").strip()
     verify = str(verify_status or "").strip()
     plan = str(plan_status or "").strip()
+    latest_reason = str(workflow_latest_reason_code or "").strip()
+    if workflow == "blocked" and latest_reason == "verify_infra_retry_budget_exhausted" and verify != "failed":
+        return "workflow_blocked_after_verify_infra"
     if workflow == "in_progress" and (verify == "failed" or plan == "verify_failed"):
         return "workflow_incomplete_after_failed_verify"
     if workflow == "blocked" and (verify == "failed" or plan == "verify_failed"):
@@ -1841,6 +1847,7 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             workflow_status=str(result.get("workflow_status") or ""),
             verify_status=str(result.get("verify_status") or ""),
             plan_status=str(result.get("plan_status") or ""),
+            workflow_latest_reason_code=str(result.get("workflow_latest_progress_reason_code") or ""),
         )
         empty_reason = empty_patch_reason(
             patch=patch,

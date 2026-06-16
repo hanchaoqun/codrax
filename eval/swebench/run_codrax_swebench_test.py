@@ -158,5 +158,33 @@ class EmptyPatchReasonTests(unittest.TestCase):
         self.assertEqual(reason, "write_wall_time_empty_patch")
 
 
+class PredictionAuditBlockTests(unittest.TestCase):
+    def test_verify_infra_block_overrides_stale_failed_plan_status(self) -> None:
+        reason = adapter.prediction_audit_block_reason(
+            exported_source_paths=["django/forms/models.py"],
+            final_plan_source_paths=["django/forms/models.py"],
+            final_plan_test_only=False,
+            final_plan_covers_exported_source_patch=True,
+            workflow_status="blocked",
+            verify_status="",
+            plan_status="verify_failed",
+            workflow_latest_reason_code="verify_infra_retry_budget_exhausted",
+        )
+
+        self.assertEqual(reason, "workflow_blocked_after_verify_infra")
+
+        verdict, confidence, blocks = adapter.prediction_verdict(
+            "diff --git a/django/forms/models.py b/django/forms/models.py\n",
+            "",
+            "verify_failed",
+            reason,
+            "",
+        )
+
+        self.assertEqual(verdict, "predicted_audit_blocked")
+        self.assertEqual(confidence, "unknown")
+        self.assertTrue(blocks)
+
+
 if __name__ == "__main__":
     unittest.main()

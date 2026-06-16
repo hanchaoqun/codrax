@@ -405,6 +405,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					run.Status = types.WriteWorkflowRunBlocked
 					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
 					updateWorkflowRunBatchVerifyInfra(&run, run.ActiveBatchID, planID, "infra_error", outcome.ReasonCode)
+					o.markActivePlanUnverifiedAfterVerifyInfra(outcome.ReasonCode)
 					appendControllerProgress(&run, run.ActiveBatchID, "verify_infra_retry_budget_exhausted", lastInnerErr.Error())
 					o.persistWriteWorkflowRun(&run)
 					o.publishBlockedRunGuidance(&run, "verify_infra_retry_budget_exhausted")
@@ -1365,6 +1366,28 @@ func (o *Orchestrator) syncMutablePlanStatusAfterVerify(report *types.ChangeRepo
 		plan.WorktreePath = o.busCtx.WorktreePath
 	}
 	o.busCtx.Mutable.SetChangePlan(plan)
+}
+
+func (o *Orchestrator) markActivePlanUnverifiedAfterVerifyInfra(reason string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil {
+		return
+	}
+	if strings.TrimSpace(plan.Status) == types.PlanStatusApplied {
+		return
+	}
+	now := time.Now()
+	plan.Status = types.PlanStatusUnverified
+	plan.AppliedAt = &now
+	if o.busCtx.WorktreePath != "" {
+		plan.WorktreePath = o.busCtx.WorktreePath
+	}
+	o.busCtx.Mutable.SetChangePlan(plan)
+	o.persistPlanStatus(types.PlanStatusUnverified, &now)
+	logging.Info("[orchestrator] verify infra unavailable for plan %s (%s); marked unverified", plan.ID, strings.TrimSpace(reason))
 }
 
 func (o *Orchestrator) syncMutablePlanStatusAfterSkippedVerify() {

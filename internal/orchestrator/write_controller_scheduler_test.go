@@ -1207,6 +1207,9 @@ func TestRunWriteControllerWorkflow_VerifyInfraBudgetBlocksWithoutReplan(t *test
 	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "infra_error", "verify_tool_not_called", "") {
 		t.Fatalf("infra error attempt missing: %+v", store.last.Batches[0].Attempts)
 	}
+	if plan := mu.ChangePlan(); plan == nil || plan.Status != types.PlanStatusUnverified {
+		t.Fatalf("infra budget exhaustion should leave active plan unverified, got %+v", plan)
+	}
 }
 
 func TestRunWriteControllerWorkflow_RunnerMissingCompletesUnverifiedWithoutReplan(t *testing.T) {

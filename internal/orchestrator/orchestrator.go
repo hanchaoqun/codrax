@@ -4194,8 +4194,8 @@ func renderVerifySuccess(report *types.ChangeReport, lang string) string {
 func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
 	zh := isLangZh(lang)
 	planID := ""
-	reasonZH := "测试运行器没有发现任何测试"
-	reasonEN := "the test runner discovered zero tests for the changed code"
+	reasonZH := "本地验证器没有产出结构化验证报告"
+	reasonEN := "the local verifier did not produce a typed verification report"
 	if report != nil {
 		planID = report.PlanID
 		if reportIndicatesVerificationUnavailable(report) {
