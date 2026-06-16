@@ -2770,6 +2770,8 @@ CLI 单次模式输出:
 
 SWE-bench adapter 还会在 ConfigParser 提取 `setup.cfg` 依赖后剥离 inline comment,避免把 `numpy>=1.21  # runtime floor` 这类合法写法传给 pip。明确 Python/pytest test surface 且仓内存在 pytest 配置时,pytest 零用例会保持 typed `no_tests/unavailable`,不会继续升级到 unittest discovery 产生无关 loader 噪声。仅靠 verification probe 通过的本地 verdict 若没有覆盖 required behavior contracts(包括 `expected_outcome_fallback`)或 changed symbols,会降低 `prediction_local_confidence`;这仍是审计遥测,不阻断官方 predictions JSONL 导出。Codrax 内部 `ChangeReport` 也会写 `verification_confidence[]`,把 `source_compile_ok`、`verification_probe_missing_required_contract_ref`、`verification_probe_missing_changed_symbol_ref`、`verification_probe_baseline_not_run`、`project_runner_unavailable` 等 typed reason 带入 context pack、verify-failure handoff 和 SWE-bench `verify_confidence_reason_codes`。
 
+SWE-bench adapter 的 Codrax 子进程输出会边跑边写入每个实例的 `codrax.out`,长时间探索/verify 时还会按 `--codrax-progress-interval` 或环境变量 `CODRAX_PROGRESS_INTERVAL` 打印 typed workflow heartbeat(默认 30 秒,设 0 关闭)。heartbeat 只读取 `.codrax/plans/workflows/` 下的 durable JSON,展示 `workflow` 状态、active batch/slice 和最新 `progress_ledger` reason;它不会解析 stdout、模型散文、issue 文本或 `<think>` 来驱动逻辑。原始日志仍完整保留,用于用户透明审计。
+
 **Python source 语法预检**
 → verify 阶段会在项目 runner 前对 plan-touched Python source 跑 `py_compile`。这只消费 ChangePlan 路径、runner 语言映射和编译器输出;语法/解析失败归入 typed `build_failure` / `failed`,避免明显坏补丁被后续缺 pytest、缺依赖或 runner parser_error 降级成 `unverified`。缺少 pytest、第三方依赖、插件或测试 harness 仍按上面的 `unavailable` 处理,不会成为代码失败硬门。
 

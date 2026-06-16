@@ -23,6 +23,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,6 +107,87 @@ def run_cmd(
         suffix = " (timeout)" if result.timed_out else ""
         raise RuntimeError(f"command failed{suffix}: {printable}\n{result.output[-4000:]}")
     return result
+
+
+def run_cmd_streaming_to_file(
+    cmd: list[str],
+    *,
+    output_path: Path,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    timeout: int | None = None,
+    progress_interval: int = 0,
+    progress_fn: Any | None = None,
+) -> CommandResult:
+    """Run a long command while writing output and optional typed heartbeats.
+
+    This is used for Codrax itself, not for short setup commands. Heartbeats are
+    produced from typed durable state supplied by progress_fn; stdout text is
+    kept as user-visible evidence but is not parsed for control.
+    """
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    chunks: list[str] = []
+    chunks_lock = threading.Lock()
+
+    def reader() -> None:
+        assert proc.stdout is not None
+        with output_path.open("w", encoding="utf-8", errors="replace") as handle:
+            for line in proc.stdout:
+                with chunks_lock:
+                    chunks.append(line)
+                handle.write(line)
+                handle.flush()
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+
+    started = time.monotonic()
+    next_progress = started + max(progress_interval, 0) if progress_interval > 0 else float("inf")
+    timed_out = False
+    try:
+        while proc.poll() is None:
+            now = time.monotonic()
+            if timeout is not None and now - started >= timeout:
+                timed_out = True
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                break
+            if progress_interval > 0 and now >= next_progress:
+                if progress_fn is not None:
+                    try:
+                        line = str(progress_fn(int(now - started)) or "").strip()
+                    except Exception as exc:  # pragma: no cover - defensive progress path.
+                        line = f"  progress heartbeat_error={type(exc).__name__}"
+                    if line:
+                        print(line, file=sys.stderr, flush=True)
+                next_progress = now + progress_interval
+            time.sleep(0.25)
+        if timed_out:
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+    finally:
+        thread.join(timeout=5)
+    with chunks_lock:
+        output = "".join(chunks)
+    return CommandResult(proc.returncode or 0, output, timed_out)
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -988,6 +1070,52 @@ def build_request(instance: dict[str, Any], args: argparse.Namespace) -> str:
     )
 
 
+def latest_workflow_progress(workflow: dict[str, Any]) -> str:
+    progress = [row for row in workflow.get("progress_ledger") or [] if isinstance(row, dict)]
+    if not progress:
+        return ""
+    latest = progress[-1]
+    parts = []
+    for key in ("stage", "status", "reason_code"):
+        value = str(latest.get(key) or "").strip()
+        if value:
+            parts.append(value)
+    return "/".join(parts)
+
+
+def active_workflow_batch_summary(workflow: dict[str, Any]) -> str:
+    active_id = str(workflow.get("active_batch_id") or "").strip()
+    if not active_id:
+        return ""
+    for batch in workflow.get("batches") or []:
+        if not isinstance(batch, dict):
+            continue
+        if str(batch.get("id") or "").strip() != active_id:
+            continue
+        status = str(batch.get("status") or "").strip()
+        slice_id = str(batch.get("active_slice_id") or "").strip()
+        if slice_id:
+            return f"{active_id}:{status}:slice={slice_id}"
+        return f"{active_id}:{status}"
+    return active_id
+
+
+def codrax_progress_status(repo_dir: Path, instance_id: str, elapsed_seconds: int) -> str:
+    workflow, _ = load_latest_workflow_run(repo_dir, repo_dir)
+    prefix = f"  progress {instance_id} elapsed={elapsed_seconds}s"
+    if not workflow:
+        return prefix + " workflow=pending"
+    run_status = str(workflow.get("status") or "").strip() or "unknown"
+    batch = active_workflow_batch_summary(workflow)
+    latest = latest_workflow_progress(workflow)
+    parts = [prefix, f"workflow={run_status}"]
+    if batch:
+        parts.append(f"batch={batch}")
+    if latest:
+        parts.append(f"last={latest}")
+    return " ".join(parts)
+
+
 def run_codrax(
     instance: dict[str, Any],
     repo_dir: Path,
@@ -1019,8 +1147,16 @@ def run_codrax(
     cmd.extend(["--request", build_request(instance, args)])
     if args.providers:
         cmd[1:1] = ["--providers", str(Path(args.providers).resolve())]
-    result = run_cmd(cmd, cwd=repo_dir, env=env, timeout=args.codrax_timeout)
-    (inst_dir / "codrax.out").write_text(result.output, encoding="utf-8", errors="replace")
+    instance_id = required_field(instance, "instance_id")
+    result = run_cmd_streaming_to_file(
+        cmd,
+        cwd=repo_dir,
+        env=env,
+        timeout=args.codrax_timeout,
+        output_path=inst_dir / "codrax.out",
+        progress_interval=max(0, int(args.codrax_progress_interval or 0)),
+        progress_fn=lambda elapsed: codrax_progress_status(repo_dir, instance_id, elapsed),
+    )
     (inst_dir / "codrax.rc").write_text(f"{result.code}\ntimeout={result.timed_out}\n", encoding="utf-8")
     return result
 
@@ -1632,6 +1768,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-name", default="codrax")
     parser.add_argument("--max-steps", type=int, default=50)
     parser.add_argument("--codrax-timeout", type=int, default=1800)
+    parser.add_argument(
+        "--codrax-progress-interval",
+        type=int,
+        default=int(os.environ.get("CODRAX_PROGRESS_INTERVAL", "30")),
+        help="Seconds between typed Codrax workflow progress heartbeats during long instance runs; 0 disables",
+    )
     parser.add_argument("--git-timeout", type=int, default=600)
     parser.add_argument("--log-level", default="debug")
     parser.add_argument("--repo-url-template", default="https://github.com/{repo}.git")

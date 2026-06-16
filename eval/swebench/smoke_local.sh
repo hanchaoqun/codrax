@@ -286,6 +286,7 @@ PY
 
 python3 - "$ROOT/eval/swebench/run_codrax_swebench.py" <<'PY'
 import importlib.util
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -468,6 +469,68 @@ strong_plan = {
 }
 if mod.prediction_confidence_downgrade_reason(plan=strong_plan, report=probe_report, verify_status="passed") != "":
     raise SystemExit("strong contract-coupled probe should not downgrade local confidence")
+
+with tempfile.TemporaryDirectory() as tmp:
+    repo = Path(tmp)
+    wf_dir = repo / ".codrax" / "plans" / "workflows"
+    wf_dir.mkdir(parents=True)
+    (wf_dir / "wf-heartbeat.json").write_text(
+        json.dumps({
+            "run_id": "wf-heartbeat",
+            "status": "in_progress",
+            "active_batch_id": "batch-1",
+            "batches": [
+                {"id": "batch-1", "status": "verifying", "active_slice_id": "slice-001"},
+            ],
+            "progress_ledger": [
+                {
+                    "stage": "controller",
+                    "status": "verify_batch",
+                    "reason_code": "apply_succeeded_verify_next",
+                }
+            ],
+        }),
+        encoding="utf-8",
+    )
+    heartbeat = mod.codrax_progress_status(repo, "local__bug-1", 42)
+    for expected in [
+        "local__bug-1",
+        "elapsed=42s",
+        "workflow=in_progress",
+        "batch=batch-1:verifying:slice=slice-001",
+        "last=controller/verify_batch/apply_succeeded_verify_next",
+    ]:
+        if expected not in heartbeat:
+            raise SystemExit(f"heartbeat missing {expected!r}: {heartbeat!r}")
+
+with tempfile.TemporaryDirectory() as tmp:
+    out = Path(tmp) / "codrax.out"
+    result = mod.run_cmd_streaming_to_file(
+        [sys.executable, "-c", "print('stream-start'); print('stream-end')"],
+        output_path=out,
+        timeout=5,
+        progress_interval=0,
+    )
+    if result.code != 0 or result.timed_out:
+        raise SystemExit(f"streaming command failed: code={result.code} timed_out={result.timed_out}")
+    if out.read_text(encoding="utf-8") != result.output:
+        raise SystemExit("streamed output file and returned output diverged")
+    if "stream-start" not in result.output or "stream-end" not in result.output:
+        raise SystemExit(f"streamed output missing expected text: {result.output!r}")
+
+with tempfile.TemporaryDirectory() as tmp:
+    out = Path(tmp) / "codrax.out"
+    def broken_progress(_elapsed):
+        raise RuntimeError("synthetic heartbeat failure")
+    result = mod.run_cmd_streaming_to_file(
+        [sys.executable, "-c", "import time; print('before-heartbeat'); time.sleep(1.2); print('survived-heartbeat')"],
+        output_path=out,
+        timeout=5,
+        progress_interval=1,
+        progress_fn=broken_progress,
+    )
+    if result.code != 0 or result.timed_out or "survived-heartbeat" not in result.output:
+        raise SystemExit("heartbeat exception should not fail the Codrax subprocess")
 PY
 
 FAIR_PREDICTIONS="$WORK/predictions-fair.jsonl"

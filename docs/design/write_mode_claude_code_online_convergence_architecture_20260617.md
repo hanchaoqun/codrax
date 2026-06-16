@@ -191,6 +191,67 @@ Codrax implication:
 - progress visibility should be streamed from typed lifecycle events while raw
   reasoning/log text remains transparent but non-authoritative.
 
+### R8: The query loop is stateful, but state is not model prose
+
+The paper's source-level analysis describes a fixed query pipeline around the
+while-loop: resolve settings, initialize one mutable state object, assemble
+post-compaction context, apply context shapers, call the model, dispatch tool
+uses, then continue from updated state. The companion repository highlights the
+same architectural split: only a small fraction of the product is model
+decision logic; most reliability comes from deterministic infrastructure.
+
+Codrax implication:
+
+- introduce a small write-loop runtime kernel instead of another large prompt:
+  state assembler, action validator, permission broker, effect executor,
+  observation normalizer, context projector, and event appender;
+- every model turn receives a typed `WriteWorkflowStateView`, not an
+  accumulated transcript dump;
+- every continuation point writes a new immutable event row, then derives the
+  next state view from the durable ledger;
+- raw logs and visible `<think>` remain transparent to users, but never become
+  continuation state unless a typed tool/projector converts them into a schema
+  artifact.
+
+### R9: Deferred tools, result budgets, and subagent summaries are context
+control mechanisms
+
+The paper calls out deferred tool schemas, per-tool-result budgets, and
+summary-only subagent returns as production context controls. Public subagent
+docs similarly emphasize tool allowlists, permission modes, scoped MCP access,
+and summary returns.
+
+Codrax implication:
+
+- role tool surfaces should be schema-thin and loaded by need: controller sees
+  only decisions, localizer sees read/search, coder sees bounded edit/apply,
+  verifier sees typed checks;
+- large command output must be artifact-backed with a bounded preview and typed
+  diagnostic rows;
+- localizer/probe/verifier workers should return typed summaries plus artifact
+  refs, never raw full transcripts as planner authority;
+- prompt cost and attention cost are first-class scheduler resources, not only
+  LLM token accounting.
+
+### R10: Permissions, hooks, and checkpoints are layered controls
+
+Public Claude Code permission docs describe layered evaluation: hooks first,
+then deny rules, ask rules, permission mode, allow rules, and callback. Public
+checkpointing docs also document an important limitation: file checkpoints
+track built-in edit/write tools, not arbitrary shell mutations.
+
+Codrax implication:
+
+- Codrax should keep deny-first `allow / ask / deny`, but tie every approval to
+  the active slice fingerprint rather than ambient session trust;
+- lifecycle hooks should initially be internal typed scheduler hooks, not
+  user-authored shell hooks with broad host authority;
+- before each applied slice, the worktree should have a typed restore point:
+  plan fingerprint, pre-apply diff/ref, changed path set, and policy record;
+- command tools that can mutate files must either be prohibited for write roles
+  or tracked as explicit effects with restore metadata. Otherwise they stay in
+  read-only/probe lanes.
+
 ## Research To Codrax Decision Matrix
 
 The following matrix translates the public research into Codrax-specific
@@ -262,6 +323,25 @@ This mirrors the public loop shape while preserving Codrax red lines:
 state transitions never read model prose, user intent keywords, summaries,
 rationale, `<think>`, or natural-language logs. Those remain transparent
 runtime text for users and audit, not control inputs.
+
+### Write Loop Runtime Kernel
+
+To avoid building another fragile agent graph, Codrax should narrow the write
+runtime to seven deterministic components:
+
+| Component | Responsibility | Non-goal |
+| --- | --- | --- |
+| `StateAssembler` | Build `WriteWorkflowStateView` from durable run, active slice, policy, context-pack projections, diagnostics, and budgets. | Does not summarize raw chat for hard routing. |
+| `ActionValidator` | Validate `WriteWorkflowDecision` against mode, schema, budget, state machine, and supported action set. | Does not infer intent from controller prose. |
+| `PermissionBroker` | Produce `allow / ask / deny` from typed path/content/command/risk/fingerprint signals. | Does not read issue keywords or model rationale. |
+| `EffectExecutor` | Execute exactly one bounded effect: explore, plan, apply, observe, split, append, block, finish. | Does not run broad side effects outside role policy. |
+| `ObservationNormalizer` | Convert tool/build/test output into typed verdicts, diagnostics, confidence, and artifact refs. | Does not treat passing narrative as success. |
+| `ContextProjector` | Project P0-P3 durable context into role-specific Top-N views and compact completed slices. | Does not drop must-carry safety/failure evidence. |
+| `EventAppender` | Append immutable events and restore/checkpoint metadata before deriving the next state. | Does not mutate historical decisions in place. |
+
+This keeps model flexibility where it is useful: choosing the next typed action
+inside the current state view. It keeps commercial correctness where it belongs:
+in the harness that validates, gates, records, observes, and resumes.
 
 ### Online Slice Scheduler
 
@@ -899,6 +979,11 @@ Commercial note:
 - Render active-slice compact views into controller/planner/verifier prompts.
 - Preserve raw visibility in logs/output artifacts for user transparency.
 - Add dedupe keys and Top-N tests for context packs.
+- Add per-tool-result preview budgets and artifact refs for verbose command
+  output, following the research finding that one tool result must not consume
+  the next turn's working memory.
+- Add slice restore metadata before each apply so future rewind/fork support can
+  restore file effects without trusting conversation text.
 
 Primary files:
 
@@ -913,6 +998,9 @@ Primary files:
   auto-resume safe active runs, render typed status cards, and pause only when
   user action is genuinely required.
 - Keep `/workflow` and `/plan` as advanced audit/recovery tools.
+- Stream long-running eval/customer automation progress from typed workflow
+  state: workflow status, active batch/slice, and latest progress reason. Raw
+  stdout remains visible evidence, but is not parsed for scheduler control.
 - Update `docs/user_guide.md`, `docs/user_guide.html`, and
   `docs/architecture.md`.
 
@@ -998,6 +1086,6 @@ Primary files:
 | 5 | complete | PlanRepairPack implemented across `emit_change_plan`, `emit_plan_skeleton`, and `emit_plan_change`: plan emit rejections now attach `ToolResult.Repair.Code=write_plan_repair_pack`, compact typed metadata, accepted enums, failing field paths, exact structured-edit current bytes, and retained-partial retry guidance. Planner prompt guidance consumes the typed repair packet as soft retry input while hard gates still read validators. Verification passed: focused `internal/tool`, `internal/types`, `internal/skill`; `python3 -m py_compile eval/swebench/run_codrax_swebench.py`; `bash eval/swebench/smoke_local.sh`; `git diff --check`; `go test ./...`; `make`. |
 | 6 | in_progress | Permission engine unification. This pass fixed task-level `WriteAnalysisIR.Request.Risk.Overall=high` so it remains hard `RiskHigh` and `auto_safe` pauses for approval; individual noisy risk booleans remain medium advisory unless corroborated by precise structural policy. |
 | 7 | pending | Context shaping and durable sidechains. |
-| 8 | pending | UX Auto Pilot polish. |
-| 9 | in_progress | Ran `matplotlib__matplotlib-24149` after Batch 2 and a three-instance smoke (`django__django-11964`, `scikit-learn__scikit-learn-14983`, `sphinx-doc__sphinx-11445`) after Batch 6: all predictions were non-empty and official harness dry-run accepted them. Manual audit exposed failed-verify stale-plan reuse, now fixed by typed fingerprint blocking and adapter audit blockers. More non-Go and symptom-only cases remain. |
+| 8 | in_progress | UX Auto Pilot polish. This pass adds typed SWE-bench/Codrax workflow heartbeats for long instance runs: the adapter streams Codrax output to `codrax.out` and emits interval progress from durable workflow JSON (`workflow`, active batch/slice, latest progress reason), preserving raw transparency without parsing stdout/prose for control. |
+| 9 | in_progress | Ran `matplotlib__matplotlib-24149` after Batch 2 and a three-instance smoke (`django__django-11964`, `scikit-learn__scikit-learn-14983`, `sphinx-doc__sphinx-11445`) after Batch 6: all predictions were non-empty and official harness dry-run accepted them. Manual audit exposed failed-verify stale-plan reuse, now fixed by typed fingerprint blocking and adapter audit blockers. More non-Go and symptom-only cases remain; future long runs should use typed progress heartbeats. |
 | 10 | pending | Commercial hardening. |

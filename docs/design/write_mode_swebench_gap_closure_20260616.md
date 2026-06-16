@@ -1394,3 +1394,44 @@ Red-line check:
 - The stale-plan guard reads only typed plan fingerprints, typed workflow
   attempt state, and cancellation sentinels. It does not parse user issue text,
   model rationale, summaries, logs, SWE-bench ids, or `<think>` text.
+
+## 2026-06-17 Typed Workflow Heartbeat For Long Runs
+
+Observed gap:
+
+- Long SWE-bench/customer-style write runs can be silent for many minutes while
+  Codrax is still exploring, applying, or verifying. The previous smoke runner
+  only printed `[i/n] instance` and then waited for the Codrax subprocess to
+  exit, so a stalled workflow and a healthy long verify looked the same from
+  the operator's terminal.
+
+Fix landed in this batch:
+
+- `eval/swebench/run_codrax_swebench.py` now streams Codrax stdout/stderr to
+  each instance's `codrax.out` while the process is still running.
+- The adapter emits interval progress lines controlled by
+  `--codrax-progress-interval` / `CODRAX_PROGRESS_INTERVAL` (default `30`
+  seconds, `0` disables).
+- Heartbeats are rendered from durable workflow JSON only:
+  `workflow` status, active batch/slice, and latest `progress_ledger`
+  `stage/status/reason_code`.
+- Raw Codrax output remains fully preserved for transparency, including visible
+  `<think>` text and tool calls. The heartbeat does not parse raw output for
+  scheduler control or prediction decisions.
+
+Example heartbeat shape:
+
+```text
+  progress django__django-11964 elapsed=90s workflow=in_progress batch=batch-1:verifying:slice=slice-001 last=controller/verify_batch/apply_succeeded_verify_next
+```
+
+Verification:
+
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py` PASS.
+- `bash eval/swebench/smoke_local.sh` PASS.
+
+Red-line check:
+
+- The progress renderer reads typed durable workflow JSON with parsed fields.
+  It does not use user keywords, issue ids, model prose, summaries, natural
+  language logs, or `<think>` text as hard control input.
