@@ -773,6 +773,9 @@ func TestRunTestsVerificationProbeImportErrorIsParserError(t *testing.T) {
 	if report.FailureKind != types.FailureKindParserError {
 		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
 	}
+	if report.FailureReasonCode != "verification_probe_module_not_found" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_module_not_found; report=%+v", report.FailureReasonCode, report)
+	}
 	if len(report.TestResults) != 1 || report.TestResults[0].AssertionID != "missing_dependency" || report.TestResults[0].Passed {
 		t.Fatalf("verification probe result missing or wrong: %+v", report.TestResults)
 	}
@@ -781,12 +784,12 @@ func TestRunTestsVerificationProbeImportErrorIsParserError(t *testing.T) {
 	}
 	foundParserErrorCommand := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "pre_suite_verification_probe" {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_module_not_found" {
 			foundParserErrorCommand = true
 		}
 	}
 	if !foundParserErrorCommand {
-		t.Fatalf("executed command evidence should include parser_error probe outcome, got %+v", report.ExecutedCommands)
+		t.Fatalf("executed command evidence should include parser_error probe reason_code, got %+v", report.ExecutedCommands)
 	}
 }
 
@@ -896,6 +899,9 @@ func TestRunTestsVerificationProbeUnhandledExceptionIsParserError(t *testing.T) 
 	if report.FailureKind != types.FailureKindParserError {
 		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
 	}
+	if report.FailureReasonCode != "verification_probe_exception" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_exception; report=%+v", report.FailureReasonCode, report)
+	}
 	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
 		t.Fatalf("VerificationStatus = %q, want unavailable", got)
 	}
@@ -907,12 +913,12 @@ func TestRunTestsVerificationProbeUnhandledExceptionIsParserError(t *testing.T) 
 	}
 	foundParserErrorCommand := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "pre_suite_verification_probe" {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_exception" {
 			foundParserErrorCommand = true
 		}
 	}
 	if !foundParserErrorCommand {
-		t.Fatalf("executed command evidence should include parser_error probe outcome, got %+v", report.ExecutedCommands)
+		t.Fatalf("executed command evidence should include parser_error probe reason_code, got %+v", report.ExecutedCommands)
 	}
 }
 

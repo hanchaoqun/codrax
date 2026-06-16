@@ -988,6 +988,10 @@ def report_failure_kind(report: dict[str, Any]) -> str:
     return ""
 
 
+def report_failure_reason_code(report: dict[str, Any]) -> str:
+    return str(report.get("failure_reason_code") or "").strip()
+
+
 def prediction_verdict(
     patch: str,
     verify_status: str,
@@ -1287,6 +1291,7 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             result["verify_status"] = report_verification_status(report)
             result["verify_passed"] = bool(report.get("passed"))
             result["verify_failure_kind"] = report_failure_kind(report)
+            result["verify_failure_reason_code"] = report_failure_reason_code(report)
             result["verify_summary"] = str(report.get("failure_summary") or "")
             result["verify_no_tests_runners"] = report.get("no_tests_runners") or []
             result["verify_test_count"] = len(report.get("test_results") or [])

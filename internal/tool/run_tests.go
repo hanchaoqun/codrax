@@ -1739,6 +1739,7 @@ func qualifyChangeReport(report *types.ChangeReport, plan runnerPlan, repoRoot s
 func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 	out := &types.ChangeReport{Passed: true}
 	var failureSummaries []string
+	var failureReasonCodes []string
 	for _, report := range reports {
 		if report == nil {
 			continue
@@ -1765,6 +1766,7 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 		if report.FailureSummary != "" {
 			failureSummaries = append(failureSummaries, report.FailureSummary)
 		}
+		failureReasonCodes = appendFailureReasonCodes(failureReasonCodes, report.FailureReasonCode)
 		// FailureKind precedence: resource-exhaustion kinds (oom,
 		// cpu_limit, timeout) win over build_failure / tests_failed
 		// because they describe a more specific failure mode the
@@ -1784,8 +1786,21 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 	if len(failureSummaries) > 0 {
 		out.FailureSummary = strings.Join(failureSummaries, " | ")
 	}
+	if len(failureReasonCodes) > 0 {
+		out.FailureReasonCode = strings.Join(dedupStrings(failureReasonCodes), ",")
+	}
 	out.EnsureVerificationStatus()
 	return out
+}
+
+func appendFailureReasonCodes(dst []string, raw string) []string {
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			dst = append(dst, part)
+		}
+	}
+	return dst
 }
 
 func renderAggregateTestSummary(repoRoot string, plans []runnerPlan, reports []*types.ChangeReport, aggregate *types.ChangeReport) string {

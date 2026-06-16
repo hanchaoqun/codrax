@@ -100,6 +100,7 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 	}
 	passed := true
 	var failureKind types.FailureKind
+	failureReasonCode := ""
 	for _, result := range results {
 		if !result.Passed {
 			passed = false
@@ -121,6 +122,9 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 			case "cpu_limit":
 				failureKind = types.FailureKindCPULimit
 			}
+			if failureReasonCode == "" && strings.TrimSpace(cmd.ReasonCode) != "" {
+				failureReasonCode = strings.TrimSpace(cmd.ReasonCode)
+			}
 			if failureKind != types.FailureKindTestsFailed {
 				break
 			}
@@ -134,11 +138,12 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		}
 	}
 	report := &types.ChangeReport{
-		PlanID:         plan.ID,
-		TestResults:    results,
-		Passed:         passed,
-		FailureKind:    failureKind,
-		FailureSummary: summary,
+		PlanID:            plan.ID,
+		TestResults:       results,
+		Passed:            passed,
+		FailureKind:       failureKind,
+		FailureReasonCode: failureReasonCode,
+		FailureSummary:    summary,
 	}
 	return &verificationProbeRunResult{
 		Report:   report,
@@ -273,6 +278,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		}
 	}
 	passed := supRes.Err == nil
+	reasonCode := ""
 	if outcome == "executed" && probeStatus.Outcome != "" {
 		switch probeStatus.Outcome {
 		case "passed":
@@ -288,10 +294,12 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 			passed = false
 			outcome = "parser_error"
 			failureKind = types.FailureKindParserError
+			reasonCode = pythonVerificationProbeReasonCode(probeStatus)
 		default:
 			passed = false
 			outcome = "parser_error"
 			failureKind = types.FailureKindParserError
+			reasonCode = pythonVerificationProbeReasonCode(probeStatus)
 		}
 	}
 	var missingExpected []string
@@ -343,9 +351,10 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 				Duration:      duration,
 				FailureDetail: detail,
 			}},
-			Passed:         passed,
-			FailureKind:    failureKind,
-			FailureSummary: detail,
+			Passed:            passed,
+			FailureKind:       failureKind,
+			FailureReasonCode: reasonCode,
+			FailureSummary:    detail,
 		},
 		Output: output,
 		Commands: []types.ExecutedCommand{{
@@ -357,7 +366,36 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 			DurationMS: duration.Milliseconds(),
 			Source:     source,
 			Outcome:    outcome,
+			ReasonCode: reasonCode,
 		}},
+	}
+}
+
+func pythonVerificationProbeReasonCode(status pythonVerificationProbeStatus) string {
+	outcome := strings.TrimSpace(status.Outcome)
+	exception := strings.TrimSpace(status.Exception)
+	switch outcome {
+	case "import_error":
+		switch exception {
+		case "ModuleNotFoundError":
+			return "verification_probe_module_not_found"
+		case "ImportError":
+			return "verification_probe_import_error"
+		default:
+			return "verification_probe_import_error"
+		}
+	case "syntax_error":
+		return "verification_probe_syntax_error"
+	case "exception":
+		if exception != "" {
+			return "verification_probe_exception"
+		}
+		return "verification_probe_runtime_exception"
+	default:
+		if outcome != "" {
+			return "verification_probe_unclassified_" + strings.ReplaceAll(outcome, "-", "_")
+		}
+		return "verification_probe_unclassified"
 	}
 }
 

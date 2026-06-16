@@ -72,8 +72,8 @@ telemetry is stable both as a nested object and as top-level result fields:
 `env_prepare_failed_step_names`. Those fields are observational only; missing
 pytest or partial dependency setup is not a hard code-failure gate.
 `results.jsonl` also includes Codrax's typed local verifier verdict
-(`verify_status`, `verify_failure_kind`, `verify_summary`,
-`verify_test_count`) plus plan audit fields (`plan_target_paths`,
+(`verify_status`, `verify_failure_kind`, `verify_failure_reason_code`,
+`verify_summary`, `verify_test_count`) plus plan audit fields (`plan_target_paths`,
 `plan_change_paths`, `plan_test_change_paths`,
 `plan_verification_probe_count`, `workflow_run_id`, `workflow_status`,
 `plan_context_paths`, `plan_context_covered_paths`,

@@ -613,3 +613,37 @@ Acceptance:
 - Unknown behavior contract operators fail loudly with the supported enum list.
 - No prompt or hard gate relies on user keywords, SWE-bench ids, model prose,
   summaries, or `<think>` text.
+
+Progress:
+
+- Implemented, regression tested, committed, and pushed as
+  `01daacec write: add behavior contract polarity`.
+
+### Batch 5A.2: Verification Probe Parser Subreasons
+
+- Map Python verification probe structured outcomes into
+  `ChangeReport.failure_reason_code` and `ExecutedCommand.reason_code`.
+- Preserve `parser_error` as the broad unavailable class, but add precise
+  subreasons such as `verification_probe_module_not_found`,
+  `verification_probe_import_error`, `verification_probe_syntax_error`, and
+  `verification_probe_exception`.
+- Keep these subreasons derived from probe wrapper JSON and process exit data,
+  not from user wording or model prose.
+
+Acceptance:
+
+- Missing module/import failures in bounded probes remain non-blocking local
+  verification unavailable outcomes, but downstream controller/eval consumers
+  can distinguish dependency/setup gaps from generic parser failure.
+- `run_tests` command evidence carries the same reason code as the aggregate
+  ChangeReport.
+- SWE-bench `results.jsonl` exposes `verify_failure_reason_code` beside
+  `verify_failure_kind`, preserving official predictions JSONL shape.
+
+Progress:
+
+- Implemented and regression tested. Verification:
+  `go test ./internal/tool -run 'RunTestsVerificationProbe'`,
+  `go test ./internal/tool ./internal/types ./internal/agent ./internal/orchestrator ./internal/writeflow`,
+  `python3 -m py_compile eval/swebench/run_codrax_swebench.py`,
+  `git diff --check`, and `go test ./...`.
