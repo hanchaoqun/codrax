@@ -891,6 +891,16 @@ records adapter results.
   adapter runs without the flag retain git history tooling. The gate consumes
   typed CLI/config state and parsed git subcommands only, not user intent
   keywords, model prose, summaries, or issue text.
+- 2026-06-16: Tightened the flag boundary with executable coverage and user
+  docs. The local SWE-bench adapter smoke now creates a future commit after the
+  instance `base_commit`, asserts that the default adapter path does not pass
+  Codrax's internal `--eval-disable-git-history`, and runs a second fair path
+  with `--isolate-git-history` that must pass the internal flag, preserve the
+  evaluated HEAD, prune at least one ref, and export `git_history_isolation`
+  telemetry. `docs/user_guide.md` and `docs/user_guide.html` now state that
+  normal product read/write runs and direct adapter runs keep git history
+  enabled by default; only SWE-bench fair smoke enables isolation by default via
+  `SWEBENCH_ISOLATE_GIT_HISTORY=1`.
 - 2026-06-16: Started a fair-isolated four-instance Lite batch at
   `eval/results/swebench/lite-smoke-20260616-fair-batch-sympy-sphinx-scikit-django`
   for `django__django-11742`, `sympy__sympy-12481`,

@@ -31,6 +31,15 @@ PY
 git -C "$SRC" add bug.py helper.py
 git -C "$SRC" commit -q -m seed
 BASE_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
+python3 - "$SRC/helper.py" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+path.write_text('def helper():\n    return "future-fix-hidden-from-fair-eval"\n', encoding='utf-8')
+PY
+git -C "$SRC" add helper.py
+git -C "$SRC" commit -q -m "future fix that fair eval must not expose"
 
 FAKE_CODRAX="$WORK/fake-codrax"
 python3 - "$FAKE_CODRAX" <<'PY'
@@ -40,6 +49,7 @@ import sys
 Path(sys.argv[1]).write_text("""#!/usr/bin/env bash
 set -euo pipefail
 
+orig_args=("$@")
 repo=""
 log_dir=""
 while [[ $# -gt 0 ]]; do
@@ -73,6 +83,7 @@ fi
 
 mkdir -p "$repo/.codrax/plans"
 mkdir -p "$repo/.codrax/plans/workflows"
+printf '%s\n' "${orig_args[@]}" > "$repo/.codrax/fake-codrax-argv.txt"
 if [[ -n "$log_dir" ]]; then
   mkdir -p "$log_dir"
 fi
@@ -247,6 +258,54 @@ if row.get("prediction_blocks_local_acceptance") is not False:
         "fake run has no failed verify report, so it should not block local acceptance: "
         f"{row.get('prediction_blocks_local_acceptance')!r}"
     )
+if row.get("git_history_isolated") is not False:
+    raise SystemExit(f"default adapter run must not isolate git history: {row.get('git_history_isolated')!r}")
+if (row.get("git_history_isolation") or {}).get("enabled") is not False:
+    raise SystemExit(f"default adapter run isolation telemetry should be disabled: {row.get('git_history_isolation')!r}")
+argv_path = row.get("instance_dir", "") + "/repo/.codrax/fake-codrax-argv.txt"
+with open(argv_path, encoding="utf-8") as handle:
+    argv = handle.read().splitlines()
+if "--eval-disable-git-history" in argv:
+    raise SystemExit("default adapter run unexpectedly passed --eval-disable-git-history to Codrax")
+PY
+
+FAIR_PREDICTIONS="$WORK/predictions-fair.jsonl"
+FAIR_RESULTS="$WORK/results-fair.jsonl"
+python3 "$ROOT/eval/swebench/run_codrax_swebench.py" \
+  --instances-jsonl "$INSTANCES" \
+  --repo-cache "$WORK/repo-cache" \
+  --workdir "$WORK/run-fair" \
+  --predictions-path "$FAIR_PREDICTIONS" \
+  --results-path "$FAIR_RESULTS" \
+  --codrax-bin "$FAKE_CODRAX" \
+  --limit 1 \
+  --codrax-timeout 60 \
+  --git-timeout 60 \
+  --isolate-git-history
+
+python3 "$ROOT/eval/swebench/validate_predictions.py" "$FAIR_PREDICTIONS" \
+  --instances-jsonl "$INSTANCES" \
+  --require-nonempty-patch
+
+python3 - "$FAIR_RESULTS" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    rows = [json.loads(line) for line in handle if line.strip()]
+row = rows[0]
+isolation = row.get("git_history_isolation") or {}
+if row.get("git_history_isolated") is not True or isolation.get("enabled") is not True:
+    raise SystemExit(f"fair adapter run did not enable git history isolation: {isolation!r}")
+if isolation.get("head") != row.get("base_commit_resolved"):
+    raise SystemExit(f"git history isolation changed the evaluated HEAD: {isolation!r}")
+if int(isolation.get("deleted_ref_count") or 0) < 1:
+    raise SystemExit(f"fair adapter run did not prune any refs: {isolation!r}")
+argv_path = row.get("instance_dir", "") + "/repo/.codrax/fake-codrax-argv.txt"
+with open(argv_path, encoding="utf-8") as handle:
+    argv = handle.read().splitlines()
+if "--eval-disable-git-history" not in argv:
+    raise SystemExit("fair adapter run did not pass --eval-disable-git-history to Codrax")
 PY
 
 DRY_RUN=1 PREDICTIONS_PATH="$PREDICTIONS" "$ROOT/eval/swebench/run_official_harness.sh" >/dev/null
