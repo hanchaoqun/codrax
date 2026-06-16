@@ -1107,3 +1107,36 @@ records adapter results.
   user intent keywords, issue text, model prose, summaries, rationale, or
   `<think>`. Remaining gap: Requests shows the planner still needs stronger
   behavior-grounded localization before changing public exception hierarchy.
+- 2026-06-16: Completed a fair-isolated four-instance Lite batch at
+  `eval/results/swebench/lite-smoke-20260616-django11049-mpl23563-scikit11281-pytest6116-current`
+  for `django__django-11049`, `matplotlib__matplotlib-23563`,
+  `pytest-dev__pytest-6116`, and `scikit-learn__scikit-learn-11281`.
+  `predictions.jsonl` and `results.jsonl` both contain four rows,
+  `validate_predictions.py` accepted the predictions with `empty_patch=1`,
+  and `run_official_harness.sh` printed the official
+  `swebench.harness.run_evaluation` command in dry-run mode. All rows used
+  `git_history_isolated=true`, proving the fair-run flag chain stayed active.
+  Result summary: Django exported a `predicted_passed/high` patch and local
+  Django scoped tests passed; Matplotlib and scikit-learn exported non-empty
+  patches but stayed `predicted_unverified` due local env/test-surface
+  unavailability; Pytest produced `empty_patch` after repeated no-plan
+  planning rounds. Manual gold-patch audit: Django's source edit covered the
+  required error-message fix but added extra `help_text` lines not present in
+  the official source patch; Matplotlib localized the right file but changed
+  `Line3D.__init__`, while the official fix flattens `zs` in
+  `set_3d_properties()` before broadcasting; Pytest missed the simple
+  `--co` alias addition in `src/_pytest/main.py`; scikit-learn localized the
+  right file but produced duplicate/unreachable code because a structured
+  `insert_after` payload repeated its own multi-line `old_text` anchor.
+  Generalized fix landed for the structured-edit side of that failure:
+  line-addressed insertions now treat a uniquely matching multi-line
+  `old_text` as a full anchor range (`insert_before` at range start,
+  `insert_after` at range end), and reject insertion content that repeats the
+  anchor line/block with typed reason
+  `adjacent_duplicate_insert_anchor`. This gate consumes only typed
+  `StructuredEdit.kind`, `old_text`, current file bytes, and `content`; it
+  does not use issue keywords, model prose, summaries, rationale, or
+  `<think>`. Remaining gaps: no-plan recovery needs a more useful typed
+  failure artifact or re-explore/split strategy, and behavior-grounded
+  localization still needs strengthening when the issue is symptom-heavy and
+  the first plausible file is not the official fix site.

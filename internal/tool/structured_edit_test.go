@@ -443,6 +443,62 @@ func TestCompileStructuredEdits_InsertAnchorMismatchEchoesCurrentBytes(t *testin
 	}
 }
 
+func TestCompileStructuredEdits_InsertAfterMultiLineOldTextAnchorsAfterRange(t *testing.T) {
+	root := t.TempDir()
+	anchor := "        self._set_parameters(best_params)\n        self.n_iter_ = best_n_iter\n\n        return self\n"
+	writeSurfaceFile(t, root, "sklearn/mixture/base.py", "    def fit(self, X):\n"+anchor+"\n    def _e_step(self, X):\n        pass\n")
+	change := &types.FileChange{
+		Path: "sklearn/mixture/base.py",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:      "insert_after",
+			StartLine: 2,
+			OldText:   anchor,
+			Content:   "\n    def fit_predict(self, X, y=None):\n        return self.fit(X).predict(X)\n",
+		}},
+	}
+	_, newContent, err := compileStructuredEditsToContent(root, change)
+	if err != nil {
+		t.Fatalf("multi-line old_text insertion should compile: %v", err)
+	}
+	wantOrder := anchor + "\n    def fit_predict(self, X, y=None):\n        return self.fit(X).predict(X)\n\n    def _e_step"
+	if !strings.Contains(newContent, wantOrder) {
+		t.Fatalf("insert_after with multi-line old_text should insert after the full anchor range:\n%s", newContent)
+	}
+	if strings.Contains(newContent, "self._set_parameters(best_params)\n\n    def fit_predict") {
+		t.Fatalf("insert_after was anchored after the first line instead of the full old_text range:\n%s", newContent)
+	}
+}
+
+func TestCompileStructuredEdits_InsertAfterRejectsDuplicatedAnchorBlock(t *testing.T) {
+	root := t.TempDir()
+	anchor := "        self._set_parameters(best_params)\n        self.n_iter_ = best_n_iter\n\n        return self\n"
+	writeSurfaceFile(t, root, "sklearn/mixture/base.py", "    def fit(self, X):\n"+anchor+"\n    def _e_step(self, X):\n        pass\n")
+	change := &types.FileChange{
+		Path: "sklearn/mixture/base.py",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:      "insert_after",
+			StartLine: 2,
+			OldText:   anchor,
+			Content:   anchor + "\n    def fit_predict(self, X, y=None):\n        return self.fit(X).predict(X)\n",
+		}},
+	}
+	_, err := compileStructuredEditsToPatch(root, change)
+	if err == nil {
+		t.Fatal("insert_after content that repeats its anchor block should fail")
+	}
+	var diag *structuredEditDiagnosticError
+	if !errors.As(err, &diag) {
+		t.Fatalf("error should carry structured diagnostic: %v", err)
+	}
+	if diag.diagnostic.ReasonCode != "adjacent_duplicate_insert_anchor" ||
+		diag.diagnostic.ExpectedOldText != anchor ||
+		!strings.Contains(diag.diagnostic.RetryInstruction, "content must contain only the new bytes") {
+		t.Fatalf("unexpected diagnostic: %+v", diag.diagnostic)
+	}
+}
+
 func TestStructuredEditOldTextMatches_ByteRules(t *testing.T) {
 	cases := []struct {
 		got, old string

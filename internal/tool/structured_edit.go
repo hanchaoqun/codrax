@@ -267,25 +267,24 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 					SafeEditKinds: structuredEditSafeInsertKinds(lines),
 				})
 			}
+			var anchorLines []string
+			anchorStartLine := edit.StartLine
+			anchorEndLine := edit.StartLine
 			if edit.OldText != "" {
 				anchor := ""
 				if edit.StartLine >= 1 && edit.StartLine <= lineCount {
 					anchor = lines[edit.StartLine-1]
 				}
 				if !structuredEditOldTextMatches(anchor, edit.OldText) {
-					if relocatedStart, _, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
+					if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
+						anchorLines = append([]string(nil), lines[relocatedStart:relocatedEnd]...)
 						edit.StartLine = relocatedStart + 1
-						start, err = insertionIndex(kind, edit.StartLine, lineCount)
-						if err != nil {
-							msg := fmt.Sprintf("structured edit builder: change %q edits[%d] %v", path, i, err)
-							return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
-								ReasonCode:    "invalid_insert_anchor",
-								Path:          path,
-								EditIndex:     i,
-								FileLineCount: lineCount,
-								StartLine:     edit.StartLine,
-								SafeEditKinds: structuredEditSafeInsertKinds(lines),
-							})
+						anchorStartLine = relocatedStart + 1
+						anchorEndLine = relocatedEnd
+						if kind == "insert_before" {
+							start = relocatedStart
+						} else {
+							start = relocatedEnd
 						}
 					} else {
 						msg := fmt.Sprintf(
@@ -307,14 +306,38 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 							SafeEditKinds:    structuredEditSafeInsertKinds(lines),
 						})
 					}
+				} else {
+					anchorLines = []string{anchor}
+					anchorStartLine = edit.StartLine
+					anchorEndLine = edit.StartLine
 				}
+			}
+			insert := splitContentLines(edit.Content)
+			if structuredInsertRepeatsAnchor(path, kind, anchorLines, insert) {
+				anchorBytes := strings.Join(anchorLines, "")
+				msg := fmt.Sprintf(
+					"structured edit builder: change %q edits[%d] %s content repeats its old_text anchor; remove the duplicated anchor line/block and insert only the new neighboring bytes",
+					path, i, kind)
+				return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+					ReasonCode:       "adjacent_duplicate_insert_anchor",
+					Path:             path,
+					EditIndex:        i,
+					FileLineCount:    lineCount,
+					StartLine:        anchorStartLine,
+					EndLine:          anchorEndLine,
+					CurrentBytes:     anchorBytes,
+					ExpectedOldText:  anchorBytes,
+					CurrentByteLen:   len(anchorBytes),
+					RetryInstruction: "remove the duplicated copy of expected_old_text from content; for insert_before/insert_after, content must contain only the new bytes being inserted",
+					SafeEditKinds:    structuredEditSafeInsertKinds(lines),
+				})
 			}
 			key := fmt.Sprintf("%s:%d", kind, start)
 			if prev, dup := insertPoints[key]; dup {
 				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] duplicates insertion point from edits[%d]", path, i, prev)
 			}
 			insertPoints[key] = i
-			out = append(out, compiledStructuredEdit{kind: kind, start: start, end: start, insert: splitContentLines(edit.Content), sourceIdx: i})
+			out = append(out, compiledStructuredEdit{kind: kind, start: start, end: start, insert: insert, sourceIdx: i})
 		case "insert_at_eof", "insert_before_final_brace":
 			if edit.Content == "" {
 				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] %s requires non-empty content", path, i, kind)
@@ -476,6 +499,34 @@ func structuredReplaceRepeatsOldRange(path string, oldRange, insert []string) bo
 		}
 	}
 	return true
+}
+
+func structuredInsertRepeatsAnchor(path, kind string, anchorLines, insert []string) bool {
+	if !duplicateInsertionPathEligible(path) || len(anchorLines) == 0 || len(insert) < len(anchorLines) {
+		return false
+	}
+	if !structuredEditSourceLikeRange(anchorLines) {
+		return false
+	}
+	switch kind {
+	case "insert_after":
+		for i := range anchorLines {
+			if insert[i] != anchorLines[i] {
+				return false
+			}
+		}
+		return true
+	case "insert_before":
+		offset := len(insert) - len(anchorLines)
+		for i := range anchorLines {
+			if insert[offset+i] != anchorLines[i] {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func structuredEditSourceLikeRange(lines []string) bool {

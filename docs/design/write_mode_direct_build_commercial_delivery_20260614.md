@@ -3896,3 +3896,76 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     file insert anchors. Validators are catching the unsafe shape, but the
     repair UX should bias toward whole-file replace for very small files and
     avoid duplicating import headers.
+
+## 2026-06-16 SWE-bench smoke 9: no-plan recovery and structured insert anchoring
+
+- Evidence source:
+  - Fair-isolated non-Go SWE-bench Lite batch:
+    `eval/results/swebench/lite-smoke-20260616-django11049-mpl23563-scikit11281-pytest6116-current`.
+  - Instances requested: `django__django-11049`,
+    `matplotlib__matplotlib-23563`, `scikit-learn__scikit-learn-11281`,
+    `pytest-dev__pytest-6116`.
+  - Adapter validation passed: `validate_predictions.py` accepted 4 rows with
+    `empty_patch=1`; official harness dry-run printed the
+    `swebench.harness.run_evaluation` command with the generated
+    `predictions.jsonl`.
+- Result summary:
+  - `django__django-11049`: `predicted_passed`, local Django scoped tests
+    passed, source patch fixed the expected DurationField error format. Gold
+    patch only changed the model field message; Codrax also added `help_text`
+    in model/forms fields, which covers the issue wording but exceeds the
+    official source shape.
+  - `matplotlib__matplotlib-23563`: `predicted_unverified/no_tests`. Codrax
+    changed `Line3D.__init__`; gold patch instead flattens `zs` in
+    `set_3d_properties()` before broadcasting. This is a behavior-localization
+    miss, not a prediction exporter issue.
+  - `pytest-dev__pytest-6116`: `empty_patch`. Planner spent three planning
+    attempts without installing a ChangePlan and the run ended with
+    `no change plan was produced this round`; gold source patch is a simple
+    `--co` alias in `src/_pytest/main.py`.
+  - `scikit-learn__scikit-learn-11281`: `predicted_unverified/parser_error`.
+    Codrax localized the right file but emitted duplicated/unreachable code:
+    the structured `insert_after` content repeated the multi-line `old_text`
+    anchor, causing `_set_parameters`, `n_iter_`, and `return self` to appear
+    twice. Gold patch refactors `fit()` to delegate to `fit_predict()` and
+    returns `log_resp.argmax(axis=1)`.
+- Generalized gap fixed:
+  - Structured insert edits previously treated a relocated multi-line
+    `old_text` as if only its first line were the insertion anchor. If the
+    planner included the anchor block in `content`, the builder could create a
+    syntactically valid but semantically broken duplicated block that dry-build
+    would not catch.
+  - The structured edit builder now anchors uniquely matched multi-line
+    `old_text` ranges as full ranges: `insert_before` inserts at range start
+    and `insert_after` inserts at range end.
+  - The builder also rejects line-addressed insertion content that repeats its
+    own anchor line/block, returning typed reason
+    `adjacent_duplicate_insert_anchor` with `expected_old_text` and repair
+    guidance to insert only new neighboring bytes.
+- Safety and prompt hygiene:
+  - This gate consumes typed `StructuredEdit.kind`, `old_text`, current file
+    bytes, and `content` only. It does not inspect user intent keywords, issue
+    text, model rationale, natural-language summaries, or `<think>`.
+  - It applies through the shared structured builder path, so single-shot
+    `emit_change_plan`, multi-round `emit_plan_change`, and apply-time
+    recompile all get the same protection.
+- Implementation tasks:
+  - [x] Fix multi-line `old_text` insertion anchoring.
+  - [x] Reject insertion content that repeats the insertion anchor.
+  - [x] Add focused structured edit regression tests.
+  - [x] Record SWE-bench adapter and write-mode ledgers.
+- Verification:
+  - Focused structured edit tests passed:
+    `go test ./internal/tool -run 'TestCompileStructuredEdits' -count=1`.
+  - Full regression/build are tracked by the implementation commit following
+    this section.
+- Remaining system gaps to track:
+  - Planner no-plan recovery needs a typed terminal artifact that is more
+    useful than empty patch: candidate missing file, unsupported uncertainty,
+    or a controller-requested re-explore/split decision should be durable and
+    visible in `results.jsonl`.
+  - Write analysis/planner emit-only rounds still allow one wasted unavailable
+    tool call after the tool surface narrows; this is a flow-smoothness issue
+    across several instances, not a correctness blocker.
+  - Behavior-grounded localization needs strengthening for symptom-heavy
+    issues where a plausible nearby code path is not the official causal site.
