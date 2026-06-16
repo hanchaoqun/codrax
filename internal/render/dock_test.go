@@ -172,6 +172,17 @@ func TestComposeDockRow1_ReceivingHasTail(t *testing.T) {
 	}
 }
 
+func TestStreamTailDisplayBudgetKeepsLongerContext(t *testing.T) {
+	preview := "0123456789ABCDEFGHIJklmnopqrstUVWX" + "YZabcdefghijklmnopqrstuvwxyz"
+	tail := tailByDisplayWidth(preview, streamTailDisplayCols)
+	if !strings.Contains(tail, "UVWX") {
+		t.Fatalf("stream tail budget should preserve roughly 40 cols of recent context, got %q", tail)
+	}
+	if strings.Contains(tail, "ABCDEFGHIJ") {
+		t.Fatalf("stream tail should still be a bounded suffix, got %q", tail)
+	}
+}
+
 // TestComposeDockRow1_RequestingNoTail verifies the row-1 contract
 // that activityRequesting renders ONLY the status word — no `▸
 // tail` segment because there's no live stream to show. The dock

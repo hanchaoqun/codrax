@@ -20,10 +20,10 @@ import (
 const dockTickInterval = 100 * time.Millisecond
 
 // streamTailDisplayCols caps the row-1 `▸ tail` segment display
-// width. ~25 cols gives the user a feel for "bytes flowing" without
-// dominating the line. Stage counters and time row stay readable
-// even when the tail is at full extent.
-const streamTailDisplayCols = 25
+// width. ~40 cols keeps enough live text before the received-size
+// counter to understand what is arriving, while composeDockRows still
+// applies the terminal-width cap so narrow panes never wrap.
+const streamTailDisplayCols = 40
 
 // dockEmitter is the renderer's new event handler. It replaces the
 // bar-based Emitter. Same signature, same locking discipline, same
