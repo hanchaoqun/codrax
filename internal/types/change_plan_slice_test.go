@@ -133,3 +133,61 @@ func TestValidateChangePlanSlicesRejectsLaterDependency(t *testing.T) {
 		t.Fatalf("unexpected violations: %v", violations)
 	}
 }
+
+func TestActiveChangePlanApplyTargetPathsUsesWorkflowSlice(t *testing.T) {
+	plan := &ChangePlan{
+		ID:          "plan-1",
+		TargetPaths: []string{"a.py", "b.py", "c.py"},
+		Changes: []FileChange{
+			{Path: "a.py"},
+			{Path: "b.py"},
+			{Path: "c.py"},
+		},
+	}
+	run := &WriteWorkflowRun{
+		RunID:         "wf-1",
+		Status:        WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        WriteWorkflowBatchApplying,
+			ActiveSliceID: "slice-002",
+			Slices: []WriteWorkflowSlice{{
+				ID:            "slice-001",
+				Status:        ChangePlanSliceVerified,
+				PlanID:        "plan-1",
+				ChangeIndexes: []int{0},
+			}, {
+				ID:            "slice-002",
+				Status:        ChangePlanSliceApplying,
+				PlanID:        "plan-1",
+				ChangeIndexes: []int{1},
+			}},
+		}},
+	}
+	targets, active := ActiveChangePlanApplyTargetPaths(plan, run)
+	if !active {
+		t.Fatal("expected active slice target view")
+	}
+	if !reflect.DeepEqual(targets, []string{"b.py"}) {
+		t.Fatalf("targets = %+v, want [b.py]", targets)
+	}
+	changes, active := ActiveChangePlanApplyChanges(plan, run)
+	if !active || len(changes) != 1 || changes[0].Path != "b.py" {
+		t.Fatalf("changes = %+v active=%v, want b.py active", changes, active)
+	}
+}
+
+func TestActiveChangePlanApplyTargetPathsFallsBackToWholePlan(t *testing.T) {
+	plan := &ChangePlan{
+		TargetPaths: []string{"a.py", "b.py"},
+		Changes:     []FileChange{{Path: "a.py"}, {Path: "b.py"}},
+	}
+	targets, active := ActiveChangePlanApplyTargetPaths(plan, nil)
+	if active {
+		t.Fatal("nil run should not activate slice mode")
+	}
+	if !reflect.DeepEqual(targets, []string{"a.py", "b.py"}) {
+		t.Fatalf("targets = %+v, want full plan targets", targets)
+	}
+}

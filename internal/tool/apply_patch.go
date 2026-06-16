@@ -153,6 +153,21 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 				path, valid, path)), nil
 	}
 
+	if activeTargets, active := types.ActiveChangePlanApplyTargetPaths(plan, ctx.Mutable.WriteWorkflowRun()); active && !containsPath(activeTargets, path) {
+		applied := ctx.Mutable.WriteClosure().AppliedSet()
+		if !applied[path] {
+			valid := "none"
+			if len(activeTargets) > 0 {
+				valid = strings.Join(activeTargets, ", ")
+			}
+			ctx.Mutable.WriteClosure().RecordRejection(path)
+			return errResult(t.Name(),
+				fmt.Sprintf("apply_patch rejected: path %q is outside the active plan slice (slice W1 violation). "+
+					"Valid paths for the active slice: [%s]. Apply only the current slice; already-applied dependency paths remain idempotent.",
+					path, valid)), nil
+		}
+	}
+
 	// Find the matching ChangeUnit for the path. Constant lookup
 	// is fine for B1 plans (≤20 changes typical).
 	var unit *types.FileChange

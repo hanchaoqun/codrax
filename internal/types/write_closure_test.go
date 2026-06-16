@@ -41,3 +41,19 @@ func TestWriteClosure_Reset_ClearsApplied(t *testing.T) {
 		t.Error("Reset must clear appliedSet")
 	}
 }
+
+func TestWriteClosure_ReplacePendingApplies(t *testing.T) {
+	c := NewWriteClosure()
+	c.EnqueuePendingApply(PendingApply{Path: "full-a.go"})
+	c.EnqueuePendingApply(PendingApply{Path: "full-b.go"})
+	c.ReplacePendingApplies([]PendingApply{{Path: "slice-a.go", Origin: "active_slice"}})
+	got := c.PendingApplies()
+	if len(got) != 1 || got[0].Path != "slice-a.go" || got[0].Origin != "active_slice" {
+		t.Fatalf("ReplacePendingApplies = %+v, want active slice queue", got)
+	}
+	got[0].Path = "mutated"
+	again := c.PendingApplies()
+	if again[0].Path != "slice-a.go" {
+		t.Fatalf("PendingApplies should return a defensive copy, got %+v", again)
+	}
+}

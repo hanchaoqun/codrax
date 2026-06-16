@@ -50,6 +50,50 @@ func TestCoder_ShouldStop_AllApplied(t *testing.T) {
 	}
 }
 
+func TestCoder_ShouldStop_ActiveSliceApplied(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan",
+		Changes: []types.FileChange{
+			{Path: "a.go", Kind: "create"},
+			{Path: "b.go", Kind: "create"},
+		},
+		TargetPaths: []string{"a.go", "b.go"},
+	}
+	ctx := coderFixtureCtx(plan)
+	ctx.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchApplying,
+			ActiveSliceID: "slice-001",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:            "slice-001",
+				Status:        types.ChangePlanSliceApplying,
+				PlanID:        "plan",
+				ChangeIndexes: []int{0},
+				Paths:         []string{"a.go"},
+			}},
+		}},
+	})
+	ev := &coderEvaluator{}
+	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
+	if !strings.Contains(inst, "Active slice target paths") {
+		t.Fatalf("instruction should identify active slice scope, got %q", inst)
+	}
+	if !strings.Contains(inst, "a.go") || strings.Contains(inst, "b.go") {
+		t.Fatalf("instruction should list only active slice path, got %q", inst)
+	}
+	if ev.ShouldStop(llm.Response{}, 0) {
+		t.Fatal("should not stop before active slice path is applied")
+	}
+	ctx.Mutable.WriteClosure().MarkApplied("a.go")
+	if !ev.ShouldStop(llm.Response{}, 1) {
+		t.Fatal("should stop after active slice path is applied even when later plan paths remain")
+	}
+}
+
 // TestCoder_ShouldStop_IterationCap verifies the iteration cap
 // prevents runaway loops when the LLM never makes progress.
 func TestCoder_ShouldStop_IterationCap(t *testing.T) {
@@ -147,6 +191,44 @@ func TestCoder_ParseOutput_Incomplete(t *testing.T) {
 	}
 	if out.MissingPiece != types.MissingFacts {
 		t.Errorf("MissingPiece should be MissingFacts; got %q", out.MissingPiece)
+	}
+}
+
+func TestCoder_ParseOutput_ActiveSliceComplete(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan",
+		Changes: []types.FileChange{
+			{Path: "a.go", Kind: "create"},
+			{Path: "b.go", Kind: "create"},
+		},
+		TargetPaths: []string{"a.go", "b.go"},
+	}
+	ctx := coderFixtureCtx(plan)
+	ctx.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchApplying,
+			ActiveSliceID: "slice-001",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:            "slice-001",
+				Status:        types.ChangePlanSliceApplying,
+				PlanID:        "plan",
+				ChangeIndexes: []int{0},
+			}},
+		}},
+	})
+	ctx.Mutable.WriteClosure().MarkApplied("a.go")
+	ev := &coderEvaluator{}
+	ev.BuildInitialInstruction(ctx, &skill.Config{})
+	out, err := ev.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput should accept completed active slice: %v", err)
+	}
+	if out.MissingPiece != types.MissingNone {
+		t.Fatalf("MissingPiece = %q, want MissingNone", out.MissingPiece)
 	}
 }
 

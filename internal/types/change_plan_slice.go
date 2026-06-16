@@ -193,6 +193,92 @@ func ValidateChangePlanSlices(plan *ChangePlan, slices []ChangePlanSlice) []stri
 	return violations
 }
 
+func ActiveChangePlanApplySlice(plan *ChangePlan, run *WriteWorkflowRun) (ChangePlanSlice, bool) {
+	if plan == nil || run == nil {
+		return ChangePlanSlice{}, false
+	}
+	normalizedRun := NormalizeWriteWorkflowRun(*run)
+	batch, ok := writeWorkflowActiveBatch(normalizedRun)
+	if !ok {
+		return ChangePlanSlice{}, false
+	}
+	activeID := strings.TrimSpace(batch.ActiveSliceID)
+	slices := batch.Slices
+	if len(slices) == 0 && activeID != "" {
+		slices = writeWorkflowSlicesFromPlanSlices(NormalizeChangePlanSlices(plan, ChangePlanSliceOptions{}), plan.ID)
+	}
+	if len(slices) == 0 {
+		return ChangePlanSlice{}, false
+	}
+	if activeID == "" {
+		for _, slice := range slices {
+			if changePlanSliceStatusIsTerminal(slice.Status) {
+				continue
+			}
+			activeID = strings.TrimSpace(slice.ID)
+			break
+		}
+	}
+	if activeID == "" {
+		return ChangePlanSlice{}, false
+	}
+	for _, slice := range slices {
+		if strings.TrimSpace(slice.ID) != activeID {
+			continue
+		}
+		out := ChangePlanSlice{
+			ID:                strings.TrimSpace(slice.ID),
+			Status:            normalizeChangePlanSliceStatus(slice.Status),
+			ChangeIndexes:     normalizeChangePlanSliceIndexes(slice.ChangeIndexes, len(plan.Changes)),
+			DependsOnSlices:   dedupTrimWriteWorkflowRunStrings(slice.DependsOnSlices),
+			ContractRefs:      nil,
+			ChangedSymbolRefs: nil,
+		}
+		out.Paths = changePlanSlicePathsForIndexes(plan, out.ChangeIndexes)
+		if out.Status == "" {
+			out.Status = ChangePlanSlicePending
+		}
+		if len(out.ChangeIndexes) == 0 {
+			return ChangePlanSlice{}, false
+		}
+		return out, true
+	}
+	return ChangePlanSlice{}, false
+}
+
+func ActiveChangePlanApplyTargetPaths(plan *ChangePlan, run *WriteWorkflowRun) ([]string, bool) {
+	slice, ok := ActiveChangePlanApplySlice(plan, run)
+	if !ok {
+		return changePlanAllTargetPaths(plan), false
+	}
+	return changePlanSlicePathsForIndexes(plan, slice.ChangeIndexes), true
+}
+
+func ActiveChangePlanApplyChanges(plan *ChangePlan, run *WriteWorkflowRun) ([]FileChange, bool) {
+	slice, ok := ActiveChangePlanApplySlice(plan, run)
+	if !ok {
+		if plan == nil {
+			return nil, false
+		}
+		return append([]FileChange(nil), plan.Changes...), false
+	}
+	out := make([]FileChange, 0, len(slice.ChangeIndexes))
+	for _, idx := range slice.ChangeIndexes {
+		if idx < 0 || idx >= len(plan.Changes) {
+			continue
+		}
+		out = append(out, plan.Changes[idx])
+	}
+	return out, true
+}
+
+func WriteWorkflowSlicesFromChangePlan(plan *ChangePlan) []WriteWorkflowSlice {
+	if plan == nil {
+		return nil
+	}
+	return writeWorkflowSlicesFromPlanSlices(NormalizeChangePlanSlices(plan, ChangePlanSliceOptions{}), plan.ID)
+}
+
 func normalizeChangePlanSliceStatus(in ChangePlanSliceStatus) ChangePlanSliceStatus {
 	switch in {
 	case ChangePlanSlicePending, ChangePlanSliceApplying, ChangePlanSliceObserving,
@@ -330,4 +416,43 @@ func changePlanSliceChangeIsIsolated(change FileChange, isolated map[string]stru
 		}
 	}
 	return false
+}
+
+func writeWorkflowSlicesFromPlanSlices(slices []ChangePlanSlice, planID string) []WriteWorkflowSlice {
+	out := make([]WriteWorkflowSlice, 0, len(slices))
+	for _, slice := range slices {
+		id := strings.TrimSpace(slice.ID)
+		if id == "" || len(slice.ChangeIndexes) == 0 {
+			continue
+		}
+		status := normalizeChangePlanSliceStatus(slice.Status)
+		if status == "" {
+			status = ChangePlanSlicePending
+		}
+		out = append(out, WriteWorkflowSlice{
+			ID:              id,
+			Status:          status,
+			PlanID:          strings.TrimSpace(planID),
+			ChangeIndexes:   append([]int(nil), slice.ChangeIndexes...),
+			Paths:           append([]string(nil), slice.Paths...),
+			DependsOnSlices: append([]string(nil), slice.DependsOnSlices...),
+		})
+	}
+	return out
+}
+
+func changePlanSliceStatusIsTerminal(status ChangePlanSliceStatus) bool {
+	switch normalizeChangePlanSliceStatus(status) {
+	case ChangePlanSliceVerified, ChangePlanSliceUnverified, ChangePlanSliceFailed, ChangePlanSliceBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
+func changePlanAllTargetPaths(plan *ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	return append([]string(nil), plan.TargetPaths...)
 }

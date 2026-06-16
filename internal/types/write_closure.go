@@ -12,25 +12,25 @@ import (
 // plan/apply/verify share a single view without cross-task
 // contamination.
 //
-//   W1: every file:line in an applied patch must be declared up-front
-//       in the ChangePlan's target_paths. Enforced at apply_patch.Execute
-//       — patches reaching outside TargetPaths are rejected.
+//	W1: every file:line in an applied patch must be declared up-front
+//	    in the ChangePlan's target_paths. Enforced at apply_patch.Execute
+//	    — patches reaching outside TargetPaths are rejected.
 //
-//   W1b: every ChangeUnit.DependsOn entry must already be in
-//        appliedSet before that unit is applied. Enforced at
-//        apply_patch.Execute alongside W1.
+//	W1b: every ChangeUnit.DependsOn entry must already be in
+//	     appliedSet before that unit is applied. Enforced at
+//	     apply_patch.Execute alongside W1.
 //
-//   W3: apply and verify run inside a git worktree; BusContext.RepoRoot
-//       swaps to WorktreePath during those stages, swaps back to
-//       MainRepoRoot at finalize. Main repo HEAD bytes never change.
-//       Enforced via stage_hooks.go provisioning.
+//	W3: apply and verify run inside a git worktree; BusContext.RepoRoot
+//	    swaps to WorktreePath during those stages, swaps back to
+//	    MainRepoRoot at finalize. Main repo HEAD bytes never change.
+//	    Enforced via stage_hooks.go provisioning.
 //
-//   W4: between two verify retries at least one fingerprint field
-//       (AppliedCount / VerifyPassed / VerifyFailed / FailureSummaryHash)
-//       must change — otherwise the planner is structurally unable to
-//       fix from the signal it has and further retry just burns LLM
-//       budget. Enforced via Fingerprints() comparison in
-//       write_scheduler.go.
+//	W4: between two verify retries at least one fingerprint field
+//	    (AppliedCount / VerifyPassed / VerifyFailed / FailureSummaryHash)
+//	    must change — otherwise the planner is structurally unable to
+//	    fix from the signal it has and further retry just burns LLM
+//	    budget. Enforced via Fingerprints() comparison in
+//	    write_scheduler.go.
 //
 // (The original B0 design also tracked W2 — verify-set coverage of
 // AcceptanceTests — via a verifySet map and a stats counter struct
@@ -251,6 +251,19 @@ func (c *WriteClosure) EnqueuePendingApply(p PendingApply) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pendingApplies = append(c.pendingApplies, p)
+}
+
+// ReplacePendingApplies swaps the pending queue atomically. Online write-mode
+// uses this when an active slice narrows the apply surface: the planner may
+// have emitted a full-plan queue, but the controller only authorizes the
+// current slice for this edit/run/observe cycle.
+func (c *WriteClosure) ReplacePendingApplies(pending []PendingApply) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pendingApplies = append([]PendingApply(nil), pending...)
 }
 
 // AppendFingerprint records a new convergence-detection snapshot.

@@ -125,6 +125,83 @@ func TestApplyPatch_CreateExistingRejected(t *testing.T) {
 	}
 }
 
+func TestApplyPatch_RejectsPathOutsideActiveSlice(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan-slice",
+		Changes: []types.FileChange{
+			{Path: "a.txt", Kind: "create", NewContent: "a\n", Rationale: "a"},
+			{Path: "b.txt", Kind: "create", NewContent: "b\n", Rationale: "b"},
+		},
+		TargetPaths: []string{"a.txt", "b.txt"},
+	}
+	ctx := applyPatchFixture(t, plan)
+	ctx.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-slice",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchApplying,
+			ActiveSliceID: "slice-001",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:            "slice-001",
+				Status:        types.ChangePlanSliceApplying,
+				PlanID:        "plan-slice",
+				ChangeIndexes: []int{0},
+			}},
+		}},
+	})
+	res, _ := (&ApplyPatch{}).Execute(ctx, json.RawMessage(`{"path":"b.txt","kind":"create"}`))
+	if res.Success {
+		t.Fatal("path outside active slice should be rejected")
+	}
+	if !strings.Contains(res.Summary, "active plan slice") {
+		t.Fatalf("summary should mention active slice, got %q", res.Summary)
+	}
+	if _, err := os.Stat(filepath.Join(ctx.RepoRoot, "b.txt")); !os.IsNotExist(err) {
+		t.Fatalf("b.txt should not be written, stat err=%v", err)
+	}
+}
+
+func TestApplyPatch_AllowsAlreadyAppliedDependencyOutsideActiveSlice(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan-slice",
+		Changes: []types.FileChange{
+			{Path: "a.txt", Kind: "create", NewContent: "a\n", Rationale: "a"},
+			{Path: "b.txt", Kind: "create", NewContent: "b\n", Rationale: "b", DependsOn: []string{"a.txt"}},
+		},
+		TargetPaths: []string{"a.txt", "b.txt"},
+	}
+	ctx := applyPatchFixture(t, plan)
+	ctx.Mutable.WriteClosure().MarkApplied("a.txt")
+	ctx.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-slice",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchApplying,
+			ActiveSliceID: "slice-002",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:            "slice-001",
+				Status:        types.ChangePlanSliceVerified,
+				PlanID:        "plan-slice",
+				ChangeIndexes: []int{0},
+			}, {
+				ID:              "slice-002",
+				Status:          types.ChangePlanSliceApplying,
+				PlanID:          "plan-slice",
+				ChangeIndexes:   []int{1},
+				DependsOnSlices: []string{"slice-001"},
+			}},
+		}},
+	})
+	res, _ := (&ApplyPatch{}).Execute(ctx, json.RawMessage(`{"path":"a.txt","kind":"create"}`))
+	if !res.Success {
+		t.Fatalf("already-applied dependency outside active slice should remain idempotent, got %q", res.Summary)
+	}
+}
+
 // TestApplyPatch_ModifyMissingRejected verifies kind=modify refuses
 // missing files (planner should have used create).
 func TestApplyPatch_ModifyMissingRejected(t *testing.T) {

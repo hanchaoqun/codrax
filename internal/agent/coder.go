@@ -68,7 +68,8 @@ func (e *coderEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *sk
 			"Return without calling any tool; the orchestrator will surface the error."
 	}
 	applied := ctx.Mutable.WriteClosure().AppliedSet()
-	pending := pendingPaths(plan, applied)
+	targetPaths, activeSlice := activeApplyTargetPaths(ctx.Mutable, plan)
+	pending := pendingPathsForTargets(targetPaths, applied)
 	if len(pending) == 0 {
 		return "All plan changes are already applied. Return without additional tool calls."
 	}
@@ -76,15 +77,20 @@ func (e *coderEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *sk
 	var b strings.Builder
 	b.WriteString("## Apply plan\n\n")
 	fmt.Fprintf(&b, "Plan ID: `%s`\n", plan.ID)
-	fmt.Fprintf(&b, "Target paths (W1-enforced): %d total, %d remaining.\n\n",
-		len(plan.TargetPaths), len(pending))
+	if activeSlice {
+		fmt.Fprintf(&b, "Active slice target paths (W1s-enforced): %d total, %d remaining.\n\n",
+			len(targetPaths), len(pending))
+	} else {
+		fmt.Fprintf(&b, "Target paths (W1-enforced): %d total, %d remaining.\n\n",
+			len(targetPaths), len(pending))
+	}
 	b.WriteString("For each remaining change, call `apply_patch` EXACTLY ONCE with `{path, kind}` — nothing else. " +
 		"The tool hydrates new_content / patch / delete from the plan on Mutable; the schema rejects content " +
 		"parameters so you cannot (and must not) re-emit them. Do not invent paths — only those listed below are " +
 		"authorized (W1 rejects drift). Respect depends_on order: apply a unit only after every path in its " +
 		"depends_on list has already been applied.\n\n")
 	b.WriteString("Remaining changes (ordered by plan declaration; respect depends_on):\n\n")
-	for _, c := range orderedUnappliedChanges(plan, applied) {
+	for _, c := range orderedUnappliedChangesForTargets(plan, targetPaths, applied) {
 		fmt.Fprintf(&b, "- `%s` (kind=%s)", c.Path, c.Kind)
 		if len(c.DependsOn) > 0 {
 			fmt.Fprintf(&b, ", depends_on=%v", c.DependsOn)
@@ -148,7 +154,8 @@ func (e *coderEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	}
 	wc := e.mu.WriteClosure()
 	applied := wc.AppliedSet()
-	if isAppliedComplete(plan, applied) {
+	targetPaths, _ := activeApplyTargetPaths(e.mu, plan)
+	if applyTargetsComplete(targetPaths, applied) {
 		return true
 	}
 	// Plan-defect short-circuit: when apply_patch has rejected the
@@ -163,7 +170,7 @@ func (e *coderEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if wc.SaturatedRejectionPath() != "" {
 		return true
 	}
-	softCap := len(plan.TargetPaths) + e.softIterSlack
+	softCap := len(targetPaths) + e.softIterSlack
 	hardCap := softCap + e.hardIterRecovery
 	return iterationCapShouldStop(resp, iteration,
 		softCap, hardCap,
@@ -198,9 +205,10 @@ func (e *coderEvaluator) ParseOutput(
 
 	wc := ctx.Mutable.WriteClosure()
 	applied := wc.AppliedSet()
-	if isAppliedComplete(plan, applied) {
+	targetPaths, _ := activeApplyTargetPaths(ctx.Mutable, plan)
+	if applyTargetsComplete(targetPaths, applied) {
 		logging.Info("[coder] apply complete: %d/%d paths applied",
-			len(applied), len(plan.TargetPaths))
+			len(applied), len(targetPaths))
 		out.MissingPiece = types.MissingNone
 		return out, nil
 	}
@@ -213,7 +221,7 @@ func (e *coderEvaluator) ParseOutput(
 	// TargetPaths instead of letting the coder churn another N
 	// iterations on the same wall.
 	if stuck := wc.SaturatedRejectionPath(); stuck != "" {
-		validList := strings.Join(plan.TargetPaths, ", ")
+		validList := strings.Join(targetPaths, ", ")
 		if validList == "" {
 			validList = "(empty)"
 		}
@@ -232,7 +240,7 @@ func (e *coderEvaluator) ParseOutput(
 	// Incomplete. Report every missing path + the reason derived
 	// from the latest failed tool result (if any) so the coder's
 	// caller sees actionable detail.
-	missing := pendingPaths(plan, applied)
+	missing := pendingPathsForTargets(targetPaths, applied)
 	var lastToolErr string
 	for i := len(toolResults) - 1; i >= 0; i-- {
 		tr := toolResults[i]
@@ -242,7 +250,7 @@ func (e *coderEvaluator) ParseOutput(
 		}
 	}
 	reason := fmt.Sprintf("coder: apply incomplete — %d of %d paths missing: %s",
-		len(missing), len(plan.TargetPaths), strings.Join(missing, ", "))
+		len(missing), len(targetPaths), strings.Join(missing, ", "))
 	if lastToolErr != "" {
 		reason += "\n\nlast apply_patch rejection: " + lastToolErr
 	}
@@ -276,7 +284,22 @@ func isAppliedComplete(plan *types.ChangePlan, applied map[string]bool) bool {
 	if plan == nil {
 		return false
 	}
-	for _, p := range plan.TargetPaths {
+	return applyTargetsComplete(plan.TargetPaths, applied)
+}
+
+func activeApplyTargetPaths(mu *types.MutableState, plan *types.ChangePlan) ([]string, bool) {
+	var run *types.WriteWorkflowRun
+	if mu != nil {
+		run = mu.WriteWorkflowRun()
+	}
+	return types.ActiveChangePlanApplyTargetPaths(plan, run)
+}
+
+func applyTargetsComplete(targetPaths []string, applied map[string]bool) bool {
+	if len(targetPaths) == 0 {
+		return false
+	}
+	for _, p := range targetPaths {
 		if !applied[p] {
 			return false
 		}
@@ -291,8 +314,12 @@ func pendingPaths(plan *types.ChangePlan, applied map[string]bool) []string {
 	if plan == nil {
 		return nil
 	}
-	out := make([]string, 0, len(plan.TargetPaths))
-	for _, p := range plan.TargetPaths {
+	return pendingPathsForTargets(plan.TargetPaths, applied)
+}
+
+func pendingPathsForTargets(targetPaths []string, applied map[string]bool) []string {
+	out := make([]string, 0, len(targetPaths))
+	for _, p := range targetPaths {
 		if !applied[p] {
 			out = append(out, p)
 		}
@@ -308,9 +335,20 @@ func orderedUnappliedChanges(plan *types.ChangePlan, applied map[string]bool) []
 	if plan == nil {
 		return nil
 	}
+	return orderedUnappliedChangesForTargets(plan, plan.TargetPaths, applied)
+}
+
+func orderedUnappliedChangesForTargets(plan *types.ChangePlan, targetPaths []string, applied map[string]bool) []types.FileChange {
+	if plan == nil {
+		return nil
+	}
+	target := map[string]bool{}
+	for _, p := range targetPaths {
+		target[p] = true
+	}
 	out := make([]types.FileChange, 0, len(plan.Changes))
 	for _, c := range plan.Changes {
-		if !applied[c.Path] {
+		if target[c.Path] && !applied[c.Path] {
 			out = append(out, c)
 		}
 	}

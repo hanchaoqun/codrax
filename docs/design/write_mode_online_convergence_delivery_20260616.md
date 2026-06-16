@@ -504,3 +504,4 @@ Acceptance:
 | --- | --- | --- | --- |
 | 2026-06-16 | 0 | ready for push | Design ledger created from code audit, Claude Code best-practice review, the Claude Code design-space paper, and the public companion architecture notes. |
 | 2026-06-16 | 1 | implemented | Added typed `ChangePlanSlice` derivation/validation and durable workflow slice/event schema with focused `internal/types`, `internal/tool`, `internal/agent`, `internal/orchestrator`, and `internal/repl` regression passing. |
+| 2026-06-16 | 2 | implemented | Added active-slice apply target helpers, slice-scoped coder completion/iteration behavior, slice W1 enforcement in `apply_patch`, and slice-scoped pending apply replacement while leaving non-slice workflows on the existing full-plan path. |

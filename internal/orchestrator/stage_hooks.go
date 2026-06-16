@@ -141,16 +141,14 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		}
 		return fmt.Errorf("write blocked (multi-repo cross-sub-repo plan): %s", v.Detail)
 	}
+	plan.Slices = types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{})
 
 	wc := o.busCtx.Mutable.WriteClosure()
-	if len(wc.PendingApplies()) == 0 {
-		for _, c := range plan.Changes {
-			wc.EnqueuePendingApply(types.PendingApply{
-				Path:      c.Path,
-				Rationale: c.Rationale,
-				Origin:    "plan_post_hook",
-			})
-		}
+	pending, activeSlice := pendingAppliesForActivePlanScope(o.busCtx.Mutable, plan, "plan_post_hook")
+	if activeSlice {
+		wc.ReplacePendingApplies(pending)
+	} else if len(wc.PendingApplies()) == 0 {
+		wc.ReplacePendingApplies(pending)
 	}
 	// Pin the WriteAnalysisIR snapshot to the plan struct so that
 	// a subsequent /approve or /approve --retry against this plan
@@ -250,6 +248,26 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	}
 	mergeWritePlanContextPack(o, plan)
 	return nil
+}
+
+func pendingAppliesForActivePlanScope(mu *types.MutableState, plan *types.ChangePlan, origin string) ([]types.PendingApply, bool) {
+	if plan == nil {
+		return nil, false
+	}
+	var run *types.WriteWorkflowRun
+	if mu != nil {
+		run = mu.WriteWorkflowRun()
+	}
+	changes, activeSlice := types.ActiveChangePlanApplyChanges(plan, run)
+	pending := make([]types.PendingApply, 0, len(changes))
+	for _, c := range changes {
+		pending = append(pending, types.PendingApply{
+			Path:      c.Path,
+			Rationale: c.Rationale,
+			Origin:    origin,
+		})
+	}
+	return pending, activeSlice
 }
 
 func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan, source string) error {
@@ -535,17 +553,8 @@ func applyPreHook(o *Orchestrator) error {
 			return fmt.Errorf("%s", msg)
 		}
 		o.busCtx.Mutable.SetChangePlan(plan)
-		// Seed PendingApplies so CritPlanReady passes on the first
-		// EntryConditions evaluation. Same shape the legacy
-		// the apply stage hook used.
-		wc := o.busCtx.Mutable.WriteClosure()
-		for _, c := range plan.Changes {
-			wc.EnqueuePendingApply(types.PendingApply{
-				Path:      c.Path,
-				Rationale: c.Rationale,
-				Origin:    "load_from_file",
-			})
-		}
+		pending, _ := pendingAppliesForActivePlanScope(o.busCtx.Mutable, plan, "load_from_file")
+		o.busCtx.Mutable.WriteClosure().ReplacePendingApplies(pending)
 		// Restore the pinned WriteAnalysisIR snapshot when the plan
 		// carries one (commit 9 #3). Lets plan_critic and any
 		// downstream IR consumer in this Run see the SAME task-shape
