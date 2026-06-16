@@ -68,8 +68,14 @@ func renderWriteAnalysisRiskAdvisory(lang string, plan *types.ChangePlan) string
 	if len(axes) > 0 {
 		axisText = strings.Join(axes, ",")
 	}
-	if isZh(lang) {
-		return fmt.Sprintf("    分析阶段风险提示：overall=%s axes=%s（仅提示，不作为审批硬门）", overall, axisText)
+	if risk.Overall == types.RiskBandHigh {
+		if isZh(lang) {
+			return fmt.Sprintf("    分析阶段风险：overall=%s（审批硬门）axes=%s（风险轴仅提示，除非结构化证据佐证）", overall, axisText)
+		}
+		return fmt.Sprintf("    analysis risk profile: overall=%s (approval gate) axes=%s (axes advisory unless structurally corroborated)", overall, axisText)
 	}
-	return fmt.Sprintf("    analysis risk advisory: overall=%s axes=%s (advisory only, not the approval gate)", overall, axisText)
+	if isZh(lang) {
+		return fmt.Sprintf("    分析阶段风险提示：overall=%s axes=%s（风险轴仅提示，除非结构化证据佐证）", overall, axisText)
+	}
+	return fmt.Sprintf("    analysis risk advisory: overall=%s axes=%s (axes advisory unless structurally corroborated)", overall, axisText)
 }

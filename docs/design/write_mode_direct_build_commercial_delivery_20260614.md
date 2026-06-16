@@ -2047,8 +2047,12 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - Conflating those labels increases needless approval anxiety and harms the low-interruption Auto Pilot UX.
 - Target design:
   - Render deterministic gate input as `planned-change risk` / `计划变更风险`.
-  - Render `WriteAnalysisIR.Request.Risk` separately as `analysis risk advisory`, including typed overall band and typed axes.
-  - Explicitly state the advisory line is not the approval gate.
+  - Render `WriteAnalysisIR.Request.Risk` separately as analysis risk profile.
+  - Risk axes remain advisory unless precise structural evidence corroborates
+    escalation.
+  - `WriteAnalysisIR.Request.Risk.Overall=high` is no longer advisory-only:
+    the 2026-06-17 permission-engine follow-up binds it to hard `RiskHigh`
+    and manual approval under `auto_safe`.
 - Safety and prompt hygiene:
   - Render-only change. It does not alter `AssessWriteRisk`, `DecideWriteApproval`, apply-pre gate, controller routing, or workflow state.
   - Inputs are typed `ChangePlan` paths/content and typed `WriteAnalysisIR.Request.Risk` fields. No hard logic reads user keywords, model prose, summaries, rationales, logs, eval oracle text, or `<think>`.

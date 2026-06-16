@@ -168,6 +168,29 @@ Codrax implication:
   policies;
 - UI and eval adapters should render from typed state, not progress prose.
 
+### R7: Public docs confirm the edit/run/observe loop as a product contract
+
+The Claude Code Agent SDK documentation describes the loop as: evaluate the
+prompt, request tool calls, execute tools, feed results back, and repeat until
+there are no more tool calls. It also documents the practical example that a
+task may run tests, read files, edit code, and run tests again in successive
+turns. Public permission docs describe allow/ask/deny, deny precedence across
+scopes, scoped tool rules, and hooks that can intercept calls without bypassing
+permission rules. Public subagent docs emphasize separate context windows,
+specific tool access, independent permissions, and summary-only returns for
+verbose side work.
+
+Codrax implication:
+
+- the user-facing write product should feel like a continuous repair loop, not
+  a sequence of commands the user has to orchestrate;
+- permission and action validation must happen immediately before each bounded
+  effect, not only around a large plan artifact;
+- subagent/localizer output must be summarized into typed context items before
+  the controller or planner can rely on it;
+- progress visibility should be streamed from typed lifecycle events while raw
+  reasoning/log text remains transparent but non-authoritative.
+
 ## Research To Codrax Decision Matrix
 
 The following matrix translates the public research into Codrax-specific
@@ -449,6 +472,27 @@ Required direction:
 - status cards should show what Codrax is doing and why it paused;
 - only high-risk approval, critical denial, missing user facts, or exhausted
   budgets should require user action.
+
+### G8: Task-level high risk must bind the apply gate
+
+The latest SWE-bench Lite audit found a security-sensitive SymPy equality fix
+where `WriteAnalysisIR.Request.Risk.Overall=high` was downgraded to advisory
+medium, allowing `auto_safe` to apply the first plan automatically. The
+individual risk booleans are intentionally noisy and should remain advisory
+unless corroborated, but the closed overall risk enum is a typed task-level
+verdict and must remain a hard approval boundary.
+
+Required direction:
+
+- keep `AffectsPublicAPI`, `ChangesPersistence`, and `ChangesBuildSystem`
+  booleans as medium advisory unless precise path/content/symbol evidence
+  escalates them;
+- treat `Overall=high` as `RiskHigh` so `auto_safe` asks for approval;
+- continue to derive critical/deny from deterministic structural policy such
+  as outside-repo paths, `.git`, secrets, privileged workflow content, and
+  destructive command policy;
+- test this at the permission engine layer so future prompt or planner changes
+  cannot bypass it.
 
 ## Target Architecture
 
@@ -843,6 +887,12 @@ Primary files:
 - `internal/tool/exec_supervisor.go`
 - `internal/orchestrator/write_approval_gate_test.go`
 
+Commercial note:
+
+- This batch must preserve the difference between noisy analyzer booleans and
+  typed overall risk. The former are advisory unless corroborated; the latter
+  binds the approval decision.
+
 ### Batch 7: Context Shaping And Durable Sidechains
 
 - Store large tool outputs and worker transcripts as artifacts.
@@ -946,7 +996,7 @@ Primary files:
 | 3 | complete | Active slice is the scheduler execution unit with durable transitions. This pass added the missing apply-start transition: before coder/apply runs, the active slice now records `status=applying`, an `apply/started` attempt, and a `slice_apply_started` event; existing observe/advance logic carries applying -> observing -> verified/unverified/failed/blocked and advances only runnable dependency-satisfied slices. |
 | 4 | in_progress | Localizer worker and evidence coverage. This pass added prior-context plan coverage as a persisted soft audit/handoff signal: coverage reads P0/P1 non-plan context, excludes test paths and plan-authored target paths, and is attached to the active batch's change-plan pack; SWE-bench adapter applies the same self-coverage exclusion. |
 | 5 | complete | PlanRepairPack implemented across `emit_change_plan`, `emit_plan_skeleton`, and `emit_plan_change`: plan emit rejections now attach `ToolResult.Repair.Code=write_plan_repair_pack`, compact typed metadata, accepted enums, failing field paths, exact structured-edit current bytes, and retained-partial retry guidance. Planner prompt guidance consumes the typed repair packet as soft retry input while hard gates still read validators. Verification passed: focused `internal/tool`, `internal/types`, `internal/skill`; `python3 -m py_compile eval/swebench/run_codrax_swebench.py`; `bash eval/swebench/smoke_local.sh`; `git diff --check`; `go test ./...`; `make`. |
-| 6 | pending | Permission engine unification. |
+| 6 | in_progress | Permission engine unification. This pass fixed task-level `WriteAnalysisIR.Request.Risk.Overall=high` so it remains hard `RiskHigh` and `auto_safe` pauses for approval; individual noisy risk booleans remain medium advisory unless corroborated by precise structural policy. |
 | 7 | pending | Context shaping and durable sidechains. |
 | 8 | pending | UX Auto Pilot polish. |
 | 9 | in_progress | Ran `matplotlib__matplotlib-24149` after Batch 2: prediction non-empty, official harness dry-run accepted, patch manually audited as satisfying both nan-x paths, local verification correctly marked unverified due environment/no-tests diagnostics. More non-Go and symptom-only cases remain. |

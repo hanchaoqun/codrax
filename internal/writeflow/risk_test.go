@@ -254,6 +254,33 @@ func TestAssessWriteRiskAnalysisAxesAdvisoryMedium(t *testing.T) {
 	}
 }
 
+func TestAssessWriteRiskOverallHighRequiresManualApproval(t *testing.T) {
+	plan := planWithChanges(types.FileChange{Path: "internal/foo/bar.go", Kind: "modify"})
+	plan.WriteAnalysisIR = &types.WriteAnalysisIR{}
+	plan.WriteAnalysisIR.Request.Risk.Overall = types.RiskBandHigh
+
+	got := AssessWriteRisk(AssessmentInput{Plan: plan})
+	if got.Level != RiskHigh {
+		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskHigh, got.Reasons)
+	}
+	found := false
+	for _, r := range got.Reasons {
+		if r.Code == "write_analyzer_high" && r.Level == RiskHigh {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("overall high risk must stay visible as high: %+v", got.Reasons)
+	}
+	decision := DecideWriteApproval(ApprovalPolicyAutoSafe, got)
+	if decision.Action != ApprovalActionManual {
+		t.Fatalf("auto_safe approval = %s; want %s", decision.Action, ApprovalActionManual)
+	}
+	if decision.ReasonCode != "high_write_risk" {
+		t.Fatalf("approval reason = %q; want high_write_risk", decision.ReasonCode)
+	}
+}
+
 func TestAssessWriteRiskRepoEscapeCritical(t *testing.T) {
 	for _, p := range []string{"../outside.go", "/tmp/outside.go", "C:\\tmp\\outside.go", ".git/config"} {
 		t.Run(p, func(t *testing.T) {

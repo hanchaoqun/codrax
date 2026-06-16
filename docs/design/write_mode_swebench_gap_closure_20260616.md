@@ -55,6 +55,35 @@ Observed instance outcomes:
 | `pytest-dev__pytest-9359` | non-empty source patch | `passed` by verification probe | Patch only changed `_` to `ast_start` and did not use `ast_start`; probe passed because it was not discriminative for the current Python runtime. |
 | `sphinx-doc__sphinx-8273` | non-empty source/doc patch | `unavailable/parser_error` | Patch updates builder path and docs; verify parser_error reports missing JSON report, but raw traceback should be classified as environment/import startup failure and preserved as P2 evidence. |
 
+Follow-up run on 2026-06-17:
+
+```text
+WORKDIR=eval/results/swebench/lite-smoke-20260617-astropy14365-django11099-sympy18057-current
+INSTANCE_IDS_FILE=[astropy__astropy-14365, django__django-11099, sympy__sympy-18057]
+SWEBENCH_SMOKE_LIMIT=3
+MAX_STEPS=70
+CODRAX_TIMEOUT=1800
+SWEBENCH_ENV_PREPARE_TIMEOUT=900
+eval/swebench/smoke_lite.sh
+```
+
+Artifacts:
+
+- Predictions:
+  `eval/results/swebench/lite-smoke-20260617-astropy14365-django11099-sympy18057-current/predictions.jsonl`
+- Results:
+  `eval/results/swebench/lite-smoke-20260617-astropy14365-django11099-sympy18057-current/results.jsonl`
+- Official SWE-bench harness dry-run command was emitted and predictions were
+  accepted by `validate_predictions.py`; `empty_patch=1`.
+
+Observed instance outcomes:
+
+| Instance | Export | Local verify | Manual audit |
+| --- | --- | --- | --- |
+| `astropy__astropy-14365` | non-empty source patch | `unverified`, import/probe unavailable | Patch fixed case-insensitive QDP command matching but missed the lower-case `no` masked-value path; behavior-contract/probe coverage did not require every distinct manifestation. |
+| `django__django-11099` | non-empty source patch; test patch stripped from prediction | `passed` | PlanRepairPack worked: first plan had an old-text mismatch, typed repair supplied exact current bytes, next plan succeeded. Patch uses `\A...\Z`, stricter than gold `^...\Z` and plausibly satisfies the issue. |
+| `sympy__sympy-18057` | empty prediction because workflow remained pending approval | first plan applied then verify timeout; replan found narrower failure probes | Strong handoff/replan evidence, but task-level `WriteAnalysisIR.Request.Risk.Overall=high` had been downgraded to medium and first plan auto-applied. This is a permission-engine gap, not a SymPy-specific issue. |
+
 ## Systemic Gaps
 
 ### G1: Behavioral Contract Drift
@@ -157,6 +186,23 @@ Required direction:
   invariants before optional style hints.
 - Verifier top view should include P0 contract atoms, P2 failure evidence, and
   probe-contract mapping.
+
+### G7: Task-Level High Risk Must Not Downgrade To Auto-Apply
+
+The 2026-06-17 SymPy run exposed that the task-level typed overall risk could
+be downgraded to advisory medium even when the write analyzer emitted
+`Overall=high`. This violates the commercial approval model: high-risk work
+should pause for approval, while low/medium deterministic risk should remain
+smooth.
+
+Required direction:
+
+- Treat `WriteAnalysisIR.Request.Risk.Overall=high` as hard `RiskHigh`.
+- Keep individual analyzer booleans (`AffectsPublicAPI`,
+  `ChangesPersistence`, `ChangesBuildSystem`) advisory medium unless precise
+  structural evidence corroborates escalation.
+- Continue to reserve automatic deny for critical deterministic policy signals.
+- Add permission-engine tests so this cannot regress via prompt changes.
 
 ## Target Architecture
 

@@ -133,15 +133,15 @@ func AssessWriteRisk(input AssessmentInput) RiskAssessment {
 	// impact. Body-only edits inside exported symbols do not fire it.
 	declTouched := assessExportedDeclImpact(&a, plan, input.Decls)
 
-	// The WriteAnalysisIR risk axes are LLM classification booleans —
+	// The WriteAnalysisIR boolean risk axes are LLM classification claims —
 	// noisy signals per the architecture red line. They grade at medium
-	// (advisory, auto-executable under auto_safe) instead of hard-forcing
-	// manual approval. A precise declaration-line intersection is also a
-	// medium API-surface signal on its own: it is important context, but
-	// not automatically a dangerous operation inside the write worktree.
-	// The hard high grades come from structural blast-radius signals such
-	// as build manifests, persistence schemas, CI, hooks, secrets, and
-	// large change sets.
+	// (advisory, auto-executable under auto_safe) unless corroborated by
+	// precise structural policy. The closed overall risk enum is different:
+	// it is the typed task-level risk verdict that binds Auto Pilot approval.
+	// A high overall risk must not silently downgrade below the apply gate's
+	// high-risk approval boundary. Precise structural blast-radius signals
+	// such as manifests, persistence schemas, CI, hooks, secrets, and large
+	// change sets can still independently raise the assessment.
 	if ir := plan.WriteAnalysisIR; ir != nil {
 		if ir.Request.Risk.AffectsPublicAPI {
 			if declTouched {
@@ -166,7 +166,7 @@ func AssessWriteRisk(input AssessmentInput) RiskAssessment {
 		}
 		switch ir.Request.Risk.Overall {
 		case types.RiskBandHigh:
-			a.add(RiskMedium, "write_analyzer_high", "write analyzer overall risk is high (advisory)", "")
+			a.add(RiskHigh, "write_analyzer_high", "write analyzer overall risk is high", "")
 		case types.RiskBandMedium:
 			a.add(RiskMedium, "write_analyzer_medium", "write analyzer overall risk is medium", "")
 		case types.RiskBandLow:

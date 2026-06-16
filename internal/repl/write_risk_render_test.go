@@ -47,7 +47,7 @@ func TestRenderWriteRiskAssessmentChinese(t *testing.T) {
 	}
 }
 
-func TestRenderWriteRiskAssessmentSeparatesAnalysisAdvisory(t *testing.T) {
+func TestRenderWriteRiskAssessmentBindsOverallHighButKeepsAxesAdvisory(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID:          "plan-test",
 		Status:      types.PlanStatusPending,
@@ -66,13 +66,13 @@ func TestRenderWriteRiskAssessmentSeparatesAnalysisAdvisory(t *testing.T) {
 
 	got := strings.Join(renderWriteRiskAssessment("en", plan, writeflow.ApprovalPolicyAutoSafe), "\n")
 	for _, want := range []string{
-		"planned-change risk: medium",
-		"approval preview: auto_safe => auto_execute",
-		"analysis risk advisory: overall=high axes=public_api,persistence",
-		"advisory only, not the approval gate",
+		"planned-change risk: high",
+		"approval preview: auto_safe => manual_approval",
+		"analysis risk profile: overall=high (approval gate) axes=public_api,persistence",
+		"axes advisory unless structurally corroborated",
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("rendered advisory separation missing %q:\n%s", want, got)
+			t.Fatalf("rendered high-risk profile missing %q:\n%s", want, got)
 		}
 	}
 }
