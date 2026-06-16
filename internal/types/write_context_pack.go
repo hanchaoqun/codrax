@@ -344,6 +344,15 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 			pack.Items[len(pack.Items)-1].ID = writeContextStableID("failure_reason_code", report.PlanID, report.FailureReasonCode)
 		}
 	}
+	for _, diag := range report.VerificationDiagnostics {
+		text := renderVerificationDiagnosticContext(diag)
+		if text == "" {
+			continue
+		}
+		pack.Items = append(pack.Items, writeContextItem("verification_diagnostic", WriteContextP2, text, "verify",
+			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		pack.Items[len(pack.Items)-1].ID = writeVerificationDiagnosticContextID(diag)
+	}
 	for _, result := range report.TestResults {
 		if result.Passed {
 			continue
@@ -758,6 +767,44 @@ func renderExecutedCommandContext(cmd ExecutedCommand) string {
 	return trimWriteContextText(strings.Join(parts, " "))
 }
 
+func renderVerificationDiagnosticContext(diag VerificationDiagnostic) string {
+	parts := []string{}
+	if diag.Category != "" {
+		parts = append(parts, "category="+diag.Category)
+	}
+	if diag.Severity != "" {
+		parts = append(parts, "severity="+diag.Severity)
+	}
+	if diag.ReasonCode != "" {
+		parts = append(parts, "reason_code="+diag.ReasonCode)
+	}
+	if diag.Runner != "" {
+		parts = append(parts, "runner="+diag.Runner)
+	}
+	if diag.Framework != "" {
+		parts = append(parts, "framework="+diag.Framework)
+	}
+	if diag.WorkingDir != "" {
+		parts = append(parts, "cwd="+diag.WorkingDir)
+	}
+	if diag.Outcome != "" {
+		parts = append(parts, "outcome="+diag.Outcome)
+	}
+	if diag.ExitCode != 0 {
+		parts = append(parts, fmt.Sprintf("exit=%d", diag.ExitCode))
+	}
+	if diag.Source != "" {
+		parts = append(parts, "source="+diag.Source)
+	}
+	if diag.Command != "" {
+		parts = append(parts, "command="+diag.Command)
+	}
+	if diag.Detail != "" && diag.Detail != diag.ReasonCode && diag.Detail != diag.Outcome {
+		parts = append(parts, "detail="+diag.Detail)
+	}
+	return trimWriteContextText(strings.Join(parts, " "))
+}
+
 func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 	parts := []string{}
 	if c.ID != "" {
@@ -814,6 +861,15 @@ func writeExecutedCommandContextID(cmd ExecutedCommand) string {
 		return ""
 	}
 	return writeContextStableID("executed_command", cmd.Runner, cmd.Framework, cmd.WorkingDir, cmd.Command, cmd.Outcome, cmd.ReasonCode)
+}
+
+func writeVerificationDiagnosticContextID(diag VerificationDiagnostic) string {
+	if strings.TrimSpace(diag.Category) == "" && strings.TrimSpace(diag.ReasonCode) == "" &&
+		strings.TrimSpace(diag.Outcome) == "" && strings.TrimSpace(diag.Runner) == "" {
+		return ""
+	}
+	return writeContextStableID("verification_diagnostic", diag.Source, diag.Category, diag.Severity,
+		diag.ReasonCode, diag.Runner, diag.Framework, diag.WorkingDir, diag.Command, diag.Outcome)
 }
 
 func writeContextStableID(parts ...string) string {

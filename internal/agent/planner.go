@@ -1533,6 +1533,31 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 		}
 		fmt.Fprintf(&b, "- command: `%s` (cwd=%s, exit=%d, runner=%s)\n", cmd.Command, cmd.WorkingDir, cmd.ExitCode, cmd.Runner)
 	}
+	for _, diag := range h.Diagnostics {
+		if strings.TrimSpace(diag.Category) == "" && strings.TrimSpace(diag.ReasonCode) == "" {
+			continue
+		}
+		parts := []string{}
+		if diag.Category != "" {
+			parts = append(parts, "category="+diag.Category)
+		}
+		if diag.Severity != "" {
+			parts = append(parts, "severity="+diag.Severity)
+		}
+		if diag.ReasonCode != "" {
+			parts = append(parts, "reason_code="+diag.ReasonCode)
+		}
+		if diag.Runner != "" {
+			parts = append(parts, "runner="+diag.Runner)
+		}
+		if diag.Outcome != "" {
+			parts = append(parts, "outcome="+diag.Outcome)
+		}
+		if diag.WorkingDir != "" {
+			parts = append(parts, "cwd="+diag.WorkingDir)
+		}
+		fmt.Fprintf(&b, "- diagnostic: %s\n", strings.Join(parts, " "))
+	}
 	const maxRows = 10
 	shown := 0
 	for _, tr := range h.FailingTests {

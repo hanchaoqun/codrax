@@ -10,6 +10,7 @@ const (
 	maxHandoffFailingTests = 10
 	maxHandoffBuildErrors  = 10
 	maxHandoffCommands     = 6
+	maxHandoffDiagnostics  = 8
 )
 
 // VerifyFailureHandoff is the typed carrier that brings a failed post-apply
@@ -35,6 +36,12 @@ type VerifyFailureHandoff struct {
 	// Executed are the verification command rows from the failing report
 	// (bounded), with cwd / exit code / provenance.
 	Executed []ExecutedCommand `json:"executed,omitempty"`
+
+	// Diagnostics are bounded typed verify diagnostics projected from command
+	// and probe outcomes. They preserve secondary causes such as probe
+	// authoring errors or environment startup failures without forcing
+	// consumers to parse FailureSummary.
+	Diagnostics []VerificationDiagnostic `json:"diagnostics,omitempty"`
 
 	// FailingTests are the failed assertion rows (bounded).
 	FailingTests []TestResult `json:"failing_tests,omitempty"`
@@ -97,6 +104,12 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 			break
 		}
 		h.Executed = append(h.Executed, cmd)
+	}
+	for _, diag := range report.VerificationDiagnostics {
+		if len(h.Diagnostics) >= maxHandoffDiagnostics {
+			break
+		}
+		h.Diagnostics = append(h.Diagnostics, diag)
 	}
 	for _, tr := range report.TestResults {
 		if tr.Passed {

@@ -658,6 +658,14 @@ func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
 		Executed: []types.ExecutedCommand{
 			{Runner: "make", WorkingDir: ".", Command: "make check", ExitCode: 2},
 		},
+		Diagnostics: []types.VerificationDiagnostic{{
+			Category:   "probe_authoring",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_name_error",
+			Runner:     "verification_probe",
+			Outcome:    "parser_error",
+			WorkingDir: ".",
+		}},
 		FailingTests: []types.TestResult{
 			{AssertionID: "TestAscii", Suite: "RandomStringUtilsTest", Passed: false, FailureDetail: "fast path must require end <= 0x7f"},
 		},
@@ -677,6 +685,7 @@ func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
 		"## Latest verification failure (authoritative)",
 		"plan: plan-1 attempt: 2 failure_kind: tests_failed",
 		"command: `make check` (cwd=., exit=2, runner=make)",
+		"diagnostic: category=probe_authoring severity=warning reason_code=verification_probe_name_error runner=verification_probe outcome=parser_error cwd=.",
 		"failing_test: TestAscii (suite=RandomStringUtilsTest)",
 		"build_error: src/x.c:42",
 		"full runner output: /tmp/blob/run.txt",

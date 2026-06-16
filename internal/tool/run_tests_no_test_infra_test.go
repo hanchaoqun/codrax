@@ -1056,6 +1056,43 @@ func TestRunTestsVerificationProbeNameErrorIsParserError(t *testing.T) {
 	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
 		t.Fatalf("VerificationStatus = %q, want unavailable", got)
 	}
+	if !changeReportHasVerificationDiagnostic(report, "probe_authoring", "verification_probe_name_error") {
+		t.Fatalf("verification probe authoring diagnostic missing: %+v", report.VerificationDiagnostics)
+	}
+}
+
+func TestVerificationDiagnosticsPreserveProbeAndSuiteSignals(t *testing.T) {
+	diags := verificationDiagnosticsFromExecutedCommands([]types.ExecutedCommand{
+		{
+			Runner:     "verification_probe",
+			Framework:  "python",
+			WorkingDir: ".",
+			Command:    "python -c <verification_probe:bad>",
+			ExitCode:   1,
+			Source:     "pre_suite_verification_probe",
+			Outcome:    "parser_error",
+			ReasonCode: "verification_probe_name_error",
+		},
+		{
+			Runner:     "python",
+			Framework:  "unittest",
+			WorkingDir: ".",
+			Command:    "python -m unittest discover",
+			ExitCode:   1,
+			Source:     "llm_choice",
+			Outcome:    "parser_error",
+			ReasonCode: "unittest_loader_import_error",
+		},
+	})
+	if len(diags) != 2 {
+		t.Fatalf("expected two diagnostics, got %+v", diags)
+	}
+	if !verificationDiagnosticsContain(diags, "probe_authoring", "verification_probe_name_error") {
+		t.Fatalf("probe authoring diagnostic missing: %+v", diags)
+	}
+	if !verificationDiagnosticsContain(diags, "parser_or_startup", "unittest_loader_import_error") {
+		t.Fatalf("suite parser/startup diagnostic missing: %+v", diags)
+	}
 }
 
 func TestRunTestsVerificationProbeProductNameErrorIsTestFailure(t *testing.T) {
@@ -1422,6 +1459,22 @@ func TestWarningPassedReport_StructureBilingual(t *testing.T) {
 	if !strings.Contains(en.FailureSummary, "no test work to do") {
 		t.Errorf("en summary should mention no test work; got %q", en.FailureSummary)
 	}
+}
+
+func changeReportHasVerificationDiagnostic(report *types.ChangeReport, category, reasonCode string) bool {
+	if report == nil {
+		return false
+	}
+	return verificationDiagnosticsContain(report.VerificationDiagnostics, category, reasonCode)
+}
+
+func verificationDiagnosticsContain(diags []types.VerificationDiagnostic, category, reasonCode string) bool {
+	for _, diag := range diags {
+		if diag.Category == category && diag.ReasonCode == reasonCode {
+			return true
+		}
+	}
+	return false
 }
 
 func writeMakefile(t *testing.T, root, body string) {

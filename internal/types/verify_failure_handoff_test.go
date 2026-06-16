@@ -23,6 +23,13 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 		ExecutedCommands: []ExecutedCommand{
 			{Runner: "make", WorkingDir: ".", Command: "make check", ExitCode: 2, Outcome: "executed"},
 		},
+		VerificationDiagnostics: []VerificationDiagnostic{{
+			Category:   "probe_authoring",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_name_error",
+			Runner:     "verification_probe",
+			Outcome:    "parser_error",
+		}},
 		TestSurface: &TestSurface{Candidates: []TestSurfaceCandidate{
 			{ID: "make@.", Runner: "make", WorkingDir: ".", HasTestSignal: true},
 			{ID: "go@sub", Runner: "go", WorkingDir: "sub", HasTestSignal: true},
@@ -46,6 +53,9 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 	}
 	if len(h.Executed) != 1 || h.Executed[0].Command != "make check" {
 		t.Fatalf("executed commands must carry over: %+v", h.Executed)
+	}
+	if len(h.Diagnostics) != 1 || h.Diagnostics[0].ReasonCode != "verification_probe_name_error" {
+		t.Fatalf("diagnostics must carry over: %+v", h.Diagnostics)
 	}
 	if h.DiffArtifactRef != "plan-1.attempt-2.diff" ||
 		h.SurfaceArtifactRef != "plan-1.attempt-2.surface.json" ||

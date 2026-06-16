@@ -745,6 +745,15 @@ type ChangeReport struct {
 	// pytest_json_report_missing, pytest_collection_error_no_cases.
 	FailureReasonCode string `json:"failure_reason_code,omitempty"`
 
+	// VerificationDiagnostics is the normalized diagnostic lane for verify
+	// evidence that should survive across controller/planner/verifier
+	// handoff, even when it is not the report's primary FailureReasonCode.
+	// Examples include a bounded verification_probe authoring error followed
+	// by a project-suite parser error, or a missing runner before a fallback
+	// candidate runs. Items are derived from typed command/probe outcomes,
+	// never from model prose.
+	VerificationDiagnostics []VerificationDiagnostic `json:"verification_diagnostics,omitempty"`
+
 	// RegressionAssertions lists test AssertionIDs the verifier LLM
 	// classified as "passed in baseline, fails now — caused by this
 	// plan". Authoritative for evalNoRegression — populated by
@@ -904,6 +913,25 @@ const (
 	// typed reason rather than the legacy boolean alone.
 	FailureKindNoTests FailureKind = "no_tests"
 )
+
+// VerificationDiagnostic is one typed verification diagnostic projected from
+// command/probe/test-surface execution evidence. It is intentionally compact:
+// hard routing still consumes ChangeReport fields directly, while this lane
+// keeps secondary but important evidence available to controller/planner/
+// verifier views without asking them to parse summaries.
+type VerificationDiagnostic struct {
+	Source     string `json:"source,omitempty"`
+	Category   string `json:"category,omitempty"`
+	Severity   string `json:"severity,omitempty"`
+	ReasonCode string `json:"reason_code,omitempty"`
+	Runner     string `json:"runner,omitempty"`
+	Framework  string `json:"framework,omitempty"`
+	WorkingDir string `json:"working_dir,omitempty"`
+	Command    string `json:"command,omitempty"`
+	Outcome    string `json:"outcome,omitempty"`
+	ExitCode   int    `json:"exit_code,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+}
 
 // Score returns the (passed, total) test counts for this report,
 // counting only TestResultKindUnit entries (build_error rows are

@@ -818,3 +818,126 @@ Acceptance:
 - Planner probes that establish environment or behavioral facts carry those
   facts into the next model turn without requiring another artifact read.
 - Planner repair hints and tool schema now point at the same typed JSON shape.
+
+### Batch 5A.9: Verification Diagnostic Lane
+
+Follow-up evidence:
+
+- Ran a fresh 3-instance SWE-bench Lite slice:
+  `astropy__astropy-6938`, `django__django-11099`,
+  `scikit-learn__scikit-learn-10508`.
+- Output directory:
+  `eval/results/swebench/lite-smoke-20260616-215938`.
+- `validate_predictions.py` accepted 3 predictions and `empty_patch=0`.
+  The adapter emitted the official harness command, so prediction export remains
+  consumable by SWE-bench even when local verification is unavailable.
+
+Manual audit:
+
+| Instance | Local verdict | Human audit | System signal |
+| --- | --- | --- | --- |
+| `astropy__astropy-6938` | `predicted_unverified`, parser unavailable | Patch rebinds a local array view instead of mutating in place; gold uses slice assignment. | No behavior probe covered the mutation/output contract, so local confidence stayed unknown. |
+| `django__django-11099` | `predicted_passed`, high confidence | Patch is likely acceptable and behavior-facing probe passed. | Initial exploration over-expanded after exact target discovery; test-contract critique correctly prevented regression-test deletion. |
+| `scikit-learn__scikit-learn-10508` | `predicted_unverified`, parser unavailable | Patch handles one empty-transform path but likely misses inverse-transform symmetry and uses `len` rather than project sampling helpers. | Pre-suite verification probe had a top-level `NameError`; later unittest loader/parser failure masked that earlier probe-authoring signal in the primary report. |
+
+Systemic gap:
+
+- A single `ChangeReport.failure_reason_code` cannot represent the full verify
+  causal chain. Pre-suite probe authoring errors, missing project dependencies,
+  parser/startup failures, dead test-surface candidates, and product-code test
+  failures all need stable provenance.
+- The controller/planner must not parse failure summaries to reconstruct that
+  causal chain. It needs a typed evidence lane that survives context-pack and
+  handoff projection.
+- Missing local test tooling must remain non-blocking for delivery/export, but
+  it must be visible as a confidence and audit signal rather than silently
+  overwriting richer earlier evidence.
+
+Architecture:
+
+- Add `ChangeReport.verification_diagnostics[]`.
+- Each diagnostic is derived from typed `ExecutedCommand` and probe outcomes:
+  `source`, `category`, `severity`, `reason_code`, runner/framework/cwd,
+  command, outcome, exit code, and detail.
+- Categories are bounded structural lanes such as `probe_authoring`,
+  `probe_import_or_environment`, `probe_unavailable`, `parser_or_startup`,
+  `environment`, `resource_limit`, `probe_contract`, and `no_tests`. They are
+  computed from typed command outcomes/reason codes, not from issue text, model
+  prose, or log summaries.
+- `WriteContextPackFromChangeReport` projects diagnostics as P2 items for
+  controller/planner/verifier views.
+- `VerifyFailureHandoff` carries bounded diagnostics into replan prompts.
+
+Implementation:
+
+- Added the typed diagnostic schema on `ChangeReport`.
+- `run_tests` now derives diagnostics from all executed/non-executed typed
+  command rows at the report installation boundary, preserving both probe and
+  project-suite signals.
+- Priority context packs now include `verification_diagnostic` P2 items.
+- Verify-failure handoff and planner replan prompt render compact typed
+  diagnostic rows.
+- Added structural tests for probe-authoring diagnostics, multi-signal
+  preservation, context-pack projection, and planner handoff rendering.
+
+Acceptance:
+
+- A pre-suite verification probe `NameError` followed by a project parser/startup
+  failure preserves both signals as diagnostics.
+- Hard success/failure routing still reads `ChangeReport.Passed`,
+  `VerificationStatus`, `FailureKind`, workflow attempts, and approval records.
+- No hard gate reads model narrative or user keywords.
+
+## Forward Commercial Hardening Tasks
+
+These tasks are deliberately system-level. They should be delivered in small
+batches with tests and ledger updates, not as single-case patches.
+
+1. **Behavior Contract Spine**
+   - Project `WriteAnalysisIR.expected_outcomes`, issue observations, and
+     exploration evidence into durable `WriteBehaviorContract` atoms.
+   - Require `ChangePlan.verification_probes[].contract_refs` or explicit
+     uncertainty records for P0 contract atoms.
+   - Downgrade confidence when exported source patches lack behavior-contract
+     coverage.
+
+2. **Probe Baseline And Coupling**
+   - Run optional pre-apply baseline probes for probes marked
+     `expects_baseline_failure`.
+   - Record baseline/current probe deltas in typed diagnostics.
+   - Require probes to name changed symbols or touched paths when they are used
+     as high-confidence local verification.
+
+3. **Exploration Sufficiency And Early Stop**
+   - Add a typed exploration-sufficiency state once exact target files,
+     relevant tests, invariants, and behavior contract atoms are known.
+   - Prevent broad next-hop exploration from reopening when the controller has
+     enough P0/P1 evidence for a micro-fix batch.
+   - Preserve the ability to re-enter read-only exploration when verify
+     diagnostics identify a new concrete failure surface.
+
+4. **Symmetry And Adjacent API Discovery**
+   - Use repomap/class/member adjacency to surface sibling methods and roundtrip
+     pairs as P1/P2 candidates when a planned edit touches one member of a
+     typed API surface.
+   - Keep this as structured context and probe guidance; do not hard-route from
+     name keywords.
+
+5. **Plan Repair Pack**
+   - Consolidate structured edit validator errors, current bytes, allowed edit
+     kinds, and skeleton/full-file fallback hints into one `PlanRepairPack`.
+   - Prevent long `emit_change_plan` retry loops caused by inconsistent textual
+     rejection payloads.
+
+6. **SWE-bench Fairness And Environment Flags**
+   - Keep historical git leakage isolation behind
+     `SWEBENCH_ISOLATE_GIT_HISTORY=1` / adapter flags and default it off for
+     ordinary customer write mode.
+   - Continue treating dependency/tooling gaps as unverified diagnostics rather
+     than hard delivery blockers.
+
+7. **End-to-end Eval Matrix**
+   - Continue running non-Go SWE-bench Lite slices and issue-derived evals.
+   - Require: non-empty predictions, official harness consumability, local
+     typed verdict, manual patch audit, context-pack evidence audit, and
+     regression checks for read/log/trace/data/operation isolation.

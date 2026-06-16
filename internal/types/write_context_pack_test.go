@@ -161,6 +161,14 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 			Outcome:    "parser_error",
 			ReasonCode: "pytest_import_startup_error",
 		}},
+		VerificationDiagnostics: []VerificationDiagnostic{{
+			Source:     "pre_suite_verification_probe",
+			Category:   "probe_authoring",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_name_error",
+			Runner:     "verification_probe",
+			Outcome:    "parser_error",
+		}},
 		RegressionAssertions: []string{"TestExisting"},
 	}
 	pack := WriteContextPackFromChangeReport(report)
@@ -172,6 +180,8 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 		{"build_failure", "compile failed"},
 		{"failure_summary_blob_ref", "/tmp/codrax/blob/run-tests-plan-1.txt"},
 		{"failure_reason_code", "pytest_import_startup_error"},
+		{"verification_diagnostic", "category=probe_authoring"},
+		{"verification_diagnostic", "reason_code=verification_probe_name_error"},
 		{"failed_test", "undefined: Foo"},
 		{"build_error", "internal/foo.go:10 Foo undefined: Foo"},
 		{"executed_command", "reason_code=pytest_import_startup_error"},

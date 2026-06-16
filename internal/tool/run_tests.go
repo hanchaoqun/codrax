@@ -351,6 +351,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return nil
 		}
 		report.ExecutedCommands = append([]types.ExecutedCommand(nil), executedCmds...)
+		report.VerificationDiagnostics = mergeVerificationDiagnostics(
+			report.VerificationDiagnostics,
+			verificationDiagnosticsFromExecutedCommands(report.ExecutedCommands),
+		)
 		if !report.Passed && strings.TrimSpace(report.FailureReasonCode) == "" {
 			report.FailureReasonCode = failureReasonCodeFromExecutedCommands(report.ExecutedCommands)
 		}
@@ -1874,6 +1878,140 @@ func failureReasonCodeFromExecutedCommands(commands []types.ExecutedCommand) str
 		return ""
 	}
 	return strings.Join(dedupStrings(reasonCodes), ",")
+}
+
+func verificationDiagnosticsFromExecutedCommands(commands []types.ExecutedCommand) []types.VerificationDiagnostic {
+	out := make([]types.VerificationDiagnostic, 0, len(commands))
+	for _, cmd := range commands {
+		if diag, ok := verificationDiagnosticFromExecutedCommand(cmd); ok {
+			out = append(out, diag)
+		}
+	}
+	return out
+}
+
+func verificationDiagnosticFromExecutedCommand(cmd types.ExecutedCommand) (types.VerificationDiagnostic, bool) {
+	outcome := strings.TrimSpace(cmd.Outcome)
+	reasonCode := strings.TrimSpace(cmd.ReasonCode)
+	if outcome == "" && reasonCode == "" {
+		return types.VerificationDiagnostic{}, false
+	}
+	category, severity := verificationDiagnosticClass(cmd.Runner, outcome, reasonCode)
+	if category == "" {
+		return types.VerificationDiagnostic{}, false
+	}
+	detail := strings.TrimSpace(reasonCode)
+	if detail == "" {
+		detail = outcome
+	}
+	return types.VerificationDiagnostic{
+		Source:     strings.TrimSpace(cmd.Source),
+		Category:   category,
+		Severity:   severity,
+		ReasonCode: reasonCode,
+		Runner:     strings.TrimSpace(cmd.Runner),
+		Framework:  strings.TrimSpace(cmd.Framework),
+		WorkingDir: strings.TrimSpace(cmd.WorkingDir),
+		Command:    strings.TrimSpace(cmd.Command),
+		Outcome:    outcome,
+		ExitCode:   cmd.ExitCode,
+		Detail:     detail,
+	}, true
+}
+
+func verificationDiagnosticClass(runner, outcome, reasonCode string) (category, severity string) {
+	runner = strings.TrimSpace(runner)
+	outcome = strings.TrimSpace(outcome)
+	reasonCode = strings.TrimSpace(reasonCode)
+	switch outcome {
+	case "runner_missing", "not_configured":
+		return "environment", "warning"
+	case "parser_error":
+		if runner == "verification_probe" {
+			switch reasonCode {
+			case "verification_probe_name_error", "verification_probe_syntax_error":
+				return "probe_authoring", "warning"
+			case "verification_probe_module_not_found", "verification_probe_import_error":
+				return "probe_import_or_environment", "warning"
+			default:
+				return "probe_unavailable", "warning"
+			}
+		}
+		return "parser_or_startup", "warning"
+	case "timeout", "oom", "cpu_limit":
+		return "resource_limit", "warning"
+	case "probe_config_error":
+		return "probe_authoring", "warning"
+	case "expected_stdout_missing":
+		return "probe_contract", "error"
+	case "zero_tests", "synthetic_no_tests":
+		return "no_tests", "warning"
+	}
+	if runner == "verification_probe" && reasonCode != "" {
+		switch reasonCode {
+		case "verification_probe_name_error", "verification_probe_syntax_error",
+			"verification_probe_unclassified":
+			return "probe_authoring", "warning"
+		case "verification_probe_module_not_found", "verification_probe_import_error":
+			return "probe_import_or_environment", "warning"
+		default:
+			return "probe_runtime_failure", "error"
+		}
+	}
+	if reasonCode != "" {
+		return "verification_signal", "warning"
+	}
+	return "", ""
+}
+
+func mergeVerificationDiagnostics(existing, next []types.VerificationDiagnostic) []types.VerificationDiagnostic {
+	if len(existing) == 0 && len(next) == 0 {
+		return nil
+	}
+	out := make([]types.VerificationDiagnostic, 0, len(existing)+len(next))
+	seen := map[string]bool{}
+	add := func(diag types.VerificationDiagnostic) {
+		diag.Source = strings.TrimSpace(diag.Source)
+		diag.Category = strings.TrimSpace(diag.Category)
+		diag.Severity = strings.TrimSpace(diag.Severity)
+		diag.ReasonCode = strings.TrimSpace(diag.ReasonCode)
+		diag.Runner = strings.TrimSpace(diag.Runner)
+		diag.Framework = strings.TrimSpace(diag.Framework)
+		diag.WorkingDir = strings.TrimSpace(diag.WorkingDir)
+		diag.Command = strings.TrimSpace(diag.Command)
+		diag.Outcome = strings.TrimSpace(diag.Outcome)
+		diag.Detail = strings.TrimSpace(diag.Detail)
+		if diag.Category == "" && diag.ReasonCode == "" && diag.Outcome == "" {
+			return
+		}
+		key := strings.Join([]string{
+			diag.Source,
+			diag.Category,
+			diag.Severity,
+			diag.ReasonCode,
+			diag.Runner,
+			diag.Framework,
+			diag.WorkingDir,
+			diag.Command,
+			diag.Outcome,
+			fmt.Sprintf("%d", diag.ExitCode),
+		}, "\x00")
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, diag)
+	}
+	for _, diag := range existing {
+		add(diag)
+	}
+	for _, diag := range next {
+		add(diag)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func renderAggregateTestSummary(repoRoot string, plans []runnerPlan, reports []*types.ChangeReport, aggregate *types.ChangeReport) string {
