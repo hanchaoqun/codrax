@@ -57,6 +57,48 @@ func TestPlannerTaskFraming_RendersIRFields(t *testing.T) {
 	}
 }
 
+func TestPlannerCompatibilityRiskGuidance_RendersFromTypedRiskFlags(t *testing.T) {
+	mu := types.NewMutableState("the user request")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Summary: "change generated output layout"},
+			Risk: types.WriteRiskProfile{
+				ChangesPersistence: true,
+				Overall:            types.RiskBandMedium,
+			},
+			ExpectedOutcomes: []string{"new layout is available"},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	eval := &plannerEvaluator{}
+	got := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Compatibility risk guidance",
+		"typed risk flags",
+		"not a hard gate",
+		"configuration registration",
+		"output-path consumers",
+		"default-compatible path",
+		"explicit opt-in/configuration switch",
+		"existing option/default registration",
+		"verification surface for the compatibility boundary",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("compatibility risk guidance missing %q; got:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{
+		"if the user says",
+		"summary contains",
+		"parse prose",
+		"keyword",
+	} {
+		if strings.Contains(strings.ToLower(got), banned) {
+			t.Fatalf("compatibility guidance contains prose-routing smell %q:\n%s", banned, got)
+		}
+	}
+}
+
 // TestPlannerTaskFraming_NoIRReturnsEmpty pins the degraded path:
 // when WriteAnalysisIR is absent (write_analyzer didn't run or
 // degraded), the planner falls through with no task-framing

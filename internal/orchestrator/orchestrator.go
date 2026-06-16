@@ -8233,6 +8233,7 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 			}
 		}
 	}
+	applyWriteExplorationRoundBudgetForDispatch(agentCtx, o.busCtx)
 
 	logging.Info("[orchestrator] dispatching agent=%s skill=%s", agentName, skillName)
 	logging.Debug("[orchestrator] preflight: stage=%s agent=%s ready elapsed=%s", stage, agentName, time.Since(preflightStart).Round(time.Millisecond))

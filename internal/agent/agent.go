@@ -1,10 +1,14 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -2866,10 +2870,22 @@ func writeExplorationReadOnlyBlocksTool(ctx *types.AgentContext, name string) bo
 }
 
 func validateWriteExplorationReadOnlyToolCall(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
-	if !writeExplorationReadOnlyBlocksTool(ctx, tc.Name) {
+	if ctx == nil || ctx.Stage != types.StageExplore || ctx.Mutable == nil || !ctx.Mode.IsWrite() ||
+		ctx.Mutable.WriteExplorationRequest() == nil {
 		return nil
 	}
 	canonical := types.CanonicalToolName(tc.Name)
+	if canonical == "read_file" {
+		return validateWriteModeReadFileWindow(ctx, tc, writeReadFileWindowPolicy{
+			RepairCode:  "write_exploration_read_file_requires_window",
+			Policy:      "write_exploration_large_read_window",
+			SummaryLane: "write workflow exploration",
+			HintLane:    "write exploration",
+		})
+	}
+	if !writeExplorationReadOnlyBlocksTool(ctx, tc.Name) {
+		return nil
+	}
 	msg := fmt.Sprintf(
 		"%s rejected: write workflow exploration is a read-only source-discovery lane. "+
 			"Use typed repository read tools such as repo_map, grep, list_files, read_file, and git read tools; planning, applying, tests, and shell commands belong to later typed write stages.",
@@ -2888,6 +2904,21 @@ func validateWriteExplorationReadOnlyToolCall(ctx *types.AgentContext, tc llm.To
 			},
 		},
 	}
+}
+
+func validateWriteAnalyzerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	if ctx == nil || ctx.Stage != types.StageWriteAnalyze || !ctx.Mode.IsWrite() {
+		return nil
+	}
+	if types.CanonicalToolName(tc.Name) != "read_file" {
+		return nil
+	}
+	return validateWriteModeReadFileWindow(ctx, tc, writeReadFileWindowPolicy{
+		RepairCode:  "write_analyzer_read_file_requires_window",
+		Policy:      "write_analyzer_large_read_window",
+		SummaryLane: "write analysis",
+		HintLane:    "write analyzer",
+	})
 }
 
 func writePlannerDryRunOnly(ctx *types.AgentContext) bool {
@@ -2988,6 +3019,12 @@ func validateWritePlannerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *t
 			},
 		}
 	}
+	if canonical == "read_file" {
+		if violation := validateWritePlannerReadFileWindow(ctx, tc); violation != nil {
+			return violation
+		}
+		return nil
+	}
 	if canonical != "run_tests" {
 		return nil
 	}
@@ -3016,6 +3053,190 @@ func validateWritePlannerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *t
 				"policy": "write_planner_typed_probe_only",
 			},
 		},
+	}
+}
+
+const (
+	writeModeUnboundedReadFileLineLimit = 320
+	writeModeSuggestedReadFileLineLimit = 160
+)
+
+func validateWritePlannerReadFileWindow(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	return validateWriteModeReadFileWindow(ctx, tc, writeReadFileWindowPolicy{
+		RepairCode:  "write_planner_read_file_requires_window",
+		Policy:      "write_planner_large_read_window",
+		SummaryLane: "write planning",
+		HintLane:    "write planner",
+	})
+}
+
+type writeReadFileWindowPolicy struct {
+	RepairCode  string
+	Policy      string
+	SummaryLane string
+	HintLane    string
+}
+
+func validateWriteModeReadFileWindow(ctx *types.AgentContext, tc llm.ToolCall, policy writeReadFileWindowPolicy) *types.ToolResult {
+	path, hasWindow, ok := decodeWriteModeReadFileWindowParams(tc.Params)
+	if !ok || hasWindow {
+		return nil
+	}
+	abs, ok := resolveWriteModeReadFilePath(ctx, path)
+	if !ok {
+		return nil
+	}
+	exceeds, observedLines, err := fileExceedsLineLimit(abs, writeModeUnboundedReadFileLineLimit)
+	if err != nil || !exceeds {
+		return nil
+	}
+	lineSummary := fmt.Sprintf("more than %d lines", writeModeUnboundedReadFileLineLimit)
+	if observedLines > 0 {
+		lineSummary = fmt.Sprintf("at least %d lines", observedLines)
+	}
+	summaryLane := strings.TrimSpace(policy.SummaryLane)
+	if summaryLane == "" {
+		summaryLane = "write mode"
+	}
+	hintLane := strings.TrimSpace(policy.HintLane)
+	if hintLane == "" {
+		hintLane = "write mode"
+	}
+	repairCode := strings.TrimSpace(policy.RepairCode)
+	if repairCode == "" {
+		repairCode = "write_read_file_requires_window"
+	}
+	policyName := strings.TrimSpace(policy.Policy)
+	if policyName == "" {
+		policyName = "write_large_read_window"
+	}
+	return &types.ToolResult{
+		ToolName: tc.Name,
+		Summary: fmt.Sprintf(
+			"read_file rejected: %s keeps large-file reads windowed. %s has %s; retry with line_offset and limit (for example line_offset=0, limit=%d), or use grep/repo_map first to locate the exact region before reading it.",
+			summaryLane, path, lineSummary, writeModeSuggestedReadFileLineLimit),
+		Success:   false,
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code: repairCode,
+			Hint: fmt.Sprintf("Retry read_file for %s with an explicit line_offset and limit, or narrow with grep/repo_map before reading. Do not whole-file-read large files in %s.", path, hintLane),
+			Metadata: map[string]string{
+				"tool":            "read_file",
+				"stage":           string(ctx.Stage),
+				"policy":          policyName,
+				"path":            path,
+				"line_limit":      strconv.Itoa(writeModeUnboundedReadFileLineLimit),
+				"suggested_limit": strconv.Itoa(writeModeSuggestedReadFileLineLimit),
+			},
+		},
+	}
+}
+
+func decodeWriteModeReadFileWindowParams(raw json.RawMessage) (path string, hasWindow bool, ok bool) {
+	var params map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &params) != nil {
+		return "", false, false
+	}
+	path = decodeJSONStringParam(params["path"])
+	if strings.TrimSpace(path) == "" {
+		return "", false, false
+	}
+	if n, present := decodeJSONIntParam(params["limit"]); present && n > 0 {
+		hasWindow = true
+	}
+	return path, hasWindow, true
+}
+
+func decodeJSONStringParam(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
+func decodeJSONIntParam(raw json.RawMessage) (int, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n, true
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return int(f), true
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		parsed, parseErr := strconv.Atoi(strings.TrimSpace(s))
+		if parseErr == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+func resolveWriteModeReadFilePath(ctx *types.AgentContext, requested string) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	repoRoot := strings.TrimSpace(ctx.RepoRoot)
+	if repoRoot == "" {
+		repoRoot = strings.TrimSpace(ctx.MainRepoRoot)
+	}
+	if repoRoot == "" {
+		return "", false
+	}
+	rootAbs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return "", false
+	}
+	path := filepath.Clean(strings.TrimSpace(requested))
+	var abs string
+	if filepath.IsAbs(path) {
+		abs, err = filepath.Abs(path)
+	} else {
+		abs, err = filepath.Abs(filepath.Join(rootAbs, path))
+	}
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(rootAbs, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return abs, true
+}
+
+func fileExceedsLineLimit(path string, limit int) (bool, int, error) {
+	if limit <= 0 {
+		return false, 0, nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false, 0, err
+	}
+	defer f.Close()
+	reader := bufio.NewReader(f)
+	lines := 0
+	for {
+		chunk, readErr := reader.ReadString('\n')
+		if len(chunk) > 0 {
+			lines++
+			if lines > limit {
+				return true, lines, nil
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return false, lines, nil
+		}
+		if readErr != nil {
+			return false, lines, readErr
+		}
 	}
 }
 
@@ -3816,6 +4037,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 		return violation, nil
 	}
 	if violation := validateExternalObservationOnlyToolCall(ctx, tc); violation != nil {
+		return violation, nil
+	}
+	if violation := validateWriteAnalyzerToolPolicy(ctx, tc); violation != nil {
 		return violation, nil
 	}
 	if violation := validateWriteExplorationReadOnlyToolCall(ctx, tc); violation != nil {

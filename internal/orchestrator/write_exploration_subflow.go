@@ -113,6 +113,27 @@ func shouldRunWriteExplorationSubflow(req types.WriteExplorationRequest) bool {
 	return evaluation.Status == writeflow.EvalContinueExplore
 }
 
+func applyWriteExplorationRoundBudgetForDispatch(agentCtx *types.AgentContext, bus *types.BusContext) {
+	if agentCtx == nil || bus == nil || agentCtx.Stage != types.StageExplore || !agentCtx.Mode.IsWrite() || bus.Mutable == nil {
+		return
+	}
+	req := bus.Mutable.WriteExplorationRequest()
+	if req == nil {
+		return
+	}
+	reqCopy := types.NormalizeWriteExplorationRequest(*req)
+	roundLimit := reqCopy.MaxRounds
+	if roundLimit <= 0 {
+		roundLimit = defaultWriteWorkflowMaxExplorationRounds
+	}
+	if roundLimit <= 0 {
+		return
+	}
+	if agentCtx.MaxIterOverride <= 0 || agentCtx.MaxIterOverride > roundLimit {
+		agentCtx.MaxIterOverride = roundLimit
+	}
+}
+
 func (o *Orchestrator) projectWriteExplorationHandoffFromTurnA() {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return

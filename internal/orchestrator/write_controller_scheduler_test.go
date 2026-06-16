@@ -2609,6 +2609,42 @@ func TestRunControllerPlanBatch_NoPlanReplanRoundGetsOneRetry(t *testing.T) {
 	}
 }
 
+func TestRunControllerPlanBatch_NoPlanDoesNotSpendRetryAfterCancel(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("no plan retry canceled")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "no plan retry"}}})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "plan-prev", BatchID: "batch-1", Attempt: 1})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		*stepsUsed++
+		o.Cancel("write mode wall-time exceeded (600s)")
+		return &agent.StageOutput{Error: "no change plan was produced this round"}, nil
+	}
+	steps := 0
+	err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair"}, &steps)
+	if !errors.Is(err, ErrCanceled) {
+		t.Fatalf("canceled no-plan round should return ErrCanceled, got %v", err)
+	}
+	if planCalls != 1 {
+		t.Fatalf("plan stage calls = %d, want 1 (no retry after cancel)", planCalls)
+	}
+	if strings.Contains(mu.PlanningHint(), "previous planning round ended without a stored change plan") {
+		t.Fatalf("canceled no-plan round must not spend retry hint budget, got %q", mu.PlanningHint())
+	}
+	if !strings.Contains(o.busCtx.TaskState.LastError, "write mode wall-time exceeded") {
+		t.Fatalf("last error should preserve cancel reason, got %q", o.busCtx.TaskState.LastError)
+	}
+}
+
 func TestRunControllerPlanBatch_NoChangeSentinelRestoresAppliedPlanForVerify(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("no-change replan")

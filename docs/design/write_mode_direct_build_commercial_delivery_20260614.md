@@ -4218,3 +4218,162 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - Config-sensitive fixes need probes that exercise both enabled and disabled
     configuration paths, as seen in the Sphinx `strip_signature_backslash`
     case.
+
+## 2026-06-16 SWE-bench smoke 13: planner large-read and no-plan cancel hardening
+
+- Evidence source:
+  - Fair-isolated non-Go SWE-bench Lite batch in progress:
+    `eval/results/swebench/lite-smoke-20260616-mpl24265-pytest9359-sklearn13496-sphinx8273-current`.
+  - `matplotlib__matplotlib-24265` exported a non-empty prediction, while
+    `pytest-dev__pytest-9359` produced `empty_patch` before the new fix was
+    built.
+- Gap observed:
+  - After controller exploration localized the Pytest issue, planner still
+    called `read_file` on `testing/code/test_source.py` without
+    `line_offset`/`limit` and read all 644 lines. This made the next narrowed
+    materialization request large enough to run into the write-mode 600s
+    wall-time boundary before any `ChangePlan` landed.
+  - Once the cancel token fired, the no-plan recovery loop logged two
+    re-dispatch grants back-to-back without a useful real retry, consuming the
+    bounded no-plan budget while the run was already canceled.
+- Generalized fix:
+  - Write-mode planner now has a typed large-read policy:
+    unwindowed `read_file` calls on files over 320 lines are rejected with
+    `ToolRepair.Code=write_planner_read_file_requires_window` and a suggested
+    `line_offset`/`limit` shape. Small-file reads, explicit windows, and read
+    mode are unchanged.
+  - The same typed large-read policy also applies to write exploration after
+    `sphinx-doc__sphinx-8273` showed the read-only exploration lane could climb
+    past 55k context tokens by whole-file-reading large files before
+    materializing evidence. Exploration returns
+    `ToolRepair.Code=write_exploration_read_file_requires_window` and keeps
+    shell/tests/apply tools blocked as before.
+  - Controller no-plan retry now checks the typed cancel token before granting
+    a re-dispatch, so wall-time/user-cancel cannot spend retry budget or
+    overwrite the true cancel reason with generic no-plan guidance.
+- Prompt and hard-gate hygiene:
+  - The hard decisions read only mode/stage/tool params, repo-relative path
+    resolution, file line count, and cancel token state.
+  - No SWE-bench instance ids, issue keywords, user intent text, model
+    summary/rationale, natural-language logs, or `<think>` content are used for
+    routing.
+- Verification:
+  - Focused agent regression passed:
+    `go test ./internal/agent -run 'TestValidateWriteExplorationReadOnlyToolCall|TestValidateWritePlannerToolPolicy|TestBuildToolSchemas_WritePlanner|TestCurrentTurnToolSurfaceDirective|TestUnavailableToolResultListsExactCurrentSurface' -count=1`.
+  - Focused orchestrator regression passed:
+    `go test ./internal/orchestrator -run 'TestRunControllerPlanBatch_NoPlan|TestRunControllerPlanBatch_NoChange|TestRunControllerPlanBatch_NoPlanDoesNotSpendRetryAfterCancel' -count=1`.
+
+## 2026-06-16 SWE-bench smoke 14: write exploration hard budget and offset-only read hardening
+
+- Evidence source:
+  - Targeted fair-isolated reruns for `pytest-dev__pytest-9359` and
+    `sphinx-doc__sphinx-8273`.
+  - The pre-fix rerun was stopped early after reproducing control-plane
+    failure: controller asked for `max_rounds=2`, but the write exploration
+    subflow continued past eight ReAct iterations and exceeded 62k estimated
+    context tokens.
+  - A second rerun showed `read_file(path, line_offset=N)` without `limit`
+    could still read a large suffix to EOF during write analysis, bypassing the
+    first large-read gate.
+- Generalized fixes:
+  - `WriteExplorationRequest.max_rounds`, or the workflow default when the
+    controller omits it, is now projected onto `AgentContext.MaxIterOverride`
+    for the single write exploration dispatch. The executor enforces the typed
+    budget; it is no longer prompt-only or controller-only guidance. Existing
+    read-mode explorer scaling is unchanged.
+  - The write-mode large-read gate now treats only a positive `limit` as a
+    bounded window. `line_offset`/`offset` without `limit` remains unbounded and
+    is rejected for files over 320 lines.
+  - The same large-read policy now applies to write_analyzer, write
+    exploration, and write planner with stage-specific repair codes:
+    `write_analyzer_read_file_requires_window`,
+    `write_exploration_read_file_requires_window`, and
+    `write_planner_read_file_requires_window`.
+- Prompt and hard-gate hygiene:
+  - These are typed executor/tool policies, not prompt routes.
+  - The hard decisions read only stage/mode/tool params, typed request budget,
+    repo-relative path resolution, file line count, and cancel token state.
+  - No SWE-bench ids, issue keywords, user intent text, model
+    summary/rationale, natural-language logs, or `<think>` content are used for
+    routing.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/agent ./internal/orchestrator -run 'TestValidateWriteAnalyzerToolPolicy|TestValidateWriteExplorationReadOnlyToolCall|TestValidateWritePlannerToolPolicy|TestApplyWriteExplorationRoundBudgetForDispatch|TestRunWriteExplorationSubflowAppliesMaxRoundsOverride|TestRunControllerPlanBatch_NoPlanDoesNotSpendRetryAfterCancel' -count=1`.
+
+## 2026-06-16 SWE-bench smoke 15: compatibility-risk planning guidance
+
+- Evidence source:
+  - `pytest-dev__pytest-9359` post-fix targeted run produced a non-empty
+    `predicted_passed/high` patch and one passing local verification probe.
+    This is a large improvement over the earlier `empty_patch`, though manual
+    audit shows the generated decorator-boundary implementation differs from
+    the official source patch.
+  - `sphinx-doc__sphinx-8273` post-fix targeted run enforced the default
+    exploration hard cap, exported a non-empty official-harness-consumable
+    prediction, and dropped generated test edits from the exported patch. Local
+    verify remained unavailable because the historical checkout imports
+    `jinja2.environmentfilter`, which is absent from the installed modern
+    Jinja2. Manual audit found the patch changed the default output layout
+    directly, while the official patch adds a backward-compatible
+    `man_make_section_directory` config switch.
+- Generalized fix:
+  - Planner now renders a soft `Compatibility risk guidance` section when typed
+    `WriteRiskProfile` flags indicate public API, persistence/layout/state, or
+    build-system risk.
+  - The guidance asks the planner to prefer default-compatible or explicit
+    opt-in/configuration-switch paths when practical, and to include
+    compatibility-boundary verification when default behavior intentionally
+    changes.
+- Prompt and hard-gate hygiene:
+  - The trigger is typed risk metadata from `WriteAnalysisIR`, not issue text,
+    user keywords, model prose, summary/rationale, or `<think>`.
+  - The guidance is not a hard gate. Validation, approval, apply, and verifier
+    decisions still consume structured artifacts only.
+
+## 2026-06-16 SWE-bench smoke 16: structured edit anchor-copy guard
+
+- Evidence source:
+  - Follow-up fair-isolated targeted run:
+    `eval/results/swebench/lite-smoke-20260616-sphinx8273-anchor-guard-after-fix`
+    for `sphinx-doc__sphinx-8273`.
+  - The earlier Sphinx run exported a patch that duplicated the whole import
+    block because a line-addressed `insert_before` edit supplied a multi-line
+    `old_text` anchor and then placed almost the same anchor block inside
+    `content`.
+- Generalized fixes:
+  - Structured edit compilation now rejects line-addressed insertions whose
+    `content` contains the multi-line source-like `old_text` anchor as an
+    ordered byte-for-byte line subsequence. The typed diagnostic stays on the
+    existing `adjacent_duplicate_insert_anchor` lane and tells the planner to
+    insert only the new neighboring bytes.
+  - Compatibility-risk prompt guidance was strengthened for typed
+    public-API, persistence/layout/state, and build-system risk. It now asks
+    the planner to inspect configuration registration, defaults, output-path
+    consumers, and existing option/default surfaces before emitting a plan,
+    and to prefer extending that surface when practical.
+- SWE-bench result:
+  - The post-fix Sphinx run exported a non-empty prediction
+    (`patch_bytes=1199`), `validate_predictions.py` accepted it
+    (`empty_patch=0`), and the official harness dry-run accepted the generated
+    predictions JSONL.
+  - Manual patch audit improved from the previous duplicate-import patch: the
+    generated source patch now contains a clean import-line replacement and a
+    clean destination-path replacement. Local verify remained
+    `unavailable/parser_error` because the historical checkout imports
+    `jinja2.environmentfilter`, which is absent from the installed modern
+    Jinja2.
+  - Gold-patch audit still finds a semantic quality gap: official Sphinx adds
+    `man_make_section_directory` defaulting false, while the generated patch
+    still changes default output layout directly. This is tracked as a
+    compatibility-sensitive planning quality gap, not as a harness/export
+    failure.
+- Prompt and hard-gate hygiene:
+  - The new hard gate consumes only typed `StructuredEdit.kind`, `old_text`,
+    current file bytes, and `content`. It does not inspect SWE-bench ids, issue
+    text, user keywords, model prose, summaries, rationale, or `<think>`.
+  - The compatibility update is soft prompt guidance triggered only by typed
+    `WriteRiskProfile` flags. Validation, approval, apply, and verifier
+    decisions still consume structured artifacts only.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/agent ./internal/tool ./internal/orchestrator -run 'TestPlannerCompatibilityRiskGuidance|TestValidateWriteAnalyzerToolPolicy|TestValidateWriteExplorationReadOnlyToolCall|TestValidateWritePlannerToolPolicy|TestApplyWriteExplorationRoundBudgetForDispatch|TestRunWriteExplorationSubflowAppliesMaxRoundsOverride|TestRunControllerPlanBatch_NoPlanDoesNotSpendRetryAfterCancel|TestEmitChangePlan_RejectsStructuredInsertContainingAnchorBlock|TestEmitChangePlan_RejectsStructuredEditDuplicatePythonDefinitionStutter|TestEmitChangePlan_ReplanNoOpStructuredEditPointsToTypedProbeSentinel' -count=1`.

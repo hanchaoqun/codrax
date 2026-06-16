@@ -794,6 +794,10 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 		if o.busCtx.Mutable.ChangePlan() == nil &&
 			noPlanRetryCount < controllerNoPlanRetryBudget(o.busCtx.Mutable, batch, rejection) &&
 			controllerNoPlanRetryEligible(o.busCtx.Mutable, batch) {
+			if cerr := o.checkCanceled("write_controller_plan_retry", *stepsUsed); cerr != nil {
+				o.busCtx.TaskState.LastError = cerr.Error()
+				return cerr
+			}
 			noPlanRetryCount++
 			o.busCtx.TaskState.LastError = ""
 			hint := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())

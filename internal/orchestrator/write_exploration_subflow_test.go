@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -104,6 +106,75 @@ func TestShouldRunWriteExplorationSubflowUsesTypedEvaluator(t *testing.T) {
 		CandidatePaths: []string{"internal/agent/planner.go"},
 	}) {
 		t.Fatal("valid typed request should continue_explore")
+	}
+}
+
+func TestApplyWriteExplorationRoundBudgetForDispatchUsesTypedMaxRounds(t *testing.T) {
+	mu := types.NewMutableState("bounded write exploration")
+	mu.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID:   "batch-1",
+		Goal:      "inspect failing source paths",
+		MaxRounds: 2,
+	})
+	ctx := &types.AgentContext{
+		Stage:           types.StageExplore,
+		Mode:            types.ModeApply,
+		MaxIterOverride: 35,
+	}
+	applyWriteExplorationRoundBudgetForDispatch(ctx, &types.BusContext{Mutable: mu})
+	if ctx.MaxIterOverride != 2 {
+		t.Fatalf("write exploration max_rounds should tighten existing explorer budget to 2, got %d", ctx.MaxIterOverride)
+	}
+
+	ctx = &types.AgentContext{Stage: types.StageExplore, Mode: types.ModeRead, MaxIterOverride: 35}
+	applyWriteExplorationRoundBudgetForDispatch(ctx, &types.BusContext{Mutable: mu})
+	if ctx.MaxIterOverride != 35 {
+		t.Fatalf("read exploration budget must not be affected, got %d", ctx.MaxIterOverride)
+	}
+
+	mu.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID: "batch-1",
+		Goal:    "inspect source paths without explicit budget",
+	})
+	ctx = &types.AgentContext{Stage: types.StageExplore, Mode: types.ModeApply, MaxIterOverride: 0}
+	applyWriteExplorationRoundBudgetForDispatch(ctx, &types.BusContext{Mutable: mu})
+	if ctx.MaxIterOverride != defaultWriteWorkflowMaxExplorationRounds {
+		t.Fatalf("write exploration without explicit max_rounds should use default hard cap %d, got %d",
+			defaultWriteWorkflowMaxExplorationRounds, ctx.MaxIterOverride)
+	}
+}
+
+func TestRunWriteExplorationSubflowAppliesMaxRoundsOverride(t *testing.T) {
+	mu := types.NewMutableState("bounded write exploration")
+	mu.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID:        "batch-1",
+		Goal:           "inspect source range handling",
+		CandidatePaths: []string{"src/_pytest/_code/source.py"},
+		MaxRounds:      2,
+	})
+	captured := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			captured = ctx.MaxIterOverride
+			ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+				ReadFiles: []string{"src/_pytest/_code/source.py"},
+			})
+			return &agent.StageOutput{}, nil
+		},
+	})
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		Mutable:    mu,
+		Mode:       types.ModeApply,
+		AnalysisIR: &types.AnalysisIR{},
+	}
+	o.cancelToken = NewCancelToken()
+
+	if _, err := o.runWriteExplorationSubflow(); err != nil {
+		t.Fatalf("runWriteExplorationSubflow returned error: %v", err)
+	}
+	if captured != 2 {
+		t.Fatalf("explorer dispatch should receive typed max_rounds override 2, got %d", captured)
 	}
 }
 

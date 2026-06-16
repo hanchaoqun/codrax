@@ -1215,3 +1215,97 @@ records adapter results.
   eventually include a lightweight project-root runner probe, and object-state
   fixes like Matplotlib need stronger bounded probe generation or typed
   post-apply semantic linting.
+- 2026-06-16: Current fair-isolated batch
+  `eval/results/swebench/lite-smoke-20260616-mpl24265-pytest9359-sklearn13496-sphinx8273-current`
+  exposed two planner/controller convergence gaps before the new fix was
+  built. `matplotlib__matplotlib-24265` exported a non-empty patch, but
+  `pytest-dev__pytest-9359` ended `empty_patch`: after exploration localized
+  the task, planner called `read_file` on `testing/code/test_source.py`
+  without a window and pulled all 644 lines into the ReAct history, then
+  entered a narrowed materialization turn with ~19k context tokens and was
+  canceled at the write-mode 600s wall-time boundary before emitting a plan.
+  The same cancellation path immediately logged two no-plan re-dispatch grants
+  without a real useful retry. Generalized fixes landed from this evidence:
+  write-mode planner now rejects unwindowed `read_file` calls on files over
+  320 lines with typed repair
+  `write_planner_read_file_requires_window`, while leaving small-file reads,
+  explicit `line_offset`/`limit`, and read mode unchanged. The same typed
+  large-read policy was then applied to write exploration after
+  `sphinx-doc__sphinx-8273` showed the read-only exploration lane could also
+  climb past 55k context tokens by whole-file-reading large files before
+  materializing evidence; that path now returns
+  `write_exploration_read_file_requires_window`. Controller no-plan retry now
+  checks the typed cancel token before consuming retry budget, so
+  wall-time/user-cancel states do not burn bounded convergence retries or
+  degrade into generic "no plan" guidance. These gates consume only
+  mode/stage/tool params, repo-relative path resolution, file line count, and
+  cancel token state; they do not inspect SWE-bench ids, issue text, user
+  keywords, model prose, summaries, rationale, or `<think>`.
+- 2026-06-16: A targeted rerun for `pytest-dev__pytest-9359` and
+  `sphinx-doc__sphinx-8273` was stopped early after it exposed two additional
+  generalized write-mode control-plane gaps before predictions were exported.
+  First, the controller emitted `WriteExplorationRequest.max_rounds=2`, but the
+  read-only write exploration subflow ran past eight ReAct iterations and
+  climbed above 62k estimated context tokens; the budget was prompt-visible and
+  controller-action visible, but not enforced by the executor dispatch. The
+  orchestrator now projects typed `max_rounds`, or the workflow default when
+  the controller omits it, onto `AgentContext.MaxIterOverride` for that single
+  write exploration dispatch, tightening any existing read-explorer scaling
+  without affecting read mode.
+  Second, the large-read gate treated `read_file(line_offset=N)` as windowed
+  even without `limit`; the tool then read from offset to EOF and pulled a
+  600-line suffix of `src/_pytest/assertion/rewrite.py` into write analysis.
+  The window policy now requires a positive `limit`, applies to write_analyzer
+  as well as write exploration/planning, and returns
+  `write_analyzer_read_file_requires_window`,
+  `write_exploration_read_file_requires_window`, or
+  `write_planner_read_file_requires_window` according to the typed stage.
+  Hard gates consume only stage/mode/tool params, typed request budget,
+  repo-relative path resolution, and file line counts; they do not consume user
+  intent keywords, SWE-bench ids, issue text, model prose, summaries,
+  rationale, or `<think>`.
+- 2026-06-16: Post-fix targeted validation:
+  `pytest-dev__pytest-9359` improved from the earlier `empty_patch` to
+  `predicted_passed/high` with one local verification probe passing and a
+  non-empty patch against `src/_pytest/_code/source.py`; the official harness
+  prediction format remained consumable. Manual audit: it found the gold file
+  and plausible behavior, but the patch differs from the official decorator
+  boundary implementation, so this remains a quality signal rather than a
+  perfect solve. `sphinx-doc__sphinx-8273` with default exploration hard cap
+  completed with exploration limited to two ReAct iterations and exported a
+  non-empty harness-consumable prediction, but local verification was
+  unavailable because the historical Sphinx checkout is incompatible with the
+  installed Jinja2 (`environmentfilter` import), and manual audit showed the
+  patch changed default output layout directly instead of adding the official
+  backward-compatible `man_make_section_directory` config switch. Generalized
+  follow-up: planner now renders a soft "Compatibility risk guidance" section
+  when typed `WriteRiskProfile` flags such as `changes_persistence`,
+  `affects_public_api`, or `changes_build_system` are set. The guidance asks
+  the model to prefer default-compatible/config-switch paths and compatibility
+  verification surfaces when practical. It is prompt guidance only; hard gates
+  still read structured plan/report/risk artifacts and do not parse user
+  keywords, issue prose, model summaries, rationale, or `<think>`.
+- 2026-06-16: Follow-up Sphinx 8273 validation after structured edit
+  hardening completed at
+  `eval/results/swebench/lite-smoke-20260616-sphinx8273-anchor-guard-after-fix`.
+  The run exported a non-empty prediction (`patch_bytes=1199`),
+  `validate_predictions.py` accepted the row with `empty_patch=0`, the
+  official harness dry-run accepted the predictions JSONL, and
+  `git_history_isolated=true` remained set. Compared with the prior Sphinx
+  run, the emitted source patch no longer duplicated the entire import block;
+  the planner used a bounded `replace` edit for the import line and a bounded
+  `replace` edit for the destination path. The first verification probe was
+  rejected by the existing typed probe-coupling gate because it did not import
+  a changed production module, and the planner re-emitted a coupled probe.
+  Local verify still ended `verify_status=unavailable` /
+  `verify_failure_kind=parser_error` because the historical Sphinx checkout is
+  incompatible with the installed modern Jinja2 (`environmentfilter` import).
+  Gold-patch audit still shows a quality gap: the official patch adds
+  `man_make_section_directory` defaulting false, whereas the generated patch
+  changes the default layout directly. Generalized follow-up landed in the
+  planner prompt as stronger compatibility-risk soft guidance: typed
+  persistence/API/build risk now asks the planner to inspect configuration
+  registration/defaults/output consumers and prefer extending an existing
+  option/default surface when practical. This remains soft guidance only; hard
+  gates continue to consume typed artifacts, schema fields, current file bytes,
+  and parser/test verdicts.

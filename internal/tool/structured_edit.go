@@ -508,6 +508,9 @@ func structuredInsertRepeatsAnchor(path, kind string, anchorLines, insert []stri
 	if !structuredEditSourceLikeRange(anchorLines) {
 		return false
 	}
+	if len(anchorLines) >= 2 && structuredEditLineSubsequence(insert, anchorLines) {
+		return true
+	}
 	switch kind {
 	case "insert_after":
 		for i := range anchorLines {
@@ -527,6 +530,31 @@ func structuredInsertRepeatsAnchor(path, kind string, anchorLines, insert []stri
 	default:
 		return false
 	}
+}
+
+func structuredEditLineSubsequence(haystack, needle []string) bool {
+	if len(needle) == 0 || len(haystack) < len(needle) {
+		return false
+	}
+	j := 0
+	sourceLike := 0
+	for _, line := range needle {
+		if duplicateInsertedLineIsSourceLike(strings.TrimSpace(line)) {
+			sourceLike++
+		}
+	}
+	if sourceLike < 2 {
+		return false
+	}
+	for _, line := range haystack {
+		if line == needle[j] {
+			j++
+			if j == len(needle) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func structuredEditSourceLikeRange(lines []string) bool {

@@ -182,6 +182,9 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if framing := e.buildTaskFramingSection(ctx); framing != "" {
 		sections = append(sections, framing)
 	}
+	if compatibility := e.buildCompatibilityRiskGuidanceSection(ctx); compatibility != "" {
+		sections = append(sections, compatibility)
+	}
 	if workflow := e.buildWorkflowSeedSection(ctx); workflow != "" {
 		sections = append(sections, workflow)
 	}
@@ -287,6 +290,39 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 		}
 	}
 	return b.String()
+}
+
+func (e *plannerEvaluator) buildCompatibilityRiskGuidanceSection(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	ir := ctx.Mutable.WriteAnalysisIR()
+	if ir == nil {
+		return ""
+	}
+	risk := ir.Request.Risk
+	if !risk.AffectsPublicAPI && !risk.ChangesPersistence && !risk.ChangesBuildSystem {
+		return ""
+	}
+	var bullets []string
+	if risk.AffectsPublicAPI {
+		bullets = append(bullets, "public API surface may be affected: inspect the existing callable/configuration surface for the touched component before emitting changes, then prefer preserving existing behavior or provide a migration-compatible path when the current batch can do so cleanly.")
+	}
+	if risk.ChangesPersistence {
+		bullets = append(bullets, "persistent output/layout/state may change: inspect nearby configuration registration, defaults, and output-path consumers before emitting changes; prefer a default-compatible path or an explicit opt-in/configuration switch unless the typed success criteria require a breaking default.")
+	}
+	if risk.ChangesBuildSystem {
+		bullets = append(bullets, "build/test/install behavior may change: inspect the existing build/install configuration surface before emitting changes, and include a verification probe that exercises both the changed path and the existing stable path when practical.")
+	}
+	var b strings.Builder
+	b.WriteString("## Compatibility risk guidance\n\n")
+	b.WriteString("Soft planning guidance derived from typed risk flags. This section is not a hard gate; validation, approval, and verifier verdicts still consume structured artifacts only.\n")
+	for _, bullet := range bullets {
+		fmt.Fprintf(&b, "- %s\n", bullet)
+	}
+	b.WriteString("- If compatibility exploration finds an existing option/default registration, prefer extending that typed surface instead of replacing default behavior outright; include the touched config/default path in the ChangePlan.\n")
+	b.WriteString("- When the plan intentionally changes default behavior, state that in the ChangePlan rationale and include a verification surface for the compatibility boundary.\n")
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // buildWriteExplorationRequestSection renders a typed request for targeted

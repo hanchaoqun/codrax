@@ -324,6 +324,73 @@ func TestExecuteTool_WriteExplorationSubflowRejectsShellCommand(t *testing.T) {
 	}
 }
 
+func TestValidateWriteExplorationReadOnlyToolCall_RequiresWindowForLargeReadFile(t *testing.T) {
+	repo := t.TempDir()
+	var b strings.Builder
+	for i := 0; i < writeModeUnboundedReadFileLineLimit+2; i++ {
+		b.WriteString("line\n")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "large.py"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mut := types.NewMutableState("write needs source exploration first")
+	mut.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID:        "batch-1",
+		Goal:           "inspect existing tests before planning edits",
+		CandidatePaths: []string{"large.py"},
+	})
+	ctx := &types.AgentContext{
+		Stage:    types.StageExplore,
+		Mode:     types.ModeApply,
+		Mutable:  mut,
+		RepoRoot: repo,
+	}
+
+	large := validateWriteExplorationReadOnlyToolCall(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"large.py"}`),
+	})
+	if large == nil || large.Success || large.Repair == nil || large.Repair.Code != "write_exploration_read_file_requires_window" {
+		t.Fatalf("large unbounded write exploration read_file should be rejected with typed policy repair, got %+v", large)
+	}
+	if got := validateWriteExplorationReadOnlyToolCall(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"large.py","line_offset":0,"limit":160}`),
+	}); got != nil {
+		t.Fatalf("explicitly windowed write exploration read_file should pass policy, got %+v", got)
+	}
+}
+
+func TestValidateWriteAnalyzerToolPolicy_RequiresLimitForLargeReadFile(t *testing.T) {
+	repo := t.TempDir()
+	var b strings.Builder
+	for i := 0; i < writeModeUnboundedReadFileLineLimit+2; i++ {
+		b.WriteString("line\n")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "large.py"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.AgentContext{
+		Stage:    types.StageWriteAnalyze,
+		Mode:     types.ModeApply,
+		RepoRoot: repo,
+	}
+
+	offsetOnly := validateWriteAnalyzerToolPolicy(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"large.py","line_offset":10}`),
+	})
+	if offsetOnly == nil || offsetOnly.Success || offsetOnly.Repair == nil || offsetOnly.Repair.Code != "write_analyzer_read_file_requires_window" {
+		t.Fatalf("offset-only large write_analyzer read_file should be rejected with typed repair, got %+v", offsetOnly)
+	}
+	if got := validateWriteAnalyzerToolPolicy(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"large.py","line_offset":10,"limit":160}`),
+	}); got != nil {
+		t.Fatalf("limit-bounded write_analyzer read_file should pass policy, got %+v", got)
+	}
+}
+
 func TestBuildToolSchemas_WritePlannerHidesShellAndForcesDryRunProbe(t *testing.T) {
 	reg := toolpkg.NewRegistry()
 	toolpkg.RegisterDefaults(reg)
@@ -388,6 +455,55 @@ func TestValidateWritePlannerToolPolicy_RejectsShellAndNonDryRunTests(t *testing
 		Params: json.RawMessage(`{"runner":"python","dry_run":true}`),
 	}); got != nil {
 		t.Fatalf("run_tests dry_run=true should pass write planner policy, got %+v", got)
+	}
+}
+
+func TestValidateWritePlannerToolPolicy_RequiresWindowForLargeReadFile(t *testing.T) {
+	repo := t.TempDir()
+	var b strings.Builder
+	for i := 0; i < writeModeUnboundedReadFileLineLimit+2; i++ {
+		b.WriteString("line\n")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "large.py"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "small.py"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.AgentContext{
+		Stage:    types.StagePlan,
+		Mode:     types.ModeApply,
+		RepoRoot: repo,
+	}
+
+	large := validateWritePlannerToolPolicy(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"large.py"}`),
+	})
+	if large == nil || large.Success || large.Repair == nil || large.Repair.Code != "write_planner_read_file_requires_window" {
+		t.Fatalf("large unbounded read_file should be rejected with typed policy repair, got %+v", large)
+	}
+	if large.Repair.Metadata["line_limit"] == "" || large.Repair.Metadata["suggested_limit"] == "" {
+		t.Fatalf("large read repair should carry policy limits, got %+v", large.Repair.Metadata)
+	}
+
+	if got := validateWritePlannerToolPolicy(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"large.py","line_offset":0,"limit":160}`),
+	}); got != nil {
+		t.Fatalf("explicitly windowed read_file should pass write planner policy, got %+v", got)
+	}
+	if got := validateWritePlannerToolPolicy(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"large.py","line_offset":160}`),
+	}); got == nil || got.Success || got.Repair == nil || got.Repair.Code != "write_planner_read_file_requires_window" {
+		t.Fatalf("offset-only read_file should be rejected for large files, got %+v", got)
+	}
+	if got := validateWritePlannerToolPolicy(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"small.py"}`),
+	}); got != nil {
+		t.Fatalf("small unbounded read_file should pass write planner policy, got %+v", got)
 	}
 }
 

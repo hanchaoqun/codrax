@@ -485,6 +485,55 @@ func TestEmitChangePlan_RejectsStructuredEditDuplicatePythonDefinitionStutter(t 
 	}
 }
 
+func TestEmitChangePlan_RejectsStructuredInsertContainingAnchorBlock(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = t.TempDir()
+	path := "pkg/module.py"
+	if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	oldBlock := "from os import path\nfrom sphinx.util import logging\nfrom sphinx.util.osutil import make_filename_from_project\n"
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(path)), []byte(oldBlock+"\nVALUE = 1\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	params := json.RawMessage(`{
+		"request": "add ensuredir import",
+		"summary": "Add the missing ensuredir import for the module.",
+		"changes": [
+			{
+				"path": "pkg/module.py",
+				"kind": "patch",
+				"edits": [
+					{
+						"kind": "insert_before",
+						"start_line": 1,
+						"old_text": "from os import path\nfrom sphinx.util import logging\nfrom sphinx.util.osutil import make_filename_from_project\n",
+						"content": "from os import path\nfrom sphinx.util import logging\nfrom sphinx.util.osutil import ensuredir\nfrom sphinx.util.osutil import make_filename_from_project\n"
+					}
+				],
+				"rationale": "import ensuredir next to the existing osutil import"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected anchor-copying structured insertion to be rejected")
+	}
+	for _, want := range []string{"old_text anchor", "new bytes"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary should contain %q, got: %s", want, res.Summary)
+		}
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected duplicate-anchor insertion must not install ChangePlan: %+v", plan)
+	}
+}
+
 func TestPythonDuplicateDefinitionStutter_AllowsConditionalCompatibilityDefinitions(t *testing.T) {
 	content := `class Compat:
     if FEATURE:
