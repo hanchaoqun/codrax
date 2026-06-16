@@ -1052,6 +1052,11 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
 					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact,
 					ClaimImportEdge}},
+			{Kind: FacetNearestMechanism, Required: FacetSoftRequired,
+				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
+					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
+			{Kind: FacetPrincipalPathEdge, Required: FacetSoftRequired,
+				AcceptableForms: []ClaimForm{ClaimCallEdge}},
 			uncertaintyBoundaryFacet(FacetOptional),
 		}
 		if rm.Predicates.IsScalarAnswer || rm.Predicates.IsCountQuestion ||

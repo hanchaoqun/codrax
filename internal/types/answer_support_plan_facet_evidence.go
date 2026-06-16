@@ -1445,7 +1445,7 @@ func principalSupportFacetKinds(family QuestionFamily) []AnswerFacetKind {
 	case QFComparison:
 		return []AnswerFacetKind{FacetCurrentCodePath, FacetComponentRelation}
 	case QFGeneric:
-		return []AnswerFacetKind{FacetResolvedLiteralOrSymbol, FacetCurrentCodePath}
+		return []AnswerFacetKind{FacetResolvedLiteralOrSymbol, FacetCurrentCodePath, FacetNearestMechanism, FacetPrincipalPathEdge}
 	default:
 		return nil
 	}

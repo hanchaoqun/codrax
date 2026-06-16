@@ -748,6 +748,60 @@ func TestCompileGeneric_ErrorGranularityDecisionLane(t *testing.T) {
 	}
 }
 
+func TestCompileGeneric_MechanismEvidenceRequiresPathCarrier(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqMechanism),
+			Entities: []string{"SubAgentRuntime", "Orchestrator"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.9},
+	}
+	evidence := []EvidenceItem{{
+		ID:              "build-tools",
+		Kind:            EvidenceMechanism,
+		Scope:           ScopeLine,
+		Source:          "internal/agent/agent.go",
+		LineStart:       3412,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "buildToolSchemas",
+		Summary:         "buildToolSchemas exposes propose_sub_agents for matching registered subagents",
+		GroundingStatus: GroundingGrounded,
+	}, {
+		ID:              "run-subruntime",
+		Kind:            EvidenceMechanism,
+		Scope:           ScopeLine,
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       8313,
+		AnchorKind:      AnchorCall,
+		Subject:         "Orchestrator.dispatchStage",
+		Object:          "SubAgentRuntime.Run",
+		Summary:         "dispatchStage calls subRuntime.Run after extracting a proposal",
+		GroundingStatus: GroundingGrounded,
+	}}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: evidence,
+		FacetCoverage:   CompileFacetCoverage(rm, evidence),
+	}
+	view := BuildAnswerSemanticView(&AnalysisIR{RequestModel: rm}, plan)
+	if view == nil || view.Family != QFGeneric {
+		t.Fatalf("single-topic mechanism should stay QFGeneric, got %+v", view)
+	}
+	hasPathCarrier := false
+	for _, block := range view.RequiredBlocks {
+		if block.Kind == BlockOrderedList &&
+			containsString(block.FacetIDs, string(FacetNearestMechanism)) {
+			hasPathCarrier = true
+			break
+		}
+	}
+	if !hasPathCarrier {
+		t.Fatalf("typed multi-hop mechanism evidence should require a structured carrier: %+v", view.RequiredBlocks)
+	}
+}
+
 func TestCompileGeneric_OnlySummaryRequired(t *testing.T) {
 	view := BuildAnswerSemanticView(irForGeneric(), nil)
 	if len(view.RequiredBlocks) != 1 {

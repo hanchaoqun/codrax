@@ -3534,11 +3534,30 @@ func preEmitAggregateMemberSetCoverageHardGate(ctxOpt ...*types.BusContext) bool
 	}
 	ctx := ctxOpt[0]
 	rm := ctx.AnalysisIR.RequestModel
-	if ctx.Mutable != nil && types.HasPrincipalOriginSpecificMemberSetForRequest(&rm, ctx.Mutable.StableInvestigationAggregateFacts()) {
-		return true
+	if ctx.Mutable != nil {
+		facts := ctx.Mutable.StableInvestigationAggregateFacts()
+		if preEmitHasExplicitPrincipalMemberSetForRequest(ctx, facts) {
+			return true
+		}
+		if types.HasPrincipalOriginSpecificMemberSetForRequest(&rm, facts) {
+			return true
+		}
 	}
 	return types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
 		types.RequiresRelationMemberSetHandoff(rm)
+}
+
+func preEmitHasExplicitPrincipalMemberSetForRequest(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+	if len(facts) == 0 {
+		return false
+	}
+	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
+	for _, ref := range refs {
+		if types.NormalizeAnswerAggregateRole(ref.Fact.Role) == types.AnswerAggregateRolePrincipalAnswer {
+			return true
+		}
+	}
+	return false
 }
 
 func preEmitPrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
@@ -4101,6 +4120,9 @@ func preEmitAggregateMemberAppearsInText(member string, surface string) bool {
 	if preEmitAnyAggregateMemberAppears(candidates, surface) {
 		return true
 	}
+	if preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, surface) {
+		return true
+	}
 	for _, relationSurface := range preEmitAggregateMemberRelationSurfaces(member) {
 		left, right, ok := types.AnswerAggregateMemberRelationParts(relationSurface)
 		if !ok {
@@ -4127,6 +4149,9 @@ func preEmitAggregateMemberAppearsInDocument(member string, doc *types.AnswerDoc
 	if preEmitAnyAggregateMemberAppears(candidates, surface) {
 		return true
 	}
+	if preEmitAggregateMemberCodeTokenProjectionAppearsInDocument(member, doc) {
+		return true
+	}
 	for _, relationSurface := range preEmitAggregateMemberRelationSurfaces(member) {
 		left, right, ok := types.AnswerAggregateMemberRelationParts(relationSurface)
 		if !ok {
@@ -4140,6 +4165,124 @@ func preEmitAggregateMemberAppearsInDocument(member string, doc *types.AnswerDoc
 		return true
 	}
 	return false
+}
+
+func preEmitAggregateMemberCodeTokenProjectionAppearsInDocument(member string, doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, block.Title+"\n"+block.Text) {
+			return true
+		}
+		for _, item := range block.Items {
+			if preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, types.AnswerBlockItemVisibleSurface(item)) {
+				return true
+			}
+		}
+		if block.Diagram != nil && preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, block.Diagram.Body) {
+			return true
+		}
+	}
+	for _, caveat := range doc.Caveats {
+		if preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, caveat) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, surface string) bool {
+	need := preEmitAggregateMemberCodeIdentityAtoms(member)
+	if len(need) < 2 {
+		return false
+	}
+	have := preEmitCodeIdentityAtomSet(surface)
+	if len(have) == 0 {
+		return false
+	}
+	for _, token := range need {
+		if !have[strings.ToLower(token)] {
+			return false
+		}
+	}
+	return true
+}
+
+func preEmitAggregateMemberCodeIdentityAtoms(member string) []string {
+	var out []string
+	for _, surface := range preEmitAggregateMemberDisplayCandidates(member) {
+		for _, token := range preEmitCodeIdentityAtoms(surface) {
+			if !preEmitCodeIdentityAtomIsLoadBearing(token) {
+				continue
+			}
+			out = append(out, token)
+		}
+	}
+	return dedupPreEmitStringCandidates(out)
+}
+
+func preEmitCodeIdentityAtomSet(surface string) map[string]bool {
+	tokens := preEmitCodeIdentityAtoms(surface)
+	if len(tokens) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(tokens))
+	for _, token := range tokens {
+		token = strings.ToLower(strings.TrimSpace(token))
+		if token != "" {
+			out[token] = true
+		}
+	}
+	return out
+}
+
+func preEmitCodeIdentityAtoms(surface string) []string {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return nil
+	}
+	var out []string
+	var b strings.Builder
+	flush := func() {
+		if b.Len() == 0 {
+			return
+		}
+		out = append(out, b.String())
+		b.Reset()
+	}
+	for _, r := range surface {
+		switch {
+		case r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+		default:
+			flush()
+		}
+	}
+	flush()
+	return dedupPreEmitStringCandidates(out)
+}
+
+func preEmitCodeIdentityAtomIsLoadBearing(token string) bool {
+	token = strings.TrimSpace(token)
+	if len(token) < 2 {
+		return false
+	}
+	hasLetter := false
+	hasUpper := false
+	for _, r := range token {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasLetter = true
+			hasUpper = true
+		case r >= 'a' && r <= 'z':
+			hasLetter = true
+		case r >= '0' && r <= '9', r == '_':
+		default:
+			return false
+		}
+	}
+	return hasLetter && hasUpper
 }
 
 func preEmitAggregateCommitMemberAppears(member, surface string) bool {

@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // compileGeneric builds the AnswerSemanticView for QFGeneric — the
 // fall-through family for questions that don't fit any of the six
 // shape-specific templates. Question shapes here include: free-form
@@ -50,6 +52,29 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 				"what the answer needs — a shallow question yields a short answer, a deep one yields " +
 				"a deep answer. Open with the core conclusion as the first paragraph; structure " +
 				"with sub-headed sections when covering multiple topics."),
+	}
+	if genericMechanismPathCarrierRequired(ir, plan) {
+		view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
+			Kind:     BlockOrderedList,
+			MinCount: 1,
+			MaxCount: 1,
+			Required: true,
+			FacetIDs: []string{
+				string(FacetCurrentCodePath),
+				string(FacetNearestMechanism),
+			},
+			AcceptableClaimForms: []ClaimForm{
+				ClaimDefinitionFact,
+				ClaimCallEdge,
+				ClaimGuardCondition,
+				ClaimAssignmentFact,
+				ClaimReturnFact,
+			},
+			Rationale: "The typed investigation evidence contains a multi-hop mechanism or dispatch path. " +
+				"Preserve that path as a compact ordered list before broader prose; each item should name " +
+				"one grounded hop/anchor and cite the file:line that proves it.",
+			SurfaceRoleHint: SurfacePrincipal,
+		})
 	}
 	view.OptionalBlocks = []BlockRequirement{
 		{
@@ -131,6 +156,55 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 	}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
 	return view
+}
+
+func genericMechanismPathCarrierRequired(ir *AnalysisIR, plan *AnswerSurfacePlan) bool {
+	if ir == nil || plan == nil {
+		return false
+	}
+	rm := ir.RequestModel
+	if rm.Predicates.IsScalarAnswer || rm.Predicates.IsCountQuestion || rm.Predicates.IsHistoryLookup {
+		return false
+	}
+	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case ReqMechanism, ReqCallChain:
+	case ReqUnknown:
+		if rm.Intent != IntentTrace {
+			return false
+		}
+	default:
+		if rm.Intent != IntentTrace {
+			return false
+		}
+	}
+	return genericMechanismPathCandidateCount(plan) >= 2
+}
+
+func genericMechanismPathCandidateCount(plan *AnswerSurfacePlan) int {
+	if plan == nil || plan.FacetCoverage == nil {
+		return 0
+	}
+	seen := map[string]bool{}
+	collect := func(req FacetRequirement) {
+		switch req.Kind {
+		case FacetNearestMechanism, FacetPrincipalPathEdge:
+		default:
+			return
+		}
+		for _, id := range req.SourceCandidate {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				seen[id] = true
+			}
+		}
+	}
+	for _, req := range plan.FacetCoverage.Required {
+		collect(req)
+	}
+	for _, req := range plan.FacetCoverage.Optional {
+		collect(req)
+	}
+	return len(seen)
 }
 
 func genericDiagramKind(plan *AnswerSurfacePlan) DiagramKind {

@@ -936,6 +936,100 @@ func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFa
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_AcceptsCodeIdentityProjection(t *testing.T) {
+	mu := types.NewMutableState("subagent call-chain aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "subagent调用链节点",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"ExplorerAgent (LLM调用propose_sub_agents)",
+			"ProposeSubAgents工具.Execute (验证提案结构)",
+		},
+	}})
+	mu.SetInvestigationComplete("principal call-chain member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentTrace,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsRoleLocateLookup: true,
+					IsScalarAnswer:     true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "hops",
+		Kind: types.BlockOrderedList,
+		Items: []types.AnswerBlockItem{{
+			ID:    "explorer",
+			Label: "ExplorerAgent",
+			Text:  "LLM调用propose_sub_agents。",
+		}, {
+			ID:    "tool",
+			Label: "ProposeSubAgents.Execute",
+			Text:  "验证提案结构。",
+		}},
+	}}}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("code-identity-equivalent member displays should satisfy coverage, got %+v", got)
+	}
+}
+
+func TestRunPreEmitChecks_ExplicitPrincipalMemberSetHardForScalarCompression(t *testing.T) {
+	mu := types.NewMutableState("subagent call-chain aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "subagent调用链节点",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"ExplorerAgent (LLM调用propose_sub_agents)",
+			"SubAgentRuntime.Run (编排层入口)",
+		},
+	}})
+	mu.SetInvestigationComplete("principal call-chain member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentTrace,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsRoleLocateLookup: true,
+					IsScalarAnswer:     true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "scalar",
+		Kind: types.BlockScalar,
+		Text: "Orchestrator 是唯一能够调用 SubAgent 的组件。",
+	}}}
+
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
+	if len(hints) == 0 {
+		t.Fatal("explicit principal member_set must not be accepted as a soft advisory when finalization collapses it to a scalar")
+	}
+	memberHint := false
+	for _, hint := range hints {
+		if strings.Contains(hint.ExpectedShape, "ExplorerAgent") &&
+			strings.Contains(hint.ExpectedShape, "SubAgentRuntime.Run") {
+			memberHint = true
+			break
+		}
+	}
+	if !memberHint {
+		t.Fatalf("hard hint should preserve omitted principal members, got %+v", hints)
+	}
+}
+
 func TestNormalizeAggregateMemberSetCarriers_DoesNotAuthorComparisonMembers(t *testing.T) {
 	mu := types.NewMutableState("comparison aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
