@@ -347,6 +347,12 @@ type ChangePlan struct {
 	// significant — apply_patch processes them sequentially.
 	Changes []FileChange `json:"changes"`
 
+	// Slices are the deterministic online-convergence view over Changes.
+	// They are authored by the harness or derived from Changes/DependsOn, not
+	// required from the planner. The controller consumes this typed structure
+	// to apply and observe small bounded slices without parsing planner prose.
+	Slices []ChangePlanSlice `json:"slices,omitempty"`
+
 	// AcceptanceTests names the test assertions the verify stage
 	// must cover before this plan is considered successful.
 	// Natural-language in B0 skeleton; B1 can promote to Criterion

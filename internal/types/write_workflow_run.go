@@ -79,21 +79,69 @@ const (
 	WriteWorkflowEdgeBlocked  WriteWorkflowEdgeKind = "blocked"
 )
 
+type WriteWorkflowSlice struct {
+	ID              string                   `json:"id"`
+	Status          ChangePlanSliceStatus    `json:"status,omitempty"`
+	PlanID          string                   `json:"plan_id,omitempty"`
+	ChangeIndexes   []int                    `json:"change_indexes,omitempty"`
+	Paths           []string                 `json:"paths,omitempty"`
+	DependsOnSlices []string                 `json:"depends_on_slices,omitempty"`
+	ApplyRef        string                   `json:"apply_ref,omitempty"`
+	ObserveRef      string                   `json:"observe_ref,omitempty"`
+	VerifyRef       string                   `json:"verify_ref,omitempty"`
+	ApprovalRef     string                   `json:"approval_ref,omitempty"`
+	ContextPackIDs  []string                 `json:"context_pack_ids,omitempty"`
+	Completion      *WriteWorkflowCompletion `json:"completion,omitempty"`
+	Attempts        []WriteWorkflowAttempt   `json:"attempts,omitempty"`
+	CreatedAt       time.Time                `json:"created_at,omitempty"`
+	UpdatedAt       time.Time                `json:"updated_at,omitempty"`
+}
+
+type WriteWorkflowSliceEventKind string
+
+const (
+	WriteWorkflowSliceEventPlanned          WriteWorkflowSliceEventKind = "slice_planned"
+	WriteWorkflowSliceEventApplyStarted     WriteWorkflowSliceEventKind = "slice_apply_started"
+	WriteWorkflowSliceEventApplyCompleted   WriteWorkflowSliceEventKind = "slice_apply_completed"
+	WriteWorkflowSliceEventObserveStarted   WriteWorkflowSliceEventKind = "slice_observe_started"
+	WriteWorkflowSliceEventObserveCompleted WriteWorkflowSliceEventKind = "slice_observe_completed"
+	WriteWorkflowSliceEventVerified         WriteWorkflowSliceEventKind = "slice_verified"
+	WriteWorkflowSliceEventUnverified       WriteWorkflowSliceEventKind = "slice_unverified"
+	WriteWorkflowSliceEventFailed           WriteWorkflowSliceEventKind = "slice_failed"
+	WriteWorkflowSliceEventReplanRequested  WriteWorkflowSliceEventKind = "slice_replan_requested"
+	WriteWorkflowSliceEventBlocked          WriteWorkflowSliceEventKind = "slice_blocked"
+)
+
+type WriteWorkflowSliceEvent struct {
+	SliceID     string                      `json:"slice_id,omitempty"`
+	Event       WriteWorkflowSliceEventKind `json:"event,omitempty"`
+	Status      ChangePlanSliceStatus       `json:"status,omitempty"`
+	ReasonCode  string                      `json:"reason_code,omitempty"`
+	PlanID      string                      `json:"plan_id,omitempty"`
+	ReportID    string                      `json:"report_id,omitempty"`
+	ArtifactRef string                      `json:"artifact_ref,omitempty"`
+	SurfaceRef  string                      `json:"surface_ref,omitempty"`
+	At          time.Time                   `json:"at,omitempty"`
+}
+
 type WriteWorkflowBatch struct {
-	ID             string                   `json:"id"`
-	Goal           string                   `json:"goal,omitempty"`
-	Status         WriteWorkflowBatchStatus `json:"status,omitempty"`
-	Completion     *WriteWorkflowCompletion `json:"completion,omitempty"`
-	DependsOn      []string                 `json:"depends_on,omitempty"`
-	PlanID         string                   `json:"plan_id,omitempty"`
-	PlanRef        string                   `json:"plan_ref,omitempty"`
-	ApplyRef       string                   `json:"apply_ref,omitempty"`
-	VerifyRef      string                   `json:"verify_ref,omitempty"`
-	ApprovalRef    string                   `json:"approval_ref,omitempty"`
-	ContextPackIDs []string                 `json:"context_pack_ids,omitempty"`
-	Attempts       []WriteWorkflowAttempt   `json:"attempts,omitempty"`
-	CreatedAt      time.Time                `json:"created_at,omitempty"`
-	UpdatedAt      time.Time                `json:"updated_at,omitempty"`
+	ID             string                    `json:"id"`
+	Goal           string                    `json:"goal,omitempty"`
+	Status         WriteWorkflowBatchStatus  `json:"status,omitempty"`
+	Completion     *WriteWorkflowCompletion  `json:"completion,omitempty"`
+	DependsOn      []string                  `json:"depends_on,omitempty"`
+	PlanID         string                    `json:"plan_id,omitempty"`
+	PlanRef        string                    `json:"plan_ref,omitempty"`
+	ApplyRef       string                    `json:"apply_ref,omitempty"`
+	VerifyRef      string                    `json:"verify_ref,omitempty"`
+	ApprovalRef    string                    `json:"approval_ref,omitempty"`
+	ContextPackIDs []string                  `json:"context_pack_ids,omitempty"`
+	Attempts       []WriteWorkflowAttempt    `json:"attempts,omitempty"`
+	ActiveSliceID  string                    `json:"active_slice_id,omitempty"`
+	Slices         []WriteWorkflowSlice      `json:"slices,omitempty"`
+	SliceEvents    []WriteWorkflowSliceEvent `json:"slice_events,omitempty"`
+	CreatedAt      time.Time                 `json:"created_at,omitempty"`
+	UpdatedAt      time.Time                 `json:"updated_at,omitempty"`
 }
 
 type WriteWorkflowAttempt struct {
@@ -252,6 +300,12 @@ func normalizeWriteWorkflowBatches(in []WriteWorkflowBatch) []WriteWorkflowBatch
 		}
 		batch.ContextPackIDs = dedupTrimWriteWorkflowRunStrings(batch.ContextPackIDs)
 		batch.Attempts = normalizeWriteWorkflowAttempts(batch.Attempts)
+		batch.ActiveSliceID = trimWriteWorkflowRunText(batch.ActiveSliceID)
+		batch.Slices = normalizeWriteWorkflowSlices(batch.Slices)
+		if batch.ActiveSliceID == "" && len(batch.Slices) > 0 {
+			batch.ActiveSliceID = batch.Slices[0].ID
+		}
+		batch.SliceEvents = normalizeWriteWorkflowSliceEvents(batch.SliceEvents)
 		out = append(out, batch)
 	}
 	return out
@@ -349,6 +403,89 @@ func normalizeWriteWorkflowAttempts(in []WriteWorkflowAttempt) []WriteWorkflowAt
 		out = append(out, attempt)
 	}
 	return out
+}
+
+func normalizeWriteWorkflowSlices(in []WriteWorkflowSlice) []WriteWorkflowSlice {
+	out := make([]WriteWorkflowSlice, 0, len(in))
+	for _, slice := range in {
+		slice.ID = trimWriteWorkflowRunText(slice.ID)
+		if slice.ID == "" {
+			continue
+		}
+		slice.Status = normalizeChangePlanSliceStatus(slice.Status)
+		if slice.Status == "" {
+			slice.Status = ChangePlanSlicePending
+		}
+		slice.PlanID = trimWriteWorkflowRunText(slice.PlanID)
+		slice.ChangeIndexes = normalizeWorkflowSliceIndexes(slice.ChangeIndexes)
+		slice.Paths = dedupTrimWriteWorkflowRunStrings(slice.Paths)
+		slice.DependsOnSlices = dedupTrimWriteWorkflowRunStrings(slice.DependsOnSlices)
+		slice.ApplyRef = trimWriteWorkflowRunText(slice.ApplyRef)
+		slice.ObserveRef = trimWriteWorkflowRunText(slice.ObserveRef)
+		slice.VerifyRef = trimWriteWorkflowRunText(slice.VerifyRef)
+		slice.ApprovalRef = trimWriteWorkflowRunText(slice.ApprovalRef)
+		slice.ContextPackIDs = dedupTrimWriteWorkflowRunStrings(slice.ContextPackIDs)
+		slice.Completion = normalizeWriteWorkflowCompletionPtr(slice.Completion)
+		if slice.Status != ChangePlanSliceVerified &&
+			slice.Status != ChangePlanSliceUnverified &&
+			slice.Status != ChangePlanSliceFailed &&
+			slice.Status != ChangePlanSliceBlocked {
+			slice.Completion = nil
+		}
+		slice.Attempts = normalizeWriteWorkflowAttempts(slice.Attempts)
+		out = append(out, slice)
+	}
+	return out
+}
+
+func normalizeWorkflowSliceIndexes(in []int) []int {
+	seen := map[int]struct{}{}
+	out := make([]int, 0, len(in))
+	for _, idx := range in {
+		if idx < 0 {
+			continue
+		}
+		if _, ok := seen[idx]; ok {
+			continue
+		}
+		seen[idx] = struct{}{}
+		out = append(out, idx)
+	}
+	return out
+}
+
+func normalizeWriteWorkflowSliceEvents(in []WriteWorkflowSliceEvent) []WriteWorkflowSliceEvent {
+	out := make([]WriteWorkflowSliceEvent, 0, len(in))
+	for _, event := range in {
+		event.SliceID = trimWriteWorkflowRunText(event.SliceID)
+		event.Event = normalizeWriteWorkflowSliceEventKind(event.Event)
+		event.Status = normalizeChangePlanSliceStatus(event.Status)
+		event.ReasonCode = trimWriteWorkflowRunText(event.ReasonCode)
+		event.PlanID = trimWriteWorkflowRunText(event.PlanID)
+		event.ReportID = trimWriteWorkflowRunText(event.ReportID)
+		event.ArtifactRef = trimWriteWorkflowRunText(event.ArtifactRef)
+		event.SurfaceRef = trimWriteWorkflowRunText(event.SurfaceRef)
+		if event.SliceID == "" && event.Event == "" && event.Status == "" && event.ReasonCode == "" &&
+			event.PlanID == "" && event.ReportID == "" && event.ArtifactRef == "" && event.SurfaceRef == "" &&
+			event.At.IsZero() {
+			continue
+		}
+		out = append(out, event)
+	}
+	return out
+}
+
+func normalizeWriteWorkflowSliceEventKind(in WriteWorkflowSliceEventKind) WriteWorkflowSliceEventKind {
+	switch in {
+	case WriteWorkflowSliceEventPlanned, WriteWorkflowSliceEventApplyStarted,
+		WriteWorkflowSliceEventApplyCompleted, WriteWorkflowSliceEventObserveStarted,
+		WriteWorkflowSliceEventObserveCompleted, WriteWorkflowSliceEventVerified,
+		WriteWorkflowSliceEventUnverified, WriteWorkflowSliceEventFailed,
+		WriteWorkflowSliceEventReplanRequested, WriteWorkflowSliceEventBlocked:
+		return in
+	default:
+		return ""
+	}
 }
 
 func normalizeWriteWorkflowEdges(in []WriteWorkflowEdge) []WriteWorkflowEdge {

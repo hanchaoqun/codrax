@@ -160,6 +160,95 @@ func TestNormalizeWriteWorkflowRunClearsNonTerminalCompletion(t *testing.T) {
 	}
 }
 
+func TestNormalizeWriteWorkflowRunPersistsSliceState(t *testing.T) {
+	finished := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
+	got := NormalizeWriteWorkflowRun(WriteWorkflowRun{
+		RunID:         "wf-slices",
+		Status:        WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []WriteWorkflowBatch{{
+			ID:     " batch-1 ",
+			Status: WriteWorkflowBatchApplying,
+			Slices: []WriteWorkflowSlice{{
+				ID:              " slice-001 ",
+				Status:          ChangePlanSliceVerified,
+				PlanID:          " plan-1 ",
+				ChangeIndexes:   []int{1, 0, 1, -1},
+				Paths:           []string{" src/a.py ", "src/a.py", "tests/test_a.py"},
+				DependsOnSlices: []string{" slice-000 ", "slice-000"},
+				ApplyRef:        " apply-ref ",
+				ObserveRef:      " observe-ref ",
+				VerifyRef:       " verify-ref ",
+				ApprovalRef:     " approval-ref ",
+				ContextPackIDs:  []string{" pack-1 ", "pack-1"},
+				Completion: &WriteWorkflowCompletion{
+					Verdict:    WriteWorkflowCompletionVerified,
+					ReasonCode: "slice_passed",
+					At:         finished,
+				},
+				Attempts: []WriteWorkflowAttempt{{
+					ID:         " attempt-1 ",
+					Kind:       " observe ",
+					Status:     " passed ",
+					FinishedAt: finished,
+				}},
+			}, {
+				ID:     " slice-002 ",
+				Status: ChangePlanSliceApplying,
+				Completion: &WriteWorkflowCompletion{
+					Verdict:    WriteWorkflowCompletionVerified,
+					ReasonCode: "stale",
+				},
+			}, {
+				ID: " ",
+			}},
+			SliceEvents: []WriteWorkflowSliceEvent{{
+				SliceID:     " slice-001 ",
+				Event:       WriteWorkflowSliceEventObserveCompleted,
+				Status:      ChangePlanSliceVerified,
+				ReasonCode:  " passed ",
+				PlanID:      " plan-1 ",
+				ReportID:    " report-1 ",
+				ArtifactRef: " artifact-1 ",
+				SurfaceRef:  " surface-1 ",
+				At:          finished,
+			}, {}},
+		}},
+	})
+	if len(got.Batches) != 1 || got.Batches[0].ActiveSliceID != "slice-001" {
+		t.Fatalf("active slice should default to first normalized slice: %+v", got.Batches)
+	}
+	if len(got.Batches[0].Slices) != 2 {
+		t.Fatalf("expected two normalized slices, got %+v", got.Batches[0].Slices)
+	}
+	first := got.Batches[0].Slices[0]
+	if first.ID != "slice-001" || first.PlanID != "plan-1" || first.ApplyRef != "apply-ref" ||
+		first.ObserveRef != "observe-ref" || first.VerifyRef != "verify-ref" ||
+		first.ApprovalRef != "approval-ref" {
+		t.Fatalf("slice refs not normalized: %+v", first)
+	}
+	if len(first.ChangeIndexes) != 2 || first.ChangeIndexes[0] != 1 || first.ChangeIndexes[1] != 0 {
+		t.Fatalf("slice change indexes should preserve order while deduping: %+v", first.ChangeIndexes)
+	}
+	if len(first.Paths) != 2 || first.Paths[0] != "src/a.py" || first.Paths[1] != "tests/test_a.py" {
+		t.Fatalf("slice paths not normalized: %+v", first.Paths)
+	}
+	if len(first.DependsOnSlices) != 1 || first.DependsOnSlices[0] != "slice-000" {
+		t.Fatalf("slice deps not normalized: %+v", first.DependsOnSlices)
+	}
+	if first.Completion == nil || first.Completion.Verdict != WriteWorkflowCompletionVerified {
+		t.Fatalf("terminal slice completion not preserved: %+v", first.Completion)
+	}
+	if got.Batches[0].Slices[1].Completion != nil {
+		t.Fatalf("non-terminal slice completion should be cleared: %+v", got.Batches[0].Slices[1].Completion)
+	}
+	if len(got.Batches[0].SliceEvents) != 1 ||
+		got.Batches[0].SliceEvents[0].Event != WriteWorkflowSliceEventObserveCompleted ||
+		got.Batches[0].SliceEvents[0].SliceID != "slice-001" {
+		t.Fatalf("slice events not normalized: %+v", got.Batches[0].SliceEvents)
+	}
+}
+
 func TestWriteWorkflowRunToFileRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wf-1.json")
 	run := &WriteWorkflowRun{
