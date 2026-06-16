@@ -198,6 +198,9 @@ func rewriteMainRepoAbsolutePathToActiveWorktree(ctx *types.BusContext, p string
 	if !underMain {
 		return "", false
 	}
+	if writeModeMainRuntimeArtifactRel(rel) {
+		return "", false
+	}
 	var rewritten string
 	if rel == "" {
 		rewritten = worktreeRoot
@@ -206,6 +209,11 @@ func rewriteMainRepoAbsolutePathToActiveWorktree(ctx *types.BusContext, p string
 	}
 	logging.Debug("[tool] remapped write-mode main-repo absolute path to worktree raw=%q rewritten=%q main=%q worktree=%q", p, rewritten, mainRoot, worktreeRoot)
 	return rewritten, true
+}
+
+func writeModeMainRuntimeArtifactRel(rel string) bool {
+	cleaned := filepath.ToSlash(filepath.Clean(strings.TrimSpace(rel)))
+	return cleaned == ".codrax" || strings.HasPrefix(cleaned, ".codrax/")
 }
 
 func stripActiveRepoLabelPrefix(ctx *types.BusContext, raw string) (string, bool) {

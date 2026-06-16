@@ -334,6 +334,54 @@ func TestRunTestsDryRunProbe_ModeApplyStagePlanDoesNotPolluteChangeReport(t *tes
 	}
 }
 
+func TestRunTestsDryRunVerificationProbe_ModeApplyStagePlan(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 41\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("planner verification probe")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"verification_probe": map[string]any{
+			"id":       "value_contract",
+			"language": "python",
+			"code":     "import widget\nassert widget.VALUE == 42\n",
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("failing verification probe should return Success=false, got %+v", result)
+	}
+	if !strings.Contains(result.Summary, "verification_probes verdict=FAILED") {
+		t.Fatalf("summary should render verification probe verdict, got %q", result.Summary)
+	}
+	if got := mu.ChangeReport(); got != nil {
+		t.Fatalf("plan-stage verification_probe dry_run must not populate ChangeReport, got %+v", got)
+	}
+	probes := mu.PlanStageProbeReports()
+	if len(probes) != 1 {
+		t.Fatalf("expected one planner probe report, got %d", len(probes))
+	}
+	if probes[0].Channel != types.ChangeReportChannelPlannerProbe {
+		t.Fatalf("probe channel = %q, want planner_probe", probes[0].Channel)
+	}
+	if probes[0].FailureKind != types.FailureKindTestsFailed {
+		t.Fatalf("probe failure kind = %q, want tests_failed; report=%+v", probes[0].FailureKind, probes[0])
+	}
+}
+
 func TestRunTestsRejectsSuiteWithEmbeddedCLIFlags(t *testing.T) {
 	mu := types.NewMutableState("suite flag rejection")
 	ctx := &types.BusContext{Mutable: mu}

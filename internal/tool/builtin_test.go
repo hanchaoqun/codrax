@@ -3367,6 +3367,11 @@ func TestResolveToolPath_WriteModeRemapsMainRepoAbsolutePathToActiveWorktree(t *
 	if got := resolveToolPath(ctx, runtimeArtifact); got != runtimeArtifact {
 		t.Fatalf("runtime artifact absolute path should stay unchanged: got %q, want %q", got, runtimeArtifact)
 	}
+
+	planArtifact := filepath.Join(mainRoot, ".codrax", "plans", "plan-1.attempt-1.diff")
+	if got := resolveToolPath(ctx, planArtifact); got != planArtifact {
+		t.Fatalf("durable plan artifact absolute path should stay unchanged: got %q, want %q", got, planArtifact)
+	}
 }
 
 func TestResolveToolPath_StripsActiveRepoLabelPrefixWhenUnambiguous(t *testing.T) {

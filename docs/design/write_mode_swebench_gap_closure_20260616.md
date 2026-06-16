@@ -750,3 +750,39 @@ Acceptance:
 - Probe authoring/configuration failures normalize to
   `parser_error/unavailable`, preserving the rule that missing or broken local
   test harnesses do not hard-block delivery.
+
+### Batch 5A.7: Planner Artifact And Dry-run Probe Consumption
+
+Follow-up evidence:
+
+- Re-ran `pydata__xarray-4094` after Batch 5A.5/5A.6. The adapter prepared a
+  ready Python env with `env_prepare_python_compat_constraints=[numpy<2]`,
+  exported a non-empty prediction, and printed a valid official harness command.
+- Local verification now correctly ended as `verify_status=failed`,
+  `verify_failure_kind=tests_failed`,
+  `verify_failure_reason_code=verification_probe_exception` rather than
+  `unverified`. This confirms probe runtime failures now drive replan.
+- Manual audit still found the final source patch wrong. The run logs exposed
+  two generic workflow issues:
+  - durable `.codrax/plans/*.attempt-*.diff` and `.surface.json` artifact paths
+    were remapped from the main repo into the active worktree and became
+    unreadable for the next planner round;
+  - planner dry-run behavior probes lacked a first-class schema field, so the
+    model attempted to put `python -c ...` into the `suite` selector and the
+    typed validator correctly rejected it.
+
+Implementation:
+
+- Preserve main-repo `.codrax/**` runtime artifact absolute paths during
+  write-mode tool path resolution while continuing to remap ordinary source
+  paths into the active worktree.
+- Add `run_tests.verification_probe` for plan-stage `dry_run` probes. It reuses
+  the existing `VerificationProbe` executor and writes reports to the
+  `planner_probe` channel, so hard routing still consumes typed
+  `ChangeReport`/`ExecutedCommand` evidence.
+
+Acceptance:
+
+- Replan rounds can read prior patch/test-surface artifacts from durable store.
+- Planner dry-run probes use structured JSON fields instead of overloading
+  `suite`; `suite` remains a language test selector only.

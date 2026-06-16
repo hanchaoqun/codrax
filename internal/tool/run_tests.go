@@ -138,6 +138,12 @@ type runTestsParams struct {
 	// writes files — so dry_run is a CHANNEL choice, not a safety
 	// gate.
 	DryRun bool `json:"dry_run,omitempty"`
+
+	// VerificationProbe is a bounded one-off behaviour probe for
+	// planning dry-runs. It uses the same typed execution path as
+	// ChangePlan.VerificationProbes, but stores the report in the
+	// planner_probe channel instead of requiring a ChangePlan first.
+	VerificationProbe *types.VerificationProbe `json:"verification_probe,omitempty"`
 }
 
 // allowedRunners is the whitelist of runner identifiers the LLM may
@@ -219,6 +225,22 @@ func (t *RunTests) Parameters() json.RawMessage {
     "dry_run": {
       "type": "boolean",
       "description": "Planning probe mode. When true while preparing a change plan, the tool runs against the user's main repo without requiring a worktree, and the result is recorded separately from the final verification result. Use this to learn what the existing test suite reports BEFORE emitting your plan so you can write a plan that responds to observed behaviour. Outside change planning the flag is ignored."
+    },
+    "verification_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional bounded behaviour probe for dry_run planning. Use this instead of putting python -c or other runner flags in suite. The probe runs through the same typed verification_probe executor used by ChangePlan verification and records a planner_probe report.",
+      "properties": {
+        "id": {"type": "string", "description": "Stable probe id for the report row."},
+        "language": {"type": "string", "enum": ["python"], "description": "Probe language. Currently python only."},
+        "working_dir": {"type": "string", "description": "Repo-relative working directory. Empty or . means repo root."},
+        "code": {"type": "string", "description": "Inline probe code. Raise AssertionError or a non-zero SystemExit for an expected behaviour failure."},
+        "timeout_seconds": {"type": "integer", "description": "Probe timeout in seconds, capped by the executor."},
+        "expected_stdout": {"type": "array", "items": {"type": "string"}, "description": "Optional stdout fragments that must be present for the probe to pass."},
+        "contract_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional behavior contract ids covered by this probe."},
+        "changed_symbol_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional symbols exercised by this probe."}
+      },
+      "required": ["code"]
     }
   }
 }`)
@@ -319,6 +341,47 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	surfaceEscalations := 0
 	var executedCmds []types.ExecutedCommand
 
+	// finishReport attaches the typed execution evidence (surface +
+	// command rows + timestamp) to an outgoing ChangeReport before it
+	// is installed. Every install site in this Execute goes through it
+	// so early-return reports (timeout / OOM / runner missing / parser
+	// error) carry the same durable evidence as the aggregate path.
+	finishReport := func(report *types.ChangeReport) *types.ChangeReport {
+		if report == nil {
+			return nil
+		}
+		report.ExecutedCommands = append([]types.ExecutedCommand(nil), executedCmds...)
+		if !report.Passed && strings.TrimSpace(report.FailureReasonCode) == "" {
+			report.FailureReasonCode = failureReasonCodeFromExecutedCommands(report.ExecutedCommands)
+		}
+		surfaceCopy := surface
+		surfaceCopy.Candidates = append([]types.TestSurfaceCandidate(nil), surface.Candidates...)
+		report.TestSurface = &surfaceCopy
+		if report.GeneratedAt.IsZero() {
+			report.GeneratedAt = time.Now()
+		}
+		report.EnsureVerificationStatus()
+		return report
+	}
+
+	if dryRunProbe && p.VerificationProbe != nil {
+		if strings.TrimSpace(p.VerificationProbe.Code) == "" {
+			return errResult(t.Name(), "run_tests rejected: verification_probe.code is required for dry_run planner probes"), nil
+		}
+		probe := runSingleVerificationProbe(ctx, *p.VerificationProbe, "planner_probe_verification_probe")
+		executedCmds = append(executedCmds, probe.Commands...)
+		report := finishReport(probe.Report)
+		installRunTestsReport(ctx, report, dryRunProbe)
+		_, ref := StoreBlob(ctx, t.Name()+"-planner-verification-probe", probe.Output)
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   report != nil && report.Passed,
+			Summary:   renderVerificationProbePrimarySummary(report, surface),
+			RawRef:    ref,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
 	var plans []runnerPlan
 	selectedRunner := strings.TrimSpace(p.Runner)
 	selectedSource := "llm_choice"
@@ -352,28 +415,6 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		projectReports  []*types.ChangeReport
 		combinedOutputs []string
 	)
-	// finishReport attaches the typed execution evidence (surface +
-	// command rows + timestamp) to an outgoing ChangeReport before it
-	// is installed. Every install site in this Execute goes through it
-	// so early-return reports (timeout / OOM / runner missing / parser
-	// error) carry the same durable evidence as the aggregate path.
-	finishReport := func(report *types.ChangeReport) *types.ChangeReport {
-		if report == nil {
-			return nil
-		}
-		report.ExecutedCommands = append([]types.ExecutedCommand(nil), executedCmds...)
-		if !report.Passed && strings.TrimSpace(report.FailureReasonCode) == "" {
-			report.FailureReasonCode = failureReasonCodeFromExecutedCommands(report.ExecutedCommands)
-		}
-		surfaceCopy := surface
-		surfaceCopy.Candidates = append([]types.TestSurfaceCandidate(nil), surface.Candidates...)
-		report.TestSurface = &surfaceCopy
-		if report.GeneratedAt.IsZero() {
-			report.GeneratedAt = time.Now()
-		}
-		report.EnsureVerificationStatus()
-		return report
-	}
 	var preSuiteProbe *verificationProbeRunResult
 	preSuiteProbeConsumed := false
 	if shouldRunPreSuiteVerificationProbes(ctx, dryRunProbe) {
