@@ -91,6 +91,11 @@ type ExecutedCommand struct {
 	// runner_missing | timeout | oom | cpu_limit | parser_error |
 	// not_configured | probe_config_error | expected_stdout_missing.
 	Outcome string `json:"outcome,omitempty"`
+
+	// ReasonCode is a bounded typed subreason for the outcome, when the
+	// coarse outcome needs more precise handoff evidence. It is populated
+	// from runner/parser structured signals, never from model prose.
+	ReasonCode string `json:"reason_code,omitempty"`
 }
 
 // SortTestSurfaceCandidates orders candidates in place by the typed selection

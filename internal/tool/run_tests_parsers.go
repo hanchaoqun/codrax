@@ -968,6 +968,61 @@ func parsePytestTextOutput(stdout, cmdStr string, runErr error) (*types.ChangeRe
 	return report, nil
 }
 
+const (
+	pytestReasonImportStartupError     = "pytest_import_startup_error"
+	pytestReasonCollectionErrorNoCases = "pytest_collection_error_no_cases"
+	pytestReasonJSONReportMissing      = "pytest_json_report_missing"
+	pytestReasonJSONReportUnavailable  = "pytest_json_report_unavailable"
+	pytestReasonJSONReportUnreadable   = "pytest_json_report_unreadable"
+	pytestReasonTextSummaryMissing     = "pytest_text_summary_missing"
+	pytestReasonReportParserError      = "pytest_report_parser_error"
+	runnerReasonOutputParserError      = "runner_output_parser_error"
+)
+
+func parserErrorReasonCodeForPlan(plan runnerPlan, output string, parseErr error) string {
+	if plan.Runner != "python" || (plan.Framework == pythonFrameworkUnittest || plan.Framework == pythonFrameworkDjango) {
+		return runnerReasonOutputParserError
+	}
+	return classifyPytestParserErrorReason(output, parseErr)
+}
+
+func classifyPytestParserErrorReason(output string, parseErr error) string {
+	errText := ""
+	if parseErr != nil {
+		errText = parseErr.Error()
+	}
+	outLower := strings.ToLower(output)
+	errLower := strings.ToLower(errText)
+	text := outLower + "\n" + errLower
+	switch {
+	case strings.Contains(text, "importerror while loading conftest") ||
+		strings.Contains(text, "modulenotfounderror:") ||
+		(strings.Contains(text, "traceback (most recent call last)") &&
+			(strings.Contains(text, "importerror:") || strings.Contains(text, "cannot import name "))):
+		return pytestReasonImportStartupError
+	case strings.Contains(text, "error collecting ") ||
+		strings.Contains(text, "errors during collection") ||
+		strings.Contains(text, "collected 0 items / ") ||
+		strings.Contains(text, "pytest reported ") && strings.Contains(text, "no test case rows were executed"):
+		return pytestReasonCollectionErrorNoCases
+	case strings.Contains(text, "parsepytestjsonreport: report file") &&
+		strings.Contains(text, "missing"):
+		if strings.Contains(outLower, "unrecognized arguments") && strings.Contains(outLower, "json-report") ||
+			strings.Contains(outLower, "no module named 'pytest_jsonreport'") ||
+			strings.Contains(outLower, "no module named pytest_jsonreport") ||
+			strings.Contains(outLower, "pytest_jsonreport") && strings.Contains(outLower, "modulenotfounderror") {
+			return pytestReasonJSONReportUnavailable
+		}
+		return pytestReasonJSONReportMissing
+	case strings.Contains(text, "parsepytestjsonreport: read "):
+		return pytestReasonJSONReportUnreadable
+	case strings.Contains(text, "parsepytesttextoutput: no pytest summary parsed"):
+		return pytestReasonTextSummaryMissing
+	default:
+		return pytestReasonReportParserError
+	}
+}
+
 func parsePytestTextSummary(stdout string) (map[string]int, bool) {
 	counts := map[string]int{
 		"passed":  0,

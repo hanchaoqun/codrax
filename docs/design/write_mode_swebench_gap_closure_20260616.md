@@ -299,3 +299,14 @@ Acceptance:
   never read in the final planned file. Targeted tests passed:
   `go test ./internal/tool -run 'DiscardBinding|EmitChangePlan'` and
   `go test ./internal/tool -run 'StructuredEdit|RunTests|Pytest'`.
+- 2026-06-16: Batch 1 full `go test ./...` passed, then committed and pushed
+  as `12a0ea85 write: reject dead python discard binding edits`.
+- 2026-06-16: Batch 2 implemented locally. `ChangeReport`,
+  `ExecutedCommand`, and `VerifyFailureHandoff` now carry typed parser-error
+  subreasons. Pytest parser failures classify import/startup errors,
+  collection-without-cases, JSON report missing/unavailable/unreadable, and
+  text-summary-missing without reading model/user prose. `WriteContextPack`
+  projects `failure_reason_code` and command `reason_code` into P2 evidence.
+  Targeted tests passed:
+  `go test ./internal/tool -run 'PytestParser|ParsePytest|RunTests'` and
+  `go test ./internal/types -run 'WriteContextPack|VerifyFailureHandoff'`.

@@ -323,6 +323,11 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 			pack.Items[len(pack.Items)-1].ID = writeContextStableID("failure_summary_blob_ref", report.PlanID, report.FailureSummaryBlobRef)
 		}
+		if report.FailureReasonCode != "" {
+			pack.Items = append(pack.Items, writeContextItem("failure_reason_code", WriteContextP2, report.FailureReasonCode, "verify",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+			pack.Items[len(pack.Items)-1].ID = writeContextStableID("failure_reason_code", report.PlanID, report.FailureReasonCode)
+		}
 	}
 	for _, result := range report.TestResults {
 		if result.Passed {
@@ -729,6 +734,9 @@ func renderExecutedCommandContext(cmd ExecutedCommand) string {
 	if cmd.Outcome != "" {
 		parts = append(parts, "outcome="+cmd.Outcome)
 	}
+	if cmd.ReasonCode != "" {
+		parts = append(parts, "reason_code="+cmd.ReasonCode)
+	}
 	if len(parts) == 1 && parts[0] == "exit=0" {
 		return ""
 	}
@@ -761,7 +769,7 @@ func writeExecutedCommandContextID(cmd ExecutedCommand) string {
 		strings.TrimSpace(cmd.WorkingDir) == "" && strings.TrimSpace(cmd.Command) == "" {
 		return ""
 	}
-	return writeContextStableID("executed_command", cmd.Runner, cmd.Framework, cmd.WorkingDir, cmd.Command, cmd.Outcome)
+	return writeContextStableID("executed_command", cmd.Runner, cmd.Framework, cmd.WorkingDir, cmd.Command, cmd.Outcome, cmd.ReasonCode)
 }
 
 func writeContextStableID(parts ...string) string {

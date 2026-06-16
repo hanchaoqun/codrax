@@ -28,6 +28,10 @@ type VerifyFailureHandoff struct {
 	FailureKind    FailureKind `json:"failure_kind,omitempty"`
 	FailureSummary string      `json:"failure_summary,omitempty"`
 
+	// FailureReasonCode refines FailureKind for planner/controller consumers
+	// without requiring them to parse FailureSummary prose.
+	FailureReasonCode string `json:"failure_reason_code,omitempty"`
+
 	// Executed are the verification command rows from the failing report
 	// (bounded), with cwd / exit code / provenance.
 	Executed []ExecutedCommand `json:"executed,omitempty"`
@@ -79,6 +83,7 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 		Attempt:            attempt,
 		FailureKind:        report.FailureKind,
 		FailureSummary:     strings.TrimSpace(report.FailureSummary),
+		FailureReasonCode:  strings.TrimSpace(report.FailureReasonCode),
 		BlobRef:            strings.TrimSpace(report.FailureSummaryBlobRef),
 		DiffArtifactRef:    strings.TrimSpace(diffArtifactRef),
 		SurfaceArtifactRef: strings.TrimSpace(surfaceArtifactRef),

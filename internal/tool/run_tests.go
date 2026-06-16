@@ -682,6 +682,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				executedCmds[len(executedCmds)-1].Outcome = outcome
 			}
 		}
+		setLastExecReasonCode := func(reasonCode string) {
+			reasonCode = strings.TrimSpace(reasonCode)
+			if reasonCode != "" && len(executedCmds) > 0 {
+				executedCmds[len(executedCmds)-1].ReasonCode = reasonCode
+			}
+		}
 
 		// Resource-exhaustion exits get classified explicitly so the
 		// verify→plan retry hint surfaces "OOM" / "CPU limit" / "wall
@@ -872,11 +878,22 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 		report, err := parseRunnerOutputForPlan(plan, output, extraFile, cmdStr, runErr)
 		if err != nil {
+			reasonCode := parserErrorReasonCodeForPlan(plan, output, err)
 			setLastExecOutcome("parser_error")
-			logging.Warning("[run_tests] parser error for %s: %v", runnerPlanLabel(ctx.RepoRoot, plan), err)
+			setLastExecReasonCode(reasonCode)
+			logging.Warning("[run_tests] parser error for %s reason=%s: %v", runnerPlanLabel(ctx.RepoRoot, plan), reasonCode, err)
 			if shouldAttemptPytestTextFallback(plan) {
 				fallback := runPytestTextFallback(ctx, plan, timeout, caps)
 				if fallback != nil {
+					fallbackReasonCode := ""
+					fallbackOutcome := "executed"
+					if fallback.ParseErr != nil {
+						fallbackOutcome = "parser_error"
+						fallbackReasonCode = parserErrorReasonCodeForPlan(plan, fallback.Output, fallback.ParseErr)
+						if fallbackReasonCode != "" && fallbackReasonCode != reasonCode {
+							reasonCode = reasonCode + "," + fallbackReasonCode
+						}
+					}
 					executedCmds = append(executedCmds, types.ExecutedCommand{
 						Runner:     runner,
 						Framework:  plan.Framework,
@@ -885,7 +902,8 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 						ExitCode:   fallback.ExitCode,
 						DurationMS: fallback.Duration.Milliseconds(),
 						Source:     "parser_error_fallback",
-						Outcome:    "executed",
+						Outcome:    fallbackOutcome,
+						ReasonCode: fallbackReasonCode,
 					})
 					combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, fallback.Output))
 					if fallback.ParseErr == nil && fallback.Report != nil {
@@ -911,9 +929,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			// not tool summaries. It is not authoritative evidence of a
 			// code regression, so classify it separately from red tests.
 			parserReport := &types.ChangeReport{
-				Passed:         false,
-				FailureKind:    types.FailureKindParserError,
-				FailureSummary: fmt.Sprintf("runner output parser failed: %v", err),
+				Passed:            false,
+				FailureKind:       types.FailureKindParserError,
+				FailureReasonCode: strings.TrimSpace(reasonCode),
+				FailureSummary:    fmt.Sprintf("runner output parser failed (reason_code=%s): %v", reasonCode, err),
 			}
 			if ref != "" {
 				parserReport.FailureSummaryBlobRef = ref

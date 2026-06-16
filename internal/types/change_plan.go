@@ -730,6 +730,13 @@ type ChangeReport struct {
 	// ref is the full original.
 	FailureSummaryBlobRef string `json:"failure_summary_blob_ref,omitempty"`
 
+	// FailureReasonCode is a bounded, typed subreason for unavailable or
+	// failed verification states. It refines FailureKind for controller /
+	// replan handoff without requiring any consumer to parse FailureSummary
+	// prose. Examples: pytest_import_startup_error,
+	// pytest_json_report_missing, pytest_collection_error_no_cases.
+	FailureReasonCode string `json:"failure_reason_code,omitempty"`
+
 	// RegressionAssertions lists test AssertionIDs the verifier LLM
 	// classified as "passed in baseline, fails now — caused by this
 	// plan". Authoritative for evalNoRegression — populated by

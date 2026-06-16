@@ -88,6 +88,7 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 		BuildFailed:           true,
 		FailureSummary:        "compile failed",
 		FailureSummaryBlobRef: "/tmp/codrax/blob/run-tests-plan-1.txt",
+		FailureReasonCode:     "pytest_import_startup_error",
 		TestResults: []TestResult{{
 			Kind:          TestResultKindBuildError,
 			AssertionID:   "internal/foo.go:10",
@@ -100,6 +101,15 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 				Message: "undefined: Foo",
 			}},
 		}},
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:     "python",
+			Framework:  "pytest",
+			WorkingDir: ".",
+			Command:    "pytest",
+			ExitCode:   1,
+			Outcome:    "parser_error",
+			ReasonCode: "pytest_import_startup_error",
+		}},
 		RegressionAssertions: []string{"TestExisting"},
 	}
 	pack := WriteContextPackFromChangeReport(report)
@@ -110,8 +120,10 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 	}{
 		{"build_failure", "compile failed"},
 		{"failure_summary_blob_ref", "/tmp/codrax/blob/run-tests-plan-1.txt"},
+		{"failure_reason_code", "pytest_import_startup_error"},
 		{"failed_test", "undefined: Foo"},
 		{"build_error", "internal/foo.go:10 Foo undefined: Foo"},
+		{"executed_command", "reason_code=pytest_import_startup_error"},
 		{"regression_assertion", "TestExisting"},
 	} {
 		if !writeContextViewContains(view, want.kind, want.text) {

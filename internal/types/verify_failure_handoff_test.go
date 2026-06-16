@@ -11,6 +11,7 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 		PlanID:                "plan-1",
 		Passed:                false,
 		FailureKind:           FailureKindTestsFailed,
+		FailureReasonCode:     "pytest_import_startup_error",
 		FailureSummary:        "1 test failed",
 		FailureSummaryBlobRef: "/tmp/blob/run.txt",
 		TestResults: []TestResult{
@@ -33,6 +34,9 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 	}
 	if h.PlanID != "plan-1" || h.BatchID != "batch-1" || h.Attempt != 2 {
 		t.Fatalf("identity fields wrong: %+v", h)
+	}
+	if h.FailureReasonCode != "pytest_import_startup_error" {
+		t.Fatalf("failure reason code not projected: %+v", h)
 	}
 	if len(h.FailingTests) != 1 || h.FailingTests[0].AssertionID != "TestA" {
 		t.Fatalf("only failed unit rows belong in FailingTests: %+v", h.FailingTests)

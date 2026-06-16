@@ -580,6 +580,51 @@ ImportError: cannot import name 'Mapping' from 'collections'
 	}
 }
 
+func TestClassifyPytestParserErrorReason_ImportStartup(t *testing.T) {
+	output := `Traceback (most recent call last):
+  File "/tmp/repo/.venv/lib/python3.11/site-packages/_pytest/config/__init__.py", line 860, in import_plugin
+    __import__(importspec)
+ModuleNotFoundError: No module named 'sphinx.testing'
+`
+	err := fmt.Errorf("parsePytestJSONReport: report file /tmp/report.json missing")
+	got := classifyPytestParserErrorReason(output, err)
+	if got != pytestReasonImportStartupError {
+		t.Fatalf("reason=%q, want %q", got, pytestReasonImportStartupError)
+	}
+}
+
+func TestClassifyPytestParserErrorReason_CollectionNoCases(t *testing.T) {
+	err := fmt.Errorf("parsePytestTextOutput: pytest reported 1 failing/error outcome(s) but no test case rows were executed")
+	got := classifyPytestParserErrorReason("", err)
+	if got != pytestReasonCollectionErrorNoCases {
+		t.Fatalf("reason=%q, want %q", got, pytestReasonCollectionErrorNoCases)
+	}
+}
+
+func TestClassifyPytestParserErrorReason_TextSummaryMissing(t *testing.T) {
+	err := fmt.Errorf("parsePytestTextOutput: no pytest summary parsed")
+	got := classifyPytestParserErrorReason("AssertionRewritingHook startup crash", err)
+	if got != pytestReasonTextSummaryMissing {
+		t.Fatalf("reason=%q, want %q", got, pytestReasonTextSummaryMissing)
+	}
+}
+
+func TestClassifyPytestParserErrorReason_JSONReportMissing(t *testing.T) {
+	err := fmt.Errorf("parsePytestJSONReport: report file /tmp/report.json missing — pytest did not produce the requested JSON report. This can happen when collection/import/startup fails before report generation, or when pytest-json-report is unavailable.")
+	got := classifyPytestParserErrorReason("pytest exited before writing the report", err)
+	if got != pytestReasonJSONReportMissing {
+		t.Fatalf("reason=%q, want %q", got, pytestReasonJSONReportMissing)
+	}
+}
+
+func TestClassifyPytestParserErrorReason_JSONReportUnavailable(t *testing.T) {
+	err := fmt.Errorf("parsePytestJSONReport: report file /tmp/report.json missing")
+	got := classifyPytestParserErrorReason("pytest: error: unrecognized arguments: --json-report --json-report-file=/tmp/report.json", err)
+	if got != pytestReasonJSONReportUnavailable {
+		t.Fatalf("reason=%q, want %q", got, pytestReasonJSONReportUnavailable)
+	}
+}
+
 func TestBuildPlainPytestFallbackCommandIsVerbose(t *testing.T) {
 	plan := runnerPlan{Runner: "python", Framework: pythonFrameworkPytest, Root: t.TempDir(), Suite: "tests/test_a.py::test_bad"}
 	got := buildPlainPytestFallbackCommandForPlan(plan, plan.Suite, plan.Root)
