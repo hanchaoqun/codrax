@@ -2,6 +2,7 @@ package tool
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,17 +65,27 @@ func emitChangesToFileChanges(changes []emitChangePlanChange) []types.FileChange
 // new_content arrives, so emit_plan_skeleton catches structural
 // problems early without waiting for per-file emits.
 func validatePlanGraphIntegrity(changes []types.FileChange) string {
+	rej, _ := validatePlanGraphIntegrityWithRepair("", changes)
+	return rej
+}
+
+func validatePlanGraphIntegrityWithRepair(toolName string, changes []types.FileChange) (string, *types.PlanRepairPack) {
 	seenPaths := make(map[string]int, len(changes))
 	for i, c := range changes {
 		path := strings.TrimSpace(c.Path)
 		if path == "" {
-			return "one of the changes has an empty path"
+			rej := "one of the changes has an empty path"
+			return rej, planRepairPackFromReason(toolName, "change_path_empty", rej, []string{"$.changes[].path"}, nil)
 		}
 		if !isLegalChangeKind(strings.TrimSpace(c.Kind)) {
-			return fmt.Sprintf("change %q has illegal kind %q (must be create|modify|delete|patch|rename)", path, c.Kind)
+			rej := fmt.Sprintf("change %q has illegal kind %q (must be create|modify|delete|patch|rename)", path, c.Kind)
+			return rej, planRepairPackWithEnums(toolName, "change_kind_invalid", rej, []string{"$.changes[].kind"}, map[string][]string{
+				"$.changes[].kind": {"create", "modify", "delete", "patch", "rename"},
+			})
 		}
 		if _, dup := seenPaths[path]; dup {
-			return fmt.Sprintf("duplicate change for path %q (one-change-per-file constraint; combine into a single FileChange)", path)
+			rej := fmt.Sprintf("duplicate change for path %q (one-change-per-file constraint; combine into a single FileChange)", path)
+			return rej, planRepairPackFromReason(toolName, "duplicate_change_path", rej, []string{"$.changes[].path"}, []string{path})
 		}
 		seenPaths[path] = i
 	}
@@ -88,24 +99,32 @@ func validatePlanGraphIntegrity(changes []types.FileChange) string {
 		switch kind {
 		case "rename":
 			if newPath == "" {
-				return fmt.Sprintf("change %q has kind=rename but new_path is empty", path)
+				rej := fmt.Sprintf("change %q has kind=rename but new_path is empty", path)
+				return rej, planRepairPackFromReason(toolName, "rename_new_path_empty", rej, []string{"$.changes[].new_path"}, []string{path})
 			}
 			if newPath == path {
-				return fmt.Sprintf("change %q has kind=rename with new_path equal to path; remove the rename or pick a different destination", path)
+				rej := fmt.Sprintf("change %q has kind=rename with new_path equal to path; remove the rename or pick a different destination", path)
+				return rej, planRepairPackFromReason(toolName, "rename_new_path_same_as_path", rej, []string{"$.changes[].new_path"}, []string{path})
 			}
 			if _, collision := seenPaths[newPath]; collision {
-				return fmt.Sprintf("change %q rename destination %q collides with another change in this plan (one path per plan, even across rename)", path, newPath)
+				rej := fmt.Sprintf("change %q rename destination %q collides with another change in this plan (one path per plan, even across rename)", path, newPath)
+				return rej, planRepairPackFromReason(toolName, "rename_new_path_collision", rej, []string{"$.changes[].new_path"}, []string{path, newPath})
 			}
 		default:
 			if newPath != "" {
-				return fmt.Sprintf("change %q has kind=%s but new_path is set (only kind=rename uses new_path)", path, kind)
+				rej := fmt.Sprintf("change %q has kind=%s but new_path is set (only kind=rename uses new_path)", path, kind)
+				return rej, planRepairPackFromReason(toolName, "new_path_only_for_rename", rej, []string{"$.changes[].new_path", "$.changes[].kind"}, []string{path})
 			}
 		}
 		if len(c.Edits) > 0 && kind != "patch" {
-			return fmt.Sprintf("change %q has edits[] but kind=%s (structured edits are only valid for kind=patch)", path, kind)
+			rej := fmt.Sprintf("change %q has edits[] but kind=%s (structured edits are only valid for kind=patch)", path, kind)
+			return rej, planRepairPackWithEnums(toolName, "edits_require_patch_kind", rej, []string{"$.changes[].kind", "$.changes[].edits"}, map[string][]string{
+				"$.changes[].kind": {"patch"},
+			})
 		}
 		if len(c.Edits) > 0 && strings.TrimSpace(c.Patch) != "" {
-			return fmt.Sprintf("change %q has both patch and edits[]; choose exactly one patch source", path)
+			rej := fmt.Sprintf("change %q has both patch and edits[]; choose exactly one patch source", path)
+			return rej, planRepairPackFromReason(toolName, "patch_and_edits_mutually_exclusive", rej, []string{"$.changes[].patch", "$.changes[].edits"}, []string{path})
 		}
 	}
 	for _, c := range changes {
@@ -113,17 +132,20 @@ func validatePlanGraphIntegrity(changes []types.FileChange) string {
 		for _, dep := range c.DependsOn {
 			dep = strings.TrimSpace(dep)
 			if dep == "" {
-				return fmt.Sprintf("change %q has an empty depends_on entry", path)
+				rej := fmt.Sprintf("change %q has an empty depends_on entry", path)
+				return rej, planRepairPackFromReason(toolName, "depends_on_empty", rej, []string{"$.changes[].depends_on"}, []string{path})
 			}
 			if dep == path {
-				return fmt.Sprintf("change %q depends_on itself", path)
+				rej := fmt.Sprintf("change %q depends_on itself", path)
+				return rej, planRepairPackFromReason(toolName, "depends_on_self", rej, []string{"$.changes[].depends_on"}, []string{path})
 			}
 			if _, ok := seenPaths[dep]; !ok {
-				return fmt.Sprintf("change %q depends_on %q but %q is not in changes[]", path, dep, dep)
+				rej := fmt.Sprintf("change %q depends_on %q but %q is not in changes[]", path, dep, dep)
+				return rej, planRepairPackFromReason(toolName, "depends_on_missing_target", rej, []string{"$.changes[].depends_on"}, []string{path, dep})
 			}
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // validatePlanFullContent runs every validator that requires the
@@ -208,20 +230,25 @@ func validatePlanScopeKindAlignment(ctx *types.BusContext, changes []types.FileC
 }
 
 func validatePlanFullContent(ctx *types.BusContext, summary string, changes []types.FileChange, verificationProbes []types.VerificationProbe) string {
-	if rej := validatePlanContentCarriers(changes); rej != "" {
-		return rej
+	rej, _ := validatePlanFullContentWithRepair(ctx, "", summary, changes, verificationProbes)
+	return rej
+}
+
+func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary string, changes []types.FileChange, verificationProbes []types.VerificationProbe) (string, *types.PlanRepairPack) {
+	if rej, pack := validatePlanContentCarriersWithRepair(toolName, changes); rej != "" {
+		return rej, pack
 	}
-	if rej := validateFullModifyCompleteness(ctx, changes); rej != "" {
-		return rej
+	if rej, pack := validateFullModifyCompletenessWithRepair(ctx, toolName, changes); rej != "" {
+		return rej, pack
 	}
-	if rej := compileStructuredEditPatches(ctx, changes); rej != "" {
-		return rej
+	if rej, pack := compileStructuredEditPatchesWithRepair(ctx, toolName, changes); rej != "" {
+		return rej, pack
 	}
 	if rej := validatePythonDuplicateDefinitionStutter(ctx, changes); rej != "" {
-		return rej
+		return rej, planRepairPackFromReason(toolName, "python_duplicate_definition_stutter", rej, []string{"$.changes[].edits", "$.changes[].patch", "$.changes[].new_content"}, nil)
 	}
 	if rej := validatePlanPatchDuplicateInsertions(changes); rej != "" {
-		return rej
+		return rej, planRepairPackFromReason(toolName, "patch_duplicate_insertions", rej, []string{"$.changes[].patch", "$.changes[].edits"}, nil)
 	}
 	if GitAvailable() && ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
 		for _, c := range changes {
@@ -229,41 +256,48 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 				continue
 			}
 			if strings.TrimSpace(c.Patch) == "" {
-				return fmt.Sprintf("change %q has kind=patch but Patch is empty (unified-diff required)", strings.TrimSpace(c.Path))
+				rej := fmt.Sprintf("change %q has kind=patch but Patch is empty (unified-diff required)", strings.TrimSpace(c.Path))
+				return rej, planRepairPackFromReason(toolName, "patch_empty", rej, []string{"$.changes[].patch", "$.changes[].edits"}, []string{strings.TrimSpace(c.Path)})
 			}
 			if err := CheckUnifiedDiff(ctx.RepoRoot, c.Patch); err != nil {
-				return composePatchRejectionReason(ctx.RepoRoot, strings.TrimSpace(c.Path), err.Error(), c.Patch)
+				rej := composePatchRejectionReason(ctx.RepoRoot, strings.TrimSpace(c.Path), err.Error(), c.Patch)
+				return rej, planRepairPackFromReason(toolName, "patch_apply_check_failed", rej, []string{"$.changes[].patch", "$.changes[].edits"}, []string{strings.TrimSpace(c.Path)})
 			}
 		}
 	}
 	if rej := validatePlanDepsClosure(ctx.RepoRoot, changes); rej != "" {
-		return rej
+		return rej, planRepairPackFromReason(toolName, "deps_closure_failed", rej, []string{"$.changes[].new_content", "$.changes[].path"}, nil)
 	}
 	if rej := validatePlanWiringClosure(changes); rej != "" {
-		return rej
+		return rej, planRepairPackFromReason(toolName, "wiring_closure_failed", rej, []string{"$.changes[].path"}, nil)
 	}
 	if rej := validatePlanSummaryConsistency(summary, changes); rej != "" {
-		return rej
+		return rej, planRepairPackFromReason(toolName, "summary_consistency_failed", rej, []string{"$.summary", "$.changes[].path", "$.changes[].new_content"}, nil)
 	}
 	if rej := validatePlanDryBuild(ctx, changes); rej != "" {
-		return rej
+		return rej, planRepairPackFromReason(toolName, "dry_build_failed", rej, []string{"$.changes[].new_content", "$.changes[].patch", "$.changes[].edits"}, nil)
 	}
 	if rej := validatePlanLint(ctx, changes); rej != "" {
-		return rej
+		return rej, planRepairPackFromReason(toolName, "plan_lint_failed", rej, []string{"$.changes"}, nil)
 	}
 	if rej := validatePlanProjectLint(ctx, changes); rej != "" {
-		return rej
+		return rej, planRepairPackFromReason(toolName, "project_lint_failed", rej, []string{"$.changes"}, nil)
 	}
 	if rej := validateVerificationProbeContractRefs(ctx, verificationProbes); rej != "" {
-		return rej
+		return rej, planRepairPackFromReason(toolName, "verification_probe_contract_refs_failed", rej, []string{"$.verification_probes[].contract_refs", "$.changes[].verification_probes[].contract_refs"}, nil)
 	}
 	if rej := validatePythonVerificationProbeCoupling(ctx.RepoRoot, changes, verificationProbes); rej != "" {
-		return rej
+		return rej, planRepairPackFromReason(toolName, "verification_probe_coupling_failed", rej, []string{"$.verification_probes[].code", "$.verification_probes[].changed_symbol_refs"}, nil)
 	}
-	return ""
+	return "", nil
 }
 
 func validatePlanContentCarriers(changes []types.FileChange) string {
+	rej, _ := validatePlanContentCarriersWithRepair("", changes)
+	return rej
+}
+
+func validatePlanContentCarriersWithRepair(toolName string, changes []types.FileChange) (string, *types.PlanRepairPack) {
 	for _, change := range changes {
 		path := strings.TrimSpace(change.Path)
 		kind := strings.TrimSpace(change.Kind)
@@ -273,29 +307,35 @@ func validatePlanContentCarriers(changes []types.FileChange) string {
 		switch kind {
 		case "create", "modify":
 			if hasPatch || hasEdits {
-				return fmt.Sprintf("change %q has kind=%s but also carries patch/edits content; create/modify require new_content as the only content carrier", path, kind)
+				rej := fmt.Sprintf("change %q has kind=%s but also carries patch/edits content; create/modify require new_content as the only content carrier", path, kind)
+				return rej, planRepairPackFromReason(toolName, "content_carrier_conflict", rej, []string{"$.changes[].kind", "$.changes[].new_content", "$.changes[].patch", "$.changes[].edits"}, []string{path})
 			}
 			if !hasNewContent {
-				return fmt.Sprintf("change %q has kind=%s but new_content is empty; provide the full file body or choose kind=delete/patch as appropriate", path, kind)
+				rej := fmt.Sprintf("change %q has kind=%s but new_content is empty; provide the full file body or choose kind=delete/patch as appropriate", path, kind)
+				return rej, planRepairPackFromReason(toolName, "new_content_required", rej, []string{"$.changes[].new_content", "$.changes[].kind"}, []string{path})
 			}
 		case "patch":
 			if hasNewContent {
-				return fmt.Sprintf("change %q has kind=patch but also carries new_content; patch changes must use only patch or edits[] so full-file overwrite bytes cannot leak into a surgical plan", path)
+				rej := fmt.Sprintf("change %q has kind=patch but also carries new_content; patch changes must use only patch or edits[] so full-file overwrite bytes cannot leak into a surgical plan", path)
+				return rej, planRepairPackFromReason(toolName, "patch_new_content_conflict", rej, []string{"$.changes[].kind", "$.changes[].new_content", "$.changes[].patch", "$.changes[].edits"}, []string{path})
 			}
 			if !hasPatch && !hasEdits {
-				return fmt.Sprintf("change %q has kind=patch but Patch is empty (unified-diff required)", path)
+				rej := fmt.Sprintf("change %q has kind=patch but Patch is empty (unified-diff required)", path)
+				return rej, planRepairPackFromReason(toolName, "patch_empty", rej, []string{"$.changes[].patch", "$.changes[].edits"}, []string{path})
 			}
 		case "delete":
 			if hasNewContent || hasPatch || hasEdits {
-				return fmt.Sprintf("change %q has kind=delete but carries content fields; delete changes must not include new_content, patch, or edits[]", path)
+				rej := fmt.Sprintf("change %q has kind=delete but carries content fields; delete changes must not include new_content, patch, or edits[]", path)
+				return rej, planRepairPackFromReason(toolName, "delete_content_forbidden", rej, []string{"$.changes[].new_content", "$.changes[].patch", "$.changes[].edits"}, []string{path})
 			}
 		case "rename":
 			if hasNewContent || hasPatch || hasEdits {
-				return fmt.Sprintf("change %q has kind=rename but carries content fields; use a separate modify/patch change for content edits", path)
+				rej := fmt.Sprintf("change %q has kind=rename but carries content fields; use a separate modify/patch change for content edits", path)
+				return rej, planRepairPackFromReason(toolName, "rename_content_forbidden", rej, []string{"$.changes[].new_content", "$.changes[].patch", "$.changes[].edits"}, []string{path})
 			}
 		}
 	}
-	return ""
+	return "", nil
 }
 
 const (
@@ -309,12 +349,17 @@ const (
 )
 
 func validateFullModifyCompleteness(ctx *types.BusContext, changes []types.FileChange) string {
+	rej, _ := validateFullModifyCompletenessWithRepair(ctx, "", changes)
+	return rej
+}
+
+func validateFullModifyCompletenessWithRepair(ctx *types.BusContext, toolName string, changes []types.FileChange) (string, *types.PlanRepairPack) {
 	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
-		return ""
+		return "", nil
 	}
 	repoRootAbs, err := filepath.Abs(ctx.RepoRoot)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	for _, change := range changes {
 		if strings.TrimSpace(change.Kind) != "modify" {
@@ -350,15 +395,17 @@ func validateFullModifyCompleteness(ctx *types.BusContext, changes []types.FileC
 		deletedLines := oldLines - newLines
 		deletedBytes := len(oldBytes) - len(newBytes)
 		if looksLikePrefixTruncation(oldBytes, newBytes, deletedLines, deletedBytes) {
-			return fmt.Sprintf("change %q uses kind=modify on an existing large file but new_content is a strict prefix/truncated subset of the current file (%d→%d lines, %d→%d bytes). Use kind=patch for localized edits or provide the complete full file body for an intentional rewrite.",
+			rej := fmt.Sprintf("change %q uses kind=modify on an existing large file but new_content is a strict prefix/truncated subset of the current file (%d→%d lines, %d→%d bytes). Use kind=patch for localized edits or provide the complete full file body for an intentional rewrite.",
 				path, oldLines, newLines, len(oldBytes), len(newBytes))
+			return rej, planRepairPackFromReason(toolName, "full_modify_prefix_truncation", rej, []string{"$.changes[].kind", "$.changes[].new_content", "$.changes[].patch", "$.changes[].edits"}, []string{path})
 		}
 		if looksLikeCatastrophicFullModifyShrink(oldLines, newLines, len(oldBytes), len(newBytes), deletedLines, deletedBytes) {
-			return fmt.Sprintf("change %q uses kind=modify on an existing large file and removes most of the file (%d→%d lines, %d→%d bytes). This is likely a partial generated file body. Use kind=patch for surgical edits, kind=delete for intentional removal, or provide a complete full-file rewrite with comparable scope.",
+			rej := fmt.Sprintf("change %q uses kind=modify on an existing large file and removes most of the file (%d→%d lines, %d→%d bytes). This is likely a partial generated file body. Use kind=patch for surgical edits, kind=delete for intentional removal, or provide a complete full-file rewrite with comparable scope.",
 				path, oldLines, newLines, len(oldBytes), len(newBytes))
+			return rej, planRepairPackFromReason(toolName, "full_modify_catastrophic_shrink", rej, []string{"$.changes[].kind", "$.changes[].new_content", "$.changes[].patch", "$.changes[].edits"}, []string{path})
 		}
 	}
-	return ""
+	return "", nil
 }
 
 func countPlanContentLines(content string) int {
@@ -1208,20 +1255,31 @@ func duplicateInsertedLineIsSourceLike(line string) bool {
 }
 
 func compileStructuredEditPatches(ctx *types.BusContext, changes []types.FileChange) string {
+	rej, _ := compileStructuredEditPatchesWithRepair(ctx, "", changes)
+	return rej
+}
+
+func compileStructuredEditPatchesWithRepair(ctx *types.BusContext, toolName string, changes []types.FileChange) (string, *types.PlanRepairPack) {
 	for i := range changes {
 		if len(changes[i].Edits) == 0 {
 			continue
 		}
 		if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
-			return fmt.Sprintf("change %q uses edits[] but no repo root is available to compile them", strings.TrimSpace(changes[i].Path))
+			rej := fmt.Sprintf("change %q uses edits[] but no repo root is available to compile them", strings.TrimSpace(changes[i].Path))
+			return rej, planRepairPackFromReason(toolName, "structured_edit_repo_root_missing", rej, []string{"$.changes[].edits"}, []string{strings.TrimSpace(changes[i].Path)})
 		}
 		patch, err := compileStructuredEditsToPatch(ctx.RepoRoot, &changes[i])
 		if err != nil {
-			return enrichStructuredEditReplanDiagnostic(ctx, err.Error())
+			msg := enrichStructuredEditReplanDiagnostic(ctx, err.Error())
+			var diagErr *structuredEditDiagnosticError
+			if errors.As(err, &diagErr) && diagErr != nil {
+				return msg, planRepairPackFromStructuredEditDiagnostic(toolName, msg, diagErr.diagnostic)
+			}
+			return msg, planRepairPackFromReason(toolName, "structured_edit_compile_failed", msg, []string{"$.changes[].edits"}, []string{strings.TrimSpace(changes[i].Path)})
 		}
 		changes[i].Patch = patch
 	}
-	return ""
+	return "", nil
 }
 
 func enrichStructuredEditReplanDiagnostic(ctx *types.BusContext, msg string) string {

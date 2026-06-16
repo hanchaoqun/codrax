@@ -1845,6 +1845,62 @@ func TestEmitChangePlan_PatchPreflight_EmptyPatchRejected(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_OldTextMismatchExposesPlanRepairPack(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "widget.py", "VALUE = 1\n")
+	ctx := &types.BusContext{
+		Mutable:  types.NewMutableState("repair old_text mismatch"),
+		RepoRoot: root,
+	}
+	params := json.RawMessage(`{
+		"request": "fix widget value",
+		"summary": "Change widget.py with a bounded structured edit.",
+		"changes": [{
+			"path": "widget.py",
+			"kind": "patch",
+			"rationale": "update the value",
+			"edits": [{
+				"kind": "replace",
+				"start_line": 1,
+				"old_text": "VALUE = 0\n",
+				"content": "VALUE = 2\n"
+			}]
+		}]
+	}`)
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("old_text mismatch should reject the plan")
+	}
+	pack := mustPlanRepairPack(t, res)
+	if pack.ReasonCode != "old_text_mismatch" {
+		t.Fatalf("reason_code=%q, want old_text_mismatch; pack=%+v", pack.ReasonCode, pack)
+	}
+	if len(pack.CurrentBytes) != 1 || pack.CurrentBytes[0].ExpectedOldText != "VALUE = 1\n" {
+		t.Fatalf("repair pack should carry exact expected old_text, got %+v", pack.CurrentBytes)
+	}
+	if !strings.Contains(res.Summary, planRepairSummaryTag) {
+		t.Fatalf("summary should retain transparent repair pack line, got %q", res.Summary)
+	}
+}
+
+func mustPlanRepairPack(t *testing.T, res types.ToolResult) types.PlanRepairPack {
+	t.Helper()
+	if res.Repair == nil {
+		t.Fatalf("expected ToolRepair, got nil; summary=%s", res.Summary)
+	}
+	if res.Repair.Code != planRepairToolCode {
+		t.Fatalf("repair code=%q, want %q; repair=%+v", res.Repair.Code, planRepairToolCode, res.Repair)
+	}
+	pack, ok := planRepairPackFromMetadataJSON(res.Repair.Metadata[planRepairMetadataKey])
+	if !ok {
+		t.Fatalf("missing or invalid plan_repair_pack metadata: %+v", res.Repair.Metadata)
+	}
+	return pack
+}
+
 // jsonString produces a valid JSON-encoded string literal (with
 // escaping) for injection into a raw JSON template. The test data
 // includes newlines + tabs that need JSON escaping; building the

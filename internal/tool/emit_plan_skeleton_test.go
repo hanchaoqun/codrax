@@ -147,4 +147,11 @@ func TestEmitPlanSkeleton_RejectsDuplicatePath(t *testing.T) {
 	if !strings.Contains(res.Summary, "duplicate change") {
 		t.Errorf("rejection should mention duplicate, got: %s", res.Summary)
 	}
+	pack := mustPlanRepairPack(t, res)
+	if pack.ReasonCode != "duplicate_change_path" {
+		t.Fatalf("reason_code=%q, want duplicate_change_path; pack=%+v", pack.ReasonCode, pack)
+	}
+	if !strings.Contains(res.Summary, planRepairSummaryTag) {
+		t.Fatalf("summary should include transparent repair pack line, got: %s", res.Summary)
+	}
 }

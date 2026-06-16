@@ -303,12 +303,8 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// structural information needed to rebuild the JSON.
 	trimmed := strings.TrimSpace(string(params))
 	if len(trimmed) < emitMinPayloadBytes || trimmed == "{}" || trimmed == "null" || trimmed == "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: payload was empty or truncated (got " + fmt.Sprintf("%d", len(trimmed)) + " bytes). " + emitChangePlanSchemaReminder,
-			Timestamp: time.Now(),
-		}, nil
+		summary := "emit_change_plan rejected: payload was empty or truncated (got " + fmt.Sprintf("%d", len(trimmed)) + " bytes). " + emitChangePlanSchemaReminder
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "payload_empty_or_truncated", summary, []string{"$"}, nil)), nil
 	}
 	params = applyStructuredPayloadCompatWithSelectedStringFieldRepair(
 		t.Name(),
@@ -325,17 +321,15 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	dec.DisallowUnknownFields()
 	var p emitChangePlanParams
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, params, "emit_change_plan rejected: ", ". "+emitChangePlanSchemaReminder)
+		res, retErr := failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, params, "emit_change_plan rejected: ", ". "+emitChangePlanSchemaReminder)
+		pack := planRepairPackFromToolRepair(t.Name(), "strict_decode_failed", res.Summary, res.Repair)
+		return attachPlanRepairPack(res, pack), retErr
 	}
 	p.VerificationProbes = append(p.VerificationProbes, changeLocalVerificationProbes(p.Changes)...)
 
 	if strings.TrimSpace(p.Summary) == "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: summary is required and must be non-empty. " + emitChangePlanSchemaReminder,
-			Timestamp: time.Now(),
-		}, nil
+		summary := "emit_change_plan rejected: summary is required and must be non-empty. " + emitChangePlanSchemaReminder
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "summary_required", summary, []string{"$.summary"}, nil)), nil
 	}
 	if len(p.Changes) == 0 {
 		if plan := noChangeRequiredReplanSentinel(ctx, p); plan != nil {
@@ -352,12 +346,8 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 				Timestamp: time.Now(),
 			}, nil
 		}
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: changes[] cannot be empty — at least one FileChange is required. " + emitChangePlanSchemaReminder,
-			Timestamp: time.Now(),
-		}, nil
+		summary := "emit_change_plan rejected: changes[] cannot be empty — at least one FileChange is required. " + emitChangePlanSchemaReminder
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "changes_empty", summary, []string{"$.changes"}, nil)), nil
 	}
 
 	// Convert wire-format emitChangePlanChange → canonical
@@ -378,13 +368,8 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	//    diff). Rejecting duplicates keeps DependsOn unambiguously
 	//    path-identified and removes a whole class of apply-stage
 	//    ordering pathologies.
-	if rej := validatePlanGraphIntegrity(fcs); rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
+	if rej, pack := validatePlanGraphIntegrityWithRepair(t.Name(), fcs); rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej, pack), nil
 	}
 
 	// Method M (2026-05-07 patch_go_typo r1 forensic): typed-signal
@@ -395,34 +380,26 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// the planner sees the rejection in the same dispatch and can
 	// re-emit with the right kind.
 	if rej := validatePlanScopeKindAlignment(ctx, fcs); rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
+		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
+			planRepairPackWithEnums(t.Name(), "scope_kind_alignment_failed", rej, []string{"$.changes[].kind", "$.changes[].patch", "$.changes[].edits"}, map[string][]string{
+				"$.changes[].kind": {"patch"},
+			})), nil
 	}
 
 	// 3) Cycle detection. A cyclic DependsOn graph has no valid
 	//    apply order — reject with the specific cycle path so the
 	//    planner's retry (B1 fail-loud surface) can fix it.
 	if cycle := detectDepsCycle(fcs); cycle != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("emit_change_plan rejected: depends_on cycle detected: %s", cycle),
-			Timestamp: time.Now(),
-		}, nil
+		summary := fmt.Sprintf("emit_change_plan rejected: depends_on cycle detected: %s", cycle)
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "depends_on_cycle", summary, []string{"$.changes[].depends_on"}, nil)), nil
 	}
 
 	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
 	if rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
+		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
+			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, map[string][]string{
+				"$.verification_probes[].language": {"python"},
+			})), nil
 	}
 
 	// 4) Patch pre-flight. For every kind=patch change, dry-run
@@ -445,13 +422,8 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	//    container without git). Skipped when RepoRoot is empty
 	//    (unexpected in write mode, but belt-and-suspenders for
 	//    tool-layer unit tests that don't set it).
-	if rej := validatePlanFullContent(ctx, p.Summary, fcs, probes); rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
+	if rej, pack := validatePlanFullContentWithRepair(ctx, t.Name(), p.Summary, fcs, probes); rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej, pack), nil
 	}
 
 	// 5) Line-structure advisory. Patch style is a noisy signal, so it must

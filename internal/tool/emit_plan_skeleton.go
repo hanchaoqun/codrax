@@ -157,12 +157,8 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	// minimum. Below 80 → truncation.
 	trimmed := strings.TrimSpace(string(params))
 	if len(trimmed) < emitMinPayloadBytes || trimmed == "{}" || trimmed == "null" || trimmed == "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_skeleton rejected: payload was empty or truncated (got " + fmt.Sprintf("%d", len(trimmed)) + " bytes). " + emitPlanSkeletonSchemaReminder,
-			Timestamp: time.Now(),
-		}, nil
+		summary := "emit_plan_skeleton rejected: payload was empty or truncated (got " + fmt.Sprintf("%d", len(trimmed)) + " bytes). " + emitPlanSkeletonSchemaReminder
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "payload_empty_or_truncated", summary, []string{"$"}, nil)), nil
 	}
 	params = applyStructuredPayloadCompatWithSelectedStringFieldRepair(
 		t.Name(),
@@ -175,24 +171,18 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	dec.DisallowUnknownFields()
 	var p emitPlanSkeletonParams
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, params, "emit_plan_skeleton rejected: ", ". "+emitPlanSkeletonSchemaReminder)
+		res, retErr := failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, params, "emit_plan_skeleton rejected: ", ". "+emitPlanSkeletonSchemaReminder)
+		pack := planRepairPackFromToolRepair(t.Name(), "strict_decode_failed", res.Summary, res.Repair)
+		return attachPlanRepairPack(res, pack), retErr
 	}
 
 	if strings.TrimSpace(p.Summary) == "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_skeleton rejected: summary is required and must be non-empty. " + emitPlanSkeletonSchemaReminder,
-			Timestamp: time.Now(),
-		}, nil
+		summary := "emit_plan_skeleton rejected: summary is required and must be non-empty. " + emitPlanSkeletonSchemaReminder
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "summary_required", summary, []string{"$.summary"}, nil)), nil
 	}
 	if len(p.Changes) == 0 {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_skeleton rejected: changes[] cannot be empty — at least one FileChange metadata entry is required. " + emitPlanSkeletonSchemaReminder,
-			Timestamp: time.Now(),
-		}, nil
+		summary := "emit_plan_skeleton rejected: changes[] cannot be empty — at least one FileChange metadata entry is required. " + emitPlanSkeletonSchemaReminder
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "changes_empty", summary, []string{"$.changes"}, nil)), nil
 	}
 
 	// Convert to canonical FileChange shape with empty content
@@ -219,41 +209,26 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	// structural mistakes (dup paths, dangling deps, illegal kind,
 	// wiring fan-in gap, summary lying about a path) before
 	// committing to per-file content emits.
-	if rej := validatePlanGraphIntegrity(fcs); rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_skeleton rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
+	if rej, pack := validatePlanGraphIntegrityWithRepair(t.Name(), fcs); rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej, pack), nil
 	}
 	// Method M: typed-signal hard gate on task.scope=micro →
 	// kind=patch (see validatePlanScopeKindAlignment for full
 	// rationale). Skeleton path catches the mismatch before any
 	// per-file emit_plan_change is wasted.
 	if rej := validatePlanScopeKindAlignment(ctx, fcs); rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_skeleton rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
+		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
+			planRepairPackWithEnums(t.Name(), "scope_kind_alignment_failed", rej, []string{"$.changes[].kind"}, map[string][]string{
+				"$.changes[].kind": {"patch"},
+			})), nil
 	}
 	if cycle := detectDepsCycle(fcs); cycle != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("emit_plan_skeleton rejected: depends_on cycle detected: %s", cycle),
-			Timestamp: time.Now(),
-		}, nil
+		summary := fmt.Sprintf("emit_plan_skeleton rejected: depends_on cycle detected: %s", cycle)
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "depends_on_cycle", summary, []string{"$.changes[].depends_on"}, nil)), nil
 	}
 	if rej := validatePlanWiringClosure(fcs); rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_skeleton rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
+		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
+			planRepairPackFromReason(t.Name(), "wiring_closure_failed", rej, []string{"$.changes[].path"}, nil)), nil
 	}
 	// Note: V4 summary fidelity is partially runnable here (path
 	// side) but its import-side check needs new_content. We DEFER
@@ -265,12 +240,10 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 
 	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
 	if rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_skeleton rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
+		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
+			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, map[string][]string{
+				"$.verification_probes[].language": {"python"},
+			})), nil
 	}
 
 	// Install partial plan. The factory builds the canonical struct

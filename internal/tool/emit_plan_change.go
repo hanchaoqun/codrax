@@ -96,12 +96,8 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// is structurally impossible.
 	trimmed := strings.TrimSpace(string(params))
 	if len(trimmed) < 20 || trimmed == "{}" || trimmed == "null" || trimmed == "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_change rejected: payload was empty or truncated (got " + fmt.Sprintf("%d", len(trimmed)) + " bytes). " + emitPlanChangeSchemaReminder,
-			Timestamp: time.Now(),
-		}, nil
+		summary := "emit_plan_change rejected: payload was empty or truncated (got " + fmt.Sprintf("%d", len(trimmed)) + " bytes). " + emitPlanChangeSchemaReminder
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "payload_empty_or_truncated", summary, []string{"$"}, nil)), nil
 	}
 
 	params = applyStructuredPayloadCompatWithSelectedStringFieldRepair(
@@ -115,17 +111,15 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 	dec.DisallowUnknownFields()
 	var p emitPlanChangeParams
 	if err := dec.Decode(&p); err != nil {
-		return failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, params, "emit_plan_change rejected: ", ". "+emitPlanChangeSchemaReminder)
+		res, retErr := failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, params, "emit_plan_change rejected: ", ". "+emitPlanChangeSchemaReminder)
+		pack := planRepairPackFromToolRepair(t.Name(), "strict_decode_failed", res.Summary, res.Repair)
+		return attachPlanRepairPack(res, pack), retErr
 	}
 
 	path := strings.TrimSpace(p.Path)
 	if path == "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_change rejected: path is required and must be non-empty. " + emitPlanChangeSchemaReminder,
-			Timestamp: time.Now(),
-		}, nil
+		summary := "emit_plan_change rejected: path is required and must be non-empty. " + emitPlanChangeSchemaReminder
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "path_required", summary, []string{"$.path"}, nil)), nil
 	}
 
 	// Find the partial plan and the slot to fill. A failure here
@@ -134,12 +128,8 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// no skeleton in place.
 	partial := ctx.Mutable.PartialChangePlan()
 	if partial == nil {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_change rejected: no skeleton in place. Call emit_plan_skeleton FIRST to install the plan metadata, then emit_plan_change once per non-delete file.",
-			Timestamp: time.Now(),
-		}, nil
+		summary := "emit_plan_change rejected: no skeleton in place. Call emit_plan_skeleton FIRST to install the plan metadata, then emit_plan_change once per non-delete file."
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "partial_plan_missing", summary, []string{"emit_plan_skeleton"}, nil)), nil
 	}
 	slot := -1
 	for i, c := range partial.Changes {
@@ -149,12 +139,8 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}
 	}
 	if slot < 0 {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("emit_plan_change rejected: path %q is not in the skeleton — it was not declared in emit_plan_skeleton.changes[]. Either correct the path or re-emit the skeleton with this file included.", path),
-			Timestamp: time.Now(),
-		}, nil
+		summary := fmt.Sprintf("emit_plan_change rejected: path %q is not in the skeleton — it was not declared in emit_plan_skeleton.changes[]. Either correct the path or re-emit the skeleton with this file included.", path)
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "path_not_in_skeleton", summary, []string{"$.path", "emit_plan_skeleton.changes[].path"}, []string{path})), nil
 	}
 
 	c := &partial.Changes[slot]
@@ -162,32 +148,20 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 	switch kind {
 	case "create", "modify":
 		if strings.TrimSpace(p.NewContent) == "" {
-			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   fmt.Sprintf("emit_plan_change rejected: change %q (kind=%s) requires non-empty new_content", path, kind),
-				Timestamp: time.Now(),
-			}, nil
+			summary := fmt.Sprintf("emit_plan_change rejected: change %q (kind=%s) requires non-empty new_content", path, kind)
+			return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "new_content_required", summary, []string{"$.new_content"}, []string{path})), nil
 		}
 		c.NewContent = p.NewContent
 	case "patch":
 		if strings.TrimSpace(p.Patch) == "" && len(p.Edits) == 0 {
-			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   fmt.Sprintf("emit_plan_change rejected: change %q (kind=patch) requires non-empty patch (unified diff) or edits[]", path),
-				Timestamp: time.Now(),
-			}, nil
+			summary := fmt.Sprintf("emit_plan_change rejected: change %q (kind=patch) requires non-empty patch (unified diff) or edits[]", path)
+			return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "patch_or_edits_required", summary, []string{"$.patch", "$.edits"}, []string{path})), nil
 		}
 		c.Patch = p.Patch
 		c.Edits = append([]types.StructuredEdit(nil), p.Edits...)
 	case "delete":
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("emit_plan_change rejected: change %q has kind=delete — delete kinds need no body, do not call emit_plan_change for them. The skeleton already declares the deletion.", path),
-			Timestamp: time.Now(),
-		}, nil
+		summary := fmt.Sprintf("emit_plan_change rejected: change %q has kind=delete — delete kinds need no body, do not call emit_plan_change for them. The skeleton already declares the deletion.", path)
+		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "delete_body_not_needed", summary, []string{"$.path"}, []string{path})), nil
 	default:
 		// Should never happen — the skeleton validator rejects
 		// unknown kinds before installing PartialChangePlan.
@@ -248,13 +222,14 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// intact so the planner can re-emit the offending file (single
 	// emit_plan_change call to fix one path is much smaller than
 	// re-running the entire emission).
-	if rej := validatePlanFullContent(ctx, partial.Summary, partial.Changes, partial.VerificationProbes); rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_plan_change rejected during finalize: " + rej + " (PartialChangePlan retained — re-emit just the offending file via emit_plan_change to fix)",
-			Timestamp: time.Now(),
-		}, nil
+	if rej, pack := validatePlanFullContentWithRepair(ctx, t.Name(), partial.Summary, partial.Changes, partial.VerificationProbes); rej != "" {
+		if pack != nil {
+			pack.PartialPlanRetained = true
+			if pack.RetryInstruction == "" {
+				pack.RetryInstruction = "PartialChangePlan is retained; re-emit only the offending file with emit_plan_change."
+			}
+		}
+		return rejectPlanToolResult(t.Name(), "emit_plan_change rejected during finalize: "+rej+" (PartialChangePlan retained — re-emit just the offending file via emit_plan_change to fix)", pack), nil
 	}
 
 	// Promote to canonical ChangePlan and seed write closure. After

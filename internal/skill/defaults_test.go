@@ -534,6 +534,7 @@ func TestChangePlanSkill_BatchLocalPlanningWorkflow(t *testing.T) {
 		"BOUNDED PLAN",
 		"WriteContextPack",
 		"EMIT THE BOUNDED PLAN THROUGH ONE STRUCTURED PATH",
+		"write_plan_repair_pack",
 	} {
 		if !strings.Contains(wf, want) {
 			t.Fatalf("change-plan-skill workflow should mention %q; got:\n%s", want, wf)

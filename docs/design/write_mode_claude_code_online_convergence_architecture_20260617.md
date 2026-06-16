@@ -63,6 +63,14 @@ Research and public architecture references consulted on 2026-06-17:
   <https://code.claude.com/docs/en/sub-agents>
 - Claude Code settings scopes:
   <https://code.claude.com/docs/en/settings>
+- VILA-Lab companion architecture deep dive:
+  <https://github.com/VILA-Lab/Dive-into-Claude-Code/blob/main/docs/architecture.md>
+- Public architecture synthesis covering tools, memory, hooks, MCP, sandboxing,
+  and permissions:
+  <https://www.penligent.ai/hackinglabs/inside-claude-code-the-architecture-behind-tools-memory-hooks-and-mcp/>
+- Anthropic managed-agents engineering note on brain/hand separation and
+  long-horizon context:
+  <https://www.anthropic.com/engineering/managed-agents>
 - Anthropic containment architecture:
   <https://www.anthropic.com/engineering/how-we-contain-claude>
 - Anthropic autonomy/checkpoints/subagents/hooks announcement:
@@ -174,6 +182,135 @@ than prompt tips.
 | Subagents preserve context and enforce tool boundaries. | Localizer/probe/verifier workers return typed artifacts with evidence refs; coder does not inherit broad exploration privileges. | Worker summaries are soft guidance until converted into `WriteContextPack`, `WriteExplorationHandoff`, `ChangePlan`, or `ChangeReport`. |
 | Long sessions need compaction, resume, checkpoints, and artifact sidechains. | `WriteWorkflowRun` is append-oriented durable state; large outputs live as artifact refs; active-slice state persists before and after edits. | Resume rebuilds trust from current policy plus persisted typed records, not old conversation text. |
 | Public best practices emphasize verification and early course correction. | Verification confidence, probe coverage, failure evidence, and prior-context coverage become explicit audit signals; unavailable local env lowers confidence without blocking patch export. | Confidence signals can trigger soft re-explore/replan decisions but do not become hidden keyword gates. |
+
+## Paper/Public-Research Architecture Mapping
+
+The 2026 Claude Code paper and companion public analysis describe a production
+coding agent as seven functional components:
+
+```text
+user -> interfaces -> agent loop -> permission system -> tools ->
+state/persistence -> execution environment
+```
+
+Codrax should adopt the shape, not the implementation. The write-mode design
+choice is:
+
+```text
+user/repl/cli/swebench -> one online workflow controller ->
+typed permission/effect broker -> role-scoped tools/worktree ->
+append-only workflow/context store -> typed observation loop
+```
+
+The important consequence is that the model never owns the whole workflow
+state. The model owns local judgment inside one typed turn. The harness owns
+state transitions, permission decisions, budget accounting, artifact retention,
+and completion semantics.
+
+### Component Mapping
+
+| Paper component | Claude Code/public research signal | Codrax component |
+| --- | --- | --- |
+| User | Human authority remains central, but approval fatigue is a safety bug. | User supplies goal and approves only high-risk active-slice fingerprints or explicit merge/publish. |
+| Interfaces | CLI/SDK/IDE/web surfaces converge on one loop. | REPL, CLI, plan-file import, SWE-bench adapter, and recovery commands all enter `runWriteControllerWorkflow`. |
+| Agent loop | Assemble context, model chooses action, permission/tool execution, observe, repeat. | `write_controller` consumes `WriteWorkflowStateView`, emits one `WriteWorkflowDecision`, scheduler executes one bounded effect, appends observation. |
+| Permission system | Deny-first, graduated trust, hooks/policy, sandboxing, resume re-establishes trust. | Shared typed policy: `allow/ask/deny`, deny precedence, slice fingerprint approval, worktree boundary, command/path/content parsers. |
+| Tools | Tool namespace is also the governance vocabulary. | Role-scoped tool bundles: controller decision only; localizer read-only; planner plan/probe; coder apply-only; verifier typed checks. |
+| State and persistence | Append-oriented sessions, checkpoints, compaction sidechains. | `WriteWorkflowRun` event ledger plus context-pack artifact refs; resume rebuilds from typed state and current policy. |
+| Execution environment | Bounded shell/edit environment and checkpoints reduce blast radius. | Isolated git worktree, unconditional cleanup, no automatic main merge, apply-pre risk gate for every write. |
+
+### Turn Pipeline
+
+Codrax write mode should converge on a deterministic turn nucleus:
+
+```text
+1. assemble_state_view(run, active_slice, policy, context_pack, diagnostics)
+2. model emits exactly one typed controller action
+3. hydrate action from durable state where this is lossless
+4. validate action against schema, budget, state, permission, and role policy
+5. execute one effect: explore | plan | apply | observe | split | append | block | finish
+6. normalize tool output into typed artifacts
+7. append event and artifact refs
+8. project updated context views for next consumer
+9. render user-facing progress from typed state
+```
+
+This mirrors the public loop shape while preserving Codrax red lines:
+state transitions never read model prose, user intent keywords, summaries,
+rationale, `<think>`, or natural-language logs. Those remain transparent
+runtime text for users and audit, not control inputs.
+
+### Online Slice Scheduler
+
+The Claude Code-style "edit/run/observe" lesson should be encoded as a
+scheduler invariant:
+
+```text
+large task -> derive dependency-aware slices -> apply one runnable slice ->
+observe immediately -> continue only from typed observation
+```
+
+Guidelines:
+
+- target slices should be bounded by path set, behavior contract set, and
+  changed-symbol set, not by arbitrary token count;
+- large file-count tasks should prefer small dependency-ordered groups, with a
+  default soft target around 5-15 files per observe boundary;
+- verified slices become stable checkpoints and should not be reopened unless
+  a typed dependency impact marks them stale;
+- failed/unverified slices carry P2 diagnostics into a focused replan rather
+  than restarting broad exploration;
+- the controller may append or split DAG nodes when observations reveal new
+  obligations, but it must do so through `WriteWorkflowDecision`, not hidden
+  prose.
+
+### Context And Memory Design
+
+The paper's compaction and memory findings translate to a Codrax-specific
+context design:
+
+- raw logs/transcripts remain durable and user-visible;
+- model-facing context is rebuilt as typed views, never as accumulated chat;
+- P0/P1/P2 must-carry information survives compaction, retries, and process
+  restart;
+- completed slices collapse to compact ledger rows;
+- failed observations, exact edit-anchor repair packets, and environment
+  diagnostics stay expanded until consumed by planner/verifier/controller;
+- subagent/localizer outputs are untrusted prose until projected into
+  `WriteContextPack` items with priority, consumer, source stage, path/symbol,
+  line/evidence refs, and dedupe keys.
+
+### Governance And Extensibility
+
+Public Claude Code research emphasizes that hooks, permissions, skills,
+subagents, MCP, and plugins are different extension surfaces with different
+context and security costs. Codrax should introduce extension only where it
+reduces user burden without weakening hard gates:
+
+- keep prompt/skill content as soft workflow guidance only;
+- represent lifecycle interception as typed hooks/events inside the write
+  scheduler before exposing new user-configurable hooks;
+- do not add a broad write-mode MCP/plugin surface until permission policy,
+  artifact provenance, and context-cost accounting are unified;
+- prefer role-specific workers over general subagents when the required output
+  can be typed (`LocalizerWorker`, `ProbeWorker`, `VerifierWorker`);
+- treat slash commands as operator controls over durable state, not as the
+  product's normal workflow language.
+
+### Commercial Design Target
+
+The production target is an online, command-light write mode:
+
+```text
+describe goal -> Codrax localizes if needed -> edits one slice -> observes ->
+continues/replans/splits automatically -> asks only on high risk or true user
+facts -> finishes with verified/unverified/blocked typed verdict
+```
+
+The model gets more flexibility because it can choose exploration, split,
+append, replan, observe, or finish at each turn. The system gets more reliable
+because each choice is accepted only through typed schemas, deterministic
+policy, append-only state, and immediate observation.
 
 ## Current Codrax Baseline
 
@@ -808,7 +945,7 @@ Primary files:
 | 2 | complete | Required expected/forbidden behavior contracts now default to completion targets; distinct expected_outcomes append as required fallback contracts even when explicit contracts exist; plan probes must reference every required contract; verification confidence records partial covered/missing contract refs; SWE-bench adapter records typed confidence downgrade reasons for unavailable/unverified local verification without blocking export. |
 | 3 | complete | Active slice is the scheduler execution unit with durable transitions. This pass added the missing apply-start transition: before coder/apply runs, the active slice now records `status=applying`, an `apply/started` attempt, and a `slice_apply_started` event; existing observe/advance logic carries applying -> observing -> verified/unverified/failed/blocked and advances only runnable dependency-satisfied slices. |
 | 4 | in_progress | Localizer worker and evidence coverage. This pass added prior-context plan coverage as a persisted soft audit/handoff signal: coverage reads P0/P1 non-plan context, excludes test paths and plan-authored target paths, and is attached to the active batch's change-plan pack; SWE-bench adapter applies the same self-coverage exclusion. |
-| 5 | pending | PlanRepairPack. |
+| 5 | complete | PlanRepairPack implemented across `emit_change_plan`, `emit_plan_skeleton`, and `emit_plan_change`: plan emit rejections now attach `ToolResult.Repair.Code=write_plan_repair_pack`, compact typed metadata, accepted enums, failing field paths, exact structured-edit current bytes, and retained-partial retry guidance. Planner prompt guidance consumes the typed repair packet as soft retry input while hard gates still read validators. Verification passed: focused `internal/tool`, `internal/types`, `internal/skill`; `python3 -m py_compile eval/swebench/run_codrax_swebench.py`; `bash eval/swebench/smoke_local.sh`; `git diff --check`; `go test ./...`; `make`. |
 | 6 | pending | Permission engine unification. |
 | 7 | pending | Context shaping and durable sidechains. |
 | 8 | pending | UX Auto Pilot polish. |

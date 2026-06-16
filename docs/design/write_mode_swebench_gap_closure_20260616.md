@@ -484,6 +484,28 @@ Acceptance:
   exploration.
 - Hard logic consumes packet fields only, never model/tool-result prose.
 
+Progress:
+
+- Implemented `PlanRepairPack` as the shared typed repair payload for
+  `emit_change_plan`, `emit_plan_skeleton`, and `emit_plan_change`.
+- Rejections now attach `ToolResult.Repair.Code=write_plan_repair_pack`,
+  bounded `plan_repair_pack` metadata, transparent `PLAN_REPAIR_PACK:` summary
+  text for user logs, and exact structured-edit current/expected old-text bytes
+  where available.
+- Multi-round finalize failures mark `partial_plan_retained=true`, so the
+  planner can re-emit only the offending file instead of restarting a broad
+  investigation.
+- Planner guidance was updated as soft retry instruction only; validators,
+  schemas, path policy, and typed verify reports remain the hard source of
+  truth.
+- Verification passed:
+  `go test ./internal/tool -run 'TestEmit(ChangePlan|PlanChange|PlanSkeleton)|TestStructuredEdit|TestChangePlan' -count=1`,
+  `go test ./internal/types -count=1`,
+  `go test ./internal/skill -run 'TestChangePlanSkill|TestPrompt|TestWrite' -count=1`,
+  `python3 -m py_compile eval/swebench/run_codrax_swebench.py`,
+  `bash eval/swebench/smoke_local.sh`, `git diff --check`,
+  `go test ./...`, and `make`.
+
 #### Batch 5C: Semantic Verify Confidence Layer
 
 - Add typed static/runtime confidence records separate from pass/fail:

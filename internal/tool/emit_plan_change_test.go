@@ -127,6 +127,50 @@ func TestEmitPlanChange_FinalizeRejectsPythonProbeNotImportingChangedTarget(t *t
 	}
 }
 
+func TestEmitPlanChange_FinalizeOldTextMismatchRepairPackRetainsPartial(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "widget.py", "VALUE = 1\n")
+	bus := &types.BusContext{Mutable: types.NewMutableState(""), RepoRoot: root}
+	installSkeletonForTest(t, bus, `{
+		"request": "fix widget value",
+		"summary": "Single-file Python plan with a structured edit that should expose exact current bytes on mismatch.",
+		"changes": [
+			{"path": "widget.py", "kind": "patch", "rationale": "update the value"}
+		]
+	}`)
+	res, err := (&EmitPlanChange{}).Execute(bus, json.RawMessage(`{
+		"path": "widget.py",
+		"edits": [{
+			"kind": "replace",
+			"start_line": 1,
+			"old_text": "VALUE = 0\n",
+			"content": "VALUE = 2\n"
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("execute err: %v", err)
+	}
+	if res.Success {
+		t.Fatal("old_text mismatch should reject finalize")
+	}
+	pack := mustPlanRepairPack(t, res)
+	if pack.ReasonCode != "old_text_mismatch" {
+		t.Fatalf("reason_code=%q, want old_text_mismatch; pack=%+v", pack.ReasonCode, pack)
+	}
+	if !pack.PartialPlanRetained {
+		t.Fatalf("repair pack should mark retained partial plan: %+v", pack)
+	}
+	if len(pack.CurrentBytes) != 1 || pack.CurrentBytes[0].ExpectedOldText != "VALUE = 1\n" {
+		t.Fatalf("repair pack should carry exact expected old_text, got %+v", pack.CurrentBytes)
+	}
+	if bus.Mutable.ChangePlan() != nil {
+		t.Fatalf("ChangePlan must not be promoted after finalize rejection")
+	}
+	if bus.Mutable.PartialChangePlan() == nil {
+		t.Fatalf("PartialChangePlan should be retained for retry")
+	}
+}
+
 // TestEmitPlanChange_NoSkeletonRejects: calling emit_plan_change
 // without a prior skeleton returns a clear protocol-error message.
 func TestEmitPlanChange_NoSkeletonRejects(t *testing.T) {

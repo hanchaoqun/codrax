@@ -4605,3 +4605,52 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     `go test ./internal/orchestrator -run 'TestAttachPlanContextPackToWorkflowRunPersistsPriorContextCoverage|TestRunWriteControllerWorkflow_ExplorePlanFinish|TestRunWriteControllerWorkflow_VerifyFailureReplansWithEvidence' -count=1`.
   - SWE-bench adapter smoke passed with an injected plan-authored self path:
     `bash eval/swebench/smoke_local.sh`.
+
+## 2026-06-17 Claude Code research mapping and PlanRepairPack delivery
+
+- User request:
+  - Incorporate the 2026 paper *Dive into Claude Code: The Design Space of
+    Today's and Future AI Agent Systems* plus public Claude Code architecture
+    research into Codrax write-mode design.
+  - Continue commercial hardening without prompt-only patches, keyword
+    matching, or model-prose routing.
+- Design update:
+  - `docs/design/write_mode_claude_code_online_convergence_architecture_20260617.md`
+    now maps the paper's seven functional components to Codrax's write
+    control plane: one online workflow controller, typed permission/effect
+    broker, role-scoped tools, append-only workflow/context store, and typed
+    observation loop.
+  - The same document records the deterministic turn nucleus:
+    assemble typed state view, emit one controller action, hydrate/validate,
+    execute one bounded effect, normalize output, append event refs, project
+    context, and render status from typed state.
+  - The design explicitly keeps visible `<think>` logs as user transparency
+    while forbidding hard logic from parsing them, model prose, user keywords,
+    summaries, rationale, or natural-language logs.
+- Code delivery:
+  - Added `types.PlanRepairPack` and `PlanRepairCurrentBytes` as the compact
+    typed repair packet for write-plan emit failures.
+  - `emit_change_plan`, `emit_plan_skeleton`, and `emit_plan_change` now attach
+    `ToolResult.Repair.Code=write_plan_repair_pack` with bounded metadata,
+    reason codes, failing JSON field paths, accepted enums, path targets, and
+    exact structured-edit current/expected old-text bytes where available.
+  - Multi-round finalize failures mark `partial_plan_retained=true`, allowing a
+    focused `emit_plan_change` retry for the offending file instead of a broad
+    re-investigation.
+  - Planner skill guidance now teaches `write_plan_repair_pack` as soft retry
+    input. Validators and schemas remain the hard source of truth.
+- Prompt/red-line status:
+  - No hard route reads user intent keywords, SWE-bench ids, model summaries,
+    rationale, tool-result prose, or `<think>`.
+  - The repair packet is typed metadata carried on the existing
+    `ToolResult.Repair` transport; no new prompt-only state machine was added.
+- Focused verification:
+  - `go test ./internal/tool -run 'TestEmit(ChangePlan|PlanChange|PlanSkeleton)|TestStructuredEdit|TestChangePlan' -count=1`
+  - `go test ./internal/types -count=1`
+  - `go test ./internal/skill -run 'TestChangePlanSkill|TestPrompt|TestWrite' -count=1`
+- Full verification:
+  - `python3 -m py_compile eval/swebench/run_codrax_swebench.py`
+  - `bash eval/swebench/smoke_local.sh`
+  - `git diff --check`
+  - `go test ./...`
+  - `make`
