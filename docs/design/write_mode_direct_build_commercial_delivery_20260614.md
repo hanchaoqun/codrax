@@ -3969,3 +3969,41 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     across several instances, not a correctness blocker.
   - Behavior-grounded localization needs strengthening for symptom-heavy
     issues where a plausible nearby code path is not the official causal site.
+
+## 2026-06-16 SWE-bench fair-history flag hardening
+
+- User request:
+  - Historical-git leakage prevention should be controlled by an explicit flag,
+    default off for normal product use, and enabled only by SWE-bench fair-eval
+    entrypoints.
+- Current implementation:
+  - Codrax CLI exposes eval-only `--eval-disable-git-history`, default `false`.
+    `cmd/root.go` forwards the typed flag into `BusContext.EvalDisableGitHistory`.
+  - Tool hard gates consume that typed flag plus parsed git command structure.
+    Structured history tools (`git_show`, `git_log`, `git_history_search`,
+    ref/range `git_diff`) and shell git-history commands refuse when the flag is
+    enabled; working-tree-only diff remains available.
+  - `eval/swebench/run_codrax_swebench.py --isolate-git-history` prunes
+    future refs/history in the per-instance checkout and passes
+    `--eval-disable-git-history` to Codrax.
+  - `eval/swebench/smoke_lite.sh` enables isolation by default for fair smoke
+    via `SWEBENCH_ISOLATE_GIT_HISTORY=1`. Direct adapter runs and ordinary
+    read/write/product runs default to disabled history isolation.
+- Safety and prompt hygiene:
+  - No branch reads user intent keywords, issue text, model rationale,
+    natural-language summaries, or `<think>` content.
+  - The gate is eval-scoped and typed; it does not change write approval,
+    risk, apply, verify, read mode, trace/log/data, or operation mode behavior.
+- Implementation tasks:
+  - [x] Keep Codrax product default as `--eval-disable-git-history=false`.
+  - [x] Enable the flag only from SWE-bench adapter fair-isolation mode.
+  - [x] Keep `smoke_lite.sh` fair by default while preserving direct adapter
+    default-off behavior.
+  - [x] Add CLI compatibility/default tests so future flag rewiring does not
+    silently regress.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/tool ./cmd ./internal/orchestrator -run 'TestEvalDisableGitHistoryGates|TestRuntimeStoresInstallOnOrchestrator|TestNormalizeCompatArgs|TestResolveUserMode|TestWrite|Test.*GitHistory' -count=1`.
+  - `eval/swebench/smoke_local.sh` already checks both sides: default adapter
+    runs do not pass `--eval-disable-git-history`; fair adapter runs do pass it
+    and record enabled isolation telemetry.

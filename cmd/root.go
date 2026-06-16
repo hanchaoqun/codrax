@@ -632,6 +632,7 @@ var compatLongFlagNames = map[string]struct{}{
 	"memory-dir":                {},
 	"cache-dir":                 {},
 	"lang":                      {},
+	"eval-disable-git-history":  {},
 	"pipeline-max-retries":      {},
 	"pipeline-max-stage-visits": {},
 	"log":                       {},

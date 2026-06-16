@@ -18,6 +18,7 @@ func TestNormalizeCompatArgs_RewritesLegacySingleDashLongFlags(t *testing.T) {
 		"-branch=main",
 		"-request", "trace analyzer",
 		"-pipeline-max-steps", "50",
+		"-eval-disable-git-history",
 		"-chitchat-classifier=true",
 	})
 	want := []string{
@@ -25,10 +26,21 @@ func TestNormalizeCompatArgs_RewritesLegacySingleDashLongFlags(t *testing.T) {
 		"--branch=main",
 		"--request", "trace analyzer",
 		"--pipeline-max-steps", "50",
+		"--eval-disable-git-history",
 		"--chitchat-classifier=true",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalizeCompatArgs mismatch:\n  got:  %#v\n  want: %#v", got, want)
+	}
+}
+
+func TestEvalDisableGitHistoryFlagDefaultsOff(t *testing.T) {
+	flag := rootCmd.PersistentFlags().Lookup("eval-disable-git-history")
+	if flag == nil {
+		t.Fatal("--eval-disable-git-history flag should be registered")
+	}
+	if flag.DefValue != "false" {
+		t.Fatalf("--eval-disable-git-history must default off, got %q", flag.DefValue)
 	}
 }
 
