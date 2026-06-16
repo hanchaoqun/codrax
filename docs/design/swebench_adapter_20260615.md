@@ -891,3 +891,42 @@ records adapter results.
   adapter runs without the flag retain git history tooling. The gate consumes
   typed CLI/config state and parsed git subcommands only, not user intent
   keywords, model prose, summaries, or issue text.
+- 2026-06-16: Started a fair-isolated four-instance Lite batch at
+  `eval/results/swebench/lite-smoke-20260616-fair-batch-sympy-sphinx-scikit-django`
+  for `django__django-11742`, `sympy__sympy-12481`,
+  `sphinx-doc__sphinx-7738`, and `scikit-learn__scikit-learn-13439`; stopped it
+  after the Django run exposed a generalized write-mode replan gap. After the
+  first apply/verify failure, planner replan tool calls read absolute paths from
+  the original instance checkout while `emit_change_plan` validation compared
+  against the active worktree that already contained attempted edits. That made
+  tool evidence and edit validation disagree on the same file bytes. The fix is
+  in the tool boundary, not the issue prompt: `WorktreePath` now propagates
+  through `BusContext -> AgentContext -> ToolBusContext`, and active write-mode
+  tool path resolution remaps absolute paths under `MainRepoRoot` to the same
+  repo-relative path under `WorktreePath` only when `RepoRoot == WorktreePath`.
+  Absolute paths already inside the worktree, external paths, and runtime
+  `WorkDir` artifacts keep their previous behavior, preserving read/log/trace
+  stability. This gate consumes typed mode/root/worktree fields and filesystem
+  path structure only; it does not inspect issue text, user intent keywords,
+  model prose, summaries, or `<think>`.
+- 2026-06-16: Re-ran `django__django-11742` after the worktree path remap fix
+  at
+  `eval/results/swebench/lite-smoke-20260616-django11742-worktree-remap-after-fix`.
+  The run completed with `status=predicted`,
+  `prediction_verdict=predicted_passed`, `patch_bytes=1802`, and a non-empty
+  source patch for `django/db/models/fields/__init__.py`; the test patch was
+  stripped from the official prediction as intended. Prediction validation
+  accepted the JSONL with `empty_patch=0` and the adapter printed the official
+  SWE-bench harness command. The decisive log evidence is that replan supplied
+  absolute paths under the instance main checkout, while tool resolution
+  remapped them to
+  `repo/.codrax/worktrees/trace-1781572677209686000-41136/...` before grep/read
+  executed, so planner evidence matched the active mutation baseline. The same
+  run exposed follow-up planner-repair smoothness gaps that are intentionally
+  not mixed into this path-boundary commit: after handoff budget narrowing, the
+  planner still tried unavailable `read_file` / `grep`; `emit_change_plan`
+  needed several typed repair rounds for JSON-string arrays, old-text mismatch,
+  overlapping edits, Python `insert_before_final_brace`, and a top-level
+  unknown `rationale` field. Those are schema/repair UX gaps, not safety
+  bypasses: all rejections came from typed validators, and medium-risk apply
+  still proceeded without user approval once a valid bounded plan existed.

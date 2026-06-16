@@ -100,9 +100,12 @@ func ctxRepoRoot(ctx *types.BusContext) string {
 //     return p unchanged so existing tests keep working without a fake
 //     RepoRoot.
 //   - p empty or "." → return ctx.RepoRoot.
-//   - p absolute → return as-is. The LLM occasionally pastes a path
-//     it saw in earlier output (already absolute); re-rooting it would
-//     produce a nonsense `RepoRoot/abs/path/...`.
+//   - p absolute → return as-is, except during an active write-mode
+//     worktree loop where an absolute path under MainRepoRoot is
+//     remapped to the same repo-relative path under WorktreePath. This
+//     lets replan/verify tools inspect the current mutable checkout
+//     even when prior logs or prompt context carried main-checkout
+//     absolute paths.
 //   - p relative → join under ctx.RepoRoot. If the model prepends the active
 //     repo directory name (for example `my-repo/internal/foo.go`), strip that
 //     prefix only when the original path is missing and the stripped suffix
@@ -118,6 +121,9 @@ func resolveToolPath(ctx *types.BusContext, p string) string {
 		return normalized
 	}
 	if toolPathIsAbs(p) {
+		if rewritten, ok := rewriteMainRepoAbsolutePathToActiveWorktree(ctx, p); ok {
+			return rewritten
+		}
 		return p
 	}
 	if rewritten, ok := stripActiveRepoLabelPrefix(ctx, p); ok {
@@ -139,6 +145,9 @@ func resolveRepoScopedToolDir(ctx *types.BusContext, p string) (string, string) 
 		raw = normalized
 	}
 	if toolPathIsAbs(raw) {
+		if rewritten, ok := rewriteMainRepoAbsolutePathToActiveWorktree(ctx, raw); ok {
+			raw = rewritten
+		}
 		abs := normalizeToolAbsolutePath(raw)
 		rel, err := filepath.Rel(root, abs)
 		if err != nil || rel == ".." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
@@ -154,6 +163,49 @@ func resolveRepoScopedToolDir(ctx *types.BusContext, p string) (string, string) 
 		return filepath.Join(root, rewritten), ""
 	}
 	return filepath.Join(root, raw), ""
+}
+
+func rewriteMainRepoAbsolutePathToActiveWorktree(ctx *types.BusContext, p string) (string, bool) {
+	if ctx == nil || !ctx.Mode.Normalize().IsWrite() {
+		return "", false
+	}
+	activeRoot := strings.TrimSpace(ctx.RepoRoot)
+	mainRoot := strings.TrimSpace(ctx.MainRepoRoot)
+	worktreeRoot := strings.TrimSpace(ctx.WorktreePath)
+	if activeRoot == "" || mainRoot == "" || worktreeRoot == "" {
+		return "", false
+	}
+	activeRoot = filepath.Clean(normalizeToolAbsolutePath(activeRoot))
+	mainRoot = filepath.Clean(normalizeToolAbsolutePath(mainRoot))
+	worktreeRoot = filepath.Clean(normalizeToolAbsolutePath(worktreeRoot))
+	if !toolPathsEqual(activeRoot, worktreeRoot) || toolPathsEqual(mainRoot, worktreeRoot) {
+		return "", false
+	}
+	abs := filepath.Clean(normalizeToolAbsolutePath(p))
+	if !toolPathIsAbs(abs) {
+		return "", false
+	}
+	if workDir := strings.TrimSpace(ctx.WorkDir); workDir != "" {
+		workDir = filepath.Clean(normalizeToolAbsolutePath(workDir))
+		if _, inWorkDir := repoRelativePathWithinRoot(workDir, abs); inWorkDir {
+			return "", false
+		}
+	}
+	if _, alreadyWorktree := repoRelativePathWithinRoot(worktreeRoot, abs); alreadyWorktree {
+		return "", false
+	}
+	rel, underMain := repoRelativePathWithinRoot(mainRoot, abs)
+	if !underMain {
+		return "", false
+	}
+	var rewritten string
+	if rel == "" {
+		rewritten = worktreeRoot
+	} else {
+		rewritten = filepath.Join(worktreeRoot, filepath.FromSlash(rel))
+	}
+	logging.Debug("[tool] remapped write-mode main-repo absolute path to worktree raw=%q rewritten=%q main=%q worktree=%q", p, rewritten, mainRoot, worktreeRoot)
+	return rewritten, true
 }
 
 func stripActiveRepoLabelPrefix(ctx *types.BusContext, raw string) (string, bool) {

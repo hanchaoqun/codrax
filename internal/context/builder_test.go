@@ -3462,6 +3462,7 @@ func TestBuildAgentContext_PlumbsReadOnlyToolFields(t *testing.T) {
 	bus := &types.BusContext{
 		RepoRoot:             "/tmp/repo",
 		MainRepoRoot:         "/home/user/orig-repo",
+		WorktreePath:         "/tmp/codrax-worktree",
 		Mutable:              types.NewMutableState("q"),
 		Memory:               mem,
 		EnvFacts:             facts,
@@ -3472,6 +3473,9 @@ func TestBuildAgentContext_PlumbsReadOnlyToolFields(t *testing.T) {
 
 	if ac.MainRepoRoot != "/home/user/orig-repo" {
 		t.Errorf("MainRepoRoot lost: got %q, want %q", ac.MainRepoRoot, "/home/user/orig-repo")
+	}
+	if ac.WorktreePath != "/tmp/codrax-worktree" {
+		t.Errorf("WorktreePath lost: got %q, want %q", ac.WorktreePath, "/tmp/codrax-worktree")
 	}
 	if ac.Memory == nil {
 		t.Fatalf("Memory dropped — recall_memory tool would see nil")

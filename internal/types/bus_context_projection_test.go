@@ -204,6 +204,8 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		ac.EnvRecommendSettings = EnvRecommendSettings{Enabled: true}
 	case "EvalDisableGitHistory":
 		ac.EvalDisableGitHistory = true
+	case "WorktreePath":
+		ac.WorktreePath = "/tmp/codrax-worktree-sentinel"
 	default:
 		return false
 	}
@@ -245,6 +247,8 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		bc.EnvRecommendSettings = EnvRecommendSettings{Enabled: true}
 	case "EvalDisableGitHistory":
 		bc.EvalDisableGitHistory = true
+	case "WorktreePath":
+		bc.WorktreePath = "/tmp/codrax-worktree-sentinel"
 	default:
 		return false
 	}

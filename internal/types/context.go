@@ -5909,6 +5909,12 @@ type AgentContext struct {
 	// Empty in non-write paths is fine — RepoRoot is then the same dir.
 	MainRepoRoot string `json:"main_repo_root,omitempty"`
 
+	// WorktreePath mirrors BusContext.WorktreePath so tool dispatches can
+	// resolve stale absolute main-checkout paths onto the active writable
+	// checkout during write-mode apply/replan/verify loops. Empty outside
+	// active write workflows.
+	WorktreePath string `json:"worktree_path,omitempty"`
+
 	// Multi-repo mirrors of BusContext fields — so agents that hold
 	// only an AgentContext (most do, post-AgentContextBuilder) can
 	// read the multi-repo carrier without taking a *BusContext

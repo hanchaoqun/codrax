@@ -3315,6 +3315,60 @@ func TestResolveToolPath_RootsRelativeAtRepoRoot(t *testing.T) {
 	})
 }
 
+func TestResolveToolPath_WriteModeRemapsMainRepoAbsolutePathToActiveWorktree(t *testing.T) {
+	parent := t.TempDir()
+	mainRoot := filepath.Join(parent, "repo")
+	worktreeRoot := filepath.Join(mainRoot, ".codrax", "worktrees", "trace-1")
+	if err := os.MkdirAll(filepath.Join(mainRoot, "pkg"), 0o755); err != nil {
+		t.Fatalf("setup main root: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, "pkg"), 0o755); err != nil {
+		t.Fatalf("setup worktree root: %v", err)
+	}
+	ctx := &types.BusContext{
+		Mode:         types.ModeApply,
+		RepoRoot:     worktreeRoot,
+		MainRepoRoot: mainRoot,
+		WorktreePath: worktreeRoot,
+		WorkDir:      filepath.Join(mainRoot, ".codrax"),
+	}
+
+	mainAbs := filepath.Join(mainRoot, "pkg", "file.py")
+	want := filepath.Join(worktreeRoot, "pkg", "file.py")
+	if got := resolveToolPath(ctx, mainAbs); got != want {
+		t.Fatalf("resolveToolPath main absolute: got %q, want %q", got, want)
+	}
+
+	dirGot, errText := resolveRepoScopedToolDir(ctx, mainAbs)
+	if errText != "" {
+		t.Fatalf("resolveRepoScopedToolDir rejected remappable main absolute path: %s", errText)
+	}
+	if dirGot != want {
+		t.Fatalf("resolveRepoScopedToolDir main absolute: got %q, want %q", dirGot, want)
+	}
+
+	alreadyWorktree := filepath.Join(worktreeRoot, "pkg", "file.py")
+	if got := resolveToolPath(ctx, alreadyWorktree); got != alreadyWorktree {
+		t.Fatalf("worktree absolute path should not be remapped again: got %q, want %q", got, alreadyWorktree)
+	}
+
+	mainActiveCtx := *ctx
+	mainActiveCtx.RepoRoot = mainRoot
+	if got := resolveToolPath(&mainActiveCtx, mainAbs); got != mainAbs {
+		t.Fatalf("inactive worktree should preserve main absolute path: got %q, want %q", got, mainAbs)
+	}
+
+	outside := filepath.Join(parent, "outside", "file.py")
+	if got := resolveToolPath(ctx, outside); got != outside {
+		t.Fatalf("outside absolute path should stay unchanged: got %q, want %q", got, outside)
+	}
+
+	runtimeArtifact := filepath.Join(ctx.WorkDir, "logs", "codrax.log")
+	if got := resolveToolPath(ctx, runtimeArtifact); got != runtimeArtifact {
+		t.Fatalf("runtime artifact absolute path should stay unchanged: got %q, want %q", got, runtimeArtifact)
+	}
+}
+
 func TestResolveToolPath_StripsActiveRepoLabelPrefixWhenUnambiguous(t *testing.T) {
 	parent := t.TempDir()
 	repoRoot := filepath.Join(parent, "codrax-small")

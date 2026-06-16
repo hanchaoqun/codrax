@@ -46,8 +46,8 @@ package types
 // "Typed signal" here means a field whose value affects gate
 // enforcement (MultiGraph / TypedDenials / PendingSubRepos /
 // MultiRepoInactivePreviewCount), tool capability (Memory /
-// EnvFacts / EnvRecommendSettings), or cancellation propagation
-// (Ctx). Stage-scoped fields (RepoFacts / EvidenceItems /
+// EnvFacts / EnvRecommendSettings / WorktreePath), or cancellation
+// propagation (Ctx). Stage-scoped fields (RepoFacts / EvidenceItems /
 // TaskState / FlowFindings) are NOT typed signals — they are
 // stage outputs that get filtered per-sub-agent or rebuilt
 // per-tool-call and don't belong in this list.
@@ -70,6 +70,7 @@ var projectionTypedSignalFields = []string{
 	"EnvFacts",
 	"EnvRecommendSettings",
 	"EvalDisableGitHistory",
+	"WorktreePath",
 }
 
 // ProjectionTypedSignalFields returns a copy of the typed-signal
@@ -117,6 +118,7 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		Commit:                ctx.Commit,
 		WorkDir:               ctx.WorkDir,
 		MainRepoRoot:          ctx.MainRepoRoot,
+		WorktreePath:          ctx.WorktreePath,
 		AnalysisIR:            ctx.AnalysisIR,
 		AttachedLog:           ctx.AttachedLog,
 		AttachedHitrace:       ctx.AttachedHitrace,
@@ -189,6 +191,8 @@ func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 		Branch:       bus.Branch,
 		Commit:       bus.Commit,
 		WorkDir:      bus.WorkDir,
+		MainRepoRoot: bus.MainRepoRoot,
+		WorktreePath: bus.WorktreePath,
 		Mode:         bus.Mode,
 
 		// Typed signals — every entry in projectionTypedSignalFields
