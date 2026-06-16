@@ -492,6 +492,15 @@ type appContext struct {
 	// graph at the field level — the actual access goes through
 	// repomap.MultiGraphFromContext / direct cast in the provider.
 	multigraph any
+
+	// Runtime write stores are created during initApp so single-shot
+	// CLI write mode and REPL share the same durable plan/workflow
+	// surfaces. They remain lazy on disk: constructing the stores does
+	// not create files until a write/operation workflow persists state.
+	planStore             *repl.PlanStore
+	planGroupStore        *repl.PlanGroupStore
+	writeWorkflowRunStore *repl.WriteWorkflowRunStore
+	operationPendingStore *repl.OperationPendingStore
 }
 
 var app appContext
@@ -1365,6 +1374,41 @@ func writePlanFile(plan *types.ChangePlan) (string, error) {
 	return targetPath, nil
 }
 
+type runtimeStores struct {
+	PlanStore             *repl.PlanStore
+	PlanGroupStore        *repl.PlanGroupStore
+	WriteWorkflowRunStore *repl.WriteWorkflowRunStore
+	OperationPendingStore *repl.OperationPendingStore
+}
+
+func newRuntimeStores(runtimeAnchor string) runtimeStores {
+	if strings.TrimSpace(runtimeAnchor) == "" {
+		runtimeAnchor = runtimeAnchorDir
+	}
+	planDir := filepath.Join(runtimeAnchor, "plans")
+	return runtimeStores{
+		PlanStore:             repl.NewPlanStore(planDir),
+		PlanGroupStore:        repl.NewPlanGroupStore(planDir),
+		WriteWorkflowRunStore: repl.NewWriteWorkflowRunStore(planDir),
+		OperationPendingStore: repl.NewOperationPendingStore(filepath.Join(runtimeAnchor, "operations")),
+	}
+}
+
+func installRuntimeStores(orch *orchestrator.Orchestrator, stores runtimeStores) {
+	if orch == nil {
+		return
+	}
+	if stores.PlanGroupStore != nil {
+		orch.SetPlanGroupStore(stores.PlanGroupStore)
+	}
+	if stores.WriteWorkflowRunStore != nil {
+		orch.SetWriteWorkflowRunStore(stores.WriteWorkflowRunStore)
+	}
+	if stores.PlanStore != nil {
+		orch.SetPlanSaver(stores.PlanStore)
+	}
+}
+
 // runREPL starts the interactive multi-turn session.
 func runREPL(_ *cobra.Command) error {
 	app.renderer.SetOutput(os.Stdout)
@@ -1389,28 +1433,26 @@ func runREPL(_ *cobra.Command) error {
 	renderFn := func(busCtx *types.BusContext) string {
 		return app.renderer.RenderResult(busCtx)
 	}
-	// PlanStore persistence directory: <runtime-anchor>/plans.
-	// Mirror the blob session path anchoring so operators see the
-	// write-mode plan files next to their logs and memory.
 	runtimeAnchor := runtimeAnchorDir
 	if abs, err := filepath.Abs(runtimeAnchor); err == nil {
 		runtimeAnchor = abs
 	}
-	planStore := repl.NewPlanStore(filepath.Join(runtimeAnchor, "plans"))
-	operationPendingStore := repl.NewOperationPendingStore(filepath.Join(runtimeAnchor, "operations"))
-	// Stage II: PlanGroupStore is the on-disk persister for
-	// multi-phase PlanGroups. Same plan dir; lives under
-	// /groups/ subdir. Wired into the orchestrator below so
-	// runPhaseGroup can persist transitions.
-	planGroupStore := repl.NewPlanGroupStore(filepath.Join(runtimeAnchor, "plans"))
-	app.orch.SetPlanGroupStore(planGroupStore)
-	writeWorkflowRunStore := repl.NewWriteWorkflowRunStore(filepath.Join(runtimeAnchor, "plans"))
-	app.orch.SetWriteWorkflowRunStore(writeWorkflowRunStore)
-	// Stage II: per-phase ChangePlan persistence. Multi-phase
-	// runs go through ModeApply, which bypasses the REPL's
-	// ModePlan-only auto-save and the CLI's writePlanFile path,
-	// so phase plans need their own hook into PlanStore.
-	app.orch.SetPlanSaver(planStore)
+	planStore := app.planStore
+	operationPendingStore := app.operationPendingStore
+	planGroupStore := app.planGroupStore
+	writeWorkflowRunStore := app.writeWorkflowRunStore
+	if planStore == nil || operationPendingStore == nil || planGroupStore == nil || writeWorkflowRunStore == nil {
+		stores := newRuntimeStores(runtimeAnchor)
+		planStore = stores.PlanStore
+		operationPendingStore = stores.OperationPendingStore
+		planGroupStore = stores.PlanGroupStore
+		writeWorkflowRunStore = stores.WriteWorkflowRunStore
+		app.planStore = planStore
+		app.operationPendingStore = operationPendingStore
+		app.planGroupStore = planGroupStore
+		app.writeWorkflowRunStore = writeWorkflowRunStore
+		installRuntimeStores(app.orch, stores)
+	}
 	// FailureTaxonomyStore is now wired in initApp (commit 40)
 	// so single-shot CLI flows also get cross-Run learning.
 	var markdownPreview repl.MarkdownPreviewer
@@ -3509,6 +3551,16 @@ func initApp(cmd *cobra.Command, args []string) error {
 	// SHA. Cache hits give a free baseline on subsequent Runs that
 	// observe the same SHA, regardless of the capture-enabled flag.
 	orch.SetBaselineCache(orchestrator.NewBaselineCache(runtimeAnchor, pipelineSettings.BaselineCacheMax))
+	// Durable write stores are a write-mode contract, not a REPL-only
+	// convenience: single-shot CLI Auto Pilot must persist the outer
+	// workflow DAG, approval state, and context packs so adapters and
+	// recovery tooling can inspect the same typed artifacts.
+	stores := newRuntimeStores(runtimeAnchor)
+	app.planStore = stores.PlanStore
+	app.planGroupStore = stores.PlanGroupStore
+	app.writeWorkflowRunStore = stores.WriteWorkflowRunStore
+	app.operationPendingStore = stores.OperationPendingStore
+	installRuntimeStores(orch, stores)
 	// Commit 2 P0 C: write-mode wall-clock deadline. 0 disables;
 	// the orch setter clamps positive values at 1800.
 	orch.SetWriteMaxSeconds(pipelineSettings.WriteMaxSeconds)

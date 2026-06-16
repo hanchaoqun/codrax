@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/orchestrator"
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -84,6 +86,33 @@ func TestPostFinalizeLLMReviewersAreOptInByDefault(t *testing.T) {
 	}
 	if semanticQualityEnabled {
 		t.Fatal("semantic-quality reviewer must be opt-in by default; deterministic final-answer checks remain covered by pipeline_strict_answer_review_enabled")
+	}
+}
+
+func TestRuntimeStoresInstallOnOrchestrator(t *testing.T) {
+	anchor := filepath.Join(t.TempDir(), ".codrax")
+	stores := newRuntimeStores(anchor)
+	if stores.PlanStore == nil || stores.PlanGroupStore == nil || stores.WriteWorkflowRunStore == nil || stores.OperationPendingStore == nil {
+		t.Fatalf("runtime stores should all be initialized: %+v", stores)
+	}
+	if got, want := stores.PlanStore.PlanDir(), filepath.Join(anchor, "plans"); got != want {
+		t.Fatalf("plan store dir mismatch: got %q want %q", got, want)
+	}
+	if got, want := stores.WriteWorkflowRunStore.WorkflowDir(), filepath.Join(anchor, "plans", "workflows"); got != want {
+		t.Fatalf("workflow store dir mismatch: got %q want %q", got, want)
+	}
+	if got, want := stores.OperationPendingStore.Path(), filepath.Join(anchor, "operations", "pending.json"); got != want {
+		t.Fatalf("operation pending path mismatch: got %q want %q", got, want)
+	}
+
+	orch := orchestrator.New(types.PipelineSettings{}, agent.NewRegistry(), skill.NewRegistry(), agent.NewSubAgentRegistry())
+	installRuntimeStores(orch, stores)
+	v := reflect.ValueOf(orch).Elem()
+	for _, field := range []string{"planSaver", "planGroupStore", "writeWorkflowRunStore"} {
+		got := v.FieldByName(field)
+		if !got.IsValid() || got.IsNil() {
+			t.Fatalf("orchestrator field %s should be installed", field)
+		}
 	}
 }
 

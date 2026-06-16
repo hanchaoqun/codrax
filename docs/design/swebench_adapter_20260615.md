@@ -1060,6 +1060,41 @@ records adapter results.
   The runtime gate consumes typed CLI/env flags, resolved repo paths/refs, and
   parsed git subcommands only; it does not inspect issue text, user intent
   keywords, model prose, summaries, rationale, or `<think>`.
+- 2026-06-16: Re-ran a fair-isolated four-instance Lite batch at
+  `eval/results/swebench/lite-smoke-20260616-scikit11281-pytest6116-sphinx7686-sympy12236-current`
+  for `pytest-dev__pytest-6116`, `scikit-learn__scikit-learn-11281`,
+  `sphinx-doc__sphinx-7686`, and `sympy__sympy-12236`. All four adapter rows
+  reported `git_history_isolated=true`, and the predictions JSONL validated
+  plus official-harness dry-run accepted all rows. Three instances exported
+  non-empty source patches (`367`, `1582`, and `700` bytes) and remained
+  `predicted_unverified` because local verify hit parser/environment issues;
+  the SymPy instance ended `empty_patch` after a long phenomenon-driven
+  exploration. The run also exposed that single-shot CLI write mode had
+  `workflow_path=""` for every row despite controller logs showing active
+  workflow state. Root cause: durable `PlanStore` / `PlanGroupStore` /
+  `WriteWorkflowRunStore` were only installed in `runREPL()`, so CLI Auto Pilot
+  persisted no workflow DAG/context pack artifacts for adapters or recovery.
+  Fix: runtime write stores now initialize during `initApp` and are installed on
+  the orchestrator for both CLI and REPL; REPL reuses the same store objects.
+  `cmd` tests assert the workflow store resolves to
+  `<runtime-anchor>/plans/workflows` and that the orchestrator has
+  `planSaver`, `planGroupStore`, and `writeWorkflowRunStore` installed. This is
+  a typed persistence wiring fix only; read mode, operation/data/trace/log
+  routing, prompt routing, and fair-eval history decisions are unchanged.
+- 2026-06-16: Verified the CLI durable-store fix with a fresh one-instance
+  fair smoke at
+  `eval/results/swebench/lite-smoke-20260616-workflow-store-sphinx7686-after-fix`
+  for `sphinx-doc__sphinx-7686`. The adapter exported a non-empty prediction
+  (`patch_bytes=749`), validation and official-harness dry-run accepted it,
+  `git_history_isolated=true`, and the new result row now reports
+  `workflow_path=<instance>/repo/.codrax/plans/workflows/wf-....json`,
+  `workflow_status=complete`, and populated context telemetry:
+  `plan_context_paths=[sphinx/ext/autosummary/__init__.py,
+  sphinx/ext/autosummary/generate.py, sphinx/ext/autosummary/templates]`,
+  `plan_context_covered_paths=[sphinx/ext/autosummary/generate.py]`,
+  `plan_context_coverage_ratio=0.3333`. This confirms the previous
+  `workflow_path=""` / empty context coverage was a CLI store wiring gap, not a
+  prompt or adapter-projection dependency.
 - 2026-06-16: Started a fair-isolated three-instance Lite batch at
   `eval/results/swebench/lite-smoke-20260616-django11001-sphinx8273-pytest5227-current`
   for `django__django-11001`, `sphinx-doc__sphinx-8273`, and
