@@ -340,12 +340,16 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					o.syncMutablePlanStatusAfterVerify(report, innerErr)
 					o.mirrorActivePlanToImportFile(importedPlanMirror)
 					o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
-					updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
+					status := writeWorkflowVerifyAttemptStatus(report, innerErr)
+					reason := writeWorkflowVerifyAttemptReason(report, innerErr)
+					updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, status, reason)
+					updateWorkflowRunActiveSliceObserve(&run, run.ActiveBatchID, report, status, reason)
 					o.syncCurrentWriteContextPackToRun(&run)
 				} else if o.skipVerify {
 					o.syncMutablePlanStatusAfterSkippedVerify()
 					if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
 						updateWorkflowRunBatchVerifySkipped(&run, run.ActiveBatchID, plan.ID)
+						updateWorkflowRunActiveSliceObserveSkipped(&run, run.ActiveBatchID, plan.ID)
 					}
 				}
 				outcome = writeflow.ClassifyVerifyAttemptOutcome(report, innerErr)
@@ -1267,6 +1271,18 @@ func (o *Orchestrator) runControllerVerifyBatch(stepsUsed *int) error {
 	return err
 }
 
+func (o *Orchestrator) runControllerObserveSlice(stepsUsed *int) error {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return fmt.Errorf("write controller observe slice missing context")
+	}
+	run := o.busCtx.Mutable.WriteWorkflowRun()
+	plan := o.busCtx.Mutable.ChangePlan()
+	if _, active := types.ActiveChangePlanApplySlice(plan, run); !active {
+		return fmt.Errorf("write controller observe_slice requires an active plan slice")
+	}
+	return o.runControllerVerifyBatch(stepsUsed)
+}
+
 func (o *Orchestrator) syncMutablePlanStatusAfterVerify(report *types.ChangeReport, err error) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || report == nil {
 		return
@@ -1727,6 +1743,173 @@ func updateWorkflowRunBatchVerifySkipped(run *types.WriteWorkflowRun, batchID, p
 			FinishedAt: time.Now(),
 		}},
 	})
+}
+
+func updateWorkflowRunActiveSliceObserve(run *types.WriteWorkflowRun, batchID string, report *types.ChangeReport, status, reasonCode string) {
+	if run == nil || strings.TrimSpace(batchID) == "" || report == nil {
+		return
+	}
+	batch := activeWorkflowBatchForUpdate(run, batchID)
+	if batch == nil || strings.TrimSpace(batch.ActiveSliceID) == "" {
+		return
+	}
+	slice := activeWorkflowSliceForUpdate(batch)
+	if slice == nil {
+		return
+	}
+	now := time.Now()
+	reportID := writeWorkflowReportID(report)
+	planID := strings.TrimSpace(report.PlanID)
+	observeStatus, terminalEvent, completionVerdict := observeSliceStatusFromVerifyAttempt(status, report)
+	slice.Status = observeStatus
+	slice.PlanID = firstNonEmptyController(planID, slice.PlanID)
+	slice.ObserveRef = reportID
+	slice.VerifyRef = reportID
+	if completionVerdict != "" {
+		slice.Completion = &types.WriteWorkflowCompletion{
+			Verdict:    completionVerdict,
+			ReasonCode: strings.TrimSpace(reasonCode),
+			Source:     "slice_observe",
+			At:         now,
+		}
+	} else {
+		slice.Completion = nil
+	}
+	appendWorkflowSliceAttempt(slice, "observe", strings.TrimSpace(status), strings.TrimSpace(reasonCode), planID, reportID, reportID)
+	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+		SliceID:     slice.ID,
+		Event:       types.WriteWorkflowSliceEventObserveCompleted,
+		Status:      observeStatus,
+		ReasonCode:  strings.TrimSpace(reasonCode),
+		PlanID:      planID,
+		ReportID:    reportID,
+		ArtifactRef: reportID,
+		At:          now,
+	})
+	if terminalEvent != "" {
+		batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+			SliceID:     slice.ID,
+			Event:       terminalEvent,
+			Status:      observeStatus,
+			ReasonCode:  strings.TrimSpace(reasonCode),
+			PlanID:      planID,
+			ReportID:    reportID,
+			ArtifactRef: reportID,
+			At:          now,
+		})
+	}
+	batch.UpdatedAt = now
+}
+
+func updateWorkflowRunActiveSliceObserveSkipped(run *types.WriteWorkflowRun, batchID, planID string) {
+	if run == nil || strings.TrimSpace(batchID) == "" {
+		return
+	}
+	batch := activeWorkflowBatchForUpdate(run, batchID)
+	if batch == nil || strings.TrimSpace(batch.ActiveSliceID) == "" {
+		return
+	}
+	slice := activeWorkflowSliceForUpdate(batch)
+	if slice == nil {
+		return
+	}
+	now := time.Now()
+	slice.Status = types.ChangePlanSliceUnverified
+	slice.PlanID = firstNonEmptyController(strings.TrimSpace(planID), slice.PlanID)
+	slice.Completion = &types.WriteWorkflowCompletion{
+		Verdict:    types.WriteWorkflowCompletionUnverified,
+		ReasonCode: "skip_verify",
+		Source:     "slice_observe",
+		At:         now,
+	}
+	appendWorkflowSliceAttempt(slice, "observe", "skipped", "skip_verify", strings.TrimSpace(planID), "", "")
+	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+		SliceID:    slice.ID,
+		Event:      types.WriteWorkflowSliceEventUnverified,
+		Status:     types.ChangePlanSliceUnverified,
+		ReasonCode: "skip_verify",
+		PlanID:     strings.TrimSpace(planID),
+		At:         now,
+	})
+	batch.UpdatedAt = now
+}
+
+func activeWorkflowBatchForUpdate(run *types.WriteWorkflowRun, batchID string) *types.WriteWorkflowBatch {
+	if run == nil {
+		return nil
+	}
+	batchID = strings.TrimSpace(batchID)
+	if batchID == "" {
+		batchID = strings.TrimSpace(run.ActiveBatchID)
+	}
+	if batchID == "" {
+		return nil
+	}
+	for i := range run.Batches {
+		if strings.TrimSpace(run.Batches[i].ID) == batchID {
+			return &run.Batches[i]
+		}
+	}
+	return nil
+}
+
+func activeWorkflowSliceForUpdate(batch *types.WriteWorkflowBatch) *types.WriteWorkflowSlice {
+	if batch == nil {
+		return nil
+	}
+	activeID := strings.TrimSpace(batch.ActiveSliceID)
+	if activeID == "" && len(batch.Slices) > 0 {
+		activeID = strings.TrimSpace(batch.Slices[0].ID)
+		batch.ActiveSliceID = activeID
+	}
+	if activeID == "" {
+		return nil
+	}
+	for i := range batch.Slices {
+		if strings.TrimSpace(batch.Slices[i].ID) == activeID {
+			return &batch.Slices[i]
+		}
+	}
+	return nil
+}
+
+func observeSliceStatusFromVerifyAttempt(status string, report *types.ChangeReport) (types.ChangePlanSliceStatus, types.WriteWorkflowSliceEventKind, types.WriteWorkflowCompletionVerdict) {
+	switch strings.TrimSpace(status) {
+	case "passed":
+		return types.ChangePlanSliceVerified, types.WriteWorkflowSliceEventVerified, types.WriteWorkflowCompletionVerified
+	case "unverified", "skipped":
+		return types.ChangePlanSliceUnverified, types.WriteWorkflowSliceEventUnverified, types.WriteWorkflowCompletionUnverified
+	}
+	if report != nil && report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
+		return types.ChangePlanSliceUnverified, types.WriteWorkflowSliceEventUnverified, types.WriteWorkflowCompletionUnverified
+	}
+	return types.ChangePlanSliceFailed, types.WriteWorkflowSliceEventFailed, ""
+}
+
+func appendWorkflowSliceAttempt(slice *types.WriteWorkflowSlice, kind, status, reasonCode, planID, reportID, artifactRef string) {
+	if slice == nil {
+		return
+	}
+	slice.Attempts = append(slice.Attempts, types.WriteWorkflowAttempt{
+		ID:          fmt.Sprintf("attempt-%d", len(slice.Attempts)+1),
+		Kind:        strings.TrimSpace(kind),
+		Status:      strings.TrimSpace(status),
+		ReasonCode:  strings.TrimSpace(reasonCode),
+		PlanID:      strings.TrimSpace(planID),
+		ReportID:    strings.TrimSpace(reportID),
+		ArtifactRef: strings.TrimSpace(artifactRef),
+		StartedAt:   time.Now(),
+		FinishedAt:  time.Now(),
+	})
+}
+
+func firstNonEmptyController(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func updateWorkflowRunBatchVerifyInfra(run *types.WriteWorkflowRun, batchID, planID, status, reasonCode string) {
