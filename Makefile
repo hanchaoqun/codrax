@@ -62,9 +62,10 @@ ifeq ($(OS),Windows_NT)
   EXEEXT := .exe
   OUT := $(BINARY)$(EXEEXT)
   VERSION_DATE := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyyMMdd')")
-  GIT_DIRTY := $(shell powershell -NoProfile -Command "if ((git status --porcelain 2>$$null)) { '-dirty' }")
+  GIT_DIRTY := $(shell powershell -NoProfile -Command "if ((git status --porcelain)) { '-dirty' }")
   BUILD_TIME := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')")
   WSL_REPO := $(shell powershell -NoProfile -Command "'/mnt/' + (Resolve-Path '.').Path.Substring(0,1).ToLower() + (Resolve-Path '.').Path.Substring(2).Replace('\','/')")
+  WINDOWS_GO_ENV := if (-not $$env:GOROOT) { $$goBin = (Get-Command $(GO) -ErrorAction SilentlyContinue).Source; if ($$goBin) { $$goRoot = Join-Path (Split-Path (Split-Path $$goBin -Parent) -Parent) 'lib\go'; if (Test-Path $$goRoot) { $$env:GOROOT = $$goRoot } } }; $$env:CGO_ENABLED='1';
 else
   HOST_OS := unix
   # HOST_KIND splits unix into darwin vs linux so the static / release
@@ -105,7 +106,7 @@ build: build-native
 
 ifeq ($(HOST_OS),windows)
 build-native:
-	$$env:CGO_ENABLED='1'; & $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .
+	$(WINDOWS_GO_ENV) & $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .
 else
 build-native:
 	CGO_ENABLED=1 $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .
@@ -175,7 +176,7 @@ cross-darwin-arm64:
 
 cross-windows:
 	New-Item -ItemType Directory -Force dist | Out-Null
-	$$env:CGO_ENABLED='1'; & $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-windows-amd64.exe .
+	$(WINDOWS_GO_ENV) & $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-windows-amd64.exe .
 else
 cross-linux:
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 .

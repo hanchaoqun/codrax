@@ -502,20 +502,6 @@ func TestSubmit_RejectsUnresolvedPastePlaceholder(t *testing.T) {
 	}
 }
 
-func TestNativeSubmit_RejectsUnresolvedPastePlaceholder(t *testing.T) {
-	e := &nativeLineInput{
-		value: []rune("[Pasted text #0 +1 lines +802 chars]"),
-	}
-
-	res, done := e.submit()
-	if done {
-		t.Fatalf("native submit should reject unresolved placeholder, got %+v", res)
-	}
-	if strings.TrimSpace(string(e.value)) != "" {
-		t.Fatalf("native input should clear unresolved placeholder, got %q", string(e.value))
-	}
-}
-
 func TestHistoryReversed_TrimsAndCaps(t *testing.T) {
 	src := []string{"a", "b", "  ", "c", ""}
 	got := historyReversed(src, 100)

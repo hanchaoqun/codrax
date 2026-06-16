@@ -1,3 +1,5 @@
+//go:build !windows
+
 package repl
 
 import (
@@ -113,6 +115,20 @@ func TestNativeSubmitClearsTransientFrameBeforeEcho(t *testing.T) {
 	}
 	if !strings.Contains(got, "────────────────") {
 		t.Fatalf("submit should print the persistent echo after clearing the transient frame: %q", got)
+	}
+}
+
+func TestNativeSubmit_RejectsUnresolvedPastePlaceholder(t *testing.T) {
+	e := &nativeLineInput{
+		value: []rune("[Pasted text #0 +1 lines +802 chars]"),
+	}
+
+	res, done := e.submit()
+	if done {
+		t.Fatalf("native submit should reject unresolved placeholder, got %+v", res)
+	}
+	if strings.TrimSpace(string(e.value)) != "" {
+		t.Fatalf("native input should clear unresolved placeholder, got %q", string(e.value))
 	}
 }
 
