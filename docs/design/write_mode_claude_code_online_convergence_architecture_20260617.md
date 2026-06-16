@@ -1518,6 +1518,99 @@ Remaining task backlog from this audit:
   should prefer a bounded behavior probe with `contract_refs` and
   `changed_symbol_refs`.
 
+## 2026-06-17 SWE-bench Lite Budget-Boundary Online Audit
+
+Follow-up regression command:
+
+```bash
+WORKDIR=eval/results/swebench/lite-smoke-20260617-online-fix-regression \
+INSTANCE_ID='django__django-14534,pytest-dev__pytest-11143,sympy__sympy-23117' \
+SWEBENCH_SMOKE_LIMIT=3 SWEBENCH_PREPARE_PYTHON_ENV=1 \
+SWEBENCH_ISOLATE_GIT_HISTORY=1 MAX_STEPS=60 CODRAX_TIMEOUT=1800 \
+CODRAX_PROGRESS_INTERVAL=60 bash eval/swebench/smoke_lite.sh
+```
+
+Observed typed outcomes:
+
+- `django__django-14534`: generated a non-empty patch, but local verification
+  failed with `tests_failed` / `verification_probe_missing_required_contract_ref`.
+  The tightened finish gate correctly blocked instead of accepting a false green.
+- `pytest-dev__pytest-11143`: generated a non-empty patch and exported it as
+  `predicted_unverified`; local verification was unavailable due
+  `parser_error` / `pytest_import_startup_error`. This remains the desired
+  customer behavior: missing local deps lower confidence but do not hard-block
+  a harness-consumable patch.
+- `sympy__sympy-23117`: controller produced an auto-safe medium-risk plan, but
+  the global step budget was exhausted before the next controller turn could
+  emit `apply_plan`. The durable run remained `in_progress` with a planned
+  batch and the adapter exported an empty patch reason
+  `workflow_in_progress_empty_patch`.
+
+Commercial design decision:
+
+- The write scheduler now treats a freshly planned batch that reaches the step
+  budget boundary and passes the typed deterministic approval policy as a
+  completion-lane transition. It can proceed directly from `plan_batch` to
+  apply without another controller LLM turn at the boundary, then the existing
+  budget-completion verify lane supplies the final observe verdict.
+- This is the Codrax counterpart to Claude Code's online Edit/Run/Observe loop:
+  model-selected work remains flexible, but deterministic state transitions do
+  not spend another model turn merely to restate the next required action.
+- Hard gates are unchanged: the lane only runs in `ModeApply`, only for
+  `writePlanCanProceedWithoutApprovalPause(plan)`, and the apply-pre hook can
+  still pause for manual approval or deny if the final fingerprint/risk changes.
+- The progress ledger records `budget_ready_plan_auto_apply` before the apply
+  transition and `budget_completion_verify` before final observe, so UX and
+  SWE-bench exports can distinguish auto-continued work from a stuck
+  in-progress workflow without parsing stdout or model prose.
+- If observe has already completed every durable batch but the controller has
+  not spent a final `finish` turn, the budget boundary now marks the run
+  complete from typed batch verdicts via `budget_all_batches_complete` or
+  `controller_turn_budget_all_batches_complete`.
+
+Post-fix regression:
+
+```bash
+WORKDIR=eval/results/swebench/lite-smoke-20260617-budget-boundary-regression \
+INSTANCE_ID='django__django-14534,pytest-dev__pytest-11143,sympy__sympy-23117' \
+SWEBENCH_SMOKE_LIMIT=3 SWEBENCH_PREPARE_PYTHON_ENV=1 \
+SWEBENCH_ISOLATE_GIT_HISTORY=1 MAX_STEPS=60 CODRAX_TIMEOUT=1800 \
+CODRAX_PROGRESS_INTERVAL=60 bash eval/swebench/smoke_lite.sh
+```
+
+Regression result:
+
+- Official JSONL validation passed: `validated 3 prediction(s); empty_patch=0`.
+- Official harness dry-run command was emitted for the generated
+  `predictions.jsonl`.
+- `sympy__sympy-23117` no longer exports
+  `workflow_in_progress_empty_patch`; it exports a non-empty patch with typed
+  local verdict `predicted_failed_verify` because the verification probe timed
+  out / missed required contract coverage.
+- `pytest-dev__pytest-11143` remains `predicted_unverified` with
+  `parser_error` / `verification_probe_module_not_found`, preserving the
+  desired missing-local-deps behavior.
+- `django__django-14534` produced a plausible source patch and local verify
+  passed, but the final durable plan was test-only while the exported patch was
+  source-only. The SWE-bench adapter correctly kept
+  `prediction_audit_block_reason=final_plan_test_only_exported_source_patch`
+  because local verification ran against a worktree that had modified tests
+  which are dropped from the official prediction.
+
+Backlog from this regression:
+
+- P1: verification-surface mutation policy. When a benchmark/customer lane
+  treats tests as verification evidence rather than deliverable code, the
+  planner should not use test-only or verification-surface mutations as the
+  final successful batch for a source patch. This must be a typed path/policy
+  rule over plan changes, exported patch paths, and configured lane semantics;
+  not a prose or keyword judgment.
+- P1: cumulative source-patch provenance. Workflow audit views should expose
+  the union of successfully applied source plans and the final verification
+  worktree state, so consumers can explain whether an exported source patch
+  came from an earlier applied plan, a final plan, or a source/test mixed
+  sequence.
+
 ## Prompt And Routing Red Lines
 
 - Prompt text may guide, but cannot enforce.
@@ -1556,3 +1649,5 @@ Remaining task backlog from this audit:
 | Online finish gate audit | complete | Ran `django__django-14534` / `pytest-dev__pytest-11143` / `sympy__sympy-23117`; predictions are non-empty, validator passed, and official harness dry-run accepted the JSONL. Manual audit found a P0 finish escape where `accept_unverified` could complete true failed verification. This batch tightens the hard gate so `accept_unverified` is unavailable-verification only; true tests/build/probe failures must replan/split/block. Remaining backlog: local behavior-probe obligation for directly callable APIs under unavailable project runners. |
 | Probe pass continuation policy | complete | `run_tests` now treats passing pre-suite verification probes as bounded evidence, not an unconditional project-suite skip. It continues to the typed project suite when required contract refs are missing, changed-symbol refs are missing, or the plan touches a deterministic test/spec path; complete probes still skip the suite and record `probe_primary_suite_skipped`. Continuation is recorded as `ExecutedCommand{Source=probe_primary_suite_continued, Outcome=suite_continued, ReasonCode=...}` before the real suite command runs. Verification passed: focused `internal/tool` probe tests and full `go test ./internal/tool`. |
 | Attempt failure subreason ledger | complete | `WriteWorkflowAttempt` now records `failure_reason_code` separately from coarse `reason_code`, so durable batch/slice attempts can carry both `parser_error` and subreasons such as `pytest_import_startup_error` without consumers reopening report blobs. Verify attempts project this from `ChangeReport.FailureReasonCode`; missing-report infra attempts mirror the typed outcome reason. Verification passed: focused `internal/types` normalization and parser-error controller tests. |
+| Budget-boundary online transition | complete | SWE-bench Lite regression exposed that a freshly planned auto-safe batch could consume the last controller step and remain `in_progress` before apply, yielding `workflow_in_progress_empty_patch`. The scheduler now has typed budget-boundary transitions: when `plan_batch` reaches the step ceiling, `ModeApply` plans that pass `writePlanCanProceedWithoutApprovalPause` run the same apply transition immediately; existing budget completion verify supplies observe; if all batches already have typed completion verdicts, the run completes without another `finish` model turn. The lane records `budget_ready_plan_auto_apply`, `budget_completion_verify`, and `budget_all_batches_complete` / `controller_turn_budget_all_batches_complete`, while still honoring final apply-pre approval/deny gates and preserving normal controller-first turns away from the budget boundary. |
+| Budget-boundary SWE-bench regression | complete | Re-ran `django__django-14534` / `pytest-dev__pytest-11143` / `sympy__sympy-23117` after the scheduler fix. Generated predictions validate with `empty_patch=0`; `sympy__sympy-23117` now exports a non-empty failed-verify patch instead of `workflow_in_progress_empty_patch`. Manual audit added P1 backlog for typed verification-surface mutation policy and cumulative source-patch provenance because `django__django-14534` passed local verification only after a final test-only plan, while the exported official patch dropped that test mutation. |

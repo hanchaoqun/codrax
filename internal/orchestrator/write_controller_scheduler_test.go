@@ -3681,6 +3681,71 @@ func TestSeedWriteWorkflowRun_NonMicroStartsNeedsExploration(t *testing.T) {
 // Budget completion lane: a batch applied with its last steps must still get
 // a verification verdict; a green verdict completes the run instead of
 // blocking it and discarding the applied work.
+func TestRunWriteControllerWorkflow_BudgetExhaustionAutoAppliesReadyPlan(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("budget ready plan")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "budget ready plan"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "single safe change"}},
+		// The ready-plan completion lane should apply before a second
+		// controller decision is needed.
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "never_reached"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.maxSteps = 2 // controller+plan exhaust the budget before a controller apply turn
+	applyRan := false
+	verifyRan := false
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-budget-ready",
+				Status:      types.PlanStatusPending,
+				Summary:     "attempt",
+				TargetPaths: []string{"pkg/fix.py"},
+				Changes:     []types.FileChange{{Path: "pkg/fix.py", Kind: "modify", NewContent: "value = 1\n"}},
+			})
+		case types.StageApply:
+			applyRan = true
+		case types.StageVerify:
+			verifyRan = true
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-budget-ready", Passed: true})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("ready-plan completion lane should finish the run, got %v", err)
+	}
+	if controllerCalls != 1 {
+		t.Fatalf("ready-plan completion lane should not require a second controller turn, got %d", controllerCalls)
+	}
+	if !applyRan {
+		t.Fatal("ready-plan completion lane must run apply")
+	}
+	if !verifyRan {
+		t.Fatal("ready-plan completion lane must feed the existing completion verify path")
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("run should complete, got %+v", store.last)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "budget_ready_plan_auto_apply") ||
+		!workflowProgressHasReason(store.last.ProgressLedger, "budget_completion_verify") {
+		t.Fatalf("ready-plan and verify completion lanes should be recorded: %+v", store.last.ProgressLedger)
+	}
+	if store.last.Batches[0].Status != types.WriteWorkflowBatchComplete {
+		t.Fatalf("batch should be verified complete, got %+v", store.last.Batches[0])
+	}
+}
+
 func TestRunWriteControllerWorkflow_BudgetExhaustionRunsCompletionVerify(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("budget completion")
@@ -3699,7 +3764,7 @@ func TestRunWriteControllerWorkflow_BudgetExhaustionRunsCompletionVerify(t *test
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelToken = NewCancelToken()
 	o.writeWorkflowRunStore = store
-	o.maxSteps = 4 // controller+plan+controller+apply → exhausted before verify turn
+	o.maxSteps = 3 // controller+plan+auto-apply → exhausted before verify turn
 	verifyRan := false
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -3748,7 +3813,7 @@ func TestRunWriteControllerWorkflow_BudgetCompletionVerifyFailureStillBlocks(t *
 	o.cancelToken = NewCancelToken()
 	o.writeWorkflowRunStore = store
 	o.reportDir = planDir
-	o.maxSteps = 4
+	o.maxSteps = 3
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
 		case types.StagePlan:

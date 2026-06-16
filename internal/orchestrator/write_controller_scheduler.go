@@ -27,6 +27,14 @@ const (
 
 var errPlannerProbePassedExistingWorktree = errors.New("planner probe passed existing applied worktree")
 
+type writeControllerApplyTransitionOutcome string
+
+const (
+	writeControllerApplyTransitionApplied  writeControllerApplyTransitionOutcome = "applied"
+	writeControllerApplyTransitionRetry    writeControllerApplyTransitionOutcome = "retry"
+	writeControllerApplyTransitionTerminal writeControllerApplyTransitionOutcome = "terminal"
+)
+
 // runWriteControllerWorkflow is the canonical outer DAG for write mode. The
 // scheduler switches only on schema-validated controller actions; model prose is
 // never interpreted as routing logic.
@@ -75,6 +83,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			// typed attempt records only; one bounded verify dispatch is
 			// allowed past the ceiling because completion outranks pacing.
 			if o.runBudgetCompletionVerify(&run, stepsUsed, importedPlanMirror) {
+				return nil
+			}
+			if o.completeBudgetExhaustedRunIfAllBatchesComplete(&run, "budget_all_batches_complete") {
 				return nil
 			}
 			run.Status = types.WriteWorkflowRunBlocked
@@ -286,6 +297,18 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.persistWriteWorkflowRun(&run)
 				return nil
 			}
+			if o.busCtx.Mode == types.ModeApply && *stepsUsed >= o.maxSteps && o.writePlanCanProceedWithoutApprovalPause(plan) {
+				appendControllerProgress(&run, run.ActiveBatchID, "budget_ready_plan_auto_apply",
+					"deterministic write approval policy allows the freshly planned batch to apply without another controller turn")
+				outcome, applyErr := o.runControllerApplyPlanTransition(&run, stepsUsed, "auto_executable_plan")
+				switch outcome {
+				case writeControllerApplyTransitionTerminal:
+					return applyErr
+				case writeControllerApplyTransitionRetry:
+					lastInnerErr = applyErr
+					continue
+				}
+			}
 		case writeflow.ActionApplyPlan:
 			if o.busCtx.Mode == types.ModePlan {
 				run.Status = types.WriteWorkflowRunBlocked
@@ -295,65 +318,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.publishBlockedRunGuidance(&run, "apply_not_allowed_in_plan_mode")
 				return fmt.Errorf("write workflow blocked: apply_plan is not valid in plan mode")
 			}
-			if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
-				markWorkflowRunActiveSliceApplying(&run, run.ActiveBatchID, plan, decision.ReasonCode)
-				o.persistWriteWorkflowRun(&run)
-			}
-			innerErr := o.runControllerApplyPlan(stepsUsed)
-			plan := o.busCtx.Mutable.ChangePlan()
-			recoveredApplyError := false
-			if innerErr != nil && changePlanAllDeclaredChangesApplied(plan) {
-				recoveredApplyError = true
-				appendControllerProgress(&run, run.ActiveBatchID, "apply_transport_recovered_all_changes",
-					"typed ChangePlan records every declared change as applied; continuing to post-apply verification")
-				if plan.Status == types.PlanStatusApplyFailed || plan.Status == types.PlanStatusPartiallyApplied {
-					plan.Status = types.PlanStatusPending
-					o.busCtx.Mutable.SetChangePlan(plan)
-				}
-				innerErr = nil
-			}
-			if innerErr == nil {
-				o.markActivePlanAppliedPendingVerify()
-				plan = o.busCtx.Mutable.ChangePlan()
-			}
-			if plan != nil {
-				applyStatus := writeWorkflowApplyAttemptStatus(plan, innerErr)
-				applyReason := writeWorkflowApplyAttemptReason(plan, innerErr)
-				if recoveredApplyError {
-					applyReason = "apply_transport_recovered_all_changes"
-				}
-				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan)
-				updateWorkflowRunBatchApply(&run, run.ActiveBatchID, plan, applyStatus, applyReason)
-				run = attachPlanContextPackToWorkflowRun(run, plan)
-			}
-			if innerErr != nil {
+			outcome, innerErr := o.runControllerApplyPlanTransition(&run, stepsUsed, decision.ReasonCode)
+			switch outcome {
+			case writeControllerApplyTransitionTerminal:
+				return innerErr
+			case writeControllerApplyTransitionRetry:
 				lastInnerErr = innerErr
-				switch {
-				case writePlanNeedsManualApproval(plan):
-					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPendingApproval)
-					appendControllerProgress(&run, run.ActiveBatchID, string(types.WriteWorkflowBatchPendingApproval), innerErr.Error())
-					o.persistWriteWorkflowRun(&run)
-					o.publishBlockedRunGuidance(&run, "pending_approval")
-					return innerErr
-				case plan != nil && plan.Status == types.PlanStatusBlocked:
-					run.Status = types.WriteWorkflowRunBlocked
-					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
-					appendControllerProgress(&run, run.ActiveBatchID, string(plan.Status), innerErr.Error())
-					o.persistWriteWorkflowRun(&run)
-					o.publishBlockedRunGuidance(&run, "approval_denied")
-					return innerErr
-				default:
-					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
-					appendControllerProgress(&run, run.ActiveBatchID, "apply_failed", innerErr.Error())
-					o.busCtx.TaskState.LastError = ""
-					o.persistWriteWorkflowRun(&run)
-					continue
-				}
+				continue
 			}
-			updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchVerifying)
-			appendControllerProgress(&run, run.ActiveBatchID, "batch_applied", "")
-			o.syncCurrentWriteContextPackToRun(&run)
-			o.persistWriteWorkflowRun(&run)
 		case writeflow.ActionVerifyBatch:
 			if o.busCtx.Mode == types.ModePlan {
 				run.Status = types.WriteWorkflowRunBlocked
@@ -530,6 +502,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 		}
 	}
 	if o.runBudgetCompletionVerify(&run, stepsUsed, importedPlanMirror) {
+		return nil
+	}
+	if o.completeBudgetExhaustedRunIfAllBatchesComplete(&run, "controller_turn_budget_all_batches_complete") {
 		return nil
 	}
 	run.Status = types.WriteWorkflowRunBlocked
@@ -1333,6 +1308,71 @@ func (o *Orchestrator) runControllerApplyPlan(stepsUsed *int) error {
 	}
 	_, err := o.runControllerWriteStage(types.StageApply, stepsUsed)
 	return err
+}
+
+func (o *Orchestrator) runControllerApplyPlanTransition(run *types.WriteWorkflowRun, stepsUsed *int, reasonCode string) (writeControllerApplyTransitionOutcome, error) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return writeControllerApplyTransitionTerminal, fmt.Errorf("write controller apply transition missing context")
+	}
+	if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+		markWorkflowRunActiveSliceApplying(run, run.ActiveBatchID, plan, reasonCode)
+		o.persistWriteWorkflowRun(run)
+	}
+	innerErr := o.runControllerApplyPlan(stepsUsed)
+	plan := o.busCtx.Mutable.ChangePlan()
+	recoveredApplyError := false
+	if innerErr != nil && changePlanAllDeclaredChangesApplied(plan) {
+		recoveredApplyError = true
+		appendControllerProgress(run, run.ActiveBatchID, "apply_transport_recovered_all_changes",
+			"typed ChangePlan records every declared change as applied; continuing to post-apply verification")
+		if plan.Status == types.PlanStatusApplyFailed || plan.Status == types.PlanStatusPartiallyApplied {
+			plan.Status = types.PlanStatusPending
+			o.busCtx.Mutable.SetChangePlan(plan)
+		}
+		innerErr = nil
+	}
+	if innerErr == nil {
+		o.markActivePlanAppliedPendingVerify()
+		plan = o.busCtx.Mutable.ChangePlan()
+	}
+	if plan != nil {
+		applyStatus := writeWorkflowApplyAttemptStatus(plan, innerErr)
+		applyReason := writeWorkflowApplyAttemptReason(plan, innerErr)
+		if recoveredApplyError {
+			applyReason = "apply_transport_recovered_all_changes"
+		}
+		updateWorkflowRunBatchPlan(run, run.ActiveBatchID, plan)
+		updateWorkflowRunBatchApply(run, run.ActiveBatchID, plan, applyStatus, applyReason)
+		*run = attachPlanContextPackToWorkflowRun(*run, plan)
+	}
+	if innerErr != nil {
+		switch {
+		case writePlanNeedsManualApproval(plan):
+			updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchPendingApproval)
+			appendControllerProgress(run, run.ActiveBatchID, string(types.WriteWorkflowBatchPendingApproval), innerErr.Error())
+			o.persistWriteWorkflowRun(run)
+			o.publishBlockedRunGuidance(run, "pending_approval")
+			return writeControllerApplyTransitionTerminal, innerErr
+		case plan != nil && plan.Status == types.PlanStatusBlocked:
+			run.Status = types.WriteWorkflowRunBlocked
+			updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+			appendControllerProgress(run, run.ActiveBatchID, string(plan.Status), innerErr.Error())
+			o.persistWriteWorkflowRun(run)
+			o.publishBlockedRunGuidance(run, "approval_denied")
+			return writeControllerApplyTransitionTerminal, innerErr
+		default:
+			updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
+			appendControllerProgress(run, run.ActiveBatchID, "apply_failed", innerErr.Error())
+			o.busCtx.TaskState.LastError = ""
+			o.persistWriteWorkflowRun(run)
+			return writeControllerApplyTransitionRetry, innerErr
+		}
+	}
+	updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchVerifying)
+	appendControllerProgress(run, run.ActiveBatchID, "batch_applied", "")
+	o.syncCurrentWriteContextPackToRun(run)
+	o.persistWriteWorkflowRun(run)
+	return writeControllerApplyTransitionApplied, nil
 }
 
 func (o *Orchestrator) runControllerVerifyBatch(stepsUsed *int) error {
@@ -3651,6 +3691,39 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 	_, _ = o.persistVerifyFailureEvidence(run, report, writeflow.DeriveBatchAttemptState(*active).FailedVerifyAttempts+1)
 	o.persistWriteWorkflowRun(run)
 	return false
+}
+
+func (o *Orchestrator) completeBudgetExhaustedRunIfAllBatchesComplete(run *types.WriteWorkflowRun, reasonCode string) bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || !workflowRunAllBatchesComplete(run) {
+		return false
+	}
+	run.Status = types.WriteWorkflowRunComplete
+	writeflow.MarkWorkflowRunCompletionFromBatches(run)
+	appendControllerProgress(run, run.ActiveBatchID, reasonCode, "all workflow batches already have typed completion verdicts")
+	o.persistWriteWorkflowRun(run)
+	if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
+		result := "write workflow complete"
+		if run.Completion != nil && run.Completion.Verdict == types.WriteWorkflowCompletionAcceptedFailed {
+			result += " — accepted with failed verification: " + strings.TrimSpace(run.Completion.ReasonCode)
+		}
+		if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
+			result += " — " + caveat
+		}
+		o.busCtx.Mutable.SetResult(result)
+	}
+	return true
+}
+
+func workflowRunAllBatchesComplete(run *types.WriteWorkflowRun) bool {
+	if run == nil || len(run.Batches) == 0 {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if batch.Status != types.WriteWorkflowBatchComplete {
+			return false
+		}
+	}
+	return true
 }
 
 func writeWorkflowUnverifiedCompletionCaveat(run types.WriteWorkflowRun) string {
