@@ -1609,7 +1609,9 @@ Backlog from this regression:
   the union of successfully applied source plans and the final verification
   worktree state, so consumers can explain whether an exported source patch
   came from an earlier applied plan, a final plan, or a source/test mixed
-  sequence.
+  sequence. Adapter support is now implemented for applied plan IDs,
+  cumulative source/test paths, latest applied plan, final-plan alignment, and
+  exported-source coverage.
 
 ## Prompt And Routing Red Lines
 
@@ -1651,3 +1653,4 @@ Backlog from this regression:
 | Attempt failure subreason ledger | complete | `WriteWorkflowAttempt` now records `failure_reason_code` separately from coarse `reason_code`, so durable batch/slice attempts can carry both `parser_error` and subreasons such as `pytest_import_startup_error` without consumers reopening report blobs. Verify attempts project this from `ChangeReport.FailureReasonCode`; missing-report infra attempts mirror the typed outcome reason. Verification passed: focused `internal/types` normalization and parser-error controller tests. |
 | Budget-boundary online transition | complete | SWE-bench Lite regression exposed that a freshly planned auto-safe batch could consume the last controller step and remain `in_progress` before apply, yielding `workflow_in_progress_empty_patch`. The scheduler now has typed budget-boundary transitions: when `plan_batch` reaches the step ceiling, `ModeApply` plans that pass `writePlanCanProceedWithoutApprovalPause` run the same apply transition immediately; existing budget completion verify supplies observe; if all batches already have typed completion verdicts, the run completes without another `finish` model turn. The lane records `budget_ready_plan_auto_apply`, `budget_completion_verify`, and `budget_all_batches_complete` / `controller_turn_budget_all_batches_complete`, while still honoring final apply-pre approval/deny gates and preserving normal controller-first turns away from the budget boundary. |
 | Budget-boundary SWE-bench regression | complete | Re-ran `django__django-14534` / `pytest-dev__pytest-11143` / `sympy__sympy-23117` after the scheduler fix. Generated predictions validate with `empty_patch=0`; `sympy__sympy-23117` now exports a non-empty failed-verify patch instead of `workflow_in_progress_empty_patch`. Manual audit added P1 backlog for typed verification-surface mutation policy and cumulative source-patch provenance because `django__django-14534` passed local verification only after a final test-only plan, while the exported official patch dropped that test mutation. |
+| Workflow applied provenance audit | complete | SWE-bench adapter now reads durable workflow apply attempts and plan artifacts to emit `workflow_applied_plan_ids`, `workflow_latest_applied_plan_id`, `workflow_final_plan_is_latest_applied`, `workflow_applied_source_paths`, `workflow_applied_test_paths`, and `workflow_applied_covers_exported_source_patch`. This explains final-plan/export drift without changing verdicts and without parsing stdout or model prose. Verification passed: adapter unit tests, `py_compile`, and `bash eval/swebench/smoke_local.sh`. |

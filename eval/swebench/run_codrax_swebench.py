@@ -1208,6 +1208,21 @@ def load_plan(path: Path | None) -> dict[str, Any]:
     return row if isinstance(row, dict) else {}
 
 
+def load_plan_by_id(repo_dir: Path, inst_dir: Path, plan_id: str) -> dict[str, Any]:
+    plan_id = str(plan_id or "").strip()
+    if not plan_id or "/" in plan_id or "\\" in plan_id:
+        return {}
+    for root in (
+        repo_dir / ".codrax" / "plans",
+        inst_dir / ".codrax" / "plans",
+    ):
+        path = root / f"{plan_id}.json"
+        plan = load_plan(path)
+        if str(plan.get("id") or "").strip() == plan_id:
+            return plan
+    return {}
+
+
 def load_report_for_plan(plan_path: Path | None) -> dict[str, Any]:
     if not plan_path:
         return {}
@@ -1230,6 +1245,65 @@ def plan_change_paths(plan: dict[str, Any]) -> list[str]:
         if path:
             out.append(path)
     return out
+
+
+def workflow_applied_plan_ids(workflow: dict[str, Any]) -> list[str]:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for batch in workflow.get("batches") or []:
+        if not isinstance(batch, dict):
+            continue
+        for attempt in batch.get("attempts") or []:
+            if not isinstance(attempt, dict):
+                continue
+            if str(attempt.get("kind") or "").strip() != "apply":
+                continue
+            if str(attempt.get("status") or "").strip() != "applied":
+                continue
+            plan_id = str(attempt.get("plan_id") or "").strip()
+            if not plan_id or plan_id in seen:
+                continue
+            seen.add(plan_id)
+            ids.append(plan_id)
+    return ids
+
+
+def summarize_workflow_applied_plan_provenance(
+    workflow: dict[str, Any],
+    repo_dir: Path,
+    inst_dir: Path,
+    final_plan_id: str = "",
+) -> dict[str, Any]:
+    """Return typed provenance for source/test changes that actually applied.
+
+    The SWE-bench adapter exports the cumulative worktree patch, while the
+    latest durable ChangePlan may be a replan that only changed tests. These
+    fields explain that drift by reading workflow attempt records and plan JSON
+    artifacts. No stdout, prompt text, or model prose is inspected.
+    """
+
+    plan_ids = workflow_applied_plan_ids(workflow)
+    source_paths: set[str] = set()
+    test_paths: set[str] = set()
+    for plan_id in plan_ids:
+        plan = load_plan_by_id(repo_dir, inst_dir, plan_id)
+        for path in plan_change_paths(plan):
+            normalized = normalize_repo_rel_file_path(path)
+            if not normalized:
+                continue
+            if is_test_patch_path(normalized):
+                test_paths.add(normalized)
+            else:
+                source_paths.add(normalized)
+    latest = plan_ids[-1] if plan_ids else ""
+    final_plan_id = str(final_plan_id or "").strip()
+    return {
+        "workflow_applied_plan_ids": plan_ids,
+        "workflow_latest_applied_plan_id": latest,
+        "workflow_final_plan_is_latest_applied": bool(final_plan_id and latest and final_plan_id == latest),
+        "workflow_applied_source_paths": sorted(source_paths),
+        "workflow_applied_test_paths": sorted(test_paths),
+    }
 
 
 def normalize_repo_rel_path(raw: Any) -> str:
@@ -2038,12 +2112,23 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             target_paths = result.get("plan_target_paths") if isinstance(result.get("plan_target_paths"), list) else []
             change_paths = result.get("plan_change_paths") if isinstance(result.get("plan_change_paths"), list) else []
             result.update(summarize_plan_context_coverage(workflow, target_paths, change_paths))
+            result.update(summarize_workflow_applied_plan_provenance(
+                workflow,
+                repo_dir,
+                inst_dir,
+                str(result.get("plan_id") or ""),
+            ))
         else:
             result.update({
                 "plan_context_paths": [],
                 "plan_context_covered_paths": [],
                 "plan_context_uncovered_paths": [],
                 "plan_context_coverage_ratio": None,
+                "workflow_applied_plan_ids": [],
+                "workflow_latest_applied_plan_id": "",
+                "workflow_final_plan_is_latest_applied": False,
+                "workflow_applied_source_paths": [],
+                "workflow_applied_test_paths": [],
             })
         report = load_report_for_plan(plan_path)
         if report:
@@ -2075,6 +2160,15 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         result["final_plan_test_only"] = bool(result.get("plan_change_paths")) and not plan_source_paths
         result["final_plan_covers_exported_source_patch"] = (
             None if not exported_source_paths else all(path in plan_source_path_set for path in exported_source_paths)
+        )
+        workflow_applied_source_paths = (
+            result.get("workflow_applied_source_paths")
+            if isinstance(result.get("workflow_applied_source_paths"), list)
+            else []
+        )
+        workflow_applied_source_path_set = {str(path) for path in workflow_applied_source_paths}
+        result["workflow_applied_covers_exported_source_patch"] = (
+            None if not exported_source_paths else all(path in workflow_applied_source_path_set for path in exported_source_paths)
         )
         result["plan_context_missing_source_paths"] = plan_source_paths_missing_prior_context(
             plan_source_paths,

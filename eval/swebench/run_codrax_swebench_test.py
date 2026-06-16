@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -236,6 +238,58 @@ class ContextCoverageTests(unittest.TestCase):
         )
 
         self.assertEqual(missing, ["pkg/a.py", "pkg/b.py"])
+
+
+class WorkflowAppliedProvenanceTests(unittest.TestCase):
+    def test_summarizes_applied_source_and_test_plan_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = Path(raw) / "repo"
+            inst = Path(raw) / "inst"
+            plans = repo / ".codrax" / "plans"
+            plans.mkdir(parents=True)
+            inst.mkdir()
+            (plans / "plan-source.json").write_text(
+                json.dumps({
+                    "id": "plan-source",
+                    "summary": "source fix",
+                    "changes": [{"path": "pkg/fix.py", "kind": "patch"}],
+                }),
+                encoding="utf-8",
+            )
+            (plans / "plan-test.json").write_text(
+                json.dumps({
+                    "id": "plan-test",
+                    "summary": "test change",
+                    "changes": [{"path": "tests/test_fix.py", "kind": "patch"}],
+                }),
+                encoding="utf-8",
+            )
+            workflow = {
+                "batches": [
+                    {
+                        "attempts": [
+                            {"kind": "plan", "status": "complete", "plan_id": "plan-source"},
+                            {"kind": "apply", "status": "applied", "plan_id": "plan-source"},
+                            {"kind": "apply", "status": "failed", "plan_id": "plan-failed"},
+                            {"kind": "apply", "status": "applied", "plan_id": "plan-source"},
+                            {"kind": "apply", "status": "applied", "plan_id": "plan-test"},
+                        ]
+                    }
+                ]
+            }
+
+            got = adapter.summarize_workflow_applied_plan_provenance(
+                workflow,
+                repo,
+                inst,
+                final_plan_id="plan-test",
+            )
+
+        self.assertEqual(got["workflow_applied_plan_ids"], ["plan-source", "plan-test"])
+        self.assertEqual(got["workflow_latest_applied_plan_id"], "plan-test")
+        self.assertTrue(got["workflow_final_plan_is_latest_applied"])
+        self.assertEqual(got["workflow_applied_source_paths"], ["pkg/fix.py"])
+        self.assertEqual(got["workflow_applied_test_paths"], ["tests/test_fix.py"])
 
 
 class OwnerBoundarySignalTests(unittest.TestCase):
