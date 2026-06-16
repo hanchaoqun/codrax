@@ -176,8 +176,8 @@ func validateWorkflowPlanBatchState(run types.WriteWorkflowRun, plan *types.Chan
 
 // Finish disposition values: the typed escape lane for the finish hard gate.
 // The system rule is "finish is rejected while a batch's latest post-apply
-// verify attempt failed"; a model that judges the residual failure acceptable
-// must say so in the typed field, never in prose.
+// verify attempt has code-failure evidence"; accept_unverified is reserved for
+// unavailable local verification, never for red tests or probe failures.
 const (
 	FinishDispositionAllVerified      = "all_verified"
 	FinishDispositionAcceptUnverified = "accept_unverified"
@@ -185,22 +185,24 @@ const (
 
 // FinishBlockedReason evaluates the typed finish gate against the run. It
 // returns a non-empty typed reason string when finish must be rejected:
-// some batch's latest post-apply verify attempt failed, the batch never
-// completed, and the decision did not declare
-// finish_disposition=accept_unverified. All inputs are typed attempt
-// records and the schema-validated decision field.
+// some live batch's latest post-apply verify attempt failed with code-failure
+// evidence. finish_disposition=accept_unverified only bypasses unavailable
+// local verifier states such as no_tests, runner_missing, or parser_error.
+// All inputs are typed attempt records and the schema-validated decision field.
 func FinishBlockedReason(run types.WriteWorkflowRun, decision WriteWorkflowDecision) string {
-	if strings.TrimSpace(decision.FinishDisposition) == FinishDispositionAcceptUnverified {
-		return ""
-	}
 	var failed []string
+	var codeFailed []string
 	for _, batch := range run.Batches {
 		switch batch.Status {
 		case types.WriteWorkflowBatchComplete, types.WriteWorkflowBatchBlocked:
 			continue
 		}
 		latestVerify := latestAttemptOfKind(batch, "verify")
-		if latestVerify == nil || latestVerify.Status != "failed" {
+		if latestVerify == nil {
+			continue
+		}
+		if latestVerify.Status != "failed" &&
+			(latestVerify.Status != "unverified" || verifyFailureAllowsAcceptUnverified(latestVerify.Status, latestVerify.ReasonCode)) {
 			continue
 		}
 		entry := batch.ID
@@ -208,22 +210,57 @@ func FinishBlockedReason(run types.WriteWorkflowRun, decision WriteWorkflowDecis
 			entry += "(" + rc + ")"
 		}
 		failed = append(failed, entry)
+		if !verifyFailureAllowsAcceptUnverified(latestVerify.Status, latestVerify.ReasonCode) {
+			codeFailed = append(codeFailed, entry)
+		}
 	}
 	if len(failed) == 0 {
 		return ""
 	}
+	if strings.TrimSpace(decision.FinishDisposition) == FinishDispositionAcceptUnverified {
+		if len(codeFailed) == 0 {
+			return ""
+		}
+		return "latest post-apply verification has code-failure evidence for " + strings.Join(codeFailed, ", ") +
+			"; accept_unverified is only valid for unavailable local verification; replan_batch / split_batch / block"
+	}
 	return "latest post-apply verification failed for " + strings.Join(failed, ", ") +
-		"; replan_batch / split_batch / block, or finish with finish_disposition=accept_unverified to accept the residual failure"
+		"; replan_batch / split_batch / block, or finish with finish_disposition=accept_unverified only when the typed failure is unavailable local verification"
 }
 
-// UnverifiedBatchSummaries lists batches whose latest verify attempt failed,
-// for the typed completion caveat when finish_disposition=accept_unverified
-// is used.
+func verifyFailureAllowsAcceptUnverified(status, reasonCode string) bool {
+	switch strings.TrimSpace(reasonCode) {
+	case string(types.FailureKindNoTests),
+		string(types.FailureKindRunnerMissing),
+		string(types.FailureKindParserError):
+		return true
+	case string(types.FailureKindTestsFailed),
+		string(types.FailureKindBuildFailure),
+		"build_failed",
+		"verification_probe_exception",
+		"verification_probe_expected_stdout_missing",
+		"verification_probe_name_error",
+		"verification_probe_import_error",
+		"verification_probe_module_not_found",
+		"verification_probe_runtime_exception",
+		"verification_probe_syntax_error":
+		return false
+	}
+	return strings.TrimSpace(status) == "unverified"
+}
+
+// UnverifiedBatchSummaries lists batches whose latest verify attempt failed
+// with unavailable local-verifier evidence, for the typed completion caveat
+// when finish_disposition=accept_unverified is used during recovery of older
+// persisted runs.
 func UnverifiedBatchSummaries(run types.WriteWorkflowRun) []string {
 	var out []string
 	for _, batch := range run.Batches {
 		latestVerify := latestAttemptOfKind(batch, "verify")
 		if latestVerify == nil || latestVerify.Status != "failed" {
+			continue
+		}
+		if !verifyFailureAllowsAcceptUnverified(latestVerify.Status, latestVerify.ReasonCode) {
 			continue
 		}
 		entry := batch.ID

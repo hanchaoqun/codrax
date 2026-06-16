@@ -264,6 +264,14 @@ func completionFromBatchAttempts(batch types.WriteWorkflowBatch, decision WriteW
 		}
 	case "failed":
 		if strings.TrimSpace(decision.FinishDisposition) == FinishDispositionAcceptUnverified {
+			if verifyFailureAllowsAcceptUnverified(latestVerify.Status, reason) {
+				return types.WriteWorkflowCompletion{
+					Verdict:    types.WriteWorkflowCompletionUnverified,
+					ReasonCode: reason,
+					Source:     source,
+					At:         now,
+				}
+			}
 			return types.WriteWorkflowCompletion{
 				Verdict:    types.WriteWorkflowCompletionAcceptedFailed,
 				ReasonCode: reason,

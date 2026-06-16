@@ -345,9 +345,10 @@ func WriteWorkflowDecisionSchemaForActions(actions []WorkflowAction) json.RawMes
 				"type": "string",
 				"enum": []string{FinishDispositionAllVerified, FinishDispositionAcceptUnverified},
 				"description": "Only with action=finish. all_verified: every applied batch passed its latest verification. " +
-					"accept_unverified: you explicitly accept finishing although the latest verification of some batch failed; " +
-					"the run completes with that caveat recorded. Without accept_unverified, finish is rejected while a " +
-					"batch's latest verification failed.",
+					"accept_unverified: finish when local verification is unavailable (no_tests, runner_missing, parser_error) " +
+					"and no typed code-failure evidence remains. It is not valid for tests_failed, build_failed, or " +
+					"verification_probe failures. Without an allowed disposition, finish is rejected while a batch's " +
+					"latest verification failed.",
 			},
 		},
 		"required": []string{"action"},

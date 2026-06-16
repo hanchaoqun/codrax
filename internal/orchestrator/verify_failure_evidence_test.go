@@ -104,7 +104,7 @@ func TestRunWriteControllerWorkflow_VerifyFailurePersistsReportArtifact(t *testi
 		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "attempt"}},
 		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
 		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
-		{Action: writeflow.ActionFinish, ReasonCode: "accept", FinishDisposition: writeflow.FinishDispositionAcceptUnverified},
+		{Action: writeflow.ActionBlock, ReasonCode: "post_apply_failed"},
 	}
 	controllerCalls := 0
 	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -127,8 +127,8 @@ func TestRunWriteControllerWorkflow_VerifyFailurePersistsReportArtifact(t *testi
 		return &agent.StageOutput{}, nil
 	}
 	steps := 0
-	if err := o.runWriteControllerWorkflow(&steps); err != nil {
-		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	if err := o.runWriteControllerWorkflow(&steps); err == nil {
+		t.Fatal("runWriteControllerWorkflow should block after persisted verify failure")
 	}
 	reportPath := filepath.Join(planDir, "plan-durable.report.json")
 	loaded := readChangeReportFile(t, reportPath)

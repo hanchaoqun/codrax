@@ -2366,8 +2366,9 @@ func TestRunWriteControllerWorkflow_FinishGateRequiresTypedDisposition(t *testin
 		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
 		// Bare finish after a failed verify must be rejected by the typed gate…
 		{Action: writeflow.ActionFinish, ReasonCode: "premature"},
-		// …and the schema-validated escape lane completes the run with a caveat.
+		// …and accept_unverified is still rejected for typed code-failure evidence.
 		{Action: writeflow.ActionFinish, ReasonCode: "accepted", FinishDisposition: writeflow.FinishDispositionAcceptUnverified},
+		{Action: writeflow.ActionBlock, ReasonCode: "post_apply_failed"},
 	}
 	controllerCalls := 0
 	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -2389,21 +2390,21 @@ func TestRunWriteControllerWorkflow_FinishGateRequiresTypedDisposition(t *testin
 		return &agent.StageOutput{}, nil
 	}
 	steps := 0
-	if err := o.runWriteControllerWorkflow(&steps); err != nil {
-		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	if err := o.runWriteControllerWorkflow(&steps); err == nil {
+		t.Fatal("workflow should block after failed verification finish attempts are rejected")
 	}
-	if controllerCalls != 5 {
-		t.Fatalf("controller calls = %d, want 5 (finish rejected once, accepted once)", controllerCalls)
+	if controllerCalls != 6 {
+		t.Fatalf("controller calls = %d, want 6 (two finish rejections, then block)", controllerCalls)
 	}
 	if !workflowProgressHasReason(store.last.ProgressLedger, "finish_rejected_failed_verify") {
 		t.Fatalf("typed finish rejection should be recorded: %+v", store.last.ProgressLedger)
 	}
-	if store.last.Status != types.WriteWorkflowRunComplete {
-		t.Fatalf("accept_unverified finish should complete the run, got %+v", store.last.Status)
+	if store.last.Status != types.WriteWorkflowRunBlocked {
+		t.Fatalf("code-failure verification should block when controller stops, got %+v", store.last.Status)
 	}
 	result := mu.Result()
-	if !strings.Contains(result, "accepted with failed verification") || !strings.Contains(result, "batch-1") {
-		t.Fatalf("result should carry the typed unverified caveat, got %q", result)
+	if !strings.Contains(result, "post_apply_failed") {
+		t.Fatalf("result should carry the typed block reason, got %q", result)
 	}
 }
 
@@ -4049,6 +4050,7 @@ func TestRunWriteControllerWorkflow_BatchSwitchClearsStaleHandoff(t *testing.T) 
 		{Action: writeflow.ActionApplyPlan, ReasonCode: "second_ready"},
 		{Action: writeflow.ActionVerifyBatch, ReasonCode: "second_applied"},
 		{Action: writeflow.ActionFinish, ReasonCode: "done", FinishDisposition: writeflow.FinishDispositionAcceptUnverified},
+		{Action: writeflow.ActionBlock, ReasonCode: "first_batch_failed"},
 	}
 	controllerCalls := 0
 	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){

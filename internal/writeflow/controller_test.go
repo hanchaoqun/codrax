@@ -114,7 +114,7 @@ func TestApplyWorkflowDecisionToRunFinishCarriesTypedCompletionVerdict(t *testin
 	}
 }
 
-func TestApplyWorkflowDecisionToRunFinishRejectsFailedVerifyWithoutDisposition(t *testing.T) {
+func TestApplyWorkflowDecisionToRunFinishRejectsFailedVerifyEvenWithDisposition(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "wf-1",
 		Status:        types.WriteWorkflowRunInProgress,
@@ -132,15 +132,38 @@ func TestApplyWorkflowDecisionToRunFinishRejectsFailedVerifyWithoutDisposition(t
 	if _, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{Action: ActionFinish}); err == nil {
 		t.Fatal("finish should reject failed verify without typed disposition")
 	}
+	if _, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{
+		Action:            ActionFinish,
+		FinishDisposition: FinishDispositionAcceptUnverified,
+	}); err == nil {
+		t.Fatal("accept_unverified should not permit finish when failed verification is typed as code failure")
+	}
+}
+
+func TestApplyWorkflowDecisionToRunFinishAllowsUnavailableVerifyDisposition(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "failed",
+				ReasonCode: "parser_error",
+			}},
+		}},
+	}
 	done, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{
 		Action:            ActionFinish,
 		FinishDisposition: FinishDispositionAcceptUnverified,
 	})
 	if err != nil {
-		t.Fatalf("accept_unverified should permit finish: %v", err)
+		t.Fatalf("accept_unverified should permit unavailable verification: %v", err)
 	}
-	if done.Completion == nil || done.Completion.Verdict != types.WriteWorkflowCompletionAcceptedFailed {
-		t.Fatalf("accepted failed completion not recorded: %+v", done.Completion)
+	if done.Completion == nil || done.Completion.Verdict != types.WriteWorkflowCompletionUnverified {
+		t.Fatalf("unverified completion not recorded: %+v", done.Completion)
 	}
 }
 

@@ -194,7 +194,7 @@ func TestFinishBlockedReason_BlocksOnLatestFailedVerify(t *testing.T) {
 	}
 }
 
-func TestFinishBlockedReason_TypedDispositionUnblocks(t *testing.T) {
+func TestFinishBlockedReason_TypedDispositionDoesNotUnblockCodeFailures(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		Batches: []types.WriteWorkflowBatch{{
 			ID:     "batch-1",
@@ -205,11 +205,51 @@ func TestFinishBlockedReason_TypedDispositionUnblocks(t *testing.T) {
 		}},
 	}
 	decision := WriteWorkflowDecision{Action: ActionFinish, FinishDisposition: FinishDispositionAcceptUnverified}
-	if blocked := FinishBlockedReason(run, decision); blocked != "" {
-		t.Fatalf("accept_unverified must unblock finish, got %q", blocked)
+	if blocked := FinishBlockedReason(run, decision); blocked == "" {
+		t.Fatal("accept_unverified must not unblock typed code-failure verification")
 	}
-	if got := UnverifiedBatchSummaries(run); len(got) != 1 || !strings.Contains(got[0], "batch-1") {
-		t.Fatalf("unverified summaries should name the batch: %+v", got)
+	if got := UnverifiedBatchSummaries(run); len(got) != 0 {
+		t.Fatalf("accepted-failed summaries should not list code failures: %+v", got)
+	}
+}
+
+func TestFinishBlockedReason_TypedDispositionAllowsUnavailableVerification(t *testing.T) {
+	for _, reasonCode := range []string{"no_tests", "runner_missing", "parser_error"} {
+		t.Run(reasonCode, func(t *testing.T) {
+			run := types.WriteWorkflowRun{
+				Batches: []types.WriteWorkflowBatch{{
+					ID:     "batch-1",
+					Status: types.WriteWorkflowBatchReadyToPlan,
+					Attempts: []types.WriteWorkflowAttempt{
+						{Kind: "verify", Status: "failed", ReasonCode: reasonCode},
+					},
+				}},
+			}
+			decision := WriteWorkflowDecision{Action: ActionFinish, FinishDisposition: FinishDispositionAcceptUnverified}
+			if blocked := FinishBlockedReason(run, decision); blocked != "" {
+				t.Fatalf("accept_unverified should allow unavailable verification %q, got %q", reasonCode, blocked)
+			}
+			got := UnverifiedBatchSummaries(run)
+			if len(got) != 1 || !strings.Contains(got[0], reasonCode) {
+				t.Fatalf("unverified summaries should name unavailable verification: %+v", got)
+			}
+		})
+	}
+}
+
+func TestFinishBlockedReason_TypedDispositionRejectsInconsistentCodeFailure(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "verify", Status: "unverified", ReasonCode: "tests_failed"},
+			},
+		}},
+	}
+	decision := WriteWorkflowDecision{Action: ActionFinish, FinishDisposition: FinishDispositionAcceptUnverified}
+	if blocked := FinishBlockedReason(run, decision); blocked == "" {
+		t.Fatal("code-failure reason code must override inconsistent unverified status")
 	}
 }
 
@@ -306,8 +346,8 @@ func TestFinishBlockedReason_DoesNotReadProse(t *testing.T) {
 		t.Fatal("prose claiming success must not unblock the typed finish gate")
 	}
 	typedEscapeNoProse := WriteWorkflowDecision{Action: ActionFinish, FinishDisposition: FinishDispositionAcceptUnverified}
-	if blocked := FinishBlockedReason(run, typedEscapeNoProse); blocked != "" {
-		t.Fatalf("typed disposition must unblock without any prose, got %q", blocked)
+	if blocked := FinishBlockedReason(run, typedEscapeNoProse); blocked == "" {
+		t.Fatal("typed disposition must not unblock code-failure verification")
 	}
 	// Identical typed state with arbitrary prose variations yields the
 	// identical verdict.

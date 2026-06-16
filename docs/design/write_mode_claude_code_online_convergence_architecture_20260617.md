@@ -61,6 +61,11 @@ Research and public architecture references consulted on 2026-06-17:
   <https://code.claude.com/docs/en/agent-sdk/subagents>
 - Claude Code settings scopes:
   <https://code.claude.com/docs/en/settings>
+- OpenCode permissions, for an independent public comparison point on
+  `allow / ask / deny` and agent-scoped permission surfaces:
+  <https://opencode.ai/docs/permissions/>
+- OpenCode agents, for task/subagent permission and max-step UX comparison:
+  <https://opencode.ai/docs/agents/>
 - VILA-Lab companion architecture deep dive:
   <https://github.com/VILA-Lab/Dive-into-Claude-Code/blob/main/docs/architecture.md>
 - Public architecture synthesis covering tools, memory, hooks, MCP, sandboxing,
@@ -1451,6 +1456,75 @@ Red-line status:
 - Hard gates read only schema, ids, typed paths, TestSurface candidates,
   ChangePlan target paths, and ChangeReport confidence/verdict fields.
 
+## 2026-06-17 SWE-bench Lite Online Finish Gate Audit
+
+New non-Go SWE-bench Lite smoke batch:
+
+```text
+django__django-14534
+pytest-dev__pytest-11143
+sympy__sympy-23117
+```
+
+Result summary:
+
+- all three instances generated non-empty predictions;
+- the generated `predictions.jsonl` passed the local prediction validator;
+- the official SWE-bench harness dry-run accepted the predictions file shape;
+- manual audit exposed one P0 control-plane defect and two remaining P1/P2
+  workflow-quality gaps.
+
+Findings:
+
+- `sympy__sympy-23117`: post-apply verification produced a typed failed
+  verdict with `verification_probe_exception`, but the controller allowed a
+  later `finish` with `finish_disposition=accept_unverified`. This violated the
+  paper-derived boundary that the model may choose the next action while the
+  harness owns completion semantics. A model's local judgment about a probe
+  being "only a probe issue" must not override typed failed verification.
+- `django__django-14534`: a planner probe covered several behavior contracts
+  and passed, but a project-suite continuation was skipped even though the plan
+  touched a test file and one required completion contract was uncovered. This
+  shows that probe-pass confidence and project-suite confidence need a typed
+  continuation policy.
+- `pytest-dev__pytest-11143`: the project runner was unavailable due local
+  pytest import/startup infrastructure. The generated patch was still exported
+  as harness-consumable, which is correct for customer environments with
+  missing deps, but the planner did not emit a small local behavior probe for a
+  directly callable API boundary. This is a planner/probe obligation gap, not a
+  hard local acceptance failure.
+
+Commercial design decision:
+
+- `finish_disposition=accept_unverified` is now unavailable-verification only:
+  it can complete runs with typed `no_tests`, `runner_missing`, or
+  `parser_error` style local-verifier gaps, but it cannot complete
+  `tests_failed`, `build_failed`, `verification_probe_exception`, missing
+  expected stdout, or other code-failure evidence.
+- The hard gate remains in Go state-machine code (`FinishBlockedReason`), not
+  in controller prompt prose. The schema description is updated only as soft
+  guidance.
+- Completion verdicts recovered from old durable runs map
+  `failed + parser_error/runner_missing/no_tests` to `unverified`, not
+  `accepted_failed`.
+- Customer delivery remains smooth: missing pytest/dependencies do not hard
+  block patch export; true failed tests/probes force replan, split, or block
+  until budget is exhausted.
+
+Remaining task backlog from this audit:
+
+- P1: add typed continuation policy after planner probes. If a probe passes but
+  required behavior-contract coverage is incomplete, a touched test/spec path
+  exists, or project-suite candidate remains cheap and available, continue to
+  the project suite instead of declaring local confidence too early.
+- P1: planner/probe obligation. For symptom-only Python bugfixes where the
+  target API is directly callable and project runner is unavailable, planner
+  should prefer a bounded behavior probe with `contract_refs` and
+  `changed_symbol_refs`.
+- P2: workflow attempt reason should retain both coarse `FailureKind` and
+  bounded `FailureReasonCode` so controller, planner, result adapters, and
+  audit views can consume subreasons without reopening report blobs.
+
 ## Prompt And Routing Red Lines
 
 - Prompt text may guide, but cannot enforce.
@@ -1486,3 +1560,4 @@ Red-line status:
 | Public research refresh | complete | Rechecked the arXiv Claude Code design-space paper, the companion public repository, and official Claude Code docs for agent loop, context, hooks, subagents, memory, and permissions. Added the 2026-06-17 public research refresh section that maps the findings to Codrax's task-harness control plane: deterministic state assembler/action validator/permission broker/effect executor/observation normalizer/context projector/event appender around a flexible model loop. |
 | Symptom-workaround audit telemetry | complete | Extended the SWE-bench adapter's structural AST audit so successful predictions can be confidence-downgraded when a Python edit conditionally suppresses existing diagnostic output or writes an external object's private state. This caught the latest Sphinx passed-but-wrong warning suppression and Matplotlib private `_norm` sync workaround as typed `diagnostic_signal_conditionally_suppressed` / `external_private_state_sync_workaround` signals. |
 | Online verify/default runner alignment | complete | Unified plan/verify state semantics and removed a verifier pre-investigation round. `emit_change_plan` now hard-rejects only unknown behavior-contract ids, while coverage gaps flow to `VerificationConfidenceRecord`; verifier prompts the model to call `run_tests({})` first; `run_tests` defaults to typed `TestSurface` plus plan-touched runner preference, synthesizes bare-source syntax fallback lanes, and records `test_surface_default` command provenance. Verification passed: focused agent/tool tests, `go test ./...`, `make`, SWE-bench adapter unit tests, `git diff --check`, and `bash eval/swebench/smoke_local.sh`. |
+| Online finish gate audit | complete | Ran `django__django-14534` / `pytest-dev__pytest-11143` / `sympy__sympy-23117`; predictions are non-empty, validator passed, and official harness dry-run accepted the JSONL. Manual audit found a P0 finish escape where `accept_unverified` could complete true failed verification. This batch tightens the hard gate so `accept_unverified` is unavailable-verification only; true tests/build/probe failures must replan/split/block. Remaining backlog: probe-pass project-suite continuation, local behavior-probe obligation for directly callable APIs under unavailable project runners, and dual coarse/subreason attempt recording. |
