@@ -786,3 +786,35 @@ Acceptance:
 - Replan rounds can read prior patch/test-surface artifacts from durable store.
 - Planner dry-run probes use structured JSON fields instead of overloading
   `suite`; `suite` remains a language test selector only.
+
+### Batch 5A.8: Planner Probe Output Handoff
+
+Follow-up evidence:
+
+- Re-ran `pydata__xarray-4094` after Batch 5A.7. The run no longer showed
+  durable `.codrax/plans` artifact remap failures, and planner calls used
+  `run_tests` with a structured `verification_probe` object.
+- The result remained locally blocked:
+  `prediction_verdict=predicted_audit_blocked`,
+  `prediction_local_confidence=failed`,
+  `final_plan_covers_exported_source_patch=false`. The model explored a
+  pandas-version side path and generated a two-file patch rather than the gold
+  one-line `self.sel(..., drop=True)` fix.
+- The successful planner probe for pandas/numpy compatibility returned only
+  `verification_probes verdict=PASSED`; its stdout facts were saved behind a raw
+  ref but not inline, so the next planner turn could not reliably consume the
+  just-measured facts without another read.
+
+Implementation:
+
+- Inline a bounded stdout/stderr excerpt for passing plan-stage
+  `verification_probe` dry-runs. Failing probes already carry failure summaries.
+- Update the unavailable-tool and read-budget-exhausted planner hints to name
+  `run_tests(dry_run=true, verification_probe={...})` explicitly and to keep
+  `suite` as a selector-only field.
+
+Acceptance:
+
+- Planner probes that establish environment or behavioral facts carry those
+  facts into the next model turn without requiring another artifact read.
+- Planner repair hints and tool schema now point at the same typed JSON shape.

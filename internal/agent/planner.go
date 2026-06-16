@@ -1270,7 +1270,7 @@ func (e *plannerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) L
 		HintKey:        e.materializationSurfaceHintKey(),
 		BypassThrottle: true,
 		BypassBudget:   true,
-		Hint:           "The planning read/repair budget for this batch is exhausted. Do not call repository-reading tools in this planning round. Use the typed handoff, prior tool results, and any validator rejection already visible to emit a bounded ChangePlan now via `emit_change_plan`, or use `emit_plan_skeleton` followed by `emit_plan_change` for a large plan. `run_tests` is available only for typed dry-run probes.",
+		Hint:           "The planning read/repair budget for this batch is exhausted. Do not call repository-reading tools in this planning round. Use the typed handoff, prior tool results, and any validator rejection already visible to emit a bounded ChangePlan now via `emit_change_plan`, or use `emit_plan_skeleton` followed by `emit_plan_change` for a large plan. `run_tests` is available only as `dry_run=true` with a `verification_probe` object; `suite` remains a test selector and must not contain `python -c` or runner flags.",
 	}
 }
 

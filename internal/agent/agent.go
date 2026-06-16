@@ -4974,7 +4974,7 @@ func unavailableToolVerifyReplanHint(ctx *types.AgentContext, available map[stri
 	if ctx.Mutable.VerifyFailureHandoff() == nil || !available["run_tests"] {
 		return ""
 	}
-	return "This is a verify-failure replan with repository-reading tools unavailable. If already-visible current bytes show the intended repair, call run_tests with dry_run=true against the scoped failure or target area; if that typed probe passes, emit_change_plan with changes: [] to record no_change_required. If the probe fails, emit a real bounded edit using the already-visible current bytes."
+	return "This is a verify-failure replan with repository-reading tools unavailable. If already-visible current bytes show the intended repair, call run_tests with dry_run=true and a verification_probe object (do not put python -c or runner flags in suite) against the scoped failure or target area; if that typed probe passes, emit_change_plan with changes: [] to record no_change_required. If the probe fails, emit a real bounded edit using the already-visible current bytes."
 }
 
 func sortedToolSchemaNames(schemas []llm.ToolSchema) []string {

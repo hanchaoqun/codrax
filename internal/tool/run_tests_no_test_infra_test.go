@@ -382,6 +382,44 @@ func TestRunTestsDryRunVerificationProbe_ModeApplyStagePlan(t *testing.T) {
 	}
 }
 
+func TestRunTestsDryRunVerificationProbe_PassingOutputIsInline(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	mu := types.NewMutableState("planner verification probe output")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"verification_probe": map[string]any{
+			"id":       "facts",
+			"language": "python",
+			"code":     "print('probe_fact: pandas_unique_accepts_list=false')\n",
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("passing verification probe should return Success=true, got %+v", result)
+	}
+	if !strings.Contains(result.Summary, "Probe output:") || !strings.Contains(result.Summary, "probe_fact: pandas_unique_accepts_list=false") {
+		t.Fatalf("passing planner probe output should be inline for handoff, got %q", result.Summary)
+	}
+	if got := mu.ChangeReport(); got != nil {
+		t.Fatalf("plan-stage verification_probe dry_run must not populate ChangeReport, got %+v", got)
+	}
+	if probes := mu.PlanStageProbeReports(); len(probes) != 1 || !probes[0].Passed {
+		t.Fatalf("expected one passing planner probe report, got %+v", probes)
+	}
+}
+
 func TestRunTestsRejectsSuiteWithEmbeddedCLIFlags(t *testing.T) {
 	mu := types.NewMutableState("suite flag rejection")
 	ctx := &types.BusContext{Mutable: mu}

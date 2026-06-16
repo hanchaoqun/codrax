@@ -373,10 +373,16 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		report := finishReport(probe.Report)
 		installRunTestsReport(ctx, report, dryRunProbe)
 		_, ref := StoreBlob(ctx, t.Name()+"-planner-verification-probe", probe.Output)
+		summary := renderVerificationProbePrimarySummary(report, surface)
+		if report != nil && report.Passed {
+			if excerpt := verificationProbeInlineOutputExcerpt(probe.Output); excerpt != "" {
+				summary += "\nProbe output:\n" + excerpt
+			}
+		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   report != nil && report.Passed,
-			Summary:   renderVerificationProbePrimarySummary(report, surface),
+			Summary:   summary,
 			RawRef:    ref,
 			Timestamp: time.Now(),
 		}, nil
@@ -1125,6 +1131,14 @@ func renderVerificationProbePrimarySummary(report *types.ChangeReport, surface t
 		fmt.Fprintf(&b, " %s", strings.TrimSpace(report.FailureSummary))
 	}
 	return b.String()
+}
+
+func verificationProbeInlineOutputExcerpt(output string) string {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return ""
+	}
+	return strings.TrimSpace(stdoutHead(output, 1200))
 }
 
 func inheritRunTestsScopeFromVerifyFailureHandoff(ctx *types.BusContext, p *runTestsParams) bool {
