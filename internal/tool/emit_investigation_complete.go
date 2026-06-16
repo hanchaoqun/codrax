@@ -7472,6 +7472,9 @@ func genericForcedReadBoundarySatisfied(ctx *types.BusContext, aggregateFacts []
 	if narrativePrincipalMemberSetCompletesBoundary(ctx, aggregateFacts, evidence) {
 		return true
 	}
+	if relationMemberSetCompletesGenericForcedReadBoundary(ctx, aggregateFacts) {
+		return true
+	}
 	if genericForcedReadBoundarySatisfiedByGroundedEvidence(ctx, evidence) {
 		return true
 	}
@@ -7495,6 +7498,21 @@ func genericForcedReadBoundarySatisfied(ctx *types.BusContext, aggregateFacts []
 		}
 	}
 	return false
+}
+
+func relationMemberSetCompletesGenericForcedReadBoundary(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(aggregateFacts) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.RequiresRelationMemberSetHandoff(rm) {
+		return false
+	}
+	ok, _ := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
+	if !ok {
+		return false
+	}
+	return len(relationMemberSetCoverageGaps(ctx, aggregateFacts)) == 0
 }
 
 func genericForcedReadBoundarySatisfiedByGroundedEvidence(ctx *types.BusContext, evidence []types.EvidenceItem) bool {

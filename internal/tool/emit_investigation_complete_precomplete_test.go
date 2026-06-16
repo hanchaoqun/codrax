@@ -4437,6 +4437,110 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CallChainGroundedEvidenceByp
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_RelationMemberSetBypassesGenericTopologyReads(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 5
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	mut := types.NewMutableState("哪个 agent 可以调用 subagent")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/agent/sub_explorer.go", Score: 90, ExactEntityRank: 3},
+		{Path: "internal/agent/agent.go", Score: 88, ExactEntityRank: 3},
+		{Path: "internal/tool/propose_sub_agents.go", Score: 86, ExactEntityRank: 2},
+		{Path: "internal/orchestrator/topology.go", Score: 70, ExactEntityRank: 2},
+		{Path: "internal/tool/repomap/topology/topology.go", Score: 68, ExactEntityRank: 2},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: "internal/agent/sub_explorer.go", LineStart: 32,
+			AnchorKind: types.AnchorReturn, AnchorSymbol: "Name",
+			Subject: "SubExplorer.Name", Predicate: "returns", Object: "explorer",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/agent.go", LineStart: 3412,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "SubAgents.Get",
+			Subject: "BaseAgent.buildToolSchemas", Predicate: "gates tool exposure by", Object: "registered subagent name",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/tool/propose_sub_agents.go", LineStart: 18,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "ProposeSubAgents",
+			Subject: "propose_sub_agents", Predicate: "carries", Object: "subagent requests",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"internal/agent/sub_explorer.go":      true,
+		"internal/agent/agent.go":             true,
+		"internal/tool/propose_sub_agents.go": true,
+		"internal/agent/subagent_runtime.go":  true,
+		"internal/types/subagent.go":          true,
+		"internal/agent/subagent.go":          true,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				Scenario:      types.ScenarioArchitectureExplain,
+				Complexity:    types.ComplexityModerate,
+				PredicateAxis: types.AxisCall,
+				Predicates: types.SemanticPredicates{
+					IsRelationalLookup:    true,
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:            string(types.ReqCallChain),
+					PrimaryEntities: []string{"SubAgentRequest", "sub_explorer.go"},
+					Entities:        []string{"SubAgentRequest", "sub_explorer.go"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 2},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "已落地 explorer 是可调用 subagent 的 principal relation member，topology 文件只是预扫描候选。",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"role":         "principal_answer",
+			"label":        "agents that can call subagent",
+			"value":        "1",
+			"members":      []string{"explorer"},
+			"support_refs": []string{"explorer: internal/agent/sub_explorer.go:32"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "topology.go") ||
+		strings.Contains(res.Summary, "DOWNGRADED") ||
+		strings.Contains(res.Summary, "Forced Read List") ||
+		strings.Contains(res.Summary, "Suspicious Anchors") {
+		t.Fatalf("typed relation member_set boundary must not be overruled by generic topology candidates, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete after typed relation member_set establishes the answer boundary")
+	}
+	for _, pending := range closure.PendingReads() {
+		if pending.Origin == "phase1_unread" {
+			t.Fatalf("generic phase1 topology reads should not remain pending after relation member_set boundary: %+v", pending)
+		}
+	}
+}
+
 func TestPartitionPendingReadsForAcceptedClosure_KeepsRequiredCurrentSourceBlocking(t *testing.T) {
 	mut := types.NewMutableState("mixed current source")
 	evidence := []types.EvidenceItem{
