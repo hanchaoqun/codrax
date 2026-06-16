@@ -153,6 +153,35 @@ func TestUpdateWorkflowRunActiveSliceObserveSkipped(t *testing.T) {
 	}
 }
 
+func TestMarkWorkflowRunActiveSliceApplying(t *testing.T) {
+	run := onlineSliceRunForTest()
+	run.Batches[0].Status = types.WriteWorkflowBatchApplying
+	run.Batches[0].Slices[1].Status = types.ChangePlanSlicePending
+	run.Batches[0].Slices[1].Completion = &types.WriteWorkflowCompletion{
+		Verdict:    types.WriteWorkflowCompletionUnverified,
+		ReasonCode: "stale",
+	}
+	plan := onlineSlicePlanForTest("plan-slice")
+
+	markWorkflowRunActiveSliceApplying(&run, "batch-1", plan, "controller_apply")
+	slice := run.Batches[0].Slices[1]
+	if slice.Status != types.ChangePlanSliceApplying {
+		t.Fatalf("slice status = %q, want applying", slice.Status)
+	}
+	if slice.Completion != nil {
+		t.Fatalf("applying slice should clear stale completion: %+v", slice.Completion)
+	}
+	if len(slice.Attempts) != 1 || slice.Attempts[0].Kind != "apply" ||
+		slice.Attempts[0].Status != "started" || slice.Attempts[0].ReasonCode != "controller_apply" {
+		t.Fatalf("apply-start attempt not recorded: %+v", slice.Attempts)
+	}
+	if len(run.Batches[0].SliceEvents) != 1 ||
+		run.Batches[0].SliceEvents[0].Event != types.WriteWorkflowSliceEventApplyStarted ||
+		run.Batches[0].SliceEvents[0].Status != types.ChangePlanSliceApplying {
+		t.Fatalf("apply-start event not recorded: %+v", run.Batches[0].SliceEvents)
+	}
+}
+
 func TestInitializeWorkflowBatchSlicesFromPlanResetsPriorPlanState(t *testing.T) {
 	batch := types.WriteWorkflowBatch{
 		ID:            "batch-1",

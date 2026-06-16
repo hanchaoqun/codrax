@@ -263,6 +263,10 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.publishBlockedRunGuidance(&run, "apply_not_allowed_in_plan_mode")
 				return fmt.Errorf("write workflow blocked: apply_plan is not valid in plan mode")
 			}
+			if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+				markWorkflowRunActiveSliceApplying(&run, run.ActiveBatchID, plan, decision.ReasonCode)
+				o.persistWriteWorkflowRun(&run)
+			}
 			innerErr := o.runControllerApplyPlan(stepsUsed)
 			plan := o.busCtx.Mutable.ChangePlan()
 			recoveredApplyError := false
@@ -1962,6 +1966,43 @@ func markWorkflowRunActiveSliceObservingForRestoredPlan(run *types.WriteWorkflow
 		PlanID:     planID,
 		At:         now,
 	})
+	batch.UpdatedAt = now
+}
+
+func markWorkflowRunActiveSliceApplying(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan, reasonCode string) {
+	if run == nil || plan == nil || strings.TrimSpace(batchID) == "" {
+		return
+	}
+	batch := activeWorkflowBatchForUpdate(run, batchID)
+	if batch == nil {
+		return
+	}
+	if len(batch.Slices) == 0 {
+		initializeWorkflowBatchSlicesFromPlan(batch, plan, strings.TrimSpace(batch.PlanID))
+	}
+	if strings.TrimSpace(batch.ActiveSliceID) == "" {
+		batch.ActiveSliceID = workflowBatchActiveSliceID(batch)
+	}
+	slice := activeWorkflowSliceForUpdate(batch)
+	if slice == nil || workflowSliceStatusTerminal(slice.Status) {
+		return
+	}
+	now := time.Now()
+	planID := strings.TrimSpace(plan.ID)
+	reasonCode = strings.TrimSpace(reasonCode)
+	slice.PlanID = firstNonEmptyController(planID, slice.PlanID)
+	slice.Status = types.ChangePlanSliceApplying
+	slice.Completion = nil
+	appendWorkflowSliceAttempt(slice, "apply", "started", reasonCode, planID, "", "")
+	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+		SliceID:    slice.ID,
+		Event:      types.WriteWorkflowSliceEventApplyStarted,
+		Status:     slice.Status,
+		ReasonCode: reasonCode,
+		PlanID:     planID,
+		At:         now,
+	})
+	slice.UpdatedAt = now
 	batch.UpdatedAt = now
 }
 

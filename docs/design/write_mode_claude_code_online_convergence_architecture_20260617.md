@@ -787,7 +787,7 @@ Primary files:
 | 0 | complete | Architecture ledger added and ready for commit. |
 | 1 | complete | Added analyzer overview caution token hygiene for multiline/code-fragment/traceback-shaped candidates, with valid symbol/path retention tests. |
 | 2 | complete | Required expected/forbidden behavior contracts now default to completion targets; distinct expected_outcomes append as required fallback contracts even when explicit contracts exist; plan probes must reference every required contract; verification confidence records partial covered/missing contract refs; SWE-bench adapter records typed confidence downgrade reasons for unavailable/unverified local verification without blocking export. |
-| 3 | pending | Active slice state machine. |
+| 3 | complete | Active slice is the scheduler execution unit with durable transitions. This pass added the missing apply-start transition: before coder/apply runs, the active slice now records `status=applying`, an `apply/started` attempt, and a `slice_apply_started` event; existing observe/advance logic carries applying -> observing -> verified/unverified/failed/blocked and advances only runnable dependency-satisfied slices. |
 | 4 | pending | Localizer worker and evidence coverage. |
 | 5 | pending | PlanRepairPack. |
 | 6 | pending | Permission engine unification. |

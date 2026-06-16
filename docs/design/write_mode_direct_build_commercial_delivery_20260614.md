@@ -4554,3 +4554,22 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     `prediction_confidence_downgrade_reason=no_tests`,
     `verify_status=unavailable`, and
     `verify_confidence_reason_codes=[no_tests, verification_probe_import_error]`.
+
+## 2026-06-17 Online slice state-machine completion
+
+- Gap observed:
+  - `ChangePlanSliceStatus` and workflow events already modeled
+    `applying` / `slice_apply_started`, but the controller path jumped the
+    active slice from pending/planned directly to `observing` after apply
+    completed. This left the online `Edit -> Run -> Observe` ledger without a
+    durable "Edit started" point for UI, resume, and audit.
+- Generalized fix:
+  - Before coder/apply runs, the controller now marks the active slice
+    `applying`, appends an `apply/started` slice attempt, and persists a
+    `slice_apply_started` event. The existing post-apply transition then moves
+    the slice to `observing` or a terminal failure/block state.
+  - The fix reads only typed workflow run, active batch id, active slice id,
+    plan id, and schema-validated controller reason code.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/orchestrator -run 'TestMarkWorkflowRunActiveSliceApplying|TestPendingAppliesForActivePlanScope|TestUpdateWorkflowRunActiveSliceObserve|TestAdvanceWorkflowAfterSuccessfulSliceObserve|TestRunWriteControllerWorkflow_NoTests|TestRunWriteControllerWorkflow_UnverifiedSuppressesFollowupExploreBatch' -count=1`.
