@@ -2587,6 +2587,120 @@ func TestApplyVerifyCoverageToChangePlanPreservesMissingProbeSymbolGap(t *testin
 	}
 }
 
+func TestApplyVerifyCoverageToChangePlanPreservesActualDiffUnknownCoverage(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:     "plan-boundary",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{
+				{
+					Code:           "python_nested_string_key_direct_access_added",
+					Severity:       types.PatchReviewSeverityWarning,
+					Category:       types.PatchReviewCategorySemanticCoverage,
+					Path:           "pkg/widget.py",
+					CoverageStatus: types.PatchReviewCoverageUnknown,
+					EvidenceRef:    "pkg/widget.py:12",
+				},
+				{
+					Code:           "javascript_nested_string_key_direct_access_added",
+					Severity:       types.PatchReviewSeverityWarning,
+					Category:       types.PatchReviewCategorySemanticCoverage,
+					Path:           "src/widget.js",
+					CoverageStatus: types.PatchReviewCoverageUnknown,
+					EvidenceRef:    "src/widget.js:8",
+				},
+			},
+		},
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "effect_followup",
+				Path:           "pkg/widget.py",
+				Priority:       70,
+				Source:         "patch_effect",
+				CoverageStatus: "unverified",
+				EvidenceRef:    "patch-effect:pkg/widget.py",
+			}},
+		},
+	}
+
+	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{
+		PlanID:             "plan-boundary",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			AssertionID: "tests/test_unrelated.py::test_ok",
+			Suite:       "tests/test_unrelated.py",
+			Passed:      true,
+		}},
+	}, nil)
+
+	if plan.ImpactAnalysis == nil || len(plan.ImpactAnalysis.VerificationTargets) != 1 ||
+		plan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "unverified" {
+		t.Fatalf("actual-diff effect follow-up should require explicit coverage: %+v", plan.ImpactAnalysis)
+	}
+	if plan.PatchReview == nil || len(plan.PatchReview.Findings) != 2 {
+		t.Fatalf("patch review missing: %+v", plan.PatchReview)
+	}
+	for _, finding := range plan.PatchReview.Findings {
+		if finding.CoverageStatus != types.PatchReviewCoverageUnknown {
+			t.Fatalf("actual-diff unknown coverage event %s should stay unknown after unrelated pass: %+v", finding.Code, finding)
+		}
+	}
+	summary := types.SummarizePatchReviewCoverage(*plan.PatchReview)
+	if summary.Verdict != types.PatchReviewCoverageVerdictUnverified || !summary.HasUncoveredSemantic {
+		t.Fatalf("coverage summary should remain uncovered: %+v", summary)
+	}
+}
+
+func TestApplyVerifyCoverageToChangePlanVerifiesScopedTestSurfaceCoverage(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:     "plan-test-surface",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "related_test_surface_unverified",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/widget.py",
+				RelatedPath:    "tests/test_widget.py",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+				EvidenceRef:    "tests/test_widget.py",
+			}},
+		},
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "test_surface",
+				Path:           "pkg/widget.py",
+				RelatedPath:    "tests/test_widget.py",
+				Priority:       50,
+				Source:         "impact_engine",
+				CoverageStatus: "unverified",
+				EvidenceRef:    "tests/test_widget.py",
+			}},
+		},
+	}
+
+	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{
+		PlanID:             "plan-test-surface",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			AssertionID: "tests/test_widget.py::test_label",
+			Suite:       "tests/test_widget.py",
+			Passed:      true,
+		}},
+	}, nil)
+
+	if plan.ImpactAnalysis == nil || len(plan.ImpactAnalysis.VerificationTargets) != 1 ||
+		plan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "verified" {
+		t.Fatalf("scoped passing suite should verify matching impact target: %+v", plan.ImpactAnalysis)
+	}
+	if plan.PatchReview == nil || len(plan.PatchReview.Findings) != 1 ||
+		plan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageVerified {
+		t.Fatalf("scoped passing suite should verify matching patch-review finding: %+v", plan.PatchReview)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewDoesNotRecurse(t *testing.T) {
 	mu := types.NewMutableState("semantic patch review followup recursion")
 	mu.SetChangePlan(&types.ChangePlan{

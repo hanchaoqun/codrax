@@ -1679,6 +1679,7 @@ type verifyCoverageConfidence struct {
 	MissingContracts     map[string]bool
 	CoveredSymbols       map[string]bool
 	CoveredContracts     map[string]bool
+	CoveredPaths         map[string]bool
 }
 
 func applyVerifyCoverageToChangePlan(plan *types.ChangePlan, report *types.ChangeReport, err error) {
@@ -1737,9 +1738,18 @@ func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCovera
 		MissingContracts: map[string]bool{},
 		CoveredSymbols:   map[string]bool{},
 		CoveredContracts: map[string]bool{},
+		CoveredPaths:     map[string]bool{},
 	}
 	if report == nil {
 		return conf
+	}
+	for _, result := range report.TestResults {
+		if !result.Passed {
+			continue
+		}
+		if suite := normalizeVerifyCoveragePath(result.Suite); suite != "" {
+			conf.CoveredPaths[suite] = true
+		}
 	}
 	for _, rec := range report.VerificationConfidence {
 		status := strings.TrimSpace(rec.Status)
@@ -1787,6 +1797,12 @@ func impactCoverageForTarget(target types.ImpactVerificationTarget, projection v
 				return impactCoverageUnverified
 			}
 		}
+		if impactTargetNeedsScopedCoverage(target) && !projection.Confidence.CoversPath(target.RelatedPath, target.Path) {
+			if status := strings.TrimSpace(target.CoverageStatus); status != "" {
+				return status
+			}
+			return impactCoverageUnverified
+		}
 		return impactCoverageVerified
 	case impactCoverageUnavailable:
 		return impactCoverageUnavailable
@@ -1813,6 +1829,17 @@ func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection 
 			if ref != "" && projection.Confidence.MissingContracts[ref] && !projection.Confidence.CoveredContracts[ref] {
 				return types.PatchReviewCoverageUnverified
 			}
+		case "dependent_surface_without_verify_coverage", "related_test_surface_unverified":
+			if !projection.Confidence.CoversPath(finding.RelatedPath, finding.Path) {
+				return preservePatchReviewUncoveredStatus(finding.CoverageStatus)
+			}
+		default:
+			if writeflow.PatchReviewEffectUnknownCoverage(finding.Code) {
+				return preservePatchReviewUncoveredStatus(finding.CoverageStatus)
+			}
+			if patchReviewFindingNeedsExplicitCoverage(finding) {
+				return preservePatchReviewUncoveredStatus(finding.CoverageStatus)
+			}
 		}
 		return types.PatchReviewCoverageVerified
 	case types.PatchReviewCoverageUnavailable:
@@ -1822,6 +1849,60 @@ func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection 
 	default:
 		return finding.CoverageStatus
 	}
+}
+
+func (conf verifyCoverageConfidence) CoversPath(paths ...string) bool {
+	for _, path := range paths {
+		path = normalizeVerifyCoveragePath(path)
+		if path == "" {
+			continue
+		}
+		if conf.CoveredPaths[path] {
+			return true
+		}
+	}
+	return false
+}
+
+func impactTargetNeedsScopedCoverage(target types.ImpactVerificationTarget) bool {
+	switch strings.TrimSpace(target.Kind) {
+	case "dependent", "test_surface", "dependency", "effect_followup":
+		return true
+	default:
+		return false
+	}
+}
+
+func patchReviewFindingNeedsExplicitCoverage(finding types.PatchReviewFinding) bool {
+	if finding.Category != types.PatchReviewCategorySemanticCoverage {
+		return false
+	}
+	switch strings.TrimSpace(finding.Code) {
+	case "changed_symbol_without_probe_coverage", "behavior_contract_without_verify_coverage":
+		return false
+	default:
+		return finding.CoverageStatus == types.PatchReviewCoverageUnknown ||
+			finding.CoverageStatus == types.PatchReviewCoverageUnverified ||
+			finding.CoverageStatus == types.PatchReviewCoverageUnavailable
+	}
+}
+
+func preservePatchReviewUncoveredStatus(status types.PatchReviewCoverageStatus) types.PatchReviewCoverageStatus {
+	switch status {
+	case types.PatchReviewCoverageUnknown, types.PatchReviewCoverageUnverified, types.PatchReviewCoverageUnavailable:
+		return status
+	default:
+		return types.PatchReviewCoverageUnverified
+	}
+}
+
+func normalizeVerifyCoveragePath(path string) string {
+	path = strings.TrimSpace(filepath.ToSlash(path))
+	path = strings.TrimPrefix(path, "./")
+	if path == "." || path == "/" {
+		return ""
+	}
+	return path
 }
 
 func (o *Orchestrator) markActivePlanUnverifiedAfterVerifyInfra(reason string) {

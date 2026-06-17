@@ -42,6 +42,14 @@ var patchReviewEffectUnknownCoverageEventCodes = map[string]bool{
 
 const patchReviewMaxSemanticFindings = 32
 
+// PatchReviewEffectUnknownCoverage reports whether code names an actual-diff
+// effect that must stay uncovered until a typed verifier signal proves the
+// boundary. It lets controller-side coverage projection consume the same
+// language registry as PatchReview without duplicating event names.
+func PatchReviewEffectUnknownCoverage(code string) bool {
+	return patchReviewEffectUnknownCoverageEventCodes[strings.TrimSpace(code)]
+}
+
 type SemanticPatchReviewInput struct {
 	Plan              *types.ChangePlan
 	ActiveSlice       types.ChangePlanSlice

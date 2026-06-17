@@ -675,6 +675,89 @@ Verification:
 - `go test ./...`
 - `make test`
 
+## RC-14 SWE Smoke Follow-Up: Coverage Projection Authority
+
+After RC-14, a three-instance SWE-bench Lite smoke produced harness-consumable
+non-empty predictions for:
+
+- `django__django-14534`
+- `pytest-dev__pytest-11143`
+- `sympy__sympy-23117`
+
+Artifacts:
+
+- Run directory:
+  `/private/tmp/codrax-swebench-rc14-20260618-041330`
+- Predictions:
+  `/private/tmp/codrax-swebench-rc14-20260618-041330/predictions.jsonl`
+- Results:
+  `/private/tmp/codrax-swebench-rc14-20260618-041330/results.jsonl`
+
+Audit summary:
+
+- Export compatibility: 3/3 predictions validated by the official SWE-bench
+  harness dry-run path and none were empty.
+- Strict commercial manual pass: 0/3.
+- `django__django-14534`: local verifier passed, but the actual patch changed
+  `id_for_label` to direct-index `self.data["attrs"]["id"]`. Patch review
+  later reported
+  `patch_review_semantic_uncovered:python_nested_string_key_direct_access_added`
+  and `verification_probe_missing_required_contract_ref`, but the runtime
+  workflow had already allowed controller `finish`.
+- `pytest-dev__pytest-11143`: RC-14 correctly appended an impact-repair batch,
+  but the repair polluted production source with test scaffolding. The core
+  null-guard fix was plausible; commercial quality remained blocked.
+- `sympy__sympy-23117`: RC-14 correctly avoided a false pass and kept replanning
+  after failed verification, but the repair loop produced structurally poor
+  edits such as a duplicate method and did not converge before wall time.
+
+Root-cause classification:
+
+- Not a patch-export problem. The official prediction path is consumable.
+- Not simply a missing planner prompt. The controller consumed typed artifacts,
+  but the verify coverage projector over-promoted actual-diff semantic findings
+  from `unknown` / `unverified` to `verified` after an unrelated local pass.
+- This is a system-level authority gap: verification projection must only
+  certify the target it has typed evidence for. A narrow probe or unrelated
+  suite pass cannot certify every actual-diff boundary event.
+
+RC-15 design:
+
+- Keep `ObservationAuthorityFailed` and `ObservationAuthorityUnverified`
+  able to downgrade all coverage to failed/unavailable states.
+- For `ObservationAuthorityVerified`, promote only findings whose typed
+  evidence is actually covered:
+  - changed-symbol coverage reads `VerificationConfidence` symbol refs;
+  - behavior-contract coverage reads `VerificationConfidence` contract refs;
+  - dependent/test-surface coverage requires a matching typed
+    `TestResult.Suite`;
+  - actual-diff unknown coverage events stay uncovered until an explicit typed
+    verifier signal exists.
+- Use the existing PatchReview language event registry as the source of truth;
+  do not duplicate Python/JS/TS/Ruby/JVM/Go event strings in controller logic.
+- Keep the rule typed-only: no user intent keywords, no issue prose, no model
+  rationale, no `<think>`, no stdout summary parsing.
+
+Task list:
+
+- [x] Export a `writeflow` helper for actual-diff unknown coverage event codes.
+- [x] Add typed path coverage to `verifyCoverageConfidence` from passing
+  `ChangeReport.TestResult.Suite` values.
+- [x] Preserve multi-language actual-diff unknown coverage findings after
+  unrelated local pass.
+- [x] Verify scoped test-surface findings only when the matching suite passed.
+- [x] Run focused controller/writeflow tests, full regression, update progress,
+  commit, and push.
+
+Verification:
+
+- `go test ./internal/orchestrator -run 'TestApplyVerifyCoverageToChangePlan|TestSyncMutablePlanStatusAfterVerifyMarksCoverage'`
+- `go test ./internal/writeflow -run 'TestAnnotatePatchEffect|TestReviewAppliedPatch'`
+- `go test ./internal/orchestrator ./internal/writeflow ./internal/types`
+- `go test ./internal/tool ./internal/agent`
+- `go test ./...`
+- `make test`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -694,6 +777,7 @@ Verification:
 | RC-12 | complete | All hard operators grounding: write-analysis quality gate now applies grounding to `contains`, `not_contains`, `exists`, `not_exists`, `raises`, and `not_raises` in addition to equals/not_equals/returns. Verification: focused orchestrator tests, related orchestrator/skill/types/tool/agent tests, full `go test ./...`, `make test`, and RC-12 SymPy SWE-bench smoke export passed; local correctness correctly failed with typed verifier evidence instead of a false pass. |
 | RC-13 | complete | Multi-language verification probe runtime: generalized the Python-only bounded probe lane to a typed provider registry for Python, JavaScript/Node, Ruby, and Go; updated schemas, planner guidance, user docs, and tests. Verification: focused multi-language probe tests, full `internal/tool`, related types/skill/orchestrator/agent tests, full `go test ./...`, `make`, and RC-13 SymPy SWE-bench smoke passed export compatibility while local acceptance remained correctly audit-blocked. |
 | RC-14 | complete | Impact obligation repair queue: controller now schedules one bounded impact-repair follow-up when typed impact/patch-review coverage remains uncovered after a non-failed verifier attempt, including the previously missed "local verify passed but changed-symbol/contract coverage is still unverified" case. Path-backed obligations append a scoped repair batch; pathless obligations trigger bounded exploration first. Verification: focused controller regressions, related write packages, full `go test ./...`, and `make test` pass. |
+| RC-15 | complete | Coverage projection authority: post-RC-14 SWE smoke showed actual-diff unknown coverage findings could be over-promoted to verified after unrelated local pass. The fix keeps verified projection target-specific: changed symbols and contracts use confidence refs, scoped surfaces use matching passed suites, and multi-language actual-diff unknown events remain uncovered until explicitly proven. Verification: focused controller/writeflow regressions, related packages, full `go test ./...`, and `make test` pass. |
 
 ## Acceptance Criteria
 
