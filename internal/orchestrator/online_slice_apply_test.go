@@ -182,6 +182,38 @@ func TestMarkWorkflowRunActiveSliceApplying(t *testing.T) {
 	}
 }
 
+func TestUpdateWorkflowRunActiveSliceApplyRecordsCheckpoint(t *testing.T) {
+	run := onlineSliceRunForTest()
+	plan := onlineSlicePlanForTest("plan-slice")
+	plan.AppliedCommitSHA = "abc123"
+	plan.WorktreePath = "/tmp/wt"
+
+	updateWorkflowRunBatchApply(&run, "batch-1", plan, "applied", "apply_succeeded")
+	slice := run.Batches[0].Slices[1]
+	if slice.Checkpoint == nil {
+		t.Fatalf("expected slice checkpoint, got %+v", slice)
+	}
+	if slice.Checkpoint.Ref != "refs/codrax/applied/plan-slice" ||
+		slice.Checkpoint.CommitSHA != "abc123" ||
+		slice.Checkpoint.WorktreePath != "/tmp/wt" ||
+		slice.Checkpoint.Source != "slice_apply" ||
+		slice.Checkpoint.ReasonCode != "apply_succeeded" {
+		t.Fatalf("checkpoint metadata wrong: %+v", slice.Checkpoint)
+	}
+}
+
+func TestStampActivePlanCheckpointMetadata(t *testing.T) {
+	o := &Orchestrator{
+		busCtx:               &types.BusContext{WorktreePath: "/tmp/wt"},
+		currentIterCommitSHA: "abc123",
+	}
+	plan := onlineSlicePlanForTest("plan-slice")
+	got := o.stampActivePlanCheckpointMetadata(plan)
+	if got.AppliedCommitSHA != "abc123" || got.WorktreePath != "/tmp/wt" {
+		t.Fatalf("checkpoint metadata not stamped: %+v", got)
+	}
+}
+
 func TestInitializeWorkflowBatchSlicesFromPlanResetsPriorPlanState(t *testing.T) {
 	batch := types.WriteWorkflowBatch{
 		ID:            "batch-1",
@@ -308,6 +340,11 @@ func TestMarkWorkflowRunActiveSliceObservingForRestoredPlan(t *testing.T) {
 	if len(run.Batches[0].SliceEvents) != 1 ||
 		run.Batches[0].SliceEvents[0].Event != types.WriteWorkflowSliceEventObserveStarted {
 		t.Fatalf("observe-start event not recorded: %+v", run.Batches[0].SliceEvents)
+	}
+	if slice.Restore == nil || slice.Restore.CheckpointRef != "refs/codrax/applied/plan-slice" ||
+		slice.Restore.CommitSHA != "sha" || slice.Restore.WorktreePath != "/tmp/wt" ||
+		slice.Restore.ReasonCode != "planner_probe_passed_existing_worktree" {
+		t.Fatalf("restore metadata not recorded: %+v", slice.Restore)
 	}
 }
 

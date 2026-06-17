@@ -1374,6 +1374,28 @@ func (o *Orchestrator) attachActivePatchEffectRecord(plan *types.ChangePlan, act
 	return &effect
 }
 
+func (o *Orchestrator) stampActivePlanCheckpointMetadata(plan *types.ChangePlan) *types.ChangePlan {
+	if o == nil || o.busCtx == nil || plan == nil {
+		return plan
+	}
+	changed := false
+	sha := strings.TrimSpace(o.currentIterCommitSHA)
+	if strings.TrimSpace(plan.AppliedCommitSHA) == "" && sha != "" {
+		plan.AppliedCommitSHA = sha
+		changed = true
+	}
+	wt := strings.TrimSpace(o.busCtx.WorktreePath)
+	if strings.TrimSpace(plan.WorktreePath) == "" && wt != "" {
+		plan.WorktreePath = wt
+		changed = true
+	}
+	if changed && o.busCtx.Mutable != nil {
+		o.busCtx.Mutable.SetChangePlan(plan)
+		o.persistCurrentChangePlanSnapshot()
+	}
+	return plan
+}
+
 func patchReviewHardBlockReason(review types.PatchReviewRecord) string {
 	review = types.NormalizePatchReviewRecord(review)
 	for _, finding := range review.Findings {
@@ -1415,6 +1437,9 @@ func (o *Orchestrator) runControllerApplyPlanTransition(run *types.WriteWorkflow
 	if innerErr == nil {
 		o.markActivePlanAppliedPendingVerify()
 		plan = o.busCtx.Mutable.ChangePlan()
+	}
+	if innerErr == nil && plan != nil {
+		plan = o.stampActivePlanCheckpointMetadata(plan)
 	}
 	if plan != nil {
 		applyStatus := writeWorkflowApplyAttemptStatus(plan, innerErr)
@@ -1984,6 +2009,14 @@ func mergeWorkflowBatchSlices(batch *types.WriteWorkflowBatch, derived []types.W
 			slice.ObserveRef = prior.ObserveRef
 			slice.VerifyRef = prior.VerifyRef
 			slice.ApprovalRef = prior.ApprovalRef
+			if prior.Checkpoint != nil {
+				cp := *prior.Checkpoint
+				slice.Checkpoint = &cp
+			}
+			if prior.Restore != nil {
+				restore := *prior.Restore
+				slice.Restore = &restore
+			}
 			slice.ContextPackIDs = append([]string(nil), prior.ContextPackIDs...)
 			slice.Completion = prior.Completion
 			slice.Attempts = append([]types.WriteWorkflowAttempt(nil), prior.Attempts...)
@@ -2128,6 +2161,9 @@ func updateWorkflowBatchActiveSliceApply(batch *types.WriteWorkflowBatch, plan *
 	case "applied":
 		slice.Status = types.ChangePlanSliceObserving
 		slice.Completion = nil
+		if checkpoint := writeWorkflowSliceCheckpointFromPlan(plan, reasonCode, "slice_apply", now); checkpoint != nil {
+			slice.Checkpoint = checkpoint
+		}
 	case "partial", "failed":
 		slice.Status = types.ChangePlanSliceFailed
 		slice.Completion = nil
@@ -2239,6 +2275,20 @@ func markWorkflowRunActiveSliceObservingForRestoredPlan(run *types.WriteWorkflow
 	slice.Completion = nil
 	if slice.ApplyRef == "" {
 		slice.ApplyRef = writeWorkflowApplyRef(plan, "applied")
+	}
+	if checkpoint := writeWorkflowSliceCheckpointFromPlan(plan, reasonCode, "restored_plan", now); checkpoint != nil {
+		if slice.Checkpoint == nil {
+			cp := *checkpoint
+			slice.Checkpoint = &cp
+		}
+		slice.Restore = &types.WriteWorkflowRestore{
+			CheckpointRef: checkpoint.Ref,
+			CommitSHA:     checkpoint.CommitSHA,
+			WorktreePath:  checkpoint.WorktreePath,
+			Source:        "planner_probe",
+			ReasonCode:    strings.TrimSpace(reasonCode),
+			At:            now,
+		}
 	}
 	slice.UpdatedAt = now
 	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
@@ -2761,6 +2811,31 @@ func writeWorkflowApplyRef(plan *types.ChangePlan, status string) string {
 		return ""
 	}
 	return worktree.AppliedRef(plan.ID)
+}
+
+func writeWorkflowSliceCheckpointFromPlan(plan *types.ChangePlan, reasonCode, source string, at time.Time) *types.WriteWorkflowCheckpoint {
+	if plan == nil {
+		return nil
+	}
+	sha := strings.TrimSpace(plan.AppliedCommitSHA)
+	ref := ""
+	if strings.TrimSpace(plan.ID) != "" {
+		ref = worktree.AppliedRef(plan.ID)
+	}
+	wt := strings.TrimSpace(plan.WorktreePath)
+	source = strings.TrimSpace(source)
+	reasonCode = strings.TrimSpace(reasonCode)
+	if ref == "" && sha == "" && wt == "" {
+		return nil
+	}
+	return &types.WriteWorkflowCheckpoint{
+		Ref:          ref,
+		CommitSHA:    sha,
+		WorktreePath: wt,
+		Source:       source,
+		ReasonCode:   reasonCode,
+		At:           at,
+	}
 }
 
 func (o *Orchestrator) controllerDecisionFromTypedStateAfterDispatchError(run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {

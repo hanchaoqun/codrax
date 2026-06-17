@@ -182,7 +182,23 @@ func TestNormalizeWriteWorkflowRunPersistsSliceState(t *testing.T) {
 				ObserveRef:      " observe-ref ",
 				VerifyRef:       " verify-ref ",
 				ApprovalRef:     " approval-ref ",
-				ContextPackIDs:  []string{" pack-1 ", "pack-1"},
+				Checkpoint: &WriteWorkflowCheckpoint{
+					Ref:          " refs/codrax/applied/plan-1 ",
+					CommitSHA:    " abc123 ",
+					WorktreePath: " /tmp/wt ",
+					Source:       " slice_apply ",
+					ReasonCode:   " applied ",
+					At:           finished,
+				},
+				Restore: &WriteWorkflowRestore{
+					CheckpointRef: " refs/codrax/applied/plan-1 ",
+					CommitSHA:     " abc123 ",
+					WorktreePath:  " /tmp/wt ",
+					Source:        " planner_probe ",
+					ReasonCode:    " restored ",
+					At:            finished,
+				},
+				ContextPackIDs: []string{" pack-1 ", "pack-1"},
 				Completion: &WriteWorkflowCompletion{
 					Verdict:    WriteWorkflowCompletionVerified,
 					ReasonCode: "slice_passed",
@@ -228,6 +244,16 @@ func TestNormalizeWriteWorkflowRunPersistsSliceState(t *testing.T) {
 		first.ObserveRef != "observe-ref" || first.VerifyRef != "verify-ref" ||
 		first.ApprovalRef != "approval-ref" {
 		t.Fatalf("slice refs not normalized: %+v", first)
+	}
+	if first.Checkpoint == nil || first.Checkpoint.Ref != "refs/codrax/applied/plan-1" ||
+		first.Checkpoint.CommitSHA != "abc123" || first.Checkpoint.WorktreePath != "/tmp/wt" ||
+		first.Checkpoint.Source != "slice_apply" {
+		t.Fatalf("slice checkpoint not normalized: %+v", first.Checkpoint)
+	}
+	if first.Restore == nil || first.Restore.CheckpointRef != "refs/codrax/applied/plan-1" ||
+		first.Restore.CommitSHA != "abc123" || first.Restore.WorktreePath != "/tmp/wt" ||
+		first.Restore.Source != "planner_probe" {
+		t.Fatalf("slice restore not normalized: %+v", first.Restore)
 	}
 	if len(first.ChangeIndexes) != 2 || first.ChangeIndexes[0] != 1 || first.ChangeIndexes[1] != 0 {
 		t.Fatalf("slice change indexes should preserve order while deduping: %+v", first.ChangeIndexes)

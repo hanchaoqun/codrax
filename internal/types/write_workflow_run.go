@@ -90,11 +90,38 @@ type WriteWorkflowSlice struct {
 	ObserveRef      string                   `json:"observe_ref,omitempty"`
 	VerifyRef       string                   `json:"verify_ref,omitempty"`
 	ApprovalRef     string                   `json:"approval_ref,omitempty"`
+	Checkpoint      *WriteWorkflowCheckpoint `json:"checkpoint,omitempty"`
+	Restore         *WriteWorkflowRestore    `json:"restore,omitempty"`
 	ContextPackIDs  []string                 `json:"context_pack_ids,omitempty"`
 	Completion      *WriteWorkflowCompletion `json:"completion,omitempty"`
 	Attempts        []WriteWorkflowAttempt   `json:"attempts,omitempty"`
 	CreatedAt       time.Time                `json:"created_at,omitempty"`
 	UpdatedAt       time.Time                `json:"updated_at,omitempty"`
+}
+
+// WriteWorkflowCheckpoint is durable slice-level restore metadata. It records
+// the worktree commit/ref produced by an apply step so future rewind/fork
+// flows can preserve verified slices without inferring state from prose or
+// transient logs.
+type WriteWorkflowCheckpoint struct {
+	Ref          string    `json:"ref,omitempty"`
+	CommitSHA    string    `json:"commit_sha,omitempty"`
+	WorktreePath string    `json:"worktree_path,omitempty"`
+	Source       string    `json:"source,omitempty"`
+	ReasonCode   string    `json:"reason_code,omitempty"`
+	At           time.Time `json:"at,omitempty"`
+}
+
+// WriteWorkflowRestore records that a slice resumed from a known checkpoint.
+// It is metadata only; the actual reset/fork operation remains owned by the
+// deterministic worktree/effect executor.
+type WriteWorkflowRestore struct {
+	CheckpointRef string    `json:"checkpoint_ref,omitempty"`
+	CommitSHA     string    `json:"commit_sha,omitempty"`
+	WorktreePath  string    `json:"worktree_path,omitempty"`
+	Source        string    `json:"source,omitempty"`
+	ReasonCode    string    `json:"reason_code,omitempty"`
+	At            time.Time `json:"at,omitempty"`
 }
 
 type WriteWorkflowSliceEventKind string
@@ -426,6 +453,8 @@ func normalizeWriteWorkflowSlices(in []WriteWorkflowSlice) []WriteWorkflowSlice 
 		slice.ObserveRef = trimWriteWorkflowRunText(slice.ObserveRef)
 		slice.VerifyRef = trimWriteWorkflowRunText(slice.VerifyRef)
 		slice.ApprovalRef = trimWriteWorkflowRunText(slice.ApprovalRef)
+		slice.Checkpoint = normalizeWriteWorkflowCheckpointPtr(slice.Checkpoint)
+		slice.Restore = normalizeWriteWorkflowRestorePtr(slice.Restore)
 		slice.ContextPackIDs = dedupTrimWriteWorkflowRunStrings(slice.ContextPackIDs)
 		slice.Completion = normalizeWriteWorkflowCompletionPtr(slice.Completion)
 		if slice.Status != ChangePlanSliceVerified &&
@@ -438,6 +467,42 @@ func normalizeWriteWorkflowSlices(in []WriteWorkflowSlice) []WriteWorkflowSlice 
 		out = append(out, slice)
 	}
 	return out
+}
+
+func normalizeWriteWorkflowCheckpointPtr(in *WriteWorkflowCheckpoint) *WriteWorkflowCheckpoint {
+	if in == nil {
+		return nil
+	}
+	out := WriteWorkflowCheckpoint{
+		Ref:          trimWriteWorkflowRunText(in.Ref),
+		CommitSHA:    trimWriteWorkflowRunText(in.CommitSHA),
+		WorktreePath: trimWriteWorkflowRunText(in.WorktreePath),
+		Source:       trimWriteWorkflowRunText(in.Source),
+		ReasonCode:   trimWriteWorkflowRunText(in.ReasonCode),
+		At:           in.At,
+	}
+	if out.Ref == "" && out.CommitSHA == "" && out.WorktreePath == "" && out.Source == "" && out.ReasonCode == "" && out.At.IsZero() {
+		return nil
+	}
+	return &out
+}
+
+func normalizeWriteWorkflowRestorePtr(in *WriteWorkflowRestore) *WriteWorkflowRestore {
+	if in == nil {
+		return nil
+	}
+	out := WriteWorkflowRestore{
+		CheckpointRef: trimWriteWorkflowRunText(in.CheckpointRef),
+		CommitSHA:     trimWriteWorkflowRunText(in.CommitSHA),
+		WorktreePath:  trimWriteWorkflowRunText(in.WorktreePath),
+		Source:        trimWriteWorkflowRunText(in.Source),
+		ReasonCode:    trimWriteWorkflowRunText(in.ReasonCode),
+		At:            in.At,
+	}
+	if out.CheckpointRef == "" && out.CommitSHA == "" && out.WorktreePath == "" && out.Source == "" && out.ReasonCode == "" && out.At.IsZero() {
+		return nil
+	}
+	return &out
 }
 
 func normalizeWorkflowSliceIndexes(in []int) []int {

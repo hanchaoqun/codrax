@@ -42,6 +42,14 @@ func TestDeriveWriteWorkflowNextActionViewSurfacesActiveSliceProgress(t *testing
 			}, {
 				ID:     "slice-002",
 				Status: ChangePlanSliceObserving,
+				Checkpoint: &WriteWorkflowCheckpoint{
+					Ref:       "refs/codrax/applied/plan-1",
+					CommitSHA: "abc123",
+				},
+				Restore: &WriteWorkflowRestore{
+					CheckpointRef: "refs/codrax/applied/plan-1",
+					ReasonCode:    "planner_probe_passed_existing_worktree",
+				},
 			}, {
 				ID:     "slice-003",
 				Status: ChangePlanSlicePending,
@@ -50,6 +58,12 @@ func TestDeriveWriteWorkflowNextActionViewSurfacesActiveSliceProgress(t *testing
 	})
 	if view.ActiveSliceID != "slice-002" || view.ActiveSliceStatus != ChangePlanSliceObserving {
 		t.Fatalf("active slice not surfaced: %+v", view)
+	}
+	if view.ActiveCheckpointRef != "refs/codrax/applied/plan-1" || view.ActiveCheckpointSHA != "abc123" {
+		t.Fatalf("active checkpoint not surfaced: %+v", view)
+	}
+	if view.ActiveRestoreRef != "refs/codrax/applied/plan-1" || view.ActiveRestoreReason != "planner_probe_passed_existing_worktree" {
+		t.Fatalf("active restore not surfaced: %+v", view)
 	}
 	if view.CompletedSlices != 1 || view.TotalSlices != 3 {
 		t.Fatalf("slice progress = %d/%d, want 1/3", view.CompletedSlices, view.TotalSlices)

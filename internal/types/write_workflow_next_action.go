@@ -39,6 +39,10 @@ type WriteWorkflowNextActionView struct {
 	BatchStatus          WriteWorkflowBatchStatus       `json:"batch_status,omitempty"`
 	ActiveSliceID        string                         `json:"active_slice_id,omitempty"`
 	ActiveSliceStatus    ChangePlanSliceStatus          `json:"active_slice_status,omitempty"`
+	ActiveCheckpointRef  string                         `json:"active_checkpoint_ref,omitempty"`
+	ActiveCheckpointSHA  string                         `json:"active_checkpoint_sha,omitempty"`
+	ActiveRestoreRef     string                         `json:"active_restore_ref,omitempty"`
+	ActiveRestoreReason  string                         `json:"active_restore_reason,omitempty"`
 	CompletedSlices      int                            `json:"completed_slices,omitempty"`
 	TotalSlices          int                            `json:"total_slices,omitempty"`
 	LastSliceVerdict     WriteWorkflowCompletionVerdict `json:"last_slice_verdict,omitempty"`
@@ -155,11 +159,20 @@ func populateWorkflowNextActionSliceView(view *WriteWorkflowNextActionView, batc
 		}
 	}
 	if activeIndex >= 0 {
-		view.ActiveSliceID = strings.TrimSpace(batch.Slices[activeIndex].ID)
-		view.ActiveSliceStatus = batch.Slices[activeIndex].Status
-		if batch.Slices[activeIndex].Completion != nil {
-			view.LastSliceVerdict = batch.Slices[activeIndex].Completion.Verdict
-			view.LastSliceReasonCode = strings.TrimSpace(batch.Slices[activeIndex].Completion.ReasonCode)
+		active := batch.Slices[activeIndex]
+		view.ActiveSliceID = strings.TrimSpace(active.ID)
+		view.ActiveSliceStatus = active.Status
+		if active.Checkpoint != nil {
+			view.ActiveCheckpointRef = strings.TrimSpace(active.Checkpoint.Ref)
+			view.ActiveCheckpointSHA = strings.TrimSpace(active.Checkpoint.CommitSHA)
+		}
+		if active.Restore != nil {
+			view.ActiveRestoreRef = strings.TrimSpace(active.Restore.CheckpointRef)
+			view.ActiveRestoreReason = strings.TrimSpace(active.Restore.ReasonCode)
+		}
+		if active.Completion != nil {
+			view.LastSliceVerdict = active.Completion.Verdict
+			view.LastSliceReasonCode = strings.TrimSpace(active.Completion.ReasonCode)
 		}
 	}
 }
