@@ -108,6 +108,7 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `plan_patch_review_reason_codes`,
 `plan_patch_review_semantic_unverified_codes`,
 `plan_patch_review_block_reason`,
+`export_allowed_patch_paths`, `dropped_unowned_patch_paths`,
 `exported_patch_paths`, `exported_patch_source_paths`,
 `exported_patch_test_paths`, `final_plan_source_paths`,
 `final_plan_test_only`, `final_plan_covers_exported_source_patch`,
@@ -123,7 +124,10 @@ source plans, and a later test-only validation plan is accepted only through the
 explicit `source_plan_with_later_test_followup` relation. If exported source
 paths have no applied source-plan owner, the adapter still writes the official
 prediction but marks local confidence as `predicted_audit_blocked` with
-`prediction_blocks_local_acceptance=true`. Context coverage is derived only from persisted
+`prediction_blocks_local_acceptance=true`. Prediction export itself is
+restricted to typed-owned applied plan paths; environment/build artifacts
+changed during setup are dropped and recorded in `dropped_unowned_patch_paths`.
+Context coverage is derived only from persisted
 workflow/context-pack typed fields when present; it is audit telemetry, not an
 apply/verify gate. Patch-review blockers are derived only from structured
 `ChangePlan.patch_review.coverage_summary` when present, with

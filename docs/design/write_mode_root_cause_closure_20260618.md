@@ -993,6 +993,68 @@ Verification:
 - `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
 - `bash eval/swebench/smoke_local.sh`
 
+Post-fix Lite smoke:
+
+- Run directory:
+  `/private/tmp/codrax-swebench-rc20-astropy-20260618-055213`
+- Instance: `astropy__astropy-12907`
+- Export compatibility: 1/1 harness dry-run validated, non-empty patch.
+- Patch size dropped from the RC-19 4.2 MB polluted export to 504 bytes.
+- Exported paths: `astropy/modeling/separable.py`.
+- `delivery_candidate_status=coherent`,
+  `delivery_candidate_relation=source_plan_owns_exported_patch`.
+- Remaining failure is verify-environment related:
+  `verification_probe_import_error` because the historical Astropy checkout
+  could not import without built extension modules and `extension_helpers` was
+  missing during `build_ext --inplace`.
+
+## 2026-06-18 RC-20 Typed-Owned Prediction Export
+
+The first post-RC-19 Lite smoke (`astropy__astropy-12907`) exported a
+harness-consumable prediction, but the patch was 4.2 MB and included generated
+environment/build artifacts under `cextern/wcslib`. RC-19 correctly marked the
+delivery candidate incoherent because those exported paths were not owned by
+applied source plans, but the official prediction export still contained the
+noise. The system gap is broader than Astropy:
+
+```text
+environment preparation or editable install mutates generated files
+  -> cumulative git diff includes generated artifacts
+  -> prediction export emits all non-test changed paths
+  -> non-empty patch metrics and manual audit are polluted
+```
+
+Design:
+
+- Restrict prediction export to a typed allowlist derived from applied workflow
+  plan paths; include test paths only when `--include-test-patches` is active.
+- Fall back to final plan paths only when no workflow attempts are available.
+- Treat an explicit empty allowlist as "export nothing"; do not fall back to
+  all git diff paths.
+- Record dropped generated/unowned paths in `dropped_unowned_patch_paths`.
+- Keep test-patch dropping separate in `dropped_test_patch_paths`.
+- Keep delivery candidate and local acceptance on the same exported path set.
+- Do not use repo-specific filenames, issue text, stdout prose, or model
+  rationale to decide export eligibility.
+
+Task list:
+
+- [x] Add `export_allowed_patch_paths` from workflow applied plans/final plan.
+- [x] Extend `export_patch_between` / `export_patch` with an explicit typed
+  allowlist and `dropped_unowned_patch_paths`.
+- [x] Wire process results to `export_allowed_patch_paths` and
+  `dropped_unowned_patch_paths`.
+- [x] Add a real git-diff regression proving generated artifacts are filtered
+  while owned source paths export.
+- [x] Update adapter README and this ledger.
+- [x] Run adapter unit tests, Python compile, and local SWE-bench adapter smoke.
+
+Verification:
+
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+- `bash eval/swebench/smoke_local.sh`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1018,6 +1080,7 @@ Verification:
 | RC-18 | complete | Verify coverage persistence: `syncMutablePlanStatusAfterVerify` now persists the coverage-updated `ChangePlan` snapshot after post-verify projection, and focused regression proves on-disk PatchReview/Impact coverage matches mutable state. Verification: focused orchestrator persistence test, related packages, full `go test ./...`, and `make test` pass. |
 | RC-18 smoke | complete | One-instance Django smoke after RC-18 exported a non-empty harness-consumable prediction and proved probe confidence is present in reports. It also exposed the next gap: final test-only repair plan and exported source patch can diverge, producing `final_plan_test_only_exported_source_patch`. |
 | RC-19 | complete | Delivery candidate coherence: SWE-bench adapter now binds exported source paths to applied source-owner plans, accepts later test-only validation only through an explicit typed relation, merges PatchReview across source-owner plans, and drives local acceptance from `delivery_*` facts instead of final-plan drift. Verification: adapter unit tests, Python compile, and local SWE-bench adapter smoke pass. |
+| RC-20 | complete | Typed-owned prediction export: post-RC-19 Lite smoke exposed 4.2 MB generated build artifacts in the official prediction. Export now uses workflow/final-plan typed path ownership as an allowlist, records unowned drops separately from test-patch drops, and never falls back from an explicit empty allowlist to all git diff paths. Verification: adapter unit tests, Python compile, and local SWE-bench adapter smoke pass. |
 
 ## Acceptance Criteria
 

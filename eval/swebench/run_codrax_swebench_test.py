@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -538,6 +539,57 @@ class WorkflowAppliedProvenanceTests(unittest.TestCase):
         self.assertEqual(candidate["status"], "incoherent")
         self.assertEqual(candidate["reason_code"], "delivery_source_plan_missing")
         self.assertEqual(candidate["source_owner_plan_ids"], [])
+
+
+class ExportPatchPolicyTests(unittest.TestCase):
+    def test_export_patch_between_filters_to_typed_allowed_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = Path(raw) / "repo"
+            repo.mkdir()
+
+            def git(*args: str) -> str:
+                result = subprocess.run(
+                    ["git", *args],
+                    cwd=repo,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=True,
+                )
+                return result.stdout.strip()
+
+            git("init")
+            git("config", "user.email", "codrax@example.com")
+            git("config", "user.name", "Codrax Test")
+            (repo / "pkg").mkdir()
+            (repo / "tests").mkdir()
+            (repo / "build").mkdir()
+            (repo / "pkg" / "fix.py").write_text("old = 1\n", encoding="utf-8")
+            (repo / "tests" / "test_fix.py").write_text("def test_old(): pass\n", encoding="utf-8")
+            (repo / "build" / "config.log").write_text("old build\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-m", "base")
+            base = git("rev-parse", "HEAD")
+            (repo / "pkg" / "fix.py").write_text("new = 1\n", encoding="utf-8")
+            (repo / "tests" / "test_fix.py").write_text("def test_new(): pass\n", encoding="utf-8")
+            (repo / "build" / "config.log").write_text("generated build output\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-m", "changed")
+
+            patch, dropped_tests, exported_paths, dropped_unowned = adapter.export_patch_between(
+                repo,
+                base,
+                "HEAD",
+                include_test_patches=False,
+                allowed_paths=["pkg/fix.py"],
+            )
+
+        self.assertIn("diff --git a/pkg/fix.py b/pkg/fix.py", patch)
+        self.assertNotIn("diff --git a/build/config.log b/build/config.log", patch)
+        self.assertNotIn("diff --git a/tests/test_fix.py b/tests/test_fix.py", patch)
+        self.assertEqual(exported_paths, ["pkg/fix.py"])
+        self.assertEqual(dropped_tests, ["tests/test_fix.py"])
+        self.assertEqual(dropped_unowned, ["build/config.log"])
 
 
 class PythonCompatConstraintTests(unittest.TestCase):
