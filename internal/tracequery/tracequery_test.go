@@ -1288,6 +1288,57 @@ func TestPerfSampleViews(t *testing.T) {
 	}
 }
 
+func TestRootCauseRankAttachesPerfContextToCandidateThread(t *testing.T) {
+	idx := buildTraceIndex(t, "rank_perf_context.systrace", `
+     worker-30   (   10) [001] .... 1.000000: sched_switch: prev_comm=worker prev_pid=30 prev_prio=20 prev_state=D ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-30   (   10) [001] .... 1.005000: perf_sample: pid=10 tid=30 cpu=1 period=17000 event=cpu-cycles symbol=Worker::io dso=libworker.so callchain=main;Worker::io
+          io-2   (    2) [001] .... 1.012000: sched_wakeup: comm=worker pid=30 prio=20 target_cpu=001
+     worker-30   (   10) [001] .... 1.013000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=30 next_prio=20
+	`)
+	rank := BuildRootCauseRank(idx, Query{TimeStart: 1.0, TimeEnd: 1.020, MinDurationMs: 0.05, Limit: 8})
+	var worker *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Thread.PID == 30 {
+			worker = &rank.Items[i]
+			break
+		}
+	}
+	if worker == nil {
+		t.Fatalf("expected worker root cause candidate: %+v", rank.Items)
+	}
+	if worker.PerfContext == nil || len(worker.PerfContext.TopSymbols) == 0 || worker.PerfContext.TopSymbols[0].Symbol != "Worker::io" {
+		t.Fatalf("candidate should carry interval/thread-filtered perf context: %+v", worker)
+	}
+}
+
+func TestFrameRootCauseBundleCarriesRoleSpecificPerfContexts(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_perf_roles.systrace", `
+        app-100   (  100) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100   (  100) [000] .... 1.001000: binder_transaction: transaction=42 dest_node=0 dest_proc=200 dest_thread=201 reply=1 flags=0x0 code=0x3
+ binder:200_1-201 (  200) [002] .... 1.002000: binder_transaction_received: transaction=42
+        app-100   (  100) [000] .... 1.003000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=rival next_pid=300 next_prio=20
+ binder:200_1-201 (  200) [002] .... 1.004000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=binder:200_1 next_pid=201 next_prio=20
+ binder:200_1-201 (  200) [002] .... 1.006000: perf_sample: pid=200 tid=201 cpu=2 period=22000 event=cpu-cycles symbol=Server::handle dso=libserver.so callchain=main;Server::handle
+      rival-300   (  300) [000] .... 1.012000: perf_sample: pid=300 tid=300 cpu=0 period=33000 event=cpu-cycles symbol=Rival::work dso=librival.so callchain=main;Rival::work
+ binder:200_1-201 (  200) [002] .... 1.014000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=000
+        app-100   (  100) [000] .... 1.016000: sched_switch: prev_comm=rival prev_pid=300 prev_prio=20 prev_state=R+ ==> next_comm=app next_pid=100 next_prio=52
+        app-100   (  100) [000] .... 1.017000: perf_sample: pid=100 tid=100 cpu=0 period=11000 event=cpu-cycles symbol=App::resume dso=libapp.so callchain=main;App::resume
+	`)
+	bundle := BuildFrameRootCauseBundle(idx, Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.020, MaxDepth: 4, MinDurationMs: 0.05, Limit: 8, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	if bundle.TargetRunningPerf == nil || len(bundle.TargetRunningPerf.TopSymbols) == 0 || bundle.TargetRunningPerf.TopSymbols[0].Symbol != "App::resume" {
+		t.Fatalf("target_running_perf should isolate target samples: %+v", bundle.TargetRunningPerf)
+	}
+	if bundle.OnChainPerf == nil || len(bundle.OnChainPerf.TopSymbols) == 0 || bundle.OnChainPerf.TopSymbols[0].Symbol != "Server::handle" {
+		t.Fatalf("on_chain_perf should carry dependency samples: %+v", bundle.OnChainPerf)
+	}
+	if bundle.BinderPeerPerf == nil || len(bundle.BinderPeerPerf.TopSymbols) == 0 || bundle.BinderPeerPerf.TopSymbols[0].Symbol != "Server::handle" {
+		t.Fatalf("binder_peer_perf should carry peer samples: %+v", bundle.BinderPeerPerf)
+	}
+	if bundle.SameCPUCompetitorPerf == nil || len(bundle.SameCPUCompetitorPerf.TopSymbols) == 0 || bundle.SameCPUCompetitorPerf.TopSymbols[0].Symbol != "Rival::work" {
+		t.Fatalf("same_cpu_competitor_perf should carry CPU competitor samples: %+v", bundle.SameCPUCompetitorPerf)
+	}
+}
+
 func TestFramePipelineCriticalBlockingAndRecipeViews(t *testing.T) {
 	idx := buildTraceIndex(t, "blocking.systrace", blockingTrace)
 	frame := Run(idx, Query{View: "frame_window", PID: 20, TimeStart: 6.0, TimeEnd: 6.1})

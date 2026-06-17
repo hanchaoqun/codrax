@@ -263,6 +263,8 @@ Do not add hard gates that inspect model prose. Use typed tool fields and determ
 - Add same-CPU competitor sample join for runnable root causes.
 - Preserve top evidence rows with lines/examples.
 
+Status: implemented. `RootCauseRankItem.perf_context` is populated after deterministic scheduler/wakeup ranking, using the candidate thread and candidate time window so sample hotspots annotate causes without becoming the cause. `FrameRootCauseBundle` now carries broad `perf_samples` plus role-specific `target_running_perf`, `on_chain_perf`, `binder_peer_perf`, and `same_cpu_competitor_perf`. Tool summaries, evidence facts, typed observations, schema descriptions, and prompt/view-matrix teaching all describe these as supporting execution context.
+
 ### Batch D: Converter Multi-Artifact Output
 
 - Extend `hitraceconv.Result` to report multiple outputs.
@@ -319,7 +321,8 @@ Eval targets:
   - Landed `EventPerfSample`, normalized perf sample fields, `event_types=["perf_sample"]`, `window_stats.perf_samples`, summary/evidence/typed-observation handoff, prompt/schema teaching, JSON-repair aliases, and unit tests.
 - [x] Batch B implemented, committed, pushed.
   - Landed `perf_stats`, `perf_timeline`, and `trace_perf_bundle` views, view aliases through schema repair, prompt/view-matrix teaching, empty-result perf hints, summary rendering, and view tests.
-- [ ] Batch C implemented, committed, pushed.
+- [x] Batch C implemented, committed, pushed.
+  - Landed candidate-level `perf_context`, frame bundle role contexts, summary/evidence/typed-observation handoff, prompt/schema teaching for the new output fields, and synthetic tests for root-cause and role-specific perf joins.
 - [ ] Batch D implemented, committed, pushed.
 - [ ] Batch E implemented, committed, pushed.
 - [ ] Batch F evals added and representative cases run two at a time.

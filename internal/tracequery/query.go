@@ -120,6 +120,7 @@ func Run(idx *Index, q Query) Result {
 			stats := getStats()
 			rank := buildRootCauseRankFrom(q, chain, stats)
 			rank = enrichRootCauseRankWithScheduler(q, rank, getLatency(), stats)
+			rank = attachPerfContextToRootCauseRank(idx, q, rank)
 			cachedRootCause = rank
 			cachedRootCauseOK = true
 		}
@@ -1324,7 +1325,13 @@ type perfThreadAcc struct {
 	total  *int64
 }
 
+type perfSampleFilter func(Event) bool
+
 func computePerfContext(idx *Index, q Query, max int) *PerfContext {
+	return computePerfContextFiltered(idx, q, max, nil)
+}
+
+func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleFilter) *PerfContext {
 	if idx == nil {
 		return nil
 	}
@@ -1336,6 +1343,9 @@ func computePerfContext(idx *Index, q Query, max int) *PerfContext {
 	byThread := map[string]*perfThreadAcc{}
 	for _, ev := range idx.Events {
 		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		if filter != nil && !filter(ev) {
 			continue
 		}
 		period := ev.PerfPeriod
@@ -1375,6 +1385,66 @@ func computePerfContext(idx *Index, q Query, max int) *PerfContext {
 	ctx.TopThreads = sortedPerfThreads(byThread, max)
 	ctx.TopEvents = sortedPerfHotspots(byEvent, max)
 	return ctx
+}
+
+func perfContextForThread(idx *Index, q Query, thread ThreadRef, start, end float64, max int) *PerfContext {
+	if thread.PID <= 0 && strings.TrimSpace(thread.Comm) == "" {
+		return nil
+	}
+	sub := queryForPerfContextWindow(q, start, end)
+	return computePerfContextFiltered(idx, sub, max, func(ev Event) bool {
+		return perfSampleMatchesThread(ev, thread)
+	})
+}
+
+func perfContextForThreads(idx *Index, q Query, threads map[int]ThreadRef, max int) *PerfContext {
+	if len(threads) == 0 {
+		return nil
+	}
+	return computePerfContextFiltered(idx, q, max, func(ev Event) bool {
+		for _, thread := range threads {
+			if perfSampleMatchesThread(ev, thread) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func perfContextForCPUs(idx *Index, q Query, cpus map[int]bool, max int) *PerfContext {
+	if len(cpus) == 0 {
+		return nil
+	}
+	return computePerfContextFiltered(idx, q, max, func(ev Event) bool {
+		return ev.CPU >= 0 && cpus[ev.CPU]
+	})
+}
+
+func queryForPerfContextWindow(q Query, start, end float64) Query {
+	if start > 0 {
+		q.TimeStart = start
+	}
+	if end > 0 && (q.TimeStart <= 0 || end > q.TimeStart) {
+		q.TimeEnd = end
+	}
+	return q
+}
+
+func perfSampleMatchesThread(ev Event, thread ThreadRef) bool {
+	if thread.PID > 0 {
+		if ev.PerfTID == thread.PID || ev.PID == thread.PID {
+			return true
+		}
+		if ev.PerfPID == thread.PID || ev.TGID == thread.PID {
+			return true
+		}
+	}
+	if thread.Comm != "" {
+		if strings.EqualFold(thread.Comm, ev.PerfComm) || strings.EqualFold(thread.Comm, ev.Comm) {
+			return true
+		}
+	}
+	return false
 }
 
 func perfSampleThread(ev Event) ThreadRef {
@@ -5774,7 +5844,8 @@ func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
 	stats := ComputeWindowStats(idx, q)
 	rank := buildRootCauseRankFrom(q, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
-	return enrichRootCauseRankWithScheduler(q, rank, latency, stats)
+	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats)
+	return attachPerfContextToRootCauseRank(idx, q, rank)
 }
 
 func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootCauseRankResult {
@@ -6107,6 +6178,142 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	assignRootCauseRanksAndTiers(rank.Items)
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
 	return rank
+}
+
+func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankResult) RootCauseRankResult {
+	if idx == nil || len(rank.Items) == 0 {
+		return rank
+	}
+	for i := range rank.Items {
+		item := &rank.Items[i]
+		thread := firstNonEmptyThread(item.Thread, item.NearestChainThread)
+		start, end := rootCausePerfWindow(q, *item)
+		ctx := perfContextForThread(idx, q, thread, start, end, 4)
+		if ctx == nil && item.NearestChainThread.PID > 0 && !sameThreadRef(thread, item.NearestChainThread) {
+			ctx = perfContextForThread(idx, q, item.NearestChainThread, start, end, 4)
+		}
+		item.PerfContext = ctx
+	}
+	return rank
+}
+
+func rootCausePerfWindow(q Query, item RootCauseRankItem) (float64, float64) {
+	start, end := item.StartTs, item.EndTs
+	if start <= 0 || end <= start {
+		start, end = item.NearestChainWindow.StartTs, item.NearestChainWindow.EndTs
+	}
+	if start <= 0 || end <= start {
+		start, end = q.TimeStart, q.TimeEnd
+	}
+	return start, end
+}
+
+type framePerfContexts struct {
+	PerfSamples           *PerfContext
+	TargetRunningPerf     *PerfContext
+	OnChainPerf           *PerfContext
+	BinderPeerPerf        *PerfContext
+	SameCPUCompetitorPerf *PerfContext
+}
+
+func buildFramePerfContexts(idx *Index, q Query, stats WindowStats, chain *ChainResult, blocking CriticalBlockingResult, target ThreadRef) framePerfContexts {
+	out := framePerfContexts{
+		PerfSamples:       stats.PerfSamples,
+		TargetRunningPerf: perfContextForThread(idx, q, target, q.TimeStart, q.TimeEnd, 6),
+	}
+	if chain != nil {
+		out.OnChainPerf = perfContextForThreads(idx, q, chainThreadRefs(*chain), 6)
+	}
+	out.BinderPeerPerf = perfContextForThreads(idx, q, binderPeerThreadRefs(blocking), 6)
+	if cpuCtx := perfContextForCPUs(idx, q, sameCPUCompetitorCPUs(stats), 6); cpuCtx != nil {
+		out.SameCPUCompetitorPerf = cpuCtx
+	} else {
+		out.SameCPUCompetitorPerf = perfContextForThreads(idx, q, sameCPUCompetitorThreadRefs(stats), 6)
+	}
+	return out
+}
+
+func chainThreadRefs(chain ChainResult) map[int]ThreadRef {
+	out := map[int]ThreadRef{}
+	addThreadRef(out, chain.Target)
+	for _, node := range chain.Nodes {
+		addThreadRef(out, node.Thread)
+	}
+	for _, impact := range chain.CausalImpacts {
+		addThreadRef(out, impact.Thread)
+	}
+	for _, aggregate := range chain.AggregatedImpacts {
+		addThreadRef(out, aggregate.Thread)
+	}
+	for _, edge := range chain.Edges {
+		addThreadRef(out, edge.Waker)
+		addThreadRef(out, edge.Wakee)
+	}
+	for _, wait := range chain.BinderWaits {
+		addThreadRef(out, wait.Thread)
+		addThreadRef(out, wait.Peer)
+	}
+	return out
+}
+
+func binderPeerThreadRefs(blocking CriticalBlockingResult) map[int]ThreadRef {
+	out := map[int]ThreadRef{}
+	for _, item := range blocking.Items {
+		if item.Type == "binder_wait" || item.SyncLike != nil || item.BlockingCandidate != nil {
+			addThreadRef(out, item.Peer)
+		}
+	}
+	return out
+}
+
+func sameCPUCompetitorCPUs(stats WindowStats) map[int]bool {
+	out := map[int]bool{}
+	for _, ctx := range stats.RunnableContext {
+		if ctx.RunnableWaitMs > 0 && ctx.CPU >= 0 {
+			out[ctx.CPU] = true
+		}
+	}
+	for _, pressure := range stats.CPUPressure {
+		if pressure.RunnableWaitMs > 0 && pressure.CPU >= 0 {
+			out[pressure.CPU] = true
+		}
+	}
+	return out
+}
+
+func sameCPUCompetitorThreadRefs(stats WindowStats) map[int]ThreadRef {
+	out := map[int]ThreadRef{}
+	for _, ctx := range stats.RunnableContext {
+		for _, td := range ctx.SameCPUTopRunning {
+			addThreadRef(out, td.Thread)
+		}
+	}
+	for _, pressure := range stats.CPUPressure {
+		if pressure.RunnableWaitMs <= 0 {
+			continue
+		}
+		for _, td := range pressure.TopRunning {
+			addThreadRef(out, td.Thread)
+		}
+	}
+	return out
+}
+
+func addThreadRef(out map[int]ThreadRef, thread ThreadRef) {
+	if out == nil || thread.PID <= 0 {
+		return
+	}
+	if existing, ok := out[thread.PID]; ok {
+		if existing.Comm == "" && thread.Comm != "" {
+			existing.Comm = thread.Comm
+		}
+		if existing.TGID == 0 && thread.TGID != 0 {
+			existing.TGID = thread.TGID
+		}
+		out[thread.PID] = existing
+		return
+	}
+	out[thread.PID] = thread
 }
 
 func normalizeRootCauseChainRelevance(items []RootCauseRankItem, hasCausalChain bool) {
@@ -6898,11 +7105,13 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	rank := buildRootCauseRankFrom(q, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
 	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats)
+	rank = attachPerfContextToRootCauseRank(idx, q, rank)
 	var chainPtr *ChainResult
 	if len(chain.Nodes) > 0 || len(chain.Edges) > 0 || len(chain.CausalImpacts) > 0 || chain.Target.PID > 0 || chain.Target.Comm != "" {
 		chainPtr = &chain
 	}
 	blocking := buildCriticalBlockingCallsFromStats(idx, q, stats, chainPtr)
+	perfContexts := buildFramePerfContexts(idx, q, stats, chainPtr, blocking, firstNonEmptyThread(chain.Target, resolveThread(idx, q)))
 	bundle := FrameRootCauseBundle{
 		Target:                firstNonEmptyThread(chain.Target, resolveThread(idx, q)),
 		Window:                TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
@@ -6910,6 +7119,11 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 		FrameTimeline:         &frame,
 		RootCauseRank:         &rank,
 		CriticalBlocking:      &blocking,
+		PerfSamples:           perfContexts.PerfSamples,
+		TargetRunningPerf:     perfContexts.TargetRunningPerf,
+		OnChainPerf:           perfContexts.OnChainPerf,
+		BinderPeerPerf:        perfContexts.BinderPeerPerf,
+		SameCPUCompetitorPerf: perfContexts.SameCPUCompetitorPerf,
 		IOBurstEpisodes:       stats.IOBurstEpisodes,
 		BlockIOByInode:        stats.BlockIOByInode,
 		IRQActivity:           stats.IRQActivity,
@@ -8707,11 +8921,15 @@ func evidenceFromSpans(spans []TraceSpanSummary) []EvidenceFact {
 func evidenceFromRootCauseRank(rank RootCauseRankResult) []EvidenceFact {
 	var out []EvidenceFact
 	for _, item := range rank.Items {
+		summary := item.Summary
+		if perf := rootCausePerfSummary(item.PerfContext); perf != "" {
+			summary = fmt.Sprintf("%s; %s", summary, perf)
+		}
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(item.Thread),
 			Predicate:  "root_cause_" + item.Tier,
 			Object:     item.Type,
-			Summary:    fmt.Sprintf("%s cause #%d (%s): %s", item.Tier, item.Rank, item.Type, item.Summary),
+			Summary:    fmt.Sprintf("%s cause #%d (%s): %s", item.Tier, item.Rank, item.Type, summary),
 			LineStart:  item.LineStart,
 			LineEnd:    item.LineEnd,
 			Confidence: item.Confidence,
@@ -8721,6 +8939,22 @@ func evidenceFromRootCauseRank(rank RootCauseRankResult) []EvidenceFact {
 		}
 	}
 	return out
+}
+
+func rootCausePerfSummary(ctx *PerfContext) string {
+	if ctx == nil || ctx.SampleCount == 0 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("perf_samples=%d", ctx.SampleCount), fmt.Sprintf("period=%d", ctx.TotalPeriod)}
+	if len(ctx.TopSymbols) > 0 {
+		hot := ctx.TopSymbols[0]
+		parts = append(parts, "top_symbol="+firstNonEmpty(hot.Symbol, "unknown"))
+		if hot.DSO != "" {
+			parts = append(parts, "dso="+hot.DSO)
+		}
+		parts = append(parts, fmt.Sprintf("top_period=%d", hot.Period))
+	}
+	return strings.Join(parts, " ")
 }
 
 func evidenceFromInteractionStats(stats InteractionStatsResult) []EvidenceFact {

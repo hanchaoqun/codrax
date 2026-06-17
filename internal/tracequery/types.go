@@ -1031,6 +1031,7 @@ type RootCauseRankItem struct {
 	Tier               string                   `json:"tier,omitempty"`
 	Type               string                   `json:"type,omitempty"`
 	Thread             ThreadRef                `json:"thread,omitempty"`
+	PerfContext        *PerfContext             `json:"perf_context,omitempty"`
 	StartTs            float64                  `json:"start_ts,omitempty"`
 	EndTs              float64                  `json:"end_ts,omitempty"`
 	DominantState      string                   `json:"dominant_state,omitempty"`
@@ -1065,6 +1066,11 @@ type FrameRootCauseBundle struct {
 	FrameTimeline         *FrameTimelineResult    `json:"frame_timeline,omitempty"`
 	RootCauseRank         *RootCauseRankResult    `json:"root_cause_rank,omitempty"`
 	CriticalBlocking      *CriticalBlockingResult `json:"critical_blocking_calls,omitempty"`
+	PerfSamples           *PerfContext            `json:"perf_samples,omitempty"`
+	TargetRunningPerf     *PerfContext            `json:"target_running_perf,omitempty"`
+	OnChainPerf           *PerfContext            `json:"on_chain_perf,omitempty"`
+	BinderPeerPerf        *PerfContext            `json:"binder_peer_perf,omitempty"`
+	SameCPUCompetitorPerf *PerfContext            `json:"same_cpu_competitor_perf,omitempty"`
 	IOBurstEpisodes       []IOBurstEpisodeSummary `json:"io_burst_episodes,omitempty"`
 	BlockIOByInode        []BlockIOByInodeSummary `json:"block_io_by_inode,omitempty"`
 	IRQActivity           []InterruptActivity     `json:"irq_activity,omitempty"`
