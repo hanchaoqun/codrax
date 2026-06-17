@@ -20,7 +20,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var unifiedDiffHunkHeaderRE = regexp.MustCompile(`^@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@`)
+var (
+	unifiedDiffHunkHeaderRE       = regexp.MustCompile(`^@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@`)
+	pythonTopLevelSelfMethodDefRE = regexp.MustCompile(`^def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(\s*(?:self|cls)\b`)
+)
 
 func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef, diff string) types.PatchEffectRecord {
 	record := types.PatchEffectRecord{
@@ -39,6 +42,8 @@ func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef,
 	record.RecordID = patchEffectRecordID(record.PlanID, record.SliceID, record.DiffFingerprint)
 	var current *types.PatchEffectFile
 	var currentHunk *types.PatchEffectHunk
+	currentOldLine := 0
+	currentNewLine := 0
 	flushFile := func() {
 		if current == nil {
 			return
@@ -94,15 +99,33 @@ func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef,
 			}
 			hunk := parsePatchEffectHunkHeader(line)
 			currentHunk = &hunk
+			currentOldLine = hunk.OldStart
+			currentNewLine = hunk.NewStart
 		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
 			current.AddedLines++
 			if currentHunk != nil {
 				currentHunk.AddedLines++
+				if currentNewLine > 0 {
+					currentHunk.AddedLineNumbers = append(currentHunk.AddedLineNumbers, currentNewLine)
+				}
+			}
+			if currentNewLine > 0 {
+				currentNewLine++
 			}
 		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
 			current.RemovedLines++
 			if currentHunk != nil {
 				currentHunk.RemovedLines++
+			}
+			if currentOldLine > 0 {
+				currentOldLine++
+			}
+		case strings.HasPrefix(line, " "):
+			if currentOldLine > 0 {
+				currentOldLine++
+			}
+			if currentNewLine > 0 {
+				currentNewLine++
 			}
 		}
 	}
@@ -242,7 +265,8 @@ func AnnotatePatchEffectStructuredFileParses(record *types.PatchEffectRecord, ro
 			continue
 		}
 		kind := patchEffectStructuredFileKind(file.Path)
-		if kind == "" {
+		sourceKind := patchEffectSourceShapeKind(file.Path)
+		if kind == "" && sourceKind == "" {
 			continue
 		}
 		abs, ok := patchEffectSafeRepoPath(root, file.Path)
@@ -265,12 +289,43 @@ func AnnotatePatchEffectStructuredFileParses(record *types.PatchEffectRecord, ro
 			})
 			continue
 		}
-		if err := validatePatchEffectStructuredFile(kind, data); err != nil {
+		if kind != "" {
+			if err := validatePatchEffectStructuredFile(kind, data); err != nil {
+				file.Events = append(file.Events, types.PatchEffectEvent{
+					Code:     "structured_file_parse_error",
+					Severity: "error",
+					Path:     file.Path,
+					Message:  kind + " parse failed: " + err.Error(),
+				})
+			}
+		}
+		switch sourceKind {
+		case "python":
+			annotatePatchEffectPythonSourceShape(file, data)
+		}
+	}
+}
+
+func annotatePatchEffectPythonSourceShape(file *types.PatchEffectFile, data []byte) {
+	if file == nil || len(file.Hunks) == 0 {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, hunk := range file.Hunks {
+		for _, lineNo := range hunk.AddedLineNumbers {
+			if lineNo <= 0 || lineNo > len(lines) {
+				continue
+			}
+			line := lines[lineNo-1]
+			if !pythonTopLevelSelfMethodDefRE.MatchString(line) {
+				continue
+			}
 			file.Events = append(file.Events, types.PatchEffectEvent{
-				Code:     "structured_file_parse_error",
-				Severity: "error",
-				Path:     file.Path,
-				Message:  kind + " parse failed: " + err.Error(),
+				Code:        "python_top_level_self_method",
+				Severity:    "error",
+				Path:        file.Path,
+				Message:     "added top-level Python function uses self/cls as its first parameter; this usually means a class method was de-indented out of its owner class",
+				EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
 			})
 		}
 	}
@@ -284,6 +339,15 @@ func patchEffectStructuredFileKind(path string) string {
 		return "yaml"
 	case ".xml":
 		return "xml"
+	default:
+		return ""
+	}
+}
+
+func patchEffectSourceShapeKind(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".py":
+		return "python"
 	default:
 		return ""
 	}

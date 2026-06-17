@@ -12,6 +12,7 @@ import (
 
 var patchReviewEffectHardEventCodes = map[string]bool{
 	"patch_effect_path_outside_worktree": true,
+	"python_top_level_self_method":       true,
 	"structured_file_missing":            true,
 	"structured_file_parse_error":        true,
 }

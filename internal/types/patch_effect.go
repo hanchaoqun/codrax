@@ -11,12 +11,13 @@ type PatchEffectEvent struct {
 }
 
 type PatchEffectHunk struct {
-	OldStart     int `json:"old_start,omitempty"`
-	OldLines     int `json:"old_lines,omitempty"`
-	NewStart     int `json:"new_start,omitempty"`
-	NewLines     int `json:"new_lines,omitempty"`
-	AddedLines   int `json:"added_lines,omitempty"`
-	RemovedLines int `json:"removed_lines,omitempty"`
+	OldStart         int   `json:"old_start,omitempty"`
+	OldLines         int   `json:"old_lines,omitempty"`
+	NewStart         int   `json:"new_start,omitempty"`
+	NewLines         int   `json:"new_lines,omitempty"`
+	AddedLines       int   `json:"added_lines,omitempty"`
+	RemovedLines     int   `json:"removed_lines,omitempty"`
+	AddedLineNumbers []int `json:"added_line_numbers,omitempty"`
 }
 
 type PatchEffectFile struct {

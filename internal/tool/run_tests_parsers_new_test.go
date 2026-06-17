@@ -707,6 +707,26 @@ func TestParseMakeOutput_MissingTargetIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestParseMakeOutput_PythonModuleMissingIsUnavailable(t *testing.T) {
+	stdout := "/repo/python-env/bin/python: No module named sphinx\nmake: *** [html] Error 1\n"
+	report, err := parseMakeOutput(stdout, &fakeExitError{msg: "exit status 2"})
+	if err != nil {
+		t.Fatalf("parseMakeOutput: %v", err)
+	}
+	if report.Passed {
+		t.Fatal("missing dependency should not pass")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode != "make_python_module_missing" {
+		t.Fatalf("FailureReasonCode = %q, want make_python_module_missing; report=%+v", report.FailureReasonCode, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("NormalizeVerificationStatus = %q, want unavailable", got)
+	}
+}
+
 // ── detectRunner additions ─────────────────────────────────────────
 
 func TestDetectRunner_CMake(t *testing.T) {

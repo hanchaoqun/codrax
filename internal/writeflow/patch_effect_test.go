@@ -57,6 +57,9 @@ new file mode 100644
 		mod.Language != "py" || mod.PathRole != types.SourcePathRoleProduction || len(mod.Hunks) != 1 {
 		t.Fatalf("modified file not parsed: %+v", mod)
 	}
+	if got := mod.Hunks[0].AddedLineNumbers; len(got) != 2 || got[0] != 2 || got[1] != 3 {
+		t.Fatalf("added line numbers = %+v, want [2 3]", got)
+	}
 	renamed := findPatchEffectFile(record, "pkg/new.py")
 	if renamed == nil || renamed.Status != "renamed" || renamed.OldPath != "pkg/old.py" ||
 		renamed.AddedLines != 1 || renamed.RemovedLines != 1 {
@@ -119,6 +122,45 @@ func TestAnnotatePatchEffectStructuredFileParsesInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestAnnotatePatchEffectPythonTopLevelSelfMethodHardBlocks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pkg", "axis.py"), []byte("class Axis:\n    pass\n\ndef _set_lim(self, v0):\n    return v0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/pkg/axis.py b/pkg/axis.py
+--- a/pkg/axis.py
++++ b/pkg/axis.py
+@@ -1,2 +1,5 @@
+ class Axis:
+     pass
++
++def _set_lim(self, v0):
++    return v0
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "pkg/axis.py")
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if !patchEffectHasEvent(*file, "python_top_level_self_method") {
+		t.Fatalf("python top-level self method event missing: %+v", file.Events)
+	}
+
+	review := ReviewAppliedPatchScope(&types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"pkg/axis.py"},
+		PatchEffect: &record,
+	}, types.ChangePlanSlice{})
+	if !review.HardBlock || !patchReviewHasFinding(review, "python_top_level_self_method") {
+		t.Fatalf("python top-level self method should hard block review: %+v", review)
+	}
+}
+
 func findPatchEffectFile(record types.PatchEffectRecord, path string) *types.PatchEffectFile {
 	for i := range record.Files {
 		if record.Files[i].Path == path {
@@ -126,4 +168,13 @@ func findPatchEffectFile(record types.PatchEffectRecord, path string) *types.Pat
 		}
 	}
 	return nil
+}
+
+func patchEffectHasEvent(file types.PatchEffectFile, code string) bool {
+	for _, event := range file.Events {
+		if event.Code == code {
+			return true
+		}
+	}
+	return false
 }

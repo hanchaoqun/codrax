@@ -114,6 +114,13 @@ func TestDeriveObservationAuthorityFromAttempt(t *testing.T) {
 			wantFinish: true,
 		},
 		{
+			name:       "make python dependency missing unavailable can finish with caveat",
+			attempt:    &types.WriteWorkflowAttempt{Kind: "verify", Status: "unverified", ReasonCode: "make_python_module_missing"},
+			wantState:  ObservationAuthorityUnverified,
+			wantReason: "make_python_module_missing",
+			wantFinish: true,
+		},
+		{
 			name:                "legacy failed unavailable needs typed disposition",
 			attempt:             &types.WriteWorkflowAttempt{Kind: "verify", Status: "failed", ReasonCode: "runner_missing"},
 			wantState:           ObservationAuthorityUnverified,

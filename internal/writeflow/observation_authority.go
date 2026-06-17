@@ -213,6 +213,7 @@ func observationReasonIsUnavailable(reason string) bool {
 		string(types.FailureKindParserError),
 		"skip_verify",
 		"accepted_without_local_verify",
+		"make_python_module_missing",
 		"make_target_missing",
 		"verification_probe_import_error",
 		"verification_probe_module_not_found",

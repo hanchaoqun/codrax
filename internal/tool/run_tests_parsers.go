@@ -292,12 +292,12 @@ func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 		if len(firstLine) > 200 {
 			firstLine = firstLine[:200] + "…"
 		}
-		if makeOutputReportsMissingTarget(stdout) {
+		if reason := makeOutputUnavailableReason(stdout); reason != "" {
 			failSummary = "make target unavailable: " + firstLine
 			return &types.ChangeReport{
 				TestResults: []types.TestResult{{
 					Kind:          types.TestResultKindBuildError,
-					AssertionID:   "make_target_missing",
+					AssertionID:   reason,
 					Suite:         "make",
 					Passed:        false,
 					FailureDetail: detail,
@@ -305,7 +305,7 @@ func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 				Passed:            false,
 				FailureSummary:    failSummary,
 				FailureKind:       types.FailureKindParserError,
-				FailureReasonCode: "make_target_missing",
+				FailureReasonCode: reason,
 				NoTestsRunners:    []string{"make"},
 			}, nil
 		}
@@ -325,8 +325,15 @@ func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 	return report, nil
 }
 
-func makeOutputReportsMissingTarget(stdout string) bool {
-	return strings.Contains(stdout, "No rule to make target")
+func makeOutputUnavailableReason(stdout string) string {
+	switch {
+	case strings.Contains(stdout, "No rule to make target"):
+		return "make_target_missing"
+	case strings.Contains(stdout, "No module named "):
+		return "make_python_module_missing"
+	default:
+		return ""
+	}
 }
 
 // parseSwiftOutput handles Swift Package Manager XCTest output. The
