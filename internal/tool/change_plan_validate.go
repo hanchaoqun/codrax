@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // change_plan_validate.go bundles the change-plan validators and
@@ -1499,19 +1500,10 @@ func structuredEditReplanProbePassed(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.Mutable == nil {
 		return false
 	}
-	probes := ctx.Mutable.PlanStageProbeReports()
-	for i := len(probes) - 1; i >= 0; i-- {
-		report := probes[i]
-		if report == nil || report.Channel != types.ChangeReportChannelPlannerProbe {
-			continue
-		}
-		if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-			return false
-		}
-		passed, total := report.Score()
-		return total > 0 && passed == total
-	}
-	return false
+	return writeflow.QualifyNoChangeReplanSentinel(writeflow.NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: ctx.Mutable.VerifyFailureHandoff(),
+		PlannerProbeReports:  ctx.Mutable.PlanStageProbeReports(),
+	}).Allowed
 }
 
 // composePatchRejectionReason mirrors composePatchRejection but

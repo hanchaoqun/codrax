@@ -1146,6 +1146,45 @@ func TestEmitChangePlan_EmptyChangesAllowedOnlyForTypedNoChangeReplan(t *testing
 	}
 }
 
+func TestEmitChangePlan_EmptyChangesRejectedForBuildFailureHandoff(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-applied",
+		BatchID:     "batch-1",
+		Attempt:     1,
+		FailureKind: types.FailureKindBuildFailure,
+	})
+	ctx.Mutable.AppendPlanStageProbeReport(&types.ChangeReport{
+		PlanID:             "plan-applied",
+		Channel:            types.ChangeReportChannelPlannerProbe,
+		VerificationStatus: types.VerificationStatusPassed,
+		Passed:             true,
+		TestResults: []types.TestResult{{
+			AssertionID: "probe",
+			Kind:        types.TestResultKindUnit,
+			Passed:      true,
+		}},
+	})
+	params := json.RawMessage(`{
+		"request": "replan after verify failure",
+		"summary": "A scoped probe passed, but the prior failure was a build/static failure.",
+		"changes": []
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("build-failure no-change sentinel should be rejected: %s", res.Summary)
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Fatalf("rejected no-change sentinel must not install a plan: %+v", plan)
+	}
+}
+
 func TestEmitChangePlan_ReplanNoOpStructuredEditPointsToTypedProbeSentinel(t *testing.T) {
 	tool := &EmitChangePlan{}
 	root := t.TempDir()

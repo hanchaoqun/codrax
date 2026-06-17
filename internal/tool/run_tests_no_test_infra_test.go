@@ -314,6 +314,67 @@ func TestRunPyCompileFallback_FailsOnUndefinedFunctionName(t *testing.T) {
 	}
 }
 
+func TestRunPyCompileFallback_IgnoresPreexistingUndefinedOutsideChangedLines(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python dry-build runner on PATH; skip")
+	}
+	root := t.TempDir()
+	file := filepath.Join(root, "bad.py")
+	src := "def old():\n    return preexisting\n\ndef touched():\n    return 2\n"
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	mu := types.NewMutableState("preexisting undefined")
+	mu.SetChangePlan(&types.ChangePlan{
+		TargetPaths: []string{"bad.py"},
+		Changes: []types.FileChange{{
+			Path:  "bad.py",
+			Kind:  "patch",
+			Patch: "--- a/bad.py\n+++ b/bad.py\n@@ -3,3 +3,3 @@\n \n def touched():\n-    return 1\n+    return 2\n",
+		}},
+	})
+	ctx := &types.BusContext{Mutable: mu, MainRepoRoot: root}
+	report, output := runPyCompileFallback(ctx, "python@.", root, []string{file})
+	if !report.Passed {
+		t.Fatalf("pre-existing undefined outside changed lines should not hard-fail: report=%+v output=%s", report, output)
+	}
+}
+
+func TestRunPyCompileFallback_FailsOnNewUndefinedInsideChangedLines(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python dry-build runner on PATH; skip")
+	}
+	root := t.TempDir()
+	file := filepath.Join(root, "bad.py")
+	src := "def ok():\n    return 1\n\ndef touched():\n    return missing_value\n"
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	mu := types.NewMutableState("new undefined")
+	mu.SetChangePlan(&types.ChangePlan{
+		TargetPaths: []string{"bad.py"},
+		Changes: []types.FileChange{{
+			Path:  "bad.py",
+			Kind:  "patch",
+			Patch: "--- a/bad.py\n+++ b/bad.py\n@@ -3,3 +3,3 @@\n \n def touched():\n-    return 1\n+    return missing_value\n",
+		}},
+	})
+	ctx := &types.BusContext{Mutable: mu, MainRepoRoot: root}
+	report, output := runPyCompileFallback(ctx, "python@.", root, []string{file})
+	if report.Passed {
+		t.Fatalf("new undefined inside changed lines should fail: report=%+v output=%s", report, output)
+	}
+	if report.FailureReasonCode != "python_static_undefined_name" {
+		t.Fatalf("FailureReasonCode=%q", report.FailureReasonCode)
+	}
+	if len(report.TestResults) != 1 || len(report.TestResults[0].BuildErrors) != 1 {
+		t.Fatalf("expected structured build error for changed undefined name: %+v", report.TestResults)
+	}
+	if report.TestResults[0].BuildErrors[0].Line != 5 {
+		t.Fatalf("build error line=%d want 5", report.TestResults[0].BuildErrors[0].Line)
+	}
+}
+
 func TestRunPyCompileFallback_AllowsDefinedGlobalsAndImports(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python dry-build runner on PATH; skip")

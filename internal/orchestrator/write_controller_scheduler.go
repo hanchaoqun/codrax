@@ -917,28 +917,15 @@ func changePlanIsNoChangeRequired(plan *types.ChangePlan) bool {
 }
 
 func plannerProbePassedExistingAppliedWorktree(mu *types.MutableState, priorPlan *types.ChangePlan) bool {
-	if mu == nil || priorPlan == nil {
+	if mu == nil {
 		return false
 	}
-	if mu.VerifyFailureHandoff() == nil {
-		return false
-	}
-	if !changePlanHasAppliedWork(priorPlan) {
-		return false
-	}
-	probes := mu.PlanStageProbeReports()
-	for i := len(probes) - 1; i >= 0; i-- {
-		report := probes[i]
-		if report == nil || report.Channel != types.ChangeReportChannelPlannerProbe {
-			continue
-		}
-		if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-			return false
-		}
-		passed, total := report.Score()
-		return total > 0 && passed == total
-	}
-	return false
+	return writeflow.QualifyNoChangeReplanSentinel(writeflow.NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: mu.VerifyFailureHandoff(),
+		PriorPlan:            priorPlan,
+		PlannerProbeReports:  mu.PlanStageProbeReports(),
+		RequireAppliedWork:   true,
+	}).Allowed
 }
 
 func controllerNoPlanRetryEligible(mu *types.MutableState, batch *writeflow.WriteBatchPlan) bool {

@@ -320,6 +320,27 @@ at a nearby test or dependent, but they cannot force approval or denial.
   - unverified environment with missing pytest/dependency;
   - structured-file parse failure.
 
+Additional hardening items found during SWE-bench Lite smoke
+(`pytest-dev__pytest-11143`, 2026-06-17):
+
+- Local prediction export was non-empty, official SWE-bench dry-run could
+  consume `predictions.jsonl`, and the generated source patch was plausible.
+- The workflow still blocked locally because a Python static preflight treated
+  pre-existing test-file undefined names as newly introduced build failures.
+  System fix: preflight diagnostics now use a language-neutral
+  `PreflightDiagnostic` shape and are hard-gated only when their typed
+  `file:line` intersects the current `ChangePlan` changed-line set. Python
+  symtable is only the first producer connected to this shared filter; other
+  language diagnostics can reuse the same layer when they provide path/line.
+- The planner no-change sentinel path had split-brain qualification:
+  `emit_change_plan` could accept a no-change replan from a passing probe while
+  the controller later rejected it. System fix: tool and scheduler now share
+  `writeflow.QualifyNoChangeReplanSentinel`, which requires a failed
+  post-apply handoff, an applied prior plan when the scheduler finalizes the
+  sentinel, a passing typed planner probe, no warning-level probe confidence
+  gaps, and a probe-resolvable previous failure kind. Build/static failures
+  require a real replan or environment resolution, not a no-change sentinel.
+
 ## Acceptance Criteria
 
 - Patch Critic reviews actual applied diff and not only plan text.
@@ -340,4 +361,4 @@ at a nearby test or dependent, but they cannot force approval or denial.
 | 2 | complete | ImpactAnalysisResult engine landed: `ChangePlan` now persists durable changed surfaces, impact edges, ranked verification targets, and the compact obligation projection; controller post-apply observe stamps the result from actual `PatchEffectRecord` plus repo graph; context packs expose P1 changed surfaces and P2 verification targets; Patch Critic can consume the result as its semantic coverage source. |
 | 3 | complete | Convention repository learner landed: post-apply review now learns repository-backed soft convention nodes from actual patch surfaces plus typed graph imports/reverse-imports/related tests, merges them with exploration handoff conventions, persists them through the existing convention store, and exposes convention advisory findings without making conventions hard-gate authority. |
 | 4 | complete | Controller observe integration landed: post-verify coverage now derives from typed `ChangeReport`/`ObservationAuthorityView`, updates durable `ImpactAnalysis` verification targets and semantic `PatchReview` findings, preserves missing probe changed-symbol/contract refs via typed `VerificationConfidenceRecord`, re-projects updated plan context into workflow handoff, and prevents stale pre-verify coverage rows from leaking through stable context IDs. |
-| 5 | pending | Commercial hardening and eval runs. |
+| 5 | in progress | Local SWE smoke passed; SWE-bench Lite `pytest-dev__pytest-11143` produced non-empty harness-consumable predictions but exposed two systemic hardening gaps. This batch landed shared no-change sentinel qualification plus language-neutral changed-line preflight diagnostic filtering, with Python symtable connected as the first producer. Regression so far: focused `orchestrator/tool/writeflow`, full `go test ./...`, `make`, and local SWE-bench adapter smoke all pass. |

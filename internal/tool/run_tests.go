@@ -16,6 +16,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // RunTests executes the project's test suite inside the active
@@ -3627,7 +3628,7 @@ func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFil
 			rel = f
 		}
 		if err == nil {
-			staticDetail, staticOK := runPythonStaticNameCheck(exePath, fixedArgs, runnerRoot, f)
+			staticDetail, staticOK := runPythonStaticNameCheck(ctx, exePath, fixedArgs, runnerRoot, f)
 			if staticOK {
 				output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
 				continue
@@ -3638,6 +3639,7 @@ func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFil
 				AssertionID:   rel,
 				Passed:        false,
 				FailureDetail: staticDetail,
+				BuildErrors:   pythonStaticNameBuildErrors(rel, staticDetail),
 			})
 			output.WriteString(fmt.Sprintf("  FAIL  %s: python static name check\n%s\n", rel,
 				truncateForLog(staticDetail, 300)))
@@ -3695,7 +3697,9 @@ func pythonStaticNameFailureReason(failures []types.TestResult) string {
 }
 
 const pythonStaticNameCheckScript = `
+import ast
 import builtins
+import json
 import pathlib
 import symtable
 import sys
@@ -3704,6 +3708,25 @@ path = pathlib.Path(sys.argv[1])
 source = path.read_text(encoding="utf-8")
 table = symtable.symtable(source, str(path), "exec")
 builtin_names = set(dir(builtins))
+name_positions = {}
+try:
+    tree = ast.parse(source, filename=str(path))
+except SyntaxError:
+    tree = None
+
+if tree is not None:
+    class LoadVisitor(ast.NodeVisitor):
+        def visit_Name(self, node):
+            if isinstance(node.ctx, ast.Load):
+                name_positions.setdefault(node.id, []).append((int(getattr(node, "lineno", 0) or 0), int(getattr(node, "col_offset", 0) or 0) + 1))
+            self.generic_visit(node)
+    LoadVisitor().visit(tree)
+
+def first_position(name):
+    positions = sorted(p for p in name_positions.get(name, []) if p[0] > 0)
+    if not positions:
+        return (0, 0)
+    return positions[0]
 
 def defs_for(tbl):
     out = set()
@@ -3729,21 +3752,43 @@ def walk(tbl, visible, qualname):
         if sym.is_global():
             if name in module_defs or name in builtin_names:
                 continue
-            issues.append(f"{qualname}: undefined global name {name!r}")
+            line, column = first_position(name)
+            issues.append({
+                "line": line,
+                "column": column,
+                "scope": qualname,
+                "name": name,
+                "code": "undefined_global_name",
+                "message": f"{qualname}: undefined global name {name!r}",
+            })
             continue
         if name in current_visible:
             continue
-        issues.append(f"{qualname}: undefined name {name!r}")
+        line, column = first_position(name)
+        issues.append({
+            "line": line,
+            "column": column,
+            "scope": qualname,
+            "name": name,
+            "code": "undefined_name",
+            "message": f"{qualname}: undefined name {name!r}",
+        })
     for child in tbl.get_children():
         walk(child, current_visible, child.get_name())
 
 walk(table, module_defs | builtin_names, "<module>")
 if issues:
-    print("\n".join(sorted(set(issues))))
+    seen = set()
+    for issue in sorted(issues, key=lambda item: (item.get("line", 0), item.get("column", 0), item.get("code", ""), item.get("name", ""), item.get("scope", ""))):
+        key = (issue.get("line", 0), issue.get("column", 0), issue.get("code", ""), issue.get("name", ""), issue.get("scope", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        print(json.dumps(issue, sort_keys=True))
     sys.exit(1)
 `
 
-func runPythonStaticNameCheck(exePath string, fixedArgs []string, runnerRoot, file string) (string, bool) {
+func runPythonStaticNameCheck(ctx *types.BusContext, exePath string, fixedArgs []string, runnerRoot, file string) (string, bool) {
 	args := append(append([]string{}, fixedArgs...), "-c", pythonStaticNameCheckScript, file)
 	cmd := exec.Command(exePath, args...)
 	cmd.Dir = runnerRoot
@@ -3756,7 +3801,90 @@ func runPythonStaticNameCheck(exePath string, fixedArgs []string, runnerRoot, fi
 	if detail == "" {
 		detail = err.Error()
 	}
-	return detail, false
+	diagnostics := parsePythonStaticNameDiagnostics(detail, file)
+	if len(diagnostics) == 0 || ctx == nil || ctx.Mutable == nil {
+		return detail, false
+	}
+	rel := file
+	if r, relErr := filepath.Rel(runnerRoot, file); relErr == nil {
+		rel = r
+	}
+	newBytes, readErr := os.ReadFile(file)
+	if readErr != nil {
+		return detail, false
+	}
+	scoped := writeflow.FilterPreflightDiagnosticsToChangedLines(ctx.Mutable.ChangePlan(), rel, string(newBytes), diagnostics)
+	if len(scoped) == 0 {
+		logging.Info("[run_tests] python static name check ignored %d pre-existing diagnostic(s) outside changed lines for %s", len(diagnostics), rel)
+		return detail, true
+	}
+	return renderPreflightDiagnostics(scoped), false
+}
+
+type pythonStaticNameDiagnostic struct {
+	Line    int    `json:"line"`
+	Column  int    `json:"column"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func parsePythonStaticNameDiagnostics(detail, path string) []writeflow.PreflightDiagnostic {
+	var out []writeflow.PreflightDiagnostic
+	for _, line := range strings.Split(detail, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var diag pythonStaticNameDiagnostic
+		if err := json.Unmarshal([]byte(line), &diag); err != nil {
+			return nil
+		}
+		out = append(out, writeflow.PreflightDiagnostic{
+			Path:    path,
+			Line:    diag.Line,
+			Column:  diag.Column,
+			Code:    diag.Code,
+			Message: diag.Message,
+		})
+	}
+	return out
+}
+
+func renderPreflightDiagnostics(diagnostics []writeflow.PreflightDiagnostic) string {
+	var lines []string
+	for _, diag := range diagnostics {
+		payload := pythonStaticNameDiagnostic{
+			Line:    diag.Line,
+			Column:  diag.Column,
+			Code:    diag.Code,
+			Message: strings.TrimSpace(diag.Message),
+		}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			lines = append(lines, strings.TrimSpace(diag.Message))
+			continue
+		}
+		lines = append(lines, string(raw))
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func pythonStaticNameBuildErrors(path, detail string) []types.BuildError {
+	diagnostics := parsePythonStaticNameDiagnostics(detail, path)
+	if len(diagnostics) == 0 {
+		return nil
+	}
+	out := make([]types.BuildError, 0, len(diagnostics))
+	for _, diag := range diagnostics {
+		out = append(out, types.BuildError{
+			File:    path,
+			Line:    diag.Line,
+			Column:  diag.Column,
+			Symbol:  diag.Code,
+			Message: strings.TrimSpace(diag.Message),
+		})
+	}
+	return out
 }
 
 func pythonPreflightEnv() []string {

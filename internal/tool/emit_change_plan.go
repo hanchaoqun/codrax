@@ -18,6 +18,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // emitChangePlanSchemaReminder is the canonical "here's what the LLM
@@ -482,7 +483,11 @@ func noChangeRequiredReplanSentinel(ctx *types.BusContext, p emitChangePlanParam
 	if handoff == nil || strings.TrimSpace(handoff.PlanID) == "" {
 		return nil
 	}
-	if !latestPlannerProbeIsTypedPass(ctx.Mutable) {
+	qualification := writeflow.QualifyNoChangeReplanSentinel(writeflow.NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: handoff,
+		PlannerProbeReports:  ctx.Mutable.PlanStageProbeReports(),
+	})
+	if !qualification.Allowed {
 		return nil
 	}
 	request := strings.TrimSpace(p.Request)
@@ -504,25 +509,6 @@ func noChangeRequiredReplanSentinel(ctx *types.BusContext, p emitChangePlanParam
 		Status:          types.PlanStatusNoChangeRequired,
 		CreatedAt:       time.Now(),
 	}
-}
-
-func latestPlannerProbeIsTypedPass(mu *types.MutableState) bool {
-	if mu == nil {
-		return false
-	}
-	probes := mu.PlanStageProbeReports()
-	for i := len(probes) - 1; i >= 0; i-- {
-		report := probes[i]
-		if report == nil || report.Channel != types.ChangeReportChannelPlannerProbe {
-			continue
-		}
-		if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-			return false
-		}
-		passed, total := report.Score()
-		return total > 0 && passed == total
-	}
-	return false
 }
 
 func sanitizeNoChangePlanIDComponent(raw string) string {
