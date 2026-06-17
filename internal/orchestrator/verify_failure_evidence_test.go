@@ -227,6 +227,9 @@ func TestAttachActivePatchEffectRecordCapturesAppliedCommitDiff(t *testing.T) {
 	if got.ImpactObligations == nil || !impactObligationsContain(got.ImpactObligations, "changed_file", "actual_diff", "seed.py") {
 		t.Fatalf("actual diff impact obligation missing: %+v", got.ImpactObligations)
 	}
+	if got.ImpactAnalysis == nil || got.ImpactAnalysis.ObligationSet == nil || len(got.ImpactAnalysis.VerificationTargets) == 0 {
+		t.Fatalf("impact analysis result missing from applied patch: %+v", got.ImpactAnalysis)
+	}
 	if !impactObligationsContainRelated(got.ImpactObligations, "dependent", "reverse_import", "seed.py", "caller.py") {
 		t.Fatalf("graph-derived dependent impact obligation missing: %+v", got.ImpactObligations)
 	}

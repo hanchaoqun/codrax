@@ -28,6 +28,7 @@ const patchReviewMaxSemanticFindings = 32
 type SemanticPatchReviewInput struct {
 	Plan              *types.ChangePlan
 	ActiveSlice       types.ChangePlanSlice
+	ImpactAnalysis    *types.ImpactAnalysisResult
 	ImpactObligations *types.ImpactObligationSet
 	ConventionGraph   *types.ConventionGraph
 }
@@ -109,8 +110,14 @@ func ReviewAppliedPatchSemantic(in SemanticPatchReviewInput) types.PatchReviewRe
 		record.Findings = append(record.Findings, finding)
 	}
 	obligations := in.ImpactObligations
+	if obligations == nil && in.ImpactAnalysis != nil {
+		obligations = in.ImpactAnalysis.ObligationSet
+	}
 	if obligations == nil {
 		obligations = plan.ImpactObligations
+	}
+	if obligations == nil && plan.ImpactAnalysis != nil {
+		obligations = plan.ImpactAnalysis.ObligationSet
 	}
 	for _, finding := range patchReviewSemanticCoverageFindings(obligations) {
 		record.Findings = append(record.Findings, finding)

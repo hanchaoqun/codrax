@@ -223,6 +223,35 @@ func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 				CoverageStatus: PatchReviewCoverageUnverified,
 			}},
 		},
+		ImpactAnalysis: &ImpactAnalysisResult{
+			ResultID: "impact-analysis:plan-effect:patch-effect",
+			ChangedSurfaces: []ImpactChangedSurface{{
+				Kind:        "symbol",
+				Path:        "pkg/a.py",
+				Symbol:      "pkg.A",
+				Strength:    string(ImpactObligationStrengthPrecise),
+				EvidenceRef: "pkg/a.py:10",
+			}},
+			VerificationTargets: []ImpactVerificationTarget{{
+				Kind:           "changed_symbol",
+				Path:           "pkg/a.py",
+				Symbol:         "pkg.A",
+				Priority:       20,
+				CoverageStatus: "unverified",
+				EvidenceRef:    "pkg/a.py:10",
+			}},
+			ObligationSet: &ImpactObligationSet{
+				PlanID: "plan-effect",
+				Obligations: []ImpactObligation{{
+					Kind:          "changed_symbol",
+					Relation:      "patch_hunk",
+					Obligation:    "verify_changed_symbol",
+					SubjectPath:   "pkg/a.py",
+					SubjectSymbol: "pkg.A",
+					EvidenceRef:   "pkg/a.py:10",
+				}},
+			},
+		},
 	}
 
 	pack := WriteContextPackFromChangePlan(plan)
@@ -241,6 +270,11 @@ func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 		!writeContextViewContains(verifier, "patch_review_finding", "coverage_status=unverified") ||
 		!writeContextViewContains(verifier, "patch_review_finding", "symbol=pkg.A") {
 		t.Fatalf("patch review finding missing from context pack: planner=%+v verifier=%+v", planner.Items, verifier.Items)
+	}
+	if !writeContextViewContains(planner, "impact_changed_surface", "symbol=pkg.A") ||
+		!writeContextViewContains(verifier, "impact_verification_target", "priority=20") ||
+		!writeContextViewContains(verifier, "impact_verification_target", "coverage_status=unverified") {
+		t.Fatalf("impact analysis projection missing from context pack: planner=%+v verifier=%+v", planner.Items, verifier.Items)
 	}
 }
 

@@ -3,9 +3,12 @@ package impact
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+var nowImpactAnalysis = time.Now
 
 type SymbolRef struct {
 	ID      string
@@ -44,6 +47,26 @@ func BuildObligationSet(in Input) types.ImpactObligationSet {
 	set.Obligations = append(set.Obligations, patchEffectObligations(in.PatchEffect)...)
 	set.Obligations = append(set.Obligations, graphObligations(in.PatchEffect, in.Graph)...)
 	return types.NormalizeImpactObligationSet(set)
+}
+
+func BuildAnalysisResult(in Input) types.ImpactAnalysisResult {
+	if in.Plan != nil && in.PatchEffect == nil {
+		in.PatchEffect = in.Plan.PatchEffect
+	}
+	set := BuildObligationSet(in)
+	planID := ""
+	if in.Plan != nil {
+		planID = strings.TrimSpace(in.Plan.ID)
+	}
+	patchEffectID := ""
+	if in.PatchEffect != nil {
+		patchEffectID = strings.TrimSpace(in.PatchEffect.RecordID)
+	}
+	result := types.ImpactAnalysisResultFromObligationSet(planID, patchEffectID, set, nowImpactAnalysis())
+	if in.PatchEffect != nil {
+		result.ChangedSurfaces = append(result.ChangedSurfaces, patchEffectChangedSurfaces(in.PatchEffect)...)
+	}
+	return types.NormalizeImpactAnalysisResult(result)
 }
 
 func patchEffectObligations(effect *types.PatchEffectRecord) []types.ImpactObligation {
@@ -86,6 +109,44 @@ func patchEffectObligations(effect *types.PatchEffectRecord) []types.ImpactOblig
 				Source:      "patch_effect",
 				Strength:    types.ImpactObligationStrengthPrecise,
 				EvidenceRef: patchEffectEvidenceRef(effect, eventPath),
+			})
+		}
+	}
+	return out
+}
+
+func patchEffectChangedSurfaces(effect *types.PatchEffectRecord) []types.ImpactChangedSurface {
+	if effect == nil {
+		return nil
+	}
+	var out []types.ImpactChangedSurface
+	for _, file := range effect.Files {
+		path := normalizeImpactPath(file.Path)
+		if path == "" {
+			path = normalizeImpactPath(file.OldPath)
+		}
+		if path == "" {
+			continue
+		}
+		role := ""
+		if file.PathRole != "" {
+			role = string(file.PathRole)
+		}
+		for _, hunk := range file.Hunks {
+			start := hunk.NewStart
+			end := hunk.NewStart + hunk.NewLines - 1
+			if hunk.NewLines <= 0 {
+				end = start
+			}
+			out = append(out, types.ImpactChangedSurface{
+				Kind:        "hunk",
+				Path:        path,
+				Role:        role,
+				LineStart:   start,
+				LineEnd:     end,
+				Source:      "patch_effect",
+				Strength:    string(types.ImpactObligationStrengthPrecise),
+				EvidenceRef: patchEffectEvidenceRef(effect, path),
 			})
 		}
 	}

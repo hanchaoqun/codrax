@@ -465,6 +465,13 @@ type ChangePlan struct {
 	// and are excluded from PlanFingerprint.
 	ImpactObligations *ImpactObligationSet `json:"impact_obligations,omitempty"`
 
+	// ImpactAnalysis is the durable first-class impact result derived from the
+	// actual patch effect, plan contracts/probes, and repository graph. It is
+	// the source for controller/verifier scheduling and Patch Critic semantic
+	// coverage. ImpactObligations remains its compact compatibility projection.
+	// Both are lifecycle metadata and are excluded from PlanFingerprint.
+	ImpactAnalysis *ImpactAnalysisResult `json:"impact_analysis,omitempty"`
+
 	// UnvalidatedReasons lists pre-apply static-check stages that
 	// were skipped because their toolchain was unavailable (e.g.
 	// "rust:cargo not in PATH", "java/maven:mvn not in PATH").
@@ -510,7 +517,7 @@ type ChangePlan struct {
 
 // PlanFingerprint returns a deterministic hash of the apply-relevant plan
 // fields. It deliberately excludes lifecycle/handoff fields (Status, AppliedAt,
-// WorktreePath, Approval, critique, patch review/effect, impact obligations)
+// WorktreePath, Approval, critique, patch review/effect, impact analysis)
 // so persisting status/approval/context metadata does not invalidate the
 // approved payload, while any change to requested file operations or test
 // obligations does.

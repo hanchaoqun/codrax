@@ -1335,6 +1335,7 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 	review := writeflow.ReviewAppliedPatchSemantic(writeflow.SemanticPatchReviewInput{
 		Plan:              plan,
 		ActiveSlice:       activeSlice,
+		ImpactAnalysis:    plan.ImpactAnalysis,
 		ImpactObligations: plan.ImpactObligations,
 		ConventionGraph:   conventionGraph,
 	})
@@ -2659,6 +2660,13 @@ func workflowSliceStatusTerminal(status types.ChangePlanSliceStatus) bool {
 
 func stampChangePlanImpactObligations(plan *types.ChangePlan, graph writeimpact.GraphProvider) {
 	if plan == nil {
+		return
+	}
+	analysis := writeimpact.BuildAnalysisResult(writeimpact.Input{Plan: plan, PatchEffect: plan.PatchEffect, Graph: graph})
+	plan.ImpactAnalysis = &analysis
+	if analysis.ObligationSet != nil {
+		set := *analysis.ObligationSet
+		plan.ImpactObligations = &set
 		return
 	}
 	impact := writeimpact.BuildObligationSet(writeimpact.Input{Plan: plan, PatchEffect: plan.PatchEffect, Graph: graph})

@@ -107,6 +107,9 @@ func TestUpdateWorkflowRunBatchPlanStampsImpactObligations(t *testing.T) {
 	if plan.ImpactObligations == nil {
 		t.Fatalf("plan should be stamped with typed impact obligations")
 	}
+	if plan.ImpactAnalysis == nil || plan.ImpactAnalysis.ObligationSet == nil {
+		t.Fatalf("plan should be stamped with durable impact analysis: %+v", plan.ImpactAnalysis)
+	}
 	for _, ob := range plan.ImpactObligations.Obligations {
 		if ob.Kind == "dependency" &&
 			ob.Relation == "depends_on" &&

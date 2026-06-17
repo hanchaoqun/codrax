@@ -2,9 +2,67 @@ package impact
 
 import (
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func TestBuildAnalysisResultProjectsImpactTargets(t *testing.T) {
+	prevNow := nowImpactAnalysis
+	nowImpactAnalysis = func() time.Time { return time.Unix(20, 0) }
+	defer func() { nowImpactAnalysis = prevNow }()
+	graph := fakeGraphProvider{
+		reverseImports: map[string][]string{
+			"pkg/a.py": []string{"pkg/caller.py"},
+		},
+		tests: map[string][]string{
+			"pkg/a.py": []string{"tests/test_a.py"},
+		},
+		symbols: map[string][]SymbolRef{
+			"pkg/a.py": {{
+				ID:      "py::pkg::::target::1",
+				Name:    "target",
+				File:    "pkg/a.py",
+				Line:    10,
+				EndLine: 20,
+			}},
+		},
+	}
+	result := BuildAnalysisResult(Input{
+		Plan: &types.ChangePlan{
+			ID: "plan-impact",
+			VerificationProbes: []types.VerificationProbe{{
+				ID:           "probe-contract",
+				ContractRefs: []string{"contract-1"},
+			}},
+		},
+		PatchEffect: &types.PatchEffectRecord{
+			RecordID: "patch-effect:plan-impact:slice-1:abcdef123456",
+			Files: []types.PatchEffectFile{{
+				Path:     "pkg/a.py",
+				Status:   "modified",
+				PathRole: types.SourcePathRoleProduction,
+				Hunks:    []types.PatchEffectHunk{{NewStart: 12, NewLines: 2}},
+			}},
+		},
+		Graph: graph,
+	})
+	if result.ResultID == "" || result.ObligationSet == nil || result.CreatedAt != time.Unix(20, 0) {
+		t.Fatalf("impact analysis identity missing: %+v", result)
+	}
+	if !impactAnalysisResultHasSurface(result, "hunk", "pkg/a.py", "") ||
+		!impactAnalysisResultHasSurface(result, "symbol", "pkg/a.py", "py::pkg::::target::1") {
+		t.Fatalf("changed surfaces missing: %+v", result.ChangedSurfaces)
+	}
+	if !impactAnalysisResultHasTarget(result, "behavior_contract", "", "contract-1") ||
+		!impactAnalysisResultHasTarget(result, "dependent", "pkg/caller.py", "") ||
+		!impactAnalysisResultHasTarget(result, "test_surface", "tests/test_a.py", "") {
+		t.Fatalf("verification targets missing: %+v", result.VerificationTargets)
+	}
+	if result.VerificationTargets[0].Kind != "behavior_contract" {
+		t.Fatalf("behavior contract should rank before graph targets: %+v", result.VerificationTargets)
+	}
+}
 
 func TestBuildObligationSetMergesPatchEffectAndGraph(t *testing.T) {
 	graph := fakeGraphProvider{
@@ -119,6 +177,31 @@ func TestAnnotatePatchEffectLineFeatureEventsAddsSoftEvents(t *testing.T) {
 			t.Fatalf("missing %s in events: %+v", code, record.Files[0].Events)
 		}
 	}
+}
+
+func impactAnalysisResultHasSurface(result types.ImpactAnalysisResult, kind, path, symbol string) bool {
+	for _, surface := range result.ChangedSurfaces {
+		if surface.Kind == kind && surface.Path == path && surface.Symbol == symbol {
+			return true
+		}
+	}
+	return false
+}
+
+func impactAnalysisResultHasTarget(result types.ImpactAnalysisResult, kind, relatedPath, contractRef string) bool {
+	for _, target := range result.VerificationTargets {
+		if target.Kind != kind {
+			continue
+		}
+		if relatedPath != "" && target.RelatedPath != relatedPath {
+			continue
+		}
+		if contractRef != "" && target.ContractRef != contractRef {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 type fakeGraphProvider struct {

@@ -439,7 +439,26 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 			pack.Items = append(pack.Items, item)
 		}
 	}
+	if plan.ImpactAnalysis != nil {
+		analysis := NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
+		for _, surface := range analysis.ChangedSurfaces {
+			if text := renderImpactChangedSurfaceContext(surface); text != "" {
+				pack.Items = append(pack.Items, writeContextItem("impact_changed_surface", WriteContextP1, text, "impact_analysis",
+					WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+			}
+		}
+		for _, target := range analysis.VerificationTargets {
+			if text := renderImpactVerificationTargetContext(target); text != "" {
+				pack.Items = append(pack.Items, writeContextItem("impact_verification_target", WriteContextP2, text, "impact_analysis",
+					WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+			}
+		}
+	}
 	obligations := plan.ImpactObligations
+	if obligations == nil && plan.ImpactAnalysis != nil {
+		analysis := NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
+		obligations = analysis.ObligationSet
+	}
 	if obligations == nil {
 		derived := ImpactObligationSetFromChangePlan(plan)
 		obligations = &derived
@@ -568,6 +587,78 @@ func renderImpactObligationContext(ob ImpactObligation) string {
 	}
 	if ob.Strength != "" {
 		parts = append(parts, "strength="+string(ob.Strength))
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderImpactChangedSurfaceContext(surface ImpactChangedSurface) string {
+	surface = impactChangedSurface(surface)
+	if surface.Kind == "" {
+		return ""
+	}
+	parts := []string{
+		"id=" + surface.ID,
+		"kind=" + surface.Kind,
+	}
+	if surface.Path != "" {
+		parts = append(parts, "path="+surface.Path)
+	}
+	if surface.Role != "" {
+		parts = append(parts, "role="+surface.Role)
+	}
+	if surface.Symbol != "" {
+		parts = append(parts, "symbol="+surface.Symbol)
+	}
+	if surface.LineStart > 0 {
+		parts = append(parts, fmt.Sprintf("line_start=%d", surface.LineStart))
+	}
+	if surface.LineEnd > 0 {
+		parts = append(parts, fmt.Sprintf("line_end=%d", surface.LineEnd))
+	}
+	if surface.Strength != "" {
+		parts = append(parts, "strength="+surface.Strength)
+	}
+	if surface.EvidenceRef != "" {
+		parts = append(parts, "evidence_ref="+surface.EvidenceRef)
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderImpactVerificationTargetContext(target ImpactVerificationTarget) string {
+	target = impactVerificationTarget(target)
+	if target.Kind == "" {
+		return ""
+	}
+	parts := []string{
+		"id=" + target.ID,
+		"kind=" + target.Kind,
+	}
+	if target.Path != "" {
+		parts = append(parts, "path="+target.Path)
+	}
+	if target.RelatedPath != "" {
+		parts = append(parts, "related_path="+target.RelatedPath)
+	}
+	if target.Symbol != "" {
+		parts = append(parts, "symbol="+target.Symbol)
+	}
+	if target.ContractRef != "" {
+		parts = append(parts, "contract_ref="+target.ContractRef)
+	}
+	if target.ProbeID != "" {
+		parts = append(parts, "probe="+target.ProbeID)
+	}
+	if target.Priority > 0 {
+		parts = append(parts, fmt.Sprintf("priority=%d", target.Priority))
+	}
+	if target.Strength != "" {
+		parts = append(parts, "strength="+target.Strength)
+	}
+	if target.CoverageStatus != "" {
+		parts = append(parts, "coverage_status="+target.CoverageStatus)
+	}
+	if target.EvidenceRef != "" {
+		parts = append(parts, "evidence_ref="+target.EvidenceRef)
 	}
 	return strings.Join(parts, " ")
 }
