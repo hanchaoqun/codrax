@@ -120,7 +120,7 @@ func Run(idx *Index, q Query) Result {
 			stats := getStats()
 			rank := buildRootCauseRankFrom(q, chain, stats)
 			rank = enrichRootCauseRankWithScheduler(q, rank, getLatency(), stats)
-			rank = attachPerfContextToRootCauseRank(idx, q, rank)
+			rank = attachPerfContextToRootCauseRank(idx, q, rank, stats)
 			cachedRootCause = rank
 			cachedRootCauseOK = true
 		}
@@ -5860,7 +5860,7 @@ func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
 	rank := buildRootCauseRankFrom(q, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
 	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats)
-	return attachPerfContextToRootCauseRank(idx, q, rank)
+	return attachPerfContextToRootCauseRank(idx, q, rank, stats)
 }
 
 func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootCauseRankResult {
@@ -6195,26 +6195,280 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	return rank
 }
 
-func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankResult) RootCauseRankResult {
+func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankResult, stats WindowStats) RootCauseRankResult {
 	if idx == nil || len(rank.Items) == 0 {
 		return rank
 	}
 	for i := range rank.Items {
 		item := &rank.Items[i]
-		thread := firstNonEmptyThread(item.Thread, item.NearestChainThread)
 		start, end := rootCausePerfWindow(q, *item)
-		ctx := perfContextForThread(idx, q, thread, start, end, 4)
-		if ctx == nil && item.NearestChainThread.PID > 0 && !sameThreadRef(thread, item.NearestChainThread) {
-			ctx = perfContextForThread(idx, q, item.NearestChainThread, start, end, 4)
+		window := TimeWindow{StartTs: start, EndTs: end}
+		var contexts []RootCausePerfRoleContext
+		if item.Thread.PID > 0 || strings.TrimSpace(item.Thread.Comm) != "" {
+			contexts = appendRootCausePerfRoleContext(contexts, "candidate_thread", item.Thread, -1, window, "root-cause candidate thread", perfContextForThread(idx, q, item.Thread, start, end, 4))
 		}
-		item.PerfContext = ctx
+		if item.NearestChainThread.PID > 0 && !sameThreadRef(item.Thread, item.NearestChainThread) {
+			contexts = appendRootCausePerfRoleContext(contexts, "nearest_chain_thread", item.NearestChainThread, -1, window, "nearest wakeup-chain thread", perfContextForThread(idx, q, item.NearestChainThread, start, end, 4))
+		}
+		if rootCauseItemIsOnChain(*item) && (item.Thread.PID > 0 || strings.TrimSpace(item.Thread.Comm) != "") {
+			contexts = appendRootCausePerfRoleContext(contexts, "on_chain_dependency", item.Thread, -1, window, "on-chain root-cause dependency", perfContextForThread(idx, q, item.Thread, start, end, 4))
+		}
+		contexts = appendRootCauseStatsPerfContexts(idx, q, stats, *item, window, contexts)
+		item.PerfContexts = contexts
+		item.PerfContext = primaryRootCausePerfContext(contexts)
 	}
 	return rank
 }
 
+func appendRootCauseStatsPerfContexts(idx *Index, q Query, stats WindowStats, item RootCauseRankItem, window TimeWindow, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
+	start, end := window.StartTs, window.EndTs
+	if ctx, ok := runnableContextForThread(item.Thread, stats.RunnableContext); ok {
+		contexts = appendRootCauseRunnableCompetitorPerfContexts(idx, q, ctx.SameCPUTopRunning, item.Thread, window, "same_cpu_competitor", "same-CPU top running competitor", contexts)
+	}
+	switch item.Type {
+	case "cpu_pressure":
+		for _, pressure := range matchingCPUPressuresForRootCauseItem(item, stats.CPUPressure, 1) {
+			contexts = appendRootCauseCPUPressurePerfContexts(idx, q, pressure, window, contexts)
+		}
+	case "supply_pressure":
+		for _, pressure := range matchingCPUPressuresForRootCauseItem(item, stats.CPUPressure, 3) {
+			contexts = appendRootCauseCPUPressurePerfContexts(idx, q, pressure, window, contexts)
+		}
+	case "compute_supply", "low_frequency", "cpu_affinity_or_cpuset":
+		if supply, ok := computeSupplyForRootCauseItem(item, stats.ComputeSupply); ok {
+			cpuCtx := perfContextForCPU(idx, q, supply.CPU, start, end, 4)
+			contexts = appendRootCausePerfRoleContext(contexts, "compute_supply_cpu", ThreadRef{}, supply.CPU, window, "compute-supply CPU scope", cpuCtx)
+			for _, pressure := range stats.CPUPressure {
+				if pressure.CPU == supply.CPU {
+					contexts = appendRootCauseCPUPressurePerfContexts(idx, q, pressure, window, contexts)
+					break
+				}
+			}
+		}
+	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait":
+		if ctx, ok := runnableContextForThread(item.Thread, stats.RunnableContext); ok {
+			cpuCtx := perfContextForCPU(idx, q, ctx.CPU, start, end, 4)
+			contexts = appendRootCausePerfRoleContext(contexts, "runnable_cpu", ThreadRef{}, ctx.CPU, window, "runnable wait CPU scope", cpuCtx)
+		}
+	case "fragmented_running", "running":
+		if item.Thread.PID > 0 || strings.TrimSpace(item.Thread.Comm) != "" {
+			contexts = appendRootCausePerfRoleContext(contexts, "target_running", item.Thread, -1, window, "running-state CPU work", perfContextForThread(idx, q, item.Thread, start, end, 4))
+		}
+	}
+	return contexts
+}
+
+func appendRootCauseCPUPressurePerfContexts(idx *Index, q Query, pressure CPUPressureStats, window TimeWindow, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
+	start, end := window.StartTs, window.EndTs
+	contexts = appendRootCausePerfRoleContext(contexts, "cpu_pressure_cpu", ThreadRef{}, pressure.CPU, window, "CPU pressure scope", perfContextForCPU(idx, q, pressure.CPU, start, end, 4))
+	return appendRootCauseRunnableCompetitorPerfContexts(idx, q, pressure.TopRunning, ThreadRef{}, window, "cpu_pressure_top_running", "top running thread on pressure CPU", contexts)
+}
+
+func appendRootCauseRunnableCompetitorPerfContexts(idx *Index, q Query, threads []ThreadDuration, candidate ThreadRef, window TimeWindow, role, reason string, contexts []RootCausePerfRoleContext) []RootCausePerfRoleContext {
+	limit := 2
+	for _, td := range threads {
+		if limit <= 0 {
+			break
+		}
+		if sameThreadRef(td.Thread, candidate) {
+			continue
+		}
+		start, end := rootCauseThreadDurationWindow(window, td)
+		ctx := perfContextForThread(idx, q, td.Thread, start, end, 4)
+		roleWindow := TimeWindow{StartTs: start, EndTs: end}
+		if ctx == nil && !sameTimeWindow(roleWindow, window) {
+			ctx = perfContextForThread(idx, q, td.Thread, window.StartTs, window.EndTs, 4)
+			roleWindow = window
+		}
+		before := len(contexts)
+		contexts = appendRootCausePerfRoleContext(contexts, role, td.Thread, td.CPU, roleWindow, reason, ctx)
+		if len(contexts) > before {
+			limit--
+		}
+	}
+	return contexts
+}
+
+func appendRootCausePerfRoleContext(contexts []RootCausePerfRoleContext, role string, thread ThreadRef, cpu int, window TimeWindow, reason string, ctx *PerfContext) []RootCausePerfRoleContext {
+	if ctx == nil || ctx.SampleCount == 0 {
+		return contexts
+	}
+	for _, existing := range contexts {
+		if existing.Role == role && existing.CPU == cpu && sameThreadRef(existing.Thread, thread) && sameTimeWindow(existing.Window, window) {
+			return contexts
+		}
+	}
+	return append(contexts, RootCausePerfRoleContext{
+		Role:        role,
+		Thread:      thread,
+		CPU:         cpu,
+		Window:      window,
+		Reason:      reason,
+		PerfContext: ctx,
+	})
+}
+
+func primaryRootCausePerfContext(contexts []RootCausePerfRoleContext) *PerfContext {
+	if len(contexts) == 0 {
+		return nil
+	}
+	preferred := []string{"candidate_thread", "on_chain_dependency", "nearest_chain_thread", "target_running", "cpu_pressure_top_running", "same_cpu_competitor", "compute_supply_cpu", "cpu_pressure_cpu", "runnable_cpu"}
+	for _, role := range preferred {
+		for _, ctx := range contexts {
+			if ctx.Role == role && ctx.PerfContext != nil {
+				return ctx.PerfContext
+			}
+		}
+	}
+	return contexts[0].PerfContext
+}
+
+func perfContextForCPU(idx *Index, q Query, cpu int, start, end float64, max int) *PerfContext {
+	if cpu < 0 {
+		return nil
+	}
+	sub := queryForPerfContextWindow(q, start, end)
+	return computePerfContextFiltered(idx, sub, max, func(ev Event) bool {
+		return ev.CPU == cpu
+	})
+}
+
+func matchingCPUPressuresForRootCauseItem(item RootCauseRankItem, pressures []CPUPressureStats, limit int) []CPUPressureStats {
+	if limit <= 0 {
+		limit = 1
+	}
+	if len(pressures) == 0 {
+		return nil
+	}
+	if item.Type == "supply_pressure" {
+		out := append([]CPUPressureStats(nil), pressures...)
+		sort.SliceStable(out, func(i, j int) bool { return out[i].RunnableWaitMs > out[j].RunnableWaitMs })
+		if len(out) > limit {
+			out = out[:limit]
+		}
+		return out
+	}
+	type scored struct {
+		pressure CPUPressureStats
+		score    float64
+	}
+	var scoredItems []scored
+	for _, pressure := range pressures {
+		score := float64(lineOverlapLength(item.LineStart, item.LineEnd, firstThreadLine(pressure.TopRunnable), lastThreadLine(pressure.TopRunning)))
+		if score <= 0 && item.CumulativeImpactMs > 0 && floatsClose(item.CumulativeImpactMs, pressure.RunnableWaitMs, 0.001) {
+			score = pressure.RunnableWaitMs
+		}
+		if score > 0 {
+			scoredItems = append(scoredItems, scored{pressure: pressure, score: score})
+		}
+	}
+	if len(scoredItems) == 0 {
+		out := append([]CPUPressureStats(nil), pressures...)
+		sort.SliceStable(out, func(i, j int) bool { return out[i].RunnableWaitMs > out[j].RunnableWaitMs })
+		if len(out) > limit {
+			out = out[:limit]
+		}
+		return out
+	}
+	sort.SliceStable(scoredItems, func(i, j int) bool {
+		if scoredItems[i].score != scoredItems[j].score {
+			return scoredItems[i].score > scoredItems[j].score
+		}
+		return scoredItems[i].pressure.RunnableWaitMs > scoredItems[j].pressure.RunnableWaitMs
+	})
+	out := make([]CPUPressureStats, 0, minInt(limit, len(scoredItems)))
+	for i := 0; i < len(scoredItems) && i < limit; i++ {
+		out = append(out, scoredItems[i].pressure)
+	}
+	return out
+}
+
+func computeSupplyForRootCauseItem(item RootCauseRankItem, summaries []ComputeSupplySummary) (ComputeSupplySummary, bool) {
+	var best ComputeSupplySummary
+	bestScore := 0
+	for _, summary := range summaries {
+		if !sameThreadRef(item.Thread, summary.Thread) {
+			continue
+		}
+		score := lineOverlapLength(item.LineStart, item.LineEnd, summary.LineStart, summary.LineEnd)
+		if score <= 0 && item.CumulativeImpactMs > 0 && floatsClose(item.CumulativeImpactMs, summary.DurationMs, 0.001) {
+			score = 1
+		}
+		if score > bestScore {
+			best = summary
+			bestScore = score
+		}
+	}
+	return best, bestScore > 0
+}
+
+func rootCauseThreadDurationWindow(fallback TimeWindow, td ThreadDuration) (float64, float64) {
+	start, end := td.StartTs, td.EndTs
+	if start <= 0 || end <= start {
+		return fallback.StartTs, fallback.EndTs
+	}
+	if fallback.StartTs > 0 && start < fallback.StartTs {
+		start = fallback.StartTs
+	}
+	if fallback.EndTs > 0 && end > fallback.EndTs {
+		end = fallback.EndTs
+	}
+	if end <= start {
+		return fallback.StartTs, fallback.EndTs
+	}
+	return start, end
+}
+
+func lineOverlapLength(aStart, aEnd, bStart, bEnd int) int {
+	if aStart <= 0 || bStart <= 0 {
+		return 0
+	}
+	if aEnd <= 0 {
+		aEnd = aStart
+	}
+	if bEnd <= 0 {
+		bEnd = bStart
+	}
+	start := maxInt(aStart, bStart)
+	end := minInt(aEnd, bEnd)
+	if end < start {
+		return 0
+	}
+	return end - start + 1
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func floatsClose(a, b, tolerance float64) bool {
+	if tolerance <= 0 {
+		tolerance = 0.001
+	}
+	diff := a - b
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= tolerance
+}
+
+func sameTimeWindow(a, b TimeWindow) bool {
+	return floatsClose(a.StartTs, b.StartTs, 0.000001) && floatsClose(a.EndTs, b.EndTs, 0.000001)
+}
+
 func rootCausePerfWindow(q Query, item RootCauseRankItem) (float64, float64) {
 	start, end := item.StartTs, item.EndTs
-	if start <= 0 || end <= start {
+	if (item.Thread.PID > 0 || strings.TrimSpace(item.Thread.Comm) != "") && (start <= 0 || end <= start) {
 		start, end = item.NearestChainWindow.StartTs, item.NearestChainWindow.EndTs
 	}
 	if start <= 0 || end <= start {
@@ -7120,7 +7374,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	rank := buildRootCauseRankFrom(q, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
 	rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats)
-	rank = attachPerfContextToRootCauseRank(idx, q, rank)
+	rank = attachPerfContextToRootCauseRank(idx, q, rank, stats)
 	var chainPtr *ChainResult
 	if len(chain.Nodes) > 0 || len(chain.Edges) > 0 || len(chain.CausalImpacts) > 0 || chain.Target.PID > 0 || chain.Target.Comm != "" {
 		chainPtr = &chain
@@ -8940,6 +9194,9 @@ func evidenceFromRootCauseRank(rank RootCauseRankResult) []EvidenceFact {
 		if perf := rootCausePerfSummary(item.PerfContext); perf != "" {
 			summary = fmt.Sprintf("%s; %s", summary, perf)
 		}
+		if perfRoles := rootCausePerfRoleSummary(item.PerfContexts, 3); perfRoles != "" {
+			summary = fmt.Sprintf("%s; perf_role_contexts=%s", summary, perfRoles)
+		}
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(item.Thread),
 			Predicate:  "root_cause_" + item.Tier,
@@ -8970,6 +9227,37 @@ func rootCausePerfSummary(ctx *PerfContext) string {
 		parts = append(parts, fmt.Sprintf("top_period=%d", hot.Period))
 	}
 	return strings.Join(parts, " ")
+}
+
+func rootCausePerfRoleSummary(contexts []RootCausePerfRoleContext, max int) string {
+	if len(contexts) == 0 {
+		return ""
+	}
+	if max <= 0 || max > len(contexts) {
+		max = len(contexts)
+	}
+	parts := make([]string, 0, max)
+	for _, role := range contexts {
+		if len(parts) >= max || role.PerfContext == nil || role.PerfContext.SampleCount == 0 {
+			continue
+		}
+		fields := []string{role.Role, fmt.Sprintf("samples=%d", role.PerfContext.SampleCount), fmt.Sprintf("period=%d", role.PerfContext.TotalPeriod)}
+		if label := threadLabel(role.Thread); label != "" {
+			fields = append(fields, "thread="+label)
+		}
+		if role.CPU >= 0 {
+			fields = append(fields, fmt.Sprintf("cpu=%d", role.CPU))
+		}
+		if len(role.PerfContext.TopSymbols) > 0 {
+			hot := role.PerfContext.TopSymbols[0]
+			fields = append(fields, "top_symbol="+firstNonEmpty(hot.Symbol, "unknown"))
+			if hot.DSO != "" {
+				fields = append(fields, "dso="+hot.DSO)
+			}
+		}
+		parts = append(parts, strings.Join(fields, " "))
+	}
+	return strings.Join(parts, " | ")
 }
 
 func evidenceFromInteractionStats(stats InteractionStatsResult) []EvidenceFact {

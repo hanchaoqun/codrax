@@ -691,8 +691,6 @@ func TestTraceQueryFrameRootCauseBundleAliasSummaryAndObservations(t *testing.T)
 		"chain_relevance=on_chain",
 		"bundle_io_burst",
 		"io_burst_episode",
-		"irq_activity",
-		"workqueue_activity",
 		"supply_pressure",
 		"trace_mark_category",
 		"async_file_work",
@@ -714,7 +712,7 @@ func TestTraceQueryFrameRootCauseBundleAliasSummaryAndObservations(t *testing.T)
 
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "perf_stats", "perf_timeline", "trace_perf_bundle", "perf_bundle", "trace_plus_perf", "scheduler_latency_stats", "critical_blocking_calls", "direct blocking surfaces", "peer_state", "peer/on-chain evidence", "oneway", "sync_like", "blocking_candidate", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", "frame_bundle", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "aggregated_impact", "aggregated_impacts", "occurrence_windows", "representative repeated windows", "view=causal_impact is accepted as wakeup_chain", "chain_relevance", "on_chain", "adjacent", "background", "dominant_state", "cumulative_impact_ms", "same-chain primary", "compute-supply", "perf_sample", "perf_samples", "top_symbols", "top_dso", "top_callchains", "source", "symbolization_status", "raw_perfdata_fallback", "unsymbolized", "cpuSample", "perfSamples", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "block_io_by_inode", "io_burst_episodes", "io_pressure_summary", "irq_activity", "softirq_activity", "workqueue_activity", "supply_pressure_summary", "trace_mark_categories", "async_file_work", "completion", "completions/ret/example", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "B/E/C/S/F", "span_action", "span_pid", "span_value", "kind=sync|async", "same ftrace thread stack", "E|<pid>|<span_name>", "marker pid + name + cookie", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "perf_stats", "perf_timeline", "trace_perf_bundle", "perf_bundle", "trace_plus_perf", "scheduler_latency_stats", "critical_blocking_calls", "direct blocking surfaces", "peer_state", "peer/on-chain evidence", "oneway", "sync_like", "blocking_candidate", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", "frame_bundle", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "aggregated_impact", "aggregated_impacts", "occurrence_windows", "representative repeated windows", "view=causal_impact is accepted as wakeup_chain", "chain_relevance", "on_chain", "adjacent", "background", "dominant_state", "cumulative_impact_ms", "same-chain primary", "compute-supply", "perf_sample", "perf_samples", "perf_contexts", "candidate_thread", "target_running", "on_chain_dependency", "same_cpu_competitor", "cpu_pressure_top_running", "compute_supply_cpu", "top_symbols", "top_dso", "top_callchains", "source", "symbolization_status", "raw_perfdata_fallback", "unsymbolized", "cpuSample", "perfSamples", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "block_io_by_inode", "io_burst_episodes", "io_pressure_summary", "irq_activity", "softirq_activity", "workqueue_activity", "supply_pressure_summary", "trace_mark_categories", "async_file_work", "completion", "completions/ret/example", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "B/E/C/S/F", "span_action", "span_pid", "span_value", "kind=sync|async", "same ftrace thread stack", "E|<pid>|<span_name>", "marker pid + name + cookie", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}
@@ -786,6 +784,67 @@ func TestTraceQuerySummaryRendersAggregateOccurrenceWindows(t *testing.T) {
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary missing occurrence detail %q:\n%s", want, summary)
+		}
+	}
+}
+
+func TestTraceQuerySummaryShowsRootCausePerfRoleContexts(t *testing.T) {
+	result := tracequery.Result{
+		View: "root_cause_rank",
+		RootCauseRank: &tracequery.RootCauseRankResult{Items: []tracequery.RootCauseRankItem{{
+			Rank:     1,
+			Tier:     "primary",
+			Type:     "cpu_pressure",
+			ImpactMs: 8,
+			PerfContext: &tracequery.PerfContext{
+				SampleCount: 1,
+				TotalPeriod: 41000,
+				TopSymbols:  []tracequery.PerfHotspot{{Symbol: "Rival::hot", DSO: "librival.so", Period: 41000}},
+			},
+			PerfContexts: []tracequery.RootCausePerfRoleContext{{
+				Role:   "cpu_pressure_top_running",
+				Thread: tracequery.ThreadRef{Comm: "rival", PID: 300},
+				CPU:    0,
+				Window: tracequery.TimeWindow{StartTs: 2.0, EndTs: 2.012},
+				Reason: "top running thread on pressure CPU",
+				PerfContext: &tracequery.PerfContext{
+					SampleCount: 1,
+					TotalPeriod: 41000,
+					TopSymbols: []tracequery.PerfHotspot{{
+						Symbol:              "Rival::hot",
+						DSO:                 "librival.so",
+						Source:              "hiperf_proto",
+						SymbolizationStatus: "symbolized",
+						Period:              41000,
+						SampleCount:         1,
+					}},
+					TopCallchains: []tracequery.PerfHotspot{{
+						Callchain:           "main;Rival::hot",
+						Symbol:              "Rival::hot",
+						DSO:                 "librival.so",
+						Source:              "hiperf_proto",
+						SymbolizationStatus: "symbolized",
+						Period:              41000,
+						SampleCount:         1,
+						LineStart:           12,
+						LineEnd:             12,
+					}},
+				},
+			}},
+			Summary: "cpu pressure on cpu=0",
+		}}},
+	}
+	summary := traceQuerySummary(result, traceQueryParams{View: "root_cause_rank"}, "path", "/tmp/payload.json")
+	for _, want := range []string{
+		"perf_contexts=cpu_pressure_top_running",
+		"top_symbol=Rival::hot",
+		"rank_perf_context rank=1 role=cpu_pressure_top_running",
+		"rank_perf_top_callchain role=cpu_pressure_top_running",
+		"source=hiperf_proto",
+		"symbolization_status=symbolized",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary missing perf role detail %q:\n%s", want, summary)
 		}
 	}
 }

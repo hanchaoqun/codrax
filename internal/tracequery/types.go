@@ -1030,36 +1030,46 @@ type RootCauseRankResult struct {
 }
 
 type RootCauseRankItem struct {
-	Rank               int                      `json:"rank"`
-	Tier               string                   `json:"tier,omitempty"`
-	Type               string                   `json:"type,omitempty"`
-	Thread             ThreadRef                `json:"thread,omitempty"`
-	PerfContext        *PerfContext             `json:"perf_context,omitempty"`
-	StartTs            float64                  `json:"start_ts,omitempty"`
-	EndTs              float64                  `json:"end_ts,omitempty"`
-	DominantState      string                   `json:"dominant_state,omitempty"`
-	RunningMs          float64                  `json:"running_ms,omitempty"`
-	RunnableMs         float64                  `json:"runnable_ms,omitempty"`
-	SleepMs            float64                  `json:"sleep_ms,omitempty"`
-	DStateMs           float64                  `json:"d_state_ms,omitempty"`
-	IOWaitMs           float64                  `json:"io_wait_ms,omitempty"`
-	ImpactMs           float64                  `json:"impact_ms,omitempty"`
-	CumulativeImpactMs float64                  `json:"cumulative_impact_ms,omitempty"`
-	TargetImpactMs     float64                  `json:"target_impact_ms,omitempty"`
-	Score              float64                  `json:"score,omitempty"`
-	Confidence         float64                  `json:"confidence,omitempty"`
-	LineStart          int                      `json:"line_start,omitempty"`
-	LineEnd            int                      `json:"line_end,omitempty"`
-	Source             string                   `json:"source,omitempty"`
-	Causality          string                   `json:"causality,omitempty"`
-	ChainRelevance     string                   `json:"chain_relevance,omitempty"`
-	ChainDepth         int                      `json:"chain_depth,omitempty"`
-	OverlapMs          float64                  `json:"overlap_ms,omitempty"`
-	EdgeCount          int                      `json:"edge_count,omitempty"`
-	NearestChainThread ThreadRef                `json:"nearest_chain_thread,omitempty"`
-	NearestChainWindow TimeWindow               `json:"nearest_chain_window,omitempty"`
-	OccurrenceWindows  []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
-	Summary            string                   `json:"summary,omitempty"`
+	Rank               int                        `json:"rank"`
+	Tier               string                     `json:"tier,omitempty"`
+	Type               string                     `json:"type,omitempty"`
+	Thread             ThreadRef                  `json:"thread,omitempty"`
+	PerfContext        *PerfContext               `json:"perf_context,omitempty"`
+	PerfContexts       []RootCausePerfRoleContext `json:"perf_contexts,omitempty"`
+	StartTs            float64                    `json:"start_ts,omitempty"`
+	EndTs              float64                    `json:"end_ts,omitempty"`
+	DominantState      string                     `json:"dominant_state,omitempty"`
+	RunningMs          float64                    `json:"running_ms,omitempty"`
+	RunnableMs         float64                    `json:"runnable_ms,omitempty"`
+	SleepMs            float64                    `json:"sleep_ms,omitempty"`
+	DStateMs           float64                    `json:"d_state_ms,omitempty"`
+	IOWaitMs           float64                    `json:"io_wait_ms,omitempty"`
+	ImpactMs           float64                    `json:"impact_ms,omitempty"`
+	CumulativeImpactMs float64                    `json:"cumulative_impact_ms,omitempty"`
+	TargetImpactMs     float64                    `json:"target_impact_ms,omitempty"`
+	Score              float64                    `json:"score,omitempty"`
+	Confidence         float64                    `json:"confidence,omitempty"`
+	LineStart          int                        `json:"line_start,omitempty"`
+	LineEnd            int                        `json:"line_end,omitempty"`
+	Source             string                     `json:"source,omitempty"`
+	Causality          string                     `json:"causality,omitempty"`
+	ChainRelevance     string                     `json:"chain_relevance,omitempty"`
+	ChainDepth         int                        `json:"chain_depth,omitempty"`
+	OverlapMs          float64                    `json:"overlap_ms,omitempty"`
+	EdgeCount          int                        `json:"edge_count,omitempty"`
+	NearestChainThread ThreadRef                  `json:"nearest_chain_thread,omitempty"`
+	NearestChainWindow TimeWindow                 `json:"nearest_chain_window,omitempty"`
+	OccurrenceWindows  []WakeupCausalOccurrence   `json:"occurrence_windows,omitempty"`
+	Summary            string                     `json:"summary,omitempty"`
+}
+
+type RootCausePerfRoleContext struct {
+	Role        string       `json:"role,omitempty"`
+	Thread      ThreadRef    `json:"thread,omitempty"`
+	CPU         int          `json:"cpu"`
+	Window      TimeWindow   `json:"window,omitempty"`
+	Reason      string       `json:"reason,omitempty"`
+	PerfContext *PerfContext `json:"perf_context,omitempty"`
 }
 
 type FrameRootCauseBundle struct {

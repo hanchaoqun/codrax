@@ -1,0 +1,21 @@
+# Trace query — running/perf root-cause context
+#
+# Coverage target: when perf samples are present in the same window, runnable /
+# CPU-pressure root-cause analysis should use trace_query perf_contexts to explain
+# what code consumed sampled CPU time, without pre-stating the expected answer.
+ID="trace_query_running_perf_context"
+NAME="trace query — running perf context"
+QUESTION="请优先使用 trace_query 分析 2.000s 到 2.018s 的窗口，目标线程是 app-20。请判断这段卡顿原因，并在有 perf 采样信息时说明 CPU 时间主要消耗在哪些代码热点上。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+      rival-300   (  300) [000] .... 2.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=rival next_pid=300 next_prio=20
+         app-20   (   20) [000] .... 2.002000: sched_wakeup: comm=app pid=20 prio=52 target_cpu=000
+      rival-300   (  300) [000] .... 2.004000: perf_sample: pid=300 tid=300 cpu=0 period=41000 event=cpu-cycles symbol=Rival::hot dso=librival.so callchain=main;Rival::hot source=hiperf_proto symbolization_status=symbolized
+      rival-300   (  300) [000] .... 2.012000: sched_switch: prev_comm=rival prev_pid=300 prev_prio=20 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=52
+         app-20   (   20) [000] .... 2.016000: sched_switch: prev_comm=app prev_pid=20 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+'
+EXPECT_CONTAINS="app-20 rival-300 Rival::hot"
+EXPECT_MATCHES_REGEX="(runnable|调度|scheduler|CPU pressure|cpu_pressure|算力|CPU).*?(Rival::hot|librival\\.so)|(Rival::hot|librival\\.so).*?(runnable|调度|scheduler|CPU pressure|cpu_pressure|算力|CPU)
+(perf|采样|sample|hotspot|热点).*?(Rival::hot|librival\\.so)|(Rival::hot|librival\\.so).*?(perf|采样|sample|hotspot|热点)
+(rival-300|rival).*?(running|运行|竞争|competitor|同核|CPU0|cpu=0)|(running|运行|竞争|competitor|同核|CPU0|cpu=0).*?(rival-300|rival)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

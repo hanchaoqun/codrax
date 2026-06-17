@@ -78,7 +78,18 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 					Source:         "window_stats",
 					Causality:      "background",
 					ChainRelevance: "background",
-					Summary:        "background CPU pressure overlapped the window",
+					PerfContexts: []tracequery.RootCausePerfRoleContext{{
+						Role:   "cpu_pressure_top_running",
+						Thread: tracequery.ThreadRef{Comm: "logger", PID: 99},
+						CPU:    4,
+						Window: tracequery.TimeWindow{StartTs: 1.0, EndTs: 1.5},
+						PerfContext: &tracequery.PerfContext{
+							SampleCount: 2,
+							TotalPeriod: 9000,
+							TopSymbols:  []tracequery.PerfHotspot{{Symbol: "Logger::flush", DSO: "liblog.so", Period: 9000}},
+						},
+					}},
+					Summary: "background CPU pressure overlapped the window",
 				},
 			},
 		},
@@ -400,6 +411,12 @@ func TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps(t *testin
 		backgroundRootCause.Object != "cpu_pressure" ||
 		backgroundRootCause.Value != "20.000" {
 		t.Fatalf("background root-cause fields drifted: %+v", backgroundRootCause)
+	}
+	backgroundNotes := strings.Join(backgroundRootCause.RichNotes, "\n")
+	for _, want := range []string{"perf_contexts=cpu_pressure_top_running", "top_symbol=Logger::flush", "dso=liblog.so"} {
+		if !strings.Contains(backgroundNotes, want) {
+			t.Fatalf("background root-cause notes missing perf role %q: %+v", want, backgroundRootCause.RichNotes)
+		}
 	}
 	if !strings.Contains(strings.Join(backgroundRootCause.RichNotes, "\n"), "chain_relevance=background") {
 		t.Fatalf("background root-cause notes must preserve chain relevance: %+v", backgroundRootCause.RichNotes)

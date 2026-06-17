@@ -68,7 +68,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "trace_perf_bundle",
-			When: "handoff-safe joint trace+perf context that keeps window stats, wakeup/root-cause evidence, root-cause perf_context, and perf sample hotspots together",
+			When: "handoff-safe joint trace+perf context that keeps window stats, wakeup/root-cause evidence, root-cause perf_context/perf_contexts role contexts, and perf sample hotspots together",
 		},
 		{
 			View: "scheduler_latency_stats",
@@ -84,7 +84,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "root_cause_rank",
-			When: "deterministic primary/secondary/tertiary cause candidates ordered by chain relevance and same-chain cumulative_impact_ms, including dominant_state state totals, candidate-level perf_context, occurrence_windows for aggregate common dependency paths, co-primary on-chain runnable/running/compute-supply/D-state/IO dependency causes, fragmented state-churn causes, aggregated wakeup-chain causes, and inode-level IO causes",
+			When: "deterministic primary/secondary/tertiary cause candidates ordered by chain relevance and same-chain cumulative_impact_ms, including dominant_state state totals, candidate-level perf_context plus role-aware perf_contexts for running/CPU-pressure/compute-supply code-execution support, occurrence_windows for aggregate common dependency paths, co-primary on-chain runnable/running/compute-supply/D-state/IO dependency causes, fragmented state-churn causes, aggregated wakeup-chain causes, and inode-level IO causes",
 		},
 		{
 			View: "frame_root_cause_bundle",

@@ -1400,6 +1400,46 @@ func TestRootCauseRankAttachesPerfContextToCandidateThread(t *testing.T) {
 	}
 }
 
+func TestRootCauseRankAttachesPerfRoleContextToCPUPressure(t *testing.T) {
+	idx := buildTraceIndex(t, "rank_perf_cpu_pressure.systrace", `
+      rival-300   (  300) [000] .... 2.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=rival next_pid=300 next_prio=20
+         app-20   (   20) [000] .... 2.002000: sched_wakeup: comm=app pid=20 prio=52 target_cpu=000
+      rival-300   (  300) [000] .... 2.004000: perf_sample: pid=300 tid=300 cpu=0 period=41000 event=cpu-cycles symbol=Rival::hot dso=librival.so callchain=main;Rival::hot
+      rival-300   (  300) [000] .... 2.012000: sched_switch: prev_comm=rival prev_pid=300 prev_prio=20 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=52
+         app-20   (   20) [000] .... 2.016000: sched_switch: prev_comm=app prev_pid=20 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+	`)
+	rank := BuildRootCauseRank(idx, Query{PID: 20, TimeStart: 2.0, TimeEnd: 2.018, MinDurationMs: 0.05, Limit: 8, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	var pressure *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Type == "cpu_pressure" {
+			pressure = &rank.Items[i]
+			break
+		}
+	}
+	if pressure == nil {
+		t.Fatalf("expected cpu_pressure root cause candidate: %+v", rank.Items)
+	}
+	var sawRole bool
+	for _, ctx := range pressure.PerfContexts {
+		if ctx.Role != "cpu_pressure_top_running" {
+			continue
+		}
+		sawRole = true
+		if ctx.Thread.PID != 300 || ctx.CPU != 0 {
+			t.Fatalf("cpu pressure perf role should identify top running competitor: %+v", ctx)
+		}
+		if ctx.PerfContext == nil || len(ctx.PerfContext.TopSymbols) == 0 || ctx.PerfContext.TopSymbols[0].Symbol != "Rival::hot" {
+			t.Fatalf("cpu pressure perf role should carry competitor hotspot: %+v", ctx.PerfContext)
+		}
+	}
+	if !sawRole {
+		t.Fatalf("expected cpu_pressure_top_running perf role contexts: %+v", pressure.PerfContexts)
+	}
+	if pressure.PerfContext == nil || len(pressure.PerfContext.TopSymbols) == 0 || pressure.PerfContext.TopSymbols[0].Symbol != "Rival::hot" {
+		t.Fatalf("compact perf_context should preserve primary role context: %+v", pressure.PerfContext)
+	}
+}
+
 func TestFrameRootCauseBundleCarriesRoleSpecificPerfContexts(t *testing.T) {
 	idx := buildTraceIndex(t, "frame_perf_roles.systrace", `
         app-100   (  100) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
