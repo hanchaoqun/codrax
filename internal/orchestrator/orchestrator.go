@@ -2945,8 +2945,13 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 		out, err := o.dispatchStage(types.StageWriteAnalyze)
 		elapsed := time.Since(started)
 		if err == nil && (out == nil || out.Error == "") {
-			if o.busCtx.Mutable.WriteAnalysisIR() != nil {
-				return used, nil
+			if ir := o.busCtx.Mutable.WriteAnalysisIR(); ir != nil {
+				if rejection := writeAnalysisIRQualityRejection(ir); rejection == "" {
+					return used, nil
+				} else {
+					lastErr = fmt.Errorf("write_analyzer emitted an under-grounded WriteAnalysisIR: %s", rejection)
+					o.busCtx.Mutable.SetWriteAnalysisIR(nil)
+				}
 			}
 		}
 		if out != nil && out.Error != "" {
@@ -2971,7 +2976,7 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 			// uniform across read/write analyzers.
 			if o.busCtx != nil && o.busCtx.Mutable != nil && lastErr != nil {
 				o.busCtx.Mutable.SetAnalyzerRetryHint(
-					fmt.Sprintf("Previous emit_write_analysis attempt was rejected: %v. Re-emit with all required fields filled (raw_request, task.kind, task.scope, task.summary, risk.affects_public_api, risk.changes_persistence, risk.changes_build_system, risk.overall).",
+					fmt.Sprintf("Previous emit_write_analysis attempt was rejected: %v. Re-emit with the rejected fields corrected and all required fields filled (raw_request, task.kind, task.scope, task.summary, risk.affects_public_api, risk.changes_persistence, risk.changes_build_system, risk.overall). For exact behavior contracts such as equals/returns/not_equals, do not invent expected values: either use a value present verbatim in raw_request, attach a grounded comparator, or express the requirement as a non-exact observable/invariant.",
 						lastErr))
 			}
 		}

@@ -147,8 +147,10 @@ Model prose stays visible and transparent but cannot drive control.
    - Keep fair-run history isolation enabled only for SWE-bench.
 
 8. **Language-wide owner-boundary producers**
-   - Extend actual-diff line feature events beyond Python using existing
-     repomap features where available.
+   - Keep expanding actual-diff line feature events through a language-provider
+     registry. Current mapping/container boundary coverage includes Python,
+     JS/TS, Ruby, Java/Kotlin, and Go; further languages should add typed
+     providers, not ad hoc branch logic.
    - The output remains typed patch effect events, not natural-language
      keyword rules.
 
@@ -304,6 +306,116 @@ Expected effect:
   suites or silently counting the patch as correct.
 - This is a schema and handoff upgrade, not a one-off SWE-bench rule.
 
+## 2026-06-18 RC-9 SWE-bench SymPy Regression
+
+Run directory:
+`/private/tmp/codrax-swebench-rc9-sympy-20260618-022926`
+
+Result:
+
+- `predictions.jsonl` was non-empty and official-harness dry-run consumable.
+- The workflow completed after multiple online replan/verify rounds.
+- Local typed verify passed, but local acceptance stayed blocked by
+  `patch_review_semantic_uncovered:behavior_contract_without_verify_coverage`.
+- Manual audit still failed: the final patch accepted `Array([]).shape == ()`
+  and did not recover the reference `(0,)` shape semantics.
+
+New root cause:
+
+- RC-9 gave the system a typed comparator lane, but the analyzer did not use it.
+- Worse, the analyzer converted an ungrounded exact value into P0 behavior:
+  `Array([]).shape expected=()`, even though `()` was not present in the issue
+  evidence and no comparator was attached.
+- Planner then faithfully generated a probe for the wrong P0 contract. This is
+  not a planner/probe execution bug; it is a write-analysis quality gate gap.
+
+## 2026-06-18 RC-10 Exact Contract Grounding Gate
+
+Design:
+
+- Add a typed `WriteAnalysisIR` quality gate after `emit_write_analysis`
+  succeeds and before the IR reaches controller/planner.
+- For required expected behavior contracts with exact operators
+  `equals | not_equals | returns`, accept the contract only when:
+  - the exact `expected` value appears verbatim in `raw_request`; or
+  - the contract carries a typed comparator whose exact expected value is
+    grounded by a non-empty `evidence_ref` or by `comparator.expected`
+    appearing verbatim in `raw_request`.
+- If the gate rejects, clear the IR and reuse the existing
+  `AnalyzerRetryHint` retry surface so the write analyzer re-emits corrected
+  structured JSON.
+- If the analyzer fails the bounded retry, install the conservative fallback IR
+  instead of leaking an ungrounded exact P0 contract downstream.
+
+Why this is generalized:
+
+- It does not parse user intent keywords or model prose.
+- It does not know anything about SymPy, Matrix, Array, or shapes.
+- It enforces a schema-level principle: exact values are hard planning signals
+  only when backed by exact evidence or a typed comparator.
+- A comparator object by itself is not enough. A comparator subject that appears
+  in the request proves only that the comparison surface exists; it does not
+  prove the exact expected value. This prevents the analyzer from satisfying the
+  schema by inventing values behind a subject-only comparator.
+
+Expected effect:
+
+- Wrong exact expectations like `shape == ()` stop becoming verifier targets
+  just because the model guessed them.
+- Comparator-framed bugs get a second chance to emit a comparator contract
+  before planning starts.
+- If the analyzer still cannot ground the exact value, downstream planning uses
+  the original request/fallback context rather than a false P0 invariant.
+
+Pre-tightening SWE-bench regression:
+
+- Run directory:
+  `/private/tmp/codrax-swebench-rc10-sympy-20260618-024245`.
+- The workflow produced a non-empty, official-harness-consumable prediction and
+  no longer silently finished with a passing weak invariant.
+- It still exposed a second analyzer-quality gap: the model emitted a
+  comparator object whose subject was not grounded in the request or evidence,
+  then the follow-up patch failed verification with a syntax/duplicate-function
+  edit. RC-10 therefore tightened comparator acceptance to require
+  `evidence_ref` or verbatim raw-request grounding.
+
+Post-tightening SWE-bench regression:
+
+- Run directory:
+  `/private/tmp/codrax-swebench-rc10b-sympy-20260618-025637`.
+- The workflow produced a non-empty, official-harness-consumable prediction but
+  ended `workflow_status=blocked` with
+  `workflow_latest_progress=write_controller/progress/verify_retry_budget_exhausted`.
+- This is the correct product-side failure mode for this batch: it did not
+  claim local correctness after repeated verification failures. The final
+  verify evidence was a typed Python probe exception at `ndim_array.py:485`
+  (`IndexError` during empty-array iteration).
+- The run exposed one more precise rule: subject-only comparator grounding is
+  insufficient. The plan carried `comparator.subject=Matrix([])`, which appears
+  in the request, but still invented `shape = (), flat_list = []` as the exact
+  expected value. RC-10 now rejects this shape unless the value itself appears
+  in `raw_request`, appears as grounded `comparator.expected`, or has an
+  `evidence_ref`.
+
+Final RC-10c SWE-bench regression:
+
+- Run directory:
+  `/private/tmp/codrax-swebench-rc10c-sympy-20260618-030808`.
+- The workflow produced a non-empty, official-harness-consumable prediction and
+  local acceptance correctly failed:
+  `prediction_verdict=predicted_failed_verify`,
+  `prediction_audit_block_reason=patch_review_semantic_uncovered:behavior_contract_without_verify_coverage`.
+- The final patch changed the empty iterable return to `(0,)`, closer to the
+  upstream expectation, but project verification still failed
+  (`pytest exitcode=1`, 9 passed / 10 failed), so the system did not claim a
+  functional pass.
+- New remaining gap for the next batch: exact-looking values can still appear
+  inside `operator=satisfies` natural-language expected text. This must not be
+  fixed by scanning prose for shape/tuple keywords. The generalized fix is a
+  schema/consumer rule: only exact typed fields/operators can become hard
+  verifier targets; `satisfies` expected text is soft guidance unless the
+  analyzer emits a separate typed exact-value artifact with evidence.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -318,6 +430,8 @@ Expected effect:
 | RC-7 | complete | Generalized RC-6 from a Python-only producer into language-aware actual-diff line-shape producers. JS/TS nested string-key access, Ruby nested hash-key access, Java/Kotlin chained string-key map `get`, and Go nested map assignment now emit soft semantic coverage events from typed diff text. These are advisory/coverage obligations, not hard gates, and do not read user intent or model prose. Verification: related writeflow/types/orchestrator tests and full `go test ./...` pass. |
 | RC-8 | complete | Verifier selector tightening: a passed scoped pre-suite verification probe no longer escalates to a full project suite solely because required `contract_refs` are missing. The missing refs remain typed `VerificationConfidence` downgrade/handoff evidence; expensive suite escalation is reserved for failed probes, touched tests/specs, missing changed-symbol coupling, or explicit policy. Verification: focused `internal/tool` tests, related tool/types/orchestrator tests, and full `go test ./...` pass. |
 | RC-9 | complete | Comparator invariant closure: `WriteBehaviorContract` now carries an optional typed comparator baseline; `emit_write_analysis` validates comparator operator/relation enums; `WriteContextPack` renders comparator fields for controller/planner/verifier consumers; analyzer/planner prompts provide soft guidance to fill and verify comparator contracts without hard-routing on prose. Verification: focused `internal/types` + `internal/tool`, related `internal/skill`, and full `go test ./...` pass. |
+| RC-10 | complete | Exact contract grounding gate: post-emit write-analysis quality check rejects required exact behavior contracts whose expected value is neither verbatim in `raw_request` nor backed by grounded comparator evidence, then retries through the existing AnalyzerRetryHint surface. Subject-only comparators no longer ground exact values. Verification: focused orchestrator tests, related orchestrator/skill/types/tool tests, full `go test ./...`, `make test`, and SymPy SWE-bench smoke export checks pass; RC-10c still fails local functional verification, correctly reported as failed/unverified rather than a pass. |
+| RC-11 | planned | Hard/soft contract separation: ensure `operator=satisfies` natural-language expected text cannot become an exact hard verifier target. The fix must be schema/consumer based, not keyword scanning over model prose. |
 
 ## Acceptance Criteria
 
@@ -331,6 +445,11 @@ Expected effect:
 - Comparator-framed bug reports can carry a grounded working/contrasting
   reference through write analysis, context handoff, plan probes, and verifier
   confidence without relying on natural-language re-interpretation.
+- Ungrounded exact expected values cannot become P0 write behavior contracts;
+  they must be verbatim-evidenced, comparator-grounded, softened, or removed on
+  analyzer retry.
+- Natural-language `satisfies` expected text stays soft; hard exact verifier
+  targets require typed exact fields/operators with evidence.
 - Current read/log/trace/data/operation/computer paths remain untouched.
 - All new eval fields and docs distinguish export compatibility from
   functional correctness.
