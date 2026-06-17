@@ -18,14 +18,26 @@ var patchReviewEffectHardEventCodes = map[string]bool{
 }
 
 var patchReviewEffectSoftEventCodes = map[string]bool{
-	"control_flow_guard_touched":                   true,
-	"call_site_touched":                            true,
-	"state_assignment_touched":                     true,
-	"python_nested_string_key_direct_access_added": true,
+	"control_flow_guard_touched":                       true,
+	"call_site_touched":                                true,
+	"state_assignment_touched":                         true,
+	"go_nested_string_map_assignment_added":            true,
+	"java_chained_string_map_get_added":                true,
+	"javascript_nested_string_key_direct_access_added": true,
+	"kotlin_chained_string_map_get_added":              true,
+	"python_nested_string_key_direct_access_added":     true,
+	"ruby_nested_key_direct_access_added":              true,
+	"typescript_nested_string_key_direct_access_added": true,
 }
 
 var patchReviewEffectUnknownCoverageEventCodes = map[string]bool{
-	"python_nested_string_key_direct_access_added": true,
+	"go_nested_string_map_assignment_added":            true,
+	"java_chained_string_map_get_added":                true,
+	"javascript_nested_string_key_direct_access_added": true,
+	"kotlin_chained_string_map_get_added":              true,
+	"python_nested_string_key_direct_access_added":     true,
+	"ruby_nested_key_direct_access_added":              true,
+	"typescript_nested_string_key_direct_access_added": true,
 }
 
 const patchReviewMaxSemanticFindings = 32

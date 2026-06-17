@@ -209,6 +209,91 @@ func TestAnnotatePatchEffectPythonNestedStringKeyAccessWarns(t *testing.T) {
 	}
 }
 
+func TestAnnotatePatchEffectMultiLanguageLineShapeWarnings(t *testing.T) {
+	cases := []struct {
+		name      string
+		path      string
+		line      string
+		eventCode string
+	}{
+		{
+			name:      "javascript nested string key access",
+			path:      "src/widget.js",
+			line:      `const id = data["attrs"]["id"];`,
+			eventCode: "javascript_nested_string_key_direct_access_added",
+		},
+		{
+			name:      "typescript nested string key access",
+			path:      "src/widget.ts",
+			line:      `const id = this.data["attrs"]["id"];`,
+			eventCode: "typescript_nested_string_key_direct_access_added",
+		},
+		{
+			name:      "ruby nested hash key access",
+			path:      "lib/widget.rb",
+			line:      `id = data[:attrs][:id]`,
+			eventCode: "ruby_nested_key_direct_access_added",
+		},
+		{
+			name:      "java chained map get",
+			path:      "src/main/java/Widget.java",
+			line:      `String id = data.get("attrs").get("id");`,
+			eventCode: "java_chained_string_map_get_added",
+		},
+		{
+			name:      "kotlin chained map get",
+			path:      "src/main/kotlin/Widget.kt",
+			line:      `val id = data.get("attrs").get("id")`,
+			eventCode: "kotlin_chained_string_map_get_added",
+		},
+		{
+			name:      "go nested map assignment",
+			path:      "pkg/widget.go",
+			line:      `data["attrs"]["id"] = id`,
+			eventCode: "go_nested_string_map_assignment_added",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			abs := filepath.Join(root, filepath.FromSlash(tc.path))
+			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(abs, []byte(tc.line+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			diff := "diff --git a/" + tc.path + " b/" + tc.path + "\n" +
+				"--- a/" + tc.path + "\n" +
+				"+++ b/" + tc.path + "\n" +
+				"@@ -0,0 +1 @@\n" +
+				"+" + tc.line + "\n"
+			record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+			AnnotatePatchEffectStructuredFileParses(&record, root)
+			file := findPatchEffectFile(record, tc.path)
+			if file == nil {
+				t.Fatalf("patch effect file missing: %+v", record.Files)
+			}
+			if !patchEffectHasEvent(*file, tc.eventCode) {
+				t.Fatalf("event %s missing: %+v", tc.eventCode, file.Events)
+			}
+			review := ReviewAppliedPatchScope(&types.ChangePlan{
+				ID:          "plan-1",
+				Status:      types.PlanStatusAppliedPendingVerify,
+				TargetPaths: []string{tc.path},
+				PatchEffect: &record,
+			}, types.ChangePlanSlice{})
+			if review.HardBlock {
+				t.Fatalf("line shape event is a soft semantic finding, not a hard block: %+v", review)
+			}
+			finding := patchReviewFindingByCode(review, tc.eventCode)
+			if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageUnknown {
+				t.Fatalf("finding should be semantic coverage unknown: %+v", finding)
+			}
+		})
+	}
+}
+
 func findPatchEffectFile(record types.PatchEffectRecord, path string) *types.PatchEffectFile {
 	for i := range record.Files {
 		if record.Files[i].Path == path {

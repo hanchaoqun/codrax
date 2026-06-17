@@ -21,10 +21,19 @@ import (
 )
 
 var (
-	unifiedDiffHunkHeaderRE       = regexp.MustCompile(`^@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@`)
-	pythonTopLevelSelfMethodDefRE = regexp.MustCompile(`^def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(\s*(?:self|cls)\b`)
-	pythonNestedStringKeyAccessRE = regexp.MustCompile(`(?:\b(?:self|cls)\.[A-Za-z_][A-Za-z0-9_]*|\b[A-Za-z_][A-Za-z0-9_]*)(?:\s*\[\s*['"][^'"]+['"]\s*\]){2,}`)
+	unifiedDiffHunkHeaderRE             = regexp.MustCompile(`^@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@`)
+	pythonTopLevelSelfMethodDefRE       = regexp.MustCompile(`^def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(\s*(?:self|cls)\b`)
+	dynamicNestedStringKeyAccessRE      = regexp.MustCompile(`(?:\b(?:self|cls|this)\.[A-Za-z_$][A-Za-z0-9_$]*|\b[A-Za-z_$][A-Za-z0-9_$]*)(?:\s*\[\s*['"][^'"]+['"]\s*\]){2,}`)
+	rubyNestedSymbolOrStringKeyAccessRE = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\s*\[\s*(?::[A-Za-z_][A-Za-z0-9_]*|['"][^'"]+['"])\s*\]){2,}`)
+	jvmChainedStringMapGetRE            = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\.get\(\s*"[^"]+"\s*\)){2,}`)
+	goNestedStringMapAssignmentRE       = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\s*\[\s*"[^"]+"\s*\]){2,}\s*=(?:[^=]|$)`)
 )
+
+type patchEffectLineShapeRule struct {
+	code    string
+	message string
+	match   *regexp.Regexp
+}
 
 func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef, diff string) types.PatchEffectRecord {
 	record := types.PatchEffectRecord{
@@ -310,51 +319,98 @@ func AnnotatePatchEffectStructuredFileParses(record *types.PatchEffectRecord, ro
 				})
 			}
 		}
-		switch sourceKind {
-		case "python":
-			annotatePatchEffectPythonSourceShape(file, data)
+		annotatePatchEffectSourceShape(file, data, sourceKind)
+	}
+}
+
+func annotatePatchEffectSourceShape(file *types.PatchEffectFile, data []byte, sourceKind string) {
+	if file == nil || len(file.Hunks) == 0 {
+		return
+	}
+	sourceKind = strings.TrimSpace(sourceKind)
+	lines := strings.Split(string(data), "\n")
+	for _, hunk := range file.Hunks {
+		if sourceKind == "python" {
+			annotatePatchEffectPythonOwnerShape(file, lines, hunk)
+		}
+		for _, added := range hunk.AddedLineTexts {
+			appendPatchEffectLineShapeEvents(file, sourceKind, added)
 		}
 	}
 }
 
-func annotatePatchEffectPythonSourceShape(file *types.PatchEffectFile, data []byte) {
-	if file == nil || len(file.Hunks) == 0 {
-		return
+func annotatePatchEffectPythonOwnerShape(file *types.PatchEffectFile, lines []string, hunk types.PatchEffectHunk) {
+	for _, lineNo := range hunk.AddedLineNumbers {
+		if lineNo <= 0 || lineNo > len(lines) {
+			continue
+		}
+		line := lines[lineNo-1]
+		if !pythonTopLevelSelfMethodDefRE.MatchString(line) {
+			continue
+		}
+		file.Events = append(file.Events, types.PatchEffectEvent{
+			Code:        "python_top_level_self_method",
+			Severity:    "error",
+			Path:        file.Path,
+			Message:     "added top-level Python function uses self/cls as its first parameter; this usually means a class method was de-indented out of its owner class",
+			EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
+		})
 	}
-	lines := strings.Split(string(data), "\n")
-	for _, hunk := range file.Hunks {
-		for _, lineNo := range hunk.AddedLineNumbers {
-			if lineNo <= 0 || lineNo > len(lines) {
-				continue
-			}
-			line := lines[lineNo-1]
-			if !pythonTopLevelSelfMethodDefRE.MatchString(line) {
-				continue
-			}
-			file.Events = append(file.Events, types.PatchEffectEvent{
-				Code:        "python_top_level_self_method",
-				Severity:    "error",
-				Path:        file.Path,
-				Message:     "added top-level Python function uses self/cls as its first parameter; this usually means a class method was de-indented out of its owner class",
-				EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
-			})
+}
+
+func appendPatchEffectLineShapeEvents(file *types.PatchEffectFile, sourceKind string, line types.PatchEffectLine) {
+	for _, rule := range patchEffectLineShapeRules(sourceKind) {
+		if rule.match == nil || !rule.match.MatchString(line.Text) {
+			continue
 		}
-		for _, added := range hunk.AddedLineTexts {
-			if !pythonNestedStringKeyAccessRE.MatchString(added.Text) {
-				continue
-			}
-			evidence := file.Path
-			if added.Line > 0 {
-				evidence = fmt.Sprintf("%s:%d", file.Path, added.Line)
-			}
-			file.Events = append(file.Events, types.PatchEffectEvent{
-				Code:        "python_nested_string_key_direct_access_added",
-				Severity:    "warning",
-				Path:        file.Path,
-				Message:     "added Python code uses nested string-key direct mapping access; verify the absent-key/default boundary or prefer the repository's nullable lookup convention where appropriate",
-				EvidenceRef: evidence,
-			})
+		evidence := file.Path
+		if line.Line > 0 {
+			evidence = fmt.Sprintf("%s:%d", file.Path, line.Line)
 		}
+		file.Events = append(file.Events, types.PatchEffectEvent{
+			Code:        rule.code,
+			Severity:    "warning",
+			Path:        file.Path,
+			Message:     rule.message,
+			EvidenceRef: evidence,
+		})
+	}
+}
+
+func patchEffectLineShapeRules(sourceKind string) []patchEffectLineShapeRule {
+	switch strings.TrimSpace(sourceKind) {
+	case "python":
+		return []patchEffectLineShapeRule{{
+			code:    "python_nested_string_key_direct_access_added",
+			match:   dynamicNestedStringKeyAccessRE,
+			message: "added Python code uses nested string-key direct mapping access; verify the absent-key/default boundary or prefer the repository's nullable lookup convention where appropriate",
+		}}
+	case "javascript", "typescript":
+		return []patchEffectLineShapeRule{{
+			code:    sourceKind + "_nested_string_key_direct_access_added",
+			match:   dynamicNestedStringKeyAccessRE,
+			message: "added JS/TS code uses nested string-key direct mapping access; verify the undefined/null boundary or prefer the repository's nullable lookup convention where appropriate",
+		}}
+	case "ruby":
+		return []patchEffectLineShapeRule{{
+			code:    "ruby_nested_key_direct_access_added",
+			match:   rubyNestedSymbolOrStringKeyAccessRE,
+			message: "added Ruby code uses nested hash-key direct access; verify the nil/default boundary or prefer the repository's safe lookup convention where appropriate",
+		}}
+	case "java", "kotlin":
+		return []patchEffectLineShapeRule{{
+			code:    sourceKind + "_chained_string_map_get_added",
+			match:   jvmChainedStringMapGetRE,
+			message: "added JVM code uses chained string-key map get calls; verify the null/default boundary or prefer the repository's safe lookup convention where appropriate",
+		}}
+	case "go":
+		return []patchEffectLineShapeRule{{
+			code:    "go_nested_string_map_assignment_added",
+			match:   goNestedStringMapAssignmentRE,
+			message: "added Go code assigns through nested string-key map indexes; verify nested map initialization or prefer the repository's ensure-map convention where appropriate",
+		}}
+	default:
+		return nil
 	}
 }
 
@@ -375,6 +431,18 @@ func patchEffectSourceShapeKind(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".py":
 		return "python"
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return "javascript"
+	case ".ts", ".tsx", ".mts", ".cts":
+		return "typescript"
+	case ".rb":
+		return "ruby"
+	case ".java":
+		return "java"
+	case ".kt", ".kts":
+		return "kotlin"
+	case ".go":
+		return "go"
 	default:
 		return ""
 	}
