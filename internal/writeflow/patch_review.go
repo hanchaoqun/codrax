@@ -18,9 +18,14 @@ var patchReviewEffectHardEventCodes = map[string]bool{
 }
 
 var patchReviewEffectSoftEventCodes = map[string]bool{
-	"control_flow_guard_touched": true,
-	"call_site_touched":          true,
-	"state_assignment_touched":   true,
+	"control_flow_guard_touched":                   true,
+	"call_site_touched":                            true,
+	"state_assignment_touched":                     true,
+	"python_nested_string_key_direct_access_added": true,
+}
+
+var patchReviewEffectUnknownCoverageEventCodes = map[string]bool{
+	"python_nested_string_key_direct_access_added": true,
 }
 
 const patchReviewMaxSemanticFindings = 32
@@ -206,6 +211,9 @@ func patchReviewEffectEventFindings(effect *types.PatchEffectRecord) []types.Pat
 				event.Message,
 			))
 			findings[len(findings)-1].EvidenceRef = strings.TrimSpace(event.EvidenceRef)
+			if patchReviewEffectUnknownCoverageEventCodes[code] {
+				findings[len(findings)-1].CoverageStatus = types.PatchReviewCoverageUnknown
+			}
 		}
 	}
 	return findings

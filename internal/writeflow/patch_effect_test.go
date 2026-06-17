@@ -60,6 +60,12 @@ new file mode 100644
 	if got := mod.Hunks[0].AddedLineNumbers; len(got) != 2 || got[0] != 2 || got[1] != 3 {
 		t.Fatalf("added line numbers = %+v, want [2 3]", got)
 	}
+	if got := mod.Hunks[0].AddedLineTexts; len(got) != 2 || got[0].Line != 2 || got[0].Text != "new" || got[1].Text != "extra" {
+		t.Fatalf("added line texts = %+v, want new/extra", got)
+	}
+	if got := mod.Hunks[0].RemovedLineTexts; len(got) != 1 || got[0].Line != 2 || got[0].Text != "old" {
+		t.Fatalf("removed line texts = %+v, want old", got)
+	}
 	renamed := findPatchEffectFile(record, "pkg/new.py")
 	if renamed == nil || renamed.Status != "renamed" || renamed.OldPath != "pkg/old.py" ||
 		renamed.AddedLines != 1 || renamed.RemovedLines != 1 {
@@ -158,6 +164,48 @@ func TestAnnotatePatchEffectPythonTopLevelSelfMethodHardBlocks(t *testing.T) {
 	}, types.ChangePlanSlice{})
 	if !review.HardBlock || !patchReviewHasFinding(review, "python_top_level_self_method") {
 		t.Fatalf("python top-level self method should hard block review: %+v", review)
+	}
+}
+
+func TestAnnotatePatchEffectPythonNestedStringKeyAccessWarns(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pkg", "widget.py"), []byte("class BoundWidget:\n    @property\n    def id_for_label(self):\n        return self.data['attrs']['id']\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/pkg/widget.py b/pkg/widget.py
+--- a/pkg/widget.py
++++ b/pkg/widget.py
+@@ -1,3 +1,4 @@
+ class BoundWidget:
+     @property
+     def id_for_label(self):
++        return self.data['attrs']['id']
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "pkg/widget.py")
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if !patchEffectHasEvent(*file, "python_nested_string_key_direct_access_added") {
+		t.Fatalf("nested key access event missing: %+v", file.Events)
+	}
+
+	review := ReviewAppliedPatchScope(&types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"pkg/widget.py"},
+		PatchEffect: &record,
+	}, types.ChangePlanSlice{})
+	if review.HardBlock {
+		t.Fatalf("nested key access is a soft semantic finding, not a hard block: %+v", review)
+	}
+	finding := patchReviewFindingByCode(review, "python_nested_string_key_direct_access_added")
+	if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageUnknown {
+		t.Fatalf("nested key access finding should be semantic coverage unknown: %+v", finding)
 	}
 }
 

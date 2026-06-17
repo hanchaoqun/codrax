@@ -23,6 +23,7 @@ import (
 var (
 	unifiedDiffHunkHeaderRE       = regexp.MustCompile(`^@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@`)
 	pythonTopLevelSelfMethodDefRE = regexp.MustCompile(`^def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(\s*(?:self|cls)\b`)
+	pythonNestedStringKeyAccessRE = regexp.MustCompile(`(?:\b(?:self|cls)\.[A-Za-z_][A-Za-z0-9_]*|\b[A-Za-z_][A-Za-z0-9_]*)(?:\s*\[\s*['"][^'"]+['"]\s*\]){2,}`)
 )
 
 func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef, diff string) types.PatchEffectRecord {
@@ -102,20 +103,30 @@ func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef,
 			currentOldLine = hunk.OldStart
 			currentNewLine = hunk.NewStart
 		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+			text := strings.TrimPrefix(line, "+")
 			current.AddedLines++
 			if currentHunk != nil {
 				currentHunk.AddedLines++
 				if currentNewLine > 0 {
 					currentHunk.AddedLineNumbers = append(currentHunk.AddedLineNumbers, currentNewLine)
+					currentHunk.AddedLineTexts = append(currentHunk.AddedLineTexts, types.PatchEffectLine{Line: currentNewLine, Text: text})
+				} else {
+					currentHunk.AddedLineTexts = append(currentHunk.AddedLineTexts, types.PatchEffectLine{Text: text})
 				}
 			}
 			if currentNewLine > 0 {
 				currentNewLine++
 			}
 		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+			text := strings.TrimPrefix(line, "-")
 			current.RemovedLines++
 			if currentHunk != nil {
 				currentHunk.RemovedLines++
+				if currentOldLine > 0 {
+					currentHunk.RemovedLineTexts = append(currentHunk.RemovedLineTexts, types.PatchEffectLine{Line: currentOldLine, Text: text})
+				} else {
+					currentHunk.RemovedLineTexts = append(currentHunk.RemovedLineTexts, types.PatchEffectLine{Text: text})
+				}
 			}
 			if currentOldLine > 0 {
 				currentOldLine++
@@ -326,6 +337,22 @@ func annotatePatchEffectPythonSourceShape(file *types.PatchEffectFile, data []by
 				Path:        file.Path,
 				Message:     "added top-level Python function uses self/cls as its first parameter; this usually means a class method was de-indented out of its owner class",
 				EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
+			})
+		}
+		for _, added := range hunk.AddedLineTexts {
+			if !pythonNestedStringKeyAccessRE.MatchString(added.Text) {
+				continue
+			}
+			evidence := file.Path
+			if added.Line > 0 {
+				evidence = fmt.Sprintf("%s:%d", file.Path, added.Line)
+			}
+			file.Events = append(file.Events, types.PatchEffectEvent{
+				Code:        "python_nested_string_key_direct_access_added",
+				Severity:    "warning",
+				Path:        file.Path,
+				Message:     "added Python code uses nested string-key direct mapping access; verify the absent-key/default boundary or prefer the repository's nullable lookup convention where appropriate",
+				EvidenceRef: evidence,
 			})
 		}
 	}

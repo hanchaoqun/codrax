@@ -10,14 +10,21 @@ type PatchEffectEvent struct {
 	EvidenceRef string `json:"evidence_ref,omitempty"`
 }
 
+type PatchEffectLine struct {
+	Line int    `json:"line,omitempty"`
+	Text string `json:"text,omitempty"`
+}
+
 type PatchEffectHunk struct {
-	OldStart         int   `json:"old_start,omitempty"`
-	OldLines         int   `json:"old_lines,omitempty"`
-	NewStart         int   `json:"new_start,omitempty"`
-	NewLines         int   `json:"new_lines,omitempty"`
-	AddedLines       int   `json:"added_lines,omitempty"`
-	RemovedLines     int   `json:"removed_lines,omitempty"`
-	AddedLineNumbers []int `json:"added_line_numbers,omitempty"`
+	OldStart         int               `json:"old_start,omitempty"`
+	OldLines         int               `json:"old_lines,omitempty"`
+	NewStart         int               `json:"new_start,omitempty"`
+	NewLines         int               `json:"new_lines,omitempty"`
+	AddedLines       int               `json:"added_lines,omitempty"`
+	RemovedLines     int               `json:"removed_lines,omitempty"`
+	AddedLineNumbers []int             `json:"added_line_numbers,omitempty"`
+	AddedLineTexts   []PatchEffectLine `json:"added_line_texts,omitempty"`
+	RemovedLineTexts []PatchEffectLine `json:"removed_line_texts,omitempty"`
 }
 
 type PatchEffectFile struct {
