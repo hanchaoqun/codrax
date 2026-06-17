@@ -14,6 +14,7 @@ PREDICTIONS_PATH="${PREDICTIONS_PATH:-${1:-}}"
 MAX_WORKERS="${MAX_WORKERS:-1}"
 RUN_ID="${RUN_ID:-codrax-swebench-smoke}"
 DRY_RUN="${DRY_RUN:-0}"
+REPORT_DIR="${REPORT_DIR:-.}"
 
 if [[ -z "$PREDICTIONS_PATH" ]]; then
   echo "usage: PREDICTIONS_PATH=/path/to/predictions.jsonl $0" >&2
@@ -33,6 +34,7 @@ cmd=(
   --predictions_path "$PREDICTIONS_PATH"
   --max_workers "$MAX_WORKERS"
   --run_id "$RUN_ID"
+  --report_dir "$REPORT_DIR"
 )
 
 if [[ "$DRY_RUN" == "1" ]]; then

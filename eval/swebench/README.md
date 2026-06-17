@@ -297,6 +297,23 @@ PREDICTIONS_PATH=eval/results/swebench/custom-run/predictions.jsonl \
   eval/swebench/run_official_harness.sh
 ```
 
+Summarize the official harness JSON result with explicit denominators:
+
+```bash
+eval/results/swebench/.venv/bin/python eval/swebench/summarize_official_results.py \
+  --run-report codrax.<run_id>.json \
+  --run-id <run_id> \
+  --predictions-jsonl eval/results/swebench/custom-run/predictions.jsonl \
+  --output-json eval/results/swebench/custom-run/official-summary.json
+```
+
+The summary reports `resolved/submitted`, `resolved/completed`, and
+`resolved/total` separately. Use `resolved/submitted` for a selected subset run,
+and reserve `resolved/total` for full-suite official runs where the report's
+`total_instances` denominator matches the intended benchmark scope. Non-empty
+patch rate, local verifier pass, and typed manual audit remain separate
+telemetry and must not be called official SWE-bench pass rate.
+
 ## Isolation
 
 All run artifacts live under `eval/results/swebench/`, which is ignored by Git.

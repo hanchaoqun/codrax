@@ -202,6 +202,48 @@ RC-29 tasks:
 - [x] Run focused writeflow tests, related orchestrator/tool smoke where needed,
   and update the progress ledger before commit/push.
 
+## 2026-06-18 RC-30 Official SWE-bench Result Summary Design
+
+The 137-instance audit made one metric boundary explicit: non-empty prediction
+export is compatibility, not correctness. Local authoritative verification and
+typed manual audit are useful acceptance proxies, but the only official
+SWE-bench pass rate is the harness `resolved` verdict. Current Codrax tooling can
+call the official harness, but it does not normalize the harness JSON back into
+a durable Codrax report. That forces humans to infer pass rate from terminal
+output or to over-reuse local acceptance fields.
+
+RC-30 adds a dependency-free summarizer that reads official harness JSON
+artifacts only:
+
+```text
+official report.<run_id>.json or per-instance report.json
+  -> normalized official_summary.json
+  -> resolved/submitted, resolved/completed, resolved/total
+```
+
+Design constraints:
+
+- do not import SWE-bench internals; installed harness versions can require a
+  different Python runtime than Codrax's eval adapter;
+- do not parse terminal prose or log narrative;
+- do not merge local verifier/manual audit into official resolved metrics;
+- keep subset-run and full-run denominators separate so a 3-instance smoke is
+  not mislabeled as full benchmark accuracy;
+- keep prediction export validation and official scoring as separate tools.
+
+RC-30 tasks:
+
+- [x] Add `eval/swebench/summarize_official_results.py` for run report and
+  per-instance report aggregation.
+- [x] Add unit tests covering run-report denominators, per-instance fallback,
+  empty-patch/error accounting, and CLI JSON output.
+- [x] Update `run_official_harness.sh` to pass `REPORT_DIR` through when the
+  harness version supports it.
+- [x] Update SWE-bench README with the official summary workflow and metric
+  naming rules.
+- [x] Run adapter/unit/smoke validation and update the progress ledger before
+  commit/push.
+
 ## 2026-06-18 SWE-bench Lite Smoke Audit
 
 Run directory:
@@ -1644,6 +1686,7 @@ Verification:
 | RC-27 | complete | Impact follow-up authority: controller scheduling now keeps broad graph/effect telemetry as low-confidence handoff after a passed verifier, while hard proof gaps and actual-diff boundary events can still append one bounded follow-up. Regression coverage locks both sides, and local SWE-bench adapter smoke remains harness-consumable. |
 | RC-28 | complete | Multi-language BuildError changed-line attribution: structured compiler diagnostics from native runners now reuse the existing changed-line authority. Errors proven outside current patch lines become `preexisting_build_failure` unavailable handoff evidence; changed-line, unstructured, pathless, or imprecise diagnostics remain fail-closed `build_failure`. User guide Markdown/HTML and full regression evidence were updated. |
 | RC-29 | complete | Source-shape provider registry: actual-diff mapping/container boundary and production-test scaffold producers are now declared by deterministic language providers instead of central source-kind switches. Python duplicate/top-level owner checks moved behind provider hooks, current Python/JS/TS/Ruby/Java/Kotlin/Go event behavior is preserved, and registry coverage tests lock unique extension ownership plus required typed rules. Verification: focused writeflow provider tests and related `internal/writeflow ./internal/orchestrator ./internal/types ./internal/tool` tests pass. |
+| RC-30 | complete | Official SWE-bench result summary: added dependency-free `summarize_official_results.py` to normalize official harness run reports or per-instance reports into explicit `resolved/submitted`, `resolved/completed`, and `resolved/total` metrics. The wrapper now passes `REPORT_DIR`, README documents the official scoring flow, and tests cover denominator handling plus CLI JSON output without importing SWE-bench. Verification: system Python and eval-venv tests, adapter unit suite, local SWE-bench smoke, and diff check pass. |
 
 ## Acceptance Criteria
 
