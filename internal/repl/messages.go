@@ -2674,8 +2674,8 @@ func formatN(_ string, format string, args ...interface{}) string {
 //	[task:data]                 — sticky data-processing lane
 //	[task:write]                — sticky write lane
 //	[phase:apply]               — internal transient write phase, when useful
-//	[log]                       — AttachedLog non-empty
-//	[trace]                     — AttachedHitrace non-empty
+//	[log] / [log:2]             — AttachedLog non-empty, with count when multi-source
+//	[trace] / [trace:2+perf]    — AttachedHitrace non-empty, with count/perf when visible
 //	[plan]                      — pendingPlanPath non-empty
 //	[mem!]                      — memory under pressure (cleanup nudge)
 //	[git:<branch>]              — current git branch in repoRoot
@@ -2695,6 +2695,18 @@ func formatN(_ string, format string, args ...interface{}) string {
 // when the path is not a git repo or git is missing — the marker
 // is dropped entirely, since absence is unambiguous.
 func promptStickyTag(taskMode, pipelineMode, branch string, hasLog, hasTrace, hasPendingPlan, memPressure bool, focus []string) string {
+	logLabel := ""
+	if hasLog {
+		logLabel = "log"
+	}
+	traceLabel := ""
+	if hasTrace {
+		traceLabel = "trace"
+	}
+	return promptStickyTagWithAttachmentLabels(taskMode, pipelineMode, branch, logLabel, traceLabel, hasPendingPlan, memPressure, focus)
+}
+
+func promptStickyTagWithAttachmentLabels(taskMode, pipelineMode, branch string, logLabel, traceLabel string, hasPendingPlan, memPressure bool, focus []string) string {
 	var b strings.Builder
 	if branch != "" {
 		b.WriteString("[git:")
@@ -2717,11 +2729,15 @@ func promptStickyTag(taskMode, pipelineMode, branch string, hasLog, hasTrace, ha
 	if tag := composePhaseTag(taskMode, pipelineMode); tag != "" {
 		b.WriteString(tag)
 	}
-	if hasLog {
-		b.WriteString("[log]")
+	if logLabel != "" {
+		b.WriteString("[")
+		b.WriteString(logLabel)
+		b.WriteString("]")
 	}
-	if hasTrace {
-		b.WriteString("[trace]")
+	if traceLabel != "" {
+		b.WriteString("[")
+		b.WriteString(traceLabel)
+		b.WriteString("]")
 	}
 	if hasPendingPlan {
 		b.WriteString("[plan]")

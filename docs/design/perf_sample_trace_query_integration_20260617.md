@@ -360,7 +360,7 @@ D4 landed the dual-engine parser strategy: `--perf-parser=auto` prefers official
 - Ensure explicit path questions with one or more runtime artifacts route to `trace_query(path)` instead of source-code analysis.
 - Update user guide examples.
 
-Status: in progress. `tracequery.BuildIndex` now accepts `.tracebundle.json` directly, promotes `*.systrace` / `*.perftrace` to a sibling `*.tracebundle.json` when present, and auto-merges sibling `*.systrace + *.perftrace` pairs when no bundle exists. The merge keeps existing parser/view code as the single consumer, so model tool calls can pass one path and still get joint trace+perf context.
+Status: in progress. `tracequery.BuildIndex` now accepts `.tracebundle.json` directly, promotes `*.systrace` / `*.perftrace` to a sibling `*.tracebundle.json` when present, and auto-merges sibling `*.systrace + *.perftrace` pairs when no bundle exists. The merge keeps existing parser/view code as the single consumer, so model tool calls can pass one path and still get joint trace+perf context. REPL prompt labels now surface multi-artifact state compactly (`[log:2]`, `[trace:2+perf]`, `[perftrace]`, `[tracebundle]`), and saved markdown/html reports include a typed `Runtime Artifacts` table derived from attachment metadata rather than model prose. Remaining E work is explicit CLI run-status transparency for multi-artifact inputs and end-to-end eval coverage.
 
 Additional UX gaps found after the raw fallback batch:
 
@@ -377,7 +377,9 @@ Batch E task additions:
 - [x] Add concise install/integration documentation for OpenHarmony `hiperf_host` and Android simpleperf `report_sample.py`, including env vars, CLI flags, symbol-dir/symfs/kallsyms, and expected output caveats.
 - [ ] Design an optional managed tool-cache/bundle provider before considering embedded binaries. Any embedded-binary lane must be explicit, versioned, platform-scoped, license-reviewed, and observable in `--perf-tools-status`.
 - [ ] Extend REPL/CLI runtime artifact state so multiple `/log`, `/htrace`, `/atrace`, `.perftrace`, `.tracebundle.json`, and direct path attachments display a stable prompt/status summary: count by type, active primary artifact, bundle/sidecar merge status, and caveats.
-- [ ] Extend markdown/html report rendering with a typed "Runtime Artifacts" section sourced from attachment/bundle metadata and trace_query outputs, including perf parser source and symbolization status.
+  - [x] REPL prompt state labels for multi log/trace/perf/bundle attachments.
+  - [ ] CLI status/output transparency for multi runtime-artifact inputs.
+- [x] Extend markdown/html report rendering with a typed "Runtime Artifacts" section sourced from attachment metadata, including perf parser source and symbolization status when present in normalized perftrace rows.
 - [ ] Add eval/regression cases for explicit path-based multiple artifacts, appended log+trace+perf flows, prompt/status visibility, and report artifact transparency.
 
 ### Batch F: Evals and Regression Guard
@@ -423,12 +425,13 @@ Eval targets:
   - Landed `perf_stats`, `perf_timeline`, and `trace_perf_bundle` views, view aliases through schema repair, prompt/view-matrix teaching, empty-result perf hints, summary rendering, and view tests.
 - [x] Batch C implemented, committed, pushed.
   - Landed candidate-level `perf_context`, frame bundle role contexts, summary/evidence/typed-observation handoff, prompt/schema teaching for the new output fields, and synthetic tests for root-cause and role-specific perf joins.
-- [ ] Batch D implemented, committed, pushed.
+- [x] Batch D implemented, committed, pushed.
   - [x] D1 converter sidecar extraction and bundle metadata implemented, committed, pushed.
   - [x] D2 OpenHarmony official hiperf adapter to normalized `.perftrace` implemented.
   - [x] D3 Android/simpleperf adapter parity implemented.
+  - [x] D4 raw `perf.data` fallback parser implemented, committed, pushed.
 - [ ] Batch E implemented, committed, pushed.
-- [ ] Raw perf.data fallback designed, implemented, committed, pushed.
+- [x] Raw perf.data fallback designed, implemented, committed, pushed.
 - [ ] Batch F evals added and representative cases run two at a time.
 
 ## Open Decisions

@@ -1,6 +1,7 @@
 package outputdump
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,16 +29,24 @@ const HTMLExt = ".html"
 // user's visible answer surface. Terminal chrome, ANSI styling, and
 // preview hints are intentionally excluded.
 type Args struct {
-	Dir        string
-	Max        int
-	Request    string
-	Answer     string
-	HasLog     bool
-	LogBytes   int
-	HasTrace   bool
-	TraceBytes int
-	Now        time.Time
-	PID        int
+	Dir              string
+	Max              int
+	Request          string
+	Answer           string
+	HasLog           bool
+	LogBytes         int
+	HasTrace         bool
+	TraceBytes       int
+	RuntimeArtifacts []RuntimeArtifact
+	Now              time.Time
+	PID              int
+}
+
+type RuntimeArtifact struct {
+	Kind   string
+	Source string
+	Bytes  int
+	Detail string
 }
 
 // Result reports the best-effort artifacts written for one answer dump. A
@@ -114,10 +123,10 @@ func FileName(now time.Time, pid int) string {
 	)
 }
 
-// BuildBody composes the two-section markdown body. No frontmatter: by
-// user contract the file carries exactly two H1 sections. Attachments
-// surface as quoted footnote lines under the request so reproduction
-// context is captured without bloating the header.
+// BuildBody composes the markdown dump body. No frontmatter: by user
+// contract the file carries H1 request/answer sections. Attachments
+// surface as a compact typed table when source metadata is available,
+// otherwise as legacy quoted footnote lines under the request.
 func BuildBody(a Args) string {
 	var b strings.Builder
 	b.WriteString("# 问题\n\n")
@@ -127,10 +136,21 @@ func BuildBody(a Args) string {
 	}
 	b.WriteString(req)
 	b.WriteString("\n")
-	if a.HasLog {
+	if len(a.RuntimeArtifacts) > 0 {
+		b.WriteString("\n## Runtime Artifacts\n\n")
+		b.WriteString("| kind | source | size | detail |\n")
+		b.WriteString("|---|---|---:|---|\n")
+		for _, artifact := range a.RuntimeArtifacts {
+			fmt.Fprintf(&b, "| %s | %s | %s | %s |\n",
+				escapeMarkdownTableCell(firstNonEmpty(artifact.Kind, "artifact")),
+				escapeMarkdownTableCell(firstNonEmpty(artifact.Source, "(unknown)")),
+				HumanBytes(artifact.Bytes),
+				escapeMarkdownTableCell(artifact.Detail))
+		}
+	} else if a.HasLog {
 		fmt.Fprintf(&b, "\n> 附件: log (%s)\n", HumanBytes(a.LogBytes))
 	}
-	if a.HasTrace {
+	if len(a.RuntimeArtifacts) == 0 && a.HasTrace {
 		fmt.Fprintf(&b, "\n> 附件: htrace (%s)\n", HumanBytes(a.TraceBytes))
 	}
 	b.WriteString("\n# 回答\n\n")
@@ -142,6 +162,236 @@ func BuildBody(a Args) string {
 	b.WriteString(ans)
 	b.WriteString("\n")
 	return b.String()
+}
+
+func RuntimeArtifactsFromAttachment(kind, body string) []RuntimeArtifact {
+	kind = strings.TrimSpace(kind)
+	body = strings.TrimSpace(body)
+	if kind == "" || body == "" {
+		return nil
+	}
+	segments := attachmentSegments(body)
+	out := make([]RuntimeArtifact, 0, len(segments))
+	for _, segment := range segments {
+		out = append(out, runtimeArtifactsForSegment(kind, segment.source, segment.body)...)
+	}
+	return out
+}
+
+type attachmentSegment struct {
+	source string
+	body   string
+}
+
+func attachmentSegments(body string) []attachmentSegment {
+	var out []attachmentSegment
+	current := &attachmentSegment{source: "(inline)"}
+	appendCurrent := func() {
+		if current == nil {
+			return
+		}
+		if current.source == "(inline)" && strings.TrimSpace(current.body) == "" {
+			return
+		}
+		out = append(out, *current)
+	}
+	for _, line := range strings.Split(body, "\n") {
+		if source, ok := strings.CutPrefix(strings.TrimSpace(line), "# codrax-source: "); ok {
+			appendCurrent()
+			current = &attachmentSegment{source: strings.TrimSpace(source)}
+			continue
+		}
+		if current != nil {
+			if current.body != "" {
+				current.body += "\n"
+			}
+			current.body += line
+		}
+	}
+	appendCurrent()
+	return out
+}
+
+func runtimeArtifactsForSegment(kind, source, body string) []RuntimeArtifact {
+	base := runtimeArtifactForSegment(kind, source, body)
+	if !strings.EqualFold(kind, "trace") || base.Kind != "tracebundle" {
+		return []RuntimeArtifact{base}
+	}
+	bundle, ok := parseTraceBundleMetadata(body)
+	if !ok {
+		return []RuntimeArtifact{base}
+	}
+	if bundle.Version != "" {
+		base.Detail = appendDetail(base.Detail, "version="+bundle.Version)
+	}
+	if len(bundle.Caveats) > 0 {
+		base.Detail = appendDetail(base.Detail, "caveats="+joinDetailList(bundle.Caveats, 3))
+	}
+	out := []RuntimeArtifact{base}
+	seen := map[string]bool{}
+	addBundleArtifact := func(a traceBundleReportArtifact) {
+		path := strings.TrimSpace(a.Path)
+		if path == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		detail := ""
+		if a.Converter != "" {
+			detail = appendDetail(detail, "converter="+a.Converter)
+		}
+		if a.PluginName != "" {
+			detail = appendDetail(detail, "plugin="+a.PluginName)
+		}
+		if len(a.Caveats) > 0 {
+			detail = appendDetail(detail, "caveats="+joinDetailList(a.Caveats, 3))
+		}
+		out = append(out, RuntimeArtifact{
+			Kind:   firstNonEmpty(strings.TrimSpace(a.Type), "artifact"),
+			Source: path,
+			Bytes:  safeInt64ToInt(a.Bytes),
+			Detail: detail,
+		})
+	}
+	if strings.TrimSpace(bundle.Systrace) != "" {
+		addBundleArtifact(traceBundleReportArtifact{Type: "systrace", Path: bundle.Systrace})
+	}
+	for _, artifact := range bundle.Artifacts {
+		addBundleArtifact(artifact)
+	}
+	return out
+}
+
+func runtimeArtifactForSegment(kind, source, body string) RuntimeArtifact {
+	artifactKind := kind
+	detail := ""
+	if strings.EqualFold(kind, "trace") {
+		artifactKind, detail = traceArtifactKindAndDetail(source, body)
+	}
+	if strings.EqualFold(kind, "log") {
+		detail = "runtime log"
+	}
+	return RuntimeArtifact{
+		Kind:   artifactKind,
+		Source: source,
+		Bytes:  len([]byte(body)),
+		Detail: detail,
+	}
+}
+
+type traceBundleReportMetadata struct {
+	Version   string                      `json:"version"`
+	InputPath string                      `json:"input_path"`
+	Systrace  string                      `json:"systrace"`
+	Artifacts []traceBundleReportArtifact `json:"artifacts"`
+	Caveats   []string                    `json:"caveats"`
+}
+
+type traceBundleReportArtifact struct {
+	Type          string   `json:"type"`
+	Path          string   `json:"path"`
+	Bytes         int64    `json:"bytes"`
+	Converter     string   `json:"converter"`
+	PluginName    string   `json:"plugin_name"`
+	PluginVersion string   `json:"plugin_version"`
+	Caveats       []string `json:"caveats"`
+}
+
+func parseTraceBundleMetadata(body string) (traceBundleReportMetadata, bool) {
+	var bundle traceBundleReportMetadata
+	if err := json.Unmarshal([]byte(body), &bundle); err != nil {
+		return traceBundleReportMetadata{}, false
+	}
+	if strings.TrimSpace(bundle.Systrace) == "" && len(bundle.Artifacts) == 0 {
+		return traceBundleReportMetadata{}, false
+	}
+	return bundle, true
+}
+
+func joinDetailList(items []string, limit int) string {
+	var clean []string
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			clean = append(clean, item)
+		}
+	}
+	if len(clean) == 0 {
+		return ""
+	}
+	if limit <= 0 || len(clean) <= limit {
+		return strings.Join(clean, "; ")
+	}
+	return strings.Join(clean[:limit], "; ") + fmt.Sprintf("; +%d more", len(clean)-limit)
+}
+
+func safeInt64ToInt(v int64) int {
+	if v <= 0 {
+		return 0
+	}
+	maxInt := int64(^uint(0) >> 1)
+	if v > maxInt {
+		return int(maxInt)
+	}
+	return int(v)
+}
+
+func traceArtifactKindAndDetail(source, body string) (string, string) {
+	p := strings.ToLower(strings.TrimSpace(source))
+	detail := "runtime trace"
+	kind := "trace"
+	switch {
+	case strings.HasSuffix(p, ".tracebundle.json"):
+		kind = "tracebundle"
+		detail = "trace bundle metadata"
+	case strings.HasSuffix(p, ".perftrace"):
+		kind = "perftrace"
+		detail = "perf sample text"
+	case strings.HasSuffix(p, ".perf.data") || filepath.Base(p) == "perf.data":
+		kind = "perf_data"
+		detail = "raw perf.data sidecar"
+	}
+	if strings.Contains(body, "source=raw_perfdata_fallback") {
+		detail = appendDetail(detail, "source=raw_perfdata_fallback")
+	}
+	if strings.Contains(body, "symbolization_status=unsymbolized") {
+		detail = appendDetail(detail, "symbolization_status=unsymbolized")
+	}
+	if strings.Contains(body, "perf_sample:") && kind == "trace" {
+		kind = "perftrace"
+		detail = appendDetail("perf sample text", "inline perf_sample rows")
+	}
+	return kind, detail
+}
+
+func appendDetail(base, extra string) string {
+	base = strings.TrimSpace(base)
+	extra = strings.TrimSpace(extra)
+	if base == "" {
+		return extra
+	}
+	if extra == "" {
+		return base
+	}
+	return base + "; " + extra
+}
+
+func escapeMarkdownTableCell(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "|", `\|`)
+	s = strings.ReplaceAll(s, "\n", " ")
+	if s == "" {
+		return ""
+	}
+	return s
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // BuildHTML renders the already-composed markdown dump body into a

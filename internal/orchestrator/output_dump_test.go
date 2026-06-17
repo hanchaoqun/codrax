@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/outputdump"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -48,6 +49,22 @@ func TestBuildOutputDumpBody_AttachmentFootnotes(t *testing.T) {
 	ansIdx := strings.Index(body, "# 回答")
 	if logIdx < 0 || ansIdx < 0 || logIdx >= ansIdx {
 		t.Fatalf("attachment footnote ordering wrong: log@%d 回答@%d\n%s", logIdx, ansIdx, body)
+	}
+}
+
+func TestBuildOutputDumpBody_RuntimeArtifactTable(t *testing.T) {
+	body := buildOutputDumpBody(dumpFinalOutputArgs{
+		request: "analyse jank",
+		answer:  "ok",
+		artifacts: []outputdump.RuntimeArtifact{
+			{Kind: "trace", Source: "frame.systrace", Bytes: 12, Detail: "runtime trace"},
+			{Kind: "perftrace", Source: "frame.perftrace", Bytes: 34, Detail: "source=raw_perfdata_fallback; symbolization_status=unsymbolized"},
+		},
+	})
+	for _, want := range []string{"## Runtime Artifacts", "| trace | frame.systrace |", "| perftrace | frame.perftrace |", "symbolization_status=unsymbolized"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("runtime artifact table missing %q:\n%s", want, body)
+		}
 	}
 }
 

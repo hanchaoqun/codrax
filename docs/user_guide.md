@@ -136,7 +136,7 @@ codrax                   # ② 再启动;它会索引「当前目录」这个仓
 [git:main]❯❯
 ```
 
-提示符前可能带 sticky 标签,例如 `[git:<branch>]`、`[task:data]`、`[task:write]`、`[focus:repo-a]`、`[trace]`、`[log]`、`[plan]`,显示当前 git 分支、显式任务模式、多仓 focus、已附加 trace/log、待处理 plan 等状态。默认 `auto` 模式不显示 task 标签。
+提示符前可能带 sticky 标签,例如 `[git:<branch>]`、`[task:data]`、`[task:write]`、`[focus:repo-a]`、`[trace]`、`[trace:2+perf]`、`[log]`、`[log:2]`、`[plan]`,显示当前 git 分支、显式任务模式、多仓 focus、已附加 trace/log、附件数量/是否包含 perf sample、待处理 plan 等状态。默认 `auto` 模式不显示 task 标签。
 
 直接打你的问题、回车。提交后,你打的内容会以 `> ...` 形式回显在分隔线下方,然后下方开始打印进度:
 
@@ -254,7 +254,7 @@ codrax --repo /path/to/repo --branch dev -r "..."
 | `模式/记忆/模型` 状态行 | 当前可用模式、记忆概况、模型配置和配置文件路径;英文界面会显示对应的本地化文案 |
 | `─────…` 分隔线 | 每轮请求开始前的视觉断点(在你的回显之上) |
 | `>` 开头(青色) | 你刚提交的请求的回显(保留多行 paste 内容) |
-| `[git:main]`、`[task:code]`、`[task:op]`、`[task:data]`、`[task:write]`、`[phase:apply]`、`[focus:repo-a]`、`[log]`、`[trace]`、`[plan]`、`[mem!]` | sticky 标签,提示当前粘滞状态:git 分支、显式任务模式、少数内部阶段、多仓 focus、附加日志/trace、待处理 plan、记忆压力 |
+| `[git:main]`、`[task:code]`、`[task:op]`、`[task:data]`、`[task:write]`、`[phase:apply]`、`[focus:repo-a]`、`[log]`、`[log:2]`、`[trace]`、`[trace:2+perf]`、`[perftrace]`、`[tracebundle]`、`[plan]`、`[mem!]` | sticky 标签,提示当前粘滞状态:git 分支、显式任务模式、少数内部阶段、多仓 focus、附加日志/trace/perf/bundle 的数量与类型、待处理 plan、记忆压力 |
 | `K/N <stage 标签>` | 当前 pipeline 进度。读模式通常是 1/4 分析、2/4 探索、3/4 提炼、4/4 成文;写模式会显示对应 plan/apply/verify 阶段 |
 | `⇢ <阶段> · 第 N 轮 调用工具 ...` | 本轮模型发起的工具调用,会显示阶段、轮次、工具名和关键参数摘要 |
 | `• 证据 N 条（累计 M 条）` | 当前阶段已经落地的证据数量 |
@@ -487,6 +487,8 @@ codrax trace convert --input /tmp/perf.data
 - `.tracebundle.json`: systrace/perftrace/perf.data 的 bundle 元数据
 
 分析时可以直接传 `.tracebundle.json`、`.systrace` 或 `.perftrace`;如果同目录存在 sibling bundle 或 sibling `.systrace + .perftrace`,trace_query 会自动合并。
+
+如果本轮保存 markdown/html 报告,报告正文会额外包含 `Runtime Artifacts` 表,列出本轮附加的 log/trace/perf/bundle 来源、大小和关键信息。只附加 `.tracebundle.json` 时,报告会展开 bundle 里的 systrace/perftrace/perf.data 成员、converter 和 caveats。raw fallback 产生的 perf 样本会在表里保留 `raw_perfdata_fallback` / `unsymbolized` 这类标记,方便区分“官方符号化调用栈”和“IP/DSO 级保底关联”。
 
 常用提问模板:
 

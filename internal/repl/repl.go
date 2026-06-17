@@ -5494,16 +5494,91 @@ func (r *REPL) currentStickyTag() string {
 	// input, so the cost is bounded (one local git exec ~1ms) and
 	// the user sees branch changes from another terminal at the
 	// VERY NEXT prompt cycle. No caching; correctness > 1ms.
-	return promptStickyTag(
+	return promptStickyTagWithAttachmentLabels(
 		string(r.userMode.Normalize()),
 		string(r.currentMode),
 		gitBranchProbe(r.repoRoot),
-		r.attachedLog != "",
-		r.attachedHitrace != "",
+		attachmentPromptLabel("log", r.attachedLog),
+		traceAttachmentPromptLabel(r.attachedHitrace),
 		r.pendingPlanPath != "",
 		r.memoryUnderPressure(),
 		r.currentFocusSlice(),
 	)
+}
+
+func attachmentPromptLabel(kind, body string) string {
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	count := len(attachedSourcePaths(body))
+	if count <= 1 {
+		return kind
+	}
+	return fmt.Sprintf("%s:%d", kind, count)
+}
+
+func traceAttachmentPromptLabel(body string) string {
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	paths := attachedSourcePaths(body)
+	if len(paths) == 0 {
+		if strings.Contains(body, "perf_sample:") {
+			return "trace+perf"
+		}
+		return "trace"
+	}
+	kinds := map[string]int{}
+	for _, path := range paths {
+		kinds[traceAttachmentKind(path)]++
+	}
+	if len(paths) == 1 {
+		switch {
+		case kinds["perftrace"] > 0:
+			return "perftrace"
+		case kinds["tracebundle"] > 0:
+			return "tracebundle"
+		case kinds["perfdata"] > 0:
+			return "perfdata"
+		default:
+			return "trace"
+		}
+	}
+	label := fmt.Sprintf("trace:%d", len(paths))
+	if kinds["perftrace"] > 0 || kinds["perfdata"] > 0 || strings.Contains(body, "perf_sample:") {
+		label += "+perf"
+	}
+	if kinds["tracebundle"] > 0 {
+		label += "+bundle"
+	}
+	return label
+}
+
+func attachedSourcePaths(body string) []string {
+	var out []string
+	for _, line := range strings.Split(body, "\n") {
+		if path, ok := strings.CutPrefix(strings.TrimSpace(line), "# codrax-source: "); ok {
+			path = strings.TrimSpace(path)
+			if path != "" {
+				out = append(out, path)
+			}
+		}
+	}
+	return out
+}
+
+func traceAttachmentKind(path string) string {
+	p := strings.ToLower(strings.TrimSpace(path))
+	switch {
+	case strings.HasSuffix(p, ".tracebundle.json"):
+		return "tracebundle"
+	case strings.HasSuffix(p, ".perftrace"):
+		return "perftrace"
+	case strings.HasSuffix(p, ".perf.data") || filepath.Base(p) == "perf.data":
+		return "perfdata"
+	default:
+		return "trace"
+	}
 }
 
 // currentFocusSlice returns the operator-pinned sub-repo RootRel
@@ -6752,12 +6827,20 @@ func (r *REPL) writeLocalMarkdownTranscript(request, answer string) outputdump.R
 		return outputdump.Result{}
 	}
 	return outputdump.WriteResult(outputdump.Args{
-		Dir:     r.outputDumpDir,
-		Max:     r.outputDumpMax,
-		Request: strings.TrimSpace(request),
-		Answer:  answer,
-		Now:     time.Now(),
-		PID:     os.Getpid(),
+		Dir:        r.outputDumpDir,
+		Max:        r.outputDumpMax,
+		Request:    strings.TrimSpace(request),
+		Answer:     answer,
+		HasLog:     strings.TrimSpace(r.attachedLog) != "",
+		LogBytes:   len(r.attachedLog),
+		HasTrace:   strings.TrimSpace(r.attachedHitrace) != "",
+		TraceBytes: len(r.attachedHitrace),
+		RuntimeArtifacts: append(
+			outputdump.RuntimeArtifactsFromAttachment("log", r.attachedLog),
+			outputdump.RuntimeArtifactsFromAttachment("trace", r.attachedHitrace)...,
+		),
+		Now: time.Now(),
+		PID: os.Getpid(),
 	})
 }
 

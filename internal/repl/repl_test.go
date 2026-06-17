@@ -1169,6 +1169,11 @@ func TestStickyTag_PropagatesToPasteAndLogPasteModes(t *testing.T) {
 	if tag := r.currentStickyTag(); !strings.Contains(tag, "[task:write]") || !strings.Contains(tag, "[log]") {
 		t.Errorf("currentStickyTag must compose mode + attachments; got %q", tag)
 	}
+	r.attachedLog = "# codrax-source: first.log\none\n# codrax-source: second.log\ntwo"
+	r.attachedHitrace = "# codrax-source: frame.systrace\ntrace\n# codrax-source: frame.perftrace\nperf_sample: pid=1 tid=1"
+	if tag := r.currentStickyTag(); !strings.Contains(tag, "[log:2]") || !strings.Contains(tag, "[trace:2+perf]") {
+		t.Errorf("currentStickyTag should expose multi runtime artifact state; got %q", tag)
+	}
 }
 
 // TestStickyTag_RendersInScriptedMode pins the contract that the

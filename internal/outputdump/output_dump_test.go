@@ -40,6 +40,84 @@ func TestBuildBodyPreservesQuestionMermaidSource(t *testing.T) {
 	}
 }
 
+func TestBuildBodyRendersRuntimeArtifactTable(t *testing.T) {
+	trace := strings.Join([]string{
+		"# codrax-source: frame.systrace",
+		"sched_switch",
+		"# codrax-source: frame.perftrace",
+		`perf_sample: pid=1 tid=1 source=raw_perfdata_fallback symbolization_status=unsymbolized`,
+	}, "\n")
+	body := BuildBody(Args{
+		Request: "why jank?",
+		Answer:  "answer",
+		RuntimeArtifacts: append(
+			RuntimeArtifactsFromAttachment("log", "# codrax-source: crash.log\npanic"),
+			RuntimeArtifactsFromAttachment("trace", trace)...,
+		),
+	})
+	for _, want := range []string{
+		"## Runtime Artifacts",
+		"| log | crash.log |",
+		"| trace | frame.systrace |",
+		"| perftrace | frame.perftrace |",
+		"source=raw_perfdata_fallback",
+		"symbolization_status=unsymbolized",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("runtime artifact table missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestRuntimeArtifactsFromTraceBundleMetadata(t *testing.T) {
+	bundle := strings.Join([]string{
+		`{`,
+		`  "version": "hitraceconv-v1",`,
+		`  "systrace": "capture.systrace",`,
+		`  "artifacts": [`,
+		`    {"type":"systrace","path":"capture.systrace","bytes":12,"converter":"hitraceconv-v1"},`,
+		`    {"type":"perftrace","path":"capture.perftrace","bytes":34,"converter":"hiperf_proto","caveats":["cpu id unavailable"]},`,
+		`    {"type":"perf_data","path":"capture.perf.data","bytes":56,"plugin_name":"hiperf-plugin"}`,
+		`  ],`,
+		`  "caveats": ["bundle caveat"]`,
+		`}`,
+	}, "\n")
+	artifacts := RuntimeArtifactsFromAttachment("trace", "# codrax-source: capture.tracebundle.json\n"+bundle)
+	body := BuildBody(Args{
+		Request:          "why jank?",
+		Answer:           "answer",
+		RuntimeArtifacts: artifacts,
+	})
+	for _, want := range []string{
+		"| tracebundle | capture.tracebundle.json |",
+		"version=hitraceconv-v1",
+		"caveats=bundle caveat",
+		"| perftrace | capture.perftrace |",
+		"converter=hiperf_proto",
+		"cpu id unavailable",
+		"| perf_data | capture.perf.data |",
+		"plugin=hiperf-plugin",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("trace bundle artifact table missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestRuntimeArtifactsFromAttachmentKeepsInlinePreamble(t *testing.T) {
+	artifacts := RuntimeArtifactsFromAttachment("log", "first inline log\n# codrax-source: second.log\nsecond")
+	body := BuildBody(Args{
+		Request:          "why",
+		Answer:           "answer",
+		RuntimeArtifacts: artifacts,
+	})
+	for _, want := range []string{"| log | (inline) |", "| log | second.log |"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("inline and sourced artifacts should both render %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestWriteResultWritesStandaloneHTMLSibling(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 5, 26, 9, 30, 0, 0, time.UTC)

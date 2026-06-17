@@ -26,6 +26,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/outputdump"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -7873,8 +7874,12 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 			logBytes: len(o.attachedLog),
 			hasTrace: o.attachedHitrace != "",
 			traceB:   len(o.attachedHitrace),
-			now:      time.Now(),
-			pid:      os.Getpid(),
+			artifacts: append(
+				outputdump.RuntimeArtifactsFromAttachment("log", o.attachedLog),
+				outputdump.RuntimeArtifactsFromAttachment("trace", o.attachedHitrace)...,
+			),
+			now: time.Now(),
+			pid: os.Getpid(),
 		}); result.MarkdownPath != "" {
 			o.busCtx.Mutable.SetFinalAnswerOutputPaths(result.MarkdownPath, result.HTMLPath)
 		}
