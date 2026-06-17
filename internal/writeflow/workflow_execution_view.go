@@ -49,9 +49,10 @@ type WorkflowExecutionView struct {
 	Approval     ApprovalExecutionView `json:"approval,omitempty"`
 	Budget       types.WriteWorkflowBudget
 
-	LatestVerifyStatus      string `json:"latest_verify_status,omitempty"`
-	LatestVerifyReasonCode  string `json:"latest_verify_reason_code,omitempty"`
-	LatestVerifyFailureCode string `json:"latest_verify_failure_code,omitempty"`
+	LatestVerifyStatus      string                   `json:"latest_verify_status,omitempty"`
+	LatestVerifyReasonCode  string                   `json:"latest_verify_reason_code,omitempty"`
+	LatestVerifyFailureCode string                   `json:"latest_verify_failure_code,omitempty"`
+	Observation             ObservationAuthorityView `json:"observation,omitempty"`
 
 	RequiresUser bool `json:"requires_user,omitempty"`
 	CanExplore   bool `json:"can_explore,omitempty"`
@@ -89,6 +90,7 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 		view.LatestVerifyStatus = strings.TrimSpace(latestVerify.Status)
 		view.LatestVerifyReasonCode = strings.TrimSpace(latestVerify.ReasonCode)
 		view.LatestVerifyFailureCode = strings.TrimSpace(latestVerify.FailureReasonCode)
+		view.Observation = DeriveObservationAuthorityFromAttempt(latestVerify)
 	}
 	activePlan := workflowExecutionActivePlan(batch, plan)
 	if activePlan != nil {

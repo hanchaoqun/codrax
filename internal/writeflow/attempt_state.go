@@ -88,15 +88,17 @@ func DeriveBatchAttemptState(batch types.WriteWorkflowBatch) BatchAttemptState {
 		}
 	}
 	latestVerify := latestAttemptOfKind(batch, "verify")
+	var latestObservation ObservationAuthorityView
 	if latestVerify != nil {
+		latestObservation = DeriveObservationAuthorityFromAttempt(latestVerify)
 		st.ReportID = strings.TrimSpace(latestVerify.ReportID)
 		st.LatestVerifyStatus = strings.TrimSpace(latestVerify.Status)
 		st.LatestVerifyArtifactRef = strings.TrimSpace(latestVerify.ArtifactRef)
 		st.LatestVerifySurfaceRef = strings.TrimSpace(latestVerify.SurfaceRef)
 	}
-	if batch.Status == types.WriteWorkflowBatchReadyToPlan && latestVerify != nil && latestVerify.Status == "failed" {
+	if batch.Status == types.WriteWorkflowBatchReadyToPlan && latestVerify != nil && latestObservation.MustReplan {
 		st.Phase = BatchPhaseNeedsReplan
-		st.Cause = strings.TrimSpace(latestVerify.ReasonCode)
+		st.Cause = strings.TrimSpace(latestObservation.ReasonCode)
 	}
 	return st
 }
@@ -202,16 +204,20 @@ func FinishBlockedReason(run types.WriteWorkflowRun, decision WriteWorkflowDecis
 		if latestVerify == nil {
 			continue
 		}
-		if latestVerify.Status != "failed" &&
-			(latestVerify.Status != "unverified" || verifyFailureAllowsAcceptUnverified(latestVerify.Status, latestVerify.ReasonCode)) {
+		observation := DeriveObservationAuthorityFromAttempt(latestVerify)
+		if observation.FinishAllowed {
+			continue
+		}
+		if strings.TrimSpace(decision.FinishDisposition) == FinishDispositionAcceptUnverified &&
+			observation.FinishAllowedWithAcceptUnverified {
 			continue
 		}
 		entry := batch.ID
-		if rc := strings.TrimSpace(latestVerify.ReasonCode); rc != "" {
+		if rc := strings.TrimSpace(observation.ReasonCode); rc != "" {
 			entry += "(" + rc + ")"
 		}
 		failed = append(failed, entry)
-		if !verifyFailureAllowsAcceptUnverified(latestVerify.Status, latestVerify.ReasonCode) {
+		if !observation.FinishAllowedWithAcceptUnverified {
 			codeFailed = append(codeFailed, entry)
 		}
 	}
@@ -222,32 +228,20 @@ func FinishBlockedReason(run types.WriteWorkflowRun, decision WriteWorkflowDecis
 		if len(codeFailed) == 0 {
 			return ""
 		}
-		return "latest post-apply verification has code-failure evidence for " + strings.Join(codeFailed, ", ") +
-			"; accept_unverified is only valid for unavailable local verification; replan_batch / split_batch / block"
+		return "latest post-apply observation is not an unavailable local verifier state for " + strings.Join(codeFailed, ", ") +
+			"; accept_unverified is only valid for unavailable local verification; verify_batch / replan_batch / split_batch / block"
 	}
-	return "latest post-apply verification failed for " + strings.Join(failed, ", ") +
+	return "latest post-apply observation is not finishable for " + strings.Join(failed, ", ") +
 		"; replan_batch / split_batch / block, or finish with finish_disposition=accept_unverified only when the typed failure is unavailable local verification"
 }
 
 func verifyFailureAllowsAcceptUnverified(status, reasonCode string) bool {
-	switch strings.TrimSpace(reasonCode) {
-	case string(types.FailureKindNoTests),
-		string(types.FailureKindRunnerMissing),
-		string(types.FailureKindParserError):
-		return true
-	case string(types.FailureKindTestsFailed),
-		string(types.FailureKindBuildFailure),
-		"build_failed",
-		"verification_probe_exception",
-		"verification_probe_expected_stdout_missing",
-		"verification_probe_name_error",
-		"verification_probe_import_error",
-		"verification_probe_module_not_found",
-		"verification_probe_runtime_exception",
-		"verification_probe_syntax_error":
-		return false
-	}
-	return strings.TrimSpace(status) == "unverified"
+	observation := DeriveObservationAuthorityFromAttempt(&types.WriteWorkflowAttempt{
+		Kind:       "verify",
+		Status:     strings.TrimSpace(status),
+		ReasonCode: strings.TrimSpace(reasonCode),
+	})
+	return observation.FinishAllowed || observation.FinishAllowedWithAcceptUnverified
 }
 
 // UnverifiedBatchSummaries lists batches whose latest verify attempt failed
@@ -258,14 +252,15 @@ func UnverifiedBatchSummaries(run types.WriteWorkflowRun) []string {
 	var out []string
 	for _, batch := range run.Batches {
 		latestVerify := latestAttemptOfKind(batch, "verify")
-		if latestVerify == nil || latestVerify.Status != "failed" {
+		if latestVerify == nil || strings.TrimSpace(latestVerify.Status) != "failed" {
 			continue
 		}
-		if !verifyFailureAllowsAcceptUnverified(latestVerify.Status, latestVerify.ReasonCode) {
+		observation := DeriveObservationAuthorityFromAttempt(latestVerify)
+		if !observation.FinishAllowedWithAcceptUnverified {
 			continue
 		}
 		entry := batch.ID
-		if rc := strings.TrimSpace(latestVerify.ReasonCode); rc != "" {
+		if rc := strings.TrimSpace(observation.ReasonCode); rc != "" {
 			entry += " (" + rc + ")"
 		}
 		out = append(out, entry)
@@ -281,7 +276,11 @@ func UnverifiedBatchCaveats(run types.WriteWorkflowRun) []string {
 	var out []string
 	for _, batch := range run.Batches {
 		latestVerify := latestAttemptOfKind(batch, "verify")
-		if latestVerify == nil || latestVerify.Status != "unverified" {
+		if latestVerify == nil {
+			continue
+		}
+		observation := DeriveObservationAuthorityFromAttempt(latestVerify)
+		if observation.State != ObservationAuthorityUnverified || observation.FinishRequiresDisposition {
 			continue
 		}
 		out = append(out, batch.ID)

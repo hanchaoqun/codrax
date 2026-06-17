@@ -243,28 +243,30 @@ func completionFromBatchAttempts(batch types.WriteWorkflowBatch, decision WriteW
 		}
 		return types.WriteWorkflowCompletion{}
 	}
-	reason := strings.TrimSpace(latestVerify.ReasonCode)
-	if reason == "" {
-		reason = strings.TrimSpace(latestVerify.Status)
-	}
-	switch strings.TrimSpace(latestVerify.Status) {
-	case "passed":
+	observation := DeriveObservationAuthorityFromAttempt(latestVerify)
+	reason := strings.TrimSpace(observation.ReasonCode)
+	switch observation.State {
+	case ObservationAuthorityVerified:
 		return types.WriteWorkflowCompletion{
 			Verdict:    types.WriteWorkflowCompletionVerified,
 			ReasonCode: reason,
 			Source:     source,
 			At:         now,
 		}
-	case "unverified":
+	case ObservationAuthorityUnverified:
+		if observation.FinishRequiresDisposition &&
+			strings.TrimSpace(decision.FinishDisposition) != FinishDispositionAcceptUnverified {
+			return types.WriteWorkflowCompletion{}
+		}
 		return types.WriteWorkflowCompletion{
 			Verdict:    types.WriteWorkflowCompletionUnverified,
 			ReasonCode: reason,
 			Source:     source,
 			At:         now,
 		}
-	case "failed":
+	case ObservationAuthorityFailed:
 		if strings.TrimSpace(decision.FinishDisposition) == FinishDispositionAcceptUnverified {
-			if verifyFailureAllowsAcceptUnverified(latestVerify.Status, reason) {
+			if observation.FinishAllowedWithAcceptUnverified {
 				return types.WriteWorkflowCompletion{
 					Verdict:    types.WriteWorkflowCompletionUnverified,
 					ReasonCode: reason,

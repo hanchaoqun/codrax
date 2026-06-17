@@ -33,52 +33,43 @@ type VerifyAttemptOutcome struct {
 // outcome. The err argument only signals that the executor failed; its message
 // is not parsed.
 func ClassifyVerifyAttemptOutcome(report *types.ChangeReport, err error) VerifyAttemptOutcome {
-	if report == nil {
+	authority := DeriveObservationAuthorityFromReport(report, err)
+	switch authority.State {
+	case ObservationAuthorityMissing:
 		return VerifyAttemptOutcome{
 			Kind:              VerifyOutcomeToolNotCalled,
-			Retryable:         true,
-			RecommendedAction: ActionVerifyBatch,
-			ReasonCode:        "verify_tool_not_called",
+			Retryable:         authority.Retryable,
+			RecommendedAction: authority.RecommendedAction,
+			ReasonCode:        authority.ReasonCode,
 		}
-	}
-	status := report.NormalizeVerificationStatus()
-	if report.FailureKind == types.FailureKindRunnerMissing {
-		return VerifyAttemptOutcome{
-			Kind:              VerifyOutcomeRunnerMissing,
-			Retryable:         false,
-			RecommendedAction: ActionFinish,
-			ReasonCode:        string(types.FailureKindRunnerMissing),
-		}
-	}
-	if report.FailureKind == types.FailureKindParserError {
-		return VerifyAttemptOutcome{
-			Kind:              VerifyOutcomeParserError,
-			Retryable:         false,
-			RecommendedAction: ActionFinish,
-			ReasonCode:        string(types.FailureKindParserError),
-		}
-	}
-	if len(report.NoTestsRunners) > 0 {
-		return VerifyAttemptOutcome{
-			Kind:              VerifyOutcomeNoTests,
-			Retryable:         false,
-			RecommendedAction: ActionFinish,
-			ReasonCode:        "no_tests",
-		}
-	}
-	if err != nil || status == types.VerificationStatusFailed {
+	case ObservationAuthorityFailed:
 		return VerifyAttemptOutcome{
 			Kind:              VerifyOutcomeReportFailed,
-			Retryable:         false,
-			RecommendedAction: ActionReplanBatch,
-			ReasonCode:        verifyFailureReasonCode(report),
+			Retryable:         authority.Retryable,
+			RecommendedAction: authority.RecommendedAction,
+			ReasonCode:        authority.ReasonCode,
 		}
-	}
-	return VerifyAttemptOutcome{
-		Kind:              VerifyOutcomeReportPassed,
-		Retryable:         false,
-		RecommendedAction: ActionFinish,
-		ReasonCode:        "tests_passed",
+	case ObservationAuthorityUnverified:
+		kind := VerifyOutcomeNoTests
+		switch authority.ReasonCode {
+		case string(types.FailureKindRunnerMissing):
+			kind = VerifyOutcomeRunnerMissing
+		case string(types.FailureKindParserError):
+			kind = VerifyOutcomeParserError
+		}
+		return VerifyAttemptOutcome{
+			Kind:              kind,
+			Retryable:         authority.Retryable,
+			RecommendedAction: authority.RecommendedAction,
+			ReasonCode:        authority.ReasonCode,
+		}
+	default:
+		return VerifyAttemptOutcome{
+			Kind:              VerifyOutcomeReportPassed,
+			Retryable:         authority.Retryable,
+			RecommendedAction: authority.RecommendedAction,
+			ReasonCode:        authority.ReasonCode,
+		}
 	}
 }
 
@@ -86,7 +77,11 @@ func verifyFailureReasonCode(report *types.ChangeReport) string {
 	if report == nil {
 		return "verify_tool_not_called"
 	}
-	if report.FailureKind != "" {
+	switch report.FailureKind {
+	case types.FailureKindBuildFailure:
+		return string(types.FailureKindBuildFailure)
+	case types.FailureKindTestsFailed, types.FailureKindTimeout, types.FailureKindOOM,
+		types.FailureKindCPULimit, types.FailureKindCrash:
 		return string(report.FailureKind)
 	}
 	if report.BuildFailed {
