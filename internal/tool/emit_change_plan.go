@@ -1267,6 +1267,7 @@ func dryBuildPython(ctx *types.BusContext, changes []types.FileChange) string {
 	args = append(args, pyChanges...)
 	cmd := exec.Command(pyRunner.ExePath, args...)
 	cmd.Dir = scratch
+	cmd.Env = pythonPreflightEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		displayArgs := append(append([]string{}, pyRunner.DisplayArgs...), "-m", "py_compile")

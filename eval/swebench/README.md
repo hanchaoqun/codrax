@@ -138,6 +138,12 @@ outside `self`). These appear in `plan_owner_boundary_signals` with typed reason
 codes such as `diagnostic_signal_conditionally_suppressed` and
 `external_private_state_sync_workaround`; they lower local confidence but do not
 block exporting the official SWE-bench prediction.
+Verification telemetry is deliberately split into a normalized typed verdict and
+raw executor telemetry. `verify_passed=true` means
+`verify_status=passed`: Codrax produced an authoritative local verifier pass.
+The raw ChangeReport `passed` bit is preserved separately as
+`verify_report_passed_raw`; it can be true for no-tests/unavailable outcomes and
+must not be used as a functional-correctness pass rate.
 For internal reporting only, the adapter can also merge a typed human audit file
 into `results.jsonl`:
 

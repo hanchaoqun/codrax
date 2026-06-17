@@ -226,6 +226,25 @@ class PredictionConfidenceTests(unittest.TestCase):
 
 
 class LocalAcceptanceTests(unittest.TestCase):
+    def test_raw_pass_without_authoritative_status_is_not_local_acceptance(self) -> None:
+        report = {
+            "passed": True,
+            "failure_kind": "no_tests",
+            "no_tests_runners": ["pytest"],
+            "test_results": [],
+        }
+
+        self.assertEqual(adapter.report_verification_status(report), "unavailable")
+        self.assertFalse(adapter.report_authoritative_verify_passed(report))
+
+        verdict, source = adapter.local_acceptance_verdict(
+            verify_status=adapter.report_verification_status(report),
+            prediction_blocks_local_acceptance=False,
+            manual_audit_verdict="",
+        )
+
+        self.assertEqual((verdict, source), ("unknown", ""))
+
     def test_local_verify_pass_counts_as_internal_acceptance(self) -> None:
         verdict, source = adapter.local_acceptance_verdict(
             verify_status="passed",

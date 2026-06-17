@@ -1709,6 +1709,18 @@ def report_verification_status(report: dict[str, Any]) -> str:
     return "passed"
 
 
+def report_authoritative_verify_passed(report: dict[str, Any]) -> bool:
+    """Return whether the typed local verifier produced an authoritative pass.
+
+    ChangeReport.passed is a raw executor boolean and can be true for
+    unavailable/no-tests outcomes. Dashboards must not treat that raw bit as a
+    functional correctness signal; the normalized verification status is the
+    typed verdict boundary.
+    """
+
+    return report_verification_status(report) == "passed"
+
+
 def report_failure_kind(report: dict[str, Any]) -> str:
     failure_kind = str(report.get("failure_kind") or "").strip()
     if failure_kind:
@@ -2240,7 +2252,8 @@ def process_instance(
         if report:
             result["report_path"] = str(plan_path.with_name(plan_path.stem + ".report.json")) if plan_path else ""
             result["verify_status"] = report_verification_status(report)
-            result["verify_passed"] = bool(report.get("passed"))
+            result["verify_passed"] = report_authoritative_verify_passed(report)
+            result["verify_report_passed_raw"] = bool(report.get("passed"))
             result["verify_failure_kind"] = report_failure_kind(report)
             result["verify_failure_reason_code"] = report_failure_reason_code(report)
             result["verify_summary"] = str(report.get("failure_summary") or "")
