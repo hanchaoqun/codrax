@@ -4,8 +4,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
+	writeconvention "github.com/hanchaoqun/codrax/internal/writeflow/convention"
 )
 
 // This file holds the write controller's read-only exploration subflow:
@@ -147,6 +149,12 @@ func (o *Orchestrator) projectWriteExplorationHandoffFromTurnA() {
 		return
 	}
 	handoff := types.WriteExplorationHandoffFromTurnA(*req, ta)
+	if handoff.ConventionGraph != nil {
+		graph := o.persistAndSelectConventionGraph(*handoff.ConventionGraph, req, &handoff)
+		if len(graph.Nodes) > 0 {
+			handoff.ConventionGraph = &graph
+		}
+	}
 	if handoff.Goal == "" &&
 		len(handoff.ExplorationQuestions) == 0 &&
 		len(handoff.TargetFiles) == 0 &&
@@ -248,4 +256,39 @@ func (o *Orchestrator) setWriteContextPackForBatch(req *types.WriteExplorationRe
 		return
 	}
 	o.busCtx.Mutable.SetWriteContextPack(&pack)
+}
+
+func (o *Orchestrator) persistAndSelectConventionGraph(graph types.ConventionGraph, req *types.WriteExplorationRequest, handoff *types.WriteExplorationHandoff) types.ConventionGraph {
+	graph = types.NormalizeConventionGraph(graph)
+	if len(graph.Nodes) == 0 || o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || strings.TrimSpace(o.reportDir) == "" {
+		return graph
+	}
+	run := o.busCtx.Mutable.WriteWorkflowRun()
+	if run == nil || strings.TrimSpace(run.RunID) == "" {
+		return graph
+	}
+	merged, _, err := writeconvention.NewStore(o.reportDir).MergeAndSave(run.RunID, graph)
+	if err != nil {
+		logging.Warning("[orchestrator] convention graph persist failed: %v", err)
+		return graph
+	}
+	return writeconvention.SelectTopN(merged, graphActivePaths(req, handoff), graphActiveSymbols(handoff), 16)
+}
+
+func graphActivePaths(req *types.WriteExplorationRequest, handoff *types.WriteExplorationHandoff) []string {
+	var out []string
+	if req != nil {
+		out = append(out, req.CandidatePaths...)
+	}
+	if handoff != nil {
+		out = append(out, handoff.TargetFiles...)
+	}
+	return out
+}
+
+func graphActiveSymbols(handoff *types.WriteExplorationHandoff) []string {
+	if handoff == nil {
+		return nil
+	}
+	return append([]string(nil), handoff.RelevantSymbols...)
 }

@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,6 +24,8 @@ func TestProjectWriteExplorationHandoffFromTurnARequiresRequestAndArtifacts(t *t
 		Goal:           "patch planner",
 		CandidatePaths: []string{"internal/agent/planner.go"},
 	})
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{RunID: "wf-convention"})
+	o.reportDir = t.TempDir()
 	o.projectWriteExplorationHandoffFromTurnA()
 	if got := mu.WriteExplorationHandoff(); got != nil {
 		t.Fatalf("handoff should remain nil without artifacts: %+v", got)
@@ -46,6 +50,12 @@ func TestProjectWriteExplorationHandoffFromTurnARequiresRequestAndArtifacts(t *t
 	}
 	if handoff.BatchID != "batch-1" || handoff.Goal != "patch planner" {
 		t.Fatalf("handoff identity drift: %+v", handoff)
+	}
+	if handoff.ConventionGraph == nil || len(handoff.ConventionGraph.Nodes) == 0 {
+		t.Fatalf("expected convention graph in handoff: %+v", handoff.ConventionGraph)
+	}
+	if _, err := os.Stat(filepath.Join(o.reportDir, "workflows", "knowledge", "wf-convention", "conventions.json")); err != nil {
+		t.Fatalf("expected persisted convention graph: %v", err)
 	}
 	pack := mu.WriteContextPack()
 	if pack == nil {

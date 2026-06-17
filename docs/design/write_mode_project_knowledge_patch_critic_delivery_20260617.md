@@ -325,6 +325,7 @@ Controller 行为：
 | 1 | complete | Added `PatchEffectRecord` typed schema, unified-diff parser, post-apply capture from the real applied commit, ChangePlan persistence, and P2 `patch_effect` context projection. Current PatchReview still uses scope MVP until Batch 2. |
 | 2 | complete | PatchReview now consumes actual `PatchEffectRecord` paths, records reviewed diff identity, hard-blocks true diff paths outside plan/slice, and hard-blocks parser-backed JSON/YAML/XML parse failures emitted as typed patch-effect events. Test-only export remains an eval/customer policy layer, not a global core hard gate, because test-only changes are valid customer tasks. |
 | 4 | complete | Added independent `internal/writeflow/impact` engine with plan + actual patch-effect inputs, graph-provider interface, repo-map SearchGraph adapter, diff/event/import/reverse-import/test/symbol obligations, and controller stamping after plan and after real patch capture. Batch 3 soft semantic effect signals remain pending. |
+| 5 | complete | Added `internal/writeflow/convention` store with atomic merge/save/load, active-scope Top-N retrieval, exploration-handoff persistence under `workflows/knowledge/<run_id>/conventions.json`, and context handoff round-trip tests. Conventions remain P3 soft guidance only. |
 
 ## Live Eval Ledger
 
