@@ -212,6 +212,14 @@ func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 				Hunks:        []PatchEffectHunk{{OldStart: 10, OldLines: 2, NewStart: 10, NewLines: 3}},
 			}},
 		},
+		PatchReview: &PatchReviewRecord{
+			ReviewID: "patch-review:plan-effect:slice-1",
+			Findings: []PatchReviewFinding{{
+				Code:     "control_flow_guard_touched",
+				Severity: PatchReviewSeverityWarning,
+				Path:     "pkg/a.py",
+			}},
+		},
 	}
 
 	pack := WriteContextPackFromChangePlan(plan)
@@ -225,6 +233,10 @@ func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 	if !writeContextViewContains(verifier, "patch_effect", "role=production") ||
 		!writeContextViewContains(verifier, "patch_effect", "hunks=1") {
 		t.Fatalf("verifier view missing applied patch effect: %+v", verifier.Items)
+	}
+	if !writeContextViewContains(planner, "patch_review_finding", "code=control_flow_guard_touched") ||
+		!writeContextViewContains(verifier, "patch_review_finding", "severity=warning") {
+		t.Fatalf("patch review finding missing from context pack: planner=%+v verifier=%+v", planner.Items, verifier.Items)
 	}
 }
 

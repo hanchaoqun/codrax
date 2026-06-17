@@ -1362,7 +1362,9 @@ func (o *Orchestrator) attachActivePatchEffectRecord(plan *types.ChangePlan, act
 	)
 	writeflow.AnnotatePatchEffectStructuredFileParses(&effect, o.busCtx.WorktreePath)
 	plan.PatchEffect = &effect
-	stampChangePlanImpactObligations(plan, writeimpact.GraphProviderFromSearchGraph(o.busCtx.Mutable.SearchGraph()))
+	graphProvider := writeimpact.GraphProviderFromSearchGraph(o.busCtx.Mutable.SearchGraph())
+	writeimpact.AnnotatePatchEffectLineFeatureEvents(&effect, graphProvider)
+	stampChangePlanImpactObligations(plan, graphProvider)
 	o.busCtx.Mutable.SetChangePlan(plan)
 	o.persistCurrentChangePlanSnapshot()
 	return &effect

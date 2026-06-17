@@ -22,6 +22,10 @@ type GraphProvider interface {
 	SymbolsInFile(path string) []SymbolRef
 }
 
+type LineFeatureProvider interface {
+	LineFeaturesInRange(path string, startLine, endLine int) []string
+}
+
 type Input struct {
 	Plan        *types.ChangePlan
 	PatchEffect *types.PatchEffectRecord
@@ -197,6 +201,68 @@ func touchedSymbols(file types.PatchEffectFile, symbols []SymbolRef) []SymbolRef
 
 func rangesOverlap(aStart, aEnd, bStart, bEnd int) bool {
 	return aStart <= bEnd && bStart <= aEnd
+}
+
+func AnnotatePatchEffectLineFeatureEvents(effect *types.PatchEffectRecord, graph GraphProvider) {
+	featureProvider, ok := graph.(LineFeatureProvider)
+	if effect == nil || !ok || featureProvider == nil {
+		return
+	}
+	for i := range effect.Files {
+		file := &effect.Files[i]
+		path := normalizeImpactPath(file.Path)
+		if path == "" || len(file.Hunks) == 0 {
+			continue
+		}
+		for _, hunk := range file.Hunks {
+			if hunk.NewStart <= 0 {
+				continue
+			}
+			end := hunk.NewStart + hunk.NewLines - 1
+			if hunk.NewLines == 0 {
+				end = hunk.NewStart
+			}
+			for _, event := range patchEffectLineFeatureEvents(path, featureProvider.LineFeaturesInRange(path, hunk.NewStart, end), hunk) {
+				file.Events = append(file.Events, event)
+			}
+		}
+	}
+}
+
+func patchEffectLineFeatureEvents(path string, features []string, hunk types.PatchEffectHunk) []types.PatchEffectEvent {
+	if len(features) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []types.PatchEffectEvent
+	for _, feature := range features {
+		code := ""
+		switch strings.TrimSpace(feature) {
+		case "guard":
+			if hunk.AddedLines > 0 && hunk.RemovedLines > 0 {
+				code = "control_flow_guard_touched"
+			}
+		case "call_expression":
+			if hunk.AddedLines > 0 {
+				code = "call_site_touched"
+			}
+		case "assignment":
+			if hunk.AddedLines > 0 {
+				code = "state_assignment_touched"
+			}
+		}
+		if code == "" || seen[code] {
+			continue
+		}
+		seen[code] = true
+		out = append(out, types.PatchEffectEvent{
+			Code:     code,
+			Severity: "warning",
+			Path:     path,
+			Message:  "typed line-feature effect touched by applied patch",
+		})
+	}
+	return out
 }
 
 func symbolImpactName(sym SymbolRef) string {

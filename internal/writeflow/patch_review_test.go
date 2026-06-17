@@ -137,6 +137,33 @@ func TestReviewAppliedPatchScopeUsesPatchEffectWhenDeclaredAppliedPathsMissing(t
 	}
 }
 
+func TestReviewAppliedPatchScopeCarriesSoftPatchEffectEvents(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"a.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			RecordID: "patch-effect:plan-1:slice-1:abcdef123456",
+			Files: []types.PatchEffectFile{{
+				Path:   "a.py",
+				Status: "modified",
+				Events: []types.PatchEffectEvent{{
+					Code:     "control_flow_guard_touched",
+					Severity: "warning",
+					Path:     "a.py",
+				}},
+			}},
+		},
+	}
+	review := ReviewAppliedPatchScope(plan, types.ChangePlanSlice{})
+	if review.HardBlock {
+		t.Fatalf("soft patch effect event should not hard block: %+v", review)
+	}
+	if !patchReviewHasFinding(review, "control_flow_guard_touched") {
+		t.Fatalf("soft patch effect finding missing: %+v", review.Findings)
+	}
+}
+
 func TestReviewAppliedPatchScopeWarnsWhenAppliedPathsMissing(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID:          "plan-1",

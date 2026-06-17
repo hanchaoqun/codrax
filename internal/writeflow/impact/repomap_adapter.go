@@ -85,6 +85,30 @@ func (p repomapGraphProvider) SymbolsInFile(path string) []SymbolRef {
 	return out
 }
 
+func (p repomapGraphProvider) LineFeaturesInRange(path string, startLine, endLine int) []string {
+	if p.graph == nil || startLine <= 0 {
+		return nil
+	}
+	if endLine < startLine {
+		endLine = startLine
+	}
+	seen := map[string]bool{}
+	var out []string
+	path = normalizeImpactPath(path)
+	for line := startLine; line <= endLine; line++ {
+		for _, feature := range p.graph.LineFeaturesAt(path, line) {
+			key := strings.TrimSpace(string(feature))
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func sourceStem(path string) string {
 	base := filepath.Base(path)
 	ext := filepath.Ext(base)

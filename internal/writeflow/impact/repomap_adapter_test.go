@@ -11,6 +11,9 @@ func TestGraphProviderFromSearchGraphAdaptsRepomapGraph(t *testing.T) {
 		FileIndex: map[string]*rmtypes.FileInfo{
 			"pkg/a.py": {
 				RelPath: "pkg/a.py",
+				LineFeatures: map[int][]rmtypes.LineFeature{
+					3: []rmtypes.LineFeature{rmtypes.LineFeatureGuard},
+				},
 				Symbols: []rmtypes.Symbol{{
 					ID:      rmtypes.SymbolID("py::pkg::::target::1"),
 					Name:    "target",
@@ -48,5 +51,12 @@ func TestGraphProviderFromSearchGraphAdaptsRepomapGraph(t *testing.T) {
 	}
 	if got := provider.SymbolsInFile("pkg/a.py"); len(got) != 1 || got[0].ID != "py::pkg::::target::1" {
 		t.Fatalf("symbols not adapted: %+v", got)
+	}
+	featureProvider, ok := provider.(LineFeatureProvider)
+	if !ok {
+		t.Fatal("repomap provider should expose line features")
+	}
+	if got := featureProvider.LineFeaturesInRange("pkg/a.py", 3, 3); len(got) != 1 || got[0] != "guard" {
+		t.Fatalf("line features not adapted: %+v", got)
 	}
 }

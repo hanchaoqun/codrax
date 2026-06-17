@@ -16,6 +16,12 @@ var patchReviewEffectHardEventCodes = map[string]bool{
 	"structured_file_parse_error":        true,
 }
 
+var patchReviewEffectSoftEventCodes = map[string]bool{
+	"control_flow_guard_touched": true,
+	"call_site_touched":          true,
+	"state_assignment_touched":   true,
+}
+
 func ReviewAppliedPatchScope(plan *types.ChangePlan, activeSlice types.ChangePlanSlice) types.PatchReviewRecord {
 	record := types.PatchReviewRecord{
 		Source:    "post_apply_scope",
@@ -135,7 +141,13 @@ func patchReviewEffectEventFindings(effect *types.PatchEffectRecord) []types.Pat
 	for _, file := range effect.Files {
 		for _, event := range file.Events {
 			code := strings.TrimSpace(event.Code)
-			if !patchReviewEffectHardEventCodes[code] || strings.TrimSpace(event.Severity) != "error" {
+			severity := types.PatchReviewSeverity("")
+			switch {
+			case patchReviewEffectHardEventCodes[code] && strings.TrimSpace(event.Severity) == "error":
+				severity = types.PatchReviewSeverityError
+			case patchReviewEffectSoftEventCodes[code] && strings.TrimSpace(event.Severity) == "warning":
+				severity = types.PatchReviewSeverityWarning
+			default:
 				continue
 			}
 			path := event.Path
@@ -144,7 +156,7 @@ func patchReviewEffectEventFindings(effect *types.PatchEffectRecord) []types.Pat
 			}
 			findings = append(findings, patchReviewFinding(
 				code,
-				types.PatchReviewSeverityError,
+				severity,
 				path,
 				event.Message,
 			))

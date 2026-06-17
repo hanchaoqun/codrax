@@ -383,6 +383,19 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 			pack.Items = append(pack.Items, item)
 		}
 	}
+	if plan.PatchReview != nil {
+		for _, finding := range plan.PatchReview.Findings {
+			text := renderPatchReviewFindingContext(finding)
+			if text == "" {
+				continue
+			}
+			item := writeContextItem("patch_review_finding", WriteContextP2, text, "patch_review",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+			item.ID = writeContextStableID("patch_review_finding", plan.PatchReview.ReviewID, finding.Code, finding.Path, string(finding.Severity))
+			item.SourceID = plan.PatchReview.ReviewID
+			pack.Items = append(pack.Items, item)
+		}
+	}
 	obligations := plan.ImpactObligations
 	if obligations == nil {
 		derived := ImpactObligationSetFromChangePlan(plan)
@@ -438,6 +451,25 @@ func renderPatchEffectFileContext(effect *PatchEffectRecord, file PatchEffectFil
 			fp = fp[:12]
 		}
 		parts = append(parts, "fingerprint="+fp)
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderPatchReviewFindingContext(finding PatchReviewFinding) string {
+	finding.Code = strings.TrimSpace(finding.Code)
+	finding.Path = strings.TrimSpace(finding.Path)
+	if finding.Code == "" && finding.Path == "" {
+		return ""
+	}
+	parts := []string{
+		"severity=" + string(finding.Severity),
+		"code=" + finding.Code,
+	}
+	if finding.Path != "" {
+		parts = append(parts, "path="+finding.Path)
+	}
+	if finding.EvidenceRef != "" {
+		parts = append(parts, "evidence_ref="+finding.EvidenceRef)
 	}
 	return strings.Join(parts, " ")
 }

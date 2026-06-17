@@ -96,11 +96,37 @@ func TestBuildObligationSetSkipsGraphForAuxiliaryPatchEffectPath(t *testing.T) {
 	}
 }
 
+func TestAnnotatePatchEffectLineFeatureEventsAddsSoftEvents(t *testing.T) {
+	graph := fakeGraphProvider{
+		features: map[string]map[int][]string{
+			"pkg/a.py": {
+				10: []string{"guard"},
+				11: []string{"call_expression"},
+				12: []string{"assignment"},
+			},
+		},
+	}
+	record := types.PatchEffectRecord{
+		Files: []types.PatchEffectFile{{
+			Path:  "pkg/a.py",
+			Hunks: []types.PatchEffectHunk{{NewStart: 10, NewLines: 3, AddedLines: 1, RemovedLines: 1}},
+		}},
+	}
+
+	AnnotatePatchEffectLineFeatureEvents(&record, graph)
+	for _, code := range []string{"control_flow_guard_touched", "call_site_touched", "state_assignment_touched"} {
+		if !patchEffectHasEvent(record, code) {
+			t.Fatalf("missing %s in events: %+v", code, record.Files[0].Events)
+		}
+	}
+}
+
 type fakeGraphProvider struct {
 	imports        map[string][]string
 	reverseImports map[string][]string
 	tests          map[string][]string
 	symbols        map[string][]SymbolRef
+	features       map[string]map[int][]string
 }
 
 func (f fakeGraphProvider) Imports(path string) []string {
@@ -119,6 +145,14 @@ func (f fakeGraphProvider) SymbolsInFile(path string) []SymbolRef {
 	return append([]SymbolRef(nil), f.symbols[path]...)
 }
 
+func (f fakeGraphProvider) LineFeaturesInRange(path string, startLine, endLine int) []string {
+	var out []string
+	for line := startLine; line <= endLine; line++ {
+		out = append(out, f.features[path][line]...)
+	}
+	return out
+}
+
 func impactSetHasObligation(set types.ImpactObligationSet, kind, relation, path, related, symbol string) bool {
 	for _, ob := range set.Obligations {
 		if ob.Kind != kind || ob.Relation != relation || ob.SubjectPath != path {
@@ -131,6 +165,17 @@ func impactSetHasObligation(set types.ImpactObligationSet, kind, relation, path,
 			continue
 		}
 		return true
+	}
+	return false
+}
+
+func patchEffectHasEvent(record types.PatchEffectRecord, code string) bool {
+	for _, file := range record.Files {
+		for _, event := range file.Events {
+			if event.Code == code && event.Severity == "warning" {
+				return true
+			}
+		}
 	}
 	return false
 }
