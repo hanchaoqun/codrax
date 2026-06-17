@@ -138,6 +138,26 @@ outside `self`). These appear in `plan_owner_boundary_signals` with typed reason
 codes such as `diagnostic_signal_conditionally_suppressed` and
 `external_private_state_sync_workaround`; they lower local confidence but do not
 block exporting the official SWE-bench prediction.
+For internal reporting only, the adapter can also merge a typed human audit file
+into `results.jsonl`:
+
+```bash
+eval/results/swebench/.venv/bin/python eval/swebench/run_codrax_swebench.py \
+  --instances-jsonl /path/to/instances.jsonl \
+  --manual-audit-jsonl /path/to/manual_audit.jsonl \
+  --workdir eval/results/swebench/custom-run
+```
+
+Each manual audit row should contain `instance_id` plus `verdict` or
+`manual_audit_verdict` with one of `pass`, `fail`, or `unknown`; optional
+`reason_code`, `source`, and `notes` are copied as audit telemetry. The adapter
+then emits `manual_audit_*` fields and `local_acceptance_verdict/source`.
+`local_acceptance_verdict=pass` means either typed local verification passed or
+local verification was unavailable/unknown and an explicit manual audit passed.
+True failed local verification and local audit blockers stay `fail`; free-form
+manual notes never drive logic. This combined local acceptance proxy is useful
+for triage dashboards, but it is still not the official SWE-bench score. Only
+the official harness `resolved/total` result should be called pass rate.
 By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only

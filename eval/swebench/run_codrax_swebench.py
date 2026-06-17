@@ -1748,6 +1748,72 @@ def prediction_verdict(
     return "predicted_unchecked", "unknown", False
 
 
+MANUAL_AUDIT_VERDICTS = {"pass", "fail", "unknown"}
+
+
+def normalize_manual_audit_record(row: dict[str, Any]) -> dict[str, str]:
+    """Normalize an optional human audit row into typed telemetry.
+
+    The adapter treats this as an explicit verdict field only. Free-form notes
+    are preserved for audit, but they never drive acceptance logic.
+    """
+
+    instance_id = str(row.get("instance_id") or "").strip()
+    verdict = str(row.get("manual_audit_verdict") or row.get("verdict") or "").strip().lower()
+    if verdict not in MANUAL_AUDIT_VERDICTS:
+        verdict = ""
+    return {
+        "instance_id": instance_id,
+        "verdict": verdict,
+        "reason_code": str(row.get("manual_audit_reason_code") or row.get("reason_code") or "").strip(),
+        "source": str(row.get("manual_audit_source") or row.get("source") or "").strip(),
+        "notes": str(row.get("manual_audit_notes") or row.get("notes") or "").strip(),
+    }
+
+
+def load_manual_audits(path: Path | None) -> dict[str, dict[str, str]]:
+    if path is None:
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for row in load_jsonl(path):
+        if not isinstance(row, dict):
+            continue
+        record = normalize_manual_audit_record(row)
+        instance_id = record["instance_id"]
+        if not instance_id or not record["verdict"]:
+            continue
+        out[instance_id] = record
+    return out
+
+
+def local_acceptance_verdict(
+    *,
+    verify_status: str,
+    prediction_blocks_local_acceptance: bool,
+    manual_audit_verdict: str = "",
+) -> tuple[str, str]:
+    """Return Codrax's internal acceptance proxy.
+
+    This is not the official SWE-bench score. It combines authoritative local
+    verification with an optional typed human verdict, while keeping hard local
+    blockers and true failed verification ahead of manual pass annotations.
+    """
+
+    status = str(verify_status or "").strip()
+    manual = str(manual_audit_verdict or "").strip().lower()
+    if bool(prediction_blocks_local_acceptance):
+        return "fail", "local_audit_block"
+    if status == "failed":
+        return "fail", "local_verify"
+    if status == "passed":
+        return "pass", "local_verify"
+    if manual == "pass":
+        return "pass", "manual_audit"
+    if manual == "fail":
+        return "fail", "manual_audit"
+    return "unknown", ""
+
+
 def required_behavior_contract_ids(plan: dict[str, Any], *, include_fallback: bool = False) -> set[str]:
     ids: set[str] = set()
     for contract in plan.get("behavior_contracts") or []:
@@ -2067,7 +2133,11 @@ def sanitized_instance_artifact(instance: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
+def process_instance(
+    instance: dict[str, Any],
+    args: argparse.Namespace,
+    manual_audits: dict[str, dict[str, str]] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     instance_id = required_field(instance, "instance_id")
     inst_dir = Path(args.workdir).resolve() / "instances" / safe_id(instance_id)
     repo_dir = inst_dir / "repo"
@@ -2262,12 +2332,26 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         result["prediction_verdict"] = verdict
         result["prediction_local_confidence"] = confidence
         result["prediction_blocks_local_acceptance"] = blocks_local_acceptance
+        manual_audit = (manual_audits or {}).get(instance_id, {})
+        result["manual_audit_verdict"] = str(manual_audit.get("verdict") or "")
+        result["manual_audit_reason_code"] = str(manual_audit.get("reason_code") or "")
+        result["manual_audit_source"] = str(manual_audit.get("source") or "")
+        result["manual_audit_notes"] = str(manual_audit.get("notes") or "")
+        local_verdict, local_source = local_acceptance_verdict(
+            verify_status=str(result.get("verify_status") or ""),
+            prediction_blocks_local_acceptance=bool(blocks_local_acceptance),
+            manual_audit_verdict=str(result.get("manual_audit_verdict") or ""),
+        )
+        result["local_acceptance_verdict"] = local_verdict
+        result["local_acceptance_source"] = local_source
         result["status"] = "predicted" if patch.strip() else "empty_patch"
     except Exception as exc:  # keep batch runs moving; official harness can score empty patches.
         result["status"] = "error"
         result["prediction_verdict"] = "adapter_error"
         result["prediction_local_confidence"] = "failed"
         result["prediction_blocks_local_acceptance"] = True
+        result["local_acceptance_verdict"] = "fail"
+        result["local_acceptance_source"] = "adapter_error"
         result["error"] = str(exc)
     (inst_dir / "prediction.json").write_text(json.dumps(prediction, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     (inst_dir / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
@@ -2287,6 +2371,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workdir", default=str(ROOT / "eval" / "results" / "swebench" / time.strftime("%Y%m%d-%H%M%S")))
     parser.add_argument("--predictions-path", help="Output JSONL path; default <workdir>/predictions.jsonl")
     parser.add_argument("--results-path", help="Output result JSONL path; default <workdir>/results.jsonl")
+    parser.add_argument(
+        "--manual-audit-jsonl",
+        type=Path,
+        help=(
+            "Optional typed human audit rows with instance_id and verdict/pass|fail|unknown; "
+            "used only for results.jsonl local_acceptance telemetry, never official predictions"
+        ),
+    )
     parser.add_argument("--codrax-bin", default=str(ROOT / "codrax"))
     parser.add_argument("--settings", default=str(DEFAULT_SETTINGS))
     parser.add_argument("--providers", help="Optional providers.yaml path forwarded to Codrax")
@@ -2352,13 +2444,14 @@ def main() -> int:
         raise SystemExit("no instances selected")
     predictions_path = Path(args.predictions_path).resolve() if args.predictions_path else workdir / "predictions.jsonl"
     results_path = Path(args.results_path).resolve() if args.results_path else workdir / "results.jsonl"
+    manual_audits = load_manual_audits(args.manual_audit_jsonl)
 
     predictions: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
     for index, instance in enumerate(instances, 1):
         instance_id = str(instance.get("instance_id") or "")
         print(f"[{index}/{len(instances)}] {instance_id}", file=sys.stderr)
-        prediction, result = process_instance(instance, args)
+        prediction, result = process_instance(instance, args, manual_audits)
         predictions.append(prediction)
         results.append(result)
         write_jsonl(predictions_path, predictions)

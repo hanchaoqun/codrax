@@ -225,6 +225,63 @@ class PredictionConfidenceTests(unittest.TestCase):
         self.assertEqual(reason, "diagnostic_signal_conditionally_suppressed")
 
 
+class LocalAcceptanceTests(unittest.TestCase):
+    def test_local_verify_pass_counts_as_internal_acceptance(self) -> None:
+        verdict, source = adapter.local_acceptance_verdict(
+            verify_status="passed",
+            prediction_blocks_local_acceptance=False,
+        )
+
+        self.assertEqual((verdict, source), ("pass", "local_verify"))
+
+    def test_manual_pass_counts_only_when_local_verify_is_not_failed(self) -> None:
+        verdict, source = adapter.local_acceptance_verdict(
+            verify_status="unavailable",
+            prediction_blocks_local_acceptance=False,
+            manual_audit_verdict="pass",
+        )
+
+        self.assertEqual((verdict, source), ("pass", "manual_audit"))
+
+    def test_failed_verify_is_not_overridden_by_manual_pass(self) -> None:
+        verdict, source = adapter.local_acceptance_verdict(
+            verify_status="failed",
+            prediction_blocks_local_acceptance=False,
+            manual_audit_verdict="pass",
+        )
+
+        self.assertEqual((verdict, source), ("fail", "local_verify"))
+
+    def test_hard_audit_block_is_not_overridden_by_manual_pass(self) -> None:
+        verdict, source = adapter.local_acceptance_verdict(
+            verify_status="unavailable",
+            prediction_blocks_local_acceptance=True,
+            manual_audit_verdict="pass",
+        )
+
+        self.assertEqual((verdict, source), ("fail", "local_audit_block"))
+
+    def test_manual_audit_loader_accepts_typed_verdicts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manual.jsonl"
+            path.write_text(
+                json.dumps({
+                    "instance_id": "proj__repo-1",
+                    "verdict": "pass",
+                    "reason_code": "manual_patch_review",
+                    "source": "human",
+                    "notes": "free-form note is audit-only",
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            got = adapter.load_manual_audits(path)
+
+        self.assertEqual(got["proj__repo-1"]["verdict"], "pass")
+        self.assertEqual(got["proj__repo-1"]["reason_code"], "manual_patch_review")
+        self.assertEqual(got["proj__repo-1"]["notes"], "free-form note is audit-only")
+
+
 class ContextCoverageTests(unittest.TestCase):
     def test_symbol_qualified_context_paths_cover_file_level_change(self) -> None:
         missing = adapter.plan_source_paths_missing_prior_context(
