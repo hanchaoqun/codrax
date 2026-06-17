@@ -443,14 +443,20 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 		analysis := NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
 		for _, surface := range analysis.ChangedSurfaces {
 			if text := renderImpactChangedSurfaceContext(surface); text != "" {
-				pack.Items = append(pack.Items, writeContextItem("impact_changed_surface", WriteContextP1, text, "impact_analysis",
-					WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+				item := writeContextItem("impact_changed_surface", WriteContextP1, text, "impact_analysis",
+					WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+				item.ID = writeContextStableID("impact_changed_surface", analysis.ResultID, surface.ID)
+				item.SourceID = analysis.ResultID
+				pack.Items = append(pack.Items, item)
 			}
 		}
 		for _, target := range analysis.VerificationTargets {
 			if text := renderImpactVerificationTargetContext(target); text != "" {
-				pack.Items = append(pack.Items, writeContextItem("impact_verification_target", WriteContextP2, text, "impact_analysis",
-					WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+				item := writeContextItem("impact_verification_target", WriteContextP2, text, "impact_analysis",
+					WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+				item.ID = writeContextStableID("impact_verification_target", analysis.ResultID, target.ID)
+				item.SourceID = analysis.ResultID
+				pack.Items = append(pack.Items, item)
 			}
 		}
 	}
@@ -1111,6 +1117,8 @@ func mergeWriteContextDuplicateItem(existing, incoming WriteContextItem) WriteCo
 		out.ID = incoming.ID
 	}
 	if out.Text == "" {
+		out.Text = incoming.Text
+	} else if existing.ID != "" && incoming.ID == existing.ID && incoming.Text != "" {
 		out.Text = incoming.Text
 	}
 	if out.SourceStage == "" {

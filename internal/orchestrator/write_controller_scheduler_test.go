@@ -2380,6 +2380,81 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewIgnoresCoveredA
 	}
 }
 
+func TestSyncMutablePlanStatusAfterVerifyMarksCoverageVerifiedAndRefreshesContext(t *testing.T) {
+	mu := types.NewMutableState("coverage projector")
+	plan := coverageProjectionPlanForTest()
+	scoped := types.WriteContextPackFromChangePlan(plan).WithScope("batch-1", "slice-1")
+	mu.SetChangePlan(plan)
+	mu.SetWriteContextPack(&scoped)
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-coverage",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			ActiveSliceID: "slice-1",
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorktreePath: "/tmp/codrax-worktree"}}
+
+	o.syncMutablePlanStatusAfterVerify(&types.ChangeReport{
+		PlanID:             "plan-coverage",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+	}, nil)
+
+	got := mu.ChangePlan()
+	if got == nil || got.Status != types.PlanStatusApplied {
+		t.Fatalf("plan status = %+v, want applied", got)
+	}
+	if got.ImpactAnalysis == nil || len(got.ImpactAnalysis.VerificationTargets) == 0 ||
+		got.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "verified" {
+		t.Fatalf("impact target coverage not verified: %+v", got.ImpactAnalysis)
+	}
+	if got.PatchReview == nil || len(got.PatchReview.Findings) == 0 ||
+		got.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageVerified {
+		t.Fatalf("patch review coverage not verified: %+v", got.PatchReview)
+	}
+	pack := mu.WriteContextPack()
+	if pack == nil {
+		t.Fatal("expected refreshed mutable context pack")
+	}
+	view := pack.ViewForScope(types.WriteConsumerVerifier, 40, "batch-1", "slice-1")
+	if !writeContextViewHasItem(view, "patch_review_finding", "coverage_status=verified") ||
+		!writeContextViewHasItem(view, "impact_verification_target", "coverage_status=verified") {
+		t.Fatalf("refreshed context pack missing verified coverage: %+v", view.Items)
+	}
+	if writeContextViewHasItem(view, "patch_review_finding", "coverage_status=unverified") ||
+		writeContextViewHasItem(view, "impact_verification_target", "coverage_status=unverified") {
+		t.Fatalf("stale unverified coverage leaked into context pack: %+v", view.Items)
+	}
+}
+
+func TestApplyVerifyCoverageToChangePlanPreservesMissingProbeSymbolGap(t *testing.T) {
+	plan := coverageProjectionPlanForTest()
+	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{
+		PlanID:             "plan-coverage",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:     "verification_probe",
+			Category:   "probe_changed_symbol",
+			Status:     "missing",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_missing_changed_symbol_ref",
+		}},
+	}, nil)
+
+	if plan.ImpactAnalysis == nil || len(plan.ImpactAnalysis.VerificationTargets) == 0 ||
+		plan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "unverified" {
+		t.Fatalf("missing symbol confidence should keep impact target unverified: %+v", plan.ImpactAnalysis)
+	}
+	if plan.PatchReview == nil || len(plan.PatchReview.Findings) == 0 ||
+		plan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageUnverified {
+		t.Fatalf("missing symbol confidence should keep patch review unverified: %+v", plan.PatchReview)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewDoesNotRecurse(t *testing.T) {
 	mu := types.NewMutableState("semantic patch review followup recursion")
 	mu.SetChangePlan(&types.ChangePlan{
@@ -2749,6 +2824,48 @@ func workflowRunContextContains(run *types.WriteWorkflowRun, kind, substring str
 		}
 	}
 	return false
+}
+
+func writeContextViewHasItem(view types.WriteContextView, kind, substring string) bool {
+	for _, item := range view.Items {
+		if item.Kind == kind && strings.Contains(item.Text, substring) {
+			return true
+		}
+	}
+	return false
+}
+
+func coverageProjectionPlanForTest() *types.ChangePlan {
+	return &types.ChangePlan{
+		ID:      "plan-coverage",
+		Summary: "repair covered symbol",
+		Status:  types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			ReviewID: "patch-review:plan-coverage:slice-1",
+			Findings: []types.PatchReviewFinding{{
+				Code:           "changed_symbol_without_probe_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/axis.py",
+				SubjectSymbol:  "Axis.convert",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+				EvidenceRef:    "pkg/axis.py:12",
+			}},
+		},
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			ResultID: "impact-analysis:plan-coverage:patch-effect",
+			PlanID:   "plan-coverage",
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "changed_symbol",
+				Path:           "pkg/axis.py",
+				Symbol:         "Axis.convert",
+				Priority:       20,
+				Source:         "impact_engine",
+				CoverageStatus: "unverified",
+				EvidenceRef:    "pkg/axis.py:12",
+			}},
+		},
+	}
 }
 
 func patchReviewRecordHasFinding(review types.PatchReviewRecord, code string) bool {

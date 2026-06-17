@@ -279,17 +279,31 @@ at a nearby test or dependent, but they cannot force approval or denial.
 ### Batch 4: Controller Observe Integration
 
 - Build the typed bundle after every successful apply before verify.
-- Recompute/update coverage after verify.
+- Recompute/update coverage after verify from authoritative typed
+  `ChangeReport` / `ObservationAuthorityView` verdicts:
+  - `passed` -> mark impacted verification targets and semantic patch review
+    findings `verified`;
+  - verifier unavailable (`runner_missing`, `parser_error`, `no_tests`) -> mark
+    coverage `unavailable`;
+  - failed build/test -> leave coverage `unverified` and carry failure evidence
+    through P2 handoff.
+- Preserve low-confidence probe exceptions through typed
+  `VerificationConfidenceRecord` entries such as missing changed-symbol or
+  contract refs.
 - Let controller schedule bounded follow-up only from typed review findings plus
   unverified/unavailable coverage.
-- Update `/workflow show` if needed to show patch critic and impact summaries
-  without adding routine commands.
+- Re-project updated plan context after verify so controller/planner/verifier see
+  current coverage rather than stale pre-verify handoff rows.
 - Tests:
   - post-apply observe produces patch effect, impact result, convention graph,
     and patch review;
   - verify failure carries impact target evidence to P2 context;
   - local verification unavailable finishes unverified only when critic has no
-    uncovered semantic follow-up.
+    uncovered semantic follow-up;
+  - successful typed verify refreshes `ImpactAnalysis` and `PatchReview`
+    coverage to `verified`;
+  - low-confidence probe pass keeps missing changed-symbol coverage
+    `unverified`.
 
 ### Batch 5: Commercial Hardening
 
@@ -325,5 +339,5 @@ at a nearby test or dependent, but they cannot force approval or denial.
 | 1 | complete | Patch Critic v2 typed finding model landed: `PatchReviewFinding` now carries category, relation, related path, subject symbol, strength, and coverage status; post-apply review consumes actual patch effect plus impact/convention typed inputs; semantic follow-up is driven by typed semantic coverage findings instead of specific event-code combinations. |
 | 2 | complete | ImpactAnalysisResult engine landed: `ChangePlan` now persists durable changed surfaces, impact edges, ranked verification targets, and the compact obligation projection; controller post-apply observe stamps the result from actual `PatchEffectRecord` plus repo graph; context packs expose P1 changed surfaces and P2 verification targets; Patch Critic can consume the result as its semantic coverage source. |
 | 3 | complete | Convention repository learner landed: post-apply review now learns repository-backed soft convention nodes from actual patch surfaces plus typed graph imports/reverse-imports/related tests, merges them with exploration handoff conventions, persists them through the existing convention store, and exposes convention advisory findings without making conventions hard-gate authority. |
-| 4 | pending | Controller observe integration. |
+| 4 | complete | Controller observe integration landed: post-verify coverage now derives from typed `ChangeReport`/`ObservationAuthorityView`, updates durable `ImpactAnalysis` verification targets and semantic `PatchReview` findings, preserves missing probe changed-symbol/contract refs via typed `VerificationConfidenceRecord`, re-projects updated plan context into workflow handoff, and prevents stale pre-verify coverage rows from leaking through stable context IDs. |
 | 5 | pending | Commercial hardening and eval runs. |

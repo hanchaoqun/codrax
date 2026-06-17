@@ -359,6 +359,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					}
 					o.syncMutablePlanStatusAfterVerify(report, innerErr)
 					o.mirrorActivePlanToImportFile(importedPlanMirror)
+					if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+						run = attachPlanContextPackToWorkflowRun(run, plan)
+					}
 					reportPack := types.WriteContextPackFromChangeReport(report).
 						WithScope(run.ActiveBatchID, activeWorkflowRunSliceID(run, run.ActiveBatchID))
 					o.busCtx.Mutable.MergeWriteContextPack(reportPack)
@@ -1661,7 +1664,177 @@ func (o *Orchestrator) syncMutablePlanStatusAfterVerify(report *types.ChangeRepo
 	if o.busCtx.WorktreePath != "" {
 		plan.WorktreePath = o.busCtx.WorktreePath
 	}
+	applyVerifyCoverageToChangePlan(plan, report, err)
 	o.busCtx.Mutable.SetChangePlan(plan)
+	pack := types.WriteContextPackFromChangePlan(plan)
+	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+		pack = pack.WithScope(strings.TrimSpace(run.ActiveBatchID), activeWorkflowRunSliceID(*run, run.ActiveBatchID))
+	}
+	if len(pack.Items) > 0 {
+		o.busCtx.Mutable.MergeWriteContextPack(pack)
+	}
+}
+
+const (
+	impactCoverageVerified    = "verified"
+	impactCoverageUnverified  = "unverified"
+	impactCoverageUnavailable = "unavailable"
+)
+
+type verifyCoverageProjection struct {
+	ImpactStatus string
+	ReviewStatus types.PatchReviewCoverageStatus
+	Confidence   verifyCoverageConfidence
+}
+
+type verifyCoverageConfidence struct {
+	MissingChangedSymbol bool
+	MissingContracts     map[string]bool
+	CoveredSymbols       map[string]bool
+	CoveredContracts     map[string]bool
+}
+
+func applyVerifyCoverageToChangePlan(plan *types.ChangePlan, report *types.ChangeReport, err error) {
+	if plan == nil || report == nil {
+		return
+	}
+	projection, ok := verifyCoverageProjectionFromReport(report, err)
+	if !ok {
+		return
+	}
+	if plan.ImpactAnalysis != nil {
+		analysis := types.NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
+		for i := range analysis.VerificationTargets {
+			analysis.VerificationTargets[i].CoverageStatus = impactCoverageForTarget(analysis.VerificationTargets[i], projection)
+		}
+		analysis = types.NormalizeImpactAnalysisResult(analysis)
+		plan.ImpactAnalysis = &analysis
+	}
+	if plan.PatchReview != nil {
+		review := types.NormalizePatchReviewRecord(*plan.PatchReview)
+		for i := range review.Findings {
+			if review.Findings[i].Category != types.PatchReviewCategorySemanticCoverage {
+				continue
+			}
+			review.Findings[i].CoverageStatus = patchReviewCoverageForFinding(review.Findings[i], projection)
+		}
+		review = types.NormalizePatchReviewRecord(review)
+		plan.PatchReview = &review
+	}
+}
+
+func verifyCoverageProjectionFromReport(report *types.ChangeReport, err error) (verifyCoverageProjection, bool) {
+	if report == nil {
+		return verifyCoverageProjection{}, false
+	}
+	authority := writeflow.DeriveObservationAuthorityFromReport(report, err)
+	projection := verifyCoverageProjection{Confidence: verifyCoverageConfidenceFromReport(report)}
+	switch authority.State {
+	case writeflow.ObservationAuthorityVerified:
+		projection.ImpactStatus = impactCoverageVerified
+		projection.ReviewStatus = types.PatchReviewCoverageVerified
+	case writeflow.ObservationAuthorityUnverified:
+		projection.ImpactStatus = impactCoverageUnavailable
+		projection.ReviewStatus = types.PatchReviewCoverageUnavailable
+	case writeflow.ObservationAuthorityFailed:
+		projection.ImpactStatus = impactCoverageUnverified
+		projection.ReviewStatus = types.PatchReviewCoverageUnverified
+	default:
+		return verifyCoverageProjection{}, false
+	}
+	return projection, true
+}
+
+func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCoverageConfidence {
+	conf := verifyCoverageConfidence{
+		MissingContracts: map[string]bool{},
+		CoveredSymbols:   map[string]bool{},
+		CoveredContracts: map[string]bool{},
+	}
+	if report == nil {
+		return conf
+	}
+	for _, rec := range report.VerificationConfidence {
+		status := strings.TrimSpace(rec.Status)
+		category := strings.TrimSpace(rec.Category)
+		switch {
+		case status == "missing" && category == "probe_changed_symbol":
+			conf.MissingChangedSymbol = true
+		case status == "missing" && category == "probe_contract_refs":
+			for _, ref := range rec.ContractRefs {
+				if ref = strings.TrimSpace(ref); ref != "" {
+					conf.MissingContracts[ref] = true
+				}
+			}
+		case status == "satisfied" && category == "probe_changed_symbol":
+			for _, ref := range rec.ChangedSymbolRefs {
+				if ref = strings.TrimSpace(ref); ref != "" {
+					conf.CoveredSymbols[ref] = true
+				}
+			}
+		case status == "satisfied" && category == "probe_contract_refs":
+			for _, ref := range rec.ContractRefs {
+				if ref = strings.TrimSpace(ref); ref != "" {
+					conf.CoveredContracts[ref] = true
+				}
+			}
+		}
+	}
+	return conf
+}
+
+func impactCoverageForTarget(target types.ImpactVerificationTarget, projection verifyCoverageProjection) string {
+	switch projection.ImpactStatus {
+	case impactCoverageVerified:
+		if target.Kind == "changed_symbol" && projection.Confidence.MissingChangedSymbol {
+			if target.Symbol == "" || !projection.Confidence.CoveredSymbols[target.Symbol] {
+				return impactCoverageUnverified
+			}
+		}
+		if target.Kind == "behavior_contract" {
+			ref := strings.TrimSpace(target.ContractRef)
+			if ref == "" {
+				ref = strings.TrimSpace(target.EvidenceRef)
+			}
+			if ref != "" && projection.Confidence.MissingContracts[ref] && !projection.Confidence.CoveredContracts[ref] {
+				return impactCoverageUnverified
+			}
+		}
+		return impactCoverageVerified
+	case impactCoverageUnavailable:
+		return impactCoverageUnavailable
+	case impactCoverageUnverified:
+		return impactCoverageUnverified
+	default:
+		return strings.TrimSpace(target.CoverageStatus)
+	}
+}
+
+func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection verifyCoverageProjection) types.PatchReviewCoverageStatus {
+	switch projection.ReviewStatus {
+	case types.PatchReviewCoverageVerified:
+		switch strings.TrimSpace(finding.Code) {
+		case "changed_symbol_without_probe_coverage":
+			if projection.Confidence.MissingChangedSymbol {
+				symbol := strings.TrimSpace(finding.SubjectSymbol)
+				if symbol == "" || !projection.Confidence.CoveredSymbols[symbol] {
+					return types.PatchReviewCoverageUnverified
+				}
+			}
+		case "behavior_contract_without_verify_coverage":
+			ref := strings.TrimSpace(finding.EvidenceRef)
+			if ref != "" && projection.Confidence.MissingContracts[ref] && !projection.Confidence.CoveredContracts[ref] {
+				return types.PatchReviewCoverageUnverified
+			}
+		}
+		return types.PatchReviewCoverageVerified
+	case types.PatchReviewCoverageUnavailable:
+		return types.PatchReviewCoverageUnavailable
+	case types.PatchReviewCoverageUnverified:
+		return types.PatchReviewCoverageUnverified
+	default:
+		return finding.CoverageStatus
+	}
 }
 
 func (o *Orchestrator) markActivePlanUnverifiedAfterVerifyInfra(reason string) {
@@ -4253,6 +4426,9 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 		}
 		o.syncMutablePlanStatusAfterVerify(report, innerErr)
 		o.mirrorActivePlanToImportFile(importedPlanMirror)
+		if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+			*run = attachPlanContextPackToWorkflowRun(*run, plan)
+		}
 		o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
 		updateWorkflowRunBatchVerify(run, run.ActiveBatchID, report, writeWorkflowVerifyAttemptStatus(report, innerErr), writeWorkflowVerifyAttemptReason(report, innerErr))
 		o.syncCurrentWriteContextPackToRun(run)
