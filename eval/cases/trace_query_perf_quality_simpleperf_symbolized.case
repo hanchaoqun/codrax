@@ -15,5 +15,7 @@ HTRACE='# tracer: nop
 EXPECT_CONTAINS="RenderPipeline::draw libui.so"
 EXPECT_MATCHES_REGEX="(simpleperf_report_sample|simpleperf).*?(symbolized|已符号化|符号)|(symbolized|已符号化|符号).*?(simpleperf_report_sample|simpleperf)
 (cpu_known=true|cpu=6|CPU.?6|CPU.*已知|sample CPU|采样.*CPU)
-(perf|sample|采样|热点|hotspot).*?(RenderPipeline::draw|libui\\.so)|(RenderPipeline::draw|libui\\.so).*?(perf|sample|采样|热点|hotspot)"
+(perf|sample|采样|热点|hotspot).*?(RenderPipeline::draw|libui\\.so)|(RenderPipeline::draw|libui\\.so).*?(perf|sample|采样|热点|hotspot)
+(period|采样周期).*?(不是|不能|不可|不要|not).*?(耗时|时长|duration|elapsed|采样密度|sample density)|(耗时|时长|duration|elapsed|采样密度|sample density).*?(不是|不能|不可|不要|not).*?(period|采样周期)"
+EXPECT_NOT_CONTAINS="833 8330 0.2% 12000/XXX"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

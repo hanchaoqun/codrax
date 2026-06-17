@@ -10499,11 +10499,11 @@ func runtimeTracePerfQualityMetricRows(ctx *types.AgentContext, requested map[st
 				Key:   key,
 				Value: value,
 			})
-			if key == "perf_quality" {
+			if seen["perf_quality"] && seen["perf_quality_caveats"] {
 				break
 			}
 		}
-		if seen["perf_quality"] {
+		if seen["perf_quality"] && seen["perf_quality_caveats"] {
 			break
 		}
 	}
