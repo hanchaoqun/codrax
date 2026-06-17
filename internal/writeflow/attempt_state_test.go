@@ -83,12 +83,13 @@ func TestValidateWorkflowRunStateDetectsContradictions(t *testing.T) {
 			Action: string(ApprovalActionAutoExecute),
 		},
 	}
+	plan.Approval.PlanFingerprint = types.PlanFingerprint(plan)
 	errs := ValidateWorkflowRunState(run, plan)
 	joined := strings.Join(errs, "\n")
 	for _, want := range []string{
 		"active_batch_id missing-batch does not match any batch",
 		"verify attempt plan_id other-plan conflicts with batch plan_id plan-1",
-		"pending_approval but plan approval action is auto_execute",
+		"pending_approval but plan approval state is auto_allowed",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing invariant %q from %v", want, errs)
@@ -117,8 +118,34 @@ func TestValidateWorkflowRunStateAllowsConsistentApprovalAndAttempts(t *testing.
 			Action: string(ApprovalActionAutoExecute),
 		},
 	}
+	plan.Approval.PlanFingerprint = types.PlanFingerprint(plan)
 	if errs := ValidateWorkflowRunState(run, plan); len(errs) != 0 {
 		t.Fatalf("consistent state rejected: %v", errs)
+	}
+}
+
+func TestValidateWorkflowRunStateDoesNotTreatStaleAutoApprovalAsExecutable(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-1",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchPendingApproval,
+			PlanID: "plan-1",
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-1",
+		Summary:     "current bytes changed after approval",
+		TargetPaths: []string{"pkg/fix.py"},
+		Approval: &types.WriteApprovalRecord{
+			Action:          string(ApprovalActionAutoExecute),
+			PlanFingerprint: "stale-fingerprint",
+		},
+	}
+	if errs := ValidateWorkflowRunState(run, plan); len(errs) != 0 {
+		t.Fatalf("stale auto approval should not be treated as executable authority: %v", errs)
 	}
 }
 

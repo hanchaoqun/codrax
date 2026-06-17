@@ -710,6 +710,45 @@ resume/status cards:
 | P2 | Add role-scoped typed dry-run tools for planner/replan. | Planning stages avoid ordinary `exec_command` while still getting structured build/probe evidence. |
 | P2 | Align REPL/CLI/SWE-bench status rendering on `WriteWorkflowNextActionView`. | Normal users do not need command knowledge; advanced commands remain audit/recovery only. |
 
+### State-Kernel Delivery Plan
+
+Status: not complete. The current code has budget-boundary auto-apply and
+post-apply verification overrides, but the general Claude Code-style
+`plan -> apply -> observe` online chain is not yet safe to enable
+unconditionally. The failed direct scheduler experiment proved the missing
+state-kernel pieces:
+
+- approval execution authority must be exact-fingerprint typed state, not plan
+  lifecycle status;
+- cancellation and controller dispatch errors must keep their current stop
+  semantics;
+- stale failed-verify state must force replan before another apply/verify;
+- post-apply observe must stay mandatory;
+- batch/slice context handoff must be swapped when the active batch changes.
+
+Implementation must therefore land in foundation-first batches:
+
+| Batch | Scope | Concrete work | Acceptance |
+| --- | --- | --- | --- |
+| SK-1 | Approval execution authority | Add a typed `ApprovalExecutionView` derived from `ChangePlan.Approval`, current `PlanFingerprint`, record integrity, user decision, and action. Update workflow invariants to consume this view instead of raw `Approval.Action`. | `auto_execute` with matching fingerprint is executable; stale/tampered `auto_execute` is not; pending approval is a contradiction only for executable current approval. |
+| SK-2 | Next-action state assembler | Add `WriteWorkflowExecutionView` that combines run, active batch, active slice, approval execution view, latest verify attempt, budgets, and mode. It is read-only and does not execute effects. | REPL/status/eval can render plan-ready/apply-ready/observe-required/replan-required from one typed view; no prose/log parsing. |
+| SK-3 | Deterministic transition validator | Add a validator for controller decisions against `WriteWorkflowExecutionView`: allowed actions, cancellation state, stale failed verify, apply-ready, observe-required, pending approval, and blocked reasons. | Existing controller tests pass; new tests prove canceled dispatch cannot auto-apply, failed verify cannot finish, and stale handoff cannot cross batches. |
+| SK-4 | Safe effect chaining | Move plan->apply chaining into an `EffectExecutor` lane that may run only when SK-2 says `apply_ready` and SK-3 says the deterministic transition is allowed. | Safe freshly planned slices apply without an extra controller turn; current cancellation/recovery/re-explore/replan/post-apply observe tests remain green. |
+| SK-5 | Observation authority | Promote package/build/syntax/probe/test verdicts into one typed observe result consumed by finish and replan decisions. | Passing narrative cannot finish; missing local deps produce unverified confidence downgrade; code failures force replan/split/block. |
+| SK-6 | Context and handoff durability | Add context-pack dedupe/cost/stale-batch metadata and make active batch switch clear stale verify-failure carriers deterministically. | Planner/verifier/controller consume Top-N typed views; prior P0/P1/P2 evidence survives resume while stale batch diagnostics do not leak. |
+| SK-7 | UX/eval unification | Render REPL/CLI/SWE-bench status from the same execution/next-action view. | Normal safe runs continue without command burden; high-risk shows one approval card; official SWE-bench predictions remain consumable. |
+| SK-8 | SWE-bench regression groups | Run at least two more non-Go SWE-bench Lite groups plus targeted Sphinx/Django regressions. | Predictions JSONL validates, official harness dry-run accepts, manual audit records correctness/gaps, and new gaps become typed backlog or fixes. |
+
+Batch discipline:
+
+- each batch updates this ledger before commit;
+- runtime behavior changes start only after SK-1/SK-3 tests establish the
+  state authority;
+- hard gates consume typed structs/enums/fingerprints/reports only;
+- no user-intent keyword matching or model prose parsing;
+- read/log/trace/data/operation/computer paths remain out of scope except for
+  regression tests.
+
 ## Current Codrax Baseline
 
 Current main already contains major foundations:
@@ -1820,3 +1859,4 @@ Backlog from this regression:
 | SWE-bench follow-up env audit | complete | Ran `matplotlib__matplotlib-25433` / `scikit-learn__scikit-learn-15512` / `sphinx-doc__sphinx-8801`; generated predictions validate with `empty_patch=0` and official harness dry-run accepts the JSONL. Manual audit found all three are `predicted_unverified`: Matplotlib/scikit-learn are compile-heavy partial envs, while Sphinx is pure Python but imported an old Sphinx API against modern Jinja2. This batch extends the existing typed Python compat-constraint mechanism with `Jinja2<3.1` when a project declares Jinja2 only with a lower bound. Missing local deps remain confidence downgrades, not hard gates. |
 | Paper-grounded online kernel v2 | complete | Re-checked the Claude Code design-space paper, official loop/permission/subagent/checkpoint/context docs, and the companion public repository, then added the v2 online-kernel design section. A direct plan->auto-apply scheduler experiment was rejected by `go test ./internal/orchestrator` because the current controller still relies on a separate turn for cancellation, recovery, re-explore/replan, and post-apply observe ordering. The direction remains valid but must be delivered as the v2 state-kernel batch, not as a local patch. SWE-bench adapter now reports `workflow_pending_approval_empty_patch` for true high-risk pending plans instead of collapsing them into generic in-progress empty output. |
 | Approval-action status authority | complete | Tightened the SWE-bench adapter status boundary so empty-patch audit reads the typed `WriteApprovalRecord.action` before labeling an in-progress `pending_approval` plan as manual approval. `Status=pending_approval` alone remains a proposal lifecycle field and no longer proves user action is required when `action=auto_execute`. The adapter now exports plan approval action/risk/reason/user-decision fields for downstream audit without parsing logs or model prose. |
+| SK-1 approval execution authority | complete | Added the detailed State-Kernel Delivery Plan for the unfinished Claude Code-style online gap. Implemented `writeflow.ApprovalExecutionView`, a typed authority over `WriteApprovalRecord.action`, current `PlanFingerprint`, record integrity, and user decision. Workflow invariant validation now consumes this view, so a matching `auto_execute` approval can be treated as executable authority while stale/tampered records remain non-executable and cannot falsely contradict `pending_approval`. |

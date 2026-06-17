@@ -160,12 +160,13 @@ func validateWorkflowPlanBatchState(run types.WriteWorkflowRun, plan *types.Chan
 		if batch.PlanID != planID {
 			continue
 		}
-		switch strings.TrimSpace(plan.Approval.Action) {
-		case string(ApprovalActionAutoExecute):
+		approval := DeriveApprovalExecutionView(plan)
+		switch approval.State {
+		case ApprovalExecutionAutoAllowed, ApprovalExecutionManualApproved:
 			if batch.Status == types.WriteWorkflowBatchPendingApproval {
-				errs = append(errs, "batch "+batch.ID+" is pending_approval but plan approval action is auto_execute")
+				errs = append(errs, "batch "+batch.ID+" is pending_approval but plan approval state is "+string(approval.State))
 			}
-		case string(ApprovalActionDeny):
+		case ApprovalExecutionDenied:
 			if batch.Status != types.WriteWorkflowBatchBlocked {
 				errs = append(errs, "batch "+batch.ID+" is "+string(batch.Status)+" but plan approval action is deny")
 			}
