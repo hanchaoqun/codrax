@@ -64,6 +64,91 @@ func TestConvertFileWritesTextSystraceAndRefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestConvertFileExtractsStandaloneHiperfDataAndBundle(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "sample-with-perf.htrace")
+	perfPayload := []byte("PERF-DATA-PAYLOAD")
+	body := append(syntheticBinaryHitrace(t), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", perfPayload)...)
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(dir, "out.systrace")
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	if result.OutputPath != output || result.BundlePath != filepath.Join(dir, "out.tracebundle.json") {
+		t.Fatalf("unexpected output/bundle paths: %+v", result)
+	}
+	var perf Artifact
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactPerfData {
+			perf = artifact
+			break
+		}
+	}
+	if perf.Path == "" || perf.PluginName != "hiperf-plugin" || perf.DataType != profilerDataTypeHiperf {
+		t.Fatalf("missing perf_data artifact: %+v", result.Artifacts)
+	}
+	gotPayload, err := os.ReadFile(perf.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotPayload, perfPayload) {
+		t.Fatalf("perf payload mismatch: got %q want %q", gotPayload, perfPayload)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"type": "perf_data"`, `"plugin_name": "hiperf-plugin"`, `"systrace": "` + output + `"`} {
+		if !strings.Contains(string(bundle), want) {
+			t.Fatalf("bundle missing %q:\n%s", want, bundle)
+		}
+	}
+}
+
+func TestConvertFileReturnsStandalonePerfArtifactWithoutSystraceContainer(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "perf-only.htrace")
+	perfPayload := []byte("ONLY-PERF-DATA")
+	if err := os.WriteFile(input, syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", perfPayload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ConvertFile(context.Background(), Options{InputPath: input})
+	if err != nil {
+		t.Fatalf("convert should return extracted sidecar instead of failing outright: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 {
+		t.Fatalf("standalone-only input should not claim systrace output: %+v", result)
+	}
+	if result.BundlePath == "" {
+		t.Fatalf("standalone-only conversion should emit a bundle: %+v", result)
+	}
+	var perf Artifact
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactPerfData {
+			perf = artifact
+			break
+		}
+	}
+	if perf.Path == "" {
+		t.Fatalf("missing perf_data artifact: %+v", result.Artifacts)
+	}
+	gotPayload, err := os.ReadFile(perf.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotPayload, perfPayload) {
+		t.Fatalf("perf payload mismatch: got %q want %q", gotPayload, perfPayload)
+	}
+	if !containsString(result.Caveats, "systrace output was not produced") {
+		t.Fatalf("partial conversion should carry caveat: %+v", result.Caveats)
+	}
+}
+
 func TestConvertFileSkipsMissingFormatRows(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "missing-format.htrace")
@@ -600,6 +685,27 @@ func syntheticBinaryHitrace(t *testing.T) []byte {
 	writeSegment(&b, segmentTGIDs, []byte("36379 36379\n"))
 	writeSegment(&b, segmentRawTrace, syntheticRawPage())
 	return b.Bytes()
+}
+
+func syntheticStandaloneProfilerBlock(dataType uint32, pluginName, pluginVersion string, payload []byte) []byte {
+	block := make([]byte, profilerTraceHeaderSize+len(payload))
+	binary.LittleEndian.PutUint64(block[0:8], profilerTraceHeaderMagic)
+	binary.LittleEndian.PutUint64(block[8:16], uint64(len(block)))
+	binary.LittleEndian.PutUint32(block[16:20], 0x00010000)
+	binary.LittleEndian.PutUint32(block[56:60], dataType)
+	copy(block[profilerPluginNameOffset:profilerPluginNameOffset+profilerPluginNameSize], []byte(pluginName))
+	copy(block[profilerPluginVersionOffset:profilerPluginVersionOffset+profilerPluginVersionSize], []byte(pluginVersion))
+	copy(block[profilerTraceHeaderSize:], payload)
+	return block
+}
+
+func containsString(items []string, needle string) bool {
+	for _, item := range items {
+		if strings.Contains(item, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func syntheticEventFormat() string {

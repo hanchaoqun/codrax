@@ -40,17 +40,35 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if output == "" {
 		output = DefaultOutputPath(input)
 	}
-	if _, err := os.Stat(output); err == nil {
-		return Result{}, fmt.Errorf("output file already exists: %s (delete it first or specify a different output path)", output)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return Result{}, fmt.Errorf("check output path %s: %w", output, err)
+	if err := ensureOutputDoesNotExist(output); err != nil {
+		return Result{}, err
 	}
 	info, err := os.Stat(input)
 	if err != nil {
 		return Result{}, err
 	}
+	standaloneArtifacts, standaloneCaveats, err := extractStandaloneArtifacts(ctx, input, info.Size(), output)
+	if err != nil {
+		return Result{}, err
+	}
 	meta, err := scanMetadata(ctx, input, info.Size())
 	if err != nil {
+		if len(standaloneArtifacts) > 0 {
+			result := Result{
+				InputPath:  input,
+				InputBytes: info.Size(),
+				Artifacts:  append([]Artifact(nil), standaloneArtifacts...),
+				Caveats: append(standaloneCaveats,
+					fmt.Sprintf("systrace output was not produced because the input did not match the supported binary hitrace event-format container: %v", err)),
+			}
+			if bundleArtifact, bundleErr := writeTraceBundle(input, "", result.Artifacts, result.Caveats); bundleErr != nil {
+				return Result{}, bundleErr
+			} else if bundleArtifact.Path != "" {
+				result.BundlePath = bundleArtifact.Path
+				result.Artifacts = append(result.Artifacts, bundleArtifact)
+			}
+			return result, nil
+		}
 		return Result{}, err
 	}
 	rows, missing, unknown, first, last, err := renderRows(ctx, input, meta)
@@ -82,21 +100,35 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, err
 	}
 	result := Result{
-		InputPath:          input,
-		OutputPath:         output,
-		InputBytes:         info.Size(),
-		OutputBytes:        outInfo.Size(),
+		InputPath:   input,
+		OutputPath:  output,
+		InputBytes:  info.Size(),
+		OutputBytes: outInfo.Size(),
+		Artifacts: []Artifact{{
+			Type:      ArtifactSystrace,
+			Path:      output,
+			Bytes:     outInfo.Size(),
+			Converter: converterVersion,
+		}},
 		EventsWritten:      len(rows),
 		MissingFormatCount: missing,
 		UnknownEventCount:  unknown,
 		FirstTimestampSec:  float64(first) / 1e9,
 		LastTimestampSec:   float64(last) / 1e9,
 	}
+	result.Artifacts = append(result.Artifacts, standaloneArtifacts...)
 	if missing > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d raw event(s) had no event format and were skipped to keep systrace output compatible with official parsers", missing))
 	}
 	if unknown > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d event row(s) lacked an official-compatible renderer and were emitted as header-only rows", unknown))
+	}
+	result.Caveats = append(result.Caveats, standaloneCaveats...)
+	if bundleArtifact, err := writeTraceBundle(input, output, result.Artifacts, result.Caveats); err != nil {
+		return Result{}, err
+	} else if bundleArtifact.Path != "" {
+		result.BundlePath = bundleArtifact.Path
+		result.Artifacts = append(result.Artifacts, bundleArtifact)
 	}
 	return result, nil
 }
@@ -131,6 +163,9 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 		}
 		if err != nil {
 			return nil, fmt.Errorf("read segment header at %d: %w", pos, err)
+		}
+		if isProfilerTraceHeaderPrefix(typ, segSize) {
+			break
 		}
 		payloadOffset, _ := f.Seek(0, io.SeekCurrent)
 		if segSize > uint32(size) || payloadOffset+int64(segSize) > size {

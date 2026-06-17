@@ -7,6 +7,13 @@ const (
 	converterVersion    = "hitraceconv-v1"
 )
 
+const (
+	ArtifactSystrace    = "systrace"
+	ArtifactPerfData    = "perf_data"
+	ArtifactPerfTrace   = "perftrace"
+	ArtifactTraceBundle = "tracebundle"
+)
+
 // Options controls one explicit binary HiTrace conversion.
 type Options struct {
 	InputPath  string
@@ -14,10 +21,25 @@ type Options struct {
 	Flavor     string
 }
 
+type Artifact struct {
+	Type          string   `json:"type"`
+	Path          string   `json:"path"`
+	Bytes         int64    `json:"bytes,omitempty"`
+	DataType      uint32   `json:"data_type,omitempty"`
+	PluginName    string   `json:"plugin_name,omitempty"`
+	PluginVersion string   `json:"plugin_version,omitempty"`
+	SourceOffset  int64    `json:"source_offset,omitempty"`
+	SourceBytes   int64    `json:"source_bytes,omitempty"`
+	Converter     string   `json:"converter,omitempty"`
+	Caveats       []string `json:"caveats,omitempty"`
+}
+
 // Result summarizes a completed conversion.
 type Result struct {
 	InputPath          string
 	OutputPath         string
+	BundlePath         string
+	Artifacts          []Artifact
 	InputBytes         int64
 	OutputBytes        int64
 	EventsWritten      int

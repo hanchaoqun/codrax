@@ -51,24 +51,51 @@ are never overwritten; delete the file first or choose another output path.`,
 				fmt.Fprintln(cmd.OutOrStdout(), traceConvertCaveatLine(flagLang, caveat))
 			}
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), traceConvertNextLine(flagLang, result.OutputPath))
+		fmt.Fprintln(cmd.OutOrStdout(), traceConvertNextLine(flagLang, result))
 		return nil
 	},
 }
 
 func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 	if traceConvertUseZh(lang) {
-		return []string{
+		lines := []string{
 			fmt.Sprintf("已转换二进制 hitrace：%s", result.InputPath),
-			fmt.Sprintf("输出：%s", result.OutputPath),
 			fmt.Sprintf("事件：%d，跳过缺失格式：%d，仅行头事件：%d", result.EventsWritten, result.MissingFormatCount, result.UnknownEventCount),
 		}
+		if result.OutputPath != "" {
+			lines = append(lines, fmt.Sprintf("输出：%s", result.OutputPath))
+		} else {
+			lines = append(lines, "输出：未生成 systrace（仅抽取 sidecar artifact）")
+		}
+		lines = append(lines, traceConvertArtifactLines("zh", result.Artifacts)...)
+		return lines
 	}
-	return []string{
+	lines := []string{
 		fmt.Sprintf("converted binary hitrace: %s", result.InputPath),
-		fmt.Sprintf("output: %s", result.OutputPath),
 		fmt.Sprintf("events: %d, skipped_missing_formats: %d, header_only_events: %d", result.EventsWritten, result.MissingFormatCount, result.UnknownEventCount),
 	}
+	if result.OutputPath != "" {
+		lines = append(lines, fmt.Sprintf("output: %s", result.OutputPath))
+	} else {
+		lines = append(lines, "output: no systrace produced (sidecar artifacts only)")
+	}
+	lines = append(lines, traceConvertArtifactLines("en", result.Artifacts)...)
+	return lines
+}
+
+func traceConvertArtifactLines(lang string, artifacts []hitraceconv.Artifact) []string {
+	var lines []string
+	for _, artifact := range artifacts {
+		if artifact.Type == hitraceconv.ArtifactSystrace {
+			continue
+		}
+		if traceConvertUseZh(lang) {
+			lines = append(lines, fmt.Sprintf("artifact[%s]：%s", artifact.Type, artifact.Path))
+		} else {
+			lines = append(lines, fmt.Sprintf("artifact[%s]: %s", artifact.Type, artifact.Path))
+		}
+	}
+	return lines
 }
 
 func traceConvertCaveatLine(lang, caveat string) string {
@@ -78,11 +105,23 @@ func traceConvertCaveatLine(lang, caveat string) string {
 	return fmt.Sprintf("caveat: %s", caveat)
 }
 
-func traceConvertNextLine(lang, outputPath string) string {
-	if traceConvertUseZh(lang) {
-		return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>", outputPath)
+func traceConvertNextLine(lang string, result hitraceconv.Result) string {
+	if result.OutputPath == "" {
+		if result.BundlePath != "" {
+			if traceConvertUseZh(lang) {
+				return fmt.Sprintf("下一步：查看 trace bundle %q；若有 perf.data，请用官方 hiperf/simpleperf 转成 .perftrace 后再用 trace_query 分析", result.BundlePath)
+			}
+			return fmt.Sprintf("next: inspect trace bundle %q; convert perf.data with official hiperf/simpleperf to .perftrace before trace_query CPU-sample analysis", result.BundlePath)
+		}
+		if traceConvertUseZh(lang) {
+			return "下一步：未生成可直接附加的 systrace"
+		}
+		return "next: no attachable systrace was produced"
 	}
-	return fmt.Sprintf("next: codrax --htrace %q --request <question>", outputPath)
+	if traceConvertUseZh(lang) {
+		return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>", result.OutputPath)
+	}
+	return fmt.Sprintf("next: codrax --htrace %q --request <question>", result.OutputPath)
 }
 
 func traceConvertUseZh(lang string) bool {

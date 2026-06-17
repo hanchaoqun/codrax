@@ -37,10 +37,11 @@ func TestTraceConvertResultLinesFollowLanguage(t *testing.T) {
 }
 
 func TestTraceConvertNextLineFollowsLanguage(t *testing.T) {
-	if got := traceConvertNextLine("zh", "out.systrace"); !strings.Contains(got, "下一步") || !strings.Contains(got, "<问题>") {
+	result := hitraceconv.Result{OutputPath: "out.systrace"}
+	if got := traceConvertNextLine("zh", result); !strings.Contains(got, "下一步") || !strings.Contains(got, "<问题>") {
 		t.Fatalf("zh next line malformed: %q", got)
 	}
-	if got := traceConvertNextLine("en", "out.systrace"); !strings.Contains(got, "next:") || !strings.Contains(got, "<question>") {
+	if got := traceConvertNextLine("en", result); !strings.Contains(got, "next:") || !strings.Contains(got, "<question>") {
 		t.Fatalf("en next line malformed: %q", got)
 	}
 }

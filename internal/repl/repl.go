@@ -10689,12 +10689,18 @@ func (r *REPL) handleHitraceConvert(args string) {
 		return
 	}
 	r.success(htraceConvertSuccess(r.language, result.OutputPath, result.EventsWritten))
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == hitraceconv.ArtifactSystrace {
+			continue
+		}
+		r.info(htraceConvertArtifactMsg(r.language, artifact.Type, artifact.Path))
+	}
 	if len(result.Caveats) > 0 {
 		for _, caveat := range result.Caveats {
 			r.warn("%s", htraceConvertCaveatMsg(r.language, caveat))
 		}
 	}
-	r.info(htraceConvertNextMsg(r.language, result.OutputPath))
+	r.info(htraceConvertNextMsg(r.language, result.OutputPath, result.BundlePath))
 }
 
 func isHelpArg(arg string) bool {

@@ -3220,10 +3220,23 @@ func htraceConvertUsage(lang string) string {
 }
 
 func htraceConvertSuccess(lang, outputPath string, events int) string {
+	if outputPath == "" {
+		if isZh(lang) {
+			return formatN(lang, "已抽取 hitrace sidecar artifact（未生成 systrace，%d 个事件）", events)
+		}
+		return formatN(lang, "extracted hitrace sidecar artifacts (no systrace produced, %d events)", events)
+	}
 	if isZh(lang) {
 		return formatN(lang, "已转换 hitrace：%s（%d 个事件）", outputPath, events)
 	}
 	return formatN(lang, "converted hitrace: %s (%d events)", outputPath, events)
+}
+
+func htraceConvertArtifactMsg(lang, typ, path string) string {
+	if isZh(lang) {
+		return formatN(lang, "hitrace artifact[%s]：%s", typ, path)
+	}
+	return formatN(lang, "hitrace artifact[%s]: %s", typ, path)
 }
 
 func htraceConvertCaveatMsg(lang, caveat string) string {
@@ -3240,7 +3253,19 @@ func htraceConvertFailedMsg(lang string, err error) string {
 	return formatN(lang, "convert hitrace: %v", err)
 }
 
-func htraceConvertNextMsg(lang, outputPath string) string {
+func htraceConvertNextMsg(lang, outputPath, bundlePath string) string {
+	if outputPath == "" {
+		if bundlePath != "" {
+			if isZh(lang) {
+				return formatN(lang, "下一步：查看 trace bundle %s；若有 perf.data，请用官方 hiperf/simpleperf 转成 .perftrace 后再分析", bundlePath)
+			}
+			return formatN(lang, "next: inspect trace bundle %s; convert perf.data with official hiperf/simpleperf to .perftrace before analysis", bundlePath)
+		}
+		if isZh(lang) {
+			return "下一步：未生成可直接附加的 systrace"
+		}
+		return "next: no attachable systrace was produced"
+	}
 	if isZh(lang) {
 		return formatN(lang, "下一步：/htrace %s", outputPath)
 	}

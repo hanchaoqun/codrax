@@ -273,6 +273,8 @@ Status: implemented. `RootCauseRankItem.perf_context` is populated after determi
 - Emit `.perftrace` and `.tracebundle.json` with provenance.
 - Keep `.systrace` behavior stable for traces without perf data.
 
+Status: in progress. D1 landed multi-artifact result metadata, official `TraceFileHeader` scanning for `DataType::HIPERF_DATA`, `.perf.data` sidecar extraction, `.tracebundle.json` provenance output, CLI/REPL artifact reporting, and converter tests for both systrace+perf and standalone-only perf inputs. Remaining D work is the official parser adapter path that turns extracted `.perf.data` into normalized `.perftrace`.
+
 ### Batch E: CLI/REPL and Attachment UX
 
 - Auto-discover sibling `.perftrace` / `.tracebundle.json` when users attach or mention a trace path.
@@ -324,6 +326,8 @@ Eval targets:
 - [x] Batch C implemented, committed, pushed.
   - Landed candidate-level `perf_context`, frame bundle role contexts, summary/evidence/typed-observation handoff, prompt/schema teaching for the new output fields, and synthetic tests for root-cause and role-specific perf joins.
 - [ ] Batch D implemented, committed, pushed.
+  - [x] D1 converter sidecar extraction and bundle metadata implemented, committed, pushed.
+  - [ ] D2 official hiperf/simpleperf adapter to normalized `.perftrace`.
 - [ ] Batch E implemented, committed, pushed.
 - [ ] Batch F evals added and representative cases run two at a time.
 
