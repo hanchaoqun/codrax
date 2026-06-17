@@ -2004,14 +2004,36 @@ Commercial design decision:
   remains ignored, so verifier compatibility and older typed verify flows are
   preserved.
 
-Remaining task candidate after this batch:
+## 2026-06-17 SK-9b Verifier Default RunTests Authority
 
-- P1: verifier parameter convergence. `sympy__sympy-23117` showed the verifier
-  manually passed `runner=python, framework=pytest`, bypassing default
-  plan-touched/probe-first selection and timing out on a broad pytest run. A
-  future batch should make verifier calls prefer `{}` and typed plan probes by
-  policy, while still allowing explicit runner overrides only when typed
-  handoff requires them.
+Evidence from the same Django/SymPy Lite run exposed a second stage-boundary
+gap: `sympy__sympy-23117` reached verify after apply, but the verifier model
+manually called `run_tests` with `runner=python, framework=pytest,
+working_dir=.`. That bypassed the default `run_tests({})` lane that already
+owns plan-touched runner preference, pre-suite verification probes,
+syntax/no-test fallback, missing-runner downgrades, and typed TestSurface
+escalation. The result was a broad pytest run that timed out instead of letting
+the deterministic verifier choose the narrowest available target first.
+
+Commercial design decision:
+
+- The verifier model no longer has authority to select runner/framework/suite
+  parameters. In write `StageVerify`, `run_tests` is projected as an empty JSON
+  object schema with `additionalProperties=false`.
+- Runtime policy rejects any non-empty verifier `run_tests` params with typed
+  repair code `write_verifier_run_tests_default_required`. This covers
+  `runner`, `framework`, `suite`, `working_dir`, `timeout`, `dry_run`, and
+  future accidental free-form fields uniformly.
+- Prompt and skill text now say the same thing: call `run_tests({})` exactly
+  once, then stop or optionally emit a short narrative. Detected TestSurface
+  candidates are audit preview only; they are not a menu for the model to copy
+  into tool params.
+- The design keeps the red line intact: hard routing consumes typed tool
+  parameters and deterministic state only. It does not parse user intent,
+  issue text, model rationale, or log prose to decide which runner to execute.
+- Future explicit verifier targets, if needed, must be installed by the
+  scheduler as a typed override contract with a different tool schema; they
+  must not re-open model-selected runner parameters by default.
 
 ## Progress Ledger
 
@@ -2053,3 +2075,4 @@ Remaining task candidate after this batch:
 | SK-7a SWE-bench progress telemetry fallback | complete | Hardened adapter heartbeats so workflow-progress races or callback failures render typed `workflow=unavailable` reasons instead of leaking exception names into progress status. This preserves raw `codrax.out` transparency while keeping eval/UX progress derived from typed workflow state or typed unavailable reasons. Adapter unit tests and local smoke pass. |
 | SK-8a Python static verify preflight | complete | Added a generic stdlib `symtable` undefined-name preflight after `py_compile` in the Python no-test-infra verification lane, with typed suite `python_static_name_check` and reason `python_static_undefined_name`. This came from the `pallets__flask-4045` manual audit, but is implemented as a language-level preflight over parsed symbols, not case routing. Focused Go tests, adapter tests, local smoke, full Go regression, build, and the Flask SWE-bench Lite re-run passed; the wrong-layer undefined-name patch did not recur and the final patch is harness-consumable. |
 | SK-9a planning-lane test execution boundary | complete | Django/SymPy Lite audit showed planner replan could use `run_tests(dry_run=true)` as a suite debugger, burning plan turns and ending without `emit_change_plan`. This batch hardens the boundary so write `StagePlan` accepts `run_tests` only with `dry_run=true` plus a typed `verification_probe`; suite/runner dry-runs are rejected by tool policy and by `run_tests` itself. Planner schema and prompts now expose the same narrowed contract. Verification passed: focused agent/tool/skill tests, `git diff --check`, full `go test ./...`, and `make`. |
+| SK-9b verifier default run_tests authority | complete | SymPy Lite audit showed verifier could manually pass `runner=python, framework=pytest, working_dir=.`, bypassing default plan-touched/probe-first selection and timing out on broad pytest. Write `StageVerify` now exposes `run_tests` as `{}` only, rejects non-empty params with typed repair `write_verifier_run_tests_default_required`, and aligns verifier/skill prompts with deterministic TestSurface authority. Verification passed: focused agent/skill/tool tests, `git diff --check`, full `go test ./...`, and `make`. |

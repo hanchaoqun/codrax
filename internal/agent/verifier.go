@@ -112,8 +112,8 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		"Your job is mechanical: call run_tests EXACTLY ONCE, then stop. The system completes the stage as soon as run_tests " +
 		"installs the test results.\n\n" +
 		"Workflow:\n" +
-		"  1. Call run_tests EXACTLY ONCE with `{}` by default. run_tests owns typed test-surface detection, plan-touched language preference, syntax/no-tests fallback, and dead-end escalation.\n" +
-		"  2. Pass `runner`, `framework`, or `working_dir` only when a prior typed handoff already names a specific verifier target. Supported runners: go / node / python / rust / java / ruby / swift / cmake / meson / make / hvigor / cjpm.\n" +
+		"  1. Call run_tests EXACTLY ONCE with `{}`. run_tests owns typed test-surface detection, plan-touched language preference, pre-suite verification probes, syntax/no-tests fallback, and dead-end escalation.\n" +
+		"  2. Do NOT pass `runner`, `framework`, `working_dir`, `suite`, `timeout`, or `dry_run` from the verifier stage. Explicit verifier targets are rejected unless a future scheduler-supplied typed override installs a different tool contract.\n" +
 		"  3. STOP after run_tests returns. Read its tool result:\n" +
 		"     - verdict=PASSED → done; the verify stage will succeed. If the result also lists `NoTestsRunners=[...]`, that means the selected runner found no direct test work or used a syntax fallback. run_tests automatically escalates to another typed runnable candidate before returning when one exists, so do not invent additional checks.\n" +
 		"     - verdict=FAILED → optionally call emit_test_results once with a 1-4 sentence failure_summary narrative + classification arrays. Do not re-run tests; the verify→plan retry loop owns recovery.\n\n" +
@@ -478,8 +478,8 @@ func renderVerifierTestSurfaceSection(repoRoot string) string {
 		}
 		s.WriteString(line + "\n")
 	}
-	s.WriteString("\nPrefer the highest-ranked candidate with test_work=yes; pass its runner " +
-		"(plus working_dir when it is not \".\") only when a typed handoff requires a specific target; otherwise call run_tests with {}. If the selected candidate reports zero tests, uses a " +
+	s.WriteString("\nThis inventory is an audit preview only. Call run_tests with {} and let the " +
+		"deterministic verifier selector choose from these candidates using typed evidence, plan-touched targets, and pre-suite probes. If the selected candidate reports zero tests, uses a " +
 		"syntax fallback, or hits a missing binary, the system runs the next candidate with " +
 		"test work automatically.\n")
 	return s.String()

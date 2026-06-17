@@ -2925,6 +2925,10 @@ func writePlannerDryRunOnly(ctx *types.AgentContext) bool {
 	return ctx != nil && ctx.Stage == types.StagePlan && ctx.Mode.IsWrite()
 }
 
+func writeVerifierDefaultRunTestsOnly(ctx *types.AgentContext) bool {
+	return ctx != nil && ctx.Stage == types.StageVerify && ctx.Mode.IsWrite()
+}
+
 func writePlannerBlocksTool(ctx *types.AgentContext, name string) bool {
 	if !writePlannerDryRunOnly(ctx) {
 		return false
@@ -2964,6 +2968,10 @@ func writePlannerRunTestsParameters(raw json.RawMessage) json.RawMessage {
 	return patched
 }
 
+func writeVerifierRunTestsParameters(_ json.RawMessage) json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false,"description":"Write verification calls run_tests with an empty object. The deterministic verifier owns TestSurface selection, plan-touched target preference, pre-suite probes, fallback, and escalation."}`)
+}
+
 func appendJSONSchemaRequired(raw any, field string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -2996,6 +3004,46 @@ func appendJSONSchemaRequired(raw any, field string) []string {
 		out = append(out, field)
 	}
 	return out
+}
+
+func validateWriteVerifierToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	if !writeVerifierDefaultRunTestsOnly(ctx) {
+		return nil
+	}
+	canonical := types.CanonicalToolName(tc.Name)
+	if canonical != "run_tests" {
+		return nil
+	}
+	if writeVerifierRunTestsParamsAreDefault(tc.Params) {
+		return nil
+	}
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Summary:   "run_tests rejected: write verification must call run_tests with {} so the deterministic verifier selector can run plan probes, plan-touched target preference, syntax/no-tests fallback, and TestSurface escalation.",
+		Success:   false,
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code: "write_verifier_run_tests_default_required",
+			Hint: "Re-run run_tests with an empty object: {}. Do not pass runner, framework, suite, working_dir, timeout, or dry_run from the verifier stage.",
+			Metadata: map[string]string{
+				"tool":   canonical,
+				"stage":  string(types.StageVerify),
+				"policy": "write_verifier_default_run_tests_only",
+			},
+		},
+	}
+}
+
+func writeVerifierRunTestsParamsAreDefault(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return true
+	}
+	var params map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return false
+	}
+	return len(params) == 0
 }
 
 func validateWritePlannerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
@@ -3395,6 +3443,10 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			if _, ok := t.(*tool.RunTests); ok && writePlannerDryRunOnly(ctx) {
 				params = writePlannerRunTestsParameters(params)
 				desc += " While preparing a write plan this tool is available only with dry_run=true and a typed verification_probe object."
+			}
+			if _, ok := t.(*tool.RunTests); ok && writeVerifierDefaultRunTestsOnly(ctx) {
+				params = writeVerifierRunTestsParameters(params)
+				desc += " During write verification, call this with {}. Deterministic run_tests selection owns TestSurface ranking, plan-touched preference, probes, fallback, and escalation."
 			}
 			schemas = append(schemas, llm.ToolSchema{
 				Name:        t.Name(),
@@ -4068,6 +4120,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 		return violation, nil
 	}
 	if violation := validateWritePlannerToolPolicy(ctx, tc); violation != nil {
+		return violation, nil
+	}
+	if violation := validateWriteVerifierToolPolicy(ctx, tc); violation != nil {
 		return violation, nil
 	}
 

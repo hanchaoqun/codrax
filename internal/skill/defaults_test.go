@@ -650,6 +650,10 @@ func TestTestExecuteSkill_NoTestsRunnersGuidanceMentionsSurfaceEscalation(t *tes
 	for _, bad := range []string{
 		"The verdict is PASSED — that is a clean run with no test work to do",
 		"Just stop.",
+		"Always supply `runner`",
+		"runner parameter set to your chosen runner",
+		"Use the `suite` parameter",
+		"inspect the worktree with list_files",
 	} {
 		if strings.Contains(blob, bad) {
 			t.Fatalf("test execute skill still contains stale NoTestsRunners guidance %q; got:\n%s", bad, blob)

@@ -442,6 +442,51 @@ func TestBuildToolSchemas_WritePlannerHidesShellAndForcesDryRunProbe(t *testing.
 	}
 }
 
+func TestBuildToolSchemas_WriteVerifierForcesDefaultRunTests(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	toolpkg.RegisterDefaults(reg)
+	base := NewBaseAgent(types.AgentVerifier, &Dependencies{Tools: reg}, nil)
+	ctx := &types.AgentContext{
+		Stage: types.StageVerify,
+		Mode:  types.ModeApply,
+	}
+	sk := &skill.Config{ToolSuggestions: []string{
+		"run_tests",
+		"emit_test_results",
+		"exec_command",
+	}}
+	schemas := base.buildToolSchemas(sk, ctx)
+	var runTests *llm.ToolSchema
+	for i := range schemas {
+		if schemas[i].Name == "run_tests" {
+			runTests = &schemas[i]
+			break
+		}
+	}
+	if runTests == nil {
+		t.Fatalf("write verifier should expose run_tests: %+v", schemaNames(schemas))
+	}
+	raw := string(runTests.Parameters)
+	for _, banned := range []string{`"runner"`, `"framework"`, `"suite"`, `"working_dir"`, `"timeout"`, `"dry_run"`} {
+		if strings.Contains(raw, banned) {
+			t.Fatalf("verifier run_tests schema must not expose %s: %s", banned, raw)
+		}
+	}
+	var schema struct {
+		Properties           map[string]json.RawMessage `json:"properties"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+	}
+	if err := json.Unmarshal(runTests.Parameters, &schema); err != nil {
+		t.Fatalf("decode run_tests schema: %v", err)
+	}
+	if len(schema.Properties) != 0 {
+		t.Fatalf("verifier run_tests schema should expose empty properties, got %v", schema.Properties)
+	}
+	if schema.AdditionalProperties {
+		t.Fatalf("verifier run_tests schema should reject additional properties: %s", raw)
+	}
+}
+
 func TestValidateWritePlannerToolPolicy_RejectsShellAndNonDryRunTests(t *testing.T) {
 	ctx := &types.AgentContext{
 		Stage: types.StagePlan,
@@ -474,6 +519,52 @@ func TestValidateWritePlannerToolPolicy_RejectsShellAndNonDryRunTests(t *testing
 		Params: json.RawMessage(`{"dry_run":true,"verification_probe":{"code":"assert True"}}`),
 	}); got != nil {
 		t.Fatalf("run_tests dry_run=true should pass write planner policy, got %+v", got)
+	}
+}
+
+func TestValidateWriteVerifierToolPolicy_RejectsExplicitRunTestsTargets(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage: types.StageVerify,
+		Mode:  types.ModeApply,
+	}
+	for name, params := range map[string]json.RawMessage{
+		"nil":        nil,
+		"empty":      json.RawMessage(``),
+		"null":       json.RawMessage(`null`),
+		"empty_obj":  json.RawMessage(`{}`),
+		"spaced_obj": json.RawMessage(` { } `),
+	} {
+		if got := validateWriteVerifierToolPolicy(ctx, llm.ToolCall{Name: "run_tests", Params: params}); got != nil {
+			t.Fatalf("%s default params should pass write verifier policy, got %+v", name, got)
+		}
+	}
+	for name, params := range map[string]json.RawMessage{
+		"runner":      json.RawMessage(`{"runner":"python"}`),
+		"framework":   json.RawMessage(`{"framework":"pytest"}`),
+		"suite":       json.RawMessage(`{"suite":"tests/test_foo.py"}`),
+		"working_dir": json.RawMessage(`{"working_dir":"."}`),
+		"timeout":     json.RawMessage(`{"timeout":300}`),
+		"dry_run":     json.RawMessage(`{"dry_run":true}`),
+	} {
+		got := validateWriteVerifierToolPolicy(ctx, llm.ToolCall{Name: "run_tests", Params: params})
+		if got == nil || got.Success || got.Repair == nil || got.Repair.Code != "write_verifier_run_tests_default_required" {
+			t.Fatalf("%s params should be rejected with typed repair, got %+v", name, got)
+		}
+		if got.Repair.Metadata["policy"] != "write_verifier_default_run_tests_only" {
+			t.Fatalf("%s repair policy metadata mismatch: %+v", name, got.Repair.Metadata)
+		}
+	}
+	if got := validateWriteVerifierToolPolicy(&types.AgentContext{Stage: types.StageVerify, Mode: types.ModeRead}, llm.ToolCall{
+		Name:   "run_tests",
+		Params: json.RawMessage(`{"runner":"python"}`),
+	}); got != nil {
+		t.Fatalf("non-write verifier should not use write verifier policy, got %+v", got)
+	}
+	if got := validateWriteVerifierToolPolicy(ctx, llm.ToolCall{
+		Name:   "emit_test_results",
+		Params: json.RawMessage(`{"failure_summary":"x"}`),
+	}); got != nil {
+		t.Fatalf("non-run_tests verifier tool should not use run_tests policy, got %+v", got)
 	}
 }
 
