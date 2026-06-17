@@ -3,6 +3,8 @@ package writeflow
 import (
 	"fmt"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // WorkflowTransitionValidation is the typed result of checking a controller
@@ -38,9 +40,9 @@ func ValidateWorkflowTransition(view WorkflowExecutionView, decision WriteWorkfl
 	case WorkflowExecutionObserveRequired:
 		return validateObserveRequiredTransition(decision.Action)
 	case WorkflowExecutionNeedsReplan:
-		return validateNeedsReplanTransition(decision.Action)
+		return validateNeedsReplanTransition(view, decision)
 	case WorkflowExecutionComplete:
-		return validateCompleteTransition(decision.Action)
+		return validateCompleteTransition(view, decision.Action)
 	case WorkflowExecutionBlocked:
 		return validateBlockedTransition(decision.Action)
 	default:
@@ -88,17 +90,41 @@ func validateObserveRequiredTransition(action WorkflowAction) WorkflowTransition
 	}
 }
 
-func validateNeedsReplanTransition(action WorkflowAction) WorkflowTransitionValidation {
-	switch action {
-	case ActionReplanBatch, ActionExploreCode, ActionBlock:
+func validateNeedsReplanTransition(view WorkflowExecutionView, decision WriteWorkflowDecision) WorkflowTransitionValidation {
+	switch decision.Action {
+	case ActionReplanBatch, ActionExploreCode, ActionFinish, ActionBlock:
 		return WorkflowTransitionValidation{Allowed: true}
+	case ActionAppendBatch, ActionSplitBatch:
+		if workflowTransitionTargetsNewBatch(view, decision) {
+			return WorkflowTransitionValidation{Allowed: true}
+		}
 	default:
 		return workflowTransitionDenied("failed_verify_requires_replan",
 			"failed post-apply verification requires a new bounded plan or exploration", ActionReplanBatch)
 	}
+	return workflowTransitionDenied("failed_verify_requires_replan",
+		"failed post-apply verification requires a new bounded plan or exploration", ActionReplanBatch)
 }
 
-func validateCompleteTransition(action WorkflowAction) WorkflowTransitionValidation {
+func workflowTransitionTargetsNewBatch(view WorkflowExecutionView, decision WriteWorkflowDecision) bool {
+	if decision.Batch == nil {
+		return false
+	}
+	target := strings.TrimSpace(decision.Batch.ID)
+	if target == "" {
+		return false
+	}
+	active := strings.TrimSpace(view.BatchID)
+	return active == "" || target != active
+}
+
+func validateCompleteTransition(view WorkflowExecutionView, action WorkflowAction) WorkflowTransitionValidation {
+	if view.RunStatus == "" || view.RunStatus == types.WriteWorkflowRunInProgress {
+		switch action {
+		case ActionAppendBatch, ActionSplitBatch, ActionFinish, ActionBlock:
+			return WorkflowTransitionValidation{Allowed: true}
+		}
+	}
 	switch action {
 	case ActionFinish, ActionBlock:
 		return WorkflowTransitionValidation{Allowed: true}

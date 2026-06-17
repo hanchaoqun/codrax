@@ -58,7 +58,7 @@ func TestValidateWorkflowTransitionObserveRequiredBlocksPlanning(t *testing.T) {
 }
 
 func TestValidateWorkflowTransitionNeedsReplanBlocksStaleApplyVerify(t *testing.T) {
-	view := WorkflowExecutionView{Mode: types.ModeApply, State: WorkflowExecutionNeedsReplan}
+	view := WorkflowExecutionView{Mode: types.ModeApply, State: WorkflowExecutionNeedsReplan, BatchID: "batch-1"}
 
 	for _, action := range []WorkflowAction{ActionApplyPlan, ActionVerifyBatch, ActionPlanBatch} {
 		decision := WriteWorkflowDecision{Action: action}
@@ -75,6 +75,18 @@ func TestValidateWorkflowTransitionNeedsReplanBlocksStaleApplyVerify(t *testing.
 		Batch:  &WriteBatchPlan{ID: "batch-1", Goal: "repair failed point"},
 	}); !got.Allowed {
 		t.Fatalf("replan should be allowed after failed verify: %+v", got)
+	}
+	if got := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionAppendBatch,
+		Batch:  &WriteBatchPlan{ID: "batch-2", Goal: "follow-up work"},
+	}); !got.Allowed {
+		t.Fatalf("append to a new batch should be allowed after failed verify: %+v", got)
+	}
+	if got := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionAppendBatch,
+		Batch:  &WriteBatchPlan{ID: "batch-1", Goal: "reuse failed batch"},
+	}); got.Allowed || got.ReasonCode != "failed_verify_requires_replan" {
+		t.Fatalf("append targeting the failed batch should be blocked: %+v", got)
 	}
 }
 

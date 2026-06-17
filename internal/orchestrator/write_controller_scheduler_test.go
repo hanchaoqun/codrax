@@ -1818,6 +1818,78 @@ func TestWritePlanCanProceedWithoutApprovalPauseRequiresCurrentApprovalAuthority
 	}
 }
 
+func TestEnforceControllerWorkflowTransitionBlocksStaleApprovalApply(t *testing.T) {
+	mu := types.NewMutableState("stale approval transition")
+	plan := &types.ChangePlan{
+		ID:          "plan-stale",
+		Status:      types.PlanStatusPending,
+		Summary:     "safe edit",
+		TargetPaths: []string{"pkg/fix.py"},
+		Changes: []types.FileChange{{
+			Path:       "pkg/fix.py",
+			Kind:       "modify",
+			NewContent: "value = 1\n",
+		}},
+		Approval: &types.WriteApprovalRecord{
+			Action:          string(writeflow.ApprovalActionAutoExecute),
+			UserDecision:    "auto",
+			PlanFingerprint: "stale-fingerprint",
+		},
+	}
+	mu.SetChangePlan(plan)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-stale-approval",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchPlanned,
+			PlanID: "plan-stale",
+		}},
+	}
+	got := o.enforceControllerWorkflowTransition(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionApplyPlan,
+		ReasonCode: "controller_requested_apply",
+	}, run)
+	if got.Action != writeflow.ActionAskUser || got.ReasonCode != "approval_authority_invalid" {
+		t.Fatalf("stale approval apply should become approval ask_user, got %+v", got)
+	}
+	if len(got.MissingFacts) != 1 || got.MissingFacts[0].Kind != "approval_boundary" {
+		t.Fatalf("ask_user should carry typed approval_boundary fact, got %+v", got.MissingFacts)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "workflow_transition_rejected") {
+		t.Fatalf("transition rejection progress missing: %+v", run.ProgressLedger)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "workflow_transition_overridden") {
+		t.Fatalf("transition override progress missing: %+v", run.ProgressLedger)
+	}
+}
+
+func TestEnforceControllerWorkflowTransitionBlocksModePlanApply(t *testing.T) {
+	mu := types.NewMutableState("plan mode transition")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModePlan}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-plan-mode",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchPlanned,
+		}},
+	}
+	got := o.enforceControllerWorkflowTransition(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionApplyPlan,
+		ReasonCode: "bad_plan_mode_apply",
+	}, run)
+	if got.Action != writeflow.ActionBlock || got.ReasonCode != "action_not_allowed_in_mode" {
+		t.Fatalf("mode-plan apply should become typed block, got %+v", got)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "workflow_transition_rejected") {
+		t.Fatalf("transition rejection progress missing: %+v", run.ProgressLedger)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionSuppressesRepeatedAskUserFact(t *testing.T) {
 	mu := types.NewMutableState("repeat ask")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}

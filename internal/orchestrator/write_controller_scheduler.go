@@ -129,6 +129,15 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 			}
 		}
+		enforcedDecision := o.enforceControllerWorkflowTransition(decision, &run)
+		if enforcedDecision.Action != decision.Action ||
+			strings.TrimSpace(enforcedDecision.ReasonCode) != strings.TrimSpace(decision.ReasonCode) ||
+			enforcedDecision.FinishDisposition != decision.FinishDisposition {
+			logging.Info("[orchestrator] write controller transition enforced: action=%s reason=%s disposition=%s -> action=%s reason=%s disposition=%s",
+				decision.Action, strings.TrimSpace(decision.ReasonCode), decision.FinishDisposition,
+				enforcedDecision.Action, strings.TrimSpace(enforcedDecision.ReasonCode), enforcedDecision.FinishDisposition)
+		}
+		decision = enforcedDecision
 		// Typed finish gate, evaluated BEFORE the decision mutates the run
 		// (ApplyWorkflowDecisionToRun marks the active batch complete on
 		// finish): a batch whose latest post-apply verify attempt failed
@@ -2759,6 +2768,124 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		}
 	}
 	return decision
+}
+
+func (o *Orchestrator) enforceControllerWorkflowTransition(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) writeflow.WriteWorkflowDecision {
+	decision = writeflow.NormalizeWriteWorkflowDecision(decision)
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return decision
+	}
+	view := writeflow.DeriveWorkflowExecutionView(o.busCtx.Mode, *run, o.busCtx.Mutable.ChangePlan())
+	validation := writeflow.ValidateWorkflowTransition(view, decision)
+	if validation.Allowed {
+		return decision
+	}
+	batchID := firstNonEmptyController(view.BatchID, run.ActiveBatchID)
+	appendControllerProgress(run, batchID, "workflow_transition_rejected",
+		fmt.Sprintf("%s rejected in %s: %s", decision.Action, view.State, validation.ReasonCode))
+	next := controllerDecisionFromWorkflowTransitionValidation(view, validation, decision, run)
+	next = writeflow.NormalizeWriteWorkflowDecision(next)
+	if errs := writeflow.ValidateWriteWorkflowDecision(next); len(errs) > 0 {
+		appendControllerProgress(run, batchID, "workflow_transition_recovery_invalid",
+			strings.Join(errs, "; "))
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionBlock,
+			ReasonCode: firstNonEmptyController(validation.ReasonCode, "workflow_transition_rejected"),
+			Reason:     firstNonEmptyController(validation.Reason, "controller decision rejected by typed workflow state"),
+		})
+	}
+	if next.Action != decision.Action || strings.TrimSpace(next.ReasonCode) != strings.TrimSpace(decision.ReasonCode) {
+		appendControllerProgress(run, batchID, "workflow_transition_overridden",
+			fmt.Sprintf("%s -> %s via %s", decision.Action, next.Action, validation.ReasonCode))
+	}
+	return next
+}
+
+func controllerDecisionFromWorkflowTransitionValidation(view writeflow.WorkflowExecutionView, validation writeflow.WorkflowTransitionValidation, prior writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) writeflow.WriteWorkflowDecision {
+	reasonCode := firstNonEmptyController(validation.ReasonCode, "workflow_transition_rejected")
+	reason := firstNonEmptyController(validation.Reason, "controller decision rejected by typed workflow state")
+	switch validation.RecommendedAction {
+	case writeflow.ActionApplyPlan:
+		return writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionApplyPlan,
+			ReasonCode: reasonCode,
+			Reason:     reason,
+		}
+	case writeflow.ActionVerifyBatch:
+		return writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionVerifyBatch,
+			ReasonCode: reasonCode,
+			Reason:     reason,
+		}
+	case writeflow.ActionReplanBatch:
+		batchID := firstNonEmptyController(view.BatchID, controllerDecisionBatchID(prior, run), "batch-1")
+		return writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionReplanBatch,
+			ReasonCode: reasonCode,
+			Reason:     reason,
+			Batch: &writeflow.WriteBatchPlan{
+				ID:     batchID,
+				Goal:   workflowTransitionBatchGoal(view, run, batchID),
+				Status: writeflow.BatchReadyForChangePlan,
+			},
+		}
+	case writeflow.ActionAskUser:
+		return workflowTransitionAskUserDecision(view, reasonCode, reason)
+	case writeflow.ActionFinish:
+		return writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionFinish,
+			ReasonCode: reasonCode,
+			Reason:     reason,
+		}
+	case writeflow.ActionBlock:
+		return writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionBlock,
+			ReasonCode: reasonCode,
+			Reason:     reason,
+		}
+	default:
+		return writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionBlock,
+			ReasonCode: reasonCode,
+			Reason:     reason,
+		}
+	}
+}
+
+func workflowTransitionAskUserDecision(view writeflow.WorkflowExecutionView, reasonCode, reason string) writeflow.WriteWorkflowDecision {
+	evidence := firstNonEmptyController(view.PlanID, view.BatchID, view.RunID)
+	description := firstNonEmptyController(reason, "operator approval is required before continuing the active write workflow")
+	return writeflow.WriteWorkflowDecision{
+		Action:           writeflow.ActionAskUser,
+		ReasonCode:       firstNonEmptyController(reasonCode, "workflow_transition_requires_user"),
+		Reason:           description,
+		QuestionsForUser: []string{"Approve the active write workflow step before Codrax continues?"},
+		MissingFacts: []writeflow.MissingUserFact{{
+			Kind:        "approval_boundary",
+			Description: description,
+			EvidenceRef: evidence,
+			Consumer:    "controller",
+		}},
+	}
+}
+
+func workflowTransitionBatchGoal(view writeflow.WorkflowExecutionView, run *types.WriteWorkflowRun, batchID string) string {
+	if run != nil {
+		for _, batch := range run.Batches {
+			if strings.TrimSpace(batch.ID) == strings.TrimSpace(batchID) {
+				if goal := strings.TrimSpace(batch.Goal); goal != "" {
+					return goal
+				}
+			}
+		}
+		if goal := strings.TrimSpace(run.Goal); goal != "" {
+			return goal
+		}
+	}
+	if view.State == writeflow.WorkflowExecutionNeedsReplan {
+		return "repair failed verification"
+	}
+	return "continue active write workflow"
 }
 
 func controllerPlanDecisionRequiresInitialExploration(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) bool {
