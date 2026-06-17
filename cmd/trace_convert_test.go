@@ -45,3 +45,40 @@ func TestTraceConvertNextLineFollowsLanguage(t *testing.T) {
 		t.Fatalf("en next line malformed: %q", got)
 	}
 }
+
+func TestTraceConvertPerfToolStatusLines(t *testing.T) {
+	status := hitraceconv.PerfToolStatus{
+		ParserMode:               "auto",
+		SelectedParser:           "auto",
+		SymbolizationExpectation: "official first, raw fallback",
+		Hiperf: hitraceconv.PerfToolProviderStatus{
+			Name:      "openharmony_hiperf",
+			Kind:      "official_harmony",
+			Available: true,
+			Path:      "/tmp/hiperf_host",
+			Source:    "configured hiperf tool",
+		},
+		Simpleperf: hitraceconv.PerfToolProviderStatus{
+			Name:        "android_simpleperf_report_sample",
+			Kind:        "official_android",
+			Available:   false,
+			InstallHint: "install simpleperf",
+		},
+		RawFallback: hitraceconv.PerfToolProviderStatus{
+			Name:      "codrax_raw_perfdata",
+			Kind:      "raw_fallback",
+			Available: true,
+			Source:    "built-in",
+		},
+	}
+	en := strings.Join(traceConvertPerfToolStatusLines("en", status), "\n")
+	for _, want := range []string{"perf_parser: auto", "official_harmony", "/tmp/hiperf_host", "official_android", "hint=install simpleperf", "raw_fallback", "built-in"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("status lines missing %q:\n%s", want, en)
+		}
+	}
+	zh := strings.Join(traceConvertPerfToolStatusLines("zh", status), "\n")
+	if !strings.Contains(zh, "perf 解析模式：auto") || !strings.Contains(zh, "符号化预期") {
+		t.Fatalf("zh status lines malformed:\n%s", zh)
+	}
+}

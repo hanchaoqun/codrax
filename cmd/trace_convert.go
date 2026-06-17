@@ -21,6 +21,7 @@ var (
 	traceConvertSPKallsyms  string
 	traceConvertPerfParser  string
 	traceConvertNoPerfTrace bool
+	traceConvertToolsStatus bool
 )
 
 var traceCmd = &cobra.Command{
@@ -40,10 +41,7 @@ When --output is omitted, Codrax writes <input>.systrace. Existing output files
 are never overwritten; delete the file first or choose another output path.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		input := strings.TrimSpace(traceConvertInput)
-		if input == "" {
-			return fmt.Errorf("--input is required")
-		}
-		result, err := hitraceconv.ConvertFile(cmd.Context(), hitraceconv.Options{
+		opts := hitraceconv.Options{
 			InputPath:              input,
 			OutputPath:             strings.TrimSpace(traceConvertOutput),
 			Flavor:                 strings.TrimSpace(traceConvertFlavor),
@@ -55,7 +53,21 @@ are never overwritten; delete the file first or choose another output path.`,
 			SimpleperfKallsymsPath: strings.TrimSpace(traceConvertSPKallsyms),
 			PerfParser:             strings.TrimSpace(traceConvertPerfParser),
 			DisablePerfAdapter:     traceConvertNoPerfTrace,
-		})
+		}
+		if traceConvertToolsStatus {
+			status, err := hitraceconv.BuildPerfToolStatus(opts)
+			if err != nil {
+				return err
+			}
+			for _, line := range traceConvertPerfToolStatusLines(flagLang, status) {
+				fmt.Fprintln(cmd.OutOrStdout(), line)
+			}
+			return nil
+		}
+		if input == "" {
+			return fmt.Errorf("--input is required")
+		}
+		result, err := hitraceconv.ConvertFile(cmd.Context(), opts)
 		if err != nil {
 			return err
 		}
@@ -70,6 +82,68 @@ are never overwritten; delete the file first or choose another output path.`,
 		fmt.Fprintln(cmd.OutOrStdout(), traceConvertNextLine(flagLang, result))
 		return nil
 	},
+}
+
+func traceConvertPerfToolStatusLines(lang string, status hitraceconv.PerfToolStatus) []string {
+	if traceConvertUseZh(lang) {
+		lines := []string{
+			fmt.Sprintf("perf 解析模式：%s", status.ParserMode),
+			fmt.Sprintf("选中策略：%s", status.SelectedParser),
+			fmt.Sprintf("符号化预期：%s", status.SymbolizationExpectation),
+		}
+		lines = append(lines, traceConvertPerfProviderLine("zh", status.Hiperf))
+		lines = append(lines, traceConvertPerfProviderLine("zh", status.Simpleperf))
+		lines = append(lines, traceConvertPerfProviderLine("zh", status.RawFallback))
+		for _, caveat := range status.Caveats {
+			lines = append(lines, "提示："+caveat)
+		}
+		return lines
+	}
+	lines := []string{
+		fmt.Sprintf("perf_parser: %s", status.ParserMode),
+		fmt.Sprintf("selected_parser: %s", status.SelectedParser),
+		fmt.Sprintf("symbolization_expectation: %s", status.SymbolizationExpectation),
+	}
+	lines = append(lines, traceConvertPerfProviderLine("en", status.Hiperf))
+	lines = append(lines, traceConvertPerfProviderLine("en", status.Simpleperf))
+	lines = append(lines, traceConvertPerfProviderLine("en", status.RawFallback))
+	for _, caveat := range status.Caveats {
+		lines = append(lines, "caveat: "+caveat)
+	}
+	return lines
+}
+
+func traceConvertPerfProviderLine(lang string, item hitraceconv.PerfToolProviderStatus) string {
+	state := "missing"
+	if item.Available {
+		state = "available"
+	}
+	details := []string{
+		fmt.Sprintf("state=%s", state),
+	}
+	if item.Path != "" {
+		details = append(details, "path="+item.Path)
+	}
+	if item.Python != "" {
+		details = append(details, "python="+item.Python)
+	}
+	if item.Source != "" {
+		details = append(details, "source="+item.Source)
+	}
+	if item.Version != "" {
+		details = append(details, "version="+item.Version)
+	}
+	if len(item.Caveats) > 0 {
+		details = append(details, "caveat="+strings.Join(item.Caveats, "; "))
+	}
+	if !item.Available && item.InstallHint != "" {
+		details = append(details, "hint="+item.InstallHint)
+	}
+	prefix := fmt.Sprintf("%s[%s]", item.Kind, item.Name)
+	if traceConvertUseZh(lang) {
+		return prefix + "：" + strings.Join(details, " ")
+	}
+	return prefix + ": " + strings.Join(details, " ")
 }
 
 func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
@@ -171,6 +245,7 @@ func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertSPKallsyms, "simpleperf-kallsyms", "", "kallsyms file passed to simpleperf report_sample.py --kallsyms")
 	traceConvertCmd.Flags().StringVar(&traceConvertPerfParser, "perf-parser", "auto", "perf.data parser strategy: auto uses official hiperf/simpleperf first then raw fallback; official disables raw fallback; raw uses Codrax raw perf.data fallback only")
 	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "preserve perf.data sidecars without generating .perftrace")
+	traceConvertCmd.Flags().BoolVar(&traceConvertToolsStatus, "perf-tools-status", false, "print discovered official perf tools, raw fallback availability, selected parser strategy, and install hints")
 	traceCmd.AddCommand(traceConvertCmd)
 	rootCmd.AddCommand(traceCmd)
 }

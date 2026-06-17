@@ -372,8 +372,8 @@ Additional UX gaps found after the raw fallback batch:
 
 Batch E task additions:
 
-- [ ] Add a reusable perf tool provider/status layer that returns `official_harmony`, `official_android`, and `raw_fallback` availability with path/source/version when cheaply detectable.
-- [ ] Add `trace convert --perf-tools-status` or an equivalent preflight command/output section that shows selected parser, discovered official tools, raw fallback availability, and install guidance when missing.
+- [x] Add a reusable perf tool provider/status layer that returns `official_harmony`, `official_android`, and `raw_fallback` availability with path/source/version when cheaply detectable.
+- [x] Add `trace convert --perf-tools-status` or an equivalent preflight command/output section that shows selected parser, discovered official tools, raw fallback availability, and install guidance when missing.
 - [ ] Add concise install/integration documentation for OpenHarmony `hiperf_host` and Android simpleperf `report_sample.py`, including env vars, CLI flags, symbol-dir/symfs/kallsyms, and expected output caveats.
 - [ ] Design an optional managed tool-cache/bundle provider before considering embedded binaries. Any embedded-binary lane must be explicit, versioned, platform-scoped, license-reviewed, and observable in `--perf-tools-status`.
 - [ ] Extend REPL/CLI runtime artifact state so multiple `/log`, `/htrace`, `/atrace`, `.perftrace`, `.tracebundle.json`, and direct path attachments display a stable prompt/status summary: count by type, active primary artifact, bundle/sidecar merge status, and caveats.
