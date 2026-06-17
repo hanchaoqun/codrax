@@ -31,7 +31,7 @@
   - [2.4 中断 / 取消](#24-中断--取消)
 - [3. 进阶能力](#3-进阶能力)
   - [3.1 附加运行时日志(panic / 异常 / traceback)](#31-附加运行时日志panic--异常--traceback)
-  - [3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto)](#32-附加性能-tracehitrace--atrace--systrace--perfetto)
+  - [3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto / perf sample)](#32-附加性能-tracehitrace--atrace--systrace--perfetto--perf-sample)
   - [3.3 闲聊与本地转换](#33-闲聊与本地转换)
   - [3.4 记忆与会话](#34-记忆与会话)
   - [3.5 一台机器多仓库](#35-一台机器多仓库)
@@ -362,7 +362,7 @@ REPL 里的等价做法:
 
 **C/C++ 编译路径前缀**:CI build 出来的 stack frame 路径常是 `/build/src/foo.cpp:42`,你的 repo 是 `~/repo/foo.cpp:42`。用 `--log-source-prefix /build/src/` 让 codrax 把前缀剥掉再去仓库找文件。
 
-## 3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto)
+## 3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto / perf sample)
 
 性能问题、卡顿、ANR、冷启动慢 — 把 ftrace 兼容的文本 trace 作为附件喂给 codrax,触发 `perf_triage` 预阶段抽出 frame / jank / stall / startup 信息:
 
@@ -381,6 +381,9 @@ codrax --htrace /tmp/perfetto.txt -r "..."
 # 二进制 HiTrace 需要先手动转换;不会自动附加
 codrax trace convert --input /tmp/capture.htrace.bin
 codrax --htrace /tmp/capture.htrace.bin.systrace -r "分析这段卡顿"
+
+# 先看本机 perf.data 解析能力和缺什么官方工具
+codrax trace convert --perf-tools-status
 
 # 多文件比对
 codrax --htrace before.trace --htrace after.trace -r "对比启动耗时差在哪"
@@ -406,6 +409,84 @@ REPL 里 `/htrace` 和 `/atrace` 是同义命令,子命令同 `/log`:
 ```
 
 如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。转换命令只生成文本文件,不会默认附加到当前会话;需要继续分析时再显式 `/htrace <输出文件>`。
+
+### perf.data / perf sample
+
+如果 Harmony/OpenHarmony HiTrace 里包含 `hiperf-plugin` 的 standalone `perf.data`,或者你手上直接有 Android/simpleperf 的 `perf.data`,可以让 `trace convert` 生成 `.perftrace` 和 `.tracebundle.json`。后续 `trace_query` 会把 `.systrace + .perftrace` 合并成同一个时间窗证据流,用于回答“这个 runnable/running 线程当时在跑什么符号/调用栈”。
+
+先做一次 preflight:
+
+```bash
+codrax trace convert --perf-tools-status
+codrax trace convert --perf-tools-status --lang en
+```
+
+输出会列出:
+
+- `official_harmony[openharmony_hiperf]`: 是否找到 OpenHarmony `hiperf_host` / `hiperf`
+- `official_android[android_simpleperf_report_sample]`: 是否找到 Android simpleperf `report_sample.py`
+- `raw_fallback[codrax_raw_perfdata]`: Codrax 内置 raw `perf.data` fallback 是否可用
+- `perf_parser`: 当前策略,默认 `auto`
+- `symbolization_expectation`: 输出是否可能是官方符号化结果,还是 raw IP/DSO fallback
+
+推荐策略:
+
+```bash
+# 默认:优先官方工具;官方缺失/失败时尝试 raw perf.data fallback
+codrax trace convert --input /tmp/capture.htrace
+codrax trace convert --input /tmp/perf.data
+
+# 只信官方工具,不走 raw fallback
+codrax trace convert --input /tmp/perf.data --perf-parser=official
+
+# 离线保底:只用 Codrax raw perf.data fallback
+codrax trace convert --input /tmp/perf.data --perf-parser=raw
+
+# 完全不生成 perftrace,只保留 perf.data sidecar
+codrax trace convert --input /tmp/capture.htrace --no-perftrace
+```
+
+OpenHarmony / HarmonyOS 官方工具接入:
+
+```bash
+# 方式 1:显式指定
+codrax trace convert --input /tmp/capture.htrace \
+  --hiperf-host /path/to/hiperf_host \
+  --hiperf-symbol-dir /path/to/symbols
+
+# 方式 2:环境变量
+export CODRAX_HIPERF_HOST=/path/to/hiperf_host
+codrax trace convert --input /tmp/capture.htrace
+```
+
+`hiperf_host` / `hiperf` 来自 OpenHarmony `developtools_hiperf`。官方 lane 会运行 `hiperf report --proto`,再把 protobuf report 转成 Codrax `.perftrace`。OpenHarmony report proto 通常不携带 CPU id,所以 `.perftrace` 中可能显示 `cpu=-1`;这表示 CPU 未知,不是 CPU0。
+
+Android simpleperf 官方工具接入:
+
+```bash
+# 方式 1:显式指定 simpleperf 脚本
+codrax trace convert --input /tmp/perf.data \
+  --simpleperf-report-sample /path/to/simpleperf/scripts/report_sample.py \
+  --simpleperf-python /usr/bin/python3 \
+  --simpleperf-symfs /path/to/symfs \
+  --simpleperf-kallsyms /path/to/kallsyms
+
+# 方式 2:环境变量
+export CODRAX_SIMPLEPERF_REPORT_SAMPLE=/path/to/report_sample.py
+export CODRAX_SIMPLEPERF_PYTHON=/usr/bin/python3
+codrax trace convert --input /tmp/perf.data
+```
+
+官方工具负责完整解析、unwind、Java/ART/native 符号、symfs/kallsyms 等;Codrax raw fallback 只做有限字段提取。raw 输出会明确带上 `source=raw_perfdata_fallback` 和 `symbolization_status=unsymbolized`:它适合做时间、线程、DSO、IP、调用链地址的辅助关联,不要把 IP-only label 当成真实函数名。
+
+转换产物:
+
+- `.systrace`: ftrace/systrace 文本
+- `.perf.data`: 从 OpenHarmony profiler 容器抽出的 perf sidecar
+- `.perftrace`: Codrax 统一的 perf sample 文本格式
+- `.tracebundle.json`: systrace/perftrace/perf.data 的 bundle 元数据
+
+分析时可以直接传 `.tracebundle.json`、`.systrace` 或 `.perftrace`;如果同目录存在 sibling bundle 或 sibling `.systrace + .perftrace`,trace_query 会自动合并。
 
 常用提问模板:
 
