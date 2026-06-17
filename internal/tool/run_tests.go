@@ -415,7 +415,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice), selectedSource)
 	} else {
 		preferredRunner := preferredRunnerFromChangePlan(ctx)
-		plans = defaultRunnerPlansFromTestSurface(ctx.RepoRoot, surface, preferredRunner)
+		impactPlans := impactRunnerPlansFromChangePlan(ctx.RepoRoot, surface, ctx.Mutable.ChangePlan())
+		impactPlanKeys := map[string]bool{}
+		for _, plan := range impactPlans {
+			impactPlanKeys[testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))] = true
+		}
+		plans = defaultRunnerPlansFromTestSurface(ctx.RepoRoot, surface, preferredRunner, impactPlans...)
 		if len(plans) == 0 {
 			return errResult(t.Name(),
 				"run_tests: no supported test surface detected in "+ctx.RepoRoot+
@@ -423,10 +428,15 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					"Supported runners are: "+strings.Join(allowedRunnerList(), ", ")+"."), nil
 		}
 		for _, plan := range plans {
-			planSources[testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))] = "test_surface_default"
+			key := testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))
+			if impactPlanKeys[key] {
+				planSources[key] = "impact_test_surface"
+				continue
+			}
+			planSources[key] = "test_surface_default"
 		}
-		logging.Info("[run_tests] test-surface default selected %d runnable project(s) in %s (preferred_runner=%s)",
-			len(plans), ctx.RepoRoot, preferredRunner)
+		logging.Info("[run_tests] test-surface default selected %d runnable project(s) in %s (preferred_runner=%s impact_targets=%d)",
+			len(plans), ctx.RepoRoot, preferredRunner, len(impactPlans))
 	}
 
 	var (

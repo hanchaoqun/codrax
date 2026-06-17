@@ -1,6 +1,8 @@
 package tool
 
 import (
+	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -189,15 +191,27 @@ func runnerPlanFromSurfaceCandidate(repoRoot string, cand types.TestSurfaceCandi
 }
 
 // defaultRunnerPlansFromTestSurface builds the system-owned verify queue for a
-// run_tests call with no explicit runner. It consumes only typed filesystem
-// surface data plus an optional plan-touched runner preference. The model no
-// longer needs a pre-verification directory-inspection turn just to select the
-// first runner; dead-end escalation still reuses the same TestSurface later.
-func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurface, preferredRunner string) []runnerPlan {
+// run_tests call with no explicit runner. It consumes typed filesystem surface
+// data, typed impact-priority runner plans, and an optional plan-touched runner
+// preference. The model no longer needs a pre-verification directory-inspection
+// turn just to select the first runner; dead-end escalation still reuses the
+// same TestSurface later.
+func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurface, preferredRunner string, priorityPlans ...runnerPlan) []runnerPlan {
 	surface = types.NormalizeTestSurface(surface)
 	preferredRunner = strings.TrimSpace(preferredRunner)
 	var out []runnerPlan
 	seenDirs := map[string]bool{}
+	addPlan := func(plan runnerPlan) {
+		workingDir := runnerPlanRel(repoRoot, plan)
+		if workingDir == "" {
+			workingDir = "."
+		}
+		if seenDirs[workingDir] {
+			return
+		}
+		seenDirs[workingDir] = true
+		out = append(out, plan)
+	}
 	add := func(cand types.TestSurfaceCandidate) {
 		workingDir := strings.TrimSpace(cand.WorkingDir)
 		if workingDir == "" {
@@ -206,8 +220,13 @@ func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurfac
 		if seenDirs[workingDir] {
 			return
 		}
-		seenDirs[workingDir] = true
-		out = append(out, runnerPlanFromSurfaceCandidate(repoRoot, cand))
+		addPlan(runnerPlanFromSurfaceCandidate(repoRoot, cand))
+	}
+	for _, plan := range priorityPlans {
+		if strings.TrimSpace(plan.Runner) == "" || strings.TrimSpace(plan.Root) == "" {
+			continue
+		}
+		addPlan(plan)
 	}
 	if preferredRunner != "" {
 		if cand := nextTestSurfaceEscalationForRunner(surface, nil, preferredRunner); cand != nil {
@@ -232,6 +251,218 @@ func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurfac
 		add(cand)
 	}
 	return out
+}
+
+func impactRunnerPlansFromChangePlan(repoRoot string, surface types.TestSurface, plan *types.ChangePlan) []runnerPlan {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" || plan == nil {
+		return nil
+	}
+	surface = types.NormalizeTestSurface(surface)
+	targets := impactVerificationTargetsFromChangePlan(plan)
+	out := make([]runnerPlan, 0, len(targets))
+	seen := map[string]bool{}
+	for _, target := range targets {
+		if strings.TrimSpace(target.Kind) != "test_surface" {
+			continue
+		}
+		related := safeImpactRelatedPath(repoRoot, target.RelatedPath)
+		if related == "" {
+			continue
+		}
+		cand := impactCandidateForRelatedPath(surface, related)
+		if cand == nil {
+			continue
+		}
+		suite := impactSuiteForCandidate(*cand, related)
+		if suite == "" {
+			continue
+		}
+		if validateRunTestsSuiteSelector(suite) != "" {
+			continue
+		}
+		next := runnerPlanFromSurfaceCandidate(repoRoot, *cand)
+		next.Suite = suite
+		key := strings.Join([]string{
+			testSurfaceCandidateKey(next.Runner, next.Framework, runnerPlanRel(repoRoot, next)),
+			next.Suite,
+		}, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, next)
+	}
+	return out
+}
+
+func impactVerificationTargetsFromChangePlan(plan *types.ChangePlan) []types.ImpactVerificationTarget {
+	if plan == nil {
+		return nil
+	}
+	var targets []types.ImpactVerificationTarget
+	seen := map[string]bool{}
+	add := func(in []types.ImpactVerificationTarget) {
+		for _, target := range in {
+			targetsKey := strings.Join([]string{
+				strings.TrimSpace(target.Kind),
+				strings.TrimSpace(target.Path),
+				strings.TrimSpace(target.RelatedPath),
+				strings.TrimSpace(target.ContractRef),
+				strings.TrimSpace(target.ProbeID),
+				strings.TrimSpace(target.EvidenceRef),
+			}, "\x00")
+			if strings.Trim(targetsKey, "\x00") == "" || seen[targetsKey] {
+				continue
+			}
+			seen[targetsKey] = true
+			targets = append(targets, target)
+		}
+	}
+	if plan.ImpactAnalysis != nil {
+		analysis := types.NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
+		add(analysis.VerificationTargets)
+		if analysis.ObligationSet != nil {
+			result := types.ImpactAnalysisResultFromObligationSet(plan.ID, analysis.PatchEffectID, *analysis.ObligationSet, time.Time{})
+			add(result.VerificationTargets)
+		}
+	}
+	if plan.ImpactObligations != nil {
+		result := types.ImpactAnalysisResultFromObligationSet(plan.ID, "", *plan.ImpactObligations, time.Time{})
+		add(result.VerificationTargets)
+	}
+	return targets
+}
+
+func safeImpactRelatedPath(repoRoot, related string) string {
+	related = strings.TrimSpace(strings.ReplaceAll(related, "\\", "/"))
+	related = strings.TrimPrefix(related, "./")
+	if related == "" || related == "." || strings.HasPrefix(related, "/") {
+		return ""
+	}
+	cleaned := path.Clean(related)
+	if cleaned == "." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
+		return ""
+	}
+	abs := filepath.Join(repoRoot, filepath.FromSlash(cleaned))
+	if !pathWithinRoot(repoRoot, abs) {
+		return ""
+	}
+	if info, err := os.Stat(abs); err != nil || info.IsDir() {
+		return ""
+	}
+	return cleaned
+}
+
+func impactCandidateForRelatedPath(surface types.TestSurface, related string) *types.TestSurfaceCandidate {
+	var best *types.TestSurfaceCandidate
+	bestDepth := -1
+	for i := range surface.Candidates {
+		cand := surface.Candidates[i]
+		if !cand.HasTestSignal || !impactCandidateSupportsSuite(cand) {
+			continue
+		}
+		workingDir := strings.TrimSpace(cand.WorkingDir)
+		if workingDir == "" {
+			workingDir = "."
+		}
+		if !testSurfaceWorkingDirContainsPath(workingDir, related) {
+			continue
+		}
+		depth := impactWorkingDirDepth(workingDir)
+		if best == nil || depth > bestDepth {
+			next := cand
+			best = &next
+			bestDepth = depth
+		}
+	}
+	return best
+}
+
+func impactWorkingDirDepth(rel string) int {
+	rel = strings.TrimSpace(rel)
+	if rel == "" || rel == "." {
+		return -1
+	}
+	return strings.Count(rel, "/")
+}
+
+func impactCandidateSupportsSuite(cand types.TestSurfaceCandidate) bool {
+	switch cand.Runner {
+	case "go", "ruby":
+		return true
+	case "python":
+		return cand.Framework == "" ||
+			cand.Framework == pythonFrameworkPytest ||
+			cand.Framework == pythonFrameworkDjango ||
+			cand.Framework == pythonFrameworkUnittest
+	default:
+		return false
+	}
+}
+
+func testSurfaceWorkingDirContainsPath(workingDir, related string) bool {
+	workingDir = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(workingDir, "\\", "/"), "./"))
+	related = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(related, "\\", "/"), "./"))
+	if workingDir == "" || workingDir == "." {
+		return true
+	}
+	return related == workingDir || strings.HasPrefix(related, workingDir+"/")
+}
+
+func impactSuiteForCandidate(cand types.TestSurfaceCandidate, related string) string {
+	rel := relatedPathInsideWorkingDir(cand.WorkingDir, related)
+	if rel == "" {
+		return ""
+	}
+	switch cand.Runner {
+	case "go":
+		if path.Ext(rel) != ".go" {
+			return ""
+		}
+		dir := path.Dir(rel)
+		if dir == "." || dir == "" {
+			return "."
+		}
+		return "./" + dir
+	case "python":
+		if path.Ext(rel) != ".py" {
+			return ""
+		}
+		switch cand.Framework {
+		case pythonFrameworkUnittest:
+			dir := path.Dir(rel)
+			if dir == "." || dir == "" {
+				return "."
+			}
+			return dir
+		default:
+			return rel
+		}
+	case "ruby":
+		if path.Ext(rel) != ".rb" {
+			return ""
+		}
+		return rel
+	default:
+		return ""
+	}
+}
+
+func relatedPathInsideWorkingDir(workingDir, related string) string {
+	workingDir = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(workingDir, "\\", "/"), "./"))
+	related = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(related, "\\", "/"), "./"))
+	if workingDir == "" || workingDir == "." {
+		return related
+	}
+	if related == workingDir {
+		return ""
+	}
+	prefix := workingDir + "/"
+	if strings.HasPrefix(related, prefix) {
+		return strings.TrimPrefix(related, prefix)
+	}
+	return ""
 }
 
 func surfaceCandidateSuite(cand types.TestSurfaceCandidate) string {
