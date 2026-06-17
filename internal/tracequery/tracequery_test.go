@@ -1265,6 +1265,45 @@ func TestPerfSampleEventSearchAndWindowStats(t *testing.T) {
 	if len(stats.PerfSamples.TopThreads) == 0 || stats.PerfSamples.TopThreads[0].Thread.PID != 5678 || stats.PerfSamples.TopThreads[0].Period != 40000 {
 		t.Fatalf("top thread should use sampled tid and period: %+v", stats.PerfSamples.TopThreads)
 	}
+	if stats.PerfSamples.Quality == nil || stats.PerfSamples.Quality.CPUKnownCount != 3 || stats.PerfSamples.Quality.CPUUnknownCount != 0 {
+		t.Fatalf("perf quality should summarize CPU-known samples: %+v", stats.PerfSamples.Quality)
+	}
+	if len(stats.PerfSamples.Quality.SymbolizationStatuses) == 0 || stats.PerfSamples.Quality.SymbolizationStatuses[0].Value != "symbolized" {
+		t.Fatalf("perf quality should default symbolized rows with function labels: %+v", stats.PerfSamples.Quality)
+	}
+}
+
+func TestPerfSampleQualitySummarizesCPUUnknownAndRawFallback(t *testing.T) {
+	idx := buildTraceIndex(t, "quality.perftrace", `
+	hiperf-10 ( 10) [000] .... 1.000000: perf_sample: cpu=-1 cpu_known=false pid=10 tid=11 thread_comm=worker period=7000 event=cpu-cycles symbol=Worker::run dso=libworker.so callchain=main;Worker::run source=hiperf_proto symbolization_status=symbolized clock=monotonic_raw clock_confidence=assumed callchain_status=symbolized
+	raw-20 ( 20) [000] .... 1.000100: perf_sample: cpu=3 cpu_known=true pid=20 tid=21 thread_comm=raw period=3000 event=cpu-cycles symbol=0x1234 dso=libraw.so callchain=0x111;0x1234 source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only
+	`)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 1.0, TimeEnd: 1.001})
+	if stats.PerfSamples == nil || stats.PerfSamples.Quality == nil {
+		t.Fatalf("expected perf quality summary: %+v", stats.PerfSamples)
+	}
+	q := stats.PerfSamples.Quality
+	if q.CPUKnownCount != 1 || q.CPUUnknownCount != 1 {
+		t.Fatalf("quality should split cpu known and unknown samples: %+v", q)
+	}
+	if len(q.Sources) == 0 || q.Sources[0].Value != "hiperf_proto" {
+		t.Fatalf("quality should preserve source mix ordered by period: %+v", q.Sources)
+	}
+	if !perfValueCountsContainTest(q.SymbolizationStatuses, "unsymbolized") || !perfValueCountsContainTest(q.CallchainStatuses, "ip_only") {
+		t.Fatalf("quality should include raw fallback degradation: %+v", q)
+	}
+	if len(q.Caveats) == 0 {
+		t.Fatalf("quality should emit caveats for cpu unknown/raw/ip-only/clock alignment: %+v", q)
+	}
+}
+
+func perfValueCountsContainTest(values []PerfValueCount, want string) bool {
+	for _, value := range values {
+		if value.Value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPerfSampleViews(t *testing.T) {

@@ -72,6 +72,7 @@ run_case() {
   eval_run_with_timeout "$TIMEOUT" env \
     EVAL_RESULTS_ROOT="$RESULTS_ROOT" \
     CODRAX_BIN="$CODRAX_BIN" \
+    CODRAX_PROVIDER_ARGS_RAW="${CODRAX_PROVIDER_ARGS_RAW:-}" \
     eval/run.sh "$case_file" "$RUNS"
 }
 

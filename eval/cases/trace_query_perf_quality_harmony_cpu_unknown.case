@@ -1,0 +1,19 @@
+# Trace query — perf quality for Harmony hiperf CPU-unknown samples
+#
+# Coverage target: converted OpenHarmony/hiperf samples should remain useful for
+# thread/window hotspot evidence while clearly reporting that sample CPU is
+# unknown and should not be treated as CPU0.
+ID="trace_query_perf_quality_harmony_cpu_unknown"
+NAME="trace query — Harmony perf quality CPU unknown"
+QUESTION="请使用 trace_query 分析 1.000s 到 1.006s 的窗口，目标线程是 worker-11。说明这段时间有没有 CPU sample 热点，以及这些 sample 证据的可信度和限制。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+      worker-11   (   10) [003] .... 1.000000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=11 next_prio=52
+      worker-11   (   10) [000] .... 1.001000: perf_sample: cpu=-1 cpu_known=false pid=10 tid=11 thread_comm=worker period=7000 event=cpu-cycles symbol=Worker::parse dso=libworker.so callchain=main;Worker::parse source=hiperf_proto symbolization_status=symbolized clock=monotonic_raw clock_confidence=assumed callchain_status=symbolized
+      worker-11   (   10) [003] .... 1.005000: sched_switch: prev_comm=worker prev_pid=11 prev_prio=52 prev_state=R+ ==> next_comm=idle/3 next_pid=0 next_prio=120
+'
+EXPECT_CONTAINS="Worker::parse libworker.so"
+EXPECT_MATCHES_REGEX="(cpu_unknown|cpu_known=false|CPU.?unknown|CPU.*未知|unknown CPU|CPU id).*?(hiperf|OpenHarmony|鸿蒙|sample|采样)|(hiperf|OpenHarmony|鸿蒙|sample|采样).*?(cpu_unknown|cpu_known=false|CPU.?unknown|CPU.*未知|unknown CPU|CPU id)
+(clock_confidence|clock|时钟|alignment|对齐).*?(assumed|假定|未校准|supporting|辅助)|(assumed|假定|未校准|supporting|辅助).*?(clock_confidence|clock|时钟|alignment|对齐)
+(Worker::parse|libworker\\.so).*?(perf|sample|采样|热点|hotspot)|(perf|sample|采样|热点|hotspot).*?(Worker::parse|libworker\\.so)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

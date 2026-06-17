@@ -6911,6 +6911,59 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRuntimeAggregateMetricCompac
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryPerfQualityMetricSupplement(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Observations: []types.ObservationRecord{{
+				ID:              "trace_query:perf:1",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt"},
+				Span:            types.ObservationSpan{LineStart: 4, LineEnd: 4},
+				ClaimKey:        "perf_sample_top_symbol:RenderPipeline::draw",
+				Subject:         "RenderPipeline::draw",
+				Predicate:       "perf_sample_top_symbol",
+				Object:          "libui.so",
+				Value:           "12000",
+				Unit:            "period",
+				Summary:         "perf samples symbol=RenderPipeline::draw dso=libui.so source=simpleperf_report_sample symbolization_status=symbolized",
+				RichNotes: []string{
+					"symbol=RenderPipeline::draw",
+					"dso=libui.so",
+					"perf_quality=cpu_known=1,cpu_unknown=0,source=simpleperf_report_sample,symbolization=symbolized,clock=record,clock_confidence=assumed,callchain_status=symbolized",
+				},
+				SupportRefs: []string{"attached_trace.txt:4"},
+			}},
+		}},
+	})
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "ui-31 的 perf 采样命中 RenderPipeline::draw，证据质量中等。",
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	want := "perf_quality=cpu_known=1,cpu_unknown=0,source=simpleperf_report_sample,symbolization=symbolized"
+	if !strings.Contains(out.FinalAnswer, "系统补充：结构化指标核对") || !strings.Contains(out.FinalAnswer, want) {
+		t.Fatalf("final answer missing perf quality metric supplement %q:\n%s", want, out.FinalAnswer)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplement(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

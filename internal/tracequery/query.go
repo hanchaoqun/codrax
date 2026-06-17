@@ -760,6 +760,8 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.PerfSource,
 		ev.PerfSymbolizationStatus,
 		ev.PerfClock,
+		ev.PerfClockConfidence,
+		ev.PerfCallchainStatus,
 	} {
 		if strings.Contains(strings.ToLower(candidate), needle) {
 			return true
@@ -1326,6 +1328,24 @@ type perfThreadAcc struct {
 	total  *int64
 }
 
+type perfValueCountAcc struct {
+	Value       string
+	SampleCount int
+	Period      int64
+}
+
+type perfQualityAcc struct {
+	sources               map[string]*perfValueCountAcc
+	symbolizationStatuses map[string]*perfValueCountAcc
+	clocks                map[string]*perfValueCountAcc
+	clockConfidences      map[string]*perfValueCountAcc
+	callchainStatuses     map[string]*perfValueCountAcc
+	cpuKnownCount         int
+	cpuUnknownCount       int
+	callchainKnownCount   int
+	callchainUnknownCount int
+}
+
 type perfSampleFilter func(Event) bool
 
 func computePerfContext(idx *Index, q Query, max int) *PerfContext {
@@ -1342,6 +1362,7 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 	byCallchain := map[string]*perfHotspotAcc{}
 	byEvent := map[string]*perfHotspotAcc{}
 	byThread := map[string]*perfThreadAcc{}
+	quality := newPerfQualityAcc()
 	for _, ev := range idx.Events {
 		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
@@ -1355,6 +1376,7 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 		}
 		ctx.SampleCount++
 		ctx.TotalPeriod += period
+		quality.add(ev, period)
 		thread := perfSampleThread(ev)
 		example := perfSampleExample(ev)
 		addPerfHotspot(bySymbol, firstNonEmpty(ev.PerfSymbol, ev.PerfIP, "unknown"), PerfHotspot{
@@ -1393,6 +1415,7 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 	ctx.TopCallchains = sortedPerfHotspots(byCallchain, max)
 	ctx.TopThreads = sortedPerfThreads(byThread, max)
 	ctx.TopEvents = sortedPerfHotspots(byEvent, max)
+	ctx.Quality = quality.summary(ctx.TotalPeriod)
 	return ctx
 }
 
@@ -1490,6 +1513,15 @@ func perfSampleExample(ev Event) string {
 	if ev.PerfSymbolizationStatus != "" {
 		parts = append(parts, "symbolization_status="+ev.PerfSymbolizationStatus)
 	}
+	if ev.PerfCallchainStatus != "" {
+		parts = append(parts, "callchain_status="+ev.PerfCallchainStatus)
+	}
+	if ev.PerfClockConfidence != "" {
+		parts = append(parts, "clock_confidence="+ev.PerfClockConfidence)
+	}
+	if ev.PerfCPUKnown != nil {
+		parts = append(parts, fmt.Sprintf("cpu_known=%t", *ev.PerfCPUKnown))
+	}
 	if ev.PerfCallchain != "" {
 		parts = append(parts, "callchain="+ev.PerfCallchain)
 	}
@@ -1497,6 +1529,131 @@ func perfSampleExample(ev Event) string {
 		return ev.FieldText
 	}
 	return strings.Join(parts, " ")
+}
+
+func newPerfQualityAcc() *perfQualityAcc {
+	return &perfQualityAcc{
+		sources:               map[string]*perfValueCountAcc{},
+		symbolizationStatuses: map[string]*perfValueCountAcc{},
+		clocks:                map[string]*perfValueCountAcc{},
+		clockConfidences:      map[string]*perfValueCountAcc{},
+		callchainStatuses:     map[string]*perfValueCountAcc{},
+	}
+}
+
+func (acc *perfQualityAcc) add(ev Event, period int64) {
+	if acc == nil {
+		return
+	}
+	addPerfValueCount(acc.sources, firstNonEmpty(ev.PerfSource, "unknown"), period)
+	addPerfValueCount(acc.symbolizationStatuses, firstNonEmpty(ev.PerfSymbolizationStatus, "unknown"), period)
+	addPerfValueCount(acc.clocks, firstNonEmpty(ev.PerfClock, "unknown"), period)
+	addPerfValueCount(acc.clockConfidences, firstNonEmpty(ev.PerfClockConfidence, "unknown"), period)
+	addPerfValueCount(acc.callchainStatuses, firstNonEmpty(ev.PerfCallchainStatus, "unknown"), period)
+	if ev.PerfCPUKnown != nil && *ev.PerfCPUKnown {
+		acc.cpuKnownCount++
+	} else {
+		acc.cpuUnknownCount++
+	}
+	if perfCallchainKnownForQuality(ev.PerfCallchainStatus) {
+		acc.callchainKnownCount++
+	} else {
+		acc.callchainUnknownCount++
+	}
+}
+
+func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
+	if acc == nil {
+		return nil
+	}
+	out := &PerfQualitySummary{
+		Sources:               sortedPerfValueCounts(acc.sources, total),
+		SymbolizationStatuses: sortedPerfValueCounts(acc.symbolizationStatuses, total),
+		Clocks:                sortedPerfValueCounts(acc.clocks, total),
+		ClockConfidences:      sortedPerfValueCounts(acc.clockConfidences, total),
+		CallchainStatuses:     sortedPerfValueCounts(acc.callchainStatuses, total),
+		CPUKnownCount:         acc.cpuKnownCount,
+		CPUUnknownCount:       acc.cpuUnknownCount,
+		CallchainKnownCount:   acc.callchainKnownCount,
+		CallchainUnknownCount: acc.callchainUnknownCount,
+	}
+	out.Caveats = perfQualityCaveats(*out)
+	if len(out.Sources) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
+		return nil
+	}
+	return out
+}
+
+func addPerfValueCount(bucket map[string]*perfValueCountAcc, value string, period int64) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "unknown"
+	}
+	acc := bucket[value]
+	if acc == nil {
+		acc = &perfValueCountAcc{Value: value}
+		bucket[value] = acc
+	}
+	acc.SampleCount++
+	acc.Period += period
+}
+
+func sortedPerfValueCounts(in map[string]*perfValueCountAcc, total int64) []PerfValueCount {
+	out := make([]PerfValueCount, 0, len(in))
+	for _, acc := range in {
+		item := PerfValueCount{Value: acc.Value, SampleCount: acc.SampleCount, Period: acc.Period}
+		if total > 0 {
+			item.Percent = float64(item.Period) * 100 / float64(total)
+		}
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Period != out[j].Period {
+			return out[i].Period > out[j].Period
+		}
+		if out[i].SampleCount != out[j].SampleCount {
+			return out[i].SampleCount > out[j].SampleCount
+		}
+		return out[i].Value < out[j].Value
+	})
+	return out
+}
+
+func perfQualityCaveats(q PerfQualitySummary) []string {
+	var out []string
+	if q.CPUUnknownCount > 0 {
+		out = append(out, fmt.Sprintf("perf samples include %d CPU-unknown sample(s); CPU-scoped joins ignore them rather than treating them as CPU0", q.CPUUnknownCount))
+	}
+	if perfValueCountsContain(q.SymbolizationStatuses, "unsymbolized") {
+		out = append(out, "perf samples include unsymbolized/IP-only rows; function-level conclusions should keep raw fallback caveats")
+	}
+	if perfValueCountsContain(q.CallchainStatuses, "missing") || perfValueCountsContain(q.CallchainStatuses, "ip_only") {
+		out = append(out, "perf samples include missing or IP-only callchains; call-chain conclusions may be partial")
+	}
+	if perfValueCountsContain(q.ClockConfidences, "assumed") || perfValueCountsContain(q.ClockConfidences, "unknown") {
+		out = append(out, "perf sample timestamps use assumed or unknown clock alignment; treat trace/perf overlap as supporting evidence unless calibrated")
+	}
+	out = append(out, "perf period values are event/sample weights, not elapsed duration; do not convert them to time or expected sample density without explicit sampling configuration and calibrated CPU frequency")
+	return out
+}
+
+func perfValueCountsContain(values []PerfValueCount, want string) bool {
+	want = strings.ToLower(strings.TrimSpace(want))
+	for _, value := range values {
+		if strings.ToLower(strings.TrimSpace(value.Value)) == want && value.SampleCount > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func perfCallchainKnownForQuality(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "symbolized", "partial":
+		return true
+	default:
+		return false
+	}
 }
 
 func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHotspot, thread ThreadRef, cpu int, line int, period int64, example string, total *int64) {
@@ -9226,6 +9383,9 @@ func rootCausePerfSummary(ctx *PerfContext) string {
 		}
 		parts = append(parts, fmt.Sprintf("top_period=%d", hot.Period))
 	}
+	if quality := perfQualitySummaryCompact(ctx.Quality); quality != "" {
+		parts = append(parts, "perf_quality="+quality)
+	}
 	return strings.Join(parts, " ")
 }
 
@@ -9255,9 +9415,45 @@ func rootCausePerfRoleSummary(contexts []RootCausePerfRoleContext, max int) stri
 				fields = append(fields, "dso="+hot.DSO)
 			}
 		}
+		if quality := perfQualitySummaryCompact(role.PerfContext.Quality); quality != "" {
+			fields = append(fields, "quality="+quality)
+		}
 		parts = append(parts, strings.Join(fields, " "))
 	}
 	return strings.Join(parts, " | ")
+}
+
+func perfQualitySummaryCompact(q *PerfQualitySummary) string {
+	if q == nil {
+		return ""
+	}
+	parts := []string{
+		fmt.Sprintf("cpu_known=%d", q.CPUKnownCount),
+		fmt.Sprintf("cpu_unknown=%d", q.CPUUnknownCount),
+	}
+	if source := perfQualityTopValue(q.Sources); source != "" {
+		parts = append(parts, "source="+source)
+	}
+	if status := perfQualityTopValue(q.SymbolizationStatuses); status != "" {
+		parts = append(parts, "symbolization="+status)
+	}
+	if clock := perfQualityTopValue(q.Clocks); clock != "" {
+		parts = append(parts, "clock="+clock)
+	}
+	if confidence := perfQualityTopValue(q.ClockConfidences); confidence != "" {
+		parts = append(parts, "clock_confidence="+confidence)
+	}
+	if callchain := perfQualityTopValue(q.CallchainStatuses); callchain != "" {
+		parts = append(parts, "callchain_status="+callchain)
+	}
+	return strings.Join(parts, ",")
+}
+
+func perfQualityTopValue(values []PerfValueCount) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0].Value
 }
 
 func evidenceFromInteractionStats(stats InteractionStatsResult) []EvidenceFact {
@@ -9420,7 +9616,7 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	if res.View == "event_search" && len(res.Events) == 0 {
 		out = append(out, "matched_events=0 for the selected filters; this is not absence proof if the thread label, time window, event types, or line window are too narrow")
 		if pattern := strings.TrimSpace(q.Pattern); pattern != "" {
-			out = append(out, fmt.Sprintf("pattern_no_match_hint=pattern %q is a literal substring, not a regex; try one shorter exact frame id/span label/marker token/symbol/DSO/callchain fragment, add event_types=[\"trace_mark\"] for B/E/C/S/F marker rows or event_types=[\"perf_sample\"] for CPU sample rows, or remove over-narrow pid/thread/time filters before falling back to grep/read_file; for B/E spans, do not search E|<pid>|<span_name> because end rows are unnamed E|<pid> or bare E on the same ftrace thread stack", pattern))
+			out = append(out, fmt.Sprintf("pattern_no_match_hint=pattern %q is a literal substring, not a regex; try one shorter exact frame id/span label/marker token/symbol/DSO/callchain/source/symbolization_status/callchain_status/clock_confidence/cpu_known fragment, add event_types=[\"trace_mark\"] for B/E/C/S/F marker rows or event_types=[\"perf_sample\"] for CPU sample rows, or remove over-narrow pid/thread/time filters before falling back to grep/read_file; for B/E spans, do not search E|<pid>|<span_name> because end rows are unnamed E|<pid> or bare E on the same ftrace thread stack", pattern))
 			if len(q.EventTypes) == 0 {
 				out = append(out, fmt.Sprintf("next_pattern_call_hint=try trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"], time_start=%.6f, time_end=%.6f, limit=40), trace_query(view=\"event_search\", pattern=%q, event_types=[\"perf_sample\"], time_start=%.6f, time_end=%.6f, limit=40), or trace_query(view=\"span_window\", span_name=\"<span label>\", line_start=<line>, line_end=<line>) after selecting a line window", pattern, q.TimeStart, q.TimeEnd, pattern, q.TimeStart, q.TimeEnd))
 			}

@@ -177,6 +177,9 @@ type Event struct {
 	PerfSource              string `json:"perf_source,omitempty"`
 	PerfSymbolizationStatus string `json:"perf_symbolization_status,omitempty"`
 	PerfClock               string `json:"perf_clock,omitempty"`
+	PerfCPUKnown            *bool  `json:"perf_cpu_known,omitempty"`
+	PerfClockConfidence     string `json:"perf_clock_confidence,omitempty"`
+	PerfCallchainStatus     string `json:"perf_callchain_status,omitempty"`
 
 	FieldText string `json:"field_text,omitempty"`
 }
@@ -411,6 +414,7 @@ type WindowStats struct {
 type PerfContext struct {
 	SampleCount   int                 `json:"sample_count,omitempty"`
 	TotalPeriod   int64               `json:"total_period,omitempty"`
+	Quality       *PerfQualitySummary `json:"quality,omitempty"`
 	TopSymbols    []PerfHotspot       `json:"top_symbols,omitempty"`
 	TopDSO        []PerfHotspot       `json:"top_dso,omitempty"`
 	TopCallchains []PerfHotspot       `json:"top_callchains,omitempty"`
@@ -433,6 +437,26 @@ type PerfHotspot struct {
 	LineStart           int         `json:"line_start,omitempty"`
 	LineEnd             int         `json:"line_end,omitempty"`
 	Example             string      `json:"example,omitempty"`
+}
+
+type PerfQualitySummary struct {
+	Sources               []PerfValueCount `json:"sources,omitempty"`
+	SymbolizationStatuses []PerfValueCount `json:"symbolization_statuses,omitempty"`
+	Clocks                []PerfValueCount `json:"clocks,omitempty"`
+	ClockConfidences      []PerfValueCount `json:"clock_confidences,omitempty"`
+	CallchainStatuses     []PerfValueCount `json:"callchain_statuses,omitempty"`
+	CPUKnownCount         int              `json:"cpu_known_count,omitempty"`
+	CPUUnknownCount       int              `json:"cpu_unknown_count,omitempty"`
+	CallchainKnownCount   int              `json:"callchain_known_count,omitempty"`
+	CallchainUnknownCount int              `json:"callchain_unknown_count,omitempty"`
+	Caveats               []string         `json:"caveats,omitempty"`
+}
+
+type PerfValueCount struct {
+	Value       string  `json:"value,omitempty"`
+	SampleCount int     `json:"sample_count,omitempty"`
+	Period      int64   `json:"period,omitempty"`
+	Percent     float64 `json:"percent,omitempty"`
 }
 
 type PerfThreadSummary struct {

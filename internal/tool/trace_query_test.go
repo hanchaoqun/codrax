@@ -468,7 +468,7 @@ func TestTraceQueryPerfBundleViewAliasRendersPerfContext(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("trace_query should accept perfBundle view alias: %s", res.Summary)
 	}
-	for _, want := range []string{"# Trace Query: trace_perf_bundle", "perf_top_symbol symbol=Foo::bar", "## Root cause rank"} {
+	for _, want := range []string{"# Trace Query: trace_perf_bundle", "perf_top_symbol symbol=Foo::bar", "perf_quality", "quality=cpu_known=", "## Root cause rank"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("perf bundle summary missing %q:\n%s", want, res.Summary)
 		}

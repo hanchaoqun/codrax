@@ -39,6 +39,7 @@ source "$SCRIPT_DIR/runner_lib.sh"
 # stable copy; standalone usage falls back to ./codrax.
 CODRAX_BIN_FROM_ENV="${CODRAX_BIN:-}"
 CODRAX_BIN="${CODRAX_BIN_FROM_ENV:-./codrax}"
+CODRAX_PROVIDER_ARGS_RAW_FROM_ENV="${CODRAX_PROVIDER_ARGS_RAW:-}"
 
 if [[ $# -lt 1 ]]; then
   echo "usage: $0 <case-file> [N]" >&2
@@ -184,7 +185,12 @@ if [[ -n "$MULTIREPO_WRITE_ROOT" && -z "$FOCUS" ]]; then
   FOCUS="$MULTIREPO_WRITE_ROOT"
 fi
 CODRAX_PROVIDER_ARGS=()
-if [[ -f "$ROOT/providers.yaml" ]]; then
+if [[ -n "$CODRAX_PROVIDER_ARGS_RAW_FROM_ENV" ]]; then
+  # Env vars cannot carry bash arrays across the convergence_audit -> run.sh
+  # process boundary. This string form is for simple flag/value pairs such as
+  # `--providers /path/to/providers.yaml`; array callers keep working.
+  read -r -a CODRAX_PROVIDER_ARGS <<<"$CODRAX_PROVIDER_ARGS_RAW_FROM_ENV"
+elif [[ -f "$ROOT/providers.yaml" ]]; then
   CODRAX_PROVIDER_ARGS=(--providers "$ROOT/providers.yaml")
 fi
 if [[ -n "$SETTINGS" && ! -f "$SETTINGS" ]]; then
@@ -385,7 +391,7 @@ run_read_step() {
   fi
   if [[ ${#attach_args[@]} -gt 0 ]]; then
     if [[ -n "$FOCUS" ]]; then
-      "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+      "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
         --log-level debug \
         --log-dir "$logdir" \
         "${attach_args[@]}" \
@@ -393,7 +399,7 @@ run_read_step() {
         --request "$QUESTION" \
         >"$out" 2>&1
     else
-      "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+      "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
         --log-level debug \
         --log-dir "$logdir" \
         "${attach_args[@]}" \
@@ -402,14 +408,14 @@ run_read_step() {
     fi
   else
     if [[ -n "$FOCUS" ]]; then
-      "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+      "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
         --log-level debug \
         --log-dir "$logdir" \
         --focus "$FOCUS" \
         --request "$QUESTION" \
         >"$out" 2>&1
     else
-      "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+      "$CODRAX_BIN" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
         --log-level debug \
         --log-dir "$logdir" \
         --request "$QUESTION" \

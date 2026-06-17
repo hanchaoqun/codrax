@@ -902,6 +902,91 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 	ev.PerfSource = intern.intern(cleanTraceValue(firstNonEmpty(kv["source"], kv["producer"])))
 	ev.PerfSymbolizationStatus = intern.intern(cleanTraceValue(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"])))
 	ev.PerfClock = intern.intern(cleanTraceValue(firstNonEmpty(kv["clock"], kv["clockid"])))
+	if known, ok := boolMaybe(firstNonEmpty(kv["cpu_known"], kv["cpu_valid"], kv["cpu_available"])); ok {
+		ev.PerfCPUKnown = boolPtr(known)
+	}
+	if ev.PerfCPUKnown == nil {
+		ev.PerfCPUKnown = boolPtr(ev.CPU >= 0)
+	}
+	if ev.PerfSymbolizationStatus == "" {
+		ev.PerfSymbolizationStatus = intern.intern(defaultPerfSymbolizationStatus(*ev))
+	}
+	ev.PerfClockConfidence = intern.intern(cleanTraceValue(firstNonEmpty(kv["clock_confidence"], kv["time_alignment"], kv["time_alignment_confidence"])))
+	if ev.PerfClockConfidence == "" {
+		ev.PerfClockConfidence = intern.intern(defaultPerfClockConfidence(*ev))
+	}
+	ev.PerfCallchainStatus = intern.intern(cleanTraceValue(firstNonEmpty(kv["callchain_status"], kv["stack_status"], kv["call_stack_status"])))
+	if ev.PerfCallchainStatus == "" {
+		ev.PerfCallchainStatus = intern.intern(defaultPerfCallchainStatus(*ev))
+	}
+}
+
+func defaultPerfSymbolizationStatus(ev Event) string {
+	source := strings.ToLower(strings.TrimSpace(ev.PerfSource))
+	switch {
+	case strings.Contains(source, "raw_perfdata"):
+		return "unsymbolized"
+	case ev.PerfSymbol != "" && !perfLabelLooksLikeIP(ev.PerfSymbol):
+		return "symbolized"
+	case ev.PerfDSO != "" || ev.PerfIP != "":
+		return "partial"
+	default:
+		return "unknown"
+	}
+}
+
+func defaultPerfClockConfidence(ev Event) string {
+	if strings.TrimSpace(ev.PerfClock) == "" {
+		return "unknown"
+	}
+	return "assumed"
+}
+
+func defaultPerfCallchainStatus(ev Event) string {
+	callchain := strings.TrimSpace(ev.PerfCallchain)
+	source := strings.ToLower(strings.TrimSpace(ev.PerfSource))
+	switch {
+	case callchain == "":
+		return "missing"
+	case strings.Contains(source, "raw_perfdata") || perfCallchainLooksIPOnly(callchain):
+		return "ip_only"
+	default:
+		return "symbolized"
+	}
+}
+
+func perfCallchainLooksIPOnly(callchain string) bool {
+	parts := strings.FieldsFunc(callchain, func(r rune) bool {
+		return r == ';' || r == ',' || r == '>' || r == '|'
+	})
+	seen := false
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		seen = true
+		if !perfLabelLooksLikeIP(part) {
+			return false
+		}
+	}
+	return seen
+}
+
+func perfLabelLooksLikeIP(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "[")
+	raw = strings.TrimSuffix(raw, "]")
+	raw = strings.TrimPrefix(strings.ToLower(raw), "0x")
+	if raw == "" {
+		return false
+	}
+	for _, r := range raw {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func populateCPUConstraintFields(ev *Event, rawType string, kv map[string]string, intern *stringInterner) {
@@ -1565,6 +1650,22 @@ func atoiMaybe(raw string) (int, bool) {
 		return 0, false
 	}
 	return n, true
+}
+
+func boolMaybe(raw string) (bool, bool) {
+	raw = strings.ToLower(strings.Trim(strings.TrimSpace(raw), ":,"))
+	switch raw {
+	case "1", "t", "true", "y", "yes", "known", "valid", "available":
+		return true, true
+	case "0", "f", "false", "n", "no", "unknown", "invalid", "unavailable":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 func firstNonEmpty(values ...string) string {

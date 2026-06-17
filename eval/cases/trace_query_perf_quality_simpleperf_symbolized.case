@@ -1,0 +1,19 @@
+# Trace query — perf quality for Android simpleperf-style samples
+#
+# Coverage target: simpleperf/report_sample converted rows should preserve CPU,
+# symbol, DSO, callchain, source, and quality so running analysis can use the
+# hotspot as supporting execution evidence.
+ID="trace_query_perf_quality_simpleperf_symbolized"
+NAME="trace query — simpleperf symbolized perf quality"
+QUESTION="请使用 trace_query 分析 4.000s 到 4.012s 的窗口，目标线程是 ui-31。判断这段窗口里 CPU 运行和 perf 采样显示了什么热点，以及这些采样证据质量如何。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+          ui-31   (   31) [006] .... 4.000000: sched_switch: prev_comm=idle/6 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ui next_pid=31 next_prio=52
+          ui-31   (   31) [006] .... 4.004000: perf_sample: cpu=6 cpu_known=true pid=31 tid=31 thread_comm=ui period=12000 event=cpu-cycles symbol=RenderPipeline::draw dso=libui.so callchain=Looper;RenderPipeline::draw source=simpleperf_report_sample symbolization_status=symbolized clock=record clock_confidence=assumed callchain_status=symbolized
+          ui-31   (   31) [006] .... 4.010000: sched_switch: prev_comm=ui prev_pid=31 prev_prio=52 prev_state=R+ ==> next_comm=idle/6 next_pid=0 next_prio=120
+'
+EXPECT_CONTAINS="RenderPipeline::draw libui.so"
+EXPECT_MATCHES_REGEX="(simpleperf_report_sample|simpleperf).*?(symbolized|已符号化|符号)|(symbolized|已符号化|符号).*?(simpleperf_report_sample|simpleperf)
+(cpu_known=true|cpu=6|CPU.?6|CPU.*已知|sample CPU|采样.*CPU)
+(perf|sample|采样|热点|hotspot).*?(RenderPipeline::draw|libui\\.so)|(RenderPipeline::draw|libui\\.so).*?(perf|sample|采样|热点|hotspot)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

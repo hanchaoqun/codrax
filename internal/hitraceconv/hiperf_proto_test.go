@@ -38,6 +38,10 @@ func TestConvertHiperfProtoFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 		`dso="/system/lib64/libfoo.so"`,
 		`callchain="main@/system/lib64/libfoo.so;doWork@/system/lib64/libfoo.so"`,
 		"source=hiperf_proto",
+		"cpu_known=false",
+		"symbolization_status=symbolized",
+		"clock_confidence=assumed",
+		"callchain_status=symbolized",
 	} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("perftrace missing %q:\n%s", want, string(body))
@@ -57,6 +61,13 @@ func TestConvertHiperfProtoFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 	}
 	if ev.PerfEvent != "cpu-cycles" || ev.PerfSymbol != "doWork" || ev.PerfDSO != "/system/lib64/libfoo.so" {
 		t.Fatalf("bad perf symbol fields: %+v", ev)
+	}
+	if ev.PerfCPUKnown == nil || *ev.PerfCPUKnown || ev.PerfSymbolizationStatus != "symbolized" || ev.PerfClockConfidence != "assumed" || ev.PerfCallchainStatus != "symbolized" {
+		t.Fatalf("bad hiperf perf quality fields: %+v", ev)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 0, TimeEnd: 999})
+	if stats.PerfSamples == nil || stats.PerfSamples.Quality == nil || stats.PerfSamples.Quality.CPUUnknownCount != 1 {
+		t.Fatalf("hiperf CPU-unknown quality should reach aggregate summary: %+v", stats.PerfSamples)
 	}
 }
 

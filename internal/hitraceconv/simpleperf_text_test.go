@@ -37,6 +37,10 @@ func TestConvertSimpleperfReportFileToPerfTraceRoundTripsThroughTraceQuery(t *te
 		`ip="0x1234"`,
 		`callchain="main@/system/lib64/libfoo.so;A@/system/lib64/libfoo.so;Foo::bar@/system/lib64/libfoo.so"`,
 		"source=simpleperf_report_sample",
+		"cpu_known=true",
+		"symbolization_status=symbolized",
+		"clock_confidence=assumed",
+		"callchain_status=symbolized",
 	} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("perftrace missing %q:\n%s", want, string(body))
@@ -56,6 +60,9 @@ func TestConvertSimpleperfReportFileToPerfTraceRoundTripsThroughTraceQuery(t *te
 	}
 	if ev.PerfEvent != "cpu-cycles" || ev.PerfSymbol != "Foo::bar" || ev.PerfDSO != "/system/lib64/libfoo.so" {
 		t.Fatalf("bad perf symbol fields: %+v", ev)
+	}
+	if ev.PerfCPUKnown == nil || !*ev.PerfCPUKnown || ev.PerfSymbolizationStatus != "symbolized" || ev.PerfClockConfidence != "assumed" || ev.PerfCallchainStatus != "symbolized" {
+		t.Fatalf("bad perf quality fields: %+v", ev)
 	}
 }
 

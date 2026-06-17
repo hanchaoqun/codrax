@@ -72,7 +72,7 @@ func traceQueryMemoryForLog() (heapAlloc, heapSys uint64, gcCount uint32) {
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, frame root-cause bundles, binder IPC graphs with explicit oneway/sync_like/blocking_candidate fields, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. Path inputs may be .systrace/.htrace/.atrace/.perftrace or .tracebundle.json; trace_query automatically promotes sibling .tracebundle.json and merges sibling .systrace+.perftrace pairs, so one path can carry joint trace+perf evidence. wakeup_chain/root_cause_rank/frame_root_cause_bundle publish structured wakeup_chain path, per-edge wakeup_chain_edge rows, causal_impact rows, and chain_relevance fields (on_chain, adjacent, background); consume those ordered path/edge/relevance fields before paraphrasing dependency chains so upstream waker -> intermediate dependency -> target causality is not lost in prose and off-chain background load is not promoted to primary cause. root_cause_rank rows carry cumulative_impact_ms, dominant_state, and running/runnable/sleep/d_state/io_wait totals; when an on_chain runnable, running/compute-supply, low-frequency, affinity/cpuset, D-state, or IO dependency is tier=primary, report it as a co-primary cause instead of moving it to background, and compare same-chain primary rows by cumulative_impact_ms before score. wakeup_chain also reports aggregated_impact rows when repeated fragmented branches share a common dependency path; these rows and the corresponding root_cause_rank candidates carry bounded occurrence_windows, so enumerate the representative repeated windows and compare the aggregate against single long intervals. Treat critical_blocking_calls as direct blocking surfaces: for binder/futex/lock/sync waits, consume oneway/sync_like/blocking_candidate instead of inferring blocking semantics from raw flags, preserve peer, peer_state, chain_relevance, overlap, nearest_chain_thread, and then continue into peer thread state, wakeup_chain, root_cause_rank, and resource rows before naming the cause; if peer/on-chain evidence is missing, keep the wait as a bounded symptom/candidate with caveat. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, CPU affinity/cpuset/migration constraint evidence, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows, and perf_sample CPU sampling rows when converted to text key/value fields. For perf samples, consume window_stats.perf_samples top_symbols/top_dso/top_callchains/top_threads as supporting code-execution evidence for running threads, runnable competitors, wakeup-chain dependencies, or binder peers; root_cause_rank candidates may carry interval/thread-filtered perf_context plus role-aware perf_contexts rows such as candidate_thread, target_running, on_chain_dependency, same_cpu_competitor, cpu_pressure_top_running, and compute_supply_cpu, and frame_root_cause_bundle may carry target_running_perf, on_chain_perf, binder_peer_perf, and same_cpu_competitor_perf role contexts. For running/compute-supply causes, report perf_contexts as the code-execution support for where CPU time was spent, while scheduler overlap, chain relevance, CPU/core/frequency/affinity, D-state/IO, and supply pressure remain the causal basis. Do not treat samples alone as proof of a scheduling root cause. For runnable root causes, window_stats/root_cause_rank report runnable_context, thread_cpu_load, cpu_constraints, and secondary process_cpu_load: consume the concrete thread load, same-CPU competitors, CPU/core class, other-core idle, Harmony/Donghu sched_switch next_info affinity/restricted fields, cpuset/allowed CPU evidence, and only then the process rollup. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly, view=root_cause_rank to let them enrich and compete with scheduler candidates, or view=frame_root_cause_bundle for frame/jank windows that need wakeup_chain + rank + blocking + IO/IRQ/workqueue/supply/trace-mark evidence and role-specific perf contexts in one handoff-safe result. window_stats/root_cause_rank/frame_root_cause_bundle also report inode-level IO outputs: file_io_by_inode for Android FS/F2FS/EXT4-style file read/write/sync/direct-IO rows, page_cache_by_inode for mm_filemap add/delete churn, storage_latency_by_layer for block/MMC/SCSI/F2FS/Android-FS start-done latency pairs, block_io_by_inode to join inode activity with nearest block/storage latency, io_burst_episodes for D-state/iowait/storage bursts, and io_pressure_summary to relate inode IO, page-cache churn, block/storage latency, sched_blocked_reason iowait, and D-state totals. For IO completion questions, preserve file_io completions/ret/example and each storage_latency example together with bytes/len/offset and max_latency, so a single 4KB completion latency is not hidden by aggregate bytes or total latency. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly or view=root_cause_rank/frame_root_cause_bundle to let them compete with scheduler and blocking causes. window_stats/frame_root_cause_bundle also report irq_activity, softirq_activity, workqueue_activity, supply_pressure_summary, trace_mark_categories, and async_file_work as supporting signals; use them to explain supply-side pressure and background interference without treating them as proof unless they overlap the target window or wakeup chain. For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause. state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes. For frame/span, runnable-context, inode discovery, or perf hotspot discovery, use view=event_search with pattern as a case-insensitive literal substring, not a regex; it is best for frame ids, jank ids, span labels, trace marker labels, thread labels, next_info tokens, cpuset labels, inode tokens such as 0x478e5, entry_name values, perf symbols/DSOs/callchains, or one exact timestamp/event token before broad grep. Trace markers include B/E/C/S/F rows: event_search rows expose span_action, span_pid, span_name, and span_value; span_window/window_stats trace_spans expose kind=sync|async. Synchronous B/E spans end with unnamed E|<pid> or bare E on the same ftrace thread stack, async S/F spans pair by marker pid + name + cookie, and searching E|<pid>|<span_name> is not a valid end-marker test. Treat entry_name as a trace file-name label, not an absolute path; do not prefix it with /, /data/, or any directory unless that full path appears in the trace or an external mapping. If multiple span windows or zero rows come back, narrow with the returned line/time windows, a shorter literal pattern, event_types=[\"trace_mark\"], event_types=[\"perf_sample\"] for CPU sample rows, event_types=[\"cpu_constraint\"] for affinity/cpuset/next_info rows, event_types=[\"file_io\"] or event_types=[\"page_cache\"] for inode rows, pid/thread, or span_window before running recipe/root-cause views. Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first does light marker discovery; when timestamped top jank/frame markers are found it automatically runs bounded recipe analysis for the top candidate windows, and otherwise returns marker discovery plus next-call hints instead of expanding expensive full-trace root-cause/resource views. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, frame root-cause bundles, binder IPC graphs with explicit oneway/sync_like/blocking_candidate fields, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. Path inputs may be .systrace/.htrace/.atrace/.perftrace or .tracebundle.json; trace_query automatically promotes sibling .tracebundle.json and merges sibling .systrace+.perftrace pairs, so one path can carry joint trace+perf evidence. wakeup_chain/root_cause_rank/frame_root_cause_bundle publish structured wakeup_chain path, per-edge wakeup_chain_edge rows, causal_impact rows, and chain_relevance fields (on_chain, adjacent, background); consume those ordered path/edge/relevance fields before paraphrasing dependency chains so upstream waker -> intermediate dependency -> target causality is not lost in prose and off-chain background load is not promoted to primary cause. root_cause_rank rows carry cumulative_impact_ms, dominant_state, and running/runnable/sleep/d_state/io_wait totals; when an on_chain runnable, running/compute-supply, low-frequency, affinity/cpuset, D-state, or IO dependency is tier=primary, report it as a co-primary cause instead of moving it to background, and compare same-chain primary rows by cumulative_impact_ms before score. wakeup_chain also reports aggregated_impact rows when repeated fragmented branches share a common dependency path; these rows and the corresponding root_cause_rank candidates carry bounded occurrence_windows, so enumerate the representative repeated windows and compare the aggregate against single long intervals. Treat critical_blocking_calls as direct blocking surfaces: for binder/futex/lock/sync waits, consume oneway/sync_like/blocking_candidate instead of inferring blocking semantics from raw flags, preserve peer, peer_state, chain_relevance, overlap, nearest_chain_thread, and then continue into peer thread state, wakeup_chain, root_cause_rank, and resource rows before naming the cause; if peer/on-chain evidence is missing, keep the wait as a bounded symptom/candidate with caveat. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, CPU affinity/cpuset/migration constraint evidence, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows, and perf_sample CPU sampling rows when converted to text key/value fields. For perf samples, consume window_stats.perf_samples top_symbols/top_dso/top_callchains/top_threads and perf_quality/quality summaries as supporting code-execution evidence for running threads, runnable competitors, wakeup-chain dependencies, or binder peers; root_cause_rank candidates may carry interval/thread-filtered perf_context plus role-aware perf_contexts rows such as candidate_thread, target_running, on_chain_dependency, same_cpu_competitor, cpu_pressure_top_running, and compute_supply_cpu, and frame_root_cause_bundle may carry target_running_perf, on_chain_perf, binder_peer_perf, and same_cpu_competitor_perf role contexts. perf_quality reports source mix, symbolization_status, cpu_known/cpu_unknown, clock, clock_confidence, callchain_status, and caveats; cpu_unknown means the official/sample source did not expose CPU id and must not be treated as CPU0 or as absence proof, unsymbolized/ip_only means raw fallback or IP/DSO-only evidence, assumed/unknown clock_confidence means trace/perf overlap is supporting evidence unless calibrated, and perf period values are event/sample weights rather than elapsed duration or expected sample density unless explicit sampling configuration plus calibrated CPU frequency are available. For running/compute-supply causes, report perf_contexts as the code-execution support for where CPU time was spent, while scheduler overlap, chain relevance, CPU/core/frequency/affinity, D-state/IO, and supply pressure remain the causal basis. Do not treat samples alone as proof of a scheduling root cause. For runnable root causes, window_stats/root_cause_rank report runnable_context, thread_cpu_load, cpu_constraints, and secondary process_cpu_load: consume the concrete thread load, same-CPU competitors, CPU/core class, other-core idle, Harmony/Donghu sched_switch next_info affinity/restricted fields, cpuset/allowed CPU evidence, and only then the process rollup. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly, view=root_cause_rank to let them enrich and compete with scheduler candidates, or view=frame_root_cause_bundle for frame/jank windows that need wakeup_chain + rank + blocking + IO/IRQ/workqueue/supply/trace-mark evidence and role-specific perf contexts in one handoff-safe result. window_stats/root_cause_rank/frame_root_cause_bundle also report inode-level IO outputs: file_io_by_inode for Android FS/F2FS/EXT4-style file read/write/sync/direct-IO rows, page_cache_by_inode for mm_filemap add/delete churn, storage_latency_by_layer for block/MMC/SCSI/F2FS/Android-FS start-done latency pairs, block_io_by_inode to join inode activity with nearest block/storage latency, io_burst_episodes for D-state/iowait/storage bursts, and io_pressure_summary to relate inode IO, page-cache churn, block/storage latency, sched_blocked_reason iowait, and D-state totals. For IO completion questions, preserve file_io completions/ret/example and each storage_latency example together with bytes/len/offset and max_latency, so a single 4KB completion latency is not hidden by aggregate bytes or total latency. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly or view=root_cause_rank/frame_root_cause_bundle to let them compete with scheduler and blocking causes. window_stats/frame_root_cause_bundle also report irq_activity, softirq_activity, workqueue_activity, supply_pressure_summary, trace_mark_categories, and async_file_work as supporting signals; use them to explain supply-side pressure and background interference without treating them as proof unless they overlap the target window or wakeup chain. For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause. state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes. For frame/span, runnable-context, inode discovery, or perf hotspot discovery, use view=event_search with pattern as a case-insensitive literal substring, not a regex; it is best for frame ids, jank ids, span labels, trace marker labels, thread labels, next_info tokens, cpuset labels, inode tokens such as 0x478e5, entry_name values, perf symbols/DSOs/callchains/source/symbolization_status/callchain_status/clock_confidence/cpu_known, or one exact timestamp/event token before broad grep. Trace markers include B/E/C/S/F rows: event_search rows expose span_action, span_pid, span_name, and span_value; span_window/window_stats trace_spans expose kind=sync|async. Synchronous B/E spans end with unnamed E|<pid> or bare E on the same ftrace thread stack, async S/F spans pair by marker pid + name + cookie, and searching E|<pid>|<span_name> is not a valid end-marker test. Treat entry_name as a trace file-name label, not an absolute path; do not prefix it with /, /data/, or any directory unless that full path appears in the trace or an external mapping. If multiple span windows or zero rows come back, narrow with the returned line/time windows, a shorter literal pattern, event_types=[\"trace_mark\"], event_types=[\"perf_sample\"] for CPU sample rows, event_types=[\"cpu_constraint\"] for affinity/cpuset/next_info rows, event_types=[\"file_io\"] or event_types=[\"page_cache\"] for inode rows, pid/thread, or span_window before running recipe/root-cause views. Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first does light marker discovery; when timestamped top jank/frame markers are found it automatically runs bounded recipe analysis for the top candidate windows, and otherwise returns marker discovery plus next-call hints instead of expanding expensive full-trace root-cause/resource views. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -90,7 +90,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
-	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as trace_mark, sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, cpu_constraint, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, perf_sample, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Use trace_mark for B/E/C/S/F marker rows; B/E end rows are unnamed E|<pid> or E, so use span_window rather than E|<pid>|<span_name> searches to prove completion. Use perf_sample with pattern=<symbol, dso, callchain, event, thread, source, or symbolization_status> for CPU sampling rows; window_stats.perf_samples summarizes top_symbols/top_dso/top_callchains/top_threads as supporting execution context, not standalone root-cause proof. Raw fallback rows may have source=raw_perfdata_fallback and symbolization_status=unsymbolized, which means IP/DSO context is lower-confidence and function names must not be invented. Use cpu_constraint/affinity/cpuset to inspect sched_setaffinity, sched_migrate_task, cpuset/cgroup attach, and Harmony/Donghu sched_switch next_info affinity/restricted evidence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. This field also accepts a comma/semicolon separated string, and friendly aliases such as inode_io, pageCache, mm_filemap, cpuSample, perfSamples, topSymbols, callchain, cpuAffinity, schedMigrate, storageLayerLatency, irq_activity, softirq_activity, and block_io_by_inode are accepted and mapped to the matching event types."},
+	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as trace_mark, sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, cpu_constraint, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, perf_sample, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Use trace_mark for B/E/C/S/F marker rows; B/E end rows are unnamed E|<pid> or E, so use span_window rather than E|<pid>|<span_name> searches to prove completion. Use perf_sample with pattern=<symbol, dso, callchain, event, thread, source, symbolization_status, callchain_status, clock_confidence, or cpu_known> for CPU sampling rows; window_stats.perf_samples summarizes top_symbols/top_dso/top_callchains/top_threads plus perf_quality as supporting execution context, not standalone root-cause proof. Raw fallback rows may have source=raw_perfdata_fallback, symbolization_status=unsymbolized, and callchain_status=ip_only; OpenHarmony hiperf proto rows may have cpu_known=false because sample CPU is unavailable. Use cpu_constraint/affinity/cpuset to inspect sched_setaffinity, sched_migrate_task, cpuset/cgroup attach, and Harmony/Donghu sched_switch next_info affinity/restricted evidence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. This field also accepts a comma/semicolon separated string, and friendly aliases such as inode_io, pageCache, mm_filemap, cpuSample, perfSamples, topSymbols, callchain, cpuAffinity, schedMigrate, storageLayerLatency, irq_activity, softirq_activity, and block_io_by_inode are accepted and mapped to the matching event types."},
     "pattern": {"type":"string","description":"For event_search, optional case-insensitive literal substring matched against parsed event text, span names, thread labels, scheduler roles, resource fields, and raw-like field text. Use this for frame ids such as \"1917295\", jank ids such as \"jank_frames=7\", exact timestamps, or trace labels such as \"Choreographer#doFrame\"; it is not a regex. Start with one exact token, then add event_types/time/line/thread filters after the first hit."},
     "span_name": {"type":"string","description":"Optional trace span name substring. For span_window, returns matching sync B/E or async S/F span windows; sync B/E end rows do not repeat the span name and appear as E|<pid> or bare E on the same ftrace thread stack. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"x-codrax-enum-style-alias":true,"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
@@ -2046,6 +2046,7 @@ func writeTracePerfContextRole(b *strings.Builder, role string, ctx *tracequery.
 		return
 	}
 	fmt.Fprintf(b, "- %s sample_count=%d total_period=%d summary=%s\n", role, ctx.SampleCount, ctx.TotalPeriod, traceQueryPerfContextCompact(ctx))
+	writeTracePerfQuality(b, role+"_quality", ctx.Quality)
 	if len(ctx.TopCallchains) > 0 {
 		hot := ctx.TopCallchains[0]
 		fmt.Fprintf(b, "  %s_top_callchain callchain=%s symbol=%s dso=%s period=%d samples=%d lines=%d-%d\n",
@@ -2070,7 +2071,7 @@ func writeTraceRootCausePerfRoles(b *strings.Builder, rank int, contexts []trace
 		if role.PerfContext == nil || role.PerfContext.SampleCount == 0 {
 			continue
 		}
-		fmt.Fprintf(b, "  rank_perf_context rank=%d role=%s thread=%s cpu=%d window=%.6f..%.6f samples=%d period=%d reason=%s summary=%s\n",
+		fmt.Fprintf(b, "  rank_perf_context rank=%d role=%s thread=%s cpu=%d window=%.6f..%.6f samples=%d period=%d reason=%s quality=%s summary=%s\n",
 			rank,
 			sanitizeForBanner(role.Role),
 			traceThreadLabel(role.Thread),
@@ -2080,6 +2081,7 @@ func writeTraceRootCausePerfRoles(b *strings.Builder, rank int, contexts []trace
 			role.PerfContext.SampleCount,
 			role.PerfContext.TotalPeriod,
 			sanitizeForBanner(role.Reason),
+			traceQueryPerfQualityCompact(role.PerfContext.Quality),
 			traceQueryPerfContextCompact(role.PerfContext),
 		)
 		if len(role.PerfContext.TopCallchains) > 0 {
@@ -2168,6 +2170,7 @@ func writeTraceRuntimeResource(b *strings.Builder, label string, item tracequery
 
 func writeTracePerfContext(b *strings.Builder, item tracequery.PerfContext) {
 	fmt.Fprintf(b, "- perf_samples sample_count=%d total_period=%d\n", item.SampleCount, item.TotalPeriod)
+	writeTracePerfQuality(b, "perf_quality", item.Quality)
 	for _, hot := range item.TopSymbols {
 		fmt.Fprintf(b, "- perf_top_symbol symbol=%s dso=%s event=%s source=%s symbolization_status=%s period=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
 			sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
@@ -2209,6 +2212,9 @@ func traceQueryPerfContextCompact(ctx *tracequery.PerfContext) string {
 	if len(ctx.TopThreads) > 0 {
 		parts = append(parts, fmt.Sprintf("top_thread=%s", traceThreadLabel(ctx.TopThreads[0].Thread)))
 	}
+	if quality := traceQueryPerfQualityCompact(ctx.Quality); quality != "" && quality != "none" {
+		parts = append(parts, "quality="+quality)
+	}
 	return strings.Join(parts, " ")
 }
 
@@ -2248,6 +2254,9 @@ func traceQueryPerfRoleContextsCompact(contexts []tracequery.RootCausePerfRoleCo
 				fields = append(fields, "symbolization_status="+sanitizeForBanner(hot.SymbolizationStatus))
 			}
 		}
+		if quality := traceQueryPerfQualityCompact(role.PerfContext.Quality); quality != "" && quality != "none" {
+			fields = append(fields, "quality="+quality)
+		}
 		parts = append(parts, strings.Join(fields, " "))
 	}
 	if len(parts) == 0 {
@@ -2257,6 +2266,80 @@ func traceQueryPerfRoleContextsCompact(contexts []tracequery.RootCausePerfRoleCo
 		parts = append(parts, fmt.Sprintf("omitted=%d", len(contexts)-max))
 	}
 	return strings.Join(parts, " | ")
+}
+
+func writeTracePerfQuality(b *strings.Builder, label string, q *tracequery.PerfQualitySummary) {
+	if b == nil || q == nil {
+		return
+	}
+	fmt.Fprintf(b, "- %s cpu_known=%d cpu_unknown=%d callchain_known=%d callchain_unknown=%d sources=%s symbolization=%s clocks=%s clock_confidence=%s callchain_status=%s\n",
+		label,
+		q.CPUKnownCount,
+		q.CPUUnknownCount,
+		q.CallchainKnownCount,
+		q.CallchainUnknownCount,
+		traceQueryPerfValueCountsCompact(q.Sources),
+		traceQueryPerfValueCountsCompact(q.SymbolizationStatuses),
+		traceQueryPerfValueCountsCompact(q.Clocks),
+		traceQueryPerfValueCountsCompact(q.ClockConfidences),
+		traceQueryPerfValueCountsCompact(q.CallchainStatuses),
+	)
+	for _, caveat := range q.Caveats {
+		fmt.Fprintf(b, "  %s_caveat=%s\n", label, sanitizeForBanner(caveat))
+	}
+}
+
+func traceQueryPerfQualityCompact(q *tracequery.PerfQualitySummary) string {
+	if q == nil {
+		return "none"
+	}
+	parts := []string{
+		fmt.Sprintf("cpu_known=%d", q.CPUKnownCount),
+		fmt.Sprintf("cpu_unknown=%d", q.CPUUnknownCount),
+	}
+	if len(q.Sources) > 0 {
+		parts = append(parts, "source="+sanitizeForBanner(q.Sources[0].Value))
+	}
+	if len(q.SymbolizationStatuses) > 0 {
+		parts = append(parts, "symbolization="+sanitizeForBanner(q.SymbolizationStatuses[0].Value))
+	}
+	if len(q.Clocks) > 0 {
+		parts = append(parts, "clock="+sanitizeForBanner(q.Clocks[0].Value))
+	}
+	if len(q.ClockConfidences) > 0 {
+		parts = append(parts, "clock_confidence="+sanitizeForBanner(q.ClockConfidences[0].Value))
+	}
+	if len(q.CallchainStatuses) > 0 {
+		parts = append(parts, "callchain_status="+sanitizeForBanner(q.CallchainStatuses[0].Value))
+	}
+	return strings.Join(parts, ",")
+}
+
+func traceQueryPerfValueCountsCompact(values []tracequery.PerfValueCount) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	const maxValues = 3
+	limit := len(values)
+	if limit > maxValues {
+		limit = maxValues
+	}
+	parts := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		value := values[i]
+		parts = append(parts, fmt.Sprintf("%s:%d/%d(%.1f%%)", sanitizeForBanner(value.Value), value.SampleCount, value.Period, value.Percent))
+	}
+	if len(values) > maxValues {
+		parts = append(parts, fmt.Sprintf("+%d", len(values)-maxValues))
+	}
+	return strings.Join(parts, ",")
+}
+
+func perfQualityCaveatsForTraceQuery(q *tracequery.PerfQualitySummary) []string {
+	if q == nil {
+		return nil
+	}
+	return q.Caveats
 }
 
 func writeTraceFileIO(b *strings.Builder, item tracequery.FileIOSummary) {
@@ -2564,7 +2647,7 @@ func traceEventResourceDetail(ev tracequery.EventView) string {
 		parts = append(parts, fmt.Sprintf("metric=%s value=%s", sanitizeForBanner(ev.PluginMetric), sanitizeForBanner(ev.PluginValue)))
 	}
 	if ev.Type == tracequery.EventPerfSample {
-		parts = append(parts, fmt.Sprintf("perf_sample pid=%d tid=%d period=%d event=%s symbol=%s dso=%s source=%s symbolization_status=%s callchain=%s",
+		parts = append(parts, fmt.Sprintf("perf_sample pid=%d tid=%d period=%d event=%s symbol=%s dso=%s source=%s symbolization_status=%s cpu_known=%s clock=%s clock_confidence=%s callchain_status=%s callchain=%s",
 			ev.PerfPID,
 			ev.PerfTID,
 			ev.PerfPeriod,
@@ -2573,6 +2656,10 @@ func traceEventResourceDetail(ev tracequery.EventView) string {
 			sanitizeForBanner(ev.PerfDSO),
 			sanitizeForBanner(ev.PerfSource),
 			sanitizeForBanner(ev.PerfSymbolizationStatus),
+			traceQueryBoolPtrBanner(ev.PerfCPUKnown),
+			sanitizeForBanner(ev.PerfClock),
+			sanitizeForBanner(ev.PerfClockConfidence),
+			sanitizeForBanner(ev.PerfCallchainStatus),
 			sanitizeForBanner(ev.PerfCallchain)))
 	}
 	if ev.Type == tracequery.EventCPUConstraint || ev.ConstraintKind != "" || ev.CPUSet != "" || len(ev.AllowedCPUs) > 0 {
@@ -4053,13 +4140,15 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				Object:          hot.DSO,
 				Value:           strconv.FormatInt(hot.Period, 10),
 				Unit:            "period",
-				Summary:         fmt.Sprintf("perf samples symbol=%s dso=%s event=%s source=%s symbolization_status=%s period=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+				Summary:         fmt.Sprintf("perf samples symbol=%s dso=%s event=%s source=%s symbolization_status=%s quality=%s period=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), traceQueryPerfQualityCompact(stats.PerfSamples.Quality), hot.Period, hot.SampleCount, hot.Percent),
 				RichNotes: traceQueryTypedKVNotes([][2]string{
 					{"symbol", hot.Symbol},
 					{"dso", hot.DSO},
 					{"event", hot.Event},
 					{"source", hot.Source},
 					{"symbolization_status", hot.SymbolizationStatus},
+					{"perf_quality", traceQueryPerfQualityCompact(stats.PerfSamples.Quality)},
+					{"perf_quality_caveats", strings.Join(perfQualityCaveatsForTraceQuery(stats.PerfSamples.Quality), "; ")},
 					{"period", strconv.FormatInt(hot.Period, 10)},
 					{"samples", traceQueryTypedCount(hot.SampleCount)},
 					{"percent", fmt.Sprintf("%.2f", hot.Percent)},

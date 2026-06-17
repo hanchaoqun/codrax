@@ -1,0 +1,19 @@
+# Trace query — perf quality for raw fallback samples
+#
+# Coverage target: raw perf.data fallback samples should support time/thread/DSO
+# correlation but must be described as unsymbolized/IP-only evidence, not
+# invented function names.
+ID="trace_query_perf_quality_raw_fallback"
+NAME="trace query — raw fallback perf quality"
+QUESTION="请使用 trace_query 分析 3.000s 到 3.010s 的窗口，目标线程是 raw-21。判断是否能看出 CPU 采样热点，并说明这些热点能证明到什么粒度。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+         raw-21   (   20) [005] .... 3.000000: sched_switch: prev_comm=idle/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=raw next_pid=21 next_prio=52
+         raw-21   (   20) [005] .... 3.003000: perf_sample: cpu=5 cpu_known=true pid=20 tid=21 thread_comm=raw period=9000 event=cpu-cycles symbol=0x1234 dso=libraw.so ip=0x1234 callchain=0x111;0x1234 source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only
+         raw-21   (   20) [005] .... 3.008000: sched_switch: prev_comm=raw prev_pid=21 prev_prio=52 prev_state=R+ ==> next_comm=idle/5 next_pid=0 next_prio=120
+'
+EXPECT_CONTAINS="libraw.so raw_perfdata_fallback"
+EXPECT_MATCHES_REGEX="(unsymbolized|未符号化|IP.?only|ip_only|0x1234).*?(libraw\\.so|raw_perfdata_fallback)|(libraw\\.so|raw_perfdata_fallback).*?(unsymbolized|未符号化|IP.?only|ip_only|0x1234)
+(function|函数|符号).*?(不能|不要|无法|caveat|限制|粒度)|(caveat|限制|粒度|不能|不要|无法).*?(function|函数|符号)
+(perf|sample|采样|热点|hotspot).*?(libraw\\.so|0x1234)|(libraw\\.so|0x1234).*?(perf|sample|采样|热点|hotspot)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

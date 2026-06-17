@@ -40,6 +40,9 @@ func TestConvertRawPerfDataFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 		`callchain="0x1222;0x1111;0x1234"`,
 		"source=raw_perfdata_fallback",
 		"symbolization_status=unsymbolized",
+		"cpu_known=true",
+		"clock_confidence=assumed",
+		"callchain_status=ip_only",
 	} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("perftrace missing %q:\n%s", want, string(body))
@@ -60,12 +63,18 @@ func TestConvertRawPerfDataFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 	if ev.PerfSymbol != "0x1234" || ev.PerfDSO != "/system/lib64/libfoo.so" || ev.PerfSource != "raw_perfdata_fallback" || ev.PerfSymbolizationStatus != "unsymbolized" {
 		t.Fatalf("bad raw perf metadata fields: %+v", ev)
 	}
+	if ev.PerfCPUKnown == nil || !*ev.PerfCPUKnown || ev.PerfClockConfidence != "assumed" || ev.PerfCallchainStatus != "ip_only" {
+		t.Fatalf("bad raw perf quality fields: %+v", ev)
+	}
 	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
 	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) == 0 {
 		t.Fatalf("missing perf sample stats: %+v", stats.PerfSamples)
 	}
 	if stats.PerfSamples.TopSymbols[0].SymbolizationStatus != "unsymbolized" || stats.PerfSamples.TopSymbols[0].Source != "raw_perfdata_fallback" {
 		t.Fatalf("raw source/status should reach hotspot summaries: %+v", stats.PerfSamples.TopSymbols[0])
+	}
+	if stats.PerfSamples.Quality == nil || stats.PerfSamples.Quality.CPUKnownCount != 1 || len(stats.PerfSamples.Quality.Caveats) == 0 {
+		t.Fatalf("raw perf quality should reach aggregate summary: %+v", stats.PerfSamples.Quality)
 	}
 }
 

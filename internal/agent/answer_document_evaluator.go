@@ -10431,9 +10431,6 @@ func runtimeAggregateMetricCompactRows(ctx *types.AgentContext, doc *types.Answe
 		return nil
 	}
 	requested := requestedRuntimeMetricTokens(ctx)
-	if len(requested) == 0 {
-		return nil
-	}
 	requestedSet := make(map[string]int, len(requested))
 	for i, token := range requested {
 		if _, ok := requestedSet[token]; !ok {
@@ -10446,25 +10443,124 @@ func runtimeAggregateMetricCompactRows(ctx *types.AgentContext, doc *types.Answe
 	}
 	seen := map[string]bool{}
 	var rows []runtimeAggregateMetricCompactRow
-	for _, fact := range answerDocStableAggregateFacts(ctx) {
-		if fact.Kind != types.AnswerAggregateScalar {
+	if len(requestedSet) > 0 {
+		for _, fact := range answerDocStableAggregateFacts(ctx) {
+			if fact.Kind != types.AnswerAggregateScalar {
+				continue
+			}
+			if !answerDocAggregateFactHasEvidenceOrigin(fact, rm, types.AnswerEvidenceOriginRuntimeArtifact) {
+				continue
+			}
+			key, order := runtimeAggregateMetricCompactKey(fact, requestedSet)
+			if key == "" || strings.TrimSpace(fact.Value) == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			rows = append(rows, runtimeAggregateMetricCompactRow{
+				Order: order,
+				Key:   key,
+				Value: runtimeAggregateMetricCompactValue(fact),
+			})
+		}
+	}
+	for _, row := range runtimeTracePerfQualityMetricRows(ctx, requestedSet) {
+		if row.Key == "" || row.Value == "" || seen[row.Key] {
 			continue
 		}
-		if !answerDocAggregateFactHasEvidenceOrigin(fact, rm, types.AnswerEvidenceOriginRuntimeArtifact) {
-			continue
-		}
-		key, order := runtimeAggregateMetricCompactKey(fact, requestedSet)
-		if key == "" || strings.TrimSpace(fact.Value) == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		rows = append(rows, runtimeAggregateMetricCompactRow{
-			Order: order,
-			Key:   key,
-			Value: runtimeAggregateMetricCompactValue(fact),
-		})
+		seen[row.Key] = true
+		rows = append(rows, row)
 	}
 	return rows
+}
+
+func runtimeTracePerfQualityMetricRows(ctx *types.AgentContext, requested map[string]int) []runtimeAggregateMetricCompactRow {
+	order, ok := runtimeTracePerfQualityRequestedOrder(requested)
+	if !ok {
+		return nil
+	}
+	ledger := answerDocObservationLedger(ctx)
+	if ledger.Empty() {
+		return nil
+	}
+	var rows []runtimeAggregateMetricCompactRow
+	seen := map[string]bool{}
+	for _, record := range ledger.Records {
+		if !runtimeTracePerfQualityRecord(record) {
+			continue
+		}
+		for _, note := range record.RichNotes {
+			key, value, ok := runtimeTracePerfQualityNote(note)
+			if !ok || seen[key] {
+				continue
+			}
+			seen[key] = true
+			rows = append(rows, runtimeAggregateMetricCompactRow{
+				Order: order,
+				Key:   key,
+				Value: value,
+			})
+			if key == "perf_quality" {
+				break
+			}
+		}
+		if seen["perf_quality"] {
+			break
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return rows
+}
+
+func runtimeTracePerfQualityRequestedOrder(requested map[string]int) (int, bool) {
+	if len(requested) == 0 {
+		return 0, true
+	}
+	best := len(requested) + 1
+	for _, token := range []string{"perf", "sample", "samples", "sampling", "hotspot"} {
+		order, ok := requested[token]
+		if !ok {
+			continue
+		}
+		if order < best {
+			best = order
+		}
+	}
+	return best, true
+}
+
+func runtimeTracePerfQualityRecord(record types.ObservationRecord) bool {
+	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact || record.Producer != "trace_query" {
+		return false
+	}
+	claim := strings.ToLower(strings.TrimSpace(record.ClaimKey))
+	predicate := strings.ToLower(strings.TrimSpace(record.Predicate))
+	if strings.Contains(claim, "perf") || strings.Contains(predicate, "perf") {
+		return true
+	}
+	for _, note := range record.RichNotes {
+		if _, _, ok := runtimeTracePerfQualityNote(note); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeTracePerfQualityNote(note string) (string, string, bool) {
+	note = strings.TrimSpace(note)
+	for _, key := range []string{"perf_quality", "perf_quality_caveats"} {
+		prefix := key + "="
+		if !strings.HasPrefix(note, prefix) {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(note, prefix))
+		if value == "" || value == "none" {
+			return "", "", false
+		}
+		return key, value, true
+	}
+	return "", "", false
 }
 
 func requestedRuntimeMetricTokens(ctx *types.AgentContext) []string {

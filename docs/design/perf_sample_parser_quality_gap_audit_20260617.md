@@ -180,6 +180,10 @@ Backfill defaults:
   callchains, `symbolized` when a non-IP callchain exists, `unknown` otherwise.
 - `clock_confidence=assumed` for known converter clocks until a future alignment
   table exists; `unknown` when no clock field exists.
+- `period` remains an event/sample weight used for ranking within the same perf
+  context. It is not elapsed duration and must not be converted to wall time or
+  expected sample density unless explicit sampling configuration and calibrated
+  CPU frequency are available.
 
 These defaults are deterministic parser normalization, not model prose parsing.
 
@@ -208,46 +212,94 @@ D-state/IO, and resource pressure remain the causal basis.
 
 ### Batch B - Perf Quality Data Model
 
-- [ ] Add `PerfQualitySummary` and `PerfValueCount`.
-- [ ] Add event fields for `PerfCPUKnown`, `PerfClockConfidence`, and
+- [x] Add `PerfQualitySummary` and `PerfValueCount`.
+- [x] Add event fields for `PerfCPUKnown`, `PerfClockConfidence`, and
   `PerfCallchainStatus`.
-- [ ] Parse aliases from `.perftrace` rows and apply deterministic defaults.
-- [ ] Emit quality fields from hiperf, simpleperf, and raw fallback adapters.
-- [ ] Unit test official symbolized, OpenHarmony CPU-unknown, and raw
+- [x] Parse aliases from `.perftrace` rows and apply deterministic defaults.
+- [x] Emit quality fields from hiperf, simpleperf, and raw fallback adapters.
+- [x] Unit test official symbolized, OpenHarmony CPU-unknown, and raw
   unsymbolized cases.
 
 ### Batch C - Query Aggregation And Role Handoff
 
-- [ ] Compute `PerfContext.Quality` for every perf context.
-- [ ] Render quality in `window_stats`, `perf_stats`, `trace_perf_bundle`,
+- [x] Compute `PerfContext.Quality` for every perf context.
+- [x] Render quality in `window_stats`, `perf_stats`, `trace_perf_bundle`,
   `root_cause_rank.perf_contexts`, and frame-bundle perf roles.
-- [ ] Add caveats for CPU-unknown, unsymbolized/raw fallback, missing callchain,
+- [x] Add caveats for CPU-unknown, unsymbolized/raw fallback, missing callchain,
   and assumed/unknown clock alignment.
-- [ ] Ensure CPU-filtered role contexts do not treat CPU-unknown samples as
+- [x] Ensure CPU-filtered role contexts do not treat CPU-unknown samples as
   CPU0 or as absence proof.
 
 ### Batch D - Prompt, Hints, Reports, And JSON Repair
 
-- [ ] Update `trace_query` schema description and view matrix to teach the new
+- [x] Update `trace_query` schema description and view matrix to teach the new
   quality fields and how to consume them.
-- [ ] Update event-search and empty-result hints so the model searches
+- [x] Update event-search and empty-result hints so the model searches
   `symbol/dso/callchain/source/symbolization_status/callchain_status` without
   inventing quality.
-- [ ] Extend markdown/typed-observation report rendering with `perf_quality`.
-- [ ] Confirm no new model-authored JSON field was added. If a new input field
+- [x] Extend markdown/typed-observation report rendering with `perf_quality`.
+- [x] Confirm no new model-authored JSON field was added. If a new input field
   is introduced, add it to unified schema alias/compat repair.
 
 ### Batch E - Verification And Evals
 
-- [ ] Add low-prebake evals for:
+- [x] Add low-prebake evals for:
   - OpenHarmony converted perftrace with CPU unknown.
   - Android simpleperf-style perftrace with symbolized CPU samples.
   - Raw fallback perftrace with IP/DSO-only evidence.
   - Trace+perf running/runnable root-cause role contexts.
-- [ ] Run focused Go tests:
+- [x] Run focused Go tests:
   `go test ./internal/hitraceconv ./internal/tracequery ./internal/tool`.
-- [ ] Run at least two relevant eval cases in parallel batches of two.
-- [ ] Re-run existing trace/runnable/perf evals to check no regression.
+- [x] Run full Go tests: `go test ./...`.
+- [x] Run at least two relevant eval cases in parallel batches of two.
+- [x] Re-run existing trace/runnable/perf evals to check no regression.
+
+## Verification 2026-06-17
+
+- Focused packages passed:
+  `go test ./internal/hitraceconv ./internal/tracequery ./internal/tool`.
+- Full repository tests passed: `go test ./...`.
+- Eval batch `perf_quality_new_cases_20260617_summary.md` passed:
+  `trace_query_perf_quality_harmony_cpu_unknown` and
+  `trace_query_perf_quality_raw_fallback`.
+- Eval batch `perf_quality_regression_cases_20260617_summary.md` passed
+  `trace_query_running_perf_context`. The first isolated-worktree run of
+  `trace_query_path_question_relative_donghu_short` failed because
+  `../customlogs/xxx_all.systrace` resolved to `/private/tmp/customlogs`, which
+  did not exist in the detached worktree environment.
+- After adding a temporary eval-environment symlink
+  `/private/tmp/customlogs -> /Users/han/opt/customlogs`, eval batch
+  `perf_quality_path_and_simpleperf_20260617_summary.md` passed:
+  `trace_query_perf_quality_simpleperf_symbolized` and
+  `trace_query_path_question_relative_donghu_short`.
+- Manual audit of the Donghu relative-path answer confirmed that the system
+  consumed the explicit trace path, did not read source files, and reported the
+  key relationship:
+  `CookieMonsterCl-59843 -> com.baidu.tieba-59566`, 2.978ms target sleep,
+  1.661ms CookieMonsterCl runnable wait, priority 20 vs 52, and cpu0/1/2
+  runnable pressure background.
+- After changing `perf_cpu_known` to an output pointer bool, focused and full
+  Go tests were re-run and passed. The simpleperf eval was re-run and initially
+  exposed a handoff/reporting gap where final prose could omit
+  `source=simpleperf_report_sample` even though trace_query typed observations
+  carried it.
+- The final markdown/report supplement now projects trace_query
+  `perf_quality=...` directly from typed observation notes whenever perf
+  quality evidence exists. Re-run summary
+  `perf_quality_simpleperf_after_always_supplement_20260617_summary.md` passed,
+  and the final answer included:
+  `perf_quality=cpu_known=1,cpu_unknown=0,source=simpleperf_report_sample,symbolization=symbolized,clock=record,clock_confidence=assumed,callchain_status=symbolized`.
+- Manual audit also found an over-quantification risk: models may treat perf
+  `period` as elapsed time or expected sample density. `PerfQualitySummary`
+  caveats and trace_query prompt guidance now state that period is an
+  event/sample weight unless explicit sampling configuration and calibrated CPU
+  frequency are present.
+- Residual observation: runtime-artifact-only requests that explicitly forbid
+  source analysis can still route through the repo pipeline and build the repo
+  index before using `trace_query`. This is not a correctness regression for
+  this batch because no source files were read and the final answer remained
+  artifact-local, but it remains a UX/transparency optimization for a future
+  runtime-artifact-only lane.
 
 ## Completion Criteria
 
