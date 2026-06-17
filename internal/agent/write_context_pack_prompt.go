@@ -52,11 +52,8 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 		}
 		fmt.Fprintf(&b, "  - %s: %s\n", label, item.Text)
 	}
-	if limit > 0 {
-		all := pack.ViewForScope(consumer, 0, batchID, sliceID)
-		if len(all.Items) > len(view.Items) {
-			fmt.Fprintf(&b, "  - ... +%d more context item(s)\n", len(all.Items)-len(view.Items))
-		}
+	if view.DroppedItems > 0 {
+		fmt.Fprintf(&b, "  - ... +%d more context item(s)\n", view.DroppedItems)
 	}
 	return strings.TrimSpace(b.String())
 }

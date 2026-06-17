@@ -686,6 +686,81 @@ func TestWriteContextPackPlannerLimitedViewRetainsVerifyFailureLane(t *testing.T
 	}
 }
 
+func TestWriteContextPackGovernanceMetadata(t *testing.T) {
+	pack := NormalizeWriteContextPack(WriteContextPack{
+		PackID:  "governance",
+		BatchID: "batch-1",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP2,
+			Kind:        "verification_diagnostic",
+			Text:        "reason_code=python_static_undefined_name path=pkg/a.py",
+			SourceStage: "verify",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+			Stale:       true,
+			StaleReason: "superseded_by_replan",
+		}},
+	})
+	if len(pack.Items) != 1 {
+		t.Fatalf("expected one normalized item, got %+v", pack.Items)
+	}
+	item := pack.Items[0]
+	if item.CostUnits <= 0 || item.Fingerprint == "" {
+		t.Fatalf("governance cost/fingerprint missing: %+v", item)
+	}
+	if item.ExpiresWithBatchID != "batch-1" {
+		t.Fatalf("batch expiry metadata missing: %+v", item)
+	}
+	if item.StaleReason != "superseded_by_replan" {
+		t.Fatalf("stale reason not normalized: %+v", item)
+	}
+	view := pack.ViewForScope(WriteConsumerPlanner, 10, "batch-1", "")
+	if writeContextViewContains(view, "verification_diagnostic", "python_static_undefined_name") {
+		t.Fatalf("stale non-P0 governance item should not render: %+v", view.Items)
+	}
+	if view.TotalItems != 1 || view.VisibleItems != 0 || view.CostUnits != 0 {
+		t.Fatalf("view governance counters wrong: %+v", view)
+	}
+}
+
+func TestWriteContextPackBudgetedViewRetainsSafetyAndFailure(t *testing.T) {
+	pack := WriteContextPack{
+		PackID:  "budgeted",
+		BatchID: "batch-1",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP0,
+			Kind:        "constraint",
+			Text:        strings.Repeat("keep safety boundary ", 20),
+			SourceStage: "write_analysis",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}, {
+			Priority:    WriteContextP3,
+			Kind:        "pattern_hint",
+			Text:        strings.Repeat("nice style hint ", 20),
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}, {
+			Priority:    WriteContextP2,
+			Kind:        "verify_failure",
+			Text:        "red test failure",
+			SourceStage: "verify",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}},
+	}
+	view := pack.ViewForScopeWithBudget(WriteConsumerPlanner, 10, "batch-1", "", 1)
+	if !writeContextViewContains(view, "constraint", "keep safety boundary") {
+		t.Fatalf("budgeted view should retain P0 safety item: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "verify_failure", "red test failure") {
+		t.Fatalf("budgeted view should retain planner verify-failure must-carry: %+v", view.Items)
+	}
+	if writeContextViewContains(view, "pattern_hint", "nice style hint") {
+		t.Fatalf("budgeted view should drop low-priority style hint first: %+v", view.Items)
+	}
+	if !view.Truncated || view.DroppedItems == 0 || view.BudgetUnits != 1 {
+		t.Fatalf("budgeted view counters wrong: %+v", view)
+	}
+}
+
 func TestWriteContextPackViewBoundsAndDefensiveCopy(t *testing.T) {
 	pack := WriteContextPack{PackID: "x"}
 	for i := 0; i < 20; i++ {

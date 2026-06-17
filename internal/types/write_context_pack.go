@@ -1,6 +1,8 @@
 package types
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"path"
 	"sort"
@@ -38,17 +40,22 @@ const (
 // prompt material; hard gates must continue to read the underlying typed
 // artifacts such as ChangePlan, ChangeReport, Approval, and EvidenceRef fields.
 type WriteContextItem struct {
-	ID          string                       `json:"id,omitempty"`
-	BatchID     string                       `json:"batch_id,omitempty"`
-	SliceID     string                       `json:"slice_id,omitempty"`
-	Priority    WriteContextPriority         `json:"priority"`
-	Kind        string                       `json:"kind"`
-	Text        string                       `json:"text"`
-	SourceStage string                       `json:"source_stage,omitempty"`
-	SourceID    string                       `json:"source_id,omitempty"`
-	EvidenceRef *WriteExplorationEvidenceRef `json:"evidence_ref,omitempty"`
-	Consumers   []WriteContextConsumer       `json:"consumers,omitempty"`
-	Stale       bool                         `json:"stale,omitempty"`
+	ID                 string                       `json:"id,omitempty"`
+	BatchID            string                       `json:"batch_id,omitempty"`
+	SliceID            string                       `json:"slice_id,omitempty"`
+	Priority           WriteContextPriority         `json:"priority"`
+	Kind               string                       `json:"kind"`
+	Text               string                       `json:"text"`
+	SourceStage        string                       `json:"source_stage,omitempty"`
+	SourceID           string                       `json:"source_id,omitempty"`
+	EvidenceRef        *WriteExplorationEvidenceRef `json:"evidence_ref,omitempty"`
+	Consumers          []WriteContextConsumer       `json:"consumers,omitempty"`
+	Stale              bool                         `json:"stale,omitempty"`
+	StaleReason        string                       `json:"stale_reason,omitempty"`
+	ExpiresWithBatchID string                       `json:"expires_with_batch_id,omitempty"`
+	ExpiresWithSliceID string                       `json:"expires_with_slice_id,omitempty"`
+	CostUnits          int                          `json:"cost_units,omitempty"`
+	Fingerprint        string                       `json:"fingerprint,omitempty"`
 }
 
 // WriteContextPack is the bounded handoff artifact shared across the write
@@ -65,8 +72,14 @@ type WriteContextPack struct {
 
 // WriteContextView is the consumer-filtered Top-N projection of a pack.
 type WriteContextView struct {
-	Consumer WriteContextConsumer `json:"consumer,omitempty"`
-	Items    []WriteContextItem   `json:"items,omitempty"`
+	Consumer     WriteContextConsumer `json:"consumer,omitempty"`
+	Items        []WriteContextItem   `json:"items,omitempty"`
+	TotalItems   int                  `json:"total_items,omitempty"`
+	VisibleItems int                  `json:"visible_items,omitempty"`
+	DroppedItems int                  `json:"dropped_items,omitempty"`
+	CostUnits    int                  `json:"cost_units,omitempty"`
+	BudgetUnits  int                  `json:"budget_units,omitempty"`
+	Truncated    bool                 `json:"truncated,omitempty"`
 }
 
 func NormalizeWriteContextPack(in WriteContextPack) WriteContextPack {
@@ -81,6 +94,8 @@ func NormalizeWriteContextPack(in WriteContextPack) WriteContextPack {
 		if item.BatchID == "" {
 			item.BatchID = in.BatchID
 		}
+		item = normalizeWriteContextItemScopeExpiry(item)
+		item.Fingerprint = writeContextItemFingerprint(item)
 		if item.Text == "" && item.EvidenceRef == nil {
 			continue
 		}
@@ -123,6 +138,10 @@ func (p WriteContextPack) View(consumer WriteContextConsumer, limit int) WriteCo
 }
 
 func (p WriteContextPack) ViewForScope(consumer WriteContextConsumer, limit int, batchID, sliceID string) WriteContextView {
+	return p.ViewForScopeWithBudget(consumer, limit, batchID, sliceID, 0)
+}
+
+func (p WriteContextPack) ViewForScopeWithBudget(consumer WriteContextConsumer, limit int, batchID, sliceID string, costBudget int) WriteContextView {
 	p = NormalizeWriteContextPack(p)
 	batchID = trimWriteContextText(batchID)
 	sliceID = trimWriteContextText(sliceID)
@@ -140,10 +159,28 @@ func (p WriteContextPack) ViewForScope(consumer WriteContextConsumer, limit int,
 		}
 		return writeContextPriorityRank(items[i].Priority) < writeContextPriorityRank(items[j].Priority)
 	})
+	visibleCount := len(items)
+	if costBudget > 0 && len(items) > 0 {
+		items = writeContextBudgetedViewItems(items, consumer, costBudget)
+	}
 	if limit > 0 && len(items) > limit {
 		items = writeContextLimitedViewItems(items, consumer, limit)
 	}
-	return WriteContextView{Consumer: consumer, Items: cloneWriteContextItems(items)}
+	items = cloneWriteContextItems(items)
+	dropped := visibleCount - len(items)
+	if dropped < 0 {
+		dropped = 0
+	}
+	return WriteContextView{
+		Consumer:     consumer,
+		Items:        items,
+		TotalItems:   len(p.Items),
+		VisibleItems: visibleCount,
+		DroppedItems: dropped,
+		CostUnits:    writeContextItemsCostUnits(items),
+		BudgetUnits:  maxInt(0, costBudget),
+		Truncated:    dropped > 0,
+	}
 }
 
 func (p WriteContextPack) ForScope(batchID, sliceID string) WriteContextPack {
@@ -179,8 +216,14 @@ func (p WriteContextPack) WithScope(batchID, sliceID string) WriteContextPack {
 		if batchID != "" && (p.Items[i].BatchID == "" || p.Items[i].BatchID == originalBatchID) {
 			p.Items[i].BatchID = batchID
 		}
+		if batchID != "" && (p.Items[i].ExpiresWithBatchID == "" || p.Items[i].ExpiresWithBatchID == originalBatchID) {
+			p.Items[i].ExpiresWithBatchID = batchID
+		}
 		if sliceID != "" && p.Items[i].SliceID == "" {
 			p.Items[i].SliceID = sliceID
+		}
+		if sliceID != "" && p.Items[i].ExpiresWithSliceID == "" {
+			p.Items[i].ExpiresWithSliceID = sliceID
 		}
 	}
 	return NormalizeWriteContextPack(p)
@@ -812,11 +855,40 @@ func normalizeWriteContextItem(in WriteContextItem) WriteContextItem {
 	in.Text = trimWriteContextText(in.Text)
 	in.SourceStage = trimWriteContextText(in.SourceStage)
 	in.SourceID = trimWriteContextText(in.SourceID)
+	in.StaleReason = trimWriteContextText(in.StaleReason)
+	in.ExpiresWithBatchID = trimWriteContextText(in.ExpiresWithBatchID)
+	in.ExpiresWithSliceID = trimWriteContextText(in.ExpiresWithSliceID)
+	in.Fingerprint = trimWriteContextText(in.Fingerprint)
 	if in.EvidenceRef != nil {
 		ref := normalizeWriteExplorationEvidenceRef(*in.EvidenceRef)
 		in.EvidenceRef = &ref
 	}
 	in.Consumers = normalizeWriteContextConsumers(in.Consumers)
+	if in.Priority != WriteContextP0 {
+		if in.ExpiresWithBatchID == "" {
+			in.ExpiresWithBatchID = in.BatchID
+		}
+		if in.ExpiresWithSliceID == "" {
+			in.ExpiresWithSliceID = in.SliceID
+		}
+	}
+	if in.CostUnits <= 0 {
+		in.CostUnits = writeContextItemCostUnits(in)
+	}
+	in.Fingerprint = writeContextItemFingerprint(in)
+	return in
+}
+
+func normalizeWriteContextItemScopeExpiry(in WriteContextItem) WriteContextItem {
+	if in.Priority == WriteContextP0 {
+		return in
+	}
+	if in.ExpiresWithBatchID == "" {
+		in.ExpiresWithBatchID = in.BatchID
+	}
+	if in.ExpiresWithSliceID == "" {
+		in.ExpiresWithSliceID = in.SliceID
+	}
 	return in
 }
 
@@ -869,7 +941,13 @@ func writeContextItemVisibleInScope(item WriteContextItem, batchID, sliceID stri
 	if batchID == "" {
 		return true
 	}
+	if item.ExpiresWithBatchID != "" && item.ExpiresWithBatchID != batchID && item.Priority != WriteContextP0 {
+		return false
+	}
 	if item.BatchID != "" && item.BatchID != batchID && item.Priority != WriteContextP0 {
+		return false
+	}
+	if sliceID != "" && item.ExpiresWithSliceID != "" && item.ExpiresWithSliceID != sliceID && item.Priority != WriteContextP0 {
 		return false
 	}
 	if sliceID != "" && item.SliceID != "" && item.SliceID != sliceID && item.Priority != WriteContextP0 {
@@ -932,15 +1010,29 @@ func mergeWriteContextDuplicateItem(existing, incoming WriteContextItem) WriteCo
 	if out.SourceID == "" {
 		out.SourceID = incoming.SourceID
 	}
+	if out.StaleReason == "" {
+		out.StaleReason = incoming.StaleReason
+	}
+	if out.ExpiresWithBatchID == "" {
+		out.ExpiresWithBatchID = incoming.ExpiresWithBatchID
+	}
+	if out.ExpiresWithSliceID == "" {
+		out.ExpiresWithSliceID = incoming.ExpiresWithSliceID
+	}
 	if out.EvidenceRef == nil && incoming.EvidenceRef != nil {
 		ref := *incoming.EvidenceRef
 		out.EvidenceRef = &ref
 	}
+	out.Stale = existing.Stale && incoming.Stale
 	if len(existing.Consumers) == 0 || len(incoming.Consumers) == 0 {
 		out.Consumers = nil
+		out.CostUnits = writeContextItemCostUnits(out)
+		out.Fingerprint = writeContextItemFingerprint(out)
 		return out
 	}
 	out.Consumers = normalizeWriteContextConsumers(append(append([]WriteContextConsumer(nil), existing.Consumers...), incoming.Consumers...))
+	out.CostUnits = writeContextItemCostUnits(out)
+	out.Fingerprint = writeContextItemFingerprint(out)
 	return out
 }
 
@@ -1021,6 +1113,27 @@ func writeContextLimitedViewItems(items []WriteContextItem, consumer WriteContex
 	return selected
 }
 
+func writeContextBudgetedViewItems(items []WriteContextItem, consumer WriteContextConsumer, budget int) []WriteContextItem {
+	if budget <= 0 || len(items) == 0 {
+		return items
+	}
+	selected := make([]WriteContextItem, 0, len(items))
+	used := 0
+	for _, item := range items {
+		cost := maxInt(1, item.CostUnits)
+		mustCarry := item.Priority == WriteContextP0 || writeContextMustCarryInLimitedView(item, consumer)
+		if !mustCarry && used+cost > budget {
+			continue
+		}
+		selected = append(selected, item)
+		used += cost
+	}
+	if len(selected) == 0 {
+		return items[:1]
+	}
+	return selected
+}
+
 func writeContextMustCarryInLimitedView(item WriteContextItem, consumer WriteContextConsumer) bool {
 	return consumer == WriteConsumerPlanner &&
 		item.SourceStage == "verify" &&
@@ -1085,6 +1198,38 @@ func writeContextVerifyFailureKind(kind string) bool {
 	default:
 		return false
 	}
+}
+
+func writeContextItemsCostUnits(items []WriteContextItem) int {
+	total := 0
+	for _, item := range items {
+		total += maxInt(1, item.CostUnits)
+	}
+	return total
+}
+
+func writeContextItemCostUnits(item WriteContextItem) int {
+	n := len([]rune(item.Text)) + len([]rune(item.Kind)) + len([]rune(item.SourceStage))
+	if item.ID != "" {
+		n += len([]rune(item.ID)) / 2
+	}
+	if item.SourceID != "" {
+		n += len([]rune(item.SourceID)) / 2
+	}
+	if item.EvidenceRef != nil {
+		n += len([]rune(item.EvidenceRef.Source))
+		n += len([]rune(item.EvidenceRef.Subject))
+		n += len([]rune(item.EvidenceRef.Summary)) / 2
+	}
+	if n <= 0 {
+		return 1
+	}
+	return maxInt(1, (n+63)/64)
+}
+
+func writeContextItemFingerprint(item WriteContextItem) string {
+	sum := sha1.Sum([]byte(writeContextItemKey(item)))
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 func trimWriteContextText(raw string) string {
