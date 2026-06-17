@@ -4081,7 +4081,8 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, limit int) []impactRep
 	add := func(item impactRepairQueueItem) {
 		item = normalizeImpactRepairQueueItem(item)
 		key := impactRepairQueueItemDedupeKey(item)
-		if key == "" || !impactRepairCoverageNeedsWork(item.CoverageStatus) || seen[key] {
+		if key == "" || !impactRepairCoverageNeedsWork(item.CoverageStatus) ||
+			!impactRepairQueueItemRequiresFollowup(item) || seen[key] {
 			return
 		}
 		seen[key] = true
@@ -4195,6 +4196,18 @@ func impactRepairCoverageNeedsWork(status string) bool {
 	switch strings.TrimSpace(status) {
 	case "", "unverified", "unavailable", "unknown":
 		return true
+	default:
+		return false
+	}
+}
+
+func impactRepairQueueItemRequiresFollowup(item impactRepairQueueItem) bool {
+	item = normalizeImpactRepairQueueItem(item)
+	switch item.Kind {
+	case "changed_symbol", "behavior_contract":
+		return true
+	case "semantic_coverage", "effect_followup":
+		return writeflow.PatchReviewEffectUnknownCoverage(item.Code)
 	default:
 		return false
 	}

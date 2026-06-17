@@ -2330,6 +2330,140 @@ func TestNormalizeControllerTypedStateDecisionVerifiedButUndercoveredAppendsImpa
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionVerifiedSoftTelemetryOnlyFinishes(t *testing.T) {
+	mu := types.NewMutableState("verified soft telemetry only")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:     "plan-soft-telemetry",
+		Status: types.PlanStatusApplied,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "dependent_surface_without_verify_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/axis.py",
+				RelatedPath:    "pkg/caller.py",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+				EvidenceRef:    "pkg/caller.py->pkg/axis.py",
+			}, {
+				Code:           "related_test_surface_unverified",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/axis.py",
+				RelatedPath:    "tests/test_axis.py",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+				EvidenceRef:    "tests/test_axis.py",
+			}},
+		},
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "dependent",
+				Path:           "pkg/axis.py",
+				RelatedPath:    "pkg/caller.py",
+				Priority:       40,
+				Source:         "impact_engine",
+				CoverageStatus: "unverified",
+				EvidenceRef:    "pkg/caller.py->pkg/axis.py",
+			}, {
+				Kind:           "test_surface",
+				Path:           "pkg/axis.py",
+				RelatedPath:    "tests/test_axis.py",
+				Priority:       50,
+				Source:         "impact_engine",
+				CoverageStatus: "unverified",
+				EvidenceRef:    "tests/test_axis.py",
+			}, {
+				Kind:           "dependency",
+				Path:           "pkg/axis.py",
+				RelatedPath:    "pkg/base.py",
+				Priority:       60,
+				Source:         "impact_engine",
+				CoverageStatus: "unverified",
+				EvidenceRef:    "pkg/axis.py->pkg/base.py",
+			}, {
+				Kind:           "effect_followup",
+				Path:           "pkg/axis.py",
+				Priority:       70,
+				Source:         "patch_effect",
+				CoverageStatus: "unverified",
+				EvidenceRef:    "patch-effect:pkg/axis.py",
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-soft-telemetry",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-soft-telemetry"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-soft-telemetry"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionFinish {
+		t.Fatalf("soft telemetry should not append a code follow-up after passed verify, got %+v", got)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "impact_obligation_followup_requested") {
+		t.Fatalf("soft telemetry should remain handoff evidence, not a repair batch: %+v", run.ProgressLedger)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionVerifiedActualDiffBoundaryAppendsFollowup(t *testing.T) {
+	mu := types.NewMutableState("verified actual-diff boundary")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:     "plan-boundary",
+		Status: types.PlanStatusApplied,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "typescript_nested_string_key_direct_access_added",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "src/widget.ts",
+				CoverageStatus: types.PatchReviewCoverageUnknown,
+				EvidenceRef:    "src/widget.ts:42",
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-boundary",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-boundary"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-boundary"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil {
+		t.Fatalf("actual-diff boundary finding should append impact repair batch, got %+v", got)
+	}
+	if !containsString(got.Batch.ExpectedPaths, "src/widget.ts") {
+		t.Fatalf("boundary follow-up should stay scoped to typed path, got %+v", got.Batch.ExpectedPaths)
+	}
+	if !strings.Contains(strings.Join(got.Batch.SuccessCriteria, "\n"), "typescript_nested_string_key_direct_access_added") {
+		t.Fatalf("boundary follow-up should preserve typed event code, got %+v", got.Batch.SuccessCriteria)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionImpactRepairWithoutPathExploresFirst(t *testing.T) {
 	mu := types.NewMutableState("impact repair needs localization")
 	mu.SetChangePlan(&types.ChangePlan{

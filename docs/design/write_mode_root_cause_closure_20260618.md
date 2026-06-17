@@ -1420,6 +1420,86 @@ Verification:
 - `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
 - `eval/swebench/smoke_local.sh`
 
+## 2026-06-18 RC-27 Impact Follow-up Authority
+
+The RC-23 SymPy workflow revealed a state-machine authority bug after the
+functional patch was locally verified:
+
+```text
+batch-1 verify passed tests_passed
+batch-1 impact_obligation_followup_requested
+batch-1-impact-repair ready_to_plan
+run status in_progress
+```
+
+The final plan's changed-symbol and actual-diff guard/call-site coverage had
+already been marked `verified`. The remaining uncovered items were broad graph
+fan-out (`dependent`, `dependency`, `test_surface`) plus a generic
+`effect_followup` target from the patch-effect obligation projection. Those
+signals are useful confidence telemetry and handoff context, but they do not
+identify a bounded code change that must occur after a passed local verifier.
+
+Root cause:
+
+- `normalizeControllerTypedStateDecision` asks
+  `impactObligationRepairFollowupNeeded` before finishing a completed
+  non-failed batch.
+- `impactObligationRepairFollowupNeeded` treated any selected uncovered
+  `ImpactVerificationTarget` or semantic `PatchReviewFinding` as an executable
+  repair obligation.
+- `selectImpactRepairQueueItems` therefore gave graph-wide inferred targets the
+  same scheduling authority as hard proof gaps (`changed_symbol`,
+  `behavior_contract`) and actual-diff boundary events.
+
+Design:
+
+- Split impact queue items into:
+  - **Executable follow-up authority**: hard proof obligations that can be
+    closed by a bounded replan or explicit probe (`changed_symbol`,
+    `behavior_contract`) and actual-diff boundary events registered in
+    `PatchReviewEffectUnknownCoverage` such as dynamic mapping/default-boundary
+    signals across Python, JavaScript/TypeScript, Ruby, Java/Kotlin, and Go.
+  - **Confidence telemetry**: broad graph fan-out (`dependent`,
+    `dependency`, `test_surface`, `changed_file`) and generic patch-effect
+    follow-up rows without an uncovered boundary event. These stay in
+    `PatchReview`, `ImpactAnalysis`, reports, and P2 context, but cannot append
+    a new code batch after a non-failed verifier verdict.
+- Keep hard/soft routing structural:
+  - consume typed `kind`, `code`, `coverage_status`, and `source`;
+  - do not read user issue text, model rationale/summary, stdout prose, or
+    natural-language success criteria.
+- Preserve RC-14's useful behavior:
+  - missing hard changed-symbol or behavior-contract proof still appends one
+    bounded follow-up;
+  - actual-diff dynamic boundary unknown coverage still appends a bounded
+    follow-up;
+  - the one-shot recursion guard remains workflow-wide.
+- Improve terminal semantics:
+  - when only confidence telemetry remains after a passed verifier, the
+    controller can finish the run with low-confidence evidence rather than
+    leaving the durable workflow `in_progress`.
+
+Task list:
+
+- [x] Replayed the RC-23 SymPy artifact and confirmed the appended batch was
+  caused by soft graph/effect telemetry after the real changed surface verified.
+- [x] Add typed `impactRepairQueueItemRequiresFollowup` authority classifier.
+- [x] Filter `selectImpactRepairQueueItems` through the authority classifier.
+- [x] Add regressions for passed verifier + soft-only telemetry finishing.
+- [x] Add regressions for passed verifier + actual-diff boundary unknown still
+  appending a bounded follow-up.
+- [x] Run focused controller/writeflow tests and adapter smoke.
+
+Verification:
+
+- `go test ./internal/orchestrator -run 'TestNormalizeControllerTypedStateDecision(VerifiedButUndercoveredAppendsImpactRepair|VerifiedSoftTelemetryOnlyFinishes|VerifiedActualDiffBoundaryAppendsFollowup|ImpactRepairWithoutPathExploresFirst|SemanticPatchReviewFollowupRunsOnce|SemanticPatchReviewDoesNotRecurse)'`
+- `go test ./internal/writeflow ./internal/types -run 'Test.*(PatchReview|Impact|Coverage|Effect)'`
+- `go test ./internal/orchestrator ./internal/writeflow ./internal/types ./internal/tool`
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+- `eval/swebench/smoke_local.sh`
+- `git diff --check`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1452,6 +1532,7 @@ Verification:
 | RC-24 | complete | Delivery PatchReview authority: SWE local acceptance now separates proof-only blockers from actual-diff/effect blockers when a coherent delivery candidate has a passed report. Stale proof blockers from intermediate attempts become telemetry, while actual-diff boundary blockers from any source-owner plan remain hard. Recomputing RC-23 SymPy now yields `predicted_passed_low_confidence` instead of audit-blocked. |
 | RC-25 | complete | Probe reference enrichment: single-probe, single-required-contract plans now auto-fill omitted `contract_refs`, and fill `changed_symbol_refs` from contract subject or a transparent single-source `path:<repo-rel>` fallback. Explicit refs are preserved, multi-contract plans are not guessed, and both single-shot plus skeleton planning paths share the helper. |
 | RC-26 | complete | Hard/soft probe coverage authority: runtime and SWE adapter now distinguish hard-required contract coverage from soft/fallback expected-outcome coverage. Historical RC-23 SymPy recomputes to `verification_probe_missing_soft_contract_ref` with no hard-required gaps, preserving low confidence without overstating the failure as a hard required contract omission. |
+| RC-27 | complete | Impact follow-up authority: controller scheduling now keeps broad graph/effect telemetry as low-confidence handoff after a passed verifier, while hard proof gaps and actual-diff boundary events can still append one bounded follow-up. Regression coverage locks both sides, and local SWE-bench adapter smoke remains harness-consumable. |
 
 ## Acceptance Criteria
 
