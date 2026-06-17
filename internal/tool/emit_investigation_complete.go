@@ -2673,20 +2673,6 @@ func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext) (s
 	if ctx == nil || ctx.Mutable == nil {
 		return "", false
 	}
-	if ctx.AnalysisIR != nil {
-		rm := ctx.AnalysisIR.RequestModel
-		if rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract) {
-			return "", false
-		}
-		attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
-		if !rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace) &&
-			strings.TrimSpace(ctx.AttachedLog) == "" &&
-			strings.TrimSpace(ctx.AttachedHitrace) == "" &&
-			ctx.Mutable.LogTriage() == nil &&
-			ctx.Mutable.PerfTrace() == nil {
-			return "", false
-		}
-	}
 	count := ctx.Mutable.TraceQueryRuntimeObservationCount()
 	if count == 0 {
 		for _, result := range append(ctx.Mutable.DispatchToolResults(), ctx.ToolResults...) {
@@ -2706,6 +2692,19 @@ func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext) (s
 	}
 	if count == 0 {
 		return "", false
+	}
+	if ctx.AnalysisIR != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		if rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract) {
+			return "", false
+		}
+		// A trace_query hard observation is already a typed runtime-artifact
+		// citation surface. It may come from an explicit path in the user's
+		// question rather than from --htrace/--log attachment pre-stages, so do
+		// not require RequestModel path heuristics to rediscover the artifact at
+		// completion time. The current-source requirement check above is the
+		// contract boundary for mixed trace+source questions.
+		return fmt.Sprintf("trace_query_runtime_observations=%d", count), true
 	}
 	return fmt.Sprintf("trace_query_runtime_observations=%d", count), true
 }

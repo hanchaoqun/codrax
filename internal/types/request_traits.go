@@ -1188,16 +1188,16 @@ func (d CurrentSourceLaneDecision) RequiresCurrentSource() bool {
 // gates. It consumes only typed analyzer/runtime fields; it does not inspect
 // raw user prose.
 func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
-	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
+	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
 		return CurrentSourceLaneRequired
 	}
-	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+	if rm.HasTypedCurrentSourceScopeRequest() {
 		return CurrentSourceLaneRequired
 	}
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return CurrentSourceLaneExcluded
 	}
-	if rm.HasTypedCurrentSourceScopeRequest() {
+	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
 		return CurrentSourceLaneRequired
 	}
 	return CurrentSourceLaneAllowedOptional

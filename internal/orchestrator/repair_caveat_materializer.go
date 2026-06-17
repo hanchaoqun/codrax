@@ -233,6 +233,7 @@ func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.V
 	}
 	if runtimeObservationOnlyCaveatContext(ctx) {
 		remaining, needsBoundary := splitRuntimeObservationOnlyCaveats(soft)
+		remaining = suppressGenericSoftCaveatsForAcceptedSurface(remaining, ctx)
 		caveats := make([]string, 0, len(remaining)+1)
 		if needsBoundary {
 			if boundary := runtimeObservationBoundaryCaveat(ctx, lang); boundary != "" {
@@ -240,6 +241,9 @@ func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.V
 			}
 		}
 		caveats = append(caveats, MaterializeUnresolvedViolationsAsCaveats(remaining, lang)...)
+		if len(caveats) == 0 {
+			return answer
+		}
 		return appendSystemCaveatBullets(answer, caveats, lang)
 	}
 	if historyNarrativeCaveatContext(ctx) {

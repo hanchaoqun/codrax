@@ -56,7 +56,12 @@ func TestLooksLikeRuntimeArtifactPath(t *testing.T) {
 		"/tmp/app.log",
 		"trace.HTRACE",
 		"capture.atrace",
+		"capture.ftrace",
 		"sample.perfetto",
+		"sample.perftrace",
+		"sample.tracebundle.json",
+		"perf.data",
+		"sample.perf.data",
 		"attached_trace.txt",
 		"/tmp/.codrax/blob/session/attached_trace.txt",
 		"/tmp/.codrax/blob/session/attached_log.txt",
@@ -65,7 +70,7 @@ func TestLooksLikeRuntimeArtifactPath(t *testing.T) {
 			t.Errorf("LooksLikeRuntimeArtifactPath(%q) = false; want true", s)
 		}
 	}
-	for _, s := range []string{"", "main.go", "config.yaml", "README.md", "trace.txt"} {
+	for _, s := range []string{"", ".log", ".trace", ".systrace", "main.go", "config.yaml", "README.md", "trace.txt"} {
 		if LooksLikeRuntimeArtifactPath(s) {
 			t.Errorf("LooksLikeRuntimeArtifactPath(%q) = true; want false", s)
 		}

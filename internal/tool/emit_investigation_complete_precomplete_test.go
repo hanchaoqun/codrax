@@ -2975,6 +2975,66 @@ func TestEmitInvestigationComplete_PreCompleteCheck_TraceQueryObservationsWaiveC
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_TraceQueryPathObservationsWaiveCitationFloorWithoutAttachment(t *testing.T) {
+	mut := types.NewMutableState("trace-query path observations")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:path#root_cause_rank:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "eval/fixtures/path_runtime_trace_capture", ArtifactKind: "trace"},
+			Subject:         "app-100",
+			Predicate:       "root_cause_primary",
+			Object:          "worker-200 sleep on wakeup chain",
+			Value:           "5.000",
+			Unit:            "ms",
+			Summary:         "trace_query ranked the explicit-path trace window without an attachment pre-stage",
+		}},
+	})
+	mut.ResetDispatchToolResults()
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentRootCause,
+				RawRequest: "只分析 eval/fixtures/path_runtime_trace_capture 这个文件，不分析代码。",
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"不分析代码"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{
+					Required:     true,
+					MinCitations: 2,
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "trace_query returned typed runtime observations for the explicit path trace",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("explicit-path trace_query observations should not require source file citations, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set from explicit-path trace_query observations")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_MCPOriginWaivesCitationFloorWhenSourceOptional(t *testing.T) {
 	mut := types.NewMutableState("MCP line facts")
 	bus := &types.BusContext{

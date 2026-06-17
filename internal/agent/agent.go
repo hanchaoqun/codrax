@@ -4603,13 +4603,13 @@ const (
 	analyzerExplicitRuntimeArtifactPathEmitOnlyCode = "analyzer_explicit_runtime_artifact_path_emit_only"
 )
 
-var analyzerRuntimeArtifactPathTokenRE = regexp.MustCompile(`(?i)[^\s"'` + "`" + `<>()[\]{}，。；;、]+?\.(?:log|trace|systrace|htrace|atrace|perfetto)`)
+var analyzerRuntimeArtifactPathTokenRE = regexp.MustCompile(`(?i)[^\s"'` + "`" + `<>()[\]{}，。；;、]+?(?:\.tracebundle\.json|\.perf\.data|\.perftrace|\.systrace|\.htrace|\.atrace|\.ftrace|\.perfetto|\.trace|\.log)`)
 
 func explicitRuntimeArtifactPathInObjective(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Stage != types.StageAnalyze {
 		return false
 	}
-	return len(analyzerRuntimeArtifactPathsFromObjective(ctx.Objective)) > 0
+	return len(analyzerRuntimeArtifactPathsFromObjective(ctx, ctx.Objective)) > 0
 }
 
 func analyzerExplicitRuntimeArtifactPathBlocksTool(ctx *types.AgentContext, toolName string) bool {
@@ -4623,7 +4623,7 @@ func analyzerPrescanTargetsExplicitRuntimeArtifactPath(ctx *types.AgentContext, 
 	if ctx == nil || ctx.Stage != types.StageAnalyze || !isPrescanTool(tc.Name) {
 		return false
 	}
-	artifacts := analyzerRuntimeArtifactPathsFromObjective(ctx.Objective)
+	artifacts := analyzerRuntimeArtifactPathsFromObjective(ctx, ctx.Objective)
 	if len(artifacts) == 0 {
 		return false
 	}
@@ -4637,7 +4637,7 @@ func analyzerPrescanTargetsExplicitRuntimeArtifactPath(ctx *types.AgentContext, 
 	return false
 }
 
-func analyzerRuntimeArtifactPathsFromObjective(objective string) []string {
+func analyzerRuntimeArtifactPathsFromObjective(ctx *types.AgentContext, objective string) []string {
 	objective = strings.TrimSpace(types.StripConversationPrefix(objective))
 	if objective == "" {
 		return nil
@@ -4646,7 +4646,7 @@ func analyzerRuntimeArtifactPathsFromObjective(objective string) []string {
 	var out []string
 	add := func(raw string) {
 		path := normalizeAnalyzerRuntimeArtifactPathSurface(raw)
-		if path == "" || !analyzerRuntimeArtifactPathLike(path) || types.RuntimeArtifactPathKind(path) == "" || seen[path] {
+		if path == "" || analyzerRuntimeArtifactPathKind(ctx, path) == "" || seen[path] {
 			return
 		}
 		seen[path] = true
@@ -4662,9 +4662,13 @@ func analyzerRuntimeArtifactPathsFromObjective(objective string) []string {
 }
 
 func analyzerRuntimeArtifactPathLike(path string) bool {
+	return analyzerRuntimeArtifactPathKind(nil, path) != ""
+}
+
+func analyzerRuntimeArtifactPathKind(ctx *types.AgentContext, path string) string {
 	path = normalizeAnalyzerRuntimeArtifactPathSurface(path)
 	if path == "" {
-		return false
+		return ""
 	}
 	base := path
 	if idx := strings.LastIndexAny(base, `/\`); idx >= 0 {
@@ -4672,19 +4676,117 @@ func analyzerRuntimeArtifactPathLike(path string) bool {
 	}
 	base = strings.TrimSpace(base)
 	if base == "" {
-		return false
+		return ""
 	}
 	lowerBase := strings.ToLower(base)
-	switch lowerBase {
-	case "attached_log.txt", "attached_trace.txt", "attached_hitrace.txt", "attached_atrace.txt":
-		return true
+	if lowerBase == "perf.data" && !analyzerRuntimeArtifactPathHasLocator(path) && !analyzerRuntimeArtifactPathExists(ctx, path) {
+		return ""
 	}
-	for _, ext := range []string{".log", ".trace", ".systrace", ".htrace", ".atrace", ".perfetto"} {
-		if strings.HasSuffix(lowerBase, ext) {
-			return len(lowerBase) > len(ext)
+	if kind := types.RuntimeArtifactPathKind(path); kind != "" {
+		return kind
+	}
+	if !analyzerRuntimeArtifactPathHasLocator(path) {
+		return ""
+	}
+	return analyzerRuntimeArtifactContentKind(ctx, path)
+}
+
+func analyzerRuntimeArtifactPathHasLocator(path string) bool {
+	path = normalizeAnalyzerRuntimeArtifactPathSurface(path)
+	return filepath.IsAbs(path) ||
+		strings.HasPrefix(path, "./") ||
+		strings.HasPrefix(path, "../") ||
+		strings.HasPrefix(path, "~/") ||
+		strings.ContainsAny(path, `/\`)
+}
+
+func analyzerRuntimeArtifactPathExists(ctx *types.AgentContext, path string) bool {
+	return analyzerRuntimeArtifactResolvedPath(ctx, path) != ""
+}
+
+func analyzerRuntimeArtifactContentKind(ctx *types.AgentContext, path string) string {
+	resolved := analyzerRuntimeArtifactResolvedPath(ctx, path)
+	if resolved == "" {
+		return ""
+	}
+	f, err := os.Open(resolved)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	buf := make([]byte, 8192)
+	n, _ := f.Read(buf)
+	if n <= 0 {
+		return ""
+	}
+	raw := string(buf[:n])
+	lower := strings.ToLower(raw)
+	if strings.HasPrefix(raw, "PERFILE2") ||
+		strings.Contains(raw, "perf_sample:") ||
+		strings.Contains(raw, "sched_switch:") ||
+		strings.Contains(raw, "tracing_mark_write:") ||
+		strings.Contains(raw, "# tracer:") ||
+		(strings.Contains(lower, `"artifacts"`) && strings.Contains(lower, `"tracebundle"`)) {
+		return "trace"
+	}
+	return ""
+}
+
+func analyzerRuntimeArtifactResolvedPath(ctx *types.AgentContext, raw string) string {
+	path := normalizeAnalyzerRuntimeArtifactPathSurface(raw)
+	if path == "" {
+		return ""
+	}
+	candidates := analyzerRuntimeArtifactCandidatePaths(ctx, path)
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		return candidate
+	}
+	return ""
+}
+
+func analyzerRuntimeArtifactCandidatePaths(ctx *types.AgentContext, path string) []string {
+	path = normalizeAnalyzerRuntimeArtifactPathSurface(path)
+	if path == "" {
+		return nil
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
 		}
 	}
-	return false
+	if filepath.IsAbs(path) {
+		return []string{filepath.Clean(path)}
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(base string) {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			return
+		}
+		candidate := filepath.Clean(filepath.Join(base, path))
+		if seen[candidate] {
+			return
+		}
+		seen[candidate] = true
+		out = append(out, candidate)
+	}
+	if ctx != nil {
+		add(ctx.WorkDir)
+		add(ctx.RepoRoot)
+		add(ctx.MainRepoRoot)
+		if ctx.Mutable != nil {
+			add(ctx.Mutable.RepoRoot())
+		}
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		add(cwd)
+	}
+	return out
 }
 
 func analyzerRuntimeArtifactToolParamSurfaces(raw json.RawMessage) []string {
@@ -4942,9 +5044,16 @@ func explorerHasRuntimeTraceArtifact(ctx *types.AgentContext, rm *types.RequestM
 	if ctx.Mutable != nil && ctx.Mutable.PerfTrace() != nil {
 		return true
 	}
-	return rm != nil && (rm.PerfTrace != nil ||
+	if requestNamesRuntimeTraceArtifact(ctx, ctx.Objective) {
+		return true
+	}
+	if rm == nil {
+		return false
+	}
+	return rm.PerfTrace != nil ||
 		rm.HasExternalOnlyRuntimeArtifact() ||
-		rm.HasExternalObservationArtifactReference())
+		rm.HasExternalObservationArtifactReference() ||
+		requestNamesRuntimeTraceArtifact(ctx, rm.RawRequest)
 }
 
 func explorerTraceQueryAlreadyAttempted(ctx *types.AgentContext) bool {
@@ -5121,20 +5230,16 @@ func traceQueryToolAvailable(ctx *types.AgentContext) bool {
 		if rm.PerfTrace != nil {
 			return true
 		}
-		if requestNamesRuntimeTraceArtifact(rm.RawRequest) {
+		if requestNamesRuntimeTraceArtifact(ctx, rm.RawRequest) {
 			return true
 		}
 	}
-	return requestNamesRuntimeTraceArtifact(ctx.Objective)
+	return requestNamesRuntimeTraceArtifact(ctx, ctx.Objective)
 }
 
-func requestNamesRuntimeTraceArtifact(raw string) bool {
-	raw = strings.ToLower(strings.TrimSpace(raw))
-	if raw == "" {
-		return false
-	}
-	for _, ext := range []string{".systrace", ".hitrace", ".atrace", ".ftrace", ".perfetto", ".trace"} {
-		if strings.Contains(raw, ext) {
+func requestNamesRuntimeTraceArtifact(ctx *types.AgentContext, raw string) bool {
+	for _, path := range analyzerRuntimeArtifactPathsFromObjective(ctx, raw) {
+		if analyzerRuntimeArtifactPathKind(ctx, path) == "trace" {
 			return true
 		}
 	}

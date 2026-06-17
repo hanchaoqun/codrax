@@ -1,0 +1,13 @@
+# Trace query — explicit relative perftrace path in question
+#
+# Coverage target: perftrace paths mentioned directly in the question should
+# expose trace_query and return CPU sample quality without requiring --htrace.
+ID="trace_query_path_question_relative_perftrace"
+NAME="trace query — relative perftrace path mentioned in question"
+QUESTION="只分析 eval/fixtures/path_runtime_perf.perftrace 这个文件，不分析代码。请看 4.000s 到 4.010s 的窗口，说明 CPU sample 热点和证据质量。"
+EXPECT_CONTAINS="RenderPipeline::draw libui.so"
+EXPECT_MATCHES_REGEX="(simpleperf_report_sample|simpleperf).*?(symbolized|符号)|(symbolized|符号).*?(simpleperf_report_sample|simpleperf)
+(perf|sample|采样|热点).*(RenderPipeline::draw|libui\\.so)|(RenderPipeline::draw|libui\\.so).*(perf|sample|采样|热点)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
+EXPECT_LOG_NOT_MATCHES_REGEX="phase=toolcall .*tool=(repo_map|list_files)"

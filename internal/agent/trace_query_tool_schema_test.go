@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -29,6 +31,31 @@ func TestTraceQueryToolSchemaLazyRuntimeExposure(t *testing.T) {
 	pathCtx := &types.AgentContext{Stage: types.StageExplore, Objective: "analyze record_trace.systrace for wakeup chain"}
 	if !hasToolSchema(base.buildToolSchemas(sk, pathCtx), "trace_query") {
 		t.Fatal("trace_query should be exposed when the request names an explicit trace artifact path")
+	}
+
+	perfTraceCtx := &types.AgentContext{Stage: types.StageExplore, Objective: "analyze capture.perftrace for sampled CPU hotspots"}
+	if !hasToolSchema(base.buildToolSchemas(sk, perfTraceCtx), "trace_query") {
+		t.Fatal("trace_query should be exposed for explicit perftrace paths")
+	}
+
+	bundleCtx := &types.AgentContext{Stage: types.StageExplore, Objective: "analyze capture.tracebundle.json for trace plus perf context"}
+	if !hasToolSchema(base.buildToolSchemas(sk, bundleCtx), "trace_query") {
+		t.Fatal("trace_query should be exposed for explicit tracebundle paths")
+	}
+
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf.data")
+	if err := os.WriteFile(perfData, []byte("PERFILE2\x00\x00\x00\x00"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	perfDataCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, Objective: "analyze ./perf.data for running hotspots"}
+	if !hasToolSchema(base.buildToolSchemas(sk, perfDataCtx), "trace_query") {
+		t.Fatal("trace_query should be exposed for an explicit existing perf.data path")
+	}
+
+	perfDataCodeCtx := &types.AgentContext{Stage: types.StageExplore, Objective: "explain the raw perf.data parser implementation"}
+	if hasToolSchema(base.buildToolSchemas(sk, perfDataCodeCtx), "trace_query") {
+		t.Fatal("bare perf.data source-code discussion must not expose trace_query")
 	}
 }
 

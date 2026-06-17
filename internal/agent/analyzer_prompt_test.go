@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -293,6 +295,7 @@ func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
 		"required_files / exact_targets",
 		"mechanism explanations backed by current code",
 		"Do not collapse a mixed artifact + current-code request into observation-only",
+		"diagnostic_profile.current_risk/current_version_check/historical_regression=false",
 		"call `emit_analysis` now",
 	} {
 		if !strings.Contains(got, want) {
@@ -433,6 +436,7 @@ func TestAnalyzerPrompt_ExplicitTracePathDoesNotSuppressSourceByDefault(t *testi
 		"call `emit_analysis` now",
 		"keep the mixed runtime-artifact plus current-source lane",
 		"do not collapse mixed artifact + current-code requests into artifact-only",
+		"diagnostic_profile.current_risk/current_version_check/historical_regression=false",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("explicit trace path shortcut missing %q in:\n%s", want, got)
@@ -479,6 +483,41 @@ func TestAnalyzerPrompt_BareRuntimeExtensionDoesNotTriggerArtifactPathShortcut(t
 	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
 	if strings.Contains(got, "Explicit Runtime Artifact Path Classification Shortcut") {
 		t.Fatalf("bare .log extension discussion must remain an ordinary source question:\n%s", got)
+	}
+}
+
+func TestAnalyzerPrompt_BarePerfDataDiscussionDoesNotTriggerArtifactPathShortcut(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: "分析当前代码里 raw perf.data fallback parser 的实现流程",
+	}
+	sk := skill.BuildAnalysisSkill()
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
+	if strings.Contains(got, "Explicit Runtime Artifact Path Classification Shortcut") {
+		t.Fatalf("bare perf.data parser discussion must remain an ordinary source question:\n%s", got)
+	}
+}
+
+func TestAnalyzerPrompt_ExistingSuffixlessTracePathTriggersArtifactShortcut(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "capture")
+	body := "# tracer: nop\napp-1 (1) [000] .... 1.000000: sched_switch: prev_comm=app prev_pid=1 prev_state=S ==> next_comm=idle next_pid=0\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: "只分析 ./capture 这个文件里的调度问题",
+		RepoRoot:  dir,
+	}
+	sk := skill.BuildAnalysisSkill()
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
+	if !strings.Contains(got, "Explicit Runtime Artifact Path Classification Shortcut") {
+		t.Fatalf("existing suffixless trace-like path should trigger artifact shortcut:\n%s", got)
 	}
 }
 
@@ -743,6 +782,7 @@ func TestAnalysisSkill_PromptDocumentsExternalRuntimeDirectClassification(t *tes
 		"External observations default to mixed external + current-source analysis",
 		"external_observation_policy.current_source_mode=exclude",
 		"copy the exact user phrase into source_quotes",
+		"diagnostic_profile.current_risk/current_version_check/historical_regression=false",
 		"keep the default current-source lane available",
 	} {
 		if !strings.Contains(rendered, want) {

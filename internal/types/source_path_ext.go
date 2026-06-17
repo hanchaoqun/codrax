@@ -66,12 +66,14 @@ var codeOrConfigSourcePathExtensions = map[string]bool{
 }
 
 var runtimeArtifactPathExtensions = map[string]bool{
-	".log":      true,
-	".trace":    true,
-	".systrace": true,
-	".htrace":   true,
-	".atrace":   true,
-	".perfetto": true,
+	".log":       true,
+	".trace":     true,
+	".systrace":  true,
+	".htrace":    true,
+	".atrace":    true,
+	".ftrace":    true,
+	".perfetto":  true,
+	".perftrace": true,
 }
 
 // IsCodeOrConfigPathExtension reports whether ext (with leading dot,
@@ -130,11 +132,17 @@ func RuntimeArtifactPathKind(s string) string {
 	case "attached_trace.txt", "attached_hitrace.txt", "attached_atrace.txt":
 		return "trace"
 	}
-	if strings.HasSuffix(lower, ".log") {
+	if base == "perf.data" || strings.HasSuffix(lower, ".perf.data") {
+		return "trace"
+	}
+	if strings.HasSuffix(lower, ".tracebundle.json") {
+		return "trace"
+	}
+	if strings.HasSuffix(lower, ".log") && len(base) > len(".log") {
 		return "log"
 	}
 	for ext := range runtimeArtifactPathExtensions {
-		if strings.HasSuffix(lower, ext) {
+		if strings.HasSuffix(lower, ext) && len(base) > len(ext) {
 			return "trace"
 		}
 	}

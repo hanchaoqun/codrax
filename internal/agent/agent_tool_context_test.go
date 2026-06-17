@@ -648,6 +648,53 @@ func TestValidateExplorerTraceQueryFirstToolCall_BlocksNonTraceToolsBeforeAttemp
 	}
 }
 
+func TestValidateExplorerTraceQueryFirstToolCall_BlocksSuffixlessTracePathBeforeAttempt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "capture")
+	body := "# tracer: nop\napp-1 (1) [000] .... 1.000000: sched_switch: prev_comm=app prev_pid=1 prev_state=S ==> next_comm=idle next_pid=0\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.AgentContext{
+		Stage:     types.StageExplore,
+		Objective: "只分析 ./capture 这个文件里的调度问题，不分析代码",
+		RepoRoot:  dir,
+		Mutable:   types.NewMutableState("suffixless trace"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "只分析 ./capture 这个文件里的调度问题，不分析代码",
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				SourceQuotes:         []string{"不分析代码"},
+				Confidence:           0.9,
+			},
+		}},
+	}
+	if !traceQueryToolAvailable(ctx) {
+		t.Fatal("suffixless trace-like explicit path should expose trace_query")
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !explorerHasRuntimeTraceArtifact(ctx, &rm) {
+		t.Fatal("suffixless trace-like explicit path should count as runtime trace artifact")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got.RequiresCurrentSource() {
+		t.Fatalf("suffixless trace external-only request should not require current source, got %s", got)
+	}
+	if !explorerTraceQueryFirstRequired(ctx, true) {
+		t.Fatal("suffixless trace-like explicit path should activate trace-query-first guard")
+	}
+	got := validateExplorerTraceQueryFirstToolCall(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"capture"}`),
+	}, true)
+	if got == nil {
+		t.Fatal("suffixless trace-like explicit path should require trace_query before read_file")
+	}
+	if got.Repair == nil || got.Repair.Code != explorerTraceQueryFirstCode {
+		t.Fatalf("repair code = %+v, want %q", got.Repair, explorerTraceQueryFirstCode)
+	}
+}
+
 func TestValidateExplorerTraceQueryFirstToolCall_AllowsFallbackAfterTraceAttempt(t *testing.T) {
 	mut := types.NewMutableState("trace state churn")
 	mut.AppendDispatchToolResult(types.ToolResult{

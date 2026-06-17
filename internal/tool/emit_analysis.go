@@ -449,9 +449,9 @@ func buildEmitAnalysisSchema() {
 				"description": "Required typed diagnostic-intent profile. Use this as a second safety lane for diagnosis, current-risk, historical-regression, and current-version verification questions. Every boolean field should be emitted true OR false explicitly. Do not infer from raw artifact presence alone. The system tolerates mirror drift by aligning is_diagnostic to predicates.is_diagnostic_question unless current_risk or historical_regression is true; if this mirror profile is accidentally omitted, runtime defaults it conservatively from predicates without inventing current-risk/regression/current-version flags.",
 				"properties": map[string]any{
 					"is_diagnostic":         map[string]any{"type": "boolean", "description": "Profile-level mirror of predicates.is_diagnostic_question. Set both consistently; the system can auto-align this mirror when it drifts."},
-					"current_risk":          map[string]any{"type": "boolean", "description": "True when the current request asks whether a known or observed issue can still happen in the current checkout."},
+					"current_risk":          map[string]any{"type": "boolean", "description": "True when the current request asks whether a known or observed issue can still happen in the current checkout. Set false when external_observation_policy.current_source_mode=exclude, because the user explicitly forbids current checkout/source verification."},
 					"historical_regression": map[string]any{"type": "boolean", "description": "True when the request compares a historical observed symptom against the current version."},
-					"current_version_check": map[string]any{"type": "boolean", "description": "True only for diagnostic current-status questions where the answer must verify current code separately from historical artifact observations; false for ordinary exact/config/value/location lookups."},
+					"current_version_check": map[string]any{"type": "boolean", "description": "True only for diagnostic current-status questions where the answer must verify current code separately from historical artifact observations; false for ordinary exact/config/value/location lookups and false when external_observation_policy.current_source_mode=exclude."},
 					"observation_summary":   map[string]any{"type": "string", "description": "Optional compact summary of the historical or user-described symptom. Fill this when no log/trace is attached or when the request uses prior conversation to refer to the issue being checked."},
 					"confidence":            map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this diagnostic profile in [0,1]."},
 				},
@@ -649,7 +649,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"external_observation_policy": map[string]any{
 				"type":        "object",
-				"description": "Optional typed source/citation policy for external observations such as logs, traces, MCP resources, connector rows, command output, web pages, or external documents. Omit it or set current_source_mode=default/allow unless the CURRENT request explicitly says not to use current checkout/source evidence. If the request only says external artifact line numbers are not current-source citations, set artifact_citation_mode=external_only instead of excluding current source.",
+				"description": "Optional typed source/citation policy for external observations such as logs, traces, MCP resources, connector rows, command output, web pages, or external documents. Omit it or set current_source_mode=default/allow unless the CURRENT request explicitly says not to use current checkout/source evidence. If current_source_mode=exclude is emitted with a valid source quote, diagnostic_profile.current_risk/current_version_check/historical_regression must be false because current checkout/source verification is out of scope. If the request only says external artifact line numbers are not current-source citations, set artifact_citation_mode=external_only instead of excluding current source.",
 				"properties": map[string]any{
 					"current_source_mode":    map[string]any{"type": "string", "enum": externalObservationCurrentSourceModeValues(), "description": "default/allow means analyze external observations together with current source. exclude means suppress current-source exploration only when the current request explicitly forbids source/current-checkout analysis."},
 					"artifact_citation_mode": map[string]any{"type": "string", "enum": externalObservationArtifactCitationModeValues(), "description": "default leaves citation policy unchanged. external_only means external artifact line/row refs stay external-observation evidence and must not be re-rendered as current-source file:line citations; it does NOT suppress current-source exploration. allow_current_source is only for external material that has been resolved to current source by another typed signal."},
@@ -1078,6 +1078,13 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for _, warning := range externalObservationPolicyWarnings {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
+	}
+	if normalizedDiagnostic, warnings := normalizeDiagnosticProfileForExternalObservationPolicy(diagnosticProfile, externalObservationPolicy); len(warnings) > 0 {
+		diagnosticProfile = normalizedDiagnostic
+		for _, warning := range warnings {
+			logging.Warning("[emit_analysis] %s", warning)
+			val.Warnings = append(val.Warnings, warning)
+		}
 	}
 	artifactOnlyRuntime := emitAnalysisObservationOnlyRuntimeArtifact(ctx, externalObservationPolicy)
 	if normalizedIntent, normalizedScenario, warning := normalizeRuntimeArtifactScalarIntent(artifactOnlyRuntime, intent, scenario, kind, predicates); warning != "" {
@@ -1948,6 +1955,29 @@ func normalizeDiagnosticMirrorSignals(
 		addWarning("mirror auto-align: diagnostic_profile.current_version_check true→false because no diagnostic predicate/current-risk/regression signal is active")
 	}
 	return preds, diagnostic, warnings
+}
+
+func normalizeDiagnosticProfileForExternalObservationPolicy(
+	diagnostic types.DiagnosticIntentProfile,
+	policy *types.ExternalObservationPolicy,
+) (types.DiagnosticIntentProfile, []string) {
+	if policy == nil || !policy.ExcludesCurrentSource() {
+		return diagnostic, nil
+	}
+	var warnings []string
+	if diagnostic.CurrentRisk {
+		diagnostic.CurrentRisk = false
+		warnings = append(warnings, "external_observation_policy current_source_mode=exclude repaired diagnostic_profile.current_risk true→false")
+	}
+	if diagnostic.CurrentVersionCheck {
+		diagnostic.CurrentVersionCheck = false
+		warnings = append(warnings, "external_observation_policy current_source_mode=exclude repaired diagnostic_profile.current_version_check true→false")
+	}
+	if diagnostic.HistoricalRegression {
+		diagnostic.HistoricalRegression = false
+		warnings = append(warnings, "external_observation_policy current_source_mode=exclude repaired diagnostic_profile.historical_regression true→false")
+	}
+	return diagnostic, warnings
 }
 
 // normalizeDiagnosticRoute absorbs a narrow, typed self-consistency

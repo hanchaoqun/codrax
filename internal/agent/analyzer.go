@@ -182,7 +182,7 @@ func renderAnalyzerExplicitRuntimeArtifactPathShortcut() string {
 		"Do not run repo pre-scan (`repo_map`, `grep`, or `list_files`) just to classify the artifact path, stack-frame literal, thread label, timestamp, wakeup chain, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
 		"Classify from the user's wording and call `emit_analysis` now; later exploration can read the log artifact or use `trace_query` for deterministic trace evidence. " +
 		"If the current request also asks to compare with, verify against, or explain current source, keep the mixed runtime-artifact plus current-source lane in the emitted model; do not collapse mixed artifact + current-code requests into artifact-only. " +
-		"If the current request explicitly forbids current checkout/source evidence, encode that prohibition in external_observation_policy.current_source_mode=exclude and copy the exact user phrase into source_quotes.\n\n"
+		"If the current request explicitly forbids current checkout/source evidence, encode that prohibition in external_observation_policy.current_source_mode=exclude, copy the exact user phrase into source_quotes, and emit diagnostic_profile.current_risk/current_version_check/historical_regression=false.\n\n"
 }
 
 func renderAnalyzerRuntimeObservationOnlyShortcut() string {
@@ -191,6 +191,7 @@ func renderAnalyzerRuntimeObservationOnlyShortcut() string {
 		"Do not run repo pre-scan just to classify stack-frame or trace literals from the artifact; classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now. " +
 		"Without that typed exclusion, keep the default mixed external-observation plus current-source lane: use the normal analyzer pre-scan tools for request terms (files-only grep / repo_map / list_files), then express useful source leads through structured required_files / exact_targets when concrete files or targets are found. " +
 		"Use diagnostic_profile.current_version_check only for current-status / still-present / fixed-style diagnostics; for mechanism explanations backed by current code, required_files or exact_targets are the current-source anchor and current_version_check can remain false. " +
+		"When the typed exclude policy is valid, emit diagnostic_profile.current_risk/current_version_check/historical_regression=false because current-checkout verification is out of scope. " +
 		"Do not collapse a mixed artifact + current-code request into observation-only just because resolved_files=0; only the artifact frame literals are external.\n\n"
 }
 
@@ -199,7 +200,7 @@ func renderAnalyzerRuntimeSourceOptionalShortcut() string {
 		"The typed request model already carries a runtime artifact lane and current checkout/source evidence is not required. " +
 		"Do not run repo pre-scan just to classify trace/log literals, thread labels, timestamps, wakeup chains, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
 		"Classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now. " +
-		"Keep current-source analysis allowed by default in the emitted model unless the typed external_observation_policy explicitly excludes it; later exploration may use focused source tools only if a current-source question remains unresolved or would materially change the answer.\n\n"
+		"Keep current-source analysis allowed by default in the emitted model unless the typed external_observation_policy explicitly excludes it; when it does, emit diagnostic_profile.current_risk/current_version_check/historical_regression=false because current-checkout verification is out of scope. Later exploration may use focused source tools only if a current-source question remains unresolved or would materially change the answer.\n\n"
 }
 
 func externalObservationFirstTurnHintForAnalyzer(ctx *types.AgentContext) bool {
