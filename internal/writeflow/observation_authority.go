@@ -212,7 +212,12 @@ func observationReasonIsUnavailable(reason string) bool {
 		string(types.FailureKindRunnerMissing),
 		string(types.FailureKindParserError),
 		"skip_verify",
-		"accepted_without_local_verify":
+		"accepted_without_local_verify",
+		"make_target_missing",
+		"verification_probe_import_error",
+		"verification_probe_module_not_found",
+		"verification_probe_name_error",
+		"verification_probe_syntax_error":
 		return true
 	default:
 		return false
@@ -231,11 +236,8 @@ func observationReasonIsCodeFailure(reason string) bool {
 		"verify_error",
 		"verification_probe_exception",
 		"verification_probe_expected_stdout_missing",
-		"verification_probe_name_error",
-		"verification_probe_import_error",
-		"verification_probe_module_not_found",
 		"verification_probe_runtime_exception",
-		"verification_probe_syntax_error":
+		"verification_probe_timeout":
 		return true
 	default:
 		return false

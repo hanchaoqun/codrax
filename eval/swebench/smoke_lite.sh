@@ -17,6 +17,9 @@ CODRAX_TIMEOUT="${CODRAX_TIMEOUT:-1800}"
 SWEBENCH_PREPARE_PYTHON_ENV="${SWEBENCH_PREPARE_PYTHON_ENV:-1}"
 SWEBENCH_ENV_PREPARE_TIMEOUT="${SWEBENCH_ENV_PREPARE_TIMEOUT:-600}"
 SWEBENCH_ISOLATE_GIT_HISTORY="${SWEBENCH_ISOLATE_GIT_HISTORY:-1}"
+SWEBENCH_FAIL_ON_INSTANCE_ERROR="${SWEBENCH_FAIL_ON_INSTANCE_ERROR:-1}"
+SWEBENCH_FAIL_ON_EMPTY_PATCH="${SWEBENCH_FAIL_ON_EMPTY_PATCH:-1}"
+SWEBENCH_REQUIRE_NONEMPTY_PATCH="${SWEBENCH_REQUIRE_NONEMPTY_PATCH:-1}"
 MAX_WORKERS="${MAX_WORKERS:-1}"
 SWEBENCH_RUN_OFFICIAL="${SWEBENCH_RUN_OFFICIAL:-0}"
 INSTANCE_ID="${INSTANCE_ID:-}"
@@ -60,10 +63,20 @@ cmd+=("${env_prepare_args[@]}")
 if [[ "$SWEBENCH_ISOLATE_GIT_HISTORY" == "1" ]]; then
   cmd+=(--isolate-git-history)
 fi
+if [[ "$SWEBENCH_FAIL_ON_INSTANCE_ERROR" == "1" ]]; then
+  cmd+=(--fail-on-instance-error)
+fi
+if [[ "$SWEBENCH_FAIL_ON_EMPTY_PATCH" == "1" ]]; then
+  cmd+=(--fail-on-empty-patch)
+fi
 
 "${cmd[@]}"
 
-"$PYTHON" "$ROOT/eval/swebench/validate_predictions.py" "$PREDICTIONS_PATH"
+validate_args=("$PREDICTIONS_PATH")
+if [[ "$SWEBENCH_REQUIRE_NONEMPTY_PATCH" == "1" ]]; then
+  validate_args+=(--require-nonempty-patch)
+fi
+"$PYTHON" "$ROOT/eval/swebench/validate_predictions.py" "${validate_args[@]}"
 
 if [[ "$SWEBENCH_RUN_OFFICIAL" == "1" ]]; then
   DATASET_NAME="$DATASET_NAME" \

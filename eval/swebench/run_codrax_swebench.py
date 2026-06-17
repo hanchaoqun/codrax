@@ -296,8 +296,22 @@ def ensure_repo_cache(instance: dict[str, Any], args: argparse.Namespace) -> Pat
     elif not args.no_fetch:
         result = run_cmd(["git", "-C", str(mirror), "fetch", "--prune"], timeout=args.git_timeout)
         if result.code != 0:
-            raise RuntimeError(f"git fetch failed for {mirror}\n{result.output[-4000:]}")
+            base_commit = str(instance.get("base_commit") or "").strip()
+            if base_commit and mirror_has_revision(mirror, base_commit, args.git_timeout):
+                print(
+                    f"warning: git fetch failed for {mirror}; using cached mirror because base_commit {base_commit} is present",
+                    file=sys.stderr,
+                )
+            else:
+                raise RuntimeError(f"git fetch failed for {mirror}\n{result.output[-4000:]}")
     return mirror
+
+
+def mirror_has_revision(mirror: Path, revision: str, timeout: int) -> bool:
+    if not revision:
+        return False
+    result = run_cmd(["git", "-C", str(mirror), "cat-file", "-e", f"{revision}^{{commit}}"], timeout=timeout)
+    return result.code == 0
 
 
 def isolate_git_history(repo_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
@@ -2310,6 +2324,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable adapter-generated Python compatibility constraints for broad lower-bound-only dependency specs",
     )
+    parser.add_argument(
+        "--fail-on-instance-error",
+        action="store_true",
+        help="Exit non-zero after writing artifacts when any instance fails in the adapter before Codrax can produce a patch",
+    )
+    parser.add_argument(
+        "--fail-on-empty-patch",
+        action="store_true",
+        help="Exit non-zero after writing artifacts when any exported prediction has an empty model_patch",
+    )
     parser.add_argument("--no-fetch", action="store_true", help="Do not fetch existing mirror caches")
     return parser.parse_args()
 
@@ -2343,6 +2367,23 @@ def main() -> int:
 
     print(f"predictions: {predictions_path}", file=sys.stderr)
     print(f"results: {results_path}", file=sys.stderr)
+    failures: list[str] = []
+    if args.fail_on_instance_error:
+        failures.extend(
+            f"{r.get('instance_id')}: {r.get('error') or r.get('status')}"
+            for r in results
+            if str(r.get("status") or "") == "error"
+        )
+    if args.fail_on_empty_patch:
+        failures.extend(
+            f"{r.get('instance_id')}: empty patch ({r.get('empty_patch_reason') or r.get('status')})"
+            for idx, r in enumerate(results)
+            if idx < len(predictions) and not str(predictions[idx].get("model_patch") or "").strip()
+        )
+    if failures:
+        for failure in failures:
+            print(f"smoke failure: {failure}", file=sys.stderr)
+        return 1
     return 0
 
 

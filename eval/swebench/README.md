@@ -184,9 +184,14 @@ Pick specific instances when you want a smaller or more targeted smoke:
 INSTANCE_ID=pallets__flask-4045 SWEBENCH_SMOKE_LIMIT=1 eval/swebench/smoke_lite.sh
 ```
 
-By default the script validates predictions and prints the official harness
-command with `DRY_RUN=1`. To run the official Docker-backed scorer on a prepared
-Linux/x86_64 SWE-bench host:
+By default the smoke script validates predictions, requires every selected
+instance to export a non-empty patch, fails on adapter setup errors, and prints
+the official harness command with `DRY_RUN=1`. This keeps hardening runs from
+silently treating empty patches as success while still leaving the JSONL
+artifacts on disk for audit. Set `SWEBENCH_FAIL_ON_INSTANCE_ERROR=0`,
+`SWEBENCH_FAIL_ON_EMPTY_PATCH=0`, or `SWEBENCH_REQUIRE_NONEMPTY_PATCH=0` only
+when deliberately collecting negative fixtures. To run the official
+Docker-backed scorer on a prepared Linux/x86_64 SWE-bench host:
 
 ```bash
 SWEBENCH_RUN_OFFICIAL=1 SWEBENCH_SMOKE_LIMIT=3 eval/swebench/smoke_lite.sh
@@ -210,6 +215,8 @@ eval/results/swebench/.venv/bin/python eval/swebench/run_codrax_swebench.py \
   --dataset-name SWE-bench/SWE-bench_Lite \
   --split test \
   --isolate-git-history \
+  --fail-on-instance-error \
+  --fail-on-empty-patch \
   --prepare-python-env \
   --limit 10
 ```

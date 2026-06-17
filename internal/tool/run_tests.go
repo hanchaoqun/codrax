@@ -1022,6 +1022,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Timestamp: time.Now(),
 			}, nil
 		}
+		if report != nil && report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
+			if report.FailureKind == types.FailureKindParserError {
+				setLastExecOutcome("parser_error")
+			}
+			if strings.TrimSpace(report.FailureReasonCode) != "" {
+				setLastExecReasonCode(report.FailureReasonCode)
+			}
+		}
 		if reportHasNoExecutedTests(report) && runnerPlanHasTypedTestSignal(surface, plan, ctx.RepoRoot) {
 			setLastExecOutcome("zero_tests")
 			label := runnerPlanLabel(ctx.RepoRoot, plan)

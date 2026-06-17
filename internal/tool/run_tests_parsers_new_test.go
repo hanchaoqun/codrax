@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // ── RSpec ─────────────────────────────────────────────────────────
@@ -682,6 +684,26 @@ func TestParseMakeOutput_FailureWithoutExcerpt(t *testing.T) {
 	}
 	if !strings.Contains(report.TestResults[0].FailureDetail, "exit status 2") {
 		t.Errorf("FailureDetail should fall back to runErr text; got %q", report.TestResults[0].FailureDetail)
+	}
+}
+
+func TestParseMakeOutput_MissingTargetIsUnavailable(t *testing.T) {
+	stdout := "make: *** No rule to make target `check'.  Stop.\n"
+	report, err := parseMakeOutput(stdout, &fakeExitError{msg: "exit status 2"})
+	if err != nil {
+		t.Fatalf("parseMakeOutput: %v", err)
+	}
+	if report.Passed {
+		t.Fatal("missing make target should not pass")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode != "make_target_missing" {
+		t.Fatalf("FailureReasonCode = %q, want make_target_missing; report=%+v", report.FailureReasonCode, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("NormalizeVerificationStatus = %q, want unavailable", got)
 	}
 }
 

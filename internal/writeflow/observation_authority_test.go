@@ -100,10 +100,31 @@ func TestDeriveObservationAuthorityFromAttempt(t *testing.T) {
 			wantFinish: true,
 		},
 		{
+			name:       "probe import unavailable can finish with caveat",
+			attempt:    &types.WriteWorkflowAttempt{Kind: "verify", Status: "unverified", ReasonCode: "verification_probe_module_not_found"},
+			wantState:  ObservationAuthorityUnverified,
+			wantReason: "verification_probe_module_not_found",
+			wantFinish: true,
+		},
+		{
+			name:       "make target missing unavailable can finish with caveat",
+			attempt:    &types.WriteWorkflowAttempt{Kind: "verify", Status: "unverified", ReasonCode: "make_target_missing"},
+			wantState:  ObservationAuthorityUnverified,
+			wantReason: "make_target_missing",
+			wantFinish: true,
+		},
+		{
 			name:                "legacy failed unavailable needs typed disposition",
 			attempt:             &types.WriteWorkflowAttempt{Kind: "verify", Status: "failed", ReasonCode: "runner_missing"},
 			wantState:           ObservationAuthorityUnverified,
 			wantReason:          "runner_missing",
+			wantDispositionOnly: true,
+		},
+		{
+			name:                "legacy failed probe import unavailable needs typed disposition",
+			attempt:             &types.WriteWorkflowAttempt{Kind: "verify", Status: "failed", ReasonCode: "verification_probe_import_error"},
+			wantState:           ObservationAuthorityUnverified,
+			wantReason:          "verification_probe_import_error",
 			wantDispositionOnly: true,
 		},
 		{
