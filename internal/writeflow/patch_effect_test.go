@@ -377,6 +377,69 @@ func TestAnnotatePatchEffectMultiLanguageLineShapeWarnings(t *testing.T) {
 	}
 }
 
+func TestPatchEffectSourceProviderRegistryCoverage(t *testing.T) {
+	wantKinds := map[string]string{
+		"pkg/widget.py":              "python",
+		"src/widget.js":              "javascript",
+		"src/widget.jsx":             "javascript",
+		"src/widget.mjs":             "javascript",
+		"src/widget.cjs":             "javascript",
+		"src/widget.ts":              "typescript",
+		"src/widget.tsx":             "typescript",
+		"src/widget.mts":             "typescript",
+		"src/widget.cts":             "typescript",
+		"lib/widget.rb":              "ruby",
+		"src/main/java/Widget.java":  "java",
+		"src/main/kotlin/Widget.kt":  "kotlin",
+		"src/main/kotlin/Widget.kts": "kotlin",
+		"pkg/widget.go":              "go",
+	}
+	for path, want := range wantKinds {
+		t.Run(path, func(t *testing.T) {
+			provider := patchEffectSourceProviderForPath(path)
+			if provider == nil {
+				t.Fatalf("missing provider for %s", path)
+			}
+			if provider.Kind != want {
+				t.Fatalf("provider kind for %s = %q, want %q", path, provider.Kind, want)
+			}
+			if got := patchEffectSourceShapeKind(path); got != want {
+				t.Fatalf("source shape kind for %s = %q, want %q", path, got, want)
+			}
+			if len(provider.LineRules) == 0 {
+				t.Fatalf("provider %q has no line-shape rules", provider.Kind)
+			}
+			if provider.ProductionTestRule.code == "" || provider.ProductionTestRule.match == nil {
+				t.Fatalf("provider %q has no production-test scaffold rule: %+v", provider.Kind, provider.ProductionTestRule)
+			}
+		})
+	}
+
+	seenKinds := map[string]bool{}
+	seenExtensions := map[string]string{}
+	for _, provider := range patchEffectSourceProviders {
+		if provider.Kind == "" {
+			t.Fatal("provider kind must be non-empty")
+		}
+		if seenKinds[provider.Kind] {
+			t.Fatalf("duplicate provider kind %q", provider.Kind)
+		}
+		seenKinds[provider.Kind] = true
+		if len(provider.Extensions) == 0 {
+			t.Fatalf("provider %q has no extensions", provider.Kind)
+		}
+		for _, ext := range provider.Extensions {
+			if ext == "" || ext[0] != '.' {
+				t.Fatalf("provider %q has invalid extension %q", provider.Kind, ext)
+			}
+			if prior := seenExtensions[ext]; prior != "" {
+				t.Fatalf("extension %q is claimed by both %q and %q", ext, prior, provider.Kind)
+			}
+			seenExtensions[ext] = provider.Kind
+		}
+	}
+}
+
 func findPatchEffectFile(record types.PatchEffectRecord, path string) *types.PatchEffectFile {
 	for i := range record.Files {
 		if record.Files[i].Path == path {

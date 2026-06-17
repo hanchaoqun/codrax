@@ -159,6 +159,49 @@ Model prose stays visible and transparent but cannot drive control.
    - Keep `/workflow` and `/plan` as audit/recovery commands, not required
      routine usage.
 
+## 2026-06-18 RC-29 Source-Shape Provider Registry Design
+
+User follow-up clarified that "actual-diff Python dynamic mapping boundary" can
+sound Python-only. The current runtime already emits multi-language
+actual-diff boundary events for Python, JS/TS, Ruby, Java/Kotlin, and Go, while
+the SWE-bench owner-boundary AST audit remains Python-specific because
+SWE-bench Lite is Python-centric. The remaining architecture gap is not coverage
+for one language; it is the producer shape:
+
+```text
+actual diff lines + post-apply file bytes
+  -> source-kind switch branches
+  -> typed PatchEffectEvent rows
+  -> PatchReview / ImpactAnalysis / P2 handoff
+```
+
+That shape works today, but every new language would add another branch in the
+central function. RC-29 upgrades this to a deterministic provider registry:
+
+- each provider declares extensions, line-shape rules, production-test scaffold
+  rules, and optional file/hunk annotators;
+- provider dispatch is by repo-relative path extension and post-apply file
+  bytes, never by user request text, issue keywords, model rationale, or
+  `<think>` output;
+- provider output remains the existing typed `PatchEffectEvent` record consumed
+  by PatchReview and controller follow-up logic;
+- hard/soft severity stays in the existing event-code registry, so this refactor
+  does not create a new hard gate or broaden approval prompts;
+- future Rust/Swift/ArkTS/Cangjie providers can be added as registry entries
+  with focused tests rather than editing source-shape control flow.
+
+RC-29 tasks:
+
+- [x] Add `patchEffectSourceProvider` with extension dispatch, line rules,
+  production-test scaffold rule, and optional file/hunk annotators.
+- [x] Move Python duplicate declaration and top-level owner-shape checks behind
+  provider hooks without changing event codes or severity.
+- [x] Move mapping/container and production scaffold rules into provider data.
+- [x] Add registry coverage tests for all current providers and preserve
+  existing multi-language event tests.
+- [x] Run focused writeflow tests, related orchestrator/tool smoke where needed,
+  and update the progress ledger before commit/push.
+
 ## 2026-06-18 SWE-bench Lite Smoke Audit
 
 Run directory:
@@ -1600,6 +1643,7 @@ Verification:
 | RC-26 | complete | Hard/soft probe coverage authority: runtime and SWE adapter now distinguish hard-required contract coverage from soft/fallback expected-outcome coverage. Historical RC-23 SymPy recomputes to `verification_probe_missing_soft_contract_ref` with no hard-required gaps, preserving low confidence without overstating the failure as a hard required contract omission. |
 | RC-27 | complete | Impact follow-up authority: controller scheduling now keeps broad graph/effect telemetry as low-confidence handoff after a passed verifier, while hard proof gaps and actual-diff boundary events can still append one bounded follow-up. Regression coverage locks both sides, and local SWE-bench adapter smoke remains harness-consumable. |
 | RC-28 | complete | Multi-language BuildError changed-line attribution: structured compiler diagnostics from native runners now reuse the existing changed-line authority. Errors proven outside current patch lines become `preexisting_build_failure` unavailable handoff evidence; changed-line, unstructured, pathless, or imprecise diagnostics remain fail-closed `build_failure`. User guide Markdown/HTML and full regression evidence were updated. |
+| RC-29 | complete | Source-shape provider registry: actual-diff mapping/container boundary and production-test scaffold producers are now declared by deterministic language providers instead of central source-kind switches. Python duplicate/top-level owner checks moved behind provider hooks, current Python/JS/TS/Ruby/Java/Kotlin/Go event behavior is preserved, and registry coverage tests lock unique extension ownership plus required typed rules. Verification: focused writeflow provider tests and related `internal/writeflow ./internal/orchestrator ./internal/types ./internal/tool` tests pass. |
 
 ## Acceptance Criteria
 

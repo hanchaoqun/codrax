@@ -42,6 +42,118 @@ type patchEffectLineShapeRule struct {
 	match   *regexp.Regexp
 }
 
+type patchEffectSourceProvider struct {
+	Kind               string
+	Extensions         []string
+	LineRules          []patchEffectLineShapeRule
+	ProductionTestRule patchEffectLineShapeRule
+	AnnotateFile       func(file *types.PatchEffectFile, lines []string)
+	AnnotateHunk       func(file *types.PatchEffectFile, lines []string, hunk types.PatchEffectHunk)
+}
+
+var patchEffectSourceProviders = []patchEffectSourceProvider{
+	{
+		Kind:       "python",
+		Extensions: []string{".py"},
+		LineRules: []patchEffectLineShapeRule{{
+			code:    "python_nested_string_key_direct_access_added",
+			match:   dynamicNestedStringKeyAccessRE,
+			message: "added Python code uses nested string-key direct mapping access; verify the absent-key/default boundary or prefer the repository's nullable lookup convention where appropriate",
+		}},
+		ProductionTestRule: patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   pythonTestScaffoldDeclarationRE,
+			message: "added test-shaped Python declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+		AnnotateFile: annotatePatchEffectPythonDuplicateDeclarations,
+		AnnotateHunk: annotatePatchEffectPythonOwnerShape,
+	},
+	{
+		Kind:       "javascript",
+		Extensions: []string{".js", ".jsx", ".mjs", ".cjs"},
+		LineRules: []patchEffectLineShapeRule{{
+			code:    "javascript_nested_string_key_direct_access_added",
+			match:   dynamicNestedStringKeyAccessRE,
+			message: "added JS/TS code uses nested string-key direct mapping access; verify the undefined/null boundary or prefer the repository's nullable lookup convention where appropriate",
+		}},
+		ProductionTestRule: patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   jsTestScaffoldDeclarationRE,
+			message: "added test-shaped JS/TS declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+	},
+	{
+		Kind:       "typescript",
+		Extensions: []string{".ts", ".tsx", ".mts", ".cts"},
+		LineRules: []patchEffectLineShapeRule{{
+			code:    "typescript_nested_string_key_direct_access_added",
+			match:   dynamicNestedStringKeyAccessRE,
+			message: "added JS/TS code uses nested string-key direct mapping access; verify the undefined/null boundary or prefer the repository's nullable lookup convention where appropriate",
+		}},
+		ProductionTestRule: patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   jsTestScaffoldDeclarationRE,
+			message: "added test-shaped JS/TS declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+	},
+	{
+		Kind:       "ruby",
+		Extensions: []string{".rb"},
+		LineRules: []patchEffectLineShapeRule{{
+			code:    "ruby_nested_key_direct_access_added",
+			match:   rubyNestedSymbolOrStringKeyAccessRE,
+			message: "added Ruby code uses nested hash-key direct access; verify the nil/default boundary or prefer the repository's safe lookup convention where appropriate",
+		}},
+		ProductionTestRule: patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   rubyTestScaffoldDeclarationRE,
+			message: "added test-shaped Ruby declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+	},
+	{
+		Kind:       "java",
+		Extensions: []string{".java"},
+		LineRules: []patchEffectLineShapeRule{{
+			code:    "java_chained_string_map_get_added",
+			match:   jvmChainedStringMapGetRE,
+			message: "added JVM code uses chained string-key map get calls; verify the null/default boundary or prefer the repository's safe lookup convention where appropriate",
+		}},
+		ProductionTestRule: patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   jvmTestScaffoldDeclarationRE,
+			message: "added test-shaped JVM declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+	},
+	{
+		Kind:       "kotlin",
+		Extensions: []string{".kt", ".kts"},
+		LineRules: []patchEffectLineShapeRule{{
+			code:    "kotlin_chained_string_map_get_added",
+			match:   jvmChainedStringMapGetRE,
+			message: "added JVM code uses chained string-key map get calls; verify the null/default boundary or prefer the repository's safe lookup convention where appropriate",
+		}},
+		ProductionTestRule: patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   jvmTestScaffoldDeclarationRE,
+			message: "added test-shaped JVM declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+	},
+	{
+		Kind:       "go",
+		Extensions: []string{".go"},
+		LineRules: []patchEffectLineShapeRule{{
+			code:    "go_nested_string_map_assignment_added",
+			match:   goNestedStringMapAssignmentRE,
+			message: "added Go code assigns through nested string-key map indexes; verify nested map initialization or prefer the repository's ensure-map convention where appropriate",
+		}},
+		ProductionTestRule: patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   goTestScaffoldDeclarationRE,
+			message: "added Go test function in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+	},
+}
+
 type pythonPatchEffectScope struct {
 	Indent int
 	Name   string
@@ -305,8 +417,8 @@ func AnnotatePatchEffectStructuredFileParses(record *types.PatchEffectRecord, ro
 			continue
 		}
 		kind := patchEffectStructuredFileKind(file.Path)
-		sourceKind := patchEffectSourceShapeKind(file.Path)
-		if kind == "" && sourceKind == "" {
+		sourceProvider := patchEffectSourceProviderForPath(file.Path)
+		if kind == "" && sourceProvider == nil {
 			continue
 		}
 		abs, ok := patchEffectSafeRepoPath(root, file.Path)
@@ -339,26 +451,28 @@ func AnnotatePatchEffectStructuredFileParses(record *types.PatchEffectRecord, ro
 				})
 			}
 		}
-		annotatePatchEffectSourceShape(file, data, sourceKind)
+		annotatePatchEffectSourceShape(file, data, sourceProvider)
 	}
 }
 
-func annotatePatchEffectSourceShape(file *types.PatchEffectFile, data []byte, sourceKind string) {
+func annotatePatchEffectSourceShape(file *types.PatchEffectFile, data []byte, provider *patchEffectSourceProvider) {
 	if file == nil || len(file.Hunks) == 0 {
 		return
 	}
-	sourceKind = strings.TrimSpace(sourceKind)
+	if provider == nil {
+		return
+	}
 	lines := strings.Split(string(data), "\n")
-	if sourceKind == "python" {
-		annotatePatchEffectPythonDuplicateDeclarations(file, lines)
+	if provider.AnnotateFile != nil {
+		provider.AnnotateFile(file, lines)
 	}
 	for _, hunk := range file.Hunks {
-		if sourceKind == "python" {
-			annotatePatchEffectPythonOwnerShape(file, lines, hunk)
+		if provider.AnnotateHunk != nil {
+			provider.AnnotateHunk(file, lines, hunk)
 		}
 		for _, added := range hunk.AddedLineTexts {
-			appendPatchEffectLineShapeEvents(file, sourceKind, added)
-			appendPatchEffectProductionTestScaffoldEvent(file, sourceKind, added)
+			appendPatchEffectLineShapeEvents(file, provider, added)
+			appendPatchEffectProductionTestScaffoldEvent(file, provider, added)
 		}
 	}
 }
@@ -489,8 +603,11 @@ func pythonPatchEffectIndent(line string) int {
 	return indent
 }
 
-func appendPatchEffectLineShapeEvents(file *types.PatchEffectFile, sourceKind string, line types.PatchEffectLine) {
-	for _, rule := range patchEffectLineShapeRules(sourceKind) {
+func appendPatchEffectLineShapeEvents(file *types.PatchEffectFile, provider *patchEffectSourceProvider, line types.PatchEffectLine) {
+	if provider == nil {
+		return
+	}
+	for _, rule := range provider.LineRules {
 		if rule.match == nil || !rule.match.MatchString(line.Text) {
 			continue
 		}
@@ -508,11 +625,14 @@ func appendPatchEffectLineShapeEvents(file *types.PatchEffectFile, sourceKind st
 	}
 }
 
-func appendPatchEffectProductionTestScaffoldEvent(file *types.PatchEffectFile, sourceKind string, line types.PatchEffectLine) {
+func appendPatchEffectProductionTestScaffoldEvent(file *types.PatchEffectFile, provider *patchEffectSourceProvider, line types.PatchEffectLine) {
 	if file == nil || file.PathRole != types.SourcePathRoleProduction {
 		return
 	}
-	rule := patchEffectProductionTestScaffoldRule(sourceKind)
+	if provider == nil {
+		return
+	}
+	rule := provider.ProductionTestRule
 	if rule.match == nil || !rule.match.MatchString(line.Text) {
 		return
 	}
@@ -529,80 +649,6 @@ func appendPatchEffectProductionTestScaffoldEvent(file *types.PatchEffectFile, s
 	})
 }
 
-func patchEffectProductionTestScaffoldRule(sourceKind string) patchEffectLineShapeRule {
-	switch strings.TrimSpace(sourceKind) {
-	case "python":
-		return patchEffectLineShapeRule{
-			code:    "production_test_scaffold_added",
-			match:   pythonTestScaffoldDeclarationRE,
-			message: "added test-shaped Python declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
-		}
-	case "javascript", "typescript":
-		return patchEffectLineShapeRule{
-			code:    "production_test_scaffold_added",
-			match:   jsTestScaffoldDeclarationRE,
-			message: "added test-shaped JS/TS declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
-		}
-	case "ruby":
-		return patchEffectLineShapeRule{
-			code:    "production_test_scaffold_added",
-			match:   rubyTestScaffoldDeclarationRE,
-			message: "added test-shaped Ruby declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
-		}
-	case "java", "kotlin":
-		return patchEffectLineShapeRule{
-			code:    "production_test_scaffold_added",
-			match:   jvmTestScaffoldDeclarationRE,
-			message: "added test-shaped JVM declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
-		}
-	case "go":
-		return patchEffectLineShapeRule{
-			code:    "production_test_scaffold_added",
-			match:   goTestScaffoldDeclarationRE,
-			message: "added Go test function in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
-		}
-	default:
-		return patchEffectLineShapeRule{}
-	}
-}
-
-func patchEffectLineShapeRules(sourceKind string) []patchEffectLineShapeRule {
-	switch strings.TrimSpace(sourceKind) {
-	case "python":
-		return []patchEffectLineShapeRule{{
-			code:    "python_nested_string_key_direct_access_added",
-			match:   dynamicNestedStringKeyAccessRE,
-			message: "added Python code uses nested string-key direct mapping access; verify the absent-key/default boundary or prefer the repository's nullable lookup convention where appropriate",
-		}}
-	case "javascript", "typescript":
-		return []patchEffectLineShapeRule{{
-			code:    sourceKind + "_nested_string_key_direct_access_added",
-			match:   dynamicNestedStringKeyAccessRE,
-			message: "added JS/TS code uses nested string-key direct mapping access; verify the undefined/null boundary or prefer the repository's nullable lookup convention where appropriate",
-		}}
-	case "ruby":
-		return []patchEffectLineShapeRule{{
-			code:    "ruby_nested_key_direct_access_added",
-			match:   rubyNestedSymbolOrStringKeyAccessRE,
-			message: "added Ruby code uses nested hash-key direct access; verify the nil/default boundary or prefer the repository's safe lookup convention where appropriate",
-		}}
-	case "java", "kotlin":
-		return []patchEffectLineShapeRule{{
-			code:    sourceKind + "_chained_string_map_get_added",
-			match:   jvmChainedStringMapGetRE,
-			message: "added JVM code uses chained string-key map get calls; verify the null/default boundary or prefer the repository's safe lookup convention where appropriate",
-		}}
-	case "go":
-		return []patchEffectLineShapeRule{{
-			code:    "go_nested_string_map_assignment_added",
-			match:   goNestedStringMapAssignmentRE,
-			message: "added Go code assigns through nested string-key map indexes; verify nested map initialization or prefer the repository's ensure-map convention where appropriate",
-		}}
-	default:
-		return nil
-	}
-}
-
 func patchEffectStructuredFileKind(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".json":
@@ -616,25 +662,27 @@ func patchEffectStructuredFileKind(path string) string {
 	}
 }
 
-func patchEffectSourceShapeKind(path string) string {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".py":
-		return "python"
-	case ".js", ".jsx", ".mjs", ".cjs":
-		return "javascript"
-	case ".ts", ".tsx", ".mts", ".cts":
-		return "typescript"
-	case ".rb":
-		return "ruby"
-	case ".java":
-		return "java"
-	case ".kt", ".kts":
-		return "kotlin"
-	case ".go":
-		return "go"
-	default:
-		return ""
+func patchEffectSourceProviderForPath(path string) *patchEffectSourceProvider {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == "" {
+		return nil
 	}
+	for i := range patchEffectSourceProviders {
+		provider := &patchEffectSourceProviders[i]
+		for _, candidate := range provider.Extensions {
+			if strings.ToLower(strings.TrimSpace(candidate)) == ext {
+				return provider
+			}
+		}
+	}
+	return nil
+}
+
+func patchEffectSourceShapeKind(path string) string {
+	if provider := patchEffectSourceProviderForPath(path); provider != nil {
+		return provider.Kind
+	}
+	return ""
 }
 
 func validatePatchEffectStructuredFile(kind string, data []byte) error {
