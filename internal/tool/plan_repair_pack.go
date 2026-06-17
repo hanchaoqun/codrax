@@ -1,7 +1,6 @@
 package tool
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -9,8 +8,8 @@ import (
 )
 
 const (
-	planRepairToolCode    = "write_plan_repair_pack"
-	planRepairMetadataKey = "plan_repair_pack"
+	planRepairToolCode    = types.PlanRepairToolCode
+	planRepairMetadataKey = types.PlanRepairMetadataKey
 	planRepairSummaryTag  = "PLAN_REPAIR_PACK:"
 )
 
@@ -164,13 +163,5 @@ func appendUniqueStrings(base []string, add ...string) []string {
 }
 
 func planRepairPackFromMetadataJSON(raw string) (types.PlanRepairPack, bool) {
-	var pack types.PlanRepairPack
-	if strings.TrimSpace(raw) == "" {
-		return pack, false
-	}
-	if err := json.Unmarshal([]byte(raw), &pack); err != nil {
-		return pack, false
-	}
-	pack = types.NormalizePlanRepairPack(pack)
-	return pack, strings.TrimSpace(pack.ReasonCode) != ""
+	return types.PlanRepairPackFromJSON(raw)
 }

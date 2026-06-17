@@ -356,6 +356,60 @@ RC-32 tasks:
 - [x] Run focused `internal/tool`, related package regression, full regression,
   SWE adapter smoke, and diff check before commit/push.
 
+## 2026-06-18 RC-33 Typed Plan Repair Retry Consumption
+
+RC-31/RC-32 strengthened the online state kernel and bounded proof surface, but
+one JSON/tool-output repair gap remained: plan emit tools already attach a
+typed `PlanRepairPack` in `ToolResult.Repair.Metadata`, while the controller
+no-plan retry still mostly rendered the latest rejection `Summary` string back
+to the planner. That left the model to mentally extract the important fields
+from capped prose or the transparent `PLAN_REPAIR_PACK:` line, and it weakened
+handoff for exact current bytes, failing field paths, retained partial plans,
+and accepted enum repairs.
+
+RC-33 makes repair-pack consumption deterministic:
+
+```text
+failed emit_change_plan / emit_plan_skeleton / emit_plan_change ToolResult
+  -> ToolRepair.Code == write_plan_repair_pack
+  -> Metadata["plan_repair_pack"] JSON
+  -> normalized PlanRepairPack
+  -> bounded retry hint rendered from typed fields
+```
+
+Design constraints:
+
+- Hard routing still consumes only typed tool-result state: newest plan emit
+  success clears older failures; newest failed plan emit can grant the bounded
+  no-plan retry window.
+- The controller does not parse `Summary`, `PLAN_REPAIR_PACK:` text, model
+  rationale, user intent keywords, or `<think>` output to recover the repair
+  pack.
+- Summary text remains only a fallback soft hint when no typed repair metadata
+  exists, preserving compatibility with older tool results.
+- `internal/types` owns `PlanRepairToolCode`, `PlanRepairMetadataKey`, JSON
+  normalization, and ToolResult extraction so tool/orchestrator code do not
+  duplicate repair metadata keys.
+- The rendered retry input is bounded and structured: `reason_code`,
+  `failing_fields`, `failing_paths`, `accepted_enums`, current/expected bytes,
+  `partial_plan_retained`, and `retry_instruction`.
+- This is not a prompt hard route: validators, path policy, apply-pre gate, and
+  verifier remain the only hard authorities.
+
+RC-33 tasks:
+
+- [x] Export typed PlanRepairPack metadata constants and ToolResult extraction
+  helpers from `internal/types`.
+- [x] Make plan emit tools attach metadata through the shared constants.
+- [x] Add controller `planEmitRejectionView` and render retry hints from typed
+  repair-pack fields before falling back to bounded summary prose.
+- [x] Add tests proving metadata extraction rejects wrong repair codes / invalid
+  payloads.
+- [x] Add controller tests proving the retry hint consumes metadata and does not
+  echo raw `PLAN_REPAIR_PACK:` summary text.
+- [x] Run related package regression, full regression, SWE adapter tests/smoke,
+  and diff check before commit/push.
+
 ## 2026-06-18 SWE-bench Lite Smoke Audit
 
 Run directory:
@@ -1801,6 +1855,7 @@ Verification:
 | RC-30 | complete | Official SWE-bench result summary: added dependency-free `summarize_official_results.py` to normalize official harness run reports or per-instance reports into explicit `resolved/submitted`, `resolved/completed`, and `resolved/total` metrics. The wrapper now passes `REPORT_DIR`, README documents the official scoring flow, and tests cover denominator handling plus CLI JSON output without importing SWE-bench. Verification: system Python and eval-venv tests, adapter unit suite, local SWE-bench smoke, and diff check pass. |
 | RC-31 | complete | Deterministic checkpoint rewind before failed-verify replan: controller now restores the active slice worktree to its typed checkpoint commit before planner replan, records `slice_restored` metadata, rejects external checkpoint paths, and leaves main checkout untouched. This closes the online-convergence state-kernel gap where repair could plan on dirty failed side effects. Verification: focused controller/types restore tests, related orchestrator/types/worktree regression, full `go test ./...`, and diff check pass. |
 | RC-32 | complete | Multi-language verification-probe coupling: the copied-implementation hard gate now uses providers for Python, JavaScript/TypeScript, Ruby, and Go. JS/Ruby/Go probes must import/require the changed production module when a same-language target is present, while Python public-package behavior is preserved. This strengthens bounded local proof in missing-test-runner environments without parsing prose or adding user approvals. Verification: focused tool coupling tests, related tool regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
+| RC-33 | complete | Typed plan repair retry consumption: `PlanRepairPack` metadata constants and extraction helpers now live in `internal/types`; controller no-plan retry renders bounded structured repair fields from `ToolResult.Repair.Metadata` instead of asking the planner to mine capped rejection prose. Verification: focused types/tool/orchestrator tests, related package regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
 
 ## Acceptance Criteria
 

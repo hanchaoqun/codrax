@@ -5,7 +5,11 @@ import (
 	"strings"
 )
 
-const PlanRepairPackVersion = 1
+const (
+	PlanRepairPackVersion = 1
+	PlanRepairToolCode    = "write_plan_repair_pack"
+	PlanRepairMetadataKey = "plan_repair_pack"
+)
 
 // PlanRepairPack is the compact, typed repair payload for write-plan emit
 // failures. It is advisory input for planner retries; hard gates continue to
@@ -116,6 +120,40 @@ func PlanRepairPackJSON(in PlanRepairPack) string {
 		return ""
 	}
 	return string(data)
+}
+
+func PlanRepairPackFromJSON(raw string) (PlanRepairPack, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return PlanRepairPack{}, false
+	}
+	var pack PlanRepairPack
+	if err := json.Unmarshal([]byte(raw), &pack); err != nil {
+		return PlanRepairPack{}, false
+	}
+	pack = NormalizePlanRepairPack(pack)
+	if pack.ReasonCode == "" {
+		return PlanRepairPack{}, false
+	}
+	return pack, true
+}
+
+func PlanRepairPackFromToolRepair(repair *ToolRepair) (PlanRepairPack, bool) {
+	if repair == nil {
+		return PlanRepairPack{}, false
+	}
+	code := strings.TrimSpace(repair.Code)
+	if code != "" && code != PlanRepairToolCode {
+		return PlanRepairPack{}, false
+	}
+	if repair.Metadata == nil {
+		return PlanRepairPack{}, false
+	}
+	return PlanRepairPackFromJSON(repair.Metadata[PlanRepairMetadataKey])
+}
+
+func PlanRepairPackFromToolResult(result ToolResult) (PlanRepairPack, bool) {
+	return PlanRepairPackFromToolRepair(result.Repair)
 }
 
 func trimPlanRepairText(s string, max int) string {

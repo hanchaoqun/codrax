@@ -5095,6 +5095,56 @@ func TestLastPlanEmitRejectionSummary_PicksLatestPlanEmitFailure(t *testing.T) {
 	}
 }
 
+func TestLastPlanEmitRejectionView_PrefersTypedRepairPackMetadata(t *testing.T) {
+	pack := types.PlanRepairPack{
+		ToolName:          "emit_change_plan",
+		ReasonCode:        "old_text_mismatch",
+		Message:           "structured edit old_text did not match current file bytes",
+		FailingFieldPaths: []string{"$.changes[0].edits[0].old_text"},
+		FailingPaths:      []string{"src/widget.py"},
+		CurrentBytes: []types.PlanRepairCurrentBytes{{
+			Path:            "src/widget.py",
+			StartLine:       10,
+			EndLine:         10,
+			ExpectedOldText: "VALUE = 1\n",
+			SuppliedOldText: "VALUE = 0\n",
+			SafeEditKinds:   []string{"replace"},
+		}},
+	}
+	results := []types.ToolResult{{
+		ToolName: "emit_change_plan",
+		Success:  false,
+		Summary:  "emit_change_plan rejected: opaque prose\nPLAN_REPAIR_PACK:{not-consumed}",
+		Repair: &types.ToolRepair{
+			Code: types.PlanRepairToolCode,
+			Metadata: map[string]string{
+				types.PlanRepairMetadataKey: types.PlanRepairPackJSON(pack),
+			},
+		},
+	}}
+
+	view := lastPlanEmitRejectionView(results)
+	if view.RepairPack == nil {
+		t.Fatalf("expected typed repair pack view, got %+v", view)
+	}
+	hint := view.RenderHint()
+	for _, want := range []string{
+		"plan_repair_pack:",
+		"reason_code: old_text_mismatch",
+		"failing_fields: $.changes[0].edits[0].old_text",
+		"failing_paths: src/widget.py",
+		"expected_old_text:",
+		"VALUE = 1",
+	} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("rendered hint missing %q:\n%s", want, hint)
+		}
+	}
+	if strings.Contains(hint, "PLAN_REPAIR_PACK") || strings.Contains(hint, "opaque prose") {
+		t.Fatalf("rendered hint should consume metadata rather than raw summary:\n%s", hint)
+	}
+}
+
 // G1: a resumed run must rebuild retry counts, the active plan, and the
 // verify-failure carrier from typed records + durable artifacts.
 func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing.T) {

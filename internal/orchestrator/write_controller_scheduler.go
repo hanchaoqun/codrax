@@ -872,9 +872,10 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 		// validation failures (for example duplicate FileChange entries or
 		// old_text mismatch). The condition reads typed state/tool results
 		// only, never model prose.
-		rejection := lastPlanEmitRejectionSummary(o.busCtx.Mutable.DispatchToolResults())
+		rejection := lastPlanEmitRejectionView(o.busCtx.Mutable.DispatchToolResults())
+		rejectionHint := rejection.RenderHint()
 		if o.busCtx.Mutable.ChangePlan() == nil &&
-			noPlanRetryCount < controllerNoPlanRetryBudget(o.busCtx.Mutable, batch, rejection) &&
+			noPlanRetryCount < controllerNoPlanRetryBudget(o.busCtx.Mutable, batch, rejectionHint) &&
 			controllerNoPlanRetryEligible(o.busCtx.Mutable, batch) {
 			if cerr := o.checkCanceled("write_controller_plan_retry", *stepsUsed); cerr != nil {
 				o.busCtx.TaskState.LastError = cerr.Error()
@@ -896,12 +897,12 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			if controllerHasBatchOrAnalysisAnchors(o.busCtx.Mutable, batch) {
 				hint += " Use the batch expected paths and WriteAnalysisIR scope anchors as the source boundary; only call read_file for exact current bytes or line ranges needed to construct the patch."
 			}
-			if rejection != "" {
-				hint += "\n\nThe previous round's plan emit was rejected by validation with this exact reason — correct it in the re-emit:\n" + rejection
+			if rejectionHint != "" {
+				hint += "\n\nThe previous round's plan emit was rejected by validation. Correct it in the re-emit using this bounded typed repair input:\n" + rejectionHint
 			}
 			o.busCtx.Mutable.SetPlanningHint(hint)
 			logging.Warning("[orchestrator] controller planning round produced no plan; granting re-dispatch %d/%d with typed planning context",
-				noPlanRetryCount, controllerNoPlanRetryBudget(o.busCtx.Mutable, batch, rejection))
+				noPlanRetryCount, controllerNoPlanRetryBudget(o.busCtx.Mutable, batch, rejectionHint))
 			continue
 		}
 		if err != nil {
@@ -5043,12 +5044,125 @@ func writeWorkflowUnverifiedCompletionCaveat(run types.WriteWorkflowRun) string 
 	return "local verification unavailable for: " + strings.Join(entries, ", ")
 }
 
+type planEmitRejectionView struct {
+	Summary    string
+	RepairPack *types.PlanRepairPack
+}
+
+func (v planEmitRejectionView) RenderHint() string {
+	if v.RepairPack != nil {
+		return renderPlanRepairPackRetryHint(*v.RepairPack)
+	}
+	return strings.TrimSpace(v.Summary)
+}
+
+func renderPlanRepairPackRetryHint(pack types.PlanRepairPack) string {
+	pack = types.NormalizePlanRepairPack(pack)
+	if pack.ReasonCode == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("plan_repair_pack:\n")
+	if pack.ToolName != "" {
+		fmt.Fprintf(&b, "- tool_name: %s\n", pack.ToolName)
+	}
+	fmt.Fprintf(&b, "- reason_code: %s\n", pack.ReasonCode)
+	if pack.Message != "" {
+		fmt.Fprintf(&b, "- message: %s\n", truncateInline(pack.Message, 320))
+	}
+	if len(pack.FailingFieldPaths) > 0 {
+		fmt.Fprintf(&b, "- failing_fields: %s\n", strings.Join(pack.FailingFieldPaths, ", "))
+	}
+	if len(pack.FailingPaths) > 0 {
+		fmt.Fprintf(&b, "- failing_paths: %s\n", strings.Join(pack.FailingPaths, ", "))
+	}
+	if len(pack.AcceptedEnums) > 0 {
+		keys := make([]string, 0, len(pack.AcceptedEnums))
+		for key := range pack.AcceptedEnums {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		b.WriteString("- accepted_enums:\n")
+		for _, key := range keys {
+			fmt.Fprintf(&b, "  - %s: %s\n", key, strings.Join(pack.AcceptedEnums[key], ", "))
+		}
+	}
+	if len(pack.CurrentBytes) > 0 {
+		b.WriteString("- current_bytes:\n")
+		for i, entry := range pack.CurrentBytes {
+			if i >= 3 {
+				fmt.Fprintf(&b, "  - ... %d more omitted\n", len(pack.CurrentBytes)-i)
+				break
+			}
+			parts := []string{}
+			if entry.Path != "" {
+				parts = append(parts, "path="+entry.Path)
+			}
+			if entry.EditIndex > 0 {
+				parts = append(parts, fmt.Sprintf("edit_index=%d", entry.EditIndex))
+			}
+			if entry.StartLine > 0 || entry.EndLine > 0 {
+				parts = append(parts, fmt.Sprintf("lines=%d-%d", entry.StartLine, entry.EndLine))
+			}
+			if entry.AnchorLine > 0 {
+				parts = append(parts, fmt.Sprintf("anchor_line=%d", entry.AnchorLine))
+			}
+			if entry.FileLineCount > 0 {
+				parts = append(parts, fmt.Sprintf("file_line_count=%d", entry.FileLineCount))
+			}
+			if len(parts) == 0 {
+				parts = append(parts, "entry")
+			}
+			fmt.Fprintf(&b, "  - %s\n", strings.Join(parts, " "))
+			writePlanRepairBytesPreview(&b, "expected_old_text", entry.ExpectedOldText)
+			writePlanRepairBytesPreview(&b, "supplied_old_text", entry.SuppliedOldText)
+			writePlanRepairBytesPreview(&b, "current_bytes", entry.CurrentBytes)
+			if len(entry.SafeEditKinds) > 0 {
+				fmt.Fprintf(&b, "    safe_edit_kinds: %s\n", strings.Join(entry.SafeEditKinds, ", "))
+			}
+		}
+	}
+	if pack.PartialPlanRetained {
+		b.WriteString("- partial_plan_retained: true\n")
+	}
+	if pack.RetryInstruction != "" {
+		fmt.Fprintf(&b, "- retry_instruction: %s\n", truncateInline(pack.RetryInstruction, 320))
+	}
+	return truncatePlanRepairHint(b.String(), 2400)
+}
+
+func writePlanRepairBytesPreview(b *strings.Builder, label, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	fmt.Fprintf(b, "    %s:\n", label)
+	for _, line := range strings.Split(truncatePlanRepairHint(value, 600), "\n") {
+		fmt.Fprintf(b, "      %s\n", line)
+	}
+}
+
+func truncatePlanRepairHint(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return s[:max]
+	}
+	return strings.TrimSpace(s[:max-3]) + "..."
+}
+
 // lastPlanEmitRejectionSummary returns the most recent failed plan-emit
-// tool result summary (system-generated validation text, bounded), so a
-// no-plan re-dispatch can cite the exact typed rejection instead of a
-// generic "emit something" nudge. Reads tool-result records only — never
-// model prose.
+// fallback summary (system-generated validation text, bounded). It is kept for
+// compatibility with callers/tests that need the legacy scalar view; controller
+// retry hints prefer lastPlanEmitRejectionView's typed repair metadata when
+// available. Reads tool-result records only — never model prose.
 func lastPlanEmitRejectionSummary(results []types.ToolResult) string {
+	return lastPlanEmitRejectionView(results).Summary
+}
+
+func lastPlanEmitRejectionView(results []types.ToolResult) planEmitRejectionView {
 	for i := len(results) - 1; i >= 0; i-- {
 		r := results[i]
 		switch r.ToolName {
@@ -5059,19 +5173,27 @@ func lastPlanEmitRejectionSummary(results []types.ToolResult) string {
 		// The newest plan-emit outcome decides: a success means any older
 		// rejection was already resolved and must not be re-cited.
 		if r.Success {
-			return ""
+			return planEmitRejectionView{}
 		}
-		summary := strings.TrimSpace(r.Summary)
-		if summary == "" {
-			return ""
+		summary := boundedPlanEmitRejectionSummary(r.Summary)
+		if pack, ok := types.PlanRepairPackFromToolResult(r); ok {
+			return planEmitRejectionView{Summary: summary, RepairPack: &pack}
 		}
-		const maxLen = 600
-		if len(summary) > maxLen {
-			summary = summary[:maxLen] + "…"
-		}
-		return summary
+		return planEmitRejectionView{Summary: summary}
 	}
-	return ""
+	return planEmitRejectionView{}
+}
+
+func boundedPlanEmitRejectionSummary(summary string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	const maxLen = 600
+	if len(summary) > maxLen {
+		summary = summary[:maxLen] + "..."
+	}
+	return summary
 }
 
 // hydrateResumedWorkflowState rebuilds the in-memory controller state for a
