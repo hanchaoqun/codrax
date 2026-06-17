@@ -96,6 +96,12 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `plan_context_paths`, `plan_context_covered_paths`,
 `plan_context_uncovered_paths`, `plan_context_coverage_ratio`,
 `plan_context_missing_source_paths`,
+`delivery_candidate_status`, `delivery_candidate_reason_code`,
+`delivery_candidate_relation`, `delivery_patch_fingerprint`,
+`delivery_primary_source_plan_id`,
+`delivery_source_owner_plan_ids`, `delivery_source_paths`,
+`delivery_report_plan_id`, `delivery_source_plan_covers_exported_source_patch`,
+`delivery_context_missing_source_paths`,
 `plan_owner_boundary_signals`, `plan_owner_boundary_reason_codes`,
 `plan_patch_review_status`, `plan_patch_review_hard_block`,
 `plan_patch_review_coverage_verdict`,
@@ -111,10 +117,12 @@ pytest or partial dependency setup is not a hard code-failure gate.
 environment dead-ends, test-edit drift, planner handoff coverage, actual-diff
 patch review coverage, failed local verification, and
 final-plan-vs-exported-source drift are auditable without changing the official
-predictions JSONL shape. When the exported source patch is
-not owned by the final durable plan (for example a later test-only replan
-verified successfully), the adapter still writes the official prediction but
-marks local confidence as `predicted_audit_blocked` with
+predictions JSONL shape. Export/local-confidence logic is bound to a typed
+delivery candidate: exported source paths must be owned by one or more applied
+source plans, and a later test-only validation plan is accepted only through the
+explicit `source_plan_with_later_test_followup` relation. If exported source
+paths have no applied source-plan owner, the adapter still writes the official
+prediction but marks local confidence as `predicted_audit_blocked` with
 `prediction_blocks_local_acceptance=true`. Context coverage is derived only from persisted
 workflow/context-pack typed fields when present; it is audit telemetry, not an
 apply/verify gate. Patch-review blockers are derived only from structured

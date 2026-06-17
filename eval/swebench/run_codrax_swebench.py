@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import ast
 import configparser
+import hashlib
 import json
 import os
 import re
@@ -1239,9 +1240,14 @@ def load_plan(path: Path | None) -> dict[str, Any]:
 
 
 def load_plan_by_id(repo_dir: Path, inst_dir: Path, plan_id: str) -> dict[str, Any]:
+    path = find_plan_path_by_id(repo_dir, inst_dir, plan_id)
+    return load_plan(path)
+
+
+def find_plan_path_by_id(repo_dir: Path, inst_dir: Path, plan_id: str) -> Path | None:
     plan_id = str(plan_id or "").strip()
     if not plan_id or "/" in plan_id or "\\" in plan_id:
-        return {}
+        return None
     for root in (
         repo_dir / ".codrax" / "plans",
         inst_dir / ".codrax" / "plans",
@@ -1249,8 +1255,8 @@ def load_plan_by_id(repo_dir: Path, inst_dir: Path, plan_id: str) -> dict[str, A
         path = root / f"{plan_id}.json"
         plan = load_plan(path)
         if str(plan.get("id") or "").strip() == plan_id:
-            return plan
-    return {}
+            return path
+    return None
 
 
 def load_report_for_plan(plan_path: Path | None) -> dict[str, Any]:
@@ -1275,6 +1281,22 @@ def plan_change_paths(plan: dict[str, Any]) -> list[str]:
         if path:
             out.append(path)
     return out
+
+
+def plan_source_paths(plan: dict[str, Any]) -> list[str]:
+    return [
+        path
+        for path in plan_change_paths(plan)
+        if path and not is_test_patch_path(path)
+    ]
+
+
+def plan_test_paths(plan: dict[str, Any]) -> list[str]:
+    return [
+        path
+        for path in plan_change_paths(plan)
+        if path and is_test_patch_path(path)
+    ]
 
 
 def workflow_applied_plan_ids(workflow: dict[str, Any]) -> list[str]:
@@ -1333,6 +1355,209 @@ def summarize_workflow_applied_plan_provenance(
         "workflow_final_plan_is_latest_applied": bool(final_plan_id and latest and final_plan_id == latest),
         "workflow_applied_source_paths": sorted(source_paths),
         "workflow_applied_test_paths": sorted(test_paths),
+    }
+
+
+def workflow_applied_plan_summaries(
+    workflow: dict[str, Any],
+    repo_dir: Path,
+    inst_dir: Path,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for plan_id in workflow_applied_plan_ids(workflow):
+        path = find_plan_path_by_id(repo_dir, inst_dir, plan_id)
+        plan = load_plan(path)
+        if not plan:
+            continue
+        source_paths = plan_source_paths(plan)
+        test_paths = plan_test_paths(plan)
+        out.append({
+            "plan_id": plan_id,
+            "plan_path": str(path) if path else "",
+            "source_paths": source_paths,
+            "test_paths": test_paths,
+            "all_paths": plan_change_paths(plan),
+            "plan": plan,
+        })
+    return out
+
+
+def combine_patch_review_summaries(plans: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Merge source-owner patch reviews without reading prose or issue text."""
+
+    summaries = [plan_patch_review_summary(plan) for plan in plans if plan]
+    if not summaries:
+        return plan_patch_review_summary({})
+    reason_codes: set[str] = set()
+    semantic_unverified: set[str] = set()
+    finding_count = 0
+    hard_block = False
+    status_values: set[str] = set()
+    coverage_rank = {
+        "failed": 5,
+        "unverified": 4,
+        "advisory": 3,
+        "verified": 2,
+        "clean": 1,
+        "": 0,
+    }
+    coverage_verdict = ""
+    block_reason = ""
+    for summary in summaries:
+        hard_block = hard_block or bool(summary.get("hard_block"))
+        status = str(summary.get("status") or "").strip()
+        if status:
+            status_values.add(status)
+        verdict = str(summary.get("coverage_verdict") or "").strip()
+        if coverage_rank.get(verdict, 0) > coverage_rank.get(coverage_verdict, 0):
+            coverage_verdict = verdict
+        for code in summary.get("reason_codes") or []:
+            code = str(code or "").strip()
+            if code:
+                reason_codes.add(code)
+        for code in summary.get("semantic_unverified_codes") or []:
+            code = str(code or "").strip()
+            if code:
+                semantic_unverified.add(code)
+        finding_count += int(summary.get("finding_count") or 0)
+        reason = str(summary.get("block_reason") or "").strip()
+        if reason and not block_reason:
+            block_reason = reason
+    if not block_reason and semantic_unverified:
+        block_reason = "patch_review_semantic_unverified:" + sorted(semantic_unverified)[0]
+    if not block_reason and hard_block:
+        block_reason = "patch_review_hard_block"
+    status = "passed"
+    if "failed" in status_values:
+        status = "failed"
+    elif not status_values:
+        status = ""
+    elif len(status_values) == 1:
+        status = next(iter(status_values))
+    return {
+        "status": status,
+        "hard_block": hard_block,
+        "coverage_verdict": coverage_verdict,
+        "reason_codes": sorted(reason_codes),
+        "semantic_unverified_codes": sorted(semantic_unverified),
+        "finding_count": finding_count,
+        "block_reason": block_reason,
+    }
+
+
+def build_write_delivery_candidate(
+    *,
+    repo_dir: Path,
+    inst_dir: Path,
+    workflow: dict[str, Any],
+    final_plan: dict[str, Any],
+    final_plan_path: Path | None,
+    exported_source_paths: list[str],
+    exported_test_paths: list[str],
+    patch_source: str,
+    patch_fingerprint: str = "",
+) -> dict[str, Any]:
+    """Bind exported patch, source-owner plans, and verification into one fact.
+
+    The adapter exports a cumulative git diff, while the latest durable plan can
+    be a validation-only or test-only follow-up. This candidate is the typed
+    bridge between those worlds: it records which applied source plans own the
+    exported source paths and which report should be used as the verification
+    authority. No stdout, model rationale, or problem statement text is read.
+    """
+
+    final_plan_id = str(final_plan.get("id") or "").strip()
+    final_source_paths = plan_source_paths(final_plan)
+    final_test_paths = plan_test_paths(final_plan)
+    final_test_only = bool(plan_change_paths(final_plan)) and not final_source_paths
+    summaries = workflow_applied_plan_summaries(workflow, repo_dir, inst_dir) if workflow else []
+    if not summaries and final_plan:
+        summaries = [{
+            "plan_id": final_plan_id,
+            "plan_path": str(final_plan_path) if final_plan_path else "",
+            "source_paths": final_source_paths,
+            "test_paths": final_test_paths,
+            "all_paths": plan_change_paths(final_plan),
+            "plan": final_plan,
+        }]
+
+    exported_source_set = set(exported_source_paths)
+    owner_summaries: list[dict[str, Any]] = []
+    covered_source_paths: set[str] = set()
+    for summary in summaries:
+        source_paths = {str(path) for path in summary.get("source_paths") or []}
+        if not source_paths:
+            continue
+        if exported_source_set:
+            intersection = source_paths & exported_source_set
+            if not intersection:
+                continue
+            covered_source_paths.update(intersection)
+        else:
+            covered_source_paths.update(source_paths)
+        owner_summaries.append(summary)
+
+    source_owner_ids = [str(summary.get("plan_id") or "") for summary in owner_summaries if str(summary.get("plan_id") or "")]
+    source_owner_plans = [summary.get("plan") for summary in owner_summaries if isinstance(summary.get("plan"), dict)]
+    primary_summary = owner_summaries[-1] if owner_summaries else {}
+    primary_plan = primary_summary.get("plan") if isinstance(primary_summary.get("plan"), dict) else {}
+    primary_plan_path = Path(str(primary_summary.get("plan_path"))) if str(primary_summary.get("plan_path") or "") else None
+    source_paths = sorted({path for summary in owner_summaries for path in summary.get("source_paths") or []})
+    source_covers_export = None if not exported_source_paths else exported_source_set <= covered_source_paths
+
+    report_plan_id = ""
+    report_plan_path: Path | None = None
+    final_report_path = final_plan_path.with_name(final_plan_path.stem + ".report.json") if final_plan_path else None
+    primary_report_path = primary_plan_path.with_name(primary_plan_path.stem + ".report.json") if primary_plan_path else None
+    if final_report_path and final_report_path.exists():
+        report_plan_id = final_plan_id
+        report_plan_path = final_plan_path
+    elif primary_report_path and primary_report_path.exists():
+        report_plan_id = str(primary_summary.get("plan_id") or "")
+        report_plan_path = primary_plan_path
+
+    status = "coherent"
+    reason_code = ""
+    relation = "source_plan_owns_exported_patch"
+    if exported_source_paths and not owner_summaries:
+        status = "incoherent"
+        reason_code = "delivery_source_plan_missing"
+        relation = ""
+    elif source_covers_export is False:
+        status = "incoherent"
+        reason_code = "delivery_source_paths_not_owned"
+        relation = ""
+    elif final_test_only and source_owner_ids and final_plan_id and final_plan_id not in source_owner_ids:
+        relation = "source_plan_with_later_test_followup"
+    elif not exported_source_paths and exported_test_paths:
+        relation = "test_patch_only"
+    elif not exported_source_paths:
+        status = "empty"
+        reason_code = "delivery_no_exported_source_patch"
+        relation = ""
+
+    return {
+        "status": status,
+        "reason_code": reason_code,
+        "relation": relation,
+        "patch_source": patch_source,
+        "patch_fingerprint": patch_fingerprint,
+        "final_plan_id": final_plan_id,
+        "final_plan_path": str(final_plan_path) if final_plan_path else "",
+        "final_plan_source_paths": final_source_paths,
+        "final_plan_test_paths": final_test_paths,
+        "final_plan_test_only": final_test_only,
+        "source_owner_plan_ids": source_owner_ids,
+        "primary_source_plan_id": str(primary_summary.get("plan_id") or ""),
+        "primary_source_plan_path": str(primary_summary.get("plan_path") or ""),
+        "source_paths": source_paths,
+        "source_plan_covers_exported_source_patch": source_covers_export,
+        "exported_source_paths": exported_source_paths,
+        "exported_test_paths": exported_test_paths,
+        "report_plan_id": report_plan_id,
+        "report_plan_path": str(report_plan_path) if report_plan_path else "",
+        "primary_plan": primary_plan,
+        "source_owner_plans": source_owner_plans,
     }
 
 
@@ -2314,19 +2539,8 @@ def process_instance(
                 "workflow_applied_source_paths": [],
                 "workflow_applied_test_paths": [],
             })
-        report = load_report_for_plan(plan_path)
-        if report:
-            result["report_path"] = str(plan_path.with_name(plan_path.stem + ".report.json")) if plan_path else ""
-            result["verify_status"] = report_verification_status(report)
-            result["verify_passed"] = report_authoritative_verify_passed(report)
-            result["verify_report_passed_raw"] = bool(report.get("passed"))
-            result["verify_failure_kind"] = report_failure_kind(report)
-            result["verify_failure_reason_code"] = report_failure_reason_code(report)
-            result["verify_summary"] = str(report.get("failure_summary") or "")
-            result["verify_no_tests_runners"] = report.get("no_tests_runners") or []
-            result["verify_test_count"] = len(report.get("test_results") or [])
-            result["verify_confidence_reason_codes"] = verification_confidence_reason_codes(report)
         patch, source, dropped_test_paths, exported_paths = export_patch(repo_dir, base, plan, bool(args.include_test_patches))
+        patch_fingerprint = hashlib.sha256(patch.encode("utf-8")).hexdigest() if patch else ""
         exported_test_paths = [path for path in exported_paths if is_test_patch_path(path)]
         exported_source_paths = [path for path in exported_paths if not is_test_patch_path(path)]
         plan_source_paths = [
@@ -2346,6 +2560,58 @@ def process_instance(
         result["final_plan_covers_exported_source_patch"] = (
             None if not exported_source_paths else all(path in plan_source_path_set for path in exported_source_paths)
         )
+        delivery = build_write_delivery_candidate(
+            repo_dir=repo_dir,
+            inst_dir=inst_dir,
+            workflow=workflow,
+            final_plan=plan,
+            final_plan_path=plan_path,
+            exported_source_paths=exported_source_paths,
+            exported_test_paths=exported_test_paths,
+            patch_source=source,
+            patch_fingerprint=patch_fingerprint,
+        )
+        delivery_plan = (
+            delivery.get("primary_plan")
+            if isinstance(delivery.get("primary_plan"), dict) and delivery.get("primary_plan")
+            else plan
+        )
+        delivery_source_owner_plans = [
+            row for row in delivery.get("source_owner_plans") or [] if isinstance(row, dict)
+        ]
+        delivery_plan_source_paths = [
+            str(path)
+            for path in (delivery.get("source_paths") or [])
+            if str(path).strip()
+        ]
+        delivery_report_plan_path = Path(str(delivery.get("report_plan_path"))) if str(delivery.get("report_plan_path") or "") else None
+        report = load_report_for_plan(delivery_report_plan_path)
+        if report:
+            result["report_path"] = (
+                str(delivery_report_plan_path.with_name(delivery_report_plan_path.stem + ".report.json"))
+                if delivery_report_plan_path
+                else ""
+            )
+            result["verify_status"] = report_verification_status(report)
+            result["verify_passed"] = report_authoritative_verify_passed(report)
+            result["verify_report_passed_raw"] = bool(report.get("passed"))
+            result["verify_failure_kind"] = report_failure_kind(report)
+            result["verify_failure_reason_code"] = report_failure_reason_code(report)
+            result["verify_summary"] = str(report.get("failure_summary") or "")
+            result["verify_no_tests_runners"] = report.get("no_tests_runners") or []
+            result["verify_test_count"] = len(report.get("test_results") or [])
+            result["verify_confidence_reason_codes"] = verification_confidence_reason_codes(report)
+        result["delivery_candidate_status"] = str(delivery.get("status") or "")
+        result["delivery_candidate_reason_code"] = str(delivery.get("reason_code") or "")
+        result["delivery_candidate_relation"] = str(delivery.get("relation") or "")
+        result["delivery_patch_fingerprint"] = str(delivery.get("patch_fingerprint") or "")
+        result["delivery_final_plan_id"] = str(delivery.get("final_plan_id") or "")
+        result["delivery_primary_source_plan_id"] = str(delivery.get("primary_source_plan_id") or "")
+        result["delivery_source_owner_plan_ids"] = delivery.get("source_owner_plan_ids") or []
+        result["delivery_source_paths"] = delivery_plan_source_paths
+        result["delivery_report_plan_id"] = str(delivery.get("report_plan_id") or "")
+        result["delivery_report_plan_path"] = str(delivery.get("report_plan_path") or "")
+        result["delivery_source_plan_covers_exported_source_patch"] = delivery.get("source_plan_covers_exported_source_patch")
         workflow_applied_source_paths = (
             result.get("workflow_applied_source_paths")
             if isinstance(result.get("workflow_applied_source_paths"), list)
@@ -2359,14 +2625,28 @@ def process_instance(
             plan_source_paths,
             result.get("plan_context_paths") if isinstance(result.get("plan_context_paths"), list) else [],
         )
-        owner_boundary_signals = plan_owner_boundary_signals(plan)
+        result["delivery_context_missing_source_paths"] = plan_source_paths_missing_prior_context(
+            delivery_plan_source_paths,
+            result.get("plan_context_paths") if isinstance(result.get("plan_context_paths"), list) else [],
+        )
+        owner_boundary_signals = plan_owner_boundary_signals(delivery_plan)
         result["plan_owner_boundary_signals"] = owner_boundary_signals
         result["plan_owner_boundary_reason_codes"] = sorted({
             str(signal.get("reason_code") or "").strip()
             for signal in owner_boundary_signals
             if str(signal.get("reason_code") or "").strip()
         })
-        patch_review_summary = plan_patch_review_summary(plan)
+        final_patch_review_summary = plan_patch_review_summary(plan)
+        result["final_plan_patch_review_status"] = str(final_patch_review_summary.get("status") or "")
+        result["final_plan_patch_review_hard_block"] = bool(final_patch_review_summary.get("hard_block"))
+        result["final_plan_patch_review_coverage_verdict"] = str(final_patch_review_summary.get("coverage_verdict") or "")
+        result["final_plan_patch_review_reason_codes"] = final_patch_review_summary.get("reason_codes") or []
+        result["final_plan_patch_review_semantic_unverified_codes"] = (
+            final_patch_review_summary.get("semantic_unverified_codes") or []
+        )
+        result["final_plan_patch_review_finding_count"] = int(final_patch_review_summary.get("finding_count") or 0)
+        result["final_plan_patch_review_block_reason"] = str(final_patch_review_summary.get("block_reason") or "")
+        patch_review_summary = combine_patch_review_summaries(delivery_source_owner_plans or [delivery_plan])
         result["plan_patch_review_status"] = str(patch_review_summary.get("status") or "")
         result["plan_patch_review_hard_block"] = bool(patch_review_summary.get("hard_block"))
         result["plan_patch_review_coverage_verdict"] = str(patch_review_summary.get("coverage_verdict") or "")
@@ -2377,16 +2657,19 @@ def process_instance(
         result["plan_patch_review_finding_count"] = int(patch_review_summary.get("finding_count") or 0)
         result["plan_patch_review_block_reason"] = str(patch_review_summary.get("block_reason") or "")
         result["patch_bytes"] = len(patch.encode("utf-8"))
-        audit_block_reason = prediction_audit_block_reason(
-            exported_source_paths=exported_source_paths,
-            final_plan_source_paths=plan_source_paths,
-            final_plan_test_only=bool(result["final_plan_test_only"]),
-            final_plan_covers_exported_source_patch=result["final_plan_covers_exported_source_patch"],
-            workflow_status=str(result.get("workflow_status") or ""),
-            verify_status=str(result.get("verify_status") or ""),
-            plan_status=str(result.get("plan_status") or ""),
-            workflow_latest_reason_code=str(result.get("workflow_latest_progress_reason_code") or ""),
-        )
+        if result["delivery_candidate_status"] == "incoherent":
+            audit_block_reason = str(result["delivery_candidate_reason_code"] or "delivery_candidate_incoherent")
+        else:
+            audit_block_reason = prediction_audit_block_reason(
+                exported_source_paths=exported_source_paths,
+                final_plan_source_paths=delivery_plan_source_paths,
+                final_plan_test_only=False,
+                final_plan_covers_exported_source_patch=result["delivery_source_plan_covers_exported_source_patch"],
+                workflow_status=str(result.get("workflow_status") or ""),
+                verify_status=str(result.get("verify_status") or ""),
+                plan_status=str(result.get("plan_status") or ""),
+                workflow_latest_reason_code=str(result.get("workflow_latest_progress_reason_code") or ""),
+            )
         empty_reason = empty_patch_reason(
             patch=patch,
             workflow_status=str(result.get("workflow_status") or ""),
@@ -2405,10 +2688,10 @@ def process_instance(
             audit_block_reason = str(result["plan_patch_review_block_reason"])
         result["prediction_audit_block_reason"] = audit_block_reason
         confidence_downgrade_reason = prediction_confidence_downgrade_reason(
-            plan=plan,
+            plan=delivery_plan,
             report=report,
             verify_status=str(result.get("verify_status") or ""),
-            plan_source_paths=plan_source_paths,
+            plan_source_paths=delivery_plan_source_paths,
             plan_context_paths=result.get("plan_context_paths") if isinstance(result.get("plan_context_paths"), list) else [],
             owner_boundary_reason_codes=result.get("plan_owner_boundary_reason_codes") if isinstance(result.get("plan_owner_boundary_reason_codes"), list) else [],
         )

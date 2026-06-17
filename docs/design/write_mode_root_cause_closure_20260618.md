@@ -946,6 +946,53 @@ Follow-up RC-19 candidate:
   workflow batch attempts, diff fingerprints, report status, and explicit
   delivery-candidate links.
 
+## 2026-06-18 RC-19 Delivery Candidate Coherence
+
+The RC-18 Django smoke showed that "latest durable plan" is not necessarily the
+same thing as "source patch being exported". That is a system-level delivery
+artifact gap, not a Django-specific condition:
+
+```text
+applied source batch -> applied validation/test-only batch -> final plan is test-only
+  -> adapter exports cumulative source diff
+  -> local acceptance reads final plan audit/report
+  -> source patch and audit authority diverge
+```
+
+Design:
+
+- Build a typed delivery candidate from persisted workflow attempts, plan JSON,
+  report JSON, exported diff paths, and path-role classification.
+- Preserve final-plan telemetry as `final_plan_*`; use `delivery_*` as the
+  local-acceptance/export authority.
+- Allow a later test-only validation batch only through an explicit typed
+  `source_plan_with_later_test_followup` relation.
+- Mark candidates `incoherent` when exported source paths are not owned by any
+  applied source plan.
+- Merge PatchReview summaries across all applied source-owner plans instead of
+  reading only the latest plan.
+- Keep all routing on typed artifacts; no issue text, stdout prose, model
+  rationale, or user-intent keywords influence candidate coherence.
+
+Task list:
+
+- [x] Add plan-path lookup helpers and source/test path projection helpers.
+- [x] Add `workflow_applied_plan_summaries`.
+- [x] Add `build_write_delivery_candidate` with status/reason/relation fields.
+- [x] Add source-owner PatchReview summary merging.
+- [x] Switch prediction confidence/local acceptance to delivery candidate facts.
+- [x] Preserve final-plan telemetry separately.
+- [x] Document new `delivery_*` fields.
+- [x] Add focused adapter tests for test-only follow-up coherence and missing
+  source-owner incoherence.
+- [x] Run adapter tests, Python compile, and local SWE-bench adapter smoke.
+
+Verification:
+
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+- `bash eval/swebench/smoke_local.sh`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -970,6 +1017,7 @@ Follow-up RC-19 candidate:
 | RC-17 | complete | Verification confidence authority: probe-only reports now attach contract/symbol confidence from the same plan snapshot that supplied the probes, and probe-only confidence recognizes all `verification_probe/<language>` suites instead of Python only. Verification: focused confidence tests, related packages, full `go test ./...`, and `make test` pass. |
 | RC-18 | complete | Verify coverage persistence: `syncMutablePlanStatusAfterVerify` now persists the coverage-updated `ChangePlan` snapshot after post-verify projection, and focused regression proves on-disk PatchReview/Impact coverage matches mutable state. Verification: focused orchestrator persistence test, related packages, full `go test ./...`, and `make test` pass. |
 | RC-18 smoke | complete | One-instance Django smoke after RC-18 exported a non-empty harness-consumable prediction and proved probe confidence is present in reports. It also exposed the next gap: final test-only repair plan and exported source patch can diverge, producing `final_plan_test_only_exported_source_patch`. |
+| RC-19 | complete | Delivery candidate coherence: SWE-bench adapter now binds exported source paths to applied source-owner plans, accepts later test-only validation only through an explicit typed relation, merges PatchReview across source-owner plans, and drives local acceptance from `delivery_*` facts instead of final-plan drift. Verification: adapter unit tests, Python compile, and local SWE-bench adapter smoke pass. |
 
 ## Acceptance Criteria
 

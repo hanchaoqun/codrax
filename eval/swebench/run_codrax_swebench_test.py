@@ -443,6 +443,102 @@ class WorkflowAppliedProvenanceTests(unittest.TestCase):
         self.assertEqual(got["workflow_applied_source_paths"], ["pkg/fix.py"])
         self.assertEqual(got["workflow_applied_test_paths"], ["tests/test_fix.py"])
 
+    def test_delivery_candidate_binds_exported_source_patch_to_prior_source_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = Path(raw) / "repo"
+            inst = Path(raw) / "inst"
+            plans = repo / ".codrax" / "plans"
+            plans.mkdir(parents=True)
+            inst.mkdir()
+            source_plan = {
+                "id": "plan-source",
+                "summary": "source fix",
+                "changes": [{"path": "pkg/fix.py", "kind": "patch"}],
+                "patch_review": {"status": "passed", "findings": []},
+            }
+            test_plan = {
+                "id": "plan-test",
+                "summary": "test validation",
+                "changes": [{"path": "tests/test_fix.py", "kind": "patch"}],
+            }
+            (plans / "plan-source.json").write_text(json.dumps(source_plan), encoding="utf-8")
+            (plans / "plan-test.json").write_text(json.dumps(test_plan), encoding="utf-8")
+            (plans / "plan-test.report.json").write_text(
+                json.dumps({"verification_status": "passed", "passed": True}),
+                encoding="utf-8",
+            )
+            workflow = {
+                "batches": [
+                    {"attempts": [
+                        {"kind": "apply", "status": "applied", "plan_id": "plan-source"},
+                        {"kind": "apply", "status": "applied", "plan_id": "plan-test"},
+                    ]}
+                ]
+            }
+
+            candidate = adapter.build_write_delivery_candidate(
+                repo_dir=repo,
+                inst_dir=inst,
+                workflow=workflow,
+                final_plan=test_plan,
+                final_plan_path=plans / "plan-test.json",
+                exported_source_paths=["pkg/fix.py"],
+                exported_test_paths=[],
+                patch_source="refs/codrax/applied/plan-test",
+            )
+
+        self.assertEqual(candidate["status"], "coherent")
+        self.assertEqual(candidate["relation"], "source_plan_with_later_test_followup")
+        self.assertEqual(candidate["source_owner_plan_ids"], ["plan-source"])
+        self.assertEqual(candidate["primary_source_plan_id"], "plan-source")
+        self.assertTrue(candidate["source_plan_covers_exported_source_patch"])
+        self.assertEqual(candidate["report_plan_id"], "plan-test")
+
+        reason = adapter.prediction_audit_block_reason(
+            exported_source_paths=["pkg/fix.py"],
+            final_plan_source_paths=candidate["source_paths"],
+            final_plan_test_only=False,
+            final_plan_covers_exported_source_patch=candidate["source_plan_covers_exported_source_patch"],
+        )
+
+        self.assertEqual(reason, "")
+
+    def test_delivery_candidate_blocks_exported_source_without_applied_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = Path(raw) / "repo"
+            inst = Path(raw) / "inst"
+            plans = repo / ".codrax" / "plans"
+            plans.mkdir(parents=True)
+            inst.mkdir()
+            test_plan = {
+                "id": "plan-test",
+                "summary": "test change",
+                "changes": [{"path": "tests/test_fix.py", "kind": "patch"}],
+            }
+            (plans / "plan-test.json").write_text(json.dumps(test_plan), encoding="utf-8")
+            workflow = {
+                "batches": [
+                    {"attempts": [
+                        {"kind": "apply", "status": "applied", "plan_id": "plan-test"},
+                    ]}
+                ]
+            }
+
+            candidate = adapter.build_write_delivery_candidate(
+                repo_dir=repo,
+                inst_dir=inst,
+                workflow=workflow,
+                final_plan=test_plan,
+                final_plan_path=plans / "plan-test.json",
+                exported_source_paths=["pkg/fix.py"],
+                exported_test_paths=[],
+                patch_source="refs/codrax/applied/plan-test",
+            )
+
+        self.assertEqual(candidate["status"], "incoherent")
+        self.assertEqual(candidate["reason_code"], "delivery_source_plan_missing")
+        self.assertEqual(candidate["source_owner_plan_ids"], [])
+
 
 class PythonCompatConstraintTests(unittest.TestCase):
     def test_adds_jinja2_ceiling_when_legacy_requirement_has_no_upper_bound(self) -> None:
