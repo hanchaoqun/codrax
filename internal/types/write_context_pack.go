@@ -270,7 +270,7 @@ func WriteContextPackFromWriteAnalysisIR(ir *WriteAnalysisIR) WriteContextPack {
 			continue
 		}
 		priority := WriteContextP1
-		if contract.Required && contract.Polarity != WriteBehaviorPolarityObserved {
+		if IsHardRequiredWriteBehaviorContract(contract) {
 			priority = WriteContextP0
 		}
 		item := writeContextItem("behavior_contract", priority, text, "write_analysis",
@@ -1564,7 +1564,11 @@ func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 		}
 	}
 	if c.Required {
-		parts = append(parts, "required=true")
+		if IsHardRequiredWriteBehaviorContract(c) {
+			parts = append(parts, "hard_required=true")
+		} else {
+			parts = append(parts, "soft_required=true")
+		}
 	}
 	if c.EvidenceRef != "" {
 		parts = append(parts, "evidence_ref="+c.EvidenceRef)

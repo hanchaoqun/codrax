@@ -264,6 +264,38 @@ func RequiredWriteBehaviorContractIDs(contracts []WriteBehaviorContract, include
 	return ids
 }
 
+func IsHardRequiredWriteBehaviorContract(c WriteBehaviorContract) bool {
+	if !c.Required || strings.TrimSpace(c.ID) == "" {
+		return false
+	}
+	if c.Polarity == WriteBehaviorPolarityObserved {
+		return false
+	}
+	if strings.TrimSpace(c.Source) == "expected_outcome_fallback" {
+		return false
+	}
+	switch c.Operator {
+	case WriteBehaviorOpEquals, WriteBehaviorOpNotEquals,
+		WriteBehaviorOpContains, WriteBehaviorOpNotContains,
+		WriteBehaviorOpExists, WriteBehaviorOpNotExists,
+		WriteBehaviorOpRaises, WriteBehaviorOpNotRaises,
+		WriteBehaviorOpReturns:
+		return true
+	default:
+		return false
+	}
+}
+
+func HardRequiredWriteBehaviorContractIDs(contracts []WriteBehaviorContract) map[string]struct{} {
+	ids := make(map[string]struct{}, len(contracts))
+	for _, c := range contracts {
+		if IsHardRequiredWriteBehaviorContract(c) {
+			ids[c.ID] = struct{}{}
+		}
+	}
+	return ids
+}
+
 func WriteBehaviorContractIDs(contracts []WriteBehaviorContract) map[string]struct{} {
 	ids := make(map[string]struct{}, len(contracts))
 	for _, c := range contracts {

@@ -98,6 +98,43 @@ func TestWriteAnalysisIRQualityRejectionRejectsUngroundedComparator(t *testing.T
 	}
 }
 
+func TestWriteAnalysisIRQualityRejectionRejectsUngroundedNotRaisesPayload(t *testing.T) {
+	ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		RawRequest: "Array([]) raises ValueError",
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "array-empty-no-raise",
+			Kind:     types.WriteBehaviorException,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Subject:  "Array([])",
+			Operator: types.WriteBehaviorOpNotRaises,
+			Expected: "does not raise and returns shape=()",
+			Required: true,
+		}},
+	}}
+	got := writeAnalysisIRQualityRejection(ir)
+	if !strings.Contains(got, "array-empty-no-raise") {
+		t.Fatalf("expected ungrounded not_raises payload rejection, got %q", got)
+	}
+}
+
+func TestWriteAnalysisIRQualityRejectionAcceptsGroundedNotRaisesPayload(t *testing.T) {
+	ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		RawRequest: "Array([]) raises ValueError",
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "array-empty-no-valueerror",
+			Kind:     types.WriteBehaviorException,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Subject:  "Array([])",
+			Operator: types.WriteBehaviorOpNotRaises,
+			Expected: "ValueError",
+			Required: true,
+		}},
+	}}
+	if got := writeAnalysisIRQualityRejection(ir); got != "" {
+		t.Fatalf("grounded not_raises exception should pass, got %q", got)
+	}
+}
+
 func TestRunWriteAnalyzePhaseRetriesUngroundedExactContract(t *testing.T) {
 	readIR := dagIR(types.AnswerContract{Language: "en"})
 	dispatchCount := 0

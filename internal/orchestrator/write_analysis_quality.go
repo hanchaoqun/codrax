@@ -44,7 +44,11 @@ func writeAnalysisContractNeedsExactGrounding(contract types.WriteBehaviorContra
 		return false
 	}
 	switch contract.Operator {
-	case types.WriteBehaviorOpEquals, types.WriteBehaviorOpNotEquals, types.WriteBehaviorOpReturns:
+	case types.WriteBehaviorOpEquals, types.WriteBehaviorOpNotEquals,
+		types.WriteBehaviorOpContains, types.WriteBehaviorOpNotContains,
+		types.WriteBehaviorOpExists, types.WriteBehaviorOpNotExists,
+		types.WriteBehaviorOpRaises, types.WriteBehaviorOpNotRaises,
+		types.WriteBehaviorOpReturns:
 		return true
 	default:
 		return false

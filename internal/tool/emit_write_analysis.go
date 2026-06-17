@@ -391,7 +391,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 						},
 						"expected": map[string]any{
 							"type":        "string",
-							"description": "Exact observable value or concise behavior to preserve/satisfy.",
+							"description": "Exact observable value for exact operators, or concise soft behavior text for operator=satisfies. Text under operator=satisfies is not a hard exact-value target.",
 						},
 						"comparator": map[string]any{
 							"type": "object",

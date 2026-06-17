@@ -718,10 +718,10 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenProbeComplete(t *test
 			ID:       "outcome-1",
 			Kind:     types.WriteBehaviorObservable,
 			Polarity: types.WriteBehaviorPolarityExpected,
-			Operator: types.WriteBehaviorOpSatisfies,
-			Expected: "widget value is 42",
+			Operator: types.WriteBehaviorOpEquals,
+			Expected: "42",
 			Required: true,
-			Source:   "expected_outcome_fallback",
+			Source:   "write_analyzer",
 		}},
 		VerificationProbes: []types.VerificationProbe{{
 			ID:                "value_contract",
@@ -818,10 +818,10 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenOnlyContractRefMissin
 			ID:       "outcome-1",
 			Kind:     types.WriteBehaviorObservable,
 			Polarity: types.WriteBehaviorPolarityExpected,
-			Operator: types.WriteBehaviorOpSatisfies,
-			Expected: "widget value is 42",
+			Operator: types.WriteBehaviorOpEquals,
+			Expected: "42",
 			Required: true,
-			Source:   "expected_outcome_fallback",
+			Source:   "write_analyzer",
 		}},
 		VerificationProbes: []types.VerificationProbe{{
 			ID:                "value_contract",
@@ -1440,10 +1440,10 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 			ID:       "outcome-1",
 			Kind:     types.WriteBehaviorObservable,
 			Polarity: types.WriteBehaviorPolarityExpected,
-			Operator: types.WriteBehaviorOpSatisfies,
+			Operator: types.WriteBehaviorOpEquals,
 			Expected: "repr shows units",
 			Required: true,
-			Source:   "expected_outcome_fallback",
+			Source:   "write_analyzer",
 		}},
 		VerificationProbes: []types.VerificationProbe{{
 			ID:       "probe",
@@ -1491,6 +1491,51 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 	}
 }
 
+func TestVerificationConfidenceRecordsFromProbeReportIgnoresSoftSatisfiesContractRefs(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan-confidence-soft",
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "soft-outcome",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "natural language behavior text",
+			Required: true,
+			Source:   "write_analyzer",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "probe",
+			Language: "python",
+			Code:     "assert True",
+		}},
+	}
+	report := &types.ChangeReport{
+		Passed: true,
+		TestResults: []types.TestResult{{
+			AssertionID: "probe",
+			Suite:       "verification_probe/python",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:    "verification_probe",
+			Framework: "python",
+			Source:    "pre_suite_verification_probe",
+			Outcome:   "executed",
+		}, {
+			Runner:  "python",
+			Source:  "probe_primary_suite_skipped",
+			Outcome: "suite_skipped",
+		}},
+	}
+	records := verificationConfidenceRecordsFromReport(plan, report)
+	if verificationConfidenceContains(records, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
+		t.Fatalf("soft satisfies contract should not emit missing hard contract-ref record: %+v", records)
+	}
+	if verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
+		t.Fatalf("soft satisfies contract should not emit hard contract-ref covered record: %+v", records)
+	}
+}
+
 func TestVerificationConfidenceRecordsFromProbeReportRecordsPartialMissingContracts(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID: "plan-confidence-partial",
@@ -1498,7 +1543,7 @@ func TestVerificationConfidenceRecordsFromProbeReportRecordsPartialMissingContra
 			ID:       "c1",
 			Kind:     types.WriteBehaviorObservable,
 			Polarity: types.WriteBehaviorPolarityExpected,
-			Operator: types.WriteBehaviorOpSatisfies,
+			Operator: types.WriteBehaviorOpEquals,
 			Expected: "first behavior",
 			Required: true,
 			Source:   "write_analyzer",
@@ -1506,10 +1551,10 @@ func TestVerificationConfidenceRecordsFromProbeReportRecordsPartialMissingContra
 			ID:       "c2",
 			Kind:     types.WriteBehaviorObservable,
 			Polarity: types.WriteBehaviorPolarityExpected,
-			Operator: types.WriteBehaviorOpSatisfies,
+			Operator: types.WriteBehaviorOpEquals,
 			Expected: "second behavior",
 			Required: true,
-			Source:   "expected_outcome_fallback",
+			Source:   "write_analyzer",
 		}},
 		VerificationProbes: []types.VerificationProbe{{
 			ID:           "probe",

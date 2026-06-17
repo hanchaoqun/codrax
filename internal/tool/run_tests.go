@@ -1161,7 +1161,7 @@ func verificationProbeMissingRequiredContractRefs(plan *types.ChangePlan) []stri
 	if plan == nil {
 		return nil
 	}
-	required := types.RequiredWriteBehaviorContractIDs(plan.BehaviorContracts, true)
+	required := types.HardRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
 	if len(required) == 0 {
 		return nil
 	}
@@ -1178,7 +1178,7 @@ func verificationProbeMissingRequiredContractRefs(plan *types.ChangePlan) []stri
 }
 
 func verificationProbeMissingChangedSymbolRefs(plan *types.ChangePlan) bool {
-	if plan == nil || len(types.RequiredWriteBehaviorContractIDs(plan.BehaviorContracts, true)) == 0 {
+	if plan == nil || len(types.HardRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)) == 0 {
 		return false
 	}
 	for _, probe := range plan.VerificationProbes {
@@ -2181,7 +2181,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 		out = append(out, verificationConfidenceFromCommand(cmd, status)...)
 	}
 	if plan != nil && reportPassedOnlyByVerificationProbes(report) {
-		required := types.RequiredWriteBehaviorContractIDs(plan.BehaviorContracts, true)
+		required := types.HardRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
 		covered := map[string]struct{}{}
 		changed := map[string]struct{}{}
 		baselineExpected := false

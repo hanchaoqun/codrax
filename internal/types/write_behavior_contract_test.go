@@ -160,3 +160,40 @@ func TestNormalizeWriteBehaviorContracts_AppendsDistinctExpectedOutcomes(t *test
 		t.Fatalf("fallback-inclusive required ids missing: %+v", ids)
 	}
 }
+
+func TestHardRequiredWriteBehaviorContractIDs_ExcludesSatisfiesAndFallback(t *testing.T) {
+	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{
+		{
+			ID:       "exact-shape",
+			Kind:     WriteBehaviorInvariant,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpEquals,
+			Subject:  "Array([]).shape",
+			Expected: "(0,)",
+			Required: true,
+			Source:   "write_analyzer",
+		},
+		{
+			ID:       "soft-outcome",
+			Kind:     WriteBehaviorObservable,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpSatisfies,
+			Subject:  "Array([])",
+			Expected: "creates an empty array with the right shape",
+			Required: true,
+			Source:   "write_analyzer",
+		},
+	}, []string{"fallback outcome text"})
+
+	required := RequiredWriteBehaviorContractIDs(got, true)
+	if len(required) != 3 {
+		t.Fatalf("wide required view should retain all completion targets, got %+v", required)
+	}
+	hard := HardRequiredWriteBehaviorContractIDs(got)
+	if len(hard) != 1 {
+		t.Fatalf("hard required view should contain only exact typed contract, got %+v", hard)
+	}
+	if _, ok := hard["exact-shape"]; !ok {
+		t.Fatalf("hard required view missing exact contract: %+v", hard)
+	}
+}

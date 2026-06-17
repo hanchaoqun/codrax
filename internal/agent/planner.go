@@ -304,7 +304,11 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 				fmt.Fprintf(&b, " expected=%s", c.Expected)
 			}
 			if c.Required {
-				b.WriteString(" required=true")
+				if types.IsHardRequiredWriteBehaviorContract(c) {
+					b.WriteString(" hard_required=true")
+				} else {
+					b.WriteString(" soft_required=true")
+				}
 			}
 			if c.EvidenceRef != "" {
 				fmt.Fprintf(&b, " evidence_ref=%s", c.EvidenceRef)

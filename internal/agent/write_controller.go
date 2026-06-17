@@ -145,7 +145,11 @@ func renderWriteControllerTaskSection(ctx *types.AgentContext) string {
 				fmt.Fprintf(&b, " subject=%s", c.Subject)
 			}
 			if c.Required {
-				b.WriteString(" required=true")
+				if types.IsHardRequiredWriteBehaviorContract(c) {
+					b.WriteString(" hard_required=true")
+				} else {
+					b.WriteString(" soft_required=true")
+				}
 			}
 			b.WriteByte('\n')
 		}

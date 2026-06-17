@@ -416,6 +416,110 @@ Final RC-10c SWE-bench regression:
   verifier targets; `satisfies` expected text is soft guidance unless the
   analyzer emits a separate typed exact-value artifact with evidence.
 
+## 2026-06-18 RC-11 Hard/Soft Contract Separation
+
+Design:
+
+- Preserve the wide `RequiredWriteBehaviorContractIDs` view for audit and
+  backward-compatible inspection.
+- Add `HardRequiredWriteBehaviorContractIDs` and
+  `IsHardRequiredWriteBehaviorContract` as the verifier/control view.
+- A contract is hard-required only when it is:
+  - `required=true`;
+  - not `polarity=observed`;
+  - not `source=expected_outcome_fallback`;
+  - and its operator is a typed exact/verifiable operator
+    (`equals`, `not_equals`, `contains`, `not_contains`, `exists`,
+    `not_exists`, `raises`, `not_raises`, `returns`).
+- `operator=satisfies` remains visible and useful, but is soft guidance. Its
+  natural-language `expected` text cannot create a hard missing-contract gate.
+- `WriteContextPack` promotes only hard-required contracts to P0. Soft required
+  contracts remain in planner/verifier handoff with `soft_required=true`.
+- Planner/controller prompt rendering now emits `hard_required=true` or
+  `soft_required=true` instead of the ambiguous `required=true`.
+- `run_tests` verification confidence now computes missing/covered contract
+  refs from the hard-required view only. A probe can still cite a soft contract,
+  but that citation does not satisfy or fail a hard coverage gate.
+
+Why this is generalized:
+
+- It does not inspect or regex-match model-generated expected prose.
+- It does not special-case SymPy, shapes, tuples, Python, or SWE-bench.
+- It pushes the hard/soft distinction into typed contract semantics and
+  deterministic consumers.
+
+Expected effect:
+
+- Models can still carry broad behavior text for planning, but local confidence
+  and controller handoff no longer treat that prose as an exact oracle.
+- When exact values matter, the analyzer must use a typed exact operator and
+  pass RC-10 grounding; otherwise the behavior remains soft until verified by
+  project tests or explicit probes.
+
+RC-11 SWE-bench smoke:
+
+- Run directory:
+  `/private/tmp/codrax-swebench-rc11-sympy-20260618-031804`.
+- Prediction export remained non-empty and official-harness consumable.
+- Local acceptance correctly failed:
+  `prediction_verdict=predicted_failed_verify`,
+  `prediction_confidence_downgrade_reason=local_verification_failed`.
+- The workflow did not claim correctness; verifier evidence reported
+  `AssertionError: Expected shape=(), got (0,)`.
+- The run exposed a narrower typed-quality gap: a hard operator such as
+  `not_raises` can still carry a compound natural-language expected payload.
+  That is not a `satisfies` issue; it means RC-10 grounding should apply to all
+  hard operators, not only `equals | not_equals | returns`.
+
+## 2026-06-18 RC-12 All Hard Operators Grounding
+
+Design:
+
+- Extend the post-`emit_write_analysis` quality gate from
+  `equals | not_equals | returns` to every hard operator:
+  `equals`, `not_equals`, `contains`, `not_contains`, `exists`, `not_exists`,
+  `raises`, `not_raises`, `returns`.
+- Keep the same evidence rule: a non-empty exact `expected` payload must be
+  verbatim in `raw_request` or grounded by comparator evidence.
+- Leave `operator=satisfies` soft and out of the hard grounding gate.
+
+Why this is generalized:
+
+- It rejects typed-field misuse, not issue prose.
+- It does not inspect shape syntax, exception names, Python stack traces, or
+  SWE-bench metadata.
+- It forces hard operators to carry precise, grounded operands, while broad
+  behavior descriptions stay in soft `satisfies`.
+
+Expected effect:
+
+- `not_raises expected=ValueError` is accepted when `ValueError` appears in the
+  request/log.
+- `not_raises expected="does not raise and returns shape=()"` is rejected unless
+  that exact expected payload is grounded, forcing the analyzer to split it into
+  a grounded exception contract plus a soft or separately grounded value
+  contract.
+
+RC-12 SWE-bench smoke:
+
+- Run directory:
+  `/private/tmp/codrax-swebench-rc12-sympy-20260618-033120`.
+- Prediction export remained non-empty and official-harness consumable:
+  `patch_bytes=974`, `validated 1 prediction(s); empty_patch=0`.
+- Local acceptance correctly failed:
+  `local_acceptance_verdict=fail`,
+  `prediction_verdict=predicted_failed_verify`,
+  `prediction_confidence_downgrade_reason=verification_probe_exception`,
+  `plan_patch_review_coverage_verdict=unverified`.
+- Workflow status remained non-complete after failed verification:
+  `workflow_status=in_progress`,
+  `workflow_latest_progress=write_controller/progress/plan_batch_interrupted_after_applied_patch`.
+- Verifier evidence stayed typed and concrete:
+  `IndexError: list index out of range` at `sympy/tensor/array/ndim_array.py`.
+- Conclusion: RC-12 did not make this SymPy patch functionally correct, but it
+  preserved the commercial acceptance boundary: exported patches stay harness
+  compatible while failed local typed verification prevents false pass claims.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -431,7 +535,8 @@ Final RC-10c SWE-bench regression:
 | RC-8 | complete | Verifier selector tightening: a passed scoped pre-suite verification probe no longer escalates to a full project suite solely because required `contract_refs` are missing. The missing refs remain typed `VerificationConfidence` downgrade/handoff evidence; expensive suite escalation is reserved for failed probes, touched tests/specs, missing changed-symbol coupling, or explicit policy. Verification: focused `internal/tool` tests, related tool/types/orchestrator tests, and full `go test ./...` pass. |
 | RC-9 | complete | Comparator invariant closure: `WriteBehaviorContract` now carries an optional typed comparator baseline; `emit_write_analysis` validates comparator operator/relation enums; `WriteContextPack` renders comparator fields for controller/planner/verifier consumers; analyzer/planner prompts provide soft guidance to fill and verify comparator contracts without hard-routing on prose. Verification: focused `internal/types` + `internal/tool`, related `internal/skill`, and full `go test ./...` pass. |
 | RC-10 | complete | Exact contract grounding gate: post-emit write-analysis quality check rejects required exact behavior contracts whose expected value is neither verbatim in `raw_request` nor backed by grounded comparator evidence, then retries through the existing AnalyzerRetryHint surface. Subject-only comparators no longer ground exact values. Verification: focused orchestrator tests, related orchestrator/skill/types/tool tests, full `go test ./...`, `make test`, and SymPy SWE-bench smoke export checks pass; RC-10c still fails local functional verification, correctly reported as failed/unverified rather than a pass. |
-| RC-11 | planned | Hard/soft contract separation: ensure `operator=satisfies` natural-language expected text cannot become an exact hard verifier target. The fix must be schema/consumer based, not keyword scanning over model prose. |
+| RC-11 | complete | Hard/soft contract separation: added hard-required behavior-contract helpers; context handoff promotes only hard contracts to P0; planner/controller rendering distinguishes `hard_required=true` from `soft_required=true`; verifier contract-ref confidence uses only hard-required contracts. Verification: focused `internal/types`, `internal/tool`, and `internal/agent`; full `go test ./...`; `make test`; RC-11 SymPy smoke export passed and local correctness correctly failed. |
+| RC-12 | complete | All hard operators grounding: write-analysis quality gate now applies grounding to `contains`, `not_contains`, `exists`, `not_exists`, `raises`, and `not_raises` in addition to equals/not_equals/returns. Verification: focused orchestrator tests, related orchestrator/skill/types/tool/agent tests, full `go test ./...`, `make test`, and RC-12 SymPy SWE-bench smoke export passed; local correctness correctly failed with typed verifier evidence instead of a false pass. |
 
 ## Acceptance Criteria
 

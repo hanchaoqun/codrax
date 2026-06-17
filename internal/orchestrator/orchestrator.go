@@ -2976,7 +2976,7 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 			// uniform across read/write analyzers.
 			if o.busCtx != nil && o.busCtx.Mutable != nil && lastErr != nil {
 				o.busCtx.Mutable.SetAnalyzerRetryHint(
-					fmt.Sprintf("Previous emit_write_analysis attempt was rejected: %v. Re-emit with the rejected fields corrected and all required fields filled (raw_request, task.kind, task.scope, task.summary, risk.affects_public_api, risk.changes_persistence, risk.changes_build_system, risk.overall). For exact behavior contracts such as equals/returns/not_equals, do not invent expected values: either use a value present verbatim in raw_request, attach a grounded comparator, or express the requirement as a non-exact observable/invariant.",
+					fmt.Sprintf("Previous emit_write_analysis attempt was rejected: %v. Re-emit with the rejected fields corrected and all required fields filled (raw_request, task.kind, task.scope, task.summary, risk.affects_public_api, risk.changes_persistence, risk.changes_build_system, risk.overall). For hard behavior operators such as equals, returns, contains, exists, raises, or not_raises, do not invent expected values: either use a value present verbatim in raw_request, attach grounded comparator evidence, or express the requirement as a soft satisfies observable.",
 						lastErr))
 			}
 		}

@@ -105,6 +105,78 @@ func TestWriteContextPackFromWriteAnalysisIR_ObservedContractNotP0(t *testing.T)
 	}
 }
 
+func TestWriteContextPackFromWriteAnalysisIR_SatisfiesContractIsSoft(t *testing.T) {
+	ir := &WriteAnalysisIR{
+		Request: WriteRequestModel{
+			Task: WriteTask{Summary: "fix soft behavior"},
+			BehaviorContracts: []WriteBehaviorContract{{
+				ID:       "soft-empty-array",
+				Kind:     WriteBehaviorObservable,
+				Polarity: WriteBehaviorPolarityExpected,
+				Operator: WriteBehaviorOpSatisfies,
+				Subject:  "Array([])",
+				Expected: "creates an empty array with shape text",
+				Required: true,
+				Source:   "write_analyzer",
+			}},
+		},
+	}
+	pack := WriteContextPackFromWriteAnalysisIR(ir)
+	view := pack.View(WriteConsumerPlanner, 10)
+	var found *WriteContextItem
+	for i := range view.Items {
+		if strings.Contains(view.Items[i].Text, "id=soft-empty-array") {
+			found = &view.Items[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("soft contract should remain visible in handoff: %+v", view.Items)
+	}
+	if found.Priority == WriteContextP0 {
+		t.Fatalf("satisfies contract must not become a P0 hard target: %+v", *found)
+	}
+	if !strings.Contains(found.Text, "soft_required=true") {
+		t.Fatalf("soft_required marker missing from handoff text: %+v", *found)
+	}
+}
+
+func TestWriteContextPackFromWriteAnalysisIR_ExactContractIsP0(t *testing.T) {
+	ir := &WriteAnalysisIR{
+		Request: WriteRequestModel{
+			Task: WriteTask{Summary: "fix exact behavior"},
+			BehaviorContracts: []WriteBehaviorContract{{
+				ID:       "exact-empty-array-shape",
+				Kind:     WriteBehaviorInvariant,
+				Polarity: WriteBehaviorPolarityExpected,
+				Operator: WriteBehaviorOpEquals,
+				Subject:  "Array([]).shape",
+				Expected: "(0,)",
+				Required: true,
+				Source:   "write_analyzer",
+			}},
+		},
+	}
+	pack := WriteContextPackFromWriteAnalysisIR(ir)
+	view := pack.View(WriteConsumerPlanner, 10)
+	var found *WriteContextItem
+	for i := range view.Items {
+		if strings.Contains(view.Items[i].Text, "id=exact-empty-array-shape") {
+			found = &view.Items[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("exact contract should be visible in handoff: %+v", view.Items)
+	}
+	if found.Priority != WriteContextP0 {
+		t.Fatalf("exact contract should be P0 hard target: %+v", *found)
+	}
+	if !strings.Contains(found.Text, "hard_required=true") {
+		t.Fatalf("hard_required marker missing from handoff text: %+v", *found)
+	}
+}
+
 func TestWriteContextPackFromExplorationHandoffPrioritizesEvidence(t *testing.T) {
 	handoff := WriteExplorationHandoff{
 		BatchID:          "batch-1",
