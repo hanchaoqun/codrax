@@ -1500,6 +1500,72 @@ Verification:
 - `eval/swebench/smoke_local.sh`
 - `git diff --check`
 
+## 2026-06-18 RC-28 Multi-language BuildError Changed-line Attribution
+
+The shared `PreflightDiagnostic` / changed-line filter was intentionally
+language-neutral, but only the Python static-name producer was wired through
+that filter. This leaves a system-level false-negative class for other
+languages: a native project runner can parse `BuildErrors[]` from javac, tsc,
+rustc, Go, Node, Ruby, C/C++, Swift, Cangjie, or similar output, but a
+pre-existing error on an untouched line still looks like an authoritative
+post-apply build failure.
+
+Current code already has the right reusable pieces:
+
+- `parseBuildErrors` produces typed `BuildError{file,line,column,message}`
+  rows for many toolchains.
+- `writeflow.FilterPreflightDiagnosticsToChangedLines` already decides whether
+  a typed file:line diagnostic intersects the current `ChangePlan` changed-line
+  surface.
+- `ChangeReport.VerificationStatus` and typed `FailureKind` already separate
+  failed code evidence from unavailable local verification.
+
+Design:
+
+- Add a typed `preexisting_build_failure` failure kind whose
+  `VerificationStatus` is `unavailable`.
+- During `run_tests` report finalization, scope `BuildErrors[]` against the
+  active `ChangePlan`:
+  - if any build error lacks a precise path/line match, keep normal
+    `build_failure` (fail-closed);
+  - if any build error intersects a changed line, keep normal
+    `build_failure`;
+  - if all build errors are precise and outside changed lines, preserve them as
+    P2 handoff evidence but downgrade the primary verifier verdict to
+    `preexisting_build_failure`.
+- Keep routing structural:
+  - only typed `BuildError` file/line/column and typed `ChangePlan` changed-line
+    surfaces participate;
+  - no user-intent keywords, model prose, stdout summaries, or language-specific
+    issue text are used for the decision.
+- Preserve handoff:
+  - build-error rows remain in `ChangeReport.TestResults[].BuildErrors`;
+  - a typed `VerificationDiagnostic` records the downgrade reason;
+  - controller/planner/verifier can still consume P2 context, but the workflow
+    does not chase unrelated repository debt as a code defect.
+
+Task list:
+
+- [x] Add `FailureKindPreexistingBuildFailure` and mark it unavailable.
+- [x] Add a `run_tests` report qualifier that scopes all structured
+  `BuildErrors[]` through the changed-line filter.
+- [x] Keep fail-closed behavior for unstructured build failures, missing line
+  numbers, unmatched paths, and imprecise plan surfaces.
+- [x] Add unit tests for outside-line downgrade and changed-line retention.
+- [x] Run related `types`, `tool`, `orchestrator`, and SWE adapter smoke.
+
+Verification:
+
+- `go test ./internal/tool -run 'Test(QualifyChangeReport_QualifiesBuildErrorPathsFromRunnerRoot|ScopeBuildFailureReportToChangedLines|QualifyChangeReport|MergeChangeReports|RenderTestSummary)'`
+- `go test ./internal/types -run 'TestChangeReportNormalizeVerificationStatus|TestChangeReportEnsureVerificationStatusBackfillsNoTestsFailureKind'`
+- `go test ./internal/orchestrator -run 'TestNormalizeControllerTypedStateDecision.*Unverified|Test.*Preexisting|Test.*Verify'`
+- `go test ./internal/tool ./internal/types ./internal/orchestrator ./internal/writeflow`
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+- `go test ./...`
+- `eval/swebench/smoke_local.sh`
+- `git diff --check`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1533,6 +1599,7 @@ Verification:
 | RC-25 | complete | Probe reference enrichment: single-probe, single-required-contract plans now auto-fill omitted `contract_refs`, and fill `changed_symbol_refs` from contract subject or a transparent single-source `path:<repo-rel>` fallback. Explicit refs are preserved, multi-contract plans are not guessed, and both single-shot plus skeleton planning paths share the helper. |
 | RC-26 | complete | Hard/soft probe coverage authority: runtime and SWE adapter now distinguish hard-required contract coverage from soft/fallback expected-outcome coverage. Historical RC-23 SymPy recomputes to `verification_probe_missing_soft_contract_ref` with no hard-required gaps, preserving low confidence without overstating the failure as a hard required contract omission. |
 | RC-27 | complete | Impact follow-up authority: controller scheduling now keeps broad graph/effect telemetry as low-confidence handoff after a passed verifier, while hard proof gaps and actual-diff boundary events can still append one bounded follow-up. Regression coverage locks both sides, and local SWE-bench adapter smoke remains harness-consumable. |
+| RC-28 | complete | Multi-language BuildError changed-line attribution: structured compiler diagnostics from native runners now reuse the existing changed-line authority. Errors proven outside current patch lines become `preexisting_build_failure` unavailable handoff evidence; changed-line, unstructured, pathless, or imprecise diagnostics remain fail-closed `build_failure`. User guide Markdown/HTML and full regression evidence were updated. |
 
 ## Acceptance Criteria
 

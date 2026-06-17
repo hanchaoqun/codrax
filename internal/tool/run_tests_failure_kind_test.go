@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -69,6 +70,118 @@ func TestQualifyChangeReport_PassedReportClearsKind(t *testing.T) {
 	out := qualifyChangeReport(report, runnerPlan{Runner: "go", Root: "/tmp/repo", Manifest: "go.mod"}, "/tmp/repo")
 	if out.FailureKind != "" {
 		t.Errorf("passing report should not carry FailureKind, got %q", out.FailureKind)
+	}
+}
+
+func TestQualifyChangeReport_QualifiesBuildErrorPathsFromRunnerRoot(t *testing.T) {
+	repo := t.TempDir()
+	report := &types.ChangeReport{
+		Passed:      false,
+		BuildFailed: true,
+		TestResults: []types.TestResult{{
+			Kind: types.TestResultKindBuildError,
+			BuildErrors: []types.BuildError{{
+				File:    "src/Foo.java",
+				Line:    12,
+				Message: "cannot find symbol",
+			}},
+		}},
+	}
+	out := qualifyChangeReport(report, runnerPlan{Runner: "java", Root: filepath.Join(repo, "module"), Manifest: "pom.xml"}, repo)
+	if got := out.TestResults[0].BuildErrors[0].File; got != "module/src/Foo.java" {
+		t.Fatalf("BuildError file = %q, want module/src/Foo.java", got)
+	}
+}
+
+func TestScopeBuildFailureReportToChangedLinesDowngradesOutsidePatchLine(t *testing.T) {
+	ctx := buildErrorScopeContextForTest(t, "src/app.ts")
+	report := buildFailureReportForScopeTest("src/app.ts", 2)
+
+	got := scopeBuildFailureReportToChangedLines(ctx, report)
+
+	if got.FailureKind != types.FailureKindPreexistingBuildFailure {
+		t.Fatalf("FailureKind = %q, want %q", got.FailureKind, types.FailureKindPreexistingBuildFailure)
+	}
+	if got.BuildFailed {
+		t.Fatal("outside-line build failure should not remain BuildFailed")
+	}
+	if got.NormalizeVerificationStatus() != types.VerificationStatusUnavailable {
+		t.Fatalf("VerificationStatus = %q, want unavailable", got.NormalizeVerificationStatus())
+	}
+	if got.FailureReasonCode != preexistingBuildFailureReasonCode {
+		t.Fatalf("FailureReasonCode = %q, want %q", got.FailureReasonCode, preexistingBuildFailureReasonCode)
+	}
+	if len(got.TestResults) != 1 || len(got.TestResults[0].BuildErrors) != 1 {
+		t.Fatalf("BuildErrors should remain as P2 handoff evidence: %+v", got.TestResults)
+	}
+}
+
+func TestScopeBuildFailureReportToChangedLinesKeepsChangedLineFailure(t *testing.T) {
+	ctx := buildErrorScopeContextForTest(t, "src/app.ts")
+	report := buildFailureReportForScopeTest("src/app.ts", 10)
+
+	got := scopeBuildFailureReportToChangedLines(ctx, report)
+
+	if got.FailureKind != types.FailureKindBuildFailure {
+		t.Fatalf("changed-line build error should remain build_failure, got %q", got.FailureKind)
+	}
+	if !got.BuildFailed {
+		t.Fatal("changed-line build error should remain BuildFailed")
+	}
+	if got.NormalizeVerificationStatus() != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed", got.NormalizeVerificationStatus())
+	}
+}
+
+func TestScopeBuildFailureReportToChangedLinesFailsClosedWithoutLine(t *testing.T) {
+	ctx := buildErrorScopeContextForTest(t, "src/app.ts")
+	report := buildFailureReportForScopeTest("src/app.ts", 0)
+
+	got := scopeBuildFailureReportToChangedLines(ctx, report)
+
+	if got.FailureKind != types.FailureKindBuildFailure {
+		t.Fatalf("line-less build error should remain build_failure, got %q", got.FailureKind)
+	}
+	if !got.BuildFailed {
+		t.Fatal("line-less build error should remain BuildFailed")
+	}
+}
+
+func buildErrorScopeContextForTest(t *testing.T, path string) *types.BusContext {
+	t.Helper()
+	mu := types.NewMutableState("build error changed-line scope")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID: "plan-build-scope",
+		Changes: []types.FileChange{{
+			Path:  path,
+			Kind:  "patch",
+			Patch: "@@ -10,1 +10,1 @@\n-old\n+new\n",
+		}},
+	})
+	return &types.BusContext{
+		RepoRoot: t.TempDir(),
+		Mutable:  mu,
+	}
+}
+
+func buildFailureReportForScopeTest(path string, line int) *types.ChangeReport {
+	return &types.ChangeReport{
+		Passed:      false,
+		BuildFailed: true,
+		FailureKind: types.FailureKindBuildFailure,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindBuildError,
+			AssertionID: "build",
+			Suite:       "build",
+			Passed:      false,
+			BuildErrors: []types.BuildError{{
+				File:    path,
+				Line:    line,
+				Column:  3,
+				Symbol:  "TS2304",
+				Message: "cannot find name",
+			}},
+		}},
 	}
 }
 

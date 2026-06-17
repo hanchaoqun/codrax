@@ -350,6 +350,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if report == nil {
 			return nil
 		}
+		report = scopeBuildFailureReportToChangedLines(ctx, report)
 		report.ExecutedCommands = append([]types.ExecutedCommand(nil), executedCmds...)
 		report.VerificationDiagnostics = mergeVerificationDiagnostics(
 			report.VerificationDiagnostics,
@@ -1996,6 +1997,9 @@ func qualifyChangeReport(report *types.ChangeReport, plan runnerPlan, repoRoot s
 			if report.TestResults[i].Suite != "" {
 				report.TestResults[i].Suite = label + "::" + report.TestResults[i].Suite
 			}
+			for j := range report.TestResults[i].BuildErrors {
+				report.TestResults[i].BuildErrors[j].File = qualifyBuildErrorPath(report.TestResults[i].BuildErrors[j].File, runnerPlanRel(repoRoot, plan))
+			}
 		}
 	}
 	if report.FailureSummary != "" {
@@ -2014,6 +2018,116 @@ func qualifyChangeReport(report *types.ChangeReport, plan runnerPlan, repoRoot s
 		}
 	}
 	return report
+}
+
+const preexistingBuildFailureReasonCode = "preexisting_build_failure_outside_changed_lines"
+
+func scopeBuildFailureReportToChangedLines(ctx *types.BusContext, report *types.ChangeReport) *types.ChangeReport {
+	if ctx == nil || ctx.Mutable == nil || report == nil || !report.BuildFailed {
+		return report
+	}
+	if report.FailureKind != "" && report.FailureKind != types.FailureKindBuildFailure {
+		return report
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		return report
+	}
+	total := 0
+	for _, result := range report.TestResults {
+		if result.Kind != types.TestResultKindBuildError {
+			continue
+		}
+		for _, buildErr := range result.BuildErrors {
+			total++
+			diag, ok := buildErrorPreflightDiagnostic(ctx.RepoRoot, buildErr)
+			if !ok {
+				return report
+			}
+			changed, precise := writeflow.ChangedLinesForPlanPath(plan, diag.Path, buildErrorCurrentContent(ctx.RepoRoot, diag.Path))
+			if !precise || len(changed) == 0 {
+				return report
+			}
+			if _, intersects := changed[diag.Line]; intersects {
+				return report
+			}
+		}
+	}
+	if total == 0 {
+		return report
+	}
+	report.BuildFailed = false
+	report.FailureKind = types.FailureKindPreexistingBuildFailure
+	report.FailureReasonCode = preexistingBuildFailureReasonCode
+	report.VerificationStatus = types.VerificationStatusUnavailable
+	report.FailureSummary = fmt.Sprintf(
+		"build failed only on %d structured diagnostic(s) outside current ChangePlan changed lines; treating local verification as unavailable rather than a code failure",
+		total)
+	report.VerificationDiagnostics = mergeVerificationDiagnostics(report.VerificationDiagnostics, []types.VerificationDiagnostic{{
+		Source:     "build_error_changed_line_scope",
+		Category:   "preexisting_build_failure",
+		Severity:   "warning",
+		ReasonCode: preexistingBuildFailureReasonCode,
+		Detail:     report.FailureSummary,
+	}})
+	return report
+}
+
+func buildErrorPreflightDiagnostic(repoRoot string, buildErr types.BuildError) (writeflow.PreflightDiagnostic, bool) {
+	path := strings.TrimSpace(strings.TrimPrefix(buildErr.File, "file://"))
+	if path == "" || buildErr.Line <= 0 {
+		return writeflow.PreflightDiagnostic{}, false
+	}
+	if filepath.IsAbs(path) {
+		if strings.TrimSpace(repoRoot) == "" {
+			return writeflow.PreflightDiagnostic{}, false
+		}
+		rel, err := filepath.Rel(repoRoot, path)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			return writeflow.PreflightDiagnostic{}, false
+		}
+		path = rel
+	}
+	path = filepath.ToSlash(filepath.Clean(path))
+	path = strings.TrimPrefix(path, "./")
+	if path == "." || path == "" || strings.HasPrefix(path, "../") {
+		return writeflow.PreflightDiagnostic{}, false
+	}
+	code := strings.TrimSpace(buildErr.Symbol)
+	if code == "" {
+		code = "build_error"
+	}
+	return writeflow.PreflightDiagnostic{
+		Path:    path,
+		Line:    buildErr.Line,
+		Column:  buildErr.Column,
+		Code:    code,
+		Message: strings.TrimSpace(buildErr.Message),
+	}, true
+}
+
+func buildErrorCurrentContent(repoRoot, relPath string) string {
+	if strings.TrimSpace(repoRoot) == "" || strings.TrimSpace(relPath) == "" || filepath.IsAbs(relPath) {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(relPath)))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func qualifyBuildErrorPath(file, runnerRel string) string {
+	file = strings.TrimSpace(file)
+	runnerRel = filepath.ToSlash(strings.Trim(strings.TrimSpace(runnerRel), "/"))
+	if file == "" || runnerRel == "" || runnerRel == "." || filepath.IsAbs(file) {
+		return file
+	}
+	fileSlash := filepath.ToSlash(file)
+	if fileSlash == runnerRel || strings.HasPrefix(fileSlash, runnerRel+"/") {
+		return file
+	}
+	return filepath.ToSlash(filepath.Join(runnerRel, fileSlash))
 }
 
 func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {

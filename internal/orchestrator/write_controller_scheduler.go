@@ -3982,7 +3982,7 @@ func activeBatchCompletedWithUnverifiedVerdict(run *types.WriteWorkflowRun) bool
 				return false
 			}
 			switch strings.TrimSpace(attempt.ReasonCode) {
-			case "no_tests", string(types.FailureKindRunnerMissing), string(types.FailureKindParserError):
+			case "no_tests", string(types.FailureKindRunnerMissing), string(types.FailureKindParserError), string(types.FailureKindPreexistingBuildFailure):
 				return true
 			default:
 				return false
@@ -4468,7 +4468,7 @@ func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) str
 	}
 	if report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
 		switch report.FailureKind {
-		case types.FailureKindRunnerMissing, types.FailureKindParserError:
+		case types.FailureKindRunnerMissing, types.FailureKindParserError, types.FailureKindPreexistingBuildFailure:
 			return string(report.FailureKind)
 		}
 		if len(report.NoTestsRunners) > 0 {
@@ -4477,7 +4477,7 @@ func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) str
 	}
 	switch report.FailureKind {
 	case types.FailureKindRunnerMissing, types.FailureKindParserError, types.FailureKindTimeout, types.FailureKindOOM,
-		types.FailureKindCPULimit, types.FailureKindCrash:
+		types.FailureKindCPULimit, types.FailureKindCrash, types.FailureKindPreexistingBuildFailure:
 		return string(report.FailureKind)
 	}
 	if report.BuildFailed {

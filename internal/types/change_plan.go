@@ -894,6 +894,12 @@ const (
 	// kind exists so Passed=false can be classified by a single field.
 	FailureKindBuildFailure FailureKind = "build_failure"
 
+	// FailureKindPreexistingBuildFailure — the build/compile step failed, but
+	// every structured file:line build diagnostic was proven to be outside the
+	// current ChangePlan changed-line surface. This is unavailable local
+	// verification, not evidence that the current patch is broken.
+	FailureKindPreexistingBuildFailure FailureKind = "preexisting_build_failure"
+
 	// FailureKindTimeout — wall-clock timeout fired before the test
 	// run completed. The supervisor SIGKILLed the entire process
 	// tree.
@@ -1020,7 +1026,7 @@ func (r *ChangeReport) NormalizeVerificationStatus() VerificationStatus {
 		return ""
 	}
 	switch r.FailureKind {
-	case FailureKindRunnerMissing, FailureKindParserError, FailureKindNoTests:
+	case FailureKindRunnerMissing, FailureKindParserError, FailureKindNoTests, FailureKindPreexistingBuildFailure:
 		return VerificationStatusUnavailable
 	}
 	if len(r.NoTestsRunners) > 0 && len(r.TestResults) == 0 {

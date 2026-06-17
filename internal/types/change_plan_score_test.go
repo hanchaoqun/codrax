@@ -55,6 +55,11 @@ func TestChangeReportNormalizeVerificationStatus(t *testing.T) {
 			want:   VerificationStatusUnavailable,
 		},
 		{
+			name:   "preexisting build failure unavailable",
+			report: &ChangeReport{Passed: false, FailureKind: FailureKindPreexistingBuildFailure},
+			want:   VerificationStatusUnavailable,
+		},
+		{
 			name:   "red assertion failed",
 			report: &ChangeReport{Passed: false, TestResults: []TestResult{{AssertionID: "TestBad", Passed: false}}},
 			want:   VerificationStatusFailed,

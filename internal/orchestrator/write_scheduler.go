@@ -717,6 +717,7 @@ func shouldSuppressVerifyRetry(report *types.ChangeReport) bool {
 	}
 	return report.FailureKind == types.FailureKindRunnerMissing ||
 		report.FailureKind == types.FailureKindParserError ||
+		report.FailureKind == types.FailureKindPreexistingBuildFailure ||
 		len(report.NoTestsRunners) > 0
 }
 
