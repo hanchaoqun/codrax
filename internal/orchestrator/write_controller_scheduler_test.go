@@ -2187,13 +2187,12 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewAppendsFollowup
 		Status: types.PlanStatusUnverified,
 		PatchReview: &types.PatchReviewRecord{
 			Findings: []types.PatchReviewFinding{{
-				Code:     "control_flow_guard_touched",
-				Severity: types.PatchReviewSeverityWarning,
-				Path:     "pkg/axis.py",
-			}, {
-				Code:     "call_site_touched",
-				Severity: types.PatchReviewSeverityWarning,
-				Path:     "pkg/axis.py",
+				Code:           "changed_symbol_without_probe_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/axis.py",
+				SubjectSymbol:  "Axis.convert",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
 			}},
 		},
 	}
@@ -2235,13 +2234,12 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewFollowupRunsOnc
 		Status: types.PlanStatusUnverified,
 		PatchReview: &types.PatchReviewRecord{
 			Findings: []types.PatchReviewFinding{{
-				Code:     "control_flow_guard_touched",
-				Severity: types.PatchReviewSeverityWarning,
-				Path:     "pkg/axis.py",
-			}, {
-				Code:     "call_site_touched",
-				Severity: types.PatchReviewSeverityWarning,
-				Path:     "pkg/axis.py",
+				Code:           "dependent_surface_without_verify_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/axis.py",
+				RelatedPath:    "pkg/caller.py",
+				CoverageStatus: types.PatchReviewCoverageUnavailable,
 			}},
 		},
 	})
@@ -2275,6 +2273,52 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewFollowupRunsOnc
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewIgnoresCoveredAdvisory(t *testing.T) {
+	mu := types.NewMutableState("semantic patch review covered")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:     "plan-semantic-covered",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "changed_symbol_without_probe_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/axis.py",
+				SubjectSymbol:  "Axis.convert",
+				CoverageStatus: types.PatchReviewCoverageVerified,
+			}, {
+				Code:           "convention_surface_available",
+				Severity:       types.PatchReviewSeverityInfo,
+				Category:       types.PatchReviewCategoryConvention,
+				Path:           "pkg/axis.py",
+				CoverageStatus: types.PatchReviewCoverageAdvisory,
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-semantic-covered",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-semantic-covered"},
+				{Kind: "verify", Status: "unverified", ReasonCode: "parser_error", PlanID: "plan-semantic-covered"},
+			},
+		}},
+	}
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:            writeflow.ActionFinish,
+		ReasonCode:        "done",
+		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("covered/advisory semantic review should not append follow-up, got %+v", got)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewDoesNotRecurse(t *testing.T) {
 	mu := types.NewMutableState("semantic patch review followup recursion")
 	mu.SetChangePlan(&types.ChangePlan{
@@ -2282,13 +2326,12 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewDoesNotRecurse(
 		Status: types.PlanStatusUnverified,
 		PatchReview: &types.PatchReviewRecord{
 			Findings: []types.PatchReviewFinding{{
-				Code:     "control_flow_guard_touched",
-				Severity: types.PatchReviewSeverityWarning,
-				Path:     "pkg/axis.py",
-			}, {
-				Code:     "call_site_touched",
-				Severity: types.PatchReviewSeverityWarning,
-				Path:     "pkg/axis.py",
+				Code:           "related_test_surface_unverified",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/axis.py",
+				RelatedPath:    "tests/test_axis.py",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
 			}},
 		},
 	})

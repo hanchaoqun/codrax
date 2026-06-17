@@ -1328,7 +1328,16 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 	}
 	activeSlice, _ := types.ActiveChangePlanApplySlice(plan, run)
 	o.attachActivePatchEffectRecord(plan, activeSlice)
-	review := writeflow.ReviewAppliedPatchScope(plan, activeSlice)
+	var conventionGraph *types.ConventionGraph
+	if handoff := o.busCtx.Mutable.WriteExplorationHandoff(); handoff != nil && handoff.ConventionGraph != nil {
+		conventionGraph = handoff.ConventionGraph
+	}
+	review := writeflow.ReviewAppliedPatchSemantic(writeflow.SemanticPatchReviewInput{
+		Plan:              plan,
+		ActiveSlice:       activeSlice,
+		ImpactObligations: plan.ImpactObligations,
+		ConventionGraph:   conventionGraph,
+	})
 	review = types.NormalizePatchReviewRecord(review)
 	plan.PatchReview = &review
 	o.busCtx.Mutable.SetChangePlan(plan)
@@ -2919,11 +2928,11 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			controllerActionInterruptsUnverifiedCompletion(decision.Action)) {
 		nextID := nextSemanticPatchReviewBatchID(run, batchID)
 		appendControllerProgress(run, batchID, "semantic_patch_review_followup_requested",
-			"typed patch review found coupled control-flow/call-site changes while local verification was unavailable; appending one bounded follow-up batch")
+			"typed patch review found uncovered semantic impact while local verification was unavailable; appending one bounded follow-up batch")
 		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
 			Action:     writeflow.ActionAppendBatch,
 			ReasonCode: "semantic_patch_review_followup",
-			Reason:     "typed patch review found coupled semantic-risk warnings and local verification is unavailable",
+			Reason:     "typed patch review found uncovered semantic impact and local verification is unavailable",
 			Batch: &writeflow.WriteBatchPlan{
 				ID:     nextID,
 				Goal:   semanticPatchReviewFollowupGoal(plan),
@@ -3627,42 +3636,27 @@ func activeBatchCompletedWithUnverifiedVerdict(run *types.WriteWorkflowRun) bool
 }
 
 func semanticPatchReviewFollowupNeeded(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan) bool {
-	if plan == nil || plan.PatchReview == nil || !patchReviewHasCoupledSemanticWarning(plan.PatchReview) {
+	if plan == nil || plan.PatchReview == nil || !patchReviewHasUncoveredSemanticFinding(plan.PatchReview) {
 		return false
 	}
 	return workflowProgressReasonCount(run, "", "semantic_patch_review_followup_requested") == 0
 }
 
-func patchReviewHasCoupledSemanticWarning(review *types.PatchReviewRecord) bool {
+func patchReviewHasUncoveredSemanticFinding(review *types.PatchReviewRecord) bool {
 	if review == nil {
 		return false
 	}
-	type flags struct {
-		control bool
-		call    bool
-	}
-	byPath := map[string]flags{}
 	for _, finding := range review.Findings {
 		if finding.Severity != types.PatchReviewSeverityWarning {
 			continue
 		}
-		path := strings.TrimSpace(finding.Path)
-		if path == "" {
+		if finding.Category != types.PatchReviewCategorySemanticCoverage {
 			continue
 		}
-		f := byPath[path]
-		switch strings.TrimSpace(finding.Code) {
-		case "control_flow_guard_touched":
-			f.control = true
-		case "call_site_touched":
-			f.call = true
-		default:
-			continue
-		}
-		if f.control && f.call {
+		switch finding.CoverageStatus {
+		case types.PatchReviewCoverageUnverified, types.PatchReviewCoverageUnavailable, types.PatchReviewCoverageUnknown:
 			return true
 		}
-		byPath[path] = f
 	}
 	return false
 }
@@ -3724,8 +3718,11 @@ func semanticPatchReviewFollowupGoal(plan *types.ChangePlan) string {
 	if plan != nil && plan.PatchReview != nil {
 		seen := map[string]bool{}
 		for _, finding := range plan.PatchReview.Findings {
-			switch strings.TrimSpace(finding.Code) {
-			case "control_flow_guard_touched", "call_site_touched":
+			if finding.Category != types.PatchReviewCategorySemanticCoverage {
+				continue
+			}
+			switch finding.CoverageStatus {
+			case types.PatchReviewCoverageUnverified, types.PatchReviewCoverageUnavailable, types.PatchReviewCoverageUnknown:
 			default:
 				continue
 			}
@@ -3742,7 +3739,7 @@ func semanticPatchReviewFollowupGoal(plan *types.ChangePlan) string {
 	if scope == "" {
 		scope = "the active applied patch"
 	}
-	return "Re-examine the active patch because typed PatchReview found coupled control-flow guard and call-site changes while local verification was unavailable; keep the follow-up bounded to " + scope + "."
+	return "Re-examine the active patch because typed PatchReview found uncovered semantic impact while local verification was unavailable; keep the follow-up bounded to " + scope + "."
 }
 
 func decisionTargetsActiveBatch(decision writeflow.WriteWorkflowDecision, activeID string) bool {

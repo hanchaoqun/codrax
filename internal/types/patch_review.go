@@ -13,12 +13,37 @@ const (
 	PatchReviewSeverityError   PatchReviewSeverity = "error"
 )
 
+type PatchReviewFindingCategory string
+
+const (
+	PatchReviewCategoryScope            PatchReviewFindingCategory = "scope"
+	PatchReviewCategoryStructural       PatchReviewFindingCategory = "structural"
+	PatchReviewCategorySemanticCoverage PatchReviewFindingCategory = "semantic_coverage"
+	PatchReviewCategoryConvention       PatchReviewFindingCategory = "convention"
+)
+
+type PatchReviewCoverageStatus string
+
+const (
+	PatchReviewCoverageUnknown     PatchReviewCoverageStatus = "unknown"
+	PatchReviewCoverageVerified    PatchReviewCoverageStatus = "verified"
+	PatchReviewCoverageUnverified  PatchReviewCoverageStatus = "unverified"
+	PatchReviewCoverageUnavailable PatchReviewCoverageStatus = "unavailable"
+	PatchReviewCoverageAdvisory    PatchReviewCoverageStatus = "advisory"
+)
+
 type PatchReviewFinding struct {
-	Code        string              `json:"code"`
-	Severity    PatchReviewSeverity `json:"severity"`
-	Message     string              `json:"message,omitempty"`
-	Path        string              `json:"path,omitempty"`
-	EvidenceRef string              `json:"evidence_ref,omitempty"`
+	Code           string                     `json:"code"`
+	Severity       PatchReviewSeverity        `json:"severity"`
+	Category       PatchReviewFindingCategory `json:"category,omitempty"`
+	Relation       string                     `json:"relation,omitempty"`
+	Message        string                     `json:"message,omitempty"`
+	Path           string                     `json:"path,omitempty"`
+	RelatedPath    string                     `json:"related_path,omitempty"`
+	SubjectSymbol  string                     `json:"subject_symbol,omitempty"`
+	Strength       string                     `json:"strength,omitempty"`
+	CoverageStatus PatchReviewCoverageStatus  `json:"coverage_status,omitempty"`
+	EvidenceRef    string                     `json:"evidence_ref,omitempty"`
 }
 
 type PatchReviewRecord struct {
@@ -55,11 +80,17 @@ func NormalizePatchReviewRecord(in PatchReviewRecord) PatchReviewRecord {
 		finding.Code = strings.TrimSpace(finding.Code)
 		finding.Message = strings.TrimSpace(finding.Message)
 		finding.Path = strings.TrimSpace(finding.Path)
+		finding.RelatedPath = strings.TrimSpace(finding.RelatedPath)
+		finding.SubjectSymbol = strings.TrimSpace(finding.SubjectSymbol)
+		finding.Relation = strings.TrimSpace(finding.Relation)
+		finding.Strength = strings.TrimSpace(finding.Strength)
 		finding.EvidenceRef = strings.TrimSpace(finding.EvidenceRef)
+		finding.Category = normalizePatchReviewFindingCategory(finding.Category)
+		finding.CoverageStatus = normalizePatchReviewCoverageStatus(finding.CoverageStatus)
 		if finding.Severity == "" {
 			finding.Severity = PatchReviewSeverityInfo
 		}
-		if finding.Code == "" && finding.Path == "" && finding.Message == "" {
+		if finding.Code == "" && finding.Path == "" && finding.Message == "" && finding.SubjectSymbol == "" && finding.RelatedPath == "" {
 			continue
 		}
 		if finding.Severity == PatchReviewSeverityError {
@@ -76,4 +107,29 @@ func NormalizePatchReviewRecord(in PatchReviewRecord) PatchReviewRecord {
 		}
 	}
 	return in
+}
+
+func normalizePatchReviewFindingCategory(in PatchReviewFindingCategory) PatchReviewFindingCategory {
+	switch in {
+	case PatchReviewCategoryScope,
+		PatchReviewCategoryStructural,
+		PatchReviewCategorySemanticCoverage,
+		PatchReviewCategoryConvention:
+		return in
+	default:
+		return ""
+	}
+}
+
+func normalizePatchReviewCoverageStatus(in PatchReviewCoverageStatus) PatchReviewCoverageStatus {
+	switch in {
+	case PatchReviewCoverageUnknown,
+		PatchReviewCoverageVerified,
+		PatchReviewCoverageUnverified,
+		PatchReviewCoverageUnavailable,
+		PatchReviewCoverageAdvisory:
+		return in
+	default:
+		return ""
+	}
 }

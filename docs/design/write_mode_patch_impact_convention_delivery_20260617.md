@@ -321,8 +321,8 @@ at a nearby test or dependent, but they cannot force approval or denial.
 
 | Batch | Status | Notes |
 | --- | --- | --- |
-| 0 | in_progress | Design ledger created after code audit. |
-| 1 | pending | Patch Critic v2 typed finding model. |
+| 0 | complete | Design ledger created after code audit and pushed to `main` in `914ed17b`. |
+| 1 | complete | Patch Critic v2 typed finding model landed: `PatchReviewFinding` now carries category, relation, related path, subject symbol, strength, and coverage status; post-apply review consumes actual patch effect plus impact/convention typed inputs; semantic follow-up is driven by typed semantic coverage findings instead of specific event-code combinations. |
 | 2 | pending | ImpactAnalysisResult engine. |
 | 3 | pending | Convention repository learner. |
 | 4 | pending | Controller observe integration. |

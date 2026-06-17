@@ -23,20 +23,37 @@ var patchReviewEffectSoftEventCodes = map[string]bool{
 	"state_assignment_touched":   true,
 }
 
+const patchReviewMaxSemanticFindings = 32
+
+type SemanticPatchReviewInput struct {
+	Plan              *types.ChangePlan
+	ActiveSlice       types.ChangePlanSlice
+	ImpactObligations *types.ImpactObligationSet
+	ConventionGraph   *types.ConventionGraph
+}
+
 func ReviewAppliedPatchScope(plan *types.ChangePlan, activeSlice types.ChangePlanSlice) types.PatchReviewRecord {
+	return ReviewAppliedPatchSemantic(SemanticPatchReviewInput{
+		Plan:        plan,
+		ActiveSlice: activeSlice,
+	})
+}
+
+func ReviewAppliedPatchSemantic(in SemanticPatchReviewInput) types.PatchReviewRecord {
+	plan := in.Plan
 	record := types.PatchReviewRecord{
-		Source:    "post_apply_scope",
+		Source:    "post_apply_semantic",
 		CreatedAt: time.Now(),
 	}
 	if plan == nil {
 		record.Status = "skipped"
-		record.Findings = append(record.Findings, patchReviewFinding("missing_plan", types.PatchReviewSeverityWarning, "", "patch review skipped because no ChangePlan was active"))
+		record.Findings = append(record.Findings, patchReviewFindingWithCategory("missing_plan", types.PatchReviewSeverityWarning, types.PatchReviewCategoryScope, "", "patch review skipped because no ChangePlan was active"))
 		return types.NormalizePatchReviewRecord(record)
 	}
 	record.PlanID = strings.TrimSpace(plan.ID)
-	record.SliceID = strings.TrimSpace(activeSlice.ID)
+	record.SliceID = strings.TrimSpace(in.ActiveSlice.ID)
 	record.TargetPaths = normalizePatchReviewPaths(plan.TargetPaths)
-	record.AllowedPaths = patchReviewAllowedPaths(plan, activeSlice)
+	record.AllowedPaths = patchReviewAllowedPaths(plan, in.ActiveSlice)
 	declaredAppliedPaths := patchReviewAppliedPaths(plan)
 	effectPaths := patchReviewEffectPaths(plan.PatchEffect)
 	record.AppliedPaths = normalizePatchReviewPaths(append(declaredAppliedPaths, effectPaths...))
@@ -50,17 +67,19 @@ func ReviewAppliedPatchScope(plan *types.ChangePlan, activeSlice types.ChangePla
 	allowedSet := patchReviewPathSet(record.AllowedPaths)
 	for _, applied := range declaredAppliedPaths {
 		if len(targetSet) > 0 && !targetSet[applied] {
-			record.Findings = append(record.Findings, patchReviewFinding(
+			record.Findings = append(record.Findings, patchReviewFindingWithCategory(
 				"applied_path_outside_plan_scope",
 				types.PatchReviewSeverityError,
+				types.PatchReviewCategoryScope,
 				applied,
 				"applied path is not declared in ChangePlan.target_paths",
 			))
 		}
 		if len(allowedSet) > 0 && !allowedSet[applied] {
-			record.Findings = append(record.Findings, patchReviewFinding(
+			record.Findings = append(record.Findings, patchReviewFindingWithCategory(
 				"applied_path_outside_active_slice",
 				types.PatchReviewSeverityError,
+				types.PatchReviewCategoryScope,
 				applied,
 				"applied path is outside the active ChangePlan slice",
 			))
@@ -68,17 +87,19 @@ func ReviewAppliedPatchScope(plan *types.ChangePlan, activeSlice types.ChangePla
 	}
 	for _, applied := range effectPaths {
 		if len(targetSet) > 0 && !targetSet[applied] {
-			record.Findings = append(record.Findings, patchReviewFinding(
+			record.Findings = append(record.Findings, patchReviewFindingWithCategory(
 				"patch_effect_path_outside_plan_scope",
 				types.PatchReviewSeverityError,
+				types.PatchReviewCategoryScope,
 				applied,
 				"actual applied diff path is not declared in ChangePlan.target_paths",
 			))
 		}
 		if len(allowedSet) > 0 && !allowedSet[applied] {
-			record.Findings = append(record.Findings, patchReviewFinding(
+			record.Findings = append(record.Findings, patchReviewFindingWithCategory(
 				"patch_effect_path_outside_active_slice",
 				types.PatchReviewSeverityError,
+				types.PatchReviewCategoryScope,
 				applied,
 				"actual applied diff path is outside the active ChangePlan slice",
 			))
@@ -87,10 +108,21 @@ func ReviewAppliedPatchScope(plan *types.ChangePlan, activeSlice types.ChangePla
 	for _, finding := range patchReviewEffectEventFindings(plan.PatchEffect) {
 		record.Findings = append(record.Findings, finding)
 	}
+	obligations := in.ImpactObligations
+	if obligations == nil {
+		obligations = plan.ImpactObligations
+	}
+	for _, finding := range patchReviewSemanticCoverageFindings(obligations) {
+		record.Findings = append(record.Findings, finding)
+	}
+	for _, finding := range patchReviewConventionFindings(in.ConventionGraph, record.AppliedPaths, obligations) {
+		record.Findings = append(record.Findings, finding)
+	}
 	if len(record.AppliedPaths) == 0 && patchReviewPlanClaimsApplied(plan) {
-		record.Findings = append(record.Findings, patchReviewFinding(
+		record.Findings = append(record.Findings, patchReviewFindingWithCategory(
 			"applied_paths_missing",
 			types.PatchReviewSeverityWarning,
+			types.PatchReviewCategoryScope,
 			"",
 			"plan is in an applied lifecycle state but carries no applied_paths or per-change applied status",
 		))
@@ -155,9 +187,14 @@ func patchReviewEffectEventFindings(effect *types.PatchEffectRecord) []types.Pat
 			if path == "" {
 				path = file.Path
 			}
-			findings = append(findings, patchReviewFinding(
+			category := types.PatchReviewCategoryStructural
+			if severity == types.PatchReviewSeverityWarning {
+				category = types.PatchReviewCategorySemanticCoverage
+			}
+			findings = append(findings, patchReviewFindingWithCategory(
 				code,
 				severity,
+				category,
 				path,
 				event.Message,
 			))
@@ -165,6 +202,126 @@ func patchReviewEffectEventFindings(effect *types.PatchEffectRecord) []types.Pat
 		}
 	}
 	return findings
+}
+
+func patchReviewSemanticCoverageFindings(obligations *types.ImpactObligationSet) []types.PatchReviewFinding {
+	if obligations == nil {
+		return nil
+	}
+	set := types.NormalizeImpactObligationSet(*obligations)
+	seen := map[string]bool{}
+	var findings []types.PatchReviewFinding
+	for _, ob := range set.Obligations {
+		code, message := patchReviewSemanticCoverageCode(ob)
+		if code == "" {
+			continue
+		}
+		path := ob.SubjectPath
+		if path == "" {
+			path = ob.RelatedPath
+		}
+		finding := patchReviewFindingWithCategory(code, types.PatchReviewSeverityWarning, types.PatchReviewCategorySemanticCoverage, path, message)
+		finding.Relation = strings.TrimSpace(ob.Relation)
+		finding.RelatedPath = normalizePatchReviewPath(ob.RelatedPath)
+		finding.SubjectSymbol = strings.TrimSpace(ob.SubjectSymbol)
+		finding.Strength = strings.TrimSpace(string(ob.Strength))
+		finding.CoverageStatus = types.PatchReviewCoverageUnverified
+		finding.EvidenceRef = strings.TrimSpace(ob.EvidenceRef)
+		key := strings.Join([]string{
+			finding.Code,
+			finding.Path,
+			finding.RelatedPath,
+			finding.SubjectSymbol,
+			finding.EvidenceRef,
+		}, "|")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		findings = append(findings, finding)
+		if len(findings) >= patchReviewMaxSemanticFindings {
+			break
+		}
+	}
+	return findings
+}
+
+func patchReviewSemanticCoverageCode(ob types.ImpactObligation) (string, string) {
+	switch strings.TrimSpace(ob.Kind) {
+	case "changed_symbol":
+		return "changed_symbol_without_probe_coverage", "changed symbol from the actual patch needs typed verification coverage"
+	case "dependent":
+		return "dependent_surface_without_verify_coverage", "dependent surface from impact analysis needs typed verification coverage"
+	case "test_surface":
+		return "related_test_surface_unverified", "related test surface from impact analysis has not been verified"
+	case "behavior_contract":
+		return "behavior_contract_without_verify_coverage", "declared behavior contract needs typed verification coverage"
+	default:
+		return "", ""
+	}
+}
+
+func patchReviewConventionFindings(graph *types.ConventionGraph, appliedPaths []string, obligations *types.ImpactObligationSet) []types.PatchReviewFinding {
+	if graph == nil {
+		return nil
+	}
+	normalized := types.NormalizeConventionGraph(*graph)
+	pathSet := patchReviewPathSet(appliedPaths)
+	symbolSet := patchReviewImpactSymbolSet(obligations)
+	seen := map[string]bool{}
+	var findings []types.PatchReviewFinding
+	for _, node := range normalized.Nodes {
+		source := normalizePatchReviewPath(node.Source)
+		symbol := strings.TrimSpace(firstNonEmptyPatchReviewString(node.AnchorSymbol, node.Subject))
+		if source == "" && symbol == "" {
+			continue
+		}
+		if source != "" && !pathSet[source] && symbol != "" && !symbolSet[symbol] {
+			continue
+		}
+		if source != "" && !pathSet[source] && symbol == "" {
+			continue
+		}
+		if symbol != "" && !symbolSet[symbol] && source == "" {
+			continue
+		}
+		finding := patchReviewFindingWithCategory(
+			"convention_surface_available",
+			types.PatchReviewSeverityInfo,
+			types.PatchReviewCategoryConvention,
+			source,
+			"repository convention context is available for the actual patch surface",
+		)
+		finding.Relation = string(node.Category)
+		finding.SubjectSymbol = symbol
+		finding.Strength = strings.TrimSpace(node.Strength)
+		finding.CoverageStatus = types.PatchReviewCoverageAdvisory
+		finding.EvidenceRef = strings.TrimSpace(node.EvidenceRefID)
+		key := strings.Join([]string{finding.Code, finding.Path, finding.SubjectSymbol, finding.Relation, finding.EvidenceRef}, "|")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		findings = append(findings, finding)
+		if len(findings) >= patchReviewMaxSemanticFindings {
+			break
+		}
+	}
+	return findings
+}
+
+func patchReviewImpactSymbolSet(obligations *types.ImpactObligationSet) map[string]bool {
+	out := map[string]bool{}
+	if obligations == nil {
+		return out
+	}
+	set := types.NormalizeImpactObligationSet(*obligations)
+	for _, ob := range set.Obligations {
+		if symbol := strings.TrimSpace(ob.SubjectSymbol); symbol != "" {
+			out[symbol] = true
+		}
+	}
+	return out
 }
 
 func patchReviewEffectPaths(effect *types.PatchEffectRecord) []string {
@@ -234,6 +391,12 @@ func patchReviewFinding(code string, severity types.PatchReviewSeverity, path, m
 	}
 }
 
+func patchReviewFindingWithCategory(code string, severity types.PatchReviewSeverity, category types.PatchReviewFindingCategory, path, message string) types.PatchReviewFinding {
+	finding := patchReviewFinding(code, severity, path, message)
+	finding.Category = category
+	return finding
+}
+
 func patchReviewID(planID, sliceID string) string {
 	planID = strings.TrimSpace(planID)
 	sliceID = strings.TrimSpace(sliceID)
@@ -241,4 +404,13 @@ func patchReviewID(planID, sliceID string) string {
 		return fmt.Sprintf("patch-review:%s", planID)
 	}
 	return fmt.Sprintf("patch-review:%s:%s", planID, sliceID)
+}
+
+func firstNonEmptyPatchReviewString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

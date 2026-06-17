@@ -215,9 +215,12 @@ func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 		PatchReview: &PatchReviewRecord{
 			ReviewID: "patch-review:plan-effect:slice-1",
 			Findings: []PatchReviewFinding{{
-				Code:     "control_flow_guard_touched",
-				Severity: PatchReviewSeverityWarning,
-				Path:     "pkg/a.py",
+				Code:           "changed_symbol_without_probe_coverage",
+				Severity:       PatchReviewSeverityWarning,
+				Category:       PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/a.py",
+				SubjectSymbol:  "pkg.A",
+				CoverageStatus: PatchReviewCoverageUnverified,
 			}},
 		},
 	}
@@ -234,8 +237,9 @@ func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 		!writeContextViewContains(verifier, "patch_effect", "hunks=1") {
 		t.Fatalf("verifier view missing applied patch effect: %+v", verifier.Items)
 	}
-	if !writeContextViewContains(planner, "patch_review_finding", "code=control_flow_guard_touched") ||
-		!writeContextViewContains(verifier, "patch_review_finding", "severity=warning") {
+	if !writeContextViewContains(planner, "patch_review_finding", "code=changed_symbol_without_probe_coverage") ||
+		!writeContextViewContains(verifier, "patch_review_finding", "coverage_status=unverified") ||
+		!writeContextViewContains(verifier, "patch_review_finding", "symbol=pkg.A") {
 		t.Fatalf("patch review finding missing from context pack: planner=%+v verifier=%+v", planner.Items, verifier.Items)
 	}
 }

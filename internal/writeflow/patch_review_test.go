@@ -162,6 +162,96 @@ func TestReviewAppliedPatchScopeCarriesSoftPatchEffectEvents(t *testing.T) {
 	if !patchReviewHasFinding(review, "control_flow_guard_touched") {
 		t.Fatalf("soft patch effect finding missing: %+v", review.Findings)
 	}
+	finding := patchReviewFindingByCode(review, "control_flow_guard_touched")
+	if finding.Category != types.PatchReviewCategorySemanticCoverage {
+		t.Fatalf("soft patch effect finding should carry semantic category: %+v", finding)
+	}
+}
+
+func TestReviewAppliedPatchSemanticAddsImpactCoverageFindings(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"pkg/axis.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			RecordID: "patch-effect:plan-1:slice-1:abcdef123456",
+			Files: []types.PatchEffectFile{{
+				Path:   "pkg/axis.py",
+				Status: "modified",
+			}},
+		},
+		ImpactObligations: &types.ImpactObligationSet{
+			PlanID: "plan-1",
+			Obligations: []types.ImpactObligation{{
+				Kind:          "changed_symbol",
+				Relation:      "patch_hunk",
+				Obligation:    "verify_changed_symbol",
+				SubjectPath:   "pkg/axis.py",
+				SubjectSymbol: "Axis.convert",
+				Strength:      types.ImpactObligationStrengthPrecise,
+				EvidenceRef:   "pkg/axis.py:12",
+			}, {
+				Kind:        "dependent",
+				Relation:    "reverse_import",
+				Obligation:  "verify_dependent",
+				SubjectPath: "pkg/axis.py",
+				RelatedPath: "pkg/caller.py",
+				Strength:    types.ImpactObligationStrengthInferred,
+				EvidenceRef: "pkg/caller.py->pkg/axis.py",
+			}},
+		},
+	}
+	review := ReviewAppliedPatchScope(plan, types.ChangePlanSlice{})
+	if review.HardBlock {
+		t.Fatalf("semantic coverage findings should not hard block: %+v", review)
+	}
+	symbol := patchReviewFindingByCode(review, "changed_symbol_without_probe_coverage")
+	if symbol.Category != types.PatchReviewCategorySemanticCoverage ||
+		symbol.CoverageStatus != types.PatchReviewCoverageUnverified ||
+		symbol.SubjectSymbol != "Axis.convert" ||
+		symbol.Strength != string(types.ImpactObligationStrengthPrecise) {
+		t.Fatalf("changed-symbol semantic finding not typed: %+v", symbol)
+	}
+	dependent := patchReviewFindingByCode(review, "dependent_surface_without_verify_coverage")
+	if dependent.Relation != "reverse_import" || dependent.RelatedPath != "pkg/caller.py" {
+		t.Fatalf("dependent semantic finding not typed: %+v", dependent)
+	}
+}
+
+func TestReviewAppliedPatchSemanticAddsConventionFindingAsAdvisory(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"pkg/axis.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			RecordID: "patch-effect:plan-1:slice-1:abcdef123456",
+			Files: []types.PatchEffectFile{{
+				Path:   "pkg/axis.py",
+				Status: "modified",
+			}},
+		},
+	}
+	review := ReviewAppliedPatchSemantic(SemanticPatchReviewInput{
+		Plan: plan,
+		ConventionGraph: &types.ConventionGraph{
+			Nodes: []types.ConventionNode{{
+				Category:      types.ConventionCategoryMechanism,
+				Summary:       "axis converters validate input before conversion",
+				Source:        "pkg/axis.py",
+				EvidenceRefID: "evidence:axis",
+				Strength:      "repo_local",
+			}},
+		},
+	})
+	if review.HardBlock {
+		t.Fatalf("convention finding must stay advisory: %+v", review)
+	}
+	finding := patchReviewFindingByCode(review, "convention_surface_available")
+	if finding.Category != types.PatchReviewCategoryConvention ||
+		finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
+		finding.Relation != string(types.ConventionCategoryMechanism) {
+		t.Fatalf("convention finding not typed advisory: %+v", finding)
+	}
 }
 
 func TestReviewAppliedPatchScopeWarnsWhenAppliedPathsMissing(t *testing.T) {
@@ -189,10 +279,14 @@ func patchReviewPathPresent(paths []string, want string) bool {
 }
 
 func patchReviewHasFinding(review types.PatchReviewRecord, code string) bool {
+	return patchReviewFindingByCode(review, code).Code != ""
+}
+
+func patchReviewFindingByCode(review types.PatchReviewRecord, code string) types.PatchReviewFinding {
 	for _, finding := range review.Findings {
 		if finding.Code == code {
-			return true
+			return finding
 		}
 	}
-	return false
+	return types.PatchReviewFinding{}
 }

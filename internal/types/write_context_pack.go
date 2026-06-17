@@ -508,8 +508,26 @@ func renderPatchReviewFindingContext(finding PatchReviewFinding) string {
 		"severity=" + string(finding.Severity),
 		"code=" + finding.Code,
 	}
+	if finding.Category != "" {
+		parts = append(parts, "category="+string(finding.Category))
+	}
+	if finding.Relation != "" {
+		parts = append(parts, "relation="+finding.Relation)
+	}
 	if finding.Path != "" {
 		parts = append(parts, "path="+finding.Path)
+	}
+	if finding.RelatedPath != "" {
+		parts = append(parts, "related_path="+finding.RelatedPath)
+	}
+	if finding.SubjectSymbol != "" {
+		parts = append(parts, "symbol="+finding.SubjectSymbol)
+	}
+	if finding.Strength != "" {
+		parts = append(parts, "strength="+finding.Strength)
+	}
+	if finding.CoverageStatus != "" {
+		parts = append(parts, "coverage_status="+string(finding.CoverageStatus))
 	}
 	if finding.EvidenceRef != "" {
 		parts = append(parts, "evidence_ref="+finding.EvidenceRef)
