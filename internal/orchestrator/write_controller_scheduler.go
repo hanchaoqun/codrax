@@ -1332,6 +1332,10 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 	review = types.NormalizePatchReviewRecord(review)
 	plan.PatchReview = &review
 	o.busCtx.Mutable.SetChangePlan(plan)
+	if run != nil {
+		*run = attachPlanContextPackToWorkflowRun(*run, plan)
+		o.busCtx.Mutable.SetWriteWorkflowRun(run)
+	}
 	o.persistCurrentChangePlanSnapshot()
 	return review
 }

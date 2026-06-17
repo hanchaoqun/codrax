@@ -1936,6 +1936,18 @@ func TestReviewActiveAppliedPatchScopePersistsHardBlock(t *testing.T) {
 			{Path: "a.py", Kind: "modify", NewContent: "a = 1\n"},
 			{Path: "b.py", Kind: "modify", NewContent: "b = 1\n"},
 		},
+		PatchEffect: &types.PatchEffectRecord{
+			RecordID: "patch-effect:plan-review:slice-001:abcdef123456",
+			Files: []types.PatchEffectFile{{
+				Path:   "b.py",
+				Status: "modified",
+				Events: []types.PatchEffectEvent{{
+					Code:     "control_flow_guard_touched",
+					Severity: "warning",
+					Path:     "b.py",
+				}},
+			}},
+		},
 		Slices: []types.ChangePlanSlice{{
 			ID:            "slice-001",
 			Status:        types.ChangePlanSliceObserving,
@@ -1980,6 +1992,9 @@ func TestReviewActiveAppliedPatchScopePersistsHardBlock(t *testing.T) {
 	}
 	if run.Batches[0].Slices[0].Completion == nil || run.Batches[0].Slices[0].Completion.Source != "patch_review" {
 		t.Fatalf("slice completion should carry patch_review source, got %+v", run.Batches[0].Slices[0].Completion)
+	}
+	if !workflowRunContextContains(run, "patch_review_finding", "control_flow_guard_touched") {
+		t.Fatalf("workflow context should carry patch review findings: %+v", run.ContextPacks)
 	}
 }
 

@@ -327,6 +327,7 @@ Controller 行为：
 | 3 | complete | Added typed line-feature soft effect events from repo-map SearchGraph (`control_flow_guard_touched`, `call_site_touched`, `state_assignment_touched`), PatchReview warning findings, and P2 context projection. These signals are advisory only and never hard-block. |
 | 4 | complete | Added independent `internal/writeflow/impact` engine with plan + actual patch-effect inputs, graph-provider interface, repo-map SearchGraph adapter, diff/event/import/reverse-import/test/symbol obligations, and controller stamping after plan and after real patch capture. |
 | 5 | complete | Added `internal/writeflow/convention` store with atomic merge/save/load, active-scope Top-N retrieval, exploration-handoff persistence under `workflows/knowledge/<run_id>/conventions.json`, and context handoff round-trip tests. Conventions remain P3 soft guidance only. |
+| 6 | complete | PatchReview findings are now re-projected into workflow context packs after post-apply review, so hard/soft critic signals survive into controller/planner/verifier consumption instead of staying only on the ChangePlan snapshot. |
 
 ## Live Eval Ledger
 
