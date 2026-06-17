@@ -9,6 +9,7 @@ import json
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from contextlib import redirect_stderr
 from unittest import mock
 from pathlib import Path
@@ -584,6 +585,54 @@ class ProgressHeartbeatTests(unittest.TestCase):
         self.assertIn("workflow=unavailable", line)
         self.assertIn("reason=progress_callback_unavailable", line)
         self.assertNotIn("RuntimeError", line)
+
+
+class RunCodraxCommandTests(unittest.TestCase):
+    def test_run_codrax_forwards_providers_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            inst = root / "inst"
+            repo.mkdir()
+            inst.mkdir()
+            providers = root / "providers.yaml"
+            providers.write_text("llm: {}\n", encoding="utf-8")
+            binary = root / "codrax"
+            binary.write_text("#!/bin/sh\n", encoding="utf-8")
+            args = SimpleNamespace(
+                codrax_bin=str(binary),
+                settings="",
+                providers=str(providers),
+                max_steps=12,
+                log_level="info",
+                isolate_git_history=True,
+                codrax_timeout=30,
+                codrax_progress_interval=0,
+                request_prefix="",
+                include_oracle_in_request=False,
+                require_nonempty_patch=False,
+            )
+
+            captured: dict[str, object] = {}
+
+            def fake_run(cmd: list[str], **kwargs: object) -> adapter.CommandResult:
+                captured["cmd"] = cmd
+                captured["kwargs"] = kwargs
+                return adapter.CommandResult(0, "")
+
+            with mock.patch.object(adapter, "run_cmd_streaming_to_file", side_effect=fake_run):
+                result = adapter.run_codrax(
+                    {"instance_id": "repo__issue-1", "problem_statement": "fix it"},
+                    repo,
+                    inst,
+                    args,
+                )
+
+        self.assertEqual(result.code, 0)
+        cmd = captured["cmd"]
+        assert isinstance(cmd, list)
+        self.assertEqual(cmd[1:3], ["--providers", str(providers.resolve())])
+        self.assertIn("--eval-disable-git-history", cmd)
 
 
 class PredictionAuditBlockTests(unittest.TestCase):

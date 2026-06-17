@@ -157,6 +157,42 @@ Model prose stays visible and transparent but cannot drive control.
    - Keep `/workflow` and `/plan` as audit/recovery commands, not required
      routine usage.
 
+## 2026-06-18 SWE-bench Lite Smoke Audit
+
+Run directory:
+`/private/tmp/codrax-swebench-rc4-providers-20260618-011240`
+
+The adapter produced three non-empty predictions and validated that
+`predictions.jsonl` is consumable by the official SWE-bench harness command.
+This is an export/format signal only; it is not functional correctness.
+
+| Instance | Export | Local typed verdict | Manual audit | Root-cause note |
+| --- | --- | --- | --- | --- |
+| `django__django-14534` | non-empty | failed verify + semantic coverage unverified | fail | The owner site was found, but the patch used `attrs["id"]` instead of a nullable lookup. It misses the no-auto-id boundary represented by the reference test. |
+| `pytest-dev__pytest-11143` | non-empty | audit-blocked due semantic coverage unverified | pass | The actual diff implements the reference behavior. This is a false negative from missing targeted verification/coverage proof in a partial local environment. |
+| `sympy__sympy-23117` | non-empty | audit-blocked + workflow still in semantic follow-up | fail | The patch addresses the empty iterable symptom but misses the adjacent mutable index behavior covered by the reference test patch. |
+
+Strict manual pass for this focused smoke set is `1 / 3 = 33.3%`.
+
+New conclusions:
+
+- Provider/config forwarding was an evaluation harness gap: running a Codrax
+  binary from an isolated worktree must be able to forward the real
+  `providers.yaml`; otherwise every instance can fail before exercising write
+  mode.
+- The low manual pass rate is mixed:
+  - root-cause localization can be too shallow for adjacent behavioral
+    obligations;
+  - impact obligations are still not strong enough to force "changed A implies
+    check B" closure before export;
+  - local verification is often unavailable because project dependencies are
+    incomplete, so unavailable verify cannot be a hard product gate;
+  - patch review is correctly conservative for incomplete patches, but it also
+    false-negatives correct patches when the system lacks a targeted proof.
+- Export compatibility, local typed acceptance, and manual correctness must stay
+  separate metrics. Non-empty patch rate cannot be presented as functional pass
+  rate.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -166,6 +202,7 @@ Model prose stays visible and transparent but cannot drive control.
 | RC-2 | complete | Verified existing runtime support: `WriteContextPackFromChangePlan` projects patch-review findings into P2 handoff, and `normalizeControllerTypedStateDecision` appends one bounded semantic-review batch when a completed unverified batch has uncovered semantic patch-review findings. Focused Go tests cover follow-up creation and no-recursion behavior. |
 | RC-3 | complete | Added typed `PatchReviewCoverageSummary` to `PatchReviewRecord`; controller semantic follow-up and SWE-bench adapter consume the normalized summary instead of re-scanning ad hoc findings. Adapter now exports `plan_patch_review_coverage_verdict`. Verification: focused Go tests, adapter unit tests, Python compile, and diff check pass. |
 | RC-4 | complete | Added impact-aware verifier target selection for default `run_tests({})`: typed `ImpactAnalysis.VerificationTargets` / `ImpactObligations` with `kind=test_surface` and safe existing `related_path` now become priority runner plans for supported selector-capable runners before the generic TestSurface queue. Executed command provenance records `impact_test_surface`; explicit model runner/suite choices are unchanged. Verification: `internal/tool` full package, controller/writeflow/types focused tests, adapter unit tests, and diff check pass. |
+| RC-5 | in progress | Fixed SWE-bench smoke provider forwarding so isolated Codrax binaries can receive `providers.yaml` via `PROVIDERS_PATH`, `CODRAX_PROVIDERS`, or `--providers`. A three-instance Lite smoke produced non-empty harness-consumable predictions; manual audit found 1 strict pass, 2 incomplete patches. Next batches should target obligation closure and targeted proof generation, not broader patch export. |
 
 ## Acceptance Criteria
 

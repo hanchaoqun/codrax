@@ -2472,7 +2472,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--codrax-bin", default=str(ROOT / "codrax"))
     parser.add_argument("--settings", default=str(DEFAULT_SETTINGS))
-    parser.add_argument("--providers", help="Optional providers.yaml path forwarded to Codrax")
+    parser.add_argument(
+        "--providers",
+        default=os.environ.get("CODRAX_PROVIDERS", ""),
+        help="Optional providers.yaml path forwarded to Codrax. Defaults to CODRAX_PROVIDERS when set.",
+    )
     parser.add_argument("--model-name", default="codrax")
     parser.add_argument("--max-steps", type=int, default=50)
     parser.add_argument("--codrax-timeout", type=int, default=1800)

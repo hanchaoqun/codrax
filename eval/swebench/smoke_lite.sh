@@ -12,6 +12,7 @@ WORKDIR="${WORKDIR:-$ROOT/eval/results/swebench/lite-smoke-$(date +%Y%m%d-%H%M%S
 PREDICTIONS_PATH="${PREDICTIONS_PATH:-$WORKDIR/predictions.jsonl}"
 RESULTS_PATH="${RESULTS_PATH:-$WORKDIR/results.jsonl}"
 CODRAX_BIN="${CODRAX_BIN:-$ROOT/codrax}"
+PROVIDERS_PATH="${PROVIDERS_PATH:-${CODRAX_PROVIDERS:-}}"
 MAX_STEPS="${MAX_STEPS:-50}"
 CODRAX_TIMEOUT="${CODRAX_TIMEOUT:-1800}"
 SWEBENCH_PREPARE_PYTHON_ENV="${SWEBENCH_PREPARE_PYTHON_ENV:-1}"
@@ -35,6 +36,13 @@ if [[ ! -x "$CODRAX_BIN" ]]; then
   echo "Run 'make' or set CODRAX_BIN=/path/to/codrax." >&2
   exit 2
 fi
+if [[ -z "$PROVIDERS_PATH" && -f "$ROOT/providers.yaml" ]]; then
+  PROVIDERS_PATH="$ROOT/providers.yaml"
+fi
+if [[ -n "$PROVIDERS_PATH" && ! -f "$PROVIDERS_PATH" ]]; then
+  echo "Providers config not found: $PROVIDERS_PATH" >&2
+  exit 2
+fi
 
 env_prepare_args=(--env-prepare-timeout "$SWEBENCH_ENV_PREPARE_TIMEOUT")
 if [[ "$SWEBENCH_PREPARE_PYTHON_ENV" == "1" ]]; then
@@ -53,6 +61,9 @@ cmd=(
   --max-steps "$MAX_STEPS"
   --codrax-timeout "$CODRAX_TIMEOUT"
 )
+if [[ -n "$PROVIDERS_PATH" ]]; then
+  cmd+=(--providers "$PROVIDERS_PATH")
+fi
 if [[ -n "$INSTANCE_ID" ]]; then
   cmd+=(--instance-id "$INSTANCE_ID")
 fi

@@ -44,6 +44,16 @@ make
 SWEBENCH_SMOKE_LIMIT=1 eval/swebench/smoke_lite.sh
 ```
 
+If the Codrax binary is built in a different worktree from your local
+`providers.yaml`, pass it explicitly:
+
+```bash
+PROVIDERS_PATH=/path/to/providers.yaml CODRAX_BIN=/path/to/codrax eval/swebench/smoke_lite.sh
+```
+
+`run_codrax_swebench.py` also accepts `--providers` directly and defaults to
+`CODRAX_PROVIDERS` when that environment variable is set.
+
 Lite smoke defaults to a best-effort per-instance Python venv so Codrax's local
 verify stage can run `pytest` when the checkout supports it. The adapter installs
 `pytest<9` with `pytest-json-report`, records `env_prepare.json` and
