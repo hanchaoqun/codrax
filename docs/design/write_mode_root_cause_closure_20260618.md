@@ -606,6 +606,75 @@ RC-13 SWE-bench smoke:
 - Conclusion: RC-13 did not relax correctness claims. It widened the bounded
   local-proof lane while preserving patch-review and confidence downgrades.
 
+## 2026-06-18 RC-14 Impact Obligation Repair Queue
+
+Gap:
+
+- `ImpactAnalysisResult`, `ImpactObligationSet`, and actual-diff
+  `PatchReviewRecord` are already typed and persisted, but controller
+  scheduling still treats uncovered impact mostly as telemetry unless local
+  verification is unavailable.
+- A locally passing verifier can still leave typed coverage gaps such as
+  `changed_symbol_without_probe_coverage` or
+  `behavior_contract_without_verify_coverage`. That is exactly the
+  SWE-bench failure mode where a patch proves "something passed" while the
+  owner boundary or dependent surface remains unproved.
+- The previous semantic follow-up path appended one broad review batch only
+  after an unverified verifier outcome. It did not make impact obligations a
+  deterministic repair queue and did not trigger after a passed but
+  under-covered local verifier result.
+
+Design:
+
+- Add a deterministic `Impact Obligation Repair Queue` in the controller
+  normalization layer.
+- The queue reads only typed artifacts:
+  - `ImpactAnalysisResult.VerificationTargets`;
+  - `PatchReviewRecord.Findings`;
+  - typed `coverage_status`, `kind`, `path`, `related_path`,
+    `subject_symbol`, `contract_ref`, and `evidence_ref`.
+- When the active batch has a terminal non-failed verify attempt
+  (`passed` or typed `unverified`) and uncovered semantic/impact coverage
+  remains, the controller overrides terminal/interruption actions into one
+  bounded repair step:
+  - `append_batch` when the uncovered obligations carry concrete paths;
+  - `explore_code` first when the obligation has no path and needs bounded
+    localization before planning.
+- The repair batch carries:
+  - deterministic ID `<active-batch>-impact-repair`;
+  - expected/explore paths from typed obligation paths;
+  - success criteria derived from obligation IDs/codes;
+  - typed exploration requirements when the selected obligations lack a
+    concrete path.
+- Existing semantic-review follow-up is subsumed by this queue. The old reason
+  remains recognized as already-requested state for durable-run compatibility,
+  but no public legacy engine surface is reintroduced.
+- Hard routing still does not parse user intent, model rationale,
+  `<think>`, issue text, stdout prose, or manual audit notes. The model can
+  consume the appended batch goal and context pack as soft planning guidance;
+  the decision to append is deterministic.
+
+Task list:
+
+- [x] Add impact repair item selection and stable priority ordering.
+- [x] Route finish/replan/interruption decisions to `append_batch` or
+  `explore_code` when typed uncovered impact remains after a non-failed
+  verifier attempt.
+- [x] Preserve one-shot behavior to avoid recursive repair loops while keeping
+  evidence visible in `WriteContextPack`.
+- [x] Cover passed-verifier-but-undercovered and unverified-undercovered
+  regressions with controller tests.
+- [x] Run focused orchestrator tests, full `go test ./...`, `make test`, then
+  refresh this ledger and push.
+
+Verification:
+
+- `go test ./internal/orchestrator -run 'TestNormalizeControllerTypedStateDecision(SemanticPatchReview|VerifiedButUndercovered|ImpactRepair|LegacySemantic|RunnerMissing|ReplanAfter)'`
+- `go test ./internal/orchestrator ./internal/writeflow ./internal/types`
+- `go test ./internal/tool ./internal/agent`
+- `go test ./...`
+- `make test`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -624,6 +693,7 @@ RC-13 SWE-bench smoke:
 | RC-11 | complete | Hard/soft contract separation: added hard-required behavior-contract helpers; context handoff promotes only hard contracts to P0; planner/controller rendering distinguishes `hard_required=true` from `soft_required=true`; verifier contract-ref confidence uses only hard-required contracts. Verification: focused `internal/types`, `internal/tool`, and `internal/agent`; full `go test ./...`; `make test`; RC-11 SymPy smoke export passed and local correctness correctly failed. |
 | RC-12 | complete | All hard operators grounding: write-analysis quality gate now applies grounding to `contains`, `not_contains`, `exists`, `not_exists`, `raises`, and `not_raises` in addition to equals/not_equals/returns. Verification: focused orchestrator tests, related orchestrator/skill/types/tool/agent tests, full `go test ./...`, `make test`, and RC-12 SymPy SWE-bench smoke export passed; local correctness correctly failed with typed verifier evidence instead of a false pass. |
 | RC-13 | complete | Multi-language verification probe runtime: generalized the Python-only bounded probe lane to a typed provider registry for Python, JavaScript/Node, Ruby, and Go; updated schemas, planner guidance, user docs, and tests. Verification: focused multi-language probe tests, full `internal/tool`, related types/skill/orchestrator/agent tests, full `go test ./...`, `make`, and RC-13 SymPy SWE-bench smoke passed export compatibility while local acceptance remained correctly audit-blocked. |
+| RC-14 | complete | Impact obligation repair queue: controller now schedules one bounded impact-repair follow-up when typed impact/patch-review coverage remains uncovered after a non-failed verifier attempt, including the previously missed "local verify passed but changed-symbol/contract coverage is still unverified" case. Path-backed obligations append a scoped repair batch; pathless obligations trigger bounded exploration first. Verification: focused controller regressions, related write packages, full `go test ./...`, and `make test` pass. |
 
 ## Acceptance Criteria
 
@@ -645,6 +715,8 @@ RC-13 SWE-bench smoke:
 - `verification_probes[]` provide bounded local behavior checks for common
   non-Python projects without requiring project-wide test runners or shell
   command probes.
+- Uncovered typed impact obligations become a bounded repair queue before
+  finish, instead of remaining passive telemetry after local verifier success.
 - Current read/log/trace/data/operation/computer paths remain untouched.
 - All new eval fields and docs distinguish export compatibility from
   functional correctness.

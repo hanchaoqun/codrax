@@ -3187,24 +3187,33 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			},
 		})
 	}
-	if activeBatchCompletedWithUnverifiedVerdict(run) &&
+	if activeBatchCompletedWithNonFailedVerifierVerdict(run) &&
 		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
-		semanticPatchReviewFollowupNeeded(run, batchID, plan) &&
+		impactObligationRepairFollowupNeeded(run, batchID, plan) &&
 		(decision.Action == writeflow.ActionFinish ||
 			decision.Action == writeflow.ActionReplanBatch ||
 			controllerActionInterruptsUnverifiedCompletion(decision.Action)) {
-		nextID := nextSemanticPatchReviewBatchID(run, batchID)
-		appendControllerProgress(run, batchID, "semantic_patch_review_followup_requested",
-			"typed patch review found uncovered semantic impact while local verification was unavailable; appending one bounded follow-up batch")
+		nextBatch := impactObligationRepairFollowupBatch(run, batchID, plan)
+		appendControllerProgress(run, batchID, "impact_obligation_followup_requested",
+			"typed impact obligations remain uncovered after a non-failed verifier attempt; appending one bounded follow-up batch")
+		if nextBatch != nil && nextBatch.NeedsCodeExploration {
+			return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+				Action:     writeflow.ActionExploreCode,
+				ReasonCode: "impact_obligation_followup_explore",
+				Reason:     "typed impact obligations need bounded localization before repair planning",
+				ExplorationRequest: &types.WriteExplorationRequest{
+					BatchID:              nextBatch.ID,
+					Goal:                 nextBatch.Goal,
+					CandidatePaths:       nextBatch.ExpectedPaths,
+					EvidenceRequirements: nextBatch.SuccessCriteria,
+				},
+			})
+		}
 		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
 			Action:     writeflow.ActionAppendBatch,
-			ReasonCode: "semantic_patch_review_followup",
-			Reason:     "typed patch review found uncovered semantic impact and local verification is unavailable",
-			Batch: &writeflow.WriteBatchPlan{
-				ID:     nextID,
-				Goal:   semanticPatchReviewFollowupGoal(plan),
-				Status: writeflow.BatchReadyForChangePlan,
-			},
+			ReasonCode: "impact_obligation_followup",
+			Reason:     "typed impact obligations remain uncovered after local observation",
+			Batch:      nextBatch,
 		})
 	}
 	if decision.Action == writeflow.ActionReplanBatch &&
@@ -3902,15 +3911,337 @@ func activeBatchCompletedWithUnverifiedVerdict(run *types.WriteWorkflowRun) bool
 	return false
 }
 
-func semanticPatchReviewFollowupNeeded(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan) bool {
-	if plan == nil || plan.PatchReview == nil || !patchReviewHasUncoveredSemanticFinding(plan.PatchReview) {
+func activeBatchCompletedWithNonFailedVerifierVerdict(run *types.WriteWorkflowRun) bool {
+	if run == nil {
 		return false
 	}
-	return workflowProgressReasonCount(run, "", "semantic_patch_review_followup_requested") == 0
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != activeID {
+			continue
+		}
+		if batch.Status != types.WriteWorkflowBatchComplete {
+			return false
+		}
+		for i := len(batch.Attempts) - 1; i >= 0; i-- {
+			attempt := batch.Attempts[i]
+			if strings.TrimSpace(attempt.Kind) != "verify" {
+				continue
+			}
+			switch strings.TrimSpace(attempt.Status) {
+			case "passed", "unverified":
+				return true
+			default:
+				return false
+			}
+		}
+		return false
+	}
+	return false
 }
 
-func patchReviewHasUncoveredSemanticFinding(review *types.PatchReviewRecord) bool {
-	return types.PatchReviewHasUncoveredSemanticCoverage(review)
+type impactRepairQueueItem struct {
+	ID             string
+	Code           string
+	Kind           string
+	Path           string
+	RelatedPath    string
+	Symbol         string
+	ContractRef    string
+	CoverageStatus string
+	EvidenceRef    string
+	Source         string
+	Priority       int
+}
+
+func impactObligationRepairFollowupNeeded(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan) bool {
+	if plan == nil || len(selectImpactRepairQueueItems(plan, 4)) == 0 {
+		return false
+	}
+	return !impactRepairFollowupAlreadyRequested(run, batchID)
+}
+
+func impactRepairFollowupAlreadyRequested(run *types.WriteWorkflowRun, batchID string) bool {
+	if workflowProgressReasonCount(run, "", "impact_obligation_followup_requested") > 0 {
+		return true
+	}
+	// Durable runs created before RC-14 used this narrower reason. Treat it as
+	// the same one-shot repair request so resumed workflows do not recurse.
+	return workflowProgressReasonCount(run, "", "semantic_patch_review_followup_requested") > 0
+}
+
+func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatchID string, plan *types.ChangePlan) *writeflow.WriteBatchPlan {
+	items := selectImpactRepairQueueItems(plan, 4)
+	id := nextImpactRepairBatchID(run, activeBatchID)
+	expectedPaths := impactRepairExpectedPaths(items)
+	criteria := impactRepairSuccessCriteria(items)
+	batch := writeflow.WriteBatchPlan{
+		ID:                   id,
+		Goal:                 impactRepairFollowupGoal(items),
+		Status:               writeflow.BatchReadyForChangePlan,
+		NeedsCodeExploration: len(expectedPaths) == 0,
+		ExploreTargets:       expectedPaths,
+		ExpectedPaths:        expectedPaths,
+		SuccessCriteria:      criteria,
+	}
+	return &batch
+}
+
+func selectImpactRepairQueueItems(plan *types.ChangePlan, limit int) []impactRepairQueueItem {
+	if plan == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var items []impactRepairQueueItem
+	add := func(item impactRepairQueueItem) {
+		item = normalizeImpactRepairQueueItem(item)
+		key := impactRepairQueueItemDedupeKey(item)
+		if key == "" || !impactRepairCoverageNeedsWork(item.CoverageStatus) || seen[key] {
+			return
+		}
+		seen[key] = true
+		items = append(items, item)
+	}
+	if plan.PatchReview != nil {
+		review := types.NormalizePatchReviewRecord(*plan.PatchReview)
+		for _, finding := range review.Findings {
+			if finding.Category != types.PatchReviewCategorySemanticCoverage {
+				continue
+			}
+			add(impactRepairQueueItemFromFinding(finding))
+		}
+	}
+	if plan.ImpactAnalysis != nil {
+		analysis := types.NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
+		for _, target := range analysis.VerificationTargets {
+			add(impactRepairQueueItemFromTarget(target))
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Priority != items[j].Priority {
+			return items[i].Priority < items[j].Priority
+		}
+		return items[i].ID < items[j].ID
+	})
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items
+}
+
+func impactRepairQueueItemFromTarget(target types.ImpactVerificationTarget) impactRepairQueueItem {
+	normalized := types.NormalizeImpactAnalysisResult(types.ImpactAnalysisResult{VerificationTargets: []types.ImpactVerificationTarget{target}})
+	if len(normalized.VerificationTargets) == 0 {
+		return impactRepairQueueItem{}
+	}
+	target = normalized.VerificationTargets[0]
+	return impactRepairQueueItem{
+		ID:             firstNonEmptyController(target.ID, "impact-target:"+target.Kind+":"+target.Path+":"+target.RelatedPath+":"+target.Symbol+":"+target.ContractRef+":"+target.EvidenceRef),
+		Code:           target.Kind + "_coverage_unverified",
+		Kind:           target.Kind,
+		Path:           target.Path,
+		RelatedPath:    target.RelatedPath,
+		Symbol:         target.Symbol,
+		ContractRef:    target.ContractRef,
+		CoverageStatus: target.CoverageStatus,
+		EvidenceRef:    target.EvidenceRef,
+		Source:         firstNonEmptyController(target.Source, "impact_analysis"),
+		Priority:       target.Priority,
+	}
+}
+
+func impactRepairQueueItemFromFinding(finding types.PatchReviewFinding) impactRepairQueueItem {
+	kind := impactRepairKindFromPatchReviewCode(finding.Code)
+	return impactRepairQueueItem{
+		ID:             firstNonEmptyController(finding.Code+":"+finding.Path+":"+finding.RelatedPath+":"+finding.SubjectSymbol+":"+finding.EvidenceRef, finding.Code),
+		Code:           finding.Code,
+		Kind:           kind,
+		Path:           finding.Path,
+		RelatedPath:    finding.RelatedPath,
+		Symbol:         finding.SubjectSymbol,
+		CoverageStatus: string(finding.CoverageStatus),
+		EvidenceRef:    finding.EvidenceRef,
+		Source:         "patch_review",
+		Priority:       impactRepairPriority(kind),
+	}
+}
+
+func normalizeImpactRepairQueueItem(item impactRepairQueueItem) impactRepairQueueItem {
+	item.ID = strings.TrimSpace(item.ID)
+	item.Code = strings.TrimSpace(item.Code)
+	item.Kind = strings.TrimSpace(item.Kind)
+	item.Path = normalizeControllerPath(item.Path)
+	item.RelatedPath = normalizeControllerPath(item.RelatedPath)
+	item.Symbol = strings.TrimSpace(item.Symbol)
+	item.ContractRef = strings.TrimSpace(item.ContractRef)
+	item.CoverageStatus = strings.TrimSpace(item.CoverageStatus)
+	item.EvidenceRef = strings.TrimSpace(item.EvidenceRef)
+	item.Source = strings.TrimSpace(item.Source)
+	if item.Kind == "" {
+		item.Kind = "semantic_coverage"
+	}
+	if item.Priority <= 0 {
+		item.Priority = impactRepairPriority(item.Kind)
+	}
+	if item.ID == "" {
+		item.ID = strings.Join([]string{item.Kind, item.Code, item.Path, item.RelatedPath, item.Symbol, item.ContractRef, item.EvidenceRef}, "|")
+	}
+	return item
+}
+
+func impactRepairQueueItemDedupeKey(item impactRepairQueueItem) string {
+	item = normalizeImpactRepairQueueItem(item)
+	key := strings.Join([]string{
+		item.Kind,
+		item.Path,
+		item.RelatedPath,
+		item.Symbol,
+		item.ContractRef,
+		item.EvidenceRef,
+	}, "|")
+	key = strings.Trim(key, "|")
+	if key == "" {
+		key = strings.TrimSpace(item.ID)
+	}
+	return key
+}
+
+func impactRepairCoverageNeedsWork(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "", "unverified", "unavailable", "unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func impactRepairKindFromPatchReviewCode(code string) string {
+	switch strings.TrimSpace(code) {
+	case "changed_symbol_without_probe_coverage":
+		return "changed_symbol"
+	case "behavior_contract_without_verify_coverage":
+		return "behavior_contract"
+	case "dependent_surface_without_verify_coverage":
+		return "dependent"
+	case "related_test_surface_unverified":
+		return "test_surface"
+	default:
+		return "semantic_coverage"
+	}
+}
+
+func impactRepairPriority(kind string) int {
+	switch strings.TrimSpace(kind) {
+	case "behavior_contract":
+		return 10
+	case "changed_symbol":
+		return 20
+	case "dependent":
+		return 30
+	case "test_surface":
+		return 40
+	case "effect_followup", "semantic_coverage":
+		return 50
+	case "changed_file":
+		return 60
+	default:
+		return 90
+	}
+}
+
+func impactRepairExpectedPaths(items []impactRepairQueueItem) []string {
+	seen := map[string]bool{}
+	var paths []string
+	for _, item := range items {
+		for _, raw := range []string{item.Path, item.RelatedPath} {
+			path := normalizeControllerPath(raw)
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	if len(paths) > 8 {
+		paths = paths[:8]
+	}
+	return paths
+}
+
+func impactRepairSuccessCriteria(items []impactRepairQueueItem) []string {
+	criteria := make([]string, 0, len(items))
+	for _, item := range items {
+		parts := []string{
+			"impact_obligation=" + item.ID,
+			"kind=" + item.Kind,
+		}
+		if item.Code != "" {
+			parts = append(parts, "code="+item.Code)
+		}
+		if item.Path != "" {
+			parts = append(parts, "path="+item.Path)
+		}
+		if item.RelatedPath != "" {
+			parts = append(parts, "related_path="+item.RelatedPath)
+		}
+		if item.Symbol != "" {
+			parts = append(parts, "symbol="+item.Symbol)
+		}
+		if item.ContractRef != "" {
+			parts = append(parts, "contract_ref="+item.ContractRef)
+		}
+		if item.EvidenceRef != "" {
+			parts = append(parts, "evidence_ref="+item.EvidenceRef)
+		}
+		criteria = append(criteria, strings.Join(parts, " "))
+	}
+	return criteria
+}
+
+func impactRepairFollowupGoal(items []impactRepairQueueItem) string {
+	scope := strings.Join(impactRepairExpectedPaths(items), ", ")
+	if scope == "" {
+		scope = "the typed impact obligations from the active patch"
+	}
+	var codes []string
+	seen := map[string]bool{}
+	for _, item := range items {
+		code := strings.TrimSpace(firstNonEmptyController(item.Code, item.Kind))
+		if code == "" || seen[code] {
+			continue
+		}
+		seen[code] = true
+		codes = append(codes, code)
+		if len(codes) >= 4 {
+			break
+		}
+	}
+	suffix := ""
+	if len(codes) > 0 {
+		suffix = " Required coverage: " + strings.Join(codes, ", ") + "."
+	}
+	return "Close the typed impact obligations left uncovered by the active patch; keep the follow-up bounded to " + scope + "." + suffix
+}
+
+func nextImpactRepairBatchID(run *types.WriteWorkflowRun, activeBatchID string) string {
+	activeBatchID = strings.TrimSpace(activeBatchID)
+	if activeBatchID == "" {
+		activeBatchID = "batch-1"
+	}
+	base := activeBatchID + "-impact-repair"
+	if !workflowBatchIDExists(run, base) {
+		return base
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if !workflowBatchIDExists(run, candidate) {
+			return candidate
+		}
+	}
 }
 
 func workflowProgressReasonCount(run *types.WriteWorkflowRun, batchID, reasonCode string) int {
@@ -3935,23 +4266,6 @@ func workflowProgressReasonCount(run *types.WriteWorkflowRun, batchID, reasonCod
 	return count
 }
 
-func nextSemanticPatchReviewBatchID(run *types.WriteWorkflowRun, activeBatchID string) string {
-	activeBatchID = strings.TrimSpace(activeBatchID)
-	if activeBatchID == "" {
-		activeBatchID = "batch-1"
-	}
-	base := activeBatchID + "-semantic-review"
-	if !workflowBatchIDExists(run, base) {
-		return base
-	}
-	for i := 2; ; i++ {
-		candidate := fmt.Sprintf("%s-%d", base, i)
-		if !workflowBatchIDExists(run, candidate) {
-			return candidate
-		}
-	}
-}
-
 func workflowBatchIDExists(run *types.WriteWorkflowRun, id string) bool {
 	if run == nil {
 		return false
@@ -3963,35 +4277,6 @@ func workflowBatchIDExists(run *types.WriteWorkflowRun, id string) bool {
 		}
 	}
 	return false
-}
-
-func semanticPatchReviewFollowupGoal(plan *types.ChangePlan) string {
-	paths := []string{}
-	if plan != nil && plan.PatchReview != nil {
-		seen := map[string]bool{}
-		for _, finding := range plan.PatchReview.Findings {
-			if finding.Category != types.PatchReviewCategorySemanticCoverage {
-				continue
-			}
-			switch finding.CoverageStatus {
-			case types.PatchReviewCoverageUnverified, types.PatchReviewCoverageUnavailable, types.PatchReviewCoverageUnknown:
-			default:
-				continue
-			}
-			path := strings.TrimSpace(finding.Path)
-			if path == "" || seen[path] {
-				continue
-			}
-			seen[path] = true
-			paths = append(paths, path)
-		}
-	}
-	sort.Strings(paths)
-	scope := strings.Join(paths, ", ")
-	if scope == "" {
-		scope = "the active applied patch"
-	}
-	return "Re-examine the active patch because typed PatchReview found uncovered semantic impact while local verification was unavailable; keep the follow-up bounded to " + scope + "."
 }
 
 func decisionTargetsActiveBatch(decision writeflow.WriteWorkflowDecision, activeID string) bool {

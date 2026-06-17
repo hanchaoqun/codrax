@@ -2277,14 +2277,102 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewAppendsFollowup
 		ReasonCode:        "done",
 		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 	}, run)
-	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.ID != "batch-1-semantic-review" {
-		t.Fatalf("semantic patch review should append follow-up batch, got %+v", got)
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.ID != "batch-1-impact-repair" {
+		t.Fatalf("semantic patch review should append impact repair batch, got %+v", got)
 	}
 	if !strings.Contains(got.Batch.Goal, "pkg/axis.py") {
 		t.Fatalf("follow-up goal should carry typed path scope, got %q", got.Batch.Goal)
 	}
-	if !workflowProgressHasReason(run.ProgressLedger, "semantic_patch_review_followup_requested") {
-		t.Fatalf("semantic follow-up progress missing: %+v", run.ProgressLedger)
+	if !containsString(got.Batch.ExpectedPaths, "pkg/axis.py") {
+		t.Fatalf("follow-up batch should carry typed expected path, got %+v", got.Batch.ExpectedPaths)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "impact_obligation_followup_requested") {
+		t.Fatalf("impact repair follow-up progress missing: %+v", run.ProgressLedger)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionVerifiedButUndercoveredAppendsImpactRepair(t *testing.T) {
+	mu := types.NewMutableState("verified but undercovered")
+	plan := coverageProjectionPlanForTest()
+	plan.Status = types.PlanStatusApplied
+	mu.SetChangePlan(plan)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-verified-undercovered",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-coverage"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-coverage"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.ID != "batch-1-impact-repair" {
+		t.Fatalf("verified-but-undercovered patch should append impact repair batch, got %+v", got)
+	}
+	if !containsString(got.Batch.ExpectedPaths, "pkg/axis.py") {
+		t.Fatalf("impact repair should be scoped to the typed changed path, got %+v", got.Batch.ExpectedPaths)
+	}
+	if !strings.Contains(strings.Join(got.Batch.SuccessCriteria, "\n"), "changed_symbol_without_probe_coverage") {
+		t.Fatalf("impact repair criteria should preserve typed finding code, got %+v", got.Batch.SuccessCriteria)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "impact_obligation_followup_requested") {
+		t.Fatalf("impact repair progress missing: %+v", run.ProgressLedger)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionImpactRepairWithoutPathExploresFirst(t *testing.T) {
+	mu := types.NewMutableState("impact repair needs localization")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:     "plan-contract",
+		Status: types.PlanStatusApplied,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "behavior_contract_without_verify_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+				EvidenceRef:    "contract-1",
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-contract-undercovered",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-contract"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-contract"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionExploreCode || got.ExplorationRequest == nil {
+		t.Fatalf("pathless impact repair should explore before planning, got %+v", got)
+	}
+	if got.ExplorationRequest.BatchID != "batch-1-impact-repair" {
+		t.Fatalf("exploration should target the impact repair batch, got %+v", got.ExplorationRequest)
+	}
+	if !strings.Contains(strings.Join(got.ExplorationRequest.EvidenceRequirements, "\n"), "behavior_contract_without_verify_coverage") {
+		t.Fatalf("exploration requirements should preserve typed finding code, got %+v", got.ExplorationRequest.EvidenceRequirements)
 	}
 }
 
@@ -2321,7 +2409,7 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewFollowupRunsOnc
 		}},
 		ProgressLedger: []types.WriteWorkflowProgress{{
 			BatchID:    "batch-1",
-			ReasonCode: "semantic_patch_review_followup_requested",
+			ReasonCode: "impact_obligation_followup_requested",
 		}},
 	}
 	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
@@ -2331,6 +2419,50 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewFollowupRunsOnc
 	}, run)
 	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
 		t.Fatalf("semantic follow-up should run once, then allow unverified finish, got %+v", got)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionLegacySemanticFollowupReasonPreventsImpactRepairRecursion(t *testing.T) {
+	mu := types.NewMutableState("legacy semantic reason prevents impact recursion")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:     "plan-semantic",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "dependent_surface_without_verify_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/axis.py",
+				RelatedPath:    "pkg/caller.py",
+				CoverageStatus: types.PatchReviewCoverageUnavailable,
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-semantic-legacy-once",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-semantic"},
+				{Kind: "verify", Status: "unverified", ReasonCode: "parser_error", PlanID: "plan-semantic"},
+			},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "semantic_patch_review_followup_requested",
+		}},
+	}
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:            writeflow.ActionFinish,
+		ReasonCode:        "done",
+		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("legacy semantic follow-up reason should suppress impact repair recursion, got %+v", got)
 	}
 }
 
@@ -2486,7 +2618,7 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewDoesNotRecurse(
 		}},
 		ProgressLedger: []types.WriteWorkflowProgress{{
 			BatchID:    "batch-1",
-			ReasonCode: "semantic_patch_review_followup_requested",
+			ReasonCode: "impact_obligation_followup_requested",
 		}},
 	}
 	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
