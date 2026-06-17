@@ -863,6 +863,48 @@ Verification:
 - `go test ./...`
 - `make test`
 
+## RC-18: Verify Coverage Persistence
+
+The RC-17 Django smoke confirmed that probe confidence is now present in
+`ChangeReport`, but the final `ChangePlan` JSON still showed stale
+unverified coverage for the same contracts and symbols. Runtime mutable state
+was updated by `syncMutablePlanStatusAfterVerify`, but the updated plan snapshot
+was not persisted to `.codrax/plans/<plan>.json`.
+
+Impact:
+
+- SWE adapter and any durable consumer can read stale coverage from disk.
+- Resume can rehydrate a plan that lost post-verify coverage projection.
+- Controller/handoff evidence can diverge between in-memory state and durable
+  artifacts.
+
+Design:
+
+- Make verify post-processing durable: after status and coverage projection,
+  persist the current `ChangePlan` snapshot.
+- Keep report persistence unchanged; `ChangeReport` remains the authoritative
+  verify result, while `ChangePlan` carries the latest lifecycle projection.
+- Add a regression that exercises `syncMutablePlanStatusAfterVerify` with a real
+  `PlanStore` path and asserts the on-disk JSON contains verified coverage.
+- Keep this as deterministic artifact persistence only; no prompt or natural
+  language routing changes.
+
+Task list:
+
+- [x] Record RC-18 durable coverage persistence gap.
+- [x] Persist coverage-updated plan snapshots after verify sync.
+- [x] Add focused persistence regression.
+- [x] Run focused orchestrator tests, related packages, full regression, update
+  progress, commit, and push.
+
+Verification:
+
+- `go test ./internal/orchestrator -run 'TestSyncMutablePlanStatusAfterVerify'`
+- `go test ./internal/orchestrator ./internal/tool ./internal/types ./internal/writeflow`
+- `go test ./internal/agent ./internal/repl ./internal/operation`
+- `go test ./...`
+- `make test`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -885,6 +927,7 @@ Verification:
 | RC-15 | complete | Coverage projection authority: post-RC-14 SWE smoke showed actual-diff unknown coverage findings could be over-promoted to verified after unrelated local pass. The fix keeps verified projection target-specific: changed symbols and contracts use confidence refs, scoped surfaces use matching passed suites, and multi-language actual-diff unknown events remain uncovered until explicitly proven. Verification: focused controller/writeflow regressions, related packages, full `go test ./...`, and `make test` pass. |
 | RC-16 | complete | Structural patch quality events: added `python_duplicate_symbol_added` as a hard actual-diff PatchReview event, and `production_test_scaffold_added` as a language-provider soft semantic coverage event for production paths. These events are generated from applied diff lines, post-apply file bytes, and `SourcePathRole`; no user/model prose drives routing. Verification: focused writeflow tests, related packages, full `go test ./...`, and `make test` pass. |
 | RC-17 | complete | Verification confidence authority: probe-only reports now attach contract/symbol confidence from the same plan snapshot that supplied the probes, and probe-only confidence recognizes all `verification_probe/<language>` suites instead of Python only. Verification: focused confidence tests, related packages, full `go test ./...`, and `make test` pass. |
+| RC-18 | complete | Verify coverage persistence: `syncMutablePlanStatusAfterVerify` now persists the coverage-updated `ChangePlan` snapshot after post-verify projection, and focused regression proves on-disk PatchReview/Impact coverage matches mutable state. Verification: focused orchestrator persistence test, related packages, full `go test ./...`, and `make test` pass. |
 
 ## Acceptance Criteria
 

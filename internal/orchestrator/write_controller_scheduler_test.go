@@ -2562,6 +2562,45 @@ func TestSyncMutablePlanStatusAfterVerifyMarksCoverageVerifiedAndRefreshesContex
 	}
 }
 
+func TestSyncMutablePlanStatusAfterVerifyPersistsCoverageSnapshot(t *testing.T) {
+	mu := types.NewMutableState("coverage projection persistence")
+	plan := coverageProjectionPlanForTest()
+	plan.TargetPaths = []string{"pkg/axis.py"}
+	plan.Changes = []types.FileChange{{
+		Path:      "pkg/axis.py",
+		Kind:      "patch",
+		Patch:     "@@ -1 +1 @@\n-old\n+new\n",
+		Rationale: "test persistence",
+	}}
+	mu.SetChangePlan(plan)
+	workDir := t.TempDir()
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable:      mu,
+		WorkDir:      workDir,
+		WorktreePath: "/tmp/codrax-worktree",
+	}}
+
+	o.syncMutablePlanStatusAfterVerify(&types.ChangeReport{
+		PlanID:             "plan-coverage",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+	}, nil)
+
+	path := filepath.Join(workDir, "plans", "plan-coverage.json")
+	loaded, err := types.LoadChangePlanFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadChangePlanFromFile(%s): %v", path, err)
+	}
+	if loaded.PatchReview == nil || len(loaded.PatchReview.Findings) == 0 ||
+		loaded.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageVerified {
+		t.Fatalf("persisted patch-review coverage not verified: %+v", loaded.PatchReview)
+	}
+	if loaded.ImpactAnalysis == nil || len(loaded.ImpactAnalysis.VerificationTargets) == 0 ||
+		loaded.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "verified" {
+		t.Fatalf("persisted impact coverage not verified: %+v", loaded.ImpactAnalysis)
+	}
+}
+
 func TestApplyVerifyCoverageToChangePlanPreservesMissingProbeSymbolGap(t *testing.T) {
 	plan := coverageProjectionPlanForTest()
 	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{

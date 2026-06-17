@@ -1653,6 +1653,7 @@ func (o *Orchestrator) syncMutablePlanStatusAfterVerify(report *types.ChangeRepo
 	}
 	applyVerifyCoverageToChangePlan(plan, report, err)
 	o.busCtx.Mutable.SetChangePlan(plan)
+	o.persistCurrentChangePlanSnapshot()
 	pack := types.WriteContextPackFromChangePlan(plan)
 	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
 		pack = pack.WithScope(strings.TrimSpace(run.ActiveBatchID), activeWorkflowRunSliceID(*run, run.ActiveBatchID))
