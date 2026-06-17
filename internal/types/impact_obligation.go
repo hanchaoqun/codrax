@@ -160,6 +160,17 @@ func ImpactObligationSetFromChangePlan(plan *ChangePlan) ImpactObligationSet {
 	return set
 }
 
+func NormalizeImpactObligationSet(in ImpactObligationSet) ImpactObligationSet {
+	in.SetID = strings.TrimSpace(in.SetID)
+	in.PlanID = strings.TrimSpace(in.PlanID)
+	in.Source = strings.TrimSpace(in.Source)
+	in.Obligations = normalizeImpactObligations(in.Obligations)
+	if in.SetID == "" && in.PlanID != "" {
+		in.SetID = "impact-obligations:" + in.PlanID
+	}
+	return in
+}
+
 func impactObligation(in ImpactObligation) ImpactObligation {
 	in.Kind = strings.TrimSpace(in.Kind)
 	in.Relation = strings.TrimSpace(in.Relation)

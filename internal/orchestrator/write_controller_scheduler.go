@@ -17,6 +17,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
+	writeimpact "github.com/hanchaoqun/codrax/internal/writeflow/impact"
 )
 
 const (
@@ -1361,6 +1362,7 @@ func (o *Orchestrator) attachActivePatchEffectRecord(plan *types.ChangePlan, act
 	)
 	writeflow.AnnotatePatchEffectStructuredFileParses(&effect, o.busCtx.WorktreePath)
 	plan.PatchEffect = &effect
+	stampChangePlanImpactObligations(plan, writeimpact.GraphProviderFromSearchGraph(o.busCtx.Mutable.SearchGraph()))
 	o.busCtx.Mutable.SetChangePlan(plan)
 	o.persistCurrentChangePlanSnapshot()
 	return &effect
@@ -1858,8 +1860,7 @@ func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID string, pla
 	planID := ""
 	if plan != nil {
 		plan.Slices = types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{})
-		impact := types.ImpactObligationSetFromChangePlan(plan)
-		plan.ImpactObligations = &impact
+		stampChangePlanImpactObligations(plan, nil)
 		planID = strings.TrimSpace(plan.ID)
 	}
 	for i := range run.Batches {
@@ -2589,6 +2590,14 @@ func workflowSliceStatusTerminal(status types.ChangePlanSliceStatus) bool {
 	default:
 		return false
 	}
+}
+
+func stampChangePlanImpactObligations(plan *types.ChangePlan, graph writeimpact.GraphProvider) {
+	if plan == nil {
+		return
+	}
+	impact := writeimpact.BuildObligationSet(writeimpact.Input{Plan: plan, PatchEffect: plan.PatchEffect, Graph: graph})
+	plan.ImpactObligations = &impact
 }
 
 func activeWorkflowBatchForUpdate(run *types.WriteWorkflowRun, batchID string) *types.WriteWorkflowBatch {

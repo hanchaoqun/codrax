@@ -10,6 +10,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
@@ -186,6 +187,16 @@ func TestAttachActivePatchEffectRecordCapturesAppliedCommitDiff(t *testing.T) {
 	}
 	mu := types.NewMutableState("effect")
 	mu.SetChangePlan(plan)
+	mu.SetSearchGraph(&repotypes.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{
+			"seed.py":   {RelPath: "seed.py"},
+			"caller.py": {RelPath: "caller.py"},
+		},
+		ImportGraph: map[string][]string{},
+		ReverseImports: map[string][]string{
+			"seed.py": []string{"caller.py"},
+		},
+	})
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, WorktreePath: sess.Path(), MainRepoRoot: mainRoot}
@@ -212,6 +223,13 @@ func TestAttachActivePatchEffectRecordCapturesAppliedCommitDiff(t *testing.T) {
 	if got := mu.ChangePlan(); got == nil || got.PatchEffect == nil || got.PatchEffect.HeadRef != sha {
 		t.Fatalf("patch effect was not persisted onto mutable ChangePlan: %+v", got)
 	}
+	got := mu.ChangePlan()
+	if got.ImpactObligations == nil || !impactObligationsContain(got.ImpactObligations, "changed_file", "actual_diff", "seed.py") {
+		t.Fatalf("actual diff impact obligation missing: %+v", got.ImpactObligations)
+	}
+	if !impactObligationsContainRelated(got.ImpactObligations, "dependent", "reverse_import", "seed.py", "caller.py") {
+		t.Fatalf("graph-derived dependent impact obligation missing: %+v", got.ImpactObligations)
+	}
 }
 
 func readChangeReportFile(t *testing.T, path string) *types.ChangeReport {
@@ -225,4 +243,28 @@ func readChangeReportFile(t *testing.T, path string) *types.ChangeReport {
 		t.Fatalf("report JSON did not parse: %v", err)
 	}
 	return &report
+}
+
+func impactObligationsContain(set *types.ImpactObligationSet, kind, relation, path string) bool {
+	if set == nil {
+		return false
+	}
+	for _, ob := range set.Obligations {
+		if ob.Kind == kind && ob.Relation == relation && ob.SubjectPath == path {
+			return true
+		}
+	}
+	return false
+}
+
+func impactObligationsContainRelated(set *types.ImpactObligationSet, kind, relation, path, related string) bool {
+	if set == nil {
+		return false
+	}
+	for _, ob := range set.Obligations {
+		if ob.Kind == kind && ob.Relation == relation && ob.SubjectPath == path && ob.RelatedPath == related {
+			return true
+		}
+	}
+	return false
 }
