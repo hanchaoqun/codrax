@@ -1233,6 +1233,40 @@ func TestWindowStatsSummarizesInodeIOPageCacheAndPressure(t *testing.T) {
 	}
 }
 
+func TestPerfSampleEventSearchAndWindowStats(t *testing.T) {
+	idx := buildTraceIndex(t, "samples.perftrace", `
+	app-5678 (1234) [005] .... 20.000100: perf_sample: pid=1234 tid=5678 cpu=5 period=10000 event=cpu-cycles symbol=Foo::bar dso=libfoo.so ip=0x1234 callchain=main;A;Foo::bar
+	app-5678 (1234) [005] .... 20.000200: perf_sample: pid=1234 tid=5678 cpu=5 period=30000 event=cpu-cycles symbol=Foo::bar dso=libfoo.so ip=0x1234 callchain=main;A;Foo::bar
+	worker-6000 (1234) [006] .... 20.000300: perf_sample: pid=1234 tid=6000 cpu=6 period=5000 event=cpu-cycles symbol=Worker::run dso=libworker.so ip=0x9999 callchain=main;Worker::run
+	`)
+	events := EventSearch(idx, Query{View: "event_search", Pattern: "Foo::bar", EventTypes: []EventType{EventPerfSample}, Limit: 8})
+	if len(events) != 2 {
+		t.Fatalf("expected two Foo::bar perf samples, got %+v", events)
+	}
+	if events[0].Event.PerfPID != 1234 || events[0].Event.PerfTID != 5678 || events[0].Event.PerfSymbol != "Foo::bar" || events[0].Event.PerfDSO != "libfoo.so" {
+		t.Fatalf("perf sample fields not populated: %+v", events[0].Event)
+	}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 20.0, TimeEnd: 20.001})
+	if stats.PerfSamples == nil {
+		t.Fatalf("expected perf sample summary")
+	}
+	if stats.PerfSamples.SampleCount != 3 || stats.PerfSamples.TotalPeriod != 45000 {
+		t.Fatalf("unexpected perf sample totals: %+v", stats.PerfSamples)
+	}
+	if len(stats.PerfSamples.TopSymbols) == 0 || stats.PerfSamples.TopSymbols[0].Symbol != "Foo::bar" || stats.PerfSamples.TopSymbols[0].Period != 40000 || stats.PerfSamples.TopSymbols[0].SampleCount != 2 {
+		t.Fatalf("Foo::bar should dominate top symbols: %+v", stats.PerfSamples.TopSymbols)
+	}
+	if len(stats.PerfSamples.TopDSO) == 0 || stats.PerfSamples.TopDSO[0].DSO != "libfoo.so" {
+		t.Fatalf("libfoo.so should dominate top DSO: %+v", stats.PerfSamples.TopDSO)
+	}
+	if len(stats.PerfSamples.TopCallchains) == 0 || stats.PerfSamples.TopCallchains[0].Callchain != "main;A;Foo::bar" {
+		t.Fatalf("top callchain should be preserved: %+v", stats.PerfSamples.TopCallchains)
+	}
+	if len(stats.PerfSamples.TopThreads) == 0 || stats.PerfSamples.TopThreads[0].Thread.PID != 5678 || stats.PerfSamples.TopThreads[0].Period != 40000 {
+		t.Fatalf("top thread should use sampled tid and period: %+v", stats.PerfSamples.TopThreads)
+	}
+}
+
 func TestFramePipelineCriticalBlockingAndRecipeViews(t *testing.T) {
 	idx := buildTraceIndex(t, "blocking.systrace", blockingTrace)
 	frame := Run(idx, Query{View: "frame_window", PID: 20, TimeStart: 6.0, TimeEnd: 6.1})

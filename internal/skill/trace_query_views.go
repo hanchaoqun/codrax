@@ -26,7 +26,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		{
 			View:   "event_search",
 			Params: "`pattern` as a literal substring (not a regex)",
-			When:   "structured row lookup of exact frame/jank ids, span or marker labels, B/E/C/S/F trace_mark rows, inode tokens, entry_name values, timestamps, or event labels",
+			When:   "structured row lookup of exact frame/jank ids, span or marker labels, B/E/C/S/F trace_mark rows, inode tokens, entry_name values, perf sample symbols/DSOs/callchains, timestamps, or event labels",
 		},
 		{
 			View:   "span_window",
@@ -55,7 +55,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "window_stats",
-			When: "same-window CPU/IO/binder/IRQ/frequency, compute-supply, `state_churn` context, file_io_by_inode, page_cache_by_inode, storage_latency_by_layer, and io_pressure_summary context",
+			When: "same-window CPU/IO/binder/IRQ/frequency, compute-supply, `state_churn` context, perf_samples top symbols/DSOs/callchains, file_io_by_inode, page_cache_by_inode, storage_latency_by_layer, and io_pressure_summary context",
 		},
 		{
 			View: "scheduler_latency_stats",

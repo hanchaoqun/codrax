@@ -27,12 +27,12 @@ var (
 )
 
 var spaceKVKeys = map[string]struct{}{
-	"addr": {}, "address": {}, "affinity": {}, "allowed_cpus": {}, "bytes": {}, "cg": {}, "cgroup": {}, "cmdline": {}, "comm": {}, "cpu": {}, "cpumask": {}, "cpus": {}, "cpus_allowed": {}, "cpuset": {}, "dev": {}, "dest_cpu": {}, "entry_name": {},
+	"addr": {}, "address": {}, "affinity": {}, "allowed_cpus": {}, "bytes": {}, "callchain": {}, "cg": {}, "cgroup": {}, "clock": {}, "cmdline": {}, "comm": {}, "cpu": {}, "cpumask": {}, "cpus": {}, "cpus_allowed": {}, "cpuset": {}, "dev": {}, "dest_cpu": {}, "dso": {}, "entry_name": {}, "event": {},
 	"file": {}, "filename": {}, "i_blocks": {}, "i_mode": {}, "i_nlink": {}, "i_size": {},
 	"duration": {}, "duration_ms": {}, "duration_ns": {}, "duration_us": {},
-	"ino": {}, "inode": {}, "latency": {}, "latency_ms": {}, "latency_ns": {}, "latency_us": {}, "len": {}, "length": {}, "name": {}, "offset": {}, "ofs": {},
-	"mask": {}, "operation": {}, "op": {}, "orig_cpu": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "path": {}, "pid": {}, "pino": {},
-	"policy": {}, "pos": {}, "reason": {}, "ret": {}, "rw": {}, "rwbs": {}, "size": {}, "target_comm": {}, "target_cpu": {}, "target_pid": {}, "task": {}, "task_pid": {}, "tid": {}, "type": {},
+	"ino": {}, "inode": {}, "ip": {}, "latency": {}, "latency_ms": {}, "latency_ns": {}, "latency_us": {}, "len": {}, "length": {}, "name": {}, "offset": {}, "ofs": {},
+	"mask": {}, "operation": {}, "op": {}, "orig_cpu": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "path": {}, "period": {}, "pid": {}, "pino": {},
+	"policy": {}, "pos": {}, "reason": {}, "ret": {}, "rw": {}, "rwbs": {}, "sample_period": {}, "size": {}, "source": {}, "symbol": {}, "target_comm": {}, "target_cpu": {}, "target_pid": {}, "task": {}, "task_pid": {}, "thread_comm": {}, "tid": {}, "type": {},
 }
 
 type parseCacheKey struct {
@@ -667,8 +667,36 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		populateFileIOFields(&ev, kv, intern)
 	case EventAbilityMonitor, EventXPower, EventHiSystemEvent:
 		populatePluginFields(&ev, rawType, kv, intern)
+	case EventPerfSample:
+		populatePerfSampleFields(&ev, kv, intern)
 	}
 	return ev, true
+}
+
+func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInterner) {
+	if ev == nil {
+		return
+	}
+	if cpu, ok := atoiMaybe(kv["cpu"]); ok {
+		ev.CPU = cpu
+	}
+	ev.PerfPID = atoi(firstNonEmpty(kv["pid"], kv["process_pid"], kv["tgid"]))
+	ev.PerfTID = atoi(firstNonEmpty(kv["tid"], kv["thread_pid"]))
+	if ev.PerfPID == 0 && ev.TGID > 0 {
+		ev.PerfPID = ev.TGID
+	}
+	if ev.PerfTID == 0 && ev.PID > 0 {
+		ev.PerfTID = ev.PID
+	}
+	ev.PerfComm = intern.intern(cleanTraceValue(firstNonEmpty(kv["thread_comm"], kv["comm"], kv["name"], ev.Comm)))
+	ev.PerfPeriod = atoi64(firstNonEmpty(kv["period"], kv["sample_period"], kv["event_count"], kv["count"]))
+	ev.PerfEvent = intern.intern(cleanTraceValue(firstNonEmpty(kv["event"], kv["type"])))
+	ev.PerfSymbol = intern.intern(cleanTraceValue(firstNonEmpty(kv["symbol"], kv["func"], kv["function"])))
+	ev.PerfDSO = intern.intern(cleanTraceValue(firstNonEmpty(kv["dso"], kv["file"], kv["path"])))
+	ev.PerfIP = intern.intern(cleanTraceValue(firstNonEmpty(kv["ip"], kv["addr"], kv["address"])))
+	ev.PerfCallchain = intern.intern(cleanTraceValue(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"])))
+	ev.PerfSource = intern.intern(cleanTraceValue(firstNonEmpty(kv["source"], kv["producer"])))
+	ev.PerfClock = intern.intern(cleanTraceValue(firstNonEmpty(kv["clock"], kv["clockid"])))
 }
 
 func populateCPUConstraintFields(ev *Event, rawType string, kv map[string]string, intern *stringInterner) {
@@ -907,6 +935,8 @@ func classifyEventType(raw, fields string) EventType {
 		return EventSchedWaking
 	case raw == "sched_blocked_reason":
 		return EventSchedBlockedReason
+	case raw == "perf_sample":
+		return EventPerfSample
 	case raw == "cpu_idle":
 		return EventCPUIdle
 	case raw == "cpu_frequency":

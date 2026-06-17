@@ -39,6 +39,7 @@ const (
 	EventHiSystemEvent      EventType = "hi_sysevent"
 	EventWorkqueue          EventType = "workqueue"
 	EventDMAFence           EventType = "dma_fence"
+	EventPerfSample         EventType = "perf_sample"
 )
 
 type TracePlatform string
@@ -163,6 +164,18 @@ type Event struct {
 	PluginMetric    string `json:"plugin_metric,omitempty"`
 	PluginValue     string `json:"plugin_value,omitempty"`
 	PluginCategory  string `json:"plugin_category,omitempty"`
+
+	PerfPID       int    `json:"perf_pid,omitempty"`
+	PerfTID       int    `json:"perf_tid,omitempty"`
+	PerfComm      string `json:"perf_comm,omitempty"`
+	PerfPeriod    int64  `json:"perf_period,omitempty"`
+	PerfEvent     string `json:"perf_event,omitempty"`
+	PerfSymbol    string `json:"perf_symbol,omitempty"`
+	PerfDSO       string `json:"perf_dso,omitempty"`
+	PerfIP        string `json:"perf_ip,omitempty"`
+	PerfCallchain string `json:"perf_callchain,omitempty"`
+	PerfSource    string `json:"perf_source,omitempty"`
+	PerfClock     string `json:"perf_clock,omitempty"`
 
 	FieldText string `json:"field_text,omitempty"`
 }
@@ -388,7 +401,44 @@ type WindowStats struct {
 	ThreadDrifts          []ThreadDriftSummary      `json:"thread_drifts,omitempty"`
 	ComputeSupply         []ComputeSupplySummary    `json:"compute_supply,omitempty"`
 	StateChurn            []ThreadStateChurnSummary `json:"state_churn,omitempty"`
+	PerfSamples           *PerfContext              `json:"perf_samples,omitempty"`
 	Caveats               []string                  `json:"caveats,omitempty"`
+}
+
+type PerfContext struct {
+	SampleCount   int                 `json:"sample_count,omitempty"`
+	TotalPeriod   int64               `json:"total_period,omitempty"`
+	TopSymbols    []PerfHotspot       `json:"top_symbols,omitempty"`
+	TopDSO        []PerfHotspot       `json:"top_dso,omitempty"`
+	TopCallchains []PerfHotspot       `json:"top_callchains,omitempty"`
+	TopThreads    []PerfThreadSummary `json:"top_threads,omitempty"`
+	TopEvents     []PerfHotspot       `json:"top_events,omitempty"`
+}
+
+type PerfHotspot struct {
+	Symbol      string      `json:"symbol,omitempty"`
+	DSO         string      `json:"dso,omitempty"`
+	Callchain   string      `json:"callchain,omitempty"`
+	Event       string      `json:"event,omitempty"`
+	SampleCount int         `json:"sample_count,omitempty"`
+	Period      int64       `json:"period,omitempty"`
+	Percent     float64     `json:"percent,omitempty"`
+	Threads     []ThreadRef `json:"threads,omitempty"`
+	CPUs        []int       `json:"cpus,omitempty"`
+	LineStart   int         `json:"line_start,omitempty"`
+	LineEnd     int         `json:"line_end,omitempty"`
+	Example     string      `json:"example,omitempty"`
+}
+
+type PerfThreadSummary struct {
+	Thread      ThreadRef `json:"thread,omitempty"`
+	SampleCount int       `json:"sample_count,omitempty"`
+	Period      int64     `json:"period,omitempty"`
+	Percent     float64   `json:"percent,omitempty"`
+	CPUs        []int     `json:"cpus,omitempty"`
+	LineStart   int       `json:"line_start,omitempty"`
+	LineEnd     int       `json:"line_end,omitempty"`
+	Example     string    `json:"example,omitempty"`
 }
 
 type SchedulerLatencyResult struct {

@@ -725,6 +725,14 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.PluginMetric,
 		ev.PluginValue,
 		ev.PluginCategory,
+		ev.PerfComm,
+		ev.PerfEvent,
+		ev.PerfSymbol,
+		ev.PerfDSO,
+		ev.PerfIP,
+		ev.PerfCallchain,
+		ev.PerfSource,
+		ev.PerfClock,
 	} {
 		if strings.Contains(strings.ToLower(candidate), needle) {
 			return true
@@ -762,6 +770,8 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.BinderReply,
 		ev.BinderDebugID,
 		ev.IRQID,
+		ev.PerfPID,
+		ev.PerfTID,
 	} {
 		if value != 0 && strings.Contains(fmt.Sprintf("%d", value), needle) {
 			return true
@@ -779,6 +789,7 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.FileLen,
 		ev.FileRet,
 		ev.FileSize,
+		ev.PerfPeriod,
 	} {
 		if value != 0 && strings.Contains(fmt.Sprintf("%d", value), needle) {
 			return true
@@ -834,7 +845,7 @@ func isCPUConstraintEvidence(ev Event) bool {
 }
 
 func eventMentionsPID(ev Event, pid int) bool {
-	return ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid || ev.ConstraintPID == pid || ev.BinderDestProc == pid || ev.BinderDestThread == pid
+	return ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid || ev.ConstraintPID == pid || ev.BinderDestProc == pid || ev.BinderDestThread == pid || ev.PerfPID == pid || ev.PerfTID == pid
 }
 
 func eventMentionsThread(ev Event, thread string) bool {
@@ -842,7 +853,7 @@ func eventMentionsThread(ev Event, thread string) bool {
 	if sel.HasPID && eventMentionsPID(ev, sel.PID) {
 		return true
 	}
-	for _, v := range []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.ConstraintComm, ev.SpanName, ev.SpanValue, ev.Reason, ev.FieldText} {
+	for _, v := range []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.ConstraintComm, ev.PerfComm, ev.PerfSymbol, ev.PerfDSO, ev.PerfCallchain, ev.SpanName, ev.SpanValue, ev.Reason, ev.FieldText} {
 		if threadSelectorMatchesName(sel, v) {
 			return true
 		}
@@ -1271,7 +1282,250 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.BlockIOByInode = computeBlockIOByInode(stats, 8)
 	stats.IOBurstEpisodes = computeIOBurstEpisodes(stats, 8)
 	stats.SupplyPressureSummary = computeSupplyPressureSummary(idx, q, stats, 8)
+	stats.PerfSamples = computePerfContext(idx, q, 8)
 	return stats
+}
+
+type perfHotspotAcc struct {
+	item      PerfHotspot
+	threadSet map[string]ThreadRef
+	cpuSet    map[int]bool
+	total     *int64
+}
+
+type perfThreadAcc struct {
+	item   PerfThreadSummary
+	cpuSet map[int]bool
+	total  *int64
+}
+
+func computePerfContext(idx *Index, q Query, max int) *PerfContext {
+	if idx == nil {
+		return nil
+	}
+	ctx := &PerfContext{}
+	bySymbol := map[string]*perfHotspotAcc{}
+	byDSO := map[string]*perfHotspotAcc{}
+	byCallchain := map[string]*perfHotspotAcc{}
+	byEvent := map[string]*perfHotspotAcc{}
+	byThread := map[string]*perfThreadAcc{}
+	for _, ev := range idx.Events {
+		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		period := ev.PerfPeriod
+		if period <= 0 {
+			period = 1
+		}
+		ctx.SampleCount++
+		ctx.TotalPeriod += period
+		thread := perfSampleThread(ev)
+		example := perfSampleExample(ev)
+		addPerfHotspot(bySymbol, firstNonEmpty(ev.PerfSymbol, ev.PerfIP, "unknown"), PerfHotspot{
+			Symbol: ev.PerfSymbol,
+			DSO:    ev.PerfDSO,
+			Event:  ev.PerfEvent,
+		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
+		addPerfHotspot(byDSO, firstNonEmpty(ev.PerfDSO, "unknown"), PerfHotspot{
+			DSO:   ev.PerfDSO,
+			Event: ev.PerfEvent,
+		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
+		addPerfHotspot(byCallchain, firstNonEmpty(ev.PerfCallchain, ev.PerfSymbol, ev.PerfIP, "unknown"), PerfHotspot{
+			Symbol:    ev.PerfSymbol,
+			DSO:       ev.PerfDSO,
+			Callchain: ev.PerfCallchain,
+			Event:     ev.PerfEvent,
+		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
+		addPerfHotspot(byEvent, firstNonEmpty(ev.PerfEvent, "unknown"), PerfHotspot{
+			Event: ev.PerfEvent,
+		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
+		addPerfThread(byThread, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
+	}
+	if ctx.SampleCount == 0 {
+		return nil
+	}
+	ctx.TopSymbols = sortedPerfHotspots(bySymbol, max)
+	ctx.TopDSO = sortedPerfHotspots(byDSO, max)
+	ctx.TopCallchains = sortedPerfHotspots(byCallchain, max)
+	ctx.TopThreads = sortedPerfThreads(byThread, max)
+	ctx.TopEvents = sortedPerfHotspots(byEvent, max)
+	return ctx
+}
+
+func perfSampleThread(ev Event) ThreadRef {
+	return ThreadRef{
+		Comm: firstNonEmpty(ev.PerfComm, ev.Comm),
+		PID:  firstNonZero(ev.PerfTID, ev.PID),
+		TGID: firstNonZero(ev.PerfPID, ev.TGID),
+	}
+}
+
+func firstNonZero(values ...int) int {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func perfSampleExample(ev Event) string {
+	parts := []string{}
+	if ev.PerfSymbol != "" {
+		parts = append(parts, "symbol="+ev.PerfSymbol)
+	}
+	if ev.PerfDSO != "" {
+		parts = append(parts, "dso="+ev.PerfDSO)
+	}
+	if ev.PerfEvent != "" {
+		parts = append(parts, "event="+ev.PerfEvent)
+	}
+	if ev.PerfCallchain != "" {
+		parts = append(parts, "callchain="+ev.PerfCallchain)
+	}
+	if len(parts) == 0 {
+		return ev.FieldText
+	}
+	return strings.Join(parts, " ")
+}
+
+func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHotspot, thread ThreadRef, cpu int, line int, period int64, example string, total *int64) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		key = "unknown"
+	}
+	acc := bucket[key]
+	if acc == nil {
+		acc = &perfHotspotAcc{
+			item:      item,
+			threadSet: map[string]ThreadRef{},
+			cpuSet:    map[int]bool{},
+			total:     total,
+		}
+		bucket[key] = acc
+	}
+	acc.item.SampleCount++
+	acc.item.Period += period
+	if acc.item.LineStart == 0 || (line > 0 && line < acc.item.LineStart) {
+		acc.item.LineStart = line
+	}
+	if line > acc.item.LineEnd {
+		acc.item.LineEnd = line
+	}
+	if acc.item.Example == "" {
+		acc.item.Example = example
+	}
+	if label := threadLabel(thread); label != "" {
+		acc.threadSet[label] = thread
+	}
+	if cpu >= 0 {
+		acc.cpuSet[cpu] = true
+	}
+}
+
+func addPerfThread(bucket map[string]*perfThreadAcc, thread ThreadRef, cpu int, line int, period int64, example string, total *int64) {
+	key := threadLabel(thread)
+	if key == "" {
+		key = "unknown"
+	}
+	acc := bucket[key]
+	if acc == nil {
+		acc = &perfThreadAcc{
+			item:   PerfThreadSummary{Thread: thread},
+			cpuSet: map[int]bool{},
+			total:  total,
+		}
+		bucket[key] = acc
+	}
+	acc.item.SampleCount++
+	acc.item.Period += period
+	if acc.item.LineStart == 0 || (line > 0 && line < acc.item.LineStart) {
+		acc.item.LineStart = line
+	}
+	if line > acc.item.LineEnd {
+		acc.item.LineEnd = line
+	}
+	if acc.item.Example == "" {
+		acc.item.Example = example
+	}
+	if cpu >= 0 {
+		acc.cpuSet[cpu] = true
+	}
+}
+
+func sortedPerfHotspots(in map[string]*perfHotspotAcc, max int) []PerfHotspot {
+	out := make([]PerfHotspot, 0, len(in))
+	for _, acc := range in {
+		item := acc.item
+		item.Threads = sortedThreadRefs(acc.threadSet)
+		item.CPUs = sortedCPUs(acc.cpuSet)
+		if acc.total != nil && *acc.total > 0 {
+			item.Percent = float64(item.Period) * 100 / float64(*acc.total)
+		}
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Period != out[j].Period {
+			return out[i].Period > out[j].Period
+		}
+		if out[i].SampleCount != out[j].SampleCount {
+			return out[i].SampleCount > out[j].SampleCount
+		}
+		return perfHotspotLabel(out[i]) < perfHotspotLabel(out[j])
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func sortedPerfThreads(in map[string]*perfThreadAcc, max int) []PerfThreadSummary {
+	out := make([]PerfThreadSummary, 0, len(in))
+	for _, acc := range in {
+		item := acc.item
+		item.CPUs = sortedCPUs(acc.cpuSet)
+		if acc.total != nil && *acc.total > 0 {
+			item.Percent = float64(item.Period) * 100 / float64(*acc.total)
+		}
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Period != out[j].Period {
+			return out[i].Period > out[j].Period
+		}
+		if out[i].SampleCount != out[j].SampleCount {
+			return out[i].SampleCount > out[j].SampleCount
+		}
+		return threadLabel(out[i].Thread) < threadLabel(out[j].Thread)
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func sortedThreadRefs(in map[string]ThreadRef) []ThreadRef {
+	out := make([]ThreadRef, 0, len(in))
+	for _, thread := range in {
+		out = append(out, thread)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return threadLabel(out[i]) < threadLabel(out[j])
+	})
+	return out
+}
+
+func sortedCPUs(in map[int]bool) []int {
+	out := make([]int, 0, len(in))
+	for cpu := range in {
+		out = append(out, cpu)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func perfHotspotLabel(item PerfHotspot) string {
+	return firstNonEmpty(item.Symbol, item.DSO, item.Callchain, item.Event, item.Example)
 }
 
 type cpuPressureAcc struct {
@@ -8049,6 +8303,22 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 		})
 		if len(out) >= 38 {
 			break
+		}
+	}
+	if stats.PerfSamples != nil {
+		for _, hot := range stats.PerfSamples.TopSymbols {
+			out = append(out, EvidenceFact{
+				Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
+				Predicate:  "perf_sample_top_symbol",
+				Object:     hot.DSO,
+				Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s period=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+				LineStart:  hot.LineStart,
+				LineEnd:    hot.LineEnd,
+				Confidence: 0.72,
+			})
+			if len(out) >= 42 {
+				break
+			}
 		}
 	}
 	for _, supply := range stats.ComputeSupply {

@@ -315,7 +315,8 @@ Eval targets:
 
 ## Delivery Checklist
 
-- [ ] Batch A implemented, committed, pushed.
+- [x] Batch A implemented, committed, pushed.
+  - Landed `EventPerfSample`, normalized perf sample fields, `event_types=["perf_sample"]`, `window_stats.perf_samples`, summary/evidence/typed-observation handoff, prompt/schema teaching, JSON-repair aliases, and unit tests.
 - [ ] Batch B implemented, committed, pushed.
 - [ ] Batch C implemented, committed, pushed.
 - [ ] Batch D implemented, committed, pushed.
