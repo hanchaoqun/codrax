@@ -281,6 +281,8 @@ type Result struct {
 	RootCauseRank               *RootCauseRankResult    `json:"root_cause_rank,omitempty"`
 	FrameRootCauseBundle        *FrameRootCauseBundle   `json:"frame_root_cause_bundle,omitempty"`
 	InteractionStats            *InteractionStatsResult `json:"interaction_stats,omitempty"`
+	PerfStats                   *PerfContext            `json:"perf_stats,omitempty"`
+	PerfTimeline                *PerfTimelineResult     `json:"perf_timeline,omitempty"`
 	Recipe                      *RecipeResult           `json:"recipe,omitempty"`
 	EvidencePack                []EvidenceFact          `json:"evidence_pack,omitempty"`
 	Caveats                     []string                `json:"caveats,omitempty"`
@@ -439,6 +441,28 @@ type PerfThreadSummary struct {
 	LineStart   int       `json:"line_start,omitempty"`
 	LineEnd     int       `json:"line_end,omitempty"`
 	Example     string    `json:"example,omitempty"`
+}
+
+type PerfTimelineResult struct {
+	Window   TimeWindow           `json:"window"`
+	BucketMs float64              `json:"bucket_ms,omitempty"`
+	Buckets  []PerfTimelineBucket `json:"buckets,omitempty"`
+	Caveats  []string             `json:"caveats,omitempty"`
+}
+
+type PerfTimelineBucket struct {
+	StartTs     float64     `json:"start_ts,omitempty"`
+	EndTs       float64     `json:"end_ts,omitempty"`
+	SampleCount int         `json:"sample_count,omitempty"`
+	Period      int64       `json:"period,omitempty"`
+	TopSymbol   string      `json:"top_symbol,omitempty"`
+	TopDSO      string      `json:"top_dso,omitempty"`
+	TopEvent    string      `json:"top_event,omitempty"`
+	Threads     []ThreadRef `json:"threads,omitempty"`
+	CPUs        []int       `json:"cpus,omitempty"`
+	LineStart   int         `json:"line_start,omitempty"`
+	LineEnd     int         `json:"line_end,omitempty"`
+	Example     string      `json:"example,omitempty"`
 }
 
 type SchedulerLatencyResult struct {

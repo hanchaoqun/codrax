@@ -1267,6 +1267,27 @@ func TestPerfSampleEventSearchAndWindowStats(t *testing.T) {
 	}
 }
 
+func TestPerfSampleViews(t *testing.T) {
+	idx := buildTraceIndex(t, "samples_views.perftrace", `
+	app-5678 (1234) [005] .... 20.000100: sched_switch: prev_comm=idle/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=5678 next_prio=53
+	app-5678 (1234) [005] .... 20.000100: perf_sample: pid=1234 tid=5678 cpu=5 period=10000 event=cpu-cycles symbol=Foo::bar dso=libfoo.so callchain=main;A;Foo::bar
+	app-5678 (1234) [005] .... 20.001200: perf_sample: pid=1234 tid=5678 cpu=5 period=30000 event=cpu-cycles symbol=Foo::bar dso=libfoo.so callchain=main;A;Foo::bar
+	app-5678 (1234) [005] .... 20.002300: sched_switch: prev_comm=app prev_pid=5678 prev_prio=53 prev_state=R+ ==> next_comm=idle/5 next_pid=0 next_prio=120
+	`)
+	stats := Run(idx, Query{View: "perf_stats", PID: 5678, TimeStart: 20.0, TimeEnd: 20.003})
+	if stats.PerfStats == nil || len(stats.PerfStats.TopSymbols) == 0 || stats.PerfStats.TopSymbols[0].Symbol != "Foo::bar" {
+		t.Fatalf("perf_stats should expose top symbols: %+v", stats)
+	}
+	timeline := Run(idx, Query{View: "perf_timeline", PID: 5678, TimeStart: 20.0, TimeEnd: 20.003, MinDurationMs: 1})
+	if timeline.PerfTimeline == nil || len(timeline.PerfTimeline.Buckets) < 2 {
+		t.Fatalf("perf_timeline should bucket samples over time: %+v", timeline.PerfTimeline)
+	}
+	bundle := Run(idx, Query{View: "trace_perf_bundle", PID: 5678, TimeStart: 20.0, TimeEnd: 20.003})
+	if bundle.WindowStats == nil || bundle.PerfStats == nil || bundle.RootCauseRank == nil || bundle.WakeupChain == nil {
+		t.Fatalf("trace_perf_bundle should preserve trace and perf handoff fields: window=%v perf=%v rank=%v chain=%v", bundle.WindowStats, bundle.PerfStats, bundle.RootCauseRank, bundle.WakeupChain)
+	}
+}
+
 func TestFramePipelineCriticalBlockingAndRecipeViews(t *testing.T) {
 	idx := buildTraceIndex(t, "blocking.systrace", blockingTrace)
 	frame := Run(idx, Query{View: "frame_window", PID: 20, TimeStart: 6.0, TimeEnd: 6.1})

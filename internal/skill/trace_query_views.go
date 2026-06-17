@@ -58,6 +58,19 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 			When: "same-window CPU/IO/binder/IRQ/frequency, compute-supply, `state_churn` context, perf_samples top symbols/DSOs/callchains, file_io_by_inode, page_cache_by_inode, storage_latency_by_layer, and io_pressure_summary context",
 		},
 		{
+			View:   "perf_stats",
+			Params: "`event_types=[\"perf_sample\"]` only when filtering sample rows explicitly",
+			When:   "same-window CPU sample aggregation by top_symbols, top_dso, top_callchains, top_threads, and top_events",
+		},
+		{
+			View: "perf_timeline",
+			When: "bucketed CPU sample period over time for a selected window/thread/process/symbol context",
+		},
+		{
+			View: "trace_perf_bundle",
+			When: "handoff-safe joint trace+perf context that keeps window stats, wakeup/root-cause evidence, and perf sample hotspots together",
+		},
+		{
 			View: "scheduler_latency_stats",
 			When: "runnable wait p95/p99/max and same-CPU competition",
 		},

@@ -171,6 +171,18 @@ func Run(idx *Index, q Query) Result {
 		stats := getStats()
 		res.WindowStats = &stats
 		res.EvidencePack = evidenceFromStats(stats)
+	case "perf_stats":
+		stats := getStats()
+		res.WindowStats = &stats
+		res.PerfStats = stats.PerfSamples
+		if stats.PerfSamples == nil {
+			res.Caveats = append(res.Caveats, "no perf_sample events matched the selected window or filters")
+		}
+		res.EvidencePack = evidenceFromPerfContext(stats.PerfSamples)
+	case "perf_timeline":
+		timeline := BuildPerfTimeline(idx, q)
+		res.PerfTimeline = &timeline
+		res.EvidencePack = evidenceFromPerfTimeline(timeline)
 	case "scheduler_latency_stats":
 		latency := getLatency()
 		res.SchedulerLatency = &latency
@@ -222,6 +234,19 @@ func Run(idx *Index, q Query) Result {
 		}
 		stats := getStats()
 		res.WindowStats = &stats
+	case "trace_perf_bundle":
+		stats := getStats()
+		res.WindowStats = &stats
+		res.PerfStats = stats.PerfSamples
+		if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
+			chain := getChain()
+			res.WakeupChain = &chain
+			res.EvidencePack = append(res.EvidencePack, evidenceFromChain(chain)...)
+			rank := getRootCause()
+			res.RootCauseRank = &rank
+			res.EvidencePack = append(res.EvidencePack, evidenceFromRootCauseRank(rank)...)
+		}
+		res.EvidencePack = append(res.EvidencePack, evidenceFromStats(stats)...)
 	case "interaction_stats":
 		interactions := BuildInteractionStats(idx, q)
 		res.InteractionStats = &interactions
@@ -1526,6 +1551,158 @@ func sortedCPUs(in map[int]bool) []int {
 
 func perfHotspotLabel(item PerfHotspot) string {
 	return firstNonEmpty(item.Symbol, item.DSO, item.Callchain, item.Event, item.Example)
+}
+
+type perfTimelineBucketAcc struct {
+	bucket    PerfTimelineBucket
+	symbols   map[string]int64
+	dsos      map[string]int64
+	events    map[string]int64
+	threadSet map[string]ThreadRef
+	cpuSet    map[int]bool
+}
+
+func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
+	q = ensureQueryFlavor(idx, q)
+	start, end, count := perfTimelineWindow(idx, q)
+	res := PerfTimelineResult{Window: TimeWindow{StartTs: start, EndTs: end}}
+	if count == 0 {
+		res.Caveats = append(res.Caveats, "no perf_sample events matched the selected window or filters")
+		return res
+	}
+	bucketSec := q.MinDurationMs / 1000
+	if bucketSec <= 0 {
+		bucketSec = 0.001
+	}
+	if start < end {
+		maxBuckets := 200.0
+		if buckets := (end - start) / bucketSec; buckets > maxBuckets {
+			bucketSec = (end - start) / maxBuckets
+		}
+	}
+	if bucketSec <= 0 {
+		bucketSec = 0.001
+	}
+	res.BucketMs = bucketSec * 1000
+	buckets := map[int]*perfTimelineBucketAcc{}
+	for _, ev := range idx.Events {
+		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
+			continue
+		}
+		if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
+			continue
+		}
+		idxBucket := 0
+		if ev.Ts > start && bucketSec > 0 {
+			idxBucket = int((ev.Ts - start) / bucketSec)
+		}
+		acc := buckets[idxBucket]
+		if acc == nil {
+			bStart := start + float64(idxBucket)*bucketSec
+			acc = &perfTimelineBucketAcc{
+				bucket:    PerfTimelineBucket{StartTs: bStart, EndTs: bStart + bucketSec},
+				symbols:   map[string]int64{},
+				dsos:      map[string]int64{},
+				events:    map[string]int64{},
+				threadSet: map[string]ThreadRef{},
+				cpuSet:    map[int]bool{},
+			}
+			buckets[idxBucket] = acc
+		}
+		period := ev.PerfPeriod
+		if period <= 0 {
+			period = 1
+		}
+		acc.bucket.SampleCount++
+		acc.bucket.Period += period
+		if acc.bucket.LineStart == 0 || (ev.Line > 0 && ev.Line < acc.bucket.LineStart) {
+			acc.bucket.LineStart = ev.Line
+		}
+		if ev.Line > acc.bucket.LineEnd {
+			acc.bucket.LineEnd = ev.Line
+		}
+		if acc.bucket.Example == "" {
+			acc.bucket.Example = perfSampleExample(ev)
+		}
+		if ev.PerfSymbol != "" {
+			acc.symbols[ev.PerfSymbol] += period
+		}
+		if ev.PerfDSO != "" {
+			acc.dsos[ev.PerfDSO] += period
+		}
+		if ev.PerfEvent != "" {
+			acc.events[ev.PerfEvent] += period
+		}
+		if label := threadLabel(perfSampleThread(ev)); label != "" {
+			acc.threadSet[label] = perfSampleThread(ev)
+		}
+		if ev.CPU >= 0 {
+			acc.cpuSet[ev.CPU] = true
+		}
+	}
+	keys := make([]int, 0, len(buckets))
+	for key := range buckets {
+		keys = append(keys, key)
+	}
+	sort.Ints(keys)
+	for _, key := range keys {
+		acc := buckets[key]
+		acc.bucket.TopSymbol = topWeightedKey(acc.symbols)
+		acc.bucket.TopDSO = topWeightedKey(acc.dsos)
+		acc.bucket.TopEvent = topWeightedKey(acc.events)
+		acc.bucket.Threads = sortedThreadRefs(acc.threadSet)
+		acc.bucket.CPUs = sortedCPUs(acc.cpuSet)
+		if acc.bucket.EndTs > end && end > start {
+			acc.bucket.EndTs = end
+		}
+		res.Buckets = append(res.Buckets, acc.bucket)
+	}
+	return res
+}
+
+func perfTimelineWindow(idx *Index, q Query) (float64, float64, int) {
+	start, end := q.TimeStart, q.TimeEnd
+	count := 0
+	for _, ev := range idx.Events {
+		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
+			continue
+		}
+		if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
+			continue
+		}
+		count++
+		if start == 0 || ev.Ts < start {
+			start = ev.Ts
+		}
+		if end == 0 || ev.Ts > end {
+			end = ev.Ts
+		}
+	}
+	if end < start {
+		end = start
+	}
+	if end == start && count > 0 {
+		end = start + 0.001
+	}
+	return start, end, count
+}
+
+func topWeightedKey(in map[string]int64) string {
+	var best string
+	var bestWeight int64
+	for key, weight := range in {
+		if best == "" || weight > bestWeight || (weight == bestWeight && key < best) {
+			best = key
+			bestWeight = weight
+		}
+	}
+	return best
 }
 
 type cpuPressureAcc struct {
@@ -8352,6 +8529,63 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 	return out
 }
 
+func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
+	if ctx == nil {
+		return nil
+	}
+	var out []EvidenceFact
+	for _, hot := range ctx.TopSymbols {
+		out = append(out, EvidenceFact{
+			Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
+			Predicate:  "perf_sample_top_symbol",
+			Object:     hot.DSO,
+			Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s period=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+			LineStart:  hot.LineStart,
+			LineEnd:    hot.LineEnd,
+			Confidence: 0.72,
+		})
+		if len(out) >= 12 {
+			break
+		}
+	}
+	for _, hot := range ctx.TopCallchains {
+		out = append(out, EvidenceFact{
+			Subject:    firstNonEmpty(hot.Symbol, hot.Callchain, "perf_callchain"),
+			Predicate:  "perf_sample_top_callchain",
+			Object:     hot.Callchain,
+			Summary:    fmt.Sprintf("perf callchain: %s period=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Callchain, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+			LineStart:  hot.LineStart,
+			LineEnd:    hot.LineEnd,
+			Confidence: 0.68,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	return out
+}
+
+func evidenceFromPerfTimeline(timeline PerfTimelineResult) []EvidenceFact {
+	var out []EvidenceFact
+	for _, bucket := range timeline.Buckets {
+		out = append(out, EvidenceFact{
+			Subject:    firstNonEmpty(bucket.TopSymbol, bucket.TopDSO, bucket.TopEvent, "perf_timeline"),
+			Predicate:  "perf_timeline_bucket",
+			Object:     bucket.TopDSO,
+			Summary:    fmt.Sprintf("perf timeline %.6f..%.6f period=%d samples=%d top_symbol=%s top_dso=%s event=%s", bucket.StartTs, bucket.EndTs, bucket.Period, bucket.SampleCount, firstNonEmpty(bucket.TopSymbol, "unknown"), firstNonEmpty(bucket.TopDSO, "unknown"), firstNonEmpty(bucket.TopEvent, "unknown")),
+			LineStart:  bucket.LineStart,
+			LineEnd:    bucket.LineEnd,
+			StartTs:    bucket.StartTs,
+			EndTs:      bucket.EndTs,
+			Confidence: 0.68,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	return out
+}
+
 func evidenceFromSchedulerLatency(latency SchedulerLatencyResult) []EvidenceFact {
 	var out []EvidenceFact
 	for _, item := range latency.Items {
@@ -8649,9 +8883,9 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	if res.View == "event_search" && len(res.Events) == 0 {
 		out = append(out, "matched_events=0 for the selected filters; this is not absence proof if the thread label, time window, event types, or line window are too narrow")
 		if pattern := strings.TrimSpace(q.Pattern); pattern != "" {
-			out = append(out, fmt.Sprintf("pattern_no_match_hint=pattern %q is a literal substring, not a regex; try one shorter exact frame id/span label/marker token, add event_types=[\"trace_mark\"] for B/E/C/S/F marker rows, or remove over-narrow pid/thread/time filters before falling back to grep/read_file; for B/E spans, do not search E|<pid>|<span_name> because end rows are unnamed E|<pid> or bare E on the same ftrace thread stack", pattern))
+			out = append(out, fmt.Sprintf("pattern_no_match_hint=pattern %q is a literal substring, not a regex; try one shorter exact frame id/span label/marker token/symbol/DSO/callchain fragment, add event_types=[\"trace_mark\"] for B/E/C/S/F marker rows or event_types=[\"perf_sample\"] for CPU sample rows, or remove over-narrow pid/thread/time filters before falling back to grep/read_file; for B/E spans, do not search E|<pid>|<span_name> because end rows are unnamed E|<pid> or bare E on the same ftrace thread stack", pattern))
 			if len(q.EventTypes) == 0 {
-				out = append(out, fmt.Sprintf("next_pattern_call_hint=try trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"], time_start=%.6f, time_end=%.6f, limit=40) or trace_query(view=\"span_window\", span_name=\"<span label>\", line_start=<line>, line_end=<line>) after selecting a line window", pattern, q.TimeStart, q.TimeEnd))
+				out = append(out, fmt.Sprintf("next_pattern_call_hint=try trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"], time_start=%.6f, time_end=%.6f, limit=40), trace_query(view=\"event_search\", pattern=%q, event_types=[\"perf_sample\"], time_start=%.6f, time_end=%.6f, limit=40), or trace_query(view=\"span_window\", span_name=\"<span label>\", line_start=<line>, line_end=<line>) after selecting a line window", pattern, q.TimeStart, q.TimeEnd, pattern, q.TimeStart, q.TimeEnd))
 			}
 		}
 		if q.PID > 0 {
@@ -8678,7 +8912,7 @@ func traceCompletenessCaveats(idx *Index, q Query, res Result) []string {
 		return nil
 	}
 	var out []string
-	if (res.View == "wakeup_chain" || res.View == "root_cause_rank" || res.View == "scheduler_latency_stats" || res.View == "recipe" || res.View == "evidence_pack") && (q.PID > 0 || q.Thread != "" || q.ThreadInput != "") {
+	if (res.View == "wakeup_chain" || res.View == "root_cause_rank" || res.View == "scheduler_latency_stats" || res.View == "trace_perf_bundle" || res.View == "recipe" || res.View == "evidence_pack") && (q.PID > 0 || q.Thread != "" || q.ThreadInput != "") {
 		target := resolveThread(idx, q)
 		if target.PID > 0 || target.Comm != "" {
 			tq := q
@@ -8696,7 +8930,7 @@ func traceCompletenessCaveats(idx *Index, q Query, res Result) []string {
 			}
 		}
 	}
-	if q.TimeStart > 0 && (res.WindowStats != nil || res.SchedulerLatency != nil || res.RootCauseRank != nil || res.View == "recipe" || res.View == "evidence_pack") {
+	if q.TimeStart > 0 && (res.WindowStats != nil || res.SchedulerLatency != nil || res.RootCauseRank != nil || res.View == "recipe" || res.View == "evidence_pack" || res.View == "trace_perf_bundle") {
 		for _, cpu := range cpusMentionedInResult(res) {
 			if cpu < 0 {
 				continue

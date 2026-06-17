@@ -317,7 +317,8 @@ Eval targets:
 
 - [x] Batch A implemented, committed, pushed.
   - Landed `EventPerfSample`, normalized perf sample fields, `event_types=["perf_sample"]`, `window_stats.perf_samples`, summary/evidence/typed-observation handoff, prompt/schema teaching, JSON-repair aliases, and unit tests.
-- [ ] Batch B implemented, committed, pushed.
+- [x] Batch B implemented, committed, pushed.
+  - Landed `perf_stats`, `perf_timeline`, and `trace_perf_bundle` views, view aliases through schema repair, prompt/view-matrix teaching, empty-result perf hints, summary rendering, and view tests.
 - [ ] Batch C implemented, committed, pushed.
 - [ ] Batch D implemented, committed, pushed.
 - [ ] Batch E implemented, committed, pushed.

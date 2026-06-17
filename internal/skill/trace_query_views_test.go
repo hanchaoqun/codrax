@@ -10,8 +10,8 @@ import (
 // and the three previously-untaught views are present.
 func TestTraceQueryViewTeachings_TableShape(t *testing.T) {
 	rows := TraceQueryViewTeachings()
-	if len(rows) != 17 {
-		t.Fatalf("expected 17 trace_query view rows, got %d", len(rows))
+	if len(rows) != 20 {
+		t.Fatalf("expected 20 trace_query view rows, got %d", len(rows))
 	}
 	seen := map[string]bool{}
 	for _, row := range rows {
@@ -26,7 +26,7 @@ func TestTraceQueryViewTeachings_TableShape(t *testing.T) {
 			t.Fatalf("view %q has no when-to-use clause", row.View)
 		}
 	}
-	for _, want := range []string{"frame_timeline", "frame_flow", "frame_root_cause_bundle", "evidence_pack"} {
+	for _, want := range []string{"frame_timeline", "frame_flow", "frame_root_cause_bundle", "perf_stats", "perf_timeline", "trace_perf_bundle", "evidence_pack"} {
 		if !seen[want] {
 			t.Fatalf("previously-untaught view %q missing from shared table", want)
 		}
@@ -68,7 +68,11 @@ func TestRenderTraceQueryViewMatrix_PreservesPinnedPromptPhrases(t *testing.T) {
 		"same-chain cumulative_impact_ms",
 		"occurrence_windows",
 		"`view=\"frame_root_cause_bundle\"`",
+		"`view=\"perf_stats\"`",
+		"`view=\"perf_timeline\"`",
+		"`view=\"trace_perf_bundle\"`",
 		"handoff-safe frame/jank root-cause bundles",
+		"handoff-safe joint trace+perf context",
 		"oneway/sync_like/blocking_candidate",
 		"structured row lookup",
 		"B/E/C/S/F trace_mark rows",
