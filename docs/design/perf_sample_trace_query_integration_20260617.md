@@ -362,6 +362,24 @@ D4 landed the dual-engine parser strategy: `--perf-parser=auto` prefers official
 
 Status: in progress. `tracequery.BuildIndex` now accepts `.tracebundle.json` directly, promotes `*.systrace` / `*.perftrace` to a sibling `*.tracebundle.json` when present, and auto-merges sibling `*.systrace + *.perftrace` pairs when no bundle exists. The merge keeps existing parser/view code as the single consumer, so model tool calls can pass one path and still get joint trace+perf context.
 
+Additional UX gaps found after the raw fallback batch:
+
+1. **Official tool onboarding is not transparent enough.** The code supports `--hiperf-host`, `CODRAX_HIPERF_HOST`, `PATH` discovery, `--simpleperf-report-sample`, `CODRAX_SIMPLEPERF_REPORT_SAMPLE`, Python discovery, symbol dirs, symfs, and kallsyms, but users do not yet get a single `doctor`/help surface that explains how to install or wire OpenHarmony `hiperf_host` and Android simpleperf `report_sample.py`.
+2. **Tool discovery status is not surfaced before conversion.** `trace convert` caveats report missing adapters after the fact, but there is no explicit preflight table such as `official hiperf: found/missing`, `simpleperf: found/missing`, `raw fallback: available`, `selected parser: auto|official|raw`, and `symbolization expectation`.
+3. **Bundling official tools into the Codrax binary needs a deliberate provider policy.** Embedding a "latest" hiperf/simpleperf binary directly into the main executable is risky because these tools are platform/ABI-specific, update independently, may have upstream licensing/distribution constraints, and need matching symbolization libraries. A safer commercial path is a provider registry plus optional managed tool cache: discover system tools first, then optionally install or point to a versioned external tool bundle. A build-tag or enterprise packaging lane can embed approved binaries later, but default Codrax should not silently ship a stale or wrong-platform official parser.
+4. **Multi runtime-artifact append lacks visible state.** When several traces/logs/perf files are attached or appended, REPL/CLI prompts do not clearly show the active runtime artifact set, which artifact is primary, whether sidecars were auto-merged, and which caveats apply.
+5. **Markdown/HTML reports lack artifact transparency.** Final reports should have a compact "Runtime Artifacts" section that lists each source path, type, size/line count, converter, bundle membership, parser source (`hiperf_proto`, `simpleperf_report_sample`, `raw_perfdata_fallback`), `symbolization_status`, and caveats. This must come from typed artifact metadata, not model prose or keyword matching.
+
+Batch E task additions:
+
+- [ ] Add a reusable perf tool provider/status layer that returns `official_harmony`, `official_android`, and `raw_fallback` availability with path/source/version when cheaply detectable.
+- [ ] Add `trace convert --perf-tools-status` or an equivalent preflight command/output section that shows selected parser, discovered official tools, raw fallback availability, and install guidance when missing.
+- [ ] Add concise install/integration documentation for OpenHarmony `hiperf_host` and Android simpleperf `report_sample.py`, including env vars, CLI flags, symbol-dir/symfs/kallsyms, and expected output caveats.
+- [ ] Design an optional managed tool-cache/bundle provider before considering embedded binaries. Any embedded-binary lane must be explicit, versioned, platform-scoped, license-reviewed, and observable in `--perf-tools-status`.
+- [ ] Extend REPL/CLI runtime artifact state so multiple `/log`, `/htrace`, `/atrace`, `.perftrace`, `.tracebundle.json`, and direct path attachments display a stable prompt/status summary: count by type, active primary artifact, bundle/sidecar merge status, and caveats.
+- [ ] Extend markdown/html report rendering with a typed "Runtime Artifacts" section sourced from attachment/bundle metadata and trace_query outputs, including perf parser source and symbolization status.
+- [ ] Add eval/regression cases for explicit path-based multiple artifacts, appended log+trace+perf flows, prompt/status visibility, and report artifact transparency.
+
 ### Batch F: Evals and Regression Guard
 
 - Add minimal synthetic perftrace evals without over-prebaked analysis.
