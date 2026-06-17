@@ -2275,6 +2275,51 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewFollowupRunsOnc
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewDoesNotRecurse(t *testing.T) {
+	mu := types.NewMutableState("semantic patch review followup recursion")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:     "plan-semantic-followup",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:     "control_flow_guard_touched",
+				Severity: types.PatchReviewSeverityWarning,
+				Path:     "pkg/axis.py",
+			}, {
+				Code:     "call_site_touched",
+				Severity: types.PatchReviewSeverityWarning,
+				Path:     "pkg/axis.py",
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-semantic-no-recursion",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-semantic-review",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1-semantic-review",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-semantic-followup"},
+				{Kind: "verify", Status: "unverified", ReasonCode: "parser_error", PlanID: "plan-semantic-followup"},
+			},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "semantic_patch_review_followup_requested",
+		}},
+	}
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:            writeflow.ActionFinish,
+		ReasonCode:        "done",
+		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("semantic follow-up should not recursively append another follow-up, got %+v", got)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionReplanWithFailureHandoffAllowed(t *testing.T) {
 	mu := types.NewMutableState("failed verify replan allowed")
 	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{BatchID: "batch-1", Attempt: 1})

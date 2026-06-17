@@ -3555,7 +3555,7 @@ func semanticPatchReviewFollowupNeeded(run *types.WriteWorkflowRun, batchID stri
 	if plan == nil || plan.PatchReview == nil || !patchReviewHasCoupledSemanticWarning(plan.PatchReview) {
 		return false
 	}
-	return workflowProgressReasonCount(run, batchID, "semantic_patch_review_followup_requested") == 0
+	return workflowProgressReasonCount(run, "", "semantic_patch_review_followup_requested") == 0
 }
 
 func patchReviewHasCoupledSemanticWarning(review *types.PatchReviewRecord) bool {
