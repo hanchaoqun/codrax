@@ -1430,6 +1430,8 @@ func narrativeBuildErrorExcerpt(stdout string) string {
 //     the location only — rustc puts the error code on
 //     a preceding `error[E0308]: …` line which
 //     extractRustErrorCodeAndMessage links back.)
+//  8. Node check:    "/path/app.js:1" followed by "SyntaxError: …"
+//  9. Ruby check:    "/path/app.rb:1: syntax error, …"
 //
 // Each capture group: file, line, optional col, optional symbol/code,
 // message. parseBuildErrors normalises into BuildError rows and
@@ -1451,6 +1453,10 @@ var (
 		`(?m)^\s*-->\s+(\S+\.rs):(\d+):(\d+)`)
 	reBuildRustErrCode = regexp.MustCompile(
 		`(?m)^error\[(E\d+)\]:\s+(.+)`)
+	reBuildNodeSyntax = regexp.MustCompile(
+		`(?ms)^\s*(\S+\.(?:js|jsx|mjs|cjs)):(\d+)\s*\n(?:.*?\n)*?\s*(SyntaxError:\s*[^\n]+)`)
+	reBuildRubySyntax = regexp.MustCompile(
+		`(?m)^\s*(\S+\.rb):(\d+):\s*(.*syntax error.*)$`)
 	// Go errors don't always carry a literal "error:" keyword:
 	// `./foo.go:5:1: syntax error: unexpected newline` is common.
 	// Accept any message after the file:line(:col): prefix on .go
@@ -1521,7 +1527,23 @@ func parseBuildErrors(stdout string) []types.BuildError {
 		col, _ := strconv.Atoi(m[3])
 		add(m[1], line, col, "", m[4])
 	}
-	// 3. Generic javac/scalac/Gradle compile
+	// 3. Node `node --check` syntax output.
+	for _, m := range reBuildNodeSyntax.FindAllStringSubmatch(stdout, -1) {
+		if len(out) >= maxBuildErrors {
+			break
+		}
+		line, _ := strconv.Atoi(m[2])
+		add(m[1], line, 0, "SyntaxError", m[3])
+	}
+	// 4. Ruby `ruby -wc` syntax output.
+	for _, m := range reBuildRubySyntax.FindAllStringSubmatch(stdout, -1) {
+		if len(out) >= maxBuildErrors {
+			break
+		}
+		line, _ := strconv.Atoi(m[2])
+		add(m[1], line, 0, "", m[3])
+	}
+	// 5. Generic javac/scalac/Gradle compile
 	for _, m := range reBuildGenericFLine.FindAllStringSubmatch(stdout, -1) {
 		if len(out) >= maxBuildErrors {
 			break
@@ -1529,7 +1551,7 @@ func parseBuildErrors(stdout string) []types.BuildError {
 		line, _ := strconv.Atoi(m[2])
 		add(m[1], line, 0, "", m[3])
 	}
-	// 4. TypeScript paren-shape
+	// 6. TypeScript paren-shape
 	for _, m := range reBuildTSParen.FindAllStringSubmatch(stdout, -1) {
 		if len(out) >= maxBuildErrors {
 			break
@@ -1538,7 +1560,7 @@ func parseBuildErrors(stdout string) []types.BuildError {
 		col, _ := strconv.Atoi(m[3])
 		add(m[1], line, col, m[4], m[5])
 	}
-	// 5. TypeScript colon-shape
+	// 7. TypeScript colon-shape
 	for _, m := range reBuildTSColon.FindAllStringSubmatch(stdout, -1) {
 		if len(out) >= maxBuildErrors {
 			break
@@ -1547,7 +1569,7 @@ func parseBuildErrors(stdout string) []types.BuildError {
 		col, _ := strconv.Atoi(m[3])
 		add(m[1], line, col, m[4], m[5])
 	}
-	// 6. Cangjie
+	// 8. Cangjie
 	for _, m := range reBuildCangjie.FindAllStringSubmatch(stdout, -1) {
 		if len(out) >= maxBuildErrors {
 			break
@@ -1559,7 +1581,7 @@ func parseBuildErrors(stdout string) []types.BuildError {
 		}
 		add(m[1], line, col, "", m[4])
 	}
-	// 7. Rust block-style. The `-->` line carries file:line:col but no
+	// 9. Rust block-style. The `-->` line carries file:line:col but no
 	// message; we pair each occurrence with the most-recent
 	// `error[Exxxx]: <message>` line above it. Cargo / rustc puts the
 	// error code one or two lines before the location pointer.

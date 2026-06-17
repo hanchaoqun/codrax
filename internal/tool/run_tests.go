@@ -3462,12 +3462,14 @@ func runNodeCheckFallback(ctx *types.BusContext, label, runnerRoot string, files
 			output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
 			continue
 		}
+		detail := strings.TrimSpace(string(out))
 		failures = append(failures, types.TestResult{
 			Kind:          types.TestResultKindBuildError,
 			Suite:         "node_check",
 			AssertionID:   rel,
 			Passed:        false,
-			FailureDetail: strings.TrimSpace(string(out)),
+			FailureDetail: detail,
+			BuildErrors:   parseBuildErrors(detail),
 		})
 		output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", rel, err,
 			truncateForLog(string(out), 300)))
@@ -3487,11 +3489,12 @@ func runNodeCheckFallback(ctx *types.BusContext, label, runnerRoot string, files
 			len(failures), len(files))
 	}
 	return &types.ChangeReport{
-		Passed:         false,
-		BuildFailed:    true,
-		FailureSummary: summary,
-		FailureKind:    types.FailureKindBuildFailure,
-		TestResults:    failures,
+		Passed:            false,
+		BuildFailed:       true,
+		FailureSummary:    summary,
+		FailureKind:       types.FailureKindBuildFailure,
+		FailureReasonCode: "node_syntax_check_failed",
+		TestResults:       failures,
 	}, output.String()
 }
 
@@ -3536,12 +3539,14 @@ func runRubyCheckFallback(ctx *types.BusContext, label, runnerRoot string, files
 			output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
 			continue
 		}
+		detail := strings.TrimSpace(string(out))
 		failures = append(failures, types.TestResult{
 			Kind:          types.TestResultKindBuildError,
 			Suite:         "ruby_check",
 			AssertionID:   rel,
 			Passed:        false,
-			FailureDetail: strings.TrimSpace(string(out)),
+			FailureDetail: detail,
+			BuildErrors:   parseBuildErrors(detail),
 		})
 		output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", rel, err,
 			truncateForLog(string(out), 300)))
@@ -3561,11 +3566,12 @@ func runRubyCheckFallback(ctx *types.BusContext, label, runnerRoot string, files
 			len(failures), len(files))
 	}
 	return &types.ChangeReport{
-		Passed:         false,
-		BuildFailed:    true,
-		FailureSummary: summary,
-		FailureKind:    types.FailureKindBuildFailure,
-		TestResults:    failures,
+		Passed:            false,
+		BuildFailed:       true,
+		FailureSummary:    summary,
+		FailureKind:       types.FailureKindBuildFailure,
+		FailureReasonCode: "ruby_syntax_check_failed",
+		TestResults:       failures,
 	}, output.String()
 }
 

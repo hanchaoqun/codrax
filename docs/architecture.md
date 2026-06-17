@@ -1469,6 +1469,8 @@ coder 是 "dumb marshaller"：每次 apply_patch 工具的 schema 仅 `{path, ki
 
 **Typed TestSurface**：`BuildTestSurface` 复用既有探测器（`detectRunnerPlanCandidates`——同 root 的全清单,不做执行路径的 one-runner-per-root 折叠——加 `runnerHasNoTestWork` / `detectMakeTestTargetFound` / `detectNativeBuildDir`）产出 typed 候选清单,排序规则为"**可运行测试工作支配 manifest 优先级**"：带 check/test 目标的 Makefile 排在零测试工作的 `pom.xml` 之前。verifier prompt 渲染该清单（typed 事实,soft 引导）。`run_tests` 内置 typed 死端逃逸：模型选择执行后落得零测试结果（NoTestsRunners）或 runner 二进制缺失,且 surface 还有未执行的 HasTestSignal 候选时,确定性追加执行最高位候选（每次 Execute 至多一次）。每条 ChangeReport 携带 `ExecutedCommands`（命令/cwd/exit/来源/结局 typed 行）与内嵌 `TestSurface`,dry-run probe 通道同样受益。
 
+**Syntax fallback diagnostics**：无测试基础设施时，plan-touched Python / Node / Ruby 文件会走语法预检兜底。Python 产出 `py_compile` / `python_static_name_check` 行；Node `node --check` 与 Ruby `ruby -wc` 的失败输出会被解析为 `BuildErrors[]` 并带稳定 `FailureReasonCode`，因此 P2 verify-failure handoff 消费的是 file/line/message typed rows，而不是 runner stdout 或模型 narrative。
+
 ### 8.8 Write Closure — W1 / W1b 不变量
 
 > *像装修白名单：(W1) 工人只能改业主签字"允许动"的房间（TargetPaths），动其他房间立刻拦下；(W1b) 一道工序有前置依赖（"贴砖前必须先做防水"），前置没过验收就开工的话立刻拦下。LLM 连撞 3 次拦截还要改同一个不在白名单的房间——不是工人手抖，是设计图（plan）漏了那个房间，需要回去重画图。*

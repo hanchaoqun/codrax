@@ -1813,6 +1813,37 @@ func TestRunNodeCheckFallback_PassWhenAllFilesParse(t *testing.T) {
 	}
 }
 
+func TestRunNodeCheckFallback_FailureCarriesBuildErrors(t *testing.T) {
+	dir := t.TempDir()
+	nodeBin := filepath.Join(dir, "node")
+	script := `#!/bin/sh
+printf "%s:3\nconst =\n      ^\n\nSyntaxError: Unexpected token '='\n" "$2"
+exit 1
+`
+	if err := os.WriteFile(nodeBin, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake node: %v", err)
+	}
+	t.Setenv("PATH", dir)
+	root := t.TempDir()
+	bad := filepath.Join(root, "app.js")
+	if err := os.WriteFile(bad, []byte("const =\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	report, _ := runNodeCheckFallback(nil, "node@.", root, []string{bad})
+	if report == nil || report.Passed {
+		t.Fatalf("bad js should fail node --check, got %+v", report)
+	}
+	if report.FailureReasonCode != "node_syntax_check_failed" {
+		t.Fatalf("FailureReasonCode=%q", report.FailureReasonCode)
+	}
+	if len(report.TestResults) != 1 || len(report.TestResults[0].BuildErrors) != 1 {
+		t.Fatalf("node syntax failure should carry one build error, got %+v", report.TestResults)
+	}
+	if got := report.TestResults[0].BuildErrors[0]; got.File != bad || got.Line != 3 || got.Symbol != "SyntaxError" {
+		t.Fatalf("node build error mis-parsed: %+v", got)
+	}
+}
+
 // TestRunRubyCheckFallback_PassWhenAllFilesParse drives the ruby
 // fallback end-to-end. Skipped without ruby on PATH.
 func TestRunRubyCheckFallback_PassWhenAllFilesParse(t *testing.T) {
@@ -1830,6 +1861,37 @@ func TestRunRubyCheckFallback_PassWhenAllFilesParse(t *testing.T) {
 	}
 	if !strings.Contains(output, "ok    app.rb") {
 		t.Errorf("output should record per-file ok: %q", output)
+	}
+}
+
+func TestRunRubyCheckFallback_FailureCarriesBuildErrors(t *testing.T) {
+	dir := t.TempDir()
+	rubyBin := filepath.Join(dir, "ruby")
+	script := `#!/bin/sh
+printf "%s:4: syntax error, unexpected end-of-input, expecting end\n" "$2"
+exit 1
+`
+	if err := os.WriteFile(rubyBin, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake ruby: %v", err)
+	}
+	t.Setenv("PATH", dir)
+	root := t.TempDir()
+	bad := filepath.Join(root, "app.rb")
+	if err := os.WriteFile(bad, []byte("def x\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	report, _ := runRubyCheckFallback(nil, "ruby@.", root, []string{bad})
+	if report == nil || report.Passed {
+		t.Fatalf("bad rb should fail ruby -c, got %+v", report)
+	}
+	if report.FailureReasonCode != "ruby_syntax_check_failed" {
+		t.Fatalf("FailureReasonCode=%q", report.FailureReasonCode)
+	}
+	if len(report.TestResults) != 1 || len(report.TestResults[0].BuildErrors) != 1 {
+		t.Fatalf("ruby syntax failure should carry one build error, got %+v", report.TestResults)
+	}
+	if got := report.TestResults[0].BuildErrors[0]; got.File != bad || got.Line != 4 {
+		t.Fatalf("ruby build error mis-parsed: %+v", got)
 	}
 }
 

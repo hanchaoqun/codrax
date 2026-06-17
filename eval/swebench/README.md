@@ -164,6 +164,10 @@ True failed local verification and local audit blockers stay `fail`; free-form
 manual notes never drive logic. This combined local acceptance proxy is useful
 for triage dashboards, but it is still not the official SWE-bench score. Only
 the official harness `resolved/total` result should be called pass rate.
+When no `--manual-audit-jsonl` is supplied, `manual_audit_verdict` is empty for
+every row. Dashboards should label that as "typed manual audit recorded pass",
+not as a human-audit pass rate; no manual correctness conclusion exists until
+per-instance typed audit rows are actually recorded.
 By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only

@@ -156,6 +156,41 @@ src/baz.cpp:9:14: error: expected ';' before '}' token
 	}
 }
 
+func TestParseBuildErrors_NodeCheck(t *testing.T) {
+	stdout := `/repo/src/app.js:3
+const =
+      ^
+
+SyntaxError: Unexpected token '='
+    at internalCompileFunction (node:internal/vm:73:18)
+`
+	errs := parseBuildErrors(stdout)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 Node syntax error; got %d (%v)", len(errs), errs)
+	}
+	if got := errs[0]; got.File != "/repo/src/app.js" || got.Line != 3 || got.Symbol != "SyntaxError" {
+		t.Fatalf("Node syntax error mis-parsed: %+v", got)
+	}
+	if !strings.Contains(errs[0].Message, "Unexpected token") {
+		t.Fatalf("Node syntax message lost: %+v", errs[0])
+	}
+}
+
+func TestParseBuildErrors_RubyCheck(t *testing.T) {
+	stdout := `/repo/lib/app.rb:4: syntax error, unexpected end-of-input, expecting end
+`
+	errs := parseBuildErrors(stdout)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 Ruby syntax error; got %d (%v)", len(errs), errs)
+	}
+	if got := errs[0]; got.File != "/repo/lib/app.rb" || got.Line != 4 {
+		t.Fatalf("Ruby syntax error mis-parsed: %+v", got)
+	}
+	if !strings.Contains(errs[0].Message, "syntax error") {
+		t.Fatalf("Ruby syntax message lost: %+v", errs[0])
+	}
+}
+
 // Rust block-style errors: error[E0xxx]: ... + --> file:line:col.
 func TestParseBuildErrors_Rust(t *testing.T) {
 	stdout := `error[E0308]: mismatched types
@@ -382,4 +417,3 @@ func TestFirstBuildErrorAssertionID(t *testing.T) {
 		t.Errorf("got %q; want /src/Foo.java", id)
 	}
 }
-
