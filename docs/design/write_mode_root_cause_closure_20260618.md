@@ -814,6 +814,55 @@ Verification:
 - `go test ./...`
 - `make test`
 
+## RC-17: Verification Confidence Authority
+
+The RC-16 SWE smoke showed that a passing verification probe can still leave
+final plan coverage unverified when `ChangeReport.verification_confidence` is
+missing. In `django__django-14534`, the final probe explicitly carried
+`contract_refs=["outcome-1", "outcome-2", "outcome-3", "outcome-4"]` and
+`changed_symbol_refs`, yet the report persisted no confidence records, so
+coverage projection could not mark those specific obligations covered.
+
+Root cause:
+
+- `run_tests.finishReport` derives confidence from
+  `ctx.Mutable.ChangePlan()`. Some verify paths have the probe report but not a
+  reliable mutable plan snapshot at the final install point.
+- `reportPassedOnlyByVerificationProbes` still recognized only
+  `verification_probe/python`, which undercuts the RC-13 multi-language probe
+  runtime.
+
+Design:
+
+- Attach verification confidence directly when `runPlanVerificationProbes`
+  creates the probe-only report, using the same plan snapshot that supplied the
+  probes.
+- Keep `finishReport` as an idempotent enrichment layer; merged confidence
+  records are deduplicated.
+- Generalize probe-only detection to any typed `verification_probe/<language>`
+  suite.
+- Keep the authority typed-only: confidence comes from `ChangePlan`
+  `behavior_contracts`, `verification_probes[].contract_refs`,
+  `verification_probes[].changed_symbol_refs`, and `ChangeReport` test/command
+  fields.
+
+Task list:
+
+- [x] Record RC-17 smoke finding and root cause.
+- [x] Attach confidence to probe reports at creation time.
+- [x] Generalize probe-only confidence to non-Python probe suites.
+- [x] Add focused confidence regression tests.
+- [x] Run focused tool tests, related packages, full regression, update
+  progress, commit, and push.
+
+Verification:
+
+- `go test ./internal/tool -run 'Test(VerificationConfidenceRecordsFromProbeReport|RunPlanVerificationProbesAttachesConfidence|RunTestsVerificationProbePass)'`
+- `go test ./internal/tool ./internal/orchestrator ./internal/types ./internal/agent`
+- `go test ./internal/writeflow ./internal/writeflow/impact`
+- `go test ./...`
+- `make test`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -835,6 +884,7 @@ Verification:
 | RC-14 | complete | Impact obligation repair queue: controller now schedules one bounded impact-repair follow-up when typed impact/patch-review coverage remains uncovered after a non-failed verifier attempt, including the previously missed "local verify passed but changed-symbol/contract coverage is still unverified" case. Path-backed obligations append a scoped repair batch; pathless obligations trigger bounded exploration first. Verification: focused controller regressions, related write packages, full `go test ./...`, and `make test` pass. |
 | RC-15 | complete | Coverage projection authority: post-RC-14 SWE smoke showed actual-diff unknown coverage findings could be over-promoted to verified after unrelated local pass. The fix keeps verified projection target-specific: changed symbols and contracts use confidence refs, scoped surfaces use matching passed suites, and multi-language actual-diff unknown events remain uncovered until explicitly proven. Verification: focused controller/writeflow regressions, related packages, full `go test ./...`, and `make test` pass. |
 | RC-16 | complete | Structural patch quality events: added `python_duplicate_symbol_added` as a hard actual-diff PatchReview event, and `production_test_scaffold_added` as a language-provider soft semantic coverage event for production paths. These events are generated from applied diff lines, post-apply file bytes, and `SourcePathRole`; no user/model prose drives routing. Verification: focused writeflow tests, related packages, full `go test ./...`, and `make test` pass. |
+| RC-17 | complete | Verification confidence authority: probe-only reports now attach contract/symbol confidence from the same plan snapshot that supplied the probes, and probe-only confidence recognizes all `verification_probe/<language>` suites instead of Python only. Verification: focused confidence tests, related packages, full `go test ./...`, and `make test` pass. |
 
 ## Acceptance Criteria
 

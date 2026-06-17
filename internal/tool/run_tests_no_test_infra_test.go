@@ -1489,6 +1489,64 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 	if !verificationConfidenceContains(records, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") {
 		t.Fatalf("changed symbol coupling should emit satisfied record: %+v", records)
 	}
+
+	report.TestResults[0].Suite = "verification_probe/javascript"
+	report.ExecutedCommands[0].Framework = "javascript"
+	records = verificationConfidenceRecordsFromReport(plan, report)
+	if !verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") ||
+		!verificationConfidenceContains(records, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") {
+		t.Fatalf("non-Python verification probes should carry confidence records: %+v", records)
+	}
+}
+
+func TestRunPlanVerificationProbesAttachesConfidenceToProbeReport(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe report confidence")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-confidence",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpEquals,
+			Expected: "42",
+			Required: true,
+			Source:   "write_analyzer",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "value_contract",
+			Language:          "python",
+			Code:              "import widget\nassert widget.VALUE == 42\n",
+			ContractRefs:      []string{"outcome-1"},
+			ChangedSymbolRefs: []string{"widget.VALUE"},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, ok := runPlanVerificationProbes(ctx, "pre_suite_verification_probe")
+	if !ok || result == nil || result.Report == nil {
+		t.Fatalf("expected verification probe report, got ok=%v result=%+v", ok, result)
+	}
+	if !result.Report.Passed {
+		t.Fatalf("probe should pass: %+v", result.Report)
+	}
+	if !changeReportHasVerificationConfidence(result.Report, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") ||
+		!changeReportHasVerificationConfidence(result.Report, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") {
+		t.Fatalf("probe report should carry confidence before finishReport: %+v", result.Report.VerificationConfidence)
+	}
 }
 
 func TestVerificationConfidenceRecordsFromProbeReportIgnoresSoftSatisfiesContractRefs(t *testing.T) {

@@ -2327,7 +2327,7 @@ func reportPassedOnlyByVerificationProbes(report *types.ChangeReport) bool {
 		return false
 	}
 	for _, row := range report.TestResults {
-		if strings.TrimSpace(row.Suite) != "verification_probe/python" {
+		if !strings.HasPrefix(strings.TrimSpace(row.Suite), "verification_probe/") {
 			return false
 		}
 	}

@@ -242,7 +242,13 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		FailureKind:       failureKind,
 		FailureReasonCode: failureReasonCode,
 		FailureSummary:    summary,
+		ExecutedCommands:  append([]types.ExecutedCommand(nil), commands...),
 	}
+	report.EnsureVerificationStatus()
+	report.VerificationConfidence = mergeVerificationConfidenceRecords(
+		report.VerificationConfidence,
+		verificationConfidenceRecordsFromReport(plan, report),
+	)
 	return &verificationProbeRunResult{
 		Report:   report,
 		Output:   renderVerificationProbeOutput(plan.VerificationProbes, outputs),
