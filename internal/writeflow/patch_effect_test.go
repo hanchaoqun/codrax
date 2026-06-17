@@ -1,6 +1,8 @@
 package writeflow
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -81,6 +83,39 @@ deleted file mode 100644
 	deleted := findPatchEffectFile(record, "pkg/dead.py")
 	if deleted == nil || deleted.Status != "deleted" || deleted.RemovedLines != 2 || deleted.AddedLines != 0 {
 		t.Fatalf("deleted file not parsed: %+v", record.Files)
+	}
+}
+
+func TestAnnotatePatchEffectStructuredFileParsesInvalidJSON(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"scripts":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	record := types.PatchEffectRecord{
+		RecordID: "patch-effect:plan-1:slice-1:abcdef123456",
+		Files: []types.PatchEffectFile{{
+			Path:   "package.json",
+			Status: "modified",
+		}},
+	}
+
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	if len(record.Files) != 1 || len(record.Files[0].Events) != 1 {
+		t.Fatalf("expected one structured parse event: %+v", record.Files)
+	}
+	event := record.Files[0].Events[0]
+	if event.Code != "structured_file_parse_error" || event.Severity != "error" || event.Path != "package.json" {
+		t.Fatalf("unexpected structured parse event: %+v", event)
+	}
+
+	review := ReviewAppliedPatchScope(&types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"package.json"},
+		PatchEffect: &record,
+	}, types.ChangePlanSlice{})
+	if !review.HardBlock || !patchReviewHasFinding(review, "structured_file_parse_error") {
+		t.Fatalf("structured parser event should hard block review: %+v", review)
 	}
 }
 

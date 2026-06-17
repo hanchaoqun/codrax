@@ -1359,6 +1359,7 @@ func (o *Orchestrator) attachActivePatchEffectRecord(plan *types.ChangePlan, act
 		sha,
 		patch,
 	)
+	writeflow.AnnotatePatchEffectStructuredFileParses(&effect, o.busCtx.WorktreePath)
 	plan.PatchEffect = &effect
 	o.busCtx.Mutable.SetChangePlan(plan)
 	o.persistCurrentChangePlanSnapshot()

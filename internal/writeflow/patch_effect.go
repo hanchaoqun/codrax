@@ -1,9 +1,14 @@
 package writeflow
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -12,6 +17,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
+	"gopkg.in/yaml.v3"
 )
 
 var unifiedDiffHunkHeaderRE = regexp.MustCompile(`^@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@`)
@@ -224,4 +230,103 @@ func patchEffectRecordID(planID, sliceID, fp string) string {
 		return fmt.Sprintf("patch-effect:%s:%s", planID, fp)
 	}
 	return fmt.Sprintf("patch-effect:%s:%s:%s", planID, sliceID, fp)
+}
+
+func AnnotatePatchEffectStructuredFileParses(record *types.PatchEffectRecord, root string) {
+	if record == nil || strings.TrimSpace(root) == "" {
+		return
+	}
+	for i := range record.Files {
+		file := &record.Files[i]
+		if strings.TrimSpace(file.Path) == "" || strings.TrimSpace(file.Status) == "deleted" {
+			continue
+		}
+		kind := patchEffectStructuredFileKind(file.Path)
+		if kind == "" {
+			continue
+		}
+		abs, ok := patchEffectSafeRepoPath(root, file.Path)
+		if !ok {
+			file.Events = append(file.Events, types.PatchEffectEvent{
+				Code:     "patch_effect_path_outside_worktree",
+				Severity: "error",
+				Path:     file.Path,
+				Message:  "patch effect path is outside the worktree root",
+			})
+			continue
+		}
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			file.Events = append(file.Events, types.PatchEffectEvent{
+				Code:     "structured_file_missing",
+				Severity: "error",
+				Path:     file.Path,
+				Message:  kind + " file could not be read after apply",
+			})
+			continue
+		}
+		if err := validatePatchEffectStructuredFile(kind, data); err != nil {
+			file.Events = append(file.Events, types.PatchEffectEvent{
+				Code:     "structured_file_parse_error",
+				Severity: "error",
+				Path:     file.Path,
+				Message:  kind + " parse failed: " + err.Error(),
+			})
+		}
+	}
+}
+
+func patchEffectStructuredFileKind(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".xml":
+		return "xml"
+	default:
+		return ""
+	}
+}
+
+func validatePatchEffectStructuredFile(kind string, data []byte) error {
+	switch kind {
+	case "json":
+		var v any
+		return json.Unmarshal(data, &v)
+	case "yaml":
+		var v any
+		return yaml.Unmarshal(data, &v)
+	case "xml":
+		decoder := xml.NewDecoder(bytes.NewReader(data))
+		for {
+			if _, err := decoder.Token(); err != nil {
+				if err == io.EOF {
+					return nil
+				}
+				return err
+			}
+		}
+	default:
+		return nil
+	}
+}
+
+func patchEffectSafeRepoPath(root, rel string) (string, bool) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	rel = normalizePatchEffectPath(rel)
+	if rel == "" {
+		return "", false
+	}
+	abs, err := filepath.Abs(filepath.Join(rootAbs, filepath.FromSlash(rel)))
+	if err != nil {
+		return "", false
+	}
+	if abs == rootAbs || strings.HasPrefix(abs, rootAbs+string(filepath.Separator)) {
+		return abs, true
+	}
+	return "", false
 }

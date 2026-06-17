@@ -22,18 +22,20 @@ type PatchReviewFinding struct {
 }
 
 type PatchReviewRecord struct {
-	ReviewID     string               `json:"review_id,omitempty"`
-	PlanID       string               `json:"plan_id,omitempty"`
-	SliceID      string               `json:"slice_id,omitempty"`
-	Source       string               `json:"source,omitempty"`
-	Status       string               `json:"status,omitempty"`
-	HardBlock    bool                 `json:"hard_block,omitempty"`
-	ReasonCodes  []string             `json:"reason_codes,omitempty"`
-	TargetPaths  []string             `json:"target_paths,omitempty"`
-	AllowedPaths []string             `json:"allowed_paths,omitempty"`
-	AppliedPaths []string             `json:"applied_paths,omitempty"`
-	Findings     []PatchReviewFinding `json:"findings,omitempty"`
-	CreatedAt    time.Time            `json:"created_at,omitempty"`
+	ReviewID        string               `json:"review_id,omitempty"`
+	PlanID          string               `json:"plan_id,omitempty"`
+	SliceID         string               `json:"slice_id,omitempty"`
+	Source          string               `json:"source,omitempty"`
+	Status          string               `json:"status,omitempty"`
+	HardBlock       bool                 `json:"hard_block,omitempty"`
+	ReasonCodes     []string             `json:"reason_codes,omitempty"`
+	PatchEffectID   string               `json:"patch_effect_id,omitempty"`
+	DiffFingerprint string               `json:"diff_fingerprint,omitempty"`
+	TargetPaths     []string             `json:"target_paths,omitempty"`
+	AllowedPaths    []string             `json:"allowed_paths,omitempty"`
+	AppliedPaths    []string             `json:"applied_paths,omitempty"`
+	Findings        []PatchReviewFinding `json:"findings,omitempty"`
+	CreatedAt       time.Time            `json:"created_at,omitempty"`
 }
 
 func NormalizePatchReviewRecord(in PatchReviewRecord) PatchReviewRecord {
@@ -42,6 +44,8 @@ func NormalizePatchReviewRecord(in PatchReviewRecord) PatchReviewRecord {
 	in.SliceID = strings.TrimSpace(in.SliceID)
 	in.Source = strings.TrimSpace(in.Source)
 	in.Status = strings.TrimSpace(in.Status)
+	in.PatchEffectID = strings.TrimSpace(in.PatchEffectID)
+	in.DiffFingerprint = strings.TrimSpace(in.DiffFingerprint)
 	in.ReasonCodes = dedupTrimWriteWorkflowRunStrings(in.ReasonCodes)
 	in.TargetPaths = dedupTrimWriteWorkflowRunStrings(in.TargetPaths)
 	in.AllowedPaths = dedupTrimWriteWorkflowRunStrings(in.AllowedPaths)

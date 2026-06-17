@@ -323,6 +323,7 @@ Controller 行为：
 | --- | --- | --- |
 | 0 | complete | Design ledger created from current code audit and live SWE-bench `matplotlib__matplotlib-26011` signal. |
 | 1 | complete | Added `PatchEffectRecord` typed schema, unified-diff parser, post-apply capture from the real applied commit, ChangePlan persistence, and P2 `patch_effect` context projection. Current PatchReview still uses scope MVP until Batch 2. |
+| 2 | complete | PatchReview now consumes actual `PatchEffectRecord` paths, records reviewed diff identity, hard-blocks true diff paths outside plan/slice, and hard-blocks parser-backed JSON/YAML/XML parse failures emitted as typed patch-effect events. Test-only export remains an eval/customer policy layer, not a global core hard gate, because test-only changes are valid customer tasks. |
 
 ## Live Eval Ledger
 

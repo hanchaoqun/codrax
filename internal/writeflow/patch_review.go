@@ -10,6 +10,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+var patchReviewEffectHardEventCodes = map[string]bool{
+	"patch_effect_path_outside_worktree": true,
+	"structured_file_missing":            true,
+	"structured_file_parse_error":        true,
+}
+
 func ReviewAppliedPatchScope(plan *types.ChangePlan, activeSlice types.ChangePlanSlice) types.PatchReviewRecord {
 	record := types.PatchReviewRecord{
 		Source:    "post_apply_scope",
@@ -24,12 +30,18 @@ func ReviewAppliedPatchScope(plan *types.ChangePlan, activeSlice types.ChangePla
 	record.SliceID = strings.TrimSpace(activeSlice.ID)
 	record.TargetPaths = normalizePatchReviewPaths(plan.TargetPaths)
 	record.AllowedPaths = patchReviewAllowedPaths(plan, activeSlice)
-	record.AppliedPaths = patchReviewAppliedPaths(plan)
+	declaredAppliedPaths := patchReviewAppliedPaths(plan)
+	effectPaths := patchReviewEffectPaths(plan.PatchEffect)
+	record.AppliedPaths = normalizePatchReviewPaths(append(declaredAppliedPaths, effectPaths...))
+	if plan.PatchEffect != nil {
+		record.PatchEffectID = strings.TrimSpace(plan.PatchEffect.RecordID)
+		record.DiffFingerprint = strings.TrimSpace(plan.PatchEffect.DiffFingerprint)
+	}
 	record.ReviewID = patchReviewID(record.PlanID, record.SliceID)
 
 	targetSet := patchReviewPathSet(record.TargetPaths)
 	allowedSet := patchReviewPathSet(record.AllowedPaths)
-	for _, applied := range record.AppliedPaths {
+	for _, applied := range declaredAppliedPaths {
 		if len(targetSet) > 0 && !targetSet[applied] {
 			record.Findings = append(record.Findings, patchReviewFinding(
 				"applied_path_outside_plan_scope",
@@ -46,6 +58,27 @@ func ReviewAppliedPatchScope(plan *types.ChangePlan, activeSlice types.ChangePla
 				"applied path is outside the active ChangePlan slice",
 			))
 		}
+	}
+	for _, applied := range effectPaths {
+		if len(targetSet) > 0 && !targetSet[applied] {
+			record.Findings = append(record.Findings, patchReviewFinding(
+				"patch_effect_path_outside_plan_scope",
+				types.PatchReviewSeverityError,
+				applied,
+				"actual applied diff path is not declared in ChangePlan.target_paths",
+			))
+		}
+		if len(allowedSet) > 0 && !allowedSet[applied] {
+			record.Findings = append(record.Findings, patchReviewFinding(
+				"patch_effect_path_outside_active_slice",
+				types.PatchReviewSeverityError,
+				applied,
+				"actual applied diff path is outside the active ChangePlan slice",
+			))
+		}
+	}
+	for _, finding := range patchReviewEffectEventFindings(plan.PatchEffect) {
+		record.Findings = append(record.Findings, finding)
 	}
 	if len(record.AppliedPaths) == 0 && patchReviewPlanClaimsApplied(plan) {
 		record.Findings = append(record.Findings, patchReviewFinding(
@@ -90,6 +123,47 @@ func patchReviewAppliedPaths(plan *types.ChangePlan) []string {
 			continue
 		}
 		out = append(out, change.Path, change.NewPath)
+	}
+	return normalizePatchReviewPaths(out)
+}
+
+func patchReviewEffectEventFindings(effect *types.PatchEffectRecord) []types.PatchReviewFinding {
+	if effect == nil {
+		return nil
+	}
+	var findings []types.PatchReviewFinding
+	for _, file := range effect.Files {
+		for _, event := range file.Events {
+			code := strings.TrimSpace(event.Code)
+			if !patchReviewEffectHardEventCodes[code] || strings.TrimSpace(event.Severity) != "error" {
+				continue
+			}
+			path := event.Path
+			if path == "" {
+				path = file.Path
+			}
+			findings = append(findings, patchReviewFinding(
+				code,
+				types.PatchReviewSeverityError,
+				path,
+				event.Message,
+			))
+			findings[len(findings)-1].EvidenceRef = strings.TrimSpace(event.EvidenceRef)
+		}
+	}
+	return findings
+}
+
+func patchReviewEffectPaths(effect *types.PatchEffectRecord) []string {
+	if effect == nil {
+		return nil
+	}
+	out := make([]string, 0, len(effect.Files)*2)
+	for _, file := range effect.Files {
+		out = append(out, file.Path)
+		if file.OldPath != "" && file.OldPath != file.Path {
+			out = append(out, file.OldPath)
+		}
 	}
 	return normalizePatchReviewPaths(out)
 }
