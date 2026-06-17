@@ -132,6 +132,38 @@ func TestWriteContextPackFromExplorationHandoffPrioritizesEvidence(t *testing.T)
 	}
 }
 
+func TestWriteContextPackFromExplorationHandoffCarriesConventions(t *testing.T) {
+	handoff := WriteExplorationHandoff{
+		BatchID:          "batch-1",
+		Goal:             "repair planner",
+		ExistingPatterns: []string{"planner sections are pure data"},
+		EvidenceRefs: []WriteExplorationEvidenceRef{{
+			ID:        "ev-mechanism",
+			Kind:      string(EvidenceMechanism),
+			Source:    "internal/agent/planner.go",
+			LineStart: 105,
+			Subject:   "BuildInitialInstruction",
+			Summary:   "planner composes sections from typed inputs",
+		}},
+	}
+
+	pack := WriteContextPackFromExplorationHandoff(handoff)
+	planner := pack.View(WriteConsumerPlanner, 20)
+	verifier := pack.View(WriteConsumerVerifier, 20)
+	if !writeContextViewContains(planner, "pattern_hint", "planner sections are pure data") {
+		t.Fatalf("existing pattern hint should remain visible: %+v", planner.Items)
+	}
+	if !writeContextViewContains(planner, "convention", "category=local_pattern") {
+		t.Fatalf("planner view missing local convention: %+v", planner.Items)
+	}
+	if !writeContextViewContains(verifier, "convention", "category=mechanism") {
+		t.Fatalf("verifier view missing evidence-backed convention: %+v", verifier.Items)
+	}
+	if writeContextViewContains(verifier, "pattern_hint", "planner sections") {
+		t.Fatalf("legacy pattern hints should remain planner-only: %+v", verifier.Items)
+	}
+}
+
 func TestWriteContextPackFromChangePlanCarriesImpactObligations(t *testing.T) {
 	plan := &ChangePlan{
 		ID:          "plan-impact",

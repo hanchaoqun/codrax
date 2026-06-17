@@ -255,6 +255,8 @@ func TestPlannerWriteExplorationHandoff_RendersAfterWorkflowSeed(t *testing.T) {
 		"internal/agent/planner.go",
 		"BuildInitialInstruction @ internal/agent/planner.go:105",
 		"planner sections are pure data",
+		"conventions",
+		"local_pattern: planner sections are pure data",
 		"do not bypass ChangePlan validation",
 		"go test ./internal/agent",
 		"prompt order regressions affect write mode only",

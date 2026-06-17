@@ -51,6 +51,7 @@ type WriteExplorationHandoff struct {
 	RiskNotes            []string                      `json:"risk_notes,omitempty"`
 	Unknowns             []string                      `json:"unknowns,omitempty"`
 	EvidenceRefs         []WriteExplorationEvidenceRef `json:"evidence_refs,omitempty"`
+	ConventionGraph      *ConventionGraph              `json:"convention_graph,omitempty"`
 	Confidence           string                        `json:"confidence,omitempty"`
 }
 
@@ -72,6 +73,30 @@ func NormalizeWriteExplorationRequest(in WriteExplorationRequest) WriteExplorati
 // NormalizeWriteExplorationHandoff trims and bounds a handoff without changing
 // its meaning.
 func NormalizeWriteExplorationHandoff(in WriteExplorationHandoff) WriteExplorationHandoff {
+	in = normalizeWriteExplorationHandoffCore(in)
+	if in.ConventionGraph != nil {
+		graph := NormalizeConventionGraph(*in.ConventionGraph)
+		if len(graph.Nodes) > 0 {
+			if graph.BatchID == "" {
+				graph.BatchID = in.BatchID
+			}
+			if graph.Goal == "" {
+				graph.Goal = in.Goal
+			}
+			in.ConventionGraph = &graph
+		} else {
+			in.ConventionGraph = nil
+		}
+	} else {
+		graph := conventionGraphFromNormalizedExplorationHandoff(in)
+		if len(graph.Nodes) > 0 {
+			in.ConventionGraph = &graph
+		}
+	}
+	return in
+}
+
+func normalizeWriteExplorationHandoffCore(in WriteExplorationHandoff) WriteExplorationHandoff {
 	in.BatchID = trimWriteExplorationText(in.BatchID)
 	in.Goal = trimWriteExplorationText(in.Goal)
 	in.ExplorationQuestions = dedupTrimWriteExplorationStrings(in.ExplorationQuestions, writeExplorationMaxListItems)
@@ -200,6 +225,7 @@ func cloneWriteExplorationHandoff(in WriteExplorationHandoff) WriteExplorationHa
 	in.RiskNotes = append([]string(nil), in.RiskNotes...)
 	in.Unknowns = append([]string(nil), in.Unknowns...)
 	in.EvidenceRefs = append([]WriteExplorationEvidenceRef(nil), in.EvidenceRefs...)
+	in.ConventionGraph = cloneConventionGraph(in.ConventionGraph)
 	return in
 }
 

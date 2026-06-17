@@ -3203,7 +3203,8 @@ func writeExplorationHandoffHasPlanningMaterial(handoff *types.WriteExplorationH
 		len(normalized.TestSurface) > 0 ||
 		len(normalized.RiskNotes) > 0 ||
 		len(normalized.Unknowns) > 0 ||
-		len(normalized.EvidenceRefs) > 0
+		len(normalized.EvidenceRefs) > 0 ||
+		(normalized.ConventionGraph != nil && len(normalized.ConventionGraph.Nodes) > 0)
 }
 
 func plannerSoftCapForCompletedExploration(base, current, effectiveCurrent int) int {

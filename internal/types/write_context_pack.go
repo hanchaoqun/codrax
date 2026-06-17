@@ -302,6 +302,17 @@ func WriteContextPackFromExplorationHandoff(h WriteExplorationHandoff) WriteCont
 		pack.Items = append(pack.Items, writeContextItem("pattern_hint", WriteContextP3, pattern, "explore",
 			WriteConsumerPlanner))
 	}
+	graph := h.ConventionGraph
+	if graph == nil {
+		derived := ConventionGraphFromExplorationHandoff(h)
+		graph = &derived
+	}
+	for _, node := range graph.Nodes {
+		if text := renderConventionContext(node); text != "" {
+			pack.Items = append(pack.Items, writeContextItem("convention", WriteContextP3, text, "explore",
+				WriteConsumerPlanner, WriteConsumerVerifier))
+		}
+	}
 	return NormalizeWriteContextPack(pack)
 }
 
@@ -418,6 +429,35 @@ func renderImpactObligationContext(ob ImpactObligation) string {
 	}
 	if ob.Strength != "" {
 		parts = append(parts, "strength="+string(ob.Strength))
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderConventionContext(node ConventionNode) string {
+	node = normalizeConventionNode(node)
+	parts := []string{
+		"id=" + node.ID,
+		"category=" + string(node.Category),
+		"summary=" + node.Summary,
+	}
+	if node.Source != "" {
+		loc := node.Source
+		if node.LineStart > 0 {
+			loc += fmt.Sprintf(":%d", node.LineStart)
+		}
+		parts = append(parts, "source="+loc)
+	}
+	if node.Subject != "" {
+		parts = append(parts, "subject="+node.Subject)
+	}
+	if node.AnchorSymbol != "" {
+		parts = append(parts, "anchor="+node.AnchorSymbol)
+	}
+	if node.EvidenceRefID != "" {
+		parts = append(parts, "evidence_ref="+node.EvidenceRefID)
+	}
+	if node.Strength != "" {
+		parts = append(parts, "strength="+node.Strength)
 	}
 	return strings.Join(parts, " ")
 }

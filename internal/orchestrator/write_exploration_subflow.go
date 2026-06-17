@@ -156,7 +156,8 @@ func (o *Orchestrator) projectWriteExplorationHandoffFromTurnA() {
 		len(handoff.TestSurface) == 0 &&
 		len(handoff.RiskNotes) == 0 &&
 		len(handoff.Unknowns) == 0 &&
-		len(handoff.EvidenceRefs) == 0 {
+		len(handoff.EvidenceRefs) == 0 &&
+		(handoff.ConventionGraph == nil || len(handoff.ConventionGraph.Nodes) == 0) {
 		return
 	}
 	o.busCtx.Mutable.SetWriteExplorationHandoff(&handoff)

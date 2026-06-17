@@ -408,7 +408,8 @@ func (e *plannerEvaluator) buildWriteExplorationHandoffSection(ctx *types.AgentC
 		len(handoff.TestSurface) == 0 &&
 		len(handoff.RiskNotes) == 0 &&
 		len(handoff.Unknowns) == 0 &&
-		len(handoff.EvidenceRefs) == 0 {
+		len(handoff.EvidenceRefs) == 0 &&
+		plannerConventionGraphNodeCount(handoff.ConventionGraph) == 0 {
 		return ""
 	}
 
@@ -432,6 +433,7 @@ func (e *plannerEvaluator) buildWriteExplorationHandoffSection(ctx *types.AgentC
 	writePlannerList(&b, "test_surface", handoff.TestSurface, 8)
 	writePlannerList(&b, "risk_notes", handoff.RiskNotes, 8)
 	writePlannerList(&b, "unknowns", handoff.Unknowns, 8)
+	writePlannerList(&b, "conventions", plannerConventionGraphRows(handoff.ConventionGraph, 8), 8)
 	if len(handoff.EvidenceRefs) > 0 {
 		limit := len(handoff.EvidenceRefs)
 		if limit > 8 {
@@ -487,6 +489,36 @@ func writePlannerList(b *strings.Builder, label string, values []string, limit i
 		fmt.Fprintf(b, ", +%d more", len(values)-limit)
 	}
 	b.WriteByte('\n')
+}
+
+func plannerConventionGraphNodeCount(graph *types.ConventionGraph) int {
+	if graph == nil {
+		return 0
+	}
+	normalized := types.NormalizeConventionGraph(*graph)
+	return len(normalized.Nodes)
+}
+
+func plannerConventionGraphRows(graph *types.ConventionGraph, limit int) []string {
+	if graph == nil {
+		return nil
+	}
+	normalized := types.NormalizeConventionGraph(*graph)
+	if limit <= 0 || limit > len(normalized.Nodes) {
+		limit = len(normalized.Nodes)
+	}
+	rows := make([]string, 0, limit)
+	for _, node := range normalized.Nodes[:limit] {
+		row := string(node.Category) + ": " + node.Summary
+		if node.Source != "" {
+			row += " @ " + node.Source
+			if node.LineStart > 0 {
+				row += fmt.Sprintf(":%d", node.LineStart)
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // buildWorkflowSeedSection renders the write_analyzer's typed task shape as a
@@ -1193,7 +1225,8 @@ func plannerExplorationHandoffLocalizationCount(handoff types.WriteExplorationHa
 		len(normalized.ExistingPatterns) +
 		len(normalized.Invariants) +
 		len(normalized.TestSurface) +
-		len(normalized.EvidenceRefs)
+		len(normalized.EvidenceRefs) +
+		plannerConventionGraphNodeCount(normalized.ConventionGraph)
 }
 
 func plannerExplorationPackLocalizationCount(pack types.WriteContextPack, batchID, sliceID string) int {
@@ -1215,7 +1248,7 @@ func plannerExplorationPackLocalizationCount(pack types.WriteContextPack, batchI
 
 func plannerExplorationPackLocalizationKind(kind string) bool {
 	switch kind {
-	case "target_file", "evidence_ref", "symbol", "invariant", "test_surface", "pattern_hint":
+	case "target_file", "evidence_ref", "symbol", "invariant", "test_surface", "pattern_hint", "convention":
 		return true
 	default:
 		return false
