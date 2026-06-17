@@ -40,11 +40,14 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if output == "" {
 		output = DefaultOutputPath(input)
 	}
-	if err := ensureOutputDoesNotExist(output); err != nil {
-		return Result{}, err
-	}
 	info, err := os.Stat(input)
 	if err != nil {
+		return Result{}, err
+	}
+	if result, ok, err := maybeConvertDirectSimpleperfPerfData(ctx, opts, input, info.Size(), output); ok || err != nil {
+		return result, err
+	}
+	if err := ensureOutputDoesNotExist(output); err != nil {
 		return Result{}, err
 	}
 	standaloneArtifacts, standaloneCaveats, err := extractStandaloneArtifacts(ctx, opts, info.Size(), output)

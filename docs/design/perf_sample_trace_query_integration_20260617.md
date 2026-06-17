@@ -57,6 +57,9 @@ AOSP `simpleperf` provides the corresponding Android parser vocabulary:
 - `SymbolStruct` includes `dso_name`, `symbol_name`, and addresses.
 - `CallChainStructure` exposes call-chain entries with symbols.
 - `report_sample.py` demonstrates a stable text report shape: `comm pid/tid [cpu] timestamp: period event:` followed by symbol and call-chain lines.
+- `simpleperf_report_lib.py::SampleStruct` exposes `ip`, `pid`, `tid`, `thread_comm`, `time` in ns, `cpu`, and `period`.
+- `simpleperf_report_lib.py::SymbolStruct` exposes `dso_name`, `symbol_name`, symbol addresses, and mapping information.
+- `simpleperf_report_lib.py::CallChainStructure` documents that for a runtime stack `A -> B -> C`, call-chain entries are emitted as `[B, A]`; the current sample symbol is `C`.
 
 Implication: Android should use a simpleperf adapter rather than a Codrax-owned raw perf parser. Both Harmony hiperf and Android simpleperf can normalize into one Codrax `perftrace` text format.
 
@@ -69,6 +72,7 @@ Implication: Android should use a simpleperf adapter rather than a Codrax-owned 
 - `.systrace` for ftrace-compatible scheduler/trace rows when the input contains a supported binary hitrace container.
 - `.perf.data` sidecars for standalone OpenHarmony profiler blocks with `TraceFileHeader::DataType::HIPERF_DATA`.
 - `.perftrace` sidecars when an official `hiperf_host` / `hiperf` adapter is configured or found and can export `report --proto`.
+- Android direct `perf.data` sidecar-only conversion when an official `simpleperf/scripts/report_sample.py` adapter is configured or found.
 - `.tracebundle.json` provenance that lists all generated artifacts and caveats.
 
 ### `trace_query`
@@ -252,6 +256,24 @@ Implemented D2 path:
 
 If the official adapter fails or is not available, conversion still succeeds for `.systrace` / `.perf.data` and emits a caveat. This keeps trace conversion stable while avoiding false confidence in raw perf parsing.
 
+### Android Simpleperf Adapter Contract
+
+Implemented D3 path:
+
+- `Options.SimpleperfReportPath` or `CODRAX_SIMPLEPERF_REPORT_SAMPLE` selects the official AOSP `simpleperf/scripts/report_sample.py` script or a compatible executable wrapper.
+- `Options.SimpleperfPythonPath` or `CODRAX_SIMPLEPERF_PYTHON` selects the Python executable when the report adapter path ends in `.py`; otherwise the adapter is executed directly without a shell.
+- `Options.SimpleperfSymfsDir` and `Options.SimpleperfKallsymsPath` pass through `--symfs` and `--kallsyms`.
+- CLI flags are `--simpleperf-report-sample`, `--simpleperf-python`, `--simpleperf-symfs`, and `--simpleperf-kallsyms`.
+- Direct Android `perf.data` inputs are sidecar-only: `trace_convert` emits `.perftrace` and `.tracebundle.json`, but no fake `.systrace`.
+- Codrax parses only official `report_sample.py` text output:
+  - sample header: `<comm>\t<pid>/<tid> [<cpu>] <sec>.<usec>: <period> <event>:`
+  - first symbol row: sampled/leaf function
+  - following symbol rows: callchain entries emitted by simpleperf
+- The normalized `callchain` reverses simpleperf callchain entries into root-to-leaf order and appends the leaf sample symbol, so model-facing output matches Harmony hiperf `callchain` semantics.
+- Sample CPU is taken from `SampleStruct.cpu`, so Android `.perftrace` rows carry real CPU ids when available.
+
+As with OpenHarmony, raw `perf.data` is never parsed directly by Codrax. The official simpleperf report library remains the source of truth for symbols, Java/ART frames, unwinding, symfs, and kallsyms.
+
 ## JSON Repair / Prompt Contract
 
 Model-facing additions must enter all three surfaces:
@@ -299,7 +321,9 @@ Status: implemented. `RootCauseRankItem.perf_context` is populated after determi
 
 Status: in progress. D1 landed multi-artifact result metadata, official `TraceFileHeader` scanning for `DataType::HIPERF_DATA`, `.perf.data` sidecar extraction, `.tracebundle.json` provenance output, CLI/REPL artifact reporting, and converter tests for both systrace+perf and standalone-only perf inputs. Remaining D work is the official parser adapter path that turns extracted `.perf.data` into normalized `.perftrace`.
 
-D2 landed the OpenHarmony hiperf adapter path: `ConvertFile` can now run a configured/discovered official `hiperf_host`/`hiperf report --proto`, parse the official `report_sample.proto` stream without adding a new dependency, emit `.perftrace`, include it in `.tracebundle.json`, and preserve `.perf.data` with caveats. CLI supports `--hiperf-host`, `--hiperf-symbol-dir`, and `--no-perftrace`; REPL keeps the simple `/htrace convert` form and directs users to CLI when a specific official adapter path is needed. Remaining D work is Android/simpleperf parity.
+D2 landed the OpenHarmony hiperf adapter path: `ConvertFile` can now run a configured/discovered official `hiperf_host`/`hiperf report --proto`, parse the official `report_sample.proto` stream without adding a new dependency, emit `.perftrace`, include it in `.tracebundle.json`, and preserve `.perf.data` with caveats. CLI supports `--hiperf-host`, `--hiperf-symbol-dir`, and `--no-perftrace`; REPL keeps the simple `/htrace convert` form and directs users to CLI when a specific official adapter path is needed.
+
+D3 landed the Android simpleperf adapter path: direct `perf.data` inputs can now be converted through official `report_sample.py` output into normalized `.perftrace` without generating a fake systrace. CLI supports `--simpleperf-report-sample`, `--simpleperf-python`, `--simpleperf-symfs`, and `--simpleperf-kallsyms`; tests cover both parser round-trip and direct adapter sidecar bundle generation.
 
 ### Batch E: CLI/REPL and Attachment UX
 
@@ -354,11 +378,11 @@ Eval targets:
 - [ ] Batch D implemented, committed, pushed.
   - [x] D1 converter sidecar extraction and bundle metadata implemented, committed, pushed.
   - [x] D2 OpenHarmony official hiperf adapter to normalized `.perftrace` implemented.
-  - [ ] D3 Android/simpleperf adapter parity.
+  - [x] D3 Android/simpleperf adapter parity implemented.
 - [ ] Batch E implemented, committed, pushed.
 - [ ] Batch F evals added and representative cases run two at a time.
 
 ## Open Decisions
 
-- Exact config key for Android simpleperf binaries. OpenHarmony hiperf now supports explicit `--hiperf-host`, `CODRAX_HIPERF_HOST`, and PATH discovery.
+- Runtime config-file keys for perf adapters beyond CLI/env. Current implementation supports explicit CLI flags, env vars, and PATH discovery.
 - Whether `trace_perf_bundle` should be a new concrete view or an alias to enhanced `frame_root_cause_bundle` when a frame/span window is selected. Initial plan keeps it concrete because non-frame startup/binder/runnable windows also benefit from joint output.

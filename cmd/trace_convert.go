@@ -15,6 +15,10 @@ var (
 	traceConvertFlavor      string
 	traceConvertHiperfHost  string
 	traceConvertSymbolDirs  []string
+	traceConvertSimpleperf  string
+	traceConvertSPPython    string
+	traceConvertSPSymfs     string
+	traceConvertSPKallsyms  string
 	traceConvertNoPerfTrace bool
 )
 
@@ -39,12 +43,16 @@ are never overwritten; delete the file first or choose another output path.`,
 			return fmt.Errorf("--input is required")
 		}
 		result, err := hitraceconv.ConvertFile(cmd.Context(), hitraceconv.Options{
-			InputPath:          input,
-			OutputPath:         strings.TrimSpace(traceConvertOutput),
-			Flavor:             strings.TrimSpace(traceConvertFlavor),
-			HiperfPath:         strings.TrimSpace(traceConvertHiperfHost),
-			HiperfSymbolDirs:   append([]string(nil), traceConvertSymbolDirs...),
-			DisablePerfAdapter: traceConvertNoPerfTrace,
+			InputPath:              input,
+			OutputPath:             strings.TrimSpace(traceConvertOutput),
+			Flavor:                 strings.TrimSpace(traceConvertFlavor),
+			HiperfPath:             strings.TrimSpace(traceConvertHiperfHost),
+			HiperfSymbolDirs:       append([]string(nil), traceConvertSymbolDirs...),
+			SimpleperfReportPath:   strings.TrimSpace(traceConvertSimpleperf),
+			SimpleperfPythonPath:   strings.TrimSpace(traceConvertSPPython),
+			SimpleperfSymfsDir:     strings.TrimSpace(traceConvertSPSymfs),
+			SimpleperfKallsymsPath: strings.TrimSpace(traceConvertSPKallsyms),
+			DisablePerfAdapter:     traceConvertNoPerfTrace,
 		})
 		if err != nil {
 			return err
@@ -155,7 +163,11 @@ func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertFlavor, "flavor", "harmony_hitrace", "trace flavor metadata for operator audit; default harmony_hitrace")
 	traceConvertCmd.Flags().StringVar(&traceConvertHiperfHost, "hiperf-host", "", "official OpenHarmony hiperf_host/hiperf path used to convert HIPERF_DATA perf.data sidecars to .perftrace")
 	traceConvertCmd.Flags().StringSliceVar(&traceConvertSymbolDirs, "hiperf-symbol-dir", nil, "symbol directories passed to hiperf report --symbol-dir; repeat or comma-separate values")
-	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "extract perf.data sidecars without invoking an official hiperf adapter")
+	traceConvertCmd.Flags().StringVar(&traceConvertSimpleperf, "simpleperf-report-sample", "", "official Android simpleperf report_sample.py path used to convert perf.data to .perftrace")
+	traceConvertCmd.Flags().StringVar(&traceConvertSPPython, "simpleperf-python", "", "python executable used for report_sample.py; default discovers python3/python")
+	traceConvertCmd.Flags().StringVar(&traceConvertSPSymfs, "simpleperf-symfs", "", "symfs directory passed to simpleperf report_sample.py --symfs")
+	traceConvertCmd.Flags().StringVar(&traceConvertSPKallsyms, "simpleperf-kallsyms", "", "kallsyms file passed to simpleperf report_sample.py --kallsyms")
+	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "preserve perf.data sidecars without invoking official hiperf/simpleperf adapters")
 	traceCmd.AddCommand(traceConvertCmd)
 	rootCmd.AddCommand(traceCmd)
 }

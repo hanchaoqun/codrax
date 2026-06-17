@@ -16,12 +16,16 @@ const (
 
 // Options controls one explicit binary HiTrace conversion.
 type Options struct {
-	InputPath          string
-	OutputPath         string
-	Flavor             string
-	HiperfPath         string
-	HiperfSymbolDirs   []string
-	DisablePerfAdapter bool
+	InputPath              string
+	OutputPath             string
+	Flavor                 string
+	HiperfPath             string
+	HiperfSymbolDirs       []string
+	SimpleperfReportPath   string
+	SimpleperfPythonPath   string
+	SimpleperfSymfsDir     string
+	SimpleperfKallsymsPath string
+	DisablePerfAdapter     bool
 }
 
 type Artifact struct {

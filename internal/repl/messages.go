@@ -3214,9 +3214,9 @@ func htraceUsage(lang string) string {
 
 func htraceConvertUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace convert <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。若需指定官方 hiperf 工具生成 perftrace，请使用 codrax trace convert --hiperf-host <path>。"
+		return "/htrace convert <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。若需指定官方 hiperf/simpleperf 工具生成 perftrace，请使用 codrax trace convert --hiperf-host <path> 或 --simpleperf-report-sample <path>。"
 	}
-	return "/htrace convert <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Use codrax trace convert --hiperf-host <path> when an official hiperf adapter must be specified for perftrace generation."
+	return "/htrace convert <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Use codrax trace convert --hiperf-host <path> or --simpleperf-report-sample <path> when an official perf adapter must be specified for perftrace generation."
 }
 
 func htraceConvertSuccess(lang, outputPath string, events int) string {
