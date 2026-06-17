@@ -758,6 +758,62 @@ Verification:
 - `go test ./...`
 - `make test`
 
+## RC-16: Structural Patch Quality Events
+
+RC-14/RC-15 smoke also exposed two patch-quality gaps that are not solved by
+better planning prose:
+
+- A repair batch can add test scaffolding into a production source path.
+- A repair batch can add a duplicate declaration that silently shadows an
+  existing declaration before the verifier catches the downstream symptom.
+
+These are system-level actual-diff defects. They should enter the same typed
+PatchEffect -> PatchReview -> ImpactAnalysis -> WriteContextPack -> bounded
+repair flow as parser errors and semantic coverage events.
+
+Design:
+
+- Reuse `PatchEffectRecord` and `SourcePathRole`.
+- Produce structural events from the applied diff and post-apply file bytes:
+  - `python_duplicate_symbol_added` is a hard structural event for an added
+    Python declaration that duplicates another declaration in the same owner
+    scope.
+  - `production_test_scaffold_added` is a soft semantic coverage event when an
+    added test-shaped declaration appears in a production path. It is not a
+    global hard block because customers may intentionally edit test helpers,
+    but it must be visible to controller/planner/verifier as uncovered quality
+    debt.
+- Keep the detector structural:
+  - path role comes from `ClassifySourcePathRole`;
+  - declaration/test-shape comes from language-specific source-shape providers;
+  - duplicate Python ownership comes from indentation/declaration structure;
+  - no user intent keywords, issue prose, model rationale, stdout summary, or
+    `<think>` are parsed for routing.
+- Keep room for language expansion without duplicating the policy layer:
+  `production_test_scaffold_added` is language-neutral, while duplicate symbol
+  detection starts with Python because that is where silent shadowing is common
+  and Go/JVM/TS are normally caught by compiler/parser lanes.
+
+Task list:
+
+- [x] Add RC-16 design and task ledger.
+- [x] Add `python_duplicate_symbol_added` actual-diff structural event and
+  hard PatchReview consumption.
+- [x] Add language-provider `production_test_scaffold_added` event for
+  production paths and soft unknown PatchReview consumption.
+- [x] Add focused PatchEffect/PatchReview tests.
+- [x] Run focused writeflow tests, related write packages, full regression,
+  update progress, commit, and push.
+
+Verification:
+
+- `go test ./internal/writeflow -run 'TestAnnotatePatchEffect(PythonDuplicateSymbol|ProductionTestScaffold|PythonTopLevelSelf|PythonNested|MultiLanguage)'`
+- `go test ./internal/writeflow`
+- `go test ./internal/orchestrator ./internal/writeflow ./internal/types`
+- `go test ./internal/tool ./internal/agent`
+- `go test ./...`
+- `make test`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -778,6 +834,7 @@ Verification:
 | RC-13 | complete | Multi-language verification probe runtime: generalized the Python-only bounded probe lane to a typed provider registry for Python, JavaScript/Node, Ruby, and Go; updated schemas, planner guidance, user docs, and tests. Verification: focused multi-language probe tests, full `internal/tool`, related types/skill/orchestrator/agent tests, full `go test ./...`, `make`, and RC-13 SymPy SWE-bench smoke passed export compatibility while local acceptance remained correctly audit-blocked. |
 | RC-14 | complete | Impact obligation repair queue: controller now schedules one bounded impact-repair follow-up when typed impact/patch-review coverage remains uncovered after a non-failed verifier attempt, including the previously missed "local verify passed but changed-symbol/contract coverage is still unverified" case. Path-backed obligations append a scoped repair batch; pathless obligations trigger bounded exploration first. Verification: focused controller regressions, related write packages, full `go test ./...`, and `make test` pass. |
 | RC-15 | complete | Coverage projection authority: post-RC-14 SWE smoke showed actual-diff unknown coverage findings could be over-promoted to verified after unrelated local pass. The fix keeps verified projection target-specific: changed symbols and contracts use confidence refs, scoped surfaces use matching passed suites, and multi-language actual-diff unknown events remain uncovered until explicitly proven. Verification: focused controller/writeflow regressions, related packages, full `go test ./...`, and `make test` pass. |
+| RC-16 | complete | Structural patch quality events: added `python_duplicate_symbol_added` as a hard actual-diff PatchReview event, and `production_test_scaffold_added` as a language-provider soft semantic coverage event for production paths. These events are generated from applied diff lines, post-apply file bytes, and `SourcePathRole`; no user/model prose drives routing. Verification: focused writeflow tests, related packages, full `go test ./...`, and `make test` pass. |
 
 ## Acceptance Criteria
 

@@ -12,6 +12,7 @@ import (
 
 var patchReviewEffectHardEventCodes = map[string]bool{
 	"patch_effect_path_outside_worktree": true,
+	"python_duplicate_symbol_added":      true,
 	"python_top_level_self_method":       true,
 	"structured_file_missing":            true,
 	"structured_file_parse_error":        true,
@@ -25,6 +26,7 @@ var patchReviewEffectSoftEventCodes = map[string]bool{
 	"java_chained_string_map_get_added":                true,
 	"javascript_nested_string_key_direct_access_added": true,
 	"kotlin_chained_string_map_get_added":              true,
+	"production_test_scaffold_added":                   true,
 	"python_nested_string_key_direct_access_added":     true,
 	"ruby_nested_key_direct_access_added":              true,
 	"typescript_nested_string_key_direct_access_added": true,
@@ -35,6 +37,7 @@ var patchReviewEffectUnknownCoverageEventCodes = map[string]bool{
 	"java_chained_string_map_get_added":                true,
 	"javascript_nested_string_key_direct_access_added": true,
 	"kotlin_chained_string_map_get_added":              true,
+	"production_test_scaffold_added":                   true,
 	"python_nested_string_key_direct_access_added":     true,
 	"ruby_nested_key_direct_access_added":              true,
 	"typescript_nested_string_key_direct_access_added": true,

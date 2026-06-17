@@ -22,17 +22,37 @@ import (
 
 var (
 	unifiedDiffHunkHeaderRE             = regexp.MustCompile(`^@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@`)
+	pythonClassDefLineRE                = regexp.MustCompile(`^(\s*)class\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	pythonDefLineRE                     = regexp.MustCompile(`^(\s*)def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	pythonTopLevelSelfMethodDefRE       = regexp.MustCompile(`^def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(\s*(?:self|cls)\b`)
 	dynamicNestedStringKeyAccessRE      = regexp.MustCompile(`(?:\b(?:self|cls|this)\.[A-Za-z_$][A-Za-z0-9_$]*|\b[A-Za-z_$][A-Za-z0-9_$]*)(?:\s*\[\s*['"][^'"]+['"]\s*\]){2,}`)
 	rubyNestedSymbolOrStringKeyAccessRE = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\s*\[\s*(?::[A-Za-z_][A-Za-z0-9_]*|['"][^'"]+['"])\s*\]){2,}`)
 	jvmChainedStringMapGetRE            = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\.get\(\s*"[^"]+"\s*\)){2,}`)
 	goNestedStringMapAssignmentRE       = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\s*\[\s*"[^"]+"\s*\]){2,}\s*=(?:[^=]|$)`)
+	pythonTestScaffoldDeclarationRE     = regexp.MustCompile(`^\s*(?:class\s+[A-Za-z_][A-Za-z0-9_]*(?:Test|Tests)\b|def\s+test_[A-Za-z0-9_]*\s*\()`)
+	jvmTestScaffoldDeclarationRE        = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|open|final|abstract|static)\s+)*class\s+[A-Za-z_][A-Za-z0-9_]*(?:Test|Tests)\b`)
+	goTestScaffoldDeclarationRE         = regexp.MustCompile(`^\s*func\s+Test[A-Z0-9_][A-Za-z0-9_]*\s*\(`)
+	jsTestScaffoldDeclarationRE         = regexp.MustCompile(`^\s*(?:export\s+)?(?:class|function)\s+[A-Za-z_$][A-Za-z0-9_$]*(?:Test|Tests|Spec)\b`)
+	rubyTestScaffoldDeclarationRE       = regexp.MustCompile(`^\s*(?:class\s+[A-Za-z_:][A-Za-z0-9_:]*(?:Test|Tests)\b|def\s+test_[A-Za-z0-9_!?=]*\b)`)
 )
 
 type patchEffectLineShapeRule struct {
 	code    string
 	message string
 	match   *regexp.Regexp
+}
+
+type pythonPatchEffectScope struct {
+	Indent int
+	Name   string
+}
+
+type pythonPatchEffectDeclaration struct {
+	Owner string
+	Name  string
+	Kind  string
+	Line  int
+	Key   string
 }
 
 func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef, diff string) types.PatchEffectRecord {
@@ -329,12 +349,16 @@ func annotatePatchEffectSourceShape(file *types.PatchEffectFile, data []byte, so
 	}
 	sourceKind = strings.TrimSpace(sourceKind)
 	lines := strings.Split(string(data), "\n")
+	if sourceKind == "python" {
+		annotatePatchEffectPythonDuplicateDeclarations(file, lines)
+	}
 	for _, hunk := range file.Hunks {
 		if sourceKind == "python" {
 			annotatePatchEffectPythonOwnerShape(file, lines, hunk)
 		}
 		for _, added := range hunk.AddedLineTexts {
 			appendPatchEffectLineShapeEvents(file, sourceKind, added)
+			appendPatchEffectProductionTestScaffoldEvent(file, sourceKind, added)
 		}
 	}
 }
@@ -358,6 +382,113 @@ func annotatePatchEffectPythonOwnerShape(file *types.PatchEffectFile, lines []st
 	}
 }
 
+func annotatePatchEffectPythonDuplicateDeclarations(file *types.PatchEffectFile, lines []string) {
+	if file == nil {
+		return
+	}
+	added := map[int]bool{}
+	for _, hunk := range file.Hunks {
+		for _, lineNo := range hunk.AddedLineNumbers {
+			if lineNo > 0 {
+				added[lineNo] = true
+			}
+		}
+	}
+	if len(added) == 0 {
+		return
+	}
+	decls := pythonPatchEffectDeclarations(lines)
+	byKey := map[string][]pythonPatchEffectDeclaration{}
+	for _, decl := range decls {
+		byKey[decl.Key] = append(byKey[decl.Key], decl)
+	}
+	reported := map[string]bool{}
+	for _, decl := range decls {
+		if !added[decl.Line] || len(byKey[decl.Key]) < 2 || reported[decl.Key] {
+			continue
+		}
+		reported[decl.Key] = true
+		file.Events = append(file.Events, types.PatchEffectEvent{
+			Code:        "python_duplicate_symbol_added",
+			Severity:    "error",
+			Path:        file.Path,
+			Message:     fmt.Sprintf("added Python %s %q duplicates another declaration in owner scope %q", decl.Kind, decl.Name, decl.Owner),
+			EvidenceRef: fmt.Sprintf("%s:%d", file.Path, decl.Line),
+		})
+	}
+}
+
+func pythonPatchEffectDeclarations(lines []string) []pythonPatchEffectDeclaration {
+	var scopes []pythonPatchEffectScope
+	var out []pythonPatchEffectDeclaration
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		indent := pythonPatchEffectIndent(line)
+		for len(scopes) > 0 && indent <= scopes[len(scopes)-1].Indent {
+			scopes = scopes[:len(scopes)-1]
+		}
+		if match := pythonClassDefLineRE.FindStringSubmatch(line); match != nil {
+			owner := pythonPatchEffectOwner(scopes)
+			name := strings.TrimSpace(match[2])
+			out = append(out, pythonPatchEffectDeclaration{
+				Owner: owner,
+				Name:  name,
+				Kind:  "class",
+				Line:  i + 1,
+				Key:   owner + "|class|" + name,
+			})
+			scopes = append(scopes, pythonPatchEffectScope{Indent: indent, Name: name})
+			continue
+		}
+		if match := pythonDefLineRE.FindStringSubmatch(line); match != nil {
+			owner := pythonPatchEffectOwner(scopes)
+			name := strings.TrimSpace(match[2])
+			out = append(out, pythonPatchEffectDeclaration{
+				Owner: owner,
+				Name:  name,
+				Kind:  "function",
+				Line:  i + 1,
+				Key:   owner + "|function|" + name,
+			})
+			scopes = append(scopes, pythonPatchEffectScope{Indent: indent, Name: name})
+		}
+	}
+	return out
+}
+
+func pythonPatchEffectOwner(scopes []pythonPatchEffectScope) string {
+	if len(scopes) == 0 {
+		return "<module>"
+	}
+	names := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		if scope.Name != "" {
+			names = append(names, scope.Name)
+		}
+	}
+	if len(names) == 0 {
+		return "<module>"
+	}
+	return strings.Join(names, ".")
+}
+
+func pythonPatchEffectIndent(line string) int {
+	indent := 0
+	for _, r := range line {
+		switch r {
+		case ' ':
+			indent++
+		case '\t':
+			indent += 4
+		default:
+			return indent
+		}
+	}
+	return indent
+}
+
 func appendPatchEffectLineShapeEvents(file *types.PatchEffectFile, sourceKind string, line types.PatchEffectLine) {
 	for _, rule := range patchEffectLineShapeRules(sourceKind) {
 		if rule.match == nil || !rule.match.MatchString(line.Text) {
@@ -374,6 +505,64 @@ func appendPatchEffectLineShapeEvents(file *types.PatchEffectFile, sourceKind st
 			Message:     rule.message,
 			EvidenceRef: evidence,
 		})
+	}
+}
+
+func appendPatchEffectProductionTestScaffoldEvent(file *types.PatchEffectFile, sourceKind string, line types.PatchEffectLine) {
+	if file == nil || file.PathRole != types.SourcePathRoleProduction {
+		return
+	}
+	rule := patchEffectProductionTestScaffoldRule(sourceKind)
+	if rule.match == nil || !rule.match.MatchString(line.Text) {
+		return
+	}
+	evidence := file.Path
+	if line.Line > 0 {
+		evidence = fmt.Sprintf("%s:%d", file.Path, line.Line)
+	}
+	file.Events = append(file.Events, types.PatchEffectEvent{
+		Code:        rule.code,
+		Severity:    "warning",
+		Path:        file.Path,
+		Message:     rule.message,
+		EvidenceRef: evidence,
+	})
+}
+
+func patchEffectProductionTestScaffoldRule(sourceKind string) patchEffectLineShapeRule {
+	switch strings.TrimSpace(sourceKind) {
+	case "python":
+		return patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   pythonTestScaffoldDeclarationRE,
+			message: "added test-shaped Python declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		}
+	case "javascript", "typescript":
+		return patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   jsTestScaffoldDeclarationRE,
+			message: "added test-shaped JS/TS declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		}
+	case "ruby":
+		return patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   rubyTestScaffoldDeclarationRE,
+			message: "added test-shaped Ruby declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		}
+	case "java", "kotlin":
+		return patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   jvmTestScaffoldDeclarationRE,
+			message: "added test-shaped JVM declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		}
+	case "go":
+		return patchEffectLineShapeRule{
+			code:    "production_test_scaffold_added",
+			match:   goTestScaffoldDeclarationRE,
+			message: "added Go test function in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		}
+	default:
+		return patchEffectLineShapeRule{}
 	}
 }
 

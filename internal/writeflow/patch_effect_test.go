@@ -167,6 +167,89 @@ func TestAnnotatePatchEffectPythonTopLevelSelfMethodHardBlocks(t *testing.T) {
 	}
 }
 
+func TestAnnotatePatchEffectPythonDuplicateSymbolHardBlocks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sympy/tensor/array"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sympy/tensor/array/ndim_array.py"), []byte("class NDimArray:\n    def __len__(self):\n        return 1\n\n    def __len__(self):\n        return 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/sympy/tensor/array/ndim_array.py b/sympy/tensor/array/ndim_array.py
+--- a/sympy/tensor/array/ndim_array.py
++++ b/sympy/tensor/array/ndim_array.py
+@@ -1,3 +1,6 @@
+ class NDimArray:
+     def __len__(self):
+         return 1
++
++    def __len__(self):
++        return 2
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "sympy/tensor/array/ndim_array.py")
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if !patchEffectHasEvent(*file, "python_duplicate_symbol_added") {
+		t.Fatalf("duplicate symbol event missing: %+v", file.Events)
+	}
+
+	review := ReviewAppliedPatchScope(&types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"sympy/tensor/array/ndim_array.py"},
+		PatchEffect: &record,
+	}, types.ChangePlanSlice{})
+	if !review.HardBlock || !patchReviewHasFinding(review, "python_duplicate_symbol_added") {
+		t.Fatalf("python duplicate symbol should hard block review: %+v", review)
+	}
+}
+
+func TestAnnotatePatchEffectProductionTestScaffoldWarns(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src/_pytest/assertion"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src/_pytest/assertion/rewrite.py"), []byte("def helper():\n    pass\n\nclass _AssertionRewriterTests:\n    pass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/src/_pytest/assertion/rewrite.py b/src/_pytest/assertion/rewrite.py
+--- a/src/_pytest/assertion/rewrite.py
++++ b/src/_pytest/assertion/rewrite.py
+@@ -1,2 +1,5 @@
+ def helper():
+     pass
++
++class _AssertionRewriterTests:
++    pass
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "src/_pytest/assertion/rewrite.py")
+	if file == nil || file.PathRole != types.SourcePathRoleProduction {
+		t.Fatalf("patch effect production file missing: %+v", record.Files)
+	}
+	if !patchEffectHasEvent(*file, "production_test_scaffold_added") {
+		t.Fatalf("production test scaffold event missing: %+v", file.Events)
+	}
+
+	review := ReviewAppliedPatchScope(&types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"src/_pytest/assertion/rewrite.py"},
+		PatchEffect: &record,
+	}, types.ChangePlanSlice{})
+	if review.HardBlock {
+		t.Fatalf("production test scaffold is soft semantic coverage, not a hard block: %+v", review)
+	}
+	finding := patchReviewFindingByCode(review, "production_test_scaffold_added")
+	if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageUnknown {
+		t.Fatalf("production test scaffold finding should be semantic coverage unknown: %+v", finding)
+	}
+}
+
 func TestAnnotatePatchEffectPythonNestedStringKeyAccessWarns(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
