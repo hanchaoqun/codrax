@@ -1055,6 +1055,62 @@ Verification:
 - `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
 - `bash eval/swebench/smoke_local.sh`
 
+## 2026-06-18 RC-21 PyProject Build Requirement Parsing
+
+RC-20's Astropy rerun exposed an environment-preparation gap: the adapter was
+executed under Python 3.9, where `tomllib` is unavailable. Because the adapter
+did not try `tomli` or a fallback parser, `[build-system].requires` was not
+read from `pyproject.toml`; build helpers such as `extension-helpers` were not
+installed before editable/build-ext verification setup.
+
+This is not an Astropy-specific fix. Many historical SWE/Python customer
+repositories rely on `pyproject.toml` build-system requirements even when the
+outer evaluation interpreter is older than Python 3.11.
+
+Design:
+
+- Prefer stdlib `tomllib` when available.
+- Fall back to `tomli` when installed.
+- If no TOML library is available, parse only the typed
+  `[build-system].requires` string-array field with a narrow TOML-subset
+  parser.
+- Install parsed build requirements through the existing best-effort pip path.
+- Ensure legacy `setuptools.dep_util` compatibility before the
+  `--no-build-isolation` editable retry for setup.py projects.
+- Keep environment setup observational; failures continue to produce
+  predictions and should downgrade local verification confidence rather than
+  block official patch export.
+
+Task list:
+
+- [x] Add `tomli` fallback import.
+- [x] Add `parse_pyproject_build_requires_fallback`.
+- [x] Reuse existing `install_pyproject_build_requires` flow.
+- [x] Move legacy `setuptools.dep_util` compatibility before the
+  no-build-isolation retry.
+- [x] Add pyproject build-system parsing regressions.
+- [x] Run adapter unit tests, Python compile, and local adapter smoke.
+- [x] Re-run Astropy Lite smoke and record remaining host-compiler limitation.
+
+Verification:
+
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+- `bash eval/swebench/smoke_local.sh`
+- RC-21 Astropy rerun:
+  `/private/tmp/codrax-swebench-rc21-astropy-20260618-055836`
+
+RC-21 Astropy result:
+
+- `pyproject_build_requires` now includes `extension-helpers`.
+- `install_pyproject_build_requires` succeeds.
+- Prediction remains clean and harness-consumable: 504-byte patch touching only
+  `astropy/modeling/separable.py`.
+- Verification still fails locally because extension compilation reaches a host
+  compiler/header limit: `fatal error: 'Python.h' file not found`. This is a
+  separate verify-sandbox capability gap, not patch-export or root-cause
+  localization failure.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1081,6 +1137,7 @@ Verification:
 | RC-18 smoke | complete | One-instance Django smoke after RC-18 exported a non-empty harness-consumable prediction and proved probe confidence is present in reports. It also exposed the next gap: final test-only repair plan and exported source patch can diverge, producing `final_plan_test_only_exported_source_patch`. |
 | RC-19 | complete | Delivery candidate coherence: SWE-bench adapter now binds exported source paths to applied source-owner plans, accepts later test-only validation only through an explicit typed relation, merges PatchReview across source-owner plans, and drives local acceptance from `delivery_*` facts instead of final-plan drift. Verification: adapter unit tests, Python compile, and local SWE-bench adapter smoke pass. |
 | RC-20 | complete | Typed-owned prediction export: post-RC-19 Lite smoke exposed 4.2 MB generated build artifacts in the official prediction. Export now uses workflow/final-plan typed path ownership as an allowlist, records unowned drops separately from test-patch drops, and never falls back from an explicit empty allowlist to all git diff paths. Verification: adapter unit tests, Python compile, and local SWE-bench adapter smoke pass. |
+| RC-21 | complete | Pyproject build requirement parsing: adapter now uses `tomllib`, `tomli`, or a narrow `[build-system].requires` fallback so Python 3.9 eval runs still install typed build helpers such as `extension-helpers`; legacy `setuptools.dep_util` compatibility now runs before no-build-isolation editable retry. Astropy rerun confirms build requirements are installed and prediction export remains clean; local verify still hits host `Python.h` compiler-header limits, tracked as the next verify-sandbox gap. |
 
 ## Acceptance Criteria
 

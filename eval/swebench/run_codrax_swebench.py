@@ -34,7 +34,10 @@ from typing import Any, Iterable
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback.
-    tomllib = None  # type: ignore[assignment]
+    try:
+        import tomli as tomllib  # type: ignore[no-redef]
+    except ModuleNotFoundError:
+        tomllib = None  # type: ignore[assignment]
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -402,14 +405,67 @@ def is_python_project(repo_dir: Path) -> bool:
     return any(repo_dir.glob("**/*.py"))
 
 
+def parse_pyproject_build_requires_fallback(text: str) -> list[str]:
+    """Parse `[build-system].requires` when no TOML library is available.
+
+    This is a narrow TOML-subset parser for a typed config field, not a
+    heuristic over project names or error prose. It supports the common
+    single-line and multi-line string-array forms used by historical projects.
+    """
+
+    in_build_system = False
+    collecting = False
+    raw = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("[") and not collecting:
+            in_build_system = stripped == "[build-system]"
+            continue
+        if not in_build_system:
+            continue
+        if collecting:
+            raw += "\n" + stripped
+            if "]" in stripped:
+                break
+            continue
+        if not stripped.startswith("requires"):
+            continue
+        key, sep, rhs = stripped.partition("=")
+        if sep != "=" or key.strip() != "requires":
+            continue
+        raw = rhs.strip()
+        if "[" in raw and "]" not in raw:
+            collecting = True
+        else:
+            break
+    if not raw or "[" not in raw:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"""(?P<quote>["'])(?P<value>.*?)(?P=quote)""", raw):
+        value = match.group("value").strip()
+        if value and value not in seen:
+            out.append(value)
+            seen.add(value)
+    return out[:64]
+
+
 def pyproject_build_requires(repo_dir: Path) -> list[str]:
     pyproject = repo_dir / "pyproject.toml"
-    if tomllib is None or not pyproject.exists() or pyproject.stat().st_size > 1_000_000:
+    if not pyproject.exists() or pyproject.stat().st_size > 1_000_000:
         return []
     try:
-        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        text = pyproject.read_text(encoding="utf-8")
     except Exception:
         return []
+    if tomllib is None:
+        return parse_pyproject_build_requires_fallback(text)
+    try:
+        data = tomllib.loads(text)
+    except Exception:
+        return parse_pyproject_build_requires_fallback(text)
     build_system = data.get("build-system")
     if not isinstance(build_system, dict):
         return []
@@ -1045,12 +1101,18 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
         project_failed = project_failed or test_req.code != 0 or test_req.timed_out
     if (repo_dir / "pyproject.toml").exists() or (repo_dir / "setup.py").exists() or (repo_dir / "setup.cfg").exists():
         project_install_failed = False
+        legacy_dep_util_available: bool | None = None
         editable = step("install_editable", pip_install_cmd("-e", "."), cwd=repo_dir)
         if editable.code != 0 and record.get("pkg_resources_available"):
             # Legacy projects often import pkg_resources from setup.py, but
             # pip's isolated build env can ignore the venv setuptools pin. A
             # bounded no-isolation retry lets the already-prepared compat
             # environment participate without making env setup a hard gate.
+            if (repo_dir / "setup.py").exists():
+                legacy_dep_util_available = ensure_legacy_setuptools_dep_util(
+                    "legacy_setuptools_dep_util_pre_no_build_isolation"
+                )
+                record["legacy_setuptools_dep_util_available"] = legacy_dep_util_available
             editable = step(
                 "install_editable_no_build_isolation",
                 pip_install_cmd("--no-build-isolation", "-e", "."),
@@ -1058,7 +1120,10 @@ def prepare_python_env(repo_dir: Path, inst_dir: Path, args: argparse.Namespace)
             )
         project_install_failed = editable.code != 0 or editable.timed_out
         if project_install_failed and (repo_dir / "setup.py").exists():
-            if ensure_legacy_setuptools_dep_util("legacy_setuptools_dep_util"):
+            if legacy_dep_util_available is None:
+                legacy_dep_util_available = ensure_legacy_setuptools_dep_util("legacy_setuptools_dep_util")
+                record["legacy_setuptools_dep_util_available"] = legacy_dep_util_available
+            if legacy_dep_util_available:
                 record["legacy_setuptools_dep_util_available"] = True
                 build_ext = step("build_ext_inplace", [str(python), "setup.py", "build_ext", "--inplace"], cwd=repo_dir)
                 project_install_failed = build_ext.code != 0 or build_ext.timed_out

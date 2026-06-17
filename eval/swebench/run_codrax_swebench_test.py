@@ -593,6 +593,43 @@ class ExportPatchPolicyTests(unittest.TestCase):
 
 
 class PythonCompatConstraintTests(unittest.TestCase):
+    def test_pyproject_build_requires_parses_multiline_build_system_requires(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = Path(raw)
+            (repo / "pyproject.toml").write_text(
+                """
+[project]
+name = "demo"
+
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+    "extension-helpers",
+]
+build-backend = "setuptools.build_meta"
+""",
+                encoding="utf-8",
+            )
+
+            requires = adapter.pyproject_build_requires(repo)
+
+        self.assertEqual(requires, ["setuptools", "wheel", "extension-helpers"])
+
+    def test_pyproject_build_requires_fallback_parses_without_toml_library(self) -> None:
+        requires = adapter.parse_pyproject_build_requires_fallback(
+            """
+[build-system]
+requires = ["setuptools", "wheel",
+            "extension-helpers"]
+
+[tool.demo]
+requires = ["ignored"]
+"""
+        )
+
+        self.assertEqual(requires, ["setuptools", "wheel", "extension-helpers"])
+
     def test_adds_jinja2_ceiling_when_legacy_requirement_has_no_upper_bound(self) -> None:
         constraints = adapter.python_compat_constraints(["Jinja2>=2.3", "numpy>=1.11"])
 

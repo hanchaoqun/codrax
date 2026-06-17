@@ -62,7 +62,10 @@ verify stage can run `pytest` when the checkout supports it. The adapter install
 inside the venv; if the import is missing, the adapter installs a compatible
 `setuptools<81` and records the check/recheck steps. When `pyproject.toml`
 declares `[build-system].requires`, the adapter installs those structured build
-requirements into the same venv before editable install. Common runtime/test
+requirements into the same venv before editable install. Python 3.9 eval
+drivers use `tomli` when present, or a narrow `[build-system].requires`
+fallback parser, so historical pyproject build helpers are not skipped merely
+because stdlib `tomllib` is unavailable. Common runtime/test
 requirements files are installed best-effort with discovered constraints passed
 through to pip; dev requirements are used only as a bounded fallback when no
 test-focused requirements file exists. Legacy projects that only declare
