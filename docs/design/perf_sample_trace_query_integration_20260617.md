@@ -234,8 +234,8 @@ Batch implementation should prefer official parsers:
 1. `.perftrace` direct parser: always available; tests and evals can use synthetic text.
 2. `.htrace` standalone extractor: find nested `TraceFileHeader` with `DataType::HIPERF_DATA` and write the payload as `.perf.data`.
 3. OpenHarmony adapter: call configured/discovered `hiperf_host` or `hiperf` as `report --proto -i <perf.data> -o <perf.proto>`, then parse the official `report_sample.proto` stream into `.perftrace`.
-4. Android adapter: call configured `simpleperf` report sample/export path when available, then convert to `.perftrace`.
-5. Do not parse raw `perf.data` in Codrax. Raw perf stays an artifact with a caveat when no official parser is available.
+4. Android adapter: call configured/discovered `simpleperf/scripts/report_sample.py`, then convert official text output to `.perftrace`.
+5. Codrax raw `perf.data` fallback: parse a narrow, explicitly versioned subset of raw perf records only when official adapters are unavailable or disabled and the user asks for local conversion. This is a lower-confidence extraction lane, not a replacement for official symbolization.
 
 ### OpenHarmony Adapter Contract
 
@@ -272,7 +272,33 @@ Implemented D3 path:
 - The normalized `callchain` reverses simpleperf callchain entries into root-to-leaf order and appends the leaf sample symbol, so model-facing output matches Harmony hiperf `callchain` semantics.
 - Sample CPU is taken from `SampleStruct.cpu`, so Android `.perftrace` rows carry real CPU ids when available.
 
-As with OpenHarmony, raw `perf.data` is never parsed directly by Codrax. The official simpleperf report library remains the source of truth for symbols, Java/ART frames, unwinding, symfs, and kallsyms.
+As with OpenHarmony, the official simpleperf report library remains the source of truth for complete symbols, Java/ART frames, unwinding, symfs, and kallsyms.
+
+### Raw Perf.Data Fallback Strategy
+
+The user experience should support two explicit options:
+
+1. `official_adapter` (default/preferred): use `hiperf_host` / `hiperf` / `simpleperf report_sample.py`, then normalize to `.perftrace`.
+2. `raw_perfdata_fallback` (Codrax-owned fallback): parse raw `perf.data` directly enough to produce a degraded `.perftrace` when official tools are unavailable.
+
+The fallback must be honest and typed:
+
+- It must emit `source=raw_perfdata_fallback`.
+- It must add `symbolization_status=unsymbolized|partial|build_id_only|symbolized` once the perf sample event model carries that field.
+- It should preserve `ip`, `pid`, `tid`, `cpu`, `period`, `time`, event name/id, and callchain IPs when sample_type contains them.
+- It may use `PERF_RECORD_COMM`, `PERF_RECORD_MMAP/MMAP2`, and build-id feature sections for partial DSO labels, but it must not invent function names.
+- It should emit clear caveats when symbols/callchains/time/cpu are unavailable in the file's `sample_type`.
+- It should not parse model prose or user intent; selection is by explicit CLI/env/config option, adapter availability, and file format validation.
+
+Raw fallback task list:
+
+- [ ] Add `internal/perfdata` with a bounded reader for Linux/simpleperf perf.data headers, attrs, data section records, and selected feature sections.
+- [ ] Support sample records for `PERF_SAMPLE_IP`, `TID`, `TIME`, `ADDR`, `ID/IDENTIFIER`, `CPU`, `PERIOD`, and `CALLCHAIN`.
+- [ ] Support side-band `COMM`, `MMAP/MMAP2`, `FORK/EXIT` enough to label pid/tid/comm and DSO ranges.
+- [ ] Normalize fallback samples to `.perftrace` with `source=raw_perfdata_fallback`.
+- [ ] Add CLI `--perf-parser=auto|official|raw` (or equivalent config) so users can choose dependency-first or local fallback behavior without prompt guessing.
+- [ ] Add parser tests from synthetic perf.data fixtures and a real small fixture if licensing permits.
+- [ ] Teach trace_query prompts that raw fallback samples are lower confidence execution context.
 
 ## JSON Repair / Prompt Contract
 
@@ -332,6 +358,8 @@ D3 landed the Android simpleperf adapter path: direct `perf.data` inputs can now
 - Ensure explicit path questions with one or more runtime artifacts route to `trace_query(path)` instead of source-code analysis.
 - Update user guide examples.
 
+Status: in progress. `tracequery.BuildIndex` now accepts `.tracebundle.json` directly, promotes `*.systrace` / `*.perftrace` to a sibling `*.tracebundle.json` when present, and auto-merges sibling `*.systrace + *.perftrace` pairs when no bundle exists. The merge keeps existing parser/view code as the single consumer, so model tool calls can pass one path and still get joint trace+perf context.
+
 ### Batch F: Evals and Regression Guard
 
 - Add minimal synthetic perftrace evals without over-prebaked analysis.
@@ -380,6 +408,7 @@ Eval targets:
   - [x] D2 OpenHarmony official hiperf adapter to normalized `.perftrace` implemented.
   - [x] D3 Android/simpleperf adapter parity implemented.
 - [ ] Batch E implemented, committed, pushed.
+- [ ] Raw perf.data fallback designed, implemented, committed, pushed.
 - [ ] Batch F evals added and representative cases run two at a time.
 
 ## Open Decisions

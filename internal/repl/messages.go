@@ -3207,9 +3207,9 @@ func attachedTraceClearedMsg(lang string) string {
 
 func htraceUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace <path> | append <path> | convert <binary> [out.systrace] | clear | show — 附加或转换 HiTrace / atrace / systrace / perfetto 文件"
+		return "/htrace <path> | append <path> | convert <binary> [out.systrace] | clear | show — 附加或转换 HiTrace / atrace / systrace / perfetto / perftrace / tracebundle 文件"
 	}
-	return "/htrace <path> | append <path> | convert <binary> [out.systrace] | clear | show — attach or convert HiTrace / atrace / systrace / perfetto files"
+	return "/htrace <path> | append <path> | convert <binary> [out.systrace] | clear | show — attach or convert HiTrace / atrace / systrace / perfetto / perftrace / tracebundle files"
 }
 
 func htraceConvertUsage(lang string) string {

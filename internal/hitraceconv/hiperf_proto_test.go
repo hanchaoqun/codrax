@@ -107,7 +107,14 @@ cp "$HIPERF_PROTO_FIXTURE" "$out"
 	if err != nil {
 		t.Fatalf("parse generated perftrace: %v", err)
 	}
-	if len(idx.Events) != 1 || idx.Events[0].PerfSymbol != "doWork" {
+	found := false
+	for _, ev := range idx.Events {
+		if ev.Type == tracequery.EventPerfSample && ev.PerfSymbol == "doWork" {
+			found = true
+			break
+		}
+	}
+	if !found {
 		t.Fatalf("generated perftrace did not round-trip: %+v", idx.Events)
 	}
 	bundle, err := os.ReadFile(result.BundlePath)

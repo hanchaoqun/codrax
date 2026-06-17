@@ -705,7 +705,7 @@ func execCommandLooksLikeGrepPipeline(command string) bool {
 
 func execCommandTargetsRuntimeTextArtifact(command string) bool {
 	lower := strings.ToLower(command)
-	for _, suffix := range []string{".systrace", ".htrace", ".atrace", ".perfetto", ".trace", ".log"} {
+	for _, suffix := range []string{".systrace", ".htrace", ".atrace", ".perfetto", ".perftrace", ".tracebundle.json", ".trace", ".log"} {
 		if strings.Contains(lower, suffix) {
 			return true
 		}
@@ -2196,13 +2196,18 @@ func grepParamsTargetRuntimeArtifactFile(ctx *types.BusContext, params grepToolP
 func grepPathLooksLikeRuntimeArtifact(p string) bool {
 	normalized := strings.ToLower(filepath.ToSlash(strings.TrimSpace(p)))
 	base := path.Base(normalized)
-	switch filepath.Ext(base) {
-	case ".log", ".trace", ".systrace", ".htrace", ".atrace", ".perfetto":
+	if strings.HasSuffix(base, ".tracebundle.json") {
 		return true
+	}
+	switch filepath.Ext(base) {
+	case ".log", ".trace", ".systrace", ".htrace", ".atrace", ".perfetto", ".perftrace":
+		return true
+	case ".data":
+		return base == "perf.data" || strings.HasSuffix(base, ".perf.data")
 	case ".txt":
 		return strings.Contains(base, "log") || strings.Contains(base, "trace") || strings.Contains(base, "perf")
 	default:
-		return strings.Contains(base, "systrace") || strings.Contains(base, "perfetto")
+		return strings.Contains(base, "systrace") || strings.Contains(base, "perfetto") || strings.Contains(base, "perftrace")
 	}
 }
 

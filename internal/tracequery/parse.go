@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"container/list"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -163,6 +164,7 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 		return nil, fmt.Errorf("trace path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
+	path = promoteSiblingTraceBundlePath(path)
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
@@ -406,6 +408,16 @@ func (opts BuildOptions) cacheKey() string {
 }
 
 func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
+	if traceBundlePath(path) {
+		return parseTraceBundleFile(ctx, path, size, modUnix, opts)
+	}
+	if companions := siblingTraceArtifactPaths(path); len(companions) > 0 {
+		return parseTraceArtifactPathList(ctx, path, size, modUnix, opts, append([]string{path}, companions...))
+	}
+	return parseSingleTraceFile(ctx, path, size, modUnix, opts)
+}
+
+func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -500,6 +512,198 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts
 	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
 	return idx, nil
 }
+
+type traceBundleFile struct {
+	Version   string                `json:"version"`
+	InputPath string                `json:"input_path"`
+	Systrace  string                `json:"systrace"`
+	Artifacts []traceBundleArtifact `json:"artifacts"`
+	Caveats   []string              `json:"caveats"`
+}
+
+type traceBundleArtifact struct {
+	Type string `json:"type"`
+	Path string `json:"path"`
+}
+
+func traceBundlePath(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".json") && strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".tracebundle.json")
+}
+
+func promoteSiblingTraceBundlePath(path string) string {
+	if traceBundlePath(path) {
+		return path
+	}
+	if bundle := siblingTraceBundlePath(path); bundle != "" {
+		return bundle
+	}
+	return path
+}
+
+func siblingTraceBundlePath(path string) string {
+	base := traceArtifactBase(path)
+	if base == "" {
+		return ""
+	}
+	candidate := base + ".tracebundle.json"
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	return ""
+}
+
+func siblingTraceArtifactPaths(path string) []string {
+	if traceBundlePath(path) {
+		return nil
+	}
+	base := traceArtifactBase(path)
+	if base == "" {
+		return nil
+	}
+	var suffixes []string
+	lower := strings.ToLower(path)
+	switch {
+	case strings.HasSuffix(lower, ".systrace"):
+		suffixes = []string{".perftrace"}
+	case strings.HasSuffix(lower, ".perftrace"):
+		suffixes = []string{".systrace"}
+	default:
+		return nil
+	}
+	var out []string
+	for _, suffix := range suffixes {
+		candidate := base + suffix
+		if filepath.Clean(candidate) == filepath.Clean(path) {
+			continue
+		}
+		if _, err := os.Stat(candidate); err == nil {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+func traceArtifactBase(path string) string {
+	lower := strings.ToLower(path)
+	switch {
+	case strings.HasSuffix(lower, ".systrace"):
+		return path[:len(path)-len(".systrace")]
+	case strings.HasSuffix(lower, ".perftrace"):
+		return path[:len(path)-len(".perftrace")]
+	default:
+		return ""
+	}
+}
+
+func parseTraceBundleFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var bundle traceBundleFile
+	if err := json.Unmarshal(body, &bundle); err != nil {
+		return nil, fmt.Errorf("parse trace bundle %s: %w", path, err)
+	}
+	artifactPaths := traceBundleIndexPaths(path, bundle)
+	if len(artifactPaths) == 0 {
+		return nil, fmt.Errorf("trace bundle %s has no systrace or perftrace artifacts", path)
+	}
+	return parseTraceArtifactPathList(ctx, path, size, modUnix, opts, artifactPaths)
+}
+
+func parseTraceArtifactPathList(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions, artifactPaths []string) (*Index, error) {
+	idx := &Index{Path: path, Size: size, ModTime: time.Unix(0, modUnix)}
+	if opts.windowed() {
+		idx.Windowed = true
+		idx.IndexTimeStart = paddedTimeStart(opts)
+		idx.IndexTimeEnd = paddedTimeEnd(opts)
+		idx.IndexLineStart = paddedLineStart(opts)
+		idx.IndexLineEnd = paddedLineEnd(opts)
+	}
+	var flavorSet bool
+	for _, artifactPath := range artifactPaths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		info, err := os.Stat(artifactPath)
+		if err != nil {
+			return nil, fmt.Errorf("stat trace bundle artifact %s: %w", artifactPath, err)
+		}
+		child, err := parseSingleTraceFile(ctx, artifactPath, info.Size(), info.ModTime().UnixNano(), opts)
+		if err != nil {
+			return nil, fmt.Errorf("parse trace bundle artifact %s: %w", artifactPath, err)
+		}
+		idx.Size += child.Size
+		if child.ModTime.After(idx.ModTime) {
+			idx.ModTime = child.ModTime
+		}
+		idx.LineCount += child.LineCount
+		idx.ScannedLineCount += child.ScannedLineCount
+		idx.ParseLinePanics += child.ParseLinePanics
+		idx.ClockRegressions += child.ClockRegressions
+		idx.UnparsedLines += child.UnparsedLines
+		idx.ParsedKnown += child.ParsedKnown
+		if child.FirstTs > 0 && (idx.FirstTs == 0 || child.FirstTs < idx.FirstTs) {
+			idx.FirstTs = child.FirstTs
+		}
+		if child.LastTs > idx.LastTs {
+			idx.LastTs = child.LastTs
+		}
+		if !flavorSet || child.FlavorConfidence > idx.FlavorConfidence {
+			idx.TraceFlavor = child.TraceFlavor
+			idx.FlavorConfidence = child.FlavorConfidence
+			idx.FlavorSignals = append([]string(nil), child.FlavorSignals...)
+			flavorSet = true
+		}
+		idx.Events = append(idx.Events, child.Events...)
+	}
+	sort.SliceStable(idx.Events, func(i, j int) bool {
+		if idx.Events[i].Ts == idx.Events[j].Ts {
+			return idx.Events[i].Line < idx.Events[j].Line
+		}
+		return idx.Events[i].Ts < idx.Events[j].Ts
+	})
+	return idx, nil
+}
+
+func traceBundleIndexPaths(bundlePath string, bundle traceBundleFile) []string {
+	baseDir := filepath.Dir(bundlePath)
+	seen := map[string]bool{}
+	var paths []string
+	add := func(p string) {
+		p = resolveTraceBundleArtifactPath(baseDir, strings.TrimSpace(p))
+		if p == "" || seen[p] || traceBundlePath(p) {
+			return
+		}
+		seen[p] = true
+		paths = append(paths, p)
+	}
+	add(bundle.Systrace)
+	for _, artifact := range bundle.Artifacts {
+		switch strings.ToLower(strings.TrimSpace(artifact.Type)) {
+		case "systrace", "perftrace":
+			add(artifact.Path)
+		}
+	}
+	return paths
+}
+
+func resolveTraceBundleArtifactPath(baseDir, p string) string {
+	if p == "" {
+		return ""
+	}
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	if _, err := os.Stat(p); err == nil {
+		if abs, absErr := filepath.Abs(p); absErr == nil {
+			return filepath.Clean(abs)
+		}
+		return filepath.Clean(p)
+	}
+	return filepath.Clean(filepath.Join(baseDir, p))
+}
+
 func paddedTimeStart(opts BuildOptions) float64 {
 	if !opts.TimeStartSet {
 		return 0

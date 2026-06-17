@@ -561,7 +561,7 @@ func init() {
 	f.IntVar(&flagMaxPrescanRounds, "max-prescan-rounds", 0, "override analyzer prescan budget rounds (codrax.yaml :: analysis_max_prescan_rounds); 0 = inherit from yaml/default. Multi-topic questions still get a +1 bump on top, capped at agent_prescan_rounds_ceil (default 4).")
 	f.StringArrayVar(&flagAttachLog, "log", nil, "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin. Repeatable: --log a.log --log b.log attaches both, joined with `# codrax-source: <path>` headers so the LLM can distinguish boundaries. Total bytes capped by codrax.yaml :: log_attach_max_bytes.")
 	f.StringVar(&flagAttachLogText, "log-text", "", "inline runtime log excerpt (mutually exclusive with --log); for scripted / piped usage")
-	f.StringArrayVar(&flagAttachHitrace, "htrace", nil, "attach an ftrace-compatible trace from file path (or '-' for stdin). Covers HarmonyOS `hdc shell hitrace`, Android `adb shell atrace`, systrace, and perfetto text dumps. Repeatable: --htrace a.trace --htrace b.trace. --atrace is an alias.")
+	f.StringArrayVar(&flagAttachHitrace, "htrace", nil, "attach an ftrace-compatible trace from file path (or '-' for stdin). Covers HarmonyOS `hdc shell hitrace`, Android `adb shell atrace`, systrace, perfetto text dumps, perftrace CPU sample text, and tracebundle metadata. Repeatable: --htrace a.trace --htrace b.trace. --atrace is an alias.")
 	f.StringVar(&flagAttachHitraceText, "htrace-text", "", "inline trace payload (mutually exclusive with --htrace)")
 	// --atrace / --atrace-text: Android-flavored aliases. Backed by
 	// the same channel as --htrace; the merge in loadAttachedTrace

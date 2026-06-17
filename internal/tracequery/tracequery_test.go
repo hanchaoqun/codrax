@@ -1288,6 +1288,95 @@ func TestPerfSampleViews(t *testing.T) {
 	}
 }
 
+func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
+	dir := t.TempDir()
+	systrace := filepath.Join(dir, "bundle.systrace")
+	perftrace := filepath.Join(dir, "bundle.perftrace")
+	bundle := filepath.Join(dir, "bundle.tracebundle.json")
+	if err := os.WriteFile(systrace, []byte(`
+	app-20 (20) [001] .... 30.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+	app-20 (20) [001] .... 30.004000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=idle/1 next_pid=0 next_prio=120
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(perftrace, []byte(`
+	app-20 (20) [001] .... 30.001000: perf_sample: cpu=1 pid=20 tid=20 period=9000 event=cpu-cycles symbol=App::draw dso=libapp.so callchain=main;App::draw source=simpleperf_report_sample
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := `{
+  "version": "test",
+  "input_path": "input.htrace",
+  "systrace": "bundle.systrace",
+  "artifacts": [
+    {"type": "systrace", "path": "bundle.systrace"},
+    {"type": "perftrace", "path": "bundle.perftrace"}
+  ]
+}
+`
+	if err := os.WriteFile(bundle, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	idx, err := BuildIndex(context.Background(), bundle)
+	if err != nil {
+		t.Fatalf("build bundle index: %v", err)
+	}
+	if filepath.Base(idx.Path) != filepath.Base(bundle) || len(idx.Events) != 3 {
+		t.Fatalf("bundle index shape: path=%s events=%d", idx.Path, len(idx.Events))
+	}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 30.0, TimeEnd: 30.005})
+	if stats.EventCounts[EventSchedSwitch] != 2 || stats.EventCounts[EventPerfSample] != 1 {
+		t.Fatalf("bundle event counts did not merge sched+perf: %+v", stats.EventCounts)
+	}
+	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) == 0 || stats.PerfSamples.TopSymbols[0].Symbol != "App::draw" {
+		t.Fatalf("bundle perf samples missing: %+v", stats.PerfSamples)
+	}
+	if len(stats.TopRunning) == 0 || stats.TopRunning[0].Thread.PID != 20 {
+		t.Fatalf("bundle scheduler stats missing: %+v", stats.TopRunning)
+	}
+
+	promoted, err := BuildIndex(context.Background(), systrace)
+	if err != nil {
+		t.Fatalf("build promoted systrace bundle index: %v", err)
+	}
+	if filepath.Base(promoted.Path) != "bundle.tracebundle.json" || len(promoted.Events) != 3 {
+		t.Fatalf("systrace path should promote to sibling bundle: path=%s events=%d", promoted.Path, len(promoted.Events))
+	}
+}
+
+func TestBuildIndexSiblingSystracePerftraceWithoutBundle(t *testing.T) {
+	dir := t.TempDir()
+	systrace := filepath.Join(dir, "pair.systrace")
+	perftrace := filepath.Join(dir, "pair.perftrace")
+	if err := os.WriteFile(systrace, []byte(`
+	app-20 (20) [001] .... 31.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+	app-20 (20) [001] .... 31.003000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=idle/1 next_pid=0 next_prio=120
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(perftrace, []byte(`
+	app-20 (20) [001] .... 31.001000: perf_sample: cpu=1 pid=20 tid=20 period=7000 event=cpu-cycles symbol=App::layout dso=libapp.so callchain=main;App::layout source=hiperf_proto
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	idx, err := BuildIndex(context.Background(), systrace)
+	if err != nil {
+		t.Fatalf("build sibling trace index: %v", err)
+	}
+	if filepath.Base(idx.Path) != "pair.systrace" || len(idx.Events) != 3 {
+		t.Fatalf("sibling index shape: path=%s events=%d", idx.Path, len(idx.Events))
+	}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 31.0, TimeEnd: 31.004})
+	if stats.EventCounts[EventSchedSwitch] != 2 || stats.EventCounts[EventPerfSample] != 1 {
+		t.Fatalf("sibling event counts did not merge sched+perf: %+v", stats.EventCounts)
+	}
+	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) == 0 || stats.PerfSamples.TopSymbols[0].Symbol != "App::layout" {
+		t.Fatalf("sibling perf samples missing: %+v", stats.PerfSamples)
+	}
+}
+
 func TestRootCauseRankAttachesPerfContextToCandidateThread(t *testing.T) {
 	idx := buildTraceIndex(t, "rank_perf_context.systrace", `
      worker-30   (   10) [001] .... 1.000000: sched_switch: prev_comm=worker prev_pid=30 prev_prio=20 prev_state=D ==> next_comm=idle/1 next_pid=0 next_prio=120
