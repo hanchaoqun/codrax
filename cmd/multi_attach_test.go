@@ -187,3 +187,53 @@ func TestDefaultsAre512MiB(t *testing.T) {
 		t.Errorf("log default: want %d, got %d", want, defaultAttachedLogMaxBytes)
 	}
 }
+
+func TestCLIRuntimeArtifactStatusLinesSummarizeMultiArtifacts(t *testing.T) {
+	logBody := "# codrax-source: first.log\npanic\n# codrax-source: second.log\ntimeout"
+	traceBody := "# codrax-source: frame.systrace\nsched_switch\n# codrax-source: frame.perftrace\nperf_sample: pid=1 tid=1 source=raw_perfdata_fallback symbolization_status=unsymbolized"
+	lines := cliRuntimeArtifactStatusLines("en", cliRuntimeArtifacts(logBody, traceBody))
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"total=4",
+		"log=2",
+		"trace=1",
+		"perftrace=1",
+		"primary: trace frame.systrace",
+		"frame.perftrace",
+		"source=raw_perfdata_fallback",
+		"symbolization_status=unsymbolized",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("runtime artifact status missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestCLIRuntimeArtifactStatusLinesExpandTraceBundle(t *testing.T) {
+	bundle := strings.Join([]string{
+		"# codrax-source: capture.tracebundle.json",
+		`{`,
+		`  "version": "hitraceconv-v1",`,
+		`  "artifacts": [`,
+		`    {"type":"systrace","path":"capture.systrace","bytes":12,"converter":"hitraceconv-v1"},`,
+		`    {"type":"perftrace","path":"capture.perftrace","bytes":34,"converter":"hiperf_proto","caveats":["cpu id unavailable"]}`,
+		`  ]`,
+		`}`,
+	}, "\n")
+	lines := cliRuntimeArtifactStatusLines("en", cliRuntimeArtifacts("", bundle))
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"total=3",
+		"tracebundle=1",
+		"systrace=1",
+		"perftrace=1",
+		"primary: tracebundle capture.tracebundle.json",
+		"capture.perftrace",
+		"converter=hiperf_proto",
+		"cpu id unavailable",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("tracebundle status missing %q:\n%s", want, joined)
+		}
+	}
+}

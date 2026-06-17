@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/orchestrator"
+	"github.com/hanchaoqun/codrax/internal/outputdump"
 	"github.com/hanchaoqun/codrax/internal/preview"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/repl"
@@ -733,6 +735,9 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		app.orch.SetAttachedHitraceSource(traceSource)
 		logging.Info("[cmd] attached hitrace: %d bytes", len(trace))
 	}
+	if request != "" {
+		printCLIRuntimeArtifactStatus(flagLang, attached, trace)
+	}
 	if flagLogSourcePrefix != "" {
 		logtriage.SetSourcePrefix(flagLogSourcePrefix)
 		logging.Info("[cmd] log source prefix override: %s", flagLogSourcePrefix)
@@ -1189,6 +1194,97 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	}
 	fmt.Println("(no result)")
 	return nil
+}
+
+func printCLIRuntimeArtifactStatus(lang, logBody, traceBody string) {
+	artifacts := cliRuntimeArtifacts(logBody, traceBody)
+	if len(artifacts) == 0 {
+		return
+	}
+	for _, line := range cliRuntimeArtifactStatusLines(lang, artifacts) {
+		fmt.Fprintln(os.Stderr, line)
+		logging.Info("[cmd] %s", line)
+	}
+}
+
+func cliRuntimeArtifacts(logBody, traceBody string) []outputdump.RuntimeArtifact {
+	return append(
+		outputdump.RuntimeArtifactsFromAttachment("log", logBody),
+		outputdump.RuntimeArtifactsFromAttachment("trace", traceBody)...,
+	)
+}
+
+func cliRuntimeArtifactStatusLines(lang string, artifacts []outputdump.RuntimeArtifact) []string {
+	if len(artifacts) == 0 {
+		return nil
+	}
+	counts := map[string]int{}
+	for _, artifact := range artifacts {
+		kind := strings.TrimSpace(artifact.Kind)
+		if kind == "" {
+			kind = "artifact"
+		}
+		counts[kind]++
+	}
+	kinds := make([]string, 0, len(counts))
+	for kind := range counts {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	parts := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		parts = append(parts, fmt.Sprintf("%s=%d", kind, counts[kind]))
+	}
+	primary := cliPrimaryRuntimeArtifact(artifacts)
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") || strings.TrimSpace(lang) == ""
+	var lines []string
+	if zh {
+		lines = append(lines, fmt.Sprintf("[runtime artifacts] 共 %d 个：%s", len(artifacts), strings.Join(parts, ", ")))
+		lines = append(lines, fmt.Sprintf("[runtime artifacts] primary: %s %s", firstNonEmptyCLI(primary.Kind, "artifact"), firstNonEmptyCLI(primary.Source, "(unknown)")))
+	} else {
+		lines = append(lines, fmt.Sprintf("[runtime artifacts] total=%d kinds=%s", len(artifacts), strings.Join(parts, ", ")))
+		lines = append(lines, fmt.Sprintf("[runtime artifacts] primary: %s %s", firstNonEmptyCLI(primary.Kind, "artifact"), firstNonEmptyCLI(primary.Source, "(unknown)")))
+	}
+	const maxRows = 8
+	for i, artifact := range artifacts {
+		if i >= maxRows {
+			lines = append(lines, fmt.Sprintf("[runtime artifacts] ... +%d more", len(artifacts)-maxRows))
+			break
+		}
+		detail := strings.TrimSpace(artifact.Detail)
+		if detail != "" {
+			detail = " " + detail
+		}
+		lines = append(lines, fmt.Sprintf("[runtime artifacts] - %s %s %s%s",
+			firstNonEmptyCLI(artifact.Kind, "artifact"),
+			firstNonEmptyCLI(artifact.Source, "(unknown)"),
+			outputdump.HumanBytes(artifact.Bytes),
+			detail))
+	}
+	return lines
+}
+
+func firstNonEmptyCLI(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func cliPrimaryRuntimeArtifact(artifacts []outputdump.RuntimeArtifact) outputdump.RuntimeArtifact {
+	if len(artifacts) == 0 {
+		return outputdump.RuntimeArtifact{}
+	}
+	for _, want := range []string{"tracebundle", "trace", "systrace", "perftrace", "perf_data"} {
+		for _, artifact := range artifacts {
+			if strings.EqualFold(artifact.Kind, want) {
+				return artifact
+			}
+		}
+	}
+	return artifacts[0]
 }
 
 func configureSingleShotColor() {

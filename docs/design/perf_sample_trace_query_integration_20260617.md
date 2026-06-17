@@ -360,7 +360,7 @@ D4 landed the dual-engine parser strategy: `--perf-parser=auto` prefers official
 - Ensure explicit path questions with one or more runtime artifacts route to `trace_query(path)` instead of source-code analysis.
 - Update user guide examples.
 
-Status: in progress. `tracequery.BuildIndex` now accepts `.tracebundle.json` directly, promotes `*.systrace` / `*.perftrace` to a sibling `*.tracebundle.json` when present, and auto-merges sibling `*.systrace + *.perftrace` pairs when no bundle exists. The merge keeps existing parser/view code as the single consumer, so model tool calls can pass one path and still get joint trace+perf context. REPL prompt labels now surface multi-artifact state compactly (`[log:2]`, `[trace:2+perf]`, `[perftrace]`, `[tracebundle]`), and saved markdown/html reports include a typed `Runtime Artifacts` table derived from attachment metadata rather than model prose. Remaining E work is explicit CLI run-status transparency for multi-artifact inputs and end-to-end eval coverage.
+Status: in progress. `tracequery.BuildIndex` now accepts `.tracebundle.json` directly, promotes `*.systrace` / `*.perftrace` to a sibling `*.tracebundle.json` when present, and auto-merges sibling `*.systrace + *.perftrace` pairs when no bundle exists. The merge keeps existing parser/view code as the single consumer, so model tool calls can pass one path and still get joint trace+perf context. REPL prompt labels now surface multi-artifact state compactly (`[log:2]`, `[trace:2+perf]`, `[perftrace]`, `[tracebundle]`), CLI single-shot runs print a compact runtime-artifact status block, and saved markdown/html reports include a typed `Runtime Artifacts` table derived from attachment metadata rather than model prose. Remaining E work is end-to-end eval coverage.
 
 Additional UX gaps found after the raw fallback batch:
 
@@ -375,12 +375,20 @@ Batch E task additions:
 - [x] Add a reusable perf tool provider/status layer that returns `official_harmony`, `official_android`, and `raw_fallback` availability with path/source/version when cheaply detectable.
 - [x] Add `trace convert --perf-tools-status` or an equivalent preflight command/output section that shows selected parser, discovered official tools, raw fallback availability, and install guidance when missing.
 - [x] Add concise install/integration documentation for OpenHarmony `hiperf_host` and Android simpleperf `report_sample.py`, including env vars, CLI flags, symbol-dir/symfs/kallsyms, and expected output caveats.
-- [ ] Design an optional managed tool-cache/bundle provider before considering embedded binaries. Any embedded-binary lane must be explicit, versioned, platform-scoped, license-reviewed, and observable in `--perf-tools-status`.
+- [x] Design an optional managed tool-cache/bundle provider before considering embedded binaries. Any embedded-binary lane must be explicit, versioned, platform-scoped, license-reviewed, and observable in `--perf-tools-status`.
 - [ ] Extend REPL/CLI runtime artifact state so multiple `/log`, `/htrace`, `/atrace`, `.perftrace`, `.tracebundle.json`, and direct path attachments display a stable prompt/status summary: count by type, active primary artifact, bundle/sidecar merge status, and caveats.
   - [x] REPL prompt state labels for multi log/trace/perf/bundle attachments.
-  - [ ] CLI status/output transparency for multi runtime-artifact inputs.
+  - [x] CLI status/output transparency for multi runtime-artifact inputs.
 - [x] Extend markdown/html report rendering with a typed "Runtime Artifacts" section sourced from attachment metadata, including perf parser source and symbolization status when present in normalized perftrace rows.
 - [ ] Add eval/regression cases for explicit path-based multiple artifacts, appended log+trace+perf flows, prompt/status visibility, and report artifact transparency.
+
+Managed official-tool provider policy:
+
+1. **Discovery order remains explicit and auditable.** `trace convert` checks explicit CLI flags, environment variables, then PATH. A future managed cache may be added after that order, but it must report its source path and version through `--perf-tools-status`.
+2. **No silent downloads or silent embedded "latest".** Analysis and conversion must never fetch or switch official parsers implicitly. Any install/update command must be explicit user action, record the upstream URL or distribution source, and validate checksum/manifest metadata before use.
+3. **Provider registry shape.** A managed provider manifest should be typed and platform scoped: `provider`, `tool`, `platform`, `arch`, `version`, `source_url`, `license`, `checksum`, `installed_path`, `executable`, `schema_compat`, and `installed_at`. This metadata feeds status/report UX; model prompts do not infer tool quality from prose.
+4. **Embedded binaries are an enterprise packaging lane, not the default.** If a distribution chooses to embed official tools, it must be build-tag or package-profile controlled, license-reviewed, pinned by version/checksum, platform/ABI specific, and surfaced in `--perf-tools-status` as `source=embedded_bundle`.
+5. **Raw fallback remains local and observable.** When official providers are unavailable or intentionally disabled, Codrax's raw fallback stays deterministic and clearly marked as `raw_perfdata_fallback` / `unsymbolized`.
 
 ### Batch F: Evals and Regression Guard
 
