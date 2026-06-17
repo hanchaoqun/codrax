@@ -276,6 +276,15 @@ line-shape work is also not Python-only: it now covers Python, JS/TS, Ruby,
 Java/Kotlin, and Go mapping/container boundary shapes as soft semantic coverage
 events.
 
+Language coverage note: the "dynamic mapping boundary" family is deliberately
+language-aware rather than Python-specific. Current producers include Python
+nested string-key direct mapping access, JavaScript/TypeScript nested
+string-key direct access, Ruby nested symbol/string hash access, Java/Kotlin
+chained string-key `Map.get`, and Go nested string-key map assignment. These
+signals are all soft semantic coverage obligations that require typed
+verification before being marked covered; they are not user-intent keyword
+routes and they are not model-prose hard gates.
+
 RC-9 adds a typed comparator lane to `WriteBehaviorContract`:
 
 - `comparator.subject`: grounded working or contrasting reference surface;
@@ -905,6 +914,38 @@ Verification:
 - `go test ./...`
 - `make test`
 
+RC-18 smoke follow-up:
+
+- Run directory:
+  `/private/tmp/codrax-swebench-rc18-django-20260618-052359`
+- Instance: `django__django-14534`
+- Export compatibility: 1/1 harness dry-run validated, non-empty patch.
+- `ChangeReport.verification_confidence` is now present for probe reports when
+  probes pass, and coverage status is persisted for post-verify unavailable
+  attempts.
+- Local acceptance still failed:
+  `prediction_audit_block_reason=final_plan_test_only_exported_source_patch`,
+  `prediction_confidence_downgrade_reason=make_target_missing`.
+- New system gap: after replan/impact-repair, the final durable plan can be a
+  test-only repair/unverified plan while the adapter exports an earlier source
+  patch. The export should be tied to a coherent typed delivery artifact rather
+  than mixing final-plan audit status with a previous source diff.
+
+Follow-up RC-19 candidate:
+
+- Define a `WriteDeliveryCandidate` artifact that explicitly binds:
+  `plan_id`, source patch diff/fingerprint, optional test patch diff,
+  verification report id/status, patch review summary, and confidence summary.
+- SWE adapter and user-facing final status should consume the same delivery
+  candidate instead of independently guessing from latest plan plus available
+  source diff.
+- When the latest active plan is test-only but source patch comes from an older
+  plan, mark the candidate as `incoherent` unless a typed relation says the
+  test-only plan is a validation-only follow-up for the same source patch.
+- Keep the rule typed-only: plan file roles, patch effect path roles,
+  workflow batch attempts, diff fingerprints, report status, and explicit
+  delivery-candidate links.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -928,6 +969,7 @@ Verification:
 | RC-16 | complete | Structural patch quality events: added `python_duplicate_symbol_added` as a hard actual-diff PatchReview event, and `production_test_scaffold_added` as a language-provider soft semantic coverage event for production paths. These events are generated from applied diff lines, post-apply file bytes, and `SourcePathRole`; no user/model prose drives routing. Verification: focused writeflow tests, related packages, full `go test ./...`, and `make test` pass. |
 | RC-17 | complete | Verification confidence authority: probe-only reports now attach contract/symbol confidence from the same plan snapshot that supplied the probes, and probe-only confidence recognizes all `verification_probe/<language>` suites instead of Python only. Verification: focused confidence tests, related packages, full `go test ./...`, and `make test` pass. |
 | RC-18 | complete | Verify coverage persistence: `syncMutablePlanStatusAfterVerify` now persists the coverage-updated `ChangePlan` snapshot after post-verify projection, and focused regression proves on-disk PatchReview/Impact coverage matches mutable state. Verification: focused orchestrator persistence test, related packages, full `go test ./...`, and `make test` pass. |
+| RC-18 smoke | complete | One-instance Django smoke after RC-18 exported a non-empty harness-consumable prediction and proved probe confidence is present in reports. It also exposed the next gap: final test-only repair plan and exported source patch can diverge, producing `final_plan_test_only_exported_source_patch`. |
 
 ## Acceptance Criteria
 
