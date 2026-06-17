@@ -25,6 +25,7 @@ type Options struct {
 	SimpleperfPythonPath   string
 	SimpleperfSymfsDir     string
 	SimpleperfKallsymsPath string
+	PerfParser             string
 	DisablePerfAdapter     bool
 }
 

@@ -758,6 +758,7 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.PerfIP,
 		ev.PerfCallchain,
 		ev.PerfSource,
+		ev.PerfSymbolizationStatus,
 		ev.PerfClock,
 	} {
 		if strings.Contains(strings.ToLower(candidate), needle) {
@@ -1357,22 +1358,30 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 		thread := perfSampleThread(ev)
 		example := perfSampleExample(ev)
 		addPerfHotspot(bySymbol, firstNonEmpty(ev.PerfSymbol, ev.PerfIP, "unknown"), PerfHotspot{
-			Symbol: ev.PerfSymbol,
-			DSO:    ev.PerfDSO,
-			Event:  ev.PerfEvent,
+			Symbol:              ev.PerfSymbol,
+			DSO:                 ev.PerfDSO,
+			Event:               ev.PerfEvent,
+			Source:              ev.PerfSource,
+			SymbolizationStatus: ev.PerfSymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byDSO, firstNonEmpty(ev.PerfDSO, "unknown"), PerfHotspot{
-			DSO:   ev.PerfDSO,
-			Event: ev.PerfEvent,
+			DSO:                 ev.PerfDSO,
+			Event:               ev.PerfEvent,
+			Source:              ev.PerfSource,
+			SymbolizationStatus: ev.PerfSymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byCallchain, firstNonEmpty(ev.PerfCallchain, ev.PerfSymbol, ev.PerfIP, "unknown"), PerfHotspot{
-			Symbol:    ev.PerfSymbol,
-			DSO:       ev.PerfDSO,
-			Callchain: ev.PerfCallchain,
-			Event:     ev.PerfEvent,
+			Symbol:              ev.PerfSymbol,
+			DSO:                 ev.PerfDSO,
+			Callchain:           ev.PerfCallchain,
+			Event:               ev.PerfEvent,
+			Source:              ev.PerfSource,
+			SymbolizationStatus: ev.PerfSymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byEvent, firstNonEmpty(ev.PerfEvent, "unknown"), PerfHotspot{
-			Event: ev.PerfEvent,
+			Event:               ev.PerfEvent,
+			Source:              ev.PerfSource,
+			SymbolizationStatus: ev.PerfSymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfThread(byThread, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
 	}
@@ -1474,6 +1483,12 @@ func perfSampleExample(ev Event) string {
 	}
 	if ev.PerfEvent != "" {
 		parts = append(parts, "event="+ev.PerfEvent)
+	}
+	if ev.PerfSource != "" {
+		parts = append(parts, "source="+ev.PerfSource)
+	}
+	if ev.PerfSymbolizationStatus != "" {
+		parts = append(parts, "symbolization_status="+ev.PerfSymbolizationStatus)
 	}
 	if ev.PerfCallchain != "" {
 		parts = append(parts, "callchain="+ev.PerfCallchain)

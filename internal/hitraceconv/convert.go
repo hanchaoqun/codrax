@@ -36,6 +36,9 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if input == "" {
 		return Result{}, fmt.Errorf("input path is required")
 	}
+	if err := validatePerfParserMode(opts.PerfParser); err != nil {
+		return Result{}, err
+	}
 	output := strings.TrimSpace(opts.OutputPath)
 	if output == "" {
 		output = DefaultOutputPath(input)

@@ -80,14 +80,15 @@ func simpleperfDirectRequested(opts Options, input string) bool {
 	if opts.DisablePerfAdapter {
 		return false
 	}
+	if rawPerfParserRequired(opts) && hasRawPerfDataMagic(input) {
+		return true
+	}
 	if strings.TrimSpace(opts.SimpleperfReportPath) != "" || strings.TrimSpace(os.Getenv("CODRAX_SIMPLEPERF_REPORT_SAMPLE")) != "" {
 		return true
 	}
 	name := strings.ToLower(filepath.Base(strings.TrimSpace(input)))
 	if name == "perf.data" || strings.HasSuffix(name, ".perf.data") {
-		if tool, _, _ := resolveSimpleperfReportTool(opts); tool != "" {
-			return true
-		}
+		return true
 	}
 	return false
 }
@@ -97,11 +98,14 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 		ctx = context.Background()
 	}
 	if opts.DisablePerfAdapter {
-		return Artifact{}, "perf.data preserved; official simpleperf adapter disabled, so .perftrace was not generated", nil
+		return Artifact{}, "perf.data preserved; perftrace generation disabled, so .perftrace was not generated", nil
+	}
+	if rawPerfParserRequired(opts) {
+		return maybeConvertRawPerfData(ctx, opts, perfPath, perfTracePath)
 	}
 	tool, python, source := resolveSimpleperfReportTool(opts)
 	if tool == "" {
-		return Artifact{}, "perf.data preserved; no official simpleperf report_sample.py adapter was configured or found, so .perftrace was not generated", nil
+		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, "perf.data preserved; no official simpleperf report_sample.py adapter was configured or found")
 	}
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
 		return Artifact{}, "", err
@@ -137,11 +141,11 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 		return Artifact{}, "", ctxErr
 	}
 	if runErr != nil {
-		return Artifact{}, fmt.Sprintf("official simpleperf adapter %q failed (%s); .perftrace was not generated%s", tool, runErr, boundedCommandOutput(output)), nil
+		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, fmt.Sprintf("official simpleperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output)))
 	}
 	if err := ConvertSimpleperfReportFileToPerfTrace(ctx, reportPath, perfTracePath); err != nil {
 		_ = os.Remove(perfTracePath)
-		return Artifact{}, fmt.Sprintf("official simpleperf adapter %q produced unreadable report (%v); .perftrace was not generated", tool, err), nil
+		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, fmt.Sprintf("official simpleperf adapter %q produced unreadable report (%v)", tool, err))
 	}
 	info, err := os.Stat(perfTracePath)
 	if err != nil {

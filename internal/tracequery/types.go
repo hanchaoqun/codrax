@@ -165,17 +165,18 @@ type Event struct {
 	PluginValue     string `json:"plugin_value,omitempty"`
 	PluginCategory  string `json:"plugin_category,omitempty"`
 
-	PerfPID       int    `json:"perf_pid,omitempty"`
-	PerfTID       int    `json:"perf_tid,omitempty"`
-	PerfComm      string `json:"perf_comm,omitempty"`
-	PerfPeriod    int64  `json:"perf_period,omitempty"`
-	PerfEvent     string `json:"perf_event,omitempty"`
-	PerfSymbol    string `json:"perf_symbol,omitempty"`
-	PerfDSO       string `json:"perf_dso,omitempty"`
-	PerfIP        string `json:"perf_ip,omitempty"`
-	PerfCallchain string `json:"perf_callchain,omitempty"`
-	PerfSource    string `json:"perf_source,omitempty"`
-	PerfClock     string `json:"perf_clock,omitempty"`
+	PerfPID                 int    `json:"perf_pid,omitempty"`
+	PerfTID                 int    `json:"perf_tid,omitempty"`
+	PerfComm                string `json:"perf_comm,omitempty"`
+	PerfPeriod              int64  `json:"perf_period,omitempty"`
+	PerfEvent               string `json:"perf_event,omitempty"`
+	PerfSymbol              string `json:"perf_symbol,omitempty"`
+	PerfDSO                 string `json:"perf_dso,omitempty"`
+	PerfIP                  string `json:"perf_ip,omitempty"`
+	PerfCallchain           string `json:"perf_callchain,omitempty"`
+	PerfSource              string `json:"perf_source,omitempty"`
+	PerfSymbolizationStatus string `json:"perf_symbolization_status,omitempty"`
+	PerfClock               string `json:"perf_clock,omitempty"`
 
 	FieldText string `json:"field_text,omitempty"`
 }
@@ -418,18 +419,20 @@ type PerfContext struct {
 }
 
 type PerfHotspot struct {
-	Symbol      string      `json:"symbol,omitempty"`
-	DSO         string      `json:"dso,omitempty"`
-	Callchain   string      `json:"callchain,omitempty"`
-	Event       string      `json:"event,omitempty"`
-	SampleCount int         `json:"sample_count,omitempty"`
-	Period      int64       `json:"period,omitempty"`
-	Percent     float64     `json:"percent,omitempty"`
-	Threads     []ThreadRef `json:"threads,omitempty"`
-	CPUs        []int       `json:"cpus,omitempty"`
-	LineStart   int         `json:"line_start,omitempty"`
-	LineEnd     int         `json:"line_end,omitempty"`
-	Example     string      `json:"example,omitempty"`
+	Symbol              string      `json:"symbol,omitempty"`
+	DSO                 string      `json:"dso,omitempty"`
+	Callchain           string      `json:"callchain,omitempty"`
+	Event               string      `json:"event,omitempty"`
+	Source              string      `json:"source,omitempty"`
+	SymbolizationStatus string      `json:"symbolization_status,omitempty"`
+	SampleCount         int         `json:"sample_count,omitempty"`
+	Period              int64       `json:"period,omitempty"`
+	Percent             float64     `json:"percent,omitempty"`
+	Threads             []ThreadRef `json:"threads,omitempty"`
+	CPUs                []int       `json:"cpus,omitempty"`
+	LineStart           int         `json:"line_start,omitempty"`
+	LineEnd             int         `json:"line_end,omitempty"`
+	Example             string      `json:"example,omitempty"`
 }
 
 type PerfThreadSummary struct {

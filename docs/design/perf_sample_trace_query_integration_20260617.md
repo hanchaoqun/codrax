@@ -284,7 +284,7 @@ The user experience should support two explicit options:
 The fallback must be honest and typed:
 
 - It must emit `source=raw_perfdata_fallback`.
-- It must add `symbolization_status=unsymbolized|partial|build_id_only|symbolized` once the perf sample event model carries that field.
+- It must add `symbolization_status=unsymbolized|partial|build_id_only|symbolized`; current raw fallback emits `unsymbolized` and preserves DSO labels from mmap records when available.
 - It should preserve `ip`, `pid`, `tid`, `cpu`, `period`, `time`, event name/id, and callchain IPs when sample_type contains them.
 - It may use `PERF_RECORD_COMM`, `PERF_RECORD_MMAP/MMAP2`, and build-id feature sections for partial DSO labels, but it must not invent function names.
 - It should emit clear caveats when symbols/callchains/time/cpu are unavailable in the file's `sample_type`.
@@ -292,13 +292,13 @@ The fallback must be honest and typed:
 
 Raw fallback task list:
 
-- [ ] Add `internal/perfdata` with a bounded reader for Linux/simpleperf perf.data headers, attrs, data section records, and selected feature sections.
-- [ ] Support sample records for `PERF_SAMPLE_IP`, `TID`, `TIME`, `ADDR`, `ID/IDENTIFIER`, `CPU`, `PERIOD`, and `CALLCHAIN`.
-- [ ] Support side-band `COMM`, `MMAP/MMAP2`, `FORK/EXIT` enough to label pid/tid/comm and DSO ranges.
-- [ ] Normalize fallback samples to `.perftrace` with `source=raw_perfdata_fallback`.
-- [ ] Add CLI `--perf-parser=auto|official|raw` (or equivalent config) so users can choose dependency-first or local fallback behavior without prompt guessing.
-- [ ] Add parser tests from synthetic perf.data fixtures and a real small fixture if licensing permits.
-- [ ] Teach trace_query prompts that raw fallback samples are lower confidence execution context.
+- [x] Add a bounded converter reader for Linux/simpleperf-style `perf.data` magic, header, attrs, and data section records. Implementation lives in `internal/hitraceconv` because it is a conversion fallback, not a general-purpose perf library.
+- [x] Support sample records for `PERF_SAMPLE_IP`, `TID`, `TIME`, `ADDR`, `ID/IDENTIFIER`, `CPU`, `PERIOD`, `STREAM_ID`, and `CALLCHAIN`; unsupported complex sample bits fail with an explicit caveat instead of mis-parsing.
+- [x] Support side-band `COMM` and `MMAP/MMAP2` enough to label pid/tid/comm and DSO ranges. `FORK/EXIT` remain non-essential for current labeling and should be added only if a fixture proves they carry needed identity not available from `COMM`.
+- [x] Normalize fallback samples to `.perftrace` with `source=raw_perfdata_fallback` and `symbolization_status=unsymbolized`.
+- [x] Add CLI `--perf-parser=auto|official|raw` so users can choose dependency-first or local fallback behavior without prompt guessing.
+- [x] Add parser tests from synthetic `perf.data` fixtures.
+- [x] Teach trace_query prompts that raw fallback samples are lower confidence execution context.
 
 ## JSON Repair / Prompt Contract
 
@@ -350,6 +350,8 @@ Status: in progress. D1 landed multi-artifact result metadata, official `TraceFi
 D2 landed the OpenHarmony hiperf adapter path: `ConvertFile` can now run a configured/discovered official `hiperf_host`/`hiperf report --proto`, parse the official `report_sample.proto` stream without adding a new dependency, emit `.perftrace`, include it in `.tracebundle.json`, and preserve `.perf.data` with caveats. CLI supports `--hiperf-host`, `--hiperf-symbol-dir`, and `--no-perftrace`; REPL keeps the simple `/htrace convert` form and directs users to CLI when a specific official adapter path is needed.
 
 D3 landed the Android simpleperf adapter path: direct `perf.data` inputs can now be converted through official `report_sample.py` output into normalized `.perftrace` without generating a fake systrace. CLI supports `--simpleperf-report-sample`, `--simpleperf-python`, `--simpleperf-symfs`, and `--simpleperf-kallsyms`; tests cover both parser round-trip and direct adapter sidecar bundle generation.
+
+D4 landed the dual-engine parser strategy: `--perf-parser=auto` prefers official hiperf/simpleperf adapters and falls back to a bounded Codrax raw `perf.data` parser, `--perf-parser=official` disables raw fallback, and `--perf-parser=raw` uses the local parser directly. Raw fallback emits `source=raw_perfdata_fallback`, `symbolization_status=unsymbolized`, IP-only symbols, COMM thread labels, and MMAP/MMAP2 DSO labels when present; tests cover raw conversion and direct sidecar-only `perf.data` input.
 
 ### Batch E: CLI/REPL and Attachment UX
 

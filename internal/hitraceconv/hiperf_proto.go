@@ -64,11 +64,14 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 		ctx = context.Background()
 	}
 	if opts.DisablePerfAdapter {
-		return Artifact{}, "HIPERF_DATA perf.data extracted; official perf adapter disabled, so .perftrace was not generated", nil
+		return Artifact{}, "HIPERF_DATA perf.data extracted; perftrace generation disabled, so .perftrace was not generated", nil
+	}
+	if rawPerfParserRequired(opts) {
+		return maybeConvertRawPerfData(ctx, opts, perfPath, perfTracePath)
 	}
 	tool, source := resolveHiperfTool(opts)
 	if tool == "" {
-		return Artifact{}, "HIPERF_DATA perf.data extracted; no official hiperf_host/hiperf adapter was configured or found, so .perftrace was not generated", nil
+		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, "HIPERF_DATA perf.data extracted; no official hiperf_host/hiperf adapter was configured or found")
 	}
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
 		return Artifact{}, "", err
@@ -95,11 +98,11 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 		return Artifact{}, "", ctxErr
 	}
 	if runErr != nil {
-		return Artifact{}, fmt.Sprintf("official hiperf adapter %q failed (%s); .perftrace was not generated%s", tool, runErr, boundedCommandOutput(output)), nil
+		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, fmt.Sprintf("official hiperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output)))
 	}
 	if err := ConvertHiperfProtoFileToPerfTrace(ctx, protoPath, perfTracePath); err != nil {
 		_ = os.Remove(perfTracePath)
-		return Artifact{}, fmt.Sprintf("official hiperf adapter %q produced unreadable protobuf (%v); .perftrace was not generated", tool, err), nil
+		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, fmt.Sprintf("official hiperf adapter %q produced unreadable protobuf (%v)", tool, err))
 	}
 	info, err := os.Stat(perfTracePath)
 	if err != nil {
@@ -114,6 +117,26 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 			fmt.Sprintf("generated from perf.data through %s; sample CPU is unavailable in OpenHarmony report_sample.proto and is emitted as cpu=-1", source),
 		},
 	}, "", nil
+}
+
+func maybeRawPerfFallback(ctx context.Context, opts Options, perfPath, perfTracePath, prior string) (Artifact, string, error) {
+	if !rawPerfParserAllowed(opts) {
+		if prior != "" {
+			return Artifact{}, prior + "; raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated", nil
+		}
+		return Artifact{}, "raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated", nil
+	}
+	artifact, caveat, err := maybeConvertRawPerfData(ctx, opts, perfPath, perfTracePath)
+	if err != nil || artifact.Path != "" {
+		if prior != "" && artifact.Path != "" {
+			artifact.Caveats = append([]string{prior + "; fell back to raw perf.data parser"}, artifact.Caveats...)
+		}
+		return artifact, caveat, err
+	}
+	if prior != "" && caveat != "" {
+		return Artifact{}, prior + "; " + caveat, nil
+	}
+	return Artifact{}, firstNonEmpty(caveat, prior), nil
 }
 
 func resolveHiperfTool(opts Options) (string, string) {

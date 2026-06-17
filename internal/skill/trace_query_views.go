@@ -60,7 +60,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		{
 			View:   "perf_stats",
 			Params: "`event_types=[\"perf_sample\"]` only when filtering sample rows explicitly",
-			When:   "same-window CPU sample aggregation by top_symbols, top_dso, top_callchains, top_threads, and top_events",
+			When:   "same-window CPU sample aggregation by top_symbols, top_dso, top_callchains, top_threads, top_events, source, and symbolization_status",
 		},
 		{
 			View: "perf_timeline",

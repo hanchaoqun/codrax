@@ -90,7 +90,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
-	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as trace_mark, sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, cpu_constraint, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, perf_sample, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Use trace_mark for B/E/C/S/F marker rows; B/E end rows are unnamed E|<pid> or E, so use span_window rather than E|<pid>|<span_name> searches to prove completion. Use perf_sample with pattern=<symbol, dso, callchain, event, or thread> for CPU sampling rows; window_stats.perf_samples summarizes top_symbols/top_dso/top_callchains/top_threads as supporting execution context, not standalone root-cause proof. Use cpu_constraint/affinity/cpuset to inspect sched_setaffinity, sched_migrate_task, cpuset/cgroup attach, and Harmony/Donghu sched_switch next_info affinity/restricted evidence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. This field also accepts a comma/semicolon separated string, and friendly aliases such as inode_io, pageCache, mm_filemap, cpuSample, perfSamples, topSymbols, callchain, cpuAffinity, schedMigrate, storageLayerLatency, irq_activity, softirq_activity, and block_io_by_inode are accepted and mapped to the matching event types."},
+	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as trace_mark, sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, cpu_constraint, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, perf_sample, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Use trace_mark for B/E/C/S/F marker rows; B/E end rows are unnamed E|<pid> or E, so use span_window rather than E|<pid>|<span_name> searches to prove completion. Use perf_sample with pattern=<symbol, dso, callchain, event, thread, source, or symbolization_status> for CPU sampling rows; window_stats.perf_samples summarizes top_symbols/top_dso/top_callchains/top_threads as supporting execution context, not standalone root-cause proof. Raw fallback rows may have source=raw_perfdata_fallback and symbolization_status=unsymbolized, which means IP/DSO context is lower-confidence and function names must not be invented. Use cpu_constraint/affinity/cpuset to inspect sched_setaffinity, sched_migrate_task, cpuset/cgroup attach, and Harmony/Donghu sched_switch next_info affinity/restricted evidence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. This field also accepts a comma/semicolon separated string, and friendly aliases such as inode_io, pageCache, mm_filemap, cpuSample, perfSamples, topSymbols, callchain, cpuAffinity, schedMigrate, storageLayerLatency, irq_activity, softirq_activity, and block_io_by_inode are accepted and mapped to the matching event types."},
     "pattern": {"type":"string","description":"For event_search, optional case-insensitive literal substring matched against parsed event text, span names, thread labels, scheduler roles, resource fields, and raw-like field text. Use this for frame ids such as \"1917295\", jank ids such as \"jank_frames=7\", exact timestamps, or trace labels such as \"Choreographer#doFrame\"; it is not a regex. Start with one exact token, then add event_types/time/line/thread filters after the first hit."},
     "span_name": {"type":"string","description":"Optional trace span name substring. For span_window, returns matching sync B/E or async S/F span windows; sync B/E end rows do not repeat the span name and appear as E|<pid> or bare E on the same ftrace thread stack. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"x-codrax-enum-style-alias":true,"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
@@ -2126,16 +2126,16 @@ func writeTraceRuntimeResource(b *strings.Builder, label string, item tracequery
 func writeTracePerfContext(b *strings.Builder, item tracequery.PerfContext) {
 	fmt.Fprintf(b, "- perf_samples sample_count=%d total_period=%d\n", item.SampleCount, item.TotalPeriod)
 	for _, hot := range item.TopSymbols {
-		fmt.Fprintf(b, "- perf_top_symbol symbol=%s dso=%s event=%s period=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
-			sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
+		fmt.Fprintf(b, "- perf_top_symbol symbol=%s dso=%s event=%s source=%s symbolization_status=%s period=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
+			sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
 	}
 	for _, hot := range item.TopDSO {
-		fmt.Fprintf(b, "- perf_top_dso dso=%s event=%s period=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
-			sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
+		fmt.Fprintf(b, "- perf_top_dso dso=%s event=%s source=%s symbolization_status=%s period=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
+			sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
 	}
 	for _, hot := range item.TopCallchains {
-		fmt.Fprintf(b, "- perf_top_callchain callchain=%s symbol=%s dso=%s event=%s period=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
-			sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
+		fmt.Fprintf(b, "- perf_top_callchain callchain=%s symbol=%s dso=%s event=%s source=%s symbolization_status=%s period=%d samples=%d percent=%.2f cpus=%v threads=%s lines=%d-%d example=%s\n",
+			sanitizeForBanner(hot.Callchain), sanitizeForBanner(hot.Symbol), sanitizeForBanner(hot.DSO), sanitizeForBanner(hot.Event), sanitizeForBanner(hot.Source), sanitizeForBanner(hot.SymbolizationStatus), hot.Period, hot.SampleCount, hot.Percent, hot.CPUs, traceThreadLabels(hot.Threads), hot.LineStart, hot.LineEnd, sanitizeForBanner(hot.Example))
 	}
 	for _, thread := range item.TopThreads {
 		fmt.Fprintf(b, "- perf_top_thread thread=%s period=%d samples=%d percent=%.2f cpus=%v lines=%d-%d example=%s\n",
@@ -2474,13 +2474,15 @@ func traceEventResourceDetail(ev tracequery.EventView) string {
 		parts = append(parts, fmt.Sprintf("metric=%s value=%s", sanitizeForBanner(ev.PluginMetric), sanitizeForBanner(ev.PluginValue)))
 	}
 	if ev.Type == tracequery.EventPerfSample {
-		parts = append(parts, fmt.Sprintf("perf_sample pid=%d tid=%d period=%d event=%s symbol=%s dso=%s callchain=%s",
+		parts = append(parts, fmt.Sprintf("perf_sample pid=%d tid=%d period=%d event=%s symbol=%s dso=%s source=%s symbolization_status=%s callchain=%s",
 			ev.PerfPID,
 			ev.PerfTID,
 			ev.PerfPeriod,
 			sanitizeForBanner(ev.PerfEvent),
 			sanitizeForBanner(ev.PerfSymbol),
 			sanitizeForBanner(ev.PerfDSO),
+			sanitizeForBanner(ev.PerfSource),
+			sanitizeForBanner(ev.PerfSymbolizationStatus),
 			sanitizeForBanner(ev.PerfCallchain)))
 	}
 	if ev.Type == tracequery.EventCPUConstraint || ev.ConstraintKind != "" || ev.CPUSet != "" || len(ev.AllowedCPUs) > 0 {
@@ -3960,11 +3962,13 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				Object:          hot.DSO,
 				Value:           strconv.FormatInt(hot.Period, 10),
 				Unit:            "period",
-				Summary:         fmt.Sprintf("perf samples symbol=%s dso=%s event=%s period=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+				Summary:         fmt.Sprintf("perf samples symbol=%s dso=%s event=%s source=%s symbolization_status=%s period=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
 				RichNotes: traceQueryTypedKVNotes([][2]string{
 					{"symbol", hot.Symbol},
 					{"dso", hot.DSO},
 					{"event", hot.Event},
+					{"source", hot.Source},
+					{"symbolization_status", hot.SymbolizationStatus},
 					{"period", strconv.FormatInt(hot.Period, 10)},
 					{"samples", traceQueryTypedCount(hot.SampleCount)},
 					{"percent", fmt.Sprintf("%.2f", hot.Percent)},

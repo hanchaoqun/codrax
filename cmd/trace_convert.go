@@ -19,6 +19,7 @@ var (
 	traceConvertSPPython    string
 	traceConvertSPSymfs     string
 	traceConvertSPKallsyms  string
+	traceConvertPerfParser  string
 	traceConvertNoPerfTrace bool
 )
 
@@ -52,6 +53,7 @@ are never overwritten; delete the file first or choose another output path.`,
 			SimpleperfPythonPath:   strings.TrimSpace(traceConvertSPPython),
 			SimpleperfSymfsDir:     strings.TrimSpace(traceConvertSPSymfs),
 			SimpleperfKallsymsPath: strings.TrimSpace(traceConvertSPKallsyms),
+			PerfParser:             strings.TrimSpace(traceConvertPerfParser),
 			DisablePerfAdapter:     traceConvertNoPerfTrace,
 		})
 		if err != nil {
@@ -123,9 +125,9 @@ func traceConvertNextLine(lang string, result hitraceconv.Result) string {
 	if result.OutputPath == "" {
 		if result.BundlePath != "" {
 			if traceConvertUseZh(lang) {
-				return fmt.Sprintf("下一步：查看 trace bundle %q；若已有 perftrace artifact，可直接作为 trace_query 的 CPU sample 输入；否则用 --hiperf-host 指定官方工具重跑转换", result.BundlePath)
+				return fmt.Sprintf("下一步：查看 trace bundle %q；若已有 perftrace artifact，可直接作为 trace_query 的 CPU sample 输入；否则用 --hiperf-host/--simpleperf-report-sample 指定官方工具，或用 --perf-parser=raw 走 raw perf.data fallback 重跑转换", result.BundlePath)
 			}
-			return fmt.Sprintf("next: inspect trace bundle %q; if it contains a perftrace artifact, feed it to trace_query for CPU-sample analysis; otherwise rerun with --hiperf-host", result.BundlePath)
+			return fmt.Sprintf("next: inspect trace bundle %q; if it contains a perftrace artifact, feed it to trace_query for CPU-sample analysis; otherwise rerun with --hiperf-host/--simpleperf-report-sample or --perf-parser=raw", result.BundlePath)
 		}
 		if traceConvertUseZh(lang) {
 			return "下一步：未生成可直接附加的 systrace"
@@ -167,7 +169,8 @@ func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertSPPython, "simpleperf-python", "", "python executable used for report_sample.py; default discovers python3/python")
 	traceConvertCmd.Flags().StringVar(&traceConvertSPSymfs, "simpleperf-symfs", "", "symfs directory passed to simpleperf report_sample.py --symfs")
 	traceConvertCmd.Flags().StringVar(&traceConvertSPKallsyms, "simpleperf-kallsyms", "", "kallsyms file passed to simpleperf report_sample.py --kallsyms")
-	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "preserve perf.data sidecars without invoking official hiperf/simpleperf adapters")
+	traceConvertCmd.Flags().StringVar(&traceConvertPerfParser, "perf-parser", "auto", "perf.data parser strategy: auto uses official hiperf/simpleperf first then raw fallback; official disables raw fallback; raw uses Codrax raw perf.data fallback only")
+	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "preserve perf.data sidecars without generating .perftrace")
 	traceCmd.AddCommand(traceConvertCmd)
 	rootCmd.AddCommand(traceCmd)
 }
