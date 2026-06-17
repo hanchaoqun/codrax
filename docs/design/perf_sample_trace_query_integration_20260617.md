@@ -64,7 +64,12 @@ Implication: Android should use a simpleperf adapter rather than a Codrax-owned 
 
 ### `trace_convert`
 
-`cmd/trace_convert.go` calls `internal/hitraceconv.ConvertFile` and produces one text systrace output. `internal/hitraceconv` parses binary hitrace metadata, event formats, cmdlines, tgids, and raw ftrace pages, then renders known ftrace events. It currently has no multi-artifact output and no extraction path for standalone `HIPERF_DATA`.
+`cmd/trace_convert.go` calls `internal/hitraceconv.ConvertFile`. The converter parses binary hitrace metadata, event formats, cmdlines, tgids, and raw ftrace pages, then renders known ftrace events. Batch D1/D2 extend this from one output into a multi-artifact result:
+
+- `.systrace` for ftrace-compatible scheduler/trace rows when the input contains a supported binary hitrace container.
+- `.perf.data` sidecars for standalone OpenHarmony profiler blocks with `TraceFileHeader::DataType::HIPERF_DATA`.
+- `.perftrace` sidecars when an official `hiperf_host` / `hiperf` adapter is configured or found and can export `report --proto`.
+- `.tracebundle.json` provenance that lists all generated artifacts and caveats.
 
 ### `trace_query`
 
@@ -224,9 +229,28 @@ Batch implementation should prefer official parsers:
 
 1. `.perftrace` direct parser: always available; tests and evals can use synthetic text.
 2. `.htrace` standalone extractor: find nested `TraceFileHeader` with `DataType::HIPERF_DATA` and write the payload as `.perf.data`.
-3. OpenHarmony adapter: call configured `hiperf_host report --proto` or `--json` when available, then convert to `.perftrace`.
+3. OpenHarmony adapter: call configured/discovered `hiperf_host` or `hiperf` as `report --proto -i <perf.data> -o <perf.proto>`, then parse the official `report_sample.proto` stream into `.perftrace`.
 4. Android adapter: call configured `simpleperf` report sample/export path when available, then convert to `.perftrace`.
-5. Optional later fallback: parse hiperf report protobuf stream directly in Go if `hiperf_host` is absent. Avoid raw `perf.data` parsing unless an official parser is unavailable and the scope is explicitly limited.
+5. Do not parse raw `perf.data` in Codrax. Raw perf stays an artifact with a caveat when no official parser is available.
+
+### OpenHarmony Adapter Contract
+
+Implemented D2 path:
+
+- `Options.HiperfPath` or `CODRAX_HIPERF_HOST` selects the official host tool; otherwise the converter looks for `hiperf_host` then `hiperf` on `PATH`.
+- `Options.HiperfSymbolDirs` / CLI `--hiperf-symbol-dir` passes symbol roots through `--symbol-dir`.
+- CLI `--no-perftrace` disables adapter invocation and preserves only `.perf.data`.
+- The adapter command is executed without a shell: `report --proto -i <perf.data> -o <temp.proto>`.
+- Codrax parses only the official protobuf stream header `HIPERF_PB_`, version `1`, and `HiperfRecord` fields from `developtools_hiperf/proto/report_sample.proto`.
+- `CallStackSample.time` ns becomes the ftrace-style seconds timestamp.
+- `VirtualThreadInfo` provides pid/tid/name.
+- `SymbolTableFile` provides dso path and function names.
+- `ReportInfo.config_name` provides event name.
+- `CallStackSample.event_count` becomes `period`; missing/zero period is normalized to `1`.
+- OpenHarmony report protobuf does not carry a guaranteed CPU id, so generated `.perftrace` rows use prefix CPU `000` but explicit `cpu=-1`. `trace_query` consumes `cpu=-1` as unknown rather than attributing samples to CPU0.
+- `sample.callStackFrame[0]` is treated as the leaf/hot frame, matching hiperf report's non-callstack path. The stored `callchain` is reversed into root-to-leaf text for model consumption.
+
+If the official adapter fails or is not available, conversion still succeeds for `.systrace` / `.perf.data` and emits a caveat. This keeps trace conversion stable while avoiding false confidence in raw perf parsing.
 
 ## JSON Repair / Prompt Contract
 
@@ -274,6 +298,8 @@ Status: implemented. `RootCauseRankItem.perf_context` is populated after determi
 - Keep `.systrace` behavior stable for traces without perf data.
 
 Status: in progress. D1 landed multi-artifact result metadata, official `TraceFileHeader` scanning for `DataType::HIPERF_DATA`, `.perf.data` sidecar extraction, `.tracebundle.json` provenance output, CLI/REPL artifact reporting, and converter tests for both systrace+perf and standalone-only perf inputs. Remaining D work is the official parser adapter path that turns extracted `.perf.data` into normalized `.perftrace`.
+
+D2 landed the OpenHarmony hiperf adapter path: `ConvertFile` can now run a configured/discovered official `hiperf_host`/`hiperf report --proto`, parse the official `report_sample.proto` stream without adding a new dependency, emit `.perftrace`, include it in `.tracebundle.json`, and preserve `.perf.data` with caveats. CLI supports `--hiperf-host`, `--hiperf-symbol-dir`, and `--no-perftrace`; REPL keeps the simple `/htrace convert` form and directs users to CLI when a specific official adapter path is needed. Remaining D work is Android/simpleperf parity.
 
 ### Batch E: CLI/REPL and Attachment UX
 
@@ -327,12 +353,12 @@ Eval targets:
   - Landed candidate-level `perf_context`, frame bundle role contexts, summary/evidence/typed-observation handoff, prompt/schema teaching for the new output fields, and synthetic tests for root-cause and role-specific perf joins.
 - [ ] Batch D implemented, committed, pushed.
   - [x] D1 converter sidecar extraction and bundle metadata implemented, committed, pushed.
-  - [ ] D2 official hiperf/simpleperf adapter to normalized `.perftrace`.
+  - [x] D2 OpenHarmony official hiperf adapter to normalized `.perftrace` implemented.
+  - [ ] D3 Android/simpleperf adapter parity.
 - [ ] Batch E implemented, committed, pushed.
 - [ ] Batch F evals added and representative cases run two at a time.
 
 ## Open Decisions
 
-- Exact location/config key for `hiperf_host` and simpleperf binaries. Prefer auto-discovery plus optional config, not hard-coded paths.
-- Whether to parse hiperf report protobuf directly in Go in Batch D or keep it as Batch F fallback.
+- Exact config key for Android simpleperf binaries. OpenHarmony hiperf now supports explicit `--hiperf-host`, `CODRAX_HIPERF_HOST`, and PATH discovery.
 - Whether `trace_perf_bundle` should be a new concrete view or an alias to enhanced `frame_root_cause_bundle` when a frame/span window is selected. Initial plan keeps it concrete because non-frame startup/binder/runnable windows also benefit from joint output.

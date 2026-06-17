@@ -10700,7 +10700,16 @@ func (r *REPL) handleHitraceConvert(args string) {
 			r.warn("%s", htraceConvertCaveatMsg(r.language, caveat))
 		}
 	}
-	r.info(htraceConvertNextMsg(r.language, result.OutputPath, result.BundlePath))
+	r.info(htraceConvertNextMsg(r.language, result.OutputPath, result.BundlePath, hitraceResultHasArtifact(result, hitraceconv.ArtifactPerfTrace)))
+}
+
+func hitraceResultHasArtifact(result hitraceconv.Result, typ string) bool {
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == typ {
+			return true
+		}
+	}
+	return false
 }
 
 func isHelpArg(arg string) bool {

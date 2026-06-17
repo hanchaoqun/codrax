@@ -47,7 +47,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	standaloneArtifacts, standaloneCaveats, err := extractStandaloneArtifacts(ctx, input, info.Size(), output)
+	standaloneArtifacts, standaloneCaveats, err := extractStandaloneArtifacts(ctx, opts, info.Size(), output)
 	if err != nil {
 		return Result{}, err
 	}

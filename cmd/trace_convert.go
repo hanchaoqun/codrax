@@ -10,9 +10,12 @@ import (
 )
 
 var (
-	traceConvertInput  string
-	traceConvertOutput string
-	traceConvertFlavor string
+	traceConvertInput       string
+	traceConvertOutput      string
+	traceConvertFlavor      string
+	traceConvertHiperfHost  string
+	traceConvertSymbolDirs  []string
+	traceConvertNoPerfTrace bool
 )
 
 var traceCmd = &cobra.Command{
@@ -36,9 +39,12 @@ are never overwritten; delete the file first or choose another output path.`,
 			return fmt.Errorf("--input is required")
 		}
 		result, err := hitraceconv.ConvertFile(cmd.Context(), hitraceconv.Options{
-			InputPath:  input,
-			OutputPath: strings.TrimSpace(traceConvertOutput),
-			Flavor:     strings.TrimSpace(traceConvertFlavor),
+			InputPath:          input,
+			OutputPath:         strings.TrimSpace(traceConvertOutput),
+			Flavor:             strings.TrimSpace(traceConvertFlavor),
+			HiperfPath:         strings.TrimSpace(traceConvertHiperfHost),
+			HiperfSymbolDirs:   append([]string(nil), traceConvertSymbolDirs...),
+			DisablePerfAdapter: traceConvertNoPerfTrace,
 		})
 		if err != nil {
 			return err
@@ -109,19 +115,34 @@ func traceConvertNextLine(lang string, result hitraceconv.Result) string {
 	if result.OutputPath == "" {
 		if result.BundlePath != "" {
 			if traceConvertUseZh(lang) {
-				return fmt.Sprintf("下一步：查看 trace bundle %q；若有 perf.data，请用官方 hiperf/simpleperf 转成 .perftrace 后再用 trace_query 分析", result.BundlePath)
+				return fmt.Sprintf("下一步：查看 trace bundle %q；若已有 perftrace artifact，可直接作为 trace_query 的 CPU sample 输入；否则用 --hiperf-host 指定官方工具重跑转换", result.BundlePath)
 			}
-			return fmt.Sprintf("next: inspect trace bundle %q; convert perf.data with official hiperf/simpleperf to .perftrace before trace_query CPU-sample analysis", result.BundlePath)
+			return fmt.Sprintf("next: inspect trace bundle %q; if it contains a perftrace artifact, feed it to trace_query for CPU-sample analysis; otherwise rerun with --hiperf-host", result.BundlePath)
 		}
 		if traceConvertUseZh(lang) {
 			return "下一步：未生成可直接附加的 systrace"
 		}
 		return "next: no attachable systrace was produced"
 	}
+	if traceConvertHasArtifact(result.Artifacts, hitraceconv.ArtifactPerfTrace) {
+		if traceConvertUseZh(lang) {
+			return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；同时可将 perftrace artifact 用于 trace_query 的 CPU sample 视图", result.OutputPath)
+		}
+		return fmt.Sprintf("next: codrax --htrace %q --request <question>; the perftrace artifact can also feed trace_query CPU-sample views", result.OutputPath)
+	}
 	if traceConvertUseZh(lang) {
 		return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>", result.OutputPath)
 	}
 	return fmt.Sprintf("next: codrax --htrace %q --request <question>", result.OutputPath)
+}
+
+func traceConvertHasArtifact(artifacts []hitraceconv.Artifact, typ string) bool {
+	for _, artifact := range artifacts {
+		if artifact.Type == typ {
+			return true
+		}
+	}
+	return false
 }
 
 func traceConvertUseZh(lang string) bool {
@@ -132,6 +153,9 @@ func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertInput, "input", "", "binary Harmony/OpenHarmony HiTrace input path")
 	traceConvertCmd.Flags().StringVar(&traceConvertOutput, "output", "", "text systrace output path; default is <input>.systrace")
 	traceConvertCmd.Flags().StringVar(&traceConvertFlavor, "flavor", "harmony_hitrace", "trace flavor metadata for operator audit; default harmony_hitrace")
+	traceConvertCmd.Flags().StringVar(&traceConvertHiperfHost, "hiperf-host", "", "official OpenHarmony hiperf_host/hiperf path used to convert HIPERF_DATA perf.data sidecars to .perftrace")
+	traceConvertCmd.Flags().StringSliceVar(&traceConvertSymbolDirs, "hiperf-symbol-dir", nil, "symbol directories passed to hiperf report --symbol-dir; repeat or comma-separate values")
+	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "extract perf.data sidecars without invoking an official hiperf adapter")
 	traceCmd.AddCommand(traceConvertCmd)
 	rootCmd.AddCommand(traceCmd)
 }

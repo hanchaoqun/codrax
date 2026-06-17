@@ -50,7 +50,8 @@ type traceBundleMetadata struct {
 	Caveats   []string   `json:"caveats,omitempty"`
 }
 
-func extractStandaloneArtifacts(ctx context.Context, input string, inputSize int64, outputPath string) ([]Artifact, []string, error) {
+func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int64, outputPath string) ([]Artifact, []string, error) {
+	input := strings.TrimSpace(opts.InputPath)
 	segments, err := findStandaloneSegments(ctx, input, inputSize)
 	if err != nil {
 		return nil, nil, err
@@ -80,7 +81,7 @@ func extractStandaloneArtifacts(ctx context.Context, input string, inputSize int
 		if err != nil {
 			return artifacts, caveats, err
 		}
-		artifacts = append(artifacts, Artifact{
+		rawArtifact := Artifact{
 			Type:          ArtifactPerfData,
 			Path:          outPath,
 			Bytes:         n,
@@ -89,11 +90,40 @@ func extractStandaloneArtifacts(ctx context.Context, input string, inputSize int
 			PluginVersion: seg.PluginVersion,
 			SourceOffset:  seg.Offset,
 			SourceBytes:   seg.Length,
-			Caveats:       []string{"raw perf.data sidecar extracted; run an official hiperf/simpleperf adapter to produce .perftrace before trace_query can aggregate CPU samples"},
-		})
+			Converter:     converterVersion,
+		}
+		perfTracePath := numberedSidecarPath(base, perfOrdinal, ".perftrace")
+		perfTrace, caveat, err := maybeConvertHiperfPerfData(ctx, opts, outPath, perfTracePath)
+		if err != nil {
+			return artifacts, caveats, err
+		}
+		if perfTrace.Path == "" {
+			rawArtifact.Caveats = append(rawArtifact.Caveats, "raw perf.data sidecar extracted; run an official hiperf/simpleperf adapter to produce .perftrace before trace_query can aggregate CPU samples")
+			if caveat != "" {
+				caveats = append(caveats, caveat)
+			}
+			artifacts = append(artifacts, rawArtifact)
+			continue
+		}
+		rawArtifact.Caveats = append(rawArtifact.Caveats, "raw perf.data sidecar preserved; normalized .perftrace was generated for trace_query CPU-sample aggregation")
+		artifacts = append(artifacts, rawArtifact, perfTrace)
 	}
 	if len(artifacts) > 0 {
-		caveats = append(caveats, fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s); raw perf.data is preserved as sidecar and still needs official parser conversion to .perftrace for trace_query sample aggregation", len(artifacts)))
+		perfDataCount := 0
+		perfTraceCount := 0
+		for _, artifact := range artifacts {
+			switch artifact.Type {
+			case ArtifactPerfData:
+				perfDataCount++
+			case ArtifactPerfTrace:
+				perfTraceCount++
+			}
+		}
+		if perfTraceCount > 0 {
+			caveats = append(caveats, fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s) and generated %d normalized .perftrace artifact(s) through the official hiperf adapter", perfDataCount, perfTraceCount))
+		} else {
+			caveats = append(caveats, fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s); raw perf.data is preserved as sidecar and still needs official parser conversion to .perftrace for trace_query sample aggregation", perfDataCount))
+		}
 	}
 	return artifacts, caveats, nil
 }

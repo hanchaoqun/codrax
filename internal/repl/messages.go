@@ -3214,9 +3214,9 @@ func htraceUsage(lang string) string {
 
 func htraceConvertUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace convert <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。"
+		return "/htrace convert <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。若需指定官方 hiperf 工具生成 perftrace，请使用 codrax trace convert --hiperf-host <path>。"
 	}
-	return "/htrace convert <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path."
+	return "/htrace convert <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Use codrax trace convert --hiperf-host <path> when an official hiperf adapter must be specified for perftrace generation."
 }
 
 func htraceConvertSuccess(lang, outputPath string, events int) string {
@@ -3253,18 +3253,30 @@ func htraceConvertFailedMsg(lang string, err error) string {
 	return formatN(lang, "convert hitrace: %v", err)
 }
 
-func htraceConvertNextMsg(lang, outputPath, bundlePath string) string {
+func htraceConvertNextMsg(lang, outputPath, bundlePath string, hasPerfTrace bool) string {
 	if outputPath == "" {
 		if bundlePath != "" {
 			if isZh(lang) {
-				return formatN(lang, "下一步：查看 trace bundle %s；若有 perf.data，请用官方 hiperf/simpleperf 转成 .perftrace 后再分析", bundlePath)
+				if hasPerfTrace {
+					return formatN(lang, "下一步：查看 trace bundle %s；其中 perftrace artifact 可直接用于 trace_query CPU sample 分析", bundlePath)
+				}
+				return formatN(lang, "下一步：查看 trace bundle %s；若只有 perf.data，请用 codrax trace convert --hiperf-host <path> 指定官方工具重跑转换", bundlePath)
 			}
-			return formatN(lang, "next: inspect trace bundle %s; convert perf.data with official hiperf/simpleperf to .perftrace before analysis", bundlePath)
+			if hasPerfTrace {
+				return formatN(lang, "next: inspect trace bundle %s; its perftrace artifact can feed trace_query CPU-sample analysis", bundlePath)
+			}
+			return formatN(lang, "next: inspect trace bundle %s; if it only has perf.data, rerun codrax trace convert --hiperf-host <path> with an official adapter", bundlePath)
 		}
 		if isZh(lang) {
 			return "下一步：未生成可直接附加的 systrace"
 		}
 		return "next: no attachable systrace was produced"
+	}
+	if hasPerfTrace {
+		if isZh(lang) {
+			return formatN(lang, "下一步：/htrace %s；生成的 perftrace artifact 可用于 trace_query CPU sample 视图", outputPath)
+		}
+		return formatN(lang, "next: /htrace %s; the generated perftrace artifact can feed trace_query CPU-sample views", outputPath)
 	}
 	if isZh(lang) {
 		return formatN(lang, "下一步：/htrace %s", outputPath)
