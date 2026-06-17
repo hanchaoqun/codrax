@@ -135,6 +135,7 @@ const (
 	WriteWorkflowSliceEventVerified         WriteWorkflowSliceEventKind = "slice_verified"
 	WriteWorkflowSliceEventUnverified       WriteWorkflowSliceEventKind = "slice_unverified"
 	WriteWorkflowSliceEventFailed           WriteWorkflowSliceEventKind = "slice_failed"
+	WriteWorkflowSliceEventRestored         WriteWorkflowSliceEventKind = "slice_restored"
 	WriteWorkflowSliceEventReplanRequested  WriteWorkflowSliceEventKind = "slice_replan_requested"
 	WriteWorkflowSliceEventBlocked          WriteWorkflowSliceEventKind = "slice_blocked"
 )
@@ -547,7 +548,7 @@ func normalizeWriteWorkflowSliceEventKind(in WriteWorkflowSliceEventKind) WriteW
 	case WriteWorkflowSliceEventPlanned, WriteWorkflowSliceEventApplyStarted,
 		WriteWorkflowSliceEventApplyCompleted, WriteWorkflowSliceEventObserveStarted,
 		WriteWorkflowSliceEventObserveCompleted, WriteWorkflowSliceEventVerified,
-		WriteWorkflowSliceEventUnverified, WriteWorkflowSliceEventFailed,
+		WriteWorkflowSliceEventUnverified, WriteWorkflowSliceEventFailed, WriteWorkflowSliceEventRestored,
 		WriteWorkflowSliceEventReplanRequested, WriteWorkflowSliceEventBlocked:
 		return in
 	default:

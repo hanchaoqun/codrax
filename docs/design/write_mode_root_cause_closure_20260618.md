@@ -244,6 +244,62 @@ RC-30 tasks:
 - [x] Run adapter/unit/smoke validation and update the progress ledger before
   commit/push.
 
+## 2026-06-18 RC-31 Checkpoint Rewind Before Replan
+
+The Claude Code-style online convergence target is edit -> observe -> repair,
+not one large apply followed by late failure. Codrax already records
+slice-level checkpoint metadata after apply, but before this batch a failed
+verify followed by `replan_batch` could keep planning on the same dirty or
+failed worktree state. That is a state-kernel gap: the next model turn may see
+the failed side effects rather than the last typed applied checkpoint.
+
+RC-31 makes rewind a deterministic EffectExecutor step before failed-verify
+replan:
+
+```text
+active failed slice + checkpoint(commit, worktree)
+  -> safe worktree boundary check
+  -> git reset --hard <checkpoint commit>
+  -> slice_restore event + restore attempt
+  -> planner replan on a known typed checkpoint
+```
+
+Design constraints:
+
+- The restore authority is structural only: active run/batch/slice,
+  `WriteWorkflowCheckpoint.CommitSHA`, checkpoint worktree path, current
+  `BusContext.WorktreePath`, and `worktreeBase`.
+- The controller never reads user issue text, model rationale, stdout prose, or
+  `<think>` output to decide whether to restore.
+- The path gate allows only the current workflow worktree or a descendant of
+  the controller worktree base. External directories are rejected and recorded
+  as skipped progress.
+- The reset uses the existing `worktree.ResetHard` helper rather than a new git
+  runner. Main checkout HEAD and merge state remain untouched.
+- Restore failure is fail-soft for automation smoothness: the workflow records a
+  typed progress reason and continues into the existing replan path instead of
+  prompting the user.
+- Language-specific actual-diff signals remain separate from this batch.
+  "Python dynamic mapping boundary" was never a Python-only architecture: the
+  provider registry currently covers Python, JS/TS, Ruby, Java/Kotlin, and Go.
+  Python has deeper duplicate/owner annotator hooks; other languages currently
+  carry container/default-boundary and production-test-scaffold events, and can
+  add richer AST/compiler providers incrementally.
+
+RC-31 tasks:
+
+- [x] Add durable `slice_restored` event normalization.
+- [x] Add a safe checkpoint worktree resolver for current-worktree or
+  worktree-base-descendant paths.
+- [x] Wire checkpoint restore before `replan_batch` caused by failed verify.
+- [x] Preserve bus/mutable repo roots after reset so planner/verifier consume
+  the restored worktree.
+- [x] Add real git-worktree regression for resetting a regressed worktree to a
+  checkpoint commit.
+- [x] Add external-directory rejection regression.
+- [x] Run focused controller/types tests, related package regression, full
+  regression, and update progress before commit/push.
+
 ## 2026-06-18 SWE-bench Lite Smoke Audit
 
 Run directory:
@@ -1687,6 +1743,7 @@ Verification:
 | RC-28 | complete | Multi-language BuildError changed-line attribution: structured compiler diagnostics from native runners now reuse the existing changed-line authority. Errors proven outside current patch lines become `preexisting_build_failure` unavailable handoff evidence; changed-line, unstructured, pathless, or imprecise diagnostics remain fail-closed `build_failure`. User guide Markdown/HTML and full regression evidence were updated. |
 | RC-29 | complete | Source-shape provider registry: actual-diff mapping/container boundary and production-test scaffold producers are now declared by deterministic language providers instead of central source-kind switches. Python duplicate/top-level owner checks moved behind provider hooks, current Python/JS/TS/Ruby/Java/Kotlin/Go event behavior is preserved, and registry coverage tests lock unique extension ownership plus required typed rules. Verification: focused writeflow provider tests and related `internal/writeflow ./internal/orchestrator ./internal/types ./internal/tool` tests pass. |
 | RC-30 | complete | Official SWE-bench result summary: added dependency-free `summarize_official_results.py` to normalize official harness run reports or per-instance reports into explicit `resolved/submitted`, `resolved/completed`, and `resolved/total` metrics. The wrapper now passes `REPORT_DIR`, README documents the official scoring flow, and tests cover denominator handling plus CLI JSON output without importing SWE-bench. Verification: system Python and eval-venv tests, adapter unit suite, local SWE-bench smoke, and diff check pass. |
+| RC-31 | complete | Deterministic checkpoint rewind before failed-verify replan: controller now restores the active slice worktree to its typed checkpoint commit before planner replan, records `slice_restored` metadata, rejects external checkpoint paths, and leaves main checkout untouched. This closes the online-convergence state-kernel gap where repair could plan on dirty failed side effects. Verification: focused controller/types restore tests, related orchestrator/types/worktree regression, full `go test ./...`, and diff check pass. |
 
 ## Acceptance Criteria
 

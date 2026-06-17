@@ -226,6 +226,15 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			if decision.Action == writeflow.ActionReplanBatch {
 				_, replanFromFailedVerify = activeBatchNeedsReplan(&before)
 			}
+			if replanFromFailedVerify {
+				if restored, restoreErr := o.restoreActiveSliceCheckpointBeforeReplan(&run, "verify_failed_replan"); restoreErr != nil {
+					appendControllerProgress(&run, run.ActiveBatchID, "checkpoint_restore_failed", restoreErr.Error())
+					o.persistWriteWorkflowRun(&run)
+				} else if restored {
+					appendControllerProgress(&run, run.ActiveBatchID, "checkpoint_restored_before_replan", "active slice worktree reset to checkpoint before planner replan")
+					o.persistWriteWorkflowRun(&run)
+				}
+			}
 			innerErr := o.runControllerPlanBatch(decision.Batch, stepsUsed)
 			plan := o.busCtx.Mutable.ChangePlan()
 			if innerErr == nil && replanFromFailedVerify && replanReusedFailedPlan(priorPlanFingerprint, plan) {
@@ -2651,6 +2660,144 @@ func markWorkflowRunActiveSliceObservingForRestoredPlan(run *types.WriteWorkflow
 		At:         now,
 	})
 	batch.UpdatedAt = now
+}
+
+func (o *Orchestrator) restoreActiveSliceCheckpointBeforeReplan(run *types.WriteWorkflowRun, reasonCode string) (bool, error) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || strings.TrimSpace(run.ActiveBatchID) == "" {
+		return false, nil
+	}
+	batch := activeWorkflowBatchForUpdate(run, run.ActiveBatchID)
+	if batch == nil || strings.TrimSpace(batch.ActiveSliceID) == "" {
+		return false, nil
+	}
+	slice := activeWorkflowSliceForUpdate(batch)
+	if slice == nil || slice.Checkpoint == nil {
+		return false, nil
+	}
+	checkpoint := *slice.Checkpoint
+	sha := strings.TrimSpace(checkpoint.CommitSHA)
+	if sha == "" {
+		return false, nil
+	}
+	wt, ok, reason := o.safeWorkflowCheckpointWorktreePath(checkpoint.WorktreePath)
+	if !ok {
+		if reason != "" {
+			appendControllerProgress(run, run.ActiveBatchID, "checkpoint_restore_skipped_"+reason, "checkpoint restore skipped before replan")
+		}
+		return false, nil
+	}
+	if err := worktree.ResetHard(wt, sha); err != nil {
+		return false, err
+	}
+	o.busCtx.WorktreePath = wt
+	o.busCtx.RepoRoot = wt
+	o.busCtx.Mutable.SetRepoRoot(wt)
+	if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+		changed := false
+		if strings.TrimSpace(plan.WorktreePath) == "" {
+			plan.WorktreePath = wt
+			changed = true
+		}
+		if strings.TrimSpace(plan.AppliedCommitSHA) == "" {
+			plan.AppliedCommitSHA = sha
+			changed = true
+		}
+		if changed {
+			o.busCtx.Mutable.SetChangePlan(plan)
+			o.persistCurrentChangePlanSnapshot()
+		}
+	}
+	recordWorkflowActiveSliceRestore(batch, slice, checkpoint, wt, strings.TrimSpace(reasonCode), "checkpoint_rewind")
+	return true, nil
+}
+
+func (o *Orchestrator) safeWorkflowCheckpointWorktreePath(raw string) (string, bool, string) {
+	path := strings.TrimSpace(raw)
+	if path == "" && o != nil && o.busCtx != nil {
+		path = strings.TrimSpace(o.busCtx.WorktreePath)
+	}
+	if path == "" {
+		return "", false, "missing_worktree"
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false, "invalid_worktree"
+	}
+	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+		return "", false, "missing_worktree"
+	}
+	if o != nil && o.busCtx != nil && sameCleanPath(abs, o.busCtx.WorktreePath) {
+		return abs, true, ""
+	}
+	if o != nil && pathWithinCleanDir(abs, o.worktreeBase) {
+		return abs, true, ""
+	}
+	return "", false, "untrusted_worktree"
+}
+
+func recordWorkflowActiveSliceRestore(batch *types.WriteWorkflowBatch, slice *types.WriteWorkflowSlice, checkpoint types.WriteWorkflowCheckpoint, worktreePath, reasonCode, source string) {
+	if batch == nil || slice == nil {
+		return
+	}
+	now := time.Now()
+	reasonCode = strings.TrimSpace(reasonCode)
+	source = strings.TrimSpace(source)
+	restore := &types.WriteWorkflowRestore{
+		CheckpointRef: strings.TrimSpace(checkpoint.Ref),
+		CommitSHA:     strings.TrimSpace(checkpoint.CommitSHA),
+		WorktreePath:  strings.TrimSpace(worktreePath),
+		Source:        source,
+		ReasonCode:    reasonCode,
+		At:            now,
+	}
+	slice.Restore = restore
+	appendWorkflowSliceAttempt(slice, "restore", "restored", reasonCode, strings.TrimSpace(slice.PlanID), "", restore.CheckpointRef)
+	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+		SliceID:     slice.ID,
+		Event:       types.WriteWorkflowSliceEventRestored,
+		Status:      slice.Status,
+		ReasonCode:  reasonCode,
+		PlanID:      strings.TrimSpace(slice.PlanID),
+		ArtifactRef: restore.CheckpointRef,
+		At:          now,
+	})
+	slice.UpdatedAt = now
+	batch.UpdatedAt = now
+}
+
+func sameCleanPath(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	aa, errA := filepath.Abs(a)
+	bb, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return filepath.Clean(aa) == filepath.Clean(bb)
+}
+
+func pathWithinCleanDir(path, dir string) bool {
+	path = strings.TrimSpace(path)
+	dir = strings.TrimSpace(dir)
+	if path == "" || dir == "" {
+		return false
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	dirAbs, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(dirAbs), filepath.Clean(pathAbs))
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func markWorkflowRunActiveSliceApplying(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan, reasonCode string) {

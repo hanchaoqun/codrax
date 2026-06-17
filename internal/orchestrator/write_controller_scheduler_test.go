@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -4342,6 +4343,113 @@ func TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify(
 	if got := mu.VerifyFailureHandoff(); got != nil {
 		t.Fatalf("green verify should clear failure handoff, got %+v", got)
 	}
+}
+
+func TestRestoreActiveSliceCheckpointBeforeReplanResetsWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	mainRepo := t.TempDir()
+	runGitForWorkflowRestoreTest(t, mainRepo, "init", "-q")
+	runGitForWorkflowRestoreTest(t, mainRepo, "config", "user.email", "test@codrax")
+	runGitForWorkflowRestoreTest(t, mainRepo, "config", "user.name", "test-user")
+	if err := os.WriteFile(filepath.Join(mainRepo, "fix.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForWorkflowRestoreTest(t, mainRepo, "add", "fix.txt")
+	runGitForWorkflowRestoreTest(t, mainRepo, "commit", "-q", "-m", "base")
+
+	worktreeBase := t.TempDir()
+	wt := filepath.Join(worktreeBase, "wt")
+	runGitForWorkflowRestoreTest(t, mainRepo, "worktree", "add", "--detach", wt, "HEAD")
+	if err := os.WriteFile(filepath.Join(wt, "fix.txt"), []byte("good\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForWorkflowRestoreTest(t, wt, "add", "fix.txt")
+	runGitForWorkflowRestoreTest(t, wt, "commit", "-q", "-m", "good checkpoint")
+	goodSHA := strings.TrimSpace(runGitForWorkflowRestoreTest(t, wt, "rev-parse", "HEAD"))
+	if err := os.WriteFile(filepath.Join(wt, "fix.txt"), []byte("regressed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mu := types.NewMutableState("restore checkpoint")
+	mu.SetChangePlan(&types.ChangePlan{ID: "plan-restore"})
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			Mutable:      mu,
+			WorktreePath: wt,
+			RepoRoot:     wt,
+		},
+		worktreeBase: worktreeBase,
+	}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-restore",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			ActiveSliceID: "slice-1",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-1",
+				Status: types.ChangePlanSliceFailed,
+				PlanID: "plan-restore",
+				Checkpoint: &types.WriteWorkflowCheckpoint{
+					Ref:          "refs/codrax/applied/plan-restore",
+					CommitSHA:    goodSHA,
+					WorktreePath: wt,
+					Source:       "slice_apply",
+				},
+			}},
+		}},
+	}
+
+	restored, err := o.restoreActiveSliceCheckpointBeforeReplan(run, "verify_failed_replan")
+	if err != nil {
+		t.Fatalf("restoreActiveSliceCheckpointBeforeReplan: %v", err)
+	}
+	if !restored {
+		t.Fatal("expected checkpoint restore")
+	}
+	got, err := os.ReadFile(filepath.Join(wt, "fix.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "good\n" {
+		t.Fatalf("worktree was not reset to checkpoint: %q", string(got))
+	}
+	slice := run.Batches[0].Slices[0]
+	if slice.Restore == nil || slice.Restore.CommitSHA != goodSHA || slice.Restore.ReasonCode != "verify_failed_replan" {
+		t.Fatalf("slice restore metadata missing: %+v", slice.Restore)
+	}
+	if len(run.Batches[0].SliceEvents) != 1 || run.Batches[0].SliceEvents[0].Event != types.WriteWorkflowSliceEventRestored {
+		t.Fatalf("restore event missing: %+v", run.Batches[0].SliceEvents)
+	}
+	if mu.RepoRoot() != wt || o.busCtx.RepoRoot != wt {
+		t.Fatalf("repo root should point at restored worktree, mutable=%q bus=%q", mu.RepoRoot(), o.busCtx.RepoRoot)
+	}
+}
+
+func TestSafeWorkflowCheckpointWorktreePathRejectsExternalDirectory(t *testing.T) {
+	allowedBase := t.TempDir()
+	external := t.TempDir()
+	o := &Orchestrator{
+		busCtx:       &types.BusContext{WorktreePath: filepath.Join(allowedBase, "current")},
+		worktreeBase: allowedBase,
+	}
+	if got, ok, reason := o.safeWorkflowCheckpointWorktreePath(external); ok || got != "" || reason != "untrusted_worktree" {
+		t.Fatalf("external checkpoint path should be rejected, got path=%q ok=%v reason=%q", got, ok, reason)
+	}
+}
+
+func runGitForWorkflowRestoreTest(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v in %s: %v (%s)", args, dir, err, out)
+	}
+	return string(out)
 }
 
 func TestRunWriteControllerWorkflow_ReplanCancelReportsAppliedPatch(t *testing.T) {
