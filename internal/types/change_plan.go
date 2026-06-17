@@ -449,6 +449,11 @@ type ChangePlan struct {
 	// disabled or produced no risks.
 	PlanCritique string `json:"plan_critique,omitempty"`
 
+	// PatchReview is the post-apply typed review of the actual applied effect
+	// against the active plan/slice scope. It is lifecycle audit metadata and
+	// is deliberately excluded from PlanFingerprint.
+	PatchReview *PatchReviewRecord `json:"patch_review,omitempty"`
+
 	// UnvalidatedReasons lists pre-apply static-check stages that
 	// were skipped because their toolchain was unavailable (e.g.
 	// "rust:cargo not in PATH", "java/maven:mvn not in PATH").

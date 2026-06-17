@@ -1321,6 +1321,36 @@ func (o *Orchestrator) runControllerApplyPlan(stepsUsed *int) error {
 	return err
 }
 
+func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun, plan *types.ChangePlan) types.PatchReviewRecord {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
+		return types.PatchReviewRecord{}
+	}
+	activeSlice, _ := types.ActiveChangePlanApplySlice(plan, run)
+	review := writeflow.ReviewAppliedPatchScope(plan, activeSlice)
+	review = types.NormalizePatchReviewRecord(review)
+	plan.PatchReview = &review
+	o.busCtx.Mutable.SetChangePlan(plan)
+	o.persistCurrentChangePlanSnapshot()
+	return review
+}
+
+func patchReviewHardBlockReason(review types.PatchReviewRecord) string {
+	review = types.NormalizePatchReviewRecord(review)
+	for _, finding := range review.Findings {
+		if finding.Severity != types.PatchReviewSeverityError {
+			continue
+		}
+		if finding.Path != "" {
+			return finding.Code + ":" + finding.Path
+		}
+		return finding.Code
+	}
+	if len(review.ReasonCodes) > 0 {
+		return strings.Join(review.ReasonCodes, ",")
+	}
+	return "patch_review_failed"
+}
+
 func (o *Orchestrator) runControllerApplyPlanTransition(run *types.WriteWorkflowRun, stepsUsed *int, reasonCode string) (writeControllerApplyTransitionOutcome, error) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
 		return writeControllerApplyTransitionTerminal, fmt.Errorf("write controller apply transition missing context")
@@ -1354,6 +1384,25 @@ func (o *Orchestrator) runControllerApplyPlanTransition(run *types.WriteWorkflow
 		}
 		updateWorkflowRunBatchPlan(run, run.ActiveBatchID, plan)
 		updateWorkflowRunBatchApply(run, run.ActiveBatchID, plan, applyStatus, applyReason)
+		if innerErr == nil {
+			review := o.reviewActiveAppliedPatchScope(run, plan)
+			plan = o.busCtx.Mutable.ChangePlan()
+			if review.HardBlock {
+				reason := patchReviewHardBlockReason(review)
+				if plan != nil {
+					plan.Status = types.PlanStatusBlocked
+					o.busCtx.Mutable.SetChangePlan(plan)
+					o.persistCurrentChangePlanSnapshot()
+				}
+				run.Status = types.WriteWorkflowRunBlocked
+				updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+				markWorkflowRunActiveSlicePatchReviewBlocked(run, run.ActiveBatchID, plan, reason)
+				appendControllerProgress(run, run.ActiveBatchID, "patch_review_blocked", reason)
+				o.persistWriteWorkflowRun(run)
+				o.publishBlockedRunGuidance(run, "patch_review_blocked")
+				return writeControllerApplyTransitionTerminal, fmt.Errorf("patch review blocked: %s", reason)
+			}
+		}
 		*run = attachPlanContextPackToWorkflowRun(*run, plan)
 	}
 	if innerErr != nil {
@@ -2084,6 +2133,42 @@ func updateWorkflowBatchActiveSliceApply(batch *types.WriteWorkflowBatch, plan *
 			At:          now,
 		})
 	}
+	slice.UpdatedAt = now
+	batch.UpdatedAt = now
+}
+
+func markWorkflowRunActiveSlicePatchReviewBlocked(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan, reasonCode string) {
+	if run == nil || plan == nil || strings.TrimSpace(batchID) == "" {
+		return
+	}
+	batch := activeWorkflowBatchForUpdate(run, batchID)
+	if batch == nil {
+		return
+	}
+	slice := activeWorkflowSliceForUpdate(batch)
+	if slice == nil {
+		return
+	}
+	now := time.Now()
+	planID := strings.TrimSpace(plan.ID)
+	reasonCode = strings.TrimSpace(reasonCode)
+	slice.PlanID = firstNonEmptyController(planID, slice.PlanID)
+	slice.Status = types.ChangePlanSliceBlocked
+	slice.Completion = &types.WriteWorkflowCompletion{
+		Verdict:    types.WriteWorkflowCompletionAcceptedFailed,
+		ReasonCode: reasonCode,
+		Source:     "patch_review",
+		At:         now,
+	}
+	appendWorkflowSliceAttempt(slice, "patch_review", "blocked", reasonCode, planID, "", "")
+	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+		SliceID:    slice.ID,
+		Event:      types.WriteWorkflowSliceEventBlocked,
+		Status:     slice.Status,
+		ReasonCode: reasonCode,
+		PlanID:     planID,
+		At:         now,
+	})
 	slice.UpdatedAt = now
 	batch.UpdatedAt = now
 }

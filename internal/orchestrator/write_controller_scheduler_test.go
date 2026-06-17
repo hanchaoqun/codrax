@@ -1890,6 +1890,64 @@ func TestEnforceControllerWorkflowTransitionBlocksModePlanApply(t *testing.T) {
 	}
 }
 
+func TestReviewActiveAppliedPatchScopePersistsHardBlock(t *testing.T) {
+	mu := types.NewMutableState("patch review")
+	plan := &types.ChangePlan{
+		ID:           "plan-review",
+		Status:       types.PlanStatusAppliedPendingVerify,
+		TargetPaths:  []string{"a.py", "b.py"},
+		AppliedPaths: []string{"b.py"},
+		Changes: []types.FileChange{
+			{Path: "a.py", Kind: "modify", NewContent: "a = 1\n"},
+			{Path: "b.py", Kind: "modify", NewContent: "b = 1\n"},
+		},
+		Slices: []types.ChangePlanSlice{{
+			ID:            "slice-001",
+			Status:        types.ChangePlanSliceObserving,
+			ChangeIndexes: []int{0},
+			Paths:         []string{"a.py"},
+		}},
+	}
+	mu.SetChangePlan(plan)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-review",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchVerifying,
+			PlanID:        "plan-review",
+			ActiveSliceID: "slice-001",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:            "slice-001",
+				Status:        types.ChangePlanSliceObserving,
+				PlanID:        "plan-review",
+				Paths:         []string{"a.py"},
+				ChangeIndexes: []int{0},
+			}},
+		}},
+	}
+	review := o.reviewActiveAppliedPatchScope(run, plan)
+	if !review.HardBlock {
+		t.Fatalf("outside active slice should hard block, got %+v", review)
+	}
+	got := mu.ChangePlan()
+	if got == nil || got.PatchReview == nil || !got.PatchReview.HardBlock {
+		t.Fatalf("patch review should be persisted on active plan, got %+v", got)
+	}
+	if reason := patchReviewHardBlockReason(review); reason != "applied_path_outside_active_slice:b.py" {
+		t.Fatalf("hard-block reason = %q", reason)
+	}
+	markWorkflowRunActiveSlicePatchReviewBlocked(run, "batch-1", got, patchReviewHardBlockReason(review))
+	if run.Batches[0].Slices[0].Status != types.ChangePlanSliceBlocked {
+		t.Fatalf("slice should be blocked after patch review hard block, got %+v", run.Batches[0].Slices[0])
+	}
+	if run.Batches[0].Slices[0].Completion == nil || run.Batches[0].Slices[0].Completion.Source != "patch_review" {
+		t.Fatalf("slice completion should carry patch_review source, got %+v", run.Batches[0].Slices[0].Completion)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionSuppressesRepeatedAskUserFact(t *testing.T) {
 	mu := types.NewMutableState("repeat ask")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
