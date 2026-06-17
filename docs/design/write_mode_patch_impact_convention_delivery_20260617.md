@@ -352,6 +352,40 @@ Additional hardening items found during SWE-bench Lite smoke
 - No hard logic reads prompt prose, model prose, user keywords, or `<think>`.
 - Read/log/trace/data/operation/computer modes remain isolated.
 
+## 2026-06-18 Completion Audit
+
+Current `main` contains the end-to-end post-apply observe lane described in
+this document:
+
+- `PatchEffectRecord` is captured from the actual applied commit diff by the
+  controller before verify, annotated with structured-file parse/source-shape
+  facts, persisted on `ChangePlan`, and projected into P2 context.
+- Patch Critic v2 consumes the actual `PatchEffectRecord`, active slice scope,
+  `ImpactAnalysisResult`, impact obligations, and soft `ConventionGraph`
+  context. Hard blocks come from typed errors only; semantic/convention findings
+  are warning/advisory context and never parse prompt/model prose.
+- `ImpactAnalysisResult` is now first-class durable state on `ChangePlan`,
+  with changed surfaces, graph-derived edges, ranked verification targets, and
+  the compact `ImpactObligationSet` projection.
+- The repository convention learner derives P3 soft convention nodes from
+  active patch surfaces and repo graph imports/reverse-imports/related tests,
+  merges them with exploration handoff conventions, and persists the selected
+  graph through the convention store.
+- Post-verify coverage is refreshed from typed `ChangeReport` plus
+  `ObservationAuthorityView`; successful authoritative verification marks
+  impact targets and semantic patch-review findings verified, unavailable
+  local verification marks them unavailable, and failed verification keeps them
+  unverified for focused replan/follow-up.
+- Semantic follow-up is bounded: unavailable/unverified coverage can append one
+  typed follow-up batch, while verified/advisory findings do not recurse.
+
+Residual commercial backlog is no longer the original three-feature gap. The
+remaining strategic work is broader online-kernel polish: deterministic
+rewind/fork execution from slice checkpoints, richer language producers for the
+shared changed-line diagnostic filter, and more official harness scoring runs.
+Those should be tracked in the online-convergence design, not as Patch
+Critic/Impact/Convention incompletion.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -361,4 +395,5 @@ Additional hardening items found during SWE-bench Lite smoke
 | 2 | complete | ImpactAnalysisResult engine landed: `ChangePlan` now persists durable changed surfaces, impact edges, ranked verification targets, and the compact obligation projection; controller post-apply observe stamps the result from actual `PatchEffectRecord` plus repo graph; context packs expose P1 changed surfaces and P2 verification targets; Patch Critic can consume the result as its semantic coverage source. |
 | 3 | complete | Convention repository learner landed: post-apply review now learns repository-backed soft convention nodes from actual patch surfaces plus typed graph imports/reverse-imports/related tests, merges them with exploration handoff conventions, persists them through the existing convention store, and exposes convention advisory findings without making conventions hard-gate authority. |
 | 4 | complete | Controller observe integration landed: post-verify coverage now derives from typed `ChangeReport`/`ObservationAuthorityView`, updates durable `ImpactAnalysis` verification targets and semantic `PatchReview` findings, preserves missing probe changed-symbol/contract refs via typed `VerificationConfidenceRecord`, re-projects updated plan context into workflow handoff, and prevents stale pre-verify coverage rows from leaking through stable context IDs. |
-| 5 | in progress | Local SWE smoke passed; SWE-bench Lite `pytest-dev__pytest-11143` produced non-empty harness-consumable predictions but exposed two systemic hardening gaps. This batch landed shared no-change sentinel qualification plus language-neutral changed-line preflight diagnostic filtering, with Python symtable connected as the first producer. Regression so far: focused `orchestrator/tool/writeflow`, full `go test ./...`, `make`, and local SWE-bench adapter smoke all pass. |
+| 5 | complete | Commercial hardening for this scope landed. Local SWE smoke passed; SWE-bench Lite `pytest-dev__pytest-11143` produced non-empty harness-consumable predictions and exposed two systemic gaps, both fixed generically: shared no-change sentinel qualification and language-neutral changed-line preflight diagnostic filtering, with Python symtable connected as the first producer. Regression evidence recorded in the online ledger: focused `orchestrator/tool/writeflow`, full `go test ./...`, `make`, and local SWE-bench adapter smoke passed before push. |
+| 2026-06-18 audit | complete | Re-read `/Users/han/opt/cc_like.md` and the current implementation. The original three gaps are now implemented on the write-mode main path rather than only as standalone modules. Follow-up work moves to the online-kernel backlog: checkpoint rewind/fork, richer non-Python diagnostic producers, and official SWE-bench resolved scoring. |

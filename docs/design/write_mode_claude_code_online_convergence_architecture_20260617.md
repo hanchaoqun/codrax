@@ -712,11 +712,11 @@ resume/status cards:
 
 ### State-Kernel Delivery Plan
 
-Status: not complete. The current code has budget-boundary auto-apply and
-post-apply verification overrides, but the general Claude Code-style
-`plan -> apply -> observe` online chain is not yet safe to enable
-unconditionally. The failed direct scheduler experiment proved the missing
-state-kernel pieces:
+Status: foundation complete through the SK-9b authority batches on current
+`main`. The earlier direct scheduler experiment was correct to reject a local
+`plan -> auto-apply` patch before the state kernel existed; the missing
+state-kernel pieces below have since been delivered as typed foundations rather
+than prompt instructions:
 
 - approval execution authority must be exact-fingerprint typed state, not plan
   lifecycle status;
@@ -726,20 +726,20 @@ state-kernel pieces:
 - post-apply observe must stay mandatory;
 - batch/slice context handoff must be swapped when the active batch changes.
 
-Implementation must therefore land in foundation-first batches:
+Foundation-first batch status:
 
 | Batch | Scope | Concrete work | Acceptance |
 | --- | --- | --- | --- |
-| SK-1 | Approval execution authority | Add a typed `ApprovalExecutionView` derived from `ChangePlan.Approval`, current `PlanFingerprint`, record integrity, user decision, and action. Update workflow invariants to consume this view instead of raw `Approval.Action`. | `auto_execute` with matching fingerprint is executable; stale/tampered `auto_execute` is not; pending approval is a contradiction only for executable current approval. |
-| SK-2 | Next-action state assembler | Add `WriteWorkflowExecutionView` that combines run, active batch, active slice, approval execution view, latest verify attempt, budgets, and mode. It is read-only and does not execute effects. | REPL/status/eval can render plan-ready/apply-ready/observe-required/replan-required from one typed view; no prose/log parsing. |
-| SK-3 | Deterministic transition validator | Add a validator for controller decisions against `WriteWorkflowExecutionView`: allowed actions, cancellation state, stale failed verify, apply-ready, observe-required, pending approval, and blocked reasons. | Existing controller tests pass; new tests prove canceled dispatch cannot auto-apply, failed verify cannot finish, and stale handoff cannot cross batches. |
-| SK-4 | Safe effect chaining | Move plan->apply chaining into an `EffectExecutor` lane that may run only when SK-2 says `apply_ready` and SK-3 says the deterministic transition is allowed. | Safe freshly planned slices apply without an extra controller turn; current cancellation/recovery/re-explore/replan/post-apply observe tests remain green. |
-| SK-5 | Observation authority | Promote package/build/syntax/probe/test verdicts into one typed observe result consumed by finish and replan decisions. | Passing narrative cannot finish; missing local deps produce unverified confidence downgrade; code failures force replan/split/block. |
-| SK-6 | Context and handoff durability | Add context-pack dedupe/cost/stale-batch metadata and make active batch switch clear stale verify-failure carriers deterministically. | Planner/verifier/controller consume Top-N typed views; prior P0/P1/P2 evidence survives resume while stale batch diagnostics do not leak. |
-| SK-7 | UX/eval unification | Render REPL/CLI/SWE-bench status from the same execution/next-action view. | Normal safe runs continue without command burden; high-risk shows one approval card; official SWE-bench predictions remain consumable. |
-| SK-8 | SWE-bench regression groups | Run at least two more non-Go SWE-bench Lite groups plus targeted Sphinx/Django regressions. | Predictions JSONL validates, official harness dry-run accepts, manual audit records correctness/gaps, and new gaps become typed backlog or fixes. |
+| SK-1 | Approval execution authority | Added typed `ApprovalExecutionView` from `ChangePlan.Approval`, current `PlanFingerprint`, record integrity, user decision, and action. Workflow invariants now consume this view instead of raw lifecycle status. | `auto_execute` with matching fingerprint is executable; stale/tampered `auto_execute` is not; pending approval is a contradiction only for executable current approval. Complete. |
+| SK-2 | Next-action state assembler | Added `WorkflowExecutionView` combining run, active batch, active slice, approval authority, latest verify attempt, budgets, and mode. It is read-only and executes no effects. | Runtime/status/eval can derive plan-ready/apply-ready/observe-required/replan-required from one typed view; no prose/log parsing. Complete. |
+| SK-3 | Deterministic transition validator | Added `ValidateWorkflowTransition` over `WorkflowExecutionView` and controller decisions, then wired it before effects execute. | Contradictory controller actions are overridden, blocked, or converted to typed ask-user decisions before effect execution. Complete. |
+| SK-4 | Safe effect chaining | Safe plan->apply chaining is wired through existing controller apply transition only when typed approval execution says the plan can proceed. | Safe freshly planned slices can apply at budget boundaries without another controller turn; apply-pre approval/deny remains final authority. Complete for current controller path; a standalone generic `EffectExecutor` remains strategic cleanup. |
+| SK-5 | Observation authority | Added `ObservationAuthorityView` and routed verify outcome classification, finish gating, batch completion, attempt state, and workflow execution view through it. | Passing narrative cannot finish; missing local deps produce unverified confidence downgrade; code failures force replan/split/block. Complete. |
+| SK-6 | Context and handoff durability | Added scoped context projection, governance metadata, cost/dedupe/stale-scope handling, must-carry rows, and slice checkpoint/restore metadata. | Planner/verifier/controller consume Top-N typed views; prior P0/P1/P2 evidence survives resume while stale batch diagnostics do not leak. Complete for projection/checkpoint metadata. |
+| SK-7 | UX/eval unification | REPL, run guidance, and SWE-bench heartbeats derive typed next-action/status cards from durable workflow JSON and `WriteWorkflowNextActionView`. | Normal safe runs continue without command burden; high-risk shows one approval card; official prediction files remain consumable. Complete for status rendering. |
+| SK-8 | SWE-bench regression groups | Multiple non-Go Lite groups and targeted Django/Sphinx/SymPy/pytest/Flask reruns were executed, producing prediction files and typed gap records. | Prediction JSONL validation and harness dry-run acceptance prove export compatibility only; functional correctness must be reported from official `resolved` scoring, not non-empty patch rate. Complete as smoke/evidence generation; official resolved scoring remains a separate eval task. |
 
-Batch discipline:
+Batch discipline going forward:
 
 - each batch updates this ledger before commit;
 - runtime behavior changes start only after SK-1/SK-3 tests establish the
@@ -748,6 +748,21 @@ Batch discipline:
 - no user-intent keyword matching or model prose parsing;
 - read/log/trace/data/operation/computer paths remain out of scope except for
   regression tests.
+
+Residual strategic backlog:
+
+- implement deterministic checkpoint rewind/fork as an executable
+  `EffectExecutor` capability rather than metadata-only state;
+- expand the shared changed-line diagnostic filter to additional language
+  producers beyond Python static symbol checks;
+- run fixed-instance SWE-bench Lite official harness scoring and report
+  `resolved/total`; non-empty patch rate is an export metric, not a
+  correctness metric;
+- if local authoritative verify and manual audit are combined for internal
+  acceptance, manual audit must be stored as a per-instance typed
+  `manual_audit_verdict` before aggregation;
+- continue manual audits only as evidence discovery. Any fix must still become
+  a typed system rule, not a case-specific patch.
 
 ## Current Codrax Baseline
 
@@ -2469,3 +2484,4 @@ Commercial design decision:
 | SK-8a Python static verify preflight | complete | Added a generic stdlib `symtable` undefined-name preflight after `py_compile` in the Python no-test-infra verification lane, with typed suite `python_static_name_check` and reason `python_static_undefined_name`. This came from the `pallets__flask-4045` manual audit, but is implemented as a language-level preflight over parsed symbols, not case routing. Focused Go tests, adapter tests, local smoke, full Go regression, build, and the Flask SWE-bench Lite re-run passed; the wrong-layer undefined-name patch did not recur and the final patch is harness-consumable. |
 | SK-9a planning-lane test execution boundary | complete | Django/SymPy Lite audit showed planner replan could use `run_tests(dry_run=true)` as a suite debugger, burning plan turns and ending without `emit_change_plan`. This batch hardens the boundary so write `StagePlan` accepts `run_tests` only with `dry_run=true` plus a typed `verification_probe`; suite/runner dry-runs are rejected by tool policy and by `run_tests` itself. Planner schema and prompts now expose the same narrowed contract. Verification passed: focused agent/tool/skill tests, `git diff --check`, full `go test ./...`, and `make`. |
 | SK-9b verifier default run_tests authority | complete | SymPy Lite audit showed verifier could manually pass `runner=python, framework=pytest, working_dir=.`, bypassing default plan-touched/probe-first selection and timing out on broad pytest. Write `StageVerify` now exposes `run_tests` as `{}` only, rejects non-empty params with typed repair `write_verifier_run_tests_default_required`, and aligns verifier/skill prompts with deterministic TestSurface authority. Verification passed: focused agent/skill/tool tests, `git diff --check`, full `go test ./...`, and `make`. |
+| 2026-06-18 cc_like completion audit | complete | Re-read `/Users/han/opt/cc_like.md` against current `main`. The original online-convergence P0/P1 gaps are now represented by typed approval execution, workflow execution view, transition validator, observation authority, scoped context governance, typed next-action UX, planning-lane probe-only policy, verifier default `{}` authority, actual-diff Patch Critic, durable Impact Analysis, and soft repository Convention learning. Remaining work is no longer a reason to keep the original gap open: deterministic checkpoint rewind/fork, broader language diagnostic producers, and official SWE-bench `resolved` scoring are tracked as strategic follow-up. Non-empty patch rate is explicitly classified as export compatibility, not functional correctness. |
