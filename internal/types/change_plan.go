@@ -454,6 +454,12 @@ type ChangePlan struct {
 	// is deliberately excluded from PlanFingerprint.
 	PatchReview *PatchReviewRecord `json:"patch_review,omitempty"`
 
+	// ImpactObligations are the typed downstream obligations derived from the
+	// plan's declared changes, dependencies, contracts, symbols, and probes.
+	// They are advisory handoff/confidence inputs, not hard approval authority,
+	// and are excluded from PlanFingerprint.
+	ImpactObligations *ImpactObligationSet `json:"impact_obligations,omitempty"`
+
 	// UnvalidatedReasons lists pre-apply static-check stages that
 	// were skipped because their toolchain was unavailable (e.g.
 	// "rust:cargo not in PATH", "java/maven:mvn not in PATH").
@@ -498,10 +504,11 @@ type ChangePlan struct {
 }
 
 // PlanFingerprint returns a deterministic hash of the apply-relevant plan
-// fields. It deliberately excludes lifecycle fields (Status, AppliedAt,
-// WorktreePath, Approval, critique) so persisting status/approval metadata does
-// not invalidate the approved payload, while any change to requested file
-// operations or test obligations does.
+// fields. It deliberately excludes lifecycle/handoff fields (Status, AppliedAt,
+// WorktreePath, Approval, critique, patch review, impact obligations) so
+// persisting status/approval/context metadata does not invalidate the approved
+// payload, while any change to requested file operations or test obligations
+// does.
 func PlanFingerprint(plan *ChangePlan) string {
 	if plan == nil {
 		return ""

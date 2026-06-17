@@ -359,6 +359,22 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 		pack.Items = append(pack.Items, writeContextItem("unvalidated_reason", WriteContextP2, reason, "plan",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 	}
+	obligations := plan.ImpactObligations
+	if obligations == nil {
+		derived := ImpactObligationSetFromChangePlan(plan)
+		obligations = &derived
+	}
+	for _, ob := range obligations.Obligations {
+		priority := WriteContextP2
+		switch ob.Kind {
+		case "changed_file", "dependency":
+			priority = WriteContextP1
+		}
+		if text := renderImpactObligationContext(ob); text != "" {
+			pack.Items = append(pack.Items, writeContextItem("impact_obligation", priority, text, "impact_obligation",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		}
+	}
 	if plan.PlanCritique != "" {
 		pack.Items = append(pack.Items, writeContextItem("plan_critique", WriteContextP2, plan.PlanCritique, "plan_critic",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerApproval))
@@ -367,6 +383,43 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 		pack = MergeWriteContextPacks(pack.BatchID, pack.Goal, pack, WriteContextPackFromApprovalRecord(plan.ID, plan.Summary, plan.Approval))
 	}
 	return NormalizeWriteContextPack(pack)
+}
+
+func renderImpactObligationContext(ob ImpactObligation) string {
+	ob = impactObligation(ob)
+	parts := []string{
+		"id=" + ob.ID,
+		"kind=" + ob.Kind,
+		"obligation=" + ob.Obligation,
+	}
+	if ob.Relation != "" {
+		parts = append(parts, "relation="+ob.Relation)
+	}
+	if ob.SubjectPath != "" {
+		parts = append(parts, "path="+ob.SubjectPath)
+	}
+	if ob.RelatedPath != "" {
+		parts = append(parts, "related_path="+ob.RelatedPath)
+	}
+	if ob.SubjectSymbol != "" {
+		parts = append(parts, "symbol="+ob.SubjectSymbol)
+	}
+	if ob.ContractRef != "" {
+		parts = append(parts, "contract_ref="+ob.ContractRef)
+	}
+	if ob.VerificationProbe != "" {
+		parts = append(parts, "probe="+ob.VerificationProbe)
+	}
+	if ob.SliceID != "" {
+		parts = append(parts, "slice="+ob.SliceID)
+	}
+	if ob.Source != "" {
+		parts = append(parts, "source="+ob.Source)
+	}
+	if ob.Strength != "" {
+		parts = append(parts, "strength="+string(ob.Strength))
+	}
+	return strings.Join(parts, " ")
 }
 
 func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []WriteContextPack, plan *ChangePlan) WriteContextPack {

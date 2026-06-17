@@ -1826,6 +1826,8 @@ func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID string, pla
 	planID := ""
 	if plan != nil {
 		plan.Slices = types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{})
+		impact := types.ImpactObligationSetFromChangePlan(plan)
+		plan.ImpactObligations = &impact
 		planID = strings.TrimSpace(plan.ID)
 	}
 	for i := range run.Batches {

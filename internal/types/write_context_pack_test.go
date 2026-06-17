@@ -132,6 +132,37 @@ func TestWriteContextPackFromExplorationHandoffPrioritizesEvidence(t *testing.T)
 	}
 }
 
+func TestWriteContextPackFromChangePlanCarriesImpactObligations(t *testing.T) {
+	plan := &ChangePlan{
+		ID:          "plan-impact",
+		Summary:     "repair caller helper contract",
+		TargetPaths: []string{"caller.py", "helper.py"},
+		Changes: []FileChange{{
+			Path:      "caller.py",
+			Kind:      "modify",
+			DependsOn: []string{"helper.py"},
+		}},
+		VerificationProbes: []VerificationProbe{{
+			ID:                "probe-contract",
+			ContractRefs:      []string{"contract-1"},
+			ChangedSymbolRefs: []string{"pkg.symbol"},
+		}},
+	}
+
+	pack := WriteContextPackFromChangePlan(plan)
+	planner := pack.View(WriteConsumerPlanner, 20)
+	verifier := pack.View(WriteConsumerVerifier, 20)
+	if !writeContextViewContains(planner, "impact_obligation", "relation=depends_on") {
+		t.Fatalf("planner view missing dependency impact obligation: %+v", planner.Items)
+	}
+	if !writeContextViewContains(verifier, "impact_obligation", "contract_ref=contract-1") {
+		t.Fatalf("verifier view missing contract impact obligation: %+v", verifier.Items)
+	}
+	if !writeContextViewContains(verifier, "impact_obligation", "symbol=pkg.symbol") {
+		t.Fatalf("verifier view missing symbol impact obligation: %+v", verifier.Items)
+	}
+}
+
 func TestWriteContextPackFromPlanContextCoverageExcludesPlanSelfContext(t *testing.T) {
 	prior := []WriteContextPack{{
 		PackID:      "exploration-handoff",

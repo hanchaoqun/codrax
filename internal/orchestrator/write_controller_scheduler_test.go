@@ -83,6 +83,41 @@ func TestSeedWriteWorkflowRunPersistsWriteAnalysisContextForDirectPlan(t *testin
 	}
 }
 
+func TestUpdateWorkflowRunBatchPlanStampsImpactObligations(t *testing.T) {
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-impact",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1",
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-impact",
+		Summary:     "repair caller helper contract",
+		TargetPaths: []string{"caller.py", "helper.py"},
+		Changes: []types.FileChange{{
+			Path:      "caller.py",
+			Kind:      "modify",
+			DependsOn: []string{"helper.py"},
+		}},
+	}
+
+	updateWorkflowRunBatchPlan(run, "batch-1", plan)
+
+	if plan.ImpactObligations == nil {
+		t.Fatalf("plan should be stamped with typed impact obligations")
+	}
+	for _, ob := range plan.ImpactObligations.Obligations {
+		if ob.Kind == "dependency" &&
+			ob.Relation == "depends_on" &&
+			ob.SubjectPath == "caller.py" &&
+			ob.RelatedPath == "helper.py" {
+			return
+		}
+	}
+	t.Fatalf("missing dependency impact obligation: %+v", plan.ImpactObligations.Obligations)
+}
+
 type readExplorationRunnerFunc func(*Orchestrator) (int, error)
 
 func (f readExplorationRunnerFunc) Run(o *Orchestrator) (int, error) {
