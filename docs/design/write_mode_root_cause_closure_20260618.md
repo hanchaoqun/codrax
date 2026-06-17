@@ -410,6 +410,53 @@ RC-33 tasks:
 - [x] Run related package regression, full regression, SWE adapter tests/smoke,
   and diff check before commit/push.
 
+## 2026-06-18 RC-34 Verification Probe Runtime Matrix
+
+The follow-up language audit clarified two different surfaces:
+
+- actual-diff mapping/container boundary signals already cover Python, JS/TS,
+  Ruby, Java/Kotlin, and Go as soft semantic coverage obligations;
+- bounded inline `verification_probes[]` currently execute only Python,
+  JavaScript/Node, Ruby, and Go.
+
+Before adding heavier JVM/Rust/Swift/ArkTS/Cangjie probe runtimes, RC-34 closes
+the registry-drift gap inside the existing supported probe set. The same support
+matrix must drive:
+
+```text
+runtime provider registry
+  -> schema enum for emit_change_plan
+  -> schema enum for emit_plan_skeleton
+  -> schema enum for run_tests(dry_run verification_probe)
+  -> validator supported-values list
+  -> plan_repair_pack accepted_enums
+```
+
+Design constraints:
+
+- This batch does not pretend Java/Kotlin inline probes are supported. JVM
+  projects continue to use the project runner path (`mvn`/Gradle/JUnit XML) and
+  actual-diff semantic obligations until a real JVM probe executor is designed.
+- Schema, validator, and repair-pack values come from a typed runtime registry,
+  not copied prompt text or ad hoc string lists.
+- Aliases such as `node` and `golang` remain normalizer-only inputs; schemas
+  expose canonical runtime names only.
+- The registry is a soft tool-surface contract. Hard verification still comes
+  from typed probe execution reports and project runner reports.
+
+RC-34 tasks:
+
+- [x] Convert verification probe language support from copied literals to a
+  typed runtime spec registry with canonical language, aliases, and display
+  description.
+- [x] Render `emit_change_plan`, `emit_plan_skeleton`, and
+  `run_tests.verification_probe` schema enums from the same registry.
+- [x] Keep `supportedVerificationProbeLanguageSet()` feeding plan repair packs
+  from the same registry.
+- [x] Add schema consistency tests for all three tool surfaces.
+- [x] Run related/full regression, SWE adapter smoke, and diff check before
+  commit/push.
+
 ## 2026-06-18 SWE-bench Lite Smoke Audit
 
 Run directory:
@@ -1856,6 +1903,7 @@ Verification:
 | RC-31 | complete | Deterministic checkpoint rewind before failed-verify replan: controller now restores the active slice worktree to its typed checkpoint commit before planner replan, records `slice_restored` metadata, rejects external checkpoint paths, and leaves main checkout untouched. This closes the online-convergence state-kernel gap where repair could plan on dirty failed side effects. Verification: focused controller/types restore tests, related orchestrator/types/worktree regression, full `go test ./...`, and diff check pass. |
 | RC-32 | complete | Multi-language verification-probe coupling: the copied-implementation hard gate now uses providers for Python, JavaScript/TypeScript, Ruby, and Go. JS/Ruby/Go probes must import/require the changed production module when a same-language target is present, while Python public-package behavior is preserved. This strengthens bounded local proof in missing-test-runner environments without parsing prose or adding user approvals. Verification: focused tool coupling tests, related tool regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
 | RC-33 | complete | Typed plan repair retry consumption: `PlanRepairPack` metadata constants and extraction helpers now live in `internal/types`; controller no-plan retry renders bounded structured repair fields from `ToolResult.Repair.Metadata` instead of asking the planner to mine capped rejection prose. Verification: focused types/tool/orchestrator tests, related package regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
+| RC-34 | complete | Verification probe runtime matrix: existing Python/JavaScript/Ruby/Go inline probe support now has a single typed runtime registry that feeds schema enums, validator supported-values, and plan repair accepted-enums. JVM inline probes remain explicit future work rather than an implied capability. Verification: focused schema/runtime tests, related package regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
 
 ## Acceptance Criteria
 

@@ -195,7 +195,7 @@ func (t *RunTests) Description() string {
 
 // Parameters returns the JSON schema.
 func (t *RunTests) Parameters() json.RawMessage {
-	return json.RawMessage(`{
+	return injectVerificationProbeLanguageSchema(`{
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -231,7 +231,7 @@ func (t *RunTests) Parameters() json.RawMessage {
       "description": "Optional bounded behaviour probe for dry_run planning. Use this instead of putting python -c or other runner flags in suite. The probe runs through the same typed verification_probe executor used by ChangePlan verification and records a planner_probe report.",
       "properties": {
         "id": {"type": "string", "description": "Stable probe id for the report row."},
-        "language": {"type": "string", "enum": ["python", "javascript", "ruby", "go"], "description": "Probe language. Use python, javascript for Node.js, ruby, or go."},
+        "language": {"type": "string", "enum": __VERIFICATION_PROBE_LANGUAGE_ENUM__, "description": "Probe language. Supported inline runtimes: __VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__."},
         "working_dir": {"type": "string", "description": "Repo-relative working directory. Empty or . means repo root."},
         "code": {"type": "string", "description": "Inline probe code. Raise AssertionError or a non-zero SystemExit for an expected behaviour failure."},
         "timeout_seconds": {"type": "integer", "description": "Probe timeout in seconds, capped by the executor."},

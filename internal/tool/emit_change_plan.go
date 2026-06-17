@@ -128,7 +128,7 @@ func (t *EmitChangePlan) Description() string {
 // Every object layer has additionalProperties:false so the LLM cannot
 // invent fields (kind enum locks to create|modify|delete|patch).
 func (t *EmitChangePlan) Parameters() json.RawMessage {
-	return json.RawMessage(`{
+	return injectVerificationProbeLanguageSchema(`{
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -197,7 +197,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
               "additionalProperties": false,
               "properties": {
                 "id": {"type": "string", "description": "Stable short probe identifier, e.g. version_info_boundary."},
-                "language": {"type": "string", "enum": ["python", "javascript", "ruby", "go"], "description": "Probe runtime. Use python, javascript for Node.js, ruby, or go."},
+                "language": {"type": "string", "enum": __VERIFICATION_PROBE_LANGUAGE_ENUM__, "description": "Probe runtime. Supported inline runtimes: __VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__."},
                 "working_dir": {"type": "string", "description": "Repo-relative working directory. Empty or . means repo root."},
                 "code": {"type": "string", "description": "Inline probe code. It should import/use the changed code and exit non-zero on failure."},
                 "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Optional timeout. Defaults to 10 seconds; capped at 30."},
@@ -235,13 +235,13 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
     },
     "verification_probes": {
       "type": "array",
-      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Each probe must be deterministic, bounded, and exit non-zero on failure. Supported inline runtimes: python, javascript (Node.js), ruby, go.",
+      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Each probe must be deterministic, bounded, and exit non-zero on failure. Supported inline runtimes: __VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "id": {"type": "string", "description": "Stable short probe identifier, e.g. version_info_boundary."},
-          "language": {"type": "string", "enum": ["python", "javascript", "ruby", "go"], "description": "Probe runtime. Use python, javascript for Node.js, ruby, or go."},
+          "language": {"type": "string", "enum": __VERIFICATION_PROBE_LANGUAGE_ENUM__, "description": "Probe runtime. Supported inline runtimes: __VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__."},
           "working_dir": {"type": "string", "description": "Repo-relative working directory. Empty or . means repo root."},
           "code": {"type": "string", "description": "Inline probe code. It should import/use the changed code and exit non-zero on failure."},
           "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Optional timeout. Defaults to 10 seconds; capped at 30."},

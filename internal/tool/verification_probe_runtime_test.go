@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -30,6 +31,82 @@ func TestNormalizeVerificationProbesAcceptsMultiLanguageRuntimes(t *testing.T) {
 			t.Fatalf("probe[%d].Language = %q, want %q", i, probes[i].Language, want)
 		}
 	}
+}
+
+func TestVerificationProbeSchemaEnumsUseRuntimeRegistry(t *testing.T) {
+	want := supportedVerificationProbeLanguages()
+	cases := []struct {
+		name  string
+		raw   json.RawMessage
+		paths [][]string
+	}{
+		{
+			name: "emit_change_plan",
+			raw:  (&EmitChangePlan{}).Parameters(),
+			paths: [][]string{
+				{"properties", "verification_probes", "items", "properties", "language", "enum"},
+				{"properties", "changes", "items", "properties", "verification_probes", "items", "properties", "language", "enum"},
+			},
+		},
+		{
+			name: "emit_plan_skeleton",
+			raw:  (&EmitPlanSkeleton{}).Parameters(),
+			paths: [][]string{
+				{"properties", "verification_probes", "items", "properties", "language", "enum"},
+			},
+		},
+		{
+			name: "run_tests",
+			raw:  (&RunTests{}).Parameters(),
+			paths: [][]string{
+				{"properties", "verification_probe", "properties", "language", "enum"},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		var schema map[string]any
+		if err := json.Unmarshal(tc.raw, &schema); err != nil {
+			t.Fatalf("%s schema must be valid JSON: %v\n%s", tc.name, err, string(tc.raw))
+		}
+		if !strings.Contains(string(tc.raw), supportedVerificationProbeRuntimeDescription()) {
+			t.Fatalf("%s schema should render registry description %q", tc.name, supportedVerificationProbeRuntimeDescription())
+		}
+		for _, path := range tc.paths {
+			got := schemaStringArrayAt(t, schema, path)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s enum at %s = %v, want %v", tc.name, strings.Join(path, "."), got, want)
+			}
+		}
+	}
+}
+
+func schemaStringArrayAt(t *testing.T, schema map[string]any, path []string) []string {
+	t.Helper()
+	var cur any = schema
+	for _, key := range path {
+		obj, ok := cur.(map[string]any)
+		if !ok {
+			t.Fatalf("schema path %s reached non-object %T", strings.Join(path, "."), cur)
+		}
+		cur, ok = obj[key]
+		if !ok {
+			t.Fatalf("schema path %s missing key %q", strings.Join(path, "."), key)
+		}
+	}
+	values, ok := cur.([]any)
+	if !ok {
+		t.Fatalf("schema path %s reached non-array %T", strings.Join(path, "."), cur)
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		s, ok := value.(string)
+		if !ok {
+			t.Fatalf("schema path %s has non-string enum value %T", strings.Join(path, "."), value)
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func TestNormalizeVerificationProbesRejectsPrintOnlyJavaScriptProbe(t *testing.T) {

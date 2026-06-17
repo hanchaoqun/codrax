@@ -1,27 +1,30 @@
 package tool
 
 import (
-	"sort"
+	"encoding/json"
 	"strings"
 )
 
 const defaultVerificationProbeLanguage = "python"
 
-var verificationProbeLanguageAliases = map[string]string{
-	"python":     "python",
-	"py":         "python",
-	"javascript": "javascript",
-	"js":         "javascript",
-	"node":       "javascript",
-	"ruby":       "ruby",
-	"rb":         "ruby",
-	"go":         "go",
-	"golang":     "go",
+type verificationProbeRuntimeSpec struct {
+	Language    string
+	Aliases     []string
+	Description string
+}
+
+var verificationProbeRuntimeSpecs = []verificationProbeRuntimeSpec{
+	{Language: "python", Aliases: []string{"py"}, Description: "python"},
+	{Language: "javascript", Aliases: []string{"js", "node"}, Description: "javascript (Node.js)"},
+	{Language: "ruby", Aliases: []string{"rb"}, Description: "ruby"},
+	{Language: "go", Aliases: []string{"golang"}, Description: "go"},
 }
 
 func supportedVerificationProbeLanguages() []string {
-	out := []string{"python", "javascript", "ruby", "go"}
-	sort.Strings(out)
+	out := make([]string, 0, len(verificationProbeRuntimeSpecs))
+	for _, spec := range verificationProbeRuntimeSpecs {
+		out = append(out, spec.Language)
+	}
 	return out
 }
 
@@ -35,13 +38,44 @@ func supportedVerificationProbeLanguageList() string {
 	return strings.Join(supportedVerificationProbeLanguages(), ", ")
 }
 
+func supportedVerificationProbeRuntimeDescription() string {
+	parts := make([]string, 0, len(verificationProbeRuntimeSpecs))
+	for _, spec := range verificationProbeRuntimeSpecs {
+		parts = append(parts, spec.Description)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func verificationProbeLanguageEnumJSON() string {
+	data, err := json.Marshal(supportedVerificationProbeLanguages())
+	if err != nil {
+		return `["python","javascript","ruby","go"]`
+	}
+	return string(data)
+}
+
+func injectVerificationProbeLanguageSchema(schema string) json.RawMessage {
+	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_LANGUAGE_ENUM__", verificationProbeLanguageEnumJSON())
+	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__", supportedVerificationProbeRuntimeDescription())
+	return json.RawMessage(schema)
+}
+
 func normalizeVerificationProbeLanguage(raw string) (string, bool) {
 	key := strings.ToLower(strings.TrimSpace(raw))
 	if key == "" {
 		return defaultVerificationProbeLanguage, true
 	}
-	lang, ok := verificationProbeLanguageAliases[key]
-	return lang, ok
+	for _, spec := range verificationProbeRuntimeSpecs {
+		if key == spec.Language {
+			return spec.Language, true
+		}
+		for _, alias := range spec.Aliases {
+			if key == alias {
+				return spec.Language, true
+			}
+		}
+	}
+	return "", false
 }
 
 func verificationProbeHasExecutableFailureSignal(language, code string) bool {

@@ -70,11 +70,11 @@ type emitPlanSkeletonParams struct {
 // emitChangePlanSchemaReminder. Re-primed on every payload-shape
 // rejection so a streaming-truncation retry has the schema to
 // rebuild against.
-const emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 sentences restating the user's ask), " +
+var emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 sentences restating the user's ask), " +
 	"summary: string (3-10 sentences explaining what + why), " +
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}, " +
-	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (python/javascript/ruby/go) with optional contract_refs/changed_symbol_refs}. " +
+	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (" + supportedVerificationProbeLanguageList() + ") with optional contract_refs/changed_symbol_refs}. " +
 	"Do NOT include new_content or patch here — those land via emit_plan_change once per file."
 
 func (t *EmitPlanSkeleton) Name() string { return "emit_plan_skeleton" }
@@ -86,7 +86,7 @@ func (t *EmitPlanSkeleton) Description() string {
 }
 
 func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
-	return json.RawMessage(`{
+	return injectVerificationProbeLanguageSchema(`{
 	  "type": "object",
 	  "additionalProperties": false,
 	  "properties": {
@@ -118,13 +118,13 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	    },
 	    "verification_probes": {
 	      "type": "array",
-	      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Supported inline runtimes: python, javascript (Node.js), ruby, go.",
+	      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Supported inline runtimes: __VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__.",
 	      "items": {
 	        "type": "object",
 	        "additionalProperties": false,
 	        "properties": {
 	          "id": {"type": "string"},
-	          "language": {"type": "string", "enum": ["python", "javascript", "ruby", "go"]},
+	          "language": {"type": "string", "enum": __VERIFICATION_PROBE_LANGUAGE_ENUM__},
 	          "working_dir": {"type": "string"},
 	          "code": {"type": "string"},
 	          "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
