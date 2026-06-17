@@ -2180,6 +2180,101 @@ func TestNormalizeControllerTypedStateDecisionRunnerMissingSuppressesInterruptio
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewAppendsFollowup(t *testing.T) {
+	mu := types.NewMutableState("semantic patch review followup")
+	plan := &types.ChangePlan{
+		ID:     "plan-semantic",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:     "control_flow_guard_touched",
+				Severity: types.PatchReviewSeverityWarning,
+				Path:     "pkg/axis.py",
+			}, {
+				Code:     "call_site_touched",
+				Severity: types.PatchReviewSeverityWarning,
+				Path:     "pkg/axis.py",
+			}},
+		},
+	}
+	mu.SetChangePlan(plan)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-semantic",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-semantic"},
+				{Kind: "verify", Status: "unverified", ReasonCode: "parser_error", PlanID: "plan-semantic"},
+			},
+		}},
+	}
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:            writeflow.ActionFinish,
+		ReasonCode:        "done",
+		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.ID != "batch-1-semantic-review" {
+		t.Fatalf("semantic patch review should append follow-up batch, got %+v", got)
+	}
+	if !strings.Contains(got.Batch.Goal, "pkg/axis.py") {
+		t.Fatalf("follow-up goal should carry typed path scope, got %q", got.Batch.Goal)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "semantic_patch_review_followup_requested") {
+		t.Fatalf("semantic follow-up progress missing: %+v", run.ProgressLedger)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewFollowupRunsOnce(t *testing.T) {
+	mu := types.NewMutableState("semantic patch review followup once")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:     "plan-semantic",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:     "control_flow_guard_touched",
+				Severity: types.PatchReviewSeverityWarning,
+				Path:     "pkg/axis.py",
+			}, {
+				Code:     "call_site_touched",
+				Severity: types.PatchReviewSeverityWarning,
+				Path:     "pkg/axis.py",
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-semantic-once",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-semantic"},
+				{Kind: "verify", Status: "unverified", ReasonCode: "parser_error", PlanID: "plan-semantic"},
+			},
+		}, {
+			ID: "batch-1-semantic-review",
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "semantic_patch_review_followup_requested",
+		}},
+	}
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:            writeflow.ActionFinish,
+		ReasonCode:        "done",
+		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("semantic follow-up should run once, then allow unverified finish, got %+v", got)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionReplanWithFailureHandoffAllowed(t *testing.T) {
 	mu := types.NewMutableState("failed verify replan allowed")
 	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{BatchID: "batch-1", Attempt: 1})

@@ -330,7 +330,7 @@ Controller 行为：
 | 6 | complete | PatchReview findings are now re-projected into workflow context packs after post-apply review, so hard/soft critic signals survive into controller/planner/verifier consumption instead of staying only on the ChangePlan snapshot. |
 | 7 | complete | SWE-bench hardening now fail-louds on adapter errors/empty patches by default, uses cached repo mirrors when fetch fails but the typed `base_commit` is present, and classifies missing verifier surface/Make targets/Python module dependencies as unavailable local verification instead of code failure/replan evidence. |
 | 8 | complete | PatchCritic now records actual added line numbers in `PatchEffectHunk` and hard-blocks a Python actual-diff source-shape defect where an added top-level function uses `self`/`cls` as its first parameter, catching likely method de-indentation without reading model prose or issue keywords. |
-| 9 | pending | Semantic critic online replan: when actual patch review emits coupled high-risk warnings such as control-flow guard + call-site changes and local verification is unavailable, controller should prefer one bounded re-explore/replan pass before accepting unverified. This must consume typed patch-review/impact/convention signals only, not issue text or model rationale. |
+| 9 | complete | Semantic critic online follow-up: when actual PatchReview emits coupled high-risk warnings such as control-flow guard + call-site changes on the same path and local verification is unavailable, controller appends one bounded follow-up batch before accepting unverified. The guard consumes typed patch-review findings and progress ledger only, not issue text or model rationale, and it runs once to avoid loops. |
 
 ## Live Eval Ledger
 

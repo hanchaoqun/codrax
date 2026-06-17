@@ -2836,6 +2836,26 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			},
 		})
 	}
+	if activeBatchCompletedWithUnverifiedVerdict(run) &&
+		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
+		semanticPatchReviewFollowupNeeded(run, batchID, plan) &&
+		(decision.Action == writeflow.ActionFinish ||
+			decision.Action == writeflow.ActionReplanBatch ||
+			controllerActionInterruptsUnverifiedCompletion(decision.Action)) {
+		nextID := nextSemanticPatchReviewBatchID(run, batchID)
+		appendControllerProgress(run, batchID, "semantic_patch_review_followup_requested",
+			"typed patch review found coupled control-flow/call-site changes while local verification was unavailable; appending one bounded follow-up batch")
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionAppendBatch,
+			ReasonCode: "semantic_patch_review_followup",
+			Reason:     "typed patch review found coupled semantic-risk warnings and local verification is unavailable",
+			Batch: &writeflow.WriteBatchPlan{
+				ID:     nextID,
+				Goal:   semanticPatchReviewFollowupGoal(plan),
+				Status: writeflow.BatchReadyForChangePlan,
+			},
+		})
+	}
 	if decision.Action == writeflow.ActionReplanBatch &&
 		activeBatchCompletedWithUnverifiedVerdict(run) &&
 		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) {
@@ -3529,6 +3549,125 @@ func activeBatchCompletedWithUnverifiedVerdict(run *types.WriteWorkflowRun) bool
 		return false
 	}
 	return false
+}
+
+func semanticPatchReviewFollowupNeeded(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan) bool {
+	if plan == nil || plan.PatchReview == nil || !patchReviewHasCoupledSemanticWarning(plan.PatchReview) {
+		return false
+	}
+	return workflowProgressReasonCount(run, batchID, "semantic_patch_review_followup_requested") == 0
+}
+
+func patchReviewHasCoupledSemanticWarning(review *types.PatchReviewRecord) bool {
+	if review == nil {
+		return false
+	}
+	type flags struct {
+		control bool
+		call    bool
+	}
+	byPath := map[string]flags{}
+	for _, finding := range review.Findings {
+		if finding.Severity != types.PatchReviewSeverityWarning {
+			continue
+		}
+		path := strings.TrimSpace(finding.Path)
+		if path == "" {
+			continue
+		}
+		f := byPath[path]
+		switch strings.TrimSpace(finding.Code) {
+		case "control_flow_guard_touched":
+			f.control = true
+		case "call_site_touched":
+			f.call = true
+		default:
+			continue
+		}
+		if f.control && f.call {
+			return true
+		}
+		byPath[path] = f
+	}
+	return false
+}
+
+func workflowProgressReasonCount(run *types.WriteWorkflowRun, batchID, reasonCode string) int {
+	if run == nil {
+		return 0
+	}
+	batchID = strings.TrimSpace(batchID)
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		return 0
+	}
+	count := 0
+	for _, item := range run.ProgressLedger {
+		if strings.TrimSpace(item.ReasonCode) != reasonCode {
+			continue
+		}
+		if batchID != "" && strings.TrimSpace(item.BatchID) != batchID {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func nextSemanticPatchReviewBatchID(run *types.WriteWorkflowRun, activeBatchID string) string {
+	activeBatchID = strings.TrimSpace(activeBatchID)
+	if activeBatchID == "" {
+		activeBatchID = "batch-1"
+	}
+	base := activeBatchID + "-semantic-review"
+	if !workflowBatchIDExists(run, base) {
+		return base
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if !workflowBatchIDExists(run, candidate) {
+			return candidate
+		}
+	}
+}
+
+func workflowBatchIDExists(run *types.WriteWorkflowRun, id string) bool {
+	if run == nil {
+		return false
+	}
+	id = strings.TrimSpace(id)
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == id {
+			return true
+		}
+	}
+	return false
+}
+
+func semanticPatchReviewFollowupGoal(plan *types.ChangePlan) string {
+	paths := []string{}
+	if plan != nil && plan.PatchReview != nil {
+		seen := map[string]bool{}
+		for _, finding := range plan.PatchReview.Findings {
+			switch strings.TrimSpace(finding.Code) {
+			case "control_flow_guard_touched", "call_site_touched":
+			default:
+				continue
+			}
+			path := strings.TrimSpace(finding.Path)
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	scope := strings.Join(paths, ", ")
+	if scope == "" {
+		scope = "the active applied patch"
+	}
+	return "Re-examine the active patch because typed PatchReview found coupled control-flow guard and call-site changes while local verification was unavailable; keep the follow-up bounded to " + scope + "."
 }
 
 func decisionTargetsActiveBatch(decision writeflow.WriteWorkflowDecision, activeID string) bool {
