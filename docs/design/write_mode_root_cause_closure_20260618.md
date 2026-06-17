@@ -1111,6 +1111,69 @@ RC-21 Astropy result:
   separate verify-sandbox capability gap, not patch-export or root-cause
   localization failure.
 
+## 2026-06-18 RC-22 PatchReview Acceptance Severity Split
+
+The three-instance RC-22 Lite run
+(`/private/tmp/codrax-swebench-rc22-3-20260618-060627`) produced 3/3 non-empty
+harness-consumable predictions and exposed a local-acceptance severity gap:
+
+- Django remained a true hard block: the patch used direct
+  `self.data['attrs']['id']` access and PatchReview surfaced
+  `python_nested_string_key_direct_access_added`.
+- Pytest looked functionally correct but local verification was unavailable due
+  generated-version import setup (`_pytest._version`).
+- SymPy passed its typed verification probe for `Array([])`, `Array([[]])`, and
+  `Array([[], []])`, and the patch looked functionally correct, but local
+  acceptance still failed because broad impact surfaces remained unverified.
+
+The system gap is not that impact telemetry is useless; it is that not every
+unverified impact obligation should be a hard local blocker after target
+behavior and changed symbols have typed verification coverage.
+
+Design:
+
+- Keep hard local blockers for:
+  - missing behavior-contract coverage;
+  - missing changed-symbol coverage;
+  - actual-diff semantic/structural boundary events such as nested direct
+    mapping access and production test scaffolding.
+- Treat broad dependent-surface and related-test-surface gaps as confidence
+  downgrades when the primary typed verifier passed.
+- Preserve telemetry in `plan_patch_review_semantic_unverified_telemetry_codes`.
+- Keep all routing on PatchReview typed finding codes and coverage statuses; no
+  issue text, model summary, or stdout prose drives acceptance.
+
+Task list:
+
+- [x] Narrow `PATCH_REVIEW_LOCAL_BLOCKER_CODES` to true local hard blockers.
+- [x] Filter persisted `coverage_summary.block_reason` through the local
+  blocker registry.
+- [x] Add `patch_review_confidence_downgrade_reason`.
+- [x] Export `plan_patch_review_semantic_unverified_telemetry_codes`.
+- [x] Add regressions for actual-diff blocker preservation and
+  dependent-surface downgrade.
+
+Verification:
+
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+
+Post-change validation notes:
+
+- Recomputing the RC-22 three-instance SymPy plan with the updated adapter turns
+  `dependent_surface_without_verify_coverage` / `related_test_surface_unverified`
+  into `patch_review_semantic_unverified_telemetry_codes` and produces
+  `prediction_confidence_downgrade_reason=patch_review_semantic_unverified:dependent_surface_without_verify_coverage`
+  instead of a hard block.
+- A fresh single SymPy rerun
+  (`/private/tmp/codrax-swebench-rc22-sympy-20260618-062458`) exposed the next
+  verifier policy gap: the probe passed, but an intermediate plan touched tests,
+  so verifier escalated to full pytest, timed out after 5 minutes, and local
+  acceptance failed with `plan_touches_test_path`. RC-23 should make verifier
+  escalation and local hard failure read the final typed delivery candidate
+  and exported path ownership, not stale or unexported intermediate test-path
+  touches.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1138,6 +1201,7 @@ RC-21 Astropy result:
 | RC-19 | complete | Delivery candidate coherence: SWE-bench adapter now binds exported source paths to applied source-owner plans, accepts later test-only validation only through an explicit typed relation, merges PatchReview across source-owner plans, and drives local acceptance from `delivery_*` facts instead of final-plan drift. Verification: adapter unit tests, Python compile, and local SWE-bench adapter smoke pass. |
 | RC-20 | complete | Typed-owned prediction export: post-RC-19 Lite smoke exposed 4.2 MB generated build artifacts in the official prediction. Export now uses workflow/final-plan typed path ownership as an allowlist, records unowned drops separately from test-patch drops, and never falls back from an explicit empty allowlist to all git diff paths. Verification: adapter unit tests, Python compile, and local SWE-bench adapter smoke pass. |
 | RC-21 | complete | Pyproject build requirement parsing: adapter now uses `tomllib`, `tomli`, or a narrow `[build-system].requires` fallback so Python 3.9 eval runs still install typed build helpers such as `extension-helpers`; legacy `setuptools.dep_util` compatibility now runs before no-build-isolation editable retry. Astropy rerun confirms build requirements are installed and prediction export remains clean; local verify still hits host `Python.h` compiler-header limits, tracked as the next verify-sandbox gap. |
+| RC-22 | complete | PatchReview acceptance severity split: local hard blockers now stay reserved for missing behavior/changed-symbol proof and actual-diff boundary/structural risks; broad dependent/test-surface impact gaps become confidence downgrade telemetry when target typed verification passes. SymPy RC-22 audit now recomputes as low-confidence verified instead of hard-blocked, while Django's nested direct mapping access remains blocked. |
 
 ## Acceptance Criteria
 

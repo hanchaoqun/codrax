@@ -356,6 +356,58 @@ class PatchReviewSummaryTests(unittest.TestCase):
         )
         self.assertEqual(summary["semantic_unverified_codes"], ["changed_symbol_without_probe_coverage"])
 
+    def test_actual_diff_boundary_patch_review_blocks_local_acceptance(self) -> None:
+        summary = adapter.plan_patch_review_summary({
+            "patch_review": {
+                "status": "passed",
+                "coverage_summary": {
+                    "verdict": "unverified",
+                    "block_reason": "patch_review_semantic_uncovered:python_nested_string_key_direct_access_added",
+                    "reason_codes": ["python_nested_string_key_direct_access_added"],
+                },
+                "findings": [{
+                    "code": "python_nested_string_key_direct_access_added",
+                    "severity": "warning",
+                    "category": "semantic_coverage",
+                    "coverage_status": "unverified",
+                    "path": "pkg/widget.py",
+                }],
+            },
+        })
+
+        self.assertEqual(
+            summary["block_reason"],
+            "patch_review_semantic_uncovered:python_nested_string_key_direct_access_added",
+        )
+        self.assertEqual(summary["semantic_unverified_codes"], ["python_nested_string_key_direct_access_added"])
+
+    def test_dependent_surface_unverified_is_confidence_telemetry(self) -> None:
+        summary = adapter.plan_patch_review_summary({
+            "patch_review": {
+                "status": "passed",
+                "coverage_summary": {
+                    "verdict": "unverified",
+                    "block_reason": "patch_review_semantic_uncovered:dependent_surface_without_verify_coverage",
+                    "reason_codes": ["dependent_surface_without_verify_coverage"],
+                },
+                "findings": [{
+                    "code": "dependent_surface_without_verify_coverage",
+                    "severity": "warning",
+                    "category": "semantic_coverage",
+                    "coverage_status": "unverified",
+                    "related_path": "pkg/tests/test_surface.py",
+                }],
+            },
+        })
+
+        self.assertEqual(summary["block_reason"], "")
+        self.assertEqual(summary["semantic_unverified_codes"], [])
+        self.assertEqual(summary["semantic_unverified_telemetry_codes"], ["dependent_surface_without_verify_coverage"])
+        self.assertEqual(
+            adapter.patch_review_confidence_downgrade_reason(summary),
+            "patch_review_semantic_unverified:dependent_surface_without_verify_coverage",
+        )
+
     def test_verified_semantic_patch_review_is_telemetry_only(self) -> None:
         summary = adapter.plan_patch_review_summary({
             "patch_review": {

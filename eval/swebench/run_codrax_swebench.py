@@ -75,8 +75,14 @@ CALLER_RETURN_ADAPTER_NAMES = {
 PATCH_REVIEW_LOCAL_BLOCKER_CODES = {
     "behavior_contract_without_verify_coverage",
     "changed_symbol_without_probe_coverage",
-    "dependent_surface_without_verify_coverage",
-    "related_test_surface_unverified",
+    "go_nested_string_map_assignment_added",
+    "java_chained_string_map_get_added",
+    "javascript_nested_string_key_direct_access_added",
+    "kotlin_chained_string_map_get_added",
+    "production_test_scaffold_added",
+    "python_nested_string_key_direct_access_added",
+    "ruby_nested_key_direct_access_added",
+    "typescript_nested_string_key_direct_access_added",
 }
 
 
@@ -1496,6 +1502,7 @@ def combine_patch_review_summaries(plans: Iterable[dict[str, Any]]) -> dict[str,
         return plan_patch_review_summary({})
     reason_codes: set[str] = set()
     semantic_unverified: set[str] = set()
+    semantic_unverified_telemetry: set[str] = set()
     finding_count = 0
     hard_block = False
     status_values: set[str] = set()
@@ -1525,8 +1532,12 @@ def combine_patch_review_summaries(plans: Iterable[dict[str, Any]]) -> dict[str,
             code = str(code or "").strip()
             if code:
                 semantic_unverified.add(code)
+        for code in summary.get("semantic_unverified_telemetry_codes") or []:
+            code = str(code or "").strip()
+            if code:
+                semantic_unverified_telemetry.add(code)
         finding_count += int(summary.get("finding_count") or 0)
-        reason = str(summary.get("block_reason") or "").strip()
+        reason = patch_review_local_block_reason(str(summary.get("block_reason") or ""))
         if reason and not block_reason:
             block_reason = reason
     if not block_reason and semantic_unverified:
@@ -1546,9 +1557,25 @@ def combine_patch_review_summaries(plans: Iterable[dict[str, Any]]) -> dict[str,
         "coverage_verdict": coverage_verdict,
         "reason_codes": sorted(reason_codes),
         "semantic_unverified_codes": sorted(semantic_unverified),
+        "semantic_unverified_telemetry_codes": sorted(semantic_unverified_telemetry),
         "finding_count": finding_count,
         "block_reason": block_reason,
     }
+
+
+def patch_review_local_block_reason(raw: str) -> str:
+    reason = str(raw or "").strip()
+    if not reason:
+        return ""
+    if reason == "patch_review_hard_block" or reason.startswith("patch_review_error:"):
+        return reason
+    for prefix in ("patch_review_semantic_uncovered:", "patch_review_semantic_unverified:"):
+        if reason.startswith(prefix):
+            code = reason.removeprefix(prefix).strip()
+            if code in PATCH_REVIEW_LOCAL_BLOCKER_CODES:
+                return reason
+            return ""
+    return ""
 
 
 def build_write_delivery_candidate(
@@ -2113,17 +2140,19 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
             "coverage_verdict": "",
             "reason_codes": [],
             "semantic_unverified_codes": [],
+            "semantic_unverified_telemetry_codes": [],
             "finding_count": 0,
             "block_reason": "",
         }
     coverage_summary = review.get("coverage_summary") if isinstance(review.get("coverage_summary"), dict) else {}
     reason_codes: set[str] = set()
     semantic_unverified: set[str] = set()
+    semantic_unverified_telemetry: set[str] = set()
     for code in coverage_summary.get("reason_codes") or []:
         code = str(code or "").strip()
         if code:
             reason_codes.add(code)
-    block_reason = str(coverage_summary.get("block_reason") or "").strip()
+    block_reason = patch_review_local_block_reason(str(coverage_summary.get("block_reason") or ""))
     findings = [row for row in review.get("findings") or [] if isinstance(row, dict)]
     for finding in findings:
         code = str(finding.get("code") or "").strip()
@@ -2135,12 +2164,11 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
         coverage = str(finding.get("coverage_status") or "").strip()
         if severity == "error" and not block_reason:
             block_reason = "patch_review_error:" + code
-        if (
-            category == "semantic_coverage"
-            and coverage == "unverified"
-            and code in PATCH_REVIEW_LOCAL_BLOCKER_CODES
-        ):
-            semantic_unverified.add(code)
+        if category == "semantic_coverage" and coverage == "unverified":
+            if code in PATCH_REVIEW_LOCAL_BLOCKER_CODES:
+                semantic_unverified.add(code)
+            else:
+                semantic_unverified_telemetry.add(code)
     hard_block = bool(review.get("hard_block"))
     if hard_block and not block_reason:
         block_reason = "patch_review_hard_block"
@@ -2152,9 +2180,22 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
         "coverage_verdict": str(coverage_summary.get("verdict") or "").strip(),
         "reason_codes": sorted(reason_codes),
         "semantic_unverified_codes": sorted(semantic_unverified),
+        "semantic_unverified_telemetry_codes": sorted(semantic_unverified_telemetry),
         "finding_count": len(findings),
         "block_reason": block_reason,
     }
+
+
+def patch_review_confidence_downgrade_reason(summary: dict[str, Any]) -> str:
+    if str(summary.get("block_reason") or "").strip():
+        return ""
+    if str(summary.get("coverage_verdict") or "").strip() != "unverified":
+        return ""
+    for code in summary.get("semantic_unverified_telemetry_codes") or []:
+        code = str(code or "").strip()
+        if code:
+            return "patch_review_semantic_unverified:" + code
+    return ""
 
 
 MANUAL_AUDIT_VERDICTS = {"pass", "fail", "unknown"}
@@ -2792,6 +2833,9 @@ def process_instance(
         result["final_plan_patch_review_semantic_unverified_codes"] = (
             final_patch_review_summary.get("semantic_unverified_codes") or []
         )
+        result["final_plan_patch_review_semantic_unverified_telemetry_codes"] = (
+            final_patch_review_summary.get("semantic_unverified_telemetry_codes") or []
+        )
         result["final_plan_patch_review_finding_count"] = int(final_patch_review_summary.get("finding_count") or 0)
         result["final_plan_patch_review_block_reason"] = str(final_patch_review_summary.get("block_reason") or "")
         patch_review_summary = combine_patch_review_summaries(delivery_source_owner_plans or [delivery_plan])
@@ -2801,6 +2845,9 @@ def process_instance(
         result["plan_patch_review_reason_codes"] = patch_review_summary.get("reason_codes") or []
         result["plan_patch_review_semantic_unverified_codes"] = (
             patch_review_summary.get("semantic_unverified_codes") or []
+        )
+        result["plan_patch_review_semantic_unverified_telemetry_codes"] = (
+            patch_review_summary.get("semantic_unverified_telemetry_codes") or []
         )
         result["plan_patch_review_finding_count"] = int(patch_review_summary.get("finding_count") or 0)
         result["plan_patch_review_block_reason"] = str(patch_review_summary.get("block_reason") or "")
@@ -2843,6 +2890,8 @@ def process_instance(
             plan_context_paths=result.get("plan_context_paths") if isinstance(result.get("plan_context_paths"), list) else [],
             owner_boundary_reason_codes=result.get("plan_owner_boundary_reason_codes") if isinstance(result.get("plan_owner_boundary_reason_codes"), list) else [],
         )
+        if not confidence_downgrade_reason and not audit_block_reason:
+            confidence_downgrade_reason = patch_review_confidence_downgrade_reason(patch_review_summary)
         result["prediction_confidence_downgrade_reason"] = confidence_downgrade_reason
         verdict, confidence, blocks_local_acceptance = prediction_verdict(
             patch,

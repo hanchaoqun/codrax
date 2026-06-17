@@ -110,6 +110,7 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `plan_patch_review_coverage_verdict`,
 `plan_patch_review_reason_codes`,
 `plan_patch_review_semantic_unverified_codes`,
+`plan_patch_review_semantic_unverified_telemetry_codes`,
 `plan_patch_review_block_reason`,
 `export_allowed_patch_paths`, `dropped_unowned_patch_paths`,
 `exported_patch_paths`, `exported_patch_source_paths`,
