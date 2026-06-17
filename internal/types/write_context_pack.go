@@ -1546,6 +1546,23 @@ func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 	if c.Expected != "" {
 		parts = append(parts, "expected="+c.Expected)
 	}
+	if c.Comparator != nil {
+		if c.Comparator.Relation != "" {
+			parts = append(parts, "comparator_relation="+string(c.Comparator.Relation))
+		}
+		if c.Comparator.Subject != "" {
+			parts = append(parts, "comparator_subject="+c.Comparator.Subject)
+		}
+		if c.Comparator.Operator != "" {
+			parts = append(parts, "comparator_operator="+string(c.Comparator.Operator))
+		}
+		if c.Comparator.Expected != "" {
+			parts = append(parts, "comparator_expected="+c.Comparator.Expected)
+		}
+		if c.Comparator.EvidenceRef != "" {
+			parts = append(parts, "comparator_evidence_ref="+c.Comparator.EvidenceRef)
+		}
+	}
 	if c.Required {
 		parts = append(parts, "required=true")
 	}

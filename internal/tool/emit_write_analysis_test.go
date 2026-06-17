@@ -85,7 +85,7 @@ func TestEmitWriteAnalysis_PreservesExplicitBehaviorContracts(t *testing.T) {
 		"risk": {"affects_public_api": true, "changes_persistence": false, "changes_build_system": false, "overall": "medium"},
 		"expected_outcomes": ["dotted blueprint names are rejected"],
 		"behavior_contracts": [
-			{"id": "dotted-blueprint-name", "kind": "exception", "polarity": "expected", "subject": "Blueprint(name)", "operator": "raises", "expected": "ValueError", "required": true}
+			{"id": "dotted-blueprint-name", "kind": "exception", "polarity": "expected", "subject": "Blueprint(name)", "operator": "raises", "expected": "ValueError", "comparator": {"subject": "Blueprint(valid_name)", "operator": "not_raises", "expected": "constructs blueprint", "relation": "contrasts_with", "evidence_ref": "issue:blueprint"}, "required": true}
 		]
 	}`)
 	res, err := tool.Execute(bus, params)
@@ -107,6 +107,14 @@ func TestEmitWriteAnalysis_PreservesExplicitBehaviorContracts(t *testing.T) {
 	}
 	if got.Source != "write_analyzer" {
 		t.Fatalf("explicit contract source drifted: %+v", got)
+	}
+	if got.Comparator == nil ||
+		got.Comparator.Subject != "Blueprint(valid_name)" ||
+		got.Comparator.Operator != types.WriteBehaviorOpNotRaises ||
+		got.Comparator.Expected != "constructs blueprint" ||
+		got.Comparator.Relation != types.WriteBehaviorComparatorContrastsWith ||
+		got.Comparator.EvidenceRef != "issue:blueprint" {
+		t.Fatalf("explicit comparator contract drifted: %+v", got.Comparator)
 	}
 	fallback := ir.Request.BehaviorContracts[1]
 	if fallback.Source != "expected_outcome_fallback" || fallback.ID != "outcome-1" || !fallback.Required {
@@ -192,6 +200,29 @@ func TestEmitWriteAnalysis_RejectsUnknownBehaviorOperator(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "operator") || !strings.Contains(res.Summary, "not_raises") {
 		t.Fatalf("rejection should carry enum repair guidance, got: %s", res.Summary)
+	}
+}
+
+func TestEmitWriteAnalysis_RejectsUnknownComparatorRelation(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "fix mismatched collection shape",
+		"task": {"kind": "bugfix", "scope": "micro", "summary": "fix collection shape"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"},
+		"behavior_contracts": [
+			{"id": "shape", "kind": "invariant", "operator": "equals", "expected": "(0,)", "comparator": {"subject": "working_collection.shape", "relation": "sort_of_like"}}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected Success=false for bad comparator relation")
+	}
+	if !strings.Contains(res.Summary, "behavior_contracts[0].comparator.relation") {
+		t.Fatalf("expected comparator relation rejection, got: %s", res.Summary)
 	}
 }
 

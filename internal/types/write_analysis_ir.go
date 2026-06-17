@@ -47,8 +47,9 @@ type WriteAnalysisIR struct {
 //     judge "does the plan move toward the goal" not just "did tests
 //     pass".
 //   - BehaviorContracts: optional typed observables that downstream plan and
-//     verify artifacts can reference by ID. These replace prose parsing for
-//     hard coverage checks.
+//     verify artifacts can reference by ID. They may carry typed comparator
+//     baselines when the request or light repo inspection gives a working
+//     reference surface. These replace prose parsing for hard coverage checks.
 type WriteRequestModel struct {
 	RawRequest        string                  `json:"raw_request"`
 	Task              WriteTask               `json:"task"`

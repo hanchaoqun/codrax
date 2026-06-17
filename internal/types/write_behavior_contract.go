@@ -16,9 +16,22 @@ type WriteBehaviorContract struct {
 	Subject     string                    `json:"subject,omitempty"`
 	Operator    WriteBehaviorOperator     `json:"operator,omitempty"`
 	Expected    string                    `json:"expected,omitempty"`
+	Comparator  *WriteBehaviorComparator  `json:"comparator,omitempty"`
 	EvidenceRef string                    `json:"evidence_ref,omitempty"`
 	Required    bool                      `json:"required,omitempty"`
 	Source      string                    `json:"source,omitempty"`
+}
+
+// WriteBehaviorComparator ties an expected behavior contract to a grounded
+// reference surface that is already known to work or intentionally contrasts
+// with the failing surface. It is carried as typed context so later probes can
+// assert the relationship without control flow parsing issue prose.
+type WriteBehaviorComparator struct {
+	Subject     string                          `json:"subject,omitempty"`
+	Operator    WriteBehaviorOperator           `json:"operator,omitempty"`
+	Expected    string                          `json:"expected,omitempty"`
+	Relation    WriteBehaviorComparatorRelation `json:"relation,omitempty"`
+	EvidenceRef string                          `json:"evidence_ref,omitempty"`
 }
 
 type WriteBehaviorContractKind string
@@ -57,6 +70,15 @@ const (
 	WriteBehaviorPolarityObserved  WriteBehaviorPolarity = "observed"
 )
 
+type WriteBehaviorComparatorRelation string
+
+const (
+	WriteBehaviorComparatorSameAs             WriteBehaviorComparatorRelation = "same_as"
+	WriteBehaviorComparatorConsistentWith     WriteBehaviorComparatorRelation = "consistent_with"
+	WriteBehaviorComparatorContrastsWith      WriteBehaviorComparatorRelation = "contrasts_with"
+	WriteBehaviorComparatorRegressionBaseline WriteBehaviorComparatorRelation = "regression_baseline"
+)
+
 func IsKnownWriteBehaviorContractKind(v string) bool {
 	switch WriteBehaviorContractKind(v) {
 	case WriteBehaviorObservable, WriteBehaviorException, WriteBehaviorOutputPath,
@@ -83,6 +105,16 @@ func IsKnownWriteBehaviorOperator(v string) bool {
 func IsKnownWriteBehaviorPolarity(v string) bool {
 	switch WriteBehaviorPolarity(v) {
 	case WriteBehaviorPolarityExpected, WriteBehaviorPolarityForbidden, WriteBehaviorPolarityObserved:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsKnownWriteBehaviorComparatorRelation(v string) bool {
+	switch WriteBehaviorComparatorRelation(v) {
+	case WriteBehaviorComparatorSameAs, WriteBehaviorComparatorConsistentWith,
+		WriteBehaviorComparatorContrastsWith, WriteBehaviorComparatorRegressionBaseline:
 		return true
 	default:
 		return false
@@ -121,6 +153,7 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		}
 		c.Subject = strings.TrimSpace(c.Subject)
 		c.Expected = strings.TrimSpace(c.Expected)
+		c.Comparator = normalizeWriteBehaviorComparator(c.Comparator, c.Operator)
 		c.EvidenceRef = strings.TrimSpace(c.EvidenceRef)
 		c.Source = strings.TrimSpace(c.Source)
 		if c.Source == "" {
@@ -166,6 +199,32 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		out = out[:maxContracts]
 	}
 	return out
+}
+
+func normalizeWriteBehaviorComparator(in *WriteBehaviorComparator, fallbackOperator WriteBehaviorOperator) *WriteBehaviorComparator {
+	if in == nil {
+		return nil
+	}
+	c := *in
+	c.Subject = strings.TrimSpace(c.Subject)
+	c.Expected = strings.TrimSpace(c.Expected)
+	c.EvidenceRef = strings.TrimSpace(c.EvidenceRef)
+	c.Operator = WriteBehaviorOperator(strings.ToLower(strings.TrimSpace(string(c.Operator))))
+	if !IsKnownWriteBehaviorOperator(string(c.Operator)) {
+		if IsKnownWriteBehaviorOperator(string(fallbackOperator)) {
+			c.Operator = fallbackOperator
+		} else {
+			c.Operator = WriteBehaviorOpSatisfies
+		}
+	}
+	c.Relation = WriteBehaviorComparatorRelation(strings.ToLower(strings.TrimSpace(string(c.Relation))))
+	if !IsKnownWriteBehaviorComparatorRelation(string(c.Relation)) {
+		c.Relation = WriteBehaviorComparatorSameAs
+	}
+	if c.Subject == "" && c.Expected == "" && c.EvidenceRef == "" {
+		return nil
+	}
+	return &c
 }
 
 func writeBehaviorContractExpectedKey(s string) string {

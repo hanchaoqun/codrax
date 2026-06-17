@@ -255,6 +255,55 @@ Next root-cause project:
 - Keep this as a generalized phenomenon-to-invariant closure lane, not a
   SWE-bench/SymPy-specific rule.
 
+## 2026-06-18 RC-9 Comparator Invariant Closure Design
+
+The RC-8 SymPy rerun proved that the online loop can stop too early when the
+local probe proves an under-specified invariant. The failing system shape is
+general:
+
+```text
+observed failing subject + known working/contrasting reference
+  -> plan proves only "the subject no longer crashes"
+  -> verifier accepts a weaker invariant than the issue requires
+```
+
+This is not Python-specific. It appears in collection shape bugs, CLI parity
+bugs, API compatibility bugs, serializer/deserializer parity bugs, and
+multi-language container/default-boundary fixes. The previous actual-diff
+line-shape work is also not Python-only: it now covers Python, JS/TS, Ruby,
+Java/Kotlin, and Go mapping/container boundary shapes as soft semantic coverage
+events.
+
+RC-9 adds a typed comparator lane to `WriteBehaviorContract`:
+
+- `comparator.subject`: grounded working or contrasting reference surface;
+- `comparator.operator`: typed observable operator;
+- `comparator.expected`: comparator observable value/behavior;
+- `comparator.relation`: `same_as | consistent_with | contrasts_with |
+  regression_baseline`;
+- `comparator.evidence_ref`: issue/log/file evidence for the comparator.
+
+Rules:
+
+- The model may emit comparator facts through `emit_write_analysis`, but
+  controller/planner/verifier consume only the typed JSON fields.
+- Hard routing still does not parse user intent keywords, model rationale,
+  `<think>`, summaries, or issue prose.
+- Comparator context is persistent handoff: it is rendered into
+  `WriteContextPack` so planner and verifier see the same P0/P1 contract view.
+- Planner prompt guidance is soft: when a referenced contract carries
+  comparator context, probes should exercise both the changed subject and the
+  comparator relationship instead of only checking no-crash.
+
+Expected effect:
+
+- For comparator-framed issues, a locally passing probe is more likely to prove
+  the actual required relationship.
+- Missing comparator coverage remains visible through existing
+  `contract_refs`/verification-confidence telemetry instead of forcing broad
+  suites or silently counting the patch as correct.
+- This is a schema and handoff upgrade, not a one-off SWE-bench rule.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -268,6 +317,7 @@ Next root-cause project:
 | RC-6 | complete | Added actual-diff line text capture to `PatchEffectHunk` and a Python source-shape event for newly added nested string-key direct mapping access. Patch review consumes it as a soft semantic coverage finding with `coverage_status=unknown`, so dynamic-language absent-key/default boundaries reach P2 handoff and bounded semantic follow-up without becoming a hard gate. Verification: focused writeflow/types/orchestrator tests and full `go test ./...` pass. |
 | RC-7 | complete | Generalized RC-6 from a Python-only producer into language-aware actual-diff line-shape producers. JS/TS nested string-key access, Ruby nested hash-key access, Java/Kotlin chained string-key map `get`, and Go nested map assignment now emit soft semantic coverage events from typed diff text. These are advisory/coverage obligations, not hard gates, and do not read user intent or model prose. Verification: related writeflow/types/orchestrator tests and full `go test ./...` pass. |
 | RC-8 | complete | Verifier selector tightening: a passed scoped pre-suite verification probe no longer escalates to a full project suite solely because required `contract_refs` are missing. The missing refs remain typed `VerificationConfidence` downgrade/handoff evidence; expensive suite escalation is reserved for failed probes, touched tests/specs, missing changed-symbol coupling, or explicit policy. Verification: focused `internal/tool` tests, related tool/types/orchestrator tests, and full `go test ./...` pass. |
+| RC-9 | complete | Comparator invariant closure: `WriteBehaviorContract` now carries an optional typed comparator baseline; `emit_write_analysis` validates comparator operator/relation enums; `WriteContextPack` renders comparator fields for controller/planner/verifier consumers; analyzer/planner prompts provide soft guidance to fill and verify comparator contracts without hard-routing on prose. Verification: focused `internal/types` + `internal/tool`, related `internal/skill`, and full `go test ./...` pass. |
 
 ## Acceptance Criteria
 
@@ -278,6 +328,9 @@ Next root-cause project:
 - Runtime hard gates continue to read typed artifacts only.
 - No prompt red-line changes: no keyword routing over user intent or model
   prose.
+- Comparator-framed bug reports can carry a grounded working/contrasting
+  reference through write analysis, context handoff, plan probes, and verifier
+  confidence without relying on natural-language re-interpretation.
 - Current read/log/trace/data/operation/computer paths remain untouched.
 - All new eval fields and docs distinguish export compatibility from
   functional correctness.

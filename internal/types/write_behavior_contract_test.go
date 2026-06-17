@@ -26,6 +26,42 @@ func TestNormalizeWriteBehaviorContracts_PreservesNotRaisesAndPolarity(t *testin
 	}
 }
 
+func TestNormalizeWriteBehaviorContracts_PreservesComparatorBaseline(t *testing.T) {
+	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
+		ID:       "array-empty-shape",
+		Kind:     WriteBehaviorInvariant,
+		Polarity: WriteBehaviorPolarityExpected,
+		Subject:  "Array([]).shape",
+		Operator: WriteBehaviorOpEquals,
+		Expected: "(0,)",
+		Comparator: &WriteBehaviorComparator{
+			Subject:     "Matrix([]).shape",
+			Operator:    WriteBehaviorOperator(" EQUALS "),
+			Expected:    "(0,)",
+			Relation:    WriteBehaviorComparatorRelation(" REGRESSION_BASELINE "),
+			EvidenceRef: "issue:1",
+		},
+		Required: true,
+		Source:   "write_analyzer",
+	}}, nil)
+	if len(got) != 1 {
+		t.Fatalf("contracts len = %d, want 1: %+v", len(got), got)
+	}
+	if got[0].Comparator == nil {
+		t.Fatalf("comparator baseline missing: %+v", got[0])
+	}
+	if got[0].Comparator.Subject != "Matrix([]).shape" ||
+		got[0].Comparator.Operator != WriteBehaviorOpEquals ||
+		got[0].Comparator.Expected != "(0,)" ||
+		got[0].Comparator.Relation != WriteBehaviorComparatorRegressionBaseline ||
+		got[0].Comparator.EvidenceRef != "issue:1" {
+		t.Fatalf("comparator baseline drifted: %+v", got[0].Comparator)
+	}
+	if !got[0].Required {
+		t.Fatalf("expected comparator contract should remain required: %+v", got[0])
+	}
+}
+
 func TestNormalizeWriteBehaviorContracts_DefaultsExpectedAndForbiddenToRequired(t *testing.T) {
 	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{
 		{

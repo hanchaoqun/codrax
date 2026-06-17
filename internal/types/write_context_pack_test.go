@@ -28,6 +28,13 @@ func TestWriteContextPackFromWriteAnalysisIRPreservesP0Constraints(t *testing.T)
 				Polarity: WriteBehaviorPolarityExpected,
 				Operator: WriteBehaviorOpSatisfies,
 				Expected: "all writes pass apply-pre approval gate",
+				Comparator: &WriteBehaviorComparator{
+					Subject:     "saved plan apply",
+					Operator:    WriteBehaviorOpSatisfies,
+					Expected:    "same apply-pre approval gate",
+					Relation:    WriteBehaviorComparatorRegressionBaseline,
+					EvidenceRef: "design:approval",
+				},
 				Required: true,
 				Source:   "write_analyzer",
 			}},
@@ -53,6 +60,12 @@ func TestWriteContextPackFromWriteAnalysisIRPreservesP0Constraints(t *testing.T)
 	}
 	if !writeContextViewContains(view, "behavior_contract", "polarity=expected") {
 		t.Fatalf("behavior contract polarity missing from view: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "behavior_contract", "comparator_subject=saved plan apply") {
+		t.Fatalf("behavior contract comparator subject missing from view: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "behavior_contract", "comparator_relation=regression_baseline") {
+		t.Fatalf("behavior contract comparator relation missing from view: %+v", view.Items)
 	}
 }
 

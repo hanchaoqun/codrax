@@ -279,6 +279,16 @@ func validateWriteBehaviorContractEnums(contracts []types.WriteBehaviorContract)
 		if operator != "" && !types.IsKnownWriteBehaviorOperator(operator) {
 			return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].operator=%q is unsupported; use one of satisfies, equals, not_equals, contains, not_contains, exists, not_exists, raises, not_raises, returns", i, c.Operator)
 		}
+		if c.Comparator != nil {
+			compOperator := strings.ToLower(strings.TrimSpace(string(c.Comparator.Operator)))
+			if compOperator != "" && !types.IsKnownWriteBehaviorOperator(compOperator) {
+				return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].comparator.operator=%q is unsupported; use one of satisfies, equals, not_equals, contains, not_contains, exists, not_exists, raises, not_raises, returns", i, c.Comparator.Operator)
+			}
+			relation := strings.ToLower(strings.TrimSpace(string(c.Comparator.Relation)))
+			if relation != "" && !types.IsKnownWriteBehaviorComparatorRelation(relation) {
+				return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].comparator.relation=%q is unsupported; use one of same_as, consistent_with, contrasts_with, regression_baseline", i, c.Comparator.Relation)
+			}
+		}
 		polarity := strings.ToLower(strings.TrimSpace(string(c.Polarity)))
 		if polarity != "" && !types.IsKnownWriteBehaviorPolarity(polarity) {
 			return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].polarity=%q is unsupported; use expected, forbidden, or observed", i, c.Polarity)
@@ -383,6 +393,33 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 							"type":        "string",
 							"description": "Exact observable value or concise behavior to preserve/satisfy.",
 						},
+						"comparator": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"subject": map[string]any{
+									"type":        "string",
+									"description": "Grounded working or contrasting reference surface for this contract, such as a nearby API call, command, or expression named by the request or light repo inspection.",
+								},
+								"operator": map[string]any{
+									"type": "string",
+									"enum": []string{"satisfies", "equals", "not_equals", "contains", "not_contains", "exists", "not_exists", "raises", "not_raises", "returns"},
+								},
+								"expected": map[string]any{
+									"type":        "string",
+									"description": "Observable value or behavior of the comparator surface.",
+								},
+								"relation": map[string]any{
+									"type":        "string",
+									"enum":        []string{"same_as", "consistent_with", "contrasts_with", "regression_baseline"},
+									"description": "How the fixed subject should relate to the comparator. same_as means the fixed subject should match the comparator's observable behavior; contrasts_with means the comparator is intentionally different evidence.",
+								},
+								"evidence_ref": map[string]any{
+									"type":        "string",
+									"description": "Optional source such as issue text, runtime log, or file:line evidence supporting the comparator.",
+								},
+							},
+							"description": "Optional typed baseline/comparator when the issue or light repo inspection gives both a failing subject and a known working/contrasting reference. Do not infer from keywords; use only grounded evidence.",
+						},
 						"evidence_ref": map[string]any{
 							"type":        "string",
 							"description": "Optional source such as issue text, log ref, or file:line evidence.",
@@ -394,7 +431,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 					},
 					"required": []string{"id", "kind", "expected"},
 				},
-				"description": "Optional typed observables the plan/probes should satisfy or preserve. Prefer these when the request names exception type, output path/layout, status code, command result, stdout text, or a concrete invariant. Separate observed pre-fix failures from expected fixed behavior with polarity=observed vs polarity=expected/forbidden. For bugs that should stop raising, use operator=not_raises with polarity=expected; use operator=raises only when the fixed behavior is supposed to raise. Do not infer from keywords; emit only facts grounded in the request or light repo inspection.",
+				"description": "Optional typed observables the plan/probes should satisfy or preserve. Prefer these when the request names exception type, output path/layout, status code, command result, stdout text, or a concrete invariant. Separate observed pre-fix failures from expected fixed behavior with polarity=observed vs polarity=expected/forbidden. For bugs that should stop raising, use operator=not_raises with polarity=expected; use operator=raises only when the fixed behavior is supposed to raise. When evidence includes a known working or contrasting reference surface, attach it as comparator so probes can verify the relationship instead of only proving no-crash. Do not infer from keywords; emit only facts grounded in the request or light repo inspection.",
 			},
 			"phase_proposal": map[string]any{
 				"type": "object",
