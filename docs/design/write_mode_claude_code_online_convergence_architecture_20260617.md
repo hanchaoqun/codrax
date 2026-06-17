@@ -1274,6 +1274,393 @@ Codrax should intentionally differ in several places:
 - Codrax's eval path must export prediction confidence and harness
   consumability separately from local verification.
 
+## cc_like.md Architecture Review Addendum
+
+This section answers `/Users/han/opt/cc_like.md` directly. It is grounded in
+Codrax code that exists on `main`, the public Claude Code docs, and the 2026
+paper. The goal is not feature cloning. The goal is to decide which design
+forces actually make coding agents reliable and which parts Codrax should
+absorb into its own typed, repository-bound harness.
+
+### Why Claude Code-Style Systems Work
+
+The useful public pattern is not "a magic prompt". It is a production loop:
+
+```text
+model proposes local action -> harness checks authority -> tool executes ->
+observation is appended -> context is reshaped -> loop continues
+```
+
+The paper's abstract describes a simple while-loop surrounded by permission,
+context, subagent, worktree, and append-session systems. Official permission
+docs show a practical safety ladder: hooks, deny, ask, permission mode, allow,
+and callback. Official subagent docs emphasize separate context/tool
+boundaries. Official context/checkpoint docs emphasize that long sessions are
+managed through compaction, sidechains, and restore points.
+
+Codrax already chose a compatible direction:
+
+- `internal/orchestrator/write_controller_scheduler.go::runWriteControllerWorkflow`
+  is the single controller-first write loop and does not route from model
+  prose.
+- `internal/tool/emit_write_workflow_decision.go` and
+  `internal/writeflow/decision.go` keep controller actions typed.
+- `internal/types/write_workflow_run.go` persists run/batch/attempt/slice
+  state.
+- `internal/types/change_plan_slice.go` already defines bounded edit/run/
+  observe units.
+- `internal/writeflow/observation_authority.go` makes verification authority a
+  typed report/attempt derivation.
+- `internal/types/write_context_pack.go` provides P0-P3 prioritized handoff.
+- `internal/safety/write_policy.go` and `internal/writeflow/risk.go` already
+  implement path/content/risk policy from structured signals.
+
+The gap is therefore not "Codrax lacks a controller". The gap is that the
+controller has grown through scheduler-local helpers, while the next commercial
+step requires one explicit online state kernel with effect, observation,
+context, permission, and event responsibilities split into testable packages.
+
+### Model Capability Versus System Capability
+
+| Capability | Mostly model | Mostly system | Codrax target |
+| --- | --- | --- | --- |
+| Understanding a vague bug report | Hypothesis generation, choosing where to inspect next. | Repomap, code search, evidence refs, read-only localizer budget. | Let model ask for exploration; require typed localization handoff before risky edits. |
+| Writing the patch | Local synthesis inside exact byte windows. | Patch builder, plan validation, slice scope, apply-pre gate. | Keep planner flexible but constrain coder to active-slice `ChangePlan` bytes. |
+| Avoiding hallucinated APIs | Model can infer likely APIs, but is unreliable alone. | Repo map, exact file reads, AST/parser evidence, build/test probes. | APIs used in patches should be backed by file evidence, parser surface, or verification diagnostics. |
+| Finishing safely | Model judgment is useful but cannot be authority. | Typed `ChangeReport`, `ObservationAuthorityView`, approval fingerprint, event ledger. | Finish only from typed observation/completion verdicts. |
+| Long-session coherence | Model can summarize, but summaries drift. | Durable workflow run, context-pack projection, artifact refs. | Rebuild state from typed ledger; use prose only as visible audit text. |
+
+This separation is why simply adding more prompt instructions or more named
+agents has low ROI. The model should have room to choose the next local action;
+the system should own all hard boundaries.
+
+### Anti-Hallucination Review
+
+Codrax already has strong read-mode anti-hallucination machinery:
+
+- read pipeline stages are fixed in `internal/orchestrator/topology.go`;
+- analyzer emits typed IR and fail-louds when `emit_analysis` is missing;
+- repo map retrieval is split across `internal/tool/repomap/` scan/parse/view
+  layers;
+- answer-side evidence closure, citations, and structured answer blocks
+  remain read-mode authority.
+
+Write mode has analogous foundations:
+
+- `WriteAnalysisIR` seeds task shape, contracts, risk, and scope;
+- `WriteContextPackFromWriteAnalysisIR`,
+  `WriteContextPackFromExplorationHandoff`, `WriteContextPackFromChangePlan`,
+  and `WriteContextPackFromChangeReport` project typed handoff;
+- planner prompt sections in `internal/agent/planner.go` are built from typed
+  task framing, context pack, test surface, verify failure handoff, and repair
+  packets;
+- verifier now exposes `run_tests` as `{}` only in write `StageVerify`, forcing
+  deterministic `TestSurface` ownership instead of model-selected broad suite
+  parameters.
+
+Remaining anti-hallucination gaps:
+
+- Impact coverage is still mostly audit/confidence. A plan can edit the
+  symptom site instead of the owner boundary unless structural impact evidence
+  catches the mismatch.
+- Convention learning is still prompt/context-pack level. Codrax does not yet
+  persist a project convention graph that can be reused across sessions.
+- Plan critic is pre-apply and informational. `internal/orchestrator/plan_critic.go`
+  explicitly says it never blocks apply and the system does not consume its
+  critique programmatically. That is correct for LLM prose critique, but Codrax
+  still needs a deterministic patch/effect critic over typed diffs.
+- `internal/writeflow/workflow_transition_validator.go` still documents itself
+  as advisory until scheduler wiring. Runtime decisions need to consume it.
+
+Generalized direction:
+
+- Use precise signals for hard gates: normalized paths, fingerprints, parser
+  results, command classifications, typed verification verdicts, and schema
+  enums.
+- Use noisy signals for soft guidance: root-cause depth, convention match
+  scores, impact suspicion, LLM critic notes, search density.
+- Never hard-route from user keywords, model summaries, `<think>`, stdout
+  prose, or natural-language issue wording.
+
+### Write-Code Workflow Review
+
+Claude Code-style "Edit -> Run -> Observe" lowers risk because it creates more
+feedback boundaries. Codrax now has active slices and immediate observe helpers
+such as `advanceWorkflowAfterSuccessfulSliceObserve`, but the scheduler still
+contains mixed responsibilities: controller dispatch, normalization, approval,
+apply, verify, retry, budget, and context sync all live inside
+`runWriteControllerWorkflow`.
+
+Target workflow:
+
+```text
+state view -> controller action -> transition validation -> effect ->
+typed observation -> context projection -> next state view
+```
+
+This should be delivered by extracting, not reinventing:
+
+- `StateAssembler`: wrap `DeriveWorkflowExecutionView`.
+- `ActionValidator`: promote `ValidateWorkflowTransition` from advisory to
+  runtime.
+- `PermissionBroker`: wrap current `writePlanCanProceedWithoutApprovalPause`,
+  apply-pre gate, and risk policy.
+- `EffectExecutor`: isolate explore/plan/apply/verify/split/append/finish.
+- `ObservationNormalizer`: wrap `ObservationAuthorityView`,
+  `ClassifyVerifyAttemptOutcome`, and confidence records.
+- `ContextProjector`: wrap scoped `WriteContextPack` views and artifact refs.
+- `EventAppender`: append durable run/slice/attempt/checkpoint records.
+
+This gives the model more flexibility, not less: it can choose exploration,
+split, append, replan, or finish whenever the current typed state supports it.
+The harness rejects only transitions that contradict typed state.
+
+### Impact Analysis Engine
+
+Current foundation:
+
+- repo map already scans/parses/builds relation views in
+  `internal/tool/repomap/facade.go`;
+- relation summaries such as chains, hubs, and bridges exist under
+  `internal/tool/repomap/retrieve/`;
+- `ChangePlan` includes target paths, structured edits, dependencies,
+  behavior-contract refs, and changed-symbol refs;
+- `ChangePlanSlice` has `ContractRefs`, `ChangedSymbolRefs`,
+  `VerificationProbes`, and dependency metadata;
+- SWE-bench adapter already records structural owner-boundary audit signals for
+  caller-side return-shape adapters and workaround-like edits.
+
+Gap:
+
+Codrax does not yet have a durable `ImpactObligationSet` that says "changing A
+creates obligations B/C/D" and follows the obligation through planning,
+patching, verification, and confidence.
+
+Design:
+
+```text
+Change seed or failure symptom
+  -> ImpactAnalysisEngine
+  -> ImpactObligationSet
+       subject: path/symbol/config/schema/test/route
+       relation: call/import/type/config/proto/schema/public-api/test-owner
+       obligation: update/test/verify/document/no-op-with-reason
+       evidence_ref: line-backed repo evidence
+       strength: precise | inferred | weak
+  -> planner context P1/P2
+  -> patch critic/eval confidence
+```
+
+Hard versus soft:
+
+- Precise parser facts can require a verification obligation, such as touched
+  JSON/YAML/XML schema shape or generated invalid syntax.
+- Graph suspicion remains soft until backed by exact path/symbol evidence.
+- Missing impact coverage should usually downgrade confidence or trigger
+  re-explore while budget remains, not hard block every patch.
+
+First implementation should reuse repo map and `WriteContextPack`; do not add a
+new graph database or embedding store until the typed obligation loop is useful.
+
+### Convention Learning
+
+Current foundation:
+
+- `WriteContextPack` P3 can carry style/pattern hints;
+- planner gets prior attempts, pitfalls, test surface, and task framing;
+- repo map can surface local symbols/files;
+- current skills and prompts contain soft guidance for plan shape and tests.
+
+Gap:
+
+Codrax learns conventions per turn through prompt context, not as a reusable
+typed project asset. This makes long-horizon behavior sensitive to which files
+were read in the current run.
+
+Design:
+
+- `ConventionGraph` should be an inspectable artifact, not a vector-only
+  memory:
+  - error handling forms;
+  - test naming/fixture style;
+  - builder/factory/repository patterns;
+  - logging/diagnostic style;
+  - public API compatibility patterns;
+  - generated-file and migration conventions.
+- Extract from deterministic local evidence: AST shapes, nearby tests,
+  accepted prior patches, repo manifests, and exact examples.
+- Store as P3 advisory context with evidence refs.
+- Patch critic can compare changed code against local convention examples and
+  emit soft confidence downgrades or planner hints.
+
+Do not make convention match a hard gate initially. Style conventions are
+noisy; they should guide patch quality and reduce hallucination, not block
+correct emergency fixes.
+
+### Patch Critic And Effect Hooks
+
+Current PlanCritic is intentionally safe because it is informational LLM output.
+The missing commercial piece is not "make PlanCritic block". It is a typed
+patch/effect critic that reads deterministic artifacts:
+
+Inputs:
+
+- active slice;
+- `ChangePlan` fingerprint and declared changes;
+- actual worktree diff after apply;
+- impact obligations;
+- convention hints;
+- behavior contracts;
+- test/probe coverage;
+- risk/approval record.
+
+Outputs:
+
+- `PatchReviewRecord` with reason codes, severity, evidence refs,
+  confidence-impact, and next-action recommendation.
+
+Hard checks:
+
+- actual diff touches outside active slice without policy approval;
+- plan fingerprint mismatch;
+- source syntax/build failure in touched files;
+- generated JSON/YAML/XML invalid per parser;
+- test-only final plan exported as source patch in benchmark/customer lanes
+  where tests are verification evidence only.
+
+Soft checks:
+
+- owner-boundary suspicion;
+- convention mismatch;
+- incomplete impact obligation;
+- weak probe-only confidence;
+- workaround-like private state sync or diagnostic suppression.
+
+This absorbs several observed SWE-bench gaps generically without adding
+case-specific routes.
+
+### SubAgent And Worker Strategy
+
+Current Codrax subagent design is intentionally narrow:
+
+- `internal/agent/subagent.go` registers default subagents and currently only
+  `SubExplorer`;
+- `internal/agent/subagent_runtime.go` requires scoped proposals and says
+  `Run` is the single entry point for the Orchestrator;
+- subagents are read-oriented and return reduced results.
+
+Recommended strategy:
+
+- Do not add many default LLM subagents yet. More agents increase context,
+  permission, and handoff surface.
+- Add deterministic workers first where output can be typed:
+  `ImpactWorker`, `ConventionWorker`, `PatchReviewWorker`,
+  `ObservationWorker`.
+- Only promote a worker to a model subagent when the task requires local
+  judgment over many files and the returned artifact can be normalized into
+  `WriteContextPack` or another typed record.
+- Subagents never grant broader authority than the parent role; role tool
+  surfaces stay explicit.
+
+### UX And Approval Review
+
+Codrax should reduce command burden rather than add more knobs:
+
+- Auto Pilot is the normal path.
+- `/workflow`, `/plan`, `/approve`, `/reject`, `/verify`, and `/merge` are
+  recovery/audit controls.
+- Safe active runs auto-resume from durable state.
+- High-risk approval appears as one card bound to active slice fingerprint.
+- Critical deny is automatic.
+- Missing local deps produce unverified completion with diagnostics, not a
+  dead-end prompt.
+
+This mirrors the public "permission gradient" lesson without copying Claude
+Code's command surface. Users should feel the system working, not be asked to
+operate the scheduler.
+
+### Priority Sorting
+
+#### 不建议做
+
+- Copy Claude Code's CLI/command UI wholesale. Codrax already has a repo-bound
+  workflow and recovery commands; more normal-path commands increase user
+  mind burden.
+- Make LLM PlanCritic a hard blocker. Hard gates on noisy critique violate
+  Codrax's precise-signal red line.
+- Add many default subagents before typed workers. It multiplies prompt,
+  permission, and handoff complexity.
+- Add vector memory or broad project RAG as a control authority. Codrax needs
+  inspectable typed artifacts first.
+- Add keyword rules over issue text, user intent, model rationale, `<think>`,
+  or stdout prose.
+- Expose user-authored shell hooks before internal typed effect hooks and
+  command policy are unified.
+
+#### 可以做但收益一般
+
+- More slash commands for workflow control. Useful for debugging, but normal
+  product flow should be automatic.
+- More LLM reviewer personas. They can improve audit text, but commercial
+  correctness needs deterministic patch/effect records.
+- Embedding-based code search. Useful later, but repo map plus typed impact
+  obligations should come first.
+- Fine-grained user setting surfaces for every policy. They are powerful but
+  increase support burden unless defaults are already correct.
+
+#### 高收益短期项目（1~2周）
+
+- Runtime-wire `ValidateWorkflowTransition` so advisory state-kernel rules
+  actually gate controller actions.
+- Extract `WorkflowExecutionView` rendering into a shared next-action/status
+  view used by REPL, CLI, and SWE-bench adapter.
+- Add `PatchReviewRecord` MVP over typed diffs and active slice scope.
+- Add `ImpactObligationSet` MVP from repo map + `ChangePlan` dependencies and
+  feed it into planner P1/P2 context and confidence.
+- Add plan repair replay tests so repeated `emit_change_plan` failures consume
+  the typed repair packet instead of restarting broad investigation.
+- Keep verifier parameter authority closed: write verifier calls
+  `run_tests({})`, deterministic TestSurface owns runner/suite choice.
+
+#### 高收益中期项目（1~2个月）
+
+- Extract the seven-component write-loop runtime kernel from
+  `runWriteControllerWorkflow`.
+- Build a durable effect/observation ledger with slice restore metadata.
+- Implement internal typed hooks: `pre_effect`, `post_effect`, `pre_tool`,
+  `post_tool`, `terminal_status`.
+- Build `ConventionGraph` and feed P3 evidence-backed examples into planner and
+  patch critic.
+- Add command policy parser unification for write/operation roles.
+- Expand symptom-only eval suites: SWE-bench Lite, historical GitHub issues,
+  and local customer-style repos where issue text describes behavior instead
+  of implementation details.
+
+#### 战略级项目
+
+- Project Knowledge Graph: combine repo map, impact obligations, conventions,
+  behavior contracts, tests, and accepted patch history as typed artifacts.
+- Long-horizon worktree checkpoint/fork/rewind over slice event ledger.
+- CI/harness integration that separates local unavailable environment from
+  remote authoritative verification.
+- Multi-agent cooperative planning with deterministic reducers, only after
+  worker artifacts and permission inheritance are proven.
+
+### cc_like Delivery Delta
+
+The existing delivery list below remains valid, but the architecture review
+adds four explicit P0/P1 tasks:
+
+| Priority | Task | Acceptance |
+| --- | --- | --- |
+| P0 | Wire `ValidateWorkflowTransition` into runtime decision handling. | A controller action that contradicts `WorkflowExecutionView` is overridden, blocked, or re-asked from typed reason codes before any effect runs. |
+| P0 | Add `PatchReviewRecord` MVP for actual diff versus active slice/plan. | Out-of-scope diff, stale fingerprint, invalid generated structured files, and final test-only verification plans are detected without prose parsing. |
+| P1 | Add `ImpactObligationSet` MVP. | Planner/verifier/eval can see obligations derived from repo map and plan dependencies; missing coverage downgrades confidence or triggers re-explore while budget remains. |
+| P1 | Add `ConventionGraph` MVP. | Planner receives evidence-backed P3 examples for tests/error handling/logging/API style; critic can report convention mismatch as soft confidence. |
+
+These tasks should land before adding more user-facing commands or broad
+subagent hierarchies.
+
 ## Delivery Tasks
 
 ### Batch 0: Design Ledger
@@ -2039,6 +2426,7 @@ Commercial design decision:
 
 | Batch | Status | Notes |
 | --- | --- | --- |
+| cc_like architecture review | complete | Added a direct `/Users/han/opt/cc_like.md` architecture review addendum. It grounds Claude Code-style lessons in current Codrax files, separates model capability from harness capability, and adds explicit P0/P1 delivery deltas for runtime transition enforcement, typed patch review, impact obligations, and convention graph. The design keeps hard gates on typed artifacts only and rejects keyword/prose routing. |
 | 0 | complete | Architecture ledger added and ready for commit. |
 | 1 | complete | Added analyzer overview caution token hygiene for multiline/code-fragment/traceback-shaped candidates, with valid symbol/path retention tests. |
 | 2 | complete | Required expected/forbidden behavior contracts now default to completion targets; distinct expected_outcomes append as required fallback contracts even when explicit contracts exist; plan probes preserve known contract refs, while missing/partial probe coverage is evaluated as typed verification confidence instead of blocking plan emission; SWE-bench adapter records typed confidence downgrade reasons for unavailable/unverified local verification without blocking export. |
