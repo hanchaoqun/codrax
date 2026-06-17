@@ -547,6 +547,169 @@ append, replan, observe, or finish at each turn. The system gets more reliable
 because each choice is accepted only through typed schemas, deterministic
 policy, append-only state, and immediate observation.
 
+## Paper-Grounded Online Kernel v2
+
+The paper and public Claude Code documentation are most useful when treated as
+a control-plane pattern:
+
+```text
+thin model loop + thick deterministic harness + append-only recoverable state
+```
+
+For Codrax, the next architecture step is not more user commands and not a
+larger prompt. It is a smaller online kernel that lets the model choose the
+next local action while the harness owns state, permissions, execution,
+observation, and resume.
+
+### Design Goal
+
+Codrax write mode should behave as:
+
+```text
+user goal
+  -> assemble typed state view
+  -> localize if evidence is insufficient
+  -> plan one bounded slice
+  -> apply immediately when deterministic policy allows
+  -> observe immediately through typed checks
+  -> append result
+  -> continue, replan, split, ask, block, or finish
+```
+
+The user should not have to know `/workflow`, `/plan`, `/approve`, or `/verify`
+for normal work. Those commands remain advanced recovery and audit surfaces.
+The default loop should continue automatically through low/medium risk work and
+pause only for high-risk slice fingerprints or true missing user facts.
+
+### P0 Gaps From The Latest Audit
+
+1. Plan state and approval state still leak old batch semantics.
+   A freshly emitted `ChangePlan` can have `Status=pending_approval` while its
+   typed approval record says `action=auto_execute`. This is an inconsistent
+   state view. It causes eval adapters and UI surfaces to classify an
+   auto-safe plan as blocked/pending even though policy allows it.
+
+2. Apply is still sometimes one controller turn too late.
+   The controller chooses `plan_batch`, planner emits a safe plan, and the
+   scheduler waits for another model turn to say `apply_plan`. Claude Code's
+   public loop treats tool results as the next observation in the same
+   while-loop; Codrax should likewise execute the next deterministic effect
+   once a typed action has produced an auto-safe plan.
+
+3. Empty-patch and status reporting overcollapse actionable causes.
+   A true high-risk pending approval, a failed plan emission, a timeout, and an
+   in-progress auto-safe plan should not all become generic
+   `workflow_in_progress_empty_patch`. The adapter and REPL cards must render
+   the typed next action.
+
+4. Verification observation is still not first-class enough.
+   `run_tests` and verifier results have improved, but the online invariant
+   should be stronger: after a slice applies, observe through typed package,
+   build, syntax, probe, and test verdicts before planning unrelated work.
+
+5. Context handoff needs cost-aware durability.
+   Public context-window docs show that subagents and compaction are ways to
+   control the main context budget. Codrax has `WriteContextPack`, but the next
+   step is to make context-cost, consumer limits, dedupe keys, and stale-slice
+   invalidation explicit in the state assembler.
+
+### Target State Model
+
+Replace plan-status-as-control with a derived execution view:
+
+| Layer | Durable record | Derived meaning |
+| --- | --- | --- |
+| Plan proposal | `ChangePlan` bytes, target paths, slices, fingerprint | What can be applied if policy allows. |
+| Approval | `WriteApprovalRecord{action,risk,fingerprint,user_decision}` | Whether the active slice may execute now. |
+| Slice execution | `WriteWorkflowSlice` attempts/events/checkpoint refs | What actually changed and what must be observed. |
+| Batch/run | `WriteWorkflowRun` event ledger and completion verdicts | User-facing progress, resume, eval export, and recovery. |
+
+`pending_approval` should be a derived execution wait state only when the
+current approval action is `manual` or a previously approved fingerprint no
+longer matches. A plan that has `action=auto_execute` should be rendered as
+`slice_ready` or immediately moved to `applying`, never as user-pending.
+
+### Online Kernel Components
+
+| Component | Contract |
+| --- | --- |
+| `StateAssembler` | Builds a compact `WriteWorkflowStateView` from run events, active slice, approval record, verification records, and context-pack projections. |
+| `ControllerDecisionTool` | The model emits exactly one schema-valid action; prose and `<think>` remain transparent but non-authoritative. |
+| `ActionValidator` | Validates mode, state, budget, supported action, batch/slice IDs, and missing typed prerequisites. |
+| `PermissionBroker` | Produces `allow / ask / deny` from normalized paths, parser results, command classification, external-directory policy, fingerprints, and org settings. |
+| `EffectExecutor` | Executes exactly one bounded effect, but may chain deterministic follow-on effects when policy already decided them, such as plan -> auto-apply. |
+| `ObservationRunner` | Runs typed syntax/build/probe/test/package checks and normalizes failures into P2 context with path/line/error refs. |
+| `ContextProjector` | Projects durable P0-P3 context into per-role Top-N views with dedupe, TTL, stale-slice invalidation, and cost accounting. |
+| `EventAppender` | Appends immutable workflow events, artifacts, checkpoints, and restore metadata before the next model turn. |
+
+### Scheduler Invariants
+
+- Every model action must be represented by `WriteWorkflowDecision`.
+- Every write effect must pass apply-pre policy using typed artifacts.
+- A safe plan produced by the planner in `ModeApply` should auto-apply in the
+  same scheduler loop without waiting for another controller turn.
+- A successful apply creates a slice checkpoint and forces the next action
+  toward observation unless a stronger typed block exists.
+- A failed observation writes P2 diagnostics and narrows the next planner view
+  to the failing slice; it does not restart broad exploration by default.
+- A high-risk decision pauses on the active slice fingerprint only; rejecting
+  it returns to controller with a typed reason instead of poisoning the whole
+  run.
+- Critical risk denies without asking.
+- Missing local dependencies or unavailable test runners downgrade confidence
+  and append environment diagnostics; they are not hard blockers for patch
+  export.
+
+### Role And Tool Surface
+
+| Role | Tools | Output |
+| --- | --- | --- |
+| Controller | `emit_write_workflow_decision` only | One next action. |
+| Localizer | read-only repo map, search, read, typed dry-run probes | `WriteContextPack` P1/P2 evidence refs. |
+| Planner | plan emit tools, structured edit repair feedback, optional typed dry-run check tools | One bounded `ChangePlan` for the active slice. |
+| Coder | bounded apply/edit tools only | Applied slice attempt and checkpoint refs. |
+| Observer | typed syntax/build/test/probe tools | `ChangeReport` plus P2 diagnostics. |
+| Exporter/eval | durable plan/report/workflow readers | Predictions and confidence/audit fields. |
+
+Planner/replan should not need the general shell. If a dry-run is needed, the
+system should expose a typed dry-run build/test/probe tool so the result is
+schema-normalized and budgeted.
+
+### User-Mind UX
+
+Normal path:
+
+```text
+user describes task
+Codrax streams: localizing -> editing slice 1 -> observing -> editing slice 2
+Codrax asks only if: high-risk fingerprint / true missing user fact / merge
+Codrax finishes: verified | unverified-with-env-caveat | blocked-with-reason
+```
+
+Advanced recovery commands remain, but the system should prefer automatic
+resume/status cards:
+
+- active safe run auto-resumes;
+- pending high-risk run shows one approval card;
+- verified/unverified/blocked completion is rendered from `WriteWorkflowRun`;
+- eval adapters read the same typed fields as REPL, so local audit and
+  SWE-bench export do not diverge.
+
+### Delivery Tasks From v2
+
+| Priority | Task | Acceptance |
+| --- | --- | --- |
+| P0 | Derive plan/apply/approval UI state from `WriteApprovalRecord` and active slice, not from initial plan proposal status alone. | `auto_execute` plans never render as user-pending; high-risk plans still pause. |
+| P0 | Auto-apply freshly planned low/medium-risk slices in the same scheduler loop. | Controller calls reduce by one for safe plan -> apply; apply-pre gate still runs. |
+| P0 | Add typed empty-patch reasons for pending approval, timeout, blocked no-plan, and incomplete failed verify. | SWE-bench/result JSON explains the true typed cause. |
+| P0 | Force post-apply observation before unrelated planning. | After apply, controller actions that delay verify are overridden to `verify_batch` from typed state. |
+| P1 | Promote verify result to a single typed authority across package/build/test/probe verdicts. | `finish` cannot rely on passing narrative or missing reports. |
+| P1 | Add slice checkpoint refs and restore metadata. | A failed slice can be rewound/forked without losing prior verified slices. |
+| P1 | Add context-pack cost/dedupe/TTL/stale-slice metadata. | Planner/verifier receive Top-N typed views and P0/P1/P2 evidence survives compaction/resume. |
+| P1 | Convert repeated `emit_change_plan` repair failures into deterministic repair-pack state. | Retried plans apply structured current bytes/field errors rather than re-sending the same invalid JSON. |
+| P2 | Add role-scoped typed dry-run tools for planner/replan. | Planning stages avoid ordinary `exec_command` while still getting structured build/probe evidence. |
+| P2 | Align REPL/CLI/SWE-bench status rendering on `WriteWorkflowNextActionView`. | Normal users do not need command knowledge; advanced commands remain audit/recovery only. |
+
 ## Current Codrax Baseline
 
 Current main already contains major foundations:
@@ -1654,3 +1817,5 @@ Backlog from this regression:
 | Budget-boundary online transition | complete | SWE-bench Lite regression exposed that a freshly planned auto-safe batch could consume the last controller step and remain `in_progress` before apply, yielding `workflow_in_progress_empty_patch`. The scheduler now has typed budget-boundary transitions: when `plan_batch` reaches the step ceiling, `ModeApply` plans that pass `writePlanCanProceedWithoutApprovalPause` run the same apply transition immediately; existing budget completion verify supplies observe; if all batches already have typed completion verdicts, the run completes without another `finish` model turn. The lane records `budget_ready_plan_auto_apply`, `budget_completion_verify`, and `budget_all_batches_complete` / `controller_turn_budget_all_batches_complete`, while still honoring final apply-pre approval/deny gates and preserving normal controller-first turns away from the budget boundary. |
 | Budget-boundary SWE-bench regression | complete | Re-ran `django__django-14534` / `pytest-dev__pytest-11143` / `sympy__sympy-23117` after the scheduler fix. Generated predictions validate with `empty_patch=0`; `sympy__sympy-23117` now exports a non-empty failed-verify patch instead of `workflow_in_progress_empty_patch`. Manual audit added P1 backlog for typed verification-surface mutation policy and cumulative source-patch provenance because `django__django-14534` passed local verification only after a final test-only plan, while the exported official patch dropped that test mutation. |
 | Workflow applied provenance audit | complete | SWE-bench adapter now reads durable workflow apply attempts and plan artifacts to emit `workflow_applied_plan_ids`, `workflow_latest_applied_plan_id`, `workflow_final_plan_is_latest_applied`, `workflow_applied_source_paths`, `workflow_applied_test_paths`, and `workflow_applied_covers_exported_source_patch`. This explains final-plan/export drift without changing verdicts and without parsing stdout or model prose. Verification passed: adapter unit tests, `py_compile`, and `bash eval/swebench/smoke_local.sh`. |
+| SWE-bench follow-up env audit | complete | Ran `matplotlib__matplotlib-25433` / `scikit-learn__scikit-learn-15512` / `sphinx-doc__sphinx-8801`; generated predictions validate with `empty_patch=0` and official harness dry-run accepts the JSONL. Manual audit found all three are `predicted_unverified`: Matplotlib/scikit-learn are compile-heavy partial envs, while Sphinx is pure Python but imported an old Sphinx API against modern Jinja2. This batch extends the existing typed Python compat-constraint mechanism with `Jinja2<3.1` when a project declares Jinja2 only with a lower bound. Missing local deps remain confidence downgrades, not hard gates. |
+| Paper-grounded online kernel v2 | complete | Re-checked the Claude Code design-space paper, official loop/permission/subagent/checkpoint/context docs, and the companion public repository, then added the v2 online-kernel design section. A direct plan->auto-apply scheduler experiment was rejected by `go test ./internal/orchestrator` because the current controller still relies on a separate turn for cancellation, recovery, re-explore/replan, and post-apply observe ordering. The direction remains valid but must be delivered as the v2 state-kernel batch, not as a local patch. SWE-bench adapter now reports `workflow_pending_approval_empty_patch` for true high-risk pending plans instead of collapsing them into generic in-progress empty output. |

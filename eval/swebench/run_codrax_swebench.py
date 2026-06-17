@@ -48,6 +48,10 @@ GOLD_ARTIFACT_FIELDS = {
     "pass_to_pass",
 }
 PYTHON_COMPAT_CONSTRAINT_POLICIES = {
+    "jinja2": {
+        "constraint": "Jinja2<3.1",
+        "reason_code": "legacy_jinja2_filter_api_without_major_ceiling",
+    },
     "numpy": {
         "constraint": "numpy<2",
         "reason_code": "lower_bound_without_major_ceiling",
@@ -1892,6 +1896,7 @@ def empty_patch_reason(
     *,
     patch: str,
     workflow_status: str = "",
+    plan_status: str = "",
     plan_path: str = "",
     codrax_timed_out: bool = False,
     codrax_exit_code: int = 0,
@@ -1927,6 +1932,8 @@ def empty_patch_reason(
     if latest_reason == "plan_batch_failed_blocked" and not has_plan:
         return "workflow_blocked_no_plan"
     if workflow == "in_progress":
+        if str(plan_status or "").strip() == "pending_approval":
+            return "workflow_pending_approval_empty_patch"
         if not has_plan:
             return "workflow_in_progress_no_plan"
         return "workflow_in_progress_empty_patch"
@@ -2195,6 +2202,7 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         empty_reason = empty_patch_reason(
             patch=patch,
             workflow_status=str(result.get("workflow_status") or ""),
+            plan_status=str(result.get("plan_status") or ""),
             plan_path=str(result.get("plan_path") or ""),
             codrax_timed_out=bool(result.get("codrax_timed_out")),
             codrax_exit_code=int(result.get("codrax_exit_code") or 0),

@@ -292,6 +292,21 @@ class WorkflowAppliedProvenanceTests(unittest.TestCase):
         self.assertEqual(got["workflow_applied_test_paths"], ["tests/test_fix.py"])
 
 
+class PythonCompatConstraintTests(unittest.TestCase):
+    def test_adds_jinja2_ceiling_when_legacy_requirement_has_no_upper_bound(self) -> None:
+        constraints = adapter.python_compat_constraints(["Jinja2>=2.3", "numpy>=1.11"])
+
+        by_package = {row["package"]: row for row in constraints}
+        self.assertEqual(by_package["jinja2"]["constraint"], "Jinja2<3.1")
+        self.assertEqual(by_package["jinja2"]["reason_code"], "legacy_jinja2_filter_api_without_major_ceiling")
+        self.assertEqual(by_package["numpy"]["constraint"], "numpy<2")
+
+    def test_does_not_override_declared_jinja2_upper_bound(self) -> None:
+        constraints = adapter.python_compat_constraints(["Jinja2>=2.3,<3.0"])
+
+        self.assertEqual([row for row in constraints if row["package"] == "jinja2"], [])
+
+
 class OwnerBoundarySignalTests(unittest.TestCase):
     def test_detects_python_caller_return_shape_adapter(self) -> None:
         signals = adapter.plan_owner_boundary_signals(plan_with_caller_return_adapter())
@@ -367,6 +382,16 @@ class EmptyPatchReasonTests(unittest.TestCase):
         )
 
         self.assertEqual(reason, "write_wall_time_empty_patch")
+
+    def test_pending_approval_plan_gets_specific_empty_patch_reason(self) -> None:
+        reason = adapter.empty_patch_reason(
+            patch="",
+            workflow_status="in_progress",
+            plan_status="pending_approval",
+            plan_path="/tmp/plan.json",
+        )
+
+        self.assertEqual(reason, "workflow_pending_approval_empty_patch")
 
 
 class PredictionAuditBlockTests(unittest.TestCase):
