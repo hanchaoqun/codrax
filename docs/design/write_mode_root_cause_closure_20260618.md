@@ -220,6 +220,41 @@ New deterministic gap:
   failed probes, plan-touched test/spec paths, missing changed-symbol coupling,
   or explicit runner policy.
 
+## 2026-06-18 RC-8 SymPy Verification Check
+
+Run directory:
+`/private/tmp/codrax-swebench-rc8-sympy-20260618-020754`
+
+The SymPy single-instance rerun validated the selector fix:
+
+- The workflow produced a non-empty official-harness-consumable prediction.
+- The verifier no longer escalated a passed scoped probe into full `pytest`
+  solely because of `verification_probe_missing_required_contract_ref`.
+- The workflow completed with local `verify_status=passed`.
+- The missing contract refs remained visible as
+  `prediction_confidence_downgrade_reason=verification_probe_missing_required_contract_ref`
+  and patch-review semantic coverage remained unverified.
+
+Manual correctness still failed: the final patch made `Array([])` locally pass
+for the system's scoped invariant but still did not match the reference behavior
+(`shape == (0,)`) and did not include the adjacent mutable-index fix from the
+reference patch. This is a root-cause/invariant-extraction gap: the workflow can
+now iterate online, but it can accept an under-specified invariant when the issue
+mentions a comparator behavior ("Matrix([]) works") and no deterministic probe
+forces that comparator into the expected contract.
+
+Next root-cause project:
+
+- Add typed comparative-observation obligations during write analysis /
+  exploration when the issue or runtime evidence presents an observed failing
+  expression alongside a working comparator. The model may propose the
+  comparator, but control must consume only typed probes and evidence refs.
+- Project comparator probes into P1/P2 context and verifier probes with explicit
+  contract refs, so local pass means "matches observed comparator semantics",
+  not merely "does not throw".
+- Keep this as a generalized phenomenon-to-invariant closure lane, not a
+  SWE-bench/SymPy-specific rule.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
