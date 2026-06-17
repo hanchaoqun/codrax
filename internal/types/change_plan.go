@@ -454,6 +454,11 @@ type ChangePlan struct {
 	// is deliberately excluded from PlanFingerprint.
 	PatchReview *PatchReviewRecord `json:"patch_review,omitempty"`
 
+	// PatchEffect is the typed factual view of the actual applied diff captured
+	// from the worktree/applied commit. It is lifecycle/evidence metadata and
+	// is deliberately excluded from PlanFingerprint.
+	PatchEffect *PatchEffectRecord `json:"patch_effect,omitempty"`
+
 	// ImpactObligations are the typed downstream obligations derived from the
 	// plan's declared changes, dependencies, contracts, symbols, and probes.
 	// They are advisory handoff/confidence inputs, not hard approval authority,
@@ -505,10 +510,10 @@ type ChangePlan struct {
 
 // PlanFingerprint returns a deterministic hash of the apply-relevant plan
 // fields. It deliberately excludes lifecycle/handoff fields (Status, AppliedAt,
-// WorktreePath, Approval, critique, patch review, impact obligations) so
-// persisting status/approval/context metadata does not invalidate the approved
-// payload, while any change to requested file operations or test obligations
-// does.
+// WorktreePath, Approval, critique, patch review/effect, impact obligations)
+// so persisting status/approval/context metadata does not invalidate the
+// approved payload, while any change to requested file operations or test
+// obligations does.
 func PlanFingerprint(plan *ChangePlan) string {
 	if plan == nil {
 		return ""

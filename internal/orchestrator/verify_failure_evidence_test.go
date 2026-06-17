@@ -140,6 +140,80 @@ func TestRunWriteControllerWorkflow_VerifyFailurePersistsReportArtifact(t *testi
 	}
 }
 
+func TestAttachActivePatchEffectRecordCapturesAppliedCommitDiff(t *testing.T) {
+	mainRoot := filepath.Join(t.TempDir(), "main")
+	if err := os.MkdirAll(mainRoot, 0o755); err != nil {
+		t.Fatalf("mkdir main: %v", err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = mainRoot
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	git("config", "user.email", "test@local")
+	git("config", "user.name", "test")
+	if err := os.WriteFile(filepath.Join(mainRoot, "seed.py"), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-q", "-m", "seed")
+
+	sess, err := worktree.Create(filepath.Join(t.TempDir(), "wt"), mainRoot, "trace-patch-effect-test")
+	if err != nil {
+		t.Fatalf("worktree.Create: %v", err)
+	}
+	t.Cleanup(func() { _ = sess.Discard() })
+	if err := os.WriteFile(filepath.Join(sess.Path(), "seed.py"), []byte("new\nextra\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sha, err := worktree.CommitChanges(sess.Path(), "codrax apply iter (plan=plan-effect)")
+	if err != nil {
+		t.Fatalf("CommitChanges: %v", err)
+	}
+
+	plan := &types.ChangePlan{
+		ID:          "plan-effect",
+		TargetPaths: []string{"seed.py"},
+		Changes: []types.FileChange{{
+			Path:  "seed.py",
+			Kind:  "modify",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+	}
+	mu := types.NewMutableState("effect")
+	mu.SetChangePlan(plan)
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, WorktreePath: sess.Path(), MainRepoRoot: mainRoot}
+	o.currentIterCommitSHA = sha
+
+	effect := o.attachActivePatchEffectRecord(plan, types.ChangePlanSlice{ID: "slice-1", Paths: []string{"seed.py"}})
+	if effect == nil {
+		t.Fatal("expected patch effect record")
+	}
+	if effect.PlanID != "plan-effect" || effect.SliceID != "slice-1" || effect.HeadRef != sha {
+		t.Fatalf("patch effect metadata not preserved: %+v", effect)
+	}
+	if effect.DiffFingerprint == "" || effect.RecordID == "" || effect.DiffBytes == 0 {
+		t.Fatalf("patch effect identity missing: %+v", effect)
+	}
+	if len(effect.Files) != 1 {
+		t.Fatalf("effect files = %d, want 1: %+v", len(effect.Files), effect.Files)
+	}
+	file := effect.Files[0]
+	if file.Path != "seed.py" || file.AddedLines != 2 || file.RemovedLines != 1 ||
+		file.Language != "py" || file.PathRole != types.SourcePathRoleProduction {
+		t.Fatalf("applied commit diff not parsed as expected: %+v", file)
+	}
+	if got := mu.ChangePlan(); got == nil || got.PatchEffect == nil || got.PatchEffect.HeadRef != sha {
+		t.Fatalf("patch effect was not persisted onto mutable ChangePlan: %+v", got)
+	}
+}
+
 func readChangeReportFile(t *testing.T, path string) *types.ChangeReport {
 	t.Helper()
 	data, err := os.ReadFile(path)

@@ -195,6 +195,39 @@ func TestWriteContextPackFromChangePlanCarriesImpactObligations(t *testing.T) {
 	}
 }
 
+func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
+	plan := &ChangePlan{
+		ID:      "plan-effect",
+		Summary: "repair applied behavior",
+		PatchEffect: &PatchEffectRecord{
+			RecordID:        "patch-effect:plan-effect:slice-1:abcdef123456",
+			DiffFingerprint: "abcdef1234567890",
+			Files: []PatchEffectFile{{
+				Path:         "pkg/a.py",
+				Status:       "modified",
+				Language:     "py",
+				PathRole:     SourcePathRoleProduction,
+				AddedLines:   2,
+				RemovedLines: 1,
+				Hunks:        []PatchEffectHunk{{OldStart: 10, OldLines: 2, NewStart: 10, NewLines: 3}},
+			}},
+		},
+	}
+
+	pack := WriteContextPackFromChangePlan(plan)
+	planner := pack.View(WriteConsumerPlanner, 20)
+	verifier := pack.View(WriteConsumerVerifier, 20)
+	if !writeContextViewContains(planner, "patch_effect", "path=pkg/a.py") ||
+		!writeContextViewContains(planner, "patch_effect", "added=2") ||
+		!writeContextViewContains(planner, "patch_effect", "fingerprint=abcdef123456") {
+		t.Fatalf("planner view missing applied patch effect: %+v", planner.Items)
+	}
+	if !writeContextViewContains(verifier, "patch_effect", "role=production") ||
+		!writeContextViewContains(verifier, "patch_effect", "hunks=1") {
+		t.Fatalf("verifier view missing applied patch effect: %+v", verifier.Items)
+	}
+}
+
 func TestWriteContextPackFromPlanContextCoverageExcludesPlanSelfContext(t *testing.T) {
 	prior := []WriteContextPack{{
 		PackID:      "exploration-handoff",

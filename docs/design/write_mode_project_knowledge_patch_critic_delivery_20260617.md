@@ -321,4 +321,11 @@ Controller 行为：
 
 | Batch | Status | Notes |
 | --- | --- | --- |
-| 0 | in_progress | Design ledger created from current code audit and live SWE-bench `matplotlib__matplotlib-26011` signal. |
+| 0 | complete | Design ledger created from current code audit and live SWE-bench `matplotlib__matplotlib-26011` signal. |
+| 1 | complete | Added `PatchEffectRecord` typed schema, unified-diff parser, post-apply capture from the real applied commit, ChangePlan persistence, and P2 `patch_effect` context projection. Current PatchReview still uses scope MVP until Batch 2. |
+
+## Live Eval Ledger
+
+| Date | Eval | Result | System Signal |
+| --- | --- | --- | --- |
+| 2026-06-17 | SWE-bench Lite smoke: `matplotlib__matplotlib-26011`, `scikit-learn__scikit-learn-25570`, `sympy__sympy-13177` | 3 predictions generated, 0 empty patches, official harness command validated/dry-run consumable. | Matplotlib prediction exposes true-diff semantic risk: actual patch moved shared-axis propagation outside the `emit` gate and added callback broadcast without typed patch-effect criticism. Scikit-learn exposes verify infrastructure/tooling errors driving repeated replan until budget exhaustion. SymPy exposes env/import incompatibility where export can remain useful but local confidence must stay downgraded. |

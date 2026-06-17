@@ -370,6 +370,19 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 		pack.Items = append(pack.Items, writeContextItem("unvalidated_reason", WriteContextP2, reason, "plan",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 	}
+	if plan.PatchEffect != nil {
+		for _, file := range plan.PatchEffect.Files {
+			text := renderPatchEffectFileContext(plan.PatchEffect, file)
+			if text == "" {
+				continue
+			}
+			item := writeContextItem("patch_effect", WriteContextP2, text, "patch_effect",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+			item.SourceID = plan.PatchEffect.RecordID
+			item.ID = writeContextStableID("patch_effect", plan.PatchEffect.RecordID, file.OldPath, file.Path, file.Status)
+			pack.Items = append(pack.Items, item)
+		}
+	}
 	obligations := plan.ImpactObligations
 	if obligations == nil {
 		derived := ImpactObligationSetFromChangePlan(plan)
@@ -394,6 +407,39 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 		pack = MergeWriteContextPacks(pack.BatchID, pack.Goal, pack, WriteContextPackFromApprovalRecord(plan.ID, plan.Summary, plan.Approval))
 	}
 	return NormalizeWriteContextPack(pack)
+}
+
+func renderPatchEffectFileContext(effect *PatchEffectRecord, file PatchEffectFile) string {
+	if effect == nil {
+		return ""
+	}
+	parts := []string{
+		"record_id=" + effect.RecordID,
+		"status=" + strings.TrimSpace(file.Status),
+		"path=" + strings.TrimSpace(file.Path),
+		fmt.Sprintf("added=%d", file.AddedLines),
+		fmt.Sprintf("removed=%d", file.RemovedLines),
+	}
+	if file.OldPath != "" && file.OldPath != file.Path {
+		parts = append(parts, "old_path="+file.OldPath)
+	}
+	if file.PathRole != "" {
+		parts = append(parts, "role="+string(file.PathRole))
+	}
+	if file.Language != "" {
+		parts = append(parts, "language="+file.Language)
+	}
+	if len(file.Hunks) > 0 {
+		parts = append(parts, fmt.Sprintf("hunks=%d", len(file.Hunks)))
+	}
+	if effect.DiffFingerprint != "" {
+		fp := effect.DiffFingerprint
+		if len(fp) > 12 {
+			fp = fp[:12]
+		}
+		parts = append(parts, "fingerprint="+fp)
+	}
+	return strings.Join(parts, " ")
 }
 
 func renderImpactObligationContext(ob ImpactObligation) string {

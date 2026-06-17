@@ -1326,12 +1326,43 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 		return types.PatchReviewRecord{}
 	}
 	activeSlice, _ := types.ActiveChangePlanApplySlice(plan, run)
+	o.attachActivePatchEffectRecord(plan, activeSlice)
 	review := writeflow.ReviewAppliedPatchScope(plan, activeSlice)
 	review = types.NormalizePatchReviewRecord(review)
 	plan.PatchReview = &review
 	o.busCtx.Mutable.SetChangePlan(plan)
 	o.persistCurrentChangePlanSnapshot()
 	return review
+}
+
+func (o *Orchestrator) attachActivePatchEffectRecord(plan *types.ChangePlan, activeSlice types.ChangePlanSlice) *types.PatchEffectRecord {
+	if o == nil || o.busCtx == nil || plan == nil {
+		return nil
+	}
+	sha := strings.TrimSpace(o.currentIterCommitSHA)
+	if sha == "" {
+		sha = strings.TrimSpace(plan.AppliedCommitSHA)
+	}
+	if strings.TrimSpace(o.busCtx.WorktreePath) == "" || sha == "" {
+		return nil
+	}
+	patch, err := worktree.CaptureCommitPatch(o.busCtx.WorktreePath, sha)
+	if err != nil {
+		logging.Warning("[orchestrator] patch effect diff capture failed: %v", err)
+		return nil
+	}
+	effect := writeflow.PatchEffectRecordFromUnifiedDiff(
+		plan.ID,
+		activeSlice.ID,
+		"applied_commit",
+		sha+"^",
+		sha,
+		patch,
+	)
+	plan.PatchEffect = &effect
+	o.busCtx.Mutable.SetChangePlan(plan)
+	o.persistCurrentChangePlanSnapshot()
+	return &effect
 }
 
 func patchReviewHardBlockReason(review types.PatchReviewRecord) string {
