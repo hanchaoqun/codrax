@@ -316,6 +316,11 @@ class PatchReviewSummaryTests(unittest.TestCase):
             "patch_review": {
                 "status": "failed",
                 "hard_block": True,
+                "coverage_summary": {
+                    "verdict": "failed",
+                    "block_reason": "patch_review_error:patch_effect_path_outside_plan_scope",
+                    "reason_codes": ["patch_effect_path_outside_plan_scope"],
+                },
                 "findings": [{
                     "code": "patch_effect_path_outside_plan_scope",
                     "severity": "error",
@@ -325,6 +330,7 @@ class PatchReviewSummaryTests(unittest.TestCase):
         })
 
         self.assertEqual(summary["block_reason"], "patch_review_error:patch_effect_path_outside_plan_scope")
+        self.assertEqual(summary["coverage_verdict"], "failed")
         self.assertTrue(summary["hard_block"])
         self.assertEqual(summary["reason_codes"], ["patch_effect_path_outside_plan_scope"])
 

@@ -88,6 +88,7 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `plan_context_missing_source_paths`,
 `plan_owner_boundary_signals`, `plan_owner_boundary_reason_codes`,
 `plan_patch_review_status`, `plan_patch_review_hard_block`,
+`plan_patch_review_coverage_verdict`,
 `plan_patch_review_reason_codes`,
 `plan_patch_review_semantic_unverified_codes`,
 `plan_patch_review_block_reason`,
@@ -107,9 +108,11 @@ marks local confidence as `predicted_audit_blocked` with
 `prediction_blocks_local_acceptance=true`. Context coverage is derived only from persisted
 workflow/context-pack typed fields when present; it is audit telemetry, not an
 apply/verify gate. Patch-review blockers are derived only from structured
-`ChangePlan.patch_review.findings`: hard patch-review errors and unverified
-semantic coverage findings block local acceptance telemetry, but never block the
-official SWE-bench prediction export. When a `ChangePlan` carries
+`ChangePlan.patch_review.coverage_summary` when present, with
+`ChangePlan.patch_review.findings` retained as a backward-compatible typed
+source: hard patch-review errors and unverified semantic coverage findings block
+local acceptance telemetry, but never block the official SWE-bench prediction
+export. When a `ChangePlan` carries
 `verification_probes[]`, Codrax
 runs those bounded typed probes before any project-level suite; passing probes
 become the local behavior

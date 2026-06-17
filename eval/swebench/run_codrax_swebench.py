@@ -1779,14 +1779,20 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
         return {
             "status": "",
             "hard_block": False,
+            "coverage_verdict": "",
             "reason_codes": [],
             "semantic_unverified_codes": [],
             "finding_count": 0,
             "block_reason": "",
         }
+    coverage_summary = review.get("coverage_summary") if isinstance(review.get("coverage_summary"), dict) else {}
     reason_codes: set[str] = set()
     semantic_unverified: set[str] = set()
-    block_reason = ""
+    for code in coverage_summary.get("reason_codes") or []:
+        code = str(code or "").strip()
+        if code:
+            reason_codes.add(code)
+    block_reason = str(coverage_summary.get("block_reason") or "").strip()
     findings = [row for row in review.get("findings") or [] if isinstance(row, dict)]
     for finding in findings:
         code = str(finding.get("code") or "").strip()
@@ -1812,6 +1818,7 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "status": str(review.get("status") or "").strip(),
         "hard_block": hard_block,
+        "coverage_verdict": str(coverage_summary.get("verdict") or "").strip(),
         "reason_codes": sorted(reason_codes),
         "semantic_unverified_codes": sorted(semantic_unverified),
         "finding_count": len(findings),
@@ -2362,6 +2369,7 @@ def process_instance(
         patch_review_summary = plan_patch_review_summary(plan)
         result["plan_patch_review_status"] = str(patch_review_summary.get("status") or "")
         result["plan_patch_review_hard_block"] = bool(patch_review_summary.get("hard_block"))
+        result["plan_patch_review_coverage_verdict"] = str(patch_review_summary.get("coverage_verdict") or "")
         result["plan_patch_review_reason_codes"] = patch_review_summary.get("reason_codes") or []
         result["plan_patch_review_semantic_unverified_codes"] = (
             patch_review_summary.get("semantic_unverified_codes") or []

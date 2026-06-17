@@ -3910,22 +3910,7 @@ func semanticPatchReviewFollowupNeeded(run *types.WriteWorkflowRun, batchID stri
 }
 
 func patchReviewHasUncoveredSemanticFinding(review *types.PatchReviewRecord) bool {
-	if review == nil {
-		return false
-	}
-	for _, finding := range review.Findings {
-		if finding.Severity != types.PatchReviewSeverityWarning {
-			continue
-		}
-		if finding.Category != types.PatchReviewCategorySemanticCoverage {
-			continue
-		}
-		switch finding.CoverageStatus {
-		case types.PatchReviewCoverageUnverified, types.PatchReviewCoverageUnavailable, types.PatchReviewCoverageUnknown:
-			return true
-		}
-	}
-	return false
+	return types.PatchReviewHasUncoveredSemanticCoverage(review)
 }
 
 func workflowProgressReasonCount(run *types.WriteWorkflowRun, batchID, reasonCode string) int {
