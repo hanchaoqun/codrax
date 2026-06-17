@@ -1774,6 +1774,50 @@ func TestRunWriteControllerWorkflow_AutoExecutableAskUserAppliesPlan(t *testing.
 	}
 }
 
+func TestWritePlanCanProceedWithoutApprovalPauseRequiresCurrentApprovalAuthority(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: types.NewMutableState("approval authority")}}
+	plan := &types.ChangePlan{
+		ID:          "plan-authority",
+		Status:      types.PlanStatusPending,
+		Summary:     "safe edit",
+		TargetPaths: []string{"pkg/fix.py"},
+		Changes: []types.FileChange{{
+			Path:       "pkg/fix.py",
+			Kind:       "modify",
+			NewContent: "value = 1\n",
+		}},
+		Approval: &types.WriteApprovalRecord{
+			Action:       string(writeflow.ApprovalActionAutoExecute),
+			UserDecision: "auto",
+		},
+	}
+	plan.Approval.PlanFingerprint = types.PlanFingerprint(plan)
+	if !o.writePlanCanProceedWithoutApprovalPause(plan) {
+		t.Fatal("current auto approval should allow no-pause apply")
+	}
+	plan.Summary = "changed after approval"
+	if o.writePlanCanProceedWithoutApprovalPause(plan) {
+		t.Fatal("stale approval fingerprint must not allow no-pause apply")
+	}
+	plan.Approval.PlanFingerprint = types.PlanFingerprint(plan)
+	plan.Approval.RecordFingerprint = "tampered-record"
+	if o.writePlanCanProceedWithoutApprovalPause(plan) {
+		t.Fatal("tampered approval record must not allow no-pause apply")
+	}
+	plan.Approval.RecordFingerprint = ""
+	plan.Approval.Action = string(writeflow.ApprovalActionManual)
+	plan.Approval.UserDecision = "required"
+	plan.Approval.PlanFingerprint = types.PlanFingerprint(plan)
+	if o.writePlanCanProceedWithoutApprovalPause(plan) {
+		t.Fatal("manual approval without user decision must not allow no-pause apply")
+	}
+	plan.Approval.UserDecision = "approved"
+	plan.Approval.PlanFingerprint = types.PlanFingerprint(plan)
+	if !o.writePlanCanProceedWithoutApprovalPause(plan) {
+		t.Fatal("current approved manual approval should allow apply")
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionSuppressesRepeatedAskUserFact(t *testing.T) {
 	mu := types.NewMutableState("repeat ask")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}

@@ -3291,12 +3291,16 @@ func (o *Orchestrator) writePlanCanProceedWithoutApprovalPause(plan *types.Chang
 	if plan == nil || !changePlanReadyForApply(plan) || writePlanDeniedByApproval(plan) {
 		return false
 	}
-	fingerprint := types.PlanFingerprint(plan)
-	if writeApprovalRecordAllowsManualApply(plan, fingerprint) {
-		return true
-	}
-	if writePlanNeedsManualApproval(plan) {
-		return false
+	if plan.Approval != nil {
+		approval := writeflow.DeriveApprovalExecutionView(plan)
+		switch approval.State {
+		case writeflow.ApprovalExecutionAutoAllowed:
+			return true
+		case writeflow.ApprovalExecutionManualApproved:
+			return true
+		default:
+			return false
+		}
 	}
 	policy := o.writeApprovalPolicy
 	if policy == "" {
