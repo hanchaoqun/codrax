@@ -213,3 +213,134 @@ func TestEmitChangePlanAcceptsJavaScriptVerificationProbe(t *testing.T) {
 		t.Fatalf("probe language = %q, want javascript", got)
 	}
 }
+
+func TestEmitChangePlanRejectsJavaScriptProbeThatCopiesImplementation(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a JavaScript behaviour",
+		"summary": "Modify widget.js and attach a probe that incorrectly checks a copied local value instead of importing the changed module.",
+		"changes": [
+			{"path": "widget.js", "kind": "modify", "new_content": "exports.value = 42;\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "copied_value", "language": "javascript", "code": "const assert = require('assert'); const value = 42; assert.strictEqual(value, 42);"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected copied JavaScript probe to be rejected, got success: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "changed JavaScript/TypeScript production module") {
+		t.Fatalf("summary should explain JS/TS changed-module coupling, got: %s", res.Summary)
+	}
+}
+
+func TestEmitChangePlanAcceptsJavaScriptProbeImportingPackageName(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = t.TempDir()
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, "package.json"), []byte(`{"name":"@codrax/widgets"}`), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	params := json.RawMessage(`{
+		"request": "fix a TypeScript public package behaviour",
+		"summary": "Modify src/widget.ts and verify through the package public entrypoint declared in package.json.",
+		"changes": [
+			{"path": "src/widget.ts", "kind": "modify", "new_content": "export const value = 42;\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "package_value", "language": "javascript", "code": "const assert = require('assert'); const widget = require('@codrax/widgets'); assert.strictEqual(widget.value, 42);"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected package-entrypoint JavaScript probe to be accepted, got: %s", res.Summary)
+	}
+}
+
+func TestEmitChangePlanRejectsRubyProbeThatCopiesImplementation(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a Ruby behaviour",
+		"summary": "Modify lib/widget.rb and attach a probe that incorrectly checks a copied local constant.",
+		"changes": [
+			{"path": "lib/widget.rb", "kind": "modify", "new_content": "module Widget\n  VALUE = 42\nend\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "copied_value", "language": "ruby", "code": "value = 42\nraise 'wrong' unless value == 42\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected copied Ruby probe to be rejected, got success: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "Ruby import/require declarations") {
+		t.Fatalf("summary should explain Ruby changed-module coupling, got: %s", res.Summary)
+	}
+}
+
+func TestEmitChangePlanAcceptsRubyProbeRequiringChangedModule(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a Ruby behaviour",
+		"summary": "Modify lib/widget.rb and verify through require of the changed library module.",
+		"changes": [
+			{"path": "lib/widget.rb", "kind": "modify", "new_content": "module Widget\n  VALUE = 42\nend\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "required_value", "language": "ruby", "code": "require 'widget'\nraise 'wrong' unless Widget::VALUE == 42\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected changed-module Ruby probe to be accepted, got: %s", res.Summary)
+	}
+}
+
+func TestValidateVerificationProbeCouplingForGoModuleImports(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/probe\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	ctx := &types.BusContext{RepoRoot: root}
+	changes := []types.FileChange{{
+		Path:       "internal/widget/widget.go",
+		Kind:       "modify",
+		NewContent: "package widget\n\nfunc Value() int { return 42 }\n",
+	}}
+	copiedProbe := []types.VerificationProbe{{
+		ID:       "copied_value",
+		Language: "go",
+		Code:     "package main\n\nimport \"fmt\"\n\nfunc main() { if 42 != 42 { panic(fmt.Sprint(\"wrong\")) } }\n",
+	}}
+	if rej := validateVerificationProbeCoupling(ctx, changes, copiedProbe); !strings.Contains(rej, "changed Go production module") {
+		t.Fatalf("expected copied Go probe rejection, got: %q", rej)
+	}
+	importingProbe := []types.VerificationProbe{{
+		ID:       "module_value",
+		Language: "go",
+		Code:     "package main\n\nimport \"example.com/probe/internal/widget\"\n\nfunc main() { if widget.Value() != 42 { panic(\"wrong\") } }\n",
+	}}
+	if rej := validateVerificationProbeCoupling(ctx, changes, importingProbe); rej != "" {
+		t.Fatalf("expected Go probe importing changed package to pass, got: %s", rej)
+	}
+}

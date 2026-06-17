@@ -116,7 +116,7 @@ func TestEmitPlanChange_FinalizeRejectsPythonProbeNotImportingChangedTarget(t *t
 	if res.Success {
 		t.Fatal("expected finalize to reject copied implementation probe")
 	}
-	if !strings.Contains(res.Summary, "do not import any changed Python production module") {
+	if !strings.Contains(res.Summary, "do not reference any changed Python production module") {
 		t.Fatalf("summary should explain changed-module probe coupling, got: %s", res.Summary)
 	}
 	if bus.Mutable.ChangePlan() != nil {

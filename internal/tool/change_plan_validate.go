@@ -2,6 +2,7 @@ package tool
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -290,7 +291,7 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej := validateVerificationProbeContractRefs(ctx, verificationProbes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "verification_probe_contract_refs_failed", rej, []string{"$.verification_probes[].contract_refs", "$.changes[].verification_probes[].contract_refs"}, nil)
 	}
-	if rej := validatePythonVerificationProbeCoupling(ctx.RepoRoot, changes, verificationProbes); rej != "" {
+	if rej := validateVerificationProbeCoupling(ctx, changes, verificationProbes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "verification_probe_coupling_failed", rej, []string{"$.verification_probes[].code", "$.verification_probes[].changed_symbol_refs"}, nil)
 	}
 	return "", nil
@@ -442,39 +443,106 @@ func looksLikeCatastrophicFullModifyShrink(oldLines, newLines, oldByteLen, newBy
 	return lineShrink || byteShrink
 }
 
-func validatePythonVerificationProbeCoupling(repoRoot string, changes []types.FileChange, probes []types.VerificationProbe) string {
+type verificationProbeCouplingProvider struct {
+	Language       string
+	DisplayName    string
+	TargetProducer func(repoRoot string, changes []types.FileChange) map[string]struct{}
+	ProbeRefs      func(probe types.VerificationProbe) map[string]struct{}
+	Covers         func(ref, target string) bool
+}
+
+var verificationProbeCouplingProviders = []verificationProbeCouplingProvider{
+	{
+		Language:       "python",
+		DisplayName:    "Python",
+		TargetProducer: pythonProductionModuleCandidatesWithRepo,
+		ProbeRefs:      func(probe types.VerificationProbe) map[string]struct{} { return pythonImportDeclarations(probe.Code) },
+		Covers:         pythonImportCoversTarget,
+	},
+	{
+		Language:       "javascript",
+		DisplayName:    "JavaScript/TypeScript",
+		TargetProducer: javascriptProductionModuleCandidates,
+		ProbeRefs:      javascriptImportDeclarations,
+		Covers:         slashModuleRefCoversTarget,
+	},
+	{
+		Language:       "ruby",
+		DisplayName:    "Ruby",
+		TargetProducer: rubyProductionModuleCandidates,
+		ProbeRefs:      rubyRequireDeclarations,
+		Covers:         rubyRequireCoversTarget,
+	},
+	{
+		Language:       "go",
+		DisplayName:    "Go",
+		TargetProducer: goProductionPackageCandidates,
+		ProbeRefs:      goImportDeclarations,
+		Covers:         goImportCoversTarget,
+	},
+}
+
+func validateVerificationProbeCoupling(ctx *types.BusContext, changes []types.FileChange, probes []types.VerificationProbe) string {
 	if len(probes) == 0 {
 		return ""
 	}
-	targets := pythonProductionModuleCandidates(changes)
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	for _, provider := range verificationProbeCouplingProviders {
+		if rej := validateVerificationProbeCouplingForProvider(repoRoot, changes, probes, provider); rej != "" {
+			return rej
+		}
+	}
+	return ""
+}
+
+func validateVerificationProbeCouplingForProvider(repoRoot string, changes []types.FileChange, probes []types.VerificationProbe, provider verificationProbeCouplingProvider) string {
+	if provider.Language == "" || provider.TargetProducer == nil || provider.ProbeRefs == nil || provider.Covers == nil {
+		return ""
+	}
+	targets := provider.TargetProducer(repoRoot, changes)
 	if len(targets) == 0 {
 		return ""
 	}
-	pythonProbeCount := 0
-	importsSeen := map[string]struct{}{}
+	probeCount := 0
+	refsSeen := map[string]struct{}{}
 	for _, probe := range probes {
-		if strings.ToLower(strings.TrimSpace(probe.Language)) != "python" {
+		language, ok := normalizeVerificationProbeLanguage(probe.Language)
+		if !ok || language != provider.Language {
 			continue
 		}
-		pythonProbeCount++
-		imports := pythonImportDeclarations(probe.Code)
-		if len(imports) == 0 {
+		probeCount++
+		refs := provider.ProbeRefs(probe)
+		if len(refs) == 0 {
 			continue
 		}
-		for imported := range imports {
-			importsSeen[imported] = struct{}{}
+		for ref := range refs {
+			refsSeen[ref] = struct{}{}
 		}
-		if pythonImportsCoverAnyTarget(imports, targets) || pythonImportsCoverRepoLocalPublicPackage(repoRoot, changes, imports) {
+		if probeRefsCoverAnyTarget(refs, targets, provider.Covers) {
 			return ""
 		}
 	}
-	if pythonProbeCount == 0 {
+	if probeCount == 0 {
 		return ""
 	}
-	if len(importsSeen) == 0 {
-		return fmt.Sprintf("verification_probes do not include any Python import declarations for changed production modules %s; at least one Python probe must import the changed module under test instead of checking an isolated copy", formatStringSet(targets))
+	if len(refsSeen) == 0 {
+		return fmt.Sprintf("verification_probes do not include any %s import/require declarations for changed production modules %s; at least one %s probe must import or require the changed module under test instead of checking an isolated copy", provider.DisplayName, formatStringSet(targets), provider.DisplayName)
 	}
-	return fmt.Sprintf("verification_probes import %s but do not import any changed Python production module %s; at least one Python probe must exercise the changed code, not a copied implementation fragment", formatStringSet(importsSeen), formatStringSet(targets))
+	return fmt.Sprintf("verification_probes reference %s but do not reference any changed %s production module %s; at least one %s probe must exercise the changed code, not a copied implementation fragment", formatStringSet(refsSeen), provider.DisplayName, formatStringSet(targets), provider.DisplayName)
+}
+
+func probeRefsCoverAnyTarget(refs, targets map[string]struct{}, covers func(ref, target string) bool) bool {
+	for target := range targets {
+		for ref := range refs {
+			if covers(ref, target) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 const pythonDuplicateDefinitionStutterMaxGap = 6
@@ -1046,6 +1114,89 @@ func pythonProductionModuleCandidates(changes []types.FileChange) map[string]str
 	return out
 }
 
+func pythonProductionModuleCandidatesWithRepo(repoRoot string, changes []types.FileChange) map[string]struct{} {
+	out := pythonProductionModuleCandidates(changes)
+	for publicPackage := range pythonRepoLocalPublicPackagesForChanges(repoRoot, changes) {
+		out[publicPackage] = struct{}{}
+	}
+	return out
+}
+
+func javascriptProductionModuleCandidates(repoRoot string, changes []types.FileChange) map[string]struct{} {
+	out := slashProductionModuleCandidates(changes, map[string]bool{
+		".js": true, ".jsx": true, ".mjs": true, ".cjs": true,
+		".ts": true, ".tsx": true, ".mts": true, ".cts": true,
+	})
+	if len(out) == 0 {
+		return out
+	}
+	if name := packageJSONName(repoRoot); name != "" {
+		out[normalizeSlashModuleRef(name)] = struct{}{}
+	}
+	return out
+}
+
+func rubyProductionModuleCandidates(_ string, changes []types.FileChange) map[string]struct{} {
+	return slashProductionModuleCandidates(changes, map[string]bool{".rb": true})
+}
+
+func slashProductionModuleCandidates(changes []types.FileChange, exts map[string]bool) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, change := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if path == "" || types.LooksLikeTestFilePath(path) {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if !exts[ext] {
+			continue
+		}
+		for _, candidate := range slashModuleCandidatesForPath(path) {
+			out[candidate] = struct{}{}
+		}
+	}
+	return out
+}
+
+func slashModuleCandidatesForPath(relPath string) []string {
+	relPath = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(relPath)), "./")
+	ext := filepath.Ext(relPath)
+	if ext != "" {
+		relPath = strings.TrimSuffix(relPath, ext)
+	}
+	relPath = strings.TrimSuffix(relPath, "/index")
+	relPath = strings.TrimSuffix(relPath, "/__init__")
+	relPath = strings.Trim(relPath, "/")
+	if relPath == "" {
+		return nil
+	}
+	candidates := []string{normalizeSlashModuleRef(relPath)}
+	for _, root := range []string{"src/", "lib/", "app/"} {
+		if strings.HasPrefix(relPath, root) && len(relPath) > len(root) {
+			candidates = append(candidates, normalizeSlashModuleRef(strings.TrimPrefix(relPath, root)))
+		}
+	}
+	return uniqueNonEmptyStrings(candidates)
+}
+
+func packageJSONName(repoRoot string) string {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, "package.json"))
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Name)
+}
+
 func pythonModuleCandidatesForPath(relPath string) []string {
 	relPath = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(relPath)), "./")
 	if !strings.HasSuffix(relPath, ".py") {
@@ -1115,6 +1266,115 @@ func parsePythonImportDeclaration(line string, out map[string]struct{}) {
 	}
 }
 
+func javascriptImportDeclarations(probe types.VerificationProbe) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, line := range strings.Split(probe.Code, "\n") {
+		line = strings.TrimSpace(stripCLikeLineComment(line))
+		if line == "" {
+			continue
+		}
+		collectQuotedCallArgs(line, "require(", out, normalizeSlashModuleRef)
+		collectQuotedCallArgs(line, "import(", out, normalizeSlashModuleRef)
+		if strings.HasPrefix(line, "import ") {
+			if idx := strings.LastIndex(line, " from "); idx >= 0 {
+				addNormalizedQuotedString(line[idx+len(" from "):], out, normalizeSlashModuleRef)
+				continue
+			}
+			addNormalizedQuotedString(line, out, normalizeSlashModuleRef)
+		}
+	}
+	return out
+}
+
+func rubyRequireDeclarations(probe types.VerificationProbe) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, line := range strings.Split(probe.Code, "\n") {
+		line = strings.TrimSpace(stripPythonLineComment(line))
+		for _, keyword := range []string{"require_relative", "require", "load"} {
+			if !strings.HasPrefix(line, keyword) {
+				continue
+			}
+			rest := strings.TrimSpace(strings.TrimPrefix(line, keyword))
+			addNormalizedQuotedString(rest, out, normalizeSlashModuleRef)
+		}
+	}
+	return out
+}
+
+func goProductionPackageCandidates(repoRoot string, changes []types.FileChange) map[string]struct{} {
+	out := map[string]struct{}{}
+	module := goModulePath(repoRoot)
+	for _, change := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if path == "" || !strings.HasSuffix(path, ".go") || types.LooksLikeTestFilePath(path) {
+			continue
+		}
+		dir := strings.Trim(filepath.ToSlash(filepath.Dir(path)), "/")
+		if dir == "." {
+			dir = ""
+		}
+		if dir != "" {
+			out[dir] = struct{}{}
+		}
+		if module != "" {
+			if dir == "" {
+				out[module] = struct{}{}
+			} else {
+				out[module+"/"+dir] = struct{}{}
+			}
+		}
+	}
+	return out
+}
+
+func goImportDeclarations(probe types.VerificationProbe) map[string]struct{} {
+	out := map[string]struct{}{}
+	inBlock := false
+	for _, line := range strings.Split(probe.Code, "\n") {
+		line = strings.TrimSpace(stripCLikeLineComment(line))
+		if line == "" {
+			continue
+		}
+		if inBlock {
+			if strings.HasPrefix(line, ")") {
+				inBlock = false
+				continue
+			}
+			addNormalizedQuotedString(line, out, strings.TrimSpace)
+			continue
+		}
+		if !strings.HasPrefix(line, "import") {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "import"))
+		if strings.HasPrefix(rest, "(") {
+			inBlock = true
+			addNormalizedQuotedString(strings.TrimSpace(strings.TrimPrefix(rest, "(")), out, strings.TrimSpace)
+			continue
+		}
+		addNormalizedQuotedString(rest, out, strings.TrimSpace)
+	}
+	return out
+}
+
+func goModulePath(repoRoot string) string {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		}
+	}
+	return ""
+}
+
 func stripPythonLineComment(line string) string {
 	var quote rune
 	escaped := false
@@ -1142,6 +1402,104 @@ func stripPythonLineComment(line string) string {
 		}
 	}
 	return line
+}
+
+func stripCLikeLineComment(line string) string {
+	var quote rune
+	escaped := false
+	for i, r := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '\'' || r == '"' || r == '`' {
+			quote = r
+			continue
+		}
+		if r == '/' && i+1 < len(line) && line[i+1] == '/' {
+			return line[:i]
+		}
+	}
+	return line
+}
+
+func collectQuotedCallArgs(line, token string, out map[string]struct{}, normalize func(string) string) {
+	for {
+		idx := strings.Index(line, token)
+		if idx < 0 {
+			return
+		}
+		line = line[idx+len(token):]
+		addNormalizedQuotedString(line, out, normalize)
+	}
+}
+
+func addNormalizedQuotedString(s string, out map[string]struct{}, normalize func(string) string) {
+	value, ok := firstQuotedString(s)
+	if !ok {
+		return
+	}
+	if normalize != nil {
+		value = normalize(value)
+	}
+	value = strings.TrimSpace(value)
+	if value != "" {
+		out[value] = struct{}{}
+	}
+}
+
+func firstQuotedString(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	for i := 0; i < len(s); i++ {
+		quote := s[i]
+		if quote != '\'' && quote != '"' && quote != '`' {
+			continue
+		}
+		var b strings.Builder
+		escaped := false
+		for j := i + 1; j < len(s); j++ {
+			ch := s[j]
+			if escaped {
+				b.WriteByte(ch)
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				return b.String(), true
+			}
+			b.WriteByte(ch)
+		}
+		return "", false
+	}
+	return "", false
+}
+
+func normalizeSlashModuleRef(raw string) string {
+	ref := filepath.ToSlash(strings.TrimSpace(raw))
+	ref = strings.TrimPrefix(ref, "./")
+	for strings.HasPrefix(ref, "../") {
+		ref = strings.TrimPrefix(ref, "../")
+	}
+	for _, ext := range []string{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".rb"} {
+		ref = strings.TrimSuffix(ref, ext)
+	}
+	ref = strings.TrimSuffix(ref, "/index")
+	ref = strings.TrimSuffix(ref, "/__init__")
+	return strings.Trim(ref, "/")
 }
 
 func firstPythonImportToken(part string) string {
@@ -1203,6 +1561,41 @@ func pythonImportCoversTarget(imported, target string) bool {
 		return true
 	}
 	return pythonTopLevelModule(imported) == pythonTopLevelModule(target)
+}
+
+func slashModuleRefCoversTarget(ref, target string) bool {
+	ref = normalizeSlashModuleRef(ref)
+	target = normalizeSlashModuleRef(target)
+	if ref == "" || target == "" {
+		return false
+	}
+	return ref == target || strings.HasPrefix(target, ref+"/")
+}
+
+func rubyRequireCoversTarget(ref, target string) bool {
+	ref = normalizeSlashModuleRef(ref)
+	target = normalizeSlashModuleRef(target)
+	if ref == "" || target == "" {
+		return false
+	}
+	if ref == target || strings.HasPrefix(target, ref+"/") {
+		return true
+	}
+	return slashTopLevel(ref) == slashTopLevel(target)
+}
+
+func goImportCoversTarget(ref, target string) bool {
+	ref = strings.TrimSpace(ref)
+	target = strings.TrimSpace(target)
+	return ref != "" && target != "" && ref == target
+}
+
+func slashTopLevel(name string) string {
+	name = normalizeSlashModuleRef(name)
+	if idx := strings.Index(name, "/"); idx >= 0 {
+		return name[:idx]
+	}
+	return name
 }
 
 func pythonImportsCoverRepoLocalPublicPackage(repoRoot string, changes []types.FileChange, imports map[string]struct{}) bool {

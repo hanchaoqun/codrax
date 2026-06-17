@@ -300,6 +300,62 @@ RC-31 tasks:
 - [x] Run focused controller/types tests, related package regression, full
   regression, and update progress before commit/push.
 
+## 2026-06-18 RC-32 Multi-language Verification Probe Coupling
+
+RC-13 generalized bounded `verification_probes[]` runtime support from Python
+to Python, JavaScript/Node, Ruby, and Go. The remaining proof-quality gap was
+that the hard coupling validator still only checked Python probes. A JS/Ruby/Go
+probe could therefore assert a copied local expression and pass without
+importing or requiring the changed production module. That weakens local
+verification exactly in the customer scenario where full project test runners
+are unavailable.
+
+RC-32 turns the coupling check into a deterministic language provider registry:
+
+```text
+changed production paths + probe.language + probe code import/require surface
+  -> provider targets
+  -> provider references
+  -> changed-module coupling verdict
+```
+
+Design constraints:
+
+- Hard routing consumes only typed plan state and code structure:
+  `FileChange.Path`, source/test path role, `VerificationProbe.Language`, and
+  import/require literals extracted from the probe code.
+- It never reads user intent keywords, issue text, model summary/rationale,
+  stdout prose, or `<think>` output.
+- The validator is conservative: if there is no target for a provider or no
+  probe in that provider language, it does not force a probe. Existing project
+  suite verification remains available.
+- Python keeps its existing public-package exception by adding repo-local
+  public packages as targets.
+- JavaScript/TypeScript targets come from changed source paths plus
+  `package.json.name` when present; references come from `require(...)`,
+  static `import`, and dynamic `import(...)`.
+- Ruby targets come from changed `.rb` paths; references come from
+  `require`, `require_relative`, and `load`.
+- Go targets come from changed package directories plus the module path in
+  `go.mod`; references come from Go import declarations.
+- Future languages add a provider with `TargetProducer`, `ProbeRefs`, and
+  `Covers`, rather than editing scheduler or prompt logic.
+
+RC-32 tasks:
+
+- [x] Replace Python-only probe coupling with `verificationProbeCouplingProvider`
+  registry.
+- [x] Preserve Python changed-module and public-package behavior.
+- [x] Add JavaScript/TypeScript import/require/package-name coupling.
+- [x] Add Ruby require/load coupling.
+- [x] Add Go module import coupling.
+- [x] Add emit-level regressions for JS/Ruby copied probes and accepted coupled
+  probes.
+- [x] Add Go module coupling regression without requiring a local Go compiler.
+- [x] Update user guide Markdown/HTML and progress ledger.
+- [x] Run focused `internal/tool`, related package regression, full regression,
+  SWE adapter smoke, and diff check before commit/push.
+
 ## 2026-06-18 SWE-bench Lite Smoke Audit
 
 Run directory:
@@ -1744,6 +1800,7 @@ Verification:
 | RC-29 | complete | Source-shape provider registry: actual-diff mapping/container boundary and production-test scaffold producers are now declared by deterministic language providers instead of central source-kind switches. Python duplicate/top-level owner checks moved behind provider hooks, current Python/JS/TS/Ruby/Java/Kotlin/Go event behavior is preserved, and registry coverage tests lock unique extension ownership plus required typed rules. Verification: focused writeflow provider tests and related `internal/writeflow ./internal/orchestrator ./internal/types ./internal/tool` tests pass. |
 | RC-30 | complete | Official SWE-bench result summary: added dependency-free `summarize_official_results.py` to normalize official harness run reports or per-instance reports into explicit `resolved/submitted`, `resolved/completed`, and `resolved/total` metrics. The wrapper now passes `REPORT_DIR`, README documents the official scoring flow, and tests cover denominator handling plus CLI JSON output without importing SWE-bench. Verification: system Python and eval-venv tests, adapter unit suite, local SWE-bench smoke, and diff check pass. |
 | RC-31 | complete | Deterministic checkpoint rewind before failed-verify replan: controller now restores the active slice worktree to its typed checkpoint commit before planner replan, records `slice_restored` metadata, rejects external checkpoint paths, and leaves main checkout untouched. This closes the online-convergence state-kernel gap where repair could plan on dirty failed side effects. Verification: focused controller/types restore tests, related orchestrator/types/worktree regression, full `go test ./...`, and diff check pass. |
+| RC-32 | complete | Multi-language verification-probe coupling: the copied-implementation hard gate now uses providers for Python, JavaScript/TypeScript, Ruby, and Go. JS/Ruby/Go probes must import/require the changed production module when a same-language target is present, while Python public-package behavior is preserved. This strengthens bounded local proof in missing-test-runner environments without parsing prose or adding user approvals. Verification: focused tool coupling tests, related tool regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
 
 ## Acceptance Criteria
 

@@ -591,7 +591,7 @@ func TestEmitChangePlan_RejectsPythonProbeThatCopiesImplementationInsteadOfImpor
 	if res.Success {
 		t.Fatal("expected copied implementation probe to be rejected")
 	}
-	if !strings.Contains(res.Summary, "do not import any changed Python production module") {
+	if !strings.Contains(res.Summary, "do not reference any changed Python production module") {
 		t.Fatalf("summary should explain changed-module probe coupling, got: %s", res.Summary)
 	}
 	if plan := ctx.Mutable.ChangePlan(); plan != nil {
