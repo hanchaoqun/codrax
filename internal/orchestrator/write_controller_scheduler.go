@@ -17,6 +17,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
+	writeconvention "github.com/hanchaoqun/codrax/internal/writeflow/convention"
 	writeimpact "github.com/hanchaoqun/codrax/internal/writeflow/impact"
 )
 
@@ -1328,10 +1329,7 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 	}
 	activeSlice, _ := types.ActiveChangePlanApplySlice(plan, run)
 	o.attachActivePatchEffectRecord(plan, activeSlice)
-	var conventionGraph *types.ConventionGraph
-	if handoff := o.busCtx.Mutable.WriteExplorationHandoff(); handoff != nil && handoff.ConventionGraph != nil {
-		conventionGraph = handoff.ConventionGraph
-	}
+	conventionGraph := o.conventionGraphForPatchReview(run, plan)
 	review := writeflow.ReviewAppliedPatchSemantic(writeflow.SemanticPatchReviewInput{
 		Plan:              plan,
 		ActiveSlice:       activeSlice,
@@ -1348,6 +1346,107 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 	}
 	o.persistCurrentChangePlanSnapshot()
 	return review
+}
+
+func (o *Orchestrator) conventionGraphForPatchReview(run *types.WriteWorkflowRun, plan *types.ChangePlan) *types.ConventionGraph {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
+		return nil
+	}
+	var graphs []types.ConventionGraph
+	if handoff := o.busCtx.Mutable.WriteExplorationHandoff(); handoff != nil && handoff.ConventionGraph != nil {
+		graphs = append(graphs, *handoff.ConventionGraph)
+	}
+	graphProvider := writeimpact.GraphProviderFromSearchGraph(o.busCtx.Mutable.SearchGraph())
+	learned := writeconvention.LearnFromGraph(writeconvention.LearnInput{
+		BatchID:       firstNonEmptyController(activeWorkflowRunBatchID(run), "batch-1"),
+		Goal:          firstNonEmptyController(plan.Summary, plan.Request),
+		ActivePaths:   patchReviewConventionActivePaths(plan),
+		ActiveSymbols: patchReviewConventionActiveSymbols(plan),
+		PatchEffect:   plan.PatchEffect,
+		Graph:         graphProvider,
+	})
+	if len(learned.Nodes) > 0 {
+		graphs = append(graphs, learned)
+	}
+	if len(graphs) == 0 {
+		return nil
+	}
+	runID := ""
+	if run != nil {
+		runID = strings.TrimSpace(run.RunID)
+	}
+	merged := writeconvention.Merge(runID, graphs...)
+	if strings.TrimSpace(o.reportDir) != "" && runID != "" {
+		if saved, _, err := writeconvention.NewStore(o.reportDir).MergeAndSave(runID, graphs...); err == nil {
+			merged = saved
+		} else {
+			logging.Warning("[orchestrator] convention learner persist failed: %v", err)
+		}
+	}
+	selected := writeconvention.SelectTopN(merged, patchReviewConventionActivePaths(plan), patchReviewConventionActiveSymbols(plan), 16)
+	if len(selected.Nodes) == 0 {
+		return nil
+	}
+	return &selected
+}
+
+func activeWorkflowRunBatchID(run *types.WriteWorkflowRun) string {
+	if run == nil {
+		return ""
+	}
+	return strings.TrimSpace(run.ActiveBatchID)
+}
+
+func patchReviewConventionActivePaths(plan *types.ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	var paths []string
+	paths = append(paths, plan.AppliedPaths...)
+	paths = append(paths, plan.TargetPaths...)
+	if plan.PatchEffect != nil {
+		for _, file := range plan.PatchEffect.Files {
+			paths = append(paths, file.Path, file.OldPath)
+		}
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, raw := range paths {
+		path := normalizeControllerPath(raw)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	return out
+}
+
+func patchReviewConventionActiveSymbols(plan *types.ChangePlan) []string {
+	if plan == nil || plan.ImpactAnalysis == nil {
+		return nil
+	}
+	analysis := types.NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
+	seen := map[string]bool{}
+	var out []string
+	for _, surface := range analysis.ChangedSurfaces {
+		symbol := strings.TrimSpace(surface.Symbol)
+		if symbol == "" || seen[symbol] {
+			continue
+		}
+		seen[symbol] = true
+		out = append(out, symbol)
+	}
+	return out
+}
+
+func normalizeControllerPath(raw string) string {
+	path := filepath.ToSlash(strings.TrimSpace(raw))
+	path = strings.TrimPrefix(path, "./")
+	if path == "." {
+		return ""
+	}
+	return path
 }
 
 func (o *Orchestrator) attachActivePatchEffectRecord(plan *types.ChangePlan, activeSlice types.ChangePlanSlice) *types.PatchEffectRecord {

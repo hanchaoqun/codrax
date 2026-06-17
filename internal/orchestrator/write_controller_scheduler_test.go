@@ -2001,6 +2001,64 @@ func TestReviewActiveAppliedPatchScopePersistsHardBlock(t *testing.T) {
 	}
 }
 
+func TestReviewActiveAppliedPatchScopeLearnsPatchConvention(t *testing.T) {
+	mu := types.NewMutableState("patch convention learner")
+	plan := &types.ChangePlan{
+		ID:           "plan-convention",
+		Status:       types.PlanStatusAppliedPendingVerify,
+		TargetPaths:  []string{"pkg/a.py"},
+		AppliedPaths: []string{"pkg/a.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			RecordID: "patch-effect:plan-convention:slice-001:abcdef123456",
+			Files: []types.PatchEffectFile{{
+				Path:     "pkg/a.py",
+				Status:   "modified",
+				Language: "py",
+				PathRole: types.SourcePathRoleProduction,
+			}},
+		},
+		Slices: []types.ChangePlanSlice{{
+			ID:            "slice-001",
+			Status:        types.ChangePlanSliceObserving,
+			ChangeIndexes: []int{0},
+			Paths:         []string{"pkg/a.py"},
+		}},
+	}
+	mu.SetChangePlan(plan)
+	reportDir := t.TempDir()
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}, reportDir: reportDir}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-convention-review",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchVerifying,
+			PlanID:        "plan-convention",
+			ActiveSliceID: "slice-001",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-001",
+				Status: types.ChangePlanSliceObserving,
+				PlanID: "plan-convention",
+				Paths:  []string{"pkg/a.py"},
+			}},
+		}},
+	}
+	review := o.reviewActiveAppliedPatchScope(run, plan)
+	if review.HardBlock {
+		t.Fatalf("convention learner finding must not hard block: %+v", review)
+	}
+	if !patchReviewRecordHasFinding(review, "convention_surface_available") {
+		t.Fatalf("learned convention finding missing: %+v", review.Findings)
+	}
+	if _, err := os.Stat(filepath.Join(reportDir, "workflows", "knowledge", "wf-convention-review", "conventions.json")); err != nil {
+		t.Fatalf("learned convention graph should be persisted: %v", err)
+	}
+	if !workflowRunContextContains(run, "patch_review_finding", "category=convention") {
+		t.Fatalf("workflow context should carry convention advisory finding: %+v", run.ContextPacks)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionSuppressesRepeatedAskUserFact(t *testing.T) {
 	mu := types.NewMutableState("repeat ask")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
@@ -2688,6 +2746,15 @@ func workflowRunContextContains(run *types.WriteWorkflowRun, kind, substring str
 			if item.Kind == kind && strings.Contains(item.Text, substring) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func patchReviewRecordHasFinding(review types.PatchReviewRecord, code string) bool {
+	for _, finding := range review.Findings {
+		if finding.Code == code {
+			return true
 		}
 	}
 	return false

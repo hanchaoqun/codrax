@@ -324,6 +324,6 @@ at a nearby test or dependent, but they cannot force approval or denial.
 | 0 | complete | Design ledger created after code audit and pushed to `main` in `914ed17b`. |
 | 1 | complete | Patch Critic v2 typed finding model landed: `PatchReviewFinding` now carries category, relation, related path, subject symbol, strength, and coverage status; post-apply review consumes actual patch effect plus impact/convention typed inputs; semantic follow-up is driven by typed semantic coverage findings instead of specific event-code combinations. |
 | 2 | complete | ImpactAnalysisResult engine landed: `ChangePlan` now persists durable changed surfaces, impact edges, ranked verification targets, and the compact obligation projection; controller post-apply observe stamps the result from actual `PatchEffectRecord` plus repo graph; context packs expose P1 changed surfaces and P2 verification targets; Patch Critic can consume the result as its semantic coverage source. |
-| 3 | pending | Convention repository learner. |
+| 3 | complete | Convention repository learner landed: post-apply review now learns repository-backed soft convention nodes from actual patch surfaces plus typed graph imports/reverse-imports/related tests, merges them with exploration handoff conventions, persists them through the existing convention store, and exposes convention advisory findings without making conventions hard-gate authority. |
 | 4 | pending | Controller observe integration. |
 | 5 | pending | Commercial hardening and eval runs. |
