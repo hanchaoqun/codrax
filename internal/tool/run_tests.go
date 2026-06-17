@@ -3593,13 +3593,27 @@ func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFil
 		args := append(append([]string{}, fixedArgs...), "-m", "py_compile", f)
 		cmd := exec.Command(exePath, args...)
 		cmd.Dir = runnerRoot
+		cmd.Env = pythonPreflightEnv()
 		out, err := cmd.CombinedOutput()
 		rel, relErr := filepath.Rel(runnerRoot, f)
 		if relErr != nil {
 			rel = f
 		}
 		if err == nil {
-			output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
+			staticDetail, staticOK := runPythonStaticNameCheck(exePath, fixedArgs, runnerRoot, f)
+			if staticOK {
+				output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
+				continue
+			}
+			failures = append(failures, types.TestResult{
+				Kind:          types.TestResultKindBuildError,
+				Suite:         "python_static_name_check",
+				AssertionID:   rel,
+				Passed:        false,
+				FailureDetail: staticDetail,
+			})
+			output.WriteString(fmt.Sprintf("  FAIL  %s: python static name check\n%s\n", rel,
+				truncateForLog(staticDetail, 300)))
 			continue
 		}
 		failureDetail := strings.TrimSpace(string(out))
@@ -3635,12 +3649,95 @@ func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFil
 			len(failures), len(pyFiles))
 	}
 	return &types.ChangeReport{
-		Passed:         false,
-		BuildFailed:    true,
-		FailureSummary: summary,
-		FailureKind:    types.FailureKindBuildFailure,
-		TestResults:    failures,
+		Passed:            false,
+		BuildFailed:       true,
+		FailureSummary:    summary,
+		FailureKind:       types.FailureKindBuildFailure,
+		FailureReasonCode: pythonStaticNameFailureReason(failures),
+		TestResults:       failures,
 	}, output.String()
+}
+
+func pythonStaticNameFailureReason(failures []types.TestResult) string {
+	for _, failure := range failures {
+		if failure.Suite == "python_static_name_check" {
+			return "python_static_undefined_name"
+		}
+	}
+	return ""
+}
+
+const pythonStaticNameCheckScript = `
+import builtins
+import pathlib
+import symtable
+import sys
+
+path = pathlib.Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+table = symtable.symtable(source, str(path), "exec")
+builtin_names = set(dir(builtins))
+
+def defs_for(tbl):
+    out = set()
+    for sym in tbl.get_symbols():
+        if sym.is_assigned() or sym.is_imported() or sym.is_parameter() or sym.is_namespace():
+            out.add(sym.get_name())
+    return out
+
+module_defs = defs_for(table)
+issues = []
+
+def walk(tbl, visible, qualname):
+    local_defs = defs_for(tbl)
+    current_visible = set(visible) | local_defs
+    for sym in tbl.get_symbols():
+        name = sym.get_name()
+        if not sym.is_referenced():
+            continue
+        if name in builtin_names or name in local_defs:
+            continue
+        if sym.is_free() or sym.is_nonlocal():
+            continue
+        if sym.is_global():
+            if name in module_defs or name in builtin_names:
+                continue
+            issues.append(f"{qualname}: undefined global name {name!r}")
+            continue
+        if name in current_visible:
+            continue
+        issues.append(f"{qualname}: undefined name {name!r}")
+    for child in tbl.get_children():
+        walk(child, current_visible, child.get_name())
+
+walk(table, module_defs | builtin_names, "<module>")
+if issues:
+    print("\n".join(sorted(set(issues))))
+    sys.exit(1)
+`
+
+func runPythonStaticNameCheck(exePath string, fixedArgs []string, runnerRoot, file string) (string, bool) {
+	args := append(append([]string{}, fixedArgs...), "-c", pythonStaticNameCheckScript, file)
+	cmd := exec.Command(exePath, args...)
+	cmd.Dir = runnerRoot
+	cmd.Env = pythonPreflightEnv()
+	out, err := cmd.CombinedOutput()
+	detail := strings.TrimSpace(string(out))
+	if err == nil {
+		return detail, true
+	}
+	if detail == "" {
+		detail = err.Error()
+	}
+	return detail, false
+}
+
+func pythonPreflightEnv() []string {
+	env := os.Environ()
+	if strings.TrimSpace(os.Getenv("PYTHONPYCACHEPREFIX")) == "" {
+		env = append(env, "PYTHONPYCACHEPREFIX="+filepath.Join(os.TempDir(), "codrax-pycache"))
+	}
+	return env
 }
 
 // warningPassedReport synthesises a Passed=true ChangeReport that

@@ -1828,6 +1828,130 @@ Backlog from this regression:
 - No broad new dependencies; prefer existing Go stdlib and current
   `gopkg.in/yaml.v3` allowance.
 
+## 2026-06-17 SWE-bench Adapter And Python Verify Preflight Audit
+
+SWE-bench Lite follow-up runs produced two distinct system lessons:
+
+- progress telemetry is part of the product harness and must fail soft;
+- missing pytest or project dependencies must not block patch export, but
+  local verification still needs cheap deterministic preflight checks that
+  catch code-shape failures before an unavailable project runner hides them.
+
+The first fix hardens the SWE-bench adapter progress path. Workflow heartbeats
+now read durable workflow JSON when available, but any race or missing workflow
+state renders as:
+
+```text
+workflow=unavailable reason=workflow_progress_unavailable
+```
+
+The generic streaming callback fallback similarly renders:
+
+```text
+workflow=unavailable reason=progress_callback_unavailable
+```
+
+No exception class name is surfaced as control state. Raw Codrax output remains
+fully preserved in `codrax.out` for transparency, including visible reasoning
+text. The adapter only uses typed workflow/artifact files for predictions,
+status, audit, and progress.
+
+The second fix extends the Python fallback verification lane. When no test
+infrastructure is available or a project runner cannot be used, Codrax already
+runs `py_compile` on plan-touched Python files. That lane now also runs a
+stdlib `symtable` static-name preflight with the same interpreter. The check
+is intentionally generic:
+
+- it reads only parsed Python symbol tables, builtins, imports, parameters,
+  assignments, namespaces, and global/free/nonlocal symbol properties;
+- it does not inspect issue text, benchmark ids, user keywords, model
+  rationale, `<think>`, stdout prose, or natural-language summaries;
+- it emits a typed `ChangeReport` build failure with suite
+  `python_static_name_check` and reason code `python_static_undefined_name`;
+- it sets `PYTHONPYCACHEPREFIX` to a Codrax temp cache when the operator has
+  not provided one, so customer machines with unwritable default Python cache
+  directories do not turn preflight into a false infrastructure failure.
+
+Manual audit driver:
+
+- `pytest-dev__pytest-5227` exported a non-empty `predicted_unverified` patch.
+  The patch directly changed `DEFAULT_LOG_FORMAT` to the requested format, and
+  local verify remained unavailable due pytest startup/import infrastructure.
+  This is acceptable: missing local dependencies lower confidence but do not
+  hard-block a harness-consumable patch.
+- `pallets__flask-4045` initially exported a non-empty
+  `predicted_unverified` patch that was manually wrong: it introduced `if
+  name:` inside `Blueprint.add_url_rule` where `name` is undefined instead of
+  validating blueprint names at construction. This is not a Flask-specific
+  gap. It is a general verification-floor gap: unavailable project tests must
+  not hide deterministic source-shape errors in touched Python files.
+
+Validation already completed for this batch before the SWE-bench re-run:
+
+```bash
+GOCACHE=/private/tmp/codrax-gocache go test ./internal/tool \
+  -run 'TestRunPyCompileFallback|TestRunTestsPythonSyntaxPreflightFailsBeforeProjectRunner|TestVerificationConfidenceRecordsFromUnavailableAndSyntaxFallback'
+PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache \
+  python3 eval/swebench/run_codrax_swebench_test.py
+PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache \
+  bash eval/swebench/smoke_local.sh
+```
+
+Expected commercial behavior after the fix:
+
+- a patch with a deterministic Python undefined-name failure must enter the
+  failed-verify/replan lane instead of being treated as merely unverified;
+- unavailable pytest/project dependencies still export a patch with explicit
+  low-confidence audit metadata when no deterministic source failure is found;
+- official SWE-bench predictions remain valid JSONL and harness-consumable;
+- no new dependency is introduced.
+
+Post-fix SWE-bench Lite re-run:
+
+```bash
+INSTANCE_ID=pallets__flask-4045 SWEBENCH_SMOKE_LIMIT=1 \
+SWEBENCH_PREPARE_PYTHON_ENV=0 \
+WORKDIR=eval/results/swebench/lite-smoke-20260617-after-static-name-flask4045 \
+MAX_STEPS=50 CODRAX_TIMEOUT=1800 \
+PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache eval/swebench/smoke_lite.sh
+```
+
+Result:
+
+- Official JSONL validation passed: `validated 1 prediction(s); empty_patch=0`.
+- Official harness dry-run command was emitted for the generated prediction.
+- The exported patch edits `src/flask/blueprints.py` at `Blueprint.__init__`
+  and rejects names containing `"."` before calling `super().__init__`.
+- Local verification remains `predicted_unverified` with
+  `verification_probe_module_not_found` because the checkout lacks
+  `markupsafe`; this is a dependency-environment confidence downgrade, not a
+  hard local rejection.
+- Manual audit: the previous wrong-layer `add_url_rule` / undefined `name`
+  patch did not recur. The patch now matches the issue's behavioral owner
+  boundary and is harness-consumable.
+
+Additional no-regression Lite re-run:
+
+```bash
+INSTANCE_ID=pytest-dev__pytest-5227 SWEBENCH_SMOKE_LIMIT=1 \
+SWEBENCH_PREPARE_PYTHON_ENV=0 \
+WORKDIR=eval/results/swebench/lite-smoke-20260617-after-static-name-pytest5227 \
+MAX_STEPS=50 CODRAX_TIMEOUT=1800 \
+PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache eval/swebench/smoke_lite.sh
+```
+
+Result:
+
+- Official JSONL validation passed: `validated 1 prediction(s); empty_patch=0`.
+- Official harness dry-run command was emitted for the generated prediction.
+- The patch changes exactly `src/_pytest/logging.py::DEFAULT_LOG_FORMAT` to
+  `%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s`, matching the
+  issue's requested format.
+- Local verification remains `predicted_unverified` with
+  `verification_probe_module_not_found` because the checkout lacks the `py`
+  module. The static preflight did not misclassify the valid one-line source
+  patch as a build failure.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1865,3 +1989,5 @@ Backlog from this regression:
 | SK-4a approval-gated effect entry | complete | Wired the no-pause apply predicate to `ApprovalExecutionView`. Budget-boundary auto-apply, ready-plan normalization, and dispatch-error recovery can now proceed without another user/controller pause only when the current approval record matches the active plan fingerprint and is either `auto_allowed` or `manual_approved`. Stale/tampered/manual-required approvals no longer qualify for no-pause apply; apply-pre remains the final hard gate. |
 | SK-5a observation authority | complete | Added `writeflow.ObservationAuthorityView`, a typed post-apply observation gate derived only from `ChangeReport` and durable verify-attempt fields. `ClassifyVerifyAttemptOutcome`, `FinishBlockedReason`, batch completion derivation, `DeriveBatchAttemptState`, and `WorkflowExecutionView` now consume this authority so passing narrative cannot finish, typed code failures force replan, unavailable local verification can finish only through the explicit unverified lane, and unknown/infra verify statuses default to observe-required instead of silently passing. |
 | SK-6a scoped context projection | complete | Added batch/slice scope metadata to `WriteContextItem` plus `ViewForScope`/`ForScope` projections. Agent prompt rendering, planner handoff-read budgeting, and workflow-run context sync now consume the active batch/slice projection, so P0 safety/user constraints still carry forward while stale P2/P3 verify failures from prior batches no longer leak or get renamed into the active batch. Focused tests pin scoped Top-N behavior and durable sync semantics. |
+| SK-7a SWE-bench progress telemetry fallback | complete | Hardened adapter heartbeats so workflow-progress races or callback failures render typed `workflow=unavailable` reasons instead of leaking exception names into progress status. This preserves raw `codrax.out` transparency while keeping eval/UX progress derived from typed workflow state or typed unavailable reasons. Adapter unit tests and local smoke pass. |
+| SK-8a Python static verify preflight | complete | Added a generic stdlib `symtable` undefined-name preflight after `py_compile` in the Python no-test-infra verification lane, with typed suite `python_static_name_check` and reason `python_static_undefined_name`. This came from the `pallets__flask-4045` manual audit, but is implemented as a language-level preflight over parsed symbols, not case routing. Focused Go tests, adapter tests, local smoke, full Go regression, build, and the Flask SWE-bench Lite re-run passed; the wrong-layer undefined-name patch did not recur and the final patch is harness-consumable. |

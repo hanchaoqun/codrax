@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from unittest import mock
 from pathlib import Path
 
 
@@ -404,6 +407,35 @@ class EmptyPatchReasonTests(unittest.TestCase):
         )
 
         self.assertEqual(reason, "workflow_in_progress_empty_patch")
+
+
+class ProgressHeartbeatTests(unittest.TestCase):
+    def test_progress_status_fails_soft_when_workflow_state_is_unavailable(self) -> None:
+        with mock.patch.object(adapter, "load_latest_workflow_run", side_effect=RuntimeError("race")):
+            line = adapter.codrax_progress_status(Path("/tmp/repo"), "inst-1", 12)
+
+        self.assertIn("progress inst-1 elapsed=12s", line)
+        self.assertIn("workflow=unavailable", line)
+        self.assertIn("reason=workflow_progress_unavailable", line)
+        self.assertNotIn("RuntimeError", line)
+
+    def test_streaming_progress_callback_failure_uses_typed_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                result = adapter.run_cmd_streaming_to_file(
+                    [sys.executable, "-c", "import time; time.sleep(1.2)"],
+                    output_path=Path(tmp) / "out.txt",
+                    timeout=5,
+                    progress_interval=1,
+                    progress_fn=lambda _elapsed: (_ for _ in ()).throw(RuntimeError("boom")),
+                )
+
+        self.assertEqual(result.code, 0)
+        line = stderr.getvalue()
+        self.assertIn("workflow=unavailable", line)
+        self.assertIn("reason=progress_callback_unavailable", line)
+        self.assertNotIn("RuntimeError", line)
 
 
 class PredictionAuditBlockTests(unittest.TestCase):

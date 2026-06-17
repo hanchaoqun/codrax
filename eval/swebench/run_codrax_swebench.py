@@ -183,8 +183,11 @@ def run_cmd_streaming_to_file(
                 if progress_fn is not None:
                     try:
                         line = str(progress_fn(int(now - started)) or "").strip()
-                    except Exception as exc:  # pragma: no cover - defensive progress path.
-                        line = f"  progress heartbeat_error={type(exc).__name__}"
+                    except Exception:  # pragma: no cover - defensive progress path.
+                        line = (
+                            f"  progress elapsed={int(now - started)}s "
+                            "workflow=unavailable reason=progress_callback_unavailable"
+                        )
                     if line:
                         print(line, file=sys.stderr, flush=True)
                 next_progress = now + progress_interval
@@ -1122,19 +1125,22 @@ def active_workflow_batch_summary(workflow: dict[str, Any]) -> str:
 
 
 def codrax_progress_status(repo_dir: Path, instance_id: str, elapsed_seconds: int) -> str:
-    workflow, _ = load_latest_workflow_run(repo_dir, repo_dir)
     prefix = f"  progress {instance_id} elapsed={elapsed_seconds}s"
-    if not workflow:
-        return prefix + " workflow=pending"
-    run_status = str(workflow.get("status") or "").strip() or "unknown"
-    batch = active_workflow_batch_summary(workflow)
-    latest = latest_workflow_progress(workflow)
-    parts = [prefix, f"workflow={run_status}"]
-    if batch:
-        parts.append(f"batch={batch}")
-    if latest:
-        parts.append(f"last={latest}")
-    return " ".join(parts)
+    try:
+        workflow, _ = load_latest_workflow_run(repo_dir, repo_dir)
+        if not workflow:
+            return prefix + " workflow=pending"
+        run_status = str(workflow.get("status") or "").strip() or "unknown"
+        batch = active_workflow_batch_summary(workflow)
+        latest = latest_workflow_progress(workflow)
+        parts = [prefix, f"workflow={run_status}"]
+        if batch:
+            parts.append(f"batch={batch}")
+        if latest:
+            parts.append(f"last={latest}")
+        return " ".join(parts)
+    except Exception:
+        return prefix + " workflow=unavailable reason=workflow_progress_unavailable"
 
 
 def run_codrax(

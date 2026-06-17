@@ -287,6 +287,51 @@ func TestRunPyCompileFallback_FailOnSyntaxError(t *testing.T) {
 	}
 }
 
+func TestRunPyCompileFallback_FailsOnUndefinedFunctionName(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python dry-build runner on PATH; skip")
+	}
+	root := t.TempDir()
+	bad := filepath.Join(root, "bad.py")
+	if err := os.WriteFile(bad, []byte("def add_url_rule(endpoint=None):\n    if endpoint:\n        pass\n    if name:\n        pass\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	mu := types.NewMutableState("undefined name")
+	mu.SetChangePlan(&types.ChangePlan{TargetPaths: []string{"bad.py"}})
+	ctx := &types.BusContext{Mutable: mu, MainRepoRoot: root}
+	report, output := runPyCompileFallback(ctx, "python@.", root, []string{bad})
+	if report.Passed {
+		t.Fatalf("undefined name should fail static preflight: report=%+v output=%s", report, output)
+	}
+	if report.FailureReasonCode != "python_static_undefined_name" {
+		t.Fatalf("FailureReasonCode = %q, want python_static_undefined_name; report=%+v", report.FailureReasonCode, report)
+	}
+	if len(report.TestResults) != 1 || report.TestResults[0].Suite != "python_static_name_check" {
+		t.Fatalf("static name check failure row missing: %+v", report.TestResults)
+	}
+	if !strings.Contains(report.TestResults[0].FailureDetail, "undefined global name 'name'") {
+		t.Fatalf("failure detail should name undefined symbol, got %q", report.TestResults[0].FailureDetail)
+	}
+}
+
+func TestRunPyCompileFallback_AllowsDefinedGlobalsAndImports(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python dry-build runner on PATH; skip")
+	}
+	root := t.TempDir()
+	good := filepath.Join(root, "good.py")
+	if err := os.WriteFile(good, []byte("import os\nVALUE = 1\n\ndef ok(path):\n    return os.path.basename(path), VALUE, len(path)\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	mu := types.NewMutableState("defined names")
+	mu.SetChangePlan(&types.ChangePlan{TargetPaths: []string{"good.py"}})
+	ctx := &types.BusContext{Mutable: mu, MainRepoRoot: root}
+	report, output := runPyCompileFallback(ctx, "python@.", root, []string{good})
+	if !report.Passed {
+		t.Fatalf("defined names should pass static preflight: report=%+v output=%s", report, output)
+	}
+}
+
 func TestRunTestsPythonSyntaxPreflightFailsBeforeProjectRunner(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python dry-build runner on PATH; skip")
