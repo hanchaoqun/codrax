@@ -2414,6 +2414,60 @@ func TestAttachPlanContextPackToWorkflowRunPersistsMissingPriorContext(t *testin
 	}
 }
 
+func TestSyncCurrentWriteContextPackToRunKeepsStaleBatchEvidenceOutOfActiveBatch(t *testing.T) {
+	mu := types.NewMutableState("sync scoped context")
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		PackID:      "merged",
+		BatchID:     "batch-1",
+		SourceStage: "verify",
+		Items: []types.WriteContextItem{{
+			Priority:    types.WriteContextP0,
+			Kind:        "constraint",
+			Text:        "preserve public API",
+			SourceStage: "write_analysis",
+			Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+		}, {
+			Priority:    types.WriteContextP2,
+			Kind:        "verify_failure",
+			Text:        "old batch failed",
+			SourceStage: "verify",
+			Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+		}, {
+			BatchID:     "batch-2",
+			Priority:    types.WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/new.py",
+			SourceStage: "explore",
+			Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner},
+		}},
+	})
+	run := types.WriteWorkflowRun{
+		RunID:         "run-1",
+		ActiveBatchID: "batch-2",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+		}, {
+			ID:     "batch-2",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+
+	o.syncCurrentWriteContextPackToRun(&run)
+	merged := types.MergeWriteContextPacks("batch-2", "sync scoped context", run.ContextPacks...)
+	view := merged.ViewForScope(types.WriteConsumerPlanner, 20, "batch-2", "")
+	if !writeContextViewContains(view, "constraint", "preserve public API") {
+		t.Fatalf("global P0 context should persist into active batch: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "target_file", "pkg/new.py") {
+		t.Fatalf("active batch context missing after scoped sync: %+v", view.Items)
+	}
+	if writeContextViewContains(view, "verify_failure", "old batch failed") {
+		t.Fatalf("stale batch failure should not be persisted as active context: %+v", view.Items)
+	}
+}
+
 func TestRunWriteControllerWorkflow_FinishGateRequiresTypedDisposition(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("finish after failed verify")

@@ -15,7 +15,8 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 	if pack == nil {
 		return ""
 	}
-	view := pack.View(consumer, limit)
+	batchID, sliceID := activeWriteContextScope(ctx)
+	view := pack.ViewForScope(consumer, limit, batchID, sliceID)
 	if len(view.Items) == 0 {
 		return ""
 	}
@@ -52,12 +53,33 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 		fmt.Fprintf(&b, "  - %s: %s\n", label, item.Text)
 	}
 	if limit > 0 {
-		all := pack.View(consumer, 0)
+		all := pack.ViewForScope(consumer, 0, batchID, sliceID)
 		if len(all.Items) > len(view.Items) {
 			fmt.Fprintf(&b, "  - ... +%d more context item(s)\n", len(all.Items)-len(view.Items))
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func activeWriteContextScope(ctx *types.AgentContext) (string, string) {
+	if ctx == nil || ctx.Mutable == nil {
+		return "", ""
+	}
+	run := ctx.Mutable.WriteWorkflowRun()
+	if run == nil {
+		return "", ""
+	}
+	batchID := strings.TrimSpace(run.ActiveBatchID)
+	if batchID == "" {
+		return "", ""
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != batchID {
+			continue
+		}
+		return batchID, strings.TrimSpace(batch.ActiveSliceID)
+	}
+	return batchID, ""
 }
 
 func writeContextPackConsumerGuidance(view types.WriteContextView) string {

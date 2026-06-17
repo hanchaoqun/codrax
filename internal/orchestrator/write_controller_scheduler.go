@@ -348,7 +348,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					}
 					o.syncMutablePlanStatusAfterVerify(report, innerErr)
 					o.mirrorActivePlanToImportFile(importedPlanMirror)
-					o.busCtx.Mutable.MergeWriteContextPack(types.WriteContextPackFromChangeReport(report))
+					reportPack := types.WriteContextPackFromChangeReport(report).
+						WithScope(run.ActiveBatchID, activeWorkflowRunSliceID(run, run.ActiveBatchID))
+					o.busCtx.Mutable.MergeWriteContextPack(reportPack)
 					status := writeWorkflowVerifyAttemptStatus(report, innerErr)
 					reason := writeWorkflowVerifyAttemptReason(report, innerErr)
 					updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, status, reason)
@@ -1623,11 +1625,27 @@ func (o *Orchestrator) syncCurrentWriteContextPackToRun(run *types.WriteWorkflow
 	if pack == nil || len(pack.Items) == 0 {
 		return
 	}
-	if strings.TrimSpace(run.ActiveBatchID) != "" {
-		pack.BatchID = strings.TrimSpace(run.ActiveBatchID)
+	activeBatchID := strings.TrimSpace(run.ActiveBatchID)
+	activeSliceID := activeWorkflowRunSliceID(*run, activeBatchID)
+	scoped := pack.ForScope(activeBatchID, activeSliceID)
+	if len(scoped.Items) == 0 {
+		return
 	}
-	*run = upsertWorkflowRunContextPack(*run, *pack)
+	*run = upsertWorkflowRunContextPack(*run, scoped)
 	o.busCtx.Mutable.SetWriteWorkflowRun(run)
+}
+
+func activeWorkflowRunSliceID(run types.WriteWorkflowRun, batchID string) string {
+	batchID = strings.TrimSpace(batchID)
+	if batchID == "" {
+		return ""
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == batchID {
+			return strings.TrimSpace(batch.ActiveSliceID)
+		}
+	}
+	return ""
 }
 
 func (o *Orchestrator) persistWriteWorkflowRun(run *types.WriteWorkflowRun) {
@@ -1673,7 +1691,7 @@ func attachPlanContextPackToWorkflowRun(run types.WriteWorkflowRun, plan *types.
 	}
 	pack := types.WriteContextPackFromChangePlan(plan)
 	if strings.TrimSpace(run.ActiveBatchID) != "" {
-		pack.BatchID = strings.TrimSpace(run.ActiveBatchID)
+		pack = pack.WithScope(strings.TrimSpace(run.ActiveBatchID), activeWorkflowRunSliceID(run, run.ActiveBatchID))
 	}
 	coverage := types.WriteContextPackFromPlanContextCoverage(pack.BatchID, pack.Goal, run.ContextPacks, plan)
 	if len(coverage.Items) > 0 {

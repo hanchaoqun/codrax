@@ -39,6 +39,8 @@ const (
 // artifacts such as ChangePlan, ChangeReport, Approval, and EvidenceRef fields.
 type WriteContextItem struct {
 	ID          string                       `json:"id,omitempty"`
+	BatchID     string                       `json:"batch_id,omitempty"`
+	SliceID     string                       `json:"slice_id,omitempty"`
 	Priority    WriteContextPriority         `json:"priority"`
 	Kind        string                       `json:"kind"`
 	Text        string                       `json:"text"`
@@ -46,6 +48,7 @@ type WriteContextItem struct {
 	SourceID    string                       `json:"source_id,omitempty"`
 	EvidenceRef *WriteExplorationEvidenceRef `json:"evidence_ref,omitempty"`
 	Consumers   []WriteContextConsumer       `json:"consumers,omitempty"`
+	Stale       bool                         `json:"stale,omitempty"`
 }
 
 // WriteContextPack is the bounded handoff artifact shared across the write
@@ -75,6 +78,9 @@ func NormalizeWriteContextPack(in WriteContextPack) WriteContextPack {
 	items := make([]WriteContextItem, 0, len(in.Items))
 	for _, item := range in.Items {
 		item = normalizeWriteContextItem(item)
+		if item.BatchID == "" {
+			item.BatchID = in.BatchID
+		}
 		if item.Text == "" && item.EvidenceRef == nil {
 			continue
 		}
@@ -113,10 +119,16 @@ func MergeWriteContextPacks(batchID, goal string, packs ...WriteContextPack) Wri
 }
 
 func (p WriteContextPack) View(consumer WriteContextConsumer, limit int) WriteContextView {
+	return p.ViewForScope(consumer, limit, "", "")
+}
+
+func (p WriteContextPack) ViewForScope(consumer WriteContextConsumer, limit int, batchID, sliceID string) WriteContextView {
 	p = NormalizeWriteContextPack(p)
+	batchID = trimWriteContextText(batchID)
+	sliceID = trimWriteContextText(sliceID)
 	items := make([]WriteContextItem, 0, len(p.Items))
 	for _, item := range p.Items {
-		if writeContextItemVisibleTo(item, consumer) {
+		if writeContextItemVisibleTo(item, consumer) && writeContextItemVisibleInScope(item, batchID, sliceID) {
 			items = append(items, item)
 		}
 	}
@@ -132,6 +144,46 @@ func (p WriteContextPack) View(consumer WriteContextConsumer, limit int) WriteCo
 		items = writeContextLimitedViewItems(items, consumer, limit)
 	}
 	return WriteContextView{Consumer: consumer, Items: cloneWriteContextItems(items)}
+}
+
+func (p WriteContextPack) ForScope(batchID, sliceID string) WriteContextPack {
+	p = NormalizeWriteContextPack(p)
+	batchID = trimWriteContextText(batchID)
+	sliceID = trimWriteContextText(sliceID)
+	out := WriteContextPack{
+		PackID:      p.PackID,
+		BatchID:     batchID,
+		Goal:        p.Goal,
+		SourceStage: p.SourceStage,
+	}
+	if out.BatchID == "" {
+		out.BatchID = p.BatchID
+	}
+	for _, item := range p.Items {
+		if writeContextItemVisibleInScope(item, batchID, sliceID) {
+			out.Items = append(out.Items, item)
+		}
+	}
+	return NormalizeWriteContextPack(out)
+}
+
+func (p WriteContextPack) WithScope(batchID, sliceID string) WriteContextPack {
+	originalBatchID := trimWriteContextText(p.BatchID)
+	p = NormalizeWriteContextPack(p)
+	batchID = trimWriteContextText(batchID)
+	sliceID = trimWriteContextText(sliceID)
+	if batchID != "" {
+		p.BatchID = batchID
+	}
+	for i := range p.Items {
+		if batchID != "" && (p.Items[i].BatchID == "" || p.Items[i].BatchID == originalBatchID) {
+			p.Items[i].BatchID = batchID
+		}
+		if sliceID != "" && p.Items[i].SliceID == "" {
+			p.Items[i].SliceID = sliceID
+		}
+	}
+	return NormalizeWriteContextPack(p)
 }
 
 func WriteContextPackFromWriteAnalysisIR(ir *WriteAnalysisIR) WriteContextPack {
@@ -582,6 +634,8 @@ func maxInt(a, b int) int {
 
 func normalizeWriteContextItem(in WriteContextItem) WriteContextItem {
 	in.ID = trimWriteContextText(in.ID)
+	in.BatchID = trimWriteContextText(in.BatchID)
+	in.SliceID = trimWriteContextText(in.SliceID)
 	in.Priority = normalizeWriteContextPriority(in.Priority)
 	in.Kind = trimWriteContextText(in.Kind)
 	in.Text = trimWriteContextText(in.Text)
@@ -633,6 +687,24 @@ func writeContextItemVisibleTo(item WriteContextItem, consumer WriteContextConsu
 		}
 	}
 	return false
+}
+
+func writeContextItemVisibleInScope(item WriteContextItem, batchID, sliceID string) bool {
+	if item.Stale && item.Priority != WriteContextP0 {
+		return false
+	}
+	batchID = trimWriteContextText(batchID)
+	sliceID = trimWriteContextText(sliceID)
+	if batchID == "" {
+		return true
+	}
+	if item.BatchID != "" && item.BatchID != batchID && item.Priority != WriteContextP0 {
+		return false
+	}
+	if sliceID != "" && item.SliceID != "" && item.SliceID != sliceID && item.Priority != WriteContextP0 {
+		return false
+	}
+	return true
 }
 
 func normalizeWriteContextPriority(in WriteContextPriority) WriteContextPriority {
@@ -722,6 +794,8 @@ func writeContextItemKey(item WriteContextItem) string {
 		string(item.Priority),
 		item.Kind,
 		item.ID,
+		item.BatchID,
+		item.SliceID,
 		text,
 		item.SourceStage,
 		item.SourceID,

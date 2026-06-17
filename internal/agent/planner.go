@@ -1180,7 +1180,8 @@ func plannerContextHasWriteHandoffMaterial(ctx *types.AgentContext) bool {
 		}
 	}
 	if pack := ctx.Mutable.WriteContextPack(); pack != nil {
-		return plannerExplorationPackLocalizationCount(*pack) > 0
+		batchID, sliceID := activeWriteContextScope(ctx)
+		return plannerExplorationPackLocalizationCount(*pack, batchID, sliceID) > 0
 	}
 	return false
 }
@@ -1195,9 +1196,9 @@ func plannerExplorationHandoffLocalizationCount(handoff types.WriteExplorationHa
 		len(normalized.EvidenceRefs)
 }
 
-func plannerExplorationPackLocalizationCount(pack types.WriteContextPack) int {
+func plannerExplorationPackLocalizationCount(pack types.WriteContextPack, batchID, sliceID string) int {
 	normalized := types.NormalizeWriteContextPack(pack)
-	view := normalized.View(types.WriteConsumerPlanner, 0)
+	view := normalized.ViewForScope(types.WriteConsumerPlanner, 0, batchID, sliceID)
 	count := 0
 	for _, item := range view.Items {
 		stage := strings.TrimSpace(item.SourceStage)
@@ -1325,7 +1326,8 @@ func plannerHandoffSynthesisReadBudget(ctx *types.AgentContext) int {
 		localizationCount += plannerExplorationHandoffLocalizationCount(*handoff)
 	}
 	if pack := ctx.Mutable.WriteContextPack(); pack != nil {
-		localizationCount += plannerExplorationPackLocalizationCount(*pack)
+		batchID, sliceID := activeWriteContextScope(ctx)
+		localizationCount += plannerExplorationPackLocalizationCount(*pack, batchID, sliceID)
 	}
 	if localizationCount > 4 {
 		budget++

@@ -447,6 +447,99 @@ func TestNormalizeWriteContextPackMergesDuplicateConsumerViews(t *testing.T) {
 	}
 }
 
+func TestWriteContextPackScopedViewCarriesP0ButFiltersStaleBatchEvidence(t *testing.T) {
+	oldFailure := WriteContextPack{
+		PackID:      "old-failure",
+		BatchID:     "batch-1",
+		SourceStage: "verify",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP0,
+			Kind:        "constraint",
+			Text:        "do not touch persistence",
+			SourceStage: "write_analysis",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}, {
+			Priority:    WriteContextP2,
+			Kind:        "verify_failure",
+			Text:        "batch-1 red test",
+			SourceStage: "verify",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}},
+	}
+	newTarget := WriteContextPack{
+		PackID:      "new-target",
+		BatchID:     "batch-2",
+		SourceStage: "explore",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/new.py",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}},
+	}
+	view := MergeWriteContextPacks("batch-1", "repair", oldFailure, newTarget).
+		ViewForScope(WriteConsumerPlanner, 10, "batch-2", "")
+	if !writeContextViewContains(view, "constraint", "do not touch persistence") {
+		t.Fatalf("P0 global safety context should carry across batch scope: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "target_file", "pkg/new.py") {
+		t.Fatalf("active batch context should be visible: %+v", view.Items)
+	}
+	if writeContextViewContains(view, "verify_failure", "batch-1 red test") {
+		t.Fatalf("stale batch verify failure leaked into scoped view: %+v", view.Items)
+	}
+}
+
+func TestWriteContextPackScopedViewFiltersStaleItems(t *testing.T) {
+	pack := NormalizeWriteContextPack(WriteContextPack{
+		PackID:  "mixed",
+		BatchID: "batch-1",
+		Items: []WriteContextItem{{
+			Priority:  WriteContextP2,
+			Kind:      "verify_failure",
+			Text:      "old failure",
+			Consumers: []WriteContextConsumer{WriteConsumerPlanner},
+			Stale:     true,
+		}, {
+			Priority:  WriteContextP0,
+			Kind:      "constraint",
+			Text:      "hard boundary",
+			Consumers: []WriteContextConsumer{WriteConsumerPlanner},
+			Stale:     true,
+		}},
+	})
+	view := pack.ViewForScope(WriteConsumerPlanner, 10, "batch-1", "")
+	if writeContextViewContains(view, "verify_failure", "old failure") {
+		t.Fatalf("stale non-P0 item should not render: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "constraint", "hard boundary") {
+		t.Fatalf("stale P0 safety boundary should still render: %+v", view.Items)
+	}
+}
+
+func TestWriteContextPackWithScopeRebasesArtifactPackToWorkflowBatch(t *testing.T) {
+	reportPack := WriteContextPackFromChangeReport(&ChangeReport{
+		PlanID:         "plan-1",
+		Passed:         false,
+		FailureKind:    FailureKindTestsFailed,
+		FailureSummary: "red test",
+	})
+	scoped := reportPack.WithScope("batch-1", "slice-2")
+	view := scoped.ViewForScope(WriteConsumerPlanner, 10, "batch-1", "slice-2")
+	if !writeContextViewContains(view, "verify_failure", "red test") {
+		t.Fatalf("scoped report pack should remain visible to active batch: %+v", view.Items)
+	}
+	if got := scoped.BatchID; got != "batch-1" {
+		t.Fatalf("scoped pack batch id = %q, want batch-1", got)
+	}
+	for _, item := range scoped.Items {
+		if item.BatchID != "batch-1" || item.SliceID != "slice-2" {
+			t.Fatalf("item scope not rebound: %+v", item)
+		}
+	}
+}
+
 func TestWriteContextPackPlannerLimitedViewRetainsVerifyFailureLane(t *testing.T) {
 	manyP0 := WriteContextPack{
 		PackID:      "risk",

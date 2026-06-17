@@ -934,6 +934,9 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	if report != nil {
 		o.saveChangeReport(report)
 		pack := types.WriteContextPackFromChangeReport(report)
+		if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+			pack = pack.WithScope(run.ActiveBatchID, activeWorkflowRunSliceID(*run, run.ActiveBatchID))
+		}
 		if len(pack.Items) > 0 {
 			o.busCtx.Mutable.MergeWriteContextPack(pack)
 		}
