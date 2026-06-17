@@ -160,10 +160,11 @@ Each manual audit row should contain `instance_id` plus `verdict` or
 then emits `manual_audit_*` fields and `local_acceptance_verdict/source`.
 `local_acceptance_verdict=pass` means either typed local verification passed or
 local verification was unavailable/unknown and an explicit manual audit passed.
-True failed local verification and local audit blockers stay `fail`; free-form
-manual notes never drive logic. This combined local acceptance proxy is useful
-for triage dashboards, but it is still not the official SWE-bench score. Only
-the official harness `resolved/total` result should be called pass rate.
+True failed local verification, local audit blockers, and typed manual audit
+`fail` rows stay `fail`; free-form manual notes never drive logic. This combined
+local acceptance proxy is useful for triage dashboards, but it is still not the
+official SWE-bench score. Only the official harness `resolved/total` result
+should be called pass rate.
 When no `--manual-audit-jsonl` is supplied, `manual_audit_verdict` is empty for
 every row. Dashboards should label that as "typed manual audit recorded pass",
 not as a human-audit pass rate; no manual correctness conclusion exists until

@@ -1817,12 +1817,12 @@ def local_acceptance_verdict(
         return "fail", "local_audit_block"
     if status == "failed":
         return "fail", "local_verify"
+    if manual == "fail":
+        return "fail", "manual_audit"
     if status == "passed":
         return "pass", "local_verify"
     if manual == "pass":
         return "pass", "manual_audit"
-    if manual == "fail":
-        return "fail", "manual_audit"
     return "unknown", ""
 
 

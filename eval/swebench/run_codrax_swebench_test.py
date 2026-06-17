@@ -253,6 +253,15 @@ class LocalAcceptanceTests(unittest.TestCase):
 
         self.assertEqual((verdict, source), ("pass", "local_verify"))
 
+    def test_manual_fail_overrides_local_verify_pass(self) -> None:
+        verdict, source = adapter.local_acceptance_verdict(
+            verify_status="passed",
+            prediction_blocks_local_acceptance=False,
+            manual_audit_verdict="fail",
+        )
+
+        self.assertEqual((verdict, source), ("fail", "manual_audit"))
+
     def test_manual_pass_counts_only_when_local_verify_is_not_failed(self) -> None:
         verdict, source = adapter.local_acceptance_verdict(
             verify_status="unavailable",

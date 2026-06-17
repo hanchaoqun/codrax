@@ -762,9 +762,10 @@ Residual strategic backlog:
   acceptance, manual audit must be stored as a per-instance typed
   `manual_audit_verdict` before aggregation, and authoritative verify must use
   the normalized typed `verify_status=passed` verdict rather than raw executor
-  `ChangeReport.passed`. If no typed manual audit rows were supplied, report
-  only "typed manual audit recorded pass = 0"; do not imply a human-audit pass
-  rate or human-audit failure rate;
+  `ChangeReport.passed`. Typed manual audit `fail` is an audit blocker that
+  overrides local verify pass for this internal acceptance proxy. If no typed
+  manual audit rows were supplied, report only "typed manual audit recorded
+  pass = 0"; do not imply a human-audit pass rate or human-audit failure rate;
 - continue manual audits only as evidence discovery. Any fix must still become
   a typed system rule, not a case-specific patch.
 
@@ -2493,3 +2494,4 @@ Commercial design decision:
 | SWE authoritative verify normalization | complete | Fixed the adapter telemetry boundary exposed by historical Lite results where raw `ChangeReport.passed=true` could coexist with `verify_status=unavailable` / no-tests. Future `results.jsonl` sets `verify_passed=true` only when normalized typed `verify_status=passed`; the raw executor bit is preserved as `verify_report_passed_raw`. `local_acceptance_verdict` therefore combines authoritative local verify plus typed manual audit without treating unavailable/no-tests reports as functional passes. |
 | SWE manual audit metric wording | complete | Clarified that an empty `manual_audit_verdict` corpus means no structured human audit rows were recorded. It must be displayed as "typed manual audit recorded pass" rather than "manual audit pass rate", because no per-instance human correctness judgment exists until audit rows are explicitly supplied. |
 | Multi-language syntax diagnostic handoff | complete | Upgraded Node/Ruby no-test-infra syntax fallback from free-form `FailureDetail` only to typed `BuildErrors` plus stable `FailureReasonCode` (`node_syntax_check_failed` / `ruby_syntax_check_failed`). `parseBuildErrors` now recognizes `node --check` and `ruby -wc` output shapes, so verify failure handoff carries concrete file/line/message rows into P2 context and controller/planner replan loops without parsing model prose. Focused parser/fallback tests and `go test ./internal/tool -count=1` passed. |
+| SWE 137-instance manual audit | complete | Completed conservative gold-patch manual audit for the 137 historical SWE-bench Lite Codrax predictions. Strict manual pass is 30/137 = 21.9%; definite fail is 28/137 = 20.4%; unknown is 79/137 = 57.7%; non-empty patch remains 130/137 = 94.9% and is export-only. The audit found three local verify-passed/manual fail conflicts, so the adapter's internal `local_acceptance_verdict` now treats typed manual `fail` as an audit blocker ahead of local verify pass. Detailed report: `docs/design/swebench_manual_audit_20260618.md`. |
