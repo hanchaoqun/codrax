@@ -958,6 +958,93 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanTouchesTests(
 	}
 }
 
+func TestRunTestsVerificationProbePassDowngradesProjectSuiteTimeoutWhenPlanTouchesTests(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tests", "__init__.py"), []byte(""), 0o644); err != nil {
+		t.Fatalf("write tests package marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	testBody := "import time\nimport unittest\n\nclass ProjectSuite(unittest.TestCase):\n    def test_project_suite_is_too_heavy(self):\n        time.sleep(5)\n"
+	if err := os.WriteFile(filepath.Join(root, "tests", "test_project_suite.py"), []byte(testBody), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	mu := types.NewMutableState("probe primary timeout downgrade")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-pass-timeout",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py", "tests/test_project_suite.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "widget value is 42",
+			Required: true,
+			Source:   "expected_outcome_fallback",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "value_contract",
+			Language:          "python",
+			Code:              "import widget\nassert widget.VALUE == 42\n",
+			ContractRefs:      []string{"outcome-1"},
+			ChangedSymbolRefs: []string{"widget.VALUE"},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner":          "python",
+		"framework":       "unittest",
+		"timeout_seconds": 1,
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("project-suite timeout after covered probe should be a confidence warning, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("VerificationStatus = %q, want passed; report=%+v", report.NormalizeVerificationStatus(), report)
+	}
+	foundContinuedSuite := false
+	foundTimeout := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_continued" &&
+			cmd.Outcome == "suite_continued" && cmd.ReasonCode == "plan_touches_test_path" {
+			foundContinuedSuite = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == "timeout" {
+			foundTimeout = true
+		}
+	}
+	if !foundContinuedSuite || !foundTimeout {
+		t.Fatalf("expected continued-suite and timeout command evidence; got %+v", report.ExecutedCommands)
+	}
+	if !changeReportHasVerificationConfidence(report, "project_runner", "unavailable", "project_suite_timeout_after_probe_pass") {
+		t.Fatalf("suite timeout confidence downgrade should be retained: %+v", report.VerificationConfidence)
+	}
+	if strings.TrimSpace(report.FailureReasonCode) != "" || report.FailureKind != "" {
+		t.Fatalf("probe-primary pass should not keep hard failure fields: kind=%q reason=%q", report.FailureKind, report.FailureReasonCode)
+	}
+}
+
 func TestRunTestsVerificationProbeSubprocessInheritsWorktreeSrcRoot(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

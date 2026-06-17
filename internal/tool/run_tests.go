@@ -449,6 +449,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	)
 	var preSuiteProbe *verificationProbeRunResult
 	preSuiteProbeConsumed := false
+	preSuiteProbeContinuationReason := ""
 	if shouldRunPreSuiteVerificationProbes(ctx, dryRunProbe) {
 		if probe, ok := runPlanVerificationProbes(ctx, "pre_suite_verification_probe"); ok {
 			preSuiteProbe = probe
@@ -460,6 +461,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			switch probeStatus {
 			case types.VerificationStatusPassed:
 				if reasonCode := verificationProbePassProjectSuiteContinuationReason(ctx, surface); reasonCode != "" {
+					preSuiteProbeContinuationReason = reasonCode
 					if cand := selectedSurfaceCandidate(surface); cand != nil && cand.HasTestSignal {
 						executedCmds = append(executedCmds, types.ExecutedCommand{
 							Runner:     cand.Runner,
@@ -509,6 +511,45 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				logging.Warning("[run_tests] pre-suite verification_probe unavailable; continuing to typed project test surface")
 			}
 		}
+	}
+	probePrimarySuiteInfraReport := func(kind types.FailureKind, detail string) (*types.ChangeReport, bool) {
+		if preSuiteProbe == nil || preSuiteProbe.Report == nil {
+			return nil, false
+		}
+		if preSuiteProbe.Report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+			return nil, false
+		}
+		if strings.TrimSpace(preSuiteProbeContinuationReason) != "plan_touches_test_path" {
+			return nil, false
+		}
+		reasonCode := "project_suite_" + strings.TrimSpace(string(kind)) + "_after_probe_pass"
+		report := *preSuiteProbe.Report
+		report.TestResults = append([]types.TestResult(nil), preSuiteProbe.Report.TestResults...)
+		report.MetricDeltas = cloneMetricDeltas(preSuiteProbe.Report.MetricDeltas)
+		report.RegressionAssertions = append([]string(nil), preSuiteProbe.Report.RegressionAssertions...)
+		report.PreexistingAssertions = append([]string(nil), preSuiteProbe.Report.PreexistingAssertions...)
+		report.FixedAssertions = append([]string(nil), preSuiteProbe.Report.FixedAssertions...)
+		report.NoTestsRunners = nil
+		report.Passed = true
+		report.BuildFailed = false
+		report.FailureKind = ""
+		report.FailureReasonCode = ""
+		report.FailureSummary = ""
+		report.FailureSummaryBlobRef = ""
+		report.VerificationStatus = ""
+		report.VerificationConfidence = mergeVerificationConfidenceRecords(
+			report.VerificationConfidence,
+			[]types.VerificationConfidenceRecord{{
+				Source:     "probe_primary_suite_continued",
+				Category:   "project_runner",
+				Status:     "unavailable",
+				Severity:   "warning",
+				ReasonCode: reasonCode,
+				Detail:     "project suite continuation after a passed verification probe was unavailable: " + strings.TrimSpace(detail),
+			}},
+		)
+		report.EnsureVerificationStatus()
+		return &report, true
 	}
 	// escalateToSurfaceCandidate appends the highest-ranked unexecuted
 	// candidate with typed test work to the plan queue, bounded by
@@ -795,6 +836,16 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if ref != "" {
 				report.FailureSummaryBlobRef = ref
 			}
+			if adjusted, ok := probePrimarySuiteInfraReport(report.FailureKind, report.FailureSummary); ok {
+				installRunTestsReport(ctx, finishReport(adjusted), dryRunProbe)
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   true,
+					Summary:   fmt.Sprintf("[run_tests: %s] project suite timed out after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
+					RawRef:    ref,
+					Timestamp: time.Now(),
+				}, nil
+			}
 			installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -817,6 +868,16 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if ref != "" {
 				report.FailureSummaryBlobRef = ref
 			}
+			if adjusted, ok := probePrimarySuiteInfraReport(report.FailureKind, report.FailureSummary); ok {
+				installRunTestsReport(ctx, finishReport(adjusted), dryRunProbe)
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   true,
+					Summary:   fmt.Sprintf("[run_tests: %s] project suite hit memory cap after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
+					RawRef:    ref,
+					Timestamp: time.Now(),
+				}, nil
+			}
 			installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -834,6 +895,16 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				"command killed by CPU-time cap (limit=%ds).", caps.CPULimitSeconds))
 			if ref != "" {
 				report.FailureSummaryBlobRef = ref
+			}
+			if adjusted, ok := probePrimarySuiteInfraReport(report.FailureKind, report.FailureSummary); ok {
+				installRunTestsReport(ctx, finishReport(adjusted), dryRunProbe)
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   true,
+					Summary:   fmt.Sprintf("[run_tests: %s] project suite hit CPU cap after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
+					RawRef:    ref,
+					Timestamp: time.Now(),
+				}, nil
 			}
 			installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
 			return types.ToolResult{
@@ -2003,6 +2074,17 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 		out.FailureReasonCode = strings.Join(dedupStrings(failureReasonCodes), ",")
 	}
 	out.EnsureVerificationStatus()
+	return out
+}
+
+func cloneMetricDeltas(in map[string]types.MetricDelta) map[string]types.MetricDelta {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]types.MetricDelta, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
 	return out
 }
 

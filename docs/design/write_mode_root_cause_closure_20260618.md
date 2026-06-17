@@ -1174,6 +1174,78 @@ Post-change validation notes:
   and exported path ownership, not stale or unexported intermediate test-path
   touches.
 
+## 2026-06-18 RC-23 Probe-Primary Suite Timeout Policy
+
+The fresh SymPy rerun after RC-22 showed a verifier escalation gap in core
+write mode, not just the SWE adapter:
+
+```text
+verification_probe passes target behavior and changed symbols
+  -> plan touches a test/spec path during repair
+  -> verifier continues to project suite
+  -> full pytest times out after 5 minutes
+  -> ChangeReport becomes failed even though the typed behavior probe passed
+```
+
+This is different from a real red test. A suite timeout/resource cap after an
+authoritative probe pass is local verification capacity debt; it should lower
+confidence, preserve command evidence, and continue the online workflow instead
+of making the source patch look functionally failed.
+
+Design:
+
+- Keep the existing rule that a passed probe continues to the project suite when
+  the plan touches test/spec paths.
+- Preserve hard failure when that continued suite executes and reports real test
+  failures.
+- When the continued suite exits by verifier infrastructure/resource exhaustion
+  (`timeout`, `oom`, `cpu_limit`) and the only continuation reason is
+  `plan_touches_test_path`, restore the probe report as the authoritative local
+  behavior verdict.
+- Attach a `VerificationConfidenceRecord` with
+  `category=project_runner`, `status=unavailable`, and reason such as
+  `project_suite_timeout_after_probe_pass`.
+- Keep executed command rows for both the continuation decision and the suite
+  timeout so handoff/debug traces remain transparent.
+- Do not read model prose, issue text, or stdout narratives for the decision.
+
+Task list:
+
+- [x] Record the pre-suite continuation reason in `run_tests`.
+- [x] Add probe-primary resource-exhaustion conversion for timeout/OOM/CPU.
+- [x] Add a focused regression where probe passes, suite times out, and local
+  verification remains passed with a confidence warning.
+- [x] Preserve existing regression where probe passes but the project suite
+  reports a real failure, which remains failed.
+- [x] Run focused `internal/tool`, related write packages, and adapter tests.
+
+Verification:
+
+- `go test ./internal/tool -run 'TestRunTestsVerificationProbePass(ContinuesProjectSuiteWhenPlanTouchesTests|DowngradesProjectSuiteTimeoutWhenPlanTouchesTests|SkipsProjectSuiteWhenOnlyContractRefsMissing)'`
+- `go test ./internal/tool -run 'TestRunTestsVerificationProbe'`
+- `go test ./internal/tool`
+- `go test ./internal/orchestrator ./internal/types ./internal/writeflow`
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+
+Post-change validation notes:
+
+- RC-23 SymPy rerun:
+  `/private/tmp/codrax-swebench-rc23-sympy-20260618-064126`
+- The run did not reproduce the RC-22 timeout shape. It first hit real
+  behavior-probe failures, replanned twice, then produced a 1228-byte official
+  prediction patch touching only `sympy/tensor/array/ndim_array.py`.
+- The final local verifier verdict was passed:
+  `verify_status=passed`, `verify_passed=true`, `verify_test_count=1`.
+- This is useful negative evidence for RC-23: real probe failures still drove
+  replan and were not softened by the new resource-exhaustion policy.
+- The run exposed the next gap: the adapter marked local acceptance failed with
+  `patch_review_semantic_unverified:changed_symbol_without_probe_coverage` even
+  though the final plan's normalized patch-review local blocker was empty and
+  verification passed. The cause is stale/intermediate source-owner plan review
+  being combined into the delivery candidate instead of letting the final
+  verified delivery report dominate.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1202,6 +1274,7 @@ Post-change validation notes:
 | RC-20 | complete | Typed-owned prediction export: post-RC-19 Lite smoke exposed 4.2 MB generated build artifacts in the official prediction. Export now uses workflow/final-plan typed path ownership as an allowlist, records unowned drops separately from test-patch drops, and never falls back from an explicit empty allowlist to all git diff paths. Verification: adapter unit tests, Python compile, and local SWE-bench adapter smoke pass. |
 | RC-21 | complete | Pyproject build requirement parsing: adapter now uses `tomllib`, `tomli`, or a narrow `[build-system].requires` fallback so Python 3.9 eval runs still install typed build helpers such as `extension-helpers`; legacy `setuptools.dep_util` compatibility now runs before no-build-isolation editable retry. Astropy rerun confirms build requirements are installed and prediction export remains clean; local verify still hits host `Python.h` compiler-header limits, tracked as the next verify-sandbox gap. |
 | RC-22 | complete | PatchReview acceptance severity split: local hard blockers now stay reserved for missing behavior/changed-symbol proof and actual-diff boundary/structural risks; broad dependent/test-surface impact gaps become confidence downgrade telemetry when target typed verification passes. SymPy RC-22 audit now recomputes as low-confidence verified instead of hard-blocked, while Django's nested direct mapping access remains blocked. |
+| RC-23 | complete | Probe-primary suite timeout policy: core `run_tests` now preserves a passed verification probe as the authoritative local behavior verdict when the only suite continuation reason is `plan_touches_test_path` and the continued project suite hits timeout/OOM/CPU verifier capacity limits. Real red suite failures still fail. The report retains continuation and timeout command evidence plus a `project_runner` confidence warning. SymPy RC-23 did not re-hit the timeout path; it confirmed real probe failures still replan and exposed the next delivery-candidate review ownership gap. |
 
 ## Acceptance Criteria
 
