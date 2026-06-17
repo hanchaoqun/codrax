@@ -388,10 +388,22 @@ class EmptyPatchReasonTests(unittest.TestCase):
             patch="",
             workflow_status="in_progress",
             plan_status="pending_approval",
+            plan_approval_action="manual_approval",
             plan_path="/tmp/plan.json",
         )
 
         self.assertEqual(reason, "workflow_pending_approval_empty_patch")
+
+    def test_auto_executable_pending_plan_status_is_not_manual_approval(self) -> None:
+        reason = adapter.empty_patch_reason(
+            patch="",
+            workflow_status="in_progress",
+            plan_status="pending_approval",
+            plan_approval_action="auto_execute",
+            plan_path="/tmp/plan.json",
+        )
+
+        self.assertEqual(reason, "workflow_in_progress_empty_patch")
 
 
 class PredictionAuditBlockTests(unittest.TestCase):

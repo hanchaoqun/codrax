@@ -1897,6 +1897,7 @@ def empty_patch_reason(
     patch: str,
     workflow_status: str = "",
     plan_status: str = "",
+    plan_approval_action: str = "",
     plan_path: str = "",
     codrax_timed_out: bool = False,
     codrax_exit_code: int = 0,
@@ -1932,7 +1933,10 @@ def empty_patch_reason(
     if latest_reason == "plan_batch_failed_blocked" and not has_plan:
         return "workflow_blocked_no_plan"
     if workflow == "in_progress":
-        if str(plan_status or "").strip() == "pending_approval":
+        if (
+            str(plan_status or "").strip() == "pending_approval"
+            and str(plan_approval_action or "").strip() == "manual_approval"
+        ):
             return "workflow_pending_approval_empty_patch"
         if not has_plan:
             return "workflow_in_progress_no_plan"
@@ -2098,6 +2102,11 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
         if plan:
             result["plan_id"] = str(plan.get("id") or "")
             result["plan_status"] = str(plan.get("status") or "")
+            approval = plan.get("approval") if isinstance(plan.get("approval"), dict) else {}
+            result["plan_approval_action"] = str(approval.get("action") or "")
+            result["plan_approval_risk_level"] = str(approval.get("risk_level") or "")
+            result["plan_approval_reason_code"] = str(approval.get("reason_code") or "")
+            result["plan_approval_user_decision"] = str(approval.get("user_decision") or "")
             target_paths = [str(path).strip() for path in plan.get("target_paths") or [] if str(path).strip()]
             change_paths = plan_change_paths(plan)
             test_change_paths = [path for path in change_paths if is_test_patch_path(path)]
@@ -2203,6 +2212,7 @@ def process_instance(instance: dict[str, Any], args: argparse.Namespace) -> tupl
             patch=patch,
             workflow_status=str(result.get("workflow_status") or ""),
             plan_status=str(result.get("plan_status") or ""),
+            plan_approval_action=str(result.get("plan_approval_action") or ""),
             plan_path=str(result.get("plan_path") or ""),
             codrax_timed_out=bool(result.get("codrax_timed_out")),
             codrax_exit_code=int(result.get("codrax_exit_code") or 0),
