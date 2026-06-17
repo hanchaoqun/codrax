@@ -74,7 +74,7 @@ const emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 s
 	"summary: string (3-10 sentences explaining what + why), " +
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}, " +
-	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes with optional contract_refs/changed_symbol_refs}. " +
+	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (python/javascript/ruby/go) with optional contract_refs/changed_symbol_refs}. " +
 	"Do NOT include new_content or patch here — those land via emit_plan_change once per file."
 
 func (t *EmitPlanSkeleton) Name() string { return "emit_plan_skeleton" }
@@ -118,13 +118,13 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	    },
 	    "verification_probes": {
 	      "type": "array",
-	      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Initial support: language=python inline code.",
+	      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Supported inline runtimes: python, javascript (Node.js), ruby, go.",
 	      "items": {
 	        "type": "object",
 	        "additionalProperties": false,
 	        "properties": {
 	          "id": {"type": "string"},
-	          "language": {"type": "string", "enum": ["python"]},
+	          "language": {"type": "string", "enum": ["python", "javascript", "ruby", "go"]},
 	          "working_dir": {"type": "string"},
 	          "code": {"type": "string"},
 	          "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
@@ -241,9 +241,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
 	if rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
-			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, map[string][]string{
-				"$.verification_probes[].language": {"python"},
-			})), nil
+			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, supportedVerificationProbeLanguageSet())), nil
 	}
 
 	// Install partial plan. The factory builds the canonical struct

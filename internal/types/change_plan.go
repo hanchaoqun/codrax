@@ -555,9 +555,9 @@ func PlanFingerprint(plan *ChangePlan) string {
 }
 
 // VerificationProbe is a bounded, structured behavioural check attached to a
-// ChangePlan. The initial executor supports python inline probes only; the
-// schema is language-tagged so additional runners can be added without parsing
-// natural language acceptance_tests.
+// ChangePlan. The executor is language-tagged and provider-backed so small
+// local behaviour checks can run without parsing natural-language
+// acceptance_tests or opening an arbitrary shell-command escape hatch.
 type VerificationProbe struct {
 	ID                     string   `json:"id,omitempty"`
 	Language               string   `json:"language"`

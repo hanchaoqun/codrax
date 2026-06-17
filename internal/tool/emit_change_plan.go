@@ -197,7 +197,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
               "additionalProperties": false,
               "properties": {
                 "id": {"type": "string", "description": "Stable short probe identifier, e.g. version_info_boundary."},
-                "language": {"type": "string", "enum": ["python"], "description": "Probe runtime. Initial support is python only."},
+                "language": {"type": "string", "enum": ["python", "javascript", "ruby", "go"], "description": "Probe runtime. Use python, javascript for Node.js, ruby, or go."},
                 "working_dir": {"type": "string", "description": "Repo-relative working directory. Empty or . means repo root."},
                 "code": {"type": "string", "description": "Inline probe code. It should import/use the changed code and exit non-zero on failure."},
                 "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Optional timeout. Defaults to 10 seconds; capped at 30."},
@@ -235,13 +235,13 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
     },
     "verification_probes": {
       "type": "array",
-      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Each probe must be deterministic, bounded, and exit non-zero on failure. Initial support: language=python inline code.",
+      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Each probe must be deterministic, bounded, and exit non-zero on failure. Supported inline runtimes: python, javascript (Node.js), ruby, go.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "id": {"type": "string", "description": "Stable short probe identifier, e.g. version_info_boundary."},
-          "language": {"type": "string", "enum": ["python"], "description": "Probe runtime. Initial support is python only."},
+          "language": {"type": "string", "enum": ["python", "javascript", "ruby", "go"], "description": "Probe runtime. Use python, javascript for Node.js, ruby, or go."},
           "working_dir": {"type": "string", "description": "Repo-relative working directory. Empty or . means repo root."},
           "code": {"type": "string", "description": "Inline probe code. It should import/use the changed code and exit non-zero on failure."},
           "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Optional timeout. Defaults to 10 seconds; capped at 30."},
@@ -398,9 +398,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
 	if rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
-			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, map[string][]string{
-				"$.verification_probes[].language": {"python"},
-			})), nil
+			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, supportedVerificationProbeLanguageSet())), nil
 	}
 
 	// 4) Patch pre-flight. For every kind=patch change, dry-run

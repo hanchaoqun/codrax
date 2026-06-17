@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,6 +28,12 @@ type pythonVerificationProbeStatus struct {
 	Exception     string `json:"exception,omitempty"`
 	ExitCode      int    `json:"exit_code,omitempty"`
 	ProbeTopLevel bool   `json:"probe_top_level,omitempty"`
+}
+
+type inlineVerificationProbeStatus struct {
+	Outcome   string `json:"outcome,omitempty"`
+	Exception string `json:"exception,omitempty"`
+	ExitCode  int    `json:"exit_code,omitempty"`
 }
 
 const pythonVerificationProbeWrapper = `
@@ -80,6 +87,88 @@ except BaseException as exc:
     sys.exit(1)
 else:
     write_result("passed", "", 0)
+`
+
+const javascriptVerificationProbeWrapper = `
+const fs = require("fs");
+const vm = require("vm");
+
+const resultPath = process.env.CODRAX_VERIFICATION_PROBE_RESULT || "";
+const encoded = process.env.CODRAX_VERIFICATION_PROBE_CODE || "";
+
+function writeResult(outcome, exception, exitCode) {
+  if (!resultPath) return;
+  fs.writeFileSync(resultPath, JSON.stringify({
+    outcome: outcome || "",
+    exception: exception || "",
+    exit_code: Number(exitCode || 0)
+  }));
+}
+
+try {
+  const source = Buffer.from(encoded, "base64").toString("utf8");
+  vm.runInThisContext(source, {filename: "<codrax_verification_probe>"});
+  writeResult("passed", "", 0);
+} catch (err) {
+  if (err && err.stack) {
+    console.error(err.stack);
+  } else {
+    console.error(String(err));
+  }
+  const name = err && err.name ? String(err.name) : "Error";
+  if (name === "AssertionError") {
+    writeResult("assertion_failed", name, 1);
+  } else if (name === "SyntaxError") {
+    writeResult("syntax_error", name, 1);
+  } else if (name === "ReferenceError") {
+    writeResult("reference_error", name, 1);
+  } else if (err && err.code === "MODULE_NOT_FOUND") {
+    writeResult("import_error", name, 1);
+  } else {
+    writeResult("exception", name, 1);
+  }
+  process.exit(1);
+}
+`
+
+const rubyVerificationProbeWrapper = `
+require "base64"
+require "json"
+
+result_path = ENV.fetch("CODRAX_VERIFICATION_PROBE_RESULT", "")
+encoded = ENV.fetch("CODRAX_VERIFICATION_PROBE_CODE", "")
+
+def write_result(path, outcome, exception="", exit_code=0)
+  return if path.empty?
+  File.write(path, JSON.generate({
+    "outcome" => outcome.to_s,
+    "exception" => exception.to_s,
+    "exit_code" => exit_code.to_i,
+  }))
+end
+
+begin
+  source = Base64.decode64(encoded)
+  eval(source, TOPLEVEL_BINDING, "<codrax_verification_probe>")
+rescue SystemExit => e
+  write_result(result_path, e.status.to_i == 0 ? "passed" : "system_exit", e.class.name, e.status.to_i)
+  raise
+rescue SyntaxError => e
+  warn e.full_message
+  write_result(result_path, "syntax_error", e.class.name, 1)
+  exit 1
+rescue LoadError => e
+  warn e.full_message
+  write_result(result_path, "import_error", e.class.name, 1)
+  exit 1
+rescue Exception => e
+  warn e.full_message
+  outcome = e.class.name == "AssertionError" ? "assertion_failed" : "exception"
+  write_result(result_path, outcome, e.class.name, 1)
+  exit 1
+else
+  write_result(result_path, "passed", "", 0)
+end
 `
 
 func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificationProbeRunResult, bool) {
@@ -166,9 +255,12 @@ func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 	if id == "" {
 		id = "probe"
 	}
-	lang := strings.ToLower(strings.TrimSpace(probe.Language))
-	if lang == "" {
-		lang = "python"
+	lang, ok := normalizeVerificationProbeLanguage(probe.Language)
+	if !ok {
+		lang = strings.ToLower(strings.TrimSpace(probe.Language))
+		if lang == "" {
+			lang = defaultVerificationProbeLanguage
+		}
 	}
 	wd, rel, dirErr := resolveVerificationProbeWorkingDir(ctx.RepoRoot, probe.WorkingDir, lang)
 	if dirErr != nil {
@@ -199,6 +291,12 @@ func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 	switch lang {
 	case "python":
 		return runPythonVerificationProbe(ctx, probe, id, wd, rel, source)
+	case "javascript":
+		return runJavaScriptVerificationProbe(ctx, probe, id, wd, rel, source)
+	case "ruby":
+		return runRubyVerificationProbe(ctx, probe, id, wd, rel, source)
+	case "go":
+		return runGoVerificationProbe(ctx, probe, id, wd, rel, source)
 	default:
 		detail := fmt.Sprintf("verification probe %q has unsupported language %q", id, probe.Language)
 		return verificationProbeRunResult{
@@ -224,6 +322,97 @@ func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 			}},
 		}
 	}
+}
+
+func runJavaScriptVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
+	statusPath := newVerificationProbeStatusPath()
+	if statusPath != "" {
+		defer os.Remove(statusPath)
+	}
+	execCtx, cmd, timeout, cancel := newVerificationProbeCommand("node", []string{"-e", javascriptVerificationProbeWrapper}, wd, "node", ctx, probe, statusPath)
+	defer cancel()
+	return runExternalVerificationProbe(ctx, probe, externalVerificationProbeInput{
+		ID:          id,
+		Language:    "javascript",
+		Command:     cmd,
+		ExecCtx:     execCtx,
+		Timeout:     timeout,
+		StatusPath:  statusPath,
+		WorkingDir:  rel,
+		Source:      source,
+		CommandText: "node -e <verification_probe:" + id + ">",
+	})
+}
+
+func runRubyVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
+	statusPath := newVerificationProbeStatusPath()
+	if statusPath != "" {
+		defer os.Remove(statusPath)
+	}
+	execCtx, cmd, timeout, cancel := newVerificationProbeCommand("ruby", []string{"-e", rubyVerificationProbeWrapper}, wd, "ruby", ctx, probe, statusPath)
+	defer cancel()
+	return runExternalVerificationProbe(ctx, probe, externalVerificationProbeInput{
+		ID:          id,
+		Language:    "ruby",
+		Command:     cmd,
+		ExecCtx:     execCtx,
+		Timeout:     timeout,
+		StatusPath:  statusPath,
+		WorkingDir:  rel,
+		Source:      source,
+		CommandText: "ruby -e <verification_probe:" + id + ">",
+	})
+}
+
+func runGoVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
+	tmp, cleanup, err := createGoVerificationProbeTemp(ctx.RepoRoot)
+	if err != nil {
+		detail := fmt.Sprintf("verification probe %q could not create temp Go source: %v", id, err)
+		return verificationProbeConfigError(id, "go", rel, source, detail)
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.WriteString(probe.Code); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		detail := fmt.Sprintf("verification probe %q could not write temp Go source: %v", id, err)
+		return verificationProbeConfigError(id, "go", rel, source, detail)
+	}
+	_ = tmp.Close()
+	defer cleanup()
+	execCtx, cmd, timeout, cancel := newVerificationProbeCommand("go", []string{"run", tmpPath}, wd, "go", ctx, probe, "")
+	defer cancel()
+	return runExternalVerificationProbe(ctx, probe, externalVerificationProbeInput{
+		ID:          id,
+		Language:    "go",
+		Command:     cmd,
+		ExecCtx:     execCtx,
+		Timeout:     timeout,
+		WorkingDir:  rel,
+		Source:      source,
+		CommandText: "go run <verification_probe:" + id + ">",
+	})
+}
+
+func createGoVerificationProbeTemp(repoRoot string) (*os.File, func(), error) {
+	base := ""
+	if strings.TrimSpace(repoRoot) != "" {
+		base = filepath.Join(repoRoot, ".codrax", "tmp", "verification-probes")
+		if err := os.MkdirAll(base, 0o700); err != nil {
+			base = ""
+		}
+	}
+	if base == "" {
+		f, err := os.CreateTemp("", "codrax-verification-probe-*.go")
+		if err != nil {
+			return nil, func() {}, err
+		}
+		return f, func() { _ = os.Remove(f.Name()) }, nil
+	}
+	f, err := os.CreateTemp(base, "probe-*.go")
+	if err != nil {
+		return nil, func() {}, err
+	}
+	return f, func() { _ = os.Remove(f.Name()) }, nil
 }
 
 func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
@@ -383,6 +572,293 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 			ReasonCode: reasonCode,
 		}},
 	}
+}
+
+type externalVerificationProbeInput struct {
+	ID          string
+	Language    string
+	Command     *exec.Cmd
+	ExecCtx     context.Context
+	Timeout     time.Duration
+	StatusPath  string
+	WorkingDir  string
+	Source      string
+	CommandText string
+}
+
+func newVerificationProbeStatusPath() string {
+	f, err := os.CreateTemp("", "codrax-verification-probe-*.json")
+	if err != nil {
+		return ""
+	}
+	path := f.Name()
+	_ = f.Close()
+	return path
+}
+
+func newVerificationProbeCommand(binary string, args []string, wd, runner string, ctx *types.BusContext, probe types.VerificationProbe, statusPath string) (context.Context, *exec.Cmd, time.Duration, context.CancelFunc) {
+	timeout := verificationProbeTimeout(probe)
+	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	cmd := exec.CommandContext(execCtx, binary, args...)
+	cmd.Dir = wd
+	env := runnerExecutionEnv(runner, ctx.RepoRoot, wd, ctx.MainRepoRoot)
+	if statusPath != "" {
+		env = append(env,
+			"CODRAX_VERIFICATION_PROBE_CODE="+base64.StdEncoding.EncodeToString([]byte(probe.Code)),
+			"CODRAX_VERIFICATION_PROBE_RESULT="+statusPath,
+		)
+	}
+	cmd.Env = env
+	return execCtx, cmd, timeout, cancel
+}
+
+func verificationProbeTimeout(probe types.VerificationProbe) time.Duration {
+	timeout := time.Duration(probe.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	if timeout > 30*time.Second {
+		timeout = 30 * time.Second
+	}
+	return timeout
+}
+
+func runExternalVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, in externalVerificationProbeInput) verificationProbeRunResult {
+	var stdout, stderr bytes.Buffer
+	in.Command.Stdout = &stdout
+	in.Command.Stderr = &stderr
+	start := time.Now()
+	caps := verifyResourceCaps()
+	if timeoutSeconds := uint64(in.Timeout.Seconds()); timeoutSeconds > 0 && caps.CPULimitSeconds > timeoutSeconds {
+		caps.CPULimitSeconds = timeoutSeconds
+	}
+	supRes := SupervisedRun(in.ExecCtx, in.Command, caps)
+	duration := time.Since(start)
+	output := stdout.String()
+	if stderr.Len() > 0 {
+		if output != "" {
+			output += "\n"
+		}
+		output += stderr.String()
+	}
+	exitCode := extractExitCode(supRes.Err)
+	status := readInlineVerificationProbeStatus(in.StatusPath)
+	outcome := "executed"
+	failureKind := types.FailureKindTestsFailed
+	reasonCode := ""
+	switch supRes.ExitKind {
+	case SupervisedExitTimeout:
+		outcome = "timeout"
+		failureKind = types.FailureKindTimeout
+	case SupervisedExitOOM:
+		outcome = "oom"
+		failureKind = types.FailureKindOOM
+	case SupervisedExitCPULimit:
+		outcome = "cpu_limit"
+		failureKind = types.FailureKindCPULimit
+	default:
+		if verificationProbeRunnerMissing(in.Command.Path, supRes.Err, output) {
+			outcome = "runner_missing"
+			failureKind = types.FailureKindRunnerMissing
+			reasonCode = "verification_probe_runner_missing"
+		}
+	}
+	passed := supRes.Err == nil
+	if outcome == "executed" && status.Outcome != "" {
+		switch status.Outcome {
+		case "passed":
+			passed = passed && status.ExitCode == 0
+		case "assertion_failed", "system_exit":
+			passed = false
+			failureKind = types.FailureKindTestsFailed
+		case "import_error", "syntax_error", "reference_error":
+			passed = false
+			outcome = "parser_error"
+			failureKind = types.FailureKindParserError
+			reasonCode = inlineVerificationProbeReasonCode(in.Language, status)
+		case "exception":
+			passed = false
+			failureKind = types.FailureKindTestsFailed
+			reasonCode = inlineVerificationProbeReasonCode(in.Language, status)
+		default:
+			passed = false
+			outcome = "parser_error"
+			failureKind = types.FailureKindParserError
+			reasonCode = inlineVerificationProbeReasonCode(in.Language, status)
+		}
+	}
+	if in.Language == "go" && outcome == "executed" && supRes.Err != nil && looksLikeGoProbeCompileError(output) {
+		outcome = "parser_error"
+		failureKind = types.FailureKindParserError
+		reasonCode = "verification_probe_go_compile_error"
+	}
+	var missingExpected []string
+	if passed && len(probe.ExpectedStdout) > 0 {
+		for _, fragment := range probe.ExpectedStdout {
+			if !strings.Contains(stdout.String(), fragment) {
+				missingExpected = append(missingExpected, fragment)
+			}
+		}
+		if len(missingExpected) > 0 {
+			passed = false
+			outcome = "expected_stdout_missing"
+			failureKind = types.FailureKindTestsFailed
+		}
+	}
+	if passed {
+		failureKind = ""
+		reasonCode = ""
+	}
+	detail := ""
+	if !passed {
+		detail = stdoutHead(output, 4000)
+		if status.Outcome != "" && status.Outcome != "passed" {
+			if detail != "" {
+				detail += "\n"
+			}
+			detail += fmt.Sprintf("verification probe structured outcome: %s", status.Outcome)
+			if status.Exception != "" {
+				detail += " (" + status.Exception + ")"
+			}
+		}
+		if len(missingExpected) > 0 {
+			if detail != "" {
+				detail += "\n"
+			}
+			detail += "missing expected stdout fragments: " + strings.Join(missingExpected, ", ")
+		}
+		if detail == "" {
+			detail = fmt.Sprintf("verification probe %q exited with code %d", in.ID, exitCode)
+		}
+	}
+	logging.Info("[run_tests] verification_probe id=%s lang=%s cwd=%s outcome=%s exit=%d duration=%v",
+		in.ID, in.Language, in.WorkingDir, outcome, exitCode, duration)
+	return verificationProbeRunResult{
+		Report: &types.ChangeReport{
+			TestResults: []types.TestResult{{
+				Kind:          types.TestResultKindUnit,
+				AssertionID:   in.ID,
+				Suite:         "verification_probe/" + in.Language,
+				Passed:        passed,
+				Duration:      duration,
+				FailureDetail: detail,
+			}},
+			Passed:            passed,
+			FailureKind:       failureKind,
+			FailureReasonCode: reasonCode,
+			FailureSummary:    detail,
+		},
+		Output: output,
+		Commands: []types.ExecutedCommand{{
+			Runner:     "verification_probe",
+			Framework:  in.Language,
+			WorkingDir: in.WorkingDir,
+			Command:    in.CommandText,
+			ExitCode:   exitCode,
+			DurationMS: duration.Milliseconds(),
+			Source:     in.Source,
+			Outcome:    outcome,
+			ReasonCode: reasonCode,
+		}},
+	}
+}
+
+func verificationProbeConfigError(id, language, rel, source, detail string) verificationProbeRunResult {
+	return verificationProbeRunResult{
+		Report: &types.ChangeReport{
+			TestResults: []types.TestResult{{
+				Kind:          types.TestResultKindUnit,
+				AssertionID:   id,
+				Suite:         "verification_probe/" + language,
+				Passed:        false,
+				FailureDetail: detail,
+			}},
+			Passed:         false,
+			FailureKind:    types.FailureKindParserError,
+			FailureSummary: detail,
+		},
+		Output: detail,
+		Commands: []types.ExecutedCommand{{
+			Runner:     "verification_probe",
+			Framework:  language,
+			WorkingDir: rel,
+			Source:     source,
+			Outcome:    "probe_config_error",
+		}},
+	}
+}
+
+func verificationProbeRunnerMissing(binary string, runErr error, output string) bool {
+	binary = strings.TrimSpace(filepath.Base(binary))
+	if binary == "" {
+		return false
+	}
+	if runErr != nil {
+		if errors.Is(runErr, exec.ErrNotFound) {
+			return true
+		}
+		if exitCode := extractExitCode(runErr); exitCode == 127 || exitCode == 126 {
+			return true
+		}
+	}
+	return outputIndicatesMissingBinary(output, binary)
+}
+
+func readInlineVerificationProbeStatus(path string) inlineVerificationProbeStatus {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return inlineVerificationProbeStatus{}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || len(bytes.TrimSpace(data)) == 0 {
+		return inlineVerificationProbeStatus{}
+	}
+	var status inlineVerificationProbeStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return inlineVerificationProbeStatus{}
+	}
+	status.Outcome = strings.TrimSpace(status.Outcome)
+	status.Exception = strings.TrimSpace(status.Exception)
+	return status
+}
+
+func inlineVerificationProbeReasonCode(language string, status inlineVerificationProbeStatus) string {
+	outcome := strings.TrimSpace(status.Outcome)
+	exception := strings.TrimSpace(status.Exception)
+	if outcome == "" {
+		return "verification_probe_unclassified"
+	}
+	switch outcome {
+	case "import_error":
+		return "verification_probe_import_error"
+	case "syntax_error":
+		return "verification_probe_syntax_error"
+	case "reference_error":
+		return "verification_probe_reference_error"
+	case "exception":
+		if exception != "" {
+			return "verification_probe_exception"
+		}
+		return "verification_probe_runtime_exception"
+	default:
+		return "verification_probe_" + language + "_" + strings.ReplaceAll(outcome, "-", "_")
+	}
+}
+
+func looksLikeGoProbeCompileError(output string) bool {
+	for _, marker := range []string{
+		"# command-line-arguments",
+		"syntax error:",
+		"undefined:",
+		"expected '",
+		"expected operand",
+		"missing import path",
+	} {
+		if strings.Contains(output, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func pythonVerificationProbeReasonCode(status pythonVerificationProbeStatus) string {
@@ -547,8 +1023,11 @@ func renderVerificationProbeOutput(probes []types.VerificationProbe, outputs []s
 			id = fmt.Sprintf("probe-%d", i+1)
 		}
 		lang := strings.ToLower(strings.TrimSpace(probe.Language))
+		if normalized, ok := normalizeVerificationProbeLanguage(lang); ok {
+			lang = normalized
+		}
 		if lang == "" {
-			lang = "python"
+			lang = defaultVerificationProbeLanguage
 		}
 		workingDir := strings.TrimSpace(probe.WorkingDir)
 		if workingDir == "" {

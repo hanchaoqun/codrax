@@ -231,7 +231,7 @@ func (t *RunTests) Parameters() json.RawMessage {
       "description": "Optional bounded behaviour probe for dry_run planning. Use this instead of putting python -c or other runner flags in suite. The probe runs through the same typed verification_probe executor used by ChangePlan verification and records a planner_probe report.",
       "properties": {
         "id": {"type": "string", "description": "Stable probe id for the report row."},
-        "language": {"type": "string", "enum": ["python"], "description": "Probe language. Currently python only."},
+        "language": {"type": "string", "enum": ["python", "javascript", "ruby", "go"], "description": "Probe language. Use python, javascript for Node.js, ruby, or go."},
         "working_dir": {"type": "string", "description": "Repo-relative working directory. Empty or . means repo root."},
         "code": {"type": "string", "description": "Inline probe code. Raise AssertionError or a non-zero SystemExit for an expected behaviour failure."},
         "timeout_seconds": {"type": "integer", "description": "Probe timeout in seconds, capped by the executor."},
@@ -373,10 +373,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 
 	if dryRunProbe && p.VerificationProbe != nil {
-		if strings.TrimSpace(p.VerificationProbe.Code) == "" {
+		probes, rej := normalizePlannerDryRunVerificationProbe([]types.VerificationProbe{*p.VerificationProbe})
+		if rej != "" {
+			return errResult(t.Name(), "run_tests rejected: "+rej), nil
+		}
+		if len(probes) != 1 {
 			return errResult(t.Name(), "run_tests rejected: verification_probe.code is required for dry_run planner probes"), nil
 		}
-		probe := runSingleVerificationProbe(ctx, *p.VerificationProbe, "planner_probe_verification_probe")
+		probe := runSingleVerificationProbe(ctx, probes[0], "planner_probe_verification_probe")
 		executedCmds = append(executedCmds, probe.Commands...)
 		report := finishReport(probe.Report)
 		installRunTestsReport(ctx, report, dryRunProbe)

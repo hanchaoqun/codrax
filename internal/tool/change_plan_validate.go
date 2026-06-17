@@ -1567,6 +1567,14 @@ func attachWriteBehaviorContracts(ctx *types.BusContext, plan *types.ChangePlan)
 }
 
 func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.VerificationProbe, string) {
+	return normalizeVerificationProbesWithOptions(in, true)
+}
+
+func normalizePlannerDryRunVerificationProbe(in []types.VerificationProbe) ([]types.VerificationProbe, string) {
+	return normalizeVerificationProbesWithOptions(in, false)
+}
+
+func normalizeVerificationProbesWithOptions(in []types.VerificationProbe, requireFailureSignal bool) ([]types.VerificationProbe, string) {
 	const (
 		maxProbes            = 5
 		maxProbeCodeBytes    = 8 * 1024
@@ -1583,9 +1591,9 @@ func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.Verifica
 	out := make([]types.VerificationProbe, 0, len(in))
 	seen := map[string]struct{}{}
 	for i, probe := range in {
-		language := strings.ToLower(strings.TrimSpace(probe.Language))
-		if language != "python" {
-			return nil, fmt.Sprintf("verification_probes[%d].language=%q is unsupported; supported values: python", i, probe.Language)
+		language, ok := normalizeVerificationProbeLanguage(probe.Language)
+		if !ok {
+			return nil, fmt.Sprintf("verification_probes[%d].language=%q is unsupported; supported values: %s", i, probe.Language, supportedVerificationProbeLanguageList())
 		}
 		code := strings.TrimSpace(probe.Code)
 		if code == "" {
@@ -1633,8 +1641,8 @@ func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.Verifica
 				return nil, fmt.Sprintf("verification_probes[%d].expected_stdout has more than %d non-empty entries", i, maxExpectedFragments)
 			}
 		}
-		if len(expected) == 0 && !pythonVerificationProbeHasExecutableFailureSignal(code) {
-			return nil, fmt.Sprintf("verification_probes[%d].code must include an executable failure signal (assert, raise, sys.exit/exit, pytest.fail, or expected_stdout); printing failure text without a non-zero exit path can falsely pass verification", i)
+		if requireFailureSignal && len(expected) == 0 && !verificationProbeHasExecutableFailureSignal(language, code) {
+			return nil, fmt.Sprintf("verification_probes[%d].code must include a %s executable failure signal or expected_stdout; printing failure text without a non-zero exit path can falsely pass verification", i, language)
 		}
 		contractRefs, rej := normalizeProbeStringRefs(probe.ContractRefs, maxExpectedFragments, fmt.Sprintf("verification_probes[%d].contract_refs", i))
 		if rej != "" {

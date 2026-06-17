@@ -520,6 +520,92 @@ RC-12 SWE-bench smoke:
   preserved the commercial acceptance boundary: exported patches stay harness
   compatible while failed local typed verification prevents false pass claims.
 
+## 2026-06-18 RC-13 Multi-language Verification Probe Runtime
+
+Gap:
+
+- Actual-diff mapping/container boundary signals are already language-aware
+  (Python, JS/TS, Ruby, Java/Kotlin, Go), but the bounded
+  `verification_probes[]` executor still accepts only `language=python`.
+- This creates a proof asymmetry: non-Python write tasks can use project
+  runners, but cannot easily attach a tiny local behavior probe when the
+  project suite is missing, slow, flaky, or too broad.
+- The gap affects the Claude-Code-style online loop because `Edit -> Run ->
+  Observe -> Repair` needs a cheap scoped observation channel across common
+  languages, not only Python.
+
+Design:
+
+- Keep `verification_probes[]` as the single typed small-proof lane. Do not add
+  ad hoc shell-command probes or parse natural-language `acceptance_tests`.
+- Add a deterministic runtime registry with canonical languages:
+  `python`, `javascript`, `ruby`, and `go`.
+- Continue to accept only bounded inline source, repo-relative `working_dir`,
+  short timeout, optional `expected_stdout`, `contract_refs`, and
+  `changed_symbol_refs`.
+- Runtime behavior:
+  - Python keeps the existing structured wrapper and project-root cwd promotion.
+  - JavaScript runs through `node` with base64 source injection.
+  - Ruby runs through `ruby` with base64 source injection.
+  - Go writes the probe to `.codrax/tmp/verification-probes` and runs
+    `go run` from the safe resolved working directory, then deletes the temp
+    file. Keeping the file under the repo runtime directory preserves Go
+    `internal/` import rules without writing source-tree probe files.
+- Failure-signal validation remains structural code validation, not issue
+  keyword routing:
+  - no `expected_stdout` requires a language-appropriate non-zero failure
+    surface (`assert`/`raise`, `throw`/`process.exit`, `raise`/`fail`,
+    `panic`/`os.Exit`, etc.);
+  - these checks scan probe source bytes only and never inspect user intent,
+    model rationale, summaries, or `<think>`.
+- Missing runtime binaries map to typed `runner_missing`; syntax/import/runtime
+  errors remain typed probe outcomes and flow through existing verifier
+  confidence, context pack, and controller replan logic.
+
+Why this is generalized:
+
+- It extends an existing typed abstraction instead of creating per-language
+  prompt branches.
+- The registry gives future Java/Kotlin/Rust/Swift/ArkTS/Cangjie providers a
+  single place to plug in once a bounded inline-probe story is safe.
+- It preserves current read/log/trace/data/operation paths and all write hard
+  gates: control still consumes typed enums, paths, exit codes, timeouts,
+  stdout fragments, and refs.
+
+Task list:
+
+- [x] Update plan schemas and planner guidance to advertise supported probe
+  languages.
+- [x] Replace Python-only normalization with a canonical
+  supported-language registry and aliases.
+- [x] Add JavaScript, Ruby, and Go probe executors with bounded timeout,
+  expected-stdout handling, typed command evidence, and no source-tree probe
+  files.
+- [x] Add unit tests for language normalization, failure-signal validation,
+  successful probes, failing probes, and missing runtime behavior where
+  practical.
+- [x] Update `docs/user_guide.md` and `docs/user_guide.html`.
+- [x] Run focused tests, full `go test ./...`, and one SWE-bench smoke to
+  ensure the Python path did not regress.
+
+RC-13 SWE-bench smoke:
+
+- Run directory:
+  `/private/tmp/codrax-swebench-rc13-sympy-20260618-035454`.
+- Prediction export remained non-empty and official-harness consumable:
+  `patch_bytes=988`, `validated 1 prediction(s); empty_patch=0`.
+- Python verification-probe path remained operational:
+  `plan_verification_probe_count=1`, `verify_status=passed`.
+- Local acceptance correctly stayed blocked because proof coverage was still
+  incomplete:
+  `local_acceptance_verdict=fail`,
+  `prediction_verdict=predicted_audit_blocked`,
+  `prediction_audit_block_reason=patch_review_semantic_uncovered:changed_symbol_without_probe_coverage`,
+  `prediction_confidence_downgrade_reason=verification_probe_missing_required_contract_ref`,
+  `plan_patch_review_coverage_verdict=unverified`.
+- Conclusion: RC-13 did not relax correctness claims. It widened the bounded
+  local-proof lane while preserving patch-review and confidence downgrades.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -537,6 +623,7 @@ RC-12 SWE-bench smoke:
 | RC-10 | complete | Exact contract grounding gate: post-emit write-analysis quality check rejects required exact behavior contracts whose expected value is neither verbatim in `raw_request` nor backed by grounded comparator evidence, then retries through the existing AnalyzerRetryHint surface. Subject-only comparators no longer ground exact values. Verification: focused orchestrator tests, related orchestrator/skill/types/tool tests, full `go test ./...`, `make test`, and SymPy SWE-bench smoke export checks pass; RC-10c still fails local functional verification, correctly reported as failed/unverified rather than a pass. |
 | RC-11 | complete | Hard/soft contract separation: added hard-required behavior-contract helpers; context handoff promotes only hard contracts to P0; planner/controller rendering distinguishes `hard_required=true` from `soft_required=true`; verifier contract-ref confidence uses only hard-required contracts. Verification: focused `internal/types`, `internal/tool`, and `internal/agent`; full `go test ./...`; `make test`; RC-11 SymPy smoke export passed and local correctness correctly failed. |
 | RC-12 | complete | All hard operators grounding: write-analysis quality gate now applies grounding to `contains`, `not_contains`, `exists`, `not_exists`, `raises`, and `not_raises` in addition to equals/not_equals/returns. Verification: focused orchestrator tests, related orchestrator/skill/types/tool/agent tests, full `go test ./...`, `make test`, and RC-12 SymPy SWE-bench smoke export passed; local correctness correctly failed with typed verifier evidence instead of a false pass. |
+| RC-13 | complete | Multi-language verification probe runtime: generalized the Python-only bounded probe lane to a typed provider registry for Python, JavaScript/Node, Ruby, and Go; updated schemas, planner guidance, user docs, and tests. Verification: focused multi-language probe tests, full `internal/tool`, related types/skill/orchestrator/agent tests, full `go test ./...`, `make`, and RC-13 SymPy SWE-bench smoke passed export compatibility while local acceptance remained correctly audit-blocked. |
 
 ## Acceptance Criteria
 
@@ -555,6 +642,9 @@ RC-12 SWE-bench smoke:
   analyzer retry.
 - Natural-language `satisfies` expected text stays soft; hard exact verifier
   targets require typed exact fields/operators with evidence.
+- `verification_probes[]` provide bounded local behavior checks for common
+  non-Python projects without requiring project-wide test runners or shell
+  command probes.
 - Current read/log/trace/data/operation/computer paths remain untouched.
 - All new eval fields and docs distinguish export compatibility from
   functional correctness.
