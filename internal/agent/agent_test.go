@@ -2544,7 +2544,7 @@ func TestUnavailableToolResultPlanReplanPointsToDryRunNoChangeSentinel(t *testin
 	if got == nil || got.Success {
 		t.Fatalf("unavailable tool result should fail, got %+v", got)
 	}
-	for _, want := range []string{"verify-failure replan", "run_tests with dry_run=true", "changes: []", "no_change_required"} {
+	for _, want := range []string{"verify-failure replan", "verification_probe object", "changes: []", "no_change_required"} {
 		if !strings.Contains(got.Summary, want) {
 			t.Fatalf("summary missing %q: %q", want, got.Summary)
 		}

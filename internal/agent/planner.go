@@ -695,7 +695,7 @@ func (e *plannerEvaluator) buildTestSurfaceSection(ctx *types.AgentContext) stri
 
 // buildProbeHistorySection renders Module E's plan-stage probe
 // results into the planner's initial prompt. Each probe is one
-// run_tests(dry_run=true) call the planner made earlier in this
+// run_tests(dry_run=true, verification_probe={...}) call the planner made earlier in this
 // dispatch (or in a prior dispatch within the same Run, before a
 // retry). The section enumerates probes in order with verbatim
 // pass/fail counts + failure summary so the planner can compare
@@ -713,7 +713,7 @@ func (e *plannerEvaluator) buildProbeHistorySection(ctx *types.AgentContext) str
 	}
 	var b strings.Builder
 	b.WriteString("## Probe results\n\n")
-	b.WriteString("Each entry is a run_tests(dry_run=true) probe you fired earlier in this Run. First-plan probes describe the existing suite before apply; verify-failure replan probes describe the current already-applied worktree. The rows are typed probe facts with pass/fail counts and runner output.\n\n")
+	b.WriteString("Each entry is a run_tests(dry_run=true, verification_probe={...}) probe you fired earlier in this Run. First-plan probes describe small typed behavior checks before apply; verify-failure replan probes describe the current already-applied worktree. The rows are typed probe facts with pass/fail counts and bounded probe output.\n\n")
 	if plannerProbeHistorySupportsNoChangeSentinel(ctx.Mutable) {
 		b.WriteString("No-change sentinel available: the latest planner probe reports all scoped tests passing during a verify-failure replan. A bounded ChangePlan with `changes: []` records `no_change_required` when the current already-applied worktree satisfies the failure point, avoiding a duplicate edit against stale bytes.\n\n")
 	}

@@ -1492,7 +1492,7 @@ func enrichStructuredEditReplanDiagnostic(ctx *types.BusContext, msg string) str
 	if !hasNoOp && !(hasOldTextMismatch && structuredEditReplanProbePassed(ctx)) {
 		return msg
 	}
-	return msg + ". In a verify-failure replan, a no-op edit means the applied worktree may already contain the intended code. Run a typed planner probe with run_tests(dry_run=true) against the scoped failure; if it passes, emit changes: [] to record the no_change_required sentinel. If it fails, re-read the current bytes and emit a real non-no-op edit."
+	return msg + ". In a verify-failure replan, a no-op edit means the applied worktree may already contain the intended code. Run a typed planner probe with run_tests(dry_run=true, verification_probe={...}) against the scoped failure; if it passes, emit changes: [] to record the no_change_required sentinel. If it fails, re-read the current bytes and emit a real non-no-op edit."
 }
 
 func structuredEditReplanProbePassed(ctx *types.BusContext) bool {

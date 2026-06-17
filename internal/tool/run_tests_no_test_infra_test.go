@@ -398,10 +398,7 @@ func TestRunTestsPythonSyntaxPreflightFailsBeforeProjectRunner(t *testing.T) {
 	}
 }
 
-func TestRunTestsDryRunProbe_ModeApplyStagePlanDoesNotPolluteChangeReport(t *testing.T) {
-	if _, err := exec.LookPath("make"); err != nil {
-		t.Skip("make not available on PATH")
-	}
+func TestRunTestsDryRunSuiteProbeRejectedInWritePlan(t *testing.T) {
 	root := t.TempDir()
 	writeMakefile(t, root, "test:\n\t@echo failing probe\n\t@exit 1\n")
 	mu := types.NewMutableState("probe channel")
@@ -419,21 +416,14 @@ func TestRunTestsDryRunProbe_ModeApplyStagePlanDoesNotPolluteChangeReport(t *tes
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if result.Success {
-		t.Fatalf("failing probe should return Success=false, got %+v", result)
+	if result.Success || result.Repair == nil || result.Repair.Code != "write_planner_run_tests_requires_verification_probe" {
+		t.Fatalf("suite dry-run should be rejected before test execution, got %+v", result)
 	}
 	if got := mu.ChangeReport(); got != nil {
-		t.Fatalf("plan-stage dry_run in ModeApply must not populate ChangeReport, got %+v", got)
+		t.Fatalf("rejected plan-stage suite dry-run must not populate ChangeReport, got %+v", got)
 	}
-	probes := mu.PlanStageProbeReports()
-	if len(probes) != 1 {
-		t.Fatalf("expected one planner probe report, got %d", len(probes))
-	}
-	if probes[0].Channel != types.ChangeReportChannelPlannerProbe {
-		t.Fatalf("probe channel = %q, want planner_probe", probes[0].Channel)
-	}
-	if probes[0].Passed {
-		t.Fatalf("probe should preserve failing verdict for planner context: %+v", probes[0])
+	if probes := mu.PlanStageProbeReports(); len(probes) != 0 {
+		t.Fatalf("rejected plan-stage suite dry-run must not populate planner probes, got %+v", probes)
 	}
 }
 
@@ -902,14 +892,13 @@ func TestRunTestsRejectsTestSurfaceCandidateIDAsSuiteSelector(t *testing.T) {
 	ctx := &types.BusContext{
 		Mutable:       mu,
 		Mode:          types.ModeApply,
-		PipelineStage: types.StagePlan,
+		PipelineStage: types.StageVerify,
 		RepoRoot:      root,
 		MainRepoRoot:  root,
 	}
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
-		"dry_run": true,
-		"runner":  "python",
-		"suite":   "python/pytest@.",
+		"runner": "python",
+		"suite":  "python/pytest@.",
 	}))
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)

@@ -424,9 +424,20 @@ func TestBuildToolSchemas_WritePlannerHidesShellAndForcesDryRunProbe(t *testing.
 		t.Fatalf("write planner should keep typed run_tests dry-run probe available: %+v", schemaNames(schemas))
 	}
 	raw := string(runTests.Parameters)
-	for _, want := range []string{`"dry_run"`, `"enum":[true]`, `"required":["dry_run"]`} {
+	for _, want := range []string{`"dry_run"`, `"verification_probe"`, `"enum":[true]`} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("planner run_tests schema should require dry_run=true, missing %q in %s", want, raw)
+		}
+	}
+	var schema struct {
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(runTests.Parameters, &schema); err != nil {
+		t.Fatalf("decode run_tests schema: %v", err)
+	}
+	for _, want := range []string{"dry_run", "verification_probe"} {
+		if !stringSliceContains(schema.Required, want) {
+			t.Fatalf("planner run_tests schema required=%v, missing %q", schema.Required, want)
 		}
 	}
 }
@@ -450,9 +461,17 @@ func TestValidateWritePlannerToolPolicy_RejectsShellAndNonDryRunTests(t *testing
 	if nonDryRun == nil || nonDryRun.Success || nonDryRun.Repair == nil || nonDryRun.Repair.Code != "write_planner_run_tests_requires_dry_run" {
 		t.Fatalf("run_tests without dry_run should be rejected with typed policy repair, got %+v", nonDryRun)
 	}
-	if got := validateWritePlannerToolPolicy(ctx, llm.ToolCall{
+	dryRunWithoutProbe := validateWritePlannerToolPolicy(ctx, llm.ToolCall{
 		Name:   "run_tests",
 		Params: json.RawMessage(`{"runner":"python","dry_run":true}`),
+	})
+	if dryRunWithoutProbe == nil || dryRunWithoutProbe.Success || dryRunWithoutProbe.Repair == nil ||
+		dryRunWithoutProbe.Repair.Code != "write_planner_run_tests_requires_verification_probe" {
+		t.Fatalf("run_tests dry_run=true without verification_probe should be rejected, got %+v", dryRunWithoutProbe)
+	}
+	if got := validateWritePlannerToolPolicy(ctx, llm.ToolCall{
+		Name:   "run_tests",
+		Params: json.RawMessage(`{"dry_run":true,"verification_probe":{"code":"assert True"}}`),
 	}); got != nil {
 		t.Fatalf("run_tests dry_run=true should pass write planner policy, got %+v", got)
 	}

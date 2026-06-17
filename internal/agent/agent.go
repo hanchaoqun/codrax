@@ -2950,9 +2950,13 @@ func writePlannerRunTestsParameters(raw json.RawMessage) json.RawMessage {
 	props["dry_run"] = map[string]any{
 		"type":        "boolean",
 		"enum":        []bool{true},
-		"description": "Required while preparing a write plan. Planning probes are dry-run only and are stored as PlanStageProbeReports, never as the authoritative post-apply ChangeReport.",
+		"description": "Required while preparing a write plan. Planning probes must also include verification_probe so they stay bounded and are stored as PlanStageProbeReports, never as the authoritative post-apply ChangeReport.",
+	}
+	if probe, ok := props["verification_probe"].(map[string]any); ok {
+		probe["description"] = "Required while preparing a write plan. Provide a small typed behavior probe; do not use suite/runner dry-runs to execute project tests in the planning lane."
 	}
 	schema["required"] = appendJSONSchemaRequired(schema["required"], "dry_run")
+	schema["required"] = appendJSONSchemaRequired(schema["required"], "verification_probe")
 	patched, err := json.Marshal(schema)
 	if err != nil || !json.Valid(patched) {
 		return raw
@@ -3001,7 +3005,7 @@ func validateWritePlannerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *t
 	canonical := types.CanonicalToolName(tc.Name)
 	if writePlannerBlocksTool(ctx, tc.Name) {
 		msg := fmt.Sprintf(
-			"%s rejected: write planning is a bounded planning lane. Use typed read tools and run_tests(dry_run=true); shell commands, apply tools, and verifier result tools belong to later write stages.",
+			"%s rejected: write planning is a bounded planning lane. Use typed read tools and run_tests(dry_run=true, verification_probe={...}) for tiny behavior probes only; shell commands, apply tools, suite test execution, and verifier result tools belong to later write stages.",
 			tc.Name)
 		return &types.ToolResult{
 			ToolName:  tc.Name,
@@ -3010,7 +3014,7 @@ func validateWritePlannerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *t
 			Timestamp: time.Now(),
 			Repair: &types.ToolRepair{
 				Code: "write_planner_tool_not_allowed",
-				Hint: "Continue planning with repo_map, grep, list_files, read_file, run_tests(dry_run=true), then emit a bounded ChangePlan.",
+				Hint: "Continue planning with repo_map, grep, list_files, read_file, an optional typed verification_probe dry-run, then emit a bounded ChangePlan.",
 				Metadata: map[string]string{
 					"tool":   canonical,
 					"stage":  string(types.StagePlan),
@@ -3029,7 +3033,8 @@ func validateWritePlannerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *t
 		return nil
 	}
 	var params struct {
-		DryRun bool `json:"dry_run"`
+		DryRun            bool             `json:"dry_run"`
+		VerificationProbe *json.RawMessage `json:"verification_probe"`
 	}
 	if len(tc.Params) > 0 {
 		if err := json.Unmarshal(tc.Params, &params); err != nil {
@@ -3037,6 +3042,23 @@ func validateWritePlannerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *t
 		}
 	}
 	if params.DryRun {
+		if params.VerificationProbe == nil {
+			return &types.ToolResult{
+				ToolName:  tc.Name,
+				Summary:   "run_tests rejected: write planner probes must use dry_run=true with a typed verification_probe object. Suite/runner dry-runs execute project tests and belong to the verify stage.",
+				Success:   false,
+				Timestamp: time.Now(),
+				Repair: &types.ToolRepair{
+					Code: "write_planner_run_tests_requires_verification_probe",
+					Hint: "Provide dry_run=true with verification_probe.code for a bounded behavior probe, or emit the ChangePlan from the typed handoff/failure evidence without running tests.",
+					Metadata: map[string]string{
+						"tool":   canonical,
+						"stage":  string(types.StagePlan),
+						"policy": "write_planner_typed_verification_probe_only",
+					},
+				},
+			}
+		}
 		return nil
 	}
 	return &types.ToolResult{
@@ -3372,7 +3394,7 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			}
 			if _, ok := t.(*tool.RunTests); ok && writePlannerDryRunOnly(ctx) {
 				params = writePlannerRunTestsParameters(params)
-				desc += " While preparing a write plan this tool is available only with dry_run=true."
+				desc += " While preparing a write plan this tool is available only with dry_run=true and a typed verification_probe object."
 			}
 			schemas = append(schemas, llm.ToolSchema{
 				Name:        t.Name(),
@@ -4335,7 +4357,7 @@ func stageAllowedToolSummary(ctx *types.AgentContext) string {
 		return "read/search tools, git tools, emit_evidence, emit_investigation_complete"
 	case types.StagePlan:
 		if ctx.Mode.IsWrite() {
-			return "repo_map, grep, list_files, read_file, run_tests(dry_run=true), emit_change_plan, emit_plan_skeleton, emit_plan_change"
+			return "repo_map, grep, list_files, read_file, run_tests(dry_run=true, verification_probe={...}), emit_change_plan, emit_plan_skeleton, emit_plan_change"
 		}
 		return "planner-stage tools"
 	case types.StageExtract:
@@ -4974,7 +4996,7 @@ func unavailableToolVerifyReplanHint(ctx *types.AgentContext, available map[stri
 	if ctx.Mutable.VerifyFailureHandoff() == nil || !available["run_tests"] {
 		return ""
 	}
-	return "This is a verify-failure replan with repository-reading tools unavailable. If already-visible current bytes show the intended repair, call run_tests with dry_run=true and a verification_probe object (do not put python -c or runner flags in suite) against the scoped failure or target area; if that typed probe passes, emit_change_plan with changes: [] to record no_change_required. If the probe fails, emit a real bounded edit using the already-visible current bytes."
+	return "This is a verify-failure replan with repository-reading tools unavailable. If already-visible current bytes show the intended repair, call run_tests with dry_run=true and a verification_probe object (do not put python -c, runner flags, or suite execution in suite) against the scoped failure or target area; if that typed probe passes, emit_change_plan with changes: [] to record no_change_required. If the probe fails, emit a real bounded edit using the already-visible current bytes."
 }
 
 func sortedToolSchemaNames(schemas []llm.ToolSchema) []string {

@@ -387,7 +387,7 @@ type MutableState struct {
 	iterationLedger []IterationRecord
 
 	// planStageProbeReports records every dry-run probe the planner
-	// fires during plan stage via run_tests(dry_run=true). Distinct
+	// fires during plan stage via run_tests(dry_run=true, verification_probe={...}). Distinct
 	// from ChangeReport (which is the verify stage's authoritative
 	// outcome) so a plan-stage probe NEVER pollutes the verify
 	// channel and the verify→plan retry loop continues to read only

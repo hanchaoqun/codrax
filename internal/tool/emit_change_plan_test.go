@@ -1180,7 +1180,7 @@ func TestEmitChangePlan_ReplanNoOpStructuredEditPointsToTypedProbeSentinel(t *te
 	if res.Success {
 		t.Fatal("expected no-op structured edit to be rejected")
 	}
-	if !strings.Contains(res.Summary, "run_tests(dry_run=true)") || !strings.Contains(res.Summary, types.PlanStatusNoChangeRequired) {
+	if !strings.Contains(res.Summary, "run_tests(dry_run=true, verification_probe={...})") || !strings.Contains(res.Summary, types.PlanStatusNoChangeRequired) {
 		t.Fatalf("replan no-op rejection should point at typed probe sentinel, got: %s", res.Summary)
 	}
 	if plan := ctx.Mutable.ChangePlan(); plan != nil {
@@ -1232,7 +1232,7 @@ func TestEmitChangePlan_ReplanOldTextMismatchWithPassedProbePointsToTypedProbeSe
 	if res.Success {
 		t.Fatal("expected stale structured edit to be rejected")
 	}
-	for _, want := range []string{"old_text mismatch", "run_tests(dry_run=true)", types.PlanStatusNoChangeRequired} {
+	for _, want := range []string{"old_text mismatch", "run_tests(dry_run=true, verification_probe={...})", types.PlanStatusNoChangeRequired} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("replan stale-anchor rejection should mention %q, got: %s", want, res.Summary)
 		}

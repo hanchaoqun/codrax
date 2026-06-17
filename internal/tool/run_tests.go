@@ -123,13 +123,12 @@ type runTestsParams struct {
 	// command runs.
 	WorkingDir string `json:"working_dir,omitempty"`
 
-	// DryRun is the Module E plan-stage probe flag. When true during
-	// StagePlan, the tool runs against the user's current repo surface
-	// and stores the resulting ChangeReport on
-	// Mutable.PlanStageProbeReports rather than Mutable.ChangeReport.
-	// Lets the planner test the existing suite for a baseline
-	// understanding before emitting a plan, without polluting the
-	// verify-stage's authoritative outcome channel.
+	// DryRun is the plan-stage bounded-probe flag. When true during
+	// StagePlan, the call must include VerificationProbe; the tool runs only
+	// that small typed behavior probe and stores the resulting ChangeReport on
+	// Mutable.PlanStageProbeReports rather than Mutable.ChangeReport. Suite or
+	// runner dry-runs are intentionally rejected in the planning lane so the
+	// planner cannot use project tests as an interactive debugger.
 	//
 	// Outside plan stage the flag is ignored (the verify stage
 	// always wants the result on the main ChangeReport channel).
@@ -223,7 +222,7 @@ func (t *RunTests) Parameters() json.RawMessage {
     },
     "dry_run": {
       "type": "boolean",
-      "description": "Planning probe mode. When true while preparing a change plan, the tool runs against the user's main repo without requiring a worktree, and the result is recorded separately from the final verification result. Use this to learn what the existing test suite reports BEFORE emitting your plan so you can write a plan that responds to observed behaviour. Outside change planning the flag is ignored."
+      "description": "Planning probe mode. When true while preparing a change plan, verification_probe is required and only that bounded typed probe may run. Suite/runner dry-runs are rejected in the planning lane. Outside change planning the flag is ignored."
     },
     "verification_probe": {
       "type": "object",
@@ -260,10 +259,6 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return *decodeFailure, err
 		}
 	}
-	if rej := validateRunTestsSuiteSelector(p.Suite); rej != "" {
-		return errResult(t.Name(), rej), nil
-	}
-
 	// Module E: plan-stage dry-run probes run against MainRepoRoot
 	// (no worktree provisioned in plan-only mode); reports flow to a
 	// separate probe channel so the verify stage's authoritative
@@ -272,6 +267,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// channel boundary must read the typed pipeline stage, not the
 	// user-facing write mode.
 	dryRunProbe := isRunTestsDryRunProbe(ctx, p)
+	if dryRunProbe && p.VerificationProbe == nil {
+		return plannerRunTestsProbeRequiredResult(t.Name()), nil
+	}
+	if rej := validateRunTestsSuiteSelector(p.Suite); rej != "" {
+		return errResult(t.Name(), rej), nil
+	}
 	if !dryRunProbe && inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &p) {
 		logging.Info("[run_tests] inherited scoped verify target from typed verify-failure handoff: runner=%s framework=%s working_dir=%s suite=%q",
 			strings.TrimSpace(p.Runner), strings.TrimSpace(p.Framework), strings.TrimSpace(p.WorkingDir), strings.TrimSpace(p.Suite))
@@ -1853,6 +1854,24 @@ func installRunTestsReport(ctx *types.BusContext, report *types.ChangeReport, dr
 	}
 	report.Channel = types.ChangeReportChannelPostApplyVerify
 	ctx.Mutable.SetChangeReport(report)
+}
+
+func plannerRunTestsProbeRequiredResult(toolName string) types.ToolResult {
+	return types.ToolResult{
+		ToolName:  toolName,
+		Success:   false,
+		Summary:   "run_tests rejected: write planning probes must use dry_run=true with a typed verification_probe object. Suite/runner dry-runs execute project tests and belong to the verify stage; use read tools plus existing typed failure evidence, or provide verification_probe.code for a small behavior probe.",
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code: "write_planner_run_tests_requires_verification_probe",
+			Hint: "Provide dry_run=true with verification_probe.code for a bounded planner probe, or emit a ChangePlan from the typed handoff/failure evidence without running tests.",
+			Metadata: map[string]string{
+				"tool":   "run_tests",
+				"stage":  string(types.StagePlan),
+				"policy": "write_planner_typed_verification_probe_only",
+			},
+		},
+	}
 }
 
 func isRunTestsDryRunProbe(ctx *types.BusContext, params runTestsParams) bool {

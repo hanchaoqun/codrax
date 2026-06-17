@@ -1952,6 +1952,67 @@ Result:
   module. The static preflight did not misclassify the valid one-line source
   patch as a build failure.
 
+## 2026-06-17 Planning-Lane Test Execution Boundary Audit
+
+Django/SymPy SWE-bench Lite follow-up:
+
+```bash
+INSTANCE_ID=django__django-14534,sympy__sympy-23117 \
+SWEBENCH_SMOKE_LIMIT=2 SWEBENCH_PREPARE_PYTHON_ENV=1 \
+WORKDIR=eval/results/swebench/lite-smoke-20260617-after-static-name-django-sympy \
+MAX_STEPS=60 CODRAX_TIMEOUT=1800 CODRAX_PROGRESS_INTERVAL=60 \
+PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache eval/swebench/smoke_lite.sh
+```
+
+Result:
+
+- Official JSONL validation passed: `validated 2 prediction(s); empty_patch=0`.
+- Official harness dry-run command was emitted for the generated predictions.
+- `django__django-14534` correctly exported `predicted_failed_verify` with
+  `workflow_blocked_after_failed_verify`; the workflow did not falsely accept
+  a failed verification.
+- `sympy__sympy-23117` exported `predicted_failed_verify` with
+  `workflow_incomplete_after_failed_verify`; the workflow preserved applied
+  patch provenance instead of reporting an empty patch.
+
+Gap exposed:
+
+- The planner lane still exposed `run_tests(dry_run=true)` as a broad suite
+  dry-run. Although results were stored as planner probes rather than the
+  authoritative post-apply `ChangeReport`, the tool still executed real project
+  tests in the plan/replan phase. In the Django run the planner used this as an
+  interactive debugger, retried invalid suite selectors, and finally exhausted
+  planning without `emit_change_plan`.
+- This is a stage-boundary gap, not an issue-specific repair gap. Planning
+  should consume typed verify-failure evidence and exact file bytes to emit a
+  bounded plan. Project suite execution belongs to the verifier after apply.
+  Tiny runtime checks before planning must be bounded typed
+  `verification_probe` calls, not suite/runner execution.
+
+Commercial design decision:
+
+- In write `StagePlan`, `run_tests` is now allowed only as
+  `dry_run=true` with a typed `verification_probe` object.
+- Suite/runner dry-runs in the planning lane are hard-rejected by the
+  `run_tests` tool itself with repair code
+  `write_planner_run_tests_requires_verification_probe`.
+- The agent tool policy rejects the same shape before execution and the
+  planner-facing JSON schema requires both `dry_run` and `verification_probe`.
+- Planner prompt/tool-surface wording now says suite/runner execution belongs
+  to verify and only tiny typed behavior probes are valid during planning.
+- Existing verify-stage behavior is unchanged: `dry_run` outside `StagePlan`
+  remains ignored, so verifier compatibility and older typed verify flows are
+  preserved.
+
+Remaining task candidate after this batch:
+
+- P1: verifier parameter convergence. `sympy__sympy-23117` showed the verifier
+  manually passed `runner=python, framework=pytest`, bypassing default
+  plan-touched/probe-first selection and timing out on a broad pytest run. A
+  future batch should make verifier calls prefer `{}` and typed plan probes by
+  policy, while still allowing explicit runner overrides only when typed
+  handoff requires them.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1991,3 +2052,4 @@ Result:
 | SK-6a scoped context projection | complete | Added batch/slice scope metadata to `WriteContextItem` plus `ViewForScope`/`ForScope` projections. Agent prompt rendering, planner handoff-read budgeting, and workflow-run context sync now consume the active batch/slice projection, so P0 safety/user constraints still carry forward while stale P2/P3 verify failures from prior batches no longer leak or get renamed into the active batch. Focused tests pin scoped Top-N behavior and durable sync semantics. |
 | SK-7a SWE-bench progress telemetry fallback | complete | Hardened adapter heartbeats so workflow-progress races or callback failures render typed `workflow=unavailable` reasons instead of leaking exception names into progress status. This preserves raw `codrax.out` transparency while keeping eval/UX progress derived from typed workflow state or typed unavailable reasons. Adapter unit tests and local smoke pass. |
 | SK-8a Python static verify preflight | complete | Added a generic stdlib `symtable` undefined-name preflight after `py_compile` in the Python no-test-infra verification lane, with typed suite `python_static_name_check` and reason `python_static_undefined_name`. This came from the `pallets__flask-4045` manual audit, but is implemented as a language-level preflight over parsed symbols, not case routing. Focused Go tests, adapter tests, local smoke, full Go regression, build, and the Flask SWE-bench Lite re-run passed; the wrong-layer undefined-name patch did not recur and the final patch is harness-consumable. |
+| SK-9a planning-lane test execution boundary | complete | Django/SymPy Lite audit showed planner replan could use `run_tests(dry_run=true)` as a suite debugger, burning plan turns and ending without `emit_change_plan`. This batch hardens the boundary so write `StagePlan` accepts `run_tests` only with `dry_run=true` plus a typed `verification_probe`; suite/runner dry-runs are rejected by tool policy and by `run_tests` itself. Planner schema and prompts now expose the same narrowed contract. Verification passed: focused agent/tool/skill tests, `git diff --check`, full `go test ./...`, and `make`. |
