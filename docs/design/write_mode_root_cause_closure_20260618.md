@@ -193,6 +193,33 @@ New conclusions:
   separate metrics. Non-empty patch rate cannot be presented as functional pass
   rate.
 
+## 2026-06-18 RC-7 SWE-bench Lite Smoke Audit
+
+Run directory:
+`/private/tmp/codrax-swebench-rc7-20260618-014254`
+
+Again the adapter produced three non-empty, official-harness-consumable
+predictions. Strict manual pass remained `1 / 3 = 33.3%`:
+
+| Instance | Export | Local typed verdict | Manual audit | Root-cause note |
+| --- | --- | --- | --- | --- |
+| `django__django-14534` | non-empty | failed verify + semantic coverage unverified | fail | The patch improved from direct nested access to `.get("id", "")`, but the required no-auto-id boundary expects `None` (`.get("id")`). |
+| `pytest-dev__pytest-11143` | non-empty | audit-blocked due semantic coverage unverified | pass | The patch covers the non-string docstring crash; it is broader than the reference patch but preserves the intended guard. |
+| `sympy__sympy-23117` | non-empty | failed verify timeout | fail | Online replan improved localization from `_scan_iterable_shape` to `_loop_size`, but the final patch still uses shape `()` instead of the reference `(0,)` and misses adjacent mutable-index behavior. |
+
+New deterministic gap:
+
+- The verifier ran a scoped pre-suite verification probe for SymPy, and the
+  probe passed. It still escalated to full `pytest` solely because the probe did
+  not carry every required `contract_ref`
+  (`verification_probe_missing_required_contract_ref`). That converted useful
+  scoped proof into a five-minute timeout and left the workflow in progress.
+- Missing `contract_ref` coverage should remain a typed confidence downgrade and
+  handoff signal. It must not be a standalone reason to run an expensive project
+  suite after a passing scoped probe. Real escalation should remain tied to
+  failed probes, plan-touched test/spec paths, missing changed-symbol coupling,
+  or explicit runner policy.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -205,6 +232,7 @@ New conclusions:
 | RC-5 | complete | Fixed SWE-bench smoke provider forwarding so isolated Codrax binaries can receive `providers.yaml` via `PROVIDERS_PATH`, `CODRAX_PROVIDERS`, or `--providers`. A three-instance Lite smoke produced non-empty harness-consumable predictions; manual audit found 1 strict pass, 2 incomplete patches. Next batches should target obligation closure and targeted proof generation, not broader patch export. |
 | RC-6 | complete | Added actual-diff line text capture to `PatchEffectHunk` and a Python source-shape event for newly added nested string-key direct mapping access. Patch review consumes it as a soft semantic coverage finding with `coverage_status=unknown`, so dynamic-language absent-key/default boundaries reach P2 handoff and bounded semantic follow-up without becoming a hard gate. Verification: focused writeflow/types/orchestrator tests and full `go test ./...` pass. |
 | RC-7 | complete | Generalized RC-6 from a Python-only producer into language-aware actual-diff line-shape producers. JS/TS nested string-key access, Ruby nested hash-key access, Java/Kotlin chained string-key map `get`, and Go nested map assignment now emit soft semantic coverage events from typed diff text. These are advisory/coverage obligations, not hard gates, and do not read user intent or model prose. Verification: related writeflow/types/orchestrator tests and full `go test ./...` pass. |
+| RC-8 | complete | Verifier selector tightening: a passed scoped pre-suite verification probe no longer escalates to a full project suite solely because required `contract_refs` are missing. The missing refs remain typed `VerificationConfidence` downgrade/handoff evidence; expensive suite escalation is reserved for failed probes, touched tests/specs, missing changed-symbol coupling, or explicit policy. Verification: focused `internal/tool` tests, related tool/types/orchestrator tests, and full `go test ./...` pass. |
 
 ## Acceptance Criteria
 

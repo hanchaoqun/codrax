@@ -1143,9 +1143,11 @@ func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, 
 	if ctx != nil && ctx.Mutable != nil {
 		plan = ctx.Mutable.ChangePlan()
 	}
-	if missing := verificationProbeMissingRequiredContractRefs(plan); len(missing) > 0 {
-		return "verification_probe_missing_required_contract_ref"
-	}
+	// Missing contract refs are recorded by verificationConfidenceRecordsFromReport
+	// as a typed confidence downgrade. They are not, by themselves, a reason to
+	// escalate a passed scoped probe into a potentially expensive full project
+	// suite; otherwise partial customer environments turn usable proof into a
+	// timeout hard failure.
 	if changePlanTouchesTestOrSpecPath(plan) {
 		return "plan_touches_test_path"
 	}
