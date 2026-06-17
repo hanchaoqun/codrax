@@ -68,6 +68,12 @@ CALLER_RETURN_ADAPTER_NAMES = {
     "to_numpy",
     "tolist",
 }
+PATCH_REVIEW_LOCAL_BLOCKER_CODES = {
+    "behavior_contract_without_verify_coverage",
+    "changed_symbol_without_probe_coverage",
+    "dependent_surface_without_verify_coverage",
+    "related_test_surface_unverified",
+}
 
 
 @dataclass
@@ -1760,6 +1766,59 @@ def prediction_verdict(
     return "predicted_unchecked", "unknown", False
 
 
+def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
+    """Return typed patch-review telemetry from the final ChangePlan.
+
+    This consumes only the structured `patch_review` record produced from the
+    actual applied diff. It does not inspect issue text, model prose, or manual
+    audit notes.
+    """
+
+    review = plan.get("patch_review") if isinstance(plan, dict) else None
+    if not isinstance(review, dict):
+        return {
+            "status": "",
+            "hard_block": False,
+            "reason_codes": [],
+            "semantic_unverified_codes": [],
+            "finding_count": 0,
+            "block_reason": "",
+        }
+    reason_codes: set[str] = set()
+    semantic_unverified: set[str] = set()
+    block_reason = ""
+    findings = [row for row in review.get("findings") or [] if isinstance(row, dict)]
+    for finding in findings:
+        code = str(finding.get("code") or "").strip()
+        if not code:
+            continue
+        reason_codes.add(code)
+        severity = str(finding.get("severity") or "").strip()
+        category = str(finding.get("category") or "").strip()
+        coverage = str(finding.get("coverage_status") or "").strip()
+        if severity == "error" and not block_reason:
+            block_reason = "patch_review_error:" + code
+        if (
+            category == "semantic_coverage"
+            and coverage == "unverified"
+            and code in PATCH_REVIEW_LOCAL_BLOCKER_CODES
+        ):
+            semantic_unverified.add(code)
+    hard_block = bool(review.get("hard_block"))
+    if hard_block and not block_reason:
+        block_reason = "patch_review_hard_block"
+    if not block_reason and semantic_unverified:
+        block_reason = "patch_review_semantic_unverified:" + sorted(semantic_unverified)[0]
+    return {
+        "status": str(review.get("status") or "").strip(),
+        "hard_block": hard_block,
+        "reason_codes": sorted(reason_codes),
+        "semantic_unverified_codes": sorted(semantic_unverified),
+        "finding_count": len(findings),
+        "block_reason": block_reason,
+    }
+
+
 MANUAL_AUDIT_VERDICTS = {"pass", "fail", "unknown"}
 
 
@@ -2300,6 +2359,15 @@ def process_instance(
             for signal in owner_boundary_signals
             if str(signal.get("reason_code") or "").strip()
         })
+        patch_review_summary = plan_patch_review_summary(plan)
+        result["plan_patch_review_status"] = str(patch_review_summary.get("status") or "")
+        result["plan_patch_review_hard_block"] = bool(patch_review_summary.get("hard_block"))
+        result["plan_patch_review_reason_codes"] = patch_review_summary.get("reason_codes") or []
+        result["plan_patch_review_semantic_unverified_codes"] = (
+            patch_review_summary.get("semantic_unverified_codes") or []
+        )
+        result["plan_patch_review_finding_count"] = int(patch_review_summary.get("finding_count") or 0)
+        result["plan_patch_review_block_reason"] = str(patch_review_summary.get("block_reason") or "")
         result["patch_bytes"] = len(patch.encode("utf-8"))
         audit_block_reason = prediction_audit_block_reason(
             exported_source_paths=exported_source_paths,
@@ -2325,6 +2393,8 @@ def process_instance(
         result["empty_patch_reason"] = empty_reason
         if empty_reason and not audit_block_reason:
             audit_block_reason = empty_reason
+        if result["plan_patch_review_block_reason"] and not audit_block_reason:
+            audit_block_reason = str(result["plan_patch_review_block_reason"])
         result["prediction_audit_block_reason"] = audit_block_reason
         confidence_downgrade_reason = prediction_confidence_downgrade_reason(
             plan=plan,

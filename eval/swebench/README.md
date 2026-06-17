@@ -87,21 +87,30 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `plan_context_uncovered_paths`, `plan_context_coverage_ratio`,
 `plan_context_missing_source_paths`,
 `plan_owner_boundary_signals`, `plan_owner_boundary_reason_codes`,
+`plan_patch_review_status`, `plan_patch_review_hard_block`,
+`plan_patch_review_reason_codes`,
+`plan_patch_review_semantic_unverified_codes`,
+`plan_patch_review_block_reason`,
 `exported_patch_paths`, `exported_patch_source_paths`,
 `exported_patch_test_paths`, `final_plan_source_paths`,
 `final_plan_test_only`, `final_plan_covers_exported_source_patch`,
 `prediction_audit_block_reason`,
 `prediction_confidence_downgrade_reason`, `prediction_verdict`,
 `prediction_local_confidence`, and `prediction_blocks_local_acceptance`) so
-environment dead-ends, test-edit drift, planner handoff coverage, failed local
-verification, and final-plan-vs-exported-source drift are auditable without
-changing the official predictions JSONL shape. When the exported source patch is
+environment dead-ends, test-edit drift, planner handoff coverage, actual-diff
+patch review coverage, failed local verification, and
+final-plan-vs-exported-source drift are auditable without changing the official
+predictions JSONL shape. When the exported source patch is
 not owned by the final durable plan (for example a later test-only replan
 verified successfully), the adapter still writes the official prediction but
 marks local confidence as `predicted_audit_blocked` with
 `prediction_blocks_local_acceptance=true`. Context coverage is derived only from persisted
 workflow/context-pack typed fields when present; it is audit telemetry, not an
-apply/verify gate. When a `ChangePlan` carries `verification_probes[]`, Codrax
+apply/verify gate. Patch-review blockers are derived only from structured
+`ChangePlan.patch_review.findings`: hard patch-review errors and unverified
+semantic coverage findings block local acceptance telemetry, but never block the
+official SWE-bench prediction export. When a `ChangePlan` carries
+`verification_probes[]`, Codrax
 runs those bounded typed probes before any project-level suite; passing probes
 become the local behavior
 verdict while the project suite is retained as typed `TestSurface` diagnostics

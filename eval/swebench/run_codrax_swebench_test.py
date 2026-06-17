@@ -310,6 +310,63 @@ class LocalAcceptanceTests(unittest.TestCase):
         self.assertEqual(got["proj__repo-1"]["notes"], "free-form note is audit-only")
 
 
+class PatchReviewSummaryTests(unittest.TestCase):
+    def test_patch_review_error_blocks_local_acceptance(self) -> None:
+        summary = adapter.plan_patch_review_summary({
+            "patch_review": {
+                "status": "failed",
+                "hard_block": True,
+                "findings": [{
+                    "code": "patch_effect_path_outside_plan_scope",
+                    "severity": "error",
+                    "category": "scope",
+                }],
+            },
+        })
+
+        self.assertEqual(summary["block_reason"], "patch_review_error:patch_effect_path_outside_plan_scope")
+        self.assertTrue(summary["hard_block"])
+        self.assertEqual(summary["reason_codes"], ["patch_effect_path_outside_plan_scope"])
+
+    def test_semantic_unverified_patch_review_blocks_local_acceptance(self) -> None:
+        summary = adapter.plan_patch_review_summary({
+            "patch_review": {
+                "status": "passed",
+                "findings": [{
+                    "code": "changed_symbol_without_probe_coverage",
+                    "severity": "warning",
+                    "category": "semantic_coverage",
+                    "coverage_status": "unverified",
+                    "subject_symbol": "pkg.Target",
+                }],
+            },
+        })
+
+        self.assertEqual(
+            summary["block_reason"],
+            "patch_review_semantic_unverified:changed_symbol_without_probe_coverage",
+        )
+        self.assertEqual(summary["semantic_unverified_codes"], ["changed_symbol_without_probe_coverage"])
+
+    def test_verified_semantic_patch_review_is_telemetry_only(self) -> None:
+        summary = adapter.plan_patch_review_summary({
+            "patch_review": {
+                "status": "passed",
+                "findings": [{
+                    "code": "changed_symbol_without_probe_coverage",
+                    "severity": "warning",
+                    "category": "semantic_coverage",
+                    "coverage_status": "verified",
+                    "subject_symbol": "pkg.Target",
+                }],
+            },
+        })
+
+        self.assertEqual(summary["block_reason"], "")
+        self.assertEqual(summary["semantic_unverified_codes"], [])
+        self.assertEqual(summary["reason_codes"], ["changed_symbol_without_probe_coverage"])
+
+
 class ContextCoverageTests(unittest.TestCase):
     def test_symbol_qualified_context_paths_cover_file_level_change(self) -> None:
         missing = adapter.plan_source_paths_missing_prior_context(
@@ -548,6 +605,19 @@ class PredictionAuditBlockTests(unittest.TestCase):
 
         self.assertEqual(verdict, "predicted_audit_blocked")
         self.assertEqual(confidence, "unknown")
+        self.assertTrue(blocks)
+
+    def test_patch_review_blocker_blocks_local_acceptance_proxy(self) -> None:
+        verdict, confidence, blocks = adapter.prediction_verdict(
+            "diff --git a/pkg/a.py b/pkg/a.py\n",
+            "passed",
+            "applied",
+            "patch_review_semantic_unverified:changed_symbol_without_probe_coverage",
+            "",
+        )
+
+        self.assertEqual(verdict, "predicted_audit_blocked")
+        self.assertEqual(confidence, "failed")
         self.assertTrue(blocks)
 
 
