@@ -72,9 +72,11 @@ CALLER_RETURN_ADAPTER_NAMES = {
     "to_numpy",
     "tolist",
 }
-PATCH_REVIEW_LOCAL_BLOCKER_CODES = {
+PATCH_REVIEW_PROOF_BLOCKER_CODES = {
     "behavior_contract_without_verify_coverage",
     "changed_symbol_without_probe_coverage",
+}
+PATCH_REVIEW_EFFECT_BLOCKER_CODES = {
     "go_nested_string_map_assignment_added",
     "java_chained_string_map_get_added",
     "javascript_nested_string_key_direct_access_added",
@@ -84,6 +86,7 @@ PATCH_REVIEW_LOCAL_BLOCKER_CODES = {
     "ruby_nested_key_direct_access_added",
     "typescript_nested_string_key_direct_access_added",
 }
+PATCH_REVIEW_LOCAL_BLOCKER_CODES = PATCH_REVIEW_PROOF_BLOCKER_CODES | PATCH_REVIEW_EFFECT_BLOCKER_CODES
 
 
 @dataclass
@@ -1494,10 +1497,24 @@ def export_allowed_patch_paths(
     return sorted(allowed)
 
 
-def combine_patch_review_summaries(plans: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def combine_patch_review_summaries(
+    plans: Iterable[dict[str, Any]],
+    *,
+    proof_blocker_authority_plan_ids: set[str] | None = None,
+) -> dict[str, Any]:
     """Merge source-owner patch reviews without reading prose or issue text."""
 
-    summaries = [plan_patch_review_summary(plan) for plan in plans if plan]
+    authority_ids = (
+        None
+        if proof_blocker_authority_plan_ids is None
+        else {str(plan_id or "").strip() for plan_id in proof_blocker_authority_plan_ids if str(plan_id or "").strip()}
+    )
+    plan_summaries: list[tuple[str, dict[str, Any]]] = []
+    for plan in plans:
+        if not isinstance(plan, dict) or not plan:
+            continue
+        plan_summaries.append((str(plan.get("id") or "").strip(), plan_patch_review_summary(plan)))
+    summaries = [summary for _, summary in plan_summaries]
     if not summaries:
         return plan_patch_review_summary({})
     reason_codes: set[str] = set()
@@ -1516,7 +1533,8 @@ def combine_patch_review_summaries(plans: Iterable[dict[str, Any]]) -> dict[str,
     }
     coverage_verdict = ""
     block_reason = ""
-    for summary in summaries:
+    for plan_id, summary in plan_summaries:
+        proof_authoritative = authority_ids is None or plan_id in authority_ids
         hard_block = hard_block or bool(summary.get("hard_block"))
         status = str(summary.get("status") or "").strip()
         if status:
@@ -1531,13 +1549,21 @@ def combine_patch_review_summaries(plans: Iterable[dict[str, Any]]) -> dict[str,
         for code in summary.get("semantic_unverified_codes") or []:
             code = str(code or "").strip()
             if code:
-                semantic_unverified.add(code)
+                if not proof_authoritative and code in PATCH_REVIEW_PROOF_BLOCKER_CODES:
+                    semantic_unverified_telemetry.add(code)
+                else:
+                    semantic_unverified.add(code)
         for code in summary.get("semantic_unverified_telemetry_codes") or []:
             code = str(code or "").strip()
             if code:
                 semantic_unverified_telemetry.add(code)
         finding_count += int(summary.get("finding_count") or 0)
         reason = patch_review_local_block_reason(str(summary.get("block_reason") or ""))
+        if reason:
+            reason_code = patch_review_block_reason_code(reason)
+            if not proof_authoritative and reason_code in PATCH_REVIEW_PROOF_BLOCKER_CODES:
+                semantic_unverified_telemetry.add(reason_code)
+                reason = ""
         if reason and not block_reason:
             block_reason = reason
     if not block_reason and semantic_unverified:
@@ -1561,6 +1587,45 @@ def combine_patch_review_summaries(plans: Iterable[dict[str, Any]]) -> dict[str,
         "finding_count": finding_count,
         "block_reason": block_reason,
     }
+
+
+def delivery_patch_review_summary(
+    *,
+    source_owner_plans: Iterable[dict[str, Any]],
+    delivery_plan: dict[str, Any] | None,
+    report_plan_id: str,
+    verify_status: str,
+    delivery_status: str,
+) -> dict[str, Any]:
+    """Return local-acceptance PatchReview summary for an online delivery.
+
+    Source-owner plans remain authoritative for actual diff/effect blockers. If
+    a coherent delivery has a passed typed report, proof-only blockers from
+    earlier non-report attempts become telemetry because the report plan proves
+    the cumulative worktree.
+    """
+
+    plans = [row for row in source_owner_plans if isinstance(row, dict) and row]
+    if not plans and isinstance(delivery_plan, dict) and delivery_plan:
+        plans = [delivery_plan]
+    proof_authority_ids: set[str] | None = None
+    authority_plan_id = str(report_plan_id or "").strip()
+    if str(delivery_status or "").strip() == "coherent" and str(verify_status or "").strip() == "passed" and authority_plan_id:
+        proof_authority_ids = {authority_plan_id}
+    return combine_patch_review_summaries(
+        plans,
+        proof_blocker_authority_plan_ids=proof_authority_ids,
+    )
+
+
+def patch_review_block_reason_code(raw: str) -> str:
+    reason = str(raw or "").strip()
+    for prefix in ("patch_review_semantic_uncovered:", "patch_review_semantic_unverified:", "patch_review_error:"):
+        if reason.startswith(prefix):
+            return reason.removeprefix(prefix).strip()
+    if reason == "patch_review_hard_block":
+        return reason
+    return ""
 
 
 def patch_review_local_block_reason(raw: str) -> str:
@@ -2838,7 +2903,21 @@ def process_instance(
         )
         result["final_plan_patch_review_finding_count"] = int(final_patch_review_summary.get("finding_count") or 0)
         result["final_plan_patch_review_block_reason"] = str(final_patch_review_summary.get("block_reason") or "")
-        patch_review_summary = combine_patch_review_summaries(delivery_source_owner_plans or [delivery_plan])
+        patch_review_proof_authority_plan_ids: list[str] = []
+        if (
+            str(result.get("delivery_candidate_status") or "") == "coherent"
+            and str(result.get("verify_status") or "") == "passed"
+            and str(result.get("delivery_report_plan_id") or "").strip()
+        ):
+            patch_review_proof_authority_plan_ids = [str(result.get("delivery_report_plan_id") or "").strip()]
+        result["plan_patch_review_proof_authority_plan_ids"] = patch_review_proof_authority_plan_ids
+        patch_review_summary = delivery_patch_review_summary(
+            source_owner_plans=delivery_source_owner_plans,
+            delivery_plan=delivery_plan,
+            report_plan_id=str(result.get("delivery_report_plan_id") or ""),
+            verify_status=str(result.get("verify_status") or ""),
+            delivery_status=str(result.get("delivery_candidate_status") or ""),
+        )
         result["plan_patch_review_status"] = str(patch_review_summary.get("status") or "")
         result["plan_patch_review_hard_block"] = bool(patch_review_summary.get("hard_block"))
         result["plan_patch_review_coverage_verdict"] = str(patch_review_summary.get("coverage_verdict") or "")

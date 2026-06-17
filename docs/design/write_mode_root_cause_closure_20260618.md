@@ -1246,6 +1246,79 @@ Post-change validation notes:
   being combined into the delivery candidate instead of letting the final
   verified delivery report dominate.
 
+## 2026-06-18 RC-24 Delivery PatchReview Authority
+
+The RC-23 SymPy run exposed a second-order online convergence bug. The workflow
+did the right thing operationally:
+
+```text
+bad first patch -> typed probe failure -> replan
+  -> bad second patch -> typed probe failure -> replan
+  -> final source patch -> typed verifier passes
+```
+
+But the SWE-bench adapter still combined PatchReview summaries from every
+source-owner plan as if all attempts were equally authoritative. That made a
+stale proof gap from a failed intermediate plan block the final prediction:
+
+```text
+final verify_status=passed
+final_plan_patch_review_block_reason=""
+combined plan_patch_review_block_reason=
+  patch_review_semantic_unverified:changed_symbol_without_probe_coverage
+```
+
+This is a system-level mismatch between online edit-run-observe convergence and
+batch-style audit aggregation. The fix is not to ignore intermediate plans:
+early plans can still introduce real actual-diff structural/boundary risks that
+remain present in the exported patch. The fix is to split PatchReview blockers
+by authority:
+
+- **Effect/structural blockers** from any exported source-owner plan remain hard
+  blockers. Examples: path/scope errors, generated production test scaffolding,
+  direct dynamic mapping/container boundary events.
+- **Proof-only blockers** (`behavior_contract_without_verify_coverage`,
+  `changed_symbol_without_probe_coverage`) are authoritative only on the final
+  report plan after a coherent delivery candidate has a passed typed verifier
+  report. The final report proves the cumulative worktree; stale proof gaps from
+  failed intermediate attempts should become confidence telemetry.
+- If delivery is incoherent, verifier did not pass, or no report authority exists,
+  the previous conservative source-owner aggregation stays in force.
+- The decision consumes only typed plan IDs, delivery status, verify status,
+  PatchReview finding codes, and coverage statuses. No model prose, issue text,
+  stdout narrative, or keyword route is used.
+
+Task list:
+
+- [x] Add a proof-blocker code registry separate from actual-diff effect
+  blockers in the SWE-bench adapter.
+- [x] Add a delivery PatchReview combiner that accepts report-authority plan IDs
+  and demotes stale non-authority proof blockers to telemetry only.
+- [x] Keep actual-diff/structural blockers from any source-owner plan as hard
+  local blockers.
+- [x] Export enough typed telemetry to explain which proof authority was used.
+- [x] Add adapter regressions for stale proof-blocker demotion and actual-diff
+  blocker preservation.
+- [x] Recompute the RC-23 SymPy result through the adapter and verify it becomes
+  low-confidence passed/unblocked rather than audit-blocked.
+
+Verification:
+
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+
+Post-change validation notes:
+
+- Recomputing the RC-23 SymPy artifacts through the new combiner produces
+  `prediction_verdict=predicted_passed_low_confidence`,
+  `blocks_local_acceptance=false`, and no `audit_block_reason`.
+- Stale proof gaps remain visible as
+  `plan_patch_review_semantic_unverified_telemetry_codes`, including
+  `changed_symbol_without_probe_coverage`.
+- The confidence downgrade remains
+  `verification_probe_missing_required_contract_ref`, so the adapter does not
+  overstate local certainty.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1275,6 +1348,7 @@ Post-change validation notes:
 | RC-21 | complete | Pyproject build requirement parsing: adapter now uses `tomllib`, `tomli`, or a narrow `[build-system].requires` fallback so Python 3.9 eval runs still install typed build helpers such as `extension-helpers`; legacy `setuptools.dep_util` compatibility now runs before no-build-isolation editable retry. Astropy rerun confirms build requirements are installed and prediction export remains clean; local verify still hits host `Python.h` compiler-header limits, tracked as the next verify-sandbox gap. |
 | RC-22 | complete | PatchReview acceptance severity split: local hard blockers now stay reserved for missing behavior/changed-symbol proof and actual-diff boundary/structural risks; broad dependent/test-surface impact gaps become confidence downgrade telemetry when target typed verification passes. SymPy RC-22 audit now recomputes as low-confidence verified instead of hard-blocked, while Django's nested direct mapping access remains blocked. |
 | RC-23 | complete | Probe-primary suite timeout policy: core `run_tests` now preserves a passed verification probe as the authoritative local behavior verdict when the only suite continuation reason is `plan_touches_test_path` and the continued project suite hits timeout/OOM/CPU verifier capacity limits. Real red suite failures still fail. The report retains continuation and timeout command evidence plus a `project_runner` confidence warning. SymPy RC-23 did not re-hit the timeout path; it confirmed real probe failures still replan and exposed the next delivery-candidate review ownership gap. |
+| RC-24 | complete | Delivery PatchReview authority: SWE local acceptance now separates proof-only blockers from actual-diff/effect blockers when a coherent delivery candidate has a passed report. Stale proof blockers from intermediate attempts become telemetry, while actual-diff boundary blockers from any source-owner plan remain hard. Recomputing RC-23 SymPy now yields `predicted_passed_low_confidence` instead of audit-blocked. |
 
 ## Acceptance Criteria
 

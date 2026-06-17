@@ -426,6 +426,101 @@ class PatchReviewSummaryTests(unittest.TestCase):
         self.assertEqual(summary["semantic_unverified_codes"], [])
         self.assertEqual(summary["reason_codes"], ["changed_symbol_without_probe_coverage"])
 
+    def test_delivery_patch_review_demotes_stale_proof_blockers_after_passed_report(self) -> None:
+        stale_source_plan = {
+            "id": "plan-old",
+            "patch_review": {
+                "status": "passed",
+                "coverage_summary": {
+                    "verdict": "unverified",
+                    "block_reason": "patch_review_semantic_unverified:changed_symbol_without_probe_coverage",
+                    "reason_codes": ["changed_symbol_without_probe_coverage"],
+                },
+                "findings": [{
+                    "code": "changed_symbol_without_probe_coverage",
+                    "severity": "warning",
+                    "category": "semantic_coverage",
+                    "coverage_status": "unverified",
+                    "subject_symbol": "pkg.Target",
+                }],
+            },
+        }
+        final_report_plan = {
+            "id": "plan-final",
+            "patch_review": {
+                "status": "passed",
+                "coverage_summary": {
+                    "verdict": "unverified",
+                    "block_reason": "patch_review_semantic_uncovered:dependent_surface_without_verify_coverage",
+                    "reason_codes": ["dependent_surface_without_verify_coverage"],
+                },
+                "findings": [{
+                    "code": "dependent_surface_without_verify_coverage",
+                    "severity": "warning",
+                    "category": "semantic_coverage",
+                    "coverage_status": "unverified",
+                    "related_path": "tests/test_target.py",
+                }],
+            },
+        }
+
+        summary = adapter.delivery_patch_review_summary(
+            source_owner_plans=[stale_source_plan, final_report_plan],
+            delivery_plan=final_report_plan,
+            report_plan_id="plan-final",
+            verify_status="passed",
+            delivery_status="coherent",
+        )
+
+        self.assertEqual(summary["block_reason"], "")
+        self.assertEqual(summary["semantic_unverified_codes"], [])
+        self.assertEqual(
+            summary["semantic_unverified_telemetry_codes"],
+            ["changed_symbol_without_probe_coverage", "dependent_surface_without_verify_coverage"],
+        )
+
+    def test_delivery_patch_review_keeps_actual_diff_blocker_from_any_owner(self) -> None:
+        risky_source_plan = {
+            "id": "plan-old",
+            "patch_review": {
+                "status": "passed",
+                "coverage_summary": {
+                    "verdict": "unverified",
+                    "block_reason": "patch_review_semantic_uncovered:python_nested_string_key_direct_access_added",
+                    "reason_codes": ["python_nested_string_key_direct_access_added"],
+                },
+                "findings": [{
+                    "code": "python_nested_string_key_direct_access_added",
+                    "severity": "warning",
+                    "category": "semantic_coverage",
+                    "coverage_status": "unverified",
+                    "path": "pkg/widget.py",
+                }],
+            },
+        }
+        final_report_plan = {
+            "id": "plan-final",
+            "patch_review": {
+                "status": "passed",
+                "coverage_summary": {"verdict": "clean"},
+                "findings": [],
+            },
+        }
+
+        summary = adapter.delivery_patch_review_summary(
+            source_owner_plans=[risky_source_plan, final_report_plan],
+            delivery_plan=final_report_plan,
+            report_plan_id="plan-final",
+            verify_status="passed",
+            delivery_status="coherent",
+        )
+
+        self.assertEqual(
+            summary["block_reason"],
+            "patch_review_semantic_uncovered:python_nested_string_key_direct_access_added",
+        )
+        self.assertEqual(summary["semantic_unverified_codes"], ["python_nested_string_key_direct_access_added"])
+
 
 class ContextCoverageTests(unittest.TestCase):
     def test_symbol_qualified_context_paths_cover_file_level_change(self) -> None:
