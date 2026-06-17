@@ -195,6 +195,31 @@ class PredictionConfidenceTests(unittest.TestCase):
 
         self.assertEqual(reason, "")
 
+    def test_probe_only_pass_downgrades_soft_fallback_contracts_separately(self) -> None:
+        plan = {
+            "behavior_contracts": [
+                {"id": "outcome-1", "required": True, "source": "expected_outcome_fallback"},
+                {
+                    "id": "soft-satisfies",
+                    "required": True,
+                    "source": "write_analyzer",
+                    "operator": "satisfies",
+                    "polarity": "expected",
+                },
+            ],
+            "verification_probes": [
+                {"id": "probe-1", "language": "python", "changed_symbol_refs": ["pkg.entrypoint"]},
+            ],
+        }
+
+        reason = adapter.prediction_confidence_downgrade_reason(
+            plan=plan,
+            report=probe_only_report(),
+            verify_status="passed",
+        )
+
+        self.assertEqual(reason, "verification_probe_missing_soft_contract_ref")
+
     def test_probe_only_pass_downgrades_for_caller_return_adapter_signal(self) -> None:
         signals = adapter.plan_owner_boundary_signals(plan_with_caller_return_adapter())
         reason_codes = [row["reason_code"] for row in signals]

@@ -2268,6 +2268,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 	}
 	if plan != nil && reportPassedOnlyByVerificationProbes(report) {
 		required := types.HardRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
+		softRequired := softRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
 		covered := map[string]struct{}{}
 		changed := map[string]struct{}{}
 		baselineExpected := false
@@ -2335,6 +2336,32 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 				})
 			}
 		}
+		if len(softRequired) > 0 {
+			matched := intersectStringSets(softRequired, covered)
+			missing := sortedStringSet(subtractStringSet(softRequired, covered))
+			if len(missing) > 0 {
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:       "verification_probe",
+					Category:     "probe_soft_contract_refs",
+					Status:       "missing",
+					Severity:     "warning",
+					ReasonCode:   "verification_probe_missing_soft_contract_ref",
+					ContractRefs: missing,
+					Detail:       "passed verification probes did not reference every soft or fallback expected outcome",
+				})
+			}
+			if len(matched) > 0 {
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:       "verification_probe",
+					Category:     "probe_soft_contract_refs",
+					Status:       "satisfied",
+					Severity:     "info",
+					ReasonCode:   "verification_probe_soft_contract_ref_covered",
+					ContractRefs: matched,
+					Detail:       "passed verification probes referenced soft or fallback expected outcomes",
+				})
+			}
+		}
 		if baselineExpected {
 			out = append(out, types.VerificationConfidenceRecord{
 				Source:     "verification_probe",
@@ -2347,6 +2374,20 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 		}
 	}
 	return mergeVerificationConfidenceRecords(nil, out)
+}
+
+func softRequiredWriteBehaviorContractIDs(contracts []types.WriteBehaviorContract) map[string]struct{} {
+	required := types.RequiredWriteBehaviorContractIDs(contracts, true)
+	if len(required) == 0 {
+		return nil
+	}
+	for id := range types.HardRequiredWriteBehaviorContractIDs(contracts) {
+		delete(required, id)
+	}
+	if len(required) == 0 {
+		return nil
+	}
+	return required
 }
 
 func verificationConfidenceFromCommand(cmd types.ExecutedCommand, status types.VerificationStatus) []types.VerificationConfidenceRecord {

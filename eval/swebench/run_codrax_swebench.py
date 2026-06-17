@@ -2344,6 +2344,42 @@ def required_behavior_contract_ids(plan: dict[str, Any], *, include_fallback: bo
     return ids
 
 
+HARD_BEHAVIOR_CONTRACT_OPERATORS = {
+    "equals",
+    "not_equals",
+    "contains",
+    "not_contains",
+    "exists",
+    "not_exists",
+    "raises",
+    "not_raises",
+    "returns",
+}
+
+
+def hard_required_behavior_contract_ids(plan: dict[str, Any]) -> set[str]:
+    ids: set[str] = set()
+    for contract in plan.get("behavior_contracts") or []:
+        if not isinstance(contract, dict):
+            continue
+        if not bool(contract.get("required")):
+            continue
+        if str(contract.get("polarity") or "").strip() == "observed":
+            continue
+        if str(contract.get("source") or "").strip() == "expected_outcome_fallback":
+            continue
+        if str(contract.get("operator") or "").strip() not in HARD_BEHAVIOR_CONTRACT_OPERATORS:
+            continue
+        cid = str(contract.get("id") or "").strip()
+        if cid:
+            ids.add(cid)
+    return ids
+
+
+def soft_required_behavior_contract_ids(plan: dict[str, Any]) -> set[str]:
+    return required_behavior_contract_ids(plan, include_fallback=True) - hard_required_behavior_contract_ids(plan)
+
+
 def report_passed_by_verification_probe(report: dict[str, Any]) -> bool:
     commands = [cmd for cmd in report.get("executed_commands") or [] if isinstance(cmd, dict)]
     probe_commands = [
@@ -2401,7 +2437,8 @@ def prediction_confidence_downgrade_reason(
     probes = [probe for probe in plan.get("verification_probes") or [] if isinstance(probe, dict)]
     if not probes or not report_passed_by_verification_probe(report):
         return ""
-    required_contracts = required_behavior_contract_ids(plan, include_fallback=True)
+    required_contracts = hard_required_behavior_contract_ids(plan)
+    soft_contracts = soft_required_behavior_contract_ids(plan)
     covered_contracts: set[str] = set()
     changed_symbols: set[str] = set()
     baseline_expected = False
@@ -2413,6 +2450,8 @@ def prediction_confidence_downgrade_reason(
         return "verification_probe_missing_required_contract_ref"
     if required_contracts and not changed_symbols:
         return "verification_probe_missing_changed_symbol_ref"
+    if soft_contracts and not (soft_contracts & covered_contracts):
+        return "verification_probe_missing_soft_contract_ref"
     if baseline_expected:
         return "verification_probe_baseline_not_run"
     if plan_source_paths is not None and plan_context_paths is not None:

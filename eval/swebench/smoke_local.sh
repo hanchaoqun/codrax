@@ -403,7 +403,7 @@ if verdict != ("predicted_failed_verify", "failed", True):
 
 weak_plan = {
     "behavior_contracts": [
-        {"id": "c1", "required": True, "source": "write_analyzer"},
+        {"id": "c1", "required": True, "source": "write_analyzer", "operator": "equals", "polarity": "expected"},
     ],
     "verification_probes": [
         {"id": "probe", "language": "python", "code": "print('ok')"},
@@ -443,7 +443,7 @@ fallback_downgrade = mod.prediction_confidence_downgrade_reason(
     report=probe_report,
     verify_status="passed",
 )
-if fallback_downgrade != "verification_probe_missing_required_contract_ref":
+if fallback_downgrade != "verification_probe_missing_soft_contract_ref":
     raise SystemExit(f"unexpected fallback-contract downgrade reason: {fallback_downgrade!r}")
 
 report_confidence_downgrade = mod.prediction_confidence_downgrade_reason(

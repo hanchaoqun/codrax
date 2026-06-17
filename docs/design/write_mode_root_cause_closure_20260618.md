@@ -1362,6 +1362,64 @@ Verification:
 - `go test ./internal/tool -run 'TestVerificationConfidenceRecordsFromProbeReport'`
 - `go test ./internal/tool`
 
+## 2026-06-18 RC-26 Hard/Soft Probe Coverage Authority
+
+RC-25 removed low-ambiguity metadata omissions, but the real RC-23 SymPy
+artifact still has multiple expected outcomes:
+
+```text
+hard required contracts: []
+soft/fallback required contracts:
+  no-error-array-empty, outcome-1, outcome-2, outcome-3, outcome-4
+```
+
+The old SWE adapter collapsed both categories into
+`verification_probe_missing_required_contract_ref`, while runtime confidence
+used only hard-required contracts. That mismatch made the reason code look like
+a hard proof gap even when the actual problem was weaker: the probe passed a
+local behavior check but did not explicitly cover every natural-language
+expected outcome such as "existing suite passes".
+
+Design:
+
+- Keep hard-required probe coverage semantics aligned with
+  `types.IsHardRequiredWriteBehaviorContract`:
+  non-observed, non-fallback, required contracts with typed exact/existence/
+  raise/return style operators.
+- Project non-hard required contracts, including fallback expected outcomes and
+  `satisfies` contracts, into a separate confidence lane:
+  `category=probe_soft_contract_refs`.
+- Missing hard refs still use
+  `verification_probe_missing_required_contract_ref`.
+- Missing soft/fallback refs use
+  `verification_probe_missing_soft_contract_ref`.
+- Satisfied soft/fallback refs use
+  `verification_probe_soft_contract_ref_covered`.
+- Adapter fallback logic mirrors runtime's hard/soft split for historical
+  artifacts that lack `verification_confidence`.
+- No prompt, issue text, stdout prose, or keyword matching participates; only
+  typed contract fields, typed probe refs, report status, and command/test
+  suites are consumed.
+
+Task list:
+
+- [x] Add runtime soft-required contract confidence records for probe-only pass.
+- [x] Keep hard-required changed-symbol coupling unchanged.
+- [x] Add adapter hard/soft contract helpers matching runtime semantics.
+- [x] Update adapter confidence fallback to return soft-specific reason.
+- [x] Add Go and adapter regressions.
+- [x] Recompute RC-23 SymPy artifact: reason becomes
+  `verification_probe_missing_soft_contract_ref`, with no hard-required
+  contracts.
+
+Verification:
+
+- `go test ./internal/tool -run 'TestVerificationConfidenceRecordsFromProbeReport|TestRunPlanVerificationProbesAttachesConfidenceToProbeReport'`
+- `go test ./internal/tool`
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+- `eval/swebench/smoke_local.sh`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1393,6 +1451,7 @@ Verification:
 | RC-23 | complete | Probe-primary suite timeout policy: core `run_tests` now preserves a passed verification probe as the authoritative local behavior verdict when the only suite continuation reason is `plan_touches_test_path` and the continued project suite hits timeout/OOM/CPU verifier capacity limits. Real red suite failures still fail. The report retains continuation and timeout command evidence plus a `project_runner` confidence warning. SymPy RC-23 did not re-hit the timeout path; it confirmed real probe failures still replan and exposed the next delivery-candidate review ownership gap. |
 | RC-24 | complete | Delivery PatchReview authority: SWE local acceptance now separates proof-only blockers from actual-diff/effect blockers when a coherent delivery candidate has a passed report. Stale proof blockers from intermediate attempts become telemetry, while actual-diff boundary blockers from any source-owner plan remain hard. Recomputing RC-23 SymPy now yields `predicted_passed_low_confidence` instead of audit-blocked. |
 | RC-25 | complete | Probe reference enrichment: single-probe, single-required-contract plans now auto-fill omitted `contract_refs`, and fill `changed_symbol_refs` from contract subject or a transparent single-source `path:<repo-rel>` fallback. Explicit refs are preserved, multi-contract plans are not guessed, and both single-shot plus skeleton planning paths share the helper. |
+| RC-26 | complete | Hard/soft probe coverage authority: runtime and SWE adapter now distinguish hard-required contract coverage from soft/fallback expected-outcome coverage. Historical RC-23 SymPy recomputes to `verification_probe_missing_soft_contract_ref` with no hard-required gaps, preserving low confidence without overstating the failure as a hard required contract omission. |
 
 ## Acceptance Criteria
 

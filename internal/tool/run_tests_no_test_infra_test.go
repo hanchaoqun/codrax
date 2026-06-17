@@ -1636,7 +1636,7 @@ func TestRunPlanVerificationProbesAttachesConfidenceToProbeReport(t *testing.T) 
 	}
 }
 
-func TestVerificationConfidenceRecordsFromProbeReportIgnoresSoftSatisfiesContractRefs(t *testing.T) {
+func TestVerificationConfidenceRecordsFromProbeReportRecordsSoftContractRefsSeparately(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID: "plan-confidence-soft",
 		BehaviorContracts: []types.WriteBehaviorContract{{
@@ -1678,6 +1678,18 @@ func TestVerificationConfidenceRecordsFromProbeReportIgnoresSoftSatisfiesContrac
 	}
 	if verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
 		t.Fatalf("soft satisfies contract should not emit hard contract-ref covered record: %+v", records)
+	}
+	if !verificationConfidenceContains(records, "probe_soft_contract_refs", "missing", "verification_probe_missing_soft_contract_ref") {
+		t.Fatalf("soft satisfies contract should emit soft missing confidence record: %+v", records)
+	}
+
+	plan.VerificationProbes[0].ContractRefs = []string{"soft-outcome"}
+	records = verificationConfidenceRecordsFromReport(plan, report)
+	if verificationConfidenceContains(records, "probe_soft_contract_refs", "missing", "verification_probe_missing_soft_contract_ref") {
+		t.Fatalf("covered soft satisfies contract should not emit soft missing record: %+v", records)
+	}
+	if !verificationConfidenceContains(records, "probe_soft_contract_refs", "satisfied", "verification_probe_soft_contract_ref_covered") {
+		t.Fatalf("covered soft satisfies contract should emit soft covered record: %+v", records)
 	}
 }
 
