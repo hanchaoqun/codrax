@@ -434,6 +434,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// the (already converted + already validated) changes slice.
 	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes)
 	attachWriteBehaviorContracts(ctx, plan)
+	enrichVerificationProbeRefs(plan)
 
 	// Drain any per-language "unvalidated" reasons collected by the
 	// dry-build helpers (commit 7 P1-E gap-fix) into the finalised

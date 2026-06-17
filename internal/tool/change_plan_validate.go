@@ -1566,6 +1566,56 @@ func attachWriteBehaviorContracts(ctx *types.BusContext, plan *types.ChangePlan)
 	plan.BehaviorContracts = append([]types.WriteBehaviorContract(nil), ir.Request.BehaviorContracts...)
 }
 
+func enrichVerificationProbeRefs(plan *types.ChangePlan) {
+	if plan == nil || len(plan.VerificationProbes) != 1 {
+		return
+	}
+	probe := &plan.VerificationProbes[0]
+	contracts := probeCoverageContractRefs(plan.BehaviorContracts)
+	if len(probe.ContractRefs) == 0 && len(contracts) == 1 {
+		probe.ContractRefs = []string{contracts[0].ID}
+	}
+	if len(probe.ChangedSymbolRefs) == 0 {
+		if refs := probeCoverageChangedSymbolRefs(plan, contracts); len(refs) > 0 {
+			probe.ChangedSymbolRefs = refs
+		}
+	}
+}
+
+func probeCoverageContractRefs(contracts []types.WriteBehaviorContract) []types.WriteBehaviorContract {
+	var out []types.WriteBehaviorContract
+	for _, contract := range contracts {
+		if !contract.Required || strings.TrimSpace(contract.ID) == "" {
+			continue
+		}
+		if contract.Polarity == types.WriteBehaviorPolarityObserved {
+			continue
+		}
+		out = append(out, contract)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return strings.TrimSpace(out[i].ID) < strings.TrimSpace(out[j].ID)
+	})
+	return out
+}
+
+func probeCoverageChangedSymbolRefs(plan *types.ChangePlan, contracts []types.WriteBehaviorContract) []string {
+	if len(contracts) != 1 {
+		return nil
+	}
+	if subject := strings.TrimSpace(contracts[0].Subject); subject != "" {
+		return []string{subject}
+	}
+	if len(plan.TargetPaths) != 1 {
+		return nil
+	}
+	path := strings.TrimSpace(plan.TargetPaths[0])
+	if path == "" || types.LooksLikeTestFilePath(path) {
+		return nil
+	}
+	return []string{"path:" + filepath.ToSlash(path)}
+}
+
 func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.VerificationProbe, string) {
 	return normalizeVerificationProbesWithOptions(in, true)
 }

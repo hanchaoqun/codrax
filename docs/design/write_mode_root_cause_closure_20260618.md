@@ -1319,6 +1319,49 @@ Post-change validation notes:
   `verification_probe_missing_required_contract_ref`, so the adapter does not
   overstate local certainty.
 
+## 2026-06-18 RC-25 Probe Reference Enrichment
+
+RC-24 intentionally kept the RC-23 SymPy delivery as low confidence because the
+final plan's probe proved behavior but did not carry `contract_refs`. That is
+correct for already-recorded artifacts, but it exposes a future-runtime gap:
+model-emitted JSON routinely omits optional metadata even when the typed plan
+context makes the reference unambiguous. Making every planner prompt carry this
+burden creates model mindshare tax and repeats the same repair hint across
+stages.
+
+Design:
+
+- Add a deterministic post-normalization enrichment step before approval,
+  fingerprinting, persistence, apply, and verify.
+- If a plan has exactly one verification probe and exactly one required
+  non-observed behavior contract, fill `verification_probes[0].contract_refs`
+  when the model omitted it.
+- If `changed_symbol_refs` is empty, fill it from the single contract's
+  `subject` when available; otherwise fill a transparent `path:<repo-rel>`
+  reference when the plan has exactly one non-test target path.
+- Preserve all explicit refs exactly as emitted.
+- Do not guess when there are multiple probes or multiple required contracts.
+- Keep verifier/report confidence logic unchanged; enrichment only improves the
+  typed input facts it consumes.
+- Apply the same helper to single-shot `emit_change_plan` and multi-round
+  `emit_plan_skeleton` so large plans do not drift.
+- Hard gates continue to read typed artifacts only. No user keywords, issue text,
+  model prose, stdout, or `<think>` output participates.
+
+Task list:
+
+- [x] Add shared `enrichVerificationProbeRefs` helper.
+- [x] Wire it into `emit_change_plan`.
+- [x] Wire it into `emit_plan_skeleton`.
+- [x] Add regressions for single-probe enrichment and multi-contract no-guess.
+- [x] Run focused tool tests and related package tests.
+
+Verification:
+
+- `go test ./internal/tool -run 'TestEmitChangePlan_(PersistsBehaviorContractsAndProbeRefs|EnrichesSingleProbeRefsFromTypedPlanContext|AcceptsPartialRequiredContractProbeCoverage|DoesNotGuessProbeRefsWhenMultipleRequiredContracts)'`
+- `go test ./internal/tool -run 'TestVerificationConfidenceRecordsFromProbeReport'`
+- `go test ./internal/tool`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -1349,6 +1392,7 @@ Post-change validation notes:
 | RC-22 | complete | PatchReview acceptance severity split: local hard blockers now stay reserved for missing behavior/changed-symbol proof and actual-diff boundary/structural risks; broad dependent/test-surface impact gaps become confidence downgrade telemetry when target typed verification passes. SymPy RC-22 audit now recomputes as low-confidence verified instead of hard-blocked, while Django's nested direct mapping access remains blocked. |
 | RC-23 | complete | Probe-primary suite timeout policy: core `run_tests` now preserves a passed verification probe as the authoritative local behavior verdict when the only suite continuation reason is `plan_touches_test_path` and the continued project suite hits timeout/OOM/CPU verifier capacity limits. Real red suite failures still fail. The report retains continuation and timeout command evidence plus a `project_runner` confidence warning. SymPy RC-23 did not re-hit the timeout path; it confirmed real probe failures still replan and exposed the next delivery-candidate review ownership gap. |
 | RC-24 | complete | Delivery PatchReview authority: SWE local acceptance now separates proof-only blockers from actual-diff/effect blockers when a coherent delivery candidate has a passed report. Stale proof blockers from intermediate attempts become telemetry, while actual-diff boundary blockers from any source-owner plan remain hard. Recomputing RC-23 SymPy now yields `predicted_passed_low_confidence` instead of audit-blocked. |
+| RC-25 | complete | Probe reference enrichment: single-probe, single-required-contract plans now auto-fill omitted `contract_refs`, and fill `changed_symbol_refs` from contract subject or a transparent single-source `path:<repo-rel>` fallback. Explicit refs are preserved, multi-contract plans are not guessed, and both single-shot plus skeleton planning paths share the helper. |
 
 ## Acceptance Criteria
 

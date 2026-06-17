@@ -299,7 +299,7 @@ func TestEmitChangePlan_RejectsUnknownBehaviorContractRef(t *testing.T) {
 	}
 }
 
-func TestEmitChangePlan_AcceptsProbeWithoutExplicitRequiredContractRefs(t *testing.T) {
+func TestEmitChangePlan_EnrichesSingleProbeRefsFromTypedPlanContext(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
 	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
@@ -340,8 +340,15 @@ func TestEmitChangePlan_AcceptsProbeWithoutExplicitRequiredContractRefs(t *testi
 	if len(plan.BehaviorContracts) != 1 || plan.BehaviorContracts[0].ID != "widget-value" {
 		t.Fatalf("behavior contract snapshot missing: %+v", plan.BehaviorContracts)
 	}
-	if len(plan.VerificationProbes) != 1 || len(plan.VerificationProbes[0].ContractRefs) != 0 {
-		t.Fatalf("probe contract refs should remain exactly as emitted for verify confidence accounting: %+v", plan.VerificationProbes)
+	if len(plan.VerificationProbes) != 1 {
+		t.Fatalf("probe missing: %+v", plan.VerificationProbes)
+	}
+	probe := plan.VerificationProbes[0]
+	if len(probe.ContractRefs) != 1 || probe.ContractRefs[0] != "widget-value" {
+		t.Fatalf("single required contract ref should be auto-enriched: %+v", probe)
+	}
+	if len(probe.ChangedSymbolRefs) != 1 || probe.ChangedSymbolRefs[0] != "path:widget.py" {
+		t.Fatalf("single target path changed-symbol fallback should be auto-enriched: %+v", probe)
 	}
 }
 
@@ -395,6 +402,56 @@ func TestEmitChangePlan_AcceptsPartialRequiredContractProbeCoverage(t *testing.T
 	}
 	if len(plan.VerificationProbes) != 1 || len(plan.VerificationProbes[0].ContractRefs) != 1 || plan.VerificationProbes[0].ContractRefs[0] != "widget-value" {
 		t.Fatalf("partial contract refs should be preserved for verify confidence accounting: %+v", plan.VerificationProbes)
+	}
+}
+
+func TestEmitChangePlan_DoesNotGuessProbeRefsWhenMultipleRequiredContracts(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "fix two widget behaviours"},
+			BehaviorContracts: []types.WriteBehaviorContract{{
+				ID:       "widget-value",
+				Kind:     types.WriteBehaviorObservable,
+				Operator: types.WriteBehaviorOpEquals,
+				Expected: "42",
+				Required: true,
+				Source:   "write_analyzer",
+			}, {
+				ID:       "widget-label",
+				Kind:     types.WriteBehaviorObservable,
+				Operator: types.WriteBehaviorOpEquals,
+				Expected: "ready",
+				Required: true,
+				Source:   "write_analyzer",
+			}},
+		},
+	})
+	params := json.RawMessage(`{
+		"request": "fix widget value and label",
+		"summary": "Modify widget.py and attach one broad probe, but leave exact contract refs absent.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\nLABEL = 'ready'\n", "rationale": "set the corrected values"}
+		],
+		"verification_probes": [
+			{"id": "widget_contracts", "language": "python", "code": "import widget\nassert widget.VALUE == 42\nassert widget.LABEL == 'ready'\n"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected plan emit to accept structurally valid probe metadata, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) != 1 {
+		t.Fatalf("expected ChangePlan with one probe installed: %+v", plan)
+	}
+	if len(plan.VerificationProbes[0].ContractRefs) != 0 || len(plan.VerificationProbes[0].ChangedSymbolRefs) != 0 {
+		t.Fatalf("multiple required contracts should not be guessed into one probe: %+v", plan.VerificationProbes[0])
 	}
 }
 

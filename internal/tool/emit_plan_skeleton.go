@@ -252,6 +252,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	// PartialChangePlan too.
 	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes)
 	attachWriteBehaviorContracts(ctx, plan)
+	enrichVerificationProbeRefs(plan)
 	ctx.Mutable.ResetChangePlan()
 	ctx.Mutable.SetPartialChangePlan(plan)
 
