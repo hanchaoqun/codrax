@@ -287,7 +287,9 @@ func TestAnnotatePatchEffectPythonNestedStringKeyAccessWarns(t *testing.T) {
 		t.Fatalf("nested key access is a soft semantic finding, not a hard block: %+v", review)
 	}
 	finding := patchReviewFindingByCode(review, "python_nested_string_key_direct_access_added")
-	if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageUnknown {
+	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
 		t.Fatalf("nested key access finding should be semantic coverage unknown: %+v", finding)
 	}
 }

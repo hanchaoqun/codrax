@@ -380,6 +380,8 @@ class PatchReviewSummaryTests(unittest.TestCase):
             "patch_review_semantic_unverified:changed_symbol_without_probe_coverage",
         )
         self.assertEqual(summary["semantic_unverified_codes"], ["changed_symbol_without_probe_coverage"])
+        self.assertEqual(summary["uncovered_impact_kinds"], ["changed_symbol"])
+        self.assertEqual(summary["impact_kind_coverage"][0]["kind"], "changed_symbol")
 
     def test_actual_diff_boundary_patch_review_blocks_local_acceptance(self) -> None:
         summary = adapter.plan_patch_review_summary({
@@ -405,6 +407,35 @@ class PatchReviewSummaryTests(unittest.TestCase):
             "patch_review_semantic_uncovered:python_nested_string_key_direct_access_added",
         )
         self.assertEqual(summary["semantic_unverified_codes"], ["python_nested_string_key_direct_access_added"])
+        self.assertEqual(summary["uncovered_impact_kinds"], ["effect_followup"])
+
+    def test_patch_review_summary_consumes_impact_kind_coverage(self) -> None:
+        summary = adapter.plan_patch_review_summary({
+            "patch_review": {
+                "status": "passed",
+                "coverage_summary": {
+                    "verdict": "unverified",
+                    "impact_kind_coverage": [{
+                        "kind": "behavior_contract",
+                        "total": 1,
+                        "unverified": 1,
+                        "reason_codes": ["behavior_contract_without_verify_coverage"],
+                    }],
+                },
+                "findings": [],
+            },
+        })
+
+        self.assertEqual(summary["impact_kind_coverage"], [{
+            "kind": "behavior_contract",
+            "total": 1,
+            "verified": 0,
+            "unverified": 1,
+            "unavailable": 0,
+            "unknown": 0,
+            "advisory": 0,
+            "reason_codes": ["behavior_contract_without_verify_coverage"],
+        }])
 
     def test_dependent_surface_unverified_is_confidence_telemetry(self) -> None:
         summary = adapter.plan_patch_review_summary({
@@ -428,6 +459,8 @@ class PatchReviewSummaryTests(unittest.TestCase):
         self.assertEqual(summary["block_reason"], "")
         self.assertEqual(summary["semantic_unverified_codes"], [])
         self.assertEqual(summary["semantic_unverified_telemetry_codes"], ["dependent_surface_without_verify_coverage"])
+        self.assertEqual(summary["uncovered_impact_kinds"], [])
+        self.assertEqual(summary["uncovered_impact_kind_telemetry"], ["dependent"])
         self.assertEqual(
             adapter.patch_review_confidence_downgrade_reason(summary),
             "patch_review_semantic_unverified:dependent_surface_without_verify_coverage",
@@ -499,6 +532,8 @@ class PatchReviewSummaryTests(unittest.TestCase):
 
         self.assertEqual(summary["block_reason"], "")
         self.assertEqual(summary["semantic_unverified_codes"], [])
+        self.assertEqual(summary["uncovered_impact_kinds"], [])
+        self.assertEqual(summary["uncovered_impact_kind_telemetry"], ["changed_symbol", "dependent"])
         self.assertEqual(
             summary["semantic_unverified_telemetry_codes"],
             ["changed_symbol_without_probe_coverage", "dependent_surface_without_verify_coverage"],

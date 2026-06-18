@@ -87,6 +87,31 @@ PATCH_REVIEW_EFFECT_BLOCKER_CODES = {
     "typescript_nested_string_key_direct_access_added",
 }
 PATCH_REVIEW_LOCAL_BLOCKER_CODES = PATCH_REVIEW_PROOF_BLOCKER_CODES | PATCH_REVIEW_EFFECT_BLOCKER_CODES
+PATCH_REVIEW_IMPACT_KIND_BY_CODE = {
+    "behavior_contract_without_verify_coverage": "behavior_contract",
+    "changed_symbol_without_probe_coverage": "changed_symbol",
+    "dependent_surface_without_verify_coverage": "dependent",
+    "related_test_surface_unverified": "test_surface",
+    "go_nested_string_map_assignment_added": "effect_followup",
+    "java_chained_string_map_get_added": "effect_followup",
+    "javascript_nested_string_key_direct_access_added": "effect_followup",
+    "kotlin_chained_string_map_get_added": "effect_followup",
+    "production_test_scaffold_added": "effect_followup",
+    "python_nested_string_key_direct_access_added": "effect_followup",
+    "ruby_nested_key_direct_access_added": "effect_followup",
+    "typescript_nested_string_key_direct_access_added": "effect_followup",
+}
+PATCH_REVIEW_IMPACT_KIND_RANK = {
+    "behavior_contract": 10,
+    "changed_symbol": 20,
+    "dependent": 30,
+    "test_surface": 40,
+    "effect_followup": 50,
+    "changed_file": 60,
+    "dependency": 70,
+    "semantic_coverage": 80,
+}
+PATCH_REVIEW_UNCOVERED_STATUSES = {"unverified", "unknown", "unavailable"}
 
 
 @dataclass
@@ -1497,6 +1522,141 @@ def export_allowed_patch_paths(
     return sorted(allowed)
 
 
+def normalize_patch_review_impact_kind(raw: Any) -> str:
+    kind = str(raw or "").strip()
+    if kind in PATCH_REVIEW_IMPACT_KIND_RANK:
+        return kind
+    return ""
+
+
+def patch_review_impact_kind_for_finding(finding: dict[str, Any]) -> str:
+    kind = normalize_patch_review_impact_kind(finding.get("impact_kind"))
+    if kind:
+        return kind
+    return PATCH_REVIEW_IMPACT_KIND_BY_CODE.get(str(finding.get("code") or "").strip(), "")
+
+
+def normalize_patch_review_impact_kind_coverage(rows: Iterable[Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        kind = normalize_patch_review_impact_kind(row.get("kind"))
+        if not kind:
+            continue
+        out.append({
+            "kind": kind,
+            "total": int(row.get("total") or 0),
+            "verified": int(row.get("verified") or 0),
+            "unverified": int(row.get("unverified") or 0),
+            "unavailable": int(row.get("unavailable") or 0),
+            "unknown": int(row.get("unknown") or 0),
+            "advisory": int(row.get("advisory") or 0),
+            "reason_codes": sorted({str(code or "").strip() for code in row.get("reason_codes") or [] if str(code or "").strip()}),
+        })
+    out.sort(key=lambda row: (PATCH_REVIEW_IMPACT_KIND_RANK.get(str(row.get("kind") or ""), 999), str(row.get("kind") or "")))
+    return out
+
+
+def patch_review_impact_kind_coverage_from_findings(findings: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_kind: dict[str, dict[str, Any]] = {}
+    for finding in findings or []:
+        if not isinstance(finding, dict):
+            continue
+        if str(finding.get("category") or "").strip() != "semantic_coverage":
+            continue
+        kind = patch_review_impact_kind_for_finding(finding)
+        if not kind:
+            continue
+        row = by_kind.setdefault(kind, {
+            "kind": kind,
+            "total": 0,
+            "verified": 0,
+            "unverified": 0,
+            "unavailable": 0,
+            "unknown": 0,
+            "advisory": 0,
+            "reason_codes": set(),
+        })
+        row["total"] += 1
+        code = str(finding.get("code") or "").strip()
+        if code:
+            row["reason_codes"].add(code)
+        coverage = str(finding.get("coverage_status") or "").strip()
+        if coverage == "verified":
+            row["verified"] += 1
+        elif coverage == "unverified":
+            row["unverified"] += 1
+        elif coverage == "unavailable":
+            row["unavailable"] += 1
+        elif coverage == "unknown":
+            row["unknown"] += 1
+        elif coverage == "advisory":
+            row["advisory"] += 1
+    serializable: list[dict[str, Any]] = []
+    for row in by_kind.values():
+        copied = dict(row)
+        copied["reason_codes"] = sorted(copied["reason_codes"])
+        serializable.append(copied)
+    return normalize_patch_review_impact_kind_coverage(serializable)
+
+
+def merge_patch_review_impact_kind_coverage(summaries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_kind: dict[str, dict[str, Any]] = {}
+    for summary in summaries or []:
+        for row in summary.get("impact_kind_coverage") or []:
+            if not isinstance(row, dict):
+                continue
+            kind = normalize_patch_review_impact_kind(row.get("kind"))
+            if not kind:
+                continue
+            merged = by_kind.setdefault(kind, {
+                "kind": kind,
+                "total": 0,
+                "verified": 0,
+                "unverified": 0,
+                "unavailable": 0,
+                "unknown": 0,
+                "advisory": 0,
+                "reason_codes": set(),
+            })
+            for key in ("total", "verified", "unverified", "unavailable", "unknown", "advisory"):
+                merged[key] += int(row.get(key) or 0)
+            for code in row.get("reason_codes") or []:
+                code = str(code or "").strip()
+                if code:
+                    merged["reason_codes"].add(code)
+    serializable: list[dict[str, Any]] = []
+    for row in by_kind.values():
+        copied = dict(row)
+        copied["reason_codes"] = sorted(copied["reason_codes"])
+        serializable.append(copied)
+    return normalize_patch_review_impact_kind_coverage(serializable)
+
+
+def uncovered_patch_review_impact_kinds_from_findings(findings: Iterable[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    blocking: set[str] = set()
+    telemetry: set[str] = set()
+    for finding in findings or []:
+        if not isinstance(finding, dict):
+            continue
+        if str(finding.get("category") or "").strip() != "semantic_coverage":
+            continue
+        if str(finding.get("coverage_status") or "").strip() not in PATCH_REVIEW_UNCOVERED_STATUSES:
+            continue
+        kind = patch_review_impact_kind_for_finding(finding)
+        if not kind:
+            continue
+        code = str(finding.get("code") or "").strip()
+        if code in PATCH_REVIEW_LOCAL_BLOCKER_CODES:
+            blocking.add(kind)
+        else:
+            telemetry.add(kind)
+    telemetry -= blocking
+    rank = lambda item: (PATCH_REVIEW_IMPACT_KIND_RANK.get(item, 999), item)
+    return sorted(blocking, key=rank), sorted(telemetry, key=rank)
+
+
 def combine_patch_review_summaries(
     plans: Iterable[dict[str, Any]],
     *,
@@ -1520,6 +1680,8 @@ def combine_patch_review_summaries(
     reason_codes: set[str] = set()
     semantic_unverified: set[str] = set()
     semantic_unverified_telemetry: set[str] = set()
+    uncovered_impact_kinds: set[str] = set()
+    uncovered_impact_kind_telemetry: set[str] = set()
     finding_count = 0
     hard_block = False
     status_values: set[str] = set()
@@ -1549,14 +1711,22 @@ def combine_patch_review_summaries(
         for code in summary.get("semantic_unverified_codes") or []:
             code = str(code or "").strip()
             if code:
+                kind = PATCH_REVIEW_IMPACT_KIND_BY_CODE.get(code, "")
                 if not proof_authoritative and code in PATCH_REVIEW_PROOF_BLOCKER_CODES:
                     semantic_unverified_telemetry.add(code)
+                    if kind:
+                        uncovered_impact_kind_telemetry.add(kind)
                 else:
                     semantic_unverified.add(code)
+                    if kind:
+                        uncovered_impact_kinds.add(kind)
         for code in summary.get("semantic_unverified_telemetry_codes") or []:
             code = str(code or "").strip()
             if code:
                 semantic_unverified_telemetry.add(code)
+                kind = PATCH_REVIEW_IMPACT_KIND_BY_CODE.get(code, "")
+                if kind:
+                    uncovered_impact_kind_telemetry.add(kind)
         finding_count += int(summary.get("finding_count") or 0)
         reason = patch_review_local_block_reason(str(summary.get("block_reason") or ""))
         if reason:
@@ -1570,6 +1740,7 @@ def combine_patch_review_summaries(
         block_reason = "patch_review_semantic_unverified:" + sorted(semantic_unverified)[0]
     if not block_reason and hard_block:
         block_reason = "patch_review_hard_block"
+    uncovered_impact_kind_telemetry -= uncovered_impact_kinds
     status = "passed"
     if "failed" in status_values:
         status = "failed"
@@ -1584,6 +1755,15 @@ def combine_patch_review_summaries(
         "reason_codes": sorted(reason_codes),
         "semantic_unverified_codes": sorted(semantic_unverified),
         "semantic_unverified_telemetry_codes": sorted(semantic_unverified_telemetry),
+        "uncovered_impact_kinds": sorted(
+            uncovered_impact_kinds,
+            key=lambda item: (PATCH_REVIEW_IMPACT_KIND_RANK.get(item, 999), item),
+        ),
+        "uncovered_impact_kind_telemetry": sorted(
+            uncovered_impact_kind_telemetry,
+            key=lambda item: (PATCH_REVIEW_IMPACT_KIND_RANK.get(item, 999), item),
+        ),
+        "impact_kind_coverage": merge_patch_review_impact_kind_coverage(summaries),
         "finding_count": finding_count,
         "block_reason": block_reason,
     }
@@ -2206,6 +2386,9 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
             "reason_codes": [],
             "semantic_unverified_codes": [],
             "semantic_unverified_telemetry_codes": [],
+            "uncovered_impact_kinds": [],
+            "uncovered_impact_kind_telemetry": [],
+            "impact_kind_coverage": [],
             "finding_count": 0,
             "block_reason": "",
         }
@@ -2219,6 +2402,10 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
             reason_codes.add(code)
     block_reason = patch_review_local_block_reason(str(coverage_summary.get("block_reason") or ""))
     findings = [row for row in review.get("findings") or [] if isinstance(row, dict)]
+    impact_kind_coverage = normalize_patch_review_impact_kind_coverage(coverage_summary.get("impact_kind_coverage") or [])
+    if not impact_kind_coverage:
+        impact_kind_coverage = patch_review_impact_kind_coverage_from_findings(findings)
+    uncovered_impact_kinds, uncovered_impact_kind_telemetry = uncovered_patch_review_impact_kinds_from_findings(findings)
     for finding in findings:
         code = str(finding.get("code") or "").strip()
         if not code:
@@ -2229,7 +2416,7 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
         coverage = str(finding.get("coverage_status") or "").strip()
         if severity == "error" and not block_reason:
             block_reason = "patch_review_error:" + code
-        if category == "semantic_coverage" and coverage == "unverified":
+        if category == "semantic_coverage" and coverage in PATCH_REVIEW_UNCOVERED_STATUSES:
             if code in PATCH_REVIEW_LOCAL_BLOCKER_CODES:
                 semantic_unverified.add(code)
             else:
@@ -2246,6 +2433,9 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
         "reason_codes": sorted(reason_codes),
         "semantic_unverified_codes": sorted(semantic_unverified),
         "semantic_unverified_telemetry_codes": sorted(semantic_unverified_telemetry),
+        "uncovered_impact_kinds": uncovered_impact_kinds,
+        "uncovered_impact_kind_telemetry": uncovered_impact_kind_telemetry,
+        "impact_kind_coverage": impact_kind_coverage,
         "finding_count": len(findings),
         "block_reason": block_reason,
     }
@@ -2940,6 +3130,15 @@ def process_instance(
         result["final_plan_patch_review_semantic_unverified_telemetry_codes"] = (
             final_patch_review_summary.get("semantic_unverified_telemetry_codes") or []
         )
+        result["final_plan_patch_review_uncovered_impact_kinds"] = (
+            final_patch_review_summary.get("uncovered_impact_kinds") or []
+        )
+        result["final_plan_patch_review_uncovered_impact_kind_telemetry"] = (
+            final_patch_review_summary.get("uncovered_impact_kind_telemetry") or []
+        )
+        result["final_plan_patch_review_impact_kind_coverage"] = (
+            final_patch_review_summary.get("impact_kind_coverage") or []
+        )
         result["final_plan_patch_review_finding_count"] = int(final_patch_review_summary.get("finding_count") or 0)
         result["final_plan_patch_review_block_reason"] = str(final_patch_review_summary.get("block_reason") or "")
         patch_review_proof_authority_plan_ids: list[str] = []
@@ -2966,6 +3165,15 @@ def process_instance(
         )
         result["plan_patch_review_semantic_unverified_telemetry_codes"] = (
             patch_review_summary.get("semantic_unverified_telemetry_codes") or []
+        )
+        result["plan_patch_review_uncovered_impact_kinds"] = (
+            patch_review_summary.get("uncovered_impact_kinds") or []
+        )
+        result["plan_patch_review_uncovered_impact_kind_telemetry"] = (
+            patch_review_summary.get("uncovered_impact_kind_telemetry") or []
+        )
+        result["plan_patch_review_impact_kind_coverage"] = (
+            patch_review_summary.get("impact_kind_coverage") or []
         )
         result["plan_patch_review_finding_count"] = int(patch_review_summary.get("finding_count") or 0)
         result["plan_patch_review_block_reason"] = str(patch_review_summary.get("block_reason") or "")

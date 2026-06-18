@@ -2465,6 +2465,53 @@ func TestNormalizeControllerTypedStateDecisionVerifiedActualDiffBoundaryAppendsF
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionImpactRepairUsesTypedImpactKind(t *testing.T) {
+	mu := types.NewMutableState("verified typed impact kind")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:     "plan-impact-kind",
+		Status: types.PlanStatusApplied,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "custom_owner_boundary_gap",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				ImpactKind:     types.PatchReviewImpactKindChangedSymbol,
+				Path:           "pkg/axis.py",
+				SubjectSymbol:  "Axis.convert",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+				EvidenceRef:    "pkg/axis.py:12",
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-impact-kind",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-impact-kind"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-impact-kind"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil {
+		t.Fatalf("typed impact kind should append impact repair batch, got %+v", got)
+	}
+	if !strings.Contains(strings.Join(got.Batch.SuccessCriteria, "\n"), "kind=changed_symbol") ||
+		!strings.Contains(strings.Join(got.Batch.SuccessCriteria, "\n"), "symbol=Axis.convert") {
+		t.Fatalf("impact repair should preserve typed impact kind and symbol, got %+v", got.Batch.SuccessCriteria)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionImpactRepairWithoutPathExploresFirst(t *testing.T) {
 	mu := types.NewMutableState("impact repair needs localization")
 	mu.SetChangePlan(&types.ChangePlan{

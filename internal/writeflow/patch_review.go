@@ -236,6 +236,7 @@ func patchReviewEffectEventFindings(effect *types.PatchEffectRecord) []types.Pat
 			findings[len(findings)-1].EvidenceRef = strings.TrimSpace(event.EvidenceRef)
 			if patchReviewEffectUnknownCoverageEventCodes[code] {
 				findings[len(findings)-1].CoverageStatus = types.PatchReviewCoverageUnknown
+				findings[len(findings)-1].ImpactKind = types.PatchReviewImpactKindEffectFollowup
 			}
 		}
 	}
@@ -260,6 +261,7 @@ func patchReviewSemanticCoverageFindings(obligations *types.ImpactObligationSet)
 		}
 		finding := patchReviewFindingWithCategory(code, types.PatchReviewSeverityWarning, types.PatchReviewCategorySemanticCoverage, path, message)
 		finding.Relation = strings.TrimSpace(ob.Relation)
+		finding.ImpactKind = strings.TrimSpace(ob.Kind)
 		finding.RelatedPath = normalizePatchReviewPath(ob.RelatedPath)
 		finding.SubjectSymbol = strings.TrimSpace(ob.SubjectSymbol)
 		finding.Strength = strings.TrimSpace(string(ob.Strength))

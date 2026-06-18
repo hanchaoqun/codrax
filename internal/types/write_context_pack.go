@@ -536,6 +536,9 @@ func renderPatchReviewFindingContext(finding PatchReviewFinding) string {
 	if finding.Category != "" {
 		parts = append(parts, "category="+string(finding.Category))
 	}
+	if finding.ImpactKind != "" {
+		parts = append(parts, "impact_kind="+finding.ImpactKind)
+	}
 	if finding.Relation != "" {
 		parts = append(parts, "relation="+finding.Relation)
 	}

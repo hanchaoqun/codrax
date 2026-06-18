@@ -303,6 +303,7 @@ func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 				Code:           "changed_symbol_without_probe_coverage",
 				Severity:       PatchReviewSeverityWarning,
 				Category:       PatchReviewCategorySemanticCoverage,
+				ImpactKind:     PatchReviewImpactKindChangedSymbol,
 				Path:           "pkg/a.py",
 				SubjectSymbol:  "pkg.A",
 				CoverageStatus: PatchReviewCoverageUnverified,
@@ -352,6 +353,7 @@ func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 		t.Fatalf("verifier view missing applied patch effect: %+v", verifier.Items)
 	}
 	if !writeContextViewContains(planner, "patch_review_finding", "code=changed_symbol_without_probe_coverage") ||
+		!writeContextViewContains(planner, "patch_review_finding", "impact_kind=changed_symbol") ||
 		!writeContextViewContains(verifier, "patch_review_finding", "coverage_status=unverified") ||
 		!writeContextViewContains(verifier, "patch_review_finding", "symbol=pkg.A") {
 		t.Fatalf("patch review finding missing from context pack: planner=%+v verifier=%+v", planner.Items, verifier.Items)

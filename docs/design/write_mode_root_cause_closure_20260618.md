@@ -457,6 +457,55 @@ RC-34 tasks:
 - [x] Run related/full regression, SWE adapter smoke, and diff check before
   commit/push.
 
+## 2026-06-18 RC-35 Root-Cause Coverage Dimensions
+
+RC-27 made controller scheduling consume typed PatchReview/Impact coverage, and
+RC-32/RC-34 strengthened bounded local proof. The remaining systemic gap is that
+the compact PatchReview summary still collapses different root-cause dimensions
+into one `semantic_uncovered` bucket. That makes SWE local acceptance and
+controller handoff less explainable than the actual typed artifacts already are:
+owner-symbol proof, behavior-contract proof, dependent-surface proof,
+related-test proof, and actual-diff effect proof have different repair semantics
+but the same coarse summary shape.
+
+RC-35 adds a language-agnostic typed dimension layer:
+
+```text
+PatchEffect / ImpactObligation
+  -> PatchReviewFinding{impact_kind, coverage_status}
+  -> PatchReviewCoverageSummary.impact_kind_coverage[]
+  -> WriteContextPack / controller repair queue / SWE local telemetry
+```
+
+Design constraints:
+
+- `impact_kind` is copied from typed producers (`ImpactObligation.Kind` or
+  deterministic patch-effect event producers). It is not inferred from user
+  wording, issue text, model rationale, logs, `<think>`, or free-form finding
+  messages.
+- Existing `CoverageStatus` remains the hard signal. The dimension summary is a
+  compact control/telemetry projection, not a new prose gate.
+- Unknown legacy records degrade through exact typed finding-code aliases only
+  for backward compatibility with durable artifacts. New producers should set
+  `impact_kind` directly.
+- SWE official prediction export remains unchanged; the adapter only records
+  richer local acceptance/debug telemetry.
+
+RC-35 tasks:
+
+- [x] Add `PatchReviewFinding.impact_kind` and per-kind coverage summary fields
+  to `PatchReviewCoverageSummary`.
+- [x] Populate `impact_kind` in actual-diff effect findings and impact-obligation
+  semantic coverage findings.
+- [x] Render `impact_kind` into `WriteContextPack` so planner/verifier/controller
+  views keep the owner-boundary dimension.
+- [x] Let controller impact repair queue prefer `impact_kind` over legacy finding
+  code mapping, while preserving existing exact-code fallback.
+- [x] Export per-kind PatchReview telemetry from the SWE-bench adapter and cover
+  merge/demotion behavior in adapter tests.
+- [x] Run focused type/writeflow/orchestrator/adapter tests, related regression,
+  full Go tests, SWE adapter smoke, and diff check before commit/push.
+
 ## 2026-06-18 SWE-bench Lite Smoke Audit
 
 Run directory:
@@ -1904,6 +1953,7 @@ Verification:
 | RC-32 | complete | Multi-language verification-probe coupling: the copied-implementation hard gate now uses providers for Python, JavaScript/TypeScript, Ruby, and Go. JS/Ruby/Go probes must import/require the changed production module when a same-language target is present, while Python public-package behavior is preserved. This strengthens bounded local proof in missing-test-runner environments without parsing prose or adding user approvals. Verification: focused tool coupling tests, related tool regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
 | RC-33 | complete | Typed plan repair retry consumption: `PlanRepairPack` metadata constants and extraction helpers now live in `internal/types`; controller no-plan retry renders bounded structured repair fields from `ToolResult.Repair.Metadata` instead of asking the planner to mine capped rejection prose. Verification: focused types/tool/orchestrator tests, related package regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
 | RC-34 | complete | Verification probe runtime matrix: existing Python/JavaScript/Ruby/Go inline probe support now has a single typed runtime registry that feeds schema enums, validator supported-values, and plan repair accepted-enums. JVM inline probes remain explicit future work rather than an implied capability. Verification: focused schema/runtime tests, related package regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
+| RC-35 | complete | Root-cause coverage dimensions: PatchReview findings now carry typed `impact_kind`, coverage summary reports per-kind owner/contract/dependent/test/effect buckets, context pack renders the dimension for planner/verifier/controller handoff, controller repair queue prefers typed impact kind over legacy code fallback, and SWE adapter exports per-kind local telemetry without changing official predictions. Verification: focused type/writeflow/orchestrator/adapter tests, related package regression, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 
 ## Acceptance Criteria
 

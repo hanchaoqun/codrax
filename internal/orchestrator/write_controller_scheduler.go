@@ -4285,7 +4285,10 @@ func impactRepairQueueItemFromTarget(target types.ImpactVerificationTarget) impa
 }
 
 func impactRepairQueueItemFromFinding(finding types.PatchReviewFinding) impactRepairQueueItem {
-	kind := impactRepairKindFromPatchReviewCode(finding.Code)
+	kind := strings.TrimSpace(finding.ImpactKind)
+	if kind == "" {
+		kind = impactRepairKindFromPatchReviewCode(finding.Code)
+	}
 	return impactRepairQueueItem{
 		ID:             firstNonEmptyController(finding.Code+":"+finding.Path+":"+finding.RelatedPath+":"+finding.SubjectSymbol+":"+finding.EvidenceRef, finding.Code),
 		Code:           finding.Code,

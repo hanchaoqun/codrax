@@ -8,6 +8,7 @@ func TestNormalizePatchReviewRecordAddsCoverageSummary(t *testing.T) {
 			Code:           "changed_symbol_without_probe_coverage",
 			Severity:       PatchReviewSeverityWarning,
 			Category:       PatchReviewCategorySemanticCoverage,
+			ImpactKind:     PatchReviewImpactKindChangedSymbol,
 			CoverageStatus: PatchReviewCoverageUnverified,
 			SubjectSymbol:  "pkg.Target",
 		}, {
@@ -26,11 +27,41 @@ func TestNormalizePatchReviewRecordAddsCoverageSummary(t *testing.T) {
 		review.CoverageSummary.SemanticFindings != 1 ||
 		review.CoverageSummary.UnverifiedSemantic != 1 ||
 		review.CoverageSummary.AdvisoryFindings != 1 ||
+		review.CoverageSummary.PrimaryUncoveredImpactKind != PatchReviewImpactKindChangedSymbol ||
 		review.CoverageSummary.BlockReason != "patch_review_semantic_uncovered:changed_symbol_without_probe_coverage" {
 		t.Fatalf("unexpected coverage summary: %+v", review.CoverageSummary)
 	}
+	if len(review.CoverageSummary.ImpactKindCoverage) != 1 ||
+		review.CoverageSummary.ImpactKindCoverage[0].Kind != PatchReviewImpactKindChangedSymbol ||
+		review.CoverageSummary.ImpactKindCoverage[0].Unverified != 1 {
+		t.Fatalf("impact-kind coverage summary missing changed-symbol gap: %+v", review.CoverageSummary.ImpactKindCoverage)
+	}
 	if !PatchReviewHasUncoveredSemanticCoverage(&review) {
 		t.Fatalf("uncovered semantic coverage helper returned false")
+	}
+}
+
+func TestNormalizePatchReviewRecordSummaryBackfillsLegacyImpactKindFromCode(t *testing.T) {
+	review := NormalizePatchReviewRecord(PatchReviewRecord{
+		Findings: []PatchReviewFinding{{
+			Code:           "python_nested_string_key_direct_access_added",
+			Severity:       PatchReviewSeverityWarning,
+			Category:       PatchReviewCategorySemanticCoverage,
+			CoverageStatus: PatchReviewCoverageUnknown,
+			Path:           "pkg/widget.py",
+		}},
+	})
+
+	if review.CoverageSummary == nil {
+		t.Fatalf("coverage summary missing: %+v", review)
+	}
+	if review.CoverageSummary.PrimaryUncoveredImpactKind != PatchReviewImpactKindEffectFollowup {
+		t.Fatalf("legacy actual-diff code should summarize as effect follow-up: %+v", review.CoverageSummary)
+	}
+	if len(review.CoverageSummary.ImpactKindCoverage) != 1 ||
+		review.CoverageSummary.ImpactKindCoverage[0].Kind != PatchReviewImpactKindEffectFollowup ||
+		review.CoverageSummary.ImpactKindCoverage[0].Unknown != 1 {
+		t.Fatalf("unexpected effect-followup coverage: %+v", review.CoverageSummary.ImpactKindCoverage)
 	}
 }
 

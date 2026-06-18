@@ -208,12 +208,15 @@ func TestReviewAppliedPatchSemanticAddsImpactCoverageFindings(t *testing.T) {
 	symbol := patchReviewFindingByCode(review, "changed_symbol_without_probe_coverage")
 	if symbol.Category != types.PatchReviewCategorySemanticCoverage ||
 		symbol.CoverageStatus != types.PatchReviewCoverageUnverified ||
+		symbol.ImpactKind != types.PatchReviewImpactKindChangedSymbol ||
 		symbol.SubjectSymbol != "Axis.convert" ||
 		symbol.Strength != string(types.ImpactObligationStrengthPrecise) {
 		t.Fatalf("changed-symbol semantic finding not typed: %+v", symbol)
 	}
 	dependent := patchReviewFindingByCode(review, "dependent_surface_without_verify_coverage")
-	if dependent.Relation != "reverse_import" || dependent.RelatedPath != "pkg/caller.py" {
+	if dependent.Relation != "reverse_import" ||
+		dependent.RelatedPath != "pkg/caller.py" ||
+		dependent.ImpactKind != types.PatchReviewImpactKindDependent {
 		t.Fatalf("dependent semantic finding not typed: %+v", dependent)
 	}
 }
