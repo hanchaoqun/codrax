@@ -2426,9 +2426,13 @@ func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCovera
 		if !result.Passed {
 			continue
 		}
-		if suite := normalizeVerifyCoveragePath(result.Suite); suite != "" {
-			conf.CoveredPaths[suite] = true
+		conf.addCoveredPath(result.Suite)
+	}
+	for _, cmd := range report.ExecutedCommands {
+		if !verifyCoverageCommandCoversPath(cmd) {
+			continue
 		}
+		conf.addCoveredPath(cmd.Suite)
 	}
 	for _, rec := range report.VerificationConfidence {
 		status := strings.TrimSpace(rec.Status)
@@ -2459,6 +2463,30 @@ func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCovera
 		}
 	}
 	return conf
+}
+
+func verifyCoverageCommandCoversPath(cmd types.ExecutedCommand) bool {
+	if strings.TrimSpace(cmd.Suite) == "" || cmd.ExitCode != 0 {
+		return false
+	}
+	switch strings.TrimSpace(cmd.Outcome) {
+	case "", "executed", "syntax_check_fallback":
+		return true
+	default:
+		return false
+	}
+}
+
+func (conf *verifyCoverageConfidence) addCoveredPath(raw string) {
+	if conf == nil {
+		return
+	}
+	if conf.CoveredPaths == nil {
+		conf.CoveredPaths = map[string]bool{}
+	}
+	for _, alias := range verifyCoveragePathAliases(raw) {
+		conf.CoveredPaths[alias] = true
+	}
 }
 
 func impactCoverageForTarget(target types.ImpactVerificationTarget, projection verifyCoverageProjection) string {
@@ -2559,12 +2587,10 @@ func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection 
 
 func (conf verifyCoverageConfidence) CoversPath(paths ...string) bool {
 	for _, path := range paths {
-		path = normalizeVerifyCoveragePath(path)
-		if path == "" {
-			continue
-		}
-		if conf.CoveredPaths[path] {
-			return true
+		for _, alias := range verifyCoveragePathAliases(path) {
+			if conf.CoveredPaths[alias] {
+				return true
+			}
 		}
 	}
 	return false
@@ -2609,6 +2635,94 @@ func normalizeVerifyCoveragePath(path string) string {
 		return ""
 	}
 	return path
+}
+
+func verifyCoveragePathAliases(raw string) []string {
+	raw = normalizeVerifyCoveragePath(raw)
+	if raw == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(value string) {
+		value = normalizeVerifyCoveragePath(value)
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	add(raw)
+	if idx := strings.Index(raw, "::"); idx > 0 {
+		add(raw[:idx])
+	}
+	if verifyCoverageLooksLikeModuleSelector(raw) {
+		for _, alias := range verifyCoverageModuleSelectorAliases(raw) {
+			add(alias)
+		}
+	}
+	return out
+}
+
+func verifyCoverageLooksLikeModuleSelector(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.Contains(raw, "/") || strings.Contains(raw, "\\") || strings.ContainsAny(raw, " \t\n\r") {
+		return false
+	}
+	if !strings.Contains(raw, ".") {
+		return false
+	}
+	for _, part := range strings.Split(raw, ".") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return false
+		}
+	}
+	return verifyCoverageSelectorHasTestSignal(raw)
+}
+
+func verifyCoverageSelectorHasTestSignal(raw string) bool {
+	for _, part := range strings.Split(raw, ".") {
+		lower := strings.ToLower(strings.TrimSpace(part))
+		if lower == "" {
+			continue
+		}
+		if lower == "tests" || lower == "test" || strings.HasPrefix(lower, "test_") ||
+			strings.HasSuffix(lower, "_test") ||
+			strings.HasSuffix(lower, "_tests") || strings.HasSuffix(lower, "test") ||
+			strings.HasSuffix(lower, "tests") || strings.Contains(lower, "_tests_") ||
+			strings.Contains(lower, "_test_") {
+			return true
+		}
+	}
+	return false
+}
+
+func verifyCoverageModuleSelectorAliases(raw string) []string {
+	parts := strings.Split(strings.TrimSpace(raw), ".")
+	var out []string
+	for i := 1; i <= len(parts); i++ {
+		prefix := strings.Join(parts[:i], "/")
+		if prefix == "" {
+			continue
+		}
+		lowerLast := strings.ToLower(parts[i-1])
+		looksLikeClass := strings.HasSuffix(parts[i-1], "Test") || strings.HasSuffix(parts[i-1], "Tests")
+		looksLikePythonModule := i >= 2 && verifyCoverageSelectorHasTestSignal(strings.Join(parts[:i], "."))
+		if looksLikePythonModule {
+			out = append(out, prefix+".py", "tests/"+prefix+".py")
+			out = append(out, prefix+".rb", "spec/"+prefix+".rb")
+		}
+		if looksLikeClass || strings.HasSuffix(lowerLast, "test") || strings.HasSuffix(lowerLast, "tests") {
+			out = append(out,
+				prefix+".java",
+				"src/test/java/"+prefix+".java",
+				prefix+".kt",
+				"src/test/kotlin/"+prefix+".kt",
+			)
+		}
+	}
+	return out
 }
 
 func (o *Orchestrator) markActivePlanUnverifiedAfterVerifyInfra(reason string) {

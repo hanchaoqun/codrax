@@ -4257,6 +4257,8 @@ Verification:
 | RC-75 | complete | Verify scoped selector handoff now persists `ExecutedCommand.Suite` and falls back to that command-level selector when failure rows are multiple concrete cases under the same prior suite. This closes the RC-79 Django regression where replan verify inherited runner/framework/cwd but an empty suite widened to all 13040 tests, surfacing unrelated host-version failures. Verification: focused handoff inheritance tests and tool regression pass. |
 | RC-81 | complete | Applied-patch interruption policy now keeps failed-verify repair lanes resumable when typed handoff and recovery refs are present, even under `write_deadline`. Non-cancel planner failures and no-evidence deadline interruptions still block. Focused scheduler tests, related packages, full `go test ./...`, `make`, diff check, and targeted Django RC-81b SWE smoke pass the state-kernel objective: non-empty prediction, `workflow_status=in_progress`, `batch.status=ready_to_plan`, and latest progress `plan_batch_interrupted_after_applied_patch_resumable`. |
 | RC-82 | complete | PatchReview hard/error diagnostics are now a replacement-patch-only repair lane. A passed functional probe or no-change sentinel cannot clear structural actual-diff failures such as unreachable code; the planner removes `run_tests` for the whole typed replacement lane, forcing bounded source reads plus a replacement ChangePlan or continued needs-replan state. Controller dispatch write-deadline interruptions after a failed-verify repair plan is persisted stay resumable instead of becoming terminal blocked. Focused tests, related packages, full `go test ./...`, `make`, diff check, and targeted Django RC-83 SWE smoke pass the intended state-kernel behavior: non-empty prediction, `workflow_status=complete`, `verify_status=passed`, and harness-shaped predictions JSONL. |
+| RC-83 | complete | Impact related-test precision and coverage aliasing: moved package-marker/generic-stem filtering from only runner selection into the repomap provider boundary, and made coverage projection consume typed executed command suite selectors as normalized path/module aliases across Python/Django and Java-class style runners. Focused/related/full Go regressions and build pass. Targeted Django smoke exported a non-empty harness-shaped prediction and exposed RC-84 stale source-owner provenance, which is now fixed in the adapter. |
+| RC-84 | complete | Restore-aware SWE delivery provenance: the SWE adapter now reads typed workflow `checkpoint_restored_before_replan` progress events and excludes applied source plans before the latest restore in that batch, so rolled-back PatchReview hard errors cannot pollute final delivery audit. Adapter regressions pass and old RC-84 artifact recomputes to a single final source-owner plan. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -4832,6 +4834,115 @@ Verification:
     `predictions.jsonl` contains the official harness-shaped
     `instance_id/model_name_or_path/model_patch` row. This is not reported as
     official SWE-bench resolved; Docker harness scoring remains the authority.
+
+## 2026-06-18 RC-83 Impact Related-Test Precision And Coverage Aliases
+
+- Evidence:
+  - RC-83 Django smoke reached `verify_status=passed`, but post-verify local
+    confidence remained weaker than the runtime evidence because impact targets
+    still contained broad related-test obligations produced before runner-level
+    filtering. The runner queue could drop package-marker paths such as
+    `tests/**/__init__.py`, but those paths could still survive in
+    `ImpactAnalysis`, `PatchReview`, P2 handoff, and coverage ledgers.
+  - The same run also showed selector/coverage mismatch: a real executed typed
+    command can be `suite=invalid_models_tests.test_ordinary_fields`, while the
+    impact target is stored as
+    `tests/invalid_models_tests/test_ordinary_fields.py`. Without a shared
+    selector-to-path projection, controller coverage sees "a test passed" but
+    cannot close the exact related-test obligation.
+- Generalized rule:
+  - Related-test discovery is tightened at the graph-provider boundary. For
+    package-marker source files (`__init__.py`, `index.*`, `mod.rs`, `lib.rs`,
+    etc.), the semantic parent stem is used instead of the generic file stem.
+    Cross-directory package-marker test files are not emitted as inferred
+    related tests. Candidate matching uses normalized path tokens and bounded
+    deterministic ranking, not issue text, model prose, stdout, or manual notes.
+  - Coverage projection now records aliases from structured
+    `ChangeReport.TestResults[].Suite` and successful
+    `ChangeReport.ExecutedCommands[].Suite`. Module selectors are mapped to
+    exact comparable path aliases only when the selector itself carries typed
+    test-shape structure, for example Django/Python module selectors and
+    Java/Kotlin class-test selectors.
+  - The fix is multi-language in shape: Python/Django module selectors can
+    cover `tests/.../*.py`, while Java-style class selectors can cover
+    `src/test/java/...Test.java` and Kotlin equivalents. Unsupported or
+    ambiguous labels remain telemetry, not hard coverage.
+- Prompt and hard-gate hygiene:
+  - No prompt routing changes are required. The controller and coverage gates
+    consume typed paths, suite fields, command outcomes, and exit codes only.
+  - Visible `<think>` transparency is untouched.
+  - Read/log/trace/data/operation/computer modes are not modified.
+- Task list:
+  - [x] Replace raw `strings.Contains(sourceStem(test), sourceStem(source))`
+    related-test matching with semantic source stems, package-marker filtering,
+    token matching, deterministic ranking, and a bounded candidate cap.
+  - [x] Add provider regression for package-marker source files so unrelated
+    `tests/**/__init__.py` files do not become inferred obligations.
+  - [x] Add coverage aliases from passing test results and successful typed
+    executed commands.
+  - [x] Add regression coverage for Django/Python command selectors and
+    Java-class selectors closing exact related-test obligations.
+  - [x] Run focused regressions, related package tests, full `go test ./...`,
+    `make`, `git diff --check`, and one targeted SWE smoke.
+- Verification:
+  - Focused tests passed:
+    `go test ./internal/writeflow/impact -run TestGraphProvider -count=1`
+    and
+    `go test ./internal/orchestrator -run 'TestApplyVerifyCoverageToChangePlan(VerifiesScopedTestSurfaceCoverage|CoversModuleSelectorFromExecutedCommand|DoesNotCoverUnrelatedModuleSelector|CoversJavaClassSelectorFromExecutedCommand)' -count=1`.
+  - Related and full regressions passed:
+    `go test ./internal/writeflow/impact ./internal/orchestrator ./internal/tool -count=1`,
+    `go test ./...`, `make`, and `git diff --check`.
+  - Targeted SWE smoke for `django__django-11742` at
+    `/private/tmp/codrax-swe-rc84-django-20260618-impact-coverage` exported a
+    non-empty harness-shaped prediction (`patch_bytes=2447`,
+    `workflow_status=complete`, `verify_status=passed`). The run also exposed
+    RC-84: adapter delivery audit still included rolled-back source-owner plans
+    before checkpoint restore, producing a stale
+    `patch_review_error:python_unreachable_body_after_added_return` block.
+
+## 2026-06-18 RC-84 Restore-Aware Delivery Source Ownership
+
+- Evidence:
+  - The RC-83 smoke's workflow ledger showed two
+    `checkpoint_restored_before_replan` events in `batch-1`. The durable
+    attempts still contained three `apply status=applied` source plans because
+    attempts are append-only audit history.
+  - The adapter's `workflow_applied_plan_ids()` treated every historical
+    applied attempt as final source ownership. As a result, the first rolled
+    back plan's `python_unreachable_body_after_added_return` hard PatchReview
+    finding polluted the final delivery summary even though the exported patch
+    came from the later source plan and the workflow completed after a proof
+    follow-up.
+- Generalized rule:
+  - Workflow attempts remain append-only history. Delivery provenance must
+    reconstruct final worktree ownership from typed attempts plus typed restore
+    progress.
+  - For each batch, a `checkpoint_restored_before_replan` progress event
+    invalidates earlier applied attempts in that batch. Applied plans after the
+    latest restore remain source owners; later proof-only/test-only batches can
+    still validate those owners.
+  - Timestamp parsing accepts Go-style RFC3339 values with variable fractional
+    seconds, normalizing the fractional component before comparison.
+- Prompt and hard-gate hygiene:
+  - The adapter consumes only typed workflow progress/attempt fields and plan
+    JSON artifacts. It does not parse controller prose, model rationale,
+    visible `<think>`, test output, issue text, or manual notes.
+  - Controller runtime behavior is unchanged; this batch fixes SWE export/audit
+    accounting without affecting read/log/trace/data/operation/computer modes.
+- Task list:
+  - [x] Add typed restore cutoff extraction from workflow progress ledger.
+  - [x] Filter `workflow_applied_plan_ids()` by latest per-batch restore
+    timestamp.
+  - [x] Normalize variable-length fractional RFC3339 timestamps before Python
+    parsing.
+  - [x] Add adapter regression where two stale applied source plans are rolled
+    back and only the final source plan owns the exported patch.
+  - [x] Recompute the old RC-83 smoke artifact with the new adapter logic:
+    `source_owner_plan_ids=['plan-1781791223887175000-16315']`,
+    `hard_block=False`, and no stale `patch_review_error` block.
+- Verification:
+  - `python3 -m unittest eval.swebench.run_codrax_swebench_test -v` passed.
+  - The old RC-83 artifact recompute confirms restore-aware owner selection.
 
 ## Acceptance Criteria
 

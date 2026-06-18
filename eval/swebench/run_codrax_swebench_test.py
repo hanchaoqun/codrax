@@ -785,6 +785,108 @@ class WorkflowAppliedProvenanceTests(unittest.TestCase):
         self.assertEqual(got["workflow_applied_source_paths"], ["pkg/fix.py"])
         self.assertEqual(got["workflow_applied_test_paths"], ["tests/test_fix.py"])
 
+    def test_restore_progress_excludes_stale_applied_source_plans(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = Path(raw) / "repo"
+            inst = Path(raw) / "inst"
+            plans = repo / ".codrax" / "plans"
+            plans.mkdir(parents=True)
+            inst.mkdir()
+            for plan_id, body in {
+                "plan-stale-1": {
+                    "id": "plan-stale-1",
+                    "changes": [{"path": "pkg/fix.py", "kind": "patch"}],
+                    "patch_review": {
+                        "status": "failed",
+                        "findings": [{
+                            "code": "python_unreachable_body_after_added_return",
+                            "severity": "error",
+                            "category": "structural",
+                        }],
+                    },
+                },
+                "plan-stale-2": {
+                    "id": "plan-stale-2",
+                    "changes": [{"path": "pkg/fix.py", "kind": "patch"}],
+                    "patch_review": {"status": "passed", "findings": []},
+                },
+                "plan-final": {
+                    "id": "plan-final",
+                    "changes": [{"path": "pkg/fix.py", "kind": "patch"}],
+                    "patch_review": {"status": "passed", "findings": []},
+                },
+            }.items():
+                (plans / f"{plan_id}.json").write_text(json.dumps(body), encoding="utf-8")
+            workflow = {
+                "progress_ledger": [
+                    {
+                        "batch_id": "batch-1",
+                        "reason_code": "checkpoint_restored_before_replan",
+                        "at": "2026-06-18T21:56:15+08:00",
+                    },
+                    {
+                        "batch_id": "batch-1",
+                        "reason_code": "checkpoint_restored_before_replan",
+                        "at": "2026-06-18T21:59:16+08:00",
+                    },
+                ],
+                "batches": [{
+                    "id": "batch-1",
+                    "attempts": [
+                        {
+                            "kind": "apply",
+                            "status": "applied",
+                            "plan_id": "plan-stale-1",
+                            "finished_at": "2026-06-18T21:56:07+08:00",
+                        },
+                        {
+                            "kind": "apply",
+                            "status": "applied",
+                            "plan_id": "plan-stale-2",
+                            "finished_at": "2026-06-18T21:58:19+08:00",
+                        },
+                        {
+                            "kind": "apply",
+                            "status": "applied",
+                            "plan_id": "plan-final",
+                            "finished_at": "2026-06-18T22:00:41+08:00",
+                        },
+                    ],
+                }],
+            }
+
+            got = adapter.summarize_workflow_applied_plan_provenance(
+                workflow,
+                repo,
+                inst,
+                final_plan_id="plan-final",
+            )
+            candidate = adapter.build_write_delivery_candidate(
+                repo_dir=repo,
+                inst_dir=inst,
+                workflow=workflow,
+                final_plan=json.loads((plans / "plan-final.json").read_text(encoding="utf-8")),
+                final_plan_path=plans / "plan-final.json",
+                exported_source_paths=["pkg/fix.py"],
+                exported_test_paths=[],
+                patch_source="refs/codrax/applied/plan-final",
+            )
+
+        self.assertEqual(got["workflow_applied_plan_ids"], ["plan-final"])
+        self.assertEqual(got["workflow_latest_applied_plan_id"], "plan-final")
+        self.assertEqual(got["workflow_applied_source_paths"], ["pkg/fix.py"])
+        self.assertEqual(candidate["source_owner_plan_ids"], ["plan-final"])
+        self.assertEqual(candidate["primary_source_plan_id"], "plan-final")
+        summary = adapter.delivery_patch_review_summary(
+            source_owner_plans=candidate["source_owner_plans"],
+            delivery_plan=candidate["primary_plan"],
+            report_plan_id="plan-final",
+            verify_status="passed",
+            delivery_status="coherent",
+        )
+        self.assertEqual(summary["block_reason"], "")
+        self.assertFalse(summary["hard_block"])
+
     def test_delivery_candidate_binds_exported_source_patch_to_prior_source_plan(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             repo = Path(raw) / "repo"

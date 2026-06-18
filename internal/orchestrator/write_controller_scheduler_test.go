@@ -4365,6 +4365,159 @@ func TestApplyVerifyCoverageToChangePlanVerifiesScopedTestSurfaceCoverage(t *tes
 	}
 }
 
+func TestApplyVerifyCoverageToChangePlanCoversModuleSelectorFromExecutedCommand(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:     "plan-django-module-coverage",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "related_test_surface_unverified",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "django/db/models/fields/__init__.py",
+				RelatedPath:    "tests/invalid_models_tests/test_ordinary_fields.py",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+				EvidenceRef:    "tests/invalid_models_tests/test_ordinary_fields.py",
+			}},
+		},
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "test_surface",
+				Path:           "django/db/models/fields/__init__.py",
+				RelatedPath:    "tests/invalid_models_tests/test_ordinary_fields.py",
+				Priority:       50,
+				Source:         "impact_engine",
+				CoverageStatus: "unverified",
+				EvidenceRef:    "tests/invalid_models_tests/test_ordinary_fields.py",
+			}},
+		},
+	}
+
+	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{
+		PlanID:             "plan-django-module-coverage",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:    "python",
+			Framework: "django",
+			Suite:     "invalid_models_tests.test_ordinary_fields",
+			Outcome:   "executed",
+			ExitCode:  0,
+		}},
+	}, nil)
+
+	if plan.ImpactAnalysis == nil || len(plan.ImpactAnalysis.VerificationTargets) != 1 ||
+		plan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "verified" {
+		t.Fatalf("command-level module selector should verify matching impact target: %+v", plan.ImpactAnalysis)
+	}
+	if plan.PatchReview == nil || len(plan.PatchReview.Findings) != 1 ||
+		plan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageVerified {
+		t.Fatalf("command-level module selector should verify matching patch-review finding: %+v", plan.PatchReview)
+	}
+}
+
+func TestApplyVerifyCoverageToChangePlanDoesNotCoverUnrelatedModuleSelector(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:     "plan-django-module-miss",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "related_test_surface_unverified",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "django/db/models/fields/__init__.py",
+				RelatedPath:    "tests/invalid_models_tests/test_ordinary_fields.py",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+				EvidenceRef:    "tests/invalid_models_tests/test_ordinary_fields.py",
+			}},
+		},
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "test_surface",
+				Path:           "django/db/models/fields/__init__.py",
+				RelatedPath:    "tests/invalid_models_tests/test_ordinary_fields.py",
+				Priority:       50,
+				Source:         "impact_engine",
+				CoverageStatus: "unverified",
+				EvidenceRef:    "tests/invalid_models_tests/test_ordinary_fields.py",
+			}},
+		},
+	}
+
+	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{
+		PlanID:             "plan-django-module-miss",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:    "python",
+			Framework: "django",
+			Suite:     "auth_tests.test_validators",
+			Outcome:   "executed",
+			ExitCode:  0,
+		}},
+	}, nil)
+
+	if plan.ImpactAnalysis == nil || len(plan.ImpactAnalysis.VerificationTargets) != 1 ||
+		plan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "unverified" {
+		t.Fatalf("unrelated module selector should not verify impact target: %+v", plan.ImpactAnalysis)
+	}
+	if plan.PatchReview == nil || len(plan.PatchReview.Findings) != 1 ||
+		plan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageUnverified {
+		t.Fatalf("unrelated module selector should not verify patch-review finding: %+v", plan.PatchReview)
+	}
+}
+
+func TestApplyVerifyCoverageToChangePlanCoversJavaClassSelectorFromExecutedCommand(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:     "plan-java-selector-coverage",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "related_test_surface_unverified",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "src/main/java/com/acme/Widget.java",
+				RelatedPath:    "src/test/java/com/acme/WidgetTest.java",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+				EvidenceRef:    "src/test/java/com/acme/WidgetTest.java",
+			}},
+		},
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "test_surface",
+				Path:           "src/main/java/com/acme/Widget.java",
+				RelatedPath:    "src/test/java/com/acme/WidgetTest.java",
+				Priority:       50,
+				Source:         "impact_engine",
+				CoverageStatus: "unverified",
+				EvidenceRef:    "src/test/java/com/acme/WidgetTest.java",
+			}},
+		},
+	}
+
+	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{
+		PlanID:             "plan-java-selector-coverage",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:    "java",
+			Framework: "maven",
+			Suite:     "com.acme.WidgetTest",
+			Outcome:   "executed",
+			ExitCode:  0,
+		}},
+	}, nil)
+
+	if plan.ImpactAnalysis == nil || len(plan.ImpactAnalysis.VerificationTargets) != 1 ||
+		plan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "verified" {
+		t.Fatalf("java class selector should verify matching impact target: %+v", plan.ImpactAnalysis)
+	}
+	if plan.PatchReview == nil || len(plan.PatchReview.Findings) != 1 ||
+		plan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageVerified {
+		t.Fatalf("java class selector should verify matching patch-review finding: %+v", plan.PatchReview)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewDoesNotRecurse(t *testing.T) {
 	mu := types.NewMutableState("semantic patch review followup recursion")
 	mu.SetChangePlan(&types.ChangePlan{

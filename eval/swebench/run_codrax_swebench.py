@@ -28,6 +28,7 @@ import threading
 import textwrap
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -1406,12 +1407,58 @@ def plan_test_paths(plan: dict[str, Any]) -> list[str]:
     ]
 
 
+def workflow_event_timestamp(raw: Any) -> float:
+    text = str(raw or "").strip()
+    if not text:
+        return 0.0
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    match = re.match(r"^(.*T\d\d:\d\d:\d\d)\.(\d+)([+-]\d\d:\d\d)$", text)
+    if match:
+        fraction = (match.group(2) + "000000")[:6]
+        text = f"{match.group(1)}.{fraction}{match.group(3)}"
+    try:
+        value = datetime.fromisoformat(text)
+    except ValueError:
+        return 0.0
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.timestamp()
+
+
+def workflow_restore_cutoffs_by_batch(workflow: dict[str, Any]) -> dict[str, float]:
+    cutoffs: dict[str, float] = {}
+    for event in workflow.get("progress_ledger") or []:
+        if not isinstance(event, dict):
+            continue
+        if str(event.get("reason_code") or "").strip() != "checkpoint_restored_before_replan":
+            continue
+        batch_id = str(event.get("batch_id") or "").strip()
+        if not batch_id:
+            continue
+        at = workflow_event_timestamp(event.get("at"))
+        if at <= 0:
+            continue
+        cutoffs[batch_id] = max(cutoffs.get(batch_id, 0.0), at)
+    return cutoffs
+
+
+def workflow_attempt_timestamp(attempt: dict[str, Any]) -> float:
+    return max(
+        workflow_event_timestamp(attempt.get("finished_at")),
+        workflow_event_timestamp(attempt.get("started_at")),
+    )
+
+
 def workflow_applied_plan_ids(workflow: dict[str, Any]) -> list[str]:
     ids: list[str] = []
     seen: set[str] = set()
+    restore_cutoffs = workflow_restore_cutoffs_by_batch(workflow)
     for batch in workflow.get("batches") or []:
         if not isinstance(batch, dict):
             continue
+        batch_id = str(batch.get("id") or "").strip()
+        restore_cutoff = restore_cutoffs.get(batch_id, 0.0)
         for attempt in batch.get("attempts") or []:
             if not isinstance(attempt, dict):
                 continue
@@ -1419,6 +1466,10 @@ def workflow_applied_plan_ids(workflow: dict[str, Any]) -> list[str]:
                 continue
             if str(attempt.get("status") or "").strip() != "applied":
                 continue
+            if restore_cutoff > 0:
+                attempt_at = workflow_attempt_timestamp(attempt)
+                if attempt_at <= 0 or attempt_at < restore_cutoff:
+                    continue
             plan_id = str(attempt.get("plan_id") or "").strip()
             if not plan_id or plan_id in seen:
                 continue

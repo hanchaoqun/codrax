@@ -60,3 +60,40 @@ func TestGraphProviderFromSearchGraphAdaptsRepomapGraph(t *testing.T) {
 		t.Fatalf("line features not adapted: %+v", got)
 	}
 }
+
+func TestGraphProviderRelatedTestsUsesSemanticStemForPackageMarkers(t *testing.T) {
+	graph := &rmtypes.Graph{
+		FileIndex: map[string]*rmtypes.FileInfo{
+			"django/db/models/fields/__init__.py":                {RelPath: "django/db/models/fields/__init__.py"},
+			"tests/admin_docs/__init__.py":                       {RelPath: "tests/admin_docs/__init__.py"},
+			"tests/auth_tests/__init__.py":                       {RelPath: "tests/auth_tests/__init__.py"},
+			"tests/forms_tests/__init__.py":                      {RelPath: "tests/forms_tests/__init__.py"},
+			"tests/model_fields/tests.py":                        {RelPath: "tests/model_fields/tests.py"},
+			"tests/invalid_models_tests/test_ordinary_fields.py": {RelPath: "tests/invalid_models_tests/test_ordinary_fields.py"},
+			"tests/unrelated_tests/test_forms.py":                {RelPath: "tests/unrelated_tests/test_forms.py"},
+		},
+	}
+
+	provider := GraphProviderFromSearchGraph(graph)
+	if provider == nil {
+		t.Fatal("expected repomap graph provider")
+	}
+	got := provider.RelatedTests("django/db/models/fields/__init__.py")
+	want := []string{
+		"tests/invalid_models_tests/test_ordinary_fields.py",
+		"tests/model_fields/tests.py",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("related tests = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("related tests = %+v, want %+v", got, want)
+		}
+	}
+	for _, path := range got {
+		if sourceStem(path) == "__init__" {
+			t.Fatalf("package marker related test should not be emitted for inferred cross-dir match: %+v", got)
+		}
+	}
+}
