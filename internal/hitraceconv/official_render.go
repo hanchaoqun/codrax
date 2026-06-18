@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 )
 
@@ -73,6 +74,8 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, boo
 	case strings.HasPrefix(name, "ext4_sync_file_exit"):
 		return fmt.Sprintf("dev %s ino %d ret %d", devByCleanName(ev, "dev", ","),
 			intByCleanName(ev, "ino", false), intByCleanName(ev, "ret", true)), true
+	case strings.HasPrefix(lowerName, "ext4_direct_io"):
+		return renderExt4DirectIO(ev, content), true
 	case name == "block_bio_remap":
 		return renderBlockRemap(ev), true
 	case name == "block_rq_issue" || name == "block_rq_insert" || name == "block_rq_complete":
@@ -224,10 +227,21 @@ func renderAndroidFSIO(ev decodedEvent, content []byte) string {
 	parts = appendStringKV(parts, "entry_name", stringByCleanName(ev, content, "entry_name", "name", "file", "filename"))
 	parts = appendCleanIntKV(parts, "offset", ev, true, "offset", "ofs", "pos", "off")
 	parts = appendCleanIntKV(parts, "bytes", ev, false, "bytes", "len", "length", "size")
-	parts = appendStringKV(parts, "rw", firstNonEmpty(stringByCleanName(ev, content, "rw", "rwbs", "op", "operation"), traceIOOperationFromName(ev.format.Name)))
+	parts = appendStringKV(parts, "rw", traceIORW(ev, content))
 	parts = appendCleanIntKV(parts, "ret", ev, true, "ret", "res", "error", "err")
 	parts = appendCleanIntKV(parts, "latency_us", ev, false, "latency_us", "duration_us", "time_us", "usecs")
 	parts = appendCleanIntKV(parts, "i_size", ev, false, "i_size", "file_size")
+	return strings.Join(parts, " ")
+}
+
+func renderExt4DirectIO(ev decodedEvent, content []byte) string {
+	var parts []string
+	parts = appendStringKV(parts, "dev", traceIODev(ev, content))
+	parts = appendHexCleanIntKV(parts, "ino", ev, false, "ino", "inode", "i_ino")
+	parts = appendCleanIntKV(parts, "offset", ev, true, "offset", "ofs", "pos", "off")
+	parts = appendCleanIntKV(parts, "len", ev, false, "len", "length", "bytes", "size")
+	parts = appendStringKV(parts, "rw", traceIORW(ev, content))
+	parts = appendCleanIntKV(parts, "ret", ev, true, "ret", "res", "error", "err")
 	return strings.Join(parts, " ")
 }
 
@@ -237,7 +251,7 @@ func renderF2FSIO(ev decodedEvent, content []byte) string {
 	parts = appendHexCleanIntKV(parts, "ino", ev, false, "ino", "inode", "i_ino")
 	parts = appendCleanIntKV(parts, "offset", ev, true, "offset", "ofs", "pos", "off")
 	parts = appendCleanIntKV(parts, "len", ev, false, "len", "length", "bytes", "size")
-	parts = appendStringKV(parts, "rw", firstNonEmpty(stringByCleanName(ev, content, "rw", "rwbs", "op", "operation"), traceIOOperationFromName(ev.format.Name)))
+	parts = appendStringKV(parts, "rw", traceIORW(ev, content))
 	parts = appendCleanIntKV(parts, "ret", ev, true, "ret", "res", "error", "err")
 	parts = appendCleanIntKV(parts, "latency_us", ev, false, "latency_us", "duration_us", "time_us", "usecs")
 	return strings.Join(parts, " ")
@@ -283,6 +297,37 @@ func traceIOOperationFromName(name string) string {
 		return "sync"
 	default:
 		return ""
+	}
+}
+
+func traceIORW(ev decodedEvent, content []byte) string {
+	for _, name := range []string{"rw", "rwbs", "op", "operation"} {
+		f, _, ok := fieldByCleanName(ev, name)
+		if !ok {
+			continue
+		}
+		lowerType := strings.ToLower(f.Type)
+		if lowerType == "" || strings.Contains(lowerType, "char") || strings.Contains(lowerType, "string") {
+			if s := stringByCleanName(ev, content, name); s != "" {
+				return s
+			}
+			continue
+		}
+		if cleanFieldName(f.Name) == "rw" {
+			return traceIORWFromInt(intByCleanName(ev, "rw", true))
+		}
+	}
+	return traceIOOperationFromName(ev.format.Name)
+}
+
+func traceIORWFromInt(v int64) string {
+	switch v {
+	case 0:
+		return "read"
+	case 1:
+		return "write"
+	default:
+		return strconv.FormatInt(v, 10)
 	}
 }
 

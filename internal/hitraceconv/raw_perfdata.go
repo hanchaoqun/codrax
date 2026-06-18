@@ -119,6 +119,7 @@ type rawPerfFileHeader struct {
 
 type rawPerfSample struct {
 	IP        uint64
+	Addr      uint64
 	PID       int
 	TID       int
 	TimeNS    uint64
@@ -126,9 +127,24 @@ type rawPerfSample struct {
 	CPUValid  bool
 	Period    uint64
 	ID        uint64
+	StreamID  uint64
 	EventName string
 	Comm      string
 	Callchain []uint64
+
+	RawSize          uint64
+	BranchStackCount uint64
+	UserRegsABI      uint64
+	UserRegsCount    int
+	UserStackSize    uint64
+	Weight           uint64
+	DataSrc          uint64
+	Transaction      uint64
+	PhysAddr         uint64
+	AuxSize          uint64
+	CGroupID         uint64
+	DataPageSize     uint64
+	CodePageSize     uint64
 }
 
 type rawPerfMapping struct {
@@ -1389,10 +1405,6 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 		off += n
 		return true
 	}
-	skipU64 := func() bool {
-		_, ok := readU64()
-		return ok
-	}
 	if sampleType&perfSampleIdentifier != 0 {
 		v, ok := readU64()
 		if !ok {
@@ -1423,9 +1435,11 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 		sample.TimeNS = v
 	}
 	if sampleType&perfSampleAddr != 0 {
-		if _, ok := readU64(); !ok {
+		v, ok := readU64()
+		if !ok {
 			return rawPerfSample{}, false
 		}
+		sample.Addr = v
 	}
 	if sampleType&perfSampleID != 0 {
 		v, ok := readU64()
@@ -1435,9 +1449,11 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 		sample.ID = v
 	}
 	if sampleType&perfSampleStreamID != 0 {
-		if _, ok := readU64(); !ok {
+		v, ok := readU64()
+		if !ok {
 			return rawPerfSample{}, false
 		}
+		sample.StreamID = v
 	}
 	if sampleType&perfSampleCPU != 0 {
 		cpu, _, ok := readU32Pair()
@@ -1478,6 +1494,7 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 		}
 		size := int(binary.LittleEndian.Uint32(payload[off : off+4]))
 		off += 4
+		sample.RawSize = uint64(size)
 		if !skipBytes(size) {
 			return rawPerfSample{}, false
 		}
@@ -1490,51 +1507,86 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 		if !ok || nr > 4096 {
 			return rawPerfSample{}, false
 		}
+		sample.BranchStackCount = nr
 		if !skipBytes(int(nr) * 24) {
 			return rawPerfSample{}, false
 		}
 	}
 	if sampleType&perfSampleRegsUser != 0 {
-		if !skipRawPerfSampleRegs(&off, payload, attr.SampleRegsUser) {
+		abi, count, ok := skipRawPerfSampleRegs(&off, payload, attr.SampleRegsUser)
+		if !ok {
 			return rawPerfSample{}, false
 		}
+		sample.UserRegsABI = abi
+		sample.UserRegsCount = count
 	}
 	if sampleType&perfSampleStackUser != 0 {
-		if !skipRawPerfSampleStackUser(&off, payload) {
+		size, ok := skipRawPerfSampleStackUser(&off, payload)
+		if !ok {
 			return rawPerfSample{}, false
 		}
+		sample.UserStackSize = size
 	}
-	for _, bit := range []uint64{
-		perfSampleWeight,
-		perfSampleDataSrc,
-		perfSampleTransaction,
-	} {
-		if sampleType&bit != 0 && !skipU64() {
+	if sampleType&perfSampleWeight != 0 {
+		v, ok := readU64()
+		if !ok {
 			return rawPerfSample{}, false
 		}
+		sample.Weight = v
+	}
+	if sampleType&perfSampleDataSrc != 0 {
+		v, ok := readU64()
+		if !ok {
+			return rawPerfSample{}, false
+		}
+		sample.DataSrc = v
+	}
+	if sampleType&perfSampleTransaction != 0 {
+		v, ok := readU64()
+		if !ok {
+			return rawPerfSample{}, false
+		}
+		sample.Transaction = v
 	}
 	if sampleType&perfSampleRegsIntr != 0 {
-		if !skipRawPerfSampleRegs(&off, payload, attr.SampleRegsIntr) {
+		if _, _, ok := skipRawPerfSampleRegs(&off, payload, attr.SampleRegsIntr); !ok {
 			return rawPerfSample{}, false
 		}
 	}
-	if sampleType&perfSamplePhysAddr != 0 && !skipU64() {
-		return rawPerfSample{}, false
+	if sampleType&perfSamplePhysAddr != 0 {
+		v, ok := readU64()
+		if !ok {
+			return rawPerfSample{}, false
+		}
+		sample.PhysAddr = v
 	}
 	if sampleType&perfSampleAux != 0 {
 		size, ok := readU64()
 		if !ok || size > uint64(len(payload)-off) || !skipBytes(int(size)) {
 			return rawPerfSample{}, false
 		}
+		sample.AuxSize = size
 	}
-	for _, bit := range []uint64{
-		perfSampleCGroup,
-		perfSampleDataPageSize,
-		perfSampleCodePageSize,
-	} {
-		if sampleType&bit != 0 && !skipU64() {
+	if sampleType&perfSampleCGroup != 0 {
+		v, ok := readU64()
+		if !ok {
 			return rawPerfSample{}, false
 		}
+		sample.CGroupID = v
+	}
+	if sampleType&perfSampleDataPageSize != 0 {
+		v, ok := readU64()
+		if !ok {
+			return rawPerfSample{}, false
+		}
+		sample.DataPageSize = v
+	}
+	if sampleType&perfSampleCodePageSize != 0 {
+		v, ok := readU64()
+		if !ok {
+			return rawPerfSample{}, false
+		}
+		sample.CodePageSize = v
 	}
 	if sample.Period == 0 {
 		sample.Period = 1
@@ -1542,41 +1594,42 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 	return sample, true
 }
 
-func skipRawPerfSampleRegs(off *int, payload []byte, regsMask uint64) bool {
+func skipRawPerfSampleRegs(off *int, payload []byte, regsMask uint64) (uint64, int, bool) {
 	if *off+8 > len(payload) {
-		return false
+		return 0, 0, false
 	}
 	abi := binary.LittleEndian.Uint64(payload[*off : *off+8])
 	*off += 8
 	if abi == 0 {
-		return true
+		return abi, 0, true
 	}
-	bytesToSkip := bits.OnesCount64(regsMask) * 8
+	count := bits.OnesCount64(regsMask)
+	bytesToSkip := count * 8
 	if bytesToSkip < 0 || *off+bytesToSkip > len(payload) {
-		return false
+		return abi, count, false
 	}
 	*off += bytesToSkip
-	return true
+	return abi, count, true
 }
 
-func skipRawPerfSampleStackUser(off *int, payload []byte) bool {
+func skipRawPerfSampleStackUser(off *int, payload []byte) (uint64, bool) {
 	if *off+8 > len(payload) {
-		return false
+		return 0, false
 	}
 	size := binary.LittleEndian.Uint64(payload[*off : *off+8])
 	*off += 8
 	if size > uint64(len(payload)-*off) {
-		return false
+		return size, false
 	}
 	*off += int(size)
 	if size == 0 {
-		return true
+		return size, true
 	}
 	if *off+8 > len(payload) {
-		return false
+		return size, false
 	}
 	*off += 8
-	return true
+	return size, true
 }
 
 func skipRawPerfRead(off *int, payload []byte, readFormat uint64) bool {
@@ -1676,12 +1729,53 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 		if sampleKind != "" {
 			sampleKindField = " sample_kind=" + sampleKind
 		}
-		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback%s symbolization_status=%s clock=perf_data clock_confidence=assumed callchain_status=%s%s\n",
-			comm, tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(eventName), quoteTraceValue(frame.Symbol), quoteTraceValue(frame.DSO), quoteTraceValue(frame.IP), quoteTraceValue(callchain), sampleKindField, symbolizationStatus, callchainStatus, parserCaveats); err != nil {
+		extraFields := rawPerfSampleExtraFields(sample)
+		if extraFields != "" {
+			extraFields = " " + extraFields
+		}
+		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback%s symbolization_status=%s clock=perf_data clock_confidence=assumed callchain_status=%s%s%s\n",
+			comm, tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(eventName), quoteTraceValue(frame.Symbol), quoteTraceValue(frame.DSO), quoteTraceValue(frame.IP), quoteTraceValue(callchain), sampleKindField, symbolizationStatus, callchainStatus, extraFields, parserCaveats); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func rawPerfSampleExtraFields(sample rawPerfSample) string {
+	var parts []string
+	parts = appendHexU64Field(parts, "addr", sample.Addr)
+	parts = appendU64Field(parts, "sample_id", sample.ID)
+	parts = appendU64Field(parts, "stream_id", sample.StreamID)
+	parts = appendU64Field(parts, "perf_weight", sample.Weight)
+	parts = appendHexU64Field(parts, "data_src", sample.DataSrc)
+	parts = appendHexU64Field(parts, "transaction", sample.Transaction)
+	parts = appendHexU64Field(parts, "phys_addr", sample.PhysAddr)
+	parts = appendU64Field(parts, "cgroup_id", sample.CGroupID)
+	parts = appendU64Field(parts, "data_page_size", sample.DataPageSize)
+	parts = appendU64Field(parts, "code_page_size", sample.CodePageSize)
+	parts = appendU64Field(parts, "raw_size", sample.RawSize)
+	parts = appendU64Field(parts, "branch_count", sample.BranchStackCount)
+	parts = appendU64Field(parts, "user_regs_abi", sample.UserRegsABI)
+	if sample.UserRegsCount > 0 {
+		parts = append(parts, fmt.Sprintf("user_regs_count=%d", sample.UserRegsCount))
+	}
+	parts = appendU64Field(parts, "user_stack_size", sample.UserStackSize)
+	parts = appendU64Field(parts, "aux_size", sample.AuxSize)
+	return strings.Join(parts, " ")
+}
+
+func appendU64Field(parts []string, key string, value uint64) []string {
+	if value == 0 {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("%s=%d", key, value))
+}
+
+func appendHexU64Field(parts []string, key string, value uint64) []string {
+	if value == 0 {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("%s=0x%x", key, value))
 }
 
 func rawPerfSampleKind(features rawPerfFeatures, eventName string) string {

@@ -786,6 +786,33 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 		}
 	})
 
+	t.Run("ext4_direct_io_official_int_rw", func(t *testing.T) {
+		format := eventFormat{ID: 73, Name: "ext4_direct_IO_exit", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "dev", Offset: 8, Size: 8},
+			{Name: "ino", Offset: 16, Size: 8},
+			{Name: "pos", Offset: 24, Size: 8, Signed: true},
+			{Name: "len", Offset: 32, Size: 8},
+			{Type: "int", Name: "rw", Offset: 40, Size: 4, Signed: true},
+			{Type: "int", Name: "ret", Offset: 44, Size: 4, Signed: true},
+		}}
+		content := make([]byte, 48)
+		binary.LittleEndian.PutUint16(content[0:2], 73)
+		binary.LittleEndian.PutUint32(content[4:8], 20)
+		binary.LittleEndian.PutUint64(content[8:16], syntheticDev(260, 136))
+		binary.LittleEndian.PutUint64(content[16:24], 0xb9b8e)
+		binary.LittleEndian.PutUint64(content[24:32], 4096)
+		binary.LittleEndian.PutUint64(content[32:40], 8192)
+		binary.LittleEndian.PutUint32(content[40:44], 1)
+		binary.LittleEndian.PutUint32(content[44:48], 8192)
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		for _, want := range []string{"dev=260:136", "ino=0xb9b8e", "offset=4096", "len=8192", "rw=write", "ret=8192"} {
+			if !known || !strings.Contains(body, want) {
+				t.Fatalf("ext4 body missing %q: known=%v body=%q", want, known, body)
+			}
+		}
+	})
+
 	t.Run("scsi_dispatch_cmd", func(t *testing.T) {
 		format := eventFormat{ID: 72, Name: "scsi_dispatch_cmd_done", Fields: []eventField{
 			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
