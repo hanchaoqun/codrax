@@ -353,8 +353,17 @@ Batch E partial implementation notes:
   prose.
 - [ ] If any provider-related filter becomes a model-authored `trace_query`
   field, add it to schema, enum aliases, and unified structured JSON repair.
-- [ ] Add low-prebake evals covering path-only, attachment, bundle, official
+- [x] Add low-prebake evals covering path-only, attachment, bundle, official
   symbolized, raw degraded, CPU-unknown, and no-suffix content-detected inputs.
+
+Batch F partial implementation notes:
+
+- Existing perf/runtime evals cover path-mentioned perftrace, simpleperf
+  symbolized rows, raw fallback degraded rows, Harmony CPU-unknown rows, and
+  runtime trace path handling.
+- Added `trace_query_perf_quality_simpleperf_proto_offcpu` so SIMPLEPERF proto
+  rows with `sample_kind=off_cpu` and `cpu_known=false` are guarded without
+  giving the model a prewritten root-cause answer.
 
 ## Acceptance Criteria
 

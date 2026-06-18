@@ -1,0 +1,20 @@
+# Trace query — simpleperf proto off-cpu sample quality
+#
+# Coverage target: SIMPLEPERF proto converted rows can carry CPU-unknown and
+# sample_kind=off_cpu quality. The answer should keep those samples as off-CPU
+# context rather than narrating them as running CPU execution evidence.
+ID="trace_query_perf_quality_simpleperf_proto_offcpu"
+NAME="trace query — simpleperf proto off-cpu perf quality"
+QUESTION="请使用 trace_query 分析 5.000s 到 5.012s 的窗口，目标线程是 worker-41。判断这段窗口里的 perf 采样热点和证据质量，说明它能不能作为 running CPU 执行证据。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+      worker-41   (   40) [000] .... 5.000000: sched_switch: prev_comm=worker prev_pid=41 prev_prio=120 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+      worker-41   (   40) [000] .... 5.004000: perf_sample: cpu=-1 cpu_known=false pid=40 tid=41 thread_comm=worker period=7000 event=cpu-clock symbol=Worker::waitForReply dso=libworker.so ip=0x1234 callchain=main;Worker::waitForReply source=simpleperf_report_proto sample_kind=off_cpu symbolization_status=symbolized clock=simpleperf_record clock_confidence=assumed callchain_status=symbolized
+      worker-41   (   40) [000] .... 5.010000: sched_wakeup: comm=worker pid=41 prio=120 target_cpu=000
+'
+EXPECT_CONTAINS="Worker::waitForReply simpleperf_report_proto"
+EXPECT_MATCHES_REGEX="(sample_kind=off_cpu|off.?CPU|off_cpu|非运行|非 CPU 执行|不能.*running|不能.*CPU 执行)
+(cpu_known=false|CPU.?unknown|CPU.*未知|cpu=-1)
+(simpleperf_report_proto|SIMPLEPERF).*?(symbolized|符号)|(symbolized|符号).*?(simpleperf_report_proto|SIMPLEPERF)"
+EXPECT_NOT_CONTAINS="CPU0"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
