@@ -331,7 +331,7 @@ Batch C implementation notes:
 - [x] Preserve unsupported sample bits as typed caveats instead of failing
   entire files when partial extraction is safe.
 
-Batch D partial implementation notes:
+Batch D implementation notes:
 
 - Raw fallback now parses `read_format` and safely skips `PERF_SAMPLE_READ`,
   `PERF_SAMPLE_RAW`, `PERF_SAMPLE_WEIGHT`, `DATA_SRC`, `TRANSACTION`,
@@ -369,8 +369,8 @@ Batch D partial implementation notes:
 - [x] Add optional tracebundle clock alignment metadata:
   `perf_time_ns -> trace_seconds` offset/slope/confidence.
 - [x] Teach trace_query to expose alignment status per perf context.
-- [x] Separate on-cpu and off-cpu sample contexts so off-cpu periods do not get
-  narrated as running CPU execution.
+- [x] Separate on-cpu and off-cpu sample contexts so off-cpu sample weights do
+  not get narrated as running CPU execution.
 - [x] Add tests for assumed, calibrated, and unknown clock alignment.
 
 Batch E implementation notes:
@@ -463,11 +463,10 @@ Batch F implementation notes:
   safe skipped sample fields, raw feature metadata, exact-path build-id DSO
   labels, record-order `COMM/FORK/EXIT` comm lifetime, clock alignment states,
   report quality materialization, and runtime artifact report tables.
-- Low-prebake eval cases exist for raw fallback quality and SIMPLEPERF proto
-  off-CPU quality. The last run reached artifact discovery but produced
-  `no_result` because the configured model endpoint failed DNS resolution:
-  `lookup api.minimaxi.com: no such host`. No `trace_query` toolcall was made,
-  so this is an external model-service availability blocker, not a semantic
-  trace_query regression signal. Re-run the same cases when the provider is
-  reachable:
-  `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/trace_query_perf_quality_simpleperf_proto_offcpu.case eval/cases/trace_query_perf_quality_raw_fallback.case' PARALLEL=2 RUNS=1 TIMEOUT=1200 SUMMARY=eval/results/perf_proto_offcpu_raw_final_20260618_summary.md bash eval/convergence_audit.sh`.
+- Low-prebake eval cases cover raw fallback quality, SIMPLEPERF proto off-CPU
+  quality, Harmony CPU-unknown quality, simpleperf symbolized quality, and
+  running-window perf context. The latest verified runs on 2026-06-18 used
+  two-case parallel batches and all passed with `flagged=0`:
+  `perf_proto_offcpu_raw_after_eval_sample_weight_fixture_20260618_summary.md`,
+  `perf_quality_harmony_simpleperf_sample_weight_20260618_summary.md`, and
+  `perf_running_raw_sample_weight_20260618_summary.md`.
