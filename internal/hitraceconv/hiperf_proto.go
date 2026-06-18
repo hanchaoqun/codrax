@@ -534,7 +534,7 @@ func writeHiperfPerfTrace(ctx context.Context, w io.Writer, data hiperfProtoData
 		source := "hiperf_proto"
 		symbolizationStatus := perfTraceSymbolizationStatus(leaf.symbol, leaf.dso, source)
 		callchainStatus := perfTraceCallchainStatus(callchain, source)
-		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=-1 cpu_known=false pid=%d tid=%d thread_comm=%s period=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=%s symbolization_status=%s clock=monotonic_raw clock_confidence=assumed callchain_status=%s\n",
+		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=-1 cpu_known=false pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=%s symbolization_status=%s clock=monotonic_raw clock_confidence=assumed callchain_status=%s\n",
 			comm, tid, pid, 0, ts, pid, tid, quoteTraceValue(firstNonEmpty(thread.Name, comm)), period, quoteTraceValue(event), quoteTraceValue(leaf.symbol), quoteTraceValue(leaf.dso), quoteTraceValue(leaf.ip), quoteTraceValue(callchain), source, symbolizationStatus, callchainStatus); err != nil {
 			return err
 		}

@@ -1508,6 +1508,9 @@ func perfSampleExample(ev Event) string {
 	if ev.PerfEvent != "" {
 		parts = append(parts, "event="+ev.PerfEvent)
 	}
+	if ev.PerfPeriod > 0 {
+		parts = append(parts, fmt.Sprintf("sample_weight=%d", ev.PerfPeriod))
+	}
 	if ev.PerfSource != "" {
 		parts = append(parts, "source="+ev.PerfSource)
 	}
@@ -1629,7 +1632,7 @@ func sortedPerfValueCounts(in map[string]*perfValueCountAcc, total int64) []Perf
 func perfQualityCaveats(q PerfQualitySummary) []string {
 	var out []string
 	if q.CPUUnknownCount > 0 {
-		out = append(out, fmt.Sprintf("perf samples include %d CPU-unknown sample(s); CPU-scoped joins ignore them rather than treating them as CPU0", q.CPUUnknownCount))
+		out = append(out, fmt.Sprintf("perf samples include %d CPU-unknown sample(s); CPU-scoped joins must keep them out of concrete CPU/core attribution", q.CPUUnknownCount))
 	}
 	if perfValueCountsContain(q.SymbolizationStatuses, "unsymbolized") {
 		out = append(out, "perf samples include unsymbolized/IP-only rows; function-level conclusions should keep raw fallback caveats")
@@ -1646,7 +1649,7 @@ func perfQualityCaveats(q PerfQualitySummary) []string {
 	if perfValueCountsContain(q.ClockConfidences, "assumed") || perfValueCountsContain(q.ClockConfidences, "unknown") {
 		out = append(out, "perf sample timestamps use assumed or unknown clock alignment; treat trace/perf overlap as supporting evidence unless calibrated")
 	}
-	out = append(out, "perf period values are event/sample weights, not elapsed duration; do not convert them to time or expected sample density without explicit sampling configuration and calibrated CPU frequency")
+	out = append(out, "perf period/sample_weight values are event/sample weights, not elapsed duration; do not convert them to time or expected sample density without explicit sampling configuration and calibrated CPU frequency")
 	return out
 }
 
@@ -9141,7 +9144,7 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 				Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
 				Predicate:  "perf_sample_top_symbol",
 				Object:     hot.DSO,
-				Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s period=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+				Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
 				LineStart:  hot.LineStart,
 				LineEnd:    hot.LineEnd,
 				Confidence: 0.72,
@@ -9192,7 +9195,7 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 			Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
 			Predicate:  "perf_sample_top_symbol",
 			Object:     hot.DSO,
-			Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s period=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+			Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
 			LineStart:  hot.LineStart,
 			LineEnd:    hot.LineEnd,
 			Confidence: 0.72,
@@ -9206,7 +9209,7 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 			Subject:    firstNonEmpty(hot.Symbol, hot.Callchain, "perf_callchain"),
 			Predicate:  "perf_sample_top_callchain",
 			Object:     hot.Callchain,
-			Summary:    fmt.Sprintf("perf callchain: %s period=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Callchain, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+			Summary:    fmt.Sprintf("perf callchain: %s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Callchain, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
 			LineStart:  hot.LineStart,
 			LineEnd:    hot.LineEnd,
 			Confidence: 0.68,
@@ -9225,7 +9228,7 @@ func evidenceFromPerfTimeline(timeline PerfTimelineResult) []EvidenceFact {
 			Subject:    firstNonEmpty(bucket.TopSymbol, bucket.TopDSO, bucket.TopEvent, "perf_timeline"),
 			Predicate:  "perf_timeline_bucket",
 			Object:     bucket.TopDSO,
-			Summary:    fmt.Sprintf("perf timeline %.6f..%.6f period=%d samples=%d top_symbol=%s top_dso=%s event=%s", bucket.StartTs, bucket.EndTs, bucket.Period, bucket.SampleCount, firstNonEmpty(bucket.TopSymbol, "unknown"), firstNonEmpty(bucket.TopDSO, "unknown"), firstNonEmpty(bucket.TopEvent, "unknown")),
+			Summary:    fmt.Sprintf("perf timeline %.6f..%.6f sample_weight=%d samples=%d top_symbol=%s top_dso=%s event=%s", bucket.StartTs, bucket.EndTs, bucket.Period, bucket.SampleCount, firstNonEmpty(bucket.TopSymbol, "unknown"), firstNonEmpty(bucket.TopDSO, "unknown"), firstNonEmpty(bucket.TopEvent, "unknown")),
 			LineStart:  bucket.LineStart,
 			LineEnd:    bucket.LineEnd,
 			StartTs:    bucket.StartTs,
@@ -9387,14 +9390,14 @@ func rootCausePerfSummary(ctx *PerfContext) string {
 	if ctx == nil || ctx.SampleCount == 0 {
 		return ""
 	}
-	parts := []string{fmt.Sprintf("perf_samples=%d", ctx.SampleCount), fmt.Sprintf("period=%d", ctx.TotalPeriod)}
+	parts := []string{fmt.Sprintf("perf_samples=%d", ctx.SampleCount), fmt.Sprintf("sample_weight=%d", ctx.TotalPeriod)}
 	if len(ctx.TopSymbols) > 0 {
 		hot := ctx.TopSymbols[0]
 		parts = append(parts, "top_symbol="+firstNonEmpty(hot.Symbol, "unknown"))
 		if hot.DSO != "" {
 			parts = append(parts, "dso="+hot.DSO)
 		}
-		parts = append(parts, fmt.Sprintf("top_period=%d", hot.Period))
+		parts = append(parts, fmt.Sprintf("top_sample_weight=%d", hot.Period))
 	}
 	if quality := perfQualitySummaryCompact(ctx.Quality); quality != "" {
 		parts = append(parts, "perf_quality="+quality)
@@ -9414,7 +9417,7 @@ func rootCausePerfRoleSummary(contexts []RootCausePerfRoleContext, max int) stri
 		if len(parts) >= max || role.PerfContext == nil || role.PerfContext.SampleCount == 0 {
 			continue
 		}
-		fields := []string{role.Role, fmt.Sprintf("samples=%d", role.PerfContext.SampleCount), fmt.Sprintf("period=%d", role.PerfContext.TotalPeriod)}
+		fields := []string{role.Role, fmt.Sprintf("samples=%d", role.PerfContext.SampleCount), fmt.Sprintf("sample_weight=%d", role.PerfContext.TotalPeriod)}
 		if label := threadLabel(role.Thread); label != "" {
 			fields = append(fields, "thread="+label)
 		}

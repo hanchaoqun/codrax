@@ -142,14 +142,17 @@ flowchart TD
 Codrax-owned text format, one sample per line, ftrace-like enough for `trace_query` to parse and grep:
 
 ```text
-app-5678 ( 1234) [005] .... 928.081774: perf_sample: pid=1234 tid=5678 cpu=5 period=10000 event=cpu-cycles symbol=Foo::bar dso=libfoo.so ip=0x1234 callchain=main;A;B;Foo::bar
+app-5678 ( 1234) [005] .... 928.081774: perf_sample: pid=1234 tid=5678 cpu=5 sample_weight=10000 event=cpu-cycles symbol=Foo::bar dso=libfoo.so ip=0x1234 callchain=main;A;B;Foo::bar
 ```
 
 Rules:
 
 - Timestamp is seconds, same unit as ftrace/systrace. Harmony hiperf `time` from monotonic ns converts to seconds.
 - `pid` is process id when known; `tid` is sampled thread id.
-- `period` is the sample weight/event count. If absent, count each sample as period 1.
+- `sample_weight` is the sample weight/event count. `period`, `sample_period`,
+  `period_weight`, `event_count`, and `count` remain accepted input aliases for
+  imported traces, but generated `.perftrace` uses `sample_weight` to avoid
+  implying elapsed time. If absent, count each sample as weight 1.
 - `event` is the hardware/software event name such as `cpu-cycles`.
 - `symbol` is the leaf/hot function; `dso` is the mapped binary/library.
 - `callchain` is semicolon-separated from root to leaf when the adapter can determine order; parser records the raw string and does not infer missing frames.
@@ -160,7 +163,7 @@ Rules:
 Add `EventPerfSample` and perf fields to `tracequery.Event`:
 
 - `perf_pid`, `perf_tid`, `perf_comm`
-- `perf_period`, `perf_event`
+- `perf_period`, `perf_event` (`perf_period` stores the parsed sample weight)
 - `perf_symbol`, `perf_dso`, `perf_ip`
 - `perf_callchain`
 - optional `perf_source` and `perf_clock`
@@ -217,7 +220,7 @@ Ranking still starts from deterministic intervals, overlap, and chain relevance.
 Add three views:
 
 - `perf_stats`: aggregate samples in a window by symbol, dso, callchain, thread, CPU, and event.
-- `perf_timeline`: bucket sample periods by time for a target thread, process, CPU, event, symbol, or dso.
+- `perf_timeline`: bucket sample weights by time for a target thread, process, CPU, event, symbol, or dso.
 - `trace_perf_bundle`: line-backed joint bundle combining window stats, root-cause rank, wakeup/binder chain evidence, and role-specific perf contexts.
 
 Existing views should be enhanced:
@@ -251,7 +254,7 @@ Implemented D2 path:
 - `SymbolTableFile` provides dso path and function names.
 - `ReportInfo.config_name` provides event name.
 - `CallStackSample.event_count` becomes `period`; missing/zero period is normalized to `1`.
-- OpenHarmony report protobuf does not carry a guaranteed CPU id, so generated `.perftrace` rows use prefix CPU `000` but explicit `cpu=-1`. `trace_query` consumes `cpu=-1` as unknown rather than attributing samples to CPU0.
+- OpenHarmony report protobuf does not carry a guaranteed CPU id, so generated `.perftrace` rows use prefix CPU `000` but explicit `cpu=-1`. `trace_query` consumes `cpu=-1` as unknown rather than attributing samples to any concrete CPU/core.
 - `sample.callStackFrame[0]` is treated as the leaf/hot frame, matching hiperf report's non-callstack path. The stored `callchain` is reversed into root-to-leaf text for model consumption.
 
 If the official adapter fails or is not available, conversion still succeeds for `.systrace` / `.perf.data` and emits a caveat. This keeps trace conversion stable while avoiding false confidence in raw perf parsing.

@@ -64,7 +64,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "perf_timeline",
-			When: "bucketed CPU sample period over time for a selected window/thread/process/symbol context",
+			When: "bucketed CPU sample weight over time for a selected window/thread/process/symbol context",
 		},
 		{
 			View: "trace_perf_bundle",

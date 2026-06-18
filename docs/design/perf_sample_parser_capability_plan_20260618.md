@@ -312,7 +312,7 @@ Batch C implementation notes:
   adapter and points users at `--simpleperf-report-sample`.
 - SIMPLEPERF proto samples intentionally emit `cpu=-1 cpu_known=false` because
   the official proto has no sample CPU field. This remains a typed quality fact,
-  not CPU0.
+  not a concrete CPU/core attribution.
 - `trace_query` now parses `sample_kind`, includes it in perf examples and
   `perf_quality.sample_kinds`, and adds a caveat that `off_cpu` rows must not be
   narrated as running CPU execution.

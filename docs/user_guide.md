@@ -462,7 +462,7 @@ export CODRAX_HIPERF_HOST=/path/to/hiperf_host
 codrax trace convert --input /tmp/capture.htrace
 ```
 
-`hiperf_host` / `hiperf` 来自 OpenHarmony `developtools_hiperf`。官方 lane 会运行 `hiperf report --proto`,再把 protobuf report 转成 Codrax `.perftrace`。OpenHarmony report proto 通常不携带 CPU id,所以 `.perftrace` 中可能显示 `cpu=-1`;这表示 CPU 未知,不是 CPU0。
+`hiperf_host` / `hiperf` 来自 OpenHarmony `developtools_hiperf`。官方 lane 会运行 `hiperf report --proto`,再把 protobuf report 转成 Codrax `.perftrace`。OpenHarmony report proto 通常不携带 CPU id,所以 `.perftrace` 中可能显示 `cpu=-1`;这表示 CPU 未知,不能归因到任何具体 CPU/core。
 
 Android simpleperf 官方工具接入:
 

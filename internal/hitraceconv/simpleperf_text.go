@@ -406,7 +406,7 @@ func writeSimpleperfPerfTrace(ctx context.Context, w io.Writer, samples []simple
 		dso := firstNonEmpty(sample.Leaf.DSO, "unknown")
 		symbolizationStatus := perfTraceSymbolizationStatus(symbol, dso, source)
 		callchainStatus := perfTraceCallchainStatus(callchain, source)
-		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=true pid=%d tid=%d thread_comm=%s period=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=%s symbolization_status=%s clock=record clock_confidence=assumed callchain_status=%s\n",
+		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=true pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=%s symbolization_status=%s clock=record clock_confidence=assumed callchain_status=%s\n",
 			comm, sample.TID, sample.PID, sample.CPU, sample.Timestamp, sample.CPU, sample.PID, sample.TID, quoteTraceValue(firstNonEmpty(sample.Comm, comm)), sample.Period, quoteTraceValue(sample.Event), quoteTraceValue(symbol), quoteTraceValue(dso), quoteTraceValue(sample.Leaf.IP), quoteTraceValue(callchain), source, symbolizationStatus, callchainStatus); err != nil {
 			return err
 		}

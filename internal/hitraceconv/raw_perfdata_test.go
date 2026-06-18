@@ -32,7 +32,7 @@ func TestConvertRawPerfDataFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 		"cpu=5",
 		"pid=1234",
 		"tid=5678",
-		"period=99",
+		"sample_weight=99",
 		`event="config:0x0"`,
 		`symbol="0x1234"`,
 		`dso="/system/lib64/libfoo.so"`,

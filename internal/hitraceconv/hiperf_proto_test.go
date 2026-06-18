@@ -32,7 +32,7 @@ func TestConvertHiperfProtoFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 		"cpu=-1",
 		"pid=1234",
 		"tid=5678",
-		"period=99",
+		"sample_weight=99",
 		`event="cpu-cycles"`,
 		`symbol="doWork"`,
 		`dso="/system/lib64/libfoo.so"`,

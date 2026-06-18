@@ -1075,7 +1075,7 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 			parserCaveats = " parser_caveats=" + quoteTraceValue(strings.Join(data.Caveats, "; "))
 		}
 		eventName := firstNonEmpty(sample.EventName, data.EventName, "unknown")
-		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s period=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only%s\n",
+		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only%s\n",
 			comm, tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(eventName), quoteTraceValue(ip), quoteTraceValue(dso), quoteTraceValue(ip), quoteTraceValue(callchain), parserCaveats); err != nil {
 			return err
 		}

@@ -1295,7 +1295,7 @@ func TestPerfSampleQualitySummarizesCPUUnknownAndRawFallback(t *testing.T) {
 	if len(q.Caveats) == 0 {
 		t.Fatalf("quality should emit caveats for cpu unknown/raw/ip-only/clock alignment: %+v", q)
 	}
-	if !containsSubstring(q.Caveats, "period values are event/sample weights") {
+	if !containsSubstring(q.Caveats, "period/sample_weight values are event/sample weights") {
 		t.Fatalf("quality caveats should prevent treating perf period as elapsed time or sample density: %+v", q.Caveats)
 	}
 }

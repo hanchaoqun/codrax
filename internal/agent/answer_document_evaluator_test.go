@@ -6936,7 +6936,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryPerfQualityMetricS
 					"symbol=RenderPipeline::draw",
 					"dso=libui.so",
 					"perf_quality=cpu_known=1,cpu_unknown=0,source=simpleperf_report_sample,symbolization=symbolized,clock=record,clock_confidence=assumed,callchain_status=symbolized",
-					"perf_quality_caveats=perf period values are event/sample weights, not elapsed duration or expected sample density unless explicit sampling configuration plus calibrated CPU frequency are available",
+					"perf_quality_caveats=perf period/sample_weight values are event/sample weights, not elapsed duration or expected sample density unless explicit sampling configuration plus calibrated CPU frequency are available",
 				},
 				SupportRefs: []string{"attached_trace.txt:4"},
 			}},
@@ -6963,7 +6963,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryPerfQualityMetricS
 	if !strings.Contains(out.FinalAnswer, "系统补充：结构化指标核对") || !strings.Contains(out.FinalAnswer, want) {
 		t.Fatalf("final answer missing perf quality metric supplement %q:\n%s", want, out.FinalAnswer)
 	}
-	if !strings.Contains(out.FinalAnswer, "perf_quality_caveats=perf period values are event/sample weights") {
+	if !strings.Contains(out.FinalAnswer, "perf_quality_caveats=perf period/sample_weight values are event/sample weights") {
 		t.Fatalf("final answer missing perf quality caveat supplement:\n%s", out.FinalAnswer)
 	}
 }

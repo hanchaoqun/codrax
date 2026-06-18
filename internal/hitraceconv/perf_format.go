@@ -110,7 +110,7 @@ func perfCapabilityForHiperfProto(source string) *PerfArtifactCapability {
 		Confidence:      "high_when_official_tool_succeeds",
 		TraceQueryReady: true,
 		Caveats: []string{
-			"OpenHarmony report_sample.proto has no sample CPU field; trace_query must treat cpu=-1 as unknown, not CPU0",
+			"OpenHarmony report_sample.proto has no sample CPU field; trace_query must keep cpu=-1 as unknown, not a concrete CPU/core attribution",
 			"clock alignment is assumed unless a future capture-level clock map is available",
 			"provider source: " + firstNonEmpty(source, "unknown"),
 		},
@@ -164,7 +164,7 @@ func perfCapabilityForSimpleperfReportProto(source string) *PerfArtifactCapabili
 		Confidence:      "high_when_official_proto_is_well_formed",
 		TraceQueryReady: true,
 		Caveats: []string{
-			"Android cmd_report_sample.proto has no sample CPU field; trace_query must treat cpu=-1 as unknown, not CPU0",
+			"Android cmd_report_sample.proto has no sample CPU field; trace_query must keep cpu=-1 as unknown, not a concrete CPU/core attribution",
 			"clock alignment is assumed unless a future capture-level clock map is available",
 			"provider source: " + firstNonEmpty(source, "unknown"),
 		},
