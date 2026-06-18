@@ -3275,6 +3275,93 @@ RC-61 smoke:
   verified. This is a result-authority aggregation gap, not a write runtime or
   patch correctness gap.
 
+## 2026-06-18 RC-62 PatchReview Confidence Authority
+
+RC-61 proved the runtime can now continue from bounded probes into concrete
+impact test surfaces. The next gap is in SWE-bench result aggregation: final
+PatchReview coverage can become verified, while the top-level prediction
+confidence downgrade still reads stale delivery/source-owner telemetry from
+earlier online batches.
+
+This is a typed result-authority gap:
+
+- `plan_patch_review_*` is useful audit telemetry because it preserves
+  source-owner history and stale proof gaps;
+- `final_plan_patch_review_*` is the report-plan actual-diff authority after a
+  coherent delivery has a typed passed verifier report;
+- hard actual-diff/effect blockers from any source owner must still block local
+  acceptance through `plan_patch_review_block_reason`;
+- proof-quality confidence must not keep reading stale telemetry after the
+  final report-plan PatchReview proves the cumulative patch.
+
+Design:
+
+- Add a deterministic `patch_review_confidence_authority_summary()` selector.
+- Inputs are only typed summaries plus `delivery_candidate_status` and
+  `verify_status`; no issue text, model rationale, stdout prose, or keyword
+  matching participates.
+- If delivery is `coherent`, local verify is `passed`, and the final report-plan
+  PatchReview summary has any structured signal, confidence consumes the final
+  summary.
+- Otherwise confidence falls back to the delivery/source-owner summary.
+- Keep exporting both plan-level and final-level telemetry for manual audit and
+  dashboards.
+- Add `patch_review_confidence_authority_source` to result rows so future
+  dashboards can explain whether confidence came from `final_plan` or
+  `delivery`.
+
+Tasks:
+
+- [x] Implement the typed confidence-authority selector in the SWE-bench adapter.
+- [x] Route `prediction_confidence_downgrade_reason` through the selected
+  authority summary.
+- [x] Preserve delivery hard blockers and existing official prediction export.
+- [x] Add unit coverage for final-report authority and no-final-signal fallback.
+- [x] Re-run adapter tests, compile, focused RC-61 xarray recompute, and update
+  smoke evidence.
+
+Verification:
+
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py
+  eval/swebench/run_codrax_swebench_test.py`
+- `eval/swebench/smoke_local.sh`
+
+RC-61 artifact recompute:
+
+- Input artifact:
+  `/private/tmp/codrax-swe-rc61-xarray-20260618-125247/results.jsonl`.
+- Old top-level confidence downgrade:
+  `patch_review_semantic_unverified:call_site_touched`.
+- Typed selector result under RC-62 code:
+  `selected_source=final_plan`,
+  `selected_coverage_verdict=verified`,
+  `new_patch_review_confidence_downgrade_reason=""`.
+- This proves the stale-confidence reporting gap is closed for the passed RC-61
+  trajectory without weakening delivery hard blockers or official prediction
+  export.
+
+RC-62 fresh xarray smoke:
+
+- Reran `pydata__xarray-4248` at
+  `/private/tmp/codrax-swe-rc62-xarray-20260618-135000`.
+- Prediction export remained non-empty (`patch_bytes=931`) and official
+  SWE-bench harness dry-run accepted the generated predictions file.
+- This fresh trajectory did not reach the stale-confidence path because local
+  verify correctly failed: `verify_status=failed`, `verify_test_count=32`,
+  `prediction_verdict=predicted_failed_verify`,
+  `local_acceptance_verdict=fail/source=local_audit_block`.
+- Failure evidence: scoped impact tests reported `16 passed, 2 failed`; the
+  patch inserted units into the main formatter but did not preserve existing
+  xarray diff repr spacing/dtype expectations. This is a runtime convergence
+  quality signal, not an adapter confidence-authority regression.
+- New follow-up candidate: repeated checkpoint-restore replan eventually
+  produced a narrower but still failing patch. The controller already preserved
+  typed failed-test evidence and blocked rather than exporting a local pass; a
+  future batch should improve failure-evidence compression into replan prompts
+  and/or patch critic guidance so online convergence reaches the RC-61-quality
+  fix more consistently.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3347,6 +3434,7 @@ RC-61 smoke:
 | RC-60 smoke | complete | Reran `pydata__xarray-4248` at `/private/tmp/codrax-swe-rc60-xarray-20260618-123244`: the workflow failed the first bounded probe, restored checkpoint, replanned, then passed two typed verification probes and exported a non-empty harness-consumable prediction. Manual audit marks the patch plausible but low-confidence because related project test surfaces remain telemetry rather than executed proof. |
 | RC-61 | complete | Probe-pass continuation now runs concrete impact related-test surfaces instead of skipping them, trims that continuation to impact runner plans, preserves probe-primary infra downgrades, fixes unittest directory selector rendering, and prefers precise pytest file selectors over unittest fallback. Verification: focused `internal/tool`, related packages, full `go test ./...`, `make test`, diff check, and xarray RC-61 SWE smoke pass. |
 | RC-61 smoke | complete | Reran `pydata__xarray-4248` at `/private/tmp/codrax-swe-rc61-xarray-20260618-125247`: prediction export was non-empty, official harness dry-run accepted it, verify executed the bounded probe plus scoped `xarray/tests/test_formatting.py` and `xarray/tests/test_formatting_html.py`, `verify_test_count=32`, and final PatchReview coverage was `verified`. A stale adapter confidence downgrade from earlier plan-level telemetry remains as RC-62 candidate. |
+| RC-62 | complete | PatchReview confidence authority selector now makes coherent passed deliveries consume final report-plan PatchReview for confidence while preserving delivery/source-owner hard blockers and telemetry. Adapter unit tests, Python compile, local adapter smoke, and RC-61 xarray artifact recompute pass; a fresh xarray smoke correctly failed local acceptance after scoped impact tests caught a narrower bad patch, exposing a separate replan-quality follow-up. |
 
 ## Acceptance Criteria
 

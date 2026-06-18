@@ -2453,6 +2453,55 @@ def patch_review_confidence_downgrade_reason(summary: dict[str, Any]) -> str:
     return ""
 
 
+def patch_review_confidence_authority_summary(
+    *,
+    final_summary: dict[str, Any],
+    delivery_summary: dict[str, Any],
+    verify_status: str,
+    delivery_status: str,
+) -> tuple[dict[str, Any], str]:
+    """Select the PatchReview summary that may lower local confidence.
+
+    Delivery summaries keep source-owner hard blockers authoritative for
+    exported diffs. Once a coherent delivery has a passed typed report, however,
+    proof-quality confidence should follow the final report plan's actual-diff
+    review. Earlier proof gaps remain exported telemetry, but they should not
+    keep lowering confidence after the final report plan has verified them.
+    """
+
+    if (
+        str(delivery_status or "").strip() == "coherent"
+        and str(verify_status or "").strip() == "passed"
+        and patch_review_summary_has_signal(final_summary)
+    ):
+        return final_summary, "final_plan"
+    return delivery_summary, "delivery"
+
+
+def patch_review_summary_has_signal(summary: dict[str, Any]) -> bool:
+    if not isinstance(summary, dict):
+        return False
+    if str(summary.get("status") or "").strip():
+        return True
+    if str(summary.get("coverage_verdict") or "").strip():
+        return True
+    if str(summary.get("block_reason") or "").strip():
+        return True
+    if int(summary.get("finding_count") or 0) > 0:
+        return True
+    for key in (
+        "reason_codes",
+        "semantic_unverified_codes",
+        "semantic_unverified_telemetry_codes",
+        "uncovered_impact_kinds",
+        "uncovered_impact_kind_telemetry",
+        "impact_kind_coverage",
+    ):
+        if summary.get(key):
+            return True
+    return False
+
+
 MANUAL_AUDIT_VERDICTS = {"pass", "fail", "unknown"}
 
 
@@ -3226,8 +3275,15 @@ def process_instance(
             plan_context_paths=result.get("plan_context_paths") if isinstance(result.get("plan_context_paths"), list) else [],
             owner_boundary_reason_codes=result.get("plan_owner_boundary_reason_codes") if isinstance(result.get("plan_owner_boundary_reason_codes"), list) else [],
         )
+        patch_review_confidence_summary, patch_review_confidence_source = patch_review_confidence_authority_summary(
+            final_summary=final_patch_review_summary,
+            delivery_summary=patch_review_summary,
+            verify_status=str(result.get("verify_status") or ""),
+            delivery_status=str(result.get("delivery_candidate_status") or ""),
+        )
+        result["patch_review_confidence_authority_source"] = patch_review_confidence_source
         if not confidence_downgrade_reason and not audit_block_reason:
-            confidence_downgrade_reason = patch_review_confidence_downgrade_reason(patch_review_summary)
+            confidence_downgrade_reason = patch_review_confidence_downgrade_reason(patch_review_confidence_summary)
         result["prediction_confidence_downgrade_reason"] = confidence_downgrade_reason
         verdict, confidence, blocks_local_acceptance = prediction_verdict(
             patch,

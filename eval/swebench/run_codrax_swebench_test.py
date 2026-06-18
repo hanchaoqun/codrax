@@ -594,6 +594,52 @@ class PatchReviewSummaryTests(unittest.TestCase):
             ["changed_symbol_without_probe_coverage", "dependent_surface_without_verify_coverage"],
         )
 
+    def test_patch_review_confidence_uses_final_report_after_passed_delivery(self) -> None:
+        delivery_summary = {
+            "block_reason": "",
+            "coverage_verdict": "unverified",
+            "semantic_unverified_telemetry_codes": ["changed_symbol_without_probe_coverage"],
+        }
+        final_summary = adapter.plan_patch_review_summary({
+            "patch_review": {
+                "status": "passed",
+                "coverage_summary": {"verdict": "verified"},
+                "findings": [],
+            },
+        })
+
+        summary, source = adapter.patch_review_confidence_authority_summary(
+            final_summary=final_summary,
+            delivery_summary=delivery_summary,
+            verify_status="passed",
+            delivery_status="coherent",
+        )
+
+        self.assertEqual(source, "final_plan")
+        self.assertIs(summary, final_summary)
+        self.assertEqual(adapter.patch_review_confidence_downgrade_reason(summary), "")
+
+    def test_patch_review_confidence_falls_back_without_final_signal(self) -> None:
+        delivery_summary = {
+            "block_reason": "",
+            "coverage_verdict": "unverified",
+            "semantic_unverified_telemetry_codes": ["dependent_surface_without_verify_coverage"],
+        }
+
+        summary, source = adapter.patch_review_confidence_authority_summary(
+            final_summary=adapter.plan_patch_review_summary({}),
+            delivery_summary=delivery_summary,
+            verify_status="passed",
+            delivery_status="coherent",
+        )
+
+        self.assertEqual(source, "delivery")
+        self.assertIs(summary, delivery_summary)
+        self.assertEqual(
+            adapter.patch_review_confidence_downgrade_reason(summary),
+            "patch_review_semantic_unverified:dependent_surface_without_verify_coverage",
+        )
+
     def test_delivery_patch_review_keeps_actual_diff_blocker_from_any_owner(self) -> None:
         risky_source_plan = {
             "id": "plan-old",
