@@ -127,6 +127,37 @@ func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfDataByContent(t 
 	}
 }
 
+func TestConvertFileUsesReportSampleNextToConfiguredSimpleperfReportLib(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "capture.perfdata")
+	if err := os.WriteFile(perfData, syntheticRawPerfData(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	libPath := filepath.Join(dir, "simpleperf_report_lib.py")
+	if err := os.WriteFile(libPath, []byte("# official library placeholder\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeSimpleperfReportTool(t, dir)
+
+	result, err := ConvertFile(context.Background(), Options{InputPath: perfData, SimpleperfReportPath: libPath})
+	if err != nil {
+		t.Fatalf("convert direct perf data through sibling report_sample: %v", err)
+	}
+	var perfTrace Artifact
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactPerfTrace {
+			perfTrace = artifact
+			break
+		}
+	}
+	if perfTrace.Path == "" {
+		t.Fatalf("missing perftrace artifact: %+v", result.Artifacts)
+	}
+	if perfTrace.Perf == nil || !strings.Contains(strings.Join(perfTrace.Perf.Caveats, " "), "report_sample.py next to configured") {
+		t.Fatalf("provider source should explain report_lib sibling resolution: %+v", perfTrace.Perf)
+	}
+}
+
 func TestConvertSimpleperfProtoFileToPerfTraceRoundTripsThroughTraceQuery(t *testing.T) {
 	dir := t.TempDir()
 	protoPath := filepath.Join(dir, "simpleperf.pb")

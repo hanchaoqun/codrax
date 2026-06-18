@@ -480,7 +480,7 @@ export CODRAX_SIMPLEPERF_PYTHON=/usr/bin/python3
 codrax trace convert --input /tmp/perf.data
 ```
 
-官方工具负责完整解析、unwind、Java/ART/native 符号、symfs/kallsyms 等;Codrax raw fallback 只做有限字段提取。raw 输出会明确带上 `source=raw_perfdata_fallback` 和 `symbolization_status=unsymbolized`:它适合做时间、线程、DSO、IP、调用链地址的辅助关联,不要把 IP-only label 当成真实函数名。
+`report_sample.py` 是 Android 官方提供的 `simpleperf_report_lib.py` wrapper。Codrax 执行 wrapper;如果你只传了 `simpleperf_report_lib.py`,系统会尝试使用同目录的 `report_sample.py` / `simpleperf_report_sample.py` / `report_sample`,缺失时 `--perf-tools-status` 会提示补 wrapper。官方工具负责完整解析、unwind、Java/ART/native 符号、symfs/kallsyms 等;Codrax raw fallback 只做有限字段提取。raw 输出会明确带上 `source=raw_perfdata_fallback` 和 `symbolization_status=unsymbolized`:它适合做时间、线程、DSO、IP、调用链地址的辅助关联,不要把 IP-only label 当成真实函数名。
 
 转换产物:
 

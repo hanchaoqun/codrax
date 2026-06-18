@@ -202,17 +202,53 @@ func maybeRawPerfFallbackForSimpleperf(ctx context.Context, opts Options, perfPa
 
 func resolveSimpleperfReportTool(opts Options) (tool string, python string, source string) {
 	if path := strings.TrimSpace(opts.SimpleperfReportPath); path != "" {
-		return path, resolveSimpleperfPython(opts, path), "configured simpleperf report_sample.py"
+		return resolveSimpleperfReportWrapper(opts, path, "configured simpleperf report_sample.py")
 	}
 	if path := strings.TrimSpace(os.Getenv("CODRAX_SIMPLEPERF_REPORT_SAMPLE")); path != "" {
-		return path, resolveSimpleperfPython(opts, path), "CODRAX_SIMPLEPERF_REPORT_SAMPLE"
+		return resolveSimpleperfReportWrapper(opts, path, "CODRAX_SIMPLEPERF_REPORT_SAMPLE")
 	}
 	for _, name := range []string{"report_sample.py", "simpleperf_report_sample.py"} {
 		if path, err := exec.LookPath(name); err == nil && strings.TrimSpace(path) != "" {
 			return path, resolveSimpleperfPython(opts, path), name + " on PATH"
 		}
 	}
+	for _, name := range []string{"simpleperf_report_lib.py"} {
+		if path, err := exec.LookPath(name); err == nil && strings.TrimSpace(path) != "" {
+			if wrapper := siblingSimpleperfReportSample(path); wrapper != "" {
+				return wrapper, resolveSimpleperfPython(opts, wrapper), "report_sample.py next to " + name + " on PATH"
+			}
+		}
+	}
 	return "", "", ""
+}
+
+func resolveSimpleperfReportWrapper(opts Options, path, source string) (tool string, python string, resolvedSource string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", "", ""
+	}
+	if simpleperfPathLooksReportLibrary(path) {
+		if wrapper := siblingSimpleperfReportSample(path); wrapper != "" {
+			return wrapper, resolveSimpleperfPython(opts, wrapper), "report_sample.py next to " + source
+		}
+		return "", "", ""
+	}
+	return path, resolveSimpleperfPython(opts, path), source
+}
+
+func simpleperfPathLooksReportLibrary(path string) bool {
+	return strings.EqualFold(filepath.Base(strings.TrimSpace(path)), "simpleperf_report_lib.py")
+}
+
+func siblingSimpleperfReportSample(path string) string {
+	dir := filepath.Dir(strings.TrimSpace(path))
+	for _, name := range []string{"report_sample.py", "simpleperf_report_sample.py", "report_sample"} {
+		candidate := filepath.Join(dir, name)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func resolveSimpleperfPython(opts Options, script string) string {

@@ -70,6 +70,27 @@ func TestBuildPerfToolStatusOfficialModeDisablesRawFallback(t *testing.T) {
 	}
 }
 
+func TestBuildPerfToolStatusExplainsConfiguredSimpleperfReportLibWithoutWrapper(t *testing.T) {
+	dir := t.TempDir()
+	libPath := filepath.Join(dir, "simpleperf_report_lib.py")
+	if err := os.WriteFile(libPath, []byte("# library only\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status, err := BuildPerfToolStatus(Options{SimpleperfReportPath: libPath})
+	if err != nil {
+		t.Fatalf("build status: %v", err)
+	}
+	if status.Simpleperf.Available {
+		t.Fatalf("library without report_sample.py wrapper should not be executable provider: %+v", status.Simpleperf)
+	}
+	got := strings.Join(status.Simpleperf.Caveats, " ")
+	for _, want := range []string{"simpleperf_report_lib.py", "report_sample.py wrapper", "--simpleperf-report-sample"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing caveat %q: %+v", want, status.Simpleperf)
+		}
+	}
+}
+
 func TestBuildPerfToolStatusRejectsUnknownParser(t *testing.T) {
 	if _, err := BuildPerfToolStatus(Options{PerfParser: "mystery"}); err == nil {
 		t.Fatalf("expected invalid perf parser mode to fail")

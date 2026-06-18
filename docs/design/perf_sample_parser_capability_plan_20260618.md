@@ -91,6 +91,21 @@ instead of treating CPU 0 as a fallback.
   reading samples, symbols, call chains, record options, architecture, and meta
   strings:
   https://android.googlesource.com/platform/system/extras/+/refs/heads/main/simpleperf/doc/scripts_reference.md
+- `report_sample.py` is itself a thin official wrapper over
+  `GetReportLib(record_file)`, then consumes `GetNextSample`,
+  `GetEventOfCurrentSample`, `GetSymbolOfCurrentSample`,
+  `GetCallChainOfCurrentSample`, `GetTracingDataOfCurrentSample`, and
+  `GetRecordCmd`. So Codrax's official text lane should execute the wrapper,
+  while understanding that `simpleperf_report_lib.py` is the underlying library:
+  https://android.googlesource.com/platform/system/extras/+/refs/heads/main/simpleperf/scripts/report_sample.py
+- `simpleperf_report_lib.py` exposes both native `ReportLib` and proto-backed
+  `ProtoFileReportLib`, including build-id, record command, arch, tracing data,
+  thread, and symbol helper APIs:
+  https://android.googlesource.com/platform/system/extras/+/refs/heads/main/simpleperf/scripts/simpleperf_report_lib.py
+- `record_file.h` confirms the official reader owns attr id mapping, feature
+  descriptors, build-id, cmdline, meta-info, file features, and
+  `GetAttrIndexByEventId`:
+  https://android.googlesource.com/platform/system/extras/+/refs/heads/main/simpleperf/record_file.h
 - The generated `report_sample_pb2.py` declares `cmd_report_sample.proto` and the
   `SIMPLEPERF` report-sample proto record shape: `Sample`, `File`, `Thread`,
   `MetaInfo`, `ContextSwitch`, and lost records:
@@ -112,8 +127,9 @@ Already implemented on current `main`:
 - Official Android adapter runs configured/discovered `report_sample.py` and
   normalizes the perf-script text into `.perftrace`.
 - Raw perf.data fallback parses a bounded Linux/simpleperf-like subset:
-  `PERFILE2`, first attr, `COMM`, `MMAP/MMAP2`, and sample fields such as IP,
-  TID, TIME, CPU, PERIOD, and CALLCHAIN.
+  `PERFILE2`, attrs with matching sample layouts, attr id sections, `COMM`,
+  `MMAP/MMAP2`, and sample fields such as IP, TID, TIME, CPU, PERIOD, and
+  CALLCHAIN.
 - `.tracebundle.json` can preserve `.systrace`, `.perf.data`, and `.perftrace`
   together.
 - `trace_query` supports `EventPerfSample`, `event_types=["perf_sample"]`,
@@ -275,7 +291,7 @@ Batch B implementation notes:
 ### Batch C - Android SIMPLEPERF Proto Provider
 
 - [x] Add a provider for files starting with `SIMPLEPERF`.
-- [ ] Prefer official `simpleperf_report_lib.py` when available.
+- [x] Prefer official `simpleperf_report_lib.py` when available.
 - [x] Add a bounded manual proto reader only for the public
   `cmd_report_sample.proto` fields needed by Codrax: sample time/thread/event
   count, callchain file/symbol ids, thread pid/tid/name, file path/symbols, meta
@@ -290,6 +306,13 @@ Batch C implementation notes:
   the older text adapter lane. The provider reads the official
   `cmd_report_sample.proto` stream directly and emits normalized
   `perf_sample` rows.
+- The Android official text lane intentionally executes `report_sample.py`,
+  because official sources show it is the wrapper over `simpleperf_report_lib.py`.
+  If users configure or expose `simpleperf_report_lib.py`, Codrax resolves a
+  sibling `report_sample.py` / `simpleperf_report_sample.py` / `report_sample`
+  wrapper and records that provider source. If the wrapper is absent,
+  `--perf-tools-status` explains that the library alone is not the executable
+  adapter and points users at `--simpleperf-report-sample`.
 - SIMPLEPERF proto samples intentionally emit `cpu=-1 cpu_known=false` because
   the official proto has no sample CPU field. This remains a typed quality fact,
   not CPU0.

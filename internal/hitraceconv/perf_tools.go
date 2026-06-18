@@ -98,6 +98,10 @@ func BuildPerfToolStatus(opts Options) (PerfToolStatus, error) {
 			status.Simpleperf.Caveats = append(status.Simpleperf.Caveats, "python executable was not discovered for report_sample.py")
 			status.Simpleperf.Available = false
 		}
+	} else if path := strings.TrimSpace(opts.SimpleperfReportPath); simpleperfPathLooksReportLibrary(path) {
+		status.Simpleperf.Path = path
+		status.Simpleperf.Source = "configured simpleperf_report_lib.py"
+		status.Simpleperf.Caveats = append(status.Simpleperf.Caveats, "simpleperf_report_lib.py is the official library, but Codrax executes the report_sample.py wrapper; place report_sample.py next to simpleperf_report_lib.py or pass --simpleperf-report-sample /path/to/report_sample.py")
 	}
 	return status, nil
 }
