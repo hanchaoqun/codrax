@@ -34,6 +34,36 @@ func (s *fakeWorkflowRunStore) Save(run *types.WriteWorkflowRun) (string, error)
 	return "/tmp/" + run.RunID + ".json", nil
 }
 
+func testOwnerLocalizationContextPack(batchID, sourcePath, owner string) types.WriteContextPack {
+	ref := types.WriteExplorationEvidenceRef{
+		ID:          "ev-" + strings.ReplaceAll(strings.TrimSpace(sourcePath), "/", "-"),
+		Source:      sourcePath,
+		LineStart:   1,
+		OwnerSymbol: owner,
+	}
+	return types.NormalizeWriteContextPack(types.WriteContextPack{
+		PackID:      "test-localization",
+		BatchID:     batchID,
+		SourceStage: "explore",
+		Items: []types.WriteContextItem{{
+			Priority:    types.WriteContextP1,
+			Kind:        "localization_anchor",
+			Text:        "path=" + sourcePath + " owner=" + owner,
+			SourceStage: "explore",
+			Consumers:   []types.WriteContextConsumer{types.WriteConsumerController, types.WriteConsumerPlanner},
+			EvidenceRef: &ref,
+			LocalizationAnchor: &types.SourceLocalizationAnchor{
+				Path:        sourcePath,
+				Role:        types.SourcePathRoleProduction,
+				Kind:        types.SourceLocalizationAnchorGroundedEvidence,
+				Strength:    types.SourceLocalizationAnchorOwner,
+				EvidenceRef: &ref,
+				OwnerSymbol: owner,
+			},
+		}},
+	})
+}
+
 func (s *fakeWorkflowRunStore) FindActiveRun() (*types.WriteWorkflowRun, error) {
 	if s.active == nil {
 		return nil, nil
@@ -100,6 +130,7 @@ func TestRunControllerPlanBatch_ReplansMissingSourceLocalization(t *testing.T) {
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelToken = NewCancelToken()
 	run := o.seedWriteWorkflowRun()
+	run = upsertWorkflowRunContextPack(run, testOwnerLocalizationContextPack("batch-1", "pkg/owner.py", "Owner.handle"))
 	mu.SetWriteWorkflowRun(&run)
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -160,6 +191,7 @@ func TestRunControllerPlanBatch_AcceptsCoveredSourceLocalization(t *testing.T) {
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelToken = NewCancelToken()
 	run := o.seedWriteWorkflowRun()
+	run = upsertWorkflowRunContextPack(run, testOwnerLocalizationContextPack("batch-1", "pkg/owner.py", "Owner.handle"))
 	mu.SetWriteWorkflowRun(&run)
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -181,6 +213,51 @@ func TestRunControllerPlanBatch_AcceptsCoveredSourceLocalization(t *testing.T) {
 	}
 	if planCalls != 1 {
 		t.Fatalf("covered source localization should not retry, plan calls = %d", planCalls)
+	}
+}
+
+func TestRunControllerPlanBatch_ReplansScopeOnlyOwnerLocalization(t *testing.T) {
+	mu := types.NewMutableState("fix owner boundary")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task:         types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix owner boundary"},
+			Risk:         types.WriteRiskProfile{Overall: types.RiskBandLow},
+			ScopeAnchors: []string{"pkg/owner.py"},
+		},
+	})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	run := o.seedWriteWorkflowRun()
+	mu.SetWriteWorkflowRun(&run)
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		planCalls++
+		if planCalls == 2 {
+			hint := mu.PlanningHint()
+			if !strings.Contains(hint, "Typed owner localization depth critique") ||
+				!strings.Contains(hint, "pkg/owner.py") {
+				t.Fatalf("owner-depth retry hint missing typed path context: %q", hint)
+			}
+		}
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          fmt.Sprintf("plan-owner-%d", planCalls),
+			Status:      types.PlanStatusPending,
+			Summary:     "patch owner boundary",
+			TargetPaths: []string{"pkg/owner.py"},
+			Changes:     []types.FileChange{{Path: "pkg/owner.py", Kind: "patch"}},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "fix owner boundary"}, &steps); err != nil {
+		t.Fatalf("runControllerPlanBatch: %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("scope-only owner localization should retry once, plan calls = %d", planCalls)
 	}
 }
 

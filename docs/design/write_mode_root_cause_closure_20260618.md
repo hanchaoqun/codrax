@@ -4316,7 +4316,7 @@ Verification:
 | RC-104 | complete | Shared localization owner/evidence anchor closure: preserve prior owner/supporting/scope anchors through write plan localization review and downstream context packs, so later controller/planner/verifier consumers see typed anchor evidence instead of only path sets. Focused types tests, related write/read consumers, full `go test ./...`, `make`, and `git diff --check` pass. |
 | RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
 | RC-106 | complete | Same-batch source-owner relation after test-only replan: restore-aware delivery lineage now preserves/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code, while still excluding stale pre-restore plans when no precise restored checkpoint relation exists. Focused Go and SWE adapter regressions pass. |
-| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects. Remaining work: direct controller/replan slice selection from `OwnerAnchorView`, read final-answer projection, unresolved owner-gap reporting, and another SWE smoke/audit after RC107-D. |
+| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects; RC107-E adds owner-depth critique for path-covered but owner/evidence-missing plans. Remaining work: planner-read evidence writeback into localization anchors, direct controller/replan slice selection from `OwnerAnchorView`, and read final-answer projection. |
 | RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
 | RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
 
@@ -6704,6 +6704,55 @@ verifier-only hardening unless a regression blocks mainline stability.
     and `go test ./internal/types ./internal/agent ./internal/orchestrator -run
     'Test(SourceLocalization|WriteExplorationHandoff|TurnA|AnswerDocument|Explorer|AttachPlanContextPack)'
     -count=1`.
+- RC107-D SWE smoke/audit:
+  - Ran
+    `WORKDIR=/Users/han/opt/codrax/eval/results/swebench/lite-smoke-20260619-rc107d-3
+    SWEBENCH_SMOKE_LIMIT=3 SWEBENCH_FAIL_ON_INSTANCE_ERROR=0
+    SWEBENCH_FAIL_ON_EMPTY_PATCH=0 SWEBENCH_REQUIRE_NONEMPTY_PATCH=0
+    CODRAX_BIN=/Users/han/opt/codrax/codrax eval/swebench/smoke_lite.sh`
+    after commit `4577db8f`.
+  - Result: 3/3 non-empty predictions and official harness import/dry-run
+    command accepted. Local summary:
+    `current_core=3/3`, `non_empty_patch=3/3`, `high_conf_local_verify=1/3`,
+    `final_report=3/3`.
+  - Manual patch audit remained theoretically aligned for all three patches:
+    `_cstack` now writes the right separability matrix block, RST now threads
+    `header_rows`, and QDP parsing compiles the line-type regex with
+    `re.IGNORECASE`. The first two remain locally unverified because the
+    checked-out Astropy environment is dependency/probe unavailable; the third
+    reached `verify_status=passed`.
+  - Owner-anchor audit: `astropy__astropy-14182` now exports plan owner symbols
+    `RST.__init__`, `RST.write`, and
+    `SimpleRSTHeader.get_fixedwidth_params`, proving the typed
+    `source_path:symbol` fallback is working. `astropy__astropy-12907` and
+    `astropy__astropy-14365` still export only scope anchors because the run's
+    prior context contains no evidence refs at all, only write-analysis
+    scope paths. This is a distinct producer/scheduler gap: path coverage is
+    being treated as sufficient localization depth.
+- RC107-E owner-depth critique:
+  - Added a typed owner-depth distinction to `WriteContextPack` coverage:
+    `plan_context_coverage` still records path coverage, while
+    `plan_context_owner_depth` and `plan_context_owner_gap_path` report
+    production source paths that are covered only by broad path context and
+    lack a P0/P1 typed owner/evidence localization anchor.
+  - Added `WritePlanSourcePathsWithoutOwnerAnchor`, derived only from
+    normalized `WriteContextPack`, `SourceLocalizationAnchor`, and
+    `ChangePlan` paths. Scope anchors intentionally do not satisfy owner-depth
+    evidence; grounded evidence refs, owner symbols, subjects, or anchor
+    symbols do.
+  - The controller plan loop now performs one bounded retry with a
+    `Typed owner localization depth critique` hint when a plan edits a
+    path-covered source file without owner/evidence anchors. This is soft
+    guidance and audit context, not an apply-risk denial: after the single retry
+    the workflow can still deliver low/medium-risk code with residual
+    localization risk recorded. The retry is intentionally lower priority than
+    off-scope high-risk, protected-test-contract, and missing-localization
+    critiques, so it does not stack extra plan rounds after those stronger
+    structural corrections have already fired.
+  - Remaining RC107-F task: planner read-file/repomap observations gathered
+    during that retry still need a typed writeback path into
+    `SourceLocalizationAnchor`; otherwise the retry can improve model context
+    but not durable evidence refs for final reports.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

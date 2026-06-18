@@ -861,6 +861,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	noPlanRetryCount := 0
 	offScopeRiskReplanRetried := false
 	localizationReplanRetried := false
+	localizationOwnerReplanRetried := false
 	testContractReplanRetried := false
 	proofProbeReplanRetried := false
 	proofSourceEditReplanRetried := false
@@ -941,6 +942,19 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
 					o.busCtx.TaskState.LastError = ""
 					logging.Warning("[orchestrator] controller plan touched source path(s) outside prior localization context; retrying bounded planning once paths=%s", strings.Join(paths, ","))
+					continue
+				}
+			}
+			if !localizationOwnerReplanRetried && !localizationReplanRetried && !offScopeRiskReplanRetried && !testContractReplanRetried {
+				if hint, paths := o.localizationOwnerDepthReplanHint(o.busCtx.Mutable.ChangePlan()); hint != "" {
+					localizationOwnerReplanRetried = true
+					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
+					if existing != "" {
+						existing += "\n\n"
+					}
+					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
+					o.busCtx.TaskState.LastError = ""
+					logging.Warning("[orchestrator] controller plan used path-only localization without owner/evidence anchors; retrying bounded planning once paths=%s", strings.Join(paths, ","))
 					continue
 				}
 			}
@@ -1195,6 +1209,45 @@ func (o *Orchestrator) localizationCoverageReplanHint(plan *types.ChangePlan) (s
 		}
 	}
 	b.WriteString("\nKeep a new source path only if direct current-repo read/repomap evidence in this planning round proves it is the owner boundary; otherwise split the new owner investigation into a later explore/replan batch. Test-only paths are excluded from this critique.")
+	return strings.TrimSpace(b.String()), missing
+}
+
+func (o *Orchestrator) localizationOwnerDepthReplanHint(plan *types.ChangePlan) (string, []string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
+		return "", nil
+	}
+	ir := plan.WriteAnalysisIR
+	if ir == nil {
+		ir = o.busCtx.Mutable.WriteAnalysisIR()
+	}
+	if ir != nil && (ir.Request.Risk.ChangesBuildSystem || ir.Request.Task.Kind == types.WriteTaskConfig) {
+		return "", nil
+	}
+	var prior []types.WriteContextPack
+	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+		prior = append(prior, run.ContextPacks...)
+	}
+	if pack := o.busCtx.Mutable.WriteContextPack(); pack != nil {
+		prior = append(prior, *pack)
+	}
+	missing := types.WritePlanSourcePathsWithoutOwnerAnchor(prior, plan)
+	if len(missing) == 0 {
+		return "", nil
+	}
+	var b strings.Builder
+	b.WriteString("## Typed owner localization depth critique\n\n")
+	b.WriteString("The previous ChangePlan edited source paths that were covered only by broad path context. Replan this same batch once with owner/evidence localization where possible; a broad scope path is not owner proof.\n\n")
+	b.WriteString("Source paths missing owner/evidence anchors:\n")
+	for _, p := range missing {
+		fmt.Fprintf(&b, "- %s\n", p)
+	}
+	if ir != nil && len(ir.Request.ScopeAnchors) > 0 {
+		b.WriteString("\nCurrent WriteAnalysisIR scope anchors:\n")
+		for _, p := range normalizedWorkflowScopeAnchors(ir.Request.ScopeAnchors) {
+			fmt.Fprintf(&b, "- %s\n", p)
+		}
+	}
+	b.WriteString("\nIf the path remains correct, preserve the patch and add exact current-repo read/repomap evidence for the enclosing owner symbol before re-emitting the bounded ChangePlan. If owner evidence points elsewhere, move or split the fix accordingly. This is advisory localization depth, not an apply-risk denial.")
 	return strings.TrimSpace(b.String()), missing
 }
 

@@ -819,6 +819,7 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 	}
 	contextPaths := writeContextCoveragePriorPaths(prior)
 	planPaths := writeContextCoveragePlanPaths(plan)
+	ownerGapPaths := WritePlanSourcePathsWithoutOwnerAnchor(prior, plan)
 	if len(contextPaths) == 0 && len(planPaths) == 0 {
 		return WriteContextPack{}
 	}
@@ -865,6 +866,15 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 		}
 	}
+	if len(ownerGapPaths) > 0 {
+		text += " owner_anchor_missing_paths=" + formatWriteContextCoveragePaths(ownerGapPaths)
+		pack.Items = append(pack.Items, writeContextItem("plan_context_owner_depth", WriteContextP2, text, "plan_context",
+			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		for _, p := range ownerGapPaths {
+			pack.Items = append(pack.Items, writeContextItem("plan_context_owner_gap_path", WriteContextP1, p, "plan_context",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		}
+	}
 	return NormalizeWriteContextPack(pack)
 }
 
@@ -881,6 +891,33 @@ func WritePlanSourcePathsOutsidePriorContext(prior []WriteContextPack, plan *Cha
 	var out []string
 	for _, p := range planPaths {
 		if writeContextCoveragePathCoveredByContext(p, contextPaths) {
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// WritePlanSourcePathsWithoutOwnerAnchor returns production source paths whose
+// file path is present in prior context but whose prior context has no typed
+// owner/evidence localization anchor. A broad scope path is useful context, but
+// it is not equivalent to owner-localized evidence for planning. The result is
+// soft guidance for one bounded replan/explore cycle and final-report risk; it
+// is not an apply gate.
+func WritePlanSourcePathsWithoutOwnerAnchor(prior []WriteContextPack, plan *ChangePlan) []string {
+	contextPaths := writeContextCoveragePriorPaths(prior)
+	planPaths := writeContextCoveragePlanPaths(plan)
+	if len(contextPaths) == 0 || len(planPaths) == 0 {
+		return nil
+	}
+	ownerPaths := writeContextCoveragePriorOwnerAnchorPaths(prior)
+	var out []string
+	for _, p := range planPaths {
+		if !writeContextCoveragePathCoveredByContext(p, contextPaths) {
+			continue
+		}
+		if writeContextCoveragePathCoveredByContext(p, ownerPaths) {
 			continue
 		}
 		out = append(out, p)
@@ -1136,6 +1173,57 @@ func writeContextCoveragePriorAnchors(packs []WriteContextPack) []SourceLocaliza
 		}
 	}
 	return normalizeSourceLocalizationAnchors(out)
+}
+
+func writeContextCoveragePriorOwnerAnchorPaths(packs []WriteContextPack) []string {
+	if len(packs) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(anchor SourceLocalizationAnchor) {
+		anchor = normalizeSourceLocalizationAnchor(anchor)
+		if !sourceLocalizationAnchorHasOwnerDepth(anchor) {
+			return
+		}
+		p := writeContextCoveragePath(anchor.Path)
+		if p == "" || writeContextCoveragePathIsTest(p) {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	for _, pack := range packs {
+		pack = NormalizeWriteContextPack(pack)
+		if pack.PackID == "change-plan" || pack.SourceStage == "plan" {
+			continue
+		}
+		for _, item := range pack.Items {
+			if item.Kind != "localization_anchor" ||
+				(item.Priority != WriteContextP0 && item.Priority != WriteContextP1) ||
+				item.LocalizationAnchor == nil {
+				continue
+			}
+			add(*item.LocalizationAnchor)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sourceLocalizationAnchorHasOwnerDepth(anchor SourceLocalizationAnchor) bool {
+	anchor = normalizeSourceLocalizationAnchor(anchor)
+	if anchor.Path == "" || SourcePathRoleIsAuxiliary(anchor.Role) || anchor.Kind == SourceLocalizationAnchorScope {
+		return false
+	}
+	return anchor.Strength == SourceLocalizationAnchorOwner ||
+		anchor.EvidenceRef != nil ||
+		anchor.OwnerSymbol != "" ||
+		anchor.Subject != "" ||
+		anchor.AnchorSymbol != ""
 }
 
 func writeContextCoveragePriorAnchorsForPath(anchors []SourceLocalizationAnchor, planPath string) []SourceLocalizationAnchor {
