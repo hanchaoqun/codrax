@@ -131,27 +131,37 @@ func TestTraceConvertPerfToolStatusLines(t *testing.T) {
 		SelectedParser:           "auto",
 		SymbolizationExpectation: "official first, raw fallback",
 		Hiperf: hitraceconv.PerfToolProviderStatus{
-			Name:      "openharmony_hiperf",
-			Kind:      "official_harmony",
-			Available: true,
-			Path:      "/tmp/hiperf_host",
-			Source:    "configured hiperf tool",
+			Name:            "openharmony_hiperf",
+			Kind:            "official_harmony",
+			Available:       true,
+			Path:            "/tmp/hiperf_host",
+			Source:          "configured hiperf tool",
+			CheckCommand:    "hiperf_host --help",
+			AuxiliaryChecks: []string{"symbol_root=/symbols check=test -d /symbols"},
+			InstallCommand:  "git clone https://gitee.com/openharmony/developtools_hiperf",
+			DocsURL:         "https://gitee.com/openharmony/developtools_hiperf",
 		},
 		Simpleperf: hitraceconv.PerfToolProviderStatus{
-			Name:        "android_simpleperf_report_sample",
-			Kind:        "official_android",
-			Available:   false,
-			InstallHint: "install simpleperf",
+			Name:            "android_simpleperf_report_sample",
+			Kind:            "official_android",
+			Available:       false,
+			CheckCommand:    "python3 report_sample.py --help",
+			AuxiliaryChecks: []string{"symfs=/symfs check=test -d /symfs", "kallsyms=/proc/kallsyms check=test -r /proc/kallsyms"},
+			InstallCommand:  "fetch simpleperf",
+			DocsURL:         "https://android.googlesource.com/platform/system/extras/+/refs/heads/main/simpleperf/",
+			InstallHint:     "install simpleperf",
 		},
 		RawFallback: hitraceconv.PerfToolProviderStatus{
-			Name:      "codrax_raw_perfdata",
-			Kind:      "raw_fallback",
-			Available: true,
-			Source:    "built-in",
+			Name:           "codrax_raw_perfdata",
+			Kind:           "raw_fallback",
+			Available:      true,
+			Source:         "built-in",
+			CheckCommand:   "codrax trace convert --perf-tools-status --perf-parser=raw",
+			InstallCommand: "built-in",
 		},
 	}
 	en := strings.Join(traceConvertPerfToolStatusLines("en", status), "\n")
-	for _, want := range []string{"perf_parser: auto", "official_harmony", "/tmp/hiperf_host", "official_android", "hint=install simpleperf", "raw_fallback", "built-in"} {
+	for _, want := range []string{"perf_parser: auto", "official_harmony", "/tmp/hiperf_host", "check=hiperf_host --help", "aux_check=symbol_root=/symbols", "docs=https://gitee.com/openharmony/developtools_hiperf", "official_android", "check=python3 report_sample.py --help", "symfs=/symfs", "kallsyms=/proc/kallsyms", "install=fetch simpleperf", "hint=install simpleperf", "raw_fallback", "built-in", "--perf-parser=raw"} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("status lines missing %q:\n%s", want, en)
 		}

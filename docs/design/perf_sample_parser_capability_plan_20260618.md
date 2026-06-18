@@ -346,9 +346,9 @@ Batch E partial implementation notes:
 
 ### Batch F - UX, Prompt, Handoff, And JSON Repair
 
-- [ ] Update `--perf-tools-status` with install/check commands for hiperf,
+- [x] Update `--perf-tools-status` with install/check commands for hiperf,
   report_sample.py, symfs, kallsyms, and symbol roots.
-- [ ] Add docs showing official-first and raw fallback workflows.
+- [x] Add docs showing official-first and raw fallback workflows.
 - [ ] Add report sections that summarize provider capabilities before hotspot
   prose.
 - [ ] If any provider-related filter becomes a model-authored `trace_query`
@@ -364,6 +364,14 @@ Batch F partial implementation notes:
 - Added `trace_query_perf_quality_simpleperf_proto_offcpu` so SIMPLEPERF proto
   rows with `sample_kind=off_cpu` and `cpu_known=false` are guarded without
   giving the model a prewritten root-cause answer.
+- `--perf-tools-status` now emits `check=`, `aux_check=`, `install=`, and
+  `docs=` for the OpenHarmony hiperf official lane, Android simpleperf
+  official lane, and Codrax raw fallback lane. `aux_check` covers symbol roots,
+  symfs, and kallsyms quality dependencies. These are backend-owned status
+  fields, not model-authored `trace_query` inputs.
+- `docs/user_guide.md` already documents official-first, official-only, raw
+  fallback, disabled-perftrace, and direct tracebundle analysis workflows; it
+  now also explains the preflight `check/aux_check/install/docs` fields.
 
 ## Acceptance Criteria
 

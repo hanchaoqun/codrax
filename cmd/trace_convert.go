@@ -142,6 +142,18 @@ func traceConvertPerfProviderLine(lang string, item hitraceconv.PerfToolProvider
 	if item.Version != "" {
 		details = append(details, "version="+item.Version)
 	}
+	if item.CheckCommand != "" {
+		details = append(details, "check="+item.CheckCommand)
+	}
+	if len(item.AuxiliaryChecks) > 0 {
+		details = append(details, "aux_check="+strings.Join(item.AuxiliaryChecks, "; "))
+	}
+	if item.InstallCommand != "" {
+		details = append(details, "install="+item.InstallCommand)
+	}
+	if item.DocsURL != "" {
+		details = append(details, "docs="+item.DocsURL)
+	}
 	if len(item.Caveats) > 0 {
 		details = append(details, "caveat="+strings.Join(item.Caveats, "; "))
 	}

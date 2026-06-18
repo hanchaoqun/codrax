@@ -428,6 +428,9 @@ codrax trace convert --perf-tools-status --lang en
 - `raw_fallback[codrax_raw_perfdata]`: Codrax 内置 raw `perf.data` fallback 是否可用
 - `perf_parser`: 当前策略,默认 `auto`
 - `symbolization_expectation`: 输出是否可能是官方符号化结果,还是 raw IP/DSO fallback
+- `check`: 用于确认该 provider 是否能在当前机器工作的检查命令
+- `aux_check`: 符号目录、symfs、kallsyms 等辅助输入的检查提示
+- `install` / `docs`: 官方工具获取入口或内置能力说明
 
 推荐策略:
 

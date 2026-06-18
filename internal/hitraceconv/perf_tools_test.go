@@ -18,9 +18,12 @@ func TestBuildPerfToolStatusReportsConfiguredToolsAndRawFallback(t *testing.T) {
 	}
 
 	status, err := BuildPerfToolStatus(Options{
-		HiperfPath:           hiperf,
-		SimpleperfReportPath: simpleperf,
-		PerfParser:           "auto",
+		HiperfPath:             hiperf,
+		HiperfSymbolDirs:       []string{filepath.Join(dir, "symbols")},
+		SimpleperfReportPath:   simpleperf,
+		SimpleperfSymfsDir:     filepath.Join(dir, "symfs"),
+		SimpleperfKallsymsPath: filepath.Join(dir, "kallsyms"),
+		PerfParser:             "auto",
 	})
 	if err != nil {
 		t.Fatalf("build status: %v", err)
@@ -31,11 +34,26 @@ func TestBuildPerfToolStatusReportsConfiguredToolsAndRawFallback(t *testing.T) {
 	if !status.Hiperf.Available || status.Hiperf.Path != hiperf || !strings.Contains(status.Hiperf.Source, "configured") {
 		t.Fatalf("hiperf status not available: %+v", status.Hiperf)
 	}
+	if status.Hiperf.CheckCommand == "" || status.Hiperf.InstallCommand == "" || !strings.Contains(status.Hiperf.DocsURL, "developtools_hiperf") {
+		t.Fatalf("hiperf status should expose check/install/docs guidance: %+v", status.Hiperf)
+	}
+	if got := strings.Join(status.Hiperf.AuxiliaryChecks, " "); !strings.Contains(got, "symbol_root=") || !strings.Contains(got, "test -d") {
+		t.Fatalf("hiperf status should expose symbol-root checks: %+v", status.Hiperf)
+	}
 	if !status.Simpleperf.Available || status.Simpleperf.Path != simpleperf || !strings.Contains(status.Simpleperf.Source, "configured") {
 		t.Fatalf("simpleperf status not available: %+v", status.Simpleperf)
 	}
+	if status.Simpleperf.CheckCommand == "" || status.Simpleperf.InstallCommand == "" || !strings.Contains(status.Simpleperf.DocsURL, "simpleperf") {
+		t.Fatalf("simpleperf status should expose check/install/docs guidance: %+v", status.Simpleperf)
+	}
+	if got := strings.Join(status.Simpleperf.AuxiliaryChecks, " "); !strings.Contains(got, "symfs=") || !strings.Contains(got, "kallsyms=") {
+		t.Fatalf("simpleperf status should expose symfs/kallsyms checks: %+v", status.Simpleperf)
+	}
 	if !status.RawFallback.Available || status.RawFallback.Source != "built-in" {
 		t.Fatalf("raw fallback should be available in auto mode: %+v", status.RawFallback)
+	}
+	if status.RawFallback.CheckCommand == "" || status.RawFallback.InstallCommand != "built-in" {
+		t.Fatalf("raw fallback status should expose built-in check guidance: %+v", status.RawFallback)
 	}
 }
 

@@ -17,15 +17,19 @@ type PerfToolStatus struct {
 }
 
 type PerfToolProviderStatus struct {
-	Name        string
-	Kind        string
-	Available   bool
-	Path        string
-	Source      string
-	Version     string
-	Python      string
-	InstallHint string
-	Caveats     []string
+	Name            string
+	Kind            string
+	Available       bool
+	Path            string
+	Source          string
+	Version         string
+	Python          string
+	CheckCommand    string
+	AuxiliaryChecks []string
+	InstallCommand  string
+	DocsURL         string
+	InstallHint     string
+	Caveats         []string
 }
 
 func BuildPerfToolStatus(opts Options) (PerfToolStatus, error) {
@@ -41,21 +45,32 @@ func BuildPerfToolStatus(opts Options) (PerfToolStatus, error) {
 		SelectedParser:           mode,
 		SymbolizationExpectation: perfSymbolizationExpectation(mode, opts.DisablePerfAdapter),
 		Hiperf: PerfToolProviderStatus{
-			Name:        "openharmony_hiperf",
-			Kind:        "official_harmony",
-			InstallHint: "Install or build OpenHarmony developtools_hiperf host tool, then pass --hiperf-host or set CODRAX_HIPERF_HOST; add --hiperf-symbol-dir for symbols.",
+			Name:            "openharmony_hiperf",
+			Kind:            "official_harmony",
+			CheckCommand:    "hiperf_host --help || hiperf --help",
+			AuxiliaryChecks: perfHiperfAuxiliaryChecks(opts),
+			InstallCommand:  "git clone https://gitee.com/openharmony/developtools_hiperf",
+			DocsURL:         "https://gitee.com/openharmony/developtools_hiperf",
+			InstallHint:     "Install or build OpenHarmony developtools_hiperf host tool, then pass --hiperf-host or set CODRAX_HIPERF_HOST; add --hiperf-symbol-dir for symbols.",
 		},
 		Simpleperf: PerfToolProviderStatus{
-			Name:        "android_simpleperf_report_sample",
-			Kind:        "official_android",
-			InstallHint: "Use Android simpleperf scripts/report_sample.py, then pass --simpleperf-report-sample or set CODRAX_SIMPLEPERF_REPORT_SAMPLE; add --simpleperf-python, --simpleperf-symfs, and --simpleperf-kallsyms as needed.",
+			Name:            "android_simpleperf_report_sample",
+			Kind:            "official_android",
+			CheckCommand:    "python3 /path/to/simpleperf/scripts/report_sample.py --help",
+			AuxiliaryChecks: perfSimpleperfAuxiliaryChecks(opts),
+			InstallCommand:  "git clone https://android.googlesource.com/platform/system/extras",
+			DocsURL:         "https://android.googlesource.com/platform/system/extras/+/refs/heads/main/simpleperf/",
+			InstallHint:     "Use Android simpleperf scripts/report_sample.py, then pass --simpleperf-report-sample or set CODRAX_SIMPLEPERF_REPORT_SAMPLE; add --simpleperf-python, --simpleperf-symfs, and --simpleperf-kallsyms as needed.",
 		},
 		RawFallback: PerfToolProviderStatus{
-			Name:        "codrax_raw_perfdata",
-			Kind:        "raw_fallback",
-			Source:      "built-in",
-			Available:   !opts.DisablePerfAdapter && rawPerfParserAllowed(opts),
-			InstallHint: "Built into Codrax; emits source=raw_perfdata_fallback and symbolization_status=unsymbolized, so it is a fallback for time/thread/DSO/IP correlation rather than full symbolization.",
+			Name:           "codrax_raw_perfdata",
+			Kind:           "raw_fallback",
+			Source:         "built-in",
+			Available:      !opts.DisablePerfAdapter && rawPerfParserAllowed(opts),
+			CheckCommand:   "codrax trace convert --perf-tools-status --perf-parser=raw",
+			InstallCommand: "built-in",
+			DocsURL:        "docs/user_guide.md#perfdata--perf-sample",
+			InstallHint:    "Built into Codrax; emits source=raw_perfdata_fallback and symbolization_status=unsymbolized, so it is a fallback for time/thread/DSO/IP correlation rather than full symbolization.",
 		},
 	}
 	if opts.DisablePerfAdapter {
@@ -85,6 +100,36 @@ func BuildPerfToolStatus(opts Options) (PerfToolStatus, error) {
 		}
 	}
 	return status, nil
+}
+
+func perfHiperfAuxiliaryChecks(opts Options) []string {
+	var checks []string
+	for _, dir := range opts.HiperfSymbolDirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		checks = append(checks, fmt.Sprintf("symbol_root=%s check=test -d %s", dir, dir))
+	}
+	if len(checks) == 0 {
+		checks = append(checks, "symbol_roots=not_configured; pass --hiperf-symbol-dir /path/to/symbols and verify with test -d /path/to/symbols")
+	}
+	return checks
+}
+
+func perfSimpleperfAuxiliaryChecks(opts Options) []string {
+	var checks []string
+	if dir := strings.TrimSpace(opts.SimpleperfSymfsDir); dir != "" {
+		checks = append(checks, fmt.Sprintf("symfs=%s check=test -d %s", dir, dir))
+	} else {
+		checks = append(checks, "symfs=not_configured; pass --simpleperf-symfs /path/to/symfs and verify with test -d /path/to/symfs")
+	}
+	if path := strings.TrimSpace(opts.SimpleperfKallsymsPath); path != "" {
+		checks = append(checks, fmt.Sprintf("kallsyms=%s check=test -r %s", path, path))
+	} else {
+		checks = append(checks, "kallsyms=not_configured; pass --simpleperf-kallsyms /path/to/kallsyms and verify with test -r /path/to/kallsyms")
+	}
+	return checks
 }
 
 func perfSymbolizationExpectation(mode string, disabled bool) string {
