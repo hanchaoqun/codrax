@@ -6753,6 +6753,25 @@ verifier-only hardening unless a regression blocks mainline stability.
     during that retry still need a typed writeback path into
     `SourceLocalizationAnchor`; otherwise the retry can improve model context
     but not durable evidence refs for final reports.
+- RC107-E SWE smoke/audit:
+  - Ran
+    `WORKDIR=/Users/han/opt/codrax/eval/results/swebench/lite-smoke-20260619-rc107e-12907
+    INSTANCE_ID=astropy__astropy-12907 SWEBENCH_SMOKE_LIMIT=1
+    SWEBENCH_FAIL_ON_INSTANCE_ERROR=0 SWEBENCH_FAIL_ON_EMPTY_PATCH=0
+    SWEBENCH_REQUIRE_NONEMPTY_PATCH=0 CODRAX_BIN=/Users/han/opt/codrax/codrax
+    eval/swebench/smoke_lite.sh` after commit `94802602`.
+  - Result: 1/1 non-empty prediction and official harness import/dry-run
+    command accepted. Local summary:
+    `current_core=1/1`, `non_empty_patch=1/1`, `final_report=1/1`,
+    `high_conf_local_verify=0/1` because the Astropy checkout still reports
+    typed dependency/probe unavailable evidence.
+  - Final-report owner audit improved from the RC107-D run:
+    `final_report_plan_owner_symbols=["separability_matrix"]` and
+    `final_report_handoff_owner_symbols=["Model._calculate_separability_matrix",
+    "separability_matrix"]`. The selected patch remains the expected
+    `_cstack` matrix-block repair (`1` -> `right`) and the prediction remains
+    conservatively `predicted_audit_blocked` due unavailable verification proof,
+    not due patch emptiness or harness incompatibility.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
