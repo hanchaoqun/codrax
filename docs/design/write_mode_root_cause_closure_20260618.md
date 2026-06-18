@@ -4319,6 +4319,8 @@ Verification:
 | RC-107 | complete | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects; RC107-E adds owner-depth critique for path-covered but owner/evidence-missing plans; RC107-F writes planner read observations back into durable localization anchors; RC107-G makes controller planning/exploration seeds prefer typed owner/evidence anchors before broad expected paths; RC107-H stamps read-mode final answers with typed owner anchors and renders a compact localization supplement; RC107-I projects unresolved owner-anchor gaps into typed final reports and residual risks. |
 | RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
 | RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
+| RC-110 | complete | Auditable partial final reports: persist typed final reports for non-terminal workflows once apply/verify evidence exists, add `workflow_nonterminal` residual risk, export final-report owner-gap telemetry in the SWE adapter, and reran the failed Django spot case to confirm failed-verify `in_progress` deliveries no longer fall back to prose/log audit. Focused Go/Python tests, full `go test ./...`, `make`, diff check, prediction validation, and official harness dry-run pass. |
+| RC-111 | queued P0 | Shared localization owner/evidence pre-plan authority: make read/write typed localization anchors a required planning input before broad path hints, so vague symptom reports trigger owner discovery and plans avoid wrong source surfaces earlier. This is now the highest-priority root-cause repair after RC110; it must cover read exploration, read final handoff, write context projection, planner localization gates, and replan repair slices without keyword/prose routing. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -6893,16 +6895,178 @@ verifier-only hardening unless a regression blocks mainline stability.
   - Focused verification:
     `go test ./internal/types -run 'TestBuildWriteFinalReport.*Owner' -count=1`.
 
+## 2026-06-19 RC-110 SWE Spot Run And Partial Final-Report Audit
+
+Post-RC107 spot run:
+
+```bash
+eval/results/swebench/.venv/bin/python eval/swebench/run_codrax_swebench.py \
+  --dataset-name SWE-bench/SWE-bench_Lite --split test \
+  --instance-id django__django-14534 \
+  --instance-id pytest-dev__pytest-5227 \
+  --instance-id sympy__sympy-23117 \
+  --workdir eval/results/swebench/lite-smoke-20260619-rc107-post-owner-gap-3 \
+  --codrax-bin ./codrax --settings eval/swebench/codrax_swebench.yaml \
+  --providers providers.yaml --max-steps 80 --codrax-timeout 1800 \
+  --codrax-progress-interval 60 --prepare-python-env --isolate-git-history
+```
+
+Verification:
+
+- Prediction schema: `eval/swebench/validate_predictions.py ... --require-nonempty-patch`
+  validated 3 predictions, 0 empty patches.
+- Official harness dry-run command construction passed with
+  `eval/swebench/run_official_harness.sh` and `DRY_RUN=1`.
+- Oracle-assisted audit artifact:
+  `docs/design/swebench_rc107_post_owner_gap_audit_20260619.md` /
+  `.jsonl`; theoretical audit pass 2/3, fail 1/3.
+
+Per-instance outcome:
+
+| instance | exported patch | local/typed verdict | audit result | key signal |
+| --- | ---: | --- | --- | --- |
+| `django__django-14534` | 416 bytes | `predicted_failed_verify` | fail | Workflow stayed `in_progress` after failed verify and exported patch had no typed final report; audit had to fall back to `codrax.out`. |
+| `pytest-dev__pytest-5227` | 512 bytes | `predicted_unverified` | pass | Patch overlapped oracle source/token surface but final report correctly exposed `verification_unavailable`, patch-review unverified test surface, and `source_owner_anchor_missing`. |
+| `sympy__sympy-23117` | 1133 bytes | `predicted_passed_low_confidence` | pass | Typed obligation follow-up appended a repair batch and verified locally, but final report retained low-confidence residuals: dependent surface unverified, weak localization, and owner-anchor gap. |
+
+New system gap:
+
+- Terminal-only final-report persistence is too narrow. A write workflow can
+  export a useful or at least auditable patch while remaining `in_progress`
+  after failed verify/replan interruption. Without a typed final report, SWE
+  audit and routine users fall back to terminal prose/log tails, which violates
+  the handoff/audit contract.
+
+RC110 design:
+
+- Persist `WriteFinalReport` whenever the workflow is terminal **or** has
+  auditable typed delivery evidence: existing `ChangeReport`, applied/failed
+  verification plan status, apply/verify attempts, apply/verify refs, or
+  apply/verify slice events.
+- Keep pure planned/pending non-terminal workflows report-free, preserving
+  stable plan-only paths and avoiding noise before any delivery evidence exists.
+- Add residual risk `workflow_nonterminal` when a partial final report is
+  emitted for an in-progress run.
+- Project `plan.owner_anchor_gaps[]` from final reports into SWE results as
+  `final_report_plan_owner_gap_*` telemetry so batch analysis does not need to
+  reopen the final JSON.
+- Hard routing remains typed-only: run status, plan status, `ChangeReport`,
+  workflow attempts/events, and final-report fields. No user keywords, model
+  rationale, `<think>`, terminal logs, or manual audit prose influence product
+  control flow.
+
+RC110 task list:
+
+- [x] Replace terminal-only final-report persistence with auditable-state
+  persistence.
+- [x] Keep pending/planned non-terminal runs from writing final reports.
+- [x] Add `workflow_nonterminal` residual risk for partial final reports.
+- [x] Add orchestrator tests for pending non-terminal suppression and
+  verify-failed partial final report emission.
+- [x] Export final-report owner-gap telemetry in the SWE adapter and update
+  adapter tests/docs.
+- [x] Rerun the Django failed-verify instance after RC110 to confirm a partial
+  final report is present even when workflow remains non-terminal.
+
+RC110 rerun evidence:
+
+- Targeted command:
+  `eval/swebench/run_codrax_swebench.py --instance-id django__django-14534 --workdir eval/results/swebench/lite-smoke-20260619-rc110-django-partial-final ... --prepare-python-env --isolate-git-history`.
+- Prediction validation: `validate_predictions.py ... --require-nonempty-patch`
+  validated 1 prediction, 0 empty patches.
+- Official harness dry-run command construction passed with `DRY_RUN=1`.
+- During the non-terminal repair loop, typed final reports were persisted for
+  `run_status=in_progress` plans with `plan_status=verify_failed` and residual
+  risk `workflow_nonterminal`; no audit needed `codrax.out` prose fallback.
+- The final adapter row was harness-consumable:
+  `status=predicted`, `patch_bytes=420`,
+  `prediction_verdict=predicted_passed_low_confidence`,
+  `workflow_status=complete`, `verify_status=passed`,
+  `final_report_present=true`.
+- The selected delivery-candidate final report still carried the partial-run
+  audit risk `workflow_nonterminal`, plus
+  `source_owner_anchor_missing`; this is intentional because the adapter audits
+  the actual delivered patch plan rather than the later terminal no-change plan.
+  It keeps the upstream RC111 localization gap visible even when the workflow
+  reaches `complete`.
+
+## 2026-06-19 RC-111 Queued P0: Shared Localization Owner/Evidence Pre-Plan Authority
+
+The selected unresolved upstream gap is now explicitly ordered as the next P0
+root-cause repair after RC110:
+
+> read/write shared typed localization owner/evidence anchors must let planning
+> avoid the wrong source surface before edit generation, not only report the gap
+> after delivery.
+
+Why this stays P0:
+
+- Historical SWE audits still show non-empty patches on source surfaces that
+  weakly overlap or do not overlap the oracle patch, even when later reporting
+  can expose `source_owner_anchor_missing`.
+- RC97/RC104/RC107 added the typed anchor contract, handoff preservation,
+  ranked planner views, read-mode final-answer stamping, and final-report gap
+  telemetry. Those close audit visibility, but not the upstream control loop:
+  vague symptom reports still need a deterministic owner-discovery obligation
+  before broad path hints can dominate planning.
+- This must be shared by read and write modes. If only write mode learns better
+  localization, read-mode answers can still drop the same owner/evidence signal
+  before handoff; if only read mode learns it, write replan slices can still
+  drift after verify failure.
+
+RC111 design:
+
+- Introduce a typed `LocalizationRequirement` view compiled from existing
+  `SourceLocalizationAnchor`, `WriteContextPack`, verify-failure handoff, and
+  read-mode answer/evidence artifacts. It carries only precise fields:
+  `path`, `line_span`, `symbol`, `owner_kind`, `context_role`, `priority`,
+  `consumer`, `source_stage`, and `evidence_ref`.
+- Planning and replan consume this view before broad expected paths. A plan that
+  edits a path with only scope/read-file support and no owner/supporting
+  evidence receives a typed repair/exploration obligation; this remains a soft
+  convergence loop until deterministic risk/patch-review gates have concrete
+  evidence to block.
+- Read exploration emits owner-discovery obligations when a question or write
+  seed has broad observations but no line-backed owner anchors. This is a typed
+  stage-state obligation, not a keyword interpretation of the user request.
+- Handoff compaction keeps Top-N owner/supporting anchors plus evidence refs,
+  and persists the full pack so controller/planner/verifier can consume their
+  own typed slices without replaying raw logs or model rationale.
+- Final reports continue to surface unresolved gaps, but RC111 success is
+  measured upstream: fewer plans should reach apply with
+  `source_owner_anchor_missing`, and replan should target failed owner slices
+  instead of adjacent or test-only surfaces.
+
+RC111 task list:
+
+- [ ] Audit current producers/consumers of `SourceLocalizationAnchor`,
+  `WriteContextPack`, read answer owner anchors, planner localization review,
+  and verify-failure repair handoff.
+- [ ] Add a shared typed `LocalizationRequirement` projection layer with unit
+  tests covering owner/supporting/scope/read-file-only distinctions.
+- [ ] Make read-mode exploration and final handoff preserve owner-discovery
+  obligations without changing the L1 scheduler byte identity.
+- [ ] Make write controller/planner/replan consume the requirement view before
+  broad path hints, and emit bounded exploration/repair obligations when owner
+  evidence is missing.
+- [ ] Add hygiene tests proving no user-intent keywords, model prose,
+  `<think>`, stdout narrative, or final-summary text drive localization gates.
+- [ ] Rerun the existing SWE spot set plus at least one vague symptom-style
+  issue to compare owner-gap telemetry, patch surface, prediction export, and
+  official harness dry-run consumption.
+- [ ] Update this ledger with measured before/after signals and push the batch
+  as a separate commit after RC110 lands.
+
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
 This queue came from the pre-RC104 three-instance smoke. It is not an official
 SWE score. The current priority order is superseded by RC-105 / RC-106 /
-RC-107 above, but the historical evidence remains useful context. That earlier
+RC-111 above, but the historical evidence remains useful context. That earlier
 typed triage run produced harness-consumable predictions validated by
 `validate_predictions.py` and official harness dry-run/import. Manual audit
 classified these systemic gaps:
 
-1. **Shared localization owner/evidence anchor closure.**
+1. **Shared localization owner/evidence pre-plan authority.**
    This is the remaining upstream gap behind many wrong-source-surface patches:
    read mode can observe many useful files, and write mode can carry context
    packs, but the two modes still need one stronger typed owner/evidence anchor
@@ -6915,8 +7079,8 @@ classified these systemic gaps:
    anchor fields such as owner kind, path, line span, consumer, priority,
    source stage, and evidence refs. RC-104 preserved matched prior
    owner/supporting/scope anchors across the plan review boundary; RC-107 is
-   now the queued scheduling-authority closure for the remaining upstream
-   owner-anchor gap.
+   complete, and RC-111 is now the queued pre-plan authority closure for the
+   remaining upstream owner-anchor gap.
 2. **Planner repair tool affordance mismatch.**
    `django__django-14534` entered online restore/replan several times. During
    repair planning, the model attempted an unavailable `grep` call. Restoring

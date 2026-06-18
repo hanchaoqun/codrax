@@ -436,6 +436,12 @@ class FinalReportProjectionTests(unittest.TestCase):
                                 "owner_symbol": "Owner",
                             },
                         }],
+                        "owner_anchor_gaps": [{
+                            "path": "src/app.py",
+                            "reason_code": "plan_source_path_without_owner_anchor",
+                            "required_evidence": "typed_owner_or_supporting_localization_anchor",
+                            "source": "prior_context",
+                        }],
                         "localization": {
                             "status": "weak",
                             "reason_codes": ["plan_source_paths_without_prior_context"],
@@ -512,6 +518,16 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_plan_owner_anchor_ids"], ["anchor-plan", "ev-owner"])
         self.assertEqual(result["final_report_plan_owner_anchor_paths"], ["src/owner.py"])
         self.assertEqual(result["final_report_plan_owner_symbols"], ["Owner"])
+        self.assertEqual(result["final_report_plan_owner_gap_paths"], ["src/app.py"])
+        self.assertEqual(
+            result["final_report_plan_owner_gap_reason_codes"],
+            ["plan_source_path_without_owner_anchor"],
+        )
+        self.assertEqual(
+            result["final_report_plan_owner_gap_required_evidence"],
+            ["typed_owner_or_supporting_localization_anchor"],
+        )
+        self.assertEqual(result["final_report_plan_owner_gap_sources"], ["prior_context"])
         self.assertEqual(result["final_report_handoff_owner_anchor_ids"], ["anchor-handoff"])
         self.assertEqual(result["final_report_handoff_owner_anchor_paths"], ["src/handoff_owner.py"])
         self.assertEqual(result["final_report_handoff_owner_symbols"], ["HandoffOwner"])
@@ -530,6 +546,8 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_residual_risk_codes"], [])
         self.assertEqual(result["final_report_handoff_evidence_refs"], [])
         self.assertEqual(result["final_report_plan_owner_anchor_ids"], [])
+        self.assertEqual(result["final_report_plan_owner_gap_paths"], [])
+        self.assertEqual(result["final_report_plan_owner_gap_reason_codes"], [])
         self.assertEqual(result["final_report_handoff_owner_anchor_ids"], [])
 
 

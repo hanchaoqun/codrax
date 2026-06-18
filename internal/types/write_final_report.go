@@ -533,6 +533,9 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 	if report.Completion != nil && report.Completion.Verdict != WriteWorkflowCompletionVerified {
 		add(string(report.Completion.Verdict), "workflow_completion", "warning", report.Completion.ReasonCode)
 	}
+	if report.RunStatus != "" && report.RunStatus != WriteWorkflowRunComplete && report.RunStatus != WriteWorkflowRunBlocked {
+		add("workflow_nonterminal", "workflow_run", "warning", string(report.RunStatus))
+	}
 	if report.Verification.Status == VerificationStatusUnavailable {
 		add("verification_unavailable", "change_report", "warning", report.Verification.FailureReasonCode)
 	} else if report.Verification.Status == VerificationStatusFailed {

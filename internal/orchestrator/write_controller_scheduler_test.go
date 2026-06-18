@@ -803,7 +803,7 @@ func writeControllerFinalStringSliceContains(items []string, want string) bool {
 	return false
 }
 
-func TestPersistWriteWorkflowRunNonTerminalDoesNotWriteFinalReport(t *testing.T) {
+func TestPersistWriteWorkflowRunNonTerminalPendingDoesNotWriteFinalReport(t *testing.T) {
 	tmp := t.TempDir()
 	mu := types.NewMutableState("non terminal")
 	mu.SetChangePlan(&types.ChangePlan{ID: "plan-open", Status: types.PlanStatusPending})
@@ -821,6 +821,84 @@ func TestPersistWriteWorkflowRunNonTerminalDoesNotWriteFinalReport(t *testing.T)
 	if _, err := os.Stat(filepath.Join(tmp, "plans", "plan-open.final.json")); !os.IsNotExist(err) {
 		t.Fatalf("non-terminal run should not write final report, stat err=%v", err)
 	}
+}
+
+func TestPersistWriteWorkflowRunNonTerminalVerifyFailedWritesPartialFinalReport(t *testing.T) {
+	tmp := t.TempDir()
+	mu := types.NewMutableState("non terminal failed verify")
+	plan := &types.ChangePlan{
+		ID:           "plan-failed",
+		Status:       types.PlanStatusVerifyFailed,
+		TargetPaths:  []string{"pkg/fix.py"},
+		AppliedPaths: []string{"pkg/fix.py"},
+		Changes:      []types.FileChange{{Path: "pkg/fix.py", Kind: "patch"}},
+	}
+	report := &types.ChangeReport{
+		PlanID:             "plan-failed",
+		Passed:             false,
+		VerificationStatus: types.VerificationStatusFailed,
+		FailureKind:        types.FailureKindTestsFailed,
+		FailureSummary:     "red test",
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: tmp, Mode: types.ModeApply}}
+	o.persistWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-failed",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:        "batch-1",
+			Status:    types.WriteWorkflowBatchReadyToPlan,
+			PlanID:    "plan-failed",
+			ApplyRef:  "refs/codrax/applied/plan-failed",
+			VerifyRef: "plan-failed.report.json",
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:   "apply",
+				Status: "applied",
+				PlanID: "plan-failed",
+			}, {
+				Kind:     "verify",
+				Status:   "failed",
+				PlanID:   "plan-failed",
+				ReportID: "plan-failed.report.json",
+			}},
+			SliceEvents: []types.WriteWorkflowSliceEvent{{
+				Event:  types.WriteWorkflowSliceEventFailed,
+				PlanID: "plan-failed",
+			}},
+		}},
+	})
+
+	finalPath := filepath.Join(tmp, "plans", "plan-failed.final.json")
+	final, err := types.LoadWriteFinalReportFromFile(finalPath)
+	if err != nil {
+		t.Fatalf("LoadWriteFinalReportFromFile(%s): %v", finalPath, err)
+	}
+	if final.RunStatus != types.WriteWorkflowRunInProgress {
+		t.Fatalf("RunStatus=%q, want in_progress", final.RunStatus)
+	}
+	if final.Plan.ID != "plan-failed" || final.Verification.Status != types.VerificationStatusFailed {
+		t.Fatalf("partial final report projection = %+v", final)
+	}
+	if !writeControllerFinalReportHasRisk(final, "workflow_nonterminal") {
+		t.Fatalf("ResidualRisks=%+v missing workflow_nonterminal", final.ResidualRisks)
+	}
+	if !writeControllerFinalReportHasRisk(final, "verification_failed") {
+		t.Fatalf("ResidualRisks=%+v missing verification_failed", final.ResidualRisks)
+	}
+}
+
+func writeControllerFinalReportHasRisk(report *types.WriteFinalReport, code string) bool {
+	if report == nil {
+		return false
+	}
+	for _, risk := range report.ResidualRisks {
+		if risk.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRunWriteControllerWorkflow_DegradedExplorationHandoffContinuesToPlan(t *testing.T) {

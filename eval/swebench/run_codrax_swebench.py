@@ -1460,6 +1460,31 @@ def final_report_owner_anchor_summary(report: dict[str, Any], *path: str) -> dic
     return out
 
 
+def final_report_owner_gap_summary(report: dict[str, Any], *path: str) -> dict[str, list[str]]:
+    value: Any = report
+    for key in path:
+        if not isinstance(value, dict):
+            return {"paths": [], "reason_codes": [], "required_evidence": [], "sources": []}
+        value = value.get(key)
+    if not isinstance(value, list):
+        return {"paths": [], "reason_codes": [], "required_evidence": [], "sources": []}
+    out: dict[str, list[str]] = {"paths": [], "reason_codes": [], "required_evidence": [], "sources": []}
+
+    def add(bucket: str, raw: Any) -> None:
+        text = str(raw or "").strip()
+        if text and text not in out[bucket]:
+            out[bucket].append(text)
+
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        add("paths", item.get("path"))
+        add("reason_codes", item.get("reason_code"))
+        add("required_evidence", item.get("required_evidence"))
+        add("sources", item.get("source"))
+    return out
+
+
 def apply_final_report_result_fields(
     result: dict[str, Any],
     final_report: dict[str, Any],
@@ -1487,6 +1512,10 @@ def apply_final_report_result_fields(
         result["final_report_plan_owner_anchor_ids"] = []
         result["final_report_plan_owner_anchor_paths"] = []
         result["final_report_plan_owner_symbols"] = []
+        result["final_report_plan_owner_gap_paths"] = []
+        result["final_report_plan_owner_gap_reason_codes"] = []
+        result["final_report_plan_owner_gap_required_evidence"] = []
+        result["final_report_plan_owner_gap_sources"] = []
         result["final_report_handoff_owner_anchor_ids"] = []
         result["final_report_handoff_owner_anchor_paths"] = []
         result["final_report_handoff_owner_symbols"] = []
@@ -1539,6 +1568,11 @@ def apply_final_report_result_fields(
     result["final_report_plan_owner_anchor_ids"] = plan_owner["ids"]
     result["final_report_plan_owner_anchor_paths"] = plan_owner["paths"]
     result["final_report_plan_owner_symbols"] = plan_owner["owners"]
+    plan_owner_gaps = final_report_owner_gap_summary(final_report, "plan", "owner_anchor_gaps")
+    result["final_report_plan_owner_gap_paths"] = plan_owner_gaps["paths"]
+    result["final_report_plan_owner_gap_reason_codes"] = plan_owner_gaps["reason_codes"]
+    result["final_report_plan_owner_gap_required_evidence"] = plan_owner_gaps["required_evidence"]
+    result["final_report_plan_owner_gap_sources"] = plan_owner_gaps["sources"]
     result["final_report_handoff_owner_anchor_ids"] = handoff_owner["ids"]
     result["final_report_handoff_owner_anchor_paths"] = handoff_owner["paths"]
     result["final_report_handoff_owner_symbols"] = handoff_owner["owners"]

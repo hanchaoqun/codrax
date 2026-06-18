@@ -3136,7 +3136,7 @@ func (o *Orchestrator) persistWriteWorkflowRun(run *types.WriteWorkflowRun) {
 	o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
 	workflowPath := ""
 	if o.writeWorkflowRunStore == nil {
-		o.persistWriteFinalReportIfTerminal(&normalized, "")
+		o.persistWriteFinalReportIfAuditable(&normalized, "")
 		return
 	}
 	if path, err := o.writeWorkflowRunStore.Save(&normalized); err != nil {
@@ -3144,18 +3144,18 @@ func (o *Orchestrator) persistWriteWorkflowRun(run *types.WriteWorkflowRun) {
 	} else {
 		workflowPath = path
 	}
-	o.persistWriteFinalReportIfTerminal(&normalized, workflowPath)
+	o.persistWriteFinalReportIfAuditable(&normalized, workflowPath)
 }
 
-func (o *Orchestrator) persistWriteFinalReportIfTerminal(run *types.WriteWorkflowRun, workflowPath string) {
+func (o *Orchestrator) persistWriteFinalReportIfAuditable(run *types.WriteWorkflowRun, workflowPath string) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
-		return
-	}
-	if run.Status != types.WriteWorkflowRunComplete && run.Status != types.WriteWorkflowRunBlocked {
 		return
 	}
 	plan := o.busCtx.Mutable.ChangePlan()
 	report := o.busCtx.Mutable.ChangeReport()
+	if !writeWorkflowRunHasAuditableFinalReportState(run, plan, report) {
+		return
+	}
 	planID := writeFinalReportArtifactID(run, plan, report)
 	if report == nil {
 		report = o.loadWriteFinalReportChangeReport(planID)
@@ -3197,6 +3197,54 @@ func (o *Orchestrator) persistWriteFinalReportIfTerminal(run *types.WriteWorkflo
 		return
 	}
 	logging.Info("[orchestrator] WriteFinalReport saved: %s", finalPath)
+}
+
+func writeWorkflowRunHasAuditableFinalReportState(run *types.WriteWorkflowRun, plan *types.ChangePlan, report *types.ChangeReport) bool {
+	if run == nil {
+		return false
+	}
+	if run.Status == types.WriteWorkflowRunComplete || run.Status == types.WriteWorkflowRunBlocked {
+		return true
+	}
+	if report != nil {
+		return true
+	}
+	if plan != nil {
+		switch strings.TrimSpace(plan.Status) {
+		case types.PlanStatusAppliedPendingVerify,
+			types.PlanStatusApplied,
+			types.PlanStatusApplyFailed,
+			types.PlanStatusVerifyFailed,
+			types.PlanStatusUnverified,
+			types.PlanStatusPartiallyApplied,
+			types.PlanStatusBlocked,
+			types.PlanStatusNoChangeRequired:
+			return true
+		}
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.VerifyRef) != "" || strings.TrimSpace(batch.ApplyRef) != "" {
+			return true
+		}
+		for _, attempt := range batch.Attempts {
+			switch strings.TrimSpace(attempt.Kind) {
+			case "apply", "verify":
+				if strings.TrimSpace(attempt.Status) != "" || strings.TrimSpace(attempt.PlanID) != "" || strings.TrimSpace(attempt.ReportID) != "" {
+					return true
+				}
+			}
+		}
+		for _, event := range batch.SliceEvents {
+			switch event.Event {
+			case types.WriteWorkflowSliceEventApplyCompleted,
+				types.WriteWorkflowSliceEventVerified,
+				types.WriteWorkflowSliceEventUnverified,
+				types.WriteWorkflowSliceEventFailed:
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (o *Orchestrator) writeFinalReportDeliverySummary(run *types.WriteWorkflowRun, finalPlan *types.ChangePlan, report *types.ChangeReport) types.WriteFinalDeliverySummary {
