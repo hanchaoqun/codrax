@@ -6581,6 +6581,29 @@ verifier-only hardening unless a regression blocks mainline stability.
   - Related/full verification:
     `go test ./internal/types ./internal/agent ./internal/orchestrator
     -count=1`, `go test ./...`, `make`, and `git diff --check`.
+  - SWE Lite smoke:
+    `WORKDIR=eval/results/swebench/lite-smoke-20260619-rc107a-3
+    SWEBENCH_SMOKE_LIMIT=3 SWEBENCH_FAIL_ON_EMPTY_PATCH=0
+    SWEBENCH_REQUIRE_NONEMPTY_PATCH=0 SWEBENCH_FAIL_ON_INSTANCE_ERROR=0
+    CODRAX_BIN=/Users/han/opt/codrax/codrax
+    eval/swebench/smoke_lite.sh`
+  - RC107-A smoke result:
+    predictions were 3/3 non-empty and official harness import/dry-run command
+    was accepted. Patch surfaces stayed on plausible source owners:
+    `astropy/modeling/separable.py`, `astropy/io/ascii/rst.py`, and
+    `astropy/io/ascii/qdp.py`. Manual audit: all three patches are
+    theoretically aligned with their issue behavior; `astropy__astropy-14365`
+    reached high-confidence local pass, while `astropy__astropy-12907` and
+    `astropy__astropy-14182` remain local-audit blocked by typed unavailable
+    Astropy checkout/build verification reasons rather than wrong source
+    surface.
+  - Newly exposed RC107-B gap: context packs now carry and rank localization
+    anchors, but many producer-side anchors are still `supporting` with broad
+    local symbols such as branch calls or helper invocations instead of
+    line-backed owner/member anchors. The next batch must improve read-mode
+    exploration/extraction owner attribution and project those owner-strength
+    anchors through the same `OwnerAnchorView`; otherwise write mode can rank
+    anchors, but it cannot create stronger evidence than read/explore produced.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
