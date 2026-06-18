@@ -482,7 +482,12 @@ func impactSuiteForCandidate(cand types.TestSurfaceCandidate, related string) st
 		if path.Ext(rel) != ".py" {
 			return ""
 		}
+		if path.Base(rel) == "__init__.py" {
+			return ""
+		}
 		switch cand.Framework {
+		case pythonFrameworkDjango:
+			return djangoSuiteSelector(rel)
 		case pythonFrameworkUnittest:
 			dir := path.Dir(rel)
 			if dir == "." || dir == "" {

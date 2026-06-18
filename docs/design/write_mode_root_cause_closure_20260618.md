@@ -3664,6 +3664,54 @@ Verification so far:
 - `make test`
 - `git diff --check`
 
+## 2026-06-18 RC-67 Runner-Native Impact Test Selectors
+
+The same Django evidence exposed a second verifier automation gap after RC-66:
+the impact runner queue selected dozens of `tests/**/__init__.py` paths as
+`test_surface` targets and rendered them as Django runner labels such as
+`absolute_url_overrides.__init__`. These package marker files are typed path
+artifacts, but they are not runnable test surfaces. They create zero-test churn
+and noisy verifier summaries, and they slow online convergence before the
+planner receives the truly useful failure evidence.
+
+This is a runner-selector contract problem, not a Django issue patch:
+
+- impact analysis can legitimately discover related files and inferred test
+  surface paths;
+- each runner/provider must decide which related paths are runnable selectors;
+- selectors must be rendered in the runner's native shape rather than passing
+  filesystem paths blindly.
+
+Design:
+
+- Keep impact analysis broad enough to preserve evidence; filter unsupported
+  selectors only at the runner-provider boundary.
+- Treat Python package marker `__init__.py` files as non-runnable impact test
+  selectors for Python test runners.
+- For `python/django`, convert test file paths through the existing
+  `djangoSuiteSelector` helper so `tests/app/tests.py` becomes `app.tests` and
+  `tests/app/test_case.py` becomes `app.test_case`.
+- Leave pytest, unittest, Go, Node, Java/Kotlin, Ruby, Rust, and Swift existing
+  selector contracts unchanged except for the generic Python package-marker
+  filter.
+- Do not parse issue prose, model output, stdout summaries, or user intent.
+
+Tasks:
+
+- [x] Add Python package-marker filtering to `impactSuiteForCandidate`.
+- [x] Reuse existing Django suite-label normalization for impact runner plans.
+- [x] Add focused tests that ignore Django `__init__.py` targets and preserve
+  runnable Django labels.
+- [x] Run related/full regressions, refresh progress, commit, and push.
+
+Verification so far:
+
+- `go test ./internal/tool -run 'TestImpactRunnerPlans'`
+- `go test ./internal/tool`
+- `go test ./...`
+- `make test`
+- `git diff --check`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3742,6 +3790,7 @@ Verification so far:
 | RC-64 | complete | Adjacent duplicate inserted block PatchEffect detection now hard-blocks structural duplicate source additions. Focused writeflow tests, related regressions, full `go test ./...`, and `make test` pass. A fresh SymPy smoke did not reproduce the duplicate block and stayed `predicted_unverified` because local proof was unavailable, preserving conservative acceptance semantics. |
 | RC-65 | complete | Structured plan repair now carries unique typed relocation candidates for wrong-path `old_text_mismatch` and controller retry hints render them; canceled plan batches now terminalize as blocked with `plan_batch_canceled`. Focused, related, full `go test ./...`, `make test`, `make`, and `git diff --check` pass. Targeted Django rerun moved the pre-fix `empty_patch` / stale `in_progress` run to a non-empty harness-consumable prediction with `workflow_status=complete`; local verify remains failed and is tracked as the next verifier/coverage-attribution gap. |
 | RC-66 | complete | Command-derived failure reasons now carry typed failure-kind attribution, so secondary unavailable runner signals such as `make_target_missing` cannot become the primary reason for a red `tests_failed` report. Focused tests, full `internal/tool`, full `go test ./...`, `make test`, and `git diff --check` pass. |
+| RC-67 | complete | Impact runner plans now filter Python package-marker `__init__.py` paths and render Django related test paths as runner-native labels via the existing `djangoSuiteSelector`; focused selector tests, full `internal/tool`, full `go test ./...`, `make test`, and `git diff --check` pass. |
 
 ## Acceptance Criteria
 

@@ -72,6 +72,60 @@ func TestImpactRunnerPlansPreferPytestFileSelectorOverUnittestFallback(t *testin
 	}
 }
 
+func TestImpactRunnerPlansNormalizeDjangoRelatedTestSelectors(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "setup.py", "from setuptools import setup\n")
+	writeImpactSurfaceFixture(t, root, "tests/runtests.py", "print('django tests')\n")
+	writeImpactSurfaceFixture(t, root, "django/db/models/fields/__init__.py", "class Field: pass\n")
+	writeImpactSurfaceFixture(t, root, "tests/invalid_models_tests/__init__.py", "")
+	writeImpactSurfaceFixture(t, root, "tests/invalid_models_tests/test_ordinary_fields.py", "class FieldChoicesTests: pass\n")
+	writeImpactSurfaceFixture(t, root, "tests/model_fields/tests.py", "class FieldTests: pass\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-django",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "django/db/models/fields/__init__.py",
+				RelatedPath: "tests/invalid_models_tests/__init__.py",
+				Priority:    50,
+				Source:      "impact_engine",
+			}, {
+				Kind:        "test_surface",
+				Path:        "django/db/models/fields/__init__.py",
+				RelatedPath: "tests/invalid_models_tests/test_ordinary_fields.py",
+				Priority:    50,
+				Source:      "impact_engine",
+			}, {
+				Kind:        "test_surface",
+				Path:        "django/db/models/fields/__init__.py",
+				RelatedPath: "tests/model_fields/tests.py",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+
+	plans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(plans) != 2 {
+		t.Fatalf("expected two runnable django impact plans, got %+v surface=%+v", plans, surface.Candidates)
+	}
+	got := []string{plans[0].Suite, plans[1].Suite}
+	want := []string{"invalid_models_tests.test_ordinary_fields", "model_fields.tests"}
+	if got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("django impact suites = %+v, want %+v", got, want)
+	}
+	for _, plan := range plans {
+		if plan.Runner != "python" || plan.Framework != pythonFrameworkDjango {
+			t.Fatalf("unexpected django impact plan: %+v", plan)
+		}
+		if strings.Contains(plan.Suite, "__init__") || strings.HasPrefix(plan.Suite, "tests.") {
+			t.Fatalf("django suite should be a runnable label, got %+v", plan)
+		}
+	}
+}
+
 func TestDefaultRunnerPlansPreservesMultipleImpactSuitesInSameWorkingDir(t *testing.T) {
 	root := t.TempDir()
 	writeImpactSurfaceFixture(t, root, "pyproject.toml", "[project]\nname='x'\n")
