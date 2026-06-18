@@ -53,6 +53,7 @@ var (
 	rubyDiagnosticCallRE                = regexp.MustCompile(`\b(?:warn|warning|logger\.(?:warn|warning|error))\s*(?:\(|\s)`)
 	externalUnderscoreFieldAssignRE     = regexp.MustCompile(`\b([A-Za-z_$][A-Za-z0-9_$]*)\._[A-Za-z_$][A-Za-z0-9_$]*\s*=`)
 	rubyExternalPrivateStateAssignRE    = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\.instance_variable_set\s*\(\s*:@[A-Za-z_][A-Za-z0-9_]*`)
+	sourceAssignmentStatementRE         = regexp.MustCompile(`^(?:[A-Za-z_$][A-Za-z0-9_$]*|\([A-Za-z_$][A-Za-z0-9_$]*(?:\s*,\s*[A-Za-z_$][A-Za-z0-9_$]*)*\)|[A-Za-z_$][A-Za-z0-9_$]*(?:\s*,\s*[A-Za-z_$][A-Za-z0-9_$]*)+)\s*(?::=|=)\s*[^=].+$`)
 )
 
 type patchEffectLineShapeRule struct {
@@ -582,6 +583,8 @@ func annotatePatchEffectSourceShape(file *types.PatchEffectFile, data []byte, pr
 		appendPatchEffectOwnerBoundaryEvents(file, provider, hunk)
 		appendPatchEffectNestedCollectionExclusionEvent(file, provider, hunk)
 		for _, added := range hunk.AddedLineTexts {
+			appendPatchEffectNonASCIISourceCommentEvent(file, added)
+			appendPatchEffectNearbyDuplicateStatementEvent(file, lines, hunk, added)
 			appendPatchEffectLineShapeEvents(file, provider, added)
 			appendPatchEffectProductionTestScaffoldEvent(file, provider, added)
 		}
@@ -1092,6 +1095,103 @@ func appendPatchEffectProviderWarning(file *types.PatchEffectFile, code, message
 		Message:     message,
 		EvidenceRef: evidence,
 	})
+}
+
+func appendPatchEffectNonASCIISourceCommentEvent(file *types.PatchEffectFile, line types.PatchEffectLine) {
+	if file == nil || file.PathRole != types.SourcePathRoleProduction {
+		return
+	}
+	if !patchEffectLineIsCommentOnly(line.Text) || !patchEffectLineHasNonASCII(line.Text) {
+		return
+	}
+	appendPatchEffectProviderWarning(
+		file,
+		"non_ascii_source_comment_added",
+		"added production-source comment contains non-ASCII text; verify this matches the repository's source-comment convention",
+		line,
+	)
+}
+
+func appendPatchEffectNearbyDuplicateStatementEvent(file *types.PatchEffectFile, lines []string, hunk types.PatchEffectHunk, line types.PatchEffectLine) {
+	if file == nil || file.PathRole != types.SourcePathRoleProduction || line.Line <= 0 || line.Line > len(lines) {
+		return
+	}
+	stmt := patchEffectNormalizedAssignmentStatement(line.Text)
+	if stmt == "" {
+		return
+	}
+	added := make(map[int]bool, len(hunk.AddedLineNumbers))
+	for _, lineNo := range hunk.AddedLineNumbers {
+		if lineNo > 0 {
+			added[lineNo] = true
+		}
+	}
+	const nearbyWindow = 8
+	start := line.Line - nearbyWindow
+	if start < 1 {
+		start = 1
+	}
+	for priorLineNo := line.Line - 1; priorLineNo >= start; priorLineNo-- {
+		if added[priorLineNo] || priorLineNo <= 0 || priorLineNo > len(lines) {
+			continue
+		}
+		if patchEffectNormalizedAssignmentStatement(lines[priorLineNo-1]) != stmt {
+			continue
+		}
+		appendPatchEffectProviderWarning(
+			file,
+			"nearby_duplicate_statement_added",
+			"added production-source assignment duplicates a nearby existing assignment; verify the duplicate statement is intentional or remove it",
+			line,
+		)
+		return
+	}
+}
+
+func patchEffectLineHasNonASCII(text string) bool {
+	for _, r := range text {
+		if r > 127 {
+			return true
+		}
+	}
+	return false
+}
+
+func patchEffectLineIsCommentOnly(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	for _, prefix := range []string{"#", "//", "/*", "*", "*/", "<!--", "-->", `"""`, `'''`} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func patchEffectNormalizedAssignmentStatement(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || patchEffectLineIsCommentOnly(trimmed) {
+		return ""
+	}
+	if idx := strings.Index(trimmed, "#"); idx >= 0 {
+		trimmed = strings.TrimSpace(trimmed[:idx])
+	}
+	trimmed = strings.TrimSuffix(trimmed, ";")
+	trimmed = strings.TrimSpace(trimmed)
+	if trimmed == "" || strings.HasSuffix(trimmed, ":") {
+		return ""
+	}
+	for _, op := range []string{"==", "!=", "<=", ">=", "=>", "=<"} {
+		if strings.Contains(trimmed, op) {
+			return ""
+		}
+	}
+	if !sourceAssignmentStatementRE.MatchString(trimmed) {
+		return ""
+	}
+	return trimmed
 }
 
 func appendPatchEffectLineShapeEvents(file *types.PatchEffectFile, provider *patchEffectSourceProvider, line types.PatchEffectLine) {

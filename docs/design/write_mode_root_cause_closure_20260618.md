@@ -4298,6 +4298,9 @@ Verification:
 | RC-96 | complete | SWE final-report projection now uses the typed delivery candidate's primary source plan path instead of undefined post-processing locals, eliminating false `status=error` rows after Codrax has already exported a non-empty patch. The RC-95 three-instance rerun validates 3/3 non-empty predictions and official harness import/dry-run consumption, while manual audit keeps the broader exploration/localization gap open for subsequent typed-localization work. |
 | RC-97 | complete | Shared source-localization owner anchors: introduced a read/write typed `SourceLocalizationAnchor` contract so read-mode Turn A distinguishes read-file observation from grounded line-backed owner evidence, write-mode context packs carry typed anchor objects, and plan localization gates prefer precise anchors over broad target-file lists without parsing model prose or stdout. Focused/related tests and full `go test ./...` pass. |
 | RC-98 | complete | Anchor relevance filter: post-RC97 SWE smoke showed broad deterministic `concrete_value` evidence can become supporting localization anchors even when it is not issue-owner evidence. Anchor generation now keeps broad deterministic facts as evidence refs but prevents them from satisfying owner-localization gates unless they carry typed `context_role=defining` authority. Focused/related/full Go regressions pass. |
+| RC-99 | complete | Coherent delivery proof aggregation: final reports now aggregate typed verification proof artifacts across completed current workflow batches, so proof-follow-up batches can satisfy missing contract/symbol refs without parsing verifier prose or historical attempts. Focused type/orchestrator tests, related write packages, full `go test ./...`, and `make` pass. |
+| RC-100 | complete | Planner materialization convergence: active workflow expected paths and write-analysis scope anchors now count as typed localization material, suppressing broad rediscovery and allowing one bounded post-`run_tests` structured emit window before the hard cap. Focused planner tests, related write/read-isolated packages, full `go test ./...`, and `make` pass. |
+| RC-101 | complete | Patch Critic quality-shape expansion: production-source non-ASCII comment and nearby duplicate-assignment events are now emitted from typed diff/file bytes only and consumed as PatchReview soft/unknown coverage. Focused, related, full Go regressions and build pass. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -5978,6 +5981,57 @@ Verification:
     -count=1`
   - `go test ./internal/agent ./internal/orchestrator ./internal/types
     ./internal/tool ./internal/writeflow -count=1`
+
+## 2026-06-19 RC-101 Actual-Diff Patch Quality Shape
+
+- Evidence:
+  - After RC-100, `sympy__sympy-18199` generated a non-empty
+    harness-consumable prediction and local verifier passed.
+  - Manual inspection found the patch was functionally plausible, but it added
+    a non-ASCII Chinese comment to upstream Python source and duplicated the
+    already-present `a, n, p = as_int(a), as_int(n), as_int(p)` assignment a few
+    lines later.
+  - The final report was already low-confidence because patch review/impact
+    proof stayed weak, but Patch Critic did not name these concrete quality
+    risks, so future replans had no precise typed evidence for this class.
+- Root cause:
+  - Patch Critic has actual-diff structural and semantic events, but the
+    current shape library still misses small localized quality regressions:
+    repository-inconsistent source comments and nearby duplicate statements.
+  - This is not Python-specific. The missing abstraction is a language-provider
+    source-quality event producer over actual added lines plus post-apply file
+    bytes.
+- Design:
+  - Emit `non_ascii_source_comment_added` when an added production-source line is
+    comment-only and contains non-ASCII runes. This is a soft semantic coverage
+    warning, not a hard block, because some repositories intentionally use
+    localized comments.
+  - Emit `nearby_duplicate_statement_added` when an added production-source
+    assignment exactly duplicates a nearby pre-existing assignment in the final
+    file. This is also soft/unknown coverage: it should invite a bounded
+    cleanup/replan while not blocking a customer delivery whose functionality is
+    otherwise proven.
+  - Use only repo-relative paths, `SourcePathRole`, parsed diff added line
+    numbers/text, and post-apply file bytes. Do not read user intent keywords,
+    issue text, stdout narrative, model rationale, final answer prose, or
+    `<think>`.
+  - Keep the events language-neutral and provider-gated so future language
+    providers can refine comment/statement rules without central prompt logic.
+- Task list:
+  - [x] Record the RC-101 gap and implementation plan in this delivery ledger.
+  - [x] Add actual-diff quality-shape producers to `PatchEffectRecord`.
+  - [x] Register the new events as PatchReview soft/unknown coverage findings.
+  - [x] Add focused regression coverage for non-ASCII source comments and
+    nearby duplicate assignment statements.
+  - [x] Run focused, related, full Go regressions and push.
+- Verification:
+  - `go test ./internal/writeflow -run
+    'TestAnnotatePatchEffect(NonASCIISourceCommentWarns|NearbyDuplicateStatementWarns|PythonAddedReturnBeforeExistingBodyHardBlocks|DuplicateInsertedBlockHardBlocks|MultiLanguageLineShapeWarnings|OwnerBoundaryWarnings)'
+    -count=1`
+  - `go test ./internal/writeflow ./internal/types ./internal/orchestrator
+    ./internal/tool -count=1`
+  - `go test ./...`
+  - `make`
 
 ## Acceptance Criteria
 

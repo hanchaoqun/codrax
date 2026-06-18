@@ -350,6 +350,120 @@ func TestAnnotatePatchEffectDuplicateInsertedBlockHardBlocks(t *testing.T) {
 	}
 }
 
+func TestAnnotatePatchEffectNonASCIISourceCommentWarns(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sympy/ntheory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `def nthroot_mod(a, n, p, all_roots=False):
+    a, n, p = as_int(a), as_int(n), as_int(p)
+    # a % p == 0 时, x^n == 0 (mod p)
+    if a % p == 0:
+        return 0
+    return None
+`
+	if err := os.WriteFile(filepath.Join(root, "sympy/ntheory/residue_ntheory.py"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/sympy/ntheory/residue_ntheory.py b/sympy/ntheory/residue_ntheory.py
+--- a/sympy/ntheory/residue_ntheory.py
++++ b/sympy/ntheory/residue_ntheory.py
+@@ -1,3 +1,6 @@
+ def nthroot_mod(a, n, p, all_roots=False):
+     a, n, p = as_int(a), as_int(n), as_int(p)
++    # a % p == 0 时, x^n == 0 (mod p)
++    if a % p == 0:
++        return 0
+     return None
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "sympy/ntheory/residue_ntheory.py")
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if !patchEffectHasEvent(*file, "non_ascii_source_comment_added") {
+		t.Fatalf("non-ASCII source comment event missing: %+v", file.Events)
+	}
+
+	review := ReviewAppliedPatchScope(&types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"sympy/ntheory/residue_ntheory.py"},
+		PatchEffect: &record,
+	}, types.ChangePlanSlice{})
+	if review.HardBlock {
+		t.Fatalf("non-ASCII source comment is a soft semantic finding, not a hard block: %+v", review)
+	}
+	finding := patchReviewFindingByCode(review, "non_ascii_source_comment_added")
+	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
+		t.Fatalf("non-ASCII source comment should be semantic coverage unknown: %+v", finding)
+	}
+}
+
+func TestAnnotatePatchEffectNearbyDuplicateStatementWarns(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sympy/ntheory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `def nthroot_mod(a, n, p, all_roots=False):
+    from sympy.core.numbers import igcdex
+    a, n, p = as_int(a), as_int(n), as_int(p)
+    if a % p == 0:
+        if all_roots:
+            return [0]
+        return 0
+    a, n, p = as_int(a), as_int(n), as_int(p)
+    if n == 2:
+        return sqrt_mod(a, p, all_roots)
+`
+	if err := os.WriteFile(filepath.Join(root, "sympy/ntheory/residue_ntheory.py"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/sympy/ntheory/residue_ntheory.py b/sympy/ntheory/residue_ntheory.py
+--- a/sympy/ntheory/residue_ntheory.py
++++ b/sympy/ntheory/residue_ntheory.py
+@@ -1,4 +1,10 @@
+ def nthroot_mod(a, n, p, all_roots=False):
+     from sympy.core.numbers import igcdex
+     a, n, p = as_int(a), as_int(n), as_int(p)
++    if a % p == 0:
++        if all_roots:
++            return [0]
++        return 0
++    a, n, p = as_int(a), as_int(n), as_int(p)
+     if n == 2:
+         return sqrt_mod(a, p, all_roots)
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "sympy/ntheory/residue_ntheory.py")
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if !patchEffectHasEvent(*file, "nearby_duplicate_statement_added") {
+		t.Fatalf("nearby duplicate statement event missing: %+v", file.Events)
+	}
+
+	review := ReviewAppliedPatchScope(&types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"sympy/ntheory/residue_ntheory.py"},
+		PatchEffect: &record,
+	}, types.ChangePlanSlice{})
+	if review.HardBlock {
+		t.Fatalf("nearby duplicate statement is a soft semantic finding, not a hard block: %+v", review)
+	}
+	finding := patchReviewFindingByCode(review, "nearby_duplicate_statement_added")
+	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
+		t.Fatalf("nearby duplicate statement should be semantic coverage unknown: %+v", finding)
+	}
+}
+
 func TestAnnotatePatchEffectProductionTestScaffoldWarns(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src/_pytest/assertion"), 0o755); err != nil {
