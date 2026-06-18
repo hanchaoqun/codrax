@@ -257,6 +257,54 @@ func TestPlannerBuildInitialInstruction_ExplorationHandoffSuppressesInvestigatio
 	}
 }
 
+func TestPlannerBuildInitialInstruction_WorkflowExpectedPathsSuppressInvestigationSeed(t *testing.T) {
+	repo := writePlannerInvestigationFixture(t)
+	mu := types.NewMutableState("fix NeedleWidget")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task:         types.WriteTask{Kind: types.WriteTaskBugfix, Summary: "fix NeedleWidget"},
+			ScopeAnchors: []string{"pkg/needle.go"},
+		},
+	})
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-planner",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchReadyToPlan,
+			ExpectedPaths: []string{"pkg/needle.go"},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable:  mu,
+		RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Keywords: []string{"NeedleWidget"}},
+			},
+		},
+	}
+	e := &plannerEvaluator{}
+	if !plannerContextHasWriteHandoffMaterial(ctx) {
+		t.Fatal("workflow expected paths and scope anchors should activate bounded materialization mode")
+	}
+	if budget := plannerHandoffSynthesisReadBudget(ctx); budget <= 0 {
+		t.Fatalf("plannerHandoffSynthesisReadBudget=%d, want a small exact-byte read window", budget)
+	}
+	if seed := e.buildInvestigationSeed(ctx); !strings.Contains(seed, "## Likely-relevant files") {
+		t.Fatalf("fixture should be able to produce generic likely-file seed; got:\n%s", seed)
+	}
+
+	got := e.BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(got, "## Rolling write workflow") {
+		t.Fatalf("expected workflow seed section; got:\n%s", got)
+	}
+	if strings.Contains(got, "## Likely-relevant files") {
+		t.Fatalf("typed workflow expected paths should suppress keyword rediscovery seed; got:\n%s", got)
+	}
+}
+
 func writePlannerInvestigationFixture(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

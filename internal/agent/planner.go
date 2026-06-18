@@ -1099,6 +1099,9 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if plannerResponseCallsAny(resp, plannerStructuredEmitTools()...) {
 		return false
 	}
+	if e.materializationOnlySurfaceActive() && plannerResponseCallsAny(resp, "run_tests") {
+		return false
+	}
 	handoffReadAllowed := e.handoffSynthesisActive && !e.proofFollowupMaterializationOnly && !e.handoffSynthesisReadBudgetExhausted()
 	repairReadAllowed := e.structuredEmitRepairActive && !e.proofFollowupMaterializationOnly && !e.structuredEmitRepairReadBudgetExhausted()
 	if (repairReadAllowed || handoffReadAllowed) && plannerResponseCallsAny(resp, plannerStructuredEmitRepairTools()...) {
@@ -1322,6 +1325,9 @@ func plannerContextHasWriteHandoffMaterial(ctx *types.AgentContext) bool {
 	if plannerContextHasProofFollowupMaterializationOnly(ctx) {
 		return true
 	}
+	if plannerWorkflowSeedLocalizationCount(ctx) > 0 {
+		return true
+	}
 	if handoff := ctx.Mutable.WriteExplorationHandoff(); handoff != nil {
 		if plannerExplorationHandoffLocalizationCount(*handoff) > 0 {
 			return true
@@ -1332,6 +1338,37 @@ func plannerContextHasWriteHandoffMaterial(ctx *types.AgentContext) bool {
 		return plannerExplorationPackLocalizationCount(*pack, batchID, sliceID) > 0
 	}
 	return false
+}
+
+func plannerWorkflowSeedLocalizationCount(ctx *types.AgentContext) int {
+	if ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	seen := map[string]bool{}
+	add := func(values ...string) {
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				seen[value] = true
+			}
+		}
+	}
+	if run := ctx.Mutable.WriteWorkflowRun(); run != nil {
+		activeID := strings.TrimSpace(run.ActiveBatchID)
+		for _, batch := range run.Batches {
+			if activeID != "" && strings.TrimSpace(batch.ID) != activeID {
+				continue
+			}
+			add(batch.ExpectedPaths...)
+			if activeID != "" {
+				break
+			}
+		}
+	}
+	if ir := ctx.Mutable.WriteAnalysisIR(); ir != nil {
+		add(ir.Request.ScopeAnchors...)
+	}
+	return len(seen)
 }
 
 func plannerContextHasProofFollowupMaterializationOnly(ctx *types.AgentContext) bool {
@@ -1522,6 +1559,7 @@ func plannerHandoffSynthesisReadBudget(ctx *types.AgentContext) int {
 	if handoff := ctx.Mutable.WriteExplorationHandoff(); handoff != nil {
 		localizationCount += plannerExplorationHandoffLocalizationCount(*handoff)
 	}
+	localizationCount += plannerWorkflowSeedLocalizationCount(ctx)
 	if pack := ctx.Mutable.WriteContextPack(); pack != nil {
 		batchID, sliceID := activeWriteContextScope(ctx)
 		localizationCount += plannerExplorationPackLocalizationCount(*pack, batchID, sliceID)

@@ -5931,6 +5931,54 @@ Verification:
   - `go test ./...`
   - `make`
 
+## 2026-06-19 RC-100 Planner Materialization Convergence Boundary
+
+- Evidence:
+  - RC-99 SymPy spot with fair git-history isolation and prepared Python env
+    reached `batch-1:ready_to_plan` with typed scope anchors and
+    `expected_paths=["sympy/ntheory/residue_ntheory.py"]`.
+  - The planner repeatedly read the same localized source and attempted a
+    planning-stage dry-run probe, but never called a structured plan emit tool.
+  - The workflow blocked as `workflow_blocked_no_plan`, producing an empty
+    prediction despite enough typed localization and a small, well-bounded
+    source owner surface.
+- Root cause:
+  - Planner materialization mode was activated only by exploration handoff or
+    proof-followup state. A batch seeded directly from `WriteAnalysisIR`
+    expected paths remained in broad investigation mode, so each retry could
+    spend its entire turn rediscovering already-known code.
+  - When a typed planning-stage `run_tests` probe happened near the soft
+    iteration cap, the planner loop stopped immediately instead of allowing one
+    bounded post-probe structured emit turn.
+- Design:
+  - Treat active workflow batch `ExpectedPaths` and `WriteAnalysisIR`
+    `ScopeAnchors` as typed localization material for planner
+    materialization. These are structured artifacts, not user/prose keyword
+    matches.
+  - Keep a small exact-byte read window, then narrow the planner tool surface
+    to structured plan emit tools plus typed dry-run probes.
+  - If materialization-mode `run_tests` is called at the soft cap, allow the
+    bounded hard-cap recovery window so the next turn can consume typed probe
+    results and emit a plan. Repeated probes still stop at the hard cap.
+  - Continue rendering model `<think>` for transparency; no control logic
+    reads it.
+- Task list:
+  - [x] Add workflow-seed localization counting from active batch
+    `ExpectedPaths` and `WriteAnalysisIR.ScopeAnchors`.
+  - [x] Use that count in planner handoff/materialization activation and read
+    budget calculation.
+  - [x] Suppress generic keyword-based likely-file rediscovery when typed
+    workflow paths already localize the batch.
+  - [x] Allow one bounded post-`run_tests` materialization turn before hard cap.
+  - [x] Add planner focused tests for workflow expected-path materialization and
+    post-probe emit-window behavior.
+- Verification:
+  - `go test ./internal/agent -run
+    'TestPlanner(ShouldStop_SoftCapAllowsMaterializationRunTestsFollowup|BuildInitialInstruction_WorkflowExpectedPathsSuppressInvestigationSeed|BuildInitialInstruction_ExplorationHandoffSuppressesInvestigationSeed|ShouldStop_SoftCapAllowsTypedEmitRepairRead|ShouldStop_TypedEmitRepairStillHardCaps)'
+    -count=1`
+  - `go test ./internal/agent ./internal/orchestrator ./internal/types
+    ./internal/tool ./internal/writeflow -count=1`
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

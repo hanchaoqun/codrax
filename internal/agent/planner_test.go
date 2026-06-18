@@ -123,6 +123,21 @@ func TestPlannerShouldStop_SoftCapAllowsTypedEmitRepairRead(t *testing.T) {
 	}
 }
 
+func TestPlannerShouldStop_SoftCapAllowsMaterializationRunTestsFollowup(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	e.handoffSynthesisActive = true
+	e.handoffSynthesisReadBudget = 1
+	e.handoffSynthesisReadCalls = 1
+
+	resp := llm.Response{ToolCalls: []llm.ToolCall{{Name: "run_tests"}}}
+	if e.ShouldStop(resp, e.effectiveSoftCap()) {
+		t.Fatalf("expected materialization run_tests to get one bounded post-probe emit window")
+	}
+	if !e.ShouldStop(resp, e.effectiveHardCap()) {
+		t.Fatalf("hard cap must still stop repeated materialization run_tests calls")
+	}
+}
+
 func TestPlannerShouldStop_TypedEmitRepairStillHardCaps(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 	e.ObserveToolResults(nil, LoopObservation{
