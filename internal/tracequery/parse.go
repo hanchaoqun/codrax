@@ -997,6 +997,13 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.WakeePID = atoi(firstNonEmpty(kv["pid"], kv["caller"]))
 		ev.IOWait = atoi(kv["iowait"])
 		ev.Reason = intern.intern(firstNonEmpty(kv["caller"], fields))
+	case EventSchedStat:
+		ev.SchedStatKind = intern.intern(strings.TrimPrefix(strings.ToLower(rawType), "sched_stat_"))
+		ev.SchedStatComm = intern.intern(kv["comm"])
+		ev.SchedStatPID = atoi(kv["pid"])
+		ev.SchedStatDelayNs = atoi64(kv["delay"])
+		ev.SchedStatRunNs = atoi64(kv["runtime"])
+		ev.SchedStatVRunNs = atoi64(kv["vruntime"])
 	case EventCPUIdle:
 		ev.State = atoi(kv["state"])
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
@@ -1059,6 +1066,10 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 	case EventIRQ, EventSoftIRQ:
 		ev.IRQID = atoi(firstNonEmpty(kv["irq"], kv["vec"]))
 		ev.IRQName = intern.intern(firstNonEmpty(kv["name"], strings.TrimSuffix(kv["action"], "]"), kv["vec"]))
+	case EventIPI:
+		ev.IRQName = intern.intern(parseIPIReason(fields))
+		ev.IPITargetMask = intern.intern(firstNonEmpty(kv["target_mask"], kv["target_cpus"]))
+		ev.IPITargetCPUs = parseIPITargetCPUs(ev.IPITargetMask)
 	case EventMemory:
 		ev.MemoryKind = intern.intern(classifyMemoryKind(rawType, fields))
 		if ev.SubsystemKind == "" {
@@ -1446,6 +1457,8 @@ func classifyEventType(raw, fields string) EventType {
 		return EventSchedWaking
 	case raw == "sched_blocked_reason":
 		return EventSchedBlockedReason
+	case strings.HasPrefix(raw, "sched_stat_"):
+		return EventSchedStat
 	case raw == "perf_sample":
 		return EventPerfSample
 	case raw == "cpu_idle":
@@ -1487,6 +1500,8 @@ func classifyEventType(raw, fields string) EventType {
 		return EventBinderReply
 	case strings.Contains(rawLower, "softirq"):
 		return EventSoftIRQ
+	case raw == "ipi_entry" || raw == "ipi_exit" || raw == "ipi_raise":
+		return EventIPI
 	case strings.HasPrefix(raw, "irq_"):
 		return EventIRQ
 	case raw == "print" || raw == "tracing_mark_write" || raw == "tracing_mark_write_xacct" || raw == "xacct_tracing_mark_write":
@@ -1835,6 +1850,37 @@ func tracePrintPrefixLooksLikeAddress(prefix string) bool {
 		}
 	}
 	return true
+}
+
+func parseIPIReason(fields string) string {
+	fields = strings.TrimSpace(fields)
+	if fields == "" {
+		return ""
+	}
+	if start := strings.Index(fields, "("); start >= 0 {
+		if end := strings.LastIndex(fields, ")"); end > start {
+			return strings.TrimSpace(fields[start+1 : end])
+		}
+	}
+	return fields
+}
+
+func parseIPITargetCPUs(mask string) []int {
+	mask = strings.Trim(strings.TrimSpace(mask), ",")
+	if mask == "" {
+		return nil
+	}
+	value := uint64(atoi64Auto(mask))
+	if value == 0 {
+		return nil
+	}
+	var out []int
+	for cpu := 0; cpu < 64; cpu++ {
+		if value&(uint64(1)<<uint(cpu)) != 0 {
+			out = append(out, cpu)
+		}
+	}
+	return out
 }
 
 func atoi(raw string) int {

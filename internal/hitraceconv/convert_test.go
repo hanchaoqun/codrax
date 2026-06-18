@@ -793,6 +793,57 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 		}
 	})
 
+	t.Run("official_sched_stat_iowait", func(t *testing.T) {
+		format := eventFormat{ID: 66, Name: "sched_stat_iowait", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "char", Name: "comm[16]", Offset: 8, Size: 16},
+			{Name: "pid", Offset: 24, Size: 4, Signed: true},
+			{Name: "delay", Offset: 28, Size: 8},
+		}}
+		content := make([]byte, 36)
+		copy(content[8:24], []byte("worker\x00"))
+		binary.LittleEndian.PutUint32(content[24:28], 30)
+		binary.LittleEndian.PutUint64(content[28:36], 2500000)
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		if !known || body != "comm=worker pid=30 delay=2500000 [ns]" {
+			t.Fatalf("sched_stat_iowait: known=%v body=%q", known, body)
+		}
+	})
+
+	t.Run("official_sched_stat_runtime", func(t *testing.T) {
+		format := eventFormat{ID: 67, Name: "sched_stat_runtime", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "char", Name: "comm[16]", Offset: 8, Size: 16},
+			{Name: "pid", Offset: 24, Size: 4, Signed: true},
+			{Name: "runtime", Offset: 28, Size: 8},
+			{Name: "vruntime", Offset: 36, Size: 8},
+		}}
+		content := make([]byte, 44)
+		copy(content[8:24], []byte("worker\x00"))
+		binary.LittleEndian.PutUint32(content[24:28], 30)
+		binary.LittleEndian.PutUint64(content[28:36], 1000000)
+		binary.LittleEndian.PutUint64(content[36:44], 1200000)
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		if !known || body != "comm=worker pid=30 runtime=1000000 [ns] vruntime=1200000 [ns]" {
+			t.Fatalf("sched_stat_runtime: known=%v body=%q", known, body)
+		}
+	})
+
+	t.Run("official_ipi_raise", func(t *testing.T) {
+		format := eventFormat{ID: 68, Name: "ipi_raise", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "target_cpus", Offset: 8, Size: 8},
+			{Type: "char", Name: "reason[32]", Offset: 16, Size: 32},
+		}}
+		content := make([]byte, 48)
+		binary.LittleEndian.PutUint64(content[8:16], 0x10)
+		copy(content[16:48], []byte("Rescheduling interrupts\x00"))
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		if !known || body != "target_mask=0x10 (Rescheduling interrupts)" {
+			t.Fatalf("ipi_raise: known=%v body=%q", known, body)
+		}
+	})
+
 	t.Run("data_loc_offset_field_does_not_render_raw_integer_bytes", func(t *testing.T) {
 		const nameOffset = 0x4142
 		format := eventFormat{ID: 64, Name: "clock_set_rate", Fields: []eventField{

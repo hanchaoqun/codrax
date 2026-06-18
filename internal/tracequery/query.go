@@ -717,6 +717,8 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.NextInfo,
 		ev.NextInfoAffinity,
 		ev.CGroup,
+		ev.SchedStatKind,
+		ev.SchedStatComm,
 		ev.ConstraintComm,
 		ev.ConstraintKind,
 		ev.ConstraintPolicy,
@@ -735,6 +737,7 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.BlockError,
 		ev.BlockSrcDev,
 		ev.IRQName,
+		ev.IPITargetMask,
 		ev.MemoryKind,
 		ev.SubsystemKind,
 		ev.ResourcePath,
@@ -783,6 +786,7 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.WakeePID,
 		ev.WakeePrio,
 		ev.TargetCPU,
+		ev.SchedStatPID,
 		ev.ConstraintPID,
 		ev.ConstraintCPU,
 		ev.ConstraintOrigCPU,
@@ -813,6 +817,9 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.BlockSector,
 		ev.BlockLen,
 		ev.BlockSrcSector,
+		ev.SchedStatDelayNs,
+		ev.SchedStatRunNs,
+		ev.SchedStatVRunNs,
 		ev.ResourceBytes,
 		ev.FileOffset,
 		ev.FileLen,
@@ -874,7 +881,7 @@ func isCPUConstraintEvidence(ev Event) bool {
 }
 
 func eventMentionsPID(ev Event, pid int) bool {
-	return ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid || ev.ConstraintPID == pid || ev.BinderDestProc == pid || ev.BinderDestThread == pid || ev.PerfPID == pid || ev.PerfTID == pid
+	return ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid || ev.SchedStatPID == pid || ev.ConstraintPID == pid || ev.BinderDestProc == pid || ev.BinderDestThread == pid || ev.PerfPID == pid || ev.PerfTID == pid
 }
 
 func eventMentionsThread(ev Event, thread string) bool {
@@ -882,7 +889,7 @@ func eventMentionsThread(ev Event, thread string) bool {
 	if sel.HasPID && eventMentionsPID(ev, sel.PID) {
 		return true
 	}
-	for _, v := range []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.ConstraintComm, ev.PerfComm, ev.PerfSymbol, ev.PerfDSO, ev.PerfCallchain, ev.SpanName, ev.SpanValue, ev.Reason, ev.FieldText} {
+	for _, v := range []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.SchedStatComm, ev.ConstraintComm, ev.PerfComm, ev.PerfSymbol, ev.PerfDSO, ev.PerfCallchain, ev.SpanName, ev.SpanValue, ev.Reason, ev.IRQName, ev.FieldText} {
 		if threadSelectorMatchesName(sel, v) {
 			return true
 		}
@@ -1191,6 +1198,10 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				br.Ts = ev.Ts
 			}
 			blockedReasons[key] = br
+		case EventSchedStat:
+			stats.SchedStatCount++
+		case EventIPI:
+			stats.IPICount++
 		}
 		accumulateSubsystemEvent(subsystems, ev)
 		accumulateRuntimeResource(bioResources, filesystemResources, pageFaultResources, ev)
@@ -1295,7 +1306,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.IRQBursts = computeIRQBursts(idx, q, 8)
 	stats.IRQActivity = computeInterruptActivity(idx, q, EventIRQ, coreByCPU, 8)
 	stats.SoftIRQActivity = computeInterruptActivity(idx, q, EventSoftIRQ, coreByCPU, 8)
+	stats.IPIActivity = computeInterruptActivity(idx, q, EventIPI, coreByCPU, 8)
 	stats.WorkqueueActivity = computeWorkqueueActivity(idx, q, 8)
+	stats.SchedStatAccounting = computeSchedStatAccounting(idx, q, 8)
 	stats.MemoryKinds = computeMemoryKinds(idx, q, 8)
 	stats.ThreadDrifts = detectThreadDrifts(idx, q, 8)
 	for _, drift := range stats.ThreadDrifts {
@@ -3239,6 +3252,24 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 			summary.CPUPressureMs += pressure.RunnableWaitMs + pressure.HighPriorityRunningMs
 		}
 	}
+	for _, accounting := range stats.SchedStatAccounting {
+		switch accounting.Kind {
+		case "wait", "sleep":
+			summary.SchedStatWaitMs += accounting.TotalDelayMs
+		case "iowait":
+			summary.SchedStatIOWaitMs += accounting.TotalDelayMs
+		case "blocked":
+			summary.SchedStatBlockedMs += accounting.TotalDelayMs
+		}
+		applyLineRange(&summary.LineStart, &summary.LineEnd, accounting.LineStart)
+		applyLineRange(&summary.LineStart, &summary.LineEnd, accounting.LineEnd)
+	}
+	for _, ipi := range stats.IPIActivity {
+		summary.IPIEventCount += ipi.Count
+		summary.IPIActiveMs += ipi.ActiveMs
+		applyLineRange(&summary.LineStart, &summary.LineEnd, ipi.LineStart)
+		applyLineRange(&summary.LineStart, &summary.LineEnd, ipi.LineEnd)
+	}
 	for _, cpu := range stats.CPU {
 		if cpu.Frequency > 0 && frequencyIsLowForCPU(cpu.Frequency, cpu) {
 			summary.LowFrequencyCPUs = append(summary.LowFrequencyCPUs, cpu.CPU)
@@ -3282,14 +3313,20 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 			break
 		}
 	}
-	if summary.CPUPressureMs == 0 && len(summary.LowFrequencyCPUs) == 0 && summary.ClockSetRateCount == 0 && summary.ThermalEventCount == 0 && summary.DDREventCount == 0 && summary.L3EventCount == 0 && summary.ThroughputEventCount == 0 {
+	if summary.CPUPressureMs == 0 && summary.SchedStatWaitMs == 0 && summary.SchedStatIOWaitMs == 0 && summary.SchedStatBlockedMs == 0 && summary.IPIEventCount == 0 && len(summary.LowFrequencyCPUs) == 0 && summary.ClockSetRateCount == 0 && summary.ThermalEventCount == 0 && summary.DDREventCount == 0 && summary.L3EventCount == 0 && summary.ThroughputEventCount == 0 {
 		return nil
 	}
 	switch {
+	case summary.CPUPressureMs > 0 && summary.IPIEventCount > 0:
+		summary.Signal = "cpu_pressure_with_interrupt_activity"
 	case summary.CPUPressureMs > 0 && len(summary.LowFrequencyCPUs) > 0:
 		summary.Signal = "cpu_pressure_with_low_frequency"
 	case summary.CPUPressureMs > 0:
 		summary.Signal = "cpu_pressure"
+	case summary.SchedStatIOWaitMs > 0 || summary.SchedStatBlockedMs > 0:
+		summary.Signal = "scheduler_accounting_wait_signal"
+	case summary.IPIEventCount > 0:
+		summary.Signal = "interrupt_activity_signal"
 	case summary.ThermalEventCount > 0 || len(summary.LowFrequencyCPUs) > 0:
 		summary.Signal = "capacity_limit_signal"
 	case summary.DDREventCount > 0 || summary.L3EventCount > 0 || summary.ThroughputEventCount > 0:
@@ -3297,8 +3334,8 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 	default:
 		summary.Signal = "supply_activity"
 	}
-	summary.Summary = fmt.Sprintf("supply_pressure signal=%s cpu_pressure=%.3fms runnable=%.3fms high_prio=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d",
-		summary.Signal, summary.CPUPressureMs, summary.RunnableWaitMs, summary.HighPriorityRunningMs, summary.LowFrequencyCPUs, summary.ClockSetRateCount, summary.ThermalEventCount, summary.DDREventCount, summary.L3EventCount, summary.ThroughputEventCount)
+	summary.Summary = fmt.Sprintf("supply_pressure signal=%s cpu_pressure=%.3fms runnable=%.3fms high_prio=%.3fms sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d",
+		summary.Signal, summary.CPUPressureMs, summary.RunnableWaitMs, summary.HighPriorityRunningMs, summary.SchedStatWaitMs, summary.SchedStatIOWaitMs, summary.SchedStatBlockedMs, summary.IPIEventCount, summary.IPIActiveMs, summary.LowFrequencyCPUs, summary.ClockSetRateCount, summary.ThermalEventCount, summary.DDREventCount, summary.L3EventCount, summary.ThroughputEventCount)
 	return &summary
 }
 
@@ -4533,6 +4570,10 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 			accs[key] = item
 		}
 		item.Count++
+		if ev.IPITargetMask != "" {
+			item.TargetMask = ev.IPITargetMask
+		}
+		item.TargetCPUs = appendUniqueInts(item.TargetCPUs, ev.IPITargetCPUs...)
 		applyLineRange(&item.LineStart, &item.LineEnd, ev.Line)
 		if item.StartTs == 0 || ev.Ts < item.StartTs {
 			item.StartTs = ev.Ts
@@ -4573,14 +4614,18 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 	windowMs := (q.TimeEnd - q.TimeStart) * 1000
 	out := make([]InterruptActivity, 0, len(accs))
 	for _, item := range accs {
-		if item.ActiveMs == 0 && item.EndTs > item.StartTs {
+		if item.ActiveMs == 0 && item.EndTs > item.StartTs && typ != EventIPI {
 			item.ActiveMs = (item.EndTs - item.StartTs) * 1000
 		}
 		if windowMs > 0 {
 			item.WindowOverlapMs = minFloat(item.ActiveMs, windowMs)
 		}
+		sort.Ints(item.TargetCPUs)
 		item.Summary = fmt.Sprintf("%s cpu=%d core_class=%s vector=%d name=%s count=%d paired=%d active=%.3fms max=%.3fms",
 			item.Kind, item.CPU, item.CoreClass, item.Vector, item.Name, item.Count, item.PairedCount, item.ActiveMs, item.MaxActiveMs)
+		if item.TargetMask != "" {
+			item.Summary = fmt.Sprintf("%s target_mask=%s target_cpus=%v", item.Summary, item.TargetMask, item.TargetCPUs)
+		}
 		out = append(out, *item)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -4601,6 +4646,9 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 func interruptBaseAndPhase(ev Event) (baseName, phase string) {
 	name := strings.ToLower(strings.TrimSpace(ev.Name))
 	baseName = firstNonEmpty(ev.IRQName, ev.Name)
+	if ev.Type == EventIPI && strings.HasSuffix(name, "_raise") {
+		return strings.TrimSuffix(baseName, "_raise"), "instant"
+	}
 	for _, suffix := range []string{"_entry", "_raise", "_start", "_enter"} {
 		if strings.HasSuffix(name, suffix) {
 			return strings.TrimSuffix(baseName, suffix), "entry"
@@ -4612,6 +4660,81 @@ func interruptBaseAndPhase(ev Event) (baseName, phase string) {
 		}
 	}
 	return baseName, ""
+}
+
+func computeSchedStatAccounting(idx *Index, q Query, max int) []SchedStatSummary {
+	if idx == nil {
+		return nil
+	}
+	accs := map[string]*SchedStatSummary{}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventSchedStat {
+			continue
+		}
+		thread := ThreadRef{Comm: firstNonEmpty(ev.SchedStatComm, ev.Comm), PID: firstNonZero(ev.SchedStatPID, ev.PID), TGID: ev.TGID}
+		kind := firstNonEmpty(ev.SchedStatKind, strings.TrimPrefix(ev.Name, "sched_stat_"), "unknown")
+		key := fmt.Sprintf("%d/%s/%s", thread.PID, thread.Comm, kind)
+		item := accs[key]
+		if item == nil {
+			item = &SchedStatSummary{
+				Thread:    thread,
+				Kind:      kind,
+				LineStart: ev.Line,
+				LineEnd:   ev.Line,
+				StartTs:   ev.Ts,
+				EndTs:     ev.Ts,
+			}
+			accs[key] = item
+		}
+		item.Count++
+		delayMs := float64(ev.SchedStatDelayNs) / 1e6
+		runtimeMs := float64(ev.SchedStatRunNs) / 1e6
+		vruntimeMs := float64(ev.SchedStatVRunNs) / 1e6
+		item.TotalDelayMs += delayMs
+		if delayMs > item.MaxDelayMs {
+			item.MaxDelayMs = delayMs
+		}
+		item.TotalRuntimeMs += runtimeMs
+		if runtimeMs > item.MaxRuntimeMs {
+			item.MaxRuntimeMs = runtimeMs
+		}
+		item.TotalVRuntimeMs += vruntimeMs
+		applyLineRange(&item.LineStart, &item.LineEnd, ev.Line)
+		if item.StartTs == 0 || ev.Ts < item.StartTs {
+			item.StartTs = ev.Ts
+		}
+		if ev.Ts > item.EndTs {
+			item.EndTs = ev.Ts
+		}
+	}
+	out := make([]SchedStatSummary, 0, len(accs))
+	for _, item := range accs {
+		item.Summary = fmt.Sprintf("sched_stat kind=%s thread=%s count=%d delay=%.3fms max_delay=%.3fms runtime=%.3fms max_runtime=%.3fms",
+			item.Kind, threadLabel(item.Thread), item.Count, item.TotalDelayMs, item.MaxDelayMs, item.TotalRuntimeMs, item.MaxRuntimeMs)
+		out = append(out, *item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		iImpact := schedStatImpactMs(out[i])
+		jImpact := schedStatImpactMs(out[j])
+		if iImpact != jImpact {
+			return iImpact > jImpact
+		}
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func schedStatImpactMs(item SchedStatSummary) float64 {
+	if item.TotalDelayMs > 0 {
+		return item.TotalDelayMs
+	}
+	return item.TotalRuntimeMs
 }
 
 type workqueueOpen struct {
@@ -4834,8 +4957,12 @@ func accumulateSubsystemEvent(byKind map[string]SubsystemEventSummary, ev Event)
 
 func subsystemKindForEventType(typ EventType) string {
 	switch typ {
+	case EventSchedStat:
+		return "sched_stat"
 	case EventCPUFrequencyLimit:
 		return "cpu_frequency_limits"
+	case EventIPI:
+		return "ipi"
 	case EventSoftIRQ:
 		return "softirq"
 	case EventStorage:
@@ -6335,6 +6462,30 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		item.EndTs = irq.EndTs
 		items = append(items, item)
 	}
+	for _, ipi := range stats.IPIActivity {
+		impact := ipi.ActiveMs
+		if impact <= 0 {
+			continue
+		}
+		item := rootCauseItem("ipi_activity", ThreadRef{}, backgroundImpactMs(q, impact, hasCausalChain, false), 0.56, ipi.LineStart, ipi.LineEnd, "window_stats.ipi_activity", ipi.Summary)
+		item.CumulativeImpactMs = impact
+		item.StartTs = ipi.StartTs
+		item.EndTs = ipi.EndTs
+		items = append(items, item)
+	}
+	for _, accounting := range stats.SchedStatAccounting {
+		impact := schedStatImpactMs(accounting)
+		if impact <= 0 {
+			continue
+		}
+		onChain := threadInSet(chainThreads, accounting.Thread)
+		item := rootCauseItem("sched_stat_accounting", accounting.Thread, backgroundImpactMs(q, impact*0.35, hasCausalChain, onChain), 0.54, accounting.LineStart, accounting.LineEnd, "window_stats.sched_stat_accounting", accounting.Summary+"; corroborating kernel accounting, not double-counted as a scheduler interval")
+		item.CumulativeImpactMs = impact
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		item.StartTs = accounting.StartTs
+		item.EndTs = accounting.EndTs
+		items = append(items, item)
+	}
 	for _, work := range stats.WorkqueueActivity {
 		onChain := threadInSet(chainThreads, work.Thread)
 		item := rootCauseItem("workqueue_activity", work.Thread, backgroundImpactMs(q, work.DurationMs, hasCausalChain, onChain), 0.62, work.LineStart, work.LineEnd, "window_stats.workqueue_activity", work.Summary)
@@ -6344,10 +6495,16 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 		item.EndTs = work.EndTs
 		items = append(items, item)
 	}
-	if supply := stats.SupplyPressureSummary; supply != nil && supply.CPUPressureMs > 0 {
-		item := rootCauseItem("supply_pressure", ThreadRef{}, backgroundImpactMs(q, supply.CPUPressureMs, hasCausalChain, false), 0.58, supply.LineStart, supply.LineEnd, "window_stats.supply_pressure_summary", supply.Summary)
-		item.CumulativeImpactMs = supply.CPUPressureMs
-		items = append(items, item)
+	if supply := stats.SupplyPressureSummary; supply != nil {
+		impact := firstPositiveFloat(supply.CPUPressureMs, supply.IPIActiveMs, (supply.SchedStatWaitMs+supply.SchedStatIOWaitMs+supply.SchedStatBlockedMs)*0.35)
+		if impact <= 0 {
+			impact = float64(supply.IPIEventCount) * 0.05
+		}
+		if impact > 0 {
+			item := rootCauseItem("supply_pressure", ThreadRef{}, backgroundImpactMs(q, impact, hasCausalChain, false), 0.58, supply.LineStart, supply.LineEnd, "window_stats.supply_pressure_summary", supply.Summary)
+			item.CumulativeImpactMs = impact
+			items = append(items, item)
+		}
 	}
 	items = enrichRootCauseItemsWithChainContext(chain, items)
 	normalizeRootCauseChainRelevance(items, hasCausalChain)
@@ -9871,6 +10028,21 @@ func dedupStrings(in []string) []string {
 		out = append(out, item)
 	}
 	return out
+}
+
+func appendUniqueInts(dst []int, values ...int) []int {
+	seen := make(map[int]bool, len(dst)+len(values))
+	for _, v := range dst {
+		seen[v] = true
+	}
+	for _, v := range values {
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		dst = append(dst, v)
+	}
+	return dst
 }
 
 func threadLabel(t ThreadRef) string {

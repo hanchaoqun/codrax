@@ -48,6 +48,8 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, boo
 		return fmt.Sprintf("pid=%d iowait=%d caller=0x%x delay=%d",
 			intByCleanName(ev, "pid", true), firstNonZero(intByCleanName(ev, "io_wait", false), intByCleanName(ev, "iowait", false)),
 			intByCleanName(ev, "caller", false), intByCleanName(ev, "delay", false)>>10), true
+	case strings.HasPrefix(name, "sched_stat_"):
+		return renderSchedStat(ev, content), true
 	case name == "cpu_frequency" || name == "cpu_idle":
 		return fmt.Sprintf("state=%d cpu_id=%d", intByCleanName(ev, "state", false), intByCleanName(ev, "cpu_id", false)), true
 	case name == "cpu_frequency_limits":
@@ -59,6 +61,10 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, boo
 	case name == "softirq_entry" || name == "softirq_exit" || (strings.Contains(name, "softirq") && hasCleanField(ev, "vec")):
 		vec := intByCleanName(ev, "vec", false)
 		return fmt.Sprintf("vec=%d [action=%s]", vec, softirqAction(vec)), true
+	case name == "ipi_entry" || name == "ipi_exit":
+		return fmt.Sprintf("(%s)", stringByCleanName(ev, content, "reason")), true
+	case name == "ipi_raise":
+		return fmt.Sprintf("target_mask=0x%x (%s)", firstNonZero(intByCleanName(ev, "target_cpus", false), intByCleanName(ev, "target_mask", false)), stringByCleanName(ev, content, "reason")), true
 	case strings.HasPrefix(name, "ext4_da_write_begin"):
 		return fmt.Sprintf("dev %s ino %d pos %d len %d flags %d",
 			devByCleanName(ev, "dev", ","), intByCleanName(ev, "ino", false), intByCleanName(ev, "pos", true),
@@ -232,6 +238,18 @@ func renderAndroidFSIO(ev decodedEvent, content []byte) string {
 	parts = appendCleanIntKV(parts, "latency_us", ev, false, "latency_us", "duration_us", "time_us", "usecs")
 	parts = appendCleanIntKV(parts, "i_size", ev, false, "i_size", "file_size")
 	return strings.Join(parts, " ")
+}
+
+func renderSchedStat(ev decodedEvent, content []byte) string {
+	comm := firstNonEmpty(stringByCleanName(ev, content, "comm"), stringByCleanName(ev, content, "pname"), stringByCleanName(ev, content, "name"))
+	pid := intByCleanName(ev, "pid", true)
+	switch ev.format.Name {
+	case "sched_stat_runtime":
+		return fmt.Sprintf("comm=%s pid=%d runtime=%d [ns] vruntime=%d [ns]",
+			comm, pid, intByCleanName(ev, "runtime", false), intByCleanName(ev, "vruntime", false))
+	default:
+		return fmt.Sprintf("comm=%s pid=%d delay=%d [ns]", comm, pid, intByCleanName(ev, "delay", false))
+	}
 }
 
 func renderExt4DirectIO(ev decodedEvent, content []byte) string {

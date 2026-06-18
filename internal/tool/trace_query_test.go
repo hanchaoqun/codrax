@@ -451,6 +451,10 @@ func TestTraceQueryPerfSampleEventTypesSurviveCompatAliases(t *testing.T) {
 func TestTraceQueryOfficialSystraceEventTypeAliasesNormalize(t *testing.T) {
 	got := parseTraceQueryEventTypes([]string{
 		"sched_wakeup_new",
+		"sched_stat_iowait",
+		"sched_stat_accounting",
+		"ipi_raise",
+		"ipi_activity",
 		"block_rq_insert",
 		"block_getrq",
 		"block_bio_queue",
@@ -461,6 +465,10 @@ func TestTraceQueryOfficialSystraceEventTypeAliasesNormalize(t *testing.T) {
 	})
 	want := []tracequery.EventType{
 		tracequery.EventSchedWakeup,
+		tracequery.EventSchedStat,
+		tracequery.EventSchedStat,
+		tracequery.EventIPI,
+		tracequery.EventIPI,
 		tracequery.EventBlockIssue,
 		tracequery.EventBlockIssue,
 		tracequery.EventBlockIssue,
@@ -475,6 +483,34 @@ func TestTraceQueryOfficialSystraceEventTypeAliasesNormalize(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("event type alias %d mismatch: got=%v want=%v", i, got, want)
+		}
+	}
+}
+
+func TestTraceQuerySchedStatAndIPIAreConsumable(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "schedstat_ipi.systrace")
+	trace := strings.Join([]string{
+		`worker-30 (30) [002] .... 3.000000: sched_stat_iowait: comm=worker pid=30 delay=3500000 [ns]`,
+		`irq-2 (2) [002] .... 3.001000: ipi_raise: target_mask=0x10 (Rescheduling interrupts)`,
+		`irq-2 (2) [004] .... 3.002000: ipi_entry: (Rescheduling interrupts)`,
+		`irq-2 (2) [004] .... 3.003000: ipi_exit: (Rescheduling interrupts)`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params := json.RawMessage(`{"source":"path","path":"schedstat_ipi.systrace","view":"window_stats","eventTypes":"sched_stat_iowait,ipi_raise","timeStart":"3.0s","timeEnd":"3.004s"}`)
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{"sched_stat_accounting", "kind=iowait", "ipi_activity", "target_mask=0x10", "supply_pressure", "sched_stat_iowait=3.500", "ipi_events=3"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
 		}
 	}
 }
@@ -743,7 +779,7 @@ func TestTraceQueryFrameRootCauseBundleAliasSummaryAndObservations(t *testing.T)
 
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "perf_stats", "perf_timeline", "trace_perf_bundle", "perf_bundle", "trace_plus_perf", "scheduler_latency_stats", "critical_blocking_calls", "direct blocking surfaces", "peer_state", "peer/on-chain evidence", "oneway", "sync_like", "blocking_candidate", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", "frame_bundle", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "aggregated_impact", "aggregated_impacts", "occurrence_windows", "representative repeated windows", "view=causal_impact is accepted as wakeup_chain", "chain_relevance", "on_chain", "adjacent", "background", "dominant_state", "cumulative_impact_ms", "same-chain primary", "compute-supply", "perf_sample", "perf_samples", "perf_contexts", "candidate_thread", "target_running", "on_chain_dependency", "same_cpu_competitor", "cpu_pressure_top_running", "compute_supply_cpu", "top_symbols", "top_dso", "top_callchains", "source", "sample_kind", "sample_cpu_scope", "symbolization_status", "raw_perfdata_fallback", "unsymbolized", "lost_records", "lost_samples", "throttle_records", "aux_records", "ftrace-plugin structured metadata", "profiler plugin metadata", "dropped_events", "overrun", "commit_overrun", "overwrite", "trace_clock", "clock_details", "symbol_examples", "tracebundle_perf_capability", "tracebundle_perf_clock_alignment", "cpuSample", "perfSamples", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "block_io_by_inode", "io_burst_episodes", "io_pressure_summary", "irq_activity", "softirq_activity", "workqueue_activity", "supply_pressure_summary", "trace_mark_categories", "async_file_work", "completion", "completions/ret/example", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "B/E/C/S/F", "span_action", "span_pid", "span_value", "kind=sync|async", "same ftrace thread stack", "E|<pid>|<span_name>", "marker pid + name + cookie", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "sched_wakeup_new", "block_rq_insert", "block_getrq", "block_bio_queue", "block_bio_complete", "tracing_mark_write_xacct", "xacct_tracing_mark_write", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "perf_stats", "perf_timeline", "trace_perf_bundle", "perf_bundle", "trace_plus_perf", "scheduler_latency_stats", "critical_blocking_calls", "direct blocking surfaces", "peer_state", "peer/on-chain evidence", "oneway", "sync_like", "blocking_candidate", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", "frame_bundle", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "state_churn", "frequent short state switches", "not an independent view", "view=state_churn is accepted and treated as view=window_stats", "causal_impacts", "aggregated_impact", "aggregated_impacts", "occurrence_windows", "representative repeated windows", "view=causal_impact is accepted as wakeup_chain", "chain_relevance", "on_chain", "adjacent", "background", "dominant_state", "cumulative_impact_ms", "same-chain primary", "compute-supply", "perf_sample", "perf_samples", "perf_contexts", "candidate_thread", "target_running", "on_chain_dependency", "same_cpu_competitor", "cpu_pressure_top_running", "compute_supply_cpu", "top_symbols", "top_dso", "top_callchains", "source", "sample_kind", "sample_cpu_scope", "symbolization_status", "raw_perfdata_fallback", "unsymbolized", "lost_records", "lost_samples", "throttle_records", "aux_records", "ftrace-plugin structured metadata", "profiler plugin metadata", "dropped_events", "overrun", "commit_overrun", "overwrite", "trace_clock", "clock_details", "symbol_examples", "tracebundle_perf_capability", "tracebundle_perf_clock_alignment", "cpuSample", "perfSamples", "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer", "block_io_by_inode", "io_burst_episodes", "io_pressure_summary", "irq_activity", "softirq_activity", "ipi_activity", "sched_stat_accounting", "workqueue_activity", "supply_pressure_summary", "trace_mark_categories", "async_file_work", "completion", "completions/ret/example", "file_io", "page_cache", "android_fs", "f2fs", "scsi", "mmc", "storage_latency", "io_pressure", "inode_io", "pageCache", "storageLayerLatency", "pattern", "not a regex", "B/E/C/S/F", "span_action", "span_pid", "span_value", "kind=sync|async", "same ftrace thread stack", "E|<pid>|<span_name>", "marker pid + name + cookie", "selected_window", "thread/pid alone", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "sched_wakeup_new", "sched_stat_wait", "sched_stat_iowait", "sched_stat_runtime", "ipi_raise", "ipi_entry", "ipi_exit", "block_rq_insert", "block_getrq", "block_bio_queue", "block_bio_complete", "tracing_mark_write_xacct", "xacct_tracing_mark_write", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "ipi", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}

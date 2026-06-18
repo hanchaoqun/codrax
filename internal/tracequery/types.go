@@ -2,7 +2,7 @@ package tracequery
 
 import "time"
 
-const ParserVersion = "tracequery-v10"
+const ParserVersion = "tracequery-v11"
 
 type EventType string
 
@@ -12,6 +12,7 @@ const (
 	EventSchedWakeup        EventType = "sched_wakeup"
 	EventSchedWaking        EventType = "sched_waking"
 	EventSchedBlockedReason EventType = "sched_blocked_reason"
+	EventSchedStat          EventType = "sched_stat"
 	EventCPUIdle            EventType = "cpu_idle"
 	EventCPUFrequency       EventType = "cpu_frequency"
 	EventCPUFrequencyLimit  EventType = "cpu_frequency_limits"
@@ -29,6 +30,7 @@ const (
 	EventBinderReply        EventType = "binder_reply"
 	EventIRQ                EventType = "irq"
 	EventSoftIRQ            EventType = "softirq"
+	EventIPI                EventType = "ipi"
 	EventTraceMark          EventType = "trace_mark"
 	EventMemory             EventType = "memory"
 	EventStorage            EventType = "storage"
@@ -111,6 +113,12 @@ type Event struct {
 	ClockName        string `json:"clock_name,omitempty"`
 	Reason           string `json:"reason,omitempty"`
 	IOWait           int    `json:"io_wait,omitempty"`
+	SchedStatKind    string `json:"sched_stat_kind,omitempty"`
+	SchedStatComm    string `json:"sched_stat_comm,omitempty"`
+	SchedStatPID     int    `json:"sched_stat_pid,omitempty"`
+	SchedStatDelayNs int64  `json:"sched_stat_delay_ns,omitempty"`
+	SchedStatRunNs   int64  `json:"sched_stat_runtime_ns,omitempty"`
+	SchedStatVRunNs  int64  `json:"sched_stat_vruntime_ns,omitempty"`
 	SpanAction       string `json:"span_action,omitempty"`
 	SpanPID          int    `json:"span_pid,omitempty"`
 	SpanName         string `json:"span_name,omitempty"`
@@ -138,6 +146,9 @@ type Event struct {
 
 	IRQName string `json:"irq_name,omitempty"`
 	IRQID   int    `json:"irq_id,omitempty"`
+
+	IPITargetMask string `json:"ipi_target_mask,omitempty"`
+	IPITargetCPUs []int  `json:"ipi_target_cpus,omitempty"`
 
 	MemoryKind    string `json:"memory_kind,omitempty"`
 	SubsystemKind string `json:"subsystem_kind,omitempty"`
@@ -398,6 +409,8 @@ type WindowStats struct {
 	WorkqueueEventCount   int                       `json:"workqueue_event_count,omitempty"`
 	DMAFenceEventCount    int                       `json:"dma_fence_event_count,omitempty"`
 	BlockedReasonCount    int                       `json:"blocked_reason_count,omitempty"`
+	SchedStatCount        int                       `json:"sched_stat_count,omitempty"`
+	IPICount              int                       `json:"ipi_count,omitempty"`
 	IOWaitBlockedCount    int                       `json:"io_wait_blocked_count,omitempty"`
 	BlockedReasons        []BlockedReasonSummary    `json:"blocked_reasons,omitempty"`
 	TraceSpans            []TraceSpanSummary        `json:"trace_spans,omitempty"`
@@ -415,7 +428,9 @@ type WindowStats struct {
 	BlockIOByInode        []BlockIOByInodeSummary   `json:"block_io_by_inode,omitempty"`
 	IRQActivity           []InterruptActivity       `json:"irq_activity,omitempty"`
 	SoftIRQActivity       []InterruptActivity       `json:"softirq_activity,omitempty"`
+	IPIActivity           []InterruptActivity       `json:"ipi_activity,omitempty"`
 	WorkqueueActivity     []WorkqueueActivity       `json:"workqueue_activity,omitempty"`
+	SchedStatAccounting   []SchedStatSummary        `json:"sched_stat_accounting,omitempty"`
 	SupplyPressureSummary *SupplyPressureSummary    `json:"supply_pressure_summary,omitempty"`
 	TraceMarkCategories   []TraceMarkCategory       `json:"trace_mark_categories,omitempty"`
 	AsyncFileWork         []AsyncFileWorkSummary    `json:"async_file_work,omitempty"`
@@ -883,11 +898,29 @@ type InterruptActivity struct {
 	ActiveMs        float64 `json:"active_ms,omitempty"`
 	MaxActiveMs     float64 `json:"max_active_ms,omitempty"`
 	WindowOverlapMs float64 `json:"window_overlap_ms,omitempty"`
+	TargetMask      string  `json:"target_mask,omitempty"`
+	TargetCPUs      []int   `json:"target_cpus,omitempty"`
 	LineStart       int     `json:"line_start,omitempty"`
 	LineEnd         int     `json:"line_end,omitempty"`
 	StartTs         float64 `json:"start_ts,omitempty"`
 	EndTs           float64 `json:"end_ts,omitempty"`
 	Summary         string  `json:"summary,omitempty"`
+}
+
+type SchedStatSummary struct {
+	Thread          ThreadRef `json:"thread,omitempty"`
+	Kind            string    `json:"kind,omitempty"`
+	Count           int       `json:"count,omitempty"`
+	TotalDelayMs    float64   `json:"total_delay_ms,omitempty"`
+	MaxDelayMs      float64   `json:"max_delay_ms,omitempty"`
+	TotalRuntimeMs  float64   `json:"total_runtime_ms,omitempty"`
+	MaxRuntimeMs    float64   `json:"max_runtime_ms,omitempty"`
+	TotalVRuntimeMs float64   `json:"total_vruntime_ms,omitempty"`
+	LineStart       int       `json:"line_start,omitempty"`
+	LineEnd         int       `json:"line_end,omitempty"`
+	StartTs         float64   `json:"start_ts,omitempty"`
+	EndTs           float64   `json:"end_ts,omitempty"`
+	Summary         string    `json:"summary,omitempty"`
 }
 
 type WorkqueueActivity struct {
@@ -910,6 +943,11 @@ type SupplyPressureSummary struct {
 	CPUPressureMs          float64                 `json:"cpu_pressure_ms,omitempty"`
 	RunnableWaitMs         float64                 `json:"runnable_wait_ms,omitempty"`
 	HighPriorityRunningMs  float64                 `json:"high_priority_running_ms,omitempty"`
+	SchedStatWaitMs        float64                 `json:"sched_stat_wait_ms,omitempty"`
+	SchedStatIOWaitMs      float64                 `json:"sched_stat_iowait_ms,omitempty"`
+	SchedStatBlockedMs     float64                 `json:"sched_stat_blocked_ms,omitempty"`
+	IPIEventCount          int                     `json:"ipi_event_count,omitempty"`
+	IPIActiveMs            float64                 `json:"ipi_active_ms,omitempty"`
 	LowFrequencyCPUs       []int                   `json:"low_frequency_cpus,omitempty"`
 	ClockSetRateCount      int                     `json:"clock_set_rate_count,omitempty"`
 	ThermalEventCount      int                     `json:"thermal_event_count,omitempty"`

@@ -188,6 +188,14 @@ func TestParseLineSchedulerEvents(t *testing.T) {
 	if !ok || wakeNew.Type != EventSchedWakeup || wakeNew.Name != "sched_wakeup_new" || wakeNew.WakeePID != 21 || wakeNew.TargetCPU != 2 {
 		t.Fatalf("unexpected wake_new event: %+v ok=%v", wakeNew, ok)
 	}
+	stat, ok := ParseLine(7, `      worker-30   (   30) [002] .... 1.190000: sched_stat_iowait: comm=worker pid=30 delay=2500000 [ns]`, intern)
+	if !ok || stat.Type != EventSchedStat || stat.SchedStatKind != "iowait" || stat.SchedStatPID != 30 || stat.SchedStatDelayNs != 2500000 {
+		t.Fatalf("unexpected sched_stat event: %+v ok=%v", stat, ok)
+	}
+	ipi, ok := ParseLine(8, `      worker-30   (   30) [002] .... 1.191000: ipi_raise: target_mask=0x10 (Rescheduling interrupts)`, intern)
+	if !ok || ipi.Type != EventIPI || ipi.IRQName != "Rescheduling interrupts" || ipi.IPITargetMask != "0x10" || len(ipi.IPITargetCPUs) != 1 || ipi.IPITargetCPUs[0] != 4 {
+		t.Fatalf("unexpected ipi event: %+v ok=%v", ipi, ok)
+	}
 }
 
 func TestParseLineAcceptsPerfettoUnknownTGIDAndMissingTGID(t *testing.T) {
@@ -2411,6 +2419,62 @@ func TestWindowStatsCountsRuntimeResourcesAndOffCPU(t *testing.T) {
 	}
 	if !foundFreq {
 		t.Fatalf("expected cpu frequency to be summarized: %+v", stats.CPU)
+	}
+}
+
+func TestWindowStatsSummarizesSchedStatAndIPI(t *testing.T) {
+	trace := strings.Join([]string{
+		`worker-30 (30) [002] .... 3.000000: sched_stat_wait: comm=worker pid=30 delay=2000000 [ns]`,
+		`worker-30 (30) [002] .... 3.001000: sched_stat_iowait: comm=worker pid=30 delay=3500000 [ns]`,
+		`worker-30 (30) [002] .... 3.002000: sched_stat_runtime: comm=worker pid=30 runtime=1500000 [ns] vruntime=1700000 [ns]`,
+		`irq-2 (2) [002] .... 3.003000: ipi_raise: target_mask=0x10 (Rescheduling interrupts)`,
+		`irq-2 (2) [004] .... 3.004000: ipi_entry: (Rescheduling interrupts)`,
+		`irq-2 (2) [004] .... 3.005500: ipi_exit: (Rescheduling interrupts)`,
+	}, "\n")
+	idx := buildTraceIndex(t, "schedstat_ipi.systrace", trace)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 3.0, TimeEnd: 3.006})
+	if stats.SchedStatCount != 3 || len(stats.SchedStatAccounting) < 2 {
+		t.Fatalf("expected sched_stat accounting, got count=%d rows=%+v", stats.SchedStatCount, stats.SchedStatAccounting)
+	}
+	if stats.SchedStatAccounting[0].Thread.PID != 30 || stats.SchedStatAccounting[0].TotalDelayMs <= 0 {
+		t.Fatalf("expected worker accounting with delay: %+v", stats.SchedStatAccounting)
+	}
+	if stats.IPICount != 3 || len(stats.IPIActivity) != 2 {
+		t.Fatalf("expected ipi activity for raise and entry/exit: count=%d rows=%+v", stats.IPICount, stats.IPIActivity)
+	}
+	var paired InterruptActivity
+	for _, item := range stats.IPIActivity {
+		if item.CPU == 4 {
+			paired = item
+		}
+	}
+	if paired.PairedCount != 1 || !near(paired.ActiveMs, 1.5, 0.001) {
+		t.Fatalf("expected paired ipi active time on cpu4, got %+v", stats.IPIActivity)
+	}
+	var raise InterruptActivity
+	for _, item := range stats.IPIActivity {
+		if item.CPU == 2 {
+			raise = item
+		}
+	}
+	if raise.ActiveMs != 0 || raise.TargetMask != "0x10" || len(raise.TargetCPUs) != 1 || raise.TargetCPUs[0] != 4 {
+		t.Fatalf("ipi_raise should be an instant target-mask signal, got %+v", raise)
+	}
+	if stats.SupplyPressureSummary == nil || stats.SupplyPressureSummary.SchedStatIOWaitMs <= 0 || stats.SupplyPressureSummary.IPIEventCount != 3 {
+		t.Fatalf("supply summary should carry sched_stat and ipi context: %+v", stats.SupplyPressureSummary)
+	}
+	rank := BuildRootCauseRank(idx, Query{TimeStart: 3.0, TimeEnd: 3.006, Limit: 8})
+	foundAccounting := false
+	for _, item := range rank.Items {
+		if item.Type == "sched_stat_accounting" {
+			foundAccounting = true
+			if item.Confidence > 0.55 || !strings.Contains(item.Summary, "corroborating kernel accounting") {
+				t.Fatalf("sched_stat accounting should stay low-confidence corroboration: %+v", item)
+			}
+		}
+	}
+	if !foundAccounting {
+		t.Fatalf("expected sched_stat accounting in root-cause evidence, got %+v", rank.Items)
 	}
 }
 

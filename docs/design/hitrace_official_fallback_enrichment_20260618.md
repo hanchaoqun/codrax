@@ -109,22 +109,31 @@ Delivered closure:
   `0xADDR: E|...`, `0xADDR: C|...`, `0xADDR: S|...`, or `0xADDR: F|...` are
   normalized before B/E/C/S/F span parsing. This preserves correct stack-based
   span matching without asking the model to search for named end markers.
+- `sched_stat_wait/sleep/iowait/blocked/runtime` are rendered and parsed into
+  `sched_stat_accounting`. The query layer exposes per-thread accounting totals
+  and lets low-confidence `sched_stat_accounting` evidence corroborate
+  root-cause rows without replacing or double-counting `sched_switch` interval
+  timing when both are available.
+- `ipi_raise/entry/exit` are rendered and parsed into `ipi_activity`.
+  `ipi_entry/exit` pairs produce `active_ms`; `ipi_raise` remains an instant
+  target-mask signal with `target_cpus` so reschedule/interrupt pressure is
+  visible without inventing duration.
+- `supply_pressure_summary` now carries `sched_stat_wait_ms`,
+  `sched_stat_iowait_ms`, `sched_stat_blocked_ms`, `ipi_event_count`, and
+  `ipi_active_ms` as supply-side context.
 - The `trace_query.event_types` schema and compatibility repair layer accept
   those official aliases and map them to the stable structured event types used
   by `event_search`, `span_window`, `window_stats`, root-cause ranking, and frame
   bundle views.
 
-Audited but intentionally not folded into current root-cause weighting:
+Root-cause weighting boundary:
 
-- `sched_stat_wait/sleep/iowait/blocked/runtime` can be useful as corroborating
-  kernel accounting, but the current ranking already derives elapsed runnable,
-  sleep, D-state, IO-wait, and running intervals from `sched_switch`. Folding
-  `sched_stat_*` into impact without a calibrated merge design would risk
-  double-counting. Keep it as a future evidence surface if needed.
-- `ipi_entry/ipi_exit/ipi_raise` can support a broader compute-supply/interrupt
-  pressure summary, but it is not yet a causal dependency primitive in the
-  existing scheduler/binder/IO model. Add it only with a dedicated pressure
-  aggregation design and tests.
+- `sched_stat_accounting` is a corroborating kernel-accounting surface. Its
+  root-cause candidate impact is intentionally down-weighted because the
+  canonical elapsed state intervals still come from `sched_switch`.
+- `ipi_activity` is supply-side pressure context. It can appear as a supporting
+  pressure candidate when paired active time exists, but it does not replace
+  wakeup-chain, scheduler-latency, binder, or IO dependency evidence.
 
 ## Remaining Non-Goals
 
