@@ -1,7 +1,7 @@
 # Write Mode Root-Cause Closure And SWE-bench Recovery Plan
 
 Date: 2026-06-18
-Branch: codex/cc-like-swe-gap-20260618
+Branch: main
 Status: active delivery plan
 
 ## Inputs Reviewed
@@ -9,6 +9,7 @@ Status: active delivery plan
 - `/Users/han/opt/cc_like.md`
 - `docs/design/write_mode_claude_code_online_convergence_architecture_20260617.md`
 - `docs/design/swebench_manual_audit_20260618.md`
+- `docs/design/swebench_historical_patch_audit_20260618.md`
 - `internal/agent/write_controller.go`
 - `internal/orchestrator/write_controller_scheduler.go`
 - `internal/writeflow/patch_review.go`
@@ -35,15 +36,18 @@ Codrax has already moved well past the old batch-only write mode:
   exploration evidence and repository graph signals;
 - SWE-bench adapter exports harness-consumable predictions and local telemetry.
 
-The 137-instance manual audit changed the quality picture:
+The latest 137-instance historical audit changed the quality picture again.
+The new report is a conservative oracle-assisted post-hoc patch audit over the
+latest local run per instance. It is not an official SWE-bench score and does
+not feed oracle data back into Codrax.
 
 | Signal | Count | Rate | Interpretation |
 | --- | ---: | ---: | --- |
 | Non-empty patch | 130 / 137 | 94.9% | Export works; not correctness. |
-| Local authoritative verify pass | 18 / 137 | 13.1% | Useful but weak and sometimes false-positive. |
-| Strict manual audit pass | 30 / 137 | 21.9% | Current conservative internal correctness floor. |
-| Definite manual fail | 28 / 137 | 20.4% | Wrong-layer, incomplete, empty, or contradicted. |
-| Unknown | 79 / 137 | 57.7% | Needs official harness/deeper execution. |
+| Current local-acceptance fields | 0 / 137 | 0.0% | Historical rows are not evaluable under the current local acceptance schema. |
+| Oracle-assisted theoretical pass | 60 / 137 | 43.8% | Patch touches the expected source surface with strong similarity or typed verify overlap. |
+| Oracle-assisted theoretical fail | 43 / 137 | 31.4% | Empty, wrong source surface, weak semantic overlap, or typed verify failed. |
+| Unknown | 34 / 137 | 24.8% | Needs official harness/deeper execution/manual semantic review. |
 
 ## Root Cause Assessment
 
@@ -64,10 +68,13 @@ The dominant system gaps are:
    `ReviewAppliedPatchSemantic` creates typed findings from actual diff,
    impact obligations, and convention graph. SWE/local acceptance previously
    ignored those findings when computing local correctness proxy.
-4. **Verification can prove too little.**
+4. **Verification can prove too little, and old final answers are not typed.**
    Local project environments are often partial. Passing a narrow probe or weak
    local check can be useful evidence, but it cannot prove owner-boundary
-   correctness without changed-symbol/contract/dependent coverage.
+   correctness without changed-symbol/contract/dependent coverage. Historical
+   SWE artifacts have `codrax.out` logs but no stable typed final-answer
+   artifact, so answer-quality audit is log-level spot checking rather than a
+   durable contract.
 5. **Convention learning is present but still advisory.**
    The graph is inspectable and evidence-backed, which is good, but it has not
    yet become a stable contributor to patch review and replan priorities.
@@ -5219,6 +5226,68 @@ Verification:
   - Re-running the 137-row historical summary now exposes
     `current_core=0/137`, making the current local-acceptance pass ratio
     explicitly unevaluable from those artifacts.
+
+## 2026-06-18 RC-90 Historical SWE Patch And Answer Audit
+
+- Evidence:
+  - Added and ran `eval/swebench/audit_historical_results.py` over all
+    historical `eval/results/swebench/*/results.jsonl` files with
+    `--dedupe latest-by-file-mtime`.
+  - The audit consumed 278 result rows and selected 137 latest unique
+    instances. It loaded the public SWE-bench Lite dataset only for post-hoc
+    oracle comparison; this is not fair-run input and not an official score.
+  - Outputs:
+    - `docs/design/swebench_historical_patch_audit_20260618.md`
+    - `docs/design/swebench_historical_patch_audit_20260618.jsonl`
+  - Conservative result: theoretical pass 60/137 (43.8%), fail 43/137
+    (31.4%), unknown 34/137 (24.8%).
+  - Failure buckets: wrong source surface 13, weak semantic overlap 12, typed
+    verify failed 11, empty patch 7.
+  - Every audited instance has `codrax.out`, but none has a typed
+    final-answer/report artifact. The audit stores log tails for human review,
+    but production eval must not treat terminal prose as the final answer
+    contract.
+- Generalized rule:
+  - Non-empty patch remains export compatibility, not correctness.
+  - Official SWE-bench pass rate remains only official harness
+    `resolved/total`.
+  - Local theoretical patch audit may use oracle patches after the fact, but
+    the verdict must stay out of Codrax runtime routing and fair-run execution.
+  - Typed verifier failures override oracle similarity in the audit; unavailable
+    local verification can still leave rows pass/unknown depending on source
+    overlap and patch similarity.
+  - Final-answer quality needs a typed artifact containing patch intent,
+    changed contracts, executed verification, observed failures, residual risk,
+    and exported patch fingerprint.
+- System gaps exposed:
+  - Root-cause exploration/localization still fails often enough to produce
+    non-empty patches against the wrong owner surface.
+  - Verify-passed rows with weak or wrong oracle overlap show that local
+    verification can be too narrow and should feed impact/patch-critic
+    confidence rather than stand alone.
+  - Handoff success must be measured by whether observations change subsequent
+    source surfaces and repair slices, not by context-pack existence.
+  - Historical final answers are not auditable as typed deliverables.
+- Task list:
+  - [x] Add a reproducible historical audit tool that consumes local typed
+    result fields, predictions, and optional oracle patches.
+  - [x] Add unit tests for diff parsing, source/test classification, empty
+    patch failure, source-surface mismatch, high oracle overlap, and typed
+    verifier-failure precedence.
+  - [x] Generate the full 137-instance Markdown and JSONL audit artifacts.
+  - [x] Document the audit command and metric boundary in the SWE-bench README.
+  - [ ] Future batch: persist a typed final-answer/report artifact from each
+    write-mode SWE run so answer quality can be audited without scraping
+    `codrax.out`.
+  - [ ] Future batch: connect weak/wrong source-surface audit buckets to
+    impact-obligation re-explore/replan triggers using typed patch review and
+    context-pack evidence, not oracle data.
+- Verification:
+  - `python3 -m unittest eval.swebench.audit_historical_results_test -v`
+  - `python3 -m py_compile eval/swebench/audit_historical_results.py
+    eval/swebench/audit_historical_results_test.py`
+  - Audit run with eval venv and SWE-bench Lite dataset completed over 137
+    unique instances.
 
 ## Acceptance Criteria
 

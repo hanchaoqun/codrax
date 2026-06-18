@@ -393,6 +393,27 @@ actual-diff patch-review gaps, probe generation gaps, environment limits,
 workflow-state gaps, export failures, and accepted/manual-audit rows before
 choosing the next engineering batch.
 
+For a post-hoc audit of historical patches, generate an oracle-assisted review
+worksheet. This is a human/debug artifact, not a fair-run metric and not an
+official score:
+
+```bash
+eval/results/swebench/.venv/bin/python eval/swebench/audit_historical_results.py \
+  --results-glob 'eval/results/swebench/*/results.jsonl' \
+  --dedupe latest-by-file-mtime \
+  --dataset-name SWE-bench/SWE-bench_Lite \
+  --split test \
+  --output-jsonl docs/design/swebench_historical_patch_audit_20260618.jsonl \
+  --output-md docs/design/swebench_historical_patch_audit_20260618.md
+```
+
+The audit compares the emitted model patch with the public dataset's gold patch
+after the run. It reports conservative `pass/fail/unknown` buckets based on
+typed result fields, source/test/doc patch shape, oracle source-surface overlap,
+token overlap, and verifier status. It also records `codrax.out` log tails for
+final-answer spot checks, but old runs do not have a stable typed final-answer
+artifact. Do not call this output an official SWE-bench pass rate.
+
 ## Isolation
 
 All run artifacts live under `eval/results/swebench/`, which is ignored by Git.
