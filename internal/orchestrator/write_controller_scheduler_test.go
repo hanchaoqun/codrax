@@ -14,6 +14,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/worktree"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
@@ -3929,6 +3930,158 @@ func TestApplyVerifyCoverageToChangePlanPreservesMissingProbeSymbolGap(t *testin
 	if plan.PatchReview == nil || len(plan.PatchReview.Findings) == 0 ||
 		plan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageUnverified {
 		t.Fatalf("missing symbol confidence should keep patch review unverified: %+v", plan.PatchReview)
+	}
+}
+
+func TestApplyVerifyCoverageToChangePlanPreservesUnavailableProbeSymbolGap(t *testing.T) {
+	plan := coverageProjectionPlanForTest()
+	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{
+		PlanID:             "plan-coverage",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:     "verification_probe",
+			Category:   "probe_execution",
+			Status:     "unavailable",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_module_not_found",
+		}},
+	}, nil)
+
+	if plan.ImpactAnalysis == nil || len(plan.ImpactAnalysis.VerificationTargets) == 0 ||
+		plan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "unverified" {
+		t.Fatalf("unavailable probe should keep impact target unverified: %+v", plan.ImpactAnalysis)
+	}
+	if plan.PatchReview == nil || len(plan.PatchReview.Findings) == 0 ||
+		plan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageUnverified {
+		t.Fatalf("unavailable probe should keep patch review unverified: %+v", plan.PatchReview)
+	}
+}
+
+func TestAppendCumulativePatchReviewFollowupCoversSourcePatchAfterTestOnlyPlan(t *testing.T) {
+	mainRoot := filepath.Join(t.TempDir(), "main")
+	if err := os.MkdirAll(mainRoot, 0o755); err != nil {
+		t.Fatalf("mkdir main: %v", err)
+	}
+	runGitForWorkflowRestoreTest(t, mainRoot, "init", "-q")
+	runGitForWorkflowRestoreTest(t, mainRoot, "config", "user.email", "test@local")
+	runGitForWorkflowRestoreTest(t, mainRoot, "config", "user.name", "test")
+	if err := os.MkdirAll(filepath.Join(mainRoot, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(mainRoot, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mainRoot, "pkg", "bug.py"), []byte("VALUE = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mainRoot, "tests", "test_bug.py"), []byte("def test_existing():\n    assert True\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForWorkflowRestoreTest(t, mainRoot, "add", ".")
+	runGitForWorkflowRestoreTest(t, mainRoot, "commit", "-q", "-m", "seed")
+
+	sess, err := worktree.Create(filepath.Join(t.TempDir(), "wt"), mainRoot, "cumulative-review-test")
+	if err != nil {
+		t.Fatalf("worktree.Create: %v", err)
+	}
+	t.Cleanup(func() { _ = sess.Discard() })
+	if err := os.WriteFile(filepath.Join(sess.Path(), "pkg", "bug.py"), []byte("VALUE = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourceSHA, err := worktree.CommitChanges(sess.Path(), "source fix")
+	if err != nil {
+		t.Fatalf("CommitChanges source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sess.Path(), "tests", "test_bug.py"), []byte("def test_existing():\n    assert True\n\ndef test_added():\n    assert True\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testSHA, err := worktree.CommitChanges(sess.Path(), "test followup")
+	if err != nil {
+		t.Fatalf("CommitChanges test: %v", err)
+	}
+	if strings.TrimSpace(testSHA) == "" {
+		t.Fatal("test followup sha missing")
+	}
+
+	mu := types.NewMutableState("source patch followed by test-only proof")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:           "plan-test-only",
+		Status:       types.PlanStatusApplied,
+		TargetPaths:  []string{"tests/test_bug.py"},
+		AppliedPaths: []string{"tests/test_bug.py"},
+		Changes: []types.FileChange{{
+			Path:  "tests/test_bug.py",
+			Kind:  "patch",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "source_symbol_probe",
+			Language:          "python",
+			ChangedSymbolRefs: []string{"pkg.bug.VALUE"},
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable:      mu,
+		Mode:         types.ModeApply,
+		RepoRoot:     sess.Path(),
+		MainRepoRoot: mainRoot,
+		WorktreePath: sess.Path(),
+	}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-cumulative-review",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-source", ArtifactRef: sourceSHA},
+				{Kind: "apply", Status: "applied", PlanID: "plan-test-only", ArtifactRef: testSHA},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-test-only"},
+			},
+		}},
+	}
+	report := &types.ChangeReport{
+		PlanID:             "plan-test-only",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:     "verification_probe",
+			Category:   "probe_execution",
+			Status:     "unavailable",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_module_not_found",
+		}},
+	}
+
+	if !o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{Kind: writeflow.VerifyOutcomeReportPassed, ReasonCode: "tests_passed"}) {
+		t.Fatalf("cumulative source patch should append a proof follow-up, run=%+v", run)
+	}
+	if run.ActiveBatchID == "batch-1" || !strings.Contains(run.ActiveBatchID, "cumulative-review") {
+		t.Fatalf("active batch should move to cumulative review follow-up, got %+v", run)
+	}
+	batch := activeWorkflowBatchForUpdate(run, run.ActiveBatchID)
+	if batch == nil || !containsString(batch.ExpectedPaths, "pkg/bug.py") {
+		t.Fatalf("follow-up should carry production source path, batch=%+v", batch)
+	}
+	criteria := strings.Join(batch.SuccessCriteria, "\n")
+	for _, want := range []string{"changed_symbol_without_probe_coverage", "pkg.bug.VALUE"} {
+		if !strings.Contains(criteria, want) {
+			t.Fatalf("follow-up criteria missing %q: %+v", want, batch.SuccessCriteria)
+		}
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "cumulative_actual_diff_review_followup_requested") {
+		t.Fatalf("cumulative review progress missing: %+v", run.ProgressLedger)
+	}
+	pack := mu.WriteContextPack()
+	if pack == nil {
+		t.Fatal("cumulative review should merge a context pack")
+	}
+	view := pack.ViewForScope(types.WriteConsumerPlanner, 40, run.ActiveBatchID, "")
+	if !writeContextViewContains(view, "patch_review_finding", "changed_symbol_without_probe_coverage") ||
+		!writeContextViewContains(view, "patch_effect", "pkg/bug.py") {
+		t.Fatalf("follow-up planner context missing cumulative review evidence: %+v", view.Items)
 	}
 }
 

@@ -3242,9 +3242,9 @@ def process_instance(
         else:
             audit_block_reason = prediction_audit_block_reason(
                 exported_source_paths=exported_source_paths,
-                final_plan_source_paths=delivery_plan_source_paths,
-                final_plan_test_only=False,
-                final_plan_covers_exported_source_patch=result["delivery_source_plan_covers_exported_source_patch"],
+                final_plan_source_paths=result["final_plan_source_paths"],
+                final_plan_test_only=bool(result["final_plan_test_only"]),
+                final_plan_covers_exported_source_patch=result["final_plan_covers_exported_source_patch"],
                 workflow_status=str(result.get("workflow_status") or ""),
                 verify_status=str(result.get("verify_status") or ""),
                 plan_status=str(result.get("plan_status") or ""),

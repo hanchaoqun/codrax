@@ -340,7 +340,8 @@ func TestPlanMode_WorktreeNoLeak(t *testing.T) {
 // directly (without raising an actual signal — raising a signal in
 // a Go test is flaky because the runtime's default disposition can
 // race the handler install). Locks the invariant
-//     "on signal, all active sessions are discarded".
+//
+//	"on signal, all active sessions are discarded".
 func TestSignalHandler_CleansActiveSessions(t *testing.T) {
 	clearActiveSessions(t)
 	repo := initTestRepo(t)
@@ -457,6 +458,56 @@ func TestCommitChanges_RoundTrip(t *testing.T) {
 
 	if err := DiscardByPath(sess.Path(), root); err != nil {
 		t.Errorf("DiscardByPath: %v", err)
+	}
+}
+
+func TestCaptureRangePatchCapturesCumulativeDiff(t *testing.T) {
+	clearActiveSessions(t)
+	root := initTestRepo(t)
+	base := filepath.Join(t.TempDir(), "wts")
+	sess, err := Create(base, root, makeUniqueTraceID(t))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer func() {
+		if err := DiscardByPath(sess.Path(), root); err != nil {
+			t.Errorf("DiscardByPath: %v", err)
+		}
+	}()
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = sess.Path()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-parse HEAD: %v\n%s", err, out)
+	}
+	baseRef := strings.TrimSpace(string(out))
+
+	if err := os.WriteFile(filepath.Join(sess.Path(), "README.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+	if _, err := CommitChanges(sess.Path(), "change readme"); err != nil {
+		t.Fatalf("CommitChanges readme: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sess.Path(), "new.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatalf("write new.txt: %v", err)
+	}
+	if _, err := CommitChanges(sess.Path(), "add new"); err != nil {
+		t.Fatalf("CommitChanges new: %v", err)
+	}
+
+	patch, err := CaptureRangePatch(sess.Path(), baseRef, "HEAD")
+	if err != nil {
+		t.Fatalf("CaptureRangePatch: %v", err)
+	}
+	for _, want := range []string{
+		"diff --git a/README.md b/README.md",
+		"+changed",
+		"diff --git a/new.txt b/new.txt",
+		"+new",
+	} {
+		if !strings.Contains(patch, want) {
+			t.Fatalf("cumulative patch missing %q:\n%s", want, patch)
+		}
 	}
 }
 

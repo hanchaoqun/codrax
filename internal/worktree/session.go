@@ -8,39 +8,39 @@
 //
 // Design notes (session 33 Day 2):
 //
-//   1. Worktree-as-dry-run: the apply stage never mutates the main
-//      repo checkout. `git worktree add --detach HEAD` produces a
-//      disposable copy; when the stage finishes (success OR failure)
-//      the copy is discarded. The user can cherry-pick a successful
-//      commit from the worktree into main manually — that flow lives
-//      above this package.
+//  1. Worktree-as-dry-run: the apply stage never mutates the main
+//     repo checkout. `git worktree add --detach HEAD` produces a
+//     disposable copy; when the stage finishes (success OR failure)
+//     the copy is discarded. The user can cherry-pick a successful
+//     commit from the worktree into main manually — that flow lives
+//     above this package.
 //
-//   2. Cleanup in three environments:
-//        - Normal return: the orchestrator's outer defer fires
-//          DiscardByPath. Idempotent with the active-sessions map.
-//        - Panic: Go runs defers during unwind; same path as normal.
-//        - SIGINT / SIGTERM: Go's default disposition is os.Exit(130)
-//          WITHOUT running defers. InstallSignalHandler adds a
-//          signal.Notify handler that walks the active-sessions map,
-//          discards everyone, then re-raises so the process still
-//          dies with the canonical signal exit code.
-//        - SIGKILL: no cleanup possible in-process; PruneDeadSessions
-//          at next startup reaps orphans by PID liveness check.
+//  2. Cleanup in three environments:
+//     - Normal return: the orchestrator's outer defer fires
+//     DiscardByPath. Idempotent with the active-sessions map.
+//     - Panic: Go runs defers during unwind; same path as normal.
+//     - SIGINT / SIGTERM: Go's default disposition is os.Exit(130)
+//     WITHOUT running defers. InstallSignalHandler adds a
+//     signal.Notify handler that walks the active-sessions map,
+//     discards everyone, then re-raises so the process still
+//     dies with the canonical signal exit code.
+//     - SIGKILL: no cleanup possible in-process; PruneDeadSessions
+//     at next startup reaps orphans by PID liveness check.
 //
-//   3. Idempotent Discard: the three-step sequence
-//      (`git worktree remove --force` → `os.RemoveAll` → `git worktree
-//      prune`) tolerates every state the disk might be in after a
-//      crash: dir-only, metadata-only, both, or already clean. Each
-//      step suppresses errors that reflect a prior step already
-//      cleaning that surface.
+//  3. Idempotent Discard: the three-step sequence
+//     (`git worktree remove --force` → `os.RemoveAll` → `git worktree
+//     prune`) tolerates every state the disk might be in after a
+//     crash: dir-only, metadata-only, both, or already clean. Each
+//     step suppresses errors that reflect a prior step already
+//     cleaning that surface.
 //
-//   4. Collision-free naming: directory format is
-//      `<sanitized-trace-id>-<pid>`. Trace IDs carry `unix-nano` so
-//      same-process concurrent Runs produce distinct IDs; pid
-//      disambiguates across processes. Cross-process-pid-wraparound
-//      is a theoretical edge case (a long-running system's PIDs
-//      eventually cycle) that can leave one leaked worktree dir;
-//      no correctness harm, only disk waste.
+//  4. Collision-free naming: directory format is
+//     `<sanitized-trace-id>-<pid>`. Trace IDs carry `unix-nano` so
+//     same-process concurrent Runs produce distinct IDs; pid
+//     disambiguates across processes. Cross-process-pid-wraparound
+//     is a theoretical edge case (a long-running system's PIDs
+//     eventually cycle) that can leave one leaked worktree dir;
+//     no correctness harm, only disk waste.
 package worktree
 
 import (
@@ -162,21 +162,21 @@ func (s *Session) MainRoot() string {
 //
 // Cleanup sequence:
 //
-//   1. `git worktree remove --force <path>` — tells git to drop the
-//      worktree AND its metadata. --force tolerates a dirty tree
-//      (which B0's apply-phase failures are likely to produce).
-//      Errors are swallowed: a missing dir makes this a no-op but
-//      still returns non-zero on some git versions.
+//  1. `git worktree remove --force <path>` — tells git to drop the
+//     worktree AND its metadata. --force tolerates a dirty tree
+//     (which B0's apply-phase failures are likely to produce).
+//     Errors are swallowed: a missing dir makes this a no-op but
+//     still returns non-zero on some git versions.
 //
-//   2. `os.RemoveAll(path)` — belt-and-suspenders. If git refused
-//      (wrong repo, already removed, etc) this makes sure the bytes
-//      are gone. IsNotExist is suppressed because the common
-//      success case from step 1 removed the dir already.
+//  2. `os.RemoveAll(path)` — belt-and-suspenders. If git refused
+//     (wrong repo, already removed, etc) this makes sure the bytes
+//     are gone. IsNotExist is suppressed because the common
+//     success case from step 1 removed the dir already.
 //
-//   3. `git worktree prune` — sweeps any orphan metadata (the
-//      `.git/worktrees/<id>` directory inside the main repo) that
-//      step 1's error path might have left. Mirrors the post-SIGKILL
-//      reap PruneDeadSessions does.
+//  3. `git worktree prune` — sweeps any orphan metadata (the
+//     `.git/worktrees/<id>` directory inside the main repo) that
+//     step 1's error path might have left. Mirrors the post-SIGKILL
+//     reap PruneDeadSessions does.
 //
 // Each step is independent — later steps run even if an earlier
 // step errored, so the overall call is maximally self-healing.
@@ -780,6 +780,29 @@ func CaptureCommitPatch(path, sha string) (string, error) {
 	out, err := runGitIn(path, "show", "--format=medium", "--no-color", sha)
 	if err != nil {
 		return "", fmt.Errorf("worktree.CaptureCommitPatch: %w (output: %s)", err, out)
+	}
+	return out, nil
+}
+
+// CaptureRangePatch returns the unified patch between two refs inside the
+// worktree. It is read-only and intended for final/cumulative review surfaces
+// that must reason about the actual bytes being delivered rather than one
+// individual apply commit.
+func CaptureRangePatch(path, baseRef, headRef string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", errors.New("worktree.CaptureRangePatch: path is empty")
+	}
+	baseRef = strings.TrimSpace(baseRef)
+	if baseRef == "" {
+		return "", errors.New("worktree.CaptureRangePatch: baseRef is empty")
+	}
+	headRef = strings.TrimSpace(headRef)
+	if headRef == "" {
+		headRef = "HEAD"
+	}
+	out, err := runGitIn(path, "diff", "--no-color", "--binary", baseRef, headRef)
+	if err != nil {
+		return "", fmt.Errorf("worktree.CaptureRangePatch: %w (output: %s)", err, out)
 	}
 	return out, nil
 }

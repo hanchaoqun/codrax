@@ -4737,6 +4737,81 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - Build passed:
     `make`.
 
+## 2026-06-18 Cumulative actual-diff completion review
+
+- Evidence:
+  - RC-77 reran `django__django-11742` after direct test-surface priority was
+    merged. The verifier now used the scoped command
+    `python3 tests/runtests.py invalid_models_tests.test_ordinary_fields -v 1`,
+    confirming the previous verifier-scope fix works at runtime.
+  - The workflow completed, exported a non-empty SWE-bench prediction, and the
+    official harness dry-run validated it. Manual audit against the dataset
+    gold patch showed the generated source patch was likely incorrect:
+    it added a `CharField._check_max_length_with_choices()` helper with
+    `fields.E130`, while the expected fix belongs in the shared
+    `_check_choices()` path and reports `fields.E009`.
+  - The system gap was not only model bug analysis. The final durable plan was
+    a test-only follow-up, while the exported source patch came from an earlier
+    source-owner plan. `final_plan_covers_exported_source_patch=false`,
+    `final_plan_test_only=true`, and the final PatchReview only proved the
+    test-only plan. A `verification_probe_module_not_found` warning did not
+    keep changed-symbol proof obligations uncovered, so a green scoped test
+    could be over-promoted into workflow completion.
+- Generalized rule:
+  - Per-plan PatchReview remains valuable, but workflow completion needs a
+    second authority: the cumulative actual diff from the first applied
+    checkpoint's parent to worktree `HEAD`.
+  - On a non-failed verify result, the controller builds a synthetic cumulative
+    `ChangePlan` with typed `PatchEffect`, `ImpactAnalysis`, and `PatchReview`.
+    It reuses the existing Impact/Convention/PatchReview engines and the
+    current plan's typed probes/contracts; no new reviewer or language-specific
+    issue rule is introduced.
+  - `verification_probe_module_not_found` / probe execution unavailable is a
+    proof gap, not a code failure and not a proof success. It keeps
+    changed-symbol / behavior-contract coverage unverified unless the report
+    carries explicit covered symbol/contract evidence.
+  - If cumulative review finds uncovered source proof after a passing verifier
+    attempt, the controller appends one bounded follow-up batch and projects
+    the cumulative review into that batch's P2 context pack. The planner gets
+    typed paths/symbols/evidence refs instead of another broad exploration
+    restart.
+  - SWE-bench local acceptance now uses real final-plan/export drift again:
+    a test-only final plan cannot serve as local proof for an exported source
+    patch, although predictions are still exported for official harness
+    consumption.
+- Prompt and hard-gate hygiene:
+  - Hard routing reads only git refs, `WriteWorkflowAttempt`, `PatchEffect`,
+    `ImpactAnalysis`, `PatchReview`, `ChangeReport`, and
+    `VerificationConfidence` typed fields.
+  - It does not inspect SWE instance IDs, gold patches, user intent keywords,
+    model summaries/rationale, raw stdout prose, or visible `<think>` text.
+  - Missing local probe dependencies do not hard-block delivery by themselves;
+    they downgrade proof authority and trigger a bounded proof/impact follow-up
+    when source code remains in the cumulative diff.
+- Task list:
+  - [x] Add `worktree.CaptureRangePatch()` for read-only base-ref to HEAD
+    cumulative diff capture.
+  - [x] Teach verify coverage projection that unavailable probe execution keeps
+    probe-bound changed-symbol / contract obligations unverified.
+  - [x] Build synthetic cumulative actual-diff plan/effect/review before
+    workflow completion.
+  - [x] Append a bounded cumulative-review follow-up batch when source proof
+    remains uncovered after a non-failed verifier attempt.
+  - [x] Scope cumulative review context to the new batch through
+    `WriteContextPack`, preserving PatchEffect/PatchReview evidence refs.
+  - [x] Restore SWE-bench adapter local-acceptance blocking for final
+    test-only/exported-source drift.
+  - [x] Add focused worktree, orchestrator, and adapter tests.
+- Verification so far:
+  - Focused cumulative review tests passed:
+    `go test ./internal/worktree -run TestCaptureRangePatchCapturesCumulativeDiff -count=1`.
+  - Focused controller tests passed:
+    `go test ./internal/orchestrator -run 'Test(ApplyVerifyCoverageToChangePlanPreservesUnavailableProbeSymbolGap|AppendCumulativePatchReviewFollowupCoversSourcePatchAfterTestOnlyPlan)' -count=1`.
+  - Package regressions passed:
+    `go test ./internal/orchestrator ./internal/worktree -count=1`.
+  - SWE adapter unittest passed without requiring pytest:
+    `/private/tmp/codrax-swebench-py311/bin/python -m unittest eval.swebench.run_codrax_swebench_test`.
+
 ## 2026-06-18 Structured edit Python class EOF append
 
 - Evidence:

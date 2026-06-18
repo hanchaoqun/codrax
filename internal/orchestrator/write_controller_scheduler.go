@@ -477,6 +477,12 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				continue
 			}
 			if o.advanceWorkflowAfterSuccessfulSliceObserve(&run, outcome) {
+				if o.appendCumulativePatchReviewFollowupIfNeeded(&run, report, outcome) {
+					o.mirrorActivePlanToImportFile(importedPlanMirror)
+					o.syncCurrentWriteContextPackToRun(&run)
+					o.persistWriteWorkflowRun(&run)
+					continue
+				}
 				o.mirrorActivePlanToImportFile(importedPlanMirror)
 				o.syncCurrentWriteContextPackToRun(&run)
 				o.persistWriteWorkflowRun(&run)
@@ -489,6 +495,12 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			} else {
 				updateWorkflowRunBatchCompletion(&run, run.ActiveBatchID, types.WriteWorkflowCompletionVerified, outcome.ReasonCode, "verify_attempt")
 				appendControllerProgress(&run, run.ActiveBatchID, "batch_verified", "")
+			}
+			if o.appendCumulativePatchReviewFollowupIfNeeded(&run, report, outcome) {
+				o.mirrorActivePlanToImportFile(importedPlanMirror)
+				o.syncCurrentWriteContextPackToRun(&run)
+				o.persistWriteWorkflowRun(&run)
+				continue
 			}
 			o.busCtx.Mutable.ResetVerifyFailureHandoff()
 			o.persistWriteWorkflowRun(&run)
@@ -1467,6 +1479,234 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 	return review
 }
 
+func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.WriteWorkflowRun, report *types.ChangeReport, outcome writeflow.VerifyAttemptOutcome) bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || report == nil {
+		return false
+	}
+	if outcome.Kind != writeflow.VerifyOutcomeReportPassed || !report.Passed {
+		return false
+	}
+	if !activeBatchCompletedWithNonFailedVerifierVerdict(run) {
+		return false
+	}
+	if workflowProgressReasonCount(run, "", "cumulative_actual_diff_review_followup_requested") > 0 {
+		return false
+	}
+	plan := o.buildCumulativePatchReviewPlan(run, report, nil)
+	if plan == nil || plan.PatchReview == nil || !changePlanTouchesNonTestCode(plan) {
+		return false
+	}
+	review := types.NormalizePatchReviewRecord(*plan.PatchReview)
+	if review.HardBlock {
+		_, _ = o.handlePatchReviewHardBlock(run, plan, review, "cumulative_actual_diff:"+patchReviewHardBlockReason(review))
+		return true
+	}
+	items := selectImpactRepairQueueItems(plan, report, 0)
+	if len(items) == 0 {
+		return false
+	}
+	if len(items) > 4 {
+		items = items[:4]
+	}
+	purpose := repairFollowupPurposeForItems(items)
+	batch := writeflow.WriteBatchPlan{
+		ID:                   nextRepairBatchID(run, run.ActiveBatchID, "cumulative-review"),
+		Goal:                 impactRepairFollowupGoal(items),
+		Purpose:              purpose,
+		Status:               writeflow.BatchReadyForChangePlan,
+		NeedsCodeExploration: len(impactRepairExpectedPaths(items)) == 0,
+		ExploreTargets:       impactRepairExpectedPaths(items),
+		ExpectedPaths:        impactRepairExpectedPaths(items),
+		SuccessCriteria:      impactRepairSuccessCriteria(items),
+	}
+	oldBatchID := strings.TrimSpace(run.ActiveBatchID)
+	appendControllerProgress(run, oldBatchID, "cumulative_actual_diff_review_followup_requested",
+		"typed cumulative actual-diff review found uncovered source proof after a non-failed verifier attempt")
+	if proofFollowupPurpose(batch.Purpose) {
+		appendControllerProgress(run, oldBatchID, "verification_proof_followup_requested",
+			repairFollowupProgressMessage(batch.Purpose))
+	} else {
+		appendControllerProgress(run, oldBatchID, "impact_obligation_followup_requested",
+			repairFollowupProgressMessage(batch.Purpose))
+	}
+	pack := types.WriteContextPackFromChangePlan(plan).WithScope(batch.ID, "")
+	o.busCtx.Mutable.MergeWriteContextPack(pack)
+	next, err := writeflow.ApplyWorkflowDecisionToRun(*run, writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionAppendBatch,
+		ReasonCode: "cumulative_actual_diff_review_followup",
+		Reason:     "typed cumulative actual-diff review found uncovered source proof",
+		Batch:      &batch,
+	})
+	if err != nil {
+		appendControllerProgress(run, oldBatchID, "cumulative_actual_diff_review_followup_failed", err.Error())
+		return false
+	}
+	*run = next
+	o.busCtx.Mutable.SetWriteWorkflowRun(run)
+	o.syncCurrentWriteContextPackToRun(run)
+	return true
+}
+
+func (o *Orchestrator) buildCumulativePatchReviewPlan(run *types.WriteWorkflowRun, report *types.ChangeReport, err error) *types.ChangePlan {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return nil
+	}
+	wt := strings.TrimSpace(o.busCtx.WorktreePath)
+	if wt == "" {
+		return nil
+	}
+	baseRef := firstAppliedWorkflowBaseRef(run)
+	if baseRef == "" {
+		return nil
+	}
+	patch, captureErr := worktree.CaptureRangePatch(wt, baseRef, "HEAD")
+	if captureErr != nil {
+		logging.Warning("[orchestrator] cumulative patch review diff capture failed: %v", captureErr)
+		return nil
+	}
+	if strings.TrimSpace(patch) == "" {
+		return nil
+	}
+	planID := "plan-cumulative-" + sanitizeWorkflowArtifactID(run.RunID)
+	effect := writeflow.PatchEffectRecordFromUnifiedDiff(planID, "cumulative", "workflow_cumulative_diff", baseRef, "HEAD", patch)
+	writeflow.AnnotatePatchEffectStructuredFileParses(&effect, wt)
+	graphProvider := writeimpact.GraphProviderFromSearchGraph(o.busCtx.Mutable.SearchGraph())
+	writeimpact.AnnotatePatchEffectLineFeatureEvents(&effect, graphProvider)
+	paths := patchEffectRecordPaths(effect)
+	if len(paths) == 0 {
+		return nil
+	}
+	current := o.busCtx.Mutable.ChangePlan()
+	plan := &types.ChangePlan{
+		ID:                 planID,
+		Status:             types.PlanStatusApplied,
+		Summary:            "cumulative actual-diff review",
+		TargetPaths:        append([]string(nil), paths...),
+		AppliedPaths:       append([]string(nil), paths...),
+		Changes:            patchEffectFileChanges(effect),
+		PatchEffect:        &effect,
+		BehaviorContracts:  nil,
+		VerificationProbes: nil,
+	}
+	if current != nil {
+		plan.BehaviorContracts = append([]types.WriteBehaviorContract(nil), current.BehaviorContracts...)
+		plan.VerificationProbes = append([]types.VerificationProbe(nil), current.VerificationProbes...)
+	}
+	stampChangePlanImpactObligations(plan, graphProvider)
+	applyVerifyCoverageToChangePlan(plan, report, err)
+	conventionGraph := o.conventionGraphForPatchReview(run, plan)
+	review := writeflow.ReviewAppliedPatchSemantic(writeflow.SemanticPatchReviewInput{
+		Plan:              plan,
+		ActiveSlice:       types.ChangePlanSlice{ID: "cumulative", Paths: paths},
+		ImpactAnalysis:    plan.ImpactAnalysis,
+		ImpactObligations: plan.ImpactObligations,
+		ConventionGraph:   conventionGraph,
+	})
+	review = types.NormalizePatchReviewRecord(review)
+	plan.PatchReview = &review
+	applyVerifyCoverageToChangePlan(plan, report, err)
+	return plan
+}
+
+func firstAppliedWorkflowBaseRef(run *types.WriteWorkflowRun) string {
+	if run == nil {
+		return ""
+	}
+	for _, batch := range run.Batches {
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) != "apply" || strings.TrimSpace(attempt.Status) != "applied" {
+				continue
+			}
+			ref := strings.TrimSpace(attempt.ArtifactRef)
+			if ref == "" && strings.TrimSpace(attempt.PlanID) != "" {
+				ref = worktree.AppliedRef(attempt.PlanID)
+			}
+			if ref == "" {
+				continue
+			}
+			return ref + "^"
+		}
+	}
+	return ""
+}
+
+func patchEffectRecordPaths(effect types.PatchEffectRecord) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, file := range effect.Files {
+		for _, raw := range []string{file.Path, file.OldPath} {
+			path := normalizeControllerPath(raw)
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func patchEffectFileChanges(effect types.PatchEffectRecord) []types.FileChange {
+	paths := patchEffectRecordPaths(effect)
+	changes := make([]types.FileChange, 0, len(paths))
+	for _, path := range paths {
+		changes = append(changes, types.FileChange{
+			Path:  path,
+			Kind:  "patch",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		})
+	}
+	return changes
+}
+
+func changePlanTouchesNonTestCode(plan *types.ChangePlan) bool {
+	if plan == nil {
+		return false
+	}
+	paths := append([]string(nil), plan.TargetPaths...)
+	paths = append(paths, plan.AppliedPaths...)
+	for _, change := range plan.Changes {
+		paths = append(paths, change.Path, change.NewPath)
+	}
+	if plan.PatchEffect != nil {
+		for _, file := range plan.PatchEffect.Files {
+			paths = append(paths, file.Path, file.OldPath)
+		}
+	}
+	for _, raw := range paths {
+		path := normalizeControllerPath(raw)
+		if path == "" {
+			continue
+		}
+		if !types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizeWorkflowArtifactID(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "workflow"
+	}
+	var b strings.Builder
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "workflow"
+	}
+	return out
+}
+
 func (o *Orchestrator) conventionGraphForPatchReview(run *types.WriteWorkflowRun, plan *types.ChangePlan) *types.ConventionGraph {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
 		return nil
@@ -1949,6 +2189,7 @@ type verifyCoverageConfidence struct {
 	CoveredSymbols       map[string]bool
 	CoveredContracts     map[string]bool
 	CoveredPaths         map[string]bool
+	ProbeUnavailable     bool
 }
 
 func applyVerifyCoverageToChangePlan(plan *types.ChangePlan, report *types.ChangeReport, err error) {
@@ -2024,6 +2265,8 @@ func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCovera
 		status := strings.TrimSpace(rec.Status)
 		category := strings.TrimSpace(rec.Category)
 		switch {
+		case status == "unavailable" && category == "probe_execution":
+			conf.ProbeUnavailable = true
 		case status == "missing" && category == "probe_changed_symbol":
 			conf.MissingChangedSymbol = true
 		case status == "missing" && category == "probe_contract_refs":
@@ -2052,6 +2295,22 @@ func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCovera
 func impactCoverageForTarget(target types.ImpactVerificationTarget, projection verifyCoverageProjection) string {
 	switch projection.ImpactStatus {
 	case impactCoverageVerified:
+		if projection.Confidence.ProbeUnavailable {
+			switch target.Kind {
+			case "changed_symbol":
+				if target.Symbol == "" || !projection.Confidence.CoveredSymbols[target.Symbol] {
+					return impactCoverageUnverified
+				}
+			case "behavior_contract":
+				ref := strings.TrimSpace(target.ContractRef)
+				if ref == "" {
+					ref = strings.TrimSpace(target.EvidenceRef)
+				}
+				if ref == "" || !projection.Confidence.CoveredContracts[ref] {
+					return impactCoverageUnverified
+				}
+			}
+		}
 		if target.Kind == "changed_symbol" && projection.Confidence.MissingChangedSymbol {
 			if target.Symbol == "" || !projection.Confidence.CoveredSymbols[target.Symbol] {
 				return impactCoverageUnverified
@@ -2087,6 +2346,12 @@ func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection 
 	case types.PatchReviewCoverageVerified:
 		switch strings.TrimSpace(finding.Code) {
 		case "changed_symbol_without_probe_coverage":
+			if projection.Confidence.ProbeUnavailable {
+				symbol := strings.TrimSpace(finding.SubjectSymbol)
+				if symbol == "" || !projection.Confidence.CoveredSymbols[symbol] {
+					return types.PatchReviewCoverageUnverified
+				}
+			}
 			if projection.Confidence.MissingChangedSymbol {
 				symbol := strings.TrimSpace(finding.SubjectSymbol)
 				if symbol == "" || !projection.Confidence.CoveredSymbols[symbol] {
@@ -2095,6 +2360,9 @@ func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection 
 			}
 		case "behavior_contract_without_verify_coverage":
 			ref := strings.TrimSpace(finding.EvidenceRef)
+			if projection.Confidence.ProbeUnavailable && (ref == "" || !projection.Confidence.CoveredContracts[ref]) {
+				return types.PatchReviewCoverageUnverified
+			}
 			if ref != "" && projection.Confidence.MissingContracts[ref] && !projection.Confidence.CoveredContracts[ref] {
 				return types.PatchReviewCoverageUnverified
 			}
@@ -4709,7 +4977,14 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeRe
 			if finding.Category != types.PatchReviewCategorySemanticCoverage {
 				continue
 			}
-			add(impactRepairQueueItemFromFinding(finding))
+			item := impactRepairQueueItemFromFinding(finding)
+			if item.Path == "" && item.RelatedPath == "" && len(item.Paths) == 0 {
+				switch item.Kind {
+				case "changed_symbol", "behavior_contract":
+					item.Paths = planSourceRepairPaths(plan, 4)
+				}
+			}
+			add(item)
 		}
 	}
 	if plan.ImpactAnalysis != nil {
