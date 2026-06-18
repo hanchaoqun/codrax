@@ -206,6 +206,37 @@ func TestPlannerHandoffSynthesisReadBudget_ExplorationPackIsTight(t *testing.T) 
 	}
 }
 
+func TestPlannerHandoffSynthesisReadBudget_SourceLocalizationOnlyActivates(t *testing.T) {
+	mu := types.NewMutableState("handoff synthesis")
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID: "batch-1",
+		SourceLocalization: &types.SourceLocalizationReview{
+			Source: "read_turn_a",
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:         "pkg/owner.py",
+				Role:         types.SourcePathRoleProduction,
+				Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+				Strength:     types.SourceLocalizationAnchorOwner,
+				SourceStage:  "read_turn_a",
+				AnchorSymbol: "Owner.handle",
+				EvidenceRef: &types.WriteExplorationEvidenceRef{
+					ID:        "ev-owner",
+					Source:    "pkg/owner.py",
+					LineStart: 12,
+				},
+			}},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+
+	if !plannerContextHasWriteHandoffMaterial(ctx) {
+		t.Fatalf("source localization owner anchor should activate handoff synthesis")
+	}
+	if got := plannerHandoffSynthesisReadBudget(ctx); got != plannerHandoffSynthesisBaseReadBudget {
+		t.Fatalf("source localization budget = %d; want %d", got, plannerHandoffSynthesisBaseReadBudget)
+	}
+}
+
 func TestPlannerHandoffSynthesisReadBudget_WriteAnalysisOnlyDoesNotActivate(t *testing.T) {
 	mu := types.NewMutableState("handoff synthesis")
 	mu.SetWriteContextPack(&types.WriteContextPack{

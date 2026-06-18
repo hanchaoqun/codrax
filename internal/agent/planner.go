@@ -1459,19 +1459,39 @@ func plannerContextHasProofFollowupMaterializationOnly(ctx *types.AgentContext) 
 
 func plannerExplorationHandoffLocalizationCount(handoff types.WriteExplorationHandoff) int {
 	normalized := types.NormalizeWriteExplorationHandoff(handoff)
+	ownerAnchorCount := 0
+	if normalized.SourceLocalization != nil {
+		ownerAnchorCount = types.OwnerAnchorViewFromSourceLocalizationReview(*normalized.SourceLocalization, 0).StrongCount()
+	}
 	return len(normalized.TargetFiles) +
 		len(normalized.RelevantSymbols) +
 		len(normalized.ExistingPatterns) +
 		len(normalized.Invariants) +
 		len(normalized.TestSurface) +
 		len(normalized.EvidenceRefs) +
+		ownerAnchorCount +
 		plannerConventionGraphNodeCount(normalized.ConventionGraph)
 }
 
 func plannerExplorationPackLocalizationCount(pack types.WriteContextPack, batchID, sliceID string) int {
 	normalized := types.NormalizeWriteContextPack(pack)
+	ownerAnchorCount := 0
+	ownerView := types.OwnerAnchorViewFromWriteContextPack(normalized, types.WriteConsumerPlanner, batchID, sliceID, 0)
+	for _, anchor := range ownerView.Items {
+		stage := strings.TrimSpace(anchor.SourceStage)
+		if stage == "" {
+			stage = strings.TrimSpace(normalized.SourceStage)
+		}
+		if stage != "explore" || types.SourcePathRoleIsAuxiliary(anchor.Role) {
+			continue
+		}
+		switch anchor.Strength {
+		case types.SourceLocalizationAnchorOwner, types.SourceLocalizationAnchorSupporting:
+			ownerAnchorCount++
+		}
+	}
 	view := normalized.ViewForScope(types.WriteConsumerPlanner, 0, batchID, sliceID)
-	count := 0
+	count := ownerAnchorCount
 	for _, item := range view.Items {
 		stage := strings.TrimSpace(item.SourceStage)
 		if stage == "" {

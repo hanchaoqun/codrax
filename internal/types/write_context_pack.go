@@ -1516,9 +1516,12 @@ func writeContextViewRank(item WriteContextItem, consumer WriteContextConsumer) 
 	if consumer == WriteConsumerPlanner && item.SourceStage == "verify" && item.Priority == WriteContextP2 && writeContextVerifyFailureKind(item.Kind) {
 		return 1
 	}
+	if consumer == WriteConsumerPlanner && writeContextItemHasStrongLocalizationAnchor(item) {
+		return 2
+	}
 	rank := writeContextPriorityRank(item.Priority)
 	if consumer == WriteConsumerPlanner && rank >= 1 {
-		return rank + 1
+		return rank + 2
 	}
 	return rank
 }
@@ -1582,9 +1585,10 @@ func writeContextBudgetedViewItems(items []WriteContextItem, consumer WriteConte
 
 func writeContextMustCarryInLimitedView(item WriteContextItem, consumer WriteContextConsumer) bool {
 	return consumer == WriteConsumerPlanner &&
-		item.SourceStage == "verify" &&
-		item.Priority == WriteContextP2 &&
-		writeContextVerifyFailureKind(item.Kind)
+		((item.SourceStage == "verify" &&
+			item.Priority == WriteContextP2 &&
+			writeContextVerifyFailureKind(item.Kind)) ||
+			writeContextItemHasStrongLocalizationAnchor(item))
 }
 
 func writeContextBoundedPackItems(items []WriteContextItem, limit int) []WriteContextItem {
@@ -1619,9 +1623,20 @@ func writeContextMustCarryInPack(item WriteContextItem) bool {
 	if item.Priority == WriteContextP0 {
 		return true
 	}
+	if writeContextItemHasStrongLocalizationAnchor(item) {
+		return true
+	}
 	return item.SourceStage == "verify" &&
 		item.Priority == WriteContextP2 &&
 		writeContextVerifyFailureKind(item.Kind)
+}
+
+func writeContextItemHasStrongLocalizationAnchor(item WriteContextItem) bool {
+	if item.LocalizationAnchor == nil {
+		return false
+	}
+	anchor := normalizeSourceLocalizationAnchor(*item.LocalizationAnchor)
+	return sourceLocalizationAnchorSatisfiesPriorContext(anchor)
 }
 
 func writeContextPackReplacementIndex(selected []WriteContextItem) int {

@@ -88,7 +88,7 @@ func writeContextPackConsumerGuidance(view types.WriteContextView) string {
 				continue
 			}
 			switch item.Kind {
-			case "constraint", "risk_note", "scope_anchor", "target_file", "evidence_ref", "invariant", "success_criterion":
+			case "constraint", "risk_note", "scope_anchor", "localization_anchor", "source_localization_review", "source_localization_missing_path", "target_file", "evidence_ref", "invariant", "success_criterion":
 				hasCoverageItem = true
 			}
 			if hasCoverageItem {

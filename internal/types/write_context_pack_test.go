@@ -1062,6 +1062,84 @@ func TestWriteContextPackPlannerLimitedViewRetainsVerifyFailureLane(t *testing.T
 	}
 }
 
+func TestWriteContextPackPlannerViewRanksOwnerAnchorBeforeBroadTargets(t *testing.T) {
+	pack := WriteContextPack{
+		PackID:  "localization",
+		BatchID: "batch-1",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/broad.py",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}, {
+			Priority:    WriteContextP1,
+			Kind:        "localization_anchor",
+			Text:        "path=pkg/owner.py strength=owner",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+			LocalizationAnchor: &SourceLocalizationAnchor{
+				Path:         "pkg/owner.py",
+				Kind:         SourceLocalizationAnchorGroundedEvidence,
+				Strength:     SourceLocalizationAnchorOwner,
+				AnchorSymbol: "Owner.handle",
+			},
+		}, {
+			Priority:    WriteContextP1,
+			Kind:        "evidence_ref",
+			Text:        "pkg/support.py:9",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}},
+	}
+
+	view := pack.View(WriteConsumerPlanner, 3)
+	if len(view.Items) != 3 {
+		t.Fatalf("items = %+v", view.Items)
+	}
+	if view.Items[0].Kind != "localization_anchor" || view.Items[0].LocalizationAnchor == nil ||
+		view.Items[0].LocalizationAnchor.Path != "pkg/owner.py" {
+		t.Fatalf("owner anchor should rank first in planner view: %+v", view.Items)
+	}
+}
+
+func TestWriteContextPackPlannerLimitedViewRetainsOwnerAnchor(t *testing.T) {
+	pack := WriteContextPack{
+		PackID:  "limited-localization",
+		BatchID: "batch-1",
+	}
+	for i := 0; i < 6; i++ {
+		pack.Items = append(pack.Items, WriteContextItem{
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        fmt.Sprintf("pkg/broad_%d.py", i),
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		})
+	}
+	pack.Items = append(pack.Items, WriteContextItem{
+		Priority:    WriteContextP1,
+		Kind:        "localization_anchor",
+		Text:        "path=pkg/owner.py strength=owner",
+		SourceStage: "explore",
+		Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		LocalizationAnchor: &SourceLocalizationAnchor{
+			Path:         "pkg/owner.py",
+			Kind:         SourceLocalizationAnchorGroundedEvidence,
+			Strength:     SourceLocalizationAnchorOwner,
+			AnchorSymbol: "Owner.handle",
+		},
+	})
+
+	view := pack.View(WriteConsumerPlanner, 3)
+	if len(view.Items) != 3 {
+		t.Fatalf("limited items = %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "localization_anchor", "pkg/owner.py") {
+		t.Fatalf("limited planner view should retain owner anchor: %+v", view.Items)
+	}
+}
+
 func TestNormalizeWriteContextPackRetainsLateVerifyFailureWhenPackFull(t *testing.T) {
 	pack := WriteContextPack{
 		PackID:  "merged",

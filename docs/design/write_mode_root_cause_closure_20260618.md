@@ -6505,7 +6505,7 @@ Verification:
     before progressing; record this as a follow-up UX/perf budget signal, not a
     correctness blocker.
 
-## 2026-06-19 RC-107 Queued P0 Shared Typed Localization Owner/evidence Scheduling Authority
+## 2026-06-19 RC-107 In Progress P0 Shared Typed Localization Owner/evidence Scheduling Authority
 
 Priority: **next systemic batch after RC-109 lands**. This is the main upstream
 gap behind wrong-source-surface SWE patches and must not be displaced by
@@ -6541,14 +6541,16 @@ verifier-only hardening unless a regression blocks mainline stability.
     `ImpactAnalysisResult`, and `PatchReviewRecord` are reused rather than
     introducing a parallel localization system.
 - Task list:
-  - [ ] Audit current anchor producers and consumers across read analyze,
+  - [x] Audit current anchor producers and consumers across read analyze,
     explore, extract/finalize, write analysis, context pack projection,
     controller decisions, planner hints, replan repair, verifier confidence,
     PatchReview/Impact, and final reports.
-  - [ ] Add a normalized ranked `OwnerAnchorView` helper in shared types.
+  - [x] Add a normalized ranked `OwnerAnchorView` helper in shared types.
   - [ ] Project read-mode extraction/finalization owner evidence into that view
     without changing L1 read scheduler byte identity.
-  - [ ] Make write controller/planner consume `OwnerAnchorView` before broad
+  - [x] Make write planner context-pack view and handoff-material budgeting
+    consume `OwnerAnchorView` before broad target-file hints.
+  - [ ] Make write controller/replan repair consume `OwnerAnchorView` before broad
     target-file hints and record the chosen anchor IDs on the plan/replan.
   - [ ] Add handoff tests proving rich read evidence survives to write planning
     and changes the selected source-owner surface through typed artifacts.
@@ -6556,6 +6558,29 @@ verifier-only hardening unless a regression blocks mainline stability.
     owner-anchor gaps for audit.
   - [ ] Run read-mode isolation tests, write-mode focused/related/full
     regressions, SWE Lite smoke, and manual patch-surface audit.
+- RC107-A implementation notes:
+  - Added `OwnerAnchorView` / `OwnerAnchorViewItem` as the first shared typed
+    ranking view over `SourceLocalizationAnchor`, scoped `WriteContextPack`, and
+    `WriteExplorationHandoff` evidence.
+  - Planner context-pack rendering now ranks strong `localization_anchor` items
+    before broad P1 `target_file` / `evidence_ref` rows and preserves strong
+    owner/support anchors in limited and bounded pack views.
+  - Planner handoff-material detection now counts strong read/write
+    `SourceLocalizationReview` anchors even when no broad target-file list is
+    present, while keeping write-analysis-only scope anchors from activating
+    exploration handoff synthesis.
+  - Prompt change is soft guidance only: `localization_anchor` /
+    source-localization rows join existing planner coverage guidance, but hard
+    gates still consume typed artifacts.
+  - Focused verification:
+    `go test ./internal/types -run
+    'Test(OwnerAnchorView|WriteContextPackPlanner.*Owner|WriteContextPackPlannerLimitedViewRetainsVerifyFailureLane|WriteContextPackBudgetedViewRetainsSafetyAndFailure)'
+    -count=1` and `go test ./internal/agent -run
+    'TestPlannerHandoffSynthesisReadBudget|TestPlannerWriteContextPack'
+    -count=1`.
+  - Related/full verification:
+    `go test ./internal/types ./internal/agent ./internal/orchestrator
+    -count=1`, `go test ./...`, `make`, and `git diff --check`.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
