@@ -78,6 +78,43 @@ func TestConvertRawPerfDataFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 	}
 }
 
+func TestConvertRawPerfDataSkipsSafeExtraSampleFields(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf-extra.data")
+	outPath := filepath.Join(dir, "raw-extra.perftrace")
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod | perfSampleCallchain | perfSampleRaw | perfSampleWeight)
+	if err := os.WriteFile(perfData, syntheticRawPerfDataWithSampleType(sampleType, 0), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := readRawPerfData(context.Background(), perfData)
+	if err != nil {
+		t.Fatalf("read raw perf data with extra fields: %v", err)
+	}
+	if len(data.Caveats) == 0 || !strings.Contains(strings.Join(data.Caveats, "\n"), "raw,weight") {
+		t.Fatalf("expected skipped-field caveat, got %+v", data.Caveats)
+	}
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+		t.Fatalf("convert raw perf.data with extra fields: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`symbol="0x1234"`, `parser_caveats=`, `raw fallback skipped non-causal sample payload field(s): raw,weight`} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("perftrace missing %q:\n%s", want, string(body))
+		}
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("parse perftrace: %v", err)
+	}
+	if len(idx.Events) != 1 || idx.Events[0].PerfSymbol != "0x1234" {
+		t.Fatalf("extra fields should not disturb sample parsing: %+v", idx.Events)
+	}
+}
+
 func TestConvertFileUsesRawPerfParserForDirectPerfDataByContent(t *testing.T) {
 	dir := t.TempDir()
 	perfData := filepath.Join(dir, "capture.bin")
@@ -193,9 +230,13 @@ func TestConvertFilePreservesDirectPerfDataWhenPerftraceDisabled(t *testing.T) {
 }
 
 func syntheticRawPerfData() []byte {
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod | perfSampleCallchain)
+	return syntheticRawPerfDataWithSampleType(sampleType, 0)
+}
+
+func syntheticRawPerfDataWithSampleType(sampleType uint64, readFormat uint64) []byte {
 	const headerSize = 104
 	const attrSize = 48
-	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod | perfSampleCallchain)
 	records := bytes.Buffer{}
 	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "app")))
 	records.Write(rawPerfRecord(perfRecordMmap, rawPerfMmapPayload(1234, 5678, 0x1000, 0x1000, 0, "/system/lib64/libfoo.so")))
@@ -216,6 +257,7 @@ func syntheticRawPerfData() []byte {
 	binary.LittleEndian.PutUint32(attr[4:8], 40)
 	binary.LittleEndian.PutUint64(attr[8:16], 0)
 	binary.LittleEndian.PutUint64(attr[24:32], sampleType)
+	binary.LittleEndian.PutUint64(attr[32:40], readFormat)
 
 	out = append(out, records.Bytes()...)
 	return out
@@ -282,6 +324,18 @@ func rawPerfSamplePayload(sampleType uint64) []byte {
 		writeU64(2)
 		writeU64(0x1111)
 		writeU64(0x1222)
+	}
+	if sampleType&perfSampleRaw != 0 {
+		var size [4]byte
+		binary.LittleEndian.PutUint32(size[:], 3)
+		out.Write(size[:])
+		out.Write([]byte{0xaa, 0xbb, 0xcc})
+		for out.Len()%8 != 0 {
+			out.WriteByte(0)
+		}
+	}
+	if sampleType&perfSampleWeight != 0 {
+		writeU64(123)
 	}
 	return out.Bytes()
 }

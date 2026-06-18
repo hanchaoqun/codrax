@@ -20,21 +20,50 @@ const (
 	perfRecordSample = 9
 	perfRecordMmap2  = 10
 
-	perfSampleIP         = 1 << 0
-	perfSampleTID        = 1 << 1
-	perfSampleTime       = 1 << 2
-	perfSampleAddr       = 1 << 3
-	perfSampleRead       = 1 << 4
-	perfSampleCallchain  = 1 << 5
-	perfSampleID         = 1 << 6
-	perfSampleCPU        = 1 << 7
-	perfSamplePeriod     = 1 << 8
-	perfSampleStreamID   = 1 << 9
-	perfSampleRaw        = 1 << 10
-	perfSampleIdentifier = 1 << 16
+	perfSampleIP           = 1 << 0
+	perfSampleTID          = 1 << 1
+	perfSampleTime         = 1 << 2
+	perfSampleAddr         = 1 << 3
+	perfSampleRead         = 1 << 4
+	perfSampleCallchain    = 1 << 5
+	perfSampleID           = 1 << 6
+	perfSampleCPU          = 1 << 7
+	perfSamplePeriod       = 1 << 8
+	perfSampleStreamID     = 1 << 9
+	perfSampleRaw          = 1 << 10
+	perfSampleBranchStack  = 1 << 11
+	perfSampleRegsUser     = 1 << 12
+	perfSampleStackUser    = 1 << 13
+	perfSampleWeight       = 1 << 14
+	perfSampleDataSrc      = 1 << 15
+	perfSampleIdentifier   = 1 << 16
+	perfSampleTransaction  = 1 << 17
+	perfSampleRegsIntr     = 1 << 18
+	perfSamplePhysAddr     = 1 << 19
+	perfSampleAux          = 1 << 20
+	perfSampleCGroup       = 1 << 21
+	perfSampleDataPageSize = 1 << 22
+	perfSampleCodePageSize = 1 << 23
+
+	perfFormatTotalTimeEnabled = 1 << 0
+	perfFormatTotalTimeRunning = 1 << 1
+	perfFormatID               = 1 << 2
+	perfFormatGroup            = 1 << 3
+	perfFormatLost             = 1 << 4
 )
 
-const rawPerfSupportedSampleBits = perfSampleIP | perfSampleTID | perfSampleTime | perfSampleAddr | perfSampleCallchain | perfSampleID | perfSampleCPU | perfSamplePeriod | perfSampleStreamID | perfSampleIdentifier
+const (
+	rawPerfParsedSampleBits    = perfSampleIP | perfSampleTID | perfSampleTime | perfSampleAddr | perfSampleCallchain | perfSampleID | perfSampleCPU | perfSamplePeriod | perfSampleStreamID | perfSampleIdentifier
+	rawPerfSkippedSampleBits   = perfSampleRead | perfSampleRaw | perfSampleWeight | perfSampleDataSrc | perfSampleTransaction | perfSamplePhysAddr | perfSampleCGroup | perfSampleDataPageSize | perfSampleCodePageSize
+	rawPerfSupportedSampleBits = rawPerfParsedSampleBits | rawPerfSkippedSampleBits
+)
+
+type rawPerfAttr struct {
+	SampleType uint64
+	ReadFormat uint64
+	EventName  string
+	Caveats    []string
+}
 
 type rawPerfFileHeader struct {
 	AttrSize    uint64
@@ -67,6 +96,7 @@ type rawPerfMapping struct {
 
 type rawPerfData struct {
 	SampleType uint64
+	ReadFormat uint64
 	EventName  string
 	Threads    map[int]string
 	Mappings   []rawPerfMapping
@@ -212,19 +242,24 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 	if err != nil {
 		return rawPerfData{}, err
 	}
-	sampleType, eventName, caveats, err := readRawPerfAttr(f, header)
+	attr, err := readRawPerfAttr(f, header)
 	if err != nil {
 		return rawPerfData{}, err
 	}
-	unsupported := sampleType &^ rawPerfSupportedSampleBits
+	unsupported := attr.SampleType &^ rawPerfSupportedSampleBits
 	if unsupported != 0 {
-		return rawPerfData{}, fmt.Errorf("unsupported sample_type bits 0x%x in raw fallback", unsupported)
+		return rawPerfData{}, fmt.Errorf("unsupported sample_type bits 0x%x (%s) in raw fallback", unsupported, rawPerfSampleBitNames(unsupported))
+	}
+	skipped := attr.SampleType & rawPerfSkippedSampleBits
+	if skipped != 0 {
+		attr.Caveats = append(attr.Caveats, fmt.Sprintf("raw fallback skipped non-causal sample payload field(s): %s", rawPerfSampleBitNames(skipped)))
 	}
 	out := rawPerfData{
-		SampleType: sampleType,
-		EventName:  eventName,
+		SampleType: attr.SampleType,
+		ReadFormat: attr.ReadFormat,
+		EventName:  attr.EventName,
 		Threads:    map[int]string{},
-		Caveats:    caveats,
+		Caveats:    attr.Caveats,
 	}
 	if _, err := f.Seek(int64(header.DataOffset), io.SeekStart); err != nil {
 		return rawPerfData{}, err
@@ -259,7 +294,7 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 				out.Mappings = append(out.Mappings, mapping)
 			}
 		case perfRecordSample:
-			sample, ok := parseRawPerfSample(payload, sampleType)
+			sample, ok := parseRawPerfSample(payload, attr)
 			if ok {
 				out.Samples = append(out.Samples, sample)
 			}
@@ -291,9 +326,9 @@ func readRawPerfHeader(r io.ReaderAt) (rawPerfFileHeader, error) {
 	}, nil
 }
 
-func readRawPerfAttr(r io.ReaderAt, header rawPerfFileHeader) (sampleType uint64, eventName string, caveats []string, err error) {
+func readRawPerfAttr(r io.ReaderAt, header rawPerfFileHeader) (rawPerfAttr, error) {
 	if header.AttrsOffset == 0 || header.AttrsSize == 0 {
-		return 0, "", nil, fmt.Errorf("perf.data has no attrs section")
+		return rawPerfAttr{}, fmt.Errorf("perf.data has no attrs section")
 	}
 	attrSize := header.AttrSize
 	if attrSize == 0 || attrSize > header.AttrsSize {
@@ -301,18 +336,70 @@ func readRawPerfAttr(r io.ReaderAt, header rawPerfFileHeader) (sampleType uint64
 	}
 	attr := make([]byte, attrSize)
 	if _, err := r.ReadAt(attr, int64(header.AttrsOffset)); err != nil {
-		return 0, "", nil, fmt.Errorf("read perf attrs: %w", err)
+		return rawPerfAttr{}, fmt.Errorf("read perf attrs: %w", err)
 	}
 	if len(attr) < 32 {
-		return 0, "", nil, fmt.Errorf("perf attr too small: %d", len(attr))
+		return rawPerfAttr{}, fmt.Errorf("perf attr too small: %d", len(attr))
 	}
 	config := binary.LittleEndian.Uint64(attr[8:16])
-	sampleType = binary.LittleEndian.Uint64(attr[24:32])
-	eventName = "config:0x" + strconv.FormatUint(config, 16)
-	if attrSize < header.AttrsSize {
-		caveats = append(caveats, "raw fallback used the first perf attr only; multi-event perf.data is degraded")
+	out := rawPerfAttr{
+		SampleType: binary.LittleEndian.Uint64(attr[24:32]),
+		EventName:  "config:0x" + strconv.FormatUint(config, 16),
 	}
-	return sampleType, eventName, caveats, nil
+	if len(attr) >= 40 {
+		out.ReadFormat = binary.LittleEndian.Uint64(attr[32:40])
+	}
+	if attrSize < header.AttrsSize {
+		out.Caveats = append(out.Caveats, "raw fallback used the first perf attr only; multi-event perf.data is degraded")
+	}
+	return out, nil
+}
+
+func rawPerfSampleBitNames(bits uint64) string {
+	ordered := []struct {
+		bit  uint64
+		name string
+	}{
+		{perfSampleIP, "ip"},
+		{perfSampleTID, "tid"},
+		{perfSampleTime, "time"},
+		{perfSampleAddr, "addr"},
+		{perfSampleRead, "read"},
+		{perfSampleCallchain, "callchain"},
+		{perfSampleID, "id"},
+		{perfSampleCPU, "cpu"},
+		{perfSamplePeriod, "period"},
+		{perfSampleStreamID, "stream_id"},
+		{perfSampleRaw, "raw"},
+		{perfSampleBranchStack, "branch_stack"},
+		{perfSampleRegsUser, "regs_user"},
+		{perfSampleStackUser, "stack_user"},
+		{perfSampleWeight, "weight"},
+		{perfSampleDataSrc, "data_src"},
+		{perfSampleIdentifier, "identifier"},
+		{perfSampleTransaction, "transaction"},
+		{perfSampleRegsIntr, "regs_intr"},
+		{perfSamplePhysAddr, "phys_addr"},
+		{perfSampleAux, "aux"},
+		{perfSampleCGroup, "cgroup"},
+		{perfSampleDataPageSize, "data_page_size"},
+		{perfSampleCodePageSize, "code_page_size"},
+	}
+	var names []string
+	known := uint64(0)
+	for _, item := range ordered {
+		if bits&item.bit != 0 {
+			names = append(names, item.name)
+			known |= item.bit
+		}
+	}
+	if unknown := bits &^ known; unknown != 0 {
+		names = append(names, "unknown:0x"+strconv.FormatUint(unknown, 16))
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ",")
 }
 
 func parseRawPerfComm(payload []byte, threads map[int]string) {
@@ -361,8 +448,9 @@ func parseRawPerfMmap2(payload []byte) (rawPerfMapping, bool) {
 	return mapping, mapping.Len > 0 && strings.TrimSpace(mapping.Path) != ""
 }
 
-func parseRawPerfSample(payload []byte, sampleType uint64) (rawPerfSample, bool) {
+func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) {
 	var sample rawPerfSample
+	sampleType := attr.SampleType
 	off := 0
 	readU64 := func() (uint64, bool) {
 		if off+8 > len(payload) {
@@ -380,6 +468,17 @@ func parseRawPerfSample(payload []byte, sampleType uint64) (rawPerfSample, bool)
 		b := binary.LittleEndian.Uint32(payload[off+4 : off+8])
 		off += 8
 		return a, b, true
+	}
+	skipBytes := func(n int) bool {
+		if n < 0 || off+n > len(payload) {
+			return false
+		}
+		off += n
+		return true
+	}
+	skipU64 := func() bool {
+		_, ok := readU64()
+		return ok
 	}
 	if sampleType&perfSampleIdentifier != 0 {
 		v, ok := readU64()
@@ -442,6 +541,11 @@ func parseRawPerfSample(payload []byte, sampleType uint64) (rawPerfSample, bool)
 		}
 		sample.Period = v
 	}
+	if sampleType&perfSampleRead != 0 {
+		if !skipRawPerfRead(&off, payload, attr.ReadFormat) {
+			return rawPerfSample{}, false
+		}
+	}
 	if sampleType&perfSampleCallchain != 0 {
 		nr, ok := readU64()
 		if !ok || nr > 4096 {
@@ -455,10 +559,90 @@ func parseRawPerfSample(payload []byte, sampleType uint64) (rawPerfSample, bool)
 			sample.Callchain = append(sample.Callchain, v)
 		}
 	}
+	if sampleType&perfSampleRaw != 0 {
+		if off+4 > len(payload) {
+			return rawPerfSample{}, false
+		}
+		size := int(binary.LittleEndian.Uint32(payload[off : off+4]))
+		off += 4
+		if !skipBytes(size) {
+			return rawPerfSample{}, false
+		}
+		if rem := off % 8; rem != 0 && !skipBytes(8-rem) {
+			return rawPerfSample{}, false
+		}
+	}
+	for _, bit := range []uint64{
+		perfSampleWeight,
+		perfSampleDataSrc,
+		perfSampleTransaction,
+		perfSamplePhysAddr,
+		perfSampleCGroup,
+		perfSampleDataPageSize,
+		perfSampleCodePageSize,
+	} {
+		if sampleType&bit != 0 && !skipU64() {
+			return rawPerfSample{}, false
+		}
+	}
 	if sample.Period == 0 {
 		sample.Period = 1
 	}
 	return sample, true
+}
+
+func skipRawPerfRead(off *int, payload []byte, readFormat uint64) bool {
+	readU64 := func() bool {
+		if *off+8 > len(payload) {
+			return false
+		}
+		*off += 8
+		return true
+	}
+	if readFormat&perfFormatGroup != 0 {
+		if *off+8 > len(payload) {
+			return false
+		}
+		nr := binary.LittleEndian.Uint64(payload[*off : *off+8])
+		*off += 8
+		if nr > 4096 {
+			return false
+		}
+		if readFormat&perfFormatTotalTimeEnabled != 0 && !readU64() {
+			return false
+		}
+		if readFormat&perfFormatTotalTimeRunning != 0 && !readU64() {
+			return false
+		}
+		for i := uint64(0); i < nr; i++ {
+			if !readU64() {
+				return false
+			}
+			if readFormat&perfFormatID != 0 && !readU64() {
+				return false
+			}
+			if readFormat&perfFormatLost != 0 && !readU64() {
+				return false
+			}
+		}
+		return true
+	}
+	if !readU64() {
+		return false
+	}
+	if readFormat&perfFormatTotalTimeEnabled != 0 && !readU64() {
+		return false
+	}
+	if readFormat&perfFormatTotalTimeRunning != 0 && !readU64() {
+		return false
+	}
+	if readFormat&perfFormatID != 0 && !readU64() {
+		return false
+	}
+	if readFormat&perfFormatLost != 0 && !readU64() {
+		return false
+	}
+	return true
 }
 
 func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfData) error {
@@ -493,8 +677,12 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 		if sample.CPUValid {
 			cpuKnown = "true"
 		}
-		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s period=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only\n",
-			comm, tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(data.EventName), quoteTraceValue(ip), quoteTraceValue(dso), quoteTraceValue(ip), quoteTraceValue(callchain)); err != nil {
+		parserCaveats := ""
+		if len(data.Caveats) > 0 {
+			parserCaveats = " parser_caveats=" + quoteTraceValue(strings.Join(data.Caveats, "; "))
+		}
+		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s period=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only%s\n",
+			comm, tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(data.EventName), quoteTraceValue(ip), quoteTraceValue(dso), quoteTraceValue(ip), quoteTraceValue(callchain), parserCaveats); err != nil {
 			return err
 		}
 	}

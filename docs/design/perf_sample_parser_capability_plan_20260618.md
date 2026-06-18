@@ -308,8 +308,21 @@ Batch C implementation notes:
 - [ ] Add COMM/FORK/EXIT lifetime repair where fixtures prove pid/tid identity
   would otherwise be wrong.
 - [ ] Improve mmap/build-id DSO labeling without inventing symbols.
-- [ ] Preserve all unsupported sample bits as typed caveats instead of failing
+- [x] Preserve unsupported sample bits as typed caveats instead of failing
   entire files when partial extraction is safe.
+
+Batch D partial implementation notes:
+
+- Raw fallback now parses `read_format` and safely skips `PERF_SAMPLE_READ`,
+  `PERF_SAMPLE_RAW`, `PERF_SAMPLE_WEIGHT`, `DATA_SRC`, `TRANSACTION`,
+  `PHYS_ADDR`, `CGROUP`, `DATA_PAGE_SIZE`, and `CODE_PAGE_SIZE` payload fields
+  while preserving IP/TID/TIME/CPU/PERIOD/CALLCHAIN evidence.
+- Skipped non-causal payload fields are emitted as `parser_caveats` on generated
+  `perf_sample` rows so trace_query/event_search/handoff can keep degraded raw
+  parser provenance visible.
+- Unsafe variable-context fields such as regs, stack, aux, and branch stack
+  remain fail-loud until attr-aware parsing is added; this avoids shifted
+  records and invented symbols.
 
 ### Batch E - Time Alignment And Off-CPU Semantics
 
