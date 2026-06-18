@@ -4463,6 +4463,67 @@ Verification:
   - Full verification for this batch is recorded in the commit that lands this
     RC.
 
+## 2026-06-18 RC-77 WriteAnalysisIR Contract Quarantine
+
+- Evidence:
+  - RC-76c `pydata__xarray-4248` showed that low SWE quality is not only a
+    verifier dependency problem. The first write-analyzer attempt produced
+    exact but under-grounded output fragments and was correctly rejected. The
+    second attempt produced a useful `WriteAnalysisIR` with raw request,
+    scope anchors, phase proposal, and behavior contracts, but one auxiliary
+    `not_raises` contract carried an ungrounded prose payload. The orchestrator
+    rejected the entire IR and installed fallback analysis, losing all
+    structured behavior contracts and phase proposal evidence.
+  - The resulting ChangePlan had `behavior_contracts=null`; probes checked only
+    broad substring presence (`in metres`, `in degC`) and did not carry the
+    stricter output-shape contract (`name, in units (dims) dtype`) forward.
+- Generalized rule:
+  - Keep the existing first-attempt retry: hard exact operators still require a
+    value present verbatim in `raw_request` or a grounded comparator/evidence
+    ref.
+  - On the final write-analysis attempt, do not degrade the whole IR when the
+    failure is limited to ungrounded exact behavior contracts. Deterministically
+    quarantine those contracts by converting their operator to `satisfies` and
+    tagging their source as quality-repaired soft guidance.
+  - Valid contracts, scope anchors, constraints, expected outcomes, risk, and
+    phase proposal remain intact. Ungrounded exact values never become P0 hard
+    gates; they become soft planning/verification guidance only.
+- Prompt and hard-gate hygiene:
+  - The repair reads only typed `WriteAnalysisIR` fields and verbatim
+    `raw_request` substring grounding. It does not parse issue intent keywords,
+    model rationale, natural-language summaries, stdout/stderr, or visible
+    `<think>` text.
+  - This is a unified structural repair layer for model tool JSON, not a
+    case-specific patch for xarray.
+- Task list:
+  - [x] Add deterministic `WriteAnalysisIR` quality repair that softens only
+    ungrounded exact behavior contracts.
+  - [x] Keep retry semantics for first-attempt under-grounded contracts.
+  - [x] Use repaired IR instead of fallback on final-attempt partial contract
+    quality failures.
+  - [x] Add orchestrator regressions proving useful IR fields survive partial
+    contract quarantine.
+  - [x] Re-run focused xarray SWE smoke to confirm ChangePlan carries
+    behavior contracts again.
+- Verification:
+  - Focused tests added:
+    `TestRepairWriteAnalysisIRQualitySoftensOnlyUngroundedExactContracts` and
+    `TestRunWriteAnalyzePhaseRepairsFinalAttemptUngroundedContractInsteadOfFallback`.
+  - Related package verification passed:
+    `go test ./internal/orchestrator ./internal/tool ./internal/types ./internal/writeflow -count=1`.
+  - Focused RC-77 SWE rerun:
+    `/private/tmp/codrax-swe-rc77-xarray-20260618-ir-contract-quarantine`
+    exported a non-empty prediction (`patch_bytes=686`) and generated an
+    official harness command. The final ChangePlan carried five
+    `behavior_contracts` instead of `null`, proving the useful IR survived a
+    partial contract quality issue.
+  - The same run exposed the next candidate gap: the appended
+    `verification_proof_followup` batch spent too long re-reading and
+    re-questioning the already-applied worktree, then ended
+    `plan_batch_canceled`. That is tracked separately as proof-follow-up
+    planning budget/direct-synthesis work; RC-77 intentionally does not mix
+    that scheduler refinement into the IR repair batch.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed
