@@ -79,6 +79,35 @@ The dominant system gaps are:
    The graph is inspectable and evidence-backed, which is good, but it has not
    yet become a stable contributor to patch review and replan priorities.
 
+### Priority Update: Shared Localization Owner Anchors
+
+The upstream "read/write shared typed localization owner/evidence anchor"
+gap is a P0 prerequisite for every later SWE correctness improvement because
+wrong source-owner localization makes verifier, patch critic, and impact
+analysis reason over the wrong surface.
+
+This gap is now recorded and closed by RC-97 / RC-98:
+
+- RC-97 introduced `SourceLocalizationAnchor` as a shared read/write typed
+  artifact, distinguishing read-file observation from grounded owner/support
+  evidence and projecting those anchors into write context packs.
+- RC-98 filtered broad deterministic evidence so `concrete_value` and similar
+  rows remain available as evidence but cannot satisfy owner localization
+  unless they carry typed defining authority.
+
+Current sorted queue after this closure:
+
+1. **RC-99: coherent delivery proof aggregation.** Verification/proof
+   follow-up batches can cumulatively cover all contracts while the terminal
+   single-batch report still looks weak. Fix by aggregating typed proof records
+   across the coherent delivery chain, not by parsing verifier prose.
+2. **Environment/unavailable verification clarity.** Missing customer project
+   dependencies should stay warning/unverified evidence and must not drive
+   source replan as if product code failed.
+3. **Broader SWE re-run and audit.** Continue Lite spot runs after each system
+   fix, keeping official harness compatibility separate from functional
+   correctness.
+
 ## Commercial Design Direction
 
 Do not add issue-specific checks. Do not route on user intent keywords, model
