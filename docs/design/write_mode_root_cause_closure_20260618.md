@@ -2113,6 +2113,68 @@ ImpactVerificationTarget(test_surface: src/widget.test.ts)
 - `eval/swebench/smoke_local.sh`
 - `git diff --check`
 
+## RC-40: Go No-Test Source Compile Fallback
+
+### Gap
+
+RC-28 made native runner `BuildErrors[]` language-neutral, and RC-39 improved
+typed related-test selection for Node. A remaining non-Python verify gap was
+the no-test branch for Go:
+
+```text
+ChangePlan touches cmd/app/main.go
+  -> TestSurface detects Go runner
+  -> runnerHasNoTestWork("go") == true when no *_test.go files exist
+  -> run_tests emitted synthetic NoTestsRunners/pass-with-warning
+  -> compile errors in changed production Go could be missed until manual audit
+```
+
+That is a systemic false-confidence problem, not a SWE-bench case issue. Go's
+standard `go test` is already the correct deterministic harness: even with no
+test files, it compiles the package and emits typed file:line diagnostics on
+compile failure. Codrax should use that harness automatically instead of asking
+the user to know when to run a manual compile command.
+
+### Design
+
+- Extend the existing syntax/source fallback dispatcher with a Go source-compile
+  provider.
+- Keep the behavior typed and deterministic:
+  - the trigger is runner language + `ChangePlan.target_paths` extension +
+    filesystem test-surface state;
+  - the command is the standard Go toolchain, not model prose or user keyword
+    matching;
+  - diagnostics continue through `parseBuildErrors`,
+    `qualifyChangeReport`, and `scopeBuildFailureReportToChangedLines`.
+- Run Go compile fallback only in the no-test-work branch. When Go tests exist,
+  the normal `go test -json` project runner already compiles and tests the
+  package, so an extra preflight would duplicate work.
+- Scope execution to package directories containing plan-touched `.go` files
+  under the runner root instead of broad `./...`, reducing blast radius and
+  avoiding unrelated packages where possible.
+- If `go` is missing and there are no tests, keep the existing customer-friendly
+  unavailable/pass-with-warning semantics; missing local toolchains are not code
+  failures.
+
+### Tasks
+
+- [x] Add Go `.go` source-compile fallback provider for no-test-work paths.
+- [x] Preserve Go project-runner behavior when tests exist.
+- [x] Parse Go compile failures into `BuildErrors[]` and reuse changed-line
+  attribution.
+- [x] Add regressions for successful no-test Go compile, compile-error failure,
+  and end-to-end `run_tests({})` no-test failure.
+- [x] Update user guide Markdown/HTML and this progress ledger.
+
+### Verification
+
+- `go test ./internal/tool -run 'TestRunGoCompileFallback|TestRunTestsEmptyParamsGoNoTestsCompileFailure|TestSyntaxCheckExtensions_OnlySupportedRunners' -count=1`
+- `go test ./internal/tool -count=1`
+- `go test ./...`
+- `make test`
+- `eval/swebench/smoke_local.sh`
+- `git diff --check`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2158,6 +2220,7 @@ ImpactVerificationTarget(test_surface: src/widget.test.ts)
 | RC-37 | complete | Convention evidence projection: advisory convention patch-review findings now carry the source stage, line span, and context summary from the typed `ConventionGraph` node, and context packs render those fields as separate `patch_review_evidence` items for downstream consumers without overloading verdict rows. Verification: focused types/writeflow tests, related packages, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-38 | complete | Multi-language probe-only adapter authority: SWE-bench local confidence now treats any typed `verification_probe/<language>` suite as probe-only evidence and rejects malformed/mixed suites, aligning adapter consumption with the core runtime matrix. Verification: focused/all adapter unit tests, Python compile, SWE adapter smoke, full `go test ./...`, `make test`, and diff check pass. |
 | RC-39 | complete | Node impact related-test selector: typed ImpactAnalysis related-test targets can now prioritize JS/TS-family Node suites, with Node file selectors rendered as positional Jest/Vitest filters. Verification: focused Node impact/command tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
+| RC-40 | complete | Go no-test source compile fallback: plan-touched Go packages with no `_test.go` files now run a bounded `go test -json` compile check instead of synthetic no-tests pass. Verification: focused Go fallback tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 
 ## Acceptance Criteria
 
@@ -2179,6 +2242,8 @@ ImpactVerificationTarget(test_surface: src/widget.test.ts)
 - `verification_probes[]` provide bounded local behavior checks for common
   non-Python projects without requiring project-wide test runners or shell
   command probes.
+- No-test Go source changes compile automatically through the standard Go
+  toolchain before being marked unavailable/pass-with-warning.
 - Uncovered typed impact obligations become a bounded repair queue before
   finish, instead of remaining passive telemetry after local verifier success.
 - Current read/log/trace/data/operation/computer paths remain untouched.

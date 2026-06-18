@@ -708,25 +708,27 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			continue
 		}
 
-		if report, syntaxOutput, ok := runSyntaxPreflightForPlan(ctx, runnerPlanLabel(ctx.RepoRoot, plan), runnerRoot, runner, syntaxPreflightDone); ok {
-			combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, syntaxOutput))
-			executedCmds = append(executedCmds, types.ExecutedCommand{
-				Runner:     runner,
-				Framework:  plan.Framework,
-				WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
-				Source:     planSourceFor(plan),
-				Outcome:    "syntax_preflight",
-			})
-			if report != nil && !report.Passed {
-				installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
-				_, ref := StoreBlob(ctx, t.Name()+"-syntax-preflight", strings.Join(combinedOutputs, "\n\n"))
-				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   false,
-					Summary:   fmt.Sprintf("[run_tests: %s] syntax preflight failed before project tests; raw output stored for inspection", runnerPlanLabel(ctx.RepoRoot, plan)),
-					RawRef:    ref,
-					Timestamp: time.Now(),
-				}, nil
+		if syntaxCheckBeforeProjectRunner(runner) {
+			if report, syntaxOutput, ok := runSyntaxPreflightForPlan(ctx, runnerPlanLabel(ctx.RepoRoot, plan), runnerRoot, runner, syntaxPreflightDone); ok {
+				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, syntaxOutput))
+				executedCmds = append(executedCmds, types.ExecutedCommand{
+					Runner:     runner,
+					Framework:  plan.Framework,
+					WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+					Source:     planSourceFor(plan),
+					Outcome:    "syntax_preflight",
+				})
+				if report != nil && !report.Passed {
+					installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
+					_, ref := StoreBlob(ctx, t.Name()+"-syntax-preflight", strings.Join(combinedOutputs, "\n\n"))
+					return types.ToolResult{
+						ToolName:  t.Name(),
+						Success:   false,
+						Summary:   fmt.Sprintf("[run_tests: %s] syntax preflight failed before project tests; raw output stored for inspection", runnerPlanLabel(ctx.RepoRoot, plan)),
+						RawRef:    ref,
+						Timestamp: time.Now(),
+					}, nil
+				}
 			}
 		}
 
@@ -3605,12 +3607,23 @@ func syntaxCheckExtensions(runner string) []string {
 		return []string{".js", ".jsx", ".mjs", ".cjs"}
 	case "ruby":
 		return []string{".rb"}
+	case "go":
+		return []string{".go"}
 	}
 	return nil
 }
 
-// runSyntaxCheckFallback dispatches to the runner-specific syntax
-// checker (py_compile / node --check / ruby -c). Returns
+func syntaxCheckBeforeProjectRunner(runner string) bool {
+	switch runner {
+	case "go":
+		return false
+	default:
+		return true
+	}
+}
+
+// runSyntaxCheckFallback dispatches to the runner-specific source
+// checker (py_compile / node --check / ruby -c / go test compile). Returns
 // (report, output, ok) — ok=false means this runner has no syntax-
 // check fallback (the caller emits synthetic Passed).
 func runSyntaxCheckFallback(ctx *types.BusContext, label, runnerRoot, runner string, files []string) (*types.ChangeReport, string, bool) {
@@ -3623,6 +3636,9 @@ func runSyntaxCheckFallback(ctx *types.BusContext, label, runnerRoot, runner str
 		return report, output, true
 	case "ruby":
 		report, output := runRubyCheckFallback(ctx, label, runnerRoot, files)
+		return report, output, true
+	case "go":
+		report, output := runGoCompileFallback(ctx, label, runnerRoot, files)
 		return report, output, true
 	}
 	return nil, "", false
@@ -3826,6 +3842,125 @@ func runRubyCheckFallback(ctx *types.BusContext, label, runnerRoot string, files
 		FailureReasonCode: "ruby_syntax_check_failed",
 		TestResults:       failures,
 	}, output.String()
+}
+
+// runGoCompileFallback runs `go test -json` in the package directories touched
+// by plan .go files when no *_test.go work exists. Go's test harness still
+// compiles packages in this case, so this is the smallest reliable proof that
+// a no-test Go change builds.
+func runGoCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	lang := ""
+	if ctx != nil {
+		lang = ctx.Language
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		var skipSummary string
+		if isZh(lang) {
+			skipSummary = "go test 编译兜底跳过:PATH 上没有 go 二进制;同时也无 Go 测试文件,verify 标记 pass-with-warning。要验证 Go 源码请先安装 Go。"
+		} else {
+			skipSummary = "go test compile fallback skipped: go binary not on PATH; no Go test files either, so verify pass-with-warning. Install Go if you intend to verify Go source."
+		}
+		return &types.ChangeReport{
+				Passed:         true,
+				NoTestsRunners: []string{"go"},
+				FailureSummary: skipSummary,
+			},
+			fmt.Sprintf("[run_tests: %s] go test compile fallback skipped: go binary not on PATH\n", label)
+	}
+	dirs := goCompilePackageDirs(runnerRoot, files)
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("[run_tests: %s] go test compile fallback (no Go test files detected)\n", label))
+	if len(dirs) == 0 {
+		return &types.ChangeReport{
+			Passed:         true,
+			NoTestsRunners: []string{"go"},
+		}, output.String()
+	}
+	reports := make([]*types.ChangeReport, 0, len(dirs))
+	for _, dir := range dirs {
+		rel, relErr := filepath.Rel(runnerRoot, dir)
+		if relErr != nil || rel == "" {
+			rel = dir
+		}
+		rel = filepath.ToSlash(rel)
+		cmd := exec.Command("go", "test", "-json")
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		text := string(out)
+		report, parseErr := parseGoTestJSONLines(text)
+		if parseErr != nil {
+			report = makeBuildFailureReport("Go", text)
+		}
+		if err != nil && (report == nil || report.Passed) {
+			report = makeBuildFailureReport("Go", text)
+		}
+		if report == nil {
+			report = &types.ChangeReport{Passed: true, NoTestsRunners: []string{"go"}}
+		}
+		reports = append(reports, report)
+		if report.Passed {
+			output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
+			continue
+		}
+		output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", rel, err,
+			truncateForLog(text, 500)))
+	}
+	merged := mergeChangeReports(reports)
+	if merged == nil {
+		merged = &types.ChangeReport{Passed: true, NoTestsRunners: []string{"go"}}
+	}
+	if merged.Passed {
+		merged.NoTestsRunners = dedupStrings(append(merged.NoTestsRunners, "go"))
+		return merged, output.String()
+	}
+	if merged.BuildFailed {
+		merged.FailureKind = types.FailureKindBuildFailure
+		if strings.TrimSpace(merged.FailureReasonCode) == "" {
+			merged.FailureReasonCode = "go_compile_check_failed"
+		}
+	}
+	if strings.TrimSpace(merged.FailureSummary) == "" {
+		if isZh(lang) {
+			merged.FailureSummary = fmt.Sprintf("go test 编译兜底在 %d 个 plan package 中发现编译错误;由于仓内无 Go 测试文件,本次只做编译验证。", len(dirs))
+		} else {
+			merged.FailureSummary = fmt.Sprintf("go test compile fallback found compile error(s) across %d plan package(s); no Go test files were present, so only package compilation was verified.", len(dirs))
+		}
+	}
+	return merged, output.String()
+}
+
+func goCompilePackageDirs(runnerRoot string, files []string) []string {
+	rootAbs, err := filepath.Abs(runnerRoot)
+	if err != nil {
+		rootAbs = runnerRoot
+	}
+	seen := map[string]bool{}
+	var dirs []string
+	for _, file := range files {
+		if strings.TrimSpace(file) == "" {
+			continue
+		}
+		abs := file
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(rootAbs, file)
+		}
+		abs = filepath.Clean(abs)
+		if rel, err := filepath.Rel(rootAbs, abs); err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			continue
+		}
+		base := filepath.Base(abs)
+		if strings.HasSuffix(base, "_test.go") {
+			continue
+		}
+		dir := filepath.Dir(abs)
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	return dirs
 }
 
 // runPyCompileFallback runs `python3 -m py_compile <file>` for each

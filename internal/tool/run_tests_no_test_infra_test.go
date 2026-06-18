@@ -2126,6 +2126,116 @@ exit 1
 	}
 }
 
+func TestRunGoCompileFallback_PassWhenPackageCompilesWithoutTests(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	mainFile := filepath.Join(root, "main.go")
+	if err := os.WriteFile(mainFile, []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	report, output := runGoCompileFallback(nil, "go@.", root, []string{mainFile})
+	if !report.Passed {
+		t.Fatalf("clean no-test Go package should compile: report=%+v output=%s", report, output)
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "go" {
+		t.Fatalf("go compile fallback should preserve NoTestsRunners=[go], got %+v", report.NoTestsRunners)
+	}
+	if !strings.Contains(output, "ok    .") {
+		t.Fatalf("output should record package compile ok, got %q", output)
+	}
+}
+
+func TestRunGoCompileFallback_FailureCarriesBuildErrors(t *testing.T) {
+	dir := t.TempDir()
+	goBin := filepath.Join(dir, "go")
+	script := `#!/bin/sh
+printf "# example.com/app\n./main.go:5:9: undefined: missingValue\nFAIL\texample.com/app [build failed]\n"
+exit 1
+`
+	if err := os.WriteFile(goBin, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake go: %v", err)
+	}
+	t.Setenv("PATH", dir)
+	root := t.TempDir()
+	mainFile := filepath.Join(root, "main.go")
+	if err := os.WriteFile(mainFile, []byte("package main\n\nfunc main() { missingValue }\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	report, _ := runGoCompileFallback(nil, "go@.", root, []string{mainFile})
+	if report == nil || report.Passed {
+		t.Fatalf("compile-broken Go package should fail, got %+v", report)
+	}
+	if report.FailureKind != types.FailureKindBuildFailure || !report.BuildFailed {
+		t.Fatalf("Go compile fallback should be build_failure, got %+v", report)
+	}
+	if len(report.TestResults) != 1 || len(report.TestResults[0].BuildErrors) != 1 {
+		t.Fatalf("Go compile failure should carry one build error, got %+v", report.TestResults)
+	}
+	if got := report.TestResults[0].BuildErrors[0]; got.File != "./main.go" || got.Line != 5 {
+		t.Fatalf("Go build error mis-parsed: %+v", got)
+	}
+}
+
+func TestRunTestsEmptyParamsGoNoTestsCompileFailure(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc main() {\n\tmissingValue()\n}\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	mu := types.NewMutableState("go no-test compile failure")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-go-no-test-compile",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"main.go"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("compile-broken no-test Go source must fail, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed; report=%+v", got, report)
+	}
+	if report.FailureKind != types.FailureKindBuildFailure || !report.BuildFailed {
+		t.Fatalf("Go no-test compile failure should be build_failure, got %+v", report)
+	}
+	foundFallback := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "go" && cmd.Outcome == "syntax_check_fallback" {
+			foundFallback = true
+		}
+		if cmd.Runner == "go" && cmd.Outcome == "syntax_preflight" {
+			t.Fatalf("Go should not run duplicate before-runner preflight, got %+v", report.ExecutedCommands)
+		}
+	}
+	if !foundFallback {
+		t.Fatalf("executed command evidence should record Go fallback, got %+v", report.ExecutedCommands)
+	}
+}
+
 // TestRunRubyCheckFallback_PassWhenAllFilesParse drives the ruby
 // fallback end-to-end. Skipped without ruby on PATH.
 func TestRunRubyCheckFallback_PassWhenAllFilesParse(t *testing.T) {
@@ -2183,7 +2293,7 @@ exit 1
 // dispatch would silently drop pre-flight files; this drift-guard
 // test catches it.
 func TestSyntaxCheckExtensions_OnlySupportedRunners(t *testing.T) {
-	for _, runner := range []string{"python", "node", "ruby"} {
+	for _, runner := range []string{"python", "node", "ruby", "go"} {
 		exts := syntaxCheckExtensions(runner)
 		if len(exts) == 0 {
 			t.Errorf("runner %q should declare extensions for syntax-check fallback", runner)
@@ -2199,7 +2309,10 @@ func TestSyntaxCheckExtensions_OnlySupportedRunners(t *testing.T) {
 			t.Errorf("runner %q dispatcher returned nil report", runner)
 		}
 	}
-	for _, runner := range []string{"go", "rust", "java", "cmake"} {
+	if syntaxCheckBeforeProjectRunner("go") {
+		t.Error("Go compile fallback must be no-test only; ordinary go test already compiles")
+	}
+	for _, runner := range []string{"rust", "java", "cmake"} {
 		_, _, ok := runSyntaxCheckFallback(nil, "test", t.TempDir(), runner, nil)
 		if ok {
 			t.Errorf("runner %q should NOT have syntax-check dispatcher (extensions unsupported)", runner)
