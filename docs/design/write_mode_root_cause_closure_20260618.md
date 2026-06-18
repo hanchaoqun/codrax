@@ -2231,6 +2231,63 @@ which command to run.
 - `eval/swebench/smoke_local.sh`
 - `git diff --check`
 
+## RC-42: Source-Check Provider Registry
+
+### Gap
+
+RC-40 and RC-41 deliberately expanded non-Python source verification, but the
+implementation still left three parallel routing surfaces:
+
+```text
+syntaxCheckExtensions(runner)
+sourceCheckExtensionsForNoTestWork(runner)
+runSyntaxCheckFallback(runner)
+```
+
+That shape invites future case-by-case drift: a new language can be added to
+one switch but missed in another, or a no-test compile fallback can accidentally
+be enabled as a pre-project-test blocker. The capability is now important enough
+to be represented as a typed registry, similar to the verification-probe runtime
+and actual-diff source-shape provider registries.
+
+### Design
+
+- Introduce a deterministic `sourceCheckProvider` registry with:
+  - `runner`;
+  - ordinary pre-project-test extensions;
+  - no-test-work fallback extensions;
+  - whether the provider may run before the normal project runner;
+  - the provider execution function.
+- Keep hard routing structural:
+  - runner enum from `TestSurface` / `run_tests` params;
+  - `ChangePlan.target_paths` extension filtering;
+  - compiler/parser output.
+- Preserve existing behavior:
+  - Python, JS, Ruby still run before project tests;
+  - Go remains no-test only because `go test` already compiles during normal
+    project verification;
+  - TypeScript remains Node no-test only through the Node provider.
+- Add drift tests so registry rows, extension surfaces, and dispatcher behavior
+  stay coherent.
+
+### Tasks
+
+- [x] Replace parallel source-check switches with a single provider registry.
+- [x] Preserve Python/Node/Ruby/Go behavior and TypeScript no-test-only
+  semantics.
+- [x] Add provider-registry drift tests for uniqueness and dispatch coverage.
+- [x] Run focused/source-check regression, full regression, SWE smoke, and diff
+  check.
+
+### Verification
+
+- `go test ./internal/tool -run 'Test(SourceCheckProviderRegistry|SyntaxCheckExtensions|RunNodeCheckFallback_TypeScript|RunGoCompileFallback|RunTestsEmptyParams(NodeTypeScript|GoNoTests))' -count=1`
+- `go test ./internal/tool -count=1`
+- `go test ./...`
+- `make test`
+- `eval/swebench/smoke_local.sh`
+- `git diff --check`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2278,6 +2335,7 @@ which command to run.
 | RC-39 | complete | Node impact related-test selector: typed ImpactAnalysis related-test targets can now prioritize JS/TS-family Node suites, with Node file selectors rendered as positional Jest/Vitest filters. Verification: focused Node impact/command tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-40 | complete | Go no-test source compile fallback: plan-touched Go packages with no `_test.go` files now run a bounded `go test -json` compile check instead of synthetic no-tests pass. Verification: focused Go fallback tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-41 | complete | TypeScript no-test source compile fallback: plan-touched TS files in Node packages now use `tsc --noEmit --pretty false` when available instead of synthetic no-tests pass. Verification: focused TS fallback tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
+| RC-42 | complete | Source-check provider registry: source-check extensions, no-test extensions, before-runner policy, and dispatch now share one typed registry to avoid future language drift. Verification: focused provider-registry tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 
 ## Acceptance Criteria
 

@@ -2421,6 +2421,45 @@ func TestSyntaxCheckExtensions_OnlySupportedRunners(t *testing.T) {
 	}
 }
 
+func TestSourceCheckProviderRegistry_UniqueAndDispatchCovered(t *testing.T) {
+	if len(sourceCheckProviderRegistry) == 0 {
+		t.Fatal("source-check provider registry must not be empty")
+	}
+	seen := map[string]bool{}
+	for _, provider := range sourceCheckProviderRegistry {
+		if provider.Runner == "" {
+			t.Fatalf("provider with empty runner: %+v", provider)
+		}
+		if seen[provider.Runner] {
+			t.Fatalf("duplicate source-check provider for runner %q", provider.Runner)
+		}
+		seen[provider.Runner] = true
+		if provider.Run == nil {
+			t.Fatalf("provider %q missing Run", provider.Runner)
+		}
+		for _, ext := range append(append([]string{}, provider.PreflightExtensions...), provider.NoTestExtensions...) {
+			if !strings.HasPrefix(ext, ".") || ext != strings.ToLower(ext) {
+				t.Fatalf("provider %q has non-canonical extension %q", provider.Runner, ext)
+			}
+		}
+		if len(provider.PreflightExtensions) == 0 && provider.BeforeProjectRunner {
+			t.Fatalf("provider %q cannot run before project runner without preflight extensions", provider.Runner)
+		}
+		report, _, ok := runSyntaxCheckFallback(nil, "registry-test", t.TempDir(), provider.Runner, nil)
+		if !ok {
+			t.Fatalf("provider %q not reachable through dispatcher", provider.Runner)
+		}
+		if report == nil {
+			t.Fatalf("provider %q dispatcher returned nil report", provider.Runner)
+		}
+	}
+	for _, runner := range []string{"rust", "java", "cmake"} {
+		if _, ok := sourceCheckProviderForRunner(runner); ok {
+			t.Fatalf("runner %q unexpectedly registered as source-check provider", runner)
+		}
+	}
+}
+
 func TestSourceCheckExtensionsForNoTestWork_NodeIncludesTypeScriptOnlyThere(t *testing.T) {
 	preflight := strings.Join(syntaxCheckExtensions("node"), ",")
 	if strings.Contains(preflight, ".ts") || strings.Contains(preflight, ".tsx") {

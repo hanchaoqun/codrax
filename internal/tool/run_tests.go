@@ -3592,34 +3592,43 @@ func planPythonFilesUnder(ctx *types.BusContext, root string) []string {
 	return planFilesByExt(ctx, root, []string{".py"})
 }
 
-// syntaxCheckExtensions returns the file extensions (with leading
-// dot, lowercase) whose source we know how to parse with the
-// runner's syntax-check tool. Empty result = no fallback for this
-// runner, caller emits synthetic Passed instead.
-func syntaxCheckExtensions(runner string) []string {
-	switch runner {
-	case "python":
-		return []string{".py"}
-	case "node":
-		// node --check parses CommonJS / ESM JavaScript. NOT TypeScript
-		// (needs tsc + project config). Skip .ts/.tsx here so we don't
-		// produce false-positive errors on TS-only repos.
-		return nodeJavaScriptExtensions()
-	case "ruby":
-		return []string{".rb"}
-	case "go":
-		return []string{".go"}
-	}
-	return nil
+type sourceCheckProvider struct {
+	Runner              string
+	PreflightExtensions []string
+	NoTestExtensions    []string
+	BeforeProjectRunner bool
+	Run                 func(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string)
 }
 
-func sourceCheckExtensionsForNoTestWork(runner string) []string {
-	switch runner {
-	case "node":
-		return append(append([]string{}, nodeJavaScriptExtensions()...), nodeTypeScriptExtensions()...)
-	default:
-		return syntaxCheckExtensions(runner)
-	}
+var sourceCheckProviderRegistry = []sourceCheckProvider{
+	{
+		Runner:              "python",
+		PreflightExtensions: []string{".py"},
+		NoTestExtensions:    []string{".py"},
+		BeforeProjectRunner: true,
+		Run:                 runPyCompileFallback,
+	},
+	{
+		Runner:              "node",
+		PreflightExtensions: nodeJavaScriptExtensions(),
+		NoTestExtensions:    append(append([]string{}, nodeJavaScriptExtensions()...), nodeTypeScriptExtensions()...),
+		BeforeProjectRunner: true,
+		Run:                 runNodeCheckFallback,
+	},
+	{
+		Runner:              "ruby",
+		PreflightExtensions: []string{".rb"},
+		NoTestExtensions:    []string{".rb"},
+		BeforeProjectRunner: true,
+		Run:                 runRubyCheckFallback,
+	},
+	{
+		Runner:              "go",
+		PreflightExtensions: []string{".go"},
+		NoTestExtensions:    []string{".go"},
+		BeforeProjectRunner: false,
+		Run:                 runGoCompileFallback,
+	},
 }
 
 func nodeJavaScriptExtensions() []string {
@@ -3630,13 +3639,45 @@ func nodeTypeScriptExtensions() []string {
 	return []string{".ts", ".tsx", ".mts", ".cts"}
 }
 
+func sourceCheckProviderForRunner(runner string) (*sourceCheckProvider, bool) {
+	runner = strings.TrimSpace(runner)
+	for i := range sourceCheckProviderRegistry {
+		if sourceCheckProviderRegistry[i].Runner == runner {
+			return &sourceCheckProviderRegistry[i], true
+		}
+	}
+	return nil, false
+}
+
+// syntaxCheckExtensions returns the file extensions (with leading
+// dot, lowercase) whose source we know how to parse with the
+// runner's pre-project source checker. Empty result = no fallback for this
+// runner.
+func syntaxCheckExtensions(runner string) []string {
+	provider, ok := sourceCheckProviderForRunner(runner)
+	if !ok {
+		return nil
+	}
+	return append([]string{}, provider.PreflightExtensions...)
+}
+
+func sourceCheckExtensionsForNoTestWork(runner string) []string {
+	provider, ok := sourceCheckProviderForRunner(runner)
+	if !ok {
+		return nil
+	}
+	if len(provider.NoTestExtensions) > 0 {
+		return append([]string{}, provider.NoTestExtensions...)
+	}
+	return append([]string{}, provider.PreflightExtensions...)
+}
+
 func syntaxCheckBeforeProjectRunner(runner string) bool {
-	switch runner {
-	case "go":
-		return false
-	default:
+	provider, ok := sourceCheckProviderForRunner(runner)
+	if !ok {
 		return true
 	}
+	return provider.BeforeProjectRunner
 }
 
 // runSyntaxCheckFallback dispatches to the runner-specific source
@@ -3644,21 +3685,12 @@ func syntaxCheckBeforeProjectRunner(runner string) bool {
 // (report, output, ok) — ok=false means this runner has no syntax-
 // check fallback (the caller emits synthetic Passed).
 func runSyntaxCheckFallback(ctx *types.BusContext, label, runnerRoot, runner string, files []string) (*types.ChangeReport, string, bool) {
-	switch runner {
-	case "python":
-		report, output := runPyCompileFallback(ctx, label, runnerRoot, files)
-		return report, output, true
-	case "node":
-		report, output := runNodeCheckFallback(ctx, label, runnerRoot, files)
-		return report, output, true
-	case "ruby":
-		report, output := runRubyCheckFallback(ctx, label, runnerRoot, files)
-		return report, output, true
-	case "go":
-		report, output := runGoCompileFallback(ctx, label, runnerRoot, files)
-		return report, output, true
+	provider, ok := sourceCheckProviderForRunner(runner)
+	if !ok || provider.Run == nil {
+		return nil, "", false
 	}
-	return nil, "", false
+	report, output := provider.Run(ctx, label, runnerRoot, files)
+	return report, output, true
 }
 
 func runSyntaxPreflightForPlan(ctx *types.BusContext, label, runnerRoot, runner string, done map[string]bool) (*types.ChangeReport, string, bool) {
