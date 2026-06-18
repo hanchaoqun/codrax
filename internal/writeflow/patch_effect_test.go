@@ -357,6 +357,175 @@ func TestAnnotatePatchEffectPythonNestedStringKeyAccessWarns(t *testing.T) {
 	}
 }
 
+func TestAnnotatePatchEffectNestedCollectionBranchExclusionWarnsAcrossProviders(t *testing.T) {
+	cases := []struct {
+		name  string
+		path  string
+		after []string
+	}{
+		{
+			name: "python",
+			path: "pkg/fields.py",
+			after: []string{
+				"for value, label in choices:",
+				"    if isinstance(label, (list, tuple)):",
+				"        is_flat = False",
+				"        break",
+				"if max_value_length > self.max_length:",
+				"    return [checks.Error(\"too long\")]",
+			},
+		},
+		{
+			name: "javascript",
+			path: "src/fields.js",
+			after: []string{
+				"for (const choice of choices) {",
+				"  if (Array.isArray(choice[1])) {",
+				"    skipNested = true;",
+				"    break;",
+				"  }",
+				"  if (String(choice[0]).length > maxLength) { throw new Error('too long'); }",
+				"}",
+			},
+		},
+		{
+			name: "typescript",
+			path: "src/fields.ts",
+			after: []string{
+				"for (const choice of choices) {",
+				"  if (Array.isArray(choice[1])) {",
+				"    skipNested = true;",
+				"    break;",
+				"  }",
+				"  if (String(choice[0]).length > maxLength) { throw new Error('too long'); }",
+				"}",
+			},
+		},
+		{
+			name: "ruby",
+			path: "lib/fields.rb",
+			after: []string{
+				"choices.each do |choice|",
+				"  if choice[1].is_a?(Array)",
+				"    next",
+				"  end",
+				"  raise 'too long' if choice[0].length > max_length",
+				"end",
+			},
+		},
+		{
+			name: "java",
+			path: "src/main/java/Fields.java",
+			after: []string{
+				"for (Object value : values) {",
+				"  if (value instanceof List) {",
+				"    skipNested = true;",
+				"    break;",
+				"  }",
+				"  if (value.toString().length() > maxLength) { throw new IllegalArgumentException(\"too long\"); }",
+				"}",
+			},
+		},
+		{
+			name: "kotlin",
+			path: "src/main/kotlin/Fields.kt",
+			after: []string{
+				"for (value in values) {",
+				"  if (value is List<*>) {",
+				"    skipNested = true",
+				"    break",
+				"  }",
+				"  if (value.toString().length > maxLength) { throw IllegalArgumentException(\"too long\") }",
+				"}",
+			},
+		},
+		{
+			name: "go",
+			path: "pkg/fields.go",
+			after: []string{
+				"for _, value := range values {",
+				"  if _, ok := value.([]string); ok {",
+				"    continue",
+				"  }",
+				"  if len(fmt.Sprint(value)) > maxLength {",
+				"    return fmt.Errorf(\"too long\")",
+				"  }",
+				"}",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			abs := filepath.Join(root, filepath.FromSlash(tc.path))
+			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(abs, []byte(strings.Join(tc.after, "\n")+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			diff := patchEffectSingleHunkDiff(tc.path, []string{"pass"}, tc.after)
+			record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+			AnnotatePatchEffectStructuredFileParses(&record, root)
+			file := findPatchEffectFile(record, tc.path)
+			if file == nil {
+				t.Fatalf("patch effect file missing: %+v", record.Files)
+			}
+			if !patchEffectHasEvent(*file, "nested_collection_branch_exclusion_added") {
+				t.Fatalf("nested collection exclusion event missing: %+v", file.Events)
+			}
+
+			review := ReviewAppliedPatchScope(&types.ChangePlan{
+				ID:          "plan-1",
+				Status:      types.PlanStatusAppliedPendingVerify,
+				TargetPaths: []string{tc.path},
+				PatchEffect: &record,
+			}, types.ChangePlanSlice{})
+			if review.HardBlock {
+				t.Fatalf("nested collection exclusion is a soft semantic finding, not a hard block: %+v", review)
+			}
+			finding := patchReviewFindingByCode(review, "nested_collection_branch_exclusion_added")
+			if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+				finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+				finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
+				t.Fatalf("nested collection exclusion finding should be semantic coverage unknown: %+v", finding)
+			}
+		})
+	}
+}
+
+func TestAnnotatePatchEffectNestedCollectionHandledBranchDoesNotWarn(t *testing.T) {
+	root := t.TempDir()
+	path := "pkg/fields.py"
+	after := []string{
+		"values = []",
+		"for value, label in choices:",
+		"    if isinstance(label, (list, tuple)):",
+		"        values.extend(choice for choice, _ in label)",
+		"    else:",
+		"        values.append(value)",
+		"if max_value_length > self.max_length:",
+		"    return [checks.Error(\"too long\")]",
+	}
+	abs := filepath.Join(root, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte(strings.Join(after, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := patchEffectSingleHunkDiff(path, []string{"pass"}, after)
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, path)
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if patchEffectHasEvent(*file, "nested_collection_branch_exclusion_added") {
+		t.Fatalf("handled nested collection branch should not emit exclusion event: %+v", file.Events)
+	}
+}
+
 func TestAnnotatePatchEffectOwnerBoundaryWarnings(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -620,6 +789,10 @@ func TestPatchEffectSourceProviderRegistryCoverage(t *testing.T) {
 			if !provider.OwnerBoundary.ReturnWrapper {
 				t.Fatalf("provider %q has no owner-boundary return-wrapper rule", provider.Kind)
 			}
+			if provider.CollectionBoundary.ShapeCheck == nil || provider.CollectionBoundary.ExclusionAction == nil ||
+				provider.CollectionBoundary.ValidationSignal == nil {
+				t.Fatalf("provider %q has incomplete collection-boundary rules: %+v", provider.Kind, provider.CollectionBoundary)
+			}
 		})
 	}
 
@@ -653,6 +826,7 @@ func TestPatchEffectOwnerBoundaryEventsRequireCoverage(t *testing.T) {
 		"caller_return_shape_adapter_added",
 		"diagnostic_signal_conditionally_suppressed",
 		"external_private_state_sync_workaround",
+		"nested_collection_branch_exclusion_added",
 	} {
 		t.Run(code, func(t *testing.T) {
 			if !PatchReviewEffectUnknownCoverage(code) {

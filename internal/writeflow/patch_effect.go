@@ -29,6 +29,17 @@ var (
 	rubyNestedSymbolOrStringKeyAccessRE = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\s*\[\s*(?::[A-Za-z_][A-Za-z0-9_]*|['"][^'"]+['"])\s*\]){2,}`)
 	jvmChainedStringMapGetRE            = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\.get\(\s*"[^"]+"\s*\)){2,}`)
 	goNestedStringMapAssignmentRE       = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\s*\[\s*"[^"]+"\s*\]){2,}\s*=(?:[^=]|$)`)
+	pythonNestedCollectionShapeCheckRE  = regexp.MustCompile(`\bisinstance\s*\([^,\n]+,\s*(?:\([^)]*\b(?:list|tuple|set|dict)\b[^)]*\)|(?:list|tuple|set|dict))\s*\)`)
+	jsNestedCollectionShapeCheckRE      = regexp.MustCompile(`\b(?:Array\.isArray\s*\(|[A-Za-z_$][A-Za-z0-9_$]*\s+instanceof\s+(?:Array|Map|Set)\b)`)
+	rubyNestedCollectionShapeCheckRE    = regexp.MustCompile(`\b(?:is_a\?|kind_of\?|instance_of\?)\s*\(?\s*(?:Array|Hash)\b`)
+	jvmNestedCollectionShapeCheckRE     = regexp.MustCompile(`\b(?:instanceof\s+(?:List|Map|Set|Collection|Iterable)\b|is\s+(?:List|Map|Set|Collection|Iterable)\b)`)
+	goNestedCollectionShapeCheckRE      = regexp.MustCompile(`(?:\.\(\s*(?:\[\]|map\[)|^\s*case\s+(?:\[\]|map\[))`)
+	pythonBranchExclusionActionRE       = regexp.MustCompile(`\b(?:continue|break)\b|^\s*return\s+(?:None|False|\[\]|\{\})?\s*$|\bis_[A-Za-z0-9_]*\s*=\s*False\b|\bskip[A-Za-z0-9_]*\s*=\s*True\b`)
+	jsBranchExclusionActionRE           = regexp.MustCompile(`\b(?:continue|break)\b|\breturn\s+(?:null|undefined|false|\[\]|\{\})\s*;?|\bis[A-Za-z0-9_]*\s*=\s*false\b|\bskip[A-Za-z0-9_]*\s*=\s*true\b`)
+	rubyBranchExclusionActionRE         = regexp.MustCompile(`\b(?:next|break)\b|\breturn\s+(?:nil|false|\[\]|\{\})\b|\bis_[A-Za-z0-9_]*\s*=\s*false\b|\bskip[A-Za-z0-9_]*\s*=\s*true\b`)
+	jvmBranchExclusionActionRE          = regexp.MustCompile(`\b(?:continue|break)\b|\breturn\s+(?:null|false|Collections\.emptyList\(\)|Optional\.empty\(\))\s*;?|\bis[A-Za-z0-9_]*\s*=\s*false\b|\bskip[A-Za-z0-9_]*\s*=\s*true\b`)
+	goBranchExclusionActionRE           = regexp.MustCompile(`\b(?:continue|break)\b|\breturn\s+(?:nil|false)\b|\bis[A-Za-z0-9_]*\s*:=\s*false\b|\bskip[A-Za-z0-9_]*\s*:=\s*true\b`)
+	sourceValidationSignalRE            = regexp.MustCompile(`(?i)\b(?:validat|check|error|exception|raise|throw|assert|diagnostic|warn|warning|max|min|len|length|size|count)\b`)
 	pythonTestScaffoldDeclarationRE     = regexp.MustCompile(`^\s*(?:class\s+[A-Za-z_][A-Za-z0-9_]*(?:Test|Tests)\b|def\s+test_[A-Za-z0-9_]*\s*\()`)
 	jvmTestScaffoldDeclarationRE        = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|open|final|abstract|static)\s+)*class\s+[A-Za-z_][A-Za-z0-9_]*(?:Test|Tests)\b`)
 	goTestScaffoldDeclarationRE         = regexp.MustCompile(`^\s*func\s+Test[A-Z0-9_][A-Za-z0-9_]*\s*\(`)
@@ -56,6 +67,7 @@ type patchEffectSourceProvider struct {
 	LineRules          []patchEffectLineShapeRule
 	ProductionTestRule patchEffectLineShapeRule
 	OwnerBoundary      patchEffectOwnerBoundaryRules
+	CollectionBoundary patchEffectNestedCollectionBoundaryRules
 	AnnotateFile       func(file *types.PatchEffectFile, lines []string)
 	AnnotateHunk       func(file *types.PatchEffectFile, lines []string, hunk types.PatchEffectHunk)
 }
@@ -65,6 +77,12 @@ type patchEffectOwnerBoundaryRules struct {
 	DiagnosticCall            *regexp.Regexp
 	ExternalPrivateAssignment *regexp.Regexp
 	InternalReceivers         []string
+}
+
+type patchEffectNestedCollectionBoundaryRules struct {
+	ShapeCheck       *regexp.Regexp
+	ExclusionAction  *regexp.Regexp
+	ValidationSignal *regexp.Regexp
 }
 
 var patchEffectSourceProviders = []patchEffectSourceProvider{
@@ -86,6 +104,11 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			DiagnosticCall:            pythonDiagnosticCallRE,
 			ExternalPrivateAssignment: externalUnderscoreFieldAssignRE,
 			InternalReceivers:         []string{"self", "cls"},
+		},
+		CollectionBoundary: patchEffectNestedCollectionBoundaryRules{
+			ShapeCheck:       pythonNestedCollectionShapeCheckRE,
+			ExclusionAction:  pythonBranchExclusionActionRE,
+			ValidationSignal: sourceValidationSignalRE,
 		},
 		AnnotateFile: annotatePatchEffectPythonDuplicateDeclarations,
 		AnnotateHunk: annotatePatchEffectPythonOwnerShape,
@@ -109,6 +132,11 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			ExternalPrivateAssignment: externalUnderscoreFieldAssignRE,
 			InternalReceivers:         []string{"this", "super"},
 		},
+		CollectionBoundary: patchEffectNestedCollectionBoundaryRules{
+			ShapeCheck:       jsNestedCollectionShapeCheckRE,
+			ExclusionAction:  jsBranchExclusionActionRE,
+			ValidationSignal: sourceValidationSignalRE,
+		},
 	},
 	{
 		Kind:       "typescript",
@@ -128,6 +156,11 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			DiagnosticCall:            jsDiagnosticCallRE,
 			ExternalPrivateAssignment: externalUnderscoreFieldAssignRE,
 			InternalReceivers:         []string{"this", "super"},
+		},
+		CollectionBoundary: patchEffectNestedCollectionBoundaryRules{
+			ShapeCheck:       jsNestedCollectionShapeCheckRE,
+			ExclusionAction:  jsBranchExclusionActionRE,
+			ValidationSignal: sourceValidationSignalRE,
 		},
 	},
 	{
@@ -149,6 +182,11 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			ExternalPrivateAssignment: rubyExternalPrivateStateAssignRE,
 			InternalReceivers:         []string{"self", "super"},
 		},
+		CollectionBoundary: patchEffectNestedCollectionBoundaryRules{
+			ShapeCheck:       rubyNestedCollectionShapeCheckRE,
+			ExclusionAction:  rubyBranchExclusionActionRE,
+			ValidationSignal: sourceValidationSignalRE,
+		},
 	},
 	{
 		Kind:       "java",
@@ -168,6 +206,11 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			DiagnosticCall:            jvmDiagnosticCallRE,
 			ExternalPrivateAssignment: externalUnderscoreFieldAssignRE,
 			InternalReceivers:         []string{"this", "super"},
+		},
+		CollectionBoundary: patchEffectNestedCollectionBoundaryRules{
+			ShapeCheck:       jvmNestedCollectionShapeCheckRE,
+			ExclusionAction:  jvmBranchExclusionActionRE,
+			ValidationSignal: sourceValidationSignalRE,
 		},
 	},
 	{
@@ -189,6 +232,11 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			ExternalPrivateAssignment: externalUnderscoreFieldAssignRE,
 			InternalReceivers:         []string{"this", "super"},
 		},
+		CollectionBoundary: patchEffectNestedCollectionBoundaryRules{
+			ShapeCheck:       jvmNestedCollectionShapeCheckRE,
+			ExclusionAction:  jvmBranchExclusionActionRE,
+			ValidationSignal: sourceValidationSignalRE,
+		},
 	},
 	{
 		Kind:       "go",
@@ -205,6 +253,11 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 		},
 		OwnerBoundary: patchEffectOwnerBoundaryRules{
 			ReturnWrapper: true,
+		},
+		CollectionBoundary: patchEffectNestedCollectionBoundaryRules{
+			ShapeCheck:       goNestedCollectionShapeCheckRE,
+			ExclusionAction:  goBranchExclusionActionRE,
+			ValidationSignal: sourceValidationSignalRE,
 		},
 	},
 }
@@ -527,6 +580,7 @@ func annotatePatchEffectSourceShape(file *types.PatchEffectFile, data []byte, pr
 			provider.AnnotateHunk(file, lines, hunk)
 		}
 		appendPatchEffectOwnerBoundaryEvents(file, provider, hunk)
+		appendPatchEffectNestedCollectionExclusionEvent(file, provider, hunk)
 		for _, added := range hunk.AddedLineTexts {
 			appendPatchEffectLineShapeEvents(file, provider, added)
 			appendPatchEffectProductionTestScaffoldEvent(file, provider, added)
@@ -811,6 +865,69 @@ func appendPatchEffectExternalPrivateAssignmentEvent(file *types.PatchEffectFile
 			added)
 		return
 	}
+}
+
+func appendPatchEffectNestedCollectionExclusionEvent(file *types.PatchEffectFile, provider *patchEffectSourceProvider, hunk types.PatchEffectHunk) {
+	if file == nil || provider == nil {
+		return
+	}
+	rules := provider.CollectionBoundary
+	if rules.ShapeCheck == nil || rules.ExclusionAction == nil {
+		return
+	}
+	validationSignal := rules.ValidationSignal
+	if validationSignal == nil {
+		validationSignal = sourceValidationSignalRE
+	}
+	if !patchEffectHunkHasValidationSignal(hunk, validationSignal) {
+		return
+	}
+	shapeIndexes := make([]int, 0, 1)
+	for idx, added := range hunk.AddedLineTexts {
+		if patchEffectSourceLineMatches(added.Text, rules.ShapeCheck) {
+			shapeIndexes = append(shapeIndexes, idx)
+		}
+	}
+	if len(shapeIndexes) == 0 {
+		return
+	}
+	for _, shapeIdx := range shapeIndexes {
+		for idx := shapeIdx; idx < len(hunk.AddedLineTexts) && idx <= shapeIdx+6; idx++ {
+			added := hunk.AddedLineTexts[idx]
+			if !patchEffectSourceLineMatches(added.Text, rules.ExclusionAction) {
+				continue
+			}
+			appendPatchEffectProviderWarning(file, "nested_collection_branch_exclusion_added",
+				fmt.Sprintf("added %s code detects a nested collection and excludes that branch from nearby validation or handling; verify nested collection semantics with targeted coverage instead of only flat inputs", provider.Kind),
+				added)
+			return
+		}
+	}
+}
+
+func patchEffectHunkHasValidationSignal(hunk types.PatchEffectHunk, re *regexp.Regexp) bool {
+	if re == nil {
+		return false
+	}
+	for _, added := range hunk.AddedLineTexts {
+		if patchEffectSourceLineMatches(added.Text, re) {
+			return true
+		}
+	}
+	return false
+}
+
+func patchEffectSourceLineMatches(line string, re *regexp.Regexp) bool {
+	if re == nil {
+		return false
+	}
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") ||
+		strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") ||
+		strings.HasPrefix(trimmed, "*") {
+		return false
+	}
+	return re.MatchString(line)
 }
 
 func patchEffectReturnExpression(line string) (string, bool) {

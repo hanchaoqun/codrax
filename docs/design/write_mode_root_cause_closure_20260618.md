@@ -3967,6 +3967,82 @@ Verification:
   passes.
 - Full `go test ./...` passes.
 
+## 2026-06-18 RC-72 Actual-Diff Nested Collection Exclusion Boundary
+
+The post-RC-71 targeted run for `django__django-11742` proved that the online
+state kernel and export path now work:
+
+- workflow status reached `complete`;
+- local verifier reported `passed`;
+- the prediction patch was non-empty and official-harness dry-run consumable;
+- checkpoint restore/replan happened after earlier red observations instead of
+  restarting from scratch.
+
+Manual audit still found a likely semantic miss. The final patch checks flat
+choices for `max_length`, but it sets a flatness flag to false and skips the
+entire grouped/nested choices branch. The generated probes proved only a
+flat-value invariant plus a too-weak "grouped choices no error" invariant. That
+is a root-cause/proof-boundary gap, not an export, scheduler, or Python-only
+runtime gap.
+
+This batch adds a generalized actual-diff event:
+
+```text
+actual added source hunk
+  -> language provider sees nested-collection shape check
+  -> nearby branch exclusion action appears in validation/handling context
+  -> PatchEffectEvent(code=nested_collection_branch_exclusion_added)
+  -> PatchReview semantic coverage unknown / effect_followup
+  -> P2 context + bounded follow-up can require targeted nested-collection proof
+```
+
+Language scope:
+
+- This is not Python-only. The event is declared through the existing
+  source-shape provider registry for Python, JavaScript, TypeScript, Ruby,
+  Java, Kotlin, and Go.
+- Python remains the first SWE-bench evidence source because SWE-bench Lite is
+  Python-centric, but the architecture is language-provider based.
+- Deeper provider strength is intentionally uneven: Python already has
+  duplicate/top-level owner annotators; other languages currently carry precise
+  line/hunk shape events and compile/runner verification paths. Future AST or
+  compiler-backed providers should extend the registry rather than add
+  scheduler branches.
+
+Design constraints:
+
+- The producer reads only actual diff hunks and post-apply source bytes.
+- It does not inspect user issue text, model rationale, stdout narrative,
+  manual audit notes, `<think>` content, or natural-language summaries.
+- The event is soft semantic coverage, not a hard blocker and not an approval
+  trigger. It lowers confidence and hands a typed proof obligation to the
+  controller/planner/verifier loop.
+- The event is intentionally generic: it does not mention choices, Django,
+  `max_length`, or a specific repository. It covers the broader pattern "new
+  validation/handling code detects nested collections but excludes that branch
+  from the new behavior".
+
+Tasks:
+
+- [x] Add provider-owned nested collection shape-check, branch-exclusion, and
+  validation-signal rules for Python, JS/TS, Ruby, Java/Kotlin, and Go.
+- [x] Emit `nested_collection_branch_exclusion_added` from actual diff hunk
+  structure when a bounded nearby exclusion action follows a nested collection
+  shape check in validation/handling context.
+- [x] Register the event as PatchReview soft semantic coverage with
+  `coverage_status=unknown` and `impact_kind=effect_followup`.
+- [x] Add multi-language provider tests proving the event is not Python-only.
+- [x] Add a handled-branch regression proving nested collection expansion does
+  not emit the exclusion event.
+
+Verification:
+
+- Focused nested-collection/provider PatchEffect tests pass.
+- `go test ./internal/writeflow -count=1` passes.
+- `go test ./internal/writeflow ./internal/types ./internal/orchestrator -count=1` passes.
+- Full `go test ./...` passes.
+- `make test`, `make`, and `git diff --check` pass.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -4050,6 +4126,7 @@ Verification:
 | RC-69 | complete | Typed cancellation source now distinguishes public user cancellation from write-mode wall-clock deadline cancellation. The write deadline terminalizes controller dispatch interruption as blocked both after an applied failed patch and after a plan-before-apply interruption, while user/unknown cancellation preserves resumability. Focused/related/full regressions, `make test`, `make`, and diff check pass. Targeted Django smoke now exports a non-empty harness-consumable prediction with `workflow_status=blocked` instead of `workflow_in_progress_empty_patch`; local correctness still fails and is tracked as planner edit-affordance/probe-fixture follow-up. |
 | RC-70 | complete | Structured edit compilation now relocates repeated `old_text` anchors only when current same-file bytes prove exactly one match inside a bounded local window around the submitted line. This reduces `emit_change_plan` retry loops for nearby stale line numbers without reading prompt prose, user issue text, stdout narrative, or `<think>`. Focused relocation tests, related packages, and full `go test ./...` pass. |
 | RC-71 | complete | Python verification probes now separate probe-authored top-level exceptions from product-code runtime failures using the wrapper's typed `probe_top_level` status. Top-level probe exceptions become unavailable probe-authoring diagnostics; product-frame exceptions remain red `tests_failed`. Focused probe-boundary tests, related packages, and full `go test ./...` pass. |
+| RC-72 | complete | Actual-diff nested collection branch exclusion signal is now a multi-language provider event, not a Python-only or Django-specific patch. Newly skipped nested collection branches become soft semantic coverage obligations with `impact_kind=effect_followup`, preserving automation while requiring bounded proof/replan before high-confidence local acceptance. Verification: focused provider tests, writeflow package, related packages, full `go test ./...`, `make test`, `make`, and diff check pass. |
 
 ## Acceptance Criteria
 
