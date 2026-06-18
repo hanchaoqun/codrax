@@ -38,6 +38,16 @@ func TestClaimForm_UsesNonSymbolLabelSurface(t *testing.T) {
 	}
 }
 
+func TestClaimForm_RuntimeArtifactSourceDominatesAnchorKind(t *testing.T) {
+	ev := EvidenceItem{
+		Source:     "../customlogs/xxx_all.systrace",
+		AnchorKind: AnchorDefinition,
+	}
+	if got := ClaimFormOf(ev); got != ClaimExternalObservation {
+		t.Fatalf("runtime artifact source claim form = %q, want %q", got, ClaimExternalObservation)
+	}
+}
+
 func TestClaimForm_CitationRoleIdentityKindExhaustive(t *testing.T) {
 	for _, c := range AllClaimForms() {
 		switch c.CitationRoleIdentityKind() {

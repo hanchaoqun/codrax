@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -143,6 +144,9 @@ func persistMergedAnswerDocument(
 	}
 	if materializeRuntimeTraceNextStepsBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace next-step block from structured observation notes", toolName)
+	}
+	if materializeRuntimeTracePerfQualityBlock(merged, ctx) {
+		logging.Info("[%s] materialized runtime trace perf quality block from structured observation notes", toolName)
 	}
 	if materializeRuntimeTraceObservationBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace observation block from structured perf facts", toolName)
@@ -353,6 +357,9 @@ func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRec
 	if strings.TrimSpace(record.Producer) != "trace_query" {
 		return ""
 	}
+	if !runtimeTraceStateChurnHasPositiveImpact(record) {
+		return ""
+	}
 	required := []string{
 		"running",
 		"runnable",
@@ -391,6 +398,33 @@ func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRec
 		parts = append(parts, key+"="+runtimeTraceMetricWithMS(values[key]))
 	}
 	return strings.Join(parts, "; ")
+}
+
+func runtimeTraceStateChurnHasPositiveImpact(record types.ObservationRecord) bool {
+	if runtimeTracePositiveMetric(record.Value) {
+		return true
+	}
+	if runtimeTracePositiveMetric(runtimeTraceObservationRichNoteValue(record.RichNotes, "impact")) {
+		return true
+	}
+	values := map[string]string{}
+	runtimeTraceMergeSummaryMetricTokens(values, record.Summary, []string{"impact"})
+	return runtimeTracePositiveMetric(values["impact"])
+}
+
+func runtimeTracePositiveMetric(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	value = strings.TrimSuffix(strings.ToLower(value), "ms")
+	value = strings.TrimSpace(strings.TrimSuffix(value, "毫秒"))
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	v, err := strconv.ParseFloat(value, 64)
+	return err == nil && v > 0
 }
 
 func runtimeTraceMetricWithMS(value string) string {
@@ -564,6 +598,117 @@ func trimRuntimeTraceNextStepText(s string) string {
 		return s
 	}
 	return string(runes[:maxRunes-1]) + "…"
+}
+
+func materializeRuntimeTracePerfQualityBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] runtime trace perf quality block skipped: document already at the %d-block cap", maxBlocksPerDoc)
+		return false
+	}
+	if answerDocumentHasBlockID(doc, "runtime_trace_perf_quality") {
+		return false
+	}
+	items := runtimeTracePerfQualityItems(doc, ctx)
+	if len(items) == 0 {
+		return false
+	}
+	block := types.AnswerBlock{
+		ID:    "runtime_trace_perf_quality",
+		Kind:  types.BlockBulletList,
+		Title: "Perf 证据质量",
+		Items: items,
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimExternalObservation,
+		}},
+		FacetIDs: []string{"observed_artifact_fact"},
+	}
+	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
+	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
+	doc.Blocks[insertAt] = block
+	return true
+}
+
+func runtimeTracePerfQualityItems(doc *types.AnswerDocumentV2, ctx *types.BusContext) []types.AnswerBlockItem {
+	if doc == nil || ctx == nil {
+		return nil
+	}
+	visible := answerDocumentVisibleSurfaceForRuntimeTrace(doc)
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 64))
+	seen := make(map[string]bool)
+	var out []types.AnswerBlockItem
+	for _, record := range ledger.Records {
+		text := runtimeTracePerfQualityText(record)
+		if text == "" || strings.Contains(visible, text) || seen[text] {
+			continue
+		}
+		seen[text] = true
+		label := strings.TrimSpace(record.Subject)
+		if label == "" {
+			label = "perf sample"
+		}
+		out = append(out, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("runtime_trace_perf_quality_%d", len(out)+1),
+			Label:       label,
+			Text:        text,
+			CitationRef: -1,
+		})
+		if len(out) >= 2 {
+			break
+		}
+	}
+	return out
+}
+
+func runtimeTracePerfQualityText(record types.ObservationRecord) string {
+	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+		strings.TrimSpace(record.Producer) != "trace_query" ||
+		strings.TrimSpace(record.Predicate) != "perf_sample_top_symbol" {
+		return ""
+	}
+	quality := runtimeTraceObservationRichNoteValue(record.RichNotes, "perf_quality")
+	if quality == "" {
+		return ""
+	}
+	values := map[string]string{}
+	runtimeTraceMergeSummaryMetricTokens(values, quality, []string{"source", "symbolization", "symbolization_status", "clock", "clock_confidence", "callchain_status"})
+	dso := runtimeTraceObservationRichNoteValue(record.RichNotes, "dso")
+	parts := make([]string, 0, 6)
+	if values["source"] != "" {
+		parts = append(parts, "source="+values["source"])
+	}
+	symbolization := firstNonEmptyRuntimeTrace(values["symbolization_status"], values["symbolization"])
+	if symbolization != "" {
+		parts = append(parts, "symbolization_status="+symbolization)
+	}
+	if values["clock"] != "" {
+		parts = append(parts, "clock="+values["clock"])
+	}
+	if values["clock_confidence"] != "" {
+		parts = append(parts, "clock_confidence="+values["clock_confidence"])
+	}
+	if values["callchain_status"] != "" {
+		parts = append(parts, "callchain_status="+values["callchain_status"])
+	}
+	if dso != "" {
+		parts = append(parts, "dso="+dso)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "; ")
+}
+
+func firstNonEmptyRuntimeTrace(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func materializeRuntimeTraceObservationBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {

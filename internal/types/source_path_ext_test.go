@@ -2,6 +2,19 @@ package types
 
 import "testing"
 
+func TestRuntimeArtifactPathTokensInText(t *testing.T) {
+	got := RuntimeArtifactPathTokensInText("只分析 ../customlogs/xxx_all.systrace 这个 trace 文件和 /tmp/perf.data")
+	want := []string{"../customlogs/xxx_all.systrace", "/tmp/perf.data"}
+	if len(got) != len(want) {
+		t.Fatalf("tokens=%v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("tokens=%v, want %v", got, want)
+		}
+	}
+}
+
 func TestIsCodeOrConfigPathExtension(t *testing.T) {
 	for _, ext := range []string{
 		".go", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",

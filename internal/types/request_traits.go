@@ -978,11 +978,13 @@ func (rm RequestModel) HasExternalOnlyRuntimeArtifact() bool {
 // analyzer-emitted path carriers plus the external-artifact citation policy,
 // never final-answer prose.
 func (rm RequestModel) HasRuntimeArtifactPathReference() bool {
-	if rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly() {
+	if rm.ExternalObservationPolicy == nil ||
+		(!rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly() &&
+			!rm.ExternalObservationPolicy.ExcludesCurrentSource()) {
 		return false
 	}
 	for _, raw := range rm.runtimeArtifactPathReferenceCandidates() {
-		if LooksLikeRuntimeArtifactPath(raw) {
+		if RuntimeArtifactPathKindInText(raw) != "" {
 			return true
 		}
 	}
@@ -1003,7 +1005,7 @@ func (rm RequestModel) RuntimeArtifactPathReferenceKind() string {
 		}
 	}
 	for _, raw := range rm.runtimeArtifactPathReferenceCandidates() {
-		if kind := RuntimeArtifactPathKind(raw); kind != "" {
+		if kind := RuntimeArtifactPathKindInText(raw); kind != "" {
 			return kind
 		}
 	}
@@ -1021,6 +1023,9 @@ func (rm RequestModel) runtimeArtifactPathReferenceCandidates() []string {
 	}
 	if rm.CurrentSourceExplanationProfile != nil {
 		out = append(out, rm.CurrentSourceExplanationProfile.SourceQuotes...)
+	}
+	if rm.ExternalObservationPolicy != nil {
+		out = append(out, rm.ExternalObservationPolicy.SourceQuotes...)
 	}
 	if rm.RequestedAnswerDimensions != nil {
 		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {

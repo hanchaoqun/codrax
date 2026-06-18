@@ -205,6 +205,29 @@ func TestCompileObservationLedger_CompilesExistingCarriers(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedger_RuntimeArtifactPathEvidenceStaysRuntimeArtifact(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		EvidenceItems: []EvidenceItem{{
+			ID:        "trace-line",
+			Source:    "../customlogs/xxx_all.systrace",
+			LineStart: 2891,
+			LineEnd:   3226,
+			Subject:   "CookieMonsterCl-59843",
+			Predicate: "runnable_wait",
+			Summary:   "runtime trace root-cause row",
+			Salience:  SalienceLoadBearing,
+		}},
+	})
+	got := findObservationRecord(t, ledger, "evidence:trace-line")
+	if got.Origin != AnswerEvidenceOriginRuntimeArtifact ||
+		got.SourceRef.Kind != ObservationSourceRuntimeArtifact {
+		t.Fatalf("runtime trace evidence should stay runtime_artifact, got %+v", got)
+	}
+	if got.SourceRef.ArtifactKind != "trace" || got.SourceRef.Path != "../customlogs/xxx_all.systrace" {
+		t.Fatalf("runtime trace source ref not preserved: %+v", got.SourceRef)
+	}
+}
+
 func TestCompileObservationLedger_DemotesPerfPreTriageWhenTraceQueryExists(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		AggregateFacts: []AnswerAggregateFact{{

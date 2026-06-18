@@ -2115,6 +2115,9 @@ func observationLedgerHasTraceQueryRuntimeObservation(ledger ObservationLedger) 
 
 func observationLedgerHasCurrentSourceRecord(ledger ObservationLedger) bool {
 	for _, record := range ledger.Records {
+		if RuntimeArtifactPathKind(record.SourceRef.Path) != "" {
+			continue
+		}
 		if record.Origin == AnswerEvidenceOriginCurrentSource ||
 			record.SourceRef.Kind == ObservationSourceCurrentSource {
 			return true

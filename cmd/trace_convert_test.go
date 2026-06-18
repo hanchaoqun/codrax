@@ -46,6 +46,44 @@ func TestTraceConvertNextLineFollowsLanguage(t *testing.T) {
 	}
 }
 
+func TestTraceConvertNextLinePrefersTraceBundle(t *testing.T) {
+	result := hitraceconv.Result{
+		OutputPath: "out.systrace",
+		BundlePath: "out.tracebundle.json",
+		Artifacts: []hitraceconv.Artifact{{
+			Type:      hitraceconv.ArtifactPerfTrace,
+			Path:      "out.perftrace",
+			Converter: "hitraceconv-v1+raw-perfdata",
+		}},
+	}
+	if got := traceConvertNextLine("en", result); !strings.Contains(got, "out.tracebundle.json") || strings.Contains(got, "out.systrace") {
+		t.Fatalf("next line should prefer tracebundle when perf artifacts are present: %q", got)
+	}
+	if got := traceConvertNextLine("zh", result); !strings.Contains(got, "tracebundle") || !strings.Contains(got, "perftrace") {
+		t.Fatalf("zh next line should mention bundled trace/perf handoff: %q", got)
+	}
+}
+
+func TestTraceConvertArtifactLinesIncludeProvenance(t *testing.T) {
+	lines := strings.Join(traceConvertArtifactLines("en", []hitraceconv.Artifact{{
+		Type:          hitraceconv.ArtifactPerfTrace,
+		Path:          "out.perftrace",
+		Bytes:         123,
+		DataType:      1,
+		PluginName:    "hiperf-plugin",
+		PluginVersion: "1",
+		SourceOffset:  1024,
+		SourceBytes:   99,
+		Converter:     "hitraceconv-v1+raw-perfdata",
+		Caveats:       []string{"symbolization_status=unsymbolized"},
+	}}), "\n")
+	for _, want := range []string{"bytes=123", "data_type=1", "plugin=hiperf-plugin", "plugin_version=1", "source_offset=1024", "source_bytes=99", "converter=hitraceconv-v1+raw-perfdata", "symbolization_status=unsymbolized"} {
+		if !strings.Contains(lines, want) {
+			t.Fatalf("artifact detail missing %q:\n%s", want, lines)
+		}
+	}
+}
+
 func TestTraceConvertPerfToolStatusLines(t *testing.T) {
 	status := hitraceconv.PerfToolStatus{
 		ParserMode:               "auto",

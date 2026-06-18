@@ -1,6 +1,9 @@
 package types
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // codeOrConfigSourcePathExtensions is the canonical set of file
 // extensions that flag a string as a likely source / declarative-
@@ -154,4 +157,53 @@ func RuntimeArtifactPathKind(s string) string {
 // intent from prose.
 func LooksLikeRuntimeArtifactPath(s string) bool {
 	return RuntimeArtifactPathKind(s) != ""
+}
+
+// RuntimeArtifactPathKindInText returns the runtime artifact family when a
+// structured analyzer/source-policy field contains a path-shaped runtime
+// artifact token embedded in a longer quote. It is still path-shape only: the
+// caller must already be consuming a typed path/source-quote field, not raw user
+// intent prose.
+func RuntimeArtifactPathKindInText(s string) string {
+	if tokens := RuntimeArtifactPathTokensInText(s); len(tokens) > 0 {
+		return RuntimeArtifactPathKind(tokens[0])
+	}
+	return ""
+}
+
+// RuntimeArtifactPathTokensInText extracts path-shaped runtime artifact tokens
+// from a typed source/path carrier. Callers must use the result as an artifact
+// identity hint only; this helper is not an intent classifier.
+func RuntimeArtifactPathTokensInText(s string) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(raw string) {
+		token := strings.Trim(raw, "`\"'()[]{}<>，。；；,;：:")
+		if RuntimeArtifactPathKind(token) == "" {
+			return
+		}
+		key := strings.ToLower(token)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, token)
+	}
+	trimmed := strings.TrimSpace(s)
+	if trimmed != "" && !strings.ContainsFunc(trimmed, runtimeArtifactPathTokenSeparator) {
+		add(trimmed)
+	}
+	for _, token := range strings.FieldsFunc(s, runtimeArtifactPathTokenSeparator) {
+		add(token)
+	}
+	return out
+}
+
+func runtimeArtifactPathTokenSeparator(r rune) bool {
+	switch r {
+	case '/', '\\', '.', '-', '_', '~', ':':
+		return false
+	default:
+		return unicode.IsSpace(r) || strings.ContainsRune("`\"'()[]{}<>，。；；,;|", r)
+	}
 }

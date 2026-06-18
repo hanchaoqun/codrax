@@ -219,6 +219,94 @@ func TestValidateAndBuildRequiredFileHints_DropsUnresolvableContextPath(t *testi
 	}
 }
 
+func TestValidateAndBuildRequiredFileHints_PreservesRuntimeArtifactPath(t *testing.T) {
+	root := t.TempDir()
+	val := &analysisValidationResult{}
+	got := validateAndBuildRequiredFileHintsWithContext(&types.BusContext{RepoRoot: root}, []emitRequiredFileParam{{
+		Path:       "../customlogs/xxx_all.systrace",
+		Confidence: 0.95,
+		Rationale:  "user named a runtime trace artifact path",
+	}}, val)
+	if len(got) != 1 {
+		t.Fatalf("runtime artifact path should be preserved, got %+v warnings=%v", got, val.Warnings)
+	}
+	if got[0].Path != "../customlogs/xxx_all.systrace" {
+		t.Fatalf("runtime artifact path = %q, want ../customlogs/xxx_all.systrace", got[0].Path)
+	}
+	if containsAny(val.Warnings, "existing active file") {
+		t.Fatalf("runtime artifact path should not be warned as missing current source, got %v", val.Warnings)
+	}
+}
+
+func TestEmitAnalysisExecute_ProjectsRuntimeArtifactPathFromRequest(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("只分析 ../customlogs/xxx_all.systrace 这个 trace 文件，不分析代码")
+	ctx := &types.BusContext{
+		RepoRoot: t.TempDir(),
+		Mutable:  mu,
+	}
+	payload := `{
+		"intent": "root_cause",
+		"scenario": "root_cause",
+		"complexity": "moderate",
+		"intent_confidence": 0.92,
+		"complexity_confidence": 0.85,
+		"kind_confidence": 0.9,
+		"keywords": ["systrace", "trace", "runtime"],
+		"entities": ["com.baidu.tieba"],
+		"question_kind": "mechanism",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": true,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": true,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.95
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": false,
+			"confidence": 0.8
+		},
+		"error_granularity_profile": {
+			"is_granularity_question": false,
+			"confidence": 0.8
+		},
+		"external_observation_policy": {
+			"artifact_citation_mode": "external_only",
+			"confidence": 0.95,
+			"rationale": "runtime trace only"
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(ctx, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("emit_analysis should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || !rm.HasRuntimeArtifactPathReference() {
+		t.Fatalf("runtime artifact path reference should be projected from current request, rm=%+v", rm)
+	}
+	if len(rm.AnalyzerHints.RequiredFileHints) != 1 ||
+		rm.AnalyzerHints.RequiredFileHints[0].Path != "../customlogs/xxx_all.systrace" {
+		t.Fatalf("required file hints = %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+}
+
 func TestEmitAnalysisExecute_NormalizesRequiredFilesBeforePersistAndSummary(t *testing.T) {
 	root := t.TempDir()
 	rel := "CodeAgent/packages/core/src/mcp/token-storage/types.ts"

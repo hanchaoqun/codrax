@@ -189,6 +189,7 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromTypedObs
 			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
 			Producer: "trace_query",
 			Subject:  "app-20",
+			Value:    "5.000",
 			RichNotes: []string{
 				"dominant_state=runnable",
 				"running=3.500",
@@ -316,6 +317,118 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromSummaryT
 	}
 	if !strings.Contains(line, "max_segment=0.500ms; p95_segment=0.500ms") {
 		t.Fatalf("max/p95 metrics should stay on one snapshot line:\n%s", line)
+	}
+}
+
+func TestEmitAnswerDocumentV2_SuppressesZeroImpactRuntimeTraceMetricSnapshot(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:        "trace_query:state_churn:1",
+			Origin:    types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:  "trace_query",
+			Subject:   "app-20",
+			Predicate: "state_churn",
+			Value:     "0.000",
+			RichNotes: []string{
+				"dominant_state=s_sleep",
+				"running=0.000",
+				"runnable=0.000",
+				"sleep=2.500",
+				"d_state=0.000",
+				"io_wait=0.000",
+				"fragments=2",
+				"switches=1",
+				"max_segment=2.500",
+				"p95_segment=2.500",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "app-20 runnable 等待由 rival-300 竞争导致。"},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 窗口。"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatalf("missing answer doc")
+	}
+	for _, block := range doc.Blocks {
+		if block.ID == "runtime_trace_metric_snapshot" {
+			t.Fatalf("zero-impact state_churn should not materialize metric snapshot: %+v", doc.Blocks)
+		}
+	}
+}
+
+func TestEmitAnswerDocumentV2_MaterializesRuntimeTracePerfQuality(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:        "trace_query:trace-query-result.json#perf_sample_top_symbol:1",
+			Origin:    types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:  "trace_query",
+			Predicate: "perf_sample_top_symbol",
+			Subject:   "0x1234",
+			RichNotes: []string{
+				"dso=libraw.so",
+				"perf_quality=cpu_known=1,cpu_unknown=0,source=raw_perfdata_fallback,symbolization=unsymbolized,clock=perf_data,clock_confidence=assumed,callchain_status=ip_only",
+			},
+		}},
+	}}
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "raw-21 只有 1 个采样，无法证明统计热点。"},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 窗口。"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("runtime trace perf quality block should be inserted before caveat, got %+v", doc)
+	}
+	quality := doc.Blocks[1]
+	if quality.ID != "runtime_trace_perf_quality" || quality.Kind != types.BlockBulletList {
+		t.Fatalf("missing perf quality block: %+v", doc.Blocks)
+	}
+	if len(quality.Items) != 1 {
+		t.Fatalf("unexpected perf quality items: %+v", quality.Items)
+	}
+	line := quality.Items[0].Text
+	for _, want := range []string{
+		"source=raw_perfdata_fallback",
+		"symbolization_status=unsymbolized",
+		"clock=perf_data",
+		"clock_confidence=assumed",
+		"callchain_status=ip_only",
+		"dso=libraw.so",
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("perf quality block missing %q:\n%s", want, line)
+		}
+	}
+	if len(quality.ClaimUses) != 1 || quality.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
+		t.Fatalf("perf quality block must stay in external-observation lane: %+v", quality.ClaimUses)
+	}
+	if len(doc.Citations) != 0 || quality.Items[0].CitationRef != -1 {
+		t.Fatalf("runtime perf quality must not create repo citations: citations=%+v item=%+v", doc.Citations, quality.Items[0])
 	}
 }
 

@@ -1,5 +1,21 @@
 # Trace Query Running + Perf Root-Cause Closure Plan
 
+## Implementation Status
+
+As of 2026-06-18 the core trace_query implementation described in this plan has
+landed: `RootCausePerfRoleContext`, `RootCauseRankItem.PerfContexts`,
+stats-aware role attachment, typed observations, evidence summaries, schema
+guidance, and focused tests are present in code. Remaining work has moved to
+operator/toolchain UX: official hiperf/simpleperf discovery guidance, preserving
+tracebundle handoff, and surfacing explicit runtime artifact paths in terminal
+status plus markdown/html dumps. That follow-up is tracked in
+`docs/design/perf_toolchain_runtime_ux_audit_20260618.md`.
+
+Final runtime-path validation also closed the path-only Donghu regression:
+`perf_runtime_ux_donghu_path_after_claimform_fix_20260618` passed both relative
+and absolute trace-path cases with no source reads, no repo/list-file tool use,
+no contract warnings, and preserved the CookieMonsterCl on-chain runnable cause.
+
 ## Summary
 
 `trace_query` 已经能把 perf sample 转成 `perf_samples`，并能把候选线程的 `perf_context`
@@ -133,38 +149,38 @@ perf sample 单独当作根因，也避免只说“算力不足”而漏掉实�
 
 ### Batch A: Documentation and Contracts
 
-- [ ] 落盘本设计文档。
-- [ ] 明确 `RootCausePerfRoleContext` 字段与 role 枚举。
-- [ ] 确认新增字段是系统输出，不进入 tool-call JSON repair。
-- [ ] 提交并推送设计文档。
+- [x] 落盘本设计文档。
+- [x] 明确 `RootCausePerfRoleContext` 字段与 role 枚举。
+- [x] 确认新增字段是系统输出，不进入 tool-call JSON repair。
+- [x] 提交并推送设计文档。
 
 ### Batch B: Structured Data and Attachment
 
-- [ ] 在 `internal/tracequery/types.go` 增加 `RootCausePerfRoleContext` 与
+- [x] 在 `internal/tracequery/types.go` 增加 `RootCausePerfRoleContext` 与
   `RootCauseRankItem.PerfContexts`。
-- [ ] 让 root-cause 候选携带结构化 CPU/window 元信息，避免靠 summary 文本反推。
-- [ ] 重构 `attachPerfContextToRootCauseRank`，输入 `WindowStats` 并挂载 role contexts。
-- [ ] 为 CPU pressure/supply pressure/compute supply/runnable/scheduler latency/state churn
+- [x] 让 root-cause 候选携带结构化 CPU/window 元信息，避免靠 summary 文本反推。
+- [x] 重构 `attachPerfContextToRootCauseRank`，输入 `WindowStats` 并挂载 role contexts。
+- [x] 为 CPU pressure/supply pressure/compute supply/runnable/scheduler latency/state churn
   补齐 candidate、nearest-chain、same-CPU competitor、top-running CPU roles。
-- [ ] 保留 `PerfContext` 作为 primary compact context，来源为最高优先级 role。
+- [x] 保留 `PerfContext` 作为 primary compact context，来源为最高优先级 role。
 
 ### Batch C: Handoff and Guidance
 
-- [ ] 更新 `trace_query` Markdown summary，展示 role-aware perf rows。
-- [ ] 更新 typed observations，输出 `perf_role_contexts` rich notes。
-- [ ] 更新 evidence facts，保留 role-aware perf 摘要。
-- [ ] 更新 tool description、view matrix、default skill hint、final answer guidance。
-- [ ] 确认描述不把 perf sample 作为单独 root cause，不引入用户意图关键字匹配。
+- [x] 更新 `trace_query` Markdown summary，展示 role-aware perf rows。
+- [x] 更新 typed observations，输出 `perf_role_contexts` rich notes。
+- [x] 更新 evidence facts，保留 role-aware perf 摘要。
+- [x] 更新 tool description、view matrix、default skill hint、final answer guidance。
+- [x] 确认描述不把 perf sample 作为单独 root cause，不引入用户意图关键字匹配。
 
 ### Batch D: Tests and Evals
 
-- [ ] 新增单测：候选线程 perf_context 仍兼容。
-- [ ] 新增单测：空线程 `cpu_pressure` 候选能通过 `TopRunning` 挂 `cpu_pressure_top_running`。
-- [ ] 新增单测：`compute_supply`/`scheduler_latency` 候选挂同核竞争 perf role。
-- [ ] 新增单测：evidence facts 和 typed observations 包含 role-aware perf 摘要。
-- [ ] 新增 eval：问题不预置分析结论，只给 trace/perf 窗口，要求系统自己解释 running/
+- [x] 新增单测：候选线程 perf_context 仍兼容。
+- [x] 新增单测：空线程 `cpu_pressure` 候选能通过 `TopRunning` 挂 `cpu_pressure_top_running`。
+- [x] 新增单测：`compute_supply`/`scheduler_latency` 候选挂同核竞争 perf role。
+- [x] 新增单测：evidence facts 和 typed observations 包含 role-aware perf 摘要。
+- [x] 新增 eval：问题不预置分析结论，只给 trace/perf 窗口，要求系统自己解释 running/
   compute-supply，并在答案中同时包含供给证据和 perf 热点。
-- [ ] 复跑现有 trace/perf、state_churn、东湖 runnable-context 回归 cases，每次并行 2 个。
+- [x] 复跑现有 trace/perf、state_churn、东湖 runnable-context 回归 cases，每次并行 2 个。
 
 ## Acceptance Criteria
 

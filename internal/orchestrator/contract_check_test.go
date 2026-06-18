@@ -75,6 +75,65 @@ func TestFinalizerCitationSupportCount_IgnoresUngroundedVisibleAnchors(t *testin
 	}
 }
 
+func TestFinalizerCitationSupportCount_RuntimeTraceObservationOnlyCountsArtifactSupport(t *testing.T) {
+	mut := types.NewMutableState("只分析 ../customlogs/xxx_all.systrace 这个 trace 文件，不分析代码")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			runtimeTraceObservationForCitationFloorTest("trace_query:root:1", "CookieMonsterCl-59843", "runnable_wait", "/tmp/app.systrace:10-20"),
+			runtimeTraceObservationForCitationFloorTest("trace_query:root:2", "com.baidu.tieba-59566", "sleep_wait", "/tmp/app.systrace:21-30"),
+			runtimeTraceObservationForCitationFloorTest("trace_query:root:3", "cpu=0", "cpu_pressure", "/tmp/app.systrace:31-40"),
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioPerformanceBottleneck,
+				AnalyzerHints: types.AnalyzerHints{
+					ExactTargets: []string{"../customlogs/xxx_all.systrace"},
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+					SourceQuotes:         []string{"只分析 ../customlogs/xxx_all.systrace 这个 trace 文件，不分析代码"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 3},
+			},
+		},
+	}
+
+	if !runtimeArtifactCitationFloorWaivedForBus(bus, nil) {
+		t.Fatal("runtime trace observation-only answer should waive repo citation floor")
+	}
+	if got := finalizerCitationSupportCount(bus, &agent.StageOutput{FinalAnswer: "runtime-only trace answer"}); got != 3 {
+		t.Fatalf("runtime observation citation support count = %d, want 3", got)
+	}
+}
+
+func runtimeTraceObservationForCitationFloorTest(id, subject, predicate, support string) types.ObservationRecord {
+	return types.ObservationRecord{
+		ID:              id,
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRolePrincipalAnswer,
+		GroundingPolicy: types.ClaimGroundingHard,
+		ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+		SourceRef: types.ObservationSourceRef{
+			Kind:         types.ObservationSourceRuntimeArtifact,
+			Path:         "/tmp/app.systrace",
+			ArtifactKind: "trace",
+		},
+		Subject:     subject,
+		Predicate:   predicate,
+		SupportRefs: []string{support},
+	}
+}
+
 func TestRunContractCheck_SkipLLMReviewSuppressesReviewerNotices(t *testing.T) {
 	mut := types.NewMutableState("检查最终答案")
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{

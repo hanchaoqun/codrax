@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/preview"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // Ext is the suffix used for both the prune glob and new files.
@@ -48,6 +50,8 @@ type RuntimeArtifact struct {
 	Bytes  int
 	Detail string
 }
+
+var requestPathTokenRE = regexp.MustCompile(`[^\s"'` + "`" + `<>()[\]{}，。；;、]+`)
 
 // Result reports the best-effort artifacts written for one answer dump. A
 // markdown path can be present while HTML is empty when the secondary render
@@ -176,6 +180,181 @@ func RuntimeArtifactsFromAttachment(kind, body string) []RuntimeArtifact {
 		out = append(out, runtimeArtifactsForSegment(kind, segment.source, segment.body)...)
 	}
 	return out
+}
+
+// RuntimeArtifactsFromRequest reports explicit runtime artifact paths written in
+// the user request. This is a transparency surface for terminal/dump UX only:
+// it does not classify intent or decide whether current source evidence is
+// required. Path-shaped tokens are accepted by canonical suffix/type helpers or
+// by content sniffing when the path has an explicit locator and is readable.
+func RuntimeArtifactsFromRequest(request string) []RuntimeArtifact {
+	request = strings.TrimSpace(request)
+	if request == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []RuntimeArtifact
+	add := func(raw string) {
+		source := normalizeRequestRuntimeArtifactPath(raw)
+		if source == "" || seen[source] {
+			return
+		}
+		kind, resolved := runtimeArtifactKindForRequestPath(source)
+		if kind == "" {
+			return
+		}
+		seen[source] = true
+		out = append(out, runtimeArtifactsForRequestPath(kind, source, resolved)...)
+	}
+	for _, token := range requestPathTokenRE.FindAllString(request, -1) {
+		add(token)
+	}
+	return out
+}
+
+func MergeRuntimeArtifacts(groups ...[]RuntimeArtifact) []RuntimeArtifact {
+	seen := map[string]bool{}
+	var out []RuntimeArtifact
+	for _, group := range groups {
+		for _, artifact := range group {
+			kind := strings.TrimSpace(artifact.Kind)
+			source := strings.TrimSpace(artifact.Source)
+			if kind == "" && source == "" {
+				continue
+			}
+			key := strings.ToLower(kind + "\x00" + source)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, artifact)
+		}
+	}
+	return out
+}
+
+func normalizeRequestRuntimeArtifactPath(raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.Trim(s, "`\"'<> \t\r\n，。；;、()[]{}")
+	s = strings.TrimSuffix(s, ":")
+	s = strings.ReplaceAll(s, "\\", "/")
+	return strings.TrimSpace(s)
+}
+
+func runtimeArtifactKindForRequestPath(path string) (string, string) {
+	path = normalizeRequestRuntimeArtifactPath(path)
+	if path == "" {
+		return "", ""
+	}
+	if kind := types.RuntimeArtifactPathKind(path); kind != "" {
+		return kind, resolveRequestRuntimeArtifactPath(path)
+	}
+	if !requestPathHasExplicitLocator(path) {
+		return "", ""
+	}
+	resolved := resolveRequestRuntimeArtifactPath(path)
+	if resolved == "" {
+		return "", ""
+	}
+	if requestPathContentLooksLikeRuntimeArtifact(resolved) {
+		return "trace", resolved
+	}
+	return "", ""
+}
+
+func requestPathHasExplicitLocator(path string) bool {
+	path = normalizeRequestRuntimeArtifactPath(path)
+	return filepath.IsAbs(path) ||
+		strings.HasPrefix(path, "./") ||
+		strings.HasPrefix(path, "../") ||
+		strings.HasPrefix(path, "~/") ||
+		strings.ContainsAny(path, `/\`)
+}
+
+func resolveRequestRuntimeArtifactPath(path string) string {
+	path = normalizeRequestRuntimeArtifactPath(path)
+	if path == "" {
+		return ""
+	}
+	resolved := path
+	if strings.HasPrefix(resolved, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			resolved = filepath.Join(home, strings.TrimPrefix(resolved, "~/"))
+		}
+	}
+	if !filepath.IsAbs(resolved) {
+		if cwd, err := os.Getwd(); err == nil && cwd != "" {
+			resolved = filepath.Join(cwd, resolved)
+		}
+	}
+	resolved = filepath.Clean(resolved)
+	info, err := os.Stat(resolved)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return resolved
+}
+
+func requestPathContentLooksLikeRuntimeArtifact(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf := make([]byte, 8192)
+	n, _ := f.Read(buf)
+	if n <= 0 {
+		return false
+	}
+	raw := string(buf[:n])
+	lower := strings.ToLower(raw)
+	return strings.HasPrefix(raw, "PERFILE2") ||
+		strings.Contains(raw, "perf_sample:") ||
+		strings.Contains(raw, "sched_switch:") ||
+		strings.Contains(raw, "tracing_mark_write:") ||
+		strings.Contains(raw, "# tracer:") ||
+		(strings.Contains(lower, `"artifacts"`) && strings.Contains(lower, `"tracebundle"`))
+}
+
+func runtimeArtifactsForRequestPath(kind, source, resolved string) []RuntimeArtifact {
+	body, bytes := requestRuntimeArtifactBodyAndSize(resolved)
+	if strings.EqualFold(kind, "trace") {
+		out := runtimeArtifactsForSegment("trace", source, body)
+		if len(out) > 0 {
+			out[0].Detail = appendDetail(out[0].Detail, "referenced in request")
+			if bytes > 0 {
+				out[0].Bytes = bytes
+			}
+			return out
+		}
+	}
+	detail := "referenced in request"
+	if strings.EqualFold(kind, "log") {
+		detail = appendDetail(detail, "runtime log")
+	}
+	return []RuntimeArtifact{{
+		Kind:   kind,
+		Source: source,
+		Bytes:  bytes,
+		Detail: detail,
+	}}
+}
+
+func requestRuntimeArtifactBodyAndSize(resolved string) (string, int) {
+	resolved = strings.TrimSpace(resolved)
+	if resolved == "" {
+		return "", 0
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || info.IsDir() {
+		return "", 0
+	}
+	bytes := safeInt64ToInt(info.Size())
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return "", bytes
+	}
+	return string(data), bytes
 }
 
 type attachmentSegment struct {

@@ -33,6 +33,28 @@ func TestAnswerAggregateFactEvidenceOrigins_GitHistorySearch(t *testing.T) {
 	}
 }
 
+func TestAnswerAggregateFactEvidenceOrigins_RuntimePathFromExternalPolicyQuote(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:  AnswerAggregateScalar,
+		Label: "CookieMonsterCl runnable wait",
+		Value: "1.661ms",
+	}
+	rm := &RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			SourceQuotes: []string{
+				"只分析 ../customlogs/xxx_all.systrace 这个 trace 文件，不分析代码",
+			},
+		},
+	}
+	got := AnswerAggregateFactEvidenceOrigins(fact, rm)
+	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("origins mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestAnswerAggregateFactEvidenceOrigins_ExecCommandGitHistory(t *testing.T) {
 	fact := AnswerAggregateFact{
 		Kind:  AnswerAggregateScalar,

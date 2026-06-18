@@ -1445,6 +1445,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		CompletenessObligation:          completenessObligation,
 		Buckets:                         buckets,
 	}
+	projectRuntimeArtifactPathHintsFromRawRequest(&rm, raw)
 	attachRuntimeArtifactsToRequestModel(ctx, &rm)
 	if droppedSourceInventory, warning := dropSourceInventoryProfileForTypedRelation(&rm); droppedSourceInventory {
 		logging.Warning("[emit_analysis] %s", warning)
@@ -4135,6 +4136,9 @@ func resolveRequiredFileHintPath(ctx *types.BusContext, raw string) (string, boo
 		return "", false, true
 	}
 	changed := canon != strings.TrimSpace(raw)
+	if types.RuntimeArtifactPathKindInText(canon) != "" || types.RuntimeArtifactPathKindInText(raw) != "" {
+		return canon, changed, true
+	}
 	if ctx == nil {
 		return canon, changed, true
 	}
@@ -4161,6 +4165,35 @@ func resolveRequiredFileHintPath(ctx *types.BusContext, raw string) (string, boo
 		changed = true
 	}
 	return rel, changed, true
+}
+
+func projectRuntimeArtifactPathHintsFromRawRequest(rm *types.RequestModel, raw string) {
+	if rm == nil || rm.ExternalObservationPolicy == nil {
+		return
+	}
+	if !rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly() &&
+		!rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return
+	}
+	seen := make(map[string]bool, len(rm.AnalyzerHints.RequiredFileHints))
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		key := strings.ToLower(strings.TrimSpace(hint.Path))
+		if key != "" {
+			seen[key] = true
+		}
+	}
+	for _, token := range types.RuntimeArtifactPathTokensInText(raw) {
+		key := strings.ToLower(strings.TrimSpace(token))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		rm.AnalyzerHints.RequiredFileHints = append(rm.AnalyzerHints.RequiredFileHints, types.RequiredFileHint{
+			Path:       token,
+			Confidence: 0.8,
+			Rationale:  "runtime artifact path preserved from the current request for artifact-lane routing",
+		})
+	}
 }
 
 func requiredFileHintExistingRepoFile(ctx *types.BusContext, path string) (string, bool) {

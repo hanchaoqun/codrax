@@ -299,6 +299,9 @@ func requestModelExternalOriginCandidates(rm *RequestModel) []string {
 	if rm.CurrentSourceExplanationProfile != nil {
 		out = append(out, rm.CurrentSourceExplanationProfile.SourceQuotes...)
 	}
+	if rm.ExternalObservationPolicy != nil {
+		out = append(out, rm.ExternalObservationPolicy.SourceQuotes...)
+	}
 	if rm.RequestedAnswerDimensions != nil {
 		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
 			out = append(out, dim.SourceQuote, dim.Label)
@@ -317,7 +320,7 @@ func answerEvidenceOriginFromExternalReference(raw string) AnswerEvidenceOrigin 
 		return AnswerEvidenceOriginMCPResource
 	case strings.HasPrefix(ref, "http://"), strings.HasPrefix(ref, "https://"):
 		return AnswerEvidenceOriginWebPage
-	case LooksLikeRuntimeArtifactPath(ref):
+	case RuntimeArtifactPathKindInText(ref) != "":
 		return AnswerEvidenceOriginRuntimeArtifact
 	case strings.Contains(ref, "://"):
 		return AnswerEvidenceOriginExternalDocument
