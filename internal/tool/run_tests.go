@@ -2372,6 +2372,24 @@ func primaryFailureReasonCodesForKind(candidates []failureReasonCandidate, prima
 				selected = append(selected, candidate.Codes...)
 			}
 		}
+		if len(selected) == 0 && primary == types.FailureKindBuildFailure {
+			var fallback []string
+			allUnavailable := true
+			for _, candidate := range candidates {
+				for _, code := range candidate.Codes {
+					if strings.TrimSpace(code) == "" {
+						continue
+					}
+					fallback = append(fallback, code)
+					if !types.FailureReasonCodeIndicatesVerificationUnavailable(code) {
+						allUnavailable = false
+					}
+				}
+			}
+			if allUnavailable && len(fallback) > 0 {
+				selected = append(selected, fallback...)
+			}
+		}
 		return dedupStrings(selected)
 	}
 	for _, candidate := range candidates {

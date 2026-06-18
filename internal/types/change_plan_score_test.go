@@ -60,6 +60,26 @@ func TestChangeReportNormalizeVerificationStatus(t *testing.T) {
 			want:   VerificationStatusUnavailable,
 		},
 		{
+			name: "unreasoned build surface with verifier unavailable reason is unavailable",
+			report: &ChangeReport{
+				Passed:            false,
+				BuildFailed:       true,
+				FailureKind:       FailureKindBuildFailure,
+				FailureReasonCode: "verification_probe_module_not_found",
+			},
+			want: VerificationStatusUnavailable,
+		},
+		{
+			name: "real build failure reason stays failed",
+			report: &ChangeReport{
+				Passed:            false,
+				BuildFailed:       true,
+				FailureKind:       FailureKindBuildFailure,
+				FailureReasonCode: "typescript_compile_check_failed",
+			},
+			want: VerificationStatusFailed,
+		},
+		{
 			name:   "red assertion failed",
 			report: &ChangeReport{Passed: false, TestResults: []TestResult{{AssertionID: "TestBad", Passed: false}}},
 			want:   VerificationStatusFailed,

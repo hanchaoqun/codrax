@@ -5129,6 +5129,53 @@ Verification:
     later batch on source edits that remain unverified. That is a runtime proof
     policy gap, not an export/provenance gap, and should be handled separately.
 
+## 2026-06-18 RC-88 Verifier Unavailable Reason Authority
+
+- Evidence:
+  - The `astropy__astropy-6938` export rerun showed the source-owner export
+    boundary was fixed, but runtime convergence could still over-react after a
+    proof-repair verification failed in a partial local environment.
+  - Individual typed reports carried verifier/tooling unavailability reasons
+    such as `verification_probe_module_not_found` and import-loader failures.
+    During aggregation, however, a broader `build_failure` surface could become
+    the primary `FailureKind` while the unavailable reason was dropped. The
+    controller then saw "build failure" rather than "local verifier unavailable"
+    and could spend later budget on source replans even though the observed
+    failure was dependency/loader availability, not proof of a bad patch.
+- Generalized rule:
+  - `FailureKind` describes the broad failure surface; `FailureReasonCode`
+    carries the typed authority needed to distinguish code failure from local
+    verifier unavailability.
+  - If the aggregate primary kind is `build_failure` but it has no same-kind
+    structured reason, and all available carried reason codes are typed
+    verifier/tooling unavailability codes, the report normalizes to
+    `verification_status=unavailable`.
+  - A real build reason such as `typescript_compile_check_failed` remains
+    `failed` and still drives replan. Red tests also keep unavailable secondary
+    reasons out of the primary verdict.
+- Prompt and hard-gate hygiene:
+  - No prompt or model instruction changed. The fix consumes only typed
+    `ChangeReport.FailureKind`, `FailureReasonCode`, `ExecutedCommand`
+    reason codes, and normalized `VerificationStatus`.
+  - The control plane does not inspect issue text, SWE IDs, stdout prose,
+    manual audit notes, model rationale, summaries, or visible `<think>` logs.
+  - Read/log/trace/data/operation/computer mode paths remain unchanged.
+- Task list:
+  - [x] Add a shared `FailureReasonCodeIndicatesVerificationUnavailable`
+    helper in `internal/types` for report normalization and controller
+    observation classification.
+  - [x] Teach `run_tests` aggregation to retain typed unavailable/probe-import
+    reason codes when an unreasoned build surface is the primary kind.
+  - [x] Teach `ObservationAuthority` to classify
+    `build_failure + unavailable reason` as `unverified`/finish-with-caveat
+    instead of replan.
+  - [x] Add regressions proving real build failures and red tests still fail.
+- Verification:
+  - Focused regressions cover `ChangeReport` normalization, `run_tests`
+    aggregation, and `ObservationAuthority` classification.
+  - This RC is a runtime proof-policy classification fix; official SWE
+    prediction export remains separate and harness-consumable.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

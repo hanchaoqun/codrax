@@ -1025,6 +1025,9 @@ func (r *ChangeReport) NormalizeVerificationStatus() VerificationStatus {
 	if r == nil {
 		return ""
 	}
+	if r.FailureKind == FailureKindBuildFailure && FailureReasonCodeIndicatesVerificationUnavailable(r.FailureReasonCode) {
+		return VerificationStatusUnavailable
+	}
 	switch r.FailureKind {
 	case FailureKindRunnerMissing, FailureKindParserError, FailureKindNoTests, FailureKindPreexistingBuildFailure:
 		return VerificationStatusUnavailable
@@ -1046,6 +1049,41 @@ func (r *ChangeReport) EnsureVerificationStatus() {
 		r.FailureKind = FailureKindNoTests
 	}
 	r.VerificationStatus = r.NormalizeVerificationStatus()
+}
+
+// FailureReasonCodeIndicatesVerificationUnavailable returns true when every
+// typed reason code describes local verifier/tooling/environment unavailability
+// rather than evidence that the production patch is behaviorally wrong.
+func FailureReasonCodeIndicatesVerificationUnavailable(raw string) bool {
+	parts := strings.Split(raw, ",")
+	seen := false
+	for _, part := range parts {
+		code := strings.TrimSpace(part)
+		if code == "" {
+			continue
+		}
+		seen = true
+		switch code {
+		case string(FailureKindNoTests),
+			string(FailureKindRunnerMissing),
+			string(FailureKindParserError),
+			string(FailureKindPreexistingBuildFailure),
+			"skip_verify",
+			"accepted_without_local_verify",
+			"make_python_module_missing",
+			"make_target_missing",
+			"pytest_import_startup_error",
+			"unittest_loader_import_error",
+			"verification_probe_import_error",
+			"verification_probe_module_not_found",
+			"verification_probe_name_error",
+			"verification_probe_syntax_error":
+			continue
+		default:
+			return false
+		}
+	}
+	return seen
 }
 
 // IsBetterThan returns true when this report has strictly more

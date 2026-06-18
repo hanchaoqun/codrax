@@ -233,6 +233,75 @@ func TestMergeChangeReports_PrimaryReasonFollowsPrimaryFailureKind(t *testing.T)
 	}
 }
 
+func TestMergeChangeReports_BackfillsUnavailableProbeReasonForUnreasonedBuildFailure(t *testing.T) {
+	build := &types.ChangeReport{
+		Passed:      false,
+		BuildFailed: true,
+		FailureKind: types.FailureKindBuildFailure,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindBuildError,
+			AssertionID: "build",
+			Suite:       "build",
+			Passed:      false,
+		}},
+	}
+	probe := &types.ChangeReport{
+		Passed:            false,
+		FailureKind:       types.FailureKindParserError,
+		FailureReasonCode: "verification_probe_module_not_found",
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindBuildError,
+			AssertionID: "verification_probe",
+			Suite:       "verification_probe",
+			Passed:      false,
+		}},
+	}
+	merged := mergeChangeReports([]*types.ChangeReport{build, probe})
+	if merged.FailureKind != types.FailureKindBuildFailure {
+		t.Fatalf("FailureKind = %q, want %q", merged.FailureKind, types.FailureKindBuildFailure)
+	}
+	if merged.FailureReasonCode != "verification_probe_module_not_found" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_module_not_found", merged.FailureReasonCode)
+	}
+	if got := merged.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("VerificationStatus = %q, want unavailable", got)
+	}
+}
+
+func TestMergeChangeReports_DoesNotBackfillUnavailableReasonWhenMixedWithCodeFailure(t *testing.T) {
+	build := &types.ChangeReport{
+		Passed:      false,
+		BuildFailed: true,
+		FailureKind: types.FailureKindBuildFailure,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindBuildError,
+			AssertionID: "build",
+			Suite:       "build",
+			Passed:      false,
+		}},
+	}
+	probe := &types.ChangeReport{
+		Passed:            false,
+		FailureKind:       types.FailureKindParserError,
+		FailureReasonCode: "verification_probe_module_not_found",
+	}
+	runtime := &types.ChangeReport{
+		Passed:            false,
+		FailureKind:       types.FailureKindTestsFailed,
+		FailureReasonCode: "verification_probe_exception",
+	}
+	merged := mergeChangeReports([]*types.ChangeReport{build, probe, runtime})
+	if merged.FailureKind != types.FailureKindBuildFailure {
+		t.Fatalf("FailureKind = %q, want %q", merged.FailureKind, types.FailureKindBuildFailure)
+	}
+	if merged.FailureReasonCode != "" {
+		t.Fatalf("FailureReasonCode = %q, want no fallback when unavailable and code-failure reasons are mixed", merged.FailureReasonCode)
+	}
+	if got := merged.NormalizeVerificationStatus(); got != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed", got)
+	}
+}
+
 func TestMergeChangeReports_DoesNotPromoteUnavailableReasonOverRedTests(t *testing.T) {
 	tests := &types.ChangeReport{
 		Passed:         false,

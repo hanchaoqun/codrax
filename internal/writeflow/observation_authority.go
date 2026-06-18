@@ -57,6 +57,8 @@ func DeriveObservationAuthorityFromReport(report *types.ChangeReport, err error)
 		return observationUnverified(string(types.FailureKindRunnerMissing), failureReason, false)
 	case report.FailureKind == types.FailureKindParserError:
 		return observationUnverified(string(types.FailureKindParserError), failureReason, false)
+	case report.FailureKind == types.FailureKindBuildFailure && types.FailureReasonCodeIndicatesVerificationUnavailable(failureReason):
+		return observationUnverified(observationUnavailableReportReason(report), failureReason, false)
 	case err != nil || status == types.VerificationStatusFailed:
 		return observationFailed(verifyFailureReasonCode(report), failureReason)
 	case report.FailureKind == types.FailureKindNoTests || len(report.NoTestsRunners) > 0:
@@ -197,6 +199,10 @@ func observationUnavailableReportReason(report *types.ChangeReport) string {
 	if report == nil {
 		return "verify_tool_not_called"
 	}
+	if report.FailureKind == types.FailureKindBuildFailure &&
+		types.FailureReasonCodeIndicatesVerificationUnavailable(report.FailureReasonCode) {
+		return strings.TrimSpace(report.FailureReasonCode)
+	}
 	if report.FailureKind != "" {
 		return string(report.FailureKind)
 	}
@@ -207,6 +213,9 @@ func observationUnavailableReportReason(report *types.ChangeReport) string {
 }
 
 func observationReasonIsUnavailable(reason string) bool {
+	if types.FailureReasonCodeIndicatesVerificationUnavailable(reason) {
+		return true
+	}
 	switch strings.TrimSpace(reason) {
 	case string(types.FailureKindNoTests),
 		string(types.FailureKindRunnerMissing),

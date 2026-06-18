@@ -65,6 +65,19 @@ func TestDeriveObservationAuthorityFromReport(t *testing.T) {
 			wantReason: "build_failed",
 		},
 		{
+			name: "build surface with verifier unavailable reason can finish unverified",
+			report: &types.ChangeReport{
+				Passed:            false,
+				BuildFailed:       true,
+				FailureKind:       types.FailureKindBuildFailure,
+				FailureReasonCode: "verification_probe_module_not_found",
+			},
+			wantState:  ObservationAuthorityUnverified,
+			wantAction: ActionFinish,
+			wantReason: "verification_probe_module_not_found",
+			wantFinish: true,
+		},
+		{
 			name:       "passed report can finish",
 			report:     &types.ChangeReport{Passed: true},
 			wantState:  ObservationAuthorityVerified,
