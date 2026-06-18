@@ -5049,6 +5049,72 @@ Verification:
     items while retaining one `verify_failure`, one `failed_test`, and one
     `failure_signal` from the prior failed verify after successful replan.
 
+## 2026-06-18 RC-87 Source-Owner Export For Validation Follow-ups
+
+- Evidence:
+  - A fresh three-instance historical-fail smoke at
+    `/private/tmp/codrax-swe-rc88-crossfail-20260618` covered different failure
+    families:
+    `astropy__astropy-14365`, `astropy__astropy-6938`, and
+    `sympy__sympy-13177`.
+  - `astropy__astropy-14365` now produces a high-confidence local pass:
+    `workflow_status=complete`, `verify_status=passed`,
+    `prediction_verdict=predicted_passed`, and `patch_bytes=617`.
+  - `sympy__sympy-13177` still correctly exports a source patch but remains
+    local-audit blocked: `verify_status=unavailable`,
+    `prediction_verdict=predicted_audit_blocked`, and
+    `plan_patch_review_block_reason=patch_review_semantic_unverified:changed_symbol_without_probe_coverage`.
+  - `astropy__astropy-6938` exposed a new adapter/export gap. The source plan
+    correctly fixed the owner line in `astropy/io/fits/fitsrec.py`:
+    `output_field = output_field.replace(...)`. The later proof-repair plan
+    was validation-only and failed due local environment/probe infrastructure
+    (`verification_probe_module_not_found`, `ModuleNotFoundError: No module
+    named 'numpy'`, unrelated WCS/cextern build loader errors). Because the
+    adapter exported from the final proof-only plan, the official prediction
+    became an empty patch even though the typed workflow still contained an
+    applied source-owner plan and the source-owner diff was coherent.
+- Generalized rule:
+  - Prediction export and local acceptance are separate. A failed or
+    unavailable validation follow-up should lower/block local confidence, but
+    it must not erase a typed applied source patch that the official harness can
+    score.
+  - When the final durable plan has no source changes and workflow attempts
+    contain applied source plans after restore cutoffs, the adapter selects the
+    latest typed applied source-owner plan for `model_patch` export. The final
+    proof/test report remains the verification authority for local confidence.
+  - Selection consumes only typed workflow attempts and ChangePlan artifacts:
+    plan IDs, applied statuses, source path lists, restore-aware provenance, and
+    repository refs. It does not inspect issue text, model prose, stdout,
+    manual notes, SWE-bench IDs, or `<think>` output.
+- Prompt and hard-gate hygiene:
+  - Runtime controller behavior is unchanged. This is an evaluation/export
+    boundary fix.
+  - Local acceptance still fails or downgrades for typed proof failures,
+    unavailable verification, and patch-review unverified coverage. Non-empty
+    export remains separate from functional correctness.
+  - Read/log/trace/data/operation/computer mode paths remain unchanged.
+- Task list:
+  - [x] Add `select_prediction_export_plan()` to choose the final source
+    ChangePlan for export when the final durable plan is probe-only or
+    validation-only.
+  - [x] Record `export_plan_id`, `export_plan_path`, and
+    `export_plan_selection_reason` in `results.jsonl`.
+  - [x] Keep export path allowlisting bound to typed applied plan paths so setup
+    artifacts remain dropped.
+  - [x] Add regression coverage where a final proof-only plan exports the
+    prior applied source plan's ref instead of an empty patch.
+- Verification:
+  - Focused adapter regression passed:
+    `python3 -m unittest eval.swebench.run_codrax_swebench_test.ExportPatchPolicyTests.test_validation_followup_exports_latest_applied_source_plan -v`.
+  - Python syntax check passed:
+    `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`.
+  - Recomputing the existing `astropy__astropy-6938` RC-88 artifact with the
+    new selector chooses `plan-1781794367301721000-38231` with
+    `export_plan_selection_reason=workflow_latest_applied_source_plan`,
+    produces `patch_bytes=514`, and exports only
+    `astropy/io/fits/fitsrec.py`. Local confidence remains blocked by the typed
+    proof/verification failure evidence.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

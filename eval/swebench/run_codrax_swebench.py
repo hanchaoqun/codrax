@@ -2005,6 +2005,34 @@ def build_write_delivery_candidate(
     }
 
 
+def select_prediction_export_plan(
+    *,
+    final_plan: dict[str, Any],
+    final_plan_path: Path | None,
+    workflow: dict[str, Any],
+    repo_dir: Path,
+    inst_dir: Path,
+) -> tuple[dict[str, Any], Path | None, str]:
+    """Choose the ChangePlan whose applied commit should be exported.
+
+    The final durable plan can be a proof-only validation follow-up. In that
+    case, exporting from the final plan loses the source patch even though the
+    append-only workflow still records an applied source-owner plan. Selection
+    reads only typed workflow attempts and ChangePlan artifacts.
+    """
+
+    if plan_source_paths(final_plan):
+        return final_plan, final_plan_path, "final_plan_source"
+    summaries = workflow_applied_plan_summaries(workflow, repo_dir, inst_dir) if workflow else []
+    for summary in reversed(summaries):
+        plan = summary.get("plan") if isinstance(summary.get("plan"), dict) else {}
+        if not plan_source_paths(plan):
+            continue
+        path = Path(str(summary.get("plan_path"))) if str(summary.get("plan_path") or "") else None
+        return plan, path, "workflow_latest_applied_source_plan"
+    return final_plan, final_plan_path, "final_plan_no_source_owner"
+
+
 def normalize_repo_rel_path(raw: Any) -> str:
     text = str(raw or "").strip().strip("`'\"")
     if not text:
@@ -3139,10 +3167,17 @@ def process_instance(
             plan,
             bool(args.include_test_patches),
         )
+        export_plan, export_plan_path, export_plan_selection_reason = select_prediction_export_plan(
+            final_plan=plan,
+            final_plan_path=plan_path,
+            workflow=workflow,
+            repo_dir=repo_dir,
+            inst_dir=inst_dir,
+        )
         patch, source, dropped_test_paths, exported_paths, dropped_unowned_paths = export_patch(
             repo_dir,
             base,
-            plan,
+            export_plan,
             bool(args.include_test_patches),
             export_allowed_paths,
         )
@@ -3163,6 +3198,9 @@ def process_instance(
         result["exported_patch_paths"] = exported_paths
         result["exported_patch_source_paths"] = exported_source_paths
         result["exported_patch_test_paths"] = exported_test_paths
+        result["export_plan_id"] = str(export_plan.get("id") or "")
+        result["export_plan_path"] = str(export_plan_path or "")
+        result["export_plan_selection_reason"] = export_plan_selection_reason
         result["final_plan_source_paths"] = plan_source_paths
         result["final_plan_test_only"] = bool(result.get("plan_change_paths")) and not plan_source_paths
         result["final_plan_covers_exported_source_patch"] = (

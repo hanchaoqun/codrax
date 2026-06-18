@@ -1044,6 +1044,93 @@ class WorkflowAppliedProvenanceTests(unittest.TestCase):
 
 
 class ExportPatchPolicyTests(unittest.TestCase):
+    def test_validation_followup_exports_latest_applied_source_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = Path(raw) / "repo"
+            inst = Path(raw) / "inst"
+            repo.mkdir()
+            inst.mkdir()
+            plans = repo / ".codrax" / "plans"
+            plans.mkdir(parents=True)
+
+            def git(*args: str) -> str:
+                result = subprocess.run(
+                    ["git", *args],
+                    cwd=repo,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=True,
+                )
+                return result.stdout.strip()
+
+            git("init")
+            git("config", "user.email", "codrax@example.com")
+            git("config", "user.name", "Codrax Test")
+            (repo / "pkg").mkdir()
+            (repo / "pkg" / "fix.py").write_text("old = 1\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-m", "base")
+            base = git("rev-parse", "HEAD")
+            (repo / "pkg" / "fix.py").write_text("new = 1\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-m", "source fix")
+            source_commit = git("rev-parse", "HEAD")
+            git("update-ref", "refs/codrax/applied/plan-source", source_commit)
+
+            source_plan = {
+                "id": "plan-source",
+                "summary": "source fix",
+                "changes": [{"path": "pkg/fix.py", "kind": "patch"}],
+            }
+            proof_plan = {
+                "id": "plan-proof",
+                "summary": "probe-only validation",
+                "changes": None,
+                "verification_probes": [{"id": "probe", "language": "python"}],
+            }
+            (plans / "plan-source.json").write_text(json.dumps(source_plan), encoding="utf-8")
+            (plans / "plan-proof.json").write_text(json.dumps(proof_plan), encoding="utf-8")
+            workflow = {
+                "batches": [
+                    {"attempts": [
+                        {"kind": "apply", "status": "applied", "plan_id": "plan-source"},
+                        {"kind": "verify", "status": "unverified", "plan_id": "plan-proof"},
+                    ]}
+                ]
+            }
+
+            export_plan, export_plan_path, reason = adapter.select_prediction_export_plan(
+                final_plan=proof_plan,
+                final_plan_path=plans / "plan-proof.json",
+                workflow=workflow,
+                repo_dir=repo,
+                inst_dir=inst,
+            )
+            allowed = adapter.export_allowed_patch_paths(
+                workflow,
+                repo,
+                inst,
+                proof_plan,
+                include_test_patches=False,
+            )
+            patch, source, dropped_tests, exported_paths, dropped_unowned = adapter.export_patch(
+                repo,
+                base,
+                export_plan,
+                include_test_patches=False,
+                allowed_paths=allowed,
+            )
+
+        self.assertEqual(export_plan["id"], "plan-source")
+        self.assertEqual(export_plan_path, plans / "plan-source.json")
+        self.assertEqual(reason, "workflow_latest_applied_source_plan")
+        self.assertIn("diff --git a/pkg/fix.py b/pkg/fix.py", patch)
+        self.assertEqual(source, "refs/codrax/applied/plan-source")
+        self.assertEqual(exported_paths, ["pkg/fix.py"])
+        self.assertEqual(dropped_tests, [])
+        self.assertEqual(dropped_unowned, [])
+
     def test_export_patch_between_filters_to_typed_allowed_paths(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             repo = Path(raw) / "repo"

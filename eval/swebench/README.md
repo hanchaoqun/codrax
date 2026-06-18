@@ -125,9 +125,13 @@ final-plan-vs-exported-source drift are auditable without changing the official
 predictions JSONL shape. Export/local-confidence logic is bound to a typed
 delivery candidate: exported source paths must be owned by one or more applied
 source plans, and a later test-only validation plan is accepted only through the
-explicit `source_plan_with_later_test_followup` relation. If exported source
-paths have no applied source-plan owner, the adapter still writes the official
-prediction but marks local confidence as `predicted_audit_blocked` with
+explicit `source_plan_with_later_test_followup` relation. A later probe-only
+validation plan similarly exports the latest typed applied source-owner plan
+rather than an empty validation diff; the result row records
+`export_plan_id`, `export_plan_path`, and `export_plan_selection_reason` so the
+source of the official prediction is auditable. If exported source paths have
+no applied source-plan owner, the adapter still writes the official prediction
+but marks local confidence as `predicted_audit_blocked` with
 `prediction_blocks_local_acceptance=true`. Prediction export itself is
 restricted to typed-owned applied plan paths; environment/build artifacts
 changed during setup are dropped and recorded in `dropped_unowned_patch_paths`.
