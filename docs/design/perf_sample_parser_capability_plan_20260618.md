@@ -478,3 +478,34 @@ Batch F implementation notes:
   `perf_proto_offcpu_raw_after_eval_sample_weight_fixture_20260618_summary.md`,
   `perf_quality_harmony_simpleperf_sample_weight_20260618_summary.md`, and
   `perf_running_raw_sample_weight_20260618_summary.md`.
+
+## Continuation Audit Notes
+
+2026-06-18 follow-up audit against `/Users/han/opt/perf_query.md`, official
+OpenHarmony hiperf proto, OpenHarmony profiler `TraceFileHeader`, and AOSP
+simpleperf sources found two residual delivery-quality gaps:
+
+1. The `exec_command` runtime search advisory still used suffix-only detection
+   for grep/awk commands. This was a soft guidance signal rather than a hard
+   route, but it could miss suffixless trace/perf files and conflicted with the
+   system principle that runtime-artifact handling should be based on explicit
+   user task + typed path/content signals, not suffix keywords alone. The fix is
+   to parse command path tokens, read a bounded prefix from regular files, and
+   sniff trace/perf/tracebundle content before falling back to suffixes only
+   when no readable file candidate exists.
+2. The older 2026-06-17 integration plan still marked Batch E/F as incomplete
+   even though the newer capability audit and current code had closed the
+   corresponding implementation, UX, prompt, handoff, and eval work. The fix is
+   to update that historical design document so status, task checkboxes, and
+   non-blocking follow-ups match current evidence.
+
+Validation added for the first item: a suffixless readable file containing
+`sched_switch` now receives the runtime line-window advisory, while a readable
+suffix-looking non-runtime file does not. This keeps the advisory generalized
+without turning suffix or model prose into a hard classifier.
+
+Follow-up eval evidence: `trace_query_path_question_suffixless_trace` and
+`trace_query_path_question_relative_perftrace` were run together with
+`PARALLEL=2`; both passed. The only flags were answer-document contract
+warnings that auto-repaired to zero violations, with no semantic-quality
+concerns and no repo-map/list-files source exploration.

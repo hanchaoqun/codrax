@@ -704,6 +704,9 @@ func execCommandLooksLikeGrepPipeline(command string) bool {
 }
 
 func execCommandTargetsRuntimeTextArtifact(command string) bool {
+	if ok, hadReadableCandidate := execCommandTargetsRuntimeTextArtifactByContent(command); ok || hadReadableCandidate {
+		return ok
+	}
 	lower := strings.ToLower(command)
 	for _, suffix := range []string{".systrace", ".htrace", ".atrace", ".perfetto", ".perftrace", ".tracebundle.json", ".trace", ".log"} {
 		if strings.Contains(lower, suffix) {
@@ -711,6 +714,101 @@ func execCommandTargetsRuntimeTextArtifact(command string) bool {
 		}
 	}
 	return false
+}
+
+func execCommandTargetsRuntimeTextArtifactByContent(command string) (bool, bool) {
+	hadReadableCandidate := false
+	for _, segment := range shellCommandSegments(command) {
+		for _, token := range shellWordsForOrigin(segment) {
+			for _, candidate := range execCommandRuntimeArtifactPathCandidates(token) {
+				if candidate == "" {
+					continue
+				}
+				if execCommandPathContentLooksRuntimeArtifact(candidate) {
+					return true, true
+				}
+				if execCommandPathIsReadableRegularFile(candidate) {
+					hadReadableCandidate = true
+				}
+			}
+		}
+	}
+	return false, hadReadableCandidate
+}
+
+func execCommandRuntimeArtifactPathCandidates(token string) []string {
+	token = strings.TrimSpace(token)
+	if token == "" || token == "-" || strings.HasPrefix(token, "-") {
+		return nil
+	}
+	if strings.ContainsAny(token, "*?[") || strings.Contains(token, "=") {
+		return nil
+	}
+	token = strings.Trim(token, " \t\r\n\"'`,;")
+	if token == "" || token == "." || token == ".." {
+		return nil
+	}
+	return []string{token}
+}
+
+func execCommandPathContentLooksRuntimeArtifact(rawPath string) bool {
+	path := execCommandReadablePath(rawPath)
+	if path == "" {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf := make([]byte, 64*1024)
+	n, _ := f.Read(buf)
+	if n <= 0 {
+		return false
+	}
+	raw := string(buf[:n])
+	lower := strings.ToLower(raw)
+	return strings.HasPrefix(raw, "PERFILE2") ||
+		strings.HasPrefix(raw, "SIMPLEPERF") ||
+		strings.Contains(raw, "perf_sample:") ||
+		strings.Contains(raw, "sched_switch") ||
+		strings.Contains(raw, "sched_wakeup") ||
+		strings.Contains(raw, "tracing_mark_write:") ||
+		strings.Contains(raw, "binder_transaction:") ||
+		strings.Contains(raw, "block_rq_issue:") ||
+		strings.Contains(raw, "block_rq_complete:") ||
+		strings.Contains(raw, "android_fs_") ||
+		strings.Contains(raw, "f2fs_") ||
+		strings.Contains(raw, "mm_filemap_") ||
+		strings.Contains(raw, "scsi_") ||
+		strings.Contains(raw, "# tracer:") ||
+		(strings.Contains(lower, `"artifacts"`) && strings.Contains(lower, `"tracebundle"`))
+}
+
+func execCommandPathIsReadableRegularFile(rawPath string) bool {
+	return execCommandReadablePath(rawPath) != ""
+}
+
+func execCommandReadablePath(rawPath string) string {
+	path := strings.TrimSpace(rawPath)
+	if path == "" {
+		return ""
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+		}
+	}
+	if !filepath.IsAbs(path) {
+		if cwd, err := os.Getwd(); err == nil && cwd != "" {
+			path = filepath.Join(cwd, path)
+		}
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || !info.Mode().IsRegular() {
+		return ""
+	}
+	return path
 }
 
 func execCommandRuntimeSearchUsesBroadAlternation(command string) bool {

@@ -368,7 +368,18 @@ D4 landed the dual-engine parser strategy: `--perf-parser=auto` prefers official
 - Ensure explicit path questions with one or more runtime artifacts route to `trace_query(path)` instead of source-code analysis.
 - Update user guide examples.
 
-Status: in progress. `tracequery.BuildIndex` now accepts `.tracebundle.json` directly, promotes `*.systrace` / `*.perftrace` to a sibling `*.tracebundle.json` when present, and auto-merges sibling `*.systrace + *.perftrace` pairs when no bundle exists. The merge keeps existing parser/view code as the single consumer, so model tool calls can pass one path and still get joint trace+perf context. REPL prompt labels now surface multi-artifact state compactly (`[log:2]`, `[trace:2+perf]`, `[perftrace]`, `[tracebundle]`), CLI single-shot runs print a compact runtime-artifact status block, and saved markdown/html reports include a typed `Runtime Artifacts` table derived from attachment metadata rather than model prose. Remaining E work is end-to-end eval coverage.
+Status: complete. `tracequery.BuildIndex` now accepts `.tracebundle.json`
+directly, promotes `*.systrace` / `*.perftrace` to a sibling
+`*.tracebundle.json` when present, and auto-merges sibling
+`*.systrace + *.perftrace` pairs when no bundle exists. The merge keeps existing
+parser/view code as the single consumer, so model tool calls can pass one path
+and still get joint trace+perf context. REPL prompt labels now surface
+multi-artifact state compactly (`[log:2]`, `[trace:2+perf]`, `[perftrace]`,
+`[tracebundle]`), CLI single-shot runs print a compact runtime-artifact status
+block, and saved markdown/html reports include a typed `Runtime Artifacts` table
+derived from attachment metadata rather than model prose. Follow-up audit and
+verification evidence lives in
+`docs/design/perf_sample_parser_capability_plan_20260618.md`.
 
 Additional UX gaps found after the raw fallback batch:
 
@@ -384,11 +395,16 @@ Batch E task additions:
 - [x] Add `trace convert --perf-tools-status` or an equivalent preflight command/output section that shows selected parser, discovered official tools, raw fallback availability, and install guidance when missing.
 - [x] Add concise install/integration documentation for OpenHarmony `hiperf_host` and Android simpleperf `report_sample.py`, including env vars, CLI flags, symbol-dir/symfs/kallsyms, and expected output caveats.
 - [x] Design an optional managed tool-cache/bundle provider before considering embedded binaries. Any embedded-binary lane must be explicit, versioned, platform-scoped, license-reviewed, and observable in `--perf-tools-status`.
-- [ ] Extend REPL/CLI runtime artifact state so multiple `/log`, `/htrace`, `/atrace`, `.perftrace`, `.tracebundle.json`, and direct path attachments display a stable prompt/status summary: count by type, active primary artifact, bundle/sidecar merge status, and caveats.
+- [x] Extend REPL/CLI runtime artifact state so multiple `/log`, `/htrace`, `/atrace`, `.perftrace`, `.tracebundle.json`, and direct path attachments display a stable prompt/status summary: count by type, active primary artifact, bundle/sidecar merge status, and caveats.
   - [x] REPL prompt state labels for multi log/trace/perf/bundle attachments.
   - [x] CLI status/output transparency for multi runtime-artifact inputs.
 - [x] Extend markdown/html report rendering with a typed "Runtime Artifacts" section sourced from attachment metadata, including perf parser source and symbolization status when present in normalized perftrace rows.
-- [ ] Add eval/regression cases for explicit path-based multiple artifacts, appended log+trace+perf flows, prompt/status visibility, and report artifact transparency.
+- [x] Add eval/regression cases for explicit path-based multiple artifacts,
+  appended log+trace+perf flows, prompt/status visibility, and report artifact
+  transparency. Coverage is split across unit tests for CLI/REPL/report
+  surfaces and low-prebake eval cases for explicit path, bundle/perftrace,
+  raw fallback, SIMPLEPERF proto off-cpu, Harmony CPU-unknown, and
+  running-window perf context.
 
 Managed official-tool provider policy:
 
@@ -405,6 +421,13 @@ Managed official-tool provider policy:
 - Add binder peer perf eval.
 - Add `.htrace` converted sidecar fixture eval once converter support lands.
 - Run selected existing trace evals in pairs to guard no regression in trace-only flows.
+
+Status: complete for the current commercial delivery slice. The active
+verification set is documented in the 2026-06-18 audit plan and includes
+two-case parallel eval runs for perf quality, raw fallback, Harmony CPU-unknown,
+SIMPLEPERF proto off-cpu, and running perf context, plus full Go test/make
+coverage. Future real-device fixture expansion should add coverage rather than
+reopen the core architecture work.
 
 ## Test Plan
 
@@ -446,11 +469,15 @@ Eval targets:
   - [x] D2 OpenHarmony official hiperf adapter to normalized `.perftrace` implemented.
   - [x] D3 Android/simpleperf adapter parity implemented.
   - [x] D4 raw `perf.data` fallback parser implemented, committed, pushed.
-- [ ] Batch E implemented, committed, pushed.
+- [x] Batch E implemented, committed, pushed.
 - [x] Raw perf.data fallback designed, implemented, committed, pushed.
-- [ ] Batch F evals added and representative cases run two at a time.
+- [x] Batch F evals added and representative cases run two at a time.
 
-## Open Decisions
+## Non-Blocking Follow-Ups
 
-- Runtime config-file keys for perf adapters beyond CLI/env. Current implementation supports explicit CLI flags, env vars, and PATH discovery.
-- Whether `trace_perf_bundle` should be a new concrete view or an alias to enhanced `frame_root_cause_bundle` when a frame/span window is selected. Initial plan keeps it concrete because non-frame startup/binder/runnable windows also benefit from joint output.
+- Runtime config-file keys for perf adapters beyond CLI/env remain a future
+  convenience. Current commercial delivery supports explicit CLI flags, env
+  vars, PATH discovery, provider status output, and documented install guidance.
+- `trace_perf_bundle` is intentionally a concrete view, not just an alias to
+  `frame_root_cause_bundle`, because non-frame startup, binder, runnable, and
+  explicit perf windows also need one joint trace+perf handoff result.

@@ -651,6 +651,31 @@ func TestExecCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("suffixless readable trace content gets runtime advisory", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "capture_without_suffix")
+		if err := os.WriteFile(tmpFile, []byte("2942.124416: sched_switch: prev_comm=app prev_pid=10 prev_state=R ==> next_comm=worker next_pid=20\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		command := `awk '/sched_switch/ { print $0 }' ` + strconv.Quote(tmpFile)
+		output := "2942.124416: sched_switch: prev_comm=app prev_pid=10 prev_state=R ==> next_comm=worker next_pid=20\n"
+		got := execCommandSearchShapeAdvisory(command, output, nil)
+		if !strings.Contains(got, "search/filter output has no original line numbers") {
+			t.Fatalf("suffixless trace content should get runtime advisory:\n%s", got)
+		}
+	})
+
+	t.Run("readable nonruntime suffix-looking file does not get runtime advisory", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "notes.systrace")
+		if err := os.WriteFile(tmpFile, []byte("package demo\nfunc Execute() {}\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		command := `awk '/Execute/ { print $0 }' ` + strconv.Quote(tmpFile)
+		output := "func Execute() {}\n"
+		if got := execCommandSearchShapeAdvisory(command, output, nil); got != "" {
+			t.Fatalf("readable nonruntime file should not get runtime advisory:\n%s", got)
+		}
+	})
+
 	t.Run("runtime awk head and tail filters without line numbers get advisory", func(t *testing.T) {
 		output := "  [GT]ColdPool#5-36624 (36379) [001] .... 2942.256055: sched_switch\n"
 		commands := []string{
