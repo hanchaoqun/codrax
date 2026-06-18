@@ -1440,6 +1440,10 @@ def apply_final_report_result_fields(
         result["final_report_completion_verdict"] = ""
         result["final_report_completion_reason_code"] = ""
         result["final_report_verification_status"] = ""
+        result["final_report_proof_status"] = ""
+        result["final_report_proof_runner_evidence"] = ""
+        result["final_report_proof_reason_codes"] = []
+        result["final_report_proof_confidence_reason_codes"] = []
         result["final_report_patch_review_verdict"] = ""
         result["final_report_localization_status"] = ""
         result["final_report_localization_reason_codes"] = []
@@ -1452,6 +1456,7 @@ def apply_final_report_result_fields(
         return
     completion = final_report.get("completion") if isinstance(final_report.get("completion"), dict) else {}
     verification = final_report.get("verification") if isinstance(final_report.get("verification"), dict) else {}
+    proof = final_report.get("proof") if isinstance(final_report.get("proof"), dict) else {}
     patch_review = final_report.get("patch_review") if isinstance(final_report.get("patch_review"), dict) else {}
     plan = final_report.get("plan") if isinstance(final_report.get("plan"), dict) else {}
     patch = final_report.get("patch") if isinstance(final_report.get("patch"), dict) else {}
@@ -1460,6 +1465,18 @@ def apply_final_report_result_fields(
     result["final_report_completion_verdict"] = str(completion.get("verdict") or "").strip()
     result["final_report_completion_reason_code"] = str(completion.get("reason_code") or "").strip()
     result["final_report_verification_status"] = str(verification.get("status") or "").strip()
+    result["final_report_proof_status"] = str(proof.get("status") or "").strip()
+    result["final_report_proof_runner_evidence"] = str(proof.get("runner_evidence") or "").strip()
+    result["final_report_proof_reason_codes"] = [
+        str(value).strip()
+        for value in proof.get("reason_codes") or []
+        if str(value).strip()
+    ]
+    result["final_report_proof_confidence_reason_codes"] = [
+        str(value).strip()
+        for value in proof.get("confidence_reason_codes") or []
+        if str(value).strip()
+    ]
     result["final_report_patch_review_verdict"] = str(patch_review.get("verdict") or "").strip()
     result["final_report_localization_status"] = str(localization.get("status") or "").strip()
     result["final_report_localization_reason_codes"] = [

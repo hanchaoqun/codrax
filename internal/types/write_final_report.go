@@ -31,6 +31,7 @@ type WriteFinalReport struct {
 	Plan          WriteFinalPlanSummary         `json:"plan,omitempty"`
 	Patch         WriteFinalPatchSummary        `json:"patch,omitempty"`
 	Verification  WriteFinalVerificationSummary `json:"verification,omitempty"`
+	Proof         VerificationProofProfile      `json:"proof,omitempty"`
 	PatchReview   WriteFinalPatchReviewSummary  `json:"patch_review,omitempty"`
 	Impact        WriteFinalImpactSummary       `json:"impact,omitempty"`
 	Handoff       WriteFinalHandoffSummary      `json:"handoff,omitempty"`
@@ -182,6 +183,7 @@ func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
 	if input.Report != nil {
 		out.Verification = writeFinalVerificationSummary(input.Report)
 	}
+	out.Proof = BuildVerificationProofProfile(input.Plan, input.Report)
 	out.ResidualRisks = writeFinalResidualRisks(out)
 	return NormalizeWriteFinalReport(out)
 }
@@ -210,6 +212,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Patch.EffectEventCodes = dedupTrimWriteWorkflowRunStrings(in.Patch.EffectEventCodes)
 	in.Verification.ConfidenceReasonCodes = dedupTrimWriteWorkflowRunStrings(in.Verification.ConfidenceReasonCodes)
 	in.Verification.NoTestsRunners = dedupTrimWriteWorkflowRunStrings(in.Verification.NoTestsRunners)
+	in.Proof = NormalizeVerificationProofProfile(in.Proof)
 	in.PatchReview.ReasonCodes = dedupTrimWriteWorkflowRunStrings(in.PatchReview.ReasonCodes)
 	in.PatchReview.UnverifiedKinds = dedupTrimWriteWorkflowRunStrings(in.PatchReview.UnverifiedKinds)
 	in.Impact.UncoveredTargets = writeFinalBoundedImpactTargets(in.Impact.UncoveredTargets, 12)
@@ -478,6 +481,14 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 		add("verification_unavailable", "change_report", "warning", report.Verification.FailureReasonCode)
 	} else if report.Verification.Status == VerificationStatusFailed {
 		add("verification_failed", "change_report", "error", string(report.Verification.FailureKind))
+	}
+	switch report.Proof.Status {
+	case VerificationProofFailed:
+		add("verification_proof_failed", "verification_proof", "error", strings.Join(report.Proof.ReasonCodes, ","))
+	case VerificationProofUnavailable:
+		add("verification_proof_unavailable", "verification_proof", "warning", strings.Join(report.Proof.ReasonCodes, ","))
+	case VerificationProofWeak:
+		add("verification_proof_weak", "verification_proof", "warning", strings.Join(report.Proof.ReasonCodes, ","))
 	}
 	if report.PatchReview.HardBlock {
 		add("patch_review_hard_block", "patch_review", "error", report.PatchReview.BlockReason)

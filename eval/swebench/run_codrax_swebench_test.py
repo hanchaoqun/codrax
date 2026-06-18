@@ -434,6 +434,12 @@ class FinalReportProjectionTests(unittest.TestCase):
                     },
                     "patch": {"diff_fingerprint": "abc123"},
                     "verification": {"status": "unavailable"},
+                    "proof": {
+                        "status": "weak",
+                        "runner_evidence": "verification_probe",
+                        "reason_codes": ["verification_probe_missing_required_contract_ref"],
+                        "confidence_reason_codes": ["verification_probe_missing_required_contract_ref"],
+                    },
                     "patch_review": {"verdict": "unverified"},
                     "handoff": {
                         "top_items": [
@@ -458,6 +464,16 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_completion_verdict"], "unverified")
         self.assertEqual(result["final_report_completion_reason_code"], "runner_missing")
         self.assertEqual(result["final_report_verification_status"], "unavailable")
+        self.assertEqual(result["final_report_proof_status"], "weak")
+        self.assertEqual(result["final_report_proof_runner_evidence"], "verification_probe")
+        self.assertEqual(
+            result["final_report_proof_reason_codes"],
+            ["verification_probe_missing_required_contract_ref"],
+        )
+        self.assertEqual(
+            result["final_report_proof_confidence_reason_codes"],
+            ["verification_probe_missing_required_contract_ref"],
+        )
         self.assertEqual(result["final_report_patch_review_verdict"], "unverified")
         self.assertEqual(result["final_report_localization_status"], "weak")
         self.assertEqual(
@@ -484,6 +500,8 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertFalse(result["final_report_present"])
         self.assertEqual(result["final_report_path"], "")
         self.assertEqual(result["final_report_completion_verdict"], "")
+        self.assertEqual(result["final_report_proof_status"], "")
+        self.assertEqual(result["final_report_proof_reason_codes"], [])
         self.assertEqual(result["final_report_localization_status"], "")
         self.assertEqual(result["final_report_localization_missing_paths"], [])
         self.assertEqual(result["final_report_residual_risk_codes"], [])

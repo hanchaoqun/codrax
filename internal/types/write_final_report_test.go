@@ -144,6 +144,11 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 		got.PatchReview.UnverifiedKinds[0] != PatchReviewImpactKindChangedSymbol {
 		t.Fatalf("PatchReview=%+v, want unverified changed_symbol", got.PatchReview)
 	}
+	if got.Proof.Status != VerificationProofUnavailable ||
+		got.Proof.RunnerEvidence != VerificationProofRunnerUnavailable ||
+		!writeFinalProofHasReason(got.Proof, "runner_missing") {
+		t.Fatalf("Proof=%+v, want unavailable runner_missing profile", got.Proof)
+	}
 	if got.Impact.CoverageCounts["unverified"] != 1 || len(got.Impact.UncoveredTargets) != 1 {
 		t.Fatalf("Impact=%+v, want one unverified target", got.Impact)
 	}
@@ -155,6 +160,9 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 	}
 	if !writeFinalReportHasRisk(got, "source_localization_weak") {
 		t.Fatalf("ResidualRisks=%+v missing source localization risk", got.ResidualRisks)
+	}
+	if !writeFinalReportHasRisk(got, "verification_proof_unavailable") {
+		t.Fatalf("ResidualRisks=%+v missing verification proof risk", got.ResidualRisks)
 	}
 }
 
@@ -196,6 +204,15 @@ func TestWriteOutputKindIncludesFinalReport(t *testing.T) {
 func writeFinalReportHasRisk(report WriteFinalReport, code string) bool {
 	for _, risk := range report.ResidualRisks {
 		if risk.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func writeFinalProofHasReason(profile VerificationProofProfile, code string) bool {
+	for _, reason := range profile.ReasonCodes {
+		if reason == code {
 			return true
 		}
 	}

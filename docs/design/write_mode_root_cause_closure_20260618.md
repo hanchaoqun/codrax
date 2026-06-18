@@ -5496,6 +5496,53 @@ Verification:
   - [x] Leave project-runner pass semantics stable; continue downgrading
     probe-only pass when typed context coverage is missing.
 
+## 2026-06-19 RC-94 Verification Proof Profile
+
+- Gap:
+  - Verification strength is currently recoverable, but spread across
+    `ChangeReport.VerificationStatus`, `VerificationConfidence`,
+    `PatchReviewRecord.CoverageSummary`, `ImpactAnalysis.VerificationTargets`,
+    and `SourceLocalizationReview`.
+  - This makes final delivery/eval consumers re-assemble proof strength in
+    parallel, increasing model/operator mental load and making "verify passed
+    but proof narrow" harder to audit.
+- Design:
+  - Add `VerificationProofProfile` as a typed projection from existing typed
+    artifacts only.
+  - Status enum: `unknown / unavailable / failed / weak / adequate / strong`.
+  - Runner evidence enum:
+    `none / unavailable / project_runner / verification_probe /
+    syntax_fallback / mixed`.
+  - The profile records reason codes, confidence reason codes, test/command
+    counts, probe/project/syntax command counts, impact target coverage counts,
+    patch-review verdict, and localization status.
+  - A passed project runner with verified impact/localization and no weak
+    confidence is `strong`.
+  - A passed bounded probe can be `adequate` when coupled to contracts/symbols,
+    or `weak` when typed confidence, impact, patch-review, or localization rows
+    show missing proof.
+  - Failed/unavailable verification remains explicit. Missing customer
+    toolchains stay unavailable/warning evidence, not a code-failure hard gate.
+- Task list:
+  - [x] Add `VerificationProofProfile` type, normalization, builder, and tests.
+  - [x] Project the profile into `WriteFinalReport.proof`.
+  - [x] Add proof-profile residual risk rows for weak/unavailable/failed proof.
+  - [x] Export `final_report_proof_*` fields in SWE adapter results.
+  - [x] Update SWE README and this ledger.
+- Prompt/hard-gate hygiene:
+  - No prompt routing changes.
+  - No keyword matching over user intent, issue text, model prose, stdout text,
+    terminal logs, or `<think>`.
+  - The profile consumes only typed report/plan artifacts and enum fields.
+- Verification:
+  - `go test ./internal/types -run
+    'Test(BuildVerificationProofProfile|BuildWriteFinalReport|WriteFinalReport)'`
+  - `python3 -m py_compile eval/swebench/run_codrax_swebench.py
+    eval/swebench/run_codrax_swebench_test.py`
+  - `python3 -m unittest eval.swebench.run_codrax_swebench_test -v`
+  - `go test ./...`
+  - `make`
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed
