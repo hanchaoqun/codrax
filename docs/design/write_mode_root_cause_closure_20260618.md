@@ -3611,6 +3611,59 @@ Reproducer evidence:
   to the next verifier/coverage-attribution line: scoped test selection,
   environment baseline attribution, and proof authority.
 
+## 2026-06-18 RC-66 Command-Derived Failure Reason Attribution
+
+The RC-65 Django rerun closed empty export and stale workflow state, but its
+local verifier row exposed a typed attribution bug:
+
+- the actual report had `FailureKind=tests_failed` because many Django
+  `tests/runtests.py ...` invocations failed after the patch;
+- later default `make check` attempts were unavailable and emitted typed
+  `ExecutedCommand{outcome=parser_error, reason_code=make_target_missing}`;
+- final report installation backfilled `FailureReasonCode` from all command
+  evidence, so a secondary unavailable runner became the primary
+  `tests_failed` reason.
+
+This is not a Django-specific issue. Any multi-runner verification aggregate can
+mix red tests, parser/startup errors, missing runners, zero-test selectors, and
+resource limits. The primary reason must come from the same typed failure kind as
+the selected primary `FailureKind`; secondary runner evidence should remain in
+`ExecutedCommands`, `VerificationDiagnostics`, `NoTestsRunners`, and summaries.
+
+Design:
+
+- Keep the existing `FailureKind` precedence model.
+- Convert command-derived reason codes into `failureReasonCandidate{kind,codes}`
+  using only `ExecutedCommand.Outcome`, `Runner`, and bounded typed
+  `ReasonCode`.
+- When `ChangeReport.FailureReasonCode` is missing, merge/report installation
+  selects command-derived reason codes whose derived kind matches the primary
+  report kind.
+- Preserve verification-probe runtime exceptions as `tests_failed`, while
+  probe authoring/import errors, parser errors, missing runners, zero-tests, and
+  resource limits keep their own typed kinds.
+- Do not parse command output, test stdout, user text, model rationale, or
+  `<think>` content.
+
+Tasks:
+
+- [x] Add typed command->failure-kind mapping for failure-reason candidates.
+- [x] Update aggregate report merge to append command-derived candidates with
+  their own derived kind instead of the enclosing report kind.
+- [x] Update final report installation backfill to filter command reasons by
+  the report's primary `FailureKind`.
+- [x] Add focused tests for red-test reports polluted by `make_target_missing`
+  command evidence and for preserving verification-probe runtime failures.
+- [x] Run related/full regressions, refresh progress, commit, and push.
+
+Verification so far:
+
+- `go test ./internal/tool -run 'TestMergeChangeReports|TestFailureReasonCodeFromExecutedCommandsForKind'`
+- `go test ./internal/tool`
+- `go test ./...`
+- `make test`
+- `git diff --check`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3688,6 +3741,7 @@ Reproducer evidence:
 | RC-63 smoke | complete | Reran `pydata__xarray-4248`: first verify failed with typed probe evidence about truncated unit labels, replan completed, final verify passed 32 scoped tests, final PatchReview was verified, and local acceptance became `pass/source=local_verify`. |
 | RC-64 | complete | Adjacent duplicate inserted block PatchEffect detection now hard-blocks structural duplicate source additions. Focused writeflow tests, related regressions, full `go test ./...`, and `make test` pass. A fresh SymPy smoke did not reproduce the duplicate block and stayed `predicted_unverified` because local proof was unavailable, preserving conservative acceptance semantics. |
 | RC-65 | complete | Structured plan repair now carries unique typed relocation candidates for wrong-path `old_text_mismatch` and controller retry hints render them; canceled plan batches now terminalize as blocked with `plan_batch_canceled`. Focused, related, full `go test ./...`, `make test`, `make`, and `git diff --check` pass. Targeted Django rerun moved the pre-fix `empty_patch` / stale `in_progress` run to a non-empty harness-consumable prediction with `workflow_status=complete`; local verify remains failed and is tracked as the next verifier/coverage-attribution gap. |
+| RC-66 | complete | Command-derived failure reasons now carry typed failure-kind attribution, so secondary unavailable runner signals such as `make_target_missing` cannot become the primary reason for a red `tests_failed` report. Focused tests, full `internal/tool`, full `go test ./...`, `make test`, and `git diff --check` pass. |
 
 ## Acceptance Criteria
 

@@ -270,6 +270,33 @@ func TestMergeChangeReports_DoesNotPromoteUnavailableReasonOverRedTests(t *testi
 	}
 }
 
+func TestMergeChangeReports_CommandBackfillKeepsUnavailableReasonOutOfRedTests(t *testing.T) {
+	report := &types.ChangeReport{
+		Passed:         false,
+		FailureKind:    types.FailureKindTestsFailed,
+		FailureSummary: "python unittest failed | make target unavailable",
+		TestResults: []types.TestResult{
+			{Kind: types.TestResultKindUnit, AssertionID: "test_widget", Suite: "python", Passed: false},
+			{Kind: types.TestResultKindBuildError, AssertionID: "make_target_missing", Suite: "make", Passed: false},
+		},
+		ExecutedCommands: []types.ExecutedCommand{
+			{Runner: "python", Outcome: "executed"},
+			{Runner: "make", Outcome: "parser_error", ReasonCode: "make_target_missing"},
+		},
+		NoTestsRunners: []string{"make"},
+	}
+	merged := mergeChangeReports([]*types.ChangeReport{report})
+	if merged.FailureKind != types.FailureKindTestsFailed {
+		t.Fatalf("FailureKind = %q, want %q", merged.FailureKind, types.FailureKindTestsFailed)
+	}
+	if merged.FailureReasonCode != "" {
+		t.Fatalf("FailureReasonCode = %q, want secondary unavailable command reason excluded", merged.FailureReasonCode)
+	}
+	if len(merged.ExecutedCommands) != 0 {
+		t.Fatalf("mergeChangeReports should not copy command rows directly; finishReport owns command evidence")
+	}
+}
+
 func TestMergeChangeReports_BackfillsFailureReasonFromCommandEvidence(t *testing.T) {
 	report := &types.ChangeReport{
 		Passed:      false,
@@ -283,6 +310,17 @@ func TestMergeChangeReports_BackfillsFailureReasonFromCommandEvidence(t *testing
 	merged := mergeChangeReports([]*types.ChangeReport{report})
 	if merged.FailureReasonCode != "verification_probe_exception" {
 		t.Fatalf("FailureReasonCode = %q, want verification_probe_exception", merged.FailureReasonCode)
+	}
+}
+
+func TestFailureReasonCodeFromExecutedCommandsForKindKeepsProbeRuntimeFailure(t *testing.T) {
+	got := failureReasonCodeFromExecutedCommandsForKind([]types.ExecutedCommand{{
+		Runner:     "verification_probe",
+		Outcome:    "executed",
+		ReasonCode: "verification_probe_exception",
+	}}, types.FailureKindTestsFailed)
+	if got != "verification_probe_exception" {
+		t.Fatalf("reason = %q, want verification_probe_exception", got)
 	}
 }
 

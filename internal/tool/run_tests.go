@@ -370,7 +370,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			verificationConfidenceRecordsFromReport(ctx.Mutable.ChangePlan(), report),
 		)
 		if !report.Passed && strings.TrimSpace(report.FailureReasonCode) == "" {
-			report.FailureReasonCode = failureReasonCodeFromExecutedCommands(report.ExecutedCommands)
+			report.FailureReasonCode = failureReasonCodeFromExecutedCommandsForKind(report.ExecutedCommands, report.FailureKind)
 		}
 		surfaceCopy := surface
 		surfaceCopy.Candidates = append([]types.TestSurfaceCandidate(nil), surface.Candidates...)
@@ -2219,15 +2219,15 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 		if report.FailureSummary != "" {
 			failureSummaries = append(failureSummaries, report.FailureSummary)
 		}
-		reasonCode := report.FailureReasonCode
-		if strings.TrimSpace(reasonCode) == "" {
-			reasonCode = failureReasonCodeFromExecutedCommands(report.ExecutedCommands)
-		}
-		if codes := splitFailureReasonCodes(reasonCode); len(codes) > 0 {
-			failureReasonCandidates = append(failureReasonCandidates, failureReasonCandidate{
-				Kind:  report.FailureKind,
-				Codes: codes,
-			})
+		if reasonCode := strings.TrimSpace(report.FailureReasonCode); reasonCode != "" {
+			if codes := splitFailureReasonCodes(reasonCode); len(codes) > 0 {
+				failureReasonCandidates = append(failureReasonCandidates, failureReasonCandidate{
+					Kind:  report.FailureKind,
+					Codes: codes,
+				})
+			}
+		} else if candidates := failureReasonCandidatesFromExecutedCommands(report.ExecutedCommands); len(candidates) > 0 {
+			failureReasonCandidates = append(failureReasonCandidates, candidates...)
 		}
 		// FailureKind precedence: resource-exhaustion kinds (oom,
 		// cpu_limit, timeout) win over build_failure / tests_failed
@@ -2259,6 +2259,56 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 type failureReasonCandidate struct {
 	Kind  types.FailureKind
 	Codes []string
+}
+
+func failureReasonCandidatesFromExecutedCommands(commands []types.ExecutedCommand) []failureReasonCandidate {
+	var out []failureReasonCandidate
+	for _, cmd := range commands {
+		codes := splitFailureReasonCodes(cmd.ReasonCode)
+		if len(codes) == 0 {
+			continue
+		}
+		out = append(out, failureReasonCandidate{
+			Kind:  failureKindFromExecutedCommand(cmd),
+			Codes: codes,
+		})
+	}
+	return out
+}
+
+func failureKindFromExecutedCommand(cmd types.ExecutedCommand) types.FailureKind {
+	switch strings.TrimSpace(cmd.Outcome) {
+	case "timeout":
+		return types.FailureKindTimeout
+	case "oom":
+		return types.FailureKindOOM
+	case "cpu_limit":
+		return types.FailureKindCPULimit
+	case "runner_missing", "not_configured":
+		return types.FailureKindRunnerMissing
+	case "parser_error", "probe_config_error":
+		return types.FailureKindParserError
+	case "zero_tests", "synthetic_no_tests", "suite_skipped":
+		return types.FailureKindNoTests
+	case "expected_stdout_missing":
+		return types.FailureKindTestsFailed
+	}
+	if strings.TrimSpace(cmd.Runner) == "verification_probe" {
+		return failureKindFromVerificationProbeReasonCode(cmd.ReasonCode)
+	}
+	return ""
+}
+
+func failureKindFromVerificationProbeReasonCode(reasonCode string) types.FailureKind {
+	switch strings.TrimSpace(reasonCode) {
+	case "verification_probe_exception", "verification_probe_expected_stdout_missing":
+		return types.FailureKindTestsFailed
+	case "verification_probe_name_error", "verification_probe_syntax_error",
+		"verification_probe_unclassified", "verification_probe_module_not_found",
+		"verification_probe_import_error":
+		return types.FailureKindParserError
+	}
+	return types.FailureKindTestsFailed
 }
 
 func cloneMetricDeltas(in map[string]types.MetricDelta) map[string]types.MetricDelta {
@@ -2311,15 +2361,12 @@ func primaryFailureReasonCodesForKind(candidates []failureReasonCandidate, prima
 	return dedupStrings(selected)
 }
 
-func failureReasonCodeFromExecutedCommands(commands []types.ExecutedCommand) string {
-	var reasonCodes []string
-	for _, cmd := range commands {
-		reasonCodes = appendFailureReasonCodes(reasonCodes, cmd.ReasonCode)
-	}
-	if len(reasonCodes) == 0 {
+func failureReasonCodeFromExecutedCommandsForKind(commands []types.ExecutedCommand, primary types.FailureKind) string {
+	codes := primaryFailureReasonCodesForKind(failureReasonCandidatesFromExecutedCommands(commands), primary)
+	if len(codes) == 0 {
 		return ""
 	}
-	return strings.Join(dedupStrings(reasonCodes), ",")
+	return strings.Join(codes, ",")
 }
 
 func verificationDiagnosticsFromExecutedCommands(commands []types.ExecutedCommand) []types.VerificationDiagnostic {
