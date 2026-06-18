@@ -4736,30 +4736,103 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     `go test ./...`.
   - Build passed:
     `make`.
-  - SWE-bench Lite targeted rerun passed adapter/export checks:
-    `django__django-11742` at
-    `/private/tmp/codrax-swe-rc74-django-20260618-162930-rc74-django`
-    generated non-empty `predictions.jsonl`, and official harness dry-run
-    validated 1 prediction with `empty_patch=0`.
-- Rerun audit:
-  - The earlier unattached `CharField` `verification_probe_exception` did not
-    recur, so the observation attribution fix closed the wrong-layer probe
-    replan gap for this instance.
-  - The next exposed gap is structural patch-review convergence:
-    `PatchReview` correctly hard-blocked the final actual diff with
-    `python_unreachable_body_after_added_return`, but the workflow terminated
-    `blocked` instead of feeding that structural finding back into an online
-    replan loop.
-  - SWE-bench exporter still produced a harness-consumable prediction while
-    setting `prediction_verdict=predicted_audit_blocked`,
-    `prediction_blocks_local_acceptance=true`, and
-    `local_acceptance_verdict=fail`. This is useful for eval telemetry, but
-    commercial Auto Pilot should treat structural patch-review findings as P2
-    repair evidence before terminal blocked/export.
-- Follow-up task:
-  - [x] Add `patch_review_failed` / structural PatchReview findings to the same
-    online replan lane as failed post-apply verify, with bounded retry budget
-    and checkpoint restore, before considering final block/export.
+
+## 2026-06-18 Structured edit Python class EOF append
+
+- Evidence:
+  - RC-76 targeted rerun on `django__django-11742` showed the controller took
+    the expected symptom-driven path (`needs_exploration -> ready_to_plan`),
+    but the planner spent many emit rounds guessing how to add tests near the
+    end of a Python file.
+  - The existing structured edit builder intentionally rejected indented
+    `insert_at_eof` for Python, so the model had to line-anchor inside a file
+    whose final lines were nested call parentheses. Dry-build then reported
+    repeated `SyntaxError` at the inserted test method. This is a deterministic
+    harness gap, not a Django-specific issue.
+  - The same run confirmed the prior PatchReview batch works: a later
+    `python_duplicate_symbol_added` structural finding was converted into
+    `patch_review_failed`, checkpoint restore, and replan instead of terminal
+    block.
+- Generalized rule:
+  - `insert_at_eof` remains rejected for arbitrary indented Python additions.
+    Python indentation is scope, and appending indented code after a function or
+    non-class top-level statement is too ambiguous for a hard edit primitive.
+  - `insert_at_eof` is allowed when current file bytes show that the final
+    top-level statement is `class ...:` and the inserted first nonblank line is
+    a class member shape: exactly one 4-space indentation level with
+    `def`, `async def`, or decorator syntax.
+  - The rule reads only current file bytes, extension, line indentation, and
+    structured edit content. It does not inspect user request keywords, model
+    rationale, summaries, logs, `<think>`, or SWE-bench instance names.
+  - Python dry-build (`py_compile`) and PatchReview remain the next gates, so
+    this does not relax syntactic or structural acceptance.
+- Prompt/schema hygiene:
+  - `emit_change_plan` and `emit_plan_change` schema descriptions now match the
+    executor: Python `insert_at_eof` is valid for top-level additions and final
+    class-member append only; other indentation-sensitive edits still require a
+    precise line anchor or full-file modify.
+- Task list:
+  - [x] Add a typed final-top-level-class detector for Python structured edits.
+  - [x] Allow `insert_at_eof` for final-class method/decorator append only.
+  - [x] Keep indented EOF inserts after functions rejected.
+  - [x] Include `insert_at_eof` in safe edit kinds only for Python files whose
+    final top-level statement is a class.
+  - [x] Update `emit_change_plan` / `emit_plan_change` schema descriptions.
+  - [x] Add focused structured-edit tests.
+- Verification:
+  - Focused tool tests passed:
+    `go test ./internal/tool -run 'TestCompileStructuredEdits_(AllowsPythonClassMethodInsertAtEOF|RejectsIndentedPythonInsertAtEOFAfterFunction|InsertAtEOFWithoutLineCount|StructuredEditsCompileToPatch|OldTextMismatchEchoesCurrentBytes)' -count=1`.
+
+## 2026-06-18 Direct plan-touched test surface priority
+
+- Evidence:
+  - RC-76 on `django__django-11742` showed a second verifier-scope gap after
+    structural PatchReview replan started working. The final plan touched
+    `tests/invalid_models_tests/test_ordinary_fields.py`, but the verify report
+    still selected the default Django command `python3 tests/runtests.py -v 1`
+    and also tried unrelated broad surfaces such as `make check` under
+    `docs/extras`.
+  - The verifier behavior was deterministic but too weakly scoped: direct
+    touched test files only influenced verification when the planner also
+    emitted explicit `ImpactAnalysis.VerificationTargets`. If that optional
+    analysis was absent or incomplete, `run_tests` fell back to project-level
+    TestSurface defaults.
+- Generalized rule:
+  - Any test file directly named by `ChangePlan.TargetPaths`,
+    `ChangePlan.AppliedPaths`, or `ChangePlan.Changes[].Path` becomes a typed
+    `ImpactVerificationTarget{kind=test_surface, source=direct_plan_test_path}`.
+  - The target is produced by shared path normalization and
+    `types.LooksLikeTestFilePath`; it does not duplicate language-specific test
+    filename rules and does not read issue prose, model summaries, `<think>`,
+    logs, or SWE-bench instance IDs.
+  - Existing TestSurface runner adapters consume that target, so the behavior is
+    cross-language rather than Python-only: Django labels, pytest/unittest test
+    paths, Go package selectors, Node/Ruby test paths, Java/Kotlin class
+    selectors, Rust integration selectors, and Swift filters all go through the
+    same deterministic queue.
+  - Explicit verifier `suite` still wins. The direct plan-touched target only
+    narrows empty-suite/default verification and reduces accidental full-suite
+    expansion.
+- Handoff and UX impact:
+  - The verifier gets a smaller first command without asking the user for a
+    `/verify` override.
+  - Failed scoped commands still flow through `ExecutedCommands`,
+    `ChangeReport`, and P2 `VerifyFailureHandoff`, so replan receives concrete
+    path/suite evidence instead of aggregate full-suite noise.
+- Task list:
+  - [x] Project direct plan-touched test paths into typed impact verification
+    targets before optional ImpactAnalysis targets.
+  - [x] Reuse `types.LooksLikeTestFilePath` and existing runner-plan adapters
+    instead of adding ad hoc per-language filename logic.
+  - [x] Add Django regression coverage proving a touched test file narrows to
+    `invalid_models_tests.test_ordinary_fields`.
+  - [x] Add Node regression coverage proving touched `*.test.ts` becomes the
+    first scoped test path.
+  - [x] Update architecture docs to state that this is a typed cross-language
+    TestSurface projection.
+- Verification:
+  - Focused tool tests passed:
+    `go test ./internal/tool -run 'Test(ImpactRunnerPlansUsePlanTouched|ImpactRunnerPlansNormalizeDjangoRelatedTestSelectors|ImpactRunnerPlansFromChangePlanTargetsNodeRelatedTest|DefaultRunnerPlansPreservesMultipleImpactSuitesInSameWorkingDir|ScopedRunnerPlansForExplicitChoice|CompileStructuredEdits_(AllowsPythonClassMethodInsertAtEOF|RejectsIndentedPythonInsertAtEOFAfterFunction|InsertAtEOFWithoutLineCount))' -count=1`.
 
 ## 2026-06-18 PatchReview structural-finding online replan
 

@@ -360,14 +360,14 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 			if edit.Content == "" {
 				return nil, fmt.Errorf("structured edit builder: change %q edits[%d] %s requires non-empty content", path, i, kind)
 			}
-			if kind == "insert_at_eof" && structuredEditRejectPythonIndentedEOF(path, edit.Content) {
+			if kind == "insert_at_eof" && structuredEditRejectPythonIndentedEOF(path, lines, edit.Content) {
 				msg := fmt.Sprintf("structured edit builder: change %q edits[%d] insert_at_eof cannot append indented Python code to a source file", path, i)
 				return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
 					ReasonCode:       "python_indented_eof_insert",
 					Path:             path,
 					EditIndex:        i,
 					FileLineCount:    lineCount,
-					RetryInstruction: "Python indentation defines scope. Use insert_before/insert_after with a current read_file line anchor inside the intended function/class, or kind=modify with the full corrected file body. insert_at_eof is only safe for unindented top-level Python additions.",
+					RetryInstruction: "Python indentation defines scope. Use insert_before/insert_after with a current read_file line anchor inside the intended function/class, or kind=modify with the full corrected file body. insert_at_eof is safe for unindented top-level Python additions and for appending a class member when the file's last top-level statement is a class.",
 					SafeEditKinds:    structuredEditSafeInsertKinds(path, lines),
 				})
 			}
@@ -657,7 +657,7 @@ func finalBraceInsertionIndex(lines []string) (int, bool) {
 
 func structuredEditSafeInsertKinds(path string, lines []string) []string {
 	out := []string{"insert_before", "insert_after"}
-	if !structuredEditPythonSourcePath(path) {
+	if !structuredEditPythonSourcePath(path) || structuredEditPythonFinalTopLevelIsClass(lines) {
 		out = append(out, "insert_at_eof")
 	}
 	if _, ok := finalBraceInsertionIndex(lines); ok {
@@ -670,17 +670,61 @@ func structuredEditPythonSourcePath(path string) bool {
 	return strings.EqualFold(filepath.Ext(filepath.ToSlash(strings.TrimSpace(path))), ".py")
 }
 
-func structuredEditRejectPythonIndentedEOF(path, content string) bool {
+func structuredEditRejectPythonIndentedEOF(path string, lines []string, content string) bool {
 	if !structuredEditPythonSourcePath(path) {
 		return false
 	}
-	for _, line := range strings.Split(content, "\n") {
-		if strings.TrimSpace(line) == "" {
+	first := firstNonBlankStructuredEditLine(content)
+	if first == "" {
+		return false
+	}
+	if !strings.HasPrefix(first, " ") && !strings.HasPrefix(first, "\t") {
+		return false
+	}
+	return !structuredEditPythonEOFClassMemberInsert(lines, first)
+}
+
+func structuredEditPythonEOFClassMemberInsert(lines []string, firstContentLine string) bool {
+	if !structuredEditPythonFinalTopLevelIsClass(lines) {
+		return false
+	}
+	if strings.HasPrefix(firstContentLine, "\t") {
+		return false
+	}
+	if !strings.HasPrefix(firstContentLine, "    ") || strings.HasPrefix(firstContentLine, "        ") {
+		return false
+	}
+	trimmed := strings.TrimSpace(firstContentLine)
+	return strings.HasPrefix(trimmed, "def ") ||
+		strings.HasPrefix(trimmed, "async def ") ||
+		strings.HasPrefix(trimmed, "@")
+}
+
+func structuredEditPythonFinalTopLevelIsClass(lines []string) bool {
+	lastTopLevel := ""
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		return strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "@") {
+			continue
+		}
+		lastTopLevel = trimmed
 	}
-	return false
+	return strings.HasPrefix(lastTopLevel, "class ") && strings.HasSuffix(lastTopLevel, ":")
+}
+
+func firstNonBlankStructuredEditLine(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func insertionIndex(kind string, line, lineCount int) (int, error) {

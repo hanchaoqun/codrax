@@ -126,6 +126,39 @@ func TestImpactRunnerPlansNormalizeDjangoRelatedTestSelectors(t *testing.T) {
 	}
 }
 
+func TestImpactRunnerPlansUsePlanTouchedDjangoTestPath(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "setup.py", "from setuptools import setup\n")
+	writeImpactSurfaceFixture(t, root, "tests/runtests.py", "print('django tests')\n")
+	writeImpactSurfaceFixture(t, root, "django/db/models/fields/__init__.py", "class Field: pass\n")
+	writeImpactSurfaceFixture(t, root, "tests/invalid_models_tests/test_ordinary_fields.py", "class FieldChoicesTests: pass\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID:          "plan-direct-django-test",
+		TargetPaths: []string{"django/db/models/fields/__init__.py", "tests/invalid_models_tests/test_ordinary_fields.py"},
+		Changes: []types.FileChange{{
+			Path: "django/db/models/fields/__init__.py",
+			Kind: "patch",
+		}, {
+			Path: "tests/invalid_models_tests/test_ordinary_fields.py",
+			Kind: "patch",
+		}},
+	}
+
+	plans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(plans) != 1 {
+		t.Fatalf("expected one direct touched-test plan, got %+v surface=%+v", plans, surface.Candidates)
+	}
+	if plans[0].Runner != "python" || plans[0].Framework != pythonFrameworkDjango || plans[0].Suite != "invalid_models_tests.test_ordinary_fields" {
+		t.Fatalf("unexpected django direct test plan: %+v", plans[0])
+	}
+	queue := defaultRunnerPlansFromTestSurface(root, surface, "", plans...)
+	if len(queue) == 0 || queue[0].Suite != "invalid_models_tests.test_ordinary_fields" {
+		t.Fatalf("direct touched test path should lead default queue, got %+v", queue)
+	}
+}
+
 func TestScopedRunnerPlansForExplicitChoiceNarrowsDjangoFrameworkChoice(t *testing.T) {
 	root := t.TempDir()
 	writeImpactSurfaceFixture(t, root, "setup.py", "from setuptools import setup\n")
@@ -305,6 +338,34 @@ func TestScopedRunnerPlansForExplicitChoiceNarrowsNodeRunnerChoice(t *testing.T)
 	}
 	if scoped[0].Runner != "node" || scoped[0].Suite != "src/widget.test.ts" {
 		t.Fatalf("unexpected node scoped plan: %+v", scoped[0])
+	}
+}
+
+func TestImpactRunnerPlansUsePlanTouchedNodeTestPath(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "package.json", `{"scripts":{"test":"jest"}}`)
+	writeImpactSurfaceFixture(t, root, "src/widget.ts", "export function value() { return 1 }\n")
+	writeImpactSurfaceFixture(t, root, "src/widget.test.ts", "test('value', () => {})\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID:          "plan-direct-node-test",
+		TargetPaths: []string{"src/widget.ts", "src/widget.test.ts"},
+		Changes: []types.FileChange{{
+			Path: "src/widget.ts",
+			Kind: "patch",
+		}, {
+			Path: "src/widget.test.ts",
+			Kind: "patch",
+		}},
+	}
+
+	plans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(plans) != 1 {
+		t.Fatalf("expected one node direct test plan, got %+v surface=%+v", plans, surface.Candidates)
+	}
+	if plans[0].Runner != "node" || plans[0].Suite != "src/widget.test.ts" {
+		t.Fatalf("unexpected node direct test plan: %+v", plans[0])
 	}
 }
 

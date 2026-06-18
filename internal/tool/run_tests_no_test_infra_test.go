@@ -1266,7 +1266,9 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanTouchesTests(
 			cmd.Outcome == "suite_continued" && cmd.ReasonCode == "plan_touches_test_path" {
 			foundContinuedSuite = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == "executed" {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
+			(cmd.Source == "llm_choice" || cmd.Source == "impact_scoped_llm_choice") &&
+			cmd.Outcome == "executed" {
 			foundExecutedSuite = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_skipped" {
@@ -1350,7 +1352,9 @@ func TestRunTestsVerificationProbePassDowngradesProjectSuiteTimeoutWhenPlanTouch
 			cmd.Outcome == "suite_continued" && cmd.ReasonCode == "plan_touches_test_path" {
 			foundContinuedSuite = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == "timeout" {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
+			(cmd.Source == "llm_choice" || cmd.Source == "impact_scoped_llm_choice") &&
+			cmd.Outcome == "timeout" {
 			foundTimeout = true
 		}
 	}

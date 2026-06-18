@@ -385,6 +385,7 @@ func impactVerificationTargetsFromChangePlan(plan *types.ChangePlan) []types.Imp
 			targets = append(targets, target)
 		}
 	}
+	add(directTestSurfaceTargetsFromChangePlan(plan))
 	if plan.ImpactAnalysis != nil {
 		analysis := types.NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
 		add(analysis.VerificationTargets)
@@ -398,6 +399,41 @@ func impactVerificationTargetsFromChangePlan(plan *types.ChangePlan) []types.Imp
 		add(result.VerificationTargets)
 	}
 	return targets
+}
+
+func directTestSurfaceTargetsFromChangePlan(plan *types.ChangePlan) []types.ImpactVerificationTarget {
+	if plan == nil {
+		return nil
+	}
+	var out []types.ImpactVerificationTarget
+	seen := map[string]bool{}
+	addPath := func(raw string) {
+		rel := cleanRepoRelPath(raw)
+		if rel == "" || seen[rel] || !types.LooksLikeTestFilePath(rel) {
+			return
+		}
+		seen[rel] = true
+		out = append(out, types.ImpactVerificationTarget{
+			Kind:           "test_surface",
+			Path:           rel,
+			RelatedPath:    rel,
+			Priority:       100,
+			Strength:       "precise",
+			Source:         "direct_plan_test_path",
+			CoverageStatus: "unverified",
+			EvidenceRef:    rel,
+		})
+	}
+	for _, path := range plan.TargetPaths {
+		addPath(path)
+	}
+	for _, path := range plan.AppliedPaths {
+		addPath(path)
+	}
+	for _, change := range plan.Changes {
+		addPath(change.Path)
+	}
+	return out
 }
 
 func safeImpactRelatedPath(repoRoot, related string) string {

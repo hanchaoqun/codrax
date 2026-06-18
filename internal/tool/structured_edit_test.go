@@ -719,9 +719,36 @@ func TestCompileStructuredEdits_InsertAtEOFWithoutLineCount(t *testing.T) {
 	}
 }
 
-func TestCompileStructuredEdits_RejectsIndentedPythonInsertAtEOF(t *testing.T) {
+func TestCompileStructuredEdits_AllowsPythonClassMethodInsertAtEOF(t *testing.T) {
 	root := t.TempDir()
-	writeSurfaceFile(t, root, "src/flask/blueprints.py", "class Blueprint:\n    def route(self):\n        return f\n")
+	writeSurfaceFile(t, root, "tests/test_fields.py", "class FieldTests:\n    def test_existing(self):\n        assert True\n")
+	change := &types.FileChange{
+		Path: "tests/test_fields.py",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:    "insert_at_eof",
+			Content: "\n    def test_added(self):\n        assert True\n",
+		}},
+	}
+	patch, err := compileStructuredEditsToPatch(root, change)
+	if err != nil {
+		t.Fatalf("insert_at_eof should allow appending a method to a final Python class: %v", err)
+	}
+	if !strings.Contains(patch, "+    def test_added(self):") {
+		t.Fatalf("unexpected patch:\n%s", patch)
+	}
+	if !containsStructuredEditString(structuredEditSafeInsertKinds("tests/test_fields.py", []string{
+		"class FieldTests:\n",
+		"    def test_existing(self):\n",
+		"        assert True\n",
+	}), "insert_at_eof") {
+		t.Fatalf("safe edit kinds should include insert_at_eof for final Python class")
+	}
+}
+
+func TestCompileStructuredEdits_RejectsIndentedPythonInsertAtEOFAfterFunction(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/flask/blueprints.py", "def route():\n    return f\n")
 	change := &types.FileChange{
 		Path: "src/flask/blueprints.py",
 		Kind: "patch",
