@@ -2634,6 +2634,68 @@ behavior, but local correctness still depends on stronger behavior-contract
 proof. The next root-cause batches should target contract/probe generation and
 owner-boundary proof rather than patch export.
 
+## RC-50: Verification Proof Obligation Follow-up
+
+Targeted RC-48 smoke exposed a recurring low-confidence shape:
+
+- the workflow can produce a non-empty official patch and a local passed report;
+- the report still carries typed `verification_confidence[]` records such as
+  `verification_probe_missing_soft_contract_ref`;
+- the SWE adapter correctly downgrades confidence, but the controller does not
+  yet treat the missing proof as an online convergence obligation.
+
+This is a system gap, not an adapter scoring issue. In Claude-Code-like online
+convergence terms, the loop observes "the patch ran, but the proof is
+incomplete" and should schedule a bounded `Edit/Run/Observe` follow-up that
+adds or tightens proof near the actual change. Leaving the signal as passive
+telemetry makes SWE-bench manual audit depend on lucky probes instead of a
+durable proof-closure mechanism.
+
+Design constraints:
+
+- Hard logic must consume only typed `ChangeReport.VerificationConfidence`
+  records and typed plan fields. No user-intent keywords, no model rationale,
+  no prose summary parsing.
+- Missing proof is not the same as a failing behavior. It must append one
+  bounded proof follow-up before finish, not mark the current patch failed or
+  trigger unbounded replan.
+- Existing impact/patch-review follow-up stays authoritative for actual-diff
+  and changed-symbol coverage. RC-50 extends the same queue with
+  verification-confidence proof obligations instead of creating a parallel
+  scheduler.
+- The follow-up must preserve P2 handoff evidence: reason code, contract refs,
+  changed-symbol refs, source, and current batch context all travel through
+  `SuccessCriteria`.
+- Recursion must be impossible: once a proof-obligation follow-up has been
+  requested in the run ledger, the controller finishes with low-confidence
+  caveats instead of appending another proof batch.
+
+Implementation plan:
+
+- Add `verificationConfidenceRepairQueueItem` projection into the existing
+  impact repair queue.
+- Consume these categories when status is `missing`:
+  - `probe_soft_contract_refs` with concrete `contract_refs`;
+  - `probe_contract_refs` with concrete hard `contract_refs`;
+  - `probe_changed_symbol` with concrete `changed_symbol_refs` when present.
+- Map them to typed repair kinds `behavior_contract` or `changed_symbol`, with
+  `source=verification_confidence` and criteria preserving the original
+  `reason_code`.
+- Scope expected paths from plan-changed source paths when no more precise
+  related path exists, so the follow-up remains small and normally does not
+  require extra exploration.
+- Extend the one-shot recursion guard to cover both impact and proof follow-up
+  progress reasons.
+- Add focused controller tests:
+  - passed/unverified batch plus missing soft contract ref appends one proof
+    follow-up batch;
+  - criteria include the reason code and missing contract ref;
+  - missing proof records without refs stay as telemetry and do not append
+    blind batches;
+  - a prior proof follow-up reason prevents recursion.
+- Run focused orchestrator tests, related write packages, full Go regression,
+  and diff check.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2689,6 +2751,7 @@ owner-boundary proof rather than patch export.
 | RC-47 | complete | Owner-boundary runtime signals: actual-diff source providers now emit typed soft semantic-coverage events for caller-return wrapper adapters, newly guarded diagnostic calls, and external private-state writes across precise Python/JS/TS/Ruby/Java/Kotlin shapes, while Go keeps only the precise return-wrapper shape. PatchReview registers the generic event codes as unknown coverage so they reach P2 handoff and bounded repair scheduling instead of staying SWE-bench adapter-only audit telemetry. Verification: focused writeflow owner-boundary/registry tests and related package regression pass. |
 | RC-48 | complete | Plan localization retry: controller planning now consumes typed prior-localization context and gives one bounded retry when a fresh source plan edits paths outside P0/P1 evidence-backed anchors. The helper excludes plan-authored context and test-only paths, skips no-prior-context cases, and preserves legal new owner discovery after the bounded retry. Verification: focused types/orchestrator localization tests, related package regression, `go test ./...`, `make test`, and diff check pass. |
 | RC-49 | complete | Official harness dry-run import check: the harness wrapper now imports `swebench.harness.run_evaluation` for non-dry runs and for Lite dry-runs by default, while command-only dry-run remains available. README documents Python 3.10+ and the `SWEBENCH_CHECK_OFFICIAL_IMPORT` / `CHECK_HARNESS_IMPORT` knobs. Targeted RC-48 smoke exported 3/3 non-empty predictions and exposed continued correctness gaps; Python 3.9 import-check fails clearly, Python 3.11 import-check dry-run passes, and dependency-free `smoke_local.sh` still passes. |
+| RC-50 | planned | Verification proof obligation follow-up: promote typed missing `verification_confidence` proof refs into the existing bounded follow-up queue so local passes with incomplete probe proof trigger one online proof-closure batch before finish. |
 
 ## Acceptance Criteria
 
