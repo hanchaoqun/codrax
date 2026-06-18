@@ -1013,6 +1013,59 @@ func TestSeedControllerBatchPlanningHint_DegradedExplorationHandoffConverges(t *
 	}
 }
 
+func TestSeedControllerBatchContextPrefersOwnerAnchorsBeforeExpectedPaths(t *testing.T) {
+	mu := types.NewMutableState("owner anchored repair")
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-owner",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ContextPacks: []types.WriteContextPack{
+			testOwnerLocalizationContextPack("batch-1", "pkg/owner.py", "Owner.handle"),
+		},
+	}
+	mu.SetWriteWorkflowRun(run)
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply}
+
+	batch := writeflow.WriteBatchPlan{
+		ID:              "batch-1",
+		Goal:            "repair symptom through owner boundary",
+		ExpectedPaths:   []string{"pkg/symptom.py", "pkg/owner.py"},
+		SuccessCriteria: []string{"regression probe passes"},
+	}
+	o.seedControllerBatchPlanningHint(batch)
+	o.seedControllerBatchExplorationContext(batch)
+
+	req := mu.WriteExplorationRequest()
+	if req == nil {
+		t.Fatal("expected exploration request")
+	}
+	wantPaths := []string{"pkg/owner.py", "pkg/symptom.py"}
+	if len(req.CandidatePaths) != len(wantPaths) {
+		t.Fatalf("candidate paths = %+v, want %+v", req.CandidatePaths, wantPaths)
+	}
+	for i := range wantPaths {
+		if req.CandidatePaths[i] != wantPaths[i] {
+			t.Fatalf("candidate paths = %+v, want owner anchor first", req.CandidatePaths)
+		}
+	}
+	if len(req.EvidenceRequirements) < 2 ||
+		!strings.Contains(req.EvidenceRequirements[0], "owner_anchor path=pkg/owner.py") ||
+		req.EvidenceRequirements[1] != "regression probe passes" {
+		t.Fatalf("evidence requirements should lead with typed owner anchor then batch criteria: %+v", req.EvidenceRequirements)
+	}
+	hint := mu.PlanningHint()
+	ownerIdx := strings.Index(hint, "Typed owner-anchor repair candidates")
+	expectedIdx := strings.Index(hint, "Expected paths")
+	if ownerIdx < 0 || expectedIdx < 0 || ownerIdx > expectedIdx {
+		t.Fatalf("planning hint should render typed owner anchors before broad expected paths, got:\n%s", hint)
+	}
+}
+
 func TestPlannerSoftCapForCompletedExplorationAppliesSynthesisFloor(t *testing.T) {
 	cases := []struct {
 		name             string

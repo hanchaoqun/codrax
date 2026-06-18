@@ -3023,6 +3023,14 @@ func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatc
 	if batch.Purpose != "" {
 		fmt.Fprintf(&b, "Purpose: %s\n\n", batch.Purpose)
 	}
+	ownerView := o.controllerPlanningOwnerAnchorView(batch, types.WriteConsumerPlanner, 8)
+	if ownerRows := types.OwnerAnchorEvidenceRequirements(ownerView, 6); len(ownerRows) > 0 {
+		b.WriteString("Typed owner-anchor repair candidates:\n")
+		for _, row := range ownerRows {
+			fmt.Fprintf(&b, "- %s\n", row)
+		}
+		b.WriteString("\n")
+	}
 	if len(batch.ExpectedPaths) > 0 {
 		b.WriteString("Expected paths:\n")
 		for _, p := range batch.ExpectedPaths {
@@ -3041,13 +3049,42 @@ func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatc
 
 func (o *Orchestrator) seedControllerBatchExplorationContext(batch writeflow.WriteBatchPlan) {
 	batch = writeflow.NormalizeBatchPlan(batch)
+	ownerView := o.controllerPlanningOwnerAnchorView(batch, types.WriteConsumerPlanner, 12)
+	candidatePaths := types.OwnerAnchorCandidatePaths(ownerView, batch.ExpectedPaths, 16)
+	evidenceRequirements := append(types.OwnerAnchorEvidenceRequirements(ownerView, 8), batch.SuccessCriteria...)
 	req := types.WriteExplorationRequest{
 		BatchID:              batchIDOrDefault(batch.ID, "batch-1"),
 		Goal:                 batch.Goal,
-		CandidatePaths:       append([]string(nil), batch.ExpectedPaths...),
-		EvidenceRequirements: append([]string(nil), batch.SuccessCriteria...),
+		CandidatePaths:       candidatePaths,
+		EvidenceRequirements: evidenceRequirements,
 	}
 	o.busCtx.Mutable.SetWriteExplorationRequest(&req)
+}
+
+func (o *Orchestrator) controllerPlanningOwnerAnchorView(batch writeflow.WriteBatchPlan, consumer types.WriteContextConsumer, limit int) types.OwnerAnchorView {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return types.OwnerAnchorView{}
+	}
+	batch = writeflow.NormalizeBatchPlan(batch)
+	var packs []types.WriteContextPack
+	batchID := strings.TrimSpace(batch.ID)
+	sliceID := ""
+	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+		packs = append(packs, run.ContextPacks...)
+		if batchID == "" {
+			batchID = strings.TrimSpace(run.ActiveBatchID)
+		}
+		if batchID != "" {
+			sliceID = activeWorkflowRunSliceID(*run, batchID)
+		}
+	}
+	if pack := o.busCtx.Mutable.WriteContextPack(); pack != nil {
+		packs = append(packs, *pack)
+	}
+	if len(packs) == 0 {
+		return types.OwnerAnchorView{}
+	}
+	return types.OwnerAnchorViewFromWriteContextPacks(packs, consumer, batchID, sliceID, limit)
 }
 
 func (o *Orchestrator) syncCurrentWriteContextPackToRun(run *types.WriteWorkflowRun) {

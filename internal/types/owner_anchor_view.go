@@ -205,6 +205,84 @@ func (v OwnerAnchorView) StrongSourcePaths() []string {
 	return append([]string(nil), v.StrongPaths...)
 }
 
+// OwnerAnchorCandidatePaths returns deterministic repair/exploration candidate
+// paths with strong typed owner/evidence anchors first, followed by caller
+// fallbacks. It is a scheduling projection over typed anchors only; prompt text,
+// model rationale, user prose, and terminal narratives never participate.
+func OwnerAnchorCandidatePaths(view OwnerAnchorView, fallback []string, limit int) []string {
+	if limit <= 0 {
+		limit = writeExplorationMaxListItems
+	}
+	view = NormalizeOwnerAnchorView(view, 0)
+	seen := map[string]struct{}{}
+	out := make([]string, 0, minInt(limit, len(view.Items)+len(fallback)))
+	add := func(raw string) {
+		p := sourceLocalizationPath(raw)
+		if p == "" {
+			return
+		}
+		key := strings.ToLower(p)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, p)
+	}
+	for _, item := range view.Items {
+		if !ownerAnchorViewItemIsRepairCandidate(item) {
+			continue
+		}
+		add(item.Path)
+		if len(out) >= limit {
+			return out
+		}
+	}
+	for _, p := range fallback {
+		add(p)
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+// OwnerAnchorEvidenceRequirements renders compact deterministic requirement
+// rows for owner/evidence anchors. They are soft planning/exploration guidance
+// generated from typed fields, not a hard routing surface.
+func OwnerAnchorEvidenceRequirements(view OwnerAnchorView, limit int) []string {
+	if limit <= 0 {
+		limit = 8
+	}
+	view = NormalizeOwnerAnchorView(view, 0)
+	var out []string
+	for _, item := range view.Items {
+		if !ownerAnchorViewItemIsRepairCandidate(item) {
+			continue
+		}
+		parts := []string{"owner_anchor", "path=" + item.Path}
+		if item.OwnerSymbol != "" {
+			parts = append(parts, "owner_symbol="+item.OwnerSymbol)
+		}
+		if item.AnchorSymbol != "" {
+			parts = append(parts, "anchor_symbol="+item.AnchorSymbol)
+		}
+		if item.Subject != "" {
+			parts = append(parts, "subject="+item.Subject)
+		}
+		if item.EvidenceRef != nil && item.EvidenceRef.ID != "" {
+			parts = append(parts, "evidence_ref="+item.EvidenceRef.ID)
+		}
+		if item.ReasonCode != "" {
+			parts = append(parts, "reason="+item.ReasonCode)
+		}
+		out = append(out, strings.Join(parts, " "))
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
 func ownerAnchorViewItemFromAnchor(anchor SourceLocalizationAnchor, priority WriteContextPriority, sourceStage, sourceID, batchID, sliceID string) (OwnerAnchorViewItem, bool) {
 	anchor = normalizeSourceLocalizationAnchor(anchor)
 	if anchor.Path == "" {
@@ -360,6 +438,20 @@ func ownerAnchorViewItemIsStrong(item OwnerAnchorViewItem) bool {
 	default:
 		return false
 	}
+}
+
+func ownerAnchorViewItemIsRepairCandidate(item OwnerAnchorViewItem) bool {
+	item = normalizeOwnerAnchorViewItem(item)
+	if !ownerAnchorViewItemIsStrong(item) || item.Kind == SourceLocalizationAnchorScope {
+		return false
+	}
+	return item.EvidenceRef != nil ||
+		item.OwnerSymbol != "" ||
+		item.Subject != "" ||
+		item.AnchorSymbol != "" ||
+		item.Kind == SourceLocalizationAnchorGroundedEvidence ||
+		item.Kind == SourceLocalizationAnchorRecoveredEvidence ||
+		item.Kind == SourceLocalizationAnchorEvidence
 }
 
 func ownerAnchorFirstNonEmpty(values ...string) string {

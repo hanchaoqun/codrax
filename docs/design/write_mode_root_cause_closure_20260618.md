@@ -4316,7 +4316,7 @@ Verification:
 | RC-104 | complete | Shared localization owner/evidence anchor closure: preserve prior owner/supporting/scope anchors through write plan localization review and downstream context packs, so later controller/planner/verifier consumers see typed anchor evidence instead of only path sets. Focused types tests, related write/read consumers, full `go test ./...`, `make`, and `git diff --check` pass. |
 | RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
 | RC-106 | complete | Same-batch source-owner relation after test-only replan: restore-aware delivery lineage now preserves/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code, while still excluding stale pre-restore plans when no precise restored checkpoint relation exists. Focused Go and SWE adapter regressions pass. |
-| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects; RC107-E adds owner-depth critique for path-covered but owner/evidence-missing plans; RC107-F writes planner read observations back into durable localization anchors. Remaining work: direct controller/replan slice selection from `OwnerAnchorView` and read final-answer projection. |
+| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects; RC107-E adds owner-depth critique for path-covered but owner/evidence-missing plans; RC107-F writes planner read observations back into durable localization anchors; RC107-G makes controller planning/exploration seeds prefer typed owner/evidence anchors before broad expected paths. Remaining work: read final-answer projection and final unresolved owner-gap report fields. |
 | RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
 | RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
 
@@ -6558,11 +6558,11 @@ verifier-only hardening unless a regression blocks mainline stability.
     consume `OwnerAnchorView` before broad target-file hints.
   - [x] Record chosen owner-anchor IDs on each `ChangePlan` when the controller
     attaches plan context.
-  - [ ] Make write controller/replan repair consume `OwnerAnchorView` before broad
+  - [x] Make write controller/replan repair consume `OwnerAnchorView` before broad
     target-file hints when choosing follow-up repair/explore slices.
   - [x] Add handoff tests proving rich read evidence survives to write planning
     through typed artifacts.
-  - [ ] Add tests proving owner-anchor evidence changes the selected
+  - [x] Add tests proving owner-anchor evidence changes the selected
     source-owner surface rather than only being retained.
   - [x] Add final report fields that show chosen owner anchors for audit.
   - [ ] Add final report fields that show unresolved owner-anchor gaps for audit.
@@ -6789,6 +6789,27 @@ verifier-only hardening unless a regression blocks mainline stability.
   - Focused verification:
     `go test ./internal/tool ./internal/types ./internal/orchestrator -run
     'Test(ReadFile_ResolvesAgainstRepoRoot|WriteContextPackFromPlannerToolResults|SyncPlannerObservationContextPack|RunControllerPlanBatch_.*Localization|WriteContextPackFromPlanContextCoverage)'
+    -count=1`.
+- RC107-G controller owner-anchor repair-slice selection:
+  - Added `OwnerAnchorCandidatePaths` and `OwnerAnchorEvidenceRequirements` as
+    shared typed projections over `OwnerAnchorView`. They accept only strong
+    non-scope owner/evidence anchors as first-class repair/explore candidates;
+    broad scope/expected paths remain fallback input and observed `read_file`
+    rows still do not satisfy owner proof.
+  - `seedControllerBatchPlanningHint` and
+    `seedControllerBatchExplorationContext` now consume the same ranked owner
+    view before broad `ExpectedPaths`. This changes the typed
+    `WriteExplorationRequest.CandidatePaths` order and deterministic evidence
+    requirements, so planner, exploration, and structured-edit repair lanes see
+    owner-localized paths first without parsing prompt prose.
+  - Hard routing remains typed-only: the projection reads
+    `SourceLocalizationAnchor`, `OwnerAnchorViewItem`, evidence refs, path role,
+    strength, kind, source stage, batch/slice scope, and consumer visibility.
+    It does not read user-intent keywords, model summaries/rationale,
+    `<think>`, stdout narrative, or manual audit notes.
+  - Focused verification:
+    `go test ./internal/types ./internal/orchestrator -run
+    'Test(OwnerAnchorCandidatePaths|SeedControllerBatchContextPrefersOwnerAnchors)'
     -count=1`.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue

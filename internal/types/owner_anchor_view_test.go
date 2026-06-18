@@ -101,6 +101,53 @@ func TestOwnerAnchorViewFromWriteContextPackUsesScopedConsumerView(t *testing.T)
 	}
 }
 
+func TestOwnerAnchorCandidatePathsPreferOwnerEvidenceBeforeFallback(t *testing.T) {
+	ref := WriteExplorationEvidenceRef{ID: "ev-owner", Source: "pkg/owner.py", LineStart: 12, OwnerSymbol: "Owner.handle"}
+	view := NormalizeOwnerAnchorView(OwnerAnchorView{Items: []OwnerAnchorViewItem{{
+		Path:        "pkg/scope.py",
+		Kind:        SourceLocalizationAnchorScope,
+		Strength:    SourceLocalizationAnchorSupporting,
+		Priority:    WriteContextP1,
+		SourceStage: "write_analysis",
+	}, {
+		Path:        "pkg/support.py",
+		Kind:        SourceLocalizationAnchorEvidence,
+		Strength:    SourceLocalizationAnchorSupporting,
+		Priority:    WriteContextP1,
+		SourceStage: "explore",
+		Subject:     "Support.boundary",
+	}, {
+		Path:        "pkg/owner.py",
+		Kind:        SourceLocalizationAnchorGroundedEvidence,
+		Strength:    SourceLocalizationAnchorOwner,
+		Priority:    WriteContextP1,
+		SourceStage: "explore",
+		OwnerSymbol: "Owner.handle",
+		EvidenceRef: &ref,
+	}}}, 0)
+
+	paths := OwnerAnchorCandidatePaths(view, []string{"pkg/symptom.py", "pkg/owner.py"}, 0)
+	want := []string{"pkg/owner.py", "pkg/support.py", "pkg/symptom.py"}
+	if len(paths) != len(want) {
+		t.Fatalf("paths = %+v, want %+v", paths, want)
+	}
+	for i := range want {
+		if paths[i] != want[i] {
+			t.Fatalf("paths = %+v, want %+v", paths, want)
+		}
+	}
+	reqs := OwnerAnchorEvidenceRequirements(view, 0)
+	if len(reqs) != 2 {
+		t.Fatalf("requirements = %+v, want owner/support only", reqs)
+	}
+	if reqs[0] != "owner_anchor path=pkg/owner.py owner_symbol=Owner.handle evidence_ref=ev-owner" {
+		t.Fatalf("owner requirement = %q", reqs[0])
+	}
+	if reqs[1] != "owner_anchor path=pkg/support.py subject=Support.boundary" {
+		t.Fatalf("support requirement = %q", reqs[1])
+	}
+}
+
 func TestStampChangePlanOwnerAnchorsUsesLocalizationReview(t *testing.T) {
 	plan := &ChangePlan{
 		ID: "plan-owner",
