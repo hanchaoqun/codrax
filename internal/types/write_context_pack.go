@@ -49,6 +49,7 @@ type WriteContextItem struct {
 	SourceStage        string                       `json:"source_stage,omitempty"`
 	SourceID           string                       `json:"source_id,omitempty"`
 	EvidenceRef        *WriteExplorationEvidenceRef `json:"evidence_ref,omitempty"`
+	LocalizationAnchor *SourceLocalizationAnchor    `json:"localization_anchor,omitempty"`
 	Consumers          []WriteContextConsumer       `json:"consumers,omitempty"`
 	Stale              bool                         `json:"stale,omitempty"`
 	StaleReason        string                       `json:"stale_reason,omitempty"`
@@ -332,6 +333,34 @@ func WriteContextPackFromExplorationHandoff(h WriteExplorationHandoff) WriteCont
 		refCopy := normalizeWriteExplorationEvidenceRef(ref)
 		item.EvidenceRef = &refCopy
 		pack.Items = append(pack.Items, item)
+	}
+	if h.SourceLocalization != nil {
+		review := CloneSourceLocalizationReview(*h.SourceLocalization)
+		for _, anchor := range review.Anchors {
+			anchor = normalizeSourceLocalizationAnchor(anchor)
+			if anchor.Path == "" {
+				continue
+			}
+			priority := WriteContextP2
+			if sourceLocalizationAnchorSatisfiesPriorContext(anchor) {
+				priority = WriteContextP1
+			}
+			text := renderSourceLocalizationAnchorContext(anchor)
+			if text == "" {
+				text = anchor.Path
+			}
+			item := writeContextItem("localization_anchor", priority, text, "explore",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+			item.SourceID = string(anchor.Strength)
+			anchorCopy := anchor
+			item.LocalizationAnchor = &anchorCopy
+			if anchor.EvidenceRef != nil {
+				refCopy := normalizeWriteExplorationEvidenceRef(*anchor.EvidenceRef)
+				item.EvidenceRef = &refCopy
+			}
+			item.ID = writeContextStableID("localization_anchor", anchor.Path, string(anchor.Kind), string(anchor.Strength), anchor.AnchorSymbol)
+			pack.Items = append(pack.Items, item)
+		}
 	}
 	for _, test := range h.TestSurface {
 		pack.Items = append(pack.Items, writeContextItem("test_surface", WriteContextP2, test, "explore",
@@ -822,11 +851,11 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 // context intentionally returns nil: without any localization evidence there is
 // nothing precise enough to route on.
 func WritePlanSourcePathsOutsidePriorContext(prior []WriteContextPack, plan *ChangePlan) []string {
-	contextPaths := writeContextCoveragePriorPaths(prior)
-	if len(contextPaths) == 0 {
+	contextPaths, hasTypedLocalizationAnchors := writeContextCoveragePriorPathsWithAnchorSignal(prior)
+	planPaths := writeContextCoveragePlanPaths(plan)
+	if len(contextPaths) == 0 && !hasTypedLocalizationAnchors {
 		return nil
 	}
-	planPaths := writeContextCoveragePlanPaths(plan)
 	var out []string
 	for _, p := range planPaths {
 		if writeContextCoveragePathCoveredByContext(p, contextPaths) {
@@ -932,20 +961,77 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 }
 
 func writeContextCoveragePriorPaths(packs []WriteContextPack) []string {
+	paths, _ := writeContextCoveragePriorPathsWithAnchorSignal(packs)
+	return paths
+}
+
+func writeContextCoveragePriorPathsWithAnchorSignal(packs []WriteContextPack) ([]string, bool) {
 	seen := map[string]struct{}{}
-	var out []string
+	anchorSeen := map[string]struct{}{}
+	scopeSeen := map[string]struct{}{}
+	var legacy []string
+	var anchorPaths []string
+	var scopePaths []string
+	hasTypedLocalizationAnchors := false
+	addLegacy := func(raw string) {
+		p := writeContextCoveragePath(raw)
+		if p == "" || writeContextCoveragePathIsTest(p) {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		legacy = append(legacy, p)
+	}
+	addAnchor := func(anchor SourceLocalizationAnchor) {
+		anchor = normalizeSourceLocalizationAnchor(anchor)
+		if !sourceLocalizationAnchorSatisfiesPriorContext(anchor) {
+			return
+		}
+		p := writeContextCoveragePath(anchor.Path)
+		if p == "" || writeContextCoveragePathIsTest(p) {
+			return
+		}
+		if _, ok := anchorSeen[p]; ok {
+			return
+		}
+		anchorSeen[p] = struct{}{}
+		anchorPaths = append(anchorPaths, p)
+	}
+	addScope := func(raw string) {
+		p := writeContextCoveragePath(raw)
+		if p == "" || writeContextCoveragePathIsTest(p) {
+			return
+		}
+		if _, ok := scopeSeen[p]; ok {
+			return
+		}
+		scopeSeen[p] = struct{}{}
+		scopePaths = append(scopePaths, p)
+	}
 	for _, pack := range packs {
 		pack = NormalizeWriteContextPack(pack)
 		if pack.PackID == "change-plan" || pack.SourceStage == "plan" {
 			continue
 		}
 		for _, item := range pack.Items {
+			if item.Kind == "localization_anchor" {
+				hasTypedLocalizationAnchors = true
+				if (item.Priority == WriteContextP0 || item.Priority == WriteContextP1) && item.LocalizationAnchor != nil {
+					addAnchor(*item.LocalizationAnchor)
+				}
+				continue
+			}
 			if item.SourceStage == "plan" || (item.Priority != WriteContextP0 && item.Priority != WriteContextP1) {
 				continue
 			}
 			var p string
 			switch item.Kind {
-			case "target_file", "scope_anchor":
+			case "scope_anchor":
+				p = writeContextCoveragePath(item.Text)
+				addScope(p)
+			case "target_file":
 				p = writeContextCoveragePath(item.Text)
 			case "evidence_ref":
 				if item.EvidenceRef != nil {
@@ -954,18 +1040,24 @@ func writeContextCoveragePriorPaths(packs []WriteContextPack) []string {
 			default:
 				continue
 			}
-			if p == "" || writeContextCoveragePathIsTest(p) {
-				continue
-			}
-			if _, ok := seen[p]; ok {
-				continue
-			}
-			seen[p] = struct{}{}
-			out = append(out, p)
+			addLegacy(p)
 		}
 	}
-	sort.Strings(out)
-	return out
+	if hasTypedLocalizationAnchors {
+		outSeen := map[string]struct{}{}
+		var out []string
+		for _, p := range append(scopePaths, anchorPaths...) {
+			if _, ok := outSeen[p]; ok {
+				continue
+			}
+			outSeen[p] = struct{}{}
+			out = append(out, p)
+		}
+		sort.Strings(out)
+		return out, true
+	}
+	sort.Strings(legacy)
+	return legacy, false
 }
 
 func writeContextCoveragePlanPaths(plan *ChangePlan) []string {
@@ -1088,6 +1180,14 @@ func normalizeWriteContextItem(in WriteContextItem) WriteContextItem {
 		ref := normalizeWriteExplorationEvidenceRef(*in.EvidenceRef)
 		in.EvidenceRef = &ref
 	}
+	if in.LocalizationAnchor != nil {
+		anchor := normalizeSourceLocalizationAnchor(*in.LocalizationAnchor)
+		if anchor.Path == "" {
+			in.LocalizationAnchor = nil
+		} else {
+			in.LocalizationAnchor = &anchor
+		}
+	}
 	in.Consumers = normalizeWriteContextConsumers(in.Consumers)
 	if in.Priority != WriteContextP0 {
 		if in.ExpiresWithBatchID == "" {
@@ -1130,6 +1230,14 @@ func cloneWriteContextItems(in []WriteContextItem) []WriteContextItem {
 		if item.EvidenceRef != nil {
 			ref := *item.EvidenceRef
 			out[i].EvidenceRef = &ref
+		}
+		if item.LocalizationAnchor != nil {
+			anchor := *item.LocalizationAnchor
+			if anchor.EvidenceRef != nil {
+				ref := *anchor.EvidenceRef
+				anchor.EvidenceRef = &ref
+			}
+			out[i].LocalizationAnchor = &anchor
 		}
 	}
 	return out
@@ -1250,6 +1358,14 @@ func mergeWriteContextDuplicateItem(existing, incoming WriteContextItem) WriteCo
 		ref := *incoming.EvidenceRef
 		out.EvidenceRef = &ref
 	}
+	if out.LocalizationAnchor == nil && incoming.LocalizationAnchor != nil {
+		anchor := *incoming.LocalizationAnchor
+		if anchor.EvidenceRef != nil {
+			ref := *anchor.EvidenceRef
+			anchor.EvidenceRef = &ref
+		}
+		out.LocalizationAnchor = &anchor
+	}
 	out.Stale = existing.Stale && incoming.Stale
 	if len(existing.Consumers) == 0 || len(incoming.Consumers) == 0 {
 		out.Consumers = nil
@@ -1267,6 +1383,11 @@ func writeContextItemKey(item WriteContextItem) string {
 	ref := ""
 	if item.EvidenceRef != nil {
 		ref = fmt.Sprintf("%s:%d:%d:%s", item.EvidenceRef.Source, item.EvidenceRef.LineStart, item.EvidenceRef.LineEnd, item.EvidenceRef.ID)
+	}
+	anchor := ""
+	if item.LocalizationAnchor != nil {
+		a := normalizeSourceLocalizationAnchor(*item.LocalizationAnchor)
+		anchor = strings.Join([]string{a.Path, string(a.Role), string(a.Kind), string(a.Strength), a.Subject, a.AnchorSymbol}, ":")
 	}
 	// Items anchored to a typed evidence location dedupe on the fact, not
 	// its wording: retries re-project the same file:line finding with
@@ -1290,6 +1411,7 @@ func writeContextItemKey(item WriteContextItem) string {
 		item.SourceStage,
 		item.SourceID,
 		ref,
+		anchor,
 	}, "\x00")
 }
 

@@ -496,6 +496,143 @@ func TestWriteContextPackFromPlanContextCoverageNormalizesSymbolAnchorsToFiles(t
 	}
 }
 
+func TestWriteExplorationHandoffCarriesSourceLocalizationAnchors(t *testing.T) {
+	turnA := TurnAArtifacts{
+		ReadFiles: []string{"src/read_only.py"},
+		EvidenceItems: []EvidenceItem{{
+			ID:              "ev-owner",
+			Kind:            EvidenceDirect,
+			Source:          "src/owner.py",
+			LineStart:       12,
+			Subject:         "Owner",
+			AnchorSymbol:    "Owner.handle",
+			GroundingStatus: GroundingGrounded,
+			Scope:           ScopeLine,
+		}},
+	}
+
+	handoff := WriteExplorationHandoffFromTurnA(WriteExplorationRequest{BatchID: "batch-1", Goal: "fix"}, turnA)
+	if handoff.SourceLocalization == nil {
+		t.Fatalf("source localization not carried")
+	}
+	if !sourceLocalizationTestHasAnchor(*handoff.SourceLocalization, "src/owner.py", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner) {
+		t.Fatalf("owner anchor missing from handoff: %+v", handoff.SourceLocalization.Anchors)
+	}
+}
+
+func TestWriteContextPackFromExplorationHandoffProjectsLocalizationAnchors(t *testing.T) {
+	ref := WriteExplorationEvidenceRef{ID: "ev-owner", Source: "src/owner.py", LineStart: 12, Subject: "Owner", AnchorSymbol: "Owner.handle"}
+	pack := WriteContextPackFromExplorationHandoff(WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		Goal:        "fix",
+		TargetFiles: []string{"src/read_only.py", "src/owner.py"},
+		SourceLocalization: &SourceLocalizationReview{
+			Anchors: []SourceLocalizationAnchor{{
+				Path:         "src/owner.py",
+				Role:         SourcePathRoleProduction,
+				SourceStage:  "read_turn_a",
+				Kind:         SourceLocalizationAnchorGroundedEvidence,
+				Strength:     SourceLocalizationAnchorOwner,
+				EvidenceRef:  &ref,
+				Subject:      "Owner",
+				AnchorSymbol: "Owner.handle",
+			}},
+		},
+	})
+
+	view := pack.View(WriteConsumerPlanner, 20)
+	if !writeContextViewContains(view, "localization_anchor", "path=src/owner.py") ||
+		!writeContextViewContains(view, "localization_anchor", "strength=owner") {
+		t.Fatalf("localization anchor not rendered: %+v", view.Items)
+	}
+	var foundTyped bool
+	for _, item := range view.Items {
+		if item.Kind == "localization_anchor" && item.LocalizationAnchor != nil && item.LocalizationAnchor.Path == "src/owner.py" {
+			foundTyped = true
+		}
+	}
+	if !foundTyped {
+		t.Fatalf("typed localization anchor missing: %+v", view.Items)
+	}
+}
+
+func TestWritePlanSourcePathsOutsidePriorContextPrefersTypedOwnerAnchors(t *testing.T) {
+	prior := []WriteContextPack{{
+		PackID:      "exploration-handoff",
+		BatchID:     "batch-1",
+		SourceStage: "explore",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/read_only.py",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}, {
+			Priority:    WriteContextP1,
+			Kind:        "localization_anchor",
+			Text:        "path=pkg/owner.py strength=owner",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+			LocalizationAnchor: &SourceLocalizationAnchor{
+				Path:     "pkg/owner.py",
+				Role:     SourcePathRoleProduction,
+				Kind:     SourceLocalizationAnchorGroundedEvidence,
+				Strength: SourceLocalizationAnchorOwner,
+			},
+		}},
+	}}
+	plan := &ChangePlan{
+		ID:          "plan-1",
+		TargetPaths: []string{"pkg/owner.py", "pkg/read_only.py"},
+		Changes: []FileChange{
+			{Path: "pkg/owner.py", Kind: "modify"},
+			{Path: "pkg/read_only.py", Kind: "modify"},
+		},
+	}
+
+	got := WritePlanSourcePathsOutsidePriorContext(prior, plan)
+	if strings.Join(got, ",") != "pkg/read_only.py" {
+		t.Fatalf("typed owner anchors should outrank broad target_file rows, got %+v", got)
+	}
+}
+
+func TestWritePlanSourcePathsOutsidePriorContextObservedAnchorIsNotOwnerProof(t *testing.T) {
+	prior := []WriteContextPack{{
+		PackID:      "exploration-handoff",
+		BatchID:     "batch-1",
+		SourceStage: "explore",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/read_only.py",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}, {
+			Priority:    WriteContextP2,
+			Kind:        "localization_anchor",
+			Text:        "path=pkg/read_only.py strength=observed",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+			LocalizationAnchor: &SourceLocalizationAnchor{
+				Path:     "pkg/read_only.py",
+				Role:     SourcePathRoleProduction,
+				Kind:     SourceLocalizationAnchorReadFile,
+				Strength: SourceLocalizationAnchorObserved,
+			},
+		}},
+	}}
+	plan := &ChangePlan{
+		ID:          "plan-1",
+		TargetPaths: []string{"pkg/read_only.py"},
+		Changes:     []FileChange{{Path: "pkg/read_only.py", Kind: "modify"}},
+	}
+
+	got := WritePlanSourcePathsOutsidePriorContext(prior, plan)
+	if strings.Join(got, ",") != "pkg/read_only.py" {
+		t.Fatalf("observed read-file anchors must not satisfy owner localization, got %+v", got)
+	}
+}
+
 func TestWritePlanSourcePathsOutsidePriorContext(t *testing.T) {
 	prior := []WriteContextPack{{
 		PackID:      "write-analysis",

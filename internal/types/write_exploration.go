@@ -51,6 +51,7 @@ type WriteExplorationHandoff struct {
 	RiskNotes            []string                      `json:"risk_notes,omitempty"`
 	Unknowns             []string                      `json:"unknowns,omitempty"`
 	EvidenceRefs         []WriteExplorationEvidenceRef `json:"evidence_refs,omitempty"`
+	SourceLocalization   *SourceLocalizationReview     `json:"source_localization,omitempty"`
 	ConventionGraph      *ConventionGraph              `json:"convention_graph,omitempty"`
 	Confidence           string                        `json:"confidence,omitempty"`
 }
@@ -113,6 +114,7 @@ func normalizeWriteExplorationHandoffCore(in WriteExplorationHandoff) WriteExplo
 	for i := range in.EvidenceRefs {
 		in.EvidenceRefs[i] = normalizeWriteExplorationEvidenceRef(in.EvidenceRefs[i])
 	}
+	in.SourceLocalization = CloneSourceLocalizationReviewPtr(in.SourceLocalization)
 	in.Confidence = normalizeWriteExplorationConfidence(in.Confidence)
 	return in
 }
@@ -202,6 +204,8 @@ func WriteExplorationHandoffFromTurnA(req WriteExplorationRequest, turnA TurnAAr
 	if turnA.AcceptedClosureReason != "" {
 		addInvariant(turnA.AcceptedClosureReason)
 	}
+	derivedLocalization := SourceLocalizationReviewFromTurnA(turnA.ReadFiles, turnA.EvidenceItems)
+	out.SourceLocalization = MergeSourceLocalizationReviews(turnA.SourceLocalization, &derivedLocalization)
 	out.TargetFiles = append(out.TargetFiles, req.CandidatePaths...)
 	out.Confidence = inferWriteExplorationConfidence(out)
 	return NormalizeWriteExplorationHandoff(out)
@@ -225,6 +229,7 @@ func cloneWriteExplorationHandoff(in WriteExplorationHandoff) WriteExplorationHa
 	in.RiskNotes = append([]string(nil), in.RiskNotes...)
 	in.Unknowns = append([]string(nil), in.Unknowns...)
 	in.EvidenceRefs = append([]WriteExplorationEvidenceRef(nil), in.EvidenceRefs...)
+	in.SourceLocalization = CloneSourceLocalizationReviewPtr(in.SourceLocalization)
 	in.ConventionGraph = cloneConventionGraph(in.ConventionGraph)
 	return in
 }

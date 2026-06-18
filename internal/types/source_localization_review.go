@@ -3,6 +3,7 @@ package types
 import (
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -10,6 +11,7 @@ const (
 	sourceLocalizationMaxPaths       = 96
 	sourceLocalizationMaxReasonCodes = 24
 	sourceLocalizationMaxEvidence    = 24
+	sourceLocalizationMaxAnchors     = 64
 )
 
 // SourceLocalizationStatus is the typed localization-quality verdict shared by
@@ -25,6 +27,46 @@ const (
 	SourceLocalizationWeak      SourceLocalizationStatus = "weak"
 	SourceLocalizationMissing   SourceLocalizationStatus = "missing"
 )
+
+// SourceLocalizationAnchorKind describes the structured origin of a
+// localization anchor. It is intentionally derived from typed tool/evidence
+// metadata, not prose, so downstream write gates can decide whether a path is
+// merely observed or actually owner-supported.
+type SourceLocalizationAnchorKind string
+
+const (
+	SourceLocalizationAnchorReadFile          SourceLocalizationAnchorKind = "read_file"
+	SourceLocalizationAnchorGroundedEvidence  SourceLocalizationAnchorKind = "grounded_evidence"
+	SourceLocalizationAnchorRecoveredEvidence SourceLocalizationAnchorKind = "recovered_evidence"
+	SourceLocalizationAnchorEvidence          SourceLocalizationAnchorKind = "evidence"
+	SourceLocalizationAnchorScope             SourceLocalizationAnchorKind = "scope_anchor"
+)
+
+// SourceLocalizationAnchorStrength is the typed support level for one path.
+// Owner/supporting anchors may satisfy write planning localization coverage;
+// observed anchors are useful handoff/audit context but not owner proof.
+type SourceLocalizationAnchorStrength string
+
+const (
+	SourceLocalizationAnchorObserved   SourceLocalizationAnchorStrength = "observed"
+	SourceLocalizationAnchorSupporting SourceLocalizationAnchorStrength = "supporting"
+	SourceLocalizationAnchorOwner      SourceLocalizationAnchorStrength = "owner"
+)
+
+// SourceLocalizationAnchor is a read/write shared owner-localization pointer.
+// Text renderers may summarize it for prompts, but hard gates must consume this
+// typed struct directly.
+type SourceLocalizationAnchor struct {
+	Path         string                           `json:"path,omitempty"`
+	Role         SourcePathRole                   `json:"role,omitempty"`
+	SourceStage  string                           `json:"source_stage,omitempty"`
+	Kind         SourceLocalizationAnchorKind     `json:"kind,omitempty"`
+	Strength     SourceLocalizationAnchorStrength `json:"strength,omitempty"`
+	EvidenceRef  *WriteExplorationEvidenceRef     `json:"evidence_ref,omitempty"`
+	Subject      string                           `json:"subject,omitempty"`
+	AnchorSymbol string                           `json:"anchor_symbol,omitempty"`
+	ReasonCode   string                           `json:"reason_code,omitempty"`
+}
 
 // SourceLocalizationReview is the durable typed view of whether source paths
 // in a read/write task were localized by prior evidence. SourcePaths are
@@ -43,6 +85,7 @@ type SourceLocalizationReview struct {
 	MissingPaths      []string                      `json:"missing_paths,omitempty"`
 	AuxiliaryPaths    []string                      `json:"auxiliary_paths,omitempty"`
 	EvidenceRefs      []WriteExplorationEvidenceRef `json:"evidence_refs,omitempty"`
+	Anchors           []SourceLocalizationAnchor    `json:"anchors,omitempty"`
 	SupportRatio      float64                       `json:"support_ratio,omitempty"`
 }
 
@@ -58,6 +101,7 @@ func NormalizeSourceLocalizationReview(in SourceLocalizationReview) SourceLocali
 	in.AuxiliaryPaths = dedupSourceLocalizationPaths(in.AuxiliaryPaths, sourceLocalizationMaxPaths)
 	in.ReasonCodes = dedupSourceLocalizationStrings(in.ReasonCodes, sourceLocalizationMaxReasonCodes)
 	in.EvidenceRefs = normalizeSourceLocalizationEvidenceRefs(in.EvidenceRefs)
+	in.Anchors = normalizeSourceLocalizationAnchors(in.Anchors)
 	if len(in.SourcePaths) > 0 && len(in.SupportedPaths) > 0 {
 		in.SupportRatio = float64(len(in.SupportedPaths)) / float64(len(in.SourcePaths))
 	} else if len(in.SourcePaths) > 0 && in.SupportRatio < 0 {
@@ -82,7 +126,8 @@ func NormalizeSourceLocalizationReview(in SourceLocalizationReview) SourceLocali
 		len(in.SourcePaths) == 0 &&
 		len(in.PriorContextPaths) == 0 &&
 		len(in.AuxiliaryPaths) == 0 &&
-		len(in.EvidenceRefs) == 0 {
+		len(in.EvidenceRefs) == 0 &&
+		len(in.Anchors) == 0 {
 		return SourceLocalizationReview{}
 	}
 	return in
@@ -102,6 +147,7 @@ func CloneSourceLocalizationReview(in SourceLocalizationReview) SourceLocalizati
 		MissingPaths:      append([]string(nil), in.MissingPaths...),
 		AuxiliaryPaths:    append([]string(nil), in.AuxiliaryPaths...),
 		EvidenceRefs:      append([]WriteExplorationEvidenceRef(nil), in.EvidenceRefs...),
+		Anchors:           append([]SourceLocalizationAnchor(nil), in.Anchors...),
 		SupportRatio:      in.SupportRatio,
 	})
 }
@@ -137,6 +183,7 @@ func MergeSourceLocalizationReviews(prior, current *SourceLocalizationReview) *S
 		MissingPaths:      append(append([]string(nil), prior.MissingPaths...), current.MissingPaths...),
 		AuxiliaryPaths:    append(append([]string(nil), prior.AuxiliaryPaths...), current.AuxiliaryPaths...),
 		EvidenceRefs:      append(append([]WriteExplorationEvidenceRef(nil), prior.EvidenceRefs...), current.EvidenceRefs...),
+		Anchors:           append(append([]SourceLocalizationAnchor(nil), prior.Anchors...), current.Anchors...),
 	}
 	out = NormalizeSourceLocalizationReview(out)
 	if sourceLocalizationReviewIsEmpty(out) {
@@ -147,23 +194,40 @@ func MergeSourceLocalizationReviews(prior, current *SourceLocalizationReview) *S
 
 func SourceLocalizationReviewFromTurnA(readFiles []string, evidence []EvidenceItem) SourceLocalizationReview {
 	out := SourceLocalizationReview{Source: "read_turn_a"}
+	addAnchor := func(anchor SourceLocalizationAnchor) {
+		anchor = normalizeSourceLocalizationAnchor(anchor)
+		if anchor.Path == "" {
+			return
+		}
+		out.Anchors = append(out.Anchors, anchor)
+	}
 	addPath := func(raw string) {
 		p := sourceLocalizationPath(raw)
 		if p == "" {
 			return
 		}
-		if SourcePathRoleIsAuxiliary(ClassifySourcePathRole(p)) {
+		role := ClassifySourcePathRole(p)
+		if SourcePathRoleIsAuxiliary(role) {
 			out.AuxiliaryPaths = append(out.AuxiliaryPaths, p)
 			return
 		}
 		out.SourcePaths = append(out.SourcePaths, p)
+		addAnchor(SourceLocalizationAnchor{
+			Path:        p,
+			Role:        role,
+			SourceStage: "read_turn_a",
+			Kind:        SourceLocalizationAnchorReadFile,
+			Strength:    SourceLocalizationAnchorObserved,
+			ReasonCode:  "read_file_observed",
+		})
 	}
 	for _, p := range readFiles {
 		addPath(p)
 	}
 	for _, ev := range evidence {
+		p := sourceLocalizationPath(ev.Source)
 		addPath(ev.Source)
-		if sourceLocalizationPath(ev.Source) == "" {
+		if p == "" {
 			continue
 		}
 		ref := WriteExplorationEvidenceRef{
@@ -177,10 +241,34 @@ func SourceLocalizationReviewFromTurnA(readFiles []string, evidence []EvidenceIt
 			Summary:      ev.Summary,
 		}
 		out.EvidenceRefs = append(out.EvidenceRefs, ref)
+		role := ClassifySourcePathRole(p)
+		if SourcePathRoleIsAuxiliary(role) {
+			continue
+		}
+		kind, strength, reason := sourceLocalizationAnchorFromEvidence(ev)
+		if strength == "" {
+			continue
+		}
+		addAnchor(SourceLocalizationAnchor{
+			Path:         p,
+			Role:         role,
+			SourceStage:  "read_turn_a",
+			Kind:         kind,
+			Strength:     strength,
+			EvidenceRef:  &ref,
+			Subject:      ev.Subject,
+			AnchorSymbol: ev.AnchorSymbol,
+			ReasonCode:   reason,
+		})
 	}
 	if len(out.SourcePaths) > 0 {
 		out.Status = SourceLocalizationObserved
 		out.ReasonCodes = append(out.ReasonCodes, "read_turn_a_source_observed")
+		if sourceLocalizationHasStrength(out.Anchors, SourceLocalizationAnchorOwner) {
+			out.ReasonCodes = append(out.ReasonCodes, "read_turn_a_owner_anchor_observed")
+		} else if sourceLocalizationHasStrength(out.Anchors, SourceLocalizationAnchorSupporting) {
+			out.ReasonCodes = append(out.ReasonCodes, "read_turn_a_supporting_anchor_observed")
+		}
 	} else if len(out.AuxiliaryPaths) > 0 || len(out.EvidenceRefs) > 0 {
 		out.Status = SourceLocalizationWeak
 		out.ReasonCodes = append(out.ReasonCodes, "read_turn_a_auxiliary_only")
@@ -274,6 +362,48 @@ func renderSourceLocalizationReviewContext(review *SourceLocalizationReview) str
 	return strings.Join(parts, " ")
 }
 
+func renderSourceLocalizationAnchorContext(anchor SourceLocalizationAnchor) string {
+	anchor = normalizeSourceLocalizationAnchor(anchor)
+	if anchor.Path == "" {
+		return ""
+	}
+	parts := []string{
+		"path=" + anchor.Path,
+		"role=" + string(anchor.Role),
+		"kind=" + string(anchor.Kind),
+		"strength=" + string(anchor.Strength),
+	}
+	if anchor.SourceStage != "" {
+		parts = append(parts, "source_stage="+anchor.SourceStage)
+	}
+	if anchor.Subject != "" {
+		parts = append(parts, "subject="+anchor.Subject)
+	}
+	if anchor.AnchorSymbol != "" {
+		parts = append(parts, "anchor="+anchor.AnchorSymbol)
+	}
+	if anchor.ReasonCode != "" {
+		parts = append(parts, "reason="+anchor.ReasonCode)
+	}
+	if anchor.EvidenceRef != nil && anchor.EvidenceRef.ID != "" {
+		parts = append(parts, "evidence_ref="+anchor.EvidenceRef.ID)
+	}
+	return strings.Join(parts, " ")
+}
+
+func sourceLocalizationAnchorSatisfiesPriorContext(anchor SourceLocalizationAnchor) bool {
+	anchor = normalizeSourceLocalizationAnchor(anchor)
+	if anchor.Path == "" || SourcePathRoleIsAuxiliary(anchor.Role) {
+		return false
+	}
+	switch anchor.Strength {
+	case SourceLocalizationAnchorOwner, SourceLocalizationAnchorSupporting:
+		return true
+	default:
+		return false
+	}
+}
+
 func inferSourceLocalizationStatus(in SourceLocalizationReview) SourceLocalizationStatus {
 	switch {
 	case len(in.MissingPaths) > 0 && len(in.SupportedPaths) == 0 && len(in.PriorContextPaths) > 0:
@@ -349,6 +479,159 @@ func normalizeSourceLocalizationEvidenceRefs(in []WriteExplorationEvidenceRef) [
 		}
 	}
 	return out
+}
+
+func sourceLocalizationAnchorFromEvidence(ev EvidenceItem) (SourceLocalizationAnchorKind, SourceLocalizationAnchorStrength, string) {
+	switch ev.GroundingStatus {
+	case GroundingGrounded:
+		return SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner, "grounded_evidence_owner"
+	case GroundingRecovered:
+		return SourceLocalizationAnchorRecoveredEvidence, SourceLocalizationAnchorOwner, "recovered_evidence_owner"
+	case GroundingUngrounded:
+		return "", "", ""
+	}
+	if ev.LineStart > 0 && ev.Scope.IsLineShaped() {
+		return SourceLocalizationAnchorEvidence, SourceLocalizationAnchorSupporting, "line_evidence_supporting"
+	}
+	if ev.Scope == ScopeFile || ev.Scope == ScopeSection || ev.Scope == ScopeCrossfile {
+		return SourceLocalizationAnchorEvidence, SourceLocalizationAnchorSupporting, "scoped_evidence_supporting"
+	}
+	return "", "", ""
+}
+
+func sourceLocalizationHasStrength(anchors []SourceLocalizationAnchor, strength SourceLocalizationAnchorStrength) bool {
+	for _, anchor := range anchors {
+		anchor = normalizeSourceLocalizationAnchor(anchor)
+		if anchor.Strength == strength {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeSourceLocalizationAnchors(in []SourceLocalizationAnchor) []SourceLocalizationAnchor {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]SourceLocalizationAnchor, 0, len(in))
+	for _, anchor := range in {
+		anchor = normalizeSourceLocalizationAnchor(anchor)
+		if anchor.Path == "" {
+			continue
+		}
+		key := sourceLocalizationAnchorKey(anchor)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, anchor)
+		if len(out) >= sourceLocalizationMaxAnchors {
+			break
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		if sourceLocalizationAnchorStrengthRank(out[i].Strength) != sourceLocalizationAnchorStrengthRank(out[j].Strength) {
+			return sourceLocalizationAnchorStrengthRank(out[i].Strength) > sourceLocalizationAnchorStrengthRank(out[j].Strength)
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].AnchorSymbol < out[j].AnchorSymbol
+	})
+	return out
+}
+
+func normalizeSourceLocalizationAnchor(in SourceLocalizationAnchor) SourceLocalizationAnchor {
+	in.Path = sourceLocalizationPath(in.Path)
+	in.SourceStage = trimSourceLocalizationText(in.SourceStage)
+	in.Subject = trimSourceLocalizationText(in.Subject)
+	in.AnchorSymbol = trimSourceLocalizationText(in.AnchorSymbol)
+	in.ReasonCode = trimSourceLocalizationText(in.ReasonCode)
+	if in.Role == SourcePathRoleUnknown && in.Path != "" {
+		in.Role = ClassifySourcePathRole(in.Path)
+	}
+	switch in.Kind {
+	case SourceLocalizationAnchorReadFile,
+		SourceLocalizationAnchorGroundedEvidence,
+		SourceLocalizationAnchorRecoveredEvidence,
+		SourceLocalizationAnchorEvidence,
+		SourceLocalizationAnchorScope:
+	default:
+		if in.EvidenceRef != nil {
+			in.Kind = SourceLocalizationAnchorEvidence
+		} else {
+			in.Kind = SourceLocalizationAnchorReadFile
+		}
+	}
+	switch in.Strength {
+	case SourceLocalizationAnchorObserved,
+		SourceLocalizationAnchorSupporting,
+		SourceLocalizationAnchorOwner:
+	default:
+		switch in.Kind {
+		case SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorRecoveredEvidence:
+			in.Strength = SourceLocalizationAnchorOwner
+		case SourceLocalizationAnchorEvidence, SourceLocalizationAnchorScope:
+			in.Strength = SourceLocalizationAnchorSupporting
+		default:
+			in.Strength = SourceLocalizationAnchorObserved
+		}
+	}
+	if in.EvidenceRef != nil {
+		ref := normalizeWriteExplorationEvidenceRef(*in.EvidenceRef)
+		if ref.Source == "" && ref.ID == "" && ref.Summary == "" {
+			in.EvidenceRef = nil
+		} else {
+			in.EvidenceRef = &ref
+		}
+	}
+	return in
+}
+
+func sourceLocalizationAnchorKey(anchor SourceLocalizationAnchor) string {
+	ref := ""
+	if anchor.EvidenceRef != nil {
+		ref = strings.Join([]string{
+			anchor.EvidenceRef.ID,
+			sourceLocalizationPath(anchor.EvidenceRef.Source),
+			fmtIntForSourceLocalization(anchor.EvidenceRef.LineStart),
+			fmtIntForSourceLocalization(anchor.EvidenceRef.LineEnd),
+		}, ":")
+	}
+	return strings.Join([]string{
+		anchor.Path,
+		string(anchor.Role),
+		string(anchor.Kind),
+		string(anchor.Strength),
+		anchor.SourceStage,
+		anchor.Subject,
+		anchor.AnchorSymbol,
+		ref,
+	}, "\x00")
+}
+
+func sourceLocalizationAnchorStrengthRank(strength SourceLocalizationAnchorStrength) int {
+	switch strength {
+	case SourceLocalizationAnchorOwner:
+		return 3
+	case SourceLocalizationAnchorSupporting:
+		return 2
+	case SourceLocalizationAnchorObserved:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func fmtIntForSourceLocalization(value int) string {
+	if value == 0 {
+		return ""
+	}
+	return strconv.Itoa(value)
 }
 
 func sourceLocalizationPath(raw string) string {
@@ -433,7 +716,8 @@ func sourceLocalizationReviewIsEmpty(in SourceLocalizationReview) bool {
 			len(in.SupportedPaths) == 0 &&
 			len(in.MissingPaths) == 0 &&
 			len(in.AuxiliaryPaths) == 0 &&
-			len(in.EvidenceRefs) == 0)
+			len(in.EvidenceRefs) == 0 &&
+			len(in.Anchors) == 0)
 }
 
 func sourceLocalizationFirstNonEmpty(a, b string) string {

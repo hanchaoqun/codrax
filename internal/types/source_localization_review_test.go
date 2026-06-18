@@ -31,6 +31,46 @@ func TestSourceLocalizationReviewFromTurnAClassifiesSourceAndAuxiliaryPaths(t *t
 	if len(review.EvidenceRefs) != 1 || review.EvidenceRefs[0].Source != "src/owner.py" {
 		t.Fatalf("evidence refs = %+v", review.EvidenceRefs)
 	}
+	if !sourceLocalizationTestHasAnchor(review, "src/owner.py", SourceLocalizationAnchorEvidence, SourceLocalizationAnchorSupporting) {
+		t.Fatalf("supporting evidence anchor missing: %+v", review.Anchors)
+	}
+	if !sourceLocalizationTestHasAnchor(review, "src/app.py", SourceLocalizationAnchorReadFile, SourceLocalizationAnchorObserved) {
+		t.Fatalf("read-file observed anchor missing: %+v", review.Anchors)
+	}
+}
+
+func TestSourceLocalizationReviewFromTurnAGroundedEvidenceCreatesOwnerAnchor(t *testing.T) {
+	review := SourceLocalizationReviewFromTurnA(
+		[]string{"src/candidate.py", "tests/test_candidate.py"},
+		[]EvidenceItem{{
+			ID:              "ev-owner",
+			Kind:            EvidenceMechanism,
+			Source:          "src/owner.py",
+			LineStart:       24,
+			LineEnd:         28,
+			Subject:         "Owner.handle",
+			AnchorSymbol:    "Owner.handle",
+			GroundingStatus: GroundingGrounded,
+			Scope:           ScopeLine,
+		}, {
+			ID:              "ev-test",
+			Kind:            EvidenceDirect,
+			Source:          "tests/test_owner.py",
+			LineStart:       9,
+			GroundingStatus: GroundingGrounded,
+			Scope:           ScopeLine,
+		}},
+	)
+
+	if !sourceLocalizationTestHasAnchor(review, "src/owner.py", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner) {
+		t.Fatalf("owner evidence anchor missing: %+v", review.Anchors)
+	}
+	if sourceLocalizationTestHasAnchor(review, "tests/test_owner.py", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner) {
+		t.Fatalf("auxiliary test evidence must not become owner anchor: %+v", review.Anchors)
+	}
+	if !strings.Contains(strings.Join(review.ReasonCodes, ","), "read_turn_a_owner_anchor_observed") {
+		t.Fatalf("owner-anchor reason missing: %+v", review.ReasonCodes)
+	}
 }
 
 func TestSourceLocalizationReviewFromWritePlanContextSupportedAndMissing(t *testing.T) {
@@ -95,4 +135,13 @@ func TestSourceLocalizationReviewFromWritePlanContextNoPriorIsWeakNotRoutingGrad
 	if got := WritePlanSourcePathsOutsidePriorContext(nil, plan); len(got) != 0 {
 		t.Fatalf("no-prior review is audit signal only; routing helper returned %+v", got)
 	}
+}
+
+func sourceLocalizationTestHasAnchor(review SourceLocalizationReview, path string, kind SourceLocalizationAnchorKind, strength SourceLocalizationAnchorStrength) bool {
+	for _, anchor := range review.Anchors {
+		if anchor.Path == path && anchor.Kind == kind && anchor.Strength == strength {
+			return true
+		}
+	}
+	return false
 }
