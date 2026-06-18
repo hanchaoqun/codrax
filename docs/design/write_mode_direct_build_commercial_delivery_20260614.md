@@ -4658,3 +4658,105 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
   - `git diff --check`
   - `go test ./...`
   - `make`
+
+## 2026-06-18 Verification-probe observation attribution hardening
+
+- Evidence:
+  - SWE-bench Lite targeted run `django__django-11742` produced a
+    harness-consumable prediction, but local Codrax verify blocked with
+    `failure_kind=tests_failed` and `failure_reason_code=verification_probe_exception`.
+  - The failure stack came from a synthetic `verification_probe/python` that
+    constructed an unattached `CharField`; product frames were in
+    `django/db/models/fields/__init__.py` but none intersected the current
+    actual-diff added-line surface for the active patch.
+  - Controller then treated the probe fixture exception as product evidence and
+    replanned into `_check_field_name()` / backend-specific field state, a
+    wrong-layer repair. This is an online-convergence observation gap, not a
+    Django-specific fix.
+- Systemic gap:
+  - Verification probes are synthetic local behavior checks. A probe exception
+    can mean one of three typed states: changed code failed, probe fixture/setup
+    is invalid, or local environment is unavailable.
+  - Before this batch, Python probe top-level/import/syntax issues were
+    unavailable, but product-frame exceptions always became `tests_failed`.
+    That was too coarse for online edit-run-observe loops: bad probe fixtures
+    could drive product-code replans and waste retry budget.
+- Generalized architecture:
+  - Add a typed observation attribution policy between probe execution and
+    `ChangeReport`: normalize stack/backtrace frames into repo-relative
+    `path:line` evidence, compare them with the current `ChangePlan.PatchEffect`
+    precise added-line surface, then emit a bounded reason code.
+  - If a synthetic verification probe raises a product-frame exception and no
+    product frame intersects the precise current patch surface, classify the
+    probe result as `parser_error/unavailable` with
+    `verification_probe_exception_outside_changed_lines`.
+  - If any product frame intersects the current added-line surface, keep the
+    existing `tests_failed` verdict so real changed-code failures still drive
+    replan.
+  - If no precise patch surface exists, preserve legacy product-exception
+    behavior. Hard routing reads only `PatchEffect` lines, stack frame paths,
+    structured probe outcome, and typed `ChangeReport` fields; it never reads
+    user issue keywords, model rationale, summaries, `<think>`, or exception
+    prose as a routing rule.
+- Language scope:
+  - This is not Python-only as an architecture. The shared policy is
+    "probe frame vs product frame vs actual-diff changed-line surface".
+  - This batch lands the Python traceback adapter because the live SWE-bench
+    evidence is Python. Future adapters should map JavaScript stack traces,
+    Ruby backtraces, Java stack frames, Go panic traces, Rust/Cargo diagnostics,
+    and JVM/Gradle/Maven compile/test frames into the same typed attribution
+    contract instead of adding per-case prompt rules.
+- Handoff and UX effect:
+  - `verification_probe_exception_outside_changed_lines` is reported as
+    `VerificationDiagnostic{category=probe_authoring,severity=warning}` and
+    `VerificationStatus=unavailable`.
+  - Pre-suite probe unavailable continues to the typed project test surface or
+    exits as unverified; it does not trigger code replan from the synthetic
+    probe alone.
+  - User-facing logs remain transparent, including visible `<think>` text.
+    The hard decision path does not parse those logs.
+- Task list:
+  - [x] Add precise path/line attribution helper for Python verification probe
+    tracebacks.
+  - [x] Compare product frames against `ChangePlan.PatchEffect` added-line
+    surface and emit `verification_probe_exception_outside_changed_lines`.
+  - [x] Preserve changed-line exceptions as true `tests_failed`.
+  - [x] Preserve no-patch-surface product exceptions as true `tests_failed`.
+  - [x] Add diagnostic classification for the new reason code.
+  - [x] Add focused tests for outside-line unavailable, changed-line failure,
+    top-level probe error, and product exception regressions.
+  - [ ] Extend the same observation adapter contract to JavaScript/Ruby/Java/Go
+    stack frames when live eval evidence exposes those lanes.
+- Verification:
+  - Focused tool tests passed:
+    `go test ./internal/tool -run 'Test(PythonVerificationProbeTracebackAttributionUsesPatchEffectAddedLines|RunPlanVerificationProbeExceptionOutsideChangedLinesIsUnavailable|RunPlanVerificationProbeExceptionOnChangedLineRemainsFailure|RunTestsVerificationProbeRuntimeExceptionIsTestFailure|RunTestsVerificationProbeProductNameErrorIsTestFailure|RunTestsVerificationProbeTopLevelExceptionIsParserError|RunTestsVerificationProbeNameErrorIsParserError)' -count=1`.
+  - Tool package regression passed:
+    `go test ./internal/tool -count=1`.
+  - Full regression passed:
+    `go test ./...`.
+  - Build passed:
+    `make`.
+  - SWE-bench Lite targeted rerun passed adapter/export checks:
+    `django__django-11742` at
+    `/private/tmp/codrax-swe-rc74-django-20260618-162930-rc74-django`
+    generated non-empty `predictions.jsonl`, and official harness dry-run
+    validated 1 prediction with `empty_patch=0`.
+- Rerun audit:
+  - The earlier unattached `CharField` `verification_probe_exception` did not
+    recur, so the observation attribution fix closed the wrong-layer probe
+    replan gap for this instance.
+  - The next exposed gap is structural patch-review convergence:
+    `PatchReview` correctly hard-blocked the final actual diff with
+    `python_unreachable_body_after_added_return`, but the workflow terminated
+    `blocked` instead of feeding that structural finding back into an online
+    replan loop.
+  - SWE-bench exporter still produced a harness-consumable prediction while
+    setting `prediction_verdict=predicted_audit_blocked`,
+    `prediction_blocks_local_acceptance=true`, and
+    `local_acceptance_verdict=fail`. This is useful for eval telemetry, but
+    commercial Auto Pilot should treat structural patch-review findings as P2
+    repair evidence before terminal blocked/export.
+- Follow-up task:
+  - [ ] Add `patch_review_failed` / structural PatchReview findings to the same
+    online replan lane as failed post-apply verify, with bounded retry budget
+    and checkpoint restore, before considering final block/export.

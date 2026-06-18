@@ -1755,6 +1755,167 @@ func TestRunTestsVerificationProbeRuntimeExceptionIsTestFailure(t *testing.T) {
 	}
 }
 
+func TestPythonVerificationProbeTracebackAttributionUsesPatchEffectAddedLines(t *testing.T) {
+	root := t.TempDir()
+	mu := types.NewMutableState("probe attribution")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-attribution",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			Files: []types.PatchEffectFile{{
+				Path: "widget.py",
+				Hunks: []types.PatchEffectHunk{{
+					NewStart:         3,
+					NewLines:         2,
+					AddedLineNumbers: []int{4},
+				}},
+			}},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable:      mu,
+		RepoRoot:     root,
+		MainRepoRoot: root,
+	}
+	changedOutput := fmt.Sprintf("Traceback (most recent call last):\n  File \"<codrax_verification_probe>\", line 3, in <module>\n  File %q, line 4, in changed\n    raise AttributeError('bad')\nAttributeError: bad\n", filepath.Join(root, "widget.py"))
+	if pythonVerificationProbeExceptionOutsideChangedLines(ctx, changedOutput) {
+		t.Fatalf("traceback on an added patch line must remain product failure")
+	}
+	outsideOutput := fmt.Sprintf("Traceback (most recent call last):\n  File \"<codrax_verification_probe>\", line 3, in <module>\n  File %q, line 7, in explode\n    raise AttributeError('bad fixture')\nAttributeError: bad fixture\n", filepath.Join(root, "widget.py"))
+	if !pythonVerificationProbeExceptionOutsideChangedLines(ctx, outsideOutput) {
+		t.Fatalf("traceback outside the precise patch line surface should be treated as probe-authoring unavailable")
+	}
+	mu.SetChangePlan(&types.ChangePlan{ID: "plan-without-patch-effect"})
+	if pythonVerificationProbeExceptionOutsideChangedLines(ctx, outsideOutput) {
+		t.Fatalf("missing precise patch surface must not downgrade product exceptions")
+	}
+}
+
+func TestRunPlanVerificationProbeExceptionOutsideChangedLinesIsUnavailable(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	source := strings.Join([]string{
+		"VALUE = 1",
+		"",
+		"def changed():",
+		"    return 'patched'",
+		"",
+		"def explode():",
+		"    raise AttributeError('bad probe fixture')",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte(source), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe outside patch")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-outside-patch",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			Files: []types.PatchEffectFile{{
+				Path: "widget.py",
+				Hunks: []types.PatchEffectHunk{{
+					NewStart:         3,
+					NewLines:         2,
+					AddedLineNumbers: []int{4},
+				}},
+			}},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "outside_patch_exception",
+			Language: "python",
+			Code:     "import widget\nwidget.explode()\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	probe, ok := runPlanVerificationProbes(ctx, "pre_suite_verification_probe")
+	if !ok || probe == nil || probe.Report == nil {
+		t.Fatal("expected verification probe report")
+	}
+	report := probe.Report
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode != verificationProbeExceptionOutsideChangedLinesReasonCode {
+		t.Fatalf("FailureReasonCode = %q, want %s; report=%+v", report.FailureReasonCode, verificationProbeExceptionOutsideChangedLinesReasonCode, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("VerificationStatus = %q, want unavailable", got)
+	}
+	if !verificationDiagnosticsContain(verificationDiagnosticsFromExecutedCommands(report.ExecutedCommands), "probe_authoring", verificationProbeExceptionOutsideChangedLinesReasonCode) {
+		t.Fatalf("probe authoring diagnostic missing from commands: %+v", report.ExecutedCommands)
+	}
+}
+
+func TestRunPlanVerificationProbeExceptionOnChangedLineRemainsFailure(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	source := strings.Join([]string{
+		"VALUE = 1",
+		"",
+		"def changed():",
+		"    raise AttributeError('changed code failed')",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte(source), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe changed line failure")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-changed-line",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			Files: []types.PatchEffectFile{{
+				Path: "widget.py",
+				Hunks: []types.PatchEffectHunk{{
+					NewStart:         3,
+					NewLines:         2,
+					AddedLineNumbers: []int{4},
+				}},
+			}},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "changed_line_exception",
+			Language: "python",
+			Code:     "import widget\nwidget.changed()\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	probe, ok := runPlanVerificationProbes(ctx, "pre_suite_verification_probe")
+	if !ok || probe == nil || probe.Report == nil {
+		t.Fatal("expected verification probe report")
+	}
+	report := probe.Report
+	if report.FailureKind != types.FailureKindTestsFailed {
+		t.Fatalf("FailureKind = %q, want tests_failed; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode != "verification_probe_exception" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_exception; report=%+v", report.FailureReasonCode, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed", got)
+	}
+}
+
 func TestRunTestsVerificationProbeTopLevelExceptionIsParserError(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

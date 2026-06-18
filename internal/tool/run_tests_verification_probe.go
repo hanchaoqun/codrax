@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +37,10 @@ type inlineVerificationProbeStatus struct {
 	Exception string `json:"exception,omitempty"`
 	ExitCode  int    `json:"exit_code,omitempty"`
 }
+
+const verificationProbeExceptionOutsideChangedLinesReasonCode = "verification_probe_exception_outside_changed_lines"
+
+var pythonTracebackFrameRE = regexp.MustCompile(`^\s*File "([^"]+)", line ([0-9]+), in .*$`)
 
 const pythonVerificationProbeWrapper = `
 import base64
@@ -627,6 +633,10 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 			if pythonVerificationProbeExceptionIsInfrastructure(probeStatus) {
 				outcome = "parser_error"
 				failureKind = types.FailureKindParserError
+			} else if pythonVerificationProbeExceptionOutsideChangedLines(ctx, output) {
+				outcome = "parser_error"
+				failureKind = types.FailureKindParserError
+				reasonCode = verificationProbeExceptionOutsideChangedLinesReasonCode
 			} else {
 				failureKind = types.FailureKindTestsFailed
 			}
@@ -1188,6 +1198,133 @@ func pythonVerificationProbeExceptionIsInfrastructure(status pythonVerificationP
 		return false
 	}
 	return true
+}
+
+type pythonTracebackPatchAttribution struct {
+	HasPrecisePatchSurface bool
+	HasProductFrame        bool
+	HasChangedLineFrame    bool
+}
+
+func pythonVerificationProbeExceptionOutsideChangedLines(ctx *types.BusContext, output string) bool {
+	attr := pythonVerificationProbeTracebackPatchAttribution(ctx, output)
+	return attr.HasPrecisePatchSurface && attr.HasProductFrame && !attr.HasChangedLineFrame
+}
+
+func pythonVerificationProbeTracebackPatchAttribution(ctx *types.BusContext, output string) pythonTracebackPatchAttribution {
+	changedLines, hasSurface := changePlanAddedLineSurface(ctx)
+	attr := pythonTracebackPatchAttribution{HasPrecisePatchSurface: hasSurface}
+	if !hasSurface {
+		return attr
+	}
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = strings.TrimSpace(ctx.RepoRoot)
+	}
+	if repoRoot == "" {
+		return attr
+	}
+	for _, line := range strings.Split(output, "\n") {
+		match := pythonTracebackFrameRE.FindStringSubmatch(line)
+		if len(match) != 3 {
+			continue
+		}
+		framePath := strings.TrimSpace(match[1])
+		if framePath == "" || strings.HasPrefix(framePath, "<") {
+			continue
+		}
+		lineNo, err := strconv.Atoi(match[2])
+		if err != nil || lineNo <= 0 {
+			continue
+		}
+		rel, ok := verificationProbeRepoRelativeFramePath(repoRoot, framePath)
+		if !ok {
+			continue
+		}
+		attr.HasProductFrame = true
+		if lines := changedLines[rel]; lines[lineNo] {
+			attr.HasChangedLineFrame = true
+		}
+	}
+	return attr
+}
+
+func changePlanAddedLineSurface(ctx *types.BusContext) (map[string]map[int]bool, bool) {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil, false
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || plan.PatchEffect == nil {
+		return nil, false
+	}
+	out := map[string]map[int]bool{}
+	addPathLine := func(path string, lineNo int) {
+		path = normalizeVerificationProbeSurfacePath(path)
+		if path == "" || lineNo <= 0 {
+			return
+		}
+		if out[path] == nil {
+			out[path] = map[int]bool{}
+		}
+		out[path][lineNo] = true
+	}
+	for _, file := range plan.PatchEffect.Files {
+		paths := []string{file.Path, file.OldPath}
+		for _, hunk := range file.Hunks {
+			for _, lineNo := range hunk.AddedLineNumbers {
+				for _, path := range paths {
+					addPathLine(path, lineNo)
+				}
+			}
+		}
+	}
+	return out, len(out) > 0
+}
+
+func verificationProbeRepoRelativeFramePath(repoRoot, framePath string) (string, bool) {
+	repoRoot = strings.TrimSpace(repoRoot)
+	framePath = strings.TrimSpace(framePath)
+	if repoRoot == "" || framePath == "" || strings.HasPrefix(framePath, "<") {
+		return "", false
+	}
+	if !filepath.IsAbs(framePath) {
+		framePath = filepath.Join(repoRoot, framePath)
+	}
+	repoAbs := verificationProbeCanonicalAbs(repoRoot)
+	frameAbs := verificationProbeCanonicalAbs(framePath)
+	rel, err := filepath.Rel(repoAbs, frameAbs)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+	return normalizeVerificationProbeSurfacePath(rel), true
+}
+
+func verificationProbeCanonicalAbs(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	if realPath, err := filepath.EvalSymlinks(abs); err == nil {
+		return realPath
+	}
+	parent := filepath.Dir(abs)
+	if realParent, err := filepath.EvalSymlinks(parent); err == nil {
+		return filepath.Join(realParent, filepath.Base(abs))
+	}
+	return abs
+}
+
+func normalizeVerificationProbeSurfacePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	path = filepath.ToSlash(filepath.Clean(path))
+	path = strings.TrimPrefix(path, "./")
+	if path == "." || strings.HasPrefix(path, "../") || path == ".." {
+		return ""
+	}
+	return path
 }
 
 func resolveVerificationProbeWorkingDir(repoRoot, workingDir, language string) (string, string, error) {

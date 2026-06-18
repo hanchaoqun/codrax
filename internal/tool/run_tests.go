@@ -2419,7 +2419,8 @@ func verificationDiagnosticClass(runner, outcome, reasonCode string) (category, 
 		if runner == "verification_probe" {
 			switch reasonCode {
 			case "verification_probe_name_error", "verification_probe_syntax_error",
-				"verification_probe_top_level_exception":
+				"verification_probe_top_level_exception",
+				verificationProbeExceptionOutsideChangedLinesReasonCode:
 				return "probe_authoring", "warning"
 			case "verification_probe_module_not_found", "verification_probe_import_error":
 				return "probe_import_or_environment", "warning"
