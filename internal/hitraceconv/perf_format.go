@@ -77,16 +77,16 @@ func perfCapabilityForRawFallback(inputFormat perfInputFormat) *PerfArtifactCapa
 		ThreadIdentity:  "pid_tid_from_sample_or_comm",
 		CPUIdentity:     "sample_cpu_when_recorded",
 		EventWeight:     "period_or_1",
-		Symbolization:   "unsymbolized_ip",
-		Callchain:       "ip_only_when_recorded",
+		Symbolization:   "hiperf_saved_symbols_or_unsymbolized_ip",
+		Callchain:       "symbolized_when_hiperf_files_symbol_present_else_ip_only",
 		DSOLabel:        "mmap_best_effort",
-		BuildID:         "not_parsed",
+		BuildID:         "feature_build_id_when_present",
 		OffCPU:          "not_supported",
 		Confidence:      "degraded",
 		TraceQueryReady: true,
 		Degraded:        true,
 		Caveats: []string{
-			"raw fallback does not resolve function symbols; use official hiperf/simpleperf with matching symbols for code-level attribution",
+			"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
 		},
 	}
 }

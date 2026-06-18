@@ -70,7 +70,7 @@ func BuildPerfToolStatus(opts Options) (PerfToolStatus, error) {
 			CheckCommand:   "codrax trace convert --perf-tools-status --perf-parser=raw",
 			InstallCommand: "built-in",
 			DocsURL:        "docs/user_guide.md#perfdata--perf-sample",
-			InstallHint:    "Built into Codrax; emits source=raw_perfdata_fallback and symbolization_status=unsymbolized, so it is a fallback for time/thread/DSO/IP correlation rather than full symbolization.",
+			InstallHint:    "Built into Codrax; emits source=raw_perfdata_fallback. It can use saved HIPERF_FILES_SYMBOL names when present, otherwise it remains a time/thread/DSO/IP fallback.",
 		},
 	}
 	if opts.DisablePerfAdapter {
@@ -144,9 +144,9 @@ func perfSymbolizationExpectation(mode string, disabled bool) string {
 	case "official":
 		return "official hiperf/simpleperf adapter required; output can be symbolized when matching symbols are supplied"
 	case "raw", "fallback":
-		return "Codrax raw fallback only; output is IP/DSO context with symbolization_status=unsymbolized"
+		return "Codrax raw fallback only; saved HIPERF_FILES_SYMBOL names are used when present, otherwise output is IP/DSO context"
 	default:
-		return "auto prefers official hiperf/simpleperf symbolized output, then falls back to raw IP/DSO context when supported"
+		return "auto prefers official hiperf/simpleperf symbolized output, then falls back to raw perf.data; saved HIPERF_FILES_SYMBOL names are used when present"
 	}
 }
 

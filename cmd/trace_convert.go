@@ -220,9 +220,9 @@ func traceConvertPerfSymbolizationExpectationZh(status hitraceconv.PerfToolStatu
 	case "official":
 		return "要求使用官方 hiperf/simpleperf 适配器；提供匹配符号后可输出符号化结果"
 	case "raw", "fallback":
-		return "仅使用 Codrax 内置 raw perf.data 保底解析；输出为 IP/DSO 级上下文，并标记 symbolization_status=unsymbolized"
+		return "仅使用 Codrax 内置 raw perf.data 保底解析；存在官方 HIPERF_FILES_SYMBOL 时可使用其中保存的函数名，否则输出为 IP/DSO 级上下文"
 	default:
-		return "auto 优先使用官方 hiperf/simpleperf 生成符号化结果；官方工具不可用时，在支持范围内回退到 raw IP/DSO 上下文"
+		return "auto 优先使用官方 hiperf/simpleperf 生成符号化结果；官方工具不可用时回退到 raw perf.data，并在存在 HIPERF_FILES_SYMBOL 时使用其中保存的函数名"
 	}
 }
 
@@ -309,7 +309,7 @@ func traceConvertPerfMessageZh(message string) string {
 	case strings.Contains(lower, "use android simpleperf scripts/report_sample.py"):
 		return "使用 Android simpleperf 的 scripts/report_sample.py，然后传 --simpleperf-report-sample 或设置 CODRAX_SIMPLEPERF_REPORT_SAMPLE；按需补 --simpleperf-python、--simpleperf-symfs、--simpleperf-kallsyms"
 	case strings.Contains(lower, "built into codrax"):
-		return "Codrax 内置能力；输出会标记 source=raw_perfdata_fallback 和 symbolization_status=unsymbolized，适合时间/线程/DSO/IP 关联，不等同完整符号化"
+		return "Codrax 内置能力；输出会标记 source=raw_perfdata_fallback；存在官方 HIPERF_FILES_SYMBOL 时可使用保存的函数名，否则适合时间/线程/DSO/IP 关联，不等同完整符号化"
 	case strings.Contains(lower, "perftrace generation is disabled"):
 		return "已禁用 perftrace 生成；不会运行官方适配器和 raw fallback"
 	case strings.Contains(lower, "disabled by --no-perftrace"):

@@ -5,10 +5,10 @@ import "strings"
 func perfTraceSymbolizationStatus(symbol, dso, source string) string {
 	source = strings.ToLower(strings.TrimSpace(source))
 	switch {
-	case strings.Contains(source, "raw_perfdata"):
-		return "unsymbolized"
 	case strings.TrimSpace(symbol) != "" && !perfTraceLabelLooksIP(symbol) && strings.TrimSpace(symbol) != "unknown":
 		return "symbolized"
+	case strings.Contains(source, "raw_perfdata"):
+		return "unsymbolized"
 	case strings.TrimSpace(dso) != "" && strings.TrimSpace(dso) != "unknown":
 		return "partial"
 	default:
@@ -22,8 +22,10 @@ func perfTraceCallchainStatus(callchain, source string) string {
 	switch {
 	case callchain == "" || callchain == "unknown":
 		return "missing"
-	case strings.Contains(source, "raw_perfdata") || perfTraceCallchainLooksIPOnly(callchain):
+	case perfTraceCallchainLooksIPOnly(callchain):
 		return "ip_only"
+	case strings.Contains(source, "raw_perfdata"):
+		return "symbolized"
 	default:
 		return "symbolized"
 	}

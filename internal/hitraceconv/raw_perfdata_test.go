@@ -215,6 +215,59 @@ func TestConvertRawPerfDataPreservesFeatureMetadataCaveats(t *testing.T) {
 	}
 }
 
+func TestConvertRawPerfDataUsesSavedHiperfArkTSSymbols(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf-arkts-symbols.data")
+	outPath := filepath.Join(dir, "raw-arkts-symbols.perftrace")
+	if err := os.WriteFile(perfData, syntheticRawPerfDataWithHiperfArkTSSymbols(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := readRawPerfData(context.Background(), perfData)
+	if err != nil {
+		t.Fatalf("read raw perf data with hiperf symbols: %v", err)
+	}
+	if len(data.Features.SymbolFiles) != 1 || data.Features.SymbolCount != 2 {
+		t.Fatalf("HIPERF_FILES_SYMBOL feature not parsed: %+v", data.Features)
+	}
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+		t.Fatalf("convert raw perf.data with hiperf symbols: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		`symbol="Index.build:entry/src/main/ets/pages/Index.ets"`,
+		`dso="/data/storage/el1/bundle/entry.hap"`,
+		`callchain="renderButton@/data/storage/el1/bundle/entry.hap;0x1111;Index.build:entry/src/main/ets/pages/Index.ets@/data/storage/el1/bundle/entry.hap"`,
+		"symbolization_status=symbolized",
+		"callchain_status=symbolized",
+		"symbol_source=hiperf_files_symbol",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("perftrace missing %q:\n%s", want, text)
+		}
+	}
+
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("parse perftrace: %v", err)
+	}
+	if len(idx.Events) != 1 {
+		t.Fatalf("events: got %d want 1", len(idx.Events))
+	}
+	ev := idx.Events[0]
+	if ev.PerfSymbol != "Index.build:entry/src/main/ets/pages/Index.ets" || ev.PerfSymbolizationStatus != "symbolized" || ev.PerfCallchainStatus != "symbolized" {
+		t.Fatalf("saved hiperf symbol should reach tracequery: %+v", ev)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
+	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) == 0 || stats.PerfSamples.TopSymbols[0].Symbol != "Index.build:entry/src/main/ets/pages/Index.ets" {
+		t.Fatalf("saved hiperf symbol should reach hotspot stats: %+v", stats.PerfSamples)
+	}
+}
+
 func TestConvertRawPerfDataBindsCommByRecordLifetime(t *testing.T) {
 	dir := t.TempDir()
 	perfData := filepath.Join(dir, "perf-comm-lifetime.data")
@@ -358,6 +411,70 @@ func TestConvertFilePreservesDirectPerfDataWhenPerftraceDisabled(t *testing.T) {
 			t.Fatalf("disabled perftrace generation should not emit perftrace: %+v", result.Artifacts)
 		}
 	}
+}
+
+func syntheticRawPerfDataWithHiperfArkTSSymbols() []byte {
+	const headerSize = 104
+	const attrSize = 48
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod | perfSampleCallchain)
+	hapPath := "/data/storage/el1/bundle/entry.hap"
+	var records bytes.Buffer
+	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "app")))
+	records.Write(rawPerfRecord(perfRecordMmap, rawPerfMmapPayload(1234, 5678, 0x1000, 0x1000, 0, hapPath)))
+	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+
+	dataOffset := headerSize + attrSize
+	featureIDs := []int{perfFeatureHiperfFilesSymbol}
+	descriptorOffset := dataOffset + records.Len()
+	sectionOffset := descriptorOffset + len(featureIDs)*16
+	sections := [][]byte{
+		rawPerfFeatureHiperfArkTSSymbols(hapPath),
+	}
+	out := make([]byte, sectionOffset)
+	copy(out[0:8], []byte(perfMagic2))
+	binary.LittleEndian.PutUint64(out[8:16], headerSize)
+	binary.LittleEndian.PutUint64(out[16:24], attrSize)
+	binary.LittleEndian.PutUint64(out[24:32], headerSize)
+	binary.LittleEndian.PutUint64(out[32:40], attrSize)
+	binary.LittleEndian.PutUint64(out[40:48], uint64(dataOffset))
+	binary.LittleEndian.PutUint64(out[48:56], uint64(records.Len()))
+	for _, id := range featureIDs {
+		out[72+id/8] |= 1 << (id % 8)
+	}
+	attr := out[headerSize:dataOffset]
+	binary.LittleEndian.PutUint32(attr[0:4], 0)
+	binary.LittleEndian.PutUint32(attr[4:8], 40)
+	binary.LittleEndian.PutUint64(attr[8:16], 0)
+	binary.LittleEndian.PutUint64(attr[24:32], sampleType)
+	copy(out[dataOffset:descriptorOffset], records.Bytes())
+
+	cur := sectionOffset
+	for i, section := range sections {
+		desc := out[descriptorOffset+i*16 : descriptorOffset+(i+1)*16]
+		binary.LittleEndian.PutUint64(desc[0:8], uint64(cur))
+		binary.LittleEndian.PutUint64(desc[8:16], uint64(len(section)))
+		out = append(out, section...)
+		cur += len(section)
+	}
+	return out
+}
+
+func rawPerfFeatureHiperfArkTSSymbols(path string) []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU32(&out, 1)
+	writeRawPerfTestString(&out, path)
+	writeRawPerfTestU32(&out, rawPerfSymbolFileHAP)
+	writeRawPerfTestU64(&out, 0)
+	writeRawPerfTestU64(&out, 0)
+	writeRawPerfTestString(&out, "010203")
+	writeRawPerfTestU32(&out, 2)
+	writeRawPerfTestU64(&out, 0x1210)
+	writeRawPerfTestU32(&out, 0x30)
+	writeRawPerfTestString(&out, "renderButton")
+	writeRawPerfTestU64(&out, 0x1230)
+	writeRawPerfTestU32(&out, 0x40)
+	writeRawPerfTestString(&out, "Index.build:entry/src/main/ets/pages/Index.ets")
+	return out.Bytes()
 }
 
 func syntheticRawPerfData() []byte {
@@ -556,6 +673,18 @@ func writeRawPerfTestU32(out *bytes.Buffer, v uint32) {
 	var buf [4]byte
 	binary.LittleEndian.PutUint32(buf[:], v)
 	out.Write(buf[:])
+}
+
+func writeRawPerfTestU64(out *bytes.Buffer, v uint64) {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], v)
+	out.Write(buf[:])
+}
+
+func writeRawPerfTestString(out *bytes.Buffer, value string) {
+	writeRawPerfTestU32(out, uint32(len(value)+1))
+	out.WriteString(value)
+	out.WriteByte(0)
 }
 
 func writeRawPerfTestU16(out *bytes.Buffer, v uint16) {

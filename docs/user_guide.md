@@ -476,7 +476,7 @@ codrax trace convert --perf-tools-status --lang en
 - `official_android[android_simpleperf_report_sample]`: 是否找到 Android simpleperf `report_sample.py`
 - `raw_fallback[codrax_raw_perfdata]`: Codrax 内置 raw `perf.data` fallback 是否可用
 - `perf_parser`: 当前策略,默认 `auto`
-- `symbolization_expectation`: 输出是否可能是官方符号化结果,还是 raw IP/DSO fallback
+- `symbolization_expectation`: 输出是否可能是官方符号化结果、raw fallback 保存符号名,还是 raw IP/DSO fallback
 - `check`: 用于确认该 provider 是否能在当前机器工作的检查命令
 - `aux_check`: 符号目录、symfs、kallsyms 等辅助输入的检查提示
 - `install` / `docs`: 官方工具获取入口或内置能力说明
@@ -529,7 +529,7 @@ export CODRAX_SIMPLEPERF_PYTHON=/usr/bin/python3
 codrax trace convert --input /tmp/perf.data
 ```
 
-`report_sample.py` 是 Android 官方提供的 `simpleperf_report_lib.py` wrapper。Codrax 执行 wrapper;如果你只传了 `simpleperf_report_lib.py`,系统会尝试使用同目录的 `report_sample.py` / `simpleperf_report_sample.py` / `report_sample`,缺失时 `--perf-tools-status` 会提示补 wrapper。官方工具负责完整解析、unwind、Java/ART/native 符号、symfs/kallsyms 等;Codrax raw fallback 只做有限字段提取。raw 输出会明确带上 `source=raw_perfdata_fallback` 和 `symbolization_status=unsymbolized`:它适合做时间、线程、DSO、IP、调用链地址的辅助关联,不要把 IP-only label 当成真实函数名。
+`report_sample.py` 是 Android 官方提供的 `simpleperf_report_lib.py` wrapper。Codrax 执行 wrapper;如果你只传了 `simpleperf_report_lib.py`,系统会尝试使用同目录的 `report_sample.py` / `simpleperf_report_sample.py` / `report_sample`,缺失时 `--perf-tools-status` 会提示补 wrapper。官方工具负责完整解析、unwind、Java/ART/native 符号、symfs/kallsyms 等;Codrax raw fallback 只做有限字段提取。raw 输出会明确带上 `source=raw_perfdata_fallback`;如果 perf.data 里带 OpenHarmony hiperf 官方 `HIPERF_FILES_SYMBOL` feature,会直接使用其中保存的函数名(包括 ArkTS/HAP/JSVM 这类采集时已解析的符号字符串),否则仍按 IP/DSO/调用链地址做保底关联。看到 `symbolization_status=unsymbolized` 或 `callchain_status=ip_only` 时,不要把 IP-only label 当成真实函数名。
 
 转换产物:
 
@@ -540,7 +540,7 @@ codrax trace convert --input /tmp/perf.data
 
 分析时可以直接传 `.tracebundle.json`、`.systrace` 或 `.perftrace`;如果同目录存在 sibling bundle 或 sibling `.systrace + .perftrace`,trace_query 会自动合并。
 
-如果本轮保存 markdown/html 报告,报告正文会额外包含 `Runtime Artifacts` 表,列出本轮附加的 log/trace/perf/bundle 来源、大小和关键信息。只附加 `.tracebundle.json` 时,报告会展开 bundle 里的 systrace/perftrace/perf.data 成员、converter 和 caveats。raw fallback 产生的 perf 样本会在表里保留 `raw_perfdata_fallback` / `unsymbolized` 这类标记,方便区分“官方符号化调用栈”和“IP/DSO 级保底关联”。
+如果本轮保存 markdown/html 报告,报告正文会额外包含 `Runtime Artifacts` 表,列出本轮附加的 log/trace/perf/bundle 来源、大小和关键信息。只附加 `.tracebundle.json` 时,报告会展开 bundle 里的 systrace/perftrace/perf.data 成员、converter 和 caveats。raw fallback 产生的 perf 样本会在表里保留 `raw_perfdata_fallback`、`symbolized` / `unsymbolized`、`ip_only` 这类标记,方便区分“官方/保存符号名可读调用栈”和“IP/DSO 级保底关联”。
 
 常用提问模板:
 
