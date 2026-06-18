@@ -248,13 +248,29 @@ chain, resource, binder, or supply evidence.
 
 ### Batch B - Provider Registry Refactor
 
-- [ ] Replace ad-hoc `maybeConvert*` calls with a small provider registry:
+- [x] Replace ad-hoc `maybeConvert*` calls with a small provider registry:
   `Detect -> Plan -> Convert -> Capability`.
-- [ ] Make provider selection explicit: official Harmony, official Android text,
+- [x] Make provider selection explicit: official Harmony, official Android text,
   official Android proto, raw fallback, disabled.
-- [ ] Return a structured provider decision log in `Result` and tracebundle.
-- [ ] Keep selection driven by parser mode, content format, and tool availability;
+- [x] Return a structured provider decision log in `Result` and tracebundle.
+- [x] Keep selection driven by parser mode, content format, and tool availability;
   never by model prose or user intent keywords.
+
+Batch B implementation notes:
+
+- `PerfProviderDecision` is now a typed system output alongside
+  `PerfArtifactCapability`, not a model-authored `trace_query` input field.
+  Therefore it does not need prompt-side JSON repair aliases yet.
+- `Result`, `.tracebundle.json`, and `trace convert` CLI output expose provider
+  decisions with `selected/attempted/succeeded/fallback/trace_query_ready`,
+  parser mode, input format, artifact path, reason, and caveat.
+- Current registry entries cover `openharmony_hiperf_report_proto`,
+  `android_simpleperf_report_sample`, future `android_simpleperf_report_proto`,
+  `codrax_raw_perfdata`, and disabled perftrace generation. The Android proto
+  entry is explicit but still implemented in Batch C.
+- Selection remains based on structured parser mode, content sniffed input
+  format, and tool availability. No user-intent keyword or model prose is used
+  as a hard gate.
 
 ### Batch C - Android SIMPLEPERF Proto Provider
 

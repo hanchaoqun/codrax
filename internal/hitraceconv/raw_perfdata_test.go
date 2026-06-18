@@ -106,6 +106,13 @@ func TestConvertFileUsesRawPerfParserForDirectPerfDataByContent(t *testing.T) {
 	if perfTrace.Perf == nil || perfTrace.Perf.ProviderKind != "raw_fallback" || perfTrace.Perf.InputFormat != string(perfInputLinuxPerfData) {
 		t.Fatalf("missing raw perf capability: %+v", perfTrace.Perf)
 	}
+	if len(result.ProviderDecisions) != 1 {
+		t.Fatalf("expected one raw provider decision: %+v", result.ProviderDecisions)
+	}
+	decision := result.ProviderDecisions[0]
+	if decision.ProviderName != perfProviderNameRawFallback || !decision.Selected || !decision.Attempted || !decision.Succeeded || decision.Fallback || !decision.TraceQueryReady {
+		t.Fatalf("bad raw provider decision: %+v", decision)
+	}
 	idx, err := tracequery.BuildIndex(context.Background(), perfTrace.Path)
 	if err != nil {
 		t.Fatalf("parse generated perftrace: %v", err)
@@ -138,12 +145,49 @@ func TestConvertFilePreservesDirectPerfDataWhenOfficialParserUnavailable(t *test
 	if result.BundlePath == "" || len(result.Caveats) == 0 {
 		t.Fatalf("expected bundle and caveat for unavailable official parser: %+v", result)
 	}
+	if len(result.ProviderDecisions) != 2 {
+		t.Fatalf("expected official skip plus raw disabled decisions: %+v", result.ProviderDecisions)
+	}
+	if result.ProviderDecisions[0].ProviderName != perfProviderNameSimpleperfText || result.ProviderDecisions[0].Attempted || result.ProviderDecisions[0].Succeeded || result.ProviderDecisions[0].Reason != "official_tool_unavailable" {
+		t.Fatalf("bad official unavailable decision: %+v", result.ProviderDecisions[0])
+	}
+	if result.ProviderDecisions[1].ProviderName != perfProviderNameRawFallback || result.ProviderDecisions[1].Selected || result.ProviderDecisions[1].Attempted || result.ProviderDecisions[1].Reason != "disabled_by_parser_mode" {
+		t.Fatalf("bad raw disabled decision: %+v", result.ProviderDecisions[1])
+	}
 	for _, artifact := range result.Artifacts {
 		if artifact.Type == ArtifactPerfTrace {
 			t.Fatalf("official-only mode without official adapter should not emit raw perftrace: %+v", result.Artifacts)
 		}
 		if artifact.Type == ArtifactPerfData && (artifact.Perf == nil || artifact.Perf.InputFormat != string(perfInputLinuxPerfData)) {
 			t.Fatalf("perf_data artifact should carry detected input capability: %+v", artifact.Perf)
+		}
+	}
+}
+
+func TestConvertFilePreservesDirectPerfDataWhenPerftraceDisabled(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "capture.no_suffix")
+	if err := os.WriteFile(perfData, syntheticRawPerfData(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ConvertFile(context.Background(), Options{InputPath: perfData, DisablePerfAdapter: true})
+	if err != nil {
+		t.Fatalf("convert direct perf.data with perftrace disabled: %v", err)
+	}
+	if result.OutputPath != "" || result.BundlePath == "" {
+		t.Fatalf("direct perf.data should produce sidecar-only bundle: %+v", result)
+	}
+	if len(result.ProviderDecisions) != 1 {
+		t.Fatalf("expected disabled provider decision: %+v", result.ProviderDecisions)
+	}
+	decision := result.ProviderDecisions[0]
+	if decision.ProviderName != perfProviderNamePerftraceDisabled || !decision.Selected || decision.Attempted || decision.Succeeded || decision.Reason != "perftrace_generation_disabled" {
+		t.Fatalf("bad disabled provider decision: %+v", decision)
+	}
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactPerfTrace {
+			t.Fatalf("disabled perftrace generation should not emit perftrace: %+v", result.Artifacts)
 		}
 	}
 }

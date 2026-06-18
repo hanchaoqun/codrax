@@ -43,30 +43,32 @@ type standaloneSegment struct {
 }
 
 type traceBundleMetadata struct {
-	Version   string     `json:"version"`
-	InputPath string     `json:"input_path"`
-	Systrace  string     `json:"systrace,omitempty"`
-	Artifacts []Artifact `json:"artifacts,omitempty"`
-	Caveats   []string   `json:"caveats,omitempty"`
+	Version           string                 `json:"version"`
+	InputPath         string                 `json:"input_path"`
+	Systrace          string                 `json:"systrace,omitempty"`
+	Artifacts         []Artifact             `json:"artifacts,omitempty"`
+	ProviderDecisions []PerfProviderDecision `json:"provider_decisions,omitempty"`
+	Caveats           []string               `json:"caveats,omitempty"`
 }
 
-func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int64, outputPath string) ([]Artifact, []string, error) {
+func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int64, outputPath string) ([]Artifact, []string, []PerfProviderDecision, error) {
 	input := strings.TrimSpace(opts.InputPath)
 	segments, err := findStandaloneSegments(ctx, input, inputSize)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if len(segments) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	base := traceSidecarBase(input, outputPath)
 	in, err := os.Open(input)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer in.Close()
 	var artifacts []Artifact
 	var caveats []string
+	var decisions []PerfProviderDecision
 	perfOrdinal := 0
 	for _, seg := range segments {
 		if seg.DataType != profilerDataTypeHiperf {
@@ -75,11 +77,11 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 		perfOrdinal++
 		outPath := numberedSidecarPath(base, perfOrdinal, ".perf.data")
 		if err := ensureOutputDoesNotExist(outPath); err != nil {
-			return artifacts, caveats, err
+			return artifacts, caveats, decisions, err
 		}
 		n, err := copyRangeToFile(in, seg.Offset+profilerStandalonePayloadBase, seg.Length-profilerStandalonePayloadBase, outPath)
 		if err != nil {
-			return artifacts, caveats, err
+			return artifacts, caveats, decisions, err
 		}
 		rawArtifact := Artifact{
 			Type:          ArtifactPerfData,
@@ -94,9 +96,10 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 			Perf:          perfCapabilityForRawPerfDataArtifact(detectPerfInputFormat(outPath)),
 		}
 		perfTracePath := numberedSidecarPath(base, perfOrdinal, ".perftrace")
-		perfTrace, caveat, err := maybeConvertHiperfPerfData(ctx, opts, outPath, perfTracePath)
+		perfTrace, caveat, providerDecisions, err := maybeConvertHiperfPerfData(ctx, opts, outPath, perfTracePath)
+		decisions = append(decisions, providerDecisions...)
 		if err != nil {
-			return artifacts, caveats, err
+			return artifacts, caveats, decisions, err
 		}
 		if perfTrace.Path == "" {
 			rawArtifact.Caveats = append(rawArtifact.Caveats, "raw perf.data sidecar extracted; run an official hiperf/simpleperf adapter to produce .perftrace before trace_query can aggregate CPU samples")
@@ -126,7 +129,7 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 			caveats = append(caveats, fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s); raw perf.data is preserved as sidecar and still needs official parser conversion to .perftrace for trace_query sample aggregation", perfDataCount))
 		}
 	}
-	return artifacts, caveats, nil
+	return artifacts, caveats, decisions, nil
 }
 
 func findStandaloneSegments(ctx context.Context, path string, size int64) ([]standaloneSegment, error) {
@@ -214,7 +217,7 @@ func readStandaloneSegmentAt(f *os.File, off int64, fileSize int64) (standaloneS
 	}, true
 }
 
-func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []string) (Artifact, error) {
+func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision) (Artifact, error) {
 	if len(artifacts) == 0 {
 		return Artifact{}, nil
 	}
@@ -224,11 +227,12 @@ func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []
 		return Artifact{}, err
 	}
 	meta := traceBundleMetadata{
-		Version:   converterVersion,
-		InputPath: input,
-		Systrace:  outputPath,
-		Artifacts: artifacts,
-		Caveats:   caveats,
+		Version:           converterVersion,
+		InputPath:         input,
+		Systrace:          outputPath,
+		Artifacts:         artifacts,
+		ProviderDecisions: decisions,
+		Caveats:           caveats,
 	}
 	body, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {

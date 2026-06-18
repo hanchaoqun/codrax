@@ -167,6 +167,7 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 			lines = append(lines, "输出：未生成 systrace（仅抽取 sidecar artifact）")
 		}
 		lines = append(lines, traceConvertArtifactLines("zh", result.Artifacts)...)
+		lines = append(lines, traceConvertProviderDecisionLines("zh", result.ProviderDecisions)...)
 		return lines
 	}
 	lines := []string{
@@ -179,6 +180,7 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 		lines = append(lines, "output: no systrace produced (sidecar artifacts only)")
 	}
 	lines = append(lines, traceConvertArtifactLines("en", result.Artifacts)...)
+	lines = append(lines, traceConvertProviderDecisionLines("en", result.ProviderDecisions)...)
 	return lines
 }
 
@@ -266,6 +268,52 @@ func traceConvertPerfCapabilityDetails(cap hitraceconv.PerfArtifactCapability) [
 	}
 	if cap.Degraded {
 		details = append(details, "perf_degraded=true")
+	}
+	return details
+}
+
+func traceConvertProviderDecisionLines(lang string, decisions []hitraceconv.PerfProviderDecision) []string {
+	var lines []string
+	for _, decision := range decisions {
+		details := traceConvertProviderDecisionDetails(decision)
+		prefix := fmt.Sprintf("provider_decision[%s/%s]", decision.ProviderKind, decision.ProviderName)
+		if traceConvertUseZh(lang) {
+			lines = append(lines, prefix+"："+strings.Join(details, " "))
+		} else {
+			lines = append(lines, prefix+": "+strings.Join(details, " "))
+		}
+	}
+	return lines
+}
+
+func traceConvertProviderDecisionDetails(decision hitraceconv.PerfProviderDecision) []string {
+	details := []string{
+		fmt.Sprintf("selected=%t", decision.Selected),
+		fmt.Sprintf("attempted=%t", decision.Attempted),
+		fmt.Sprintf("succeeded=%t", decision.Succeeded),
+		fmt.Sprintf("fallback=%t", decision.Fallback),
+		fmt.Sprintf("trace_query_ready=%t", decision.TraceQueryReady),
+	}
+	if decision.Stage != "" {
+		details = append(details, "stage="+decision.Stage)
+	}
+	if decision.ParserMode != "" {
+		details = append(details, "parser="+decision.ParserMode)
+	}
+	if decision.InputFormat != "" {
+		details = append(details, "input="+decision.InputFormat)
+	}
+	if decision.OutputPath != "" {
+		details = append(details, "output="+decision.OutputPath)
+	}
+	if decision.ArtifactPath != "" {
+		details = append(details, "artifact="+decision.ArtifactPath)
+	}
+	if decision.Reason != "" {
+		details = append(details, "reason="+decision.Reason)
+	}
+	if decision.Caveat != "" {
+		details = append(details, "caveat="+decision.Caveat)
 	}
 	return details
 }

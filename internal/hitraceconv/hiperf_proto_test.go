@@ -114,6 +114,13 @@ cp "$HIPERF_PROTO_FIXTURE" "$out"
 	if perfTrace.Path == "" {
 		t.Fatalf("missing perftrace artifact: %+v", result.Artifacts)
 	}
+	if len(result.ProviderDecisions) != 1 {
+		t.Fatalf("expected one hiperf provider decision: %+v", result.ProviderDecisions)
+	}
+	decision := result.ProviderDecisions[0]
+	if decision.ProviderName != perfProviderNameHiperfProto || !decision.Selected || !decision.Attempted || !decision.Succeeded || !decision.TraceQueryReady {
+		t.Fatalf("bad hiperf provider decision: %+v", decision)
+	}
 	idx, err := tracequery.BuildIndex(context.Background(), perfTrace.Path)
 	if err != nil {
 		t.Fatalf("parse generated perftrace: %v", err)
@@ -132,7 +139,7 @@ cp "$HIPERF_PROTO_FIXTURE" "$out"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(bundle), `"type": "perftrace"`) || !strings.Contains(string(bundle), perfTrace.Path) {
+	if !strings.Contains(string(bundle), `"type": "perftrace"`) || !strings.Contains(string(bundle), perfTrace.Path) || !strings.Contains(string(bundle), `"provider_decisions"`) || !strings.Contains(string(bundle), `"provider_name": "openharmony_hiperf_report_proto"`) {
 		t.Fatalf("bundle missing perftrace artifact:\n%s", string(bundle))
 	}
 }

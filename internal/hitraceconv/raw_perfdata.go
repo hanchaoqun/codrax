@@ -124,6 +124,47 @@ func maybeConvertRawPerfData(ctx context.Context, opts Options, perfPath, perfTr
 	}, "", nil
 }
 
+func maybeConvertRawPerfDataWithDecision(ctx context.Context, opts Options, perfPath, perfTracePath, prior, stage string, inputFormat perfInputFormat, fallback bool) (Artifact, string, []PerfProviderDecision, error) {
+	if inputFormat == perfInputUnknown {
+		inputFormat = detectPerfInputFormat(perfPath)
+	}
+	decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, perfPath, inputFormat, perfTracePath)
+	decision.Fallback = fallback
+	if !rawPerfParserAllowed(opts) {
+		caveat := "raw perf.data fallback disabled by perf parser mode"
+		if prior != "" {
+			caveat = prior + "; " + caveat
+		}
+		decision = perfProviderSkipped(decision, false, "disabled_by_parser_mode", caveat)
+		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
+	}
+	if !perfProviderSupportsInput(perfProviderByName(perfProviderNameRawFallback), inputFormat) {
+		caveat := fmt.Sprintf("Codrax raw fallback supports %s only, got %s; .perftrace was not generated", perfInputLinuxPerfData, firstNonEmpty(string(inputFormat), "unknown"))
+		if prior != "" {
+			caveat = prior + "; " + caveat
+		}
+		decision = perfProviderSkipped(decision, true, "unsupported_input_format", caveat)
+		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
+	}
+	artifact, caveat, err := maybeConvertRawPerfData(ctx, opts, perfPath, perfTracePath)
+	if err != nil {
+		decision = perfProviderFailure(decision, "raw_parser_error", err.Error())
+		return artifact, caveat, []PerfProviderDecision{decision}, err
+	}
+	if artifact.Path == "" {
+		fullCaveat := caveat
+		if prior != "" && caveat != "" {
+			fullCaveat = prior + "; " + caveat
+		} else if prior != "" {
+			fullCaveat = prior
+		}
+		decision = perfProviderFailure(decision, "raw_parser_unavailable", fullCaveat)
+		return artifact, caveat, []PerfProviderDecision{decision}, nil
+	}
+	decision = perfProviderSuccess(decision, artifact)
+	return artifact, caveat, []PerfProviderDecision{decision}, nil
+}
+
 func ConvertRawPerfDataFileToPerfTrace(ctx context.Context, inputPath, outputPath string) error {
 	if ctx == nil {
 		ctx = context.Background()

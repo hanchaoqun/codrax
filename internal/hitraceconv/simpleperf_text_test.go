@@ -95,6 +95,13 @@ func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfDataByContent(t 
 	if perfTrace.Perf == nil || perfTrace.Perf.ProviderKind != "official_android" || perfTrace.Perf.InputFormat != string(perfInputLinuxPerfData) {
 		t.Fatalf("missing simpleperf capability: %+v", perfTrace.Perf)
 	}
+	if len(result.ProviderDecisions) != 1 {
+		t.Fatalf("expected one simpleperf provider decision: %+v", result.ProviderDecisions)
+	}
+	decision := result.ProviderDecisions[0]
+	if decision.ProviderName != perfProviderNameSimpleperfText || !decision.Selected || !decision.Attempted || !decision.Succeeded || !decision.TraceQueryReady {
+		t.Fatalf("bad simpleperf provider decision: %+v", decision)
+	}
 	idx, err := tracequery.BuildIndex(context.Background(), perfTrace.Path)
 	if err != nil {
 		t.Fatalf("parse generated perftrace: %v", err)
@@ -106,7 +113,7 @@ func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfDataByContent(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"type": "perftrace"`, perfTrace.Path, `"perf_capability"`, `"provider_kind": "official_android"`, `"input_format": "linux_perf_data"`} {
+	for _, want := range []string{`"type": "perftrace"`, perfTrace.Path, `"perf_capability"`, `"provider_kind": "official_android"`, `"input_format": "linux_perf_data"`, `"provider_decisions"`, `"provider_name": "android_simpleperf_report_sample"`, `"succeeded": true`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("bundle missing %q:\n%s", want, string(bundle))
 		}
@@ -143,11 +150,14 @@ func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectReportProtoByContent
 	if perfTrace.Perf == nil || perfTrace.Perf.InputFormat != string(perfInputSimpleperfReportProto) {
 		t.Fatalf("simpleperf report proto input format should reach capability: %+v", perfTrace.Perf)
 	}
+	if len(result.ProviderDecisions) != 1 || result.ProviderDecisions[0].InputFormat != string(perfInputSimpleperfReportProto) || !result.ProviderDecisions[0].Succeeded {
+		t.Fatalf("simpleperf proto input should reach provider decision: %+v", result.ProviderDecisions)
+	}
 	bundle, err := os.ReadFile(result.BundlePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"perf_capability"`, `"input_format": "simpleperf_report_sample_proto"`, `"trace_query_ready": true`} {
+	for _, want := range []string{`"perf_capability"`, `"input_format": "simpleperf_report_sample_proto"`, `"trace_query_ready": true`, `"provider_decisions"`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("bundle missing %q:\n%s", want, string(bundle))
 		}

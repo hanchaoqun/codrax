@@ -95,6 +95,36 @@ func TestTraceConvertArtifactLinesIncludeProvenance(t *testing.T) {
 	}
 }
 
+func TestTraceConvertResultLinesIncludeProviderDecisions(t *testing.T) {
+	result := hitraceconv.Result{
+		InputPath: "capture.bin",
+		ProviderDecisions: []hitraceconv.PerfProviderDecision{{
+			Stage:           "direct_input",
+			ProviderKind:    "raw_fallback",
+			ProviderName:    "codrax_raw_perfdata",
+			InputFormat:     "linux_perf_data",
+			OutputPath:      "capture.perftrace",
+			ParserMode:      "raw",
+			Selected:        true,
+			Attempted:       true,
+			Succeeded:       true,
+			Fallback:        false,
+			TraceQueryReady: true,
+			ArtifactPath:    "capture.perftrace",
+		}},
+	}
+	en := strings.Join(traceConvertResultLines("en", result), "\n")
+	for _, want := range []string{"provider_decision[raw_fallback/codrax_raw_perfdata]", "selected=true", "attempted=true", "succeeded=true", "trace_query_ready=true", "stage=direct_input", "parser=raw", "input=linux_perf_data"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("provider decision output missing %q:\n%s", want, en)
+		}
+	}
+	zh := strings.Join(traceConvertResultLines("zh", result), "\n")
+	if !strings.Contains(zh, "provider_decision[raw_fallback/codrax_raw_perfdata]：") || !strings.Contains(zh, "succeeded=true") {
+		t.Fatalf("zh provider decision output malformed:\n%s", zh)
+	}
+}
+
 func TestTraceConvertPerfToolStatusLines(t *testing.T) {
 	status := hitraceconv.PerfToolStatus{
 		ParserMode:               "auto",

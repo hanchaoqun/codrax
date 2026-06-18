@@ -64,12 +64,31 @@ type PerfArtifactCapability struct {
 	Caveats         []string `json:"caveats,omitempty"`
 }
 
+type PerfProviderDecision struct {
+	Stage           string `json:"stage,omitempty"`
+	ProviderKind    string `json:"provider_kind,omitempty"`
+	ProviderName    string `json:"provider_name,omitempty"`
+	InputPath       string `json:"input_path,omitempty"`
+	InputFormat     string `json:"input_format,omitempty"`
+	OutputPath      string `json:"output_path,omitempty"`
+	ParserMode      string `json:"parser_mode,omitempty"`
+	Selected        bool   `json:"selected"`
+	Attempted       bool   `json:"attempted"`
+	Succeeded       bool   `json:"succeeded"`
+	Fallback        bool   `json:"fallback"`
+	TraceQueryReady bool   `json:"trace_query_ready"`
+	ArtifactPath    string `json:"artifact_path,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	Caveat          string `json:"caveat,omitempty"`
+}
+
 // Result summarizes a completed conversion.
 type Result struct {
 	InputPath          string
 	OutputPath         string
 	BundlePath         string
 	Artifacts          []Artifact
+	ProviderDecisions  []PerfProviderDecision
 	InputBytes         int64
 	OutputBytes        int64
 	EventsWritten      int

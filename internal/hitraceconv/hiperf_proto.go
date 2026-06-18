@@ -59,31 +59,43 @@ type hiperfProtoData struct {
 	Samples     []hiperfProtoSample
 }
 
-func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, perfTracePath string) (Artifact, string, error) {
+func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, perfTracePath string) (Artifact, string, []PerfProviderDecision, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	inputFormat := detectPerfInputFormat(perfPath)
+	stage := perfProviderStageStandaloneHiperf
 	if opts.DisablePerfAdapter {
-		return Artifact{}, "HIPERF_DATA perf.data extracted; perftrace generation disabled, so .perftrace was not generated", nil
+		caveat := "HIPERF_DATA perf.data extracted; perftrace generation disabled, so .perftrace was not generated"
+		decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNamePerftraceDisabled), opts, perfPath, inputFormat, perfTracePath)
+		decision = perfProviderSkipped(decision, true, "perftrace_generation_disabled", caveat)
+		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 	}
 	if rawPerfParserRequired(opts) {
-		return maybeConvertRawPerfData(ctx, opts, perfPath, perfTracePath)
+		officialDecision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameHiperfProto), opts, perfPath, inputFormat, perfTracePath)
+		officialDecision = perfProviderSkipped(officialDecision, false, "skipped_by_raw_parser_mode", "official hiperf adapter skipped because raw perf parser mode was requested")
+		artifact, caveat, decisions, err := maybeConvertRawPerfDataWithDecision(ctx, opts, perfPath, perfTracePath, "", stage, inputFormat, false)
+		return artifact, caveat, append([]PerfProviderDecision{officialDecision}, decisions...), err
 	}
+	officialDecision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameHiperfProto), opts, perfPath, inputFormat, perfTracePath)
 	tool, source := resolveHiperfTool(opts)
 	if tool == "" {
-		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, "HIPERF_DATA perf.data extracted; no official hiperf_host/hiperf adapter was configured or found")
+		caveat := "HIPERF_DATA perf.data extracted; no official hiperf_host/hiperf adapter was configured or found"
+		officialDecision = perfProviderSkipped(officialDecision, true, "official_tool_unavailable", caveat)
+		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat)
+		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
 	}
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
-		return Artifact{}, "", err
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
 	protoFile, err := os.CreateTemp(filepath.Dir(perfTracePath), "."+filepath.Base(perfTracePath)+".*.proto")
 	if err != nil {
-		return Artifact{}, "", err
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
 	protoPath := protoFile.Name()
 	if err := protoFile.Close(); err != nil {
 		_ = os.Remove(protoPath)
-		return Artifact{}, "", err
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
 	_ = os.Remove(protoPath)
 	defer os.Remove(protoPath)
@@ -95,20 +107,26 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 	cmd := exec.CommandContext(ctx, tool, args...)
 	output, runErr := cmd.CombinedOutput()
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return Artifact{}, "", ctxErr
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, ctxErr
 	}
 	if runErr != nil {
-		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, fmt.Sprintf("official hiperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output)))
+		caveat := fmt.Sprintf("official hiperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output))
+		officialDecision = perfProviderFailure(officialDecision, "official_adapter_failed", caveat)
+		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat)
+		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
 	}
 	if err := ConvertHiperfProtoFileToPerfTrace(ctx, protoPath, perfTracePath); err != nil {
 		_ = os.Remove(perfTracePath)
-		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, fmt.Sprintf("official hiperf adapter %q produced unreadable protobuf (%v)", tool, err))
+		caveat := fmt.Sprintf("official hiperf adapter %q produced unreadable protobuf (%v)", tool, err)
+		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
+		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat)
+		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
 	}
 	info, err := os.Stat(perfTracePath)
 	if err != nil {
-		return Artifact{}, "", err
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	return Artifact{
+	artifact := Artifact{
 		Type:      ArtifactPerfTrace,
 		Path:      perfTracePath,
 		Bytes:     info.Size(),
@@ -117,27 +135,35 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 		Caveats: []string{
 			fmt.Sprintf("generated from perf.data through %s; sample CPU is unavailable in OpenHarmony report_sample.proto and is emitted as cpu=-1", source),
 		},
-	}, "", nil
+	}
+	officialDecision = perfProviderSuccess(officialDecision, artifact)
+	return artifact, "", []PerfProviderDecision{officialDecision}, nil
 }
 
-func maybeRawPerfFallback(ctx context.Context, opts Options, perfPath, perfTracePath, prior string) (Artifact, string, error) {
+func maybeRawPerfFallback(ctx context.Context, opts Options, perfPath, perfTracePath, prior string, stage string, inputFormat perfInputFormat) (Artifact, string, []PerfProviderDecision, error) {
 	if !rawPerfParserAllowed(opts) {
 		if prior != "" {
-			return Artifact{}, prior + "; raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated", nil
+			caveat := prior + "; raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated"
+			decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, perfPath, inputFormat, perfTracePath)
+			decision = perfProviderSkipped(decision, false, "disabled_by_parser_mode", caveat)
+			return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 		}
-		return Artifact{}, "raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated", nil
+		caveat := "raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated"
+		decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, perfPath, inputFormat, perfTracePath)
+		decision = perfProviderSkipped(decision, false, "disabled_by_parser_mode", caveat)
+		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 	}
-	artifact, caveat, err := maybeConvertRawPerfData(ctx, opts, perfPath, perfTracePath)
+	artifact, caveat, decisions, err := maybeConvertRawPerfDataWithDecision(ctx, opts, perfPath, perfTracePath, prior, stage, inputFormat, true)
 	if err != nil || artifact.Path != "" {
 		if prior != "" && artifact.Path != "" {
 			artifact.Caveats = append([]string{prior + "; fell back to raw perf.data parser"}, artifact.Caveats...)
 		}
-		return artifact, caveat, err
+		return artifact, caveat, decisions, err
 	}
 	if prior != "" && caveat != "" {
-		return Artifact{}, prior + "; " + caveat, nil
+		return Artifact{}, prior + "; " + caveat, decisions, nil
 	}
-	return Artifact{}, firstNonEmpty(caveat, prior), nil
+	return Artifact{}, firstNonEmpty(caveat, prior), decisions, nil
 }
 
 func resolveHiperfTool(opts Options) (string, string) {
