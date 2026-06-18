@@ -107,6 +107,16 @@ type plannerEvaluator struct {
 	// exploration after the explorer has already localized the batch.
 	structuredEmitRepairReadCalls int
 
+	// verifyFailureRepairActive is true when this dispatch is repairing a typed
+	// verification failure rather than only materializing an initial handoff.
+	// It gets a distinct bounded read/search window after ordinary handoff
+	// synthesis is exhausted, because failed build/test observations can expose
+	// a neighboring owner symbol that was not needed for the initial patch. This
+	// remains a read-tool-only affordance; ordinary exec stays blocked by the
+	// write planner policy.
+	verifyFailureRepairActive    bool
+	verifyFailureRepairReadCalls int
+
 	// materializationSurfaceViolations counts typed unavailable-tool-surface
 	// read attempts while the planner is in materialization-only mode. The
 	// first violation gets a corrective hint; the second force-stops the dirty
@@ -129,6 +139,7 @@ const (
 	plannerHandoffSynthesisBaseReadBudget = 2
 	plannerHandoffSynthesisMaxReadBudget  = 4
 	plannerStructuredEmitRepairReadBudget = 2
+	plannerVerifyFailureRepairReadBudget  = 3
 )
 
 // BuildInitialInstruction captures the Mutable pointer + per-dispatch
@@ -154,10 +165,12 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	_ = sk
 	e.structuredEmitRepairActive = false
 	e.proofFollowupMaterializationOnly = plannerContextHasProofFollowupMaterializationOnly(ctx)
+	e.verifyFailureRepairActive = plannerContextHasVerifyFailureRepairMaterial(ctx)
 	e.handoffSynthesisActive = plannerContextHasWriteHandoffMaterial(ctx)
 	e.handoffSynthesisReadBudget = plannerHandoffSynthesisReadBudget(ctx)
 	e.handoffSynthesisReadCalls = 0
 	e.structuredEmitRepairReadCalls = 0
+	e.verifyFailureRepairReadCalls = 0
 	e.materializationSurfaceViolations = 0
 	if ctx != nil {
 		e.mu = ctx.Mutable
@@ -1104,7 +1117,9 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	}
 	handoffReadAllowed := e.handoffSynthesisActive && !e.proofFollowupMaterializationOnly && !e.handoffSynthesisReadBudgetExhausted()
 	repairReadAllowed := e.structuredEmitRepairActive && !e.proofFollowupMaterializationOnly && !e.structuredEmitRepairReadBudgetExhausted()
-	if (repairReadAllowed || handoffReadAllowed) && plannerResponseCallsAny(resp, plannerStructuredEmitRepairTools()...) {
+	verifyFailureReadAllowed := e.verifyFailureRepairActive && !e.proofFollowupMaterializationOnly &&
+		e.handoffSynthesisReadBudgetExhausted() && !e.verifyFailureRepairReadBudgetExhausted()
+	if (repairReadAllowed || handoffReadAllowed || verifyFailureReadAllowed) && plannerResponseCallsAny(resp, plannerStructuredEmitRepairTools()...) {
 		return false
 	}
 	return true
@@ -1140,6 +1155,10 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 		if !e.structuredEmitRepairReadBudgetExhausted() {
 			return schemas
 		}
+	} else if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() {
+		if !e.verifyFailureRepairReadBudgetExhausted() {
+			return schemas
+		}
 	} else if !e.handoffSynthesisReadBudgetExhausted() {
 		return schemas
 	}
@@ -1162,6 +1181,9 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 	if e.structuredEmitRepairActive {
 		logging.Debug("[planner] structured emit repair read budget exhausted (%d/%d); narrowed tool surface to %s",
 			e.structuredEmitRepairReadCalls, plannerStructuredEmitRepairReadBudget, strings.Join(sortedToolSchemaNames(out), ","))
+	} else if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() {
+		logging.Debug("[planner] verify-failure repair read budget exhausted (%d/%d); narrowed tool surface to %s",
+			e.verifyFailureRepairReadCalls, plannerVerifyFailureRepairReadBudget, strings.Join(sortedToolSchemaNames(out), ","))
 	} else {
 		logging.Debug("[planner] handoff synthesis read budget exhausted (%d/%d); narrowed tool surface to %s",
 			e.handoffSynthesisReadCalls, e.handoffSynthesisReadBudget, strings.Join(sortedToolSchemaNames(out), ","))
@@ -1279,6 +1301,16 @@ func (e *plannerEvaluator) structuredEmitRepairReadBudgetExhausted() bool {
 	return e.structuredEmitRepairReadCalls >= plannerStructuredEmitRepairReadBudget
 }
 
+func (e *plannerEvaluator) verifyFailureRepairReadBudgetExhausted() bool {
+	if e == nil || !e.verifyFailureRepairActive {
+		return false
+	}
+	if e.proofFollowupMaterializationOnly {
+		return true
+	}
+	return e.verifyFailureRepairReadCalls >= plannerVerifyFailureRepairReadBudget
+}
+
 func (e *plannerEvaluator) materializationOnlySurfaceActive() bool {
 	if e == nil || !e.handoffSynthesisActive {
 		return false
@@ -1288,6 +1320,9 @@ func (e *plannerEvaluator) materializationOnlySurfaceActive() bool {
 	}
 	if e.structuredEmitRepairActive {
 		return e.structuredEmitRepairReadBudgetExhausted()
+	}
+	if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() {
+		return e.verifyFailureRepairReadBudgetExhausted()
 	}
 	return e.handoffSynthesisReadBudgetExhausted()
 }
@@ -1338,6 +1373,19 @@ func plannerContextHasWriteHandoffMaterial(ctx *types.AgentContext) bool {
 		return plannerExplorationPackLocalizationCount(*pack, batchID, sliceID) > 0
 	}
 	return false
+}
+
+func plannerContextHasVerifyFailureRepairMaterial(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if plannerContextHasProofFollowupMaterializationOnly(ctx) {
+		return false
+	}
+	if plannerContextRequiresReplacementPatch(ctx) {
+		return false
+	}
+	return ctx.Mutable.VerifyFailureHandoff() != nil
 }
 
 func plannerWorkflowSeedLocalizationCount(ctx *types.AgentContext) int {
@@ -1454,6 +1502,8 @@ func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObs
 	if e.handoffSynthesisActive {
 		if e.structuredEmitRepairActive {
 			e.structuredEmitRepairReadCalls += readAttempts
+		} else if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() {
+			e.verifyFailureRepairReadCalls += readAttempts
 		} else {
 			e.handoffSynthesisReadCalls += readAttempts
 		}
@@ -1494,6 +1544,8 @@ func (e *plannerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) L
 	hint := "The planning read/repair budget for this batch is exhausted. Do not call repository-reading tools in this planning round. Use the typed handoff, prior tool results, and any validator rejection already visible to emit a bounded ChangePlan now via `emit_change_plan`, or use `emit_plan_skeleton` followed by `emit_plan_change` for a large plan. `run_tests` is available only as `dry_run=true` with a `verification_probe` object; `suite` remains a test selector and must not contain `python -c` or runner flags."
 	if e.proofFollowupMaterializationOnly {
 		hint = "This active batch is a verification proof follow-up over the already-applied worktree, with no typed code-failure handoff authorizing source repair. Do not call repository-reading tools and do not repair source coordinates in this planning round. Emit a proof plan now with `changes: []` and at least one `verification_probes[]` entry bound to the typed proof criteria; `run_tests` is available only as `dry_run=true` with a `verification_probe` object."
+	} else if e.verifyFailureRepairActive {
+		hint = "The typed verify-failure repair read/search budget for this batch is exhausted. Do not call repository-reading tools in this planning round. Use the verify-failure handoff, failure observations, prior tool results, and current visible bytes to emit the smallest replacement ChangePlan that addresses the failed build/test signal, or emit a no-change/probe plan only when the typed evidence proves source repair is unnecessary. `run_tests` is available only as `dry_run=true` with a `verification_probe` object; ordinary command execution remains unavailable in planning."
 	}
 	return LoopSignal{
 		HintRequested:  true,
@@ -1510,6 +1562,9 @@ func (e *plannerEvaluator) materializationSurfaceHintKey() string {
 	}
 	if e != nil && e.structuredEmitRepairActive {
 		return "planner.structured-emit-repair-tool-surface"
+	}
+	if e != nil && e.verifyFailureRepairActive {
+		return "planner.verify-failure-repair-tool-surface"
 	}
 	return "planner.materialization-tool-surface"
 }

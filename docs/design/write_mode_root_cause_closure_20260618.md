@@ -4302,6 +4302,8 @@ Verification:
 | RC-100 | complete | Planner materialization convergence: active workflow expected paths and write-analysis scope anchors now count as typed localization material, suppressing broad rediscovery and allowing one bounded post-`run_tests` structured emit window before the hard cap. Focused planner tests, related write/read-isolated packages, full `go test ./...`, and `make` pass. |
 | RC-101 | complete | Patch Critic quality-shape expansion: production-source non-ASCII comment and nearby duplicate-assignment events are now emitted from typed diff/file bytes only and consumed as PatchReview soft/unknown coverage. Focused, related, full Go regressions and build pass. |
 | RC-102 | complete | Docstring/text-region executable insertion guard: Python provider now emits `python_docstring_section_executable_added` as a PatchReview hard event when added executable-looking statements disrupt structured docstring section shape. Focused, related, full Go regressions and build pass. |
+| RC-103 | complete | Verify-failure repair read affordance: split typed failed-verify repair planning from initial handoff synthesis so a bounded read/search window remains available after build/test failure evidence, without reopening ordinary exec or broad exploration. Focused planner tests, related write/read packages, full `go test ./...`, `make`, and `git diff --check` pass. |
+| RC-104 | queued | Shared localization owner/evidence anchor closure: record and prioritize the remaining upstream read/write gap where line-backed owner anchors and evidence anchors must be produced/consumed consistently so plans avoid wrong source surfaces earlier, instead of relying on later PatchReview/verify repair. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -6085,6 +6087,54 @@ Verification:
   - `go test ./...`
   - `make`
 
+## 2026-06-19 RC-103 Verify-failure Repair Read Affordance
+
+- Evidence:
+  - The RC-102 three-instance smoke showed `django__django-14534` entered
+    repeated failed-verify restore/replan loops. After successful patch
+    application and red verification evidence, the planner eventually attempted
+    an unavailable `grep` call because the handoff synthesis read window had
+    already been consumed and the schema had narrowed to materialization tools.
+- Gap:
+  - Initial handoff synthesis and failed-verify repair shared one read budget.
+    That is too coarse for online convergence: a build/test failure can point to
+    a neighboring owner symbol, fixture, selector, or invariant that was not
+    necessary for the first patch. The planner needs a small repair-local
+    read/search affordance, but it must not regain ordinary command execution or
+    broad exploratory loops.
+- Design:
+  - Add a dedicated typed `verifyFailureRepairActive` planner state derived only
+    from `VerifyFailureHandoff`; proof-only follow-up batches remain
+    materialization-only.
+  - Preserve planner hard gates: `exec_command`, `apply_patch`, and verifier
+    output tools stay blocked in StagePlan; the new affordance exposes only the
+    existing typed repository read/search tools (`read_file`, `grep`,
+    `list_files`, `repo_map`).
+  - Run the failed-verify repair read window only after the ordinary handoff
+    synthesis budget is exhausted, then narrow back to plan emit plus typed
+    dry-run probe tools. This keeps Claude-Code-style online edit/observe/repair
+    behavior without reverting to batch-wide rediscovery.
+  - Emit a distinct hint key
+    `planner.verify-failure-repair-tool-surface` when the model calls a read
+    tool after the repair budget has closed, so retry hints are precise and do
+    not depend on model prose.
+- Task list:
+  - [x] Record the RC-103 gap and implementation plan.
+  - [x] Add a bounded verify-failure repair read/search budget to the planner
+    evaluator state machine.
+  - [x] Keep proof-only follow-up and structured emit repair semantics separate.
+  - [x] Add focused regression tests for repair-window retention, narrowing, and
+    unavailable-tool hint routing.
+  - [x] Run focused, related, full Go regressions, rebuild, commit, and push.
+- Verification:
+  - `go test ./internal/agent -run
+    'TestPlanner(FilterToolSchemas_VerifyFailureRepair|Observe_VerifyFailureRepair|FilterToolSchemas_StructuredEmitRepair)'
+    -count=1`
+  - `go test ./internal/agent ./internal/orchestrator ./internal/types
+    ./internal/tool ./internal/writeflow -count=1`
+  - `go test ./...`
+  - `make`
+
 ## 2026-06-19 RC-103+ Sorted Follow-up Queue From Current Three-instance Smoke
 
 The current smoke is not an official SWE score. It is a typed system triage
@@ -6092,21 +6142,33 @@ run. It produced 3/3 non-empty harness-consumable predictions, validated by
 `validate_predictions.py` and official harness dry-run/import. Manual audit
 classified the next systemic gaps:
 
-1. **Planner repair tool affordance mismatch.**
+1. **Shared localization owner/evidence anchor closure.**
+   This is the remaining upstream gap behind many wrong-source-surface patches:
+   read mode can observe many useful files, and write mode can carry context
+   packs, but the two modes still need one stronger typed owner/evidence anchor
+   contract that distinguishes line-backed owner localization from broad
+   evidence/supporting observations. The next batch should audit current
+   `SourceLocalizationAnchor` production/consumption in read exploration,
+   extraction/finalization handoff, write context packs, planner localization
+   gates, and replan repair slices; then make controller/planner consume owner
+   anchors before broader target-file hints. Hard routing must use only typed
+   anchor fields such as owner kind, path, line span, consumer, priority,
+   source stage, and evidence refs.
+2. **Planner repair tool affordance mismatch.**
    `django__django-14534` entered online restore/replan several times. During
    repair planning, the model attempted an unavailable `grep` call. Restoring
    broad exec access would violate the planning-lane safety model; the right fix
    is a typed search/repomap/read affordance and prompt/hint unification for
    repair lanes, so the planner can localize failure evidence without ordinary
    command execution.
-2. **Probe generation repair layer.**
+3. **Probe generation repair layer.**
    `pytest-dev__pytest-5227` and `sympy__sympy-18199` both ended unverified due
    typed probe unavailability/syntax/top-level exceptions. These should feed a
    shared probe-normalization/repair layer before the verifier treats them as
    final unavailable evidence. The layer must consume structured probe source,
    language/runtime, parser diagnostics, and import boundary records, not stdout
    prose.
-3. **Active-run delivery UX.**
+4. **Active-run delivery UX.**
    `django__django-14534` exported a non-empty failed-verify prediction while
    workflow status remained `in_progress`. That is acceptable for adapter
    compatibility but poor for routine users. The CLI/REPL should surface a

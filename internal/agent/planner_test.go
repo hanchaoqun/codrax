@@ -669,6 +669,104 @@ func TestPlannerFilterToolSchemas_StructuredEmitRepairReadBudgetNarrows(t *testi
 	}
 }
 
+func TestPlannerFilterToolSchemas_VerifyFailureRepairKeepsReadToolsAfterHandoffBudget(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("verify failure repair")
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		Items: []types.WriteContextItem{{
+			Priority:    types.WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/fix.py",
+			SourceStage: "explore",
+		}},
+	})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-prev",
+		BatchID:     "batch-1",
+		FailureKind: types.FailureKindTestsFailed,
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "run_tests"},
+		{Name: emitChangePlanToolName},
+	}
+	for i := 0; i < e.handoffSynthesisReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "grep",
+				Success:  true,
+			}},
+		})
+	}
+
+	got := e.FilterToolSchemas(ctx, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "read_file,grep,repo_map,run_tests,emit_change_plan" {
+		t.Fatalf("verify-failure repair should keep bounded read/search tools after handoff budget, got %s", names)
+	}
+	if e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "grep"}}}, e.effectiveSoftCap()) {
+		t.Fatalf("grep should still run inside verify-failure repair read window")
+	}
+}
+
+func TestPlannerFilterToolSchemas_VerifyFailureRepairReadBudgetNarrows(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("verify failure repair")
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		Items: []types.WriteContextItem{{
+			Priority:    types.WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/fix.py",
+			SourceStage: "explore",
+		}},
+	})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-prev",
+		BatchID:     "batch-1",
+		FailureKind: types.FailureKindTestsFailed,
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "run_tests"},
+		{Name: emitChangePlanToolName},
+		{Name: emitPlanSkeletonToolName},
+		{Name: emitPlanChangeToolName},
+	}
+	for i := 0; i < e.handoffSynthesisReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "grep",
+				Success:  true,
+			}},
+		})
+	}
+	for i := 0; i < plannerVerifyFailureRepairReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "read_file",
+				Success:  true,
+			}},
+		})
+	}
+
+	got := e.FilterToolSchemas(ctx, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "run_tests,emit_change_plan,emit_plan_skeleton,emit_plan_change" {
+		t.Fatalf("verify-failure repair exhausted tool surface = %s", names)
+	}
+	if !e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, e.effectiveSoftCap()) {
+		t.Fatalf("read_file should not extend beyond soft cap after verify-failure repair reads are exhausted")
+	}
+	if e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: emitChangePlanToolName}}}, e.effectiveSoftCap()) {
+		t.Fatalf("emit_change_plan should remain callable after verify-failure repair read budget is exhausted")
+	}
+}
+
 func TestPlannerObserve_MaterializationOnlyUnavailableReadHintsThenStops(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 	mu := types.NewMutableState("handoff synthesis")
@@ -716,6 +814,63 @@ func TestPlannerObserve_MaterializationOnlyUnavailableReadHintsThenStops(t *test
 	second := e.Observe(ctx, obs)
 	if !second.StopRequested || second.HintRequested {
 		t.Fatalf("second unavailable read should stop dirty dispatch, got %+v", second)
+	}
+}
+
+func TestPlannerObserve_VerifyFailureRepairUnavailableReadUsesDistinctHintKey(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("verify failure repair")
+	mu.SetWriteContextPack(&types.WriteContextPack{
+		Items: []types.WriteContextItem{{
+			Priority:    types.WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/fix.py",
+			SourceStage: "explore",
+		}},
+	})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-prev",
+		BatchID:     "batch-1",
+		FailureKind: types.FailureKindTestsFailed,
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	for i := 0; i < e.handoffSynthesisReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "grep",
+				Success:  true,
+			}},
+		})
+	}
+	for i := 0; i < plannerVerifyFailureRepairReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "read_file",
+				Success:  true,
+			}},
+		})
+	}
+	unavailable := types.ToolResult{
+		ToolName: "read_file",
+		Success:  false,
+		Repair:   &types.ToolRepair{Code: unavailableToolSurfaceCode},
+	}
+	obs := LoopObservation{
+		Phase:              PhaseMidLoop,
+		CurrentToolResults: []types.ToolResult{unavailable},
+	}
+
+	e.ObserveToolResults(ctx, obs)
+	first := e.Observe(ctx, obs)
+	if !first.HintRequested || first.HintKey != "planner.verify-failure-repair-tool-surface" || first.StopRequested {
+		t.Fatalf("first verify-failure repair violation should use distinct hint key, got %+v", first)
+	}
+
+	e.ObserveToolResults(ctx, obs)
+	second := e.Observe(ctx, obs)
+	if !second.StopRequested || second.HintRequested {
+		t.Fatalf("second verify-failure repair violation should stop dirty dispatch, got %+v", second)
 	}
 }
 
