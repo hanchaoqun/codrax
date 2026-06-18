@@ -408,7 +408,56 @@ REPL 里 `/htrace` 和 `/atrace` 是同义命令,子命令同 `/log`:
   · next: /htrace /tmp/capture.htrace.bin.systrace
 ```
 
-如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。转换命令只生成文本文件,不会默认附加到当前会话;需要继续分析时再显式 `/htrace <输出文件>`。
+如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。
+
+### 转换后如何分析 trace + perf 混合文件
+
+OpenHarmony / HarmonyOS 的 HiProfiler 文件可能同时带 ftrace/bytrace 文本、`hiperf-plugin` 的 standalone `perf.data`,以及转换器生成的 `.perftrace`。这种场景优先使用 `.tracebundle.json`,因为它会把 systrace、perftrace、raw perf.data provenance 和 converter caveats 作为一组产物交给 `trace_query`。
+
+推荐 attach 方式:
+
+```bash
+# CLI: 一次性附加 bundle
+codrax --htrace /tmp/hiprofiler_data.htrace.tracebundle.json \
+  -r "分析 com.example 主线程在 34579.47s 到 34579.59s 的卡顿原因,结合 runnable、D-state/IO、binder 和 perf 调用栈"
+
+# 如果没有 bundle,也可以显式附加 systrace + perftrace pair
+codrax --htrace /tmp/hiprofiler_data.htrace.systrace \
+  --htrace /tmp/hiprofiler_data.htrace.perftrace \
+  -r "分析这段卡顿"
+```
+
+REPL 里推荐附加 bundle,适合连续追问:
+
+```text
+[git:main]❯❯ /htrace /tmp/hiprofiler_data.htrace.tracebundle.json
+  ✓ 已附加 tracebundle
+[git:main][tracebundle][perftrace]❯❯ 分析 34579.47s 到 34579.59s 的卡顿原因
+```
+
+如果需要分别附加文件,先附 systrace,再 append perftrace:
+
+```text
+[git:main]❯❯ /htrace /tmp/hiprofiler_data.htrace.systrace
+[git:main][trace]❯❯ /htrace append /tmp/hiprofiler_data.htrace.perftrace
+[git:main][trace:2+perf]❯❯ 分析这一帧为什么丢帧
+```
+
+也可以不 attach,直接在问题里点名一个或多个路径。路径可以是绝对路径或相对当前启动目录的相对路径;文件名不要求一定有熟悉后缀,但问题里要表达清楚你是在分析这些 trace/log/perf 产物以及希望看的时间窗、线程、进程或现象:
+
+```text
+分析 /tmp/hiprofiler_data.htrace.tracebundle.json 里 com.baidu.tieba-59566
+在 34579.47s 到 34579.59s 的卡顿原因,继续拆唤醒链,并结合 perf 样本看 running 线程在跑什么。
+
+对比 ./before.tracebundle.json 和 ./after.tracebundle.json,
+看同一帧窗口内 runnable、D-state/IO、binder、频点和 perf 热点有什么变化。
+```
+
+attach 和直接点名路径的差别:
+
+- attach 适合 REPL 多轮追问;artifact 会成为当前会话的粘性 trace 上下文,提示符也会显示 `[trace]` / `[perftrace]` / `[tracebundle]`。
+- 直接点名路径适合一次性问题或脚本化调用;Codrax 会根据用户请求、路径和文件内容进入 runtime trace/perf 分析,不需要先执行 `/htrace`。
+- 对 trace + perf 混合文件,优先点名或附加 `.tracebundle.json`;只给 `.perf.data` 时通常还需要先 `trace convert` 生成 `.perftrace`,否则只能保留 raw perf provenance,不能做完整 CPU sample 聚合。
 
 ### perf.data / perf sample
 
