@@ -79,9 +79,10 @@ type plannerEvaluator struct {
 	// planner's soft-cap recovery window; the hard cap still bounds the loop.
 	structuredEmitRepairActive bool
 
-	// proofFollowupMaterializationOnly is true for controller-authorized pure
-	// verification proof follow-up batches. These batches materialize probes
-	// over the already-applied worktree; they must not reopen read/repair
+	// proofFollowupMaterializationOnly is true for controller-authorized
+	// verification proof follow-up batches that do not currently have a typed
+	// code-failure handoff requiring source repair. These batches materialize
+	// probes over the already-applied worktree; they must not reopen read/repair
 	// exploration even when an emit tool rejects malformed edit coordinates.
 	proofFollowupMaterializationOnly bool
 
@@ -152,7 +153,7 @@ const (
 func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = sk
 	e.structuredEmitRepairActive = false
-	e.proofFollowupMaterializationOnly = plannerContextHasPureProofFollowupMaterial(ctx)
+	e.proofFollowupMaterializationOnly = plannerContextHasProofFollowupMaterializationOnly(ctx)
 	e.handoffSynthesisActive = plannerContextHasWriteHandoffMaterial(ctx)
 	e.handoffSynthesisReadBudget = plannerHandoffSynthesisReadBudget(ctx)
 	e.handoffSynthesisReadCalls = 0
@@ -609,7 +610,7 @@ func (e *plannerEvaluator) buildWorkflowSeedSection(ctx *types.AgentContext) str
 }
 
 func (e *plannerEvaluator) buildProofFollowupMaterializationSection(ctx *types.AgentContext) string {
-	if !plannerContextHasPureProofFollowupMaterial(ctx) || ctx == nil || ctx.Mutable == nil {
+	if !plannerContextHasProofFollowupMaterializationOnly(ctx) || ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
 	run := ctx.Mutable.WriteWorkflowRun()
@@ -632,7 +633,7 @@ func (e *plannerEvaluator) buildProofFollowupMaterializationSection(ctx *types.A
 	}
 	var b strings.Builder
 	b.WriteString("## Verification proof materialization\n\n")
-	b.WriteString("Typed workflow state marks this active batch as a pure verification proof follow-up. Materialize verification over the already-applied worktree: prefer `changes: []` plus `verification_probes[]` that import or execute the changed code and bind the uncovered typed criteria. Source edits belong in a separate impact repair batch after a typed verification-failure handoff proves code still needs repair.\n")
+	b.WriteString("Typed workflow state marks this active batch as a verification proof follow-up over an already-applied worktree, with no typed code-failure handoff currently authorizing source repair. Materialize verification by emitting `changes: []` plus `verification_probes[]` that import or execute the changed code and bind the uncovered typed criteria. Source edits belong in a separate impact repair batch after a typed verification-failure handoff proves code still needs repair.\n")
 	if len(batch.ExpectedPaths) > 0 {
 		fmt.Fprintf(&b, "- expected_paths: %s\n", strings.Join(batch.ExpectedPaths, ", "))
 	}
@@ -1128,9 +1129,10 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 		return schemas
 	}
 	if e.proofFollowupMaterializationOnly {
-		// A pure verification proof follow-up is already localized and
-		// already applied. Even malformed structured emits must recover by
-		// emitting a probe-only plan, not by reopening repository reads.
+		// A proof follow-up without a typed code-failure handoff is already
+		// localized and already applied. Even malformed structured emits must
+		// recover by emitting a probe-only plan, not by reopening repository
+		// reads or staging no-op source patches.
 	} else if e.structuredEmitRepairActive {
 		if !e.structuredEmitRepairReadBudgetExhausted() {
 			return schemas
@@ -1139,6 +1141,9 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 		return schemas
 	}
 	allowed := plannerHandoffSynthesisMaterializationToolNames()
+	if e.proofFollowupMaterializationOnly {
+		allowed = plannerProofFollowupMaterializationToolNames()
+	}
 	if requiresReplacementPatch {
 		delete(allowed, "run_tests")
 	}
@@ -1217,6 +1222,13 @@ func plannerHandoffSynthesisMaterializationToolNames() map[string]bool {
 		emitChangePlanToolName:   true,
 		emitPlanSkeletonToolName: true,
 		emitPlanChangeToolName:   true,
+	}
+}
+
+func plannerProofFollowupMaterializationToolNames() map[string]bool {
+	return map[string]bool{
+		"run_tests":            true,
+		emitChangePlanToolName: true,
 	}
 }
 
@@ -1307,7 +1319,7 @@ func plannerContextHasWriteHandoffMaterial(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Mutable == nil {
 		return false
 	}
-	if plannerContextHasPureProofFollowupMaterial(ctx) {
+	if plannerContextHasProofFollowupMaterializationOnly(ctx) {
 		return true
 	}
 	if handoff := ctx.Mutable.WriteExplorationHandoff(); handoff != nil {
@@ -1322,7 +1334,7 @@ func plannerContextHasWriteHandoffMaterial(ctx *types.AgentContext) bool {
 	return false
 }
 
-func plannerContextHasPureProofFollowupMaterial(ctx *types.AgentContext) bool {
+func plannerContextHasProofFollowupMaterializationOnly(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Mutable == nil {
 		return false
 	}
@@ -1348,7 +1360,14 @@ func plannerContextHasPureProofFollowupMaterial(ctx *types.AgentContext) bool {
 		if strings.TrimSpace(batch.ID) != activeID {
 			continue
 		}
-		return strings.TrimSpace(batch.Purpose) == "verification_proof_followup"
+		switch strings.TrimSpace(batch.Purpose) {
+		case "verification_proof_followup":
+			return true
+		case "impact_and_verification_proof_followup":
+			return ctx.Mutable.VerifyFailureHandoff() == nil
+		default:
+			return false
+		}
 	}
 	return false
 }
@@ -1437,7 +1456,7 @@ func (e *plannerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) L
 	}
 	hint := "The planning read/repair budget for this batch is exhausted. Do not call repository-reading tools in this planning round. Use the typed handoff, prior tool results, and any validator rejection already visible to emit a bounded ChangePlan now via `emit_change_plan`, or use `emit_plan_skeleton` followed by `emit_plan_change` for a large plan. `run_tests` is available only as `dry_run=true` with a `verification_probe` object; `suite` remains a test selector and must not contain `python -c` or runner flags."
 	if e.proofFollowupMaterializationOnly {
-		hint = "This active batch is a pure verification proof follow-up over the already-applied worktree. Do not call repository-reading tools and do not repair source coordinates in this planning round. Emit a proof plan now with `changes: []` and at least one `verification_probes[]` entry bound to the typed proof criteria; `run_tests` is available only as `dry_run=true` with a `verification_probe` object."
+		hint = "This active batch is a verification proof follow-up over the already-applied worktree, with no typed code-failure handoff authorizing source repair. Do not call repository-reading tools and do not repair source coordinates in this planning round. Emit a proof plan now with `changes: []` and at least one `verification_probes[]` entry bound to the typed proof criteria; `run_tests` is available only as `dry_run=true` with a `verification_probe` object."
 	}
 	return LoopSignal{
 		HintRequested:  true,
@@ -1492,7 +1511,7 @@ func plannerHandoffSynthesisReadBudget(ctx *types.AgentContext) int {
 	if !plannerContextHasWriteHandoffMaterial(ctx) {
 		return 0
 	}
-	if plannerContextHasPureProofFollowupMaterial(ctx) {
+	if plannerContextHasProofFollowupMaterializationOnly(ctx) {
 		return 0
 	}
 	budget := plannerHandoffSynthesisBaseReadBudget

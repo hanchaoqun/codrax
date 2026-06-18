@@ -371,7 +371,7 @@ func TestPlannerFilterToolSchemas_PureProofFollowupMaterializesImmediately(t *te
 		t.Fatalf("pure proof follow-up read budget = %d, want 0", got)
 	}
 	got := e.FilterToolSchemas(ctx, schemas)
-	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "run_tests,emit_change_plan,emit_plan_skeleton,emit_plan_change" {
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "run_tests,emit_change_plan" {
 		t.Fatalf("proof materialization tool surface = %s", names)
 	}
 	if !e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, e.effectiveSoftCap()) {
@@ -421,7 +421,7 @@ func TestPlannerFilterToolSchemas_PureProofFollowupKeepsMaterializationAfterEmit
 	}
 
 	got := e.FilterToolSchemas(ctx, schemas)
-	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "run_tests,emit_change_plan,emit_plan_skeleton,emit_plan_change" {
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "run_tests,emit_change_plan" {
 		t.Fatalf("proof materialization emit-repair surface = %s", names)
 	}
 	if !e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, e.effectiveSoftCap()) {
@@ -477,7 +477,7 @@ func TestPlannerBuildInitialInstruction_RendersProofFollowupMaterializationSecti
 	}
 }
 
-func TestPlannerFilterToolSchemas_MixedProofImpactFollowupKeepsReadBudget(t *testing.T) {
+func TestPlannerFilterToolSchemas_MixedProofImpactFollowupWithoutFailureMaterializesProof(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 	mu := types.NewMutableState("mixed proof impact followup")
 	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
@@ -502,11 +502,59 @@ func TestPlannerFilterToolSchemas_MixedProofImpactFollowupKeepsReadBudget(t *tes
 		{Name: emitChangePlanToolName},
 	}
 
-	if plannerContextHasWriteHandoffMaterial(ctx) {
-		t.Fatal("mixed impact/proof follow-up should not be forced into proof-only materialization mode")
+	if !plannerContextHasWriteHandoffMaterial(ctx) {
+		t.Fatal("mixed impact/proof follow-up should activate proof materialization handoff mode")
+	}
+	if got := plannerHandoffSynthesisReadBudget(ctx); got != 0 {
+		t.Fatalf("mixed impact/proof follow-up without failure read budget = %d, want 0", got)
+	}
+	if got := e.FilterToolSchemas(ctx, schemas); strings.Join(toolSchemaNamesForTest(got), ",") != "run_tests,emit_change_plan" {
+		t.Fatalf("mixed impact/proof without failure should materialize proof only, got %v", toolSchemaNamesForTest(got))
+	}
+}
+
+func TestPlannerFilterToolSchemas_MixedProofImpactFollowupWithFailureKeepsReadBudget(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("mixed proof impact followup with failure")
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-proof-impact-failure",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-obligation-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1-obligation-repair",
+			Purpose: "impact_and_verification_proof_followup",
+			Status:  types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-proof",
+		BatchID:     "batch-1-obligation-repair",
+		FailureKind: types.FailureKindTestsFailed,
+	})
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1-obligation-repair",
+		TargetFiles: []string{"pkg/axis.py"},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "run_tests"},
+		{Name: emitChangePlanToolName},
+	}
+
+	if !plannerContextHasWriteHandoffMaterial(ctx) {
+		t.Fatal("mixed impact/proof follow-up with typed failure should keep repair handoff material")
+	}
+	if got := plannerHandoffSynthesisReadBudget(ctx); got == 0 {
+		t.Fatal("mixed impact/proof follow-up with typed failure should retain bounded read budget")
 	}
 	if got := e.FilterToolSchemas(ctx, schemas); len(got) != len(schemas) {
-		t.Fatalf("mixed impact/proof tool surface should keep read tools, got %v", toolSchemaNamesForTest(got))
+		t.Fatalf("mixed impact/proof with failure should keep read tools, got %v", toolSchemaNamesForTest(got))
 	}
 }
 

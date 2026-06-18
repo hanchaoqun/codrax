@@ -5543,6 +5543,70 @@ Verification:
   - `go test ./...`
   - `make`
 
+## 2026-06-19 RC-95 Proof Follow-up No-op State Closure
+
+- Fresh SWE-bench Lite smoke evidence:
+  - Targeted run directory:
+    `eval/results/swebench/lite-smoke-20260619-localization-proof-3`.
+  - Instance `pytest-dev__pytest-5227` reached
+    `batch-1-obligation-repair` with purpose
+    `impact_and_verification_proof_followup`.
+  - The source plan had already applied the intended
+    `src/_pytest/logging.py` change, while post-apply verification was
+    `unverified/parser_error`, not a typed code failure.
+  - Planner then repeatedly tried to produce a patch against bytes that were
+    already in the desired state; emit validation correctly rejected no-op
+    edits, but the workflow lacked a clear typed materialization path for
+    "already applied, proof still needed".
+- Gap:
+  - The existing `no_change_required` sentinel was available for
+    verify-failure replans and pure proof-follow-up probe plans, but mixed
+    `impact_and_verification_proof_followup` batches without a typed failure
+    handoff still exposed read/repair tools and the skeleton emit path.
+  - That gave the model too many choices and let a proof batch degrade into
+    fake source-edit attempts.
+- Design:
+  - Treat any controller-authorized verification proof follow-up with no active
+    typed code-failure handoff as a proof-materialization-only batch.
+  - Expose only `run_tests` dry-run probes and `emit_change_plan`; hide
+    `emit_plan_skeleton` / `emit_plan_change` for that materialization lane
+    because skeletons cannot usefully represent "no source edit".
+  - Allow mixed proof/impact follow-up to regain bounded source-read/patch
+    tools only after a typed `VerifyFailureHandoff` proves code still needs
+    repair.
+  - Keep ordinary write plans unchanged: `changes[]` remains required unless
+    workflow typed state authorizes a proof/no-change sentinel.
+- Task list:
+  - [x] Broaden planner proof-materialization detection from pure
+    `verification_proof_followup` to typed proof follow-ups without active
+    code-failure handoff.
+  - [x] Narrow proof-materialization tool surface to `run_tests` plus
+    `emit_change_plan`.
+  - [x] Update `emit_change_plan` and `emit_plan_skeleton` schema reminders so
+    authorized proof batches can emit `changes: []` with
+    `verification_probes[]`.
+  - [x] Add skeleton empty-change fallback to the same probe-only typed plan,
+    while preserving non-empty file metadata for normal plans.
+  - [x] Extend no-op structured-edit repair diagnostics for proof-follow-up
+    batches so models are routed to typed probe-only plans, not comments or
+    whitespace patches.
+  - [x] Add regressions for pure proof, mixed proof without failure, and mixed
+    proof with typed failure handoff.
+- Prompt/hard-gate hygiene:
+  - Hard behavior reads only typed workflow progress, active batch purpose, and
+    `VerifyFailureHandoff`.
+  - No user-intent keyword matching, no issue-text matching, no parsing model
+    rationale/summary/`<think>`, and no stdout prose routing.
+  - Prompt/tool text is only soft guidance and schema repair; it does not
+    decide safety or completion.
+- Verification:
+  - `go test ./internal/agent ./internal/tool ./internal/orchestrator -run
+    'TestPlannerFilterToolSchemas_(PureProofFollowup|MixedProofImpact)|TestPlannerBuildInitialInstruction_RendersProofFollowup|TestEmit(ChangePlan|PlanSkeleton).*Proof|NoChange|ProofFollowup|TestRunControllerPlanBatch_.*Proof|TestRunControllerPlanBatch_NoChange'`
+  - `go test ./...`
+  - `make`
+  - `git diff --check`
+  - SWE rerun remains pending after this code commit.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

@@ -35,6 +35,7 @@ const emitChangePlanSchemaReminder = "REQUIRED schema: {request: string (1-3 sen
 	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), edits: optional structured line edits for kind=patch, " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}}. " +
 	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes with optional contract_refs/changed_symbol_refs. " +
+	"Controller-authorized proof-follow-up batches may emit changes: [] only with verification_probes[] to record no source edits required. " +
 	"Do NOT call the tool with empty/null parameters — emit the FULL JSON body as a single function-call argument."
 
 // emitMinPayloadBytes is the threshold below which the params blob is
@@ -142,7 +143,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
     },
     "changes": {
       "type": "array",
-      "description": "Ordered list of file-level modifications. Apply-stage processes them sequentially.",
+      "description": "Ordered list of file-level modifications. Apply-stage processes them sequentially. Empty [] is accepted only for controller-authorized proof-follow-up / no-change sentinel plans with typed verification_probes or typed passing planner probes.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -373,6 +374,9 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 			}, nil
 		}
 		summary := "emit_change_plan rejected: changes[] cannot be empty — at least one FileChange is required. " + emitChangePlanSchemaReminder
+		if _, ok := activeProofFollowupWorkflowBatch(ctx.Mutable.WriteWorkflowRun()); ok {
+			summary = "emit_change_plan rejected: this proof-follow-up batch has no source edit to apply; emit changes: [] only together with verification_probes[] that exercise the already-applied worktree. " + emitChangePlanSchemaReminder
+		}
 		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "changes_empty", summary, []string{"$.changes"}, nil)), nil
 	}
 

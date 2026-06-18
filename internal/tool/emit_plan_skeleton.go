@@ -75,6 +75,7 @@ var emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 sen
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}, " +
 	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (" + supportedVerificationProbeLanguageList() + ") with optional contract_refs/changed_symbol_refs}. " +
+	"Controller-authorized proof-follow-up batches may emit changes: [] only with verification_probes[] to record no source edits required. " +
 	"Do NOT include new_content or patch here — those land via emit_plan_change once per file."
 
 func (t *EmitPlanSkeleton) Name() string { return "emit_plan_skeleton" }
@@ -94,7 +95,7 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	    "summary": {"type": "string", "description": "3-10 sentences describing what the plan does and why."},
 	    "changes": {
 	      "type": "array",
-	      "minItems": 1,
+	      "description": "Per-file metadata. Empty [] is accepted only for controller-authorized proof-follow-up plans with typed verification_probes.",
 	      "items": {
 	        "type": "object",
 	        "additionalProperties": false,
@@ -180,8 +181,42 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 		summary := "emit_plan_skeleton rejected: summary is required and must be non-empty. " + emitPlanSkeletonSchemaReminder
 		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "summary_required", summary, []string{"$.summary"}, nil)), nil
 	}
+	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
+	if rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
+			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes"}, supportedVerificationProbeLanguageSet())), nil
+	}
 	if len(p.Changes) == 0 {
+		if plan := proofFollowupProbeOnlyPlanSentinel(ctx, emitChangePlanParams{
+			Request:            p.Request,
+			Summary:            p.Summary,
+			AcceptanceTests:    p.AcceptanceTests,
+			VerificationProbes: p.VerificationProbes,
+		}, probes); plan != nil {
+			attachWriteBehaviorContracts(ctx, plan)
+			enrichVerificationProbeRefs(plan)
+			if rej, pack := validatePlanFullContentWithRepair(ctx, t.Name(), p.Summary, nil, plan.VerificationProbes); rej != "" {
+				return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej, pack), nil
+			}
+			ctx.Mutable.ResetChangePlan()
+			ctx.Mutable.SetChangePlan(plan)
+			summary := fmt.Sprintf(
+				"[emit_plan_skeleton: id=%s changes=0 status=%s verification_probes=%d]\n"+
+					"emit_plan_skeleton recorded a proof-follow-up probe-only plan",
+				plan.ID, plan.Status, len(plan.VerificationProbes))
+			logging.Info("[emit_plan_skeleton] plan=%s changes=0 status=%s probes=%d proof_followup=true",
+				plan.ID, plan.Status, len(plan.VerificationProbes))
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   true,
+				Summary:   summary,
+				Timestamp: time.Now(),
+			}, nil
+		}
 		summary := "emit_plan_skeleton rejected: changes[] cannot be empty — at least one FileChange metadata entry is required. " + emitPlanSkeletonSchemaReminder
+		if _, ok := activeProofFollowupWorkflowBatch(ctx.Mutable.WriteWorkflowRun()); ok {
+			summary = "emit_plan_skeleton rejected: this proof-follow-up batch has no source edit to apply; emit changes: [] only together with verification_probes[] that exercise the already-applied worktree. " + emitPlanSkeletonSchemaReminder
+		}
 		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "changes_empty", summary, []string{"$.changes"}, nil)), nil
 	}
 
@@ -237,12 +272,6 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	// rejection across two messages and confuse the planner. The
 	// skeleton's value is structural plan shape, not summary
 	// fidelity.
-
-	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
-	if rej != "" {
-		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
-			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, supportedVerificationProbeLanguageSet())), nil
-	}
 
 	// Install partial plan. The factory builds the canonical struct
 	// with placeholder bodies; emit_plan_change fills them.

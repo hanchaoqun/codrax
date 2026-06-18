@@ -2183,15 +2183,21 @@ func enrichStructuredEditReplanDiagnostic(ctx *types.BusContext, msg string) str
 	if ctx == nil || ctx.Mutable == nil || !ctx.Mode.IsWrite() || ctx.PipelineStage != types.StagePlan {
 		return msg
 	}
-	if ctx.Mutable.VerifyFailureHandoff() == nil {
-		return msg
-	}
 	hasNoOp := strings.Contains(msg, " is a no-op")
 	hasOldTextMismatch := strings.Contains(msg, "old_text mismatch")
+	if ctx.Mutable.VerifyFailureHandoff() != nil {
+		if !hasNoOp && !(hasOldTextMismatch && structuredEditReplanProbePassed(ctx)) {
+			return msg
+		}
+		return msg + ". In a verify-failure replan, a no-op edit means the applied worktree may already contain the intended code. Run a typed planner probe with run_tests(dry_run=true, verification_probe={...}) against the scoped failure; if it passes, emit changes: [] to record the no_change_required sentinel. If it fails, re-read the current bytes and emit a real non-no-op edit."
+	}
+	if _, ok := activeProofFollowupWorkflowBatch(ctx.Mutable.WriteWorkflowRun()); ok && hasNoOp {
+		return msg + ". In a proof-follow-up batch, a no-op edit means the already-applied worktree may already satisfy the proof target. Emit changes: [] with verification_probes[] that import or execute the current code and bind the typed proof criteria; do not add comments, whitespace, or full-file rewrites merely to satisfy changes[]."
+	}
 	if !hasNoOp && !(hasOldTextMismatch && structuredEditReplanProbePassed(ctx)) {
 		return msg
 	}
-	return msg + ". In a verify-failure replan, a no-op edit means the applied worktree may already contain the intended code. Run a typed planner probe with run_tests(dry_run=true, verification_probe={...}) against the scoped failure; if it passes, emit changes: [] to record the no_change_required sentinel. If it fails, re-read the current bytes and emit a real non-no-op edit."
+	return msg
 }
 
 func structuredEditReplanProbePassed(ctx *types.BusContext) bool {
