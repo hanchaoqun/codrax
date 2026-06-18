@@ -2940,6 +2940,41 @@ RC-55 tasks:
 - [x] Add tests for dedupe selection and CLI multi-file summary.
 - [x] Update SWE-bench README with the multi-run command.
 
+## RC-56: Primary Failure Reason Authority
+
+The RC-55 multi-run summary made one telemetry defect visible. Some Django smoke
+rows had real Python unittest failures, but the aggregate
+`FailureReasonCode`/SWE confidence reason surfaced `make_target_missing`
+because a secondary docs/extras Makefile candidate also reported an unavailable
+target. That misclassified the root cause as environment/test-surface
+availability even though the authoritative verifier verdict was red tests.
+
+This is a system-level observation-authority gap, not a Django-specific case:
+`mergeChangeReports` already promotes the primary `FailureKind` by severity, but
+it used every child report's reason code as the aggregate primary reason. That
+lets low-authority unavailable runner noise overwrite the reason consumed by
+controller handoff, REPL status, and SWE-bench local confidence.
+
+Design:
+
+- Keep all child evidence in `FailureSummary`, `TestResults`,
+  `NoTestsRunners`, and verification diagnostics.
+- Bind aggregate `FailureReasonCode` to child reports whose
+  `FailureKind` matches the final aggregate `FailureKind`.
+- If the final aggregate has no typed failure kind, preserve the previous
+  all-reason fallback for legacy reports.
+- Do not parse terminal prose, issue text, user intent, or model rationale.
+  The gate consumes only typed `FailureKind`, `FailureReasonCode`, and
+  executed-command reason codes.
+
+RC-56 tasks:
+
+- [x] Add a typed primary-reason helper for `mergeChangeReports`.
+- [x] Add regressions proving unavailable Makefile reasons do not become the
+  primary reason when red tests are the aggregate failure.
+- [x] Preserve single parser-error reason backfill behavior.
+- [x] Update this progress ledger.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3003,6 +3038,7 @@ RC-55 tasks:
 | RC-53 | complete | Local acceptance confidence boundary: SWE-bench adapter no longer counts low-confidence verifier passes as `local_acceptance_verdict=pass/source=local_verify`; only no-downgrade `verify_status=passed` is high-confidence local acceptance, while explicit typed manual pass can accept low-confidence evidence. README now separates high-confidence local verifier pass, low-confidence local verifier pass, typed manual audit, and official score. |
 | RC-54 | complete | Codrax results summary denominator guard: added dependency-free `summarize_codrax_results.py` so local SWE-bench dashboards can report non-empty patch, high-confidence local verifier pass, low-confidence verifier pass, typed manual audit, local blockers, local-verify confidence mismatches from older rows, and missing current core fields separately from official harness `resolved/*`. |
 | RC-55 | complete | Multi-run Codrax result summary: `summarize_codrax_results.py` now accepts multiple result files or globs, can explicitly dedupe to the latest row per `instance_id` by file mtime, and reports input row count/path/source-line metadata so 137-instance summaries no longer require ad hoc scripts. |
+| RC-56 | complete | Primary failure reason authority: aggregate verify reports now bind `FailureReasonCode` to the final primary `FailureKind`, so secondary unavailable runner signals such as `make_target_missing` remain visible as evidence but no longer overwrite red test/build/resource failure attribution. |
 
 ## Acceptance Criteria
 

@@ -2136,7 +2136,7 @@ func qualifyBuildErrorPath(file, runnerRel string) string {
 func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 	out := &types.ChangeReport{Passed: true}
 	var failureSummaries []string
-	var failureReasonCodes []string
+	var failureReasonCandidates []failureReasonCandidate
 	for _, report := range reports {
 		if report == nil {
 			continue
@@ -2167,7 +2167,12 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 		if strings.TrimSpace(reasonCode) == "" {
 			reasonCode = failureReasonCodeFromExecutedCommands(report.ExecutedCommands)
 		}
-		failureReasonCodes = appendFailureReasonCodes(failureReasonCodes, reasonCode)
+		if codes := splitFailureReasonCodes(reasonCode); len(codes) > 0 {
+			failureReasonCandidates = append(failureReasonCandidates, failureReasonCandidate{
+				Kind:  report.FailureKind,
+				Codes: codes,
+			})
+		}
 		// FailureKind precedence: resource-exhaustion kinds (oom,
 		// cpu_limit, timeout) win over build_failure / tests_failed
 		// because they describe a more specific failure mode the
@@ -2187,11 +2192,17 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 	if len(failureSummaries) > 0 {
 		out.FailureSummary = strings.Join(failureSummaries, " | ")
 	}
+	failureReasonCodes := primaryFailureReasonCodesForKind(failureReasonCandidates, out.FailureKind)
 	if len(failureReasonCodes) > 0 {
-		out.FailureReasonCode = strings.Join(dedupStrings(failureReasonCodes), ",")
+		out.FailureReasonCode = strings.Join(failureReasonCodes, ",")
 	}
 	out.EnsureVerificationStatus()
 	return out
+}
+
+type failureReasonCandidate struct {
+	Kind  types.FailureKind
+	Codes []string
 }
 
 func cloneMetricDeltas(in map[string]types.MetricDelta) map[string]types.MetricDelta {
@@ -2206,13 +2217,42 @@ func cloneMetricDeltas(in map[string]types.MetricDelta) map[string]types.MetricD
 }
 
 func appendFailureReasonCodes(dst []string, raw string) []string {
+	return append(dst, splitFailureReasonCodes(raw)...)
+}
+
+func splitFailureReasonCodes(raw string) []string {
+	var out []string
 	for _, part := range strings.Split(raw, ",") {
 		part = strings.TrimSpace(part)
 		if part != "" {
-			dst = append(dst, part)
+			out = append(out, part)
 		}
 	}
-	return dst
+	return out
+}
+
+func primaryFailureReasonCodesForKind(candidates []failureReasonCandidate, primary types.FailureKind) []string {
+	var selected []string
+	if primary != "" {
+		for _, candidate := range candidates {
+			if candidate.Kind == primary {
+				selected = append(selected, candidate.Codes...)
+			}
+		}
+		return dedupStrings(selected)
+	}
+	for _, candidate := range candidates {
+		if candidate.Kind == "" {
+			selected = append(selected, candidate.Codes...)
+		}
+	}
+	if len(selected) > 0 {
+		return dedupStrings(selected)
+	}
+	for _, candidate := range candidates {
+		selected = append(selected, candidate.Codes...)
+	}
+	return dedupStrings(selected)
 }
 
 func failureReasonCodeFromExecutedCommands(commands []types.ExecutedCommand) string {

@@ -206,6 +206,70 @@ func TestMergeChangeReports_PromotesMostSevereKind(t *testing.T) {
 	}
 }
 
+func TestMergeChangeReports_PrimaryReasonFollowsPrimaryFailureKind(t *testing.T) {
+	build := &types.ChangeReport{
+		Passed:            false,
+		BuildFailed:       true,
+		FailureKind:       types.FailureKindBuildFailure,
+		FailureReasonCode: "typescript_compile_check_failed",
+		TestResults: []types.TestResult{
+			{Kind: types.TestResultKindBuildError, AssertionID: "tsc", Suite: "typescript", Passed: false},
+		},
+	}
+	tests := &types.ChangeReport{
+		Passed:            false,
+		FailureKind:       types.FailureKindTestsFailed,
+		FailureReasonCode: "verification_probe_exception",
+		TestResults: []types.TestResult{
+			{Kind: types.TestResultKindUnit, AssertionID: "TestA", Suite: "pkg/a", Passed: false},
+		},
+	}
+	merged := mergeChangeReports([]*types.ChangeReport{tests, build})
+	if merged.FailureKind != types.FailureKindBuildFailure {
+		t.Fatalf("FailureKind = %q, want %q", merged.FailureKind, types.FailureKindBuildFailure)
+	}
+	if merged.FailureReasonCode != "typescript_compile_check_failed" {
+		t.Fatalf("FailureReasonCode = %q, want primary build reason only", merged.FailureReasonCode)
+	}
+}
+
+func TestMergeChangeReports_DoesNotPromoteUnavailableReasonOverRedTests(t *testing.T) {
+	tests := &types.ChangeReport{
+		Passed:         false,
+		FailureKind:    types.FailureKindTestsFailed,
+		FailureSummary: "python unittest failed",
+		TestResults: []types.TestResult{
+			{Kind: types.TestResultKindUnit, AssertionID: "test_widget", Suite: "python", Passed: false},
+		},
+	}
+	makeUnavailable := &types.ChangeReport{
+		Passed:            false,
+		FailureKind:       types.FailureKindParserError,
+		FailureReasonCode: "make_target_missing",
+		FailureSummary:    "make target unavailable: No rule to make target `check'",
+		NoTestsRunners:    []string{"make"},
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindBuildError,
+			AssertionID: "make_target_missing",
+			Suite:       "make",
+			Passed:      false,
+		}},
+	}
+	merged := mergeChangeReports([]*types.ChangeReport{tests, makeUnavailable})
+	if merged.FailureKind != types.FailureKindTestsFailed {
+		t.Fatalf("FailureKind = %q, want %q", merged.FailureKind, types.FailureKindTestsFailed)
+	}
+	if merged.FailureReasonCode != "" {
+		t.Fatalf("FailureReasonCode = %q, want no secondary unavailable reason as primary", merged.FailureReasonCode)
+	}
+	if len(merged.NoTestsRunners) != 1 || merged.NoTestsRunners[0] != "make" {
+		t.Fatalf("secondary unavailable evidence should remain in NoTestsRunners, got %+v", merged.NoTestsRunners)
+	}
+	if !strings.Contains(merged.FailureSummary, "make target unavailable") {
+		t.Fatalf("secondary unavailable evidence should remain in summary, got %q", merged.FailureSummary)
+	}
+}
+
 func TestMergeChangeReports_BackfillsFailureReasonFromCommandEvidence(t *testing.T) {
 	report := &types.ChangeReport{
 		Passed:      false,
