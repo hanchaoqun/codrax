@@ -274,14 +274,31 @@ Batch B implementation notes:
 
 ### Batch C - Android SIMPLEPERF Proto Provider
 
-- [ ] Add a provider for files starting with `SIMPLEPERF`.
+- [x] Add a provider for files starting with `SIMPLEPERF`.
 - [ ] Prefer official `simpleperf_report_lib.py` when available.
-- [ ] Add a bounded manual proto reader only for the public
+- [x] Add a bounded manual proto reader only for the public
   `cmd_report_sample.proto` fields needed by Codrax: sample time/thread/event
   count, callchain file/symbol ids, thread pid/tid/name, file path/symbols, meta
   event types, context_switch for off-cpu state.
-- [ ] Emit `sample_kind=on_cpu|off_cpu|mixed|unknown` once semantics are known.
-- [ ] Add round-trip tests through trace_query.
+- [x] Emit `sample_kind=on_cpu|off_cpu|unknown` from
+  `MetaInfo.trace_offcpu` plus nearest per-thread `ContextSwitch`.
+- [x] Add round-trip tests through trace_query.
+
+Batch C implementation notes:
+
+- Direct `SIMPLEPERF` content now uses `android_simpleperf_report_proto` before
+  the older text adapter lane. The provider reads the official
+  `cmd_report_sample.proto` stream directly and emits normalized
+  `perf_sample` rows.
+- SIMPLEPERF proto samples intentionally emit `cpu=-1 cpu_known=false` because
+  the official proto has no sample CPU field. This remains a typed quality fact,
+  not CPU0.
+- `trace_query` now parses `sample_kind`, includes it in perf examples and
+  `perf_quality.sample_kinds`, and adds a caveat that `off_cpu` rows must not be
+  narrated as running CPU execution.
+- `sample_kind` is a trace_query output field and event-search pattern token.
+  No model-authored filter field was added, so there is no new JSON repair alias
+  to maintain in this batch.
 
 ### Batch D - Raw Fallback Hardening
 

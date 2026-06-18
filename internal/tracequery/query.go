@@ -1337,6 +1337,7 @@ type perfValueCountAcc struct {
 type perfQualityAcc struct {
 	sources               map[string]*perfValueCountAcc
 	symbolizationStatuses map[string]*perfValueCountAcc
+	sampleKinds           map[string]*perfValueCountAcc
 	clocks                map[string]*perfValueCountAcc
 	clockConfidences      map[string]*perfValueCountAcc
 	callchainStatuses     map[string]*perfValueCountAcc
@@ -1513,6 +1514,9 @@ func perfSampleExample(ev Event) string {
 	if ev.PerfSymbolizationStatus != "" {
 		parts = append(parts, "symbolization_status="+ev.PerfSymbolizationStatus)
 	}
+	if ev.PerfSampleKind != "" {
+		parts = append(parts, "sample_kind="+ev.PerfSampleKind)
+	}
 	if ev.PerfCallchainStatus != "" {
 		parts = append(parts, "callchain_status="+ev.PerfCallchainStatus)
 	}
@@ -1535,6 +1539,7 @@ func newPerfQualityAcc() *perfQualityAcc {
 	return &perfQualityAcc{
 		sources:               map[string]*perfValueCountAcc{},
 		symbolizationStatuses: map[string]*perfValueCountAcc{},
+		sampleKinds:           map[string]*perfValueCountAcc{},
 		clocks:                map[string]*perfValueCountAcc{},
 		clockConfidences:      map[string]*perfValueCountAcc{},
 		callchainStatuses:     map[string]*perfValueCountAcc{},
@@ -1547,6 +1552,7 @@ func (acc *perfQualityAcc) add(ev Event, period int64) {
 	}
 	addPerfValueCount(acc.sources, firstNonEmpty(ev.PerfSource, "unknown"), period)
 	addPerfValueCount(acc.symbolizationStatuses, firstNonEmpty(ev.PerfSymbolizationStatus, "unknown"), period)
+	addPerfValueCount(acc.sampleKinds, firstNonEmpty(ev.PerfSampleKind, "unknown"), period)
 	addPerfValueCount(acc.clocks, firstNonEmpty(ev.PerfClock, "unknown"), period)
 	addPerfValueCount(acc.clockConfidences, firstNonEmpty(ev.PerfClockConfidence, "unknown"), period)
 	addPerfValueCount(acc.callchainStatuses, firstNonEmpty(ev.PerfCallchainStatus, "unknown"), period)
@@ -1569,6 +1575,7 @@ func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
 	out := &PerfQualitySummary{
 		Sources:               sortedPerfValueCounts(acc.sources, total),
 		SymbolizationStatuses: sortedPerfValueCounts(acc.symbolizationStatuses, total),
+		SampleKinds:           sortedPerfValueCounts(acc.sampleKinds, total),
 		Clocks:                sortedPerfValueCounts(acc.clocks, total),
 		ClockConfidences:      sortedPerfValueCounts(acc.clockConfidences, total),
 		CallchainStatuses:     sortedPerfValueCounts(acc.callchainStatuses, total),
@@ -1578,7 +1585,7 @@ func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
 		CallchainUnknownCount: acc.callchainUnknownCount,
 	}
 	out.Caveats = perfQualityCaveats(*out)
-	if len(out.Sources) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
+	if len(out.Sources) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.SampleKinds) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
 		return nil
 	}
 	return out
@@ -1626,6 +1633,12 @@ func perfQualityCaveats(q PerfQualitySummary) []string {
 	}
 	if perfValueCountsContain(q.SymbolizationStatuses, "unsymbolized") {
 		out = append(out, "perf samples include unsymbolized/IP-only rows; function-level conclusions should keep raw fallback caveats")
+	}
+	if perfValueCountsContain(q.SampleKinds, "off_cpu") {
+		out = append(out, "perf samples include off_cpu rows; do not narrate those periods as running CPU execution")
+	}
+	if perfValueCountsContain(q.SampleKinds, "unknown") {
+		out = append(out, "perf samples include unknown sample_kind rows; keep on-cpu/off-cpu interpretation as a caveat")
 	}
 	if perfValueCountsContain(q.CallchainStatuses, "missing") || perfValueCountsContain(q.CallchainStatuses, "ip_only") {
 		out = append(out, "perf samples include missing or IP-only callchains; call-chain conclusions may be partial")
@@ -9436,6 +9449,9 @@ func perfQualitySummaryCompact(q *PerfQualitySummary) string {
 	}
 	if status := perfQualityTopValue(q.SymbolizationStatuses); status != "" {
 		parts = append(parts, "symbolization="+status)
+	}
+	if sampleKind := perfQualityTopValue(q.SampleKinds); sampleKind != "" {
+		parts = append(parts, "sample_kind="+sampleKind)
 	}
 	if clock := perfQualityTopValue(q.Clocks); clock != "" {
 		parts = append(parts, "clock="+clock)

@@ -145,6 +145,32 @@ func perfCapabilityForSimpleperfReportSample(inputFormat perfInputFormat, source
 	}
 }
 
+func perfCapabilityForSimpleperfReportProto(source string) *PerfArtifactCapability {
+	return &PerfArtifactCapability{
+		ProviderKind:    "official_android",
+		ProviderName:    "android_simpleperf_report_proto",
+		InputFormat:     string(perfInputSimpleperfReportProto),
+		OutputFormat:    "codrax_perftrace",
+		TimeDomain:      "simpleperf_record_clock_ns",
+		TimeAlignment:   "assumed",
+		ThreadIdentity:  "thread_table_pid_tid_name",
+		CPUIdentity:     "unavailable_in_cmd_report_sample_proto",
+		EventWeight:     "event_count_or_1",
+		Symbolization:   "file_symbol_table",
+		Callchain:       "symbolized_when_report_contains_frames",
+		DSOLabel:        "file_path",
+		BuildID:         "not_exposed_by_cmd_report_sample_proto",
+		OffCPU:          "trace_offcpu_flag_and_context_switch_records",
+		Confidence:      "high_when_official_proto_is_well_formed",
+		TraceQueryReady: true,
+		Caveats: []string{
+			"Android cmd_report_sample.proto has no sample CPU field; trace_query must treat cpu=-1 as unknown, not CPU0",
+			"clock alignment is assumed unless a future capture-level clock map is available",
+			"provider source: " + firstNonEmpty(source, "unknown"),
+		},
+	}
+}
+
 func perfCapabilityForRawPerfDataArtifact(inputFormat perfInputFormat) *PerfArtifactCapability {
 	return &PerfArtifactCapability{
 		ProviderKind:    "source_artifact",

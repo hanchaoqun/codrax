@@ -175,6 +175,7 @@ type Event struct {
 	PerfIP                  string `json:"perf_ip,omitempty"`
 	PerfCallchain           string `json:"perf_callchain,omitempty"`
 	PerfSource              string `json:"perf_source,omitempty"`
+	PerfSampleKind          string `json:"perf_sample_kind,omitempty"`
 	PerfSymbolizationStatus string `json:"perf_symbolization_status,omitempty"`
 	PerfClock               string `json:"perf_clock,omitempty"`
 	PerfCPUKnown            *bool  `json:"perf_cpu_known,omitempty"`
@@ -442,6 +443,7 @@ type PerfHotspot struct {
 type PerfQualitySummary struct {
 	Sources               []PerfValueCount `json:"sources,omitempty"`
 	SymbolizationStatuses []PerfValueCount `json:"symbolization_statuses,omitempty"`
+	SampleKinds           []PerfValueCount `json:"sample_kinds,omitempty"`
 	Clocks                []PerfValueCount `json:"clocks,omitempty"`
 	ClockConfidences      []PerfValueCount `json:"clock_confidences,omitempty"`
 	CallchainStatuses     []PerfValueCount `json:"callchain_statuses,omitempty"`

@@ -96,6 +96,9 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 		decision = perfProviderSkipped(decision, true, "perftrace_generation_disabled", caveat)
 		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 	}
+	if inputFormat == perfInputSimpleperfReportProto && !rawPerfParserRequired(opts) {
+		return maybeConvertSimpleperfProtoWithDecision(ctx, opts, perfPath, perfTracePath, stage)
+	}
 	if rawPerfParserRequired(opts) {
 		if inputFormat != perfInputLinuxPerfData {
 			caveat := fmt.Sprintf("%s preserved; Codrax raw fallback supports %s only, so .perftrace was not generated", firstNonEmpty(string(inputFormat), "input"), perfInputLinuxPerfData)

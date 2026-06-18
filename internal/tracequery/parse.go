@@ -900,6 +900,7 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 	ev.PerfIP = intern.intern(cleanTraceValue(firstNonEmpty(kv["ip"], kv["addr"], kv["address"])))
 	ev.PerfCallchain = intern.intern(cleanTraceValue(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"])))
 	ev.PerfSource = intern.intern(cleanTraceValue(firstNonEmpty(kv["source"], kv["producer"])))
+	ev.PerfSampleKind = intern.intern(cleanTraceValue(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"])))
 	ev.PerfSymbolizationStatus = intern.intern(cleanTraceValue(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"])))
 	ev.PerfClock = intern.intern(cleanTraceValue(firstNonEmpty(kv["clock"], kv["clockid"])))
 	if known, ok := boolMaybe(firstNonEmpty(kv["cpu_known"], kv["cpu_valid"], kv["cpu_available"])); ok {
