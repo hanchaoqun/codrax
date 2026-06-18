@@ -2588,9 +2588,17 @@ def report_passed_by_verification_probe(report: dict[str, Any]) -> bool:
         return False
     test_results = [row for row in report.get("test_results") or [] if isinstance(row, dict)]
     return bool(test_results) and all(
-        str(row.get("suite") or "").strip() == "verification_probe/python"
+        is_verification_probe_suite(row.get("suite"))
         for row in test_results
     )
+
+
+def is_verification_probe_suite(raw: Any) -> bool:
+    suite = str(raw or "").strip()
+    if not suite.startswith("verification_probe/"):
+        return False
+    language = suite.split("/", 1)[1].strip()
+    return bool(language) and "/" not in language
 
 
 def prediction_confidence_downgrade_reason(

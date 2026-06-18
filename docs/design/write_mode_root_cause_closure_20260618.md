@@ -2010,6 +2010,57 @@ summaries. It should only preserve already-produced typed evidence fields.
 - `eval/swebench/smoke_local.sh`
 - `git diff --check`
 
+## RC-38: Multi-Language Probe-Only Adapter Authority
+
+### Gap
+
+RC-13 and RC-17 generalized core verification probes from Python-only to typed
+`verification_probe/<language>` suites, but the SWE-bench adapter's local
+confidence helper still recognized only `verification_probe/python`. That leaves
+the runtime and evaluation consumer out of sync:
+
+```text
+JS/Ruby/Go verification probe passes
+  -> ChangeReport carries typed verification_probe/<language> suite
+  -> adapter does not classify the report as probe-only
+  -> contract/source-context confidence checks are skipped
+  -> manual audit and local confidence telemetry diverge from runtime evidence
+```
+
+This is a typed consumer bug, not a language-specific prompt issue. The fix must
+consume the report's structured `suite` field only. It must not inspect user
+request prose, model rationale, or issue text.
+
+### Design
+
+- Add an adapter helper that accepts any schema-shaped
+  `verification_probe/<non-empty-language>` suite and rejects untyped or nested
+  variants such as `verification_probe`, `verification_probe/`, and
+  `verification_probe/python/extra`.
+- Keep the existing guard that a probe-only confidence path cannot include a
+  successful non-probe executed command.
+- Preserve project-suite behavior: mixed probe plus project test results are not
+  probe-only and should not trigger probe-only downgrade logic.
+- Keep this as audit/confidence telemetry only; official prediction export
+  remains unchanged.
+
+### Tasks
+
+- [x] Replace the adapter's Python-only suite equality with a typed
+  `verification_probe/<language>` classifier.
+- [x] Add unit coverage for JavaScript, Ruby, and Go probe-only suites.
+- [x] Add rejection coverage for untyped, malformed, and mixed project suites.
+
+### Verification
+
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test.PredictionConfidenceTests`
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test`
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+- `eval/swebench/smoke_local.sh`
+- `go test ./...`
+- `make test`
+- `git diff --check`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2053,6 +2104,7 @@ summaries. It should only preserve already-produced typed evidence fields.
 | RC-35 | complete | Root-cause coverage dimensions: PatchReview findings now carry typed `impact_kind`, coverage summary reports per-kind owner/contract/dependent/test/effect buckets, context pack renders the dimension for planner/verifier/controller handoff, controller repair queue prefers typed impact kind over legacy code fallback, and SWE adapter exports per-kind local telemetry without changing official predictions. Verification: focused type/writeflow/orchestrator/adapter tests, related package regression, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-36 | complete | Impact suite queue preservation: scheduler-owned priority runner plans now dedupe by runner/framework/working_dir/suite, so multiple typed related-test obligations in the same working directory survive into the default `run_tests {}` queue, while broad surface candidates still dedupe by working directory. Verification: focused impact selector tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-37 | complete | Convention evidence projection: advisory convention patch-review findings now carry the source stage, line span, and context summary from the typed `ConventionGraph` node, and context packs render those fields as separate `patch_review_evidence` items for downstream consumers without overloading verdict rows. Verification: focused types/writeflow tests, related packages, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
+| RC-38 | complete | Multi-language probe-only adapter authority: SWE-bench local confidence now treats any typed `verification_probe/<language>` suite as probe-only evidence and rejects malformed/mixed suites, aligning adapter consumption with the core runtime matrix. Verification: focused/all adapter unit tests, Python compile, SWE adapter smoke, full `go test ./...`, `make test`, and diff check pass. |
 
 ## Acceptance Criteria
 

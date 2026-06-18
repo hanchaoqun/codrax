@@ -144,7 +144,9 @@ runs those bounded typed probes before any project-level suite; passing probes
 become the local behavior
 verdict while the project suite is retained as typed `TestSurface` diagnostics
 instead of a hard gate. Failing probes remain real `tests_failed` evidence, and
-unavailable probes fall back to the normal runner/unverified path. When a passed
+unavailable probes fall back to the normal runner/unverified path. Adapter
+confidence treats any structured `verification_probe/<language>` suite as probe
+evidence, not only Python. When a passed
 local verdict depends only on verification probes that do not carry typed
 contract/symbol coverage, the adapter lowers local confidence via
 `prediction_confidence_downgrade_reason` but still exports the patch for the

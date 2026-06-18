@@ -142,6 +142,42 @@ def plan_with_external_private_state_write() -> dict:
 
 
 class PredictionConfidenceTests(unittest.TestCase):
+    def test_probe_only_pass_recognizes_typed_multilanguage_suites(self) -> None:
+        for suite in [
+            "verification_probe/javascript",
+            "verification_probe/ruby",
+            "verification_probe/go",
+        ]:
+            with self.subTest(suite=suite):
+                report = probe_only_report()
+                report["test_results"][0]["suite"] = suite
+
+                self.assertTrue(adapter.report_passed_by_verification_probe(report))
+                reason = adapter.prediction_confidence_downgrade_reason(
+                    plan=plan_with_probe(),
+                    report=report,
+                    verify_status="passed",
+                )
+
+                self.assertEqual(reason, "")
+
+    def test_probe_only_pass_rejects_untyped_or_mixed_suites(self) -> None:
+        for suite in [
+            "verification_probe",
+            "verification_probe/",
+            "verification_probe/python/extra",
+            "tests/test_widget.py",
+        ]:
+            with self.subTest(suite=suite):
+                report = probe_only_report()
+                report["test_results"][0]["suite"] = suite
+
+                self.assertFalse(adapter.report_passed_by_verification_probe(report))
+
+        mixed = probe_only_report()
+        mixed["test_results"].append({"suite": "tests/test_widget.py", "passed": True})
+        self.assertFalse(adapter.report_passed_by_verification_probe(mixed))
+
     def test_probe_only_pass_downgrades_when_changed_source_lacks_context(self) -> None:
         reason = adapter.prediction_confidence_downgrade_reason(
             plan=plan_with_probe(),
