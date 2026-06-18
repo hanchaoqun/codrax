@@ -3170,6 +3170,32 @@ RC-60 tasks:
 - [x] Add regressions for proof classification and proof-plan probe
   requirement.
 
+RC-60 smoke:
+
+- Reran `pydata__xarray-4248` at
+  `/private/tmp/codrax-swe-rc60-xarray-20260618-123244`.
+- The first online slice applied a partial formatting fix, failed the bounded
+  `units_repr_positive` probe with typed assertion evidence, restored the
+  applied checkpoint, replanned, and applied a smaller second patch.
+- Final prediction export was non-empty (`patch_bytes=987`) and the official
+  SWE-bench harness dry-run accepted the generated predictions file.
+- Final workflow reached `complete`, `verify_status=passed`, and
+  `verify_test_count=2`; the passed verification surface was two bounded
+  `verification_probe/python` probes, while the broader discovered unittest and
+  pytest surfaces remained skipped/telemetry.
+- Manual audit: the patch is functionally plausible for the requested repr
+  behavior because it appends `attrs["units"]` as `, in <units>` for both
+  coordinates and data variables and expands the first-column width to avoid
+  truncating the unit text. Confidence remains low rather than authoritative:
+  related project tests were not executed, PatchReview still reports
+  `related_test_surface_unverified` as telemetry, and the change may have
+  layout-width side effects that require convention/impact proof instead of a
+  single xarray-specific rule.
+- Architecture takeaway: the online `Edit -> Observe -> Replan -> Observe`
+  kernel is now functioning for this case. The remaining gap is proof-quality
+  confidence escalation from bounded probes plus related convention/test
+  evidence, not patch export or a Python-only boundary signal.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3238,7 +3264,8 @@ RC-60 tasks:
 | RC-58 | complete | Auto approval refresh after deterministic enrichment: a fresh xarray Lite run showed proof-follow-up probe-ref binding made an auto-executable plan's approval fingerprint stale, causing `approval_authority_invalid` and empty export. Controller-owned deterministic plan mutations now refresh stale auto approvals only when the fresh typed risk policy still allows `auto_execute`; manual/denied/tampered paths remain conservative. Rerunning `pydata__xarray-4248` produced a 1318-byte non-empty prediction and crossed the prior approval boundary; the official harness dry-run still needs a Python 3.10+ eval venv, while the next observed runtime gap is applied-but-unobserved interruption leaving `verify_status` absent. |
 | RC-59 | complete | Applied-but-unobserved interruption closure: controller dispatch `context.Canceled` after a successful apply now runs one bounded typed completion verify before surfacing interruption, unless the orchestrator cancel token was explicitly set. The implementation reuses the budget-completion verify semantics and records `controller_dispatch_completion_verify`; green/unavailable verifier outcomes terminalize the run, while real verify failures persist normal evidence and preserve resumable applied-patch guidance. Verification: focused controller regressions and diff check pass; full regression evidence follows this batch. |
 | RC-59 smoke | complete | Reran `pydata__xarray-4248` at `/private/tmp/codrax-swe-rc59-xarray-20260618-122015`: prediction export is non-empty and official harness dry-run accepts it. Workflow is now `complete` with typed verify attempts instead of missing `verify_status`; local verification remains unavailable (`parser_error`), and audit blocks on `changed_symbol_without_probe_coverage`, motivating RC-60 proof-follow-up scheduling. |
-| RC-60 | complete | Proof follow-up scheduling: typed proof coverage codes from PatchReview now route to `verification_proof_followup`, criteria mark `verification_probe_required=true`, proof batches retry once then fail-loud if the plan omits `verification_probes[]`, and typed `symbol=` criteria enrich probe `changed_symbol_refs`. Ordinary impact repairs remain unchanged. Verification: focused controller regressions pass; full regression evidence follows this batch. |
+| RC-60 | complete | Proof follow-up scheduling: typed proof coverage codes from PatchReview now route to `verification_proof_followup`, criteria mark `verification_probe_required=true`, proof batches retry once then fail-loud if the plan omits `verification_probes[]`, and typed `symbol=` criteria enrich probe `changed_symbol_refs`. Ordinary impact repairs remain unchanged. Verification: focused controller regressions, related packages, full `go test ./...`, `make test`, and diff check pass. |
+| RC-60 smoke | complete | Reran `pydata__xarray-4248` at `/private/tmp/codrax-swe-rc60-xarray-20260618-123244`: the workflow failed the first bounded probe, restored checkpoint, replanned, then passed two typed verification probes and exported a non-empty harness-consumable prediction. Manual audit marks the patch plausible but low-confidence because related project test surfaces remain telemetry rather than executed proof. |
 
 ## Acceptance Criteria
 
