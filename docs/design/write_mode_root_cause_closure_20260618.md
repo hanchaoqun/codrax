@@ -2381,6 +2381,26 @@ RC-44 tasks:
 - [x] Add focused regressions for Java compile fallback success/failure, Swift
   build fallback, and provider registry drift.
 
+## 2026-06-18 RC-45 User Guide Language-Coverage Sync
+
+RC-43 and RC-44 expanded implementation coverage, but the user-facing guide
+still described the older Python/Node/Ruby/Go source-check list. That creates
+avoidable usage friction: users can reasonably read the docs as saying
+Java/Kotlin/Swift source changes remain synthetic no-tests paths, or that the
+actual-diff "dynamic mapping boundary" family is Python-only.
+
+RC-45 is a documentation-only commercial UX closure:
+
+- Update `docs/user_guide.md` and `docs/user_guide.html` so source compile
+  fallback lists Java/Kotlin Maven/Gradle compile, bounded `kotlinc`, and Swift
+  Package `swift build --skip-build` alongside Python, Node, Ruby, and Go.
+- Explicitly document that actual-diff mapping/container boundary signals are
+  language-provider events covering Python, JS/TS, Ruby, Java/Kotlin, and Go.
+- Preserve the hard/soft boundary: these docs describe typed implementation
+  behavior only; no prompt routing, user-intent keyword matching, or model
+  prose parsing is introduced.
+- Keep read/log/trace/data/operation/computer surfaces untouched.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2431,6 +2451,7 @@ RC-44 tasks:
 | RC-42 | complete | Source-check provider registry: source-check extensions, no-test extensions, before-runner policy, and dispatch now share one typed registry to avoid future language drift. Verification: focused provider-registry tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-43 | complete | Impact selector language coverage: typed related-test targets now prioritize Java/Kotlin, Rust integration-test, and Swift Package test selectors in addition to existing Python/Go/Node/Ruby coverage. Runner command construction normalizes Java/Kotlin path selectors to class selectors, Rust integration paths to `cargo test --test`, and Swift paths to `swift test --filter`, all from structured paths rather than prose. Verification: focused selector/command regressions, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-44 | complete | Verify source-compile fallback reuse: Java/Kotlin and Swift no-test source changes now use typed source-check providers instead of synthetic no-tests when plan-touched files exist. Java reuses the Maven/Gradle compile command selector shared with plan dry-build; Kotlin uses bounded `kotlinc` when available; Swift uses `swift build --skip-build`. Missing tools/manifests or unparseable environment output stay pass-with-warning, while parseable build diagnostics fail verify with structured `BuildErrors[]`. |
+| RC-45 | complete | User-facing guide sync: Markdown and HTML now document Java/Kotlin/Swift source compile fallback and clarify that actual-diff mapping/container boundary signals are multi-language provider events, not Python-only logic. Verification: diff check and focused `internal/tool` regressions pass. |
 
 ## Acceptance Criteria
 
