@@ -2288,6 +2288,57 @@ and actual-diff source-shape provider registries.
 - `eval/swebench/smoke_local.sh`
 - `git diff --check`
 
+## 2026-06-18 RC-43 Impact Selector Language Coverage Design
+
+RC-39 closed JS/TS related-test targeting, and RC-40/41/42 closed source-check
+fallback drift. The remaining executor gap is that typed
+`ImpactVerificationTarget{kind=test_surface, related_path=...}` still behaves
+like a Python/Go/Node-first feature even though `run_tests` already supports
+Java, Ruby, Rust, Swift, and other runners. This weakens the cc_like
+`Execute -> Observe -> Repair` loop for non-Python repositories: the controller
+can know "changed A, related test B exists", but verifier default `{}` may fall
+back to a broader suite or a less relevant runner instead of the smallest typed
+proof surface.
+
+RC-43 expands only deterministic path-to-selector conversion for existing
+runners:
+
+```text
+ImpactAnalysis related_path
+  -> safe repo-relative path resolver
+  -> TestSurface candidate with typed test signal
+  -> runner-native selector
+  -> priority runnerPlan before default suite
+```
+
+Supported additions:
+
+- Java Maven/Gradle: `src/test/java/com/acme/FooTest.java` becomes
+  `com.acme.FooTest`; Kotlin Gradle test files under `src/test/kotlin` use the
+  same class selector through the existing Java runner lane.
+- Rust: top-level integration tests `tests/foo.rs` become
+  `cargo test --test foo`; inline `#[cfg(test)]` module selection stays
+  unsupported until a typed Rust symbol/test index exists.
+- Swift Package Manager: `Tests/.../FooTests.swift` becomes
+  `swift test --filter FooTests`.
+- Ruby remains file-path based; Python/Go/Node behavior is preserved.
+
+This is not a prompt or keyword route. The conversion consumes only
+repo-relative paths, runner candidates, and file extensions. Unsupported shapes
+return no priority plan and continue through existing TestSurface fallback and
+handoff telemetry.
+
+RC-43 tasks:
+
+- [x] Extend Impact related-test priority plans to Java, Kotlin-on-Gradle,
+  Rust integration tests, and Swift Package tests.
+- [x] Normalize Java/Kotlin path selectors before Maven/Gradle command
+  construction.
+- [x] Normalize Rust integration-test path selectors to `cargo test --test`.
+- [x] Normalize Swift test-file path selectors to `swift test --filter`.
+- [x] Add focused regressions proving priority queue order and command
+  rendering.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2336,6 +2387,7 @@ and actual-diff source-shape provider registries.
 | RC-40 | complete | Go no-test source compile fallback: plan-touched Go packages with no `_test.go` files now run a bounded `go test -json` compile check instead of synthetic no-tests pass. Verification: focused Go fallback tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-41 | complete | TypeScript no-test source compile fallback: plan-touched TS files in Node packages now use `tsc --noEmit --pretty false` when available instead of synthetic no-tests pass. Verification: focused TS fallback tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-42 | complete | Source-check provider registry: source-check extensions, no-test extensions, before-runner policy, and dispatch now share one typed registry to avoid future language drift. Verification: focused provider-registry tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
+| RC-43 | complete | Impact selector language coverage: typed related-test targets now prioritize Java/Kotlin, Rust integration-test, and Swift Package test selectors in addition to existing Python/Go/Node/Ruby coverage. Runner command construction normalizes Java/Kotlin path selectors to class selectors, Rust integration paths to `cargo test --test`, and Swift paths to `swift test --filter`, all from structured paths rather than prose. Verification: focused selector/command regressions, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 
 ## Acceptance Criteria
 
@@ -2363,6 +2415,9 @@ and actual-diff source-shape provider registries.
   PATH `tsc --noEmit --pretty false` when available.
 - Uncovered typed impact obligations become a bounded repair queue before
   finish, instead of remaining passive telemetry after local verifier success.
+- Impact related-test obligations choose the smallest supported runner-native
+  selector across Python, Go, Node, Ruby, Java/Kotlin, Rust integration tests,
+  and Swift Package tests before falling back to broad TestSurface execution.
 - Current read/log/trace/data/operation/computer paths remain untouched.
 - All new eval fields and docs distinguish export compatibility from
   functional correctness.

@@ -402,7 +402,7 @@ func impactWorkingDirDepth(rel string) int {
 
 func impactCandidateSupportsSuite(cand types.TestSurfaceCandidate) bool {
 	switch cand.Runner {
-	case "go", "node", "ruby":
+	case "go", "java", "node", "ruby", "rust", "swift":
 		return true
 	case "python":
 		return cand.Framework == "" ||
@@ -438,6 +438,18 @@ func impactSuiteForCandidate(cand types.TestSurfaceCandidate, related string) st
 			return "."
 		}
 		return "./" + dir
+	case "java":
+		if !javaTestPathExtension(rel) {
+			return ""
+		}
+		selector := javaTestSelectorFromPath(rel)
+		if selector == "" {
+			return ""
+		}
+		// Maven and Gradle both accept class selectors. Keep this as
+		// a normalized selector instead of passing file paths to the
+		// shell command builder, where Maven/Gradle semantics differ.
+		return selector
 	case "python":
 		if path.Ext(rel) != ".py" {
 			return ""
@@ -462,9 +474,91 @@ func impactSuiteForCandidate(cand types.TestSurfaceCandidate, related string) st
 			return ""
 		}
 		return rel
+	case "rust":
+		if suite := rustIntegrationTestSelectorFromPath(rel); suite != "" {
+			return suite
+		}
+		return ""
+	case "swift":
+		if !swiftTestPath(rel) {
+			return ""
+		}
+		return swiftTestFilterFromSuite(rel)
 	default:
 		return ""
 	}
+}
+
+func javaTestPathExtension(rel string) bool {
+	switch strings.ToLower(path.Ext(rel)) {
+	case ".java", ".kt":
+		return true
+	default:
+		return false
+	}
+}
+
+func javaTestSelectorFromPath(rel string) string {
+	rel = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(rel, "\\", "/"), "./"))
+	if rel == "" || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") || !javaTestPathExtension(rel) {
+		return ""
+	}
+	noExt := strings.TrimSuffix(rel, path.Ext(rel))
+	for _, prefix := range []string{
+		"src/test/java/",
+		"src/test/kotlin/",
+		"src/integrationTest/java/",
+		"src/integrationTest/kotlin/",
+	} {
+		if strings.HasPrefix(noExt, prefix) {
+			className := strings.Trim(strings.TrimPrefix(noExt, prefix), "/")
+			if className == "" {
+				return ""
+			}
+			return strings.ReplaceAll(className, "/", ".")
+		}
+	}
+	base := path.Base(noExt)
+	if base == "." || base == "/" || base == "" {
+		return ""
+	}
+	return base
+}
+
+func rustIntegrationTestSelectorFromPath(rel string) string {
+	rel = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(rel, "\\", "/"), "./"))
+	if rel == "" || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") || path.Ext(rel) != ".rs" {
+		return ""
+	}
+	parts := strings.Split(rel, "/")
+	if len(parts) != 2 || parts[0] != "tests" {
+		return ""
+	}
+	name := strings.TrimSuffix(parts[1], ".rs")
+	if name == "" || strings.HasPrefix(name, ".") {
+		return ""
+	}
+	return rel
+}
+
+func swiftTestPath(rel string) bool {
+	rel = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(rel, "\\", "/"), "./"))
+	if rel == "" || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") || path.Ext(rel) != ".swift" {
+		return false
+	}
+	base := strings.TrimSuffix(path.Base(rel), ".swift")
+	return strings.HasSuffix(base, "Test") || strings.HasSuffix(base, "Tests")
+}
+
+func swiftTestFilterFromSuite(suite string) string {
+	suite = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(suite, "\\", "/"), "./"))
+	if suite == "" || strings.HasPrefix(suite, "../") || strings.Contains(suite, "/../") {
+		return ""
+	}
+	if path.Ext(suite) == ".swift" {
+		return strings.TrimSuffix(path.Base(suite), ".swift")
+	}
+	return suite
 }
 
 func relatedPathInsideWorkingDir(workingDir, related string) string {

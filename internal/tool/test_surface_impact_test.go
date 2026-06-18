@@ -3,6 +3,7 @@ package tool
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -142,6 +143,154 @@ func TestImpactRunnerPlansFromChangePlanTargetsNodeRelatedTest(t *testing.T) {
 	queue := defaultRunnerPlansFromTestSurface(root, surface, "", plans...)
 	if len(queue) == 0 || queue[0].Runner != "node" || queue[0].Suite != "src/widget.test.ts" {
 		t.Fatalf("node impact plan should lead default queue, got %+v", queue)
+	}
+}
+
+func TestImpactRunnerPlansFromChangePlanTargetsJavaRelatedTest(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "pom.xml", "<project/>\n")
+	writeImpactSurfaceFixture(t, root, "src/main/java/com/acme/Widget.java", "package com.acme;\nclass Widget {}\n")
+	writeImpactSurfaceFixture(t, root, "src/test/java/com/acme/WidgetTest.java", "package com.acme;\nclass WidgetTest {}\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-java",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "src/main/java/com/acme/Widget.java",
+				RelatedPath: "src/test/java/com/acme/WidgetTest.java",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+
+	plans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(plans) != 1 {
+		t.Fatalf("expected one java impact runner plan, got %+v surface=%+v", plans, surface.Candidates)
+	}
+	if plans[0].Runner != "java" || plans[0].Suite != "com.acme.WidgetTest" {
+		t.Fatalf("unexpected java impact plan: %+v", plans[0])
+	}
+	queue := defaultRunnerPlansFromTestSurface(root, surface, "", plans...)
+	if len(queue) == 0 || queue[0].Runner != "java" || queue[0].Suite != "com.acme.WidgetTest" {
+		t.Fatalf("java impact plan should lead default queue, got %+v", queue)
+	}
+}
+
+func TestImpactRunnerPlansFromChangePlanTargetsKotlinGradleRelatedTest(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "build.gradle.kts", "plugins { kotlin(\"jvm\") version \"1.9.0\" }\n")
+	writeImpactSurfaceFixture(t, root, "src/main/kotlin/com/acme/Widget.kt", "package com.acme\nclass Widget\n")
+	writeImpactSurfaceFixture(t, root, "src/test/kotlin/com/acme/WidgetTests.kt", "package com.acme\nclass WidgetTests\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-kotlin",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "src/main/kotlin/com/acme/Widget.kt",
+				RelatedPath: "src/test/kotlin/com/acme/WidgetTests.kt",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+
+	plans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(plans) != 1 {
+		t.Fatalf("expected one kotlin/java impact runner plan, got %+v surface=%+v", plans, surface.Candidates)
+	}
+	if plans[0].Runner != "java" || plans[0].Suite != "com.acme.WidgetTests" {
+		t.Fatalf("unexpected kotlin impact plan: %+v", plans[0])
+	}
+}
+
+func TestImpactRunnerPlansFromChangePlanTargetsRustIntegrationTest(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "Cargo.toml", "[package]\nname='x'\nversion='0.1.0'\nedition='2021'\n")
+	writeImpactSurfaceFixture(t, root, "src/lib.rs", "pub fn value() -> i32 { 1 }\n")
+	writeImpactSurfaceFixture(t, root, "tests/widget.rs", "#[test]\nfn widget() {}\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-rust",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "src/lib.rs",
+				RelatedPath: "tests/widget.rs",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+
+	plans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(plans) != 1 {
+		t.Fatalf("expected one rust impact runner plan, got %+v surface=%+v", plans, surface.Candidates)
+	}
+	if plans[0].Runner != "rust" || plans[0].Suite != "tests/widget.rs" {
+		t.Fatalf("unexpected rust impact plan: %+v", plans[0])
+	}
+}
+
+func TestImpactRunnerPlansFromChangePlanTargetsSwiftPackageTest(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "Package.swift", "// swift-tools-version: 5.9\n")
+	writeImpactSurfaceFixture(t, root, "Sources/App/Widget.swift", "struct Widget {}\n")
+	writeImpactSurfaceFixture(t, root, "Tests/AppTests/WidgetTests.swift", "final class WidgetTests {}\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-swift",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "Sources/App/Widget.swift",
+				RelatedPath: "Tests/AppTests/WidgetTests.swift",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+
+	plans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(plans) != 1 {
+		t.Fatalf("expected one swift impact runner plan, got %+v surface=%+v", plans, surface.Candidates)
+	}
+	if plans[0].Runner != "swift" || plans[0].Suite != "WidgetTests" {
+		t.Fatalf("unexpected swift impact plan: %+v", plans[0])
+	}
+}
+
+func TestBuildRunCommandNormalizesPathSelectors(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "pom.xml", "<project/>\n")
+	writeImpactSurfaceFixture(t, root, "build.gradle.kts", "plugins { kotlin(\"jvm\") version \"1.9.0\" }\n")
+
+	javaCmd, _ := buildRunCommandWithFramework("java", "", "src/test/java/com/acme/WidgetTest.java", root, root)
+	if !strings.Contains(javaCmd, `-Dtest="com.acme.WidgetTest"`) {
+		t.Fatalf("java path selector should become class selector, got %q", javaCmd)
+	}
+
+	gradleRoot := t.TempDir()
+	writeImpactSurfaceFixture(t, gradleRoot, "build.gradle.kts", "plugins { kotlin(\"jvm\") version \"1.9.0\" }\n")
+	kotlinCmd, _ := buildRunCommandWithFramework("java", "", "src/test/kotlin/com/acme/WidgetTests.kt", gradleRoot, gradleRoot)
+	if !strings.Contains(kotlinCmd, `--tests "com.acme.WidgetTests"`) {
+		t.Fatalf("kotlin path selector should become Gradle class selector, got %q", kotlinCmd)
+	}
+
+	rustCmd, _ := buildRunCommandWithFramework("rust", "", "tests/widget.rs", root, root)
+	if rustCmd != "cargo test --test widget" {
+		t.Fatalf("rust integration-test path should become --test selector, got %q", rustCmd)
+	}
+
+	swiftCmd, _ := buildRunCommandWithFramework("swift", "", "Tests/AppTests/WidgetTests.swift", root, root)
+	if swiftCmd != `swift test --filter "WidgetTests"` {
+		t.Fatalf("swift test path should become basename filter, got %q", swiftCmd)
 	}
 }
 

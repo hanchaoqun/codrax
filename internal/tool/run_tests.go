@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -4605,10 +4606,11 @@ func testFileMatcher(runner string) func(path, name string) bool {
 		}
 	case "java":
 		return func(_, name string) bool {
-			if !strings.HasSuffix(name, ".java") {
+			ext := strings.ToLower(filepath.Ext(name))
+			if ext != ".java" && ext != ".kt" {
 				return false
 			}
-			base := strings.TrimSuffix(name, ".java")
+			base := strings.TrimSuffix(name, ext)
 			return strings.HasPrefix(base, "Test") ||
 				strings.HasSuffix(base, "Test") ||
 				strings.HasSuffix(base, "Tests") ||
@@ -4618,6 +4620,29 @@ func testFileMatcher(runner string) func(path, name string) bool {
 		}
 	}
 	return nil
+}
+
+func javaTestSelectorFromSuite(suite string) string {
+	suite = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(suite, "\\", "/"), "./"))
+	if suite == "" || strings.HasPrefix(suite, "../") || strings.Contains(suite, "/../") {
+		return strings.TrimSpace(suite)
+	}
+	if javaTestPathExtension(suite) {
+		return javaTestSelectorFromPath(suite)
+	}
+	return suite
+}
+
+func rustIntegrationTestNameFromSuite(suite string) string {
+	rel := rustIntegrationTestSelectorFromPath(suite)
+	if rel == "" {
+		return ""
+	}
+	name := strings.TrimSuffix(path.Base(rel), ".rs")
+	if name == "" || strings.HasPrefix(name, ".") {
+		return ""
+	}
+	return name
 }
 
 // pythonInterpreter resolves the Python invocation to use for the
@@ -5442,6 +5467,9 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		if filter == "" {
 			return "cargo test", ""
 		}
+		if integration := rustIntegrationTestNameFromSuite(filter); integration != "" {
+			return fmt.Sprintf("cargo test --test %s", shellQuoteWord(integration)), ""
+		}
 		return fmt.Sprintf("cargo test %q", filter), ""
 	case "swift":
 		// Swift Package Manager. `swift test` emits text output that
@@ -5449,6 +5477,9 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		// the `test result: ok. N passed; N failed` footer convention.
 		// `--parallel` would break parsing; intentionally omitted.
 		filter := strings.TrimSpace(suite)
+		if normalized := swiftTestFilterFromSuite(filter); normalized != "" {
+			filter = normalized
+		}
 		if filter == "" {
 			return "swift test", ""
 		}
@@ -5461,7 +5492,7 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		// multi-file in a directory, not one named file. The
 		// command itself just needs to be `mvn test` / `gradle
 		// test` so the reports get produced.
-		filter := strings.TrimSpace(suite)
+		filter := javaTestSelectorFromSuite(suite)
 		build := detectJavaBuildSystem(repoRoot)
 		switch build {
 		case "maven":
