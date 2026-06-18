@@ -1837,6 +1837,11 @@ func rawPerfResolveFrame(data *rawPerfData, sample rawPerfSample, ip uint64) raw
 	}
 	mapping, ok := rawPerfBestMapping(data.Mappings, sample, ip)
 	if !ok {
+		if file, symbol, ok := rawPerfDirectSymbolForIP(data.Features.SymbolFiles, ip); ok {
+			frame.DSO = rawPerfDSOForSymbolFile(file)
+			frame.Symbol = symbol.Name
+			frame.Symbolized = true
+		}
 		return frame
 	}
 	frame.DSO = rawPerfDSOForMapping(mapping, data.Features)
@@ -1845,6 +1850,21 @@ func rawPerfResolveFrame(data *rawPerfData, sample rawPerfSample, ip uint64) raw
 		frame.Symbolized = true
 	}
 	return frame
+}
+
+func rawPerfDirectSymbolForIP(files []rawPerfSymbolFile, ip uint64) (rawPerfSymbolFile, rawPerfSymbol, bool) {
+	if ip == 0 {
+		return rawPerfSymbolFile{}, rawPerfSymbol{}, false
+	}
+	for _, file := range files {
+		if !rawPerfSymbolFileUsesDirectPC(file) {
+			continue
+		}
+		if symbol, ok := rawPerfFindSymbol(file.Symbols, ip); ok {
+			return file, symbol, true
+		}
+	}
+	return rawPerfSymbolFile{}, rawPerfSymbol{}, false
 }
 
 func rawPerfBestMapping(mappings []rawPerfMapping, sample rawPerfSample, ip uint64) (rawPerfMapping, bool) {
@@ -1879,6 +1899,13 @@ func rawPerfDSOForMapping(mapping rawPerfMapping, features rawPerfFeatures) stri
 		return mapping.Path + "#build_id=" + buildID
 	}
 	return mapping.Path
+}
+
+func rawPerfDSOForSymbolFile(file rawPerfSymbolFile) string {
+	if strings.TrimSpace(file.Path) == "" {
+		return "unknown"
+	}
+	return strings.TrimSpace(file.Path)
 }
 
 func rawPerfSymbolForIP(files []rawPerfSymbolFile, mapping rawPerfMapping, ip uint64) (rawPerfSymbol, bool) {
@@ -1922,7 +1949,7 @@ func rawPerfSymbolFileMatchesMapping(file rawPerfSymbolFile, mapping rawPerfMapp
 func rawPerfSymbolFileUsesDirectPC(file rawPerfSymbolFile) bool {
 	path := strings.TrimSpace(file.Path)
 	switch file.SymbolType {
-	case rawPerfSymbolFileHAP, rawPerfSymbolFileV8:
+	case rawPerfSymbolFileKernel, rawPerfSymbolFileKernelThread, rawPerfSymbolFileHAP, rawPerfSymbolFileV8:
 		return true
 	}
 	return strings.HasSuffix(path, ".hap") ||

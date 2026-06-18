@@ -350,6 +350,55 @@ func TestConvertRawPerfDataUsesSavedHiperfArkTSSymbols(t *testing.T) {
 	}
 }
 
+func TestConvertRawPerfDataUsesSavedHiperfKernelSymbolsWithoutMmap(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf-kernel-symbols.data")
+	outPath := filepath.Join(dir, "raw-kernel-symbols.perftrace")
+	if err := os.WriteFile(perfData, syntheticRawPerfDataWithHiperfKernelSymbols(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := readRawPerfData(context.Background(), perfData)
+	if err != nil {
+		t.Fatalf("read raw perf data with kernel symbols: %v", err)
+	}
+	if len(data.Mappings) != 0 || len(data.Features.SymbolFiles) != 1 || data.Features.SymbolFiles[0].SymbolType != rawPerfSymbolFileKernel {
+		t.Fatalf("test fixture should rely on direct saved kernel symbols, got mappings=%+v features=%+v", data.Mappings, data.Features)
+	}
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+		t.Fatalf("convert raw perf.data with kernel symbols: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		`symbol="__switch_to"`,
+		`dso="[kernel.kallsyms]"`,
+		`callchain="finish_task_switch@[kernel.kallsyms];schedule@[kernel.kallsyms];__switch_to@[kernel.kallsyms]"`,
+		"symbolization_status=symbolized",
+		"callchain_status=symbolized",
+		"symbol_source=hiperf_files_symbol",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("kernel perftrace missing %q:\n%s", want, text)
+		}
+	}
+
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("parse perftrace: %v", err)
+	}
+	if len(idx.Events) != 1 || idx.Events[0].PerfSymbol != "__switch_to" || idx.Events[0].PerfDSO != "[kernel.kallsyms]" || idx.Events[0].PerfSymbolizationStatus != "symbolized" {
+		t.Fatalf("saved kernel symbol should reach tracequery: %+v", idx.Events)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
+	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) == 0 || stats.PerfSamples.TopSymbols[0].Symbol != "__switch_to" {
+		t.Fatalf("saved kernel symbol should reach hotspot stats: %+v", stats.PerfSamples)
+	}
+}
+
 func TestConvertRawPerfDataMalformedHiperfSymbolsFallsBackToIPText(t *testing.T) {
 	dir := t.TempDir()
 	perfData := filepath.Join(dir, "perf-bad-symbols.data")
@@ -569,6 +618,50 @@ func syntheticRawPerfDataWithHiperfArkTSSymbols() []byte {
 	return out
 }
 
+func syntheticRawPerfDataWithHiperfKernelSymbols() []byte {
+	const headerSize = 104
+	const attrSize = 48
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod | perfSampleCallchain)
+	var records bytes.Buffer
+	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "kworker")))
+	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+
+	dataOffset := headerSize + attrSize
+	featureIDs := []int{perfFeatureHiperfFilesSymbol}
+	descriptorOffset := dataOffset + records.Len()
+	sectionOffset := descriptorOffset + len(featureIDs)*16
+	sections := [][]byte{
+		rawPerfFeatureHiperfKernelSymbols(),
+	}
+	out := make([]byte, sectionOffset)
+	copy(out[0:8], []byte(perfMagic2))
+	binary.LittleEndian.PutUint64(out[8:16], headerSize)
+	binary.LittleEndian.PutUint64(out[16:24], attrSize)
+	binary.LittleEndian.PutUint64(out[24:32], headerSize)
+	binary.LittleEndian.PutUint64(out[32:40], attrSize)
+	binary.LittleEndian.PutUint64(out[40:48], uint64(dataOffset))
+	binary.LittleEndian.PutUint64(out[48:56], uint64(records.Len()))
+	for _, id := range featureIDs {
+		out[72+id/8] |= 1 << (id % 8)
+	}
+	attr := out[headerSize:dataOffset]
+	binary.LittleEndian.PutUint32(attr[0:4], 0)
+	binary.LittleEndian.PutUint32(attr[4:8], 40)
+	binary.LittleEndian.PutUint64(attr[8:16], 0)
+	binary.LittleEndian.PutUint64(attr[24:32], sampleType)
+	copy(out[dataOffset:descriptorOffset], records.Bytes())
+
+	cur := sectionOffset
+	for i, section := range sections {
+		desc := out[descriptorOffset+i*16 : descriptorOffset+(i+1)*16]
+		binary.LittleEndian.PutUint64(desc[0:8], uint64(cur))
+		binary.LittleEndian.PutUint64(desc[8:16], uint64(len(section)))
+		out = append(out, section...)
+		cur += len(section)
+	}
+	return out
+}
+
 func syntheticRawPerfDataWithMalformedHiperfSymbols() []byte {
 	const headerSize = 104
 	const attrSize = 48
@@ -631,6 +724,27 @@ func rawPerfFeatureHiperfArkTSSymbols(path string) []byte {
 	writeRawPerfTestU64(&out, 0x1230)
 	writeRawPerfTestU32(&out, 0x40)
 	writeRawPerfTestString(&out, "Index.build:entry/src/main/ets/pages/Index.ets")
+	return out.Bytes()
+}
+
+func rawPerfFeatureHiperfKernelSymbols() []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU32(&out, 1)
+	writeRawPerfTestString(&out, "[kernel.kallsyms]")
+	writeRawPerfTestU32(&out, rawPerfSymbolFileKernel)
+	writeRawPerfTestU64(&out, 0)
+	writeRawPerfTestU64(&out, 0)
+	writeRawPerfTestString(&out, "kernel-build-id")
+	writeRawPerfTestU32(&out, 3)
+	writeRawPerfTestU64(&out, 0x1110)
+	writeRawPerfTestU32(&out, 0x20)
+	writeRawPerfTestString(&out, "schedule")
+	writeRawPerfTestU64(&out, 0x1220)
+	writeRawPerfTestU32(&out, 0x20)
+	writeRawPerfTestString(&out, "finish_task_switch")
+	writeRawPerfTestU64(&out, 0x1230)
+	writeRawPerfTestU32(&out, 0x20)
+	writeRawPerfTestString(&out, "__switch_to")
 	return out.Bytes()
 }
 

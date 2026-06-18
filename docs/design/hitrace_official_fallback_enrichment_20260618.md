@@ -22,10 +22,14 @@ Compared the current converter and trace query pipeline against the latest publi
    `HIPERF_HM_DEVHOST`, and `HIPERF_FILES_UNISTACK_TABLE`.
 
 2. Current raw fallback already parses most capture-level feature metadata and saved
-   hiperf symbol names. The remaining low-risk sample-level fields were safe to
-   preserve as context: sample address/id/stream id, perf weight, data source,
-   transaction, physical address, cgroup id, page sizes, raw payload size, branch
-   stack count, user-reg count, user-stack size, and aux size.
+   hiperf symbol names. Saved `HIPERF_FILES_SYMBOL` names are consumed by symbol
+   type, not by user wording: ELF/HAP/V8 keep their existing mapping rules, while
+   kernel and kernel-thread saved symbols can be matched directly by sampled PC
+   when the perf stream lacks an explicit kernel mmap record. The remaining
+   low-risk sample-level fields were safe to preserve as context: sample
+   address/id/stream id, perf weight, data source, transaction, physical address,
+   cgroup id, page sizes, raw payload size, branch stack count, user-reg count,
+   user-stack size, and aux size.
 
 3. OpenHarmony `report_sample.proto` remains the preferred official path for full
    symbolization, but it does not expose sample CPU in the current format. The
@@ -46,6 +50,8 @@ Compared the current converter and trace query pipeline against the latest publi
 
 - Raw perf fallback now treats parsed sample fields as parsed bits, not skipped bits.
 - Raw perf `.perftrace` rows include safe sample-level context fields when present.
+- Saved hiperf kernel/kernel-thread symbols can now resolve raw perf samples even
+  when the perf stream does not carry an explicit `[kernel.kallsyms]` mmap record.
 - `trace_query` parses those fields into `Event` and carries them into perf hotspot
   examples without changing root-cause ranking weights.
 - OpenHarmony ext4 direct IO rows are covered by round-trip tests from binary htrace
