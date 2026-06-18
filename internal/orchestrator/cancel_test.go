@@ -23,6 +23,21 @@ func TestCancelToken_FirstReasonWins(t *testing.T) {
 	if got := tok.Reason(); got != "Ctrl+C" {
 		t.Errorf("Reason = %q, want first reason 'Ctrl+C'", got)
 	}
+	if got := tok.Source(); got != CancelSourceUser {
+		t.Errorf("Source = %q, want %q", got, CancelSourceUser)
+	}
+}
+
+func TestCancelToken_FirstSourceWins(t *testing.T) {
+	tok := NewCancelToken()
+	tok.CancelWithSource("write mode wall-time exceeded", CancelSourceWriteDeadline)
+	tok.Cancel("Ctrl+C")
+	if got := tok.Reason(); got != "write mode wall-time exceeded" {
+		t.Errorf("Reason = %q, want first deadline reason", got)
+	}
+	if got := tok.Source(); got != CancelSourceWriteDeadline {
+		t.Errorf("Source = %q, want %q", got, CancelSourceWriteDeadline)
+	}
 }
 
 // TestCancelToken_EmptyReasonFallback verifies a missing reason

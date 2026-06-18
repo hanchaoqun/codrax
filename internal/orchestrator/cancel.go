@@ -32,9 +32,17 @@ import (
 type CancelToken struct {
 	flag   atomic.Bool
 	reason atomic.Pointer[string]
+	source atomic.Pointer[string]
 	ctx    context.Context
 	cancel context.CancelFunc
 }
+
+type CancelSource string
+
+const (
+	CancelSourceUser          CancelSource = "user"
+	CancelSourceWriteDeadline CancelSource = "write_deadline"
+)
 
 // NewCancelToken returns an active token. The orchestrator allocates
 // one per Run; idle tokens (between Runs) are nil.
@@ -52,14 +60,29 @@ func NewCancelToken() *CancelToken {
 // observes ctx.Done() the moment Cancel returns — no cooperative
 // polling needed for ctx-aware paths.
 func (t *CancelToken) Cancel(reason string) {
+	t.CancelWithSource(reason, CancelSourceUser)
+}
+
+// CancelWithSource is the typed cancellation entry point for internal
+// deterministic guards. Public operator cancellation keeps using Cancel(),
+// while write-mode wall-clock deadline code supplies CancelSourceWriteDeadline
+// so state-machine boundaries do not parse reason text.
+func (t *CancelToken) CancelWithSource(reason string, source CancelSource) {
 	if t == nil {
 		return
 	}
 	if reason == "" {
 		reason = "user interrupt"
 	}
-	// CompareAndSwap on the pointer — first writer wins.
-	t.reason.CompareAndSwap(nil, &reason)
+	if source == "" {
+		source = CancelSourceUser
+	}
+	sourceValue := string(source)
+	// CompareAndSwap on the pointer — first writer wins. Source is written
+	// only by the winner so reason/source stay from the same cancellation.
+	if t.reason.CompareAndSwap(nil, &reason) {
+		t.source.CompareAndSwap(nil, &sourceValue)
+	}
 	t.flag.Store(true)
 	if t.cancel != nil {
 		t.cancel()
@@ -98,6 +121,17 @@ func (t *CancelToken) Reason() string {
 		return ""
 	}
 	return *r
+}
+
+func (t *CancelToken) Source() CancelSource {
+	if t == nil {
+		return ""
+	}
+	s := t.source.Load()
+	if s == nil {
+		return ""
+	}
+	return CancelSource(*s)
 }
 
 // CanceledError is the typed error pipeline checkpoints return when

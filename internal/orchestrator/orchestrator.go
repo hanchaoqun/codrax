@@ -821,6 +821,13 @@ func (o *Orchestrator) Cancel(reason string) {
 	o.cancelToken.Cancel(reason)
 }
 
+func (o *Orchestrator) cancelWithSource(reason string, source CancelSource) {
+	if o == nil || o.cancelToken == nil {
+		return
+	}
+	o.cancelToken.CancelWithSource(reason, source)
+}
+
 // IsCanceled reports whether a Run is in flight AND has been canceled.
 // Used by the REPL to drive the "✗ canceled" rendering path on top
 // of the standard Run() return. Cheap atomic read; safe under any
@@ -1683,7 +1690,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	if o.writeMaxSeconds > 0 && o.mode != types.ModeRead && o.mode != "" {
 		deadline := time.Duration(o.writeMaxSeconds) * time.Second
 		timer := time.AfterFunc(deadline, func() {
-			o.Cancel(fmt.Sprintf("write mode wall-time exceeded (%ds)", o.writeMaxSeconds))
+			o.cancelWithSource(fmt.Sprintf("write mode wall-time exceeded (%ds)", o.writeMaxSeconds), CancelSourceWriteDeadline)
 		})
 		defer timer.Stop()
 	}

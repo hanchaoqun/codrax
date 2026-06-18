@@ -1091,6 +1091,85 @@ func TestRunWriteControllerWorkflow_DoesNotRecoverCanceledControllerDispatch(t *
 	}
 }
 
+func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterPlanBlocksRun(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("deadline after plan")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "deadline after plan"}}})
+	controllerCalls := 0
+	var o *Orchestrator
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			controllerCalls++
+			switch controllerCalls {
+			case 1:
+				decision := writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+					Action: writeflow.ActionPlanBatch,
+					Batch:  &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "produce repair plan"},
+				})
+				raw, err := json.Marshal(decision)
+				if err != nil {
+					t.Fatalf("marshal decision: %v", err)
+				}
+				ctx.Mutable.SetWriteWorkflowDecisionJSON(raw)
+				return &agent.StageOutput{Data: raw}, nil
+			case 2:
+				o.cancelWithSource("write mode wall-time exceeded (600s)", CancelSourceWriteDeadline)
+				return nil, context.Canceled
+			default:
+				t.Fatalf("unexpected extra controller call %d", controllerCalls)
+			}
+			return nil, nil
+		},
+	})
+	o = New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	applyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-ready-before-deadline",
+				Status:      types.PlanStatusPending,
+				Summary:     "repair",
+				TargetPaths: []string{"src/fix.py"},
+				Changes: []types.FileChange{{
+					Path:       "src/fix.py",
+					Kind:       "modify",
+					NewContent: "def fixed():\n    return True\n",
+				}},
+			})
+		case types.StageApply:
+			applyCalls++
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("deadline-dispatch cancellation should surface cancellation, got %v", err)
+	}
+	if applyCalls != 0 {
+		t.Fatalf("deadline dispatch should not continue to apply, applyCalls=%d", applyCalls)
+	}
+	if store.last == nil {
+		t.Fatal("workflow should be persisted")
+	}
+	if store.last.Status != types.WriteWorkflowRunBlocked {
+		t.Fatalf("deadline after plan should block workflow, got %+v", store.last)
+	}
+	if len(store.last.Batches) != 1 || store.last.Batches[0].Status != types.WriteWorkflowBatchBlocked {
+		t.Fatalf("deadline after plan should block active batch, got %+v", store.last.Batches)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "controller_dispatch_write_deadline_blocked") {
+		t.Fatalf("deadline block progress missing: %+v", store.last.ProgressLedger)
+	}
+}
+
 func TestRunWriteControllerWorkflow_AppendsFollowupBatch(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("two batch change")
@@ -5456,6 +5535,116 @@ func TestRunWriteControllerWorkflow_ReplanCancelReportsAppliedPatch(t *testing.T
 	}
 	if store.last.Status == types.WriteWorkflowRunBlocked {
 		t.Fatalf("canceled replan should preserve resumable workflow state, got blocked: %+v", store.last)
+	}
+}
+
+func TestRunWriteControllerWorkflow_ReplanWriteDeadlineAfterAppliedPatchBlocksRun(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("write deadline after applied patch")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "repair already applied"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, ReasonCode: "initial", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "initial"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "apply"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "verify"},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "repair", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair"}},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}, Language: "en"}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(2)
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		*stepsUsed++
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			if planCalls == 1 {
+				mu.SetChangePlan(&types.ChangePlan{
+					ID:          "plan-applied-then-deadline",
+					Status:      types.PlanStatusPending,
+					Summary:     "first repair",
+					TargetPaths: []string{"src/fix.py"},
+					Changes: []types.FileChange{{
+						Path:       "src/fix.py",
+						Kind:       "modify",
+						NewContent: "def fixed():\n    return True\n",
+					}},
+				})
+				return &agent.StageOutput{}, nil
+			}
+			o.cancelWithSource("write mode wall-time exceeded (600s)", CancelSourceWriteDeadline)
+			return nil, context.Canceled
+		case types.StageApply:
+			plan := mu.ChangePlan()
+			if plan == nil {
+				t.Fatal("apply stage needs active plan")
+			}
+			plan.WorktreePath = t.TempDir()
+			plan.AppliedCommitSHA = "sha-applied"
+			for i := range plan.Changes {
+				plan.Changes[i].Apply = &types.FileChangeApplyRecord{Status: "applied"}
+			}
+			mu.SetChangePlan(plan)
+			return &agent.StageOutput{}, nil
+		case types.StageVerify:
+			plan := mu.ChangePlan()
+			if plan == nil {
+				t.Fatal("verify stage needs active plan")
+			}
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:         plan.ID,
+				Passed:         false,
+				FailureKind:    types.FailureKindTestsFailed,
+				FailureSummary: "targeted regression failed",
+				TestResults: []types.TestResult{{
+					Kind:        types.TestResultKindUnit,
+					AssertionID: "test_fix",
+					Suite:       "tests/test_fix.py",
+					Passed:      false,
+				}},
+			})
+			return &agent.StageOutput{}, nil
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("run should preserve cancellation error, got %v", err)
+	}
+	if store.last == nil {
+		t.Fatal("workflow state was not persisted")
+	}
+	if store.last.Status != types.WriteWorkflowRunBlocked {
+		t.Fatalf("deadline-interrupted workflow should be blocked, got %+v", store.last)
+	}
+	var batchStatus types.WriteWorkflowBatchStatus
+	for _, batch := range store.last.Batches {
+		if batch.ID == "batch-1" {
+			batchStatus = batch.Status
+			break
+		}
+	}
+	if batchStatus != types.WriteWorkflowBatchBlocked {
+		t.Fatalf("deadline-interrupted batch should be blocked, got %s", batchStatus)
+	}
+	for _, want := range []string{
+		"plan_batch_interrupted_after_applied_patch",
+		"plan_batch_interrupted_after_applied_patch_blocked",
+	} {
+		if !workflowProgressHasReason(store.last.ProgressLedger, want) {
+			t.Fatalf("progress ledger missing %s: %+v", want, store.last.ProgressLedger)
+		}
+	}
+	if !strings.Contains(mu.Result(), "already applied and preserved") {
+		t.Fatalf("result should preserve applied-patch guidance, got:\n%s", mu.Result())
 	}
 }
 

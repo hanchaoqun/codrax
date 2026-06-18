@@ -109,7 +109,21 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					return nil
 				}
 				if o.publishAppliedPatchInterruptedGuidance(&run, o.busCtx.Mutable.ChangePlan(), err, "controller_dispatch_interrupted_after_applied_patch") {
+					if o.appliedPatchInterruptedShouldBlock(err) {
+						run.Status = types.WriteWorkflowRunBlocked
+						updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+						appendControllerProgress(&run, run.ActiveBatchID, "controller_dispatch_interrupted_after_applied_patch_blocked",
+							"applied patch was preserved, but deterministic workflow interruption requires a terminal blocked state")
+					}
 					o.persistWriteWorkflowRun(&run)
+				}
+				if o.cancellationSourceIsWriteDeadline(err) {
+					run.Status = types.WriteWorkflowRunBlocked
+					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+					appendControllerProgress(&run, run.ActiveBatchID, "controller_dispatch_write_deadline_blocked",
+						"write-mode wall-clock deadline interrupted controller dispatch before a terminal workflow decision")
+					o.persistWriteWorkflowRun(&run)
+					o.publishBlockedRunGuidance(&run, "controller_dispatch_write_deadline")
 				}
 				return err
 			}
@@ -269,7 +283,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			if innerErr != nil {
 				lastInnerErr = innerErr
 				if o.publishAppliedPatchInterruptedGuidance(&run, plan, lastInnerErr, "plan_batch_interrupted_after_applied_patch") {
-					if !errors.Is(lastInnerErr, ErrCanceled) && !errors.Is(lastInnerErr, context.Canceled) {
+					if o.appliedPatchInterruptedShouldBlock(lastInnerErr) {
 						run.Status = types.WriteWorkflowRunBlocked
 						updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
 						appendControllerProgress(&run, run.ActiveBatchID, "plan_batch_interrupted_after_applied_patch_blocked",
@@ -1203,6 +1217,29 @@ func changePlanHasAppliedWork(plan *types.ChangePlan) bool {
 		}
 	}
 	return false
+}
+
+func (o *Orchestrator) appliedPatchInterruptedShouldBlock(err error) bool {
+	if err == nil {
+		return false
+	}
+	if !errors.Is(err, ErrCanceled) && !errors.Is(err, context.Canceled) {
+		return true
+	}
+	return o.cancellationSourceIsWriteDeadline(err)
+}
+
+func (o *Orchestrator) cancellationSourceIsWriteDeadline(err error) bool {
+	if err == nil {
+		return false
+	}
+	if !errors.Is(err, ErrCanceled) && !errors.Is(err, context.Canceled) {
+		return false
+	}
+	if o == nil || o.cancelToken == nil {
+		return false
+	}
+	return o.cancelToken.Source() == CancelSourceWriteDeadline
 }
 
 func (o *Orchestrator) publishAppliedPatchInterruptedGuidance(run *types.WriteWorkflowRun, plan *types.ChangePlan, err error, reasonCode string) bool {

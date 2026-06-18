@@ -3783,6 +3783,86 @@ Smoke evidence:
   'endswith'`. That is a separate probe-construction/budget-terminalization gap
   for the next batch, not an RC-68 regression.
 
+## 2026-06-18 RC-69 Typed Interruption Source And Applied-Patch Terminalization
+
+The RC-68 Django smoke proved red verification now routes to replan, but the
+final run still exported `workflow_status=in_progress` with
+`plan_batch_interrupted_after_applied_patch`. The controller had already
+preserved the applied patch and recorded failed verification evidence, yet the
+durable workflow status stayed ambiguous because all `context.Canceled` values
+were treated as resumable operator cancellation.
+
+This is a state-kernel gap, not a Django-specific repair. Online convergence has
+at least two different interruption sources:
+
+- operator cancellation (`Ctrl+C`, `/cancel`, explicit stop): preserve the
+  applied patch and keep a resumable workflow;
+- deterministic write wall-time cancellation: fail loud with a terminal
+  `blocked` workflow/batch after preserving recovery refs and typed evidence,
+  both when the patch has already been applied and when the controller is
+  interrupted after planning but before the next executable decision.
+
+The implementation must not parse the cancellation reason string. RC-69 adds a
+typed `CancelSource` to `CancelToken` and marks the write-mode deadline timer as
+`write_deadline`; REPL and public `Cancel(reason)` keep the default `user`
+source. Applied-patch interruption handling then consumes the typed source to
+choose resumable-vs-blocked state.
+
+Tasks:
+
+- [x] Add `CancelSource` to the orchestrator cancellation token and preserve
+  first-source-wins semantics.
+- [x] Mark the write-mode wall-clock timer with `CancelSourceWriteDeadline`
+  while keeping read mode and public user cancellation behavior unchanged.
+- [x] In controller plan/replan interruption after applied work, block the
+  workflow for typed write-deadline cancellation and preserve resumable state
+  for typed user/unknown cancellation.
+- [x] In controller dispatch interruption after a bounded plan has been produced
+  but not yet applied, block the workflow for typed write-deadline
+  cancellation instead of leaving `planned/in_progress`.
+- [x] Add focused tests for cancel-source recording, user cancel after applied
+  patch, write-deadline cancel after applied patch, and write-deadline cancel
+  after plan-before-apply.
+- [x] Run focused, related, full regressions, rerun the targeted Django smoke if
+  time allows, refresh this ledger, commit, and push.
+
+Design constraints:
+
+- Hard routing reads only the typed cancel source and workflow/plan/report
+  records.
+- No user-intent keywords, model prose, stdout narrative, issue text, or
+  `<think>` content participates in the gate.
+- Read/log/trace/data/operation/computer modes remain untouched; the deadline
+  source is set only by the existing write-mode timer.
+
+Verification:
+
+- `go test ./internal/orchestrator -run 'TestCancelToken_(FirstReasonWins|FirstSourceWins)|TestRunWriteControllerWorkflow_(DispatchWriteDeadlineAfterPlanBlocksRun|DoesNotRecoverCanceledControllerDispatch|ReplanCancelReportsAppliedPatch|ReplanWriteDeadlineAfterAppliedPatchBlocksRun|ReplanFailureAfterAppliedPatchBlocksRun|CanceledPlanRecordsCanceledReason)' -count=1`
+- `go test ./internal/orchestrator ./internal/writeflow ./internal/types -count=1`
+- `go test ./...`
+- `make test`
+- `make`
+- `git diff --check`
+
+SWE smoke:
+
+- First targeted Django rerun with the pre-dispatch-deadline fix exposed the
+  second edge: deadline after replacement plan production but before apply left
+  `workflow_in_progress_empty_patch`.
+- After adding generic typed `write_deadline` dispatch terminalization, the
+  targeted Django rerun at
+  `/private/tmp/codrax-swe-rc69b-django-20260618-150800` produced
+  `patch_bytes=1740`, `workflow_status=blocked`,
+  `workflow_latest_progress_reason_code=plan_batch_interrupted_after_applied_patch_blocked`,
+  `prediction_verdict=predicted_failed_verify`, and an official-harness
+  consumable prediction. This proves export/status no longer collapses to an
+  empty in-progress patch when deadline interrupts online convergence.
+- Functional correctness is still not achieved for `django__django-11742`: the
+  final patch fails local verification. The remaining system gaps are planner
+  edit-location affordance (repeated `old_text`/line-anchor retries) and
+  verification-probe fixture/lifecycle quality for framework objects. Those are
+  separate follow-up batches, not RC-69 state-kernel regressions.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3863,6 +3943,7 @@ Smoke evidence:
 | RC-66 | complete | Command-derived failure reasons now carry typed failure-kind attribution, so secondary unavailable runner signals such as `make_target_missing` cannot become the primary reason for a red `tests_failed` report. Focused tests, full `internal/tool`, full `go test ./...`, `make test`, and `git diff --check` pass. |
 | RC-67 | complete | Impact runner plans now filter Python package-marker `__init__.py` paths and render Django related test paths as runner-native labels via the existing `djangoSuiteSelector`; focused selector tests, full `internal/tool`, full `go test ./...`, `make test`, and `git diff --check` pass. |
 | RC-68 | complete | Observation authority now classifies mixed red-test plus secondary no-tests/unavailable evidence as failed/replan instead of unverified/finish. Focused writeflow tests, related packages, full `go test ./...`, `make test`, and `git diff --check` pass. Targeted Django smoke confirmed failed suite evidence now restores checkpoint and replans instead of terminalizing as unverified; the run exposed a follow-up probe-construction/interruption gap. |
+| RC-69 | complete | Typed cancellation source now distinguishes public user cancellation from write-mode wall-clock deadline cancellation. The write deadline terminalizes controller dispatch interruption as blocked both after an applied failed patch and after a plan-before-apply interruption, while user/unknown cancellation preserves resumability. Focused/related/full regressions, `make test`, `make`, and diff check pass. Targeted Django smoke now exports a non-empty harness-consumable prediction with `workflow_status=blocked` instead of `workflow_in_progress_empty_patch`; local correctness still fails and is tracked as planner edit-affordance/probe-fixture follow-up. |
 
 ## Acceptance Criteria
 
