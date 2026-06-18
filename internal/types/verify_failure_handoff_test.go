@@ -55,6 +55,10 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 	if len(h.FailingTests) != 1 || h.FailingTests[0].AssertionID != "TestA" {
 		t.Fatalf("only failed unit rows belong in FailingTests: %+v", h.FailingTests)
 	}
+	if len(h.FailureSignals) != 1 || h.FailureSignals[0].AssertionID != "TestA" ||
+		h.FailureSignals[0].Expected != "2" || h.FailureSignals[0].Actual != "3" {
+		t.Fatalf("compact failure signal not projected: %+v", h.FailureSignals)
+	}
 	if len(h.BuildErrors) != 1 || h.BuildErrors[0].File != "src/x.c" {
 		t.Fatalf("build errors must flatten: %+v", h.BuildErrors)
 	}

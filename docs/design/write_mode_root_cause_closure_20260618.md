@@ -3362,6 +3362,67 @@ RC-62 fresh xarray smoke:
   and/or patch critic guidance so online convergence reaches the RC-61-quality
   fix more consistently.
 
+## 2026-06-18 RC-63 Typed Failure-Signal Handoff
+
+RC-62 fresh xarray smoke proved the runtime now blocks bad patches through
+scoped impact tests, but it also exposed a convergence-quality gap: failed
+test evidence survives as long `failure_detail` text and failure-summary
+previews, while the next planner turn lacks a compact typed delta such as
+assertion, suite, first file:line, and high-signal assertion lines.
+
+This is a system-level handoff gap, not an xarray-specific bug:
+
+- online convergence depends on `Edit -> Observe -> Repair` loops carrying the
+  newest observation as the lead repair constraint;
+- current `VerifyFailureHandoff` carries failed rows and artifacts, but not a
+  normalized failure signal that can be ranked, deduped, and rendered within a
+  small planner Top-N budget;
+- `WriteContextPackFromChangeReport` renders `failed_test` as test id plus
+  raw detail, which asks the model to parse runner prose repeatedly;
+- the existing `ExtractFailureSignal` helper lived under orchestrator, so it
+  could not serve durable `types` handoff without copy/paste drift.
+
+Design:
+
+- Move the shared runner-output signal extractor to `internal/types`, leaving a
+  thin orchestrator wrapper for existing callers.
+- Add `types.TestFailureSignal` as soft replan guidance:
+  `assertion_id / suite / kind / location / signal / expected / actual`.
+- Generate signals only from typed `TestResult` rows and runner output; no user
+  intent keywords, issue text, model prose, or free-form rationale drives hard
+  logic.
+- Attach bounded `failure_signals[]` to `VerifyFailureHandoff`.
+- Project `failure_signal` P2 items into `WriteContextPack` before raw
+  `failed_test` rows, so planner/controller/verifier limited views preserve the
+  compact repair signal.
+- Render `failure_signal` rows in the planner's direct failed-verify handoff
+  section before long failing-test details.
+- Keep original `failed_test`, `failure_summary_blob_ref`, and artifact refs as
+  fallback context for cases where the compact signal is insufficient.
+
+Tasks:
+
+- [x] Add shared failure-signal extractor and typed signal shape.
+- [x] Preserve existing orchestrator `ExtractFailureSignal` API through a thin
+  wrapper.
+- [x] Add `VerifyFailureHandoff.FailureSignals`.
+- [x] Add `failure_signal` to `WriteContextPack` and planner limited-view
+  priority.
+- [x] Render direct planner handoff failure signals before raw failing tests.
+- [x] Update planner prompt guidance to prefer compact failure signals as soft
+  evidence.
+- [x] Run focused types/agent/orchestrator tests, full Go regression, and
+  update smoke/eval evidence.
+
+Verification:
+
+- `go test ./internal/types -run 'Test(ExtractTestFailureSignal|BuildVerifyFailureHandoff|WriteContextPackFromChangeReport|WriteContextPackPlanner)' -count=1`
+- `go test ./internal/orchestrator -run TestExtractFailureSignal -count=1`
+- `go test ./internal/agent -run 'TestBuildVerifyFailureHandoffSection|TestPlannerWriteContextPack|TestChangePlanSkill|TestPlanner' -count=1`
+- `go test ./internal/types ./internal/agent ./internal/orchestrator ./internal/tool ./internal/writeflow -count=1`
+- `go test ./...`
+- `make test`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3435,6 +3496,7 @@ RC-62 fresh xarray smoke:
 | RC-61 | complete | Probe-pass continuation now runs concrete impact related-test surfaces instead of skipping them, trims that continuation to impact runner plans, preserves probe-primary infra downgrades, fixes unittest directory selector rendering, and prefers precise pytest file selectors over unittest fallback. Verification: focused `internal/tool`, related packages, full `go test ./...`, `make test`, diff check, and xarray RC-61 SWE smoke pass. |
 | RC-61 smoke | complete | Reran `pydata__xarray-4248` at `/private/tmp/codrax-swe-rc61-xarray-20260618-125247`: prediction export was non-empty, official harness dry-run accepted it, verify executed the bounded probe plus scoped `xarray/tests/test_formatting.py` and `xarray/tests/test_formatting_html.py`, `verify_test_count=32`, and final PatchReview coverage was `verified`. A stale adapter confidence downgrade from earlier plan-level telemetry remains as RC-62 candidate. |
 | RC-62 | complete | PatchReview confidence authority selector now makes coherent passed deliveries consume final report-plan PatchReview for confidence while preserving delivery/source-owner hard blockers and telemetry. Adapter unit tests, Python compile, local adapter smoke, and RC-61 xarray artifact recompute pass; a fresh xarray smoke correctly failed local acceptance after scoped impact tests caught a narrower bad patch, exposing a separate replan-quality follow-up. |
+| RC-63 | complete | Typed failure-signal handoff now projects failed verify observations into compact assertion/location/signal rows in `VerifyFailureHandoff` and `WriteContextPack`, renders them before raw failing-test details in planner replan prompts, and keeps all routing tied to typed report verdicts. Focused tests, related package tests, full `go test ./...`, and `make test` pass. |
 
 ## Acceptance Criteria
 

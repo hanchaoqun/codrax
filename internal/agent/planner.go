@@ -1628,6 +1628,17 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 	}
 	const maxRows = 10
 	shown := 0
+	for _, signal := range h.FailureSignals {
+		if shown >= maxRows {
+			fmt.Fprintf(&b, "- … (+%d more failure signals)\n", len(h.FailureSignals)-shown)
+			break
+		}
+		if text := types.RenderTestFailureSignal(signal); text != "" {
+			fmt.Fprintf(&b, "- failure_signal: %s\n", limitWriteControllerText(text, 700))
+			shown++
+		}
+	}
+	shown = 0
 	for _, tr := range h.FailingTests {
 		if shown >= maxRows {
 			fmt.Fprintf(&b, "- … (+%d more failing tests)\n", len(h.FailingTests)-shown)

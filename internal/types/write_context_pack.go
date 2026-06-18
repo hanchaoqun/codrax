@@ -867,6 +867,11 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 		if result.Passed {
 			continue
 		}
+		if signal := ExtractTestFailureSignal(result, defaultFailureSignalMaxChars); renderTestFailureSignal(signal) != "" {
+			pack.Items = append(pack.Items, writeContextItem("failure_signal", WriteContextP2, renderTestFailureSignal(signal), "verify",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+			pack.Items[len(pack.Items)-1].ID = writeFailureSignalContextID(signal)
+		}
 		text := result.AssertionID
 		if text == "" {
 			text = result.Suite
@@ -1394,7 +1399,7 @@ func writeContextMinimumP0InLimitedView(limit int) int {
 
 func writeContextVerifyFailureKind(kind string) bool {
 	switch kind {
-	case "verify_failure", "build_failure", "failed_test", "build_error", "regression_assertion", "no_tests_runner", "executed_command", "failure_summary_blob_ref", "failure_reason_code", "verification_diagnostic", "verification_confidence":
+	case "verify_failure", "build_failure", "failure_signal", "failed_test", "build_error", "regression_assertion", "no_tests_runner", "executed_command", "failure_summary_blob_ref", "failure_reason_code", "verification_diagnostic", "verification_confidence":
 		return true
 	default:
 		return false
@@ -1688,6 +1693,13 @@ func writeFailedTestContextID(result TestResult) string {
 		return ""
 	}
 	return writeContextStableID("failed_test", result.Suite, result.AssertionID)
+}
+
+func writeFailureSignalContextID(signal TestFailureSignal) string {
+	if strings.TrimSpace(signal.Suite) == "" && strings.TrimSpace(signal.AssertionID) == "" && strings.TrimSpace(signal.Location) == "" {
+		return ""
+	}
+	return writeContextStableID("failure_signal", signal.Suite, signal.AssertionID, signal.Location)
 }
 
 func writeBuildErrorContextID(err BuildError) string {

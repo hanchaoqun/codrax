@@ -12,6 +12,7 @@ const (
 	maxHandoffCommands     = 6
 	maxHandoffDiagnostics  = 8
 	maxHandoffConfidence   = 8
+	maxHandoffSignals      = 10
 )
 
 // VerifyFailureHandoff is the typed carrier that brings a failed post-apply
@@ -52,6 +53,12 @@ type VerifyFailureHandoff struct {
 
 	// FailingTests are the failed assertion rows (bounded).
 	FailingTests []TestResult `json:"failing_tests,omitempty"`
+
+	// FailureSignals are compact, typed projections of failed assertions for
+	// the next planning round. They are derived from TestResult fields and
+	// runner failure detail; consumers use them as soft repair guidance instead
+	// of parsing long traceback prose.
+	FailureSignals []TestFailureSignal `json:"failure_signals,omitempty"`
 
 	// BuildErrors are the parsed compile rows (bounded).
 	BuildErrors []BuildError `json:"build_errors,omitempty"`
@@ -141,6 +148,11 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 			continue
 		}
 		h.FailingTests = append(h.FailingTests, tr)
+		if len(h.FailureSignals) < maxHandoffSignals {
+			if signal := ExtractTestFailureSignal(tr, defaultFailureSignalMaxChars); renderTestFailureSignal(signal) != "" {
+				h.FailureSignals = append(h.FailureSignals, signal)
+			}
+		}
 	}
 	if report.TestSurface != nil {
 		executed := map[string]bool{}

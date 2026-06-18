@@ -687,6 +687,11 @@ func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
 		FailingTests: []types.TestResult{
 			{AssertionID: "TestAscii", Suite: "RandomStringUtilsTest", Passed: false, FailureDetail: "fast path must require end <= 0x7f"},
 		},
+		FailureSignals: []types.TestFailureSignal{{
+			AssertionID: "TestAscii",
+			Suite:       "RandomStringUtilsTest",
+			Signal:      "fast path must require end <= 0x7f",
+		}},
 		BuildErrors:            []types.BuildError{{File: "src/x.c", Line: 42, Message: "expected ;"}},
 		FailureSummary:         "1 of 3 tests failed",
 		BlobRef:                "/tmp/blob/run.txt",
@@ -705,6 +710,7 @@ func TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt(t *testing.T) {
 		"command: `make check` (cwd=., exit=2, runner=make)",
 		"diagnostic: category=probe_authoring severity=warning reason_code=verification_probe_name_error runner=verification_probe outcome=parser_error cwd=.",
 		"confidence: category=probe_contract_refs status=missing severity=warning reason_code=verification_probe_missing_required_contract_ref source=verification_probe",
+		"failure_signal: assertion=TestAscii suite=RandomStringUtilsTest signal=fast path must require end <= 0x7f",
 		"failing_test: TestAscii (suite=RandomStringUtilsTest)",
 		"build_error: src/x.c:42",
 		"full runner output: /tmp/blob/run.txt",

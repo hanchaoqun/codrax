@@ -599,6 +599,7 @@ func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 		{"verification_diagnostic", "reason_code=verification_probe_name_error"},
 		{"verification_confidence", "category=probe_contract_refs"},
 		{"verification_confidence", "reason_code=verification_probe_missing_required_contract_ref"},
+		{"failure_signal", "assertion=internal/foo.go:10"},
 		{"failed_test", "undefined: Foo"},
 		{"build_error", "internal/foo.go:10 Foo undefined: Foo"},
 		{"executed_command", "reason_code=pytest_import_startup_error"},
