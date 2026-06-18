@@ -3914,6 +3914,59 @@ Verification:
   regressions pass.
 - Full `go test ./...` passes.
 
+## 2026-06-18 RC-71 Verification Probe Top-Level Exception Boundary
+
+RC-69/RC-70 Django follow-up kept one verifier-quality gap open: a bounded
+`verification_probes[]` check can fail because the probe itself constructed an
+unrealistic framework fixture or lifecycle, not because the patched product
+code is wrong. Before this batch, Python probes treated only top-level
+`NameError` as probe authoring/infrastructure. Other top-level exceptions such
+as `AttributeError`, `TypeError`, `ValueError`, or `FileNotFoundError` could be
+classified as `tests_failed`, causing the controller to repair product code from
+probe-fixture noise.
+
+This is a typed observation-boundary issue, not a prompt issue:
+
+- if a Python probe traceback contains only `<codrax_verification_probe>` frames
+  and no product-code frame, the exception is probe-authored and produces an
+  unavailable local verification signal;
+- if the traceback enters an actual repo/product file, the same exception family
+  remains a real `tests_failed` verification failure;
+- AssertionError and explicit non-zero SystemExit remain behavior failures;
+- import and syntax errors keep their existing parser/unavailable semantics.
+
+Design constraints:
+
+- The hard gate reads only the structured probe wrapper status:
+  `outcome`, exception type, exit code, and `probe_top_level`.
+- No user issue text, model rationale, stdout prose, manual audit notes, or
+  `<think>` content participates in classification.
+- The output remains existing typed `ChangeReport`,
+  `ExecutedCommand.ReasonCode`, `VerificationDiagnostic`, and
+  `VerificationConfidence` records, so handoff/REPL/eval consumers do not need
+  bespoke parsing.
+
+Tasks:
+
+- [x] Add `verification_probe_top_level_exception` for Python probe exceptions
+  with `probe_top_level=true`.
+- [x] Classify top-level probe exceptions as `parser_error` /
+  `VerificationStatus=unavailable` with `probe_authoring` diagnostics.
+- [x] Preserve product-code-frame exceptions as `tests_failed` and
+  `verification_probe_exception`.
+- [x] Add focused tests for top-level probe authoring failure, product-frame
+  runtime failure, existing import errors, and NameError diagnostics.
+- [x] Run related/full regressions, refresh this ledger with verification
+  evidence, commit, and push.
+
+Verification:
+
+- Focused probe-boundary tests pass.
+- `go test ./internal/tool -count=1` passes.
+- `go test ./internal/tool ./internal/types ./internal/orchestrator -count=1`
+  passes.
+- Full `go test ./...` passes.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3996,6 +4049,7 @@ Verification:
 | RC-68 | complete | Observation authority now classifies mixed red-test plus secondary no-tests/unavailable evidence as failed/replan instead of unverified/finish. Focused writeflow tests, related packages, full `go test ./...`, `make test`, and `git diff --check` pass. Targeted Django smoke confirmed failed suite evidence now restores checkpoint and replans instead of terminalizing as unverified; the run exposed a follow-up probe-construction/interruption gap. |
 | RC-69 | complete | Typed cancellation source now distinguishes public user cancellation from write-mode wall-clock deadline cancellation. The write deadline terminalizes controller dispatch interruption as blocked both after an applied failed patch and after a plan-before-apply interruption, while user/unknown cancellation preserves resumability. Focused/related/full regressions, `make test`, `make`, and diff check pass. Targeted Django smoke now exports a non-empty harness-consumable prediction with `workflow_status=blocked` instead of `workflow_in_progress_empty_patch`; local correctness still fails and is tracked as planner edit-affordance/probe-fixture follow-up. |
 | RC-70 | complete | Structured edit compilation now relocates repeated `old_text` anchors only when current same-file bytes prove exactly one match inside a bounded local window around the submitted line. This reduces `emit_change_plan` retry loops for nearby stale line numbers without reading prompt prose, user issue text, stdout narrative, or `<think>`. Focused relocation tests, related packages, and full `go test ./...` pass. |
+| RC-71 | complete | Python verification probes now separate probe-authored top-level exceptions from product-code runtime failures using the wrapper's typed `probe_top_level` status. Top-level probe exceptions become unavailable probe-authoring diagnostics; product-frame exceptions remain red `tests_failed`. Focused probe-boundary tests, related packages, and full `go test ./...` pass. |
 
 ## Acceptance Criteria
 

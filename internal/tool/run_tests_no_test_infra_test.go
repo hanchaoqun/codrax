@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1692,18 +1693,20 @@ func TestRunTestsVerificationProbeRuntimeExceptionIsTestFailure(t *testing.T) {
 		t.Skip("no usable python on PATH; skip")
 	}
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+	fixturePath := filepath.Join(root, "codrax_probe_product_fixture.py")
+	if err := os.WriteFile(fixturePath, []byte("def missing_artifact():\n    raise FileNotFoundError('/tmp/missing.xml')\n"), 0o644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
+	probeCode := fmt.Sprintf("import importlib.util\nspec = importlib.util.spec_from_file_location('codrax_probe_product_fixture', %q)\nmod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\nmod.missing_artifact()\n", fixturePath)
 	mu := types.NewMutableState("probe exception")
 	mu.SetChangePlan(&types.ChangePlan{
 		ID:          "plan-probe-exception",
 		Status:      types.PlanStatusPending,
-		TargetPaths: []string{"widget.py"},
+		TargetPaths: []string{"codrax_probe_product_fixture.py"},
 		VerificationProbes: []types.VerificationProbe{{
 			ID:       "missing_xml_artifact",
 			Language: "python",
-			Code:     "raise FileNotFoundError('/tmp/missing.xml')\n",
+			Code:     probeCode,
 		}},
 	})
 	ctx := &types.BusContext{
@@ -1749,6 +1752,68 @@ func TestRunTestsVerificationProbeRuntimeExceptionIsTestFailure(t *testing.T) {
 	}
 	if !foundFailedCommand {
 		t.Fatalf("executed command evidence should include failing probe reason_code, got %+v", report.ExecutedCommands)
+	}
+}
+
+func TestRunTestsVerificationProbeTopLevelExceptionIsParserError(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe top-level exception")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-top-level-exception",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "bad_fixture_setup",
+			Language: "python",
+			Code:     "raise AttributeError('bad probe fixture')\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("top-level exception verification_probe must not pass run_tests, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode != "verification_probe_top_level_exception" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_top_level_exception; report=%+v", report.FailureReasonCode, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("VerificationStatus = %q, want unavailable", got)
+	}
+	if !changeReportHasVerificationDiagnostic(report, "probe_authoring", "verification_probe_top_level_exception") {
+		t.Fatalf("verification probe authoring diagnostic missing: %+v", report.VerificationDiagnostics)
+	}
+	foundParserCommand := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_top_level_exception" {
+			foundParserCommand = true
+		}
+	}
+	if !foundParserCommand {
+		t.Fatalf("executed command evidence should include parser_error probe reason_code, got %+v", report.ExecutedCommands)
 	}
 }
 

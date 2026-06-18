@@ -1159,6 +1159,14 @@ func pythonVerificationProbeReasonCode(status pythonVerificationProbeStatus) str
 	case "syntax_error":
 		return "verification_probe_syntax_error"
 	case "exception":
+		if status.ProbeTopLevel {
+			switch exception {
+			case "NameError":
+				return "verification_probe_name_error"
+			default:
+				return "verification_probe_top_level_exception"
+			}
+		}
 		switch exception {
 		case "NameError":
 			return "verification_probe_name_error"
@@ -1179,12 +1187,7 @@ func pythonVerificationProbeExceptionIsInfrastructure(status pythonVerificationP
 	if !status.ProbeTopLevel {
 		return false
 	}
-	switch strings.TrimSpace(status.Exception) {
-	case "NameError":
-		return true
-	default:
-		return false
-	}
+	return true
 }
 
 func resolveVerificationProbeWorkingDir(repoRoot, workingDir, language string) (string, string, error) {
