@@ -76,6 +76,7 @@ type ExecutedCommand struct {
 	Runner     string `json:"runner"`
 	Framework  string `json:"framework,omitempty"`
 	WorkingDir string `json:"working_dir,omitempty"`
+	Suite      string `json:"suite,omitempty"`
 	Command    string `json:"command,omitempty"`
 	ExitCode   int    `json:"exit_code"`
 	DurationMS int64  `json:"duration_ms,omitempty"`

@@ -491,6 +491,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 								Runner:     plan.Runner,
 								Framework:  plan.Framework,
 								WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+								Suite:      strings.TrimSpace(plan.Suite),
 								Command:    cmdPreview,
 								Source:     verificationProbeContinuationSourceProbeSuiteContinued,
 								Outcome:    "suite_continued",
@@ -638,6 +639,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					Runner:     runner,
 					Framework:  plan.Framework,
 					WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+					Suite:      strings.TrimSpace(plan.Suite),
 					Source:     planSourceFor(plan),
 					Outcome:    "not_configured",
 				})
@@ -694,6 +696,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 							Runner:     runner,
 							Framework:  plan.Framework,
 							WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+							Suite:      strings.TrimSpace(plan.Suite),
 							Source:     planSourceFor(plan),
 							Outcome:    "syntax_check_fallback",
 						})
@@ -729,6 +732,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Runner:     runner,
 				Framework:  plan.Framework,
 				WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+				Suite:      strings.TrimSpace(plan.Suite),
 				Source:     planSourceFor(plan),
 				Outcome:    "synthetic_no_tests",
 			})
@@ -749,6 +753,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					Runner:     runner,
 					Framework:  plan.Framework,
 					WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+					Suite:      strings.TrimSpace(plan.Suite),
 					Source:     planSourceFor(plan),
 					Outcome:    "syntax_preflight",
 				})
@@ -840,6 +845,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			Runner:     runner,
 			Framework:  plan.Framework,
 			WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+			Suite:      strings.TrimSpace(plan.Suite),
 			Command:    cmdStr,
 			ExitCode:   execExit,
 			DurationMS: execDuration.Milliseconds(),
@@ -1097,6 +1103,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 						Runner:     runner,
 						Framework:  plan.Framework,
 						WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+						Suite:      strings.TrimSpace(plan.Suite),
 						Command:    fallback.Command,
 						ExitCode:   fallback.ExitCode,
 						DurationMS: fallback.Duration.Milliseconds(),
@@ -1437,6 +1444,9 @@ func inheritRunTestsScopeFromVerifyFailureHandoff(ctx *types.BusContext, p *runT
 		if suite := uniqueVerifyFailureSuite(handoff.FailingTests); suite != "" {
 			p.Suite = suite
 			changed = true
+		} else if suite := inheritedCommandSuiteSelector(cmd); suite != "" {
+			p.Suite = suite
+			changed = true
 		}
 	}
 	return changed
@@ -1487,6 +1497,14 @@ func latestExecutedCommandForVerifyScope(commands []types.ExecutedCommand, p *ru
 		return types.ExecutedCommand{}, false
 	}
 	return selected, true
+}
+
+func inheritedCommandSuiteSelector(cmd types.ExecutedCommand) string {
+	suite := strings.TrimSpace(cmd.Suite)
+	if suite == "" || !verifyFailureSuiteReusableAsSelector(suite) {
+		return ""
+	}
+	return suite
 }
 
 func uniqueVerifyFailureSuite(results []types.TestResult) string {

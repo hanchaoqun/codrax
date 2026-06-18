@@ -1537,6 +1537,38 @@ func TestRunTestsDoesNotInventSuiteForAmbiguousFailureHandoff(t *testing.T) {
 	}
 }
 
+func TestRunTestsInheritsCommandSuiteWhenFailureRowsAreDispersed(t *testing.T) {
+	mu := types.NewMutableState("command suite verify scope")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		Executed: []types.ExecutedCommand{{
+			Runner:     "python",
+			Framework:  "django",
+			WorkingDir: ".",
+			Suite:      "invalid_models_tests.test_ordinary_fields",
+			Outcome:    "executed",
+		}},
+		FailingTests: []types.TestResult{
+			{Kind: types.TestResultKindUnit, AssertionID: "test_non_iterable_choices", Suite: "invalid_models_tests.test_ordinary_fields.CharFieldTests.test_non_iterable_choices", Passed: false},
+			{Kind: types.TestResultKindUnit, AssertionID: "test_choices_named_group_max_length_too_small", Suite: "invalid_models_tests.test_ordinary_fields.CharFieldTests.test_choices_named_group_max_length_too_small", Passed: false},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+	}
+	params := runTestsParams{}
+	if !inheritRunTestsScopeFromVerifyFailureHandoff(ctx, &params) {
+		t.Fatal("expected command-level suite to be inherited from typed handoff")
+	}
+	if params.Runner != "python" || params.Framework != "django" || params.WorkingDir != "." {
+		t.Fatalf("command lineage not inherited: %+v", params)
+	}
+	if params.Suite != "invalid_models_tests.test_ordinary_fields" {
+		t.Fatalf("suite = %q, want prior command-level selector", params.Suite)
+	}
+}
+
 func TestRunTestsDoesNotInheritScopeAcrossAmbiguousExecutedCommands(t *testing.T) {
 	mu := types.NewMutableState("ambiguous executed commands")
 	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{

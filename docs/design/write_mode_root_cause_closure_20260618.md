@@ -4196,6 +4196,7 @@ Verification:
 | RC-72 | complete | Actual-diff nested collection branch exclusion signal is now a multi-language provider event, not a Python-only or Django-specific patch. Newly skipped nested collection branches become soft semantic coverage obligations with `impact_kind=effect_followup`, preserving automation while requiring bounded proof/replan before high-confidence local acceptance. Verification: focused provider tests, writeflow package, related packages, full `go test ./...`, `make test`, `make`, and diff check pass. |
 | RC-73 | complete | Python actual-diff Patch Critic now flags added function-body returns that leave later same-function statements unreachable. This closes the RC-72 Django smoke gap where replan prepended a new method body before the old body, local acceptance failed correctly, but PatchReview lacked a structural hard event for the exported bad patch. Verification: focused Python provider tests, writeflow package, related packages, full `go test ./...`, `make test`, `make`, and diff check pass. |
 | RC-74 | complete | Plan path-state validation now rejects typed `ChangePlan` mismatches before apply: `create` for an existing file/directory, `modify`/`patch`/`rename` source for a missing or directory path, rename destination collisions, repo-boundary escapes, and directory deletes. This closes the RC-78 Django partial-apply/stale-approval class where an existing test file was planned as `create`, the source file applied, test-file create failed, and the workflow blocked with an empty exported patch. Verification: focused `emit_change_plan` path-state tests and full `internal/tool` package pass. |
+| RC-75 | complete | Verify scoped selector handoff now persists `ExecutedCommand.Suite` and falls back to that command-level selector when failure rows are multiple concrete cases under the same prior suite. This closes the RC-79 Django regression where replan verify inherited runner/framework/cwd but an empty suite widened to all 13040 tests, surfacing unrelated host-version failures. Verification: focused handoff inheritance tests and tool regression pass. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -4242,6 +4243,63 @@ Verification:
     `go test ./internal/tool -run 'TestEmitChangePlan_(RejectsCreateForExistingFile|RejectsModifyAndPatchForMissingFile|RejectsRenameDestinationExisting|RepairsStringWrappedChangesArray)' -count=1`.
   - Tool package regression passed:
     `go test ./internal/tool -count=1`.
+
+## 2026-06-18 RC-75 Command-Level Verify Suite Handoff
+
+- Evidence:
+  - SWE-bench Lite targeted run `django__django-11742` at
+    `/private/tmp/codrax-swe-rc79-django-20260618-rc79-django-path-state`
+    confirmed RC-74: prediction export became non-empty (`patch_bytes=2257`)
+    instead of the prior empty patch, and the first failed verify correctly
+    restored the checkpoint and replanned.
+  - The next failure was a verify-scope regression. The first verify executed
+    `python3 tests/runtests.py invalid_models_tests.test_ordinary_fields -v 1`
+    and produced two concrete failures inside that module. The following verify
+    inherited only `runner=python`, `framework=django`, and `working_dir=.`;
+    the command-level suite was not persisted, so `suite=""` widened to
+    `python3 tests/runtests.py -v 1` and ran 13040 tests, surfacing unrelated
+    Python 3.11/host-version failures in mail and validators.
+- Generalized rule:
+  - `ExecutedCommand` is now the durable authority for the exact selector that
+    was executed. It carries `suite` alongside runner/framework/cwd/command.
+  - Scope inheritance first uses a single reusable failing-test suite. If
+    failure rows are multiple concrete cases but the prior command has a real
+    reusable suite selector, the next verify inherits the command-level suite.
+  - Empty suite is not treated as a scoped selector. Synthetic/aggregate labels
+    such as `unittest`, `verification_probe/*`, `runner_missing`, `py_compile`,
+    `build`, and `make-test` remain evidence only and are never converted into
+    a runner selector.
+- Prompt and hard-gate hygiene:
+  - The decision consumes only typed `VerifyFailureHandoff.Executed`,
+    `ExecutedCommand.Suite`, and `TestResult.Suite`. It does not parse command
+    strings, runner output, user issue text, model prose, or `<think>`.
+  - The change is runner-general: it applies to any runner that records a real
+    suite selector, not only Django/Python.
+- Task list:
+  - [x] Add `suite` to `types.ExecutedCommand`.
+  - [x] Populate `ExecutedCommand.Suite` from each `runnerPlan.Suite` for real
+    execution, syntax preflight, syntax fallback, synthetic no-tests, and
+    suite-continuation rows.
+  - [x] Teach verify scope inheritance to fall back to command-level suite
+    when failing-test suites are dispersed.
+  - [x] Add focused regression for dispersed failure rows under one command
+    suite.
+  - [x] Update architecture and user guides, including synchronized HTML.
+- Verification:
+  - Focused inheritance test passed:
+    `go test ./internal/tool -run 'TestRunTests(InheritsScopedSuiteFromVerifyFailureHandoff|DoesNotInventSuiteForAmbiguousFailureHandoff|InheritsCommandSuiteWhenFailureRowsAreDispersed|DoesNotInheritScopeAcrossAmbiguousExecutedCommands)' -count=1`.
+  - Targeted RC-80 Django rerun at
+    `/private/tmp/codrax-swe-rc80-django-20260618-rc80-django-command-suite`
+    exported a non-empty prediction (`patch_bytes=2863`) and verified the
+    selector fix in live logs: after the first failure,
+    `run_tests` inherited
+    `suite="invalid_models_tests.test_ordinary_fields"` and executed
+    `python3 tests/runtests.py invalid_models_tests.test_ordinary_fields -v 1`.
+    The run no longer executed the RC-79 all-suite
+    `python3 tests/runtests.py -v 1` / 13040-test path. Final local
+    acceptance still failed because PatchReview correctly found
+    `python_duplicate_symbol_added` in a generated test file; that is tracked
+    as a planner/patch-quality follow-up, not a selector handoff failure.
 
 ## Acceptance Criteria
 
