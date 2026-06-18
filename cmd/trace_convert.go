@@ -364,7 +364,7 @@ func traceConvertArtifactLines(lang string, artifacts []hitraceconv.Artifact) []
 		if artifact.Type == hitraceconv.ArtifactSystrace {
 			continue
 		}
-		details := traceConvertArtifactDetails(artifact)
+		details := traceConvertArtifactDetails(lang, artifact)
 		if traceConvertUseZh(lang) {
 			if details != "" {
 				lines = append(lines, fmt.Sprintf("artifact[%s]：%s（%s）", artifact.Type, artifact.Path, details))
@@ -382,66 +382,91 @@ func traceConvertArtifactLines(lang string, artifacts []hitraceconv.Artifact) []
 	return lines
 }
 
-func traceConvertArtifactDetails(artifact hitraceconv.Artifact) string {
+func traceConvertArtifactDetails(lang string, artifact hitraceconv.Artifact) string {
 	var details []string
+	if format := traceConvertArtifactFormatDetail(lang, artifact.Type); format != "" {
+		details = append(details, format)
+	}
 	if artifact.Bytes > 0 {
-		details = append(details, fmt.Sprintf("bytes=%d", artifact.Bytes))
+		details = append(details, traceConvertDetailKV(lang, "bytes", fmt.Sprintf("%d", artifact.Bytes)))
 	}
 	if artifact.Converter != "" {
-		details = append(details, "converter="+artifact.Converter)
+		details = append(details, traceConvertDetailKV(lang, "converter", artifact.Converter))
 	}
 	if artifact.Perf != nil {
-		details = append(details, traceConvertPerfCapabilityDetails(*artifact.Perf)...)
+		details = append(details, traceConvertPerfCapabilityDetails(lang, *artifact.Perf)...)
 	}
 	if artifact.DataType != 0 {
-		details = append(details, fmt.Sprintf("data_type=%d", artifact.DataType))
+		details = append(details, traceConvertDetailKV(lang, "data_type", fmt.Sprintf("%d", artifact.DataType)))
 	}
 	if artifact.PluginName != "" {
-		details = append(details, "plugin="+artifact.PluginName)
+		details = append(details, traceConvertDetailKV(lang, "plugin", artifact.PluginName))
 	}
 	if artifact.PluginVersion != "" {
-		details = append(details, "plugin_version="+artifact.PluginVersion)
+		details = append(details, traceConvertDetailKV(lang, "plugin_version", artifact.PluginVersion))
 	}
 	if artifact.SourceOffset > 0 {
-		details = append(details, fmt.Sprintf("source_offset=%d", artifact.SourceOffset))
+		details = append(details, traceConvertDetailKV(lang, "source_offset", fmt.Sprintf("%d", artifact.SourceOffset)))
 	}
 	if artifact.SourceBytes > 0 {
-		details = append(details, fmt.Sprintf("source_bytes=%d", artifact.SourceBytes))
+		details = append(details, traceConvertDetailKV(lang, "source_bytes", fmt.Sprintf("%d", artifact.SourceBytes)))
 	}
 	if len(artifact.Caveats) > 0 {
-		details = append(details, "caveats="+strings.Join(artifact.Caveats, "; "))
+		details = append(details, traceConvertDetailKV(lang, "caveats", strings.Join(traceConvertLocalizedMessages(lang, artifact.Caveats), "; ")))
 	}
 	return strings.Join(details, " ")
 }
 
-func traceConvertPerfCapabilityDetails(cap hitraceconv.PerfArtifactCapability) []string {
+func traceConvertArtifactFormatDetail(lang, typ string) string {
+	switch typ {
+	case hitraceconv.ArtifactPerfData:
+		if traceConvertUseZh(lang) {
+			return "格式=二进制 perf.data sidecar"
+		}
+		return "format=binary_perf_data_sidecar"
+	case hitraceconv.ArtifactPerfTrace:
+		if traceConvertUseZh(lang) {
+			return "格式=文本 perftrace"
+		}
+		return "format=text_perftrace"
+	case hitraceconv.ArtifactTraceBundle:
+		if traceConvertUseZh(lang) {
+			return "格式=tracebundle 元数据"
+		}
+		return "format=tracebundle_metadata"
+	default:
+		return ""
+	}
+}
+
+func traceConvertPerfCapabilityDetails(lang string, cap hitraceconv.PerfArtifactCapability) []string {
 	var details []string
 	if cap.ProviderName != "" {
-		details = append(details, "perf_provider="+cap.ProviderName)
+		details = append(details, traceConvertDetailKV(lang, "perf_provider", cap.ProviderName))
 	}
 	if cap.ProviderKind != "" {
-		details = append(details, "perf_provider_kind="+cap.ProviderKind)
+		details = append(details, traceConvertDetailKV(lang, "perf_provider_kind", cap.ProviderKind))
 	}
 	if cap.InputFormat != "" {
-		details = append(details, "perf_input="+cap.InputFormat)
+		details = append(details, traceConvertDetailKV(lang, "perf_input", cap.InputFormat))
 	}
 	if cap.Symbolization != "" {
-		details = append(details, "perf_symbolization="+cap.Symbolization)
+		details = append(details, traceConvertDetailKV(lang, "perf_symbolization", cap.Symbolization))
 	}
 	if cap.CPUIdentity != "" {
-		details = append(details, "perf_cpu="+cap.CPUIdentity)
+		details = append(details, traceConvertDetailKV(lang, "perf_cpu", cap.CPUIdentity))
 	}
 	if cap.Callchain != "" {
-		details = append(details, "perf_callchain="+cap.Callchain)
+		details = append(details, traceConvertDetailKV(lang, "perf_callchain", cap.Callchain))
 	}
 	if cap.TimeAlignment != "" {
-		details = append(details, "perf_time_alignment="+cap.TimeAlignment)
+		details = append(details, traceConvertDetailKV(lang, "perf_time_alignment", cap.TimeAlignment))
 	}
 	if cap.TraceQueryReady {
-		details = append(details, "trace_query_ready=true")
+		details = append(details, traceConvertDetailKV(lang, "trace_query_ready", traceConvertBoolValue(lang, true)))
 	}
 	if cap.Degraded {
-		details = append(details, "perf_degraded=true")
+		details = append(details, traceConvertDetailKV(lang, "perf_degraded", traceConvertBoolValue(lang, true)))
 	}
 	return details
 }
@@ -449,7 +474,7 @@ func traceConvertPerfCapabilityDetails(cap hitraceconv.PerfArtifactCapability) [
 func traceConvertProviderDecisionLines(lang string, decisions []hitraceconv.PerfProviderDecision) []string {
 	var lines []string
 	for _, decision := range decisions {
-		details := traceConvertProviderDecisionDetails(decision)
+		details := traceConvertProviderDecisionDetails(lang, decision)
 		prefix := fmt.Sprintf("provider_decision[%s/%s]", decision.ProviderKind, decision.ProviderName)
 		if traceConvertUseZh(lang) {
 			lines = append(lines, prefix+"："+strings.Join(details, " "))
@@ -460,43 +485,129 @@ func traceConvertProviderDecisionLines(lang string, decisions []hitraceconv.Perf
 	return lines
 }
 
-func traceConvertProviderDecisionDetails(decision hitraceconv.PerfProviderDecision) []string {
+func traceConvertProviderDecisionDetails(lang string, decision hitraceconv.PerfProviderDecision) []string {
 	details := []string{
-		fmt.Sprintf("selected=%t", decision.Selected),
-		fmt.Sprintf("attempted=%t", decision.Attempted),
-		fmt.Sprintf("succeeded=%t", decision.Succeeded),
-		fmt.Sprintf("fallback=%t", decision.Fallback),
-		fmt.Sprintf("trace_query_ready=%t", decision.TraceQueryReady),
+		traceConvertDetailKV(lang, "selected", traceConvertBoolValue(lang, decision.Selected)),
+		traceConvertDetailKV(lang, "attempted", traceConvertBoolValue(lang, decision.Attempted)),
+		traceConvertDetailKV(lang, "succeeded", traceConvertBoolValue(lang, decision.Succeeded)),
+		traceConvertDetailKV(lang, "fallback", traceConvertBoolValue(lang, decision.Fallback)),
+		traceConvertDetailKV(lang, "trace_query_ready", traceConvertBoolValue(lang, decision.TraceQueryReady)),
 	}
 	if decision.Stage != "" {
-		details = append(details, "stage="+decision.Stage)
+		details = append(details, traceConvertDetailKV(lang, "stage", decision.Stage))
 	}
 	if decision.ParserMode != "" {
-		details = append(details, "parser="+decision.ParserMode)
+		details = append(details, traceConvertDetailKV(lang, "parser", decision.ParserMode))
 	}
 	if decision.InputFormat != "" {
-		details = append(details, "input="+decision.InputFormat)
+		details = append(details, traceConvertDetailKV(lang, "input", decision.InputFormat))
 	}
 	if decision.OutputPath != "" {
-		details = append(details, "output="+decision.OutputPath)
+		details = append(details, traceConvertDetailKV(lang, "output", decision.OutputPath))
 	}
 	if decision.ArtifactPath != "" {
-		details = append(details, "artifact="+decision.ArtifactPath)
+		details = append(details, traceConvertDetailKV(lang, "artifact", decision.ArtifactPath))
 	}
 	if decision.Reason != "" {
-		details = append(details, "reason="+decision.Reason)
+		details = append(details, traceConvertDetailKV(lang, "reason", decision.Reason))
 	}
 	if decision.Caveat != "" {
-		details = append(details, "caveat="+decision.Caveat)
+		details = append(details, traceConvertDetailKV(lang, "caveat", hitraceconv.LocalizeConvertMessage(lang, decision.Caveat)))
 	}
 	return details
 }
 
 func traceConvertCaveatLine(lang, caveat string) string {
 	if traceConvertUseZh(lang) {
-		return fmt.Sprintf("提示：%s", caveat)
+		return fmt.Sprintf("提示：%s", hitraceconv.LocalizeConvertMessage(lang, caveat))
 	}
 	return fmt.Sprintf("caveat: %s", caveat)
+}
+
+func traceConvertLocalizedMessages(lang string, messages []string) []string {
+	out := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		out = append(out, hitraceconv.LocalizeConvertMessage(lang, msg))
+	}
+	return out
+}
+
+func traceConvertDetailKV(lang, key, value string) string {
+	if traceConvertUseZh(lang) {
+		key = traceConvertDetailKeyZh(key)
+	}
+	return key + "=" + value
+}
+
+func traceConvertBoolValue(lang string, value bool) string {
+	if !traceConvertUseZh(lang) {
+		return fmt.Sprintf("%t", value)
+	}
+	if value {
+		return "是"
+	}
+	return "否"
+}
+
+func traceConvertDetailKeyZh(key string) string {
+	switch key {
+	case "bytes":
+		return "字节"
+	case "converter":
+		return "转换器"
+	case "data_type":
+		return "数据类型"
+	case "plugin":
+		return "插件"
+	case "plugin_version":
+		return "插件版本"
+	case "source_offset":
+		return "源偏移"
+	case "source_bytes":
+		return "源字节"
+	case "caveats", "caveat":
+		return "提示"
+	case "perf_provider":
+		return "perf提供方"
+	case "perf_provider_kind":
+		return "perf提供方类型"
+	case "perf_input":
+		return "perf输入"
+	case "perf_symbolization":
+		return "perf符号化"
+	case "perf_cpu":
+		return "perfCPU信息"
+	case "perf_callchain":
+		return "perf调用栈"
+	case "perf_time_alignment":
+		return "perf时间对齐"
+	case "trace_query_ready":
+		return "可供trace_query消费"
+	case "perf_degraded":
+		return "perf降级"
+	case "selected":
+		return "已选择"
+	case "attempted":
+		return "已尝试"
+	case "succeeded":
+		return "已成功"
+	case "fallback":
+		return "回退路径"
+	case "stage":
+		return "阶段"
+	case "parser":
+		return "解析模式"
+	case "input":
+		return "输入"
+	case "output":
+		return "输出"
+	case "artifact":
+		return "artifact"
+	case "reason":
+		return "原因"
+	default:
+		return key
+	}
 }
 
 func traceConvertNextLine(lang string, result hitraceconv.Result) string {

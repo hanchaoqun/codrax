@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
+	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -3263,7 +3264,7 @@ func htraceConvertArtifactMsg(lang, typ, path, detail string) string {
 
 func htraceConvertCaveatMsg(lang, caveat string) string {
 	if isZh(lang) {
-		return formatN(lang, "hitrace 转换提示：%s\n", caveat)
+		return formatN(lang, "hitrace 转换提示：%s\n", hitraceconv.LocalizeConvertMessage(lang, caveat))
 	}
 	return formatN(lang, "hitrace convert caveat: %s\n", caveat)
 }

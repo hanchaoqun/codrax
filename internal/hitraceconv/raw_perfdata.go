@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/bits"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -1117,6 +1118,12 @@ func readRawPerfHiperfSymbolFiles(buf []byte) ([]rawPerfSymbolFile, []string) {
 			}
 		}
 		totalSymbols += len(file.Symbols)
+		sort.Slice(file.Symbols, func(i, j int) bool {
+			if file.Symbols[i].Vaddr == file.Symbols[j].Vaddr {
+				return file.Symbols[i].Len < file.Symbols[j].Len
+			}
+			return file.Symbols[i].Vaddr < file.Symbols[j].Vaddr
+		})
 		files = append(files, file)
 	}
 	return files, caveats
@@ -1835,22 +1842,42 @@ func rawPerfSymbolFileUsesDirectPC(file rawPerfSymbolFile) bool {
 }
 
 func rawPerfFindSymbol(symbols []rawPerfSymbol, vaddr uint64) (rawPerfSymbol, bool) {
-	var best rawPerfSymbol
-	for _, symbol := range symbols {
-		if symbol.Name == "" || vaddr < symbol.Vaddr {
-			continue
-		}
-		if symbol.Len > 0 {
-			end := symbol.Vaddr + uint64(symbol.Len)
-			if end < symbol.Vaddr || vaddr >= end {
-				continue
-			}
-		} else if vaddr != symbol.Vaddr {
-			continue
-		}
-		if best.Name == "" || symbol.Vaddr >= best.Vaddr {
-			best = symbol
-		}
+	if len(symbols) == 0 {
+		return rawPerfSymbol{}, false
 	}
-	return best, best.Name != ""
+	idx := sort.Search(len(symbols), func(i int) bool {
+		return symbols[i].Vaddr > vaddr
+	}) - 1
+	if idx < 0 {
+		return rawPerfSymbol{}, false
+	}
+	floorVaddr := symbols[idx].Vaddr
+	for idx >= 0 {
+		symbol := symbols[idx]
+		if symbol.Vaddr != floorVaddr {
+			break
+		}
+		if symbol.Name == "" {
+			idx--
+			continue
+		}
+		if vaddr < symbol.Vaddr {
+			idx--
+			continue
+		}
+		if symbol.Len == 0 {
+			if vaddr == symbol.Vaddr {
+				return symbol, true
+			}
+			idx--
+			continue
+		}
+		end := symbol.Vaddr + uint64(symbol.Len)
+		if end < symbol.Vaddr || vaddr >= end {
+			idx--
+			continue
+		}
+		return symbol, true
+	}
+	return rawPerfSymbol{}, false
 }

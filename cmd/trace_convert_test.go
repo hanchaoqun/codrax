@@ -88,9 +88,28 @@ func TestTraceConvertArtifactLinesIncludeProvenance(t *testing.T) {
 		},
 		Caveats: []string{"symbolization_status=unsymbolized"},
 	}}), "\n")
-	for _, want := range []string{"bytes=123", "data_type=1", "plugin=hiperf-plugin", "plugin_version=1", "source_offset=1024", "source_bytes=99", "converter=hitraceconv-v1+raw-perfdata", "perf_provider=codrax_raw_perfdata", "perf_input=linux_perf_data", "perf_symbolization=unsymbolized_ip", "trace_query_ready=true", "perf_degraded=true", "symbolization_status=unsymbolized"} {
+	for _, want := range []string{"format=text_perftrace", "bytes=123", "data_type=1", "plugin=hiperf-plugin", "plugin_version=1", "source_offset=1024", "source_bytes=99", "converter=hitraceconv-v1+raw-perfdata", "perf_provider=codrax_raw_perfdata", "perf_input=linux_perf_data", "perf_symbolization=unsymbolized_ip", "trace_query_ready=true", "perf_degraded=true", "symbolization_status=unsymbolized"} {
 		if !strings.Contains(lines, want) {
 			t.Fatalf("artifact detail missing %q:\n%s", want, lines)
+		}
+	}
+	zh := strings.Join(traceConvertArtifactLines("zh", []hitraceconv.Artifact{{
+		Type:      hitraceconv.ArtifactPerfData,
+		Path:      "out.perf.data",
+		Bytes:     456,
+		Converter: "hitraceconv-v1",
+		Caveats: []string{
+			"raw perf.data sidecar preserved; normalized .perftrace was generated for trace_query CPU-sample aggregation",
+		},
+	}}), "\n")
+	for _, want := range []string{"格式=二进制 perf.data sidecar", "字节=456", "转换器=hitraceconv-v1", "提示=raw perf.data sidecar 已保留"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh artifact detail missing %q:\n%s", want, zh)
+		}
+	}
+	for _, leak := range []string{"bytes=", "converter=", "caveats=", "raw perf.data sidecar preserved"} {
+		if strings.Contains(zh, leak) {
+			t.Fatalf("zh artifact detail leaked English %q:\n%s", leak, zh)
 		}
 	}
 }
@@ -120,7 +139,7 @@ func TestTraceConvertResultLinesIncludeProviderDecisions(t *testing.T) {
 		}
 	}
 	zh := strings.Join(traceConvertResultLines("zh", result), "\n")
-	if !strings.Contains(zh, "provider_decision[raw_fallback/codrax_raw_perfdata]：") || !strings.Contains(zh, "succeeded=true") {
+	if !strings.Contains(zh, "provider_decision[raw_fallback/codrax_raw_perfdata]：") || !strings.Contains(zh, "已成功=是") || !strings.Contains(zh, "回退路径=否") {
 		t.Fatalf("zh provider decision output malformed:\n%s", zh)
 	}
 }

@@ -343,6 +343,34 @@ func TestConvertRawPerfDataUsesSavedHiperfArkTSSymbols(t *testing.T) {
 	}
 }
 
+func TestConvertRawPerfDataMalformedHiperfSymbolsFallsBackToIPText(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf-bad-symbols.data")
+	outPath := filepath.Join(dir, "raw-bad-symbols.perftrace")
+	if err := os.WriteFile(perfData, syntheticRawPerfDataWithMalformedHiperfSymbols(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+		t.Fatalf("malformed HIPERF_FILES_SYMBOL must not prevent perftrace generation: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"perf_sample:",
+		`symbol="0x1234"`,
+		"symbolization_status=unsymbolized",
+		"raw fallback stopped parsing HIPERF_FILES_SYMBOL",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("malformed-symbol perftrace missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestConvertRawPerfDataBindsCommByRecordLifetime(t *testing.T) {
 	dir := t.TempDir()
 	perfData := filepath.Join(dir, "perf-comm-lifetime.data")
@@ -532,6 +560,53 @@ func syntheticRawPerfDataWithHiperfArkTSSymbols() []byte {
 		cur += len(section)
 	}
 	return out
+}
+
+func syntheticRawPerfDataWithMalformedHiperfSymbols() []byte {
+	const headerSize = 104
+	const attrSize = 48
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod | perfSampleCallchain)
+	var records bytes.Buffer
+	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "app")))
+	records.Write(rawPerfRecord(perfRecordMmap, rawPerfMmapPayload(1234, 5678, 0x1000, 0x1000, 0, "/system/lib64/libfoo.so")))
+	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+
+	dataOffset := headerSize + attrSize
+	featureIDs := []int{perfFeatureHiperfFilesSymbol}
+	descriptorOffset := dataOffset + records.Len()
+	sectionOffset := descriptorOffset + len(featureIDs)*16
+	section := rawPerfFeatureMalformedHiperfSymbols()
+	out := make([]byte, sectionOffset)
+	copy(out[0:8], []byte(perfMagic2))
+	binary.LittleEndian.PutUint64(out[8:16], headerSize)
+	binary.LittleEndian.PutUint64(out[16:24], attrSize)
+	binary.LittleEndian.PutUint64(out[24:32], headerSize)
+	binary.LittleEndian.PutUint64(out[32:40], attrSize)
+	binary.LittleEndian.PutUint64(out[40:48], uint64(dataOffset))
+	binary.LittleEndian.PutUint64(out[48:56], uint64(records.Len()))
+	for _, id := range featureIDs {
+		out[72+id/8] |= 1 << (id % 8)
+	}
+	attr := out[headerSize:dataOffset]
+	binary.LittleEndian.PutUint32(attr[0:4], 0)
+	binary.LittleEndian.PutUint32(attr[4:8], 40)
+	binary.LittleEndian.PutUint64(attr[8:16], 0)
+	binary.LittleEndian.PutUint64(attr[24:32], sampleType)
+	copy(out[dataOffset:descriptorOffset], records.Bytes())
+
+	desc := out[descriptorOffset : descriptorOffset+16]
+	binary.LittleEndian.PutUint64(desc[0:8], uint64(sectionOffset))
+	binary.LittleEndian.PutUint64(desc[8:16], uint64(len(section)))
+	out = append(out, section...)
+	return out
+}
+
+func rawPerfFeatureMalformedHiperfSymbols() []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU32(&out, 1)
+	writeRawPerfTestU32(&out, 4096)
+	out.WriteString("truncated")
+	return out.Bytes()
 }
 
 func rawPerfFeatureHiperfArkTSSymbols(path string) []byte {

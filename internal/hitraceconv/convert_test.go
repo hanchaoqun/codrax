@@ -149,6 +149,59 @@ func TestConvertFileReturnsStandalonePerfArtifactWithoutSystraceContainer(t *tes
 	}
 }
 
+func TestConvertFileStandaloneRawFallbackProducesTextPerftraceAndRawPerfDataSidecar(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "perf-only.htrace")
+	if err := os.WriteFile(input, syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", syntheticRawPerfData()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ConvertFile(context.Background(), Options{InputPath: input})
+	if err != nil {
+		t.Fatalf("convert standalone raw perf fallback: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 {
+		t.Fatalf("perf-only standalone should not produce systrace: %+v", result)
+	}
+	var perfData Artifact
+	var perfTrace Artifact
+	for _, artifact := range result.Artifacts {
+		switch artifact.Type {
+		case ArtifactPerfData:
+			perfData = artifact
+		case ArtifactPerfTrace:
+			perfTrace = artifact
+		}
+	}
+	if perfData.Path == "" || perfTrace.Path == "" {
+		t.Fatalf("expected both raw perf.data and normalized perftrace artifacts: %+v", result.Artifacts)
+	}
+	rawBody, err := os.ReadFile(perfData.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(rawBody, []byte(perfMagic2)) {
+		t.Fatalf("perf_data artifact should preserve binary perf.data sidecar, got prefix %q", testPrefix(rawBody, len(perfMagic2)))
+	}
+	textBody, err := os.ReadFile(perfTrace.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(textBody, []byte("perf_sample:")) || bytes.HasPrefix(textBody, []byte(perfMagic2)) {
+		t.Fatalf("perftrace artifact should be normalized text, got prefix %q", testPrefix(textBody, len(perfMagic2)))
+	}
+	if perfTrace.Perf == nil || perfTrace.Perf.ProviderKind != perfProviderKindRawFallback {
+		t.Fatalf("expected raw fallback perftrace capability: %+v", perfTrace.Perf)
+	}
+	joined := strings.Join(result.Caveats, "\n")
+	if !strings.Contains(joined, "through Codrax raw perf.data fallback") {
+		t.Fatalf("summary should name raw fallback provider: %+v", result.Caveats)
+	}
+	if strings.Contains(joined, "through the official hiperf adapter") {
+		t.Fatalf("raw fallback summary must not claim official adapter: %+v", result.Caveats)
+	}
+}
+
 func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "profiler.htrace")
@@ -1098,6 +1151,13 @@ func syntheticMMFilemapContent(eventID uint16, index uint64) []byte {
 
 func syntheticDev(major, minor uint64) uint64 {
 	return (major << 20) | minor
+}
+
+func testPrefix(data []byte, n int) []byte {
+	if len(data) < n {
+		return data
+	}
+	return data[:n]
 }
 
 func syntheticRawPage() []byte {

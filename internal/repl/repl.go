@@ -10778,7 +10778,7 @@ func (r *REPL) handleHitraceConvert(args string) {
 		if artifact.Type == hitraceconv.ArtifactSystrace {
 			continue
 		}
-		r.info(htraceConvertArtifactMsg(r.language, artifact.Type, artifact.Path, hitraceConvertArtifactDetail(artifact)))
+		r.info(htraceConvertArtifactMsg(r.language, artifact.Type, artifact.Path, hitraceConvertArtifactDetail(r.language, artifact)))
 	}
 	if len(result.Caveats) > 0 {
 		for _, caveat := range result.Caveats {
@@ -10788,33 +10788,92 @@ func (r *REPL) handleHitraceConvert(args string) {
 	r.info(htraceConvertNextMsg(r.language, result.OutputPath, result.BundlePath, hitraceResultHasArtifact(result, hitraceconv.ArtifactPerfTrace)))
 }
 
-func hitraceConvertArtifactDetail(artifact hitraceconv.Artifact) string {
+func hitraceConvertArtifactDetail(lang string, artifact hitraceconv.Artifact) string {
 	var details []string
+	if format := hitraceConvertArtifactFormatDetail(lang, artifact.Type); format != "" {
+		details = append(details, format)
+	}
 	if artifact.Bytes > 0 {
-		details = append(details, fmt.Sprintf("bytes=%d", artifact.Bytes))
+		details = append(details, hitraceConvertDetailKV(lang, "bytes", fmt.Sprintf("%d", artifact.Bytes)))
 	}
 	if artifact.Converter != "" {
-		details = append(details, "converter="+artifact.Converter)
+		details = append(details, hitraceConvertDetailKV(lang, "converter", artifact.Converter))
 	}
 	if artifact.DataType != 0 {
-		details = append(details, fmt.Sprintf("data_type=%d", artifact.DataType))
+		details = append(details, hitraceConvertDetailKV(lang, "data_type", fmt.Sprintf("%d", artifact.DataType)))
 	}
 	if artifact.PluginName != "" {
-		details = append(details, "plugin="+artifact.PluginName)
+		details = append(details, hitraceConvertDetailKV(lang, "plugin", artifact.PluginName))
 	}
 	if artifact.PluginVersion != "" {
-		details = append(details, "plugin_version="+artifact.PluginVersion)
+		details = append(details, hitraceConvertDetailKV(lang, "plugin_version", artifact.PluginVersion))
 	}
 	if artifact.SourceOffset > 0 {
-		details = append(details, fmt.Sprintf("source_offset=%d", artifact.SourceOffset))
+		details = append(details, hitraceConvertDetailKV(lang, "source_offset", fmt.Sprintf("%d", artifact.SourceOffset)))
 	}
 	if artifact.SourceBytes > 0 {
-		details = append(details, fmt.Sprintf("source_bytes=%d", artifact.SourceBytes))
+		details = append(details, hitraceConvertDetailKV(lang, "source_bytes", fmt.Sprintf("%d", artifact.SourceBytes)))
 	}
 	if len(artifact.Caveats) > 0 {
-		details = append(details, "caveats="+strings.Join(artifact.Caveats, "; "))
+		localized := make([]string, 0, len(artifact.Caveats))
+		for _, caveat := range artifact.Caveats {
+			localized = append(localized, hitraceconv.LocalizeConvertMessage(lang, caveat))
+		}
+		details = append(details, hitraceConvertDetailKV(lang, "caveats", strings.Join(localized, "; ")))
 	}
 	return strings.Join(details, " ")
+}
+
+func hitraceConvertArtifactFormatDetail(lang, typ string) string {
+	switch typ {
+	case hitraceconv.ArtifactPerfData:
+		if isZh(lang) {
+			return "格式=二进制 perf.data sidecar"
+		}
+		return "format=binary_perf_data_sidecar"
+	case hitraceconv.ArtifactPerfTrace:
+		if isZh(lang) {
+			return "格式=文本 perftrace"
+		}
+		return "format=text_perftrace"
+	case hitraceconv.ArtifactTraceBundle:
+		if isZh(lang) {
+			return "格式=tracebundle 元数据"
+		}
+		return "format=tracebundle_metadata"
+	default:
+		return ""
+	}
+}
+
+func hitraceConvertDetailKV(lang, key, value string) string {
+	if isZh(lang) {
+		key = hitraceConvertDetailKeyZh(key)
+	}
+	return key + "=" + value
+}
+
+func hitraceConvertDetailKeyZh(key string) string {
+	switch key {
+	case "bytes":
+		return "字节"
+	case "converter":
+		return "转换器"
+	case "data_type":
+		return "数据类型"
+	case "plugin":
+		return "插件"
+	case "plugin_version":
+		return "插件版本"
+	case "source_offset":
+		return "源偏移"
+	case "source_bytes":
+		return "源字节"
+	case "caveats":
+		return "提示"
+	default:
+		return key
+	}
 }
 
 func hitraceResultHasArtifact(result hitraceconv.Result, typ string) bool {

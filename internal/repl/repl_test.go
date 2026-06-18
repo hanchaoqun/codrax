@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -202,6 +203,28 @@ func TestHitraceConvertHelpAliases(t *testing.T) {
 				t.Fatalf("help alias should not execute conversion or load path; got:\n%s", got)
 			}
 		})
+	}
+}
+
+func TestHitraceConvertArtifactDetailFollowsChineseLanguage(t *testing.T) {
+	detail := hitraceConvertArtifactDetail("zh", hitraceconv.Artifact{
+		Type:      hitraceconv.ArtifactPerfData,
+		Path:      "hiprofiler_data.htrace.perf.data",
+		Bytes:     15700680,
+		Converter: "hitraceconv-v1",
+		Caveats: []string{
+			"raw perf.data sidecar preserved; normalized .perftrace was generated for trace_query CPU-sample aggregation",
+		},
+	})
+	for _, want := range []string{"格式=二进制 perf.data sidecar", "字节=15700680", "转换器=hitraceconv-v1", "提示=raw perf.data sidecar 已保留"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("zh detail missing %q: %s", want, detail)
+		}
+	}
+	for _, leak := range []string{"bytes=", "converter=", "caveats=", "raw perf.data sidecar preserved"} {
+		if strings.Contains(detail, leak) {
+			t.Fatalf("zh detail leaked English %q: %s", leak, detail)
+		}
 	}
 }
 

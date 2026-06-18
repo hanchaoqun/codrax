@@ -70,6 +70,7 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 	var artifacts []Artifact
 	var caveats []string
 	var decisions []PerfProviderDecision
+	perfTraceProviders := map[string]int{}
 	perfOrdinal := 0
 	for _, seg := range segments {
 		if seg.DataType != profilerDataTypeHiperf {
@@ -112,6 +113,7 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 		}
 		rawArtifact.Caveats = append(rawArtifact.Caveats, "raw perf.data sidecar preserved; normalized .perftrace was generated for trace_query CPU-sample aggregation")
 		artifacts = append(artifacts, rawArtifact, perfTrace)
+		perfTraceProviders[perfTraceProviderSummaryLabel(perfTrace)]++
 	}
 	if len(artifacts) > 0 {
 		perfDataCount := 0
@@ -125,12 +127,42 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 			}
 		}
 		if perfTraceCount > 0 {
-			caveats = append(caveats, fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s) and generated %d normalized .perftrace artifact(s) through the official hiperf adapter", perfDataCount, perfTraceCount))
+			caveats = append(caveats, standalonePerfTraceSummaryCaveat(perfDataCount, perfTraceCount, perfTraceProviders))
 		} else {
 			caveats = append(caveats, fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s); raw perf.data is preserved as sidecar and still needs official parser conversion to .perftrace for trace_query sample aggregation", perfDataCount))
 		}
 	}
 	return artifacts, caveats, decisions, nil
+}
+
+func perfTraceProviderSummaryLabel(artifact Artifact) string {
+	if artifact.Perf != nil {
+		switch artifact.Perf.ProviderKind {
+		case perfProviderKindRawFallback:
+			return "raw"
+		case perfProviderKindOfficialHarmony, perfProviderKindOfficialAndroid:
+			return "official"
+		}
+	}
+	if strings.Contains(strings.ToLower(artifact.Converter), "raw-perfdata") {
+		return "raw"
+	}
+	return "official"
+}
+
+func standalonePerfTraceSummaryCaveat(perfDataCount, perfTraceCount int, providers map[string]int) string {
+	rawCount := providers["raw"]
+	officialCount := providers["official"]
+	switch {
+	case rawCount > 0 && officialCount == 0:
+		return fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s) and generated %d normalized .perftrace artifact(s) through Codrax raw perf.data fallback", perfDataCount, perfTraceCount)
+	case officialCount > 0 && rawCount == 0:
+		return fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s) and generated %d normalized .perftrace artifact(s) through the official perf adapter", perfDataCount, perfTraceCount)
+	case rawCount > 0 && officialCount > 0:
+		return fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s) and generated %d normalized .perftrace artifact(s) through mixed providers (official=%d raw=%d)", perfDataCount, perfTraceCount, officialCount, rawCount)
+	default:
+		return fmt.Sprintf("extracted %d HIPERF_DATA standalone perf.data artifact(s) and generated %d normalized .perftrace artifact(s)", perfDataCount, perfTraceCount)
+	}
 }
 
 func findStandaloneSegments(ctx context.Context, path string, size int64) ([]standaloneSegment, error) {
