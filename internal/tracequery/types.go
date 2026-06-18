@@ -231,6 +231,7 @@ type Index struct {
 	TraceFlavor      TraceFlavor
 	FlavorConfidence float64
 	FlavorSignals    []string
+	Caveats          []string
 }
 
 type Query struct {

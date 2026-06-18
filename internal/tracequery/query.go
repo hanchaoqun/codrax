@@ -9725,6 +9725,9 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	if idx != nil && idx.ParsedKnown == 0 {
 		out = append(out, "no known ftrace scheduler/resource events were parsed; the file may need a future parser adapter")
 	}
+	if idx != nil {
+		out = append(out, idx.Caveats...)
+	}
 	if idx != nil && idx.Windowed {
 		out = append(out, fmt.Sprintf("windowed_index_parse=true; parsed a bounded trace slice before running the view (time %.6f..%.6f seconds, lines %d..%d). If the answer needs state far before this window, rerun with a wider time/line window or omit the window to build the full index.", idx.IndexTimeStart, idx.IndexTimeEnd, idx.IndexLineStart, idx.IndexLineEnd))
 	}

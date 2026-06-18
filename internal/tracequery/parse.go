@@ -261,6 +261,7 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		TraceFlavor:      full.TraceFlavor,
 		FlavorConfidence: full.FlavorConfidence,
 		FlavorSignals:    append([]string(nil), full.FlavorSignals...),
+		Caveats:          append([]string(nil), full.Caveats...),
 	}
 	firstLine, lastLine := 0, 0
 	// Window selection prefers a ZERO-COPY view: Event is ~1KB, so
@@ -514,16 +515,68 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 }
 
 type traceBundleFile struct {
-	Version   string                `json:"version"`
-	InputPath string                `json:"input_path"`
-	Systrace  string                `json:"systrace"`
-	Artifacts []traceBundleArtifact `json:"artifacts"`
-	Caveats   []string              `json:"caveats"`
+	Version             string                          `json:"version"`
+	InputPath           string                          `json:"input_path"`
+	Systrace            string                          `json:"systrace"`
+	Artifacts           []traceBundleArtifact           `json:"artifacts"`
+	ProviderDecisions   []traceBundleProviderDecision   `json:"provider_decisions"`
+	PerfClockAlignments []traceBundlePerfClockAlignment `json:"perf_clock_alignments"`
+	Caveats             []string                        `json:"caveats"`
 }
 
 type traceBundleArtifact struct {
-	Type string `json:"type"`
-	Path string `json:"path"`
+	Type      string                     `json:"type"`
+	Path      string                     `json:"path"`
+	Converter string                     `json:"converter,omitempty"`
+	Perf      *traceBundlePerfCapability `json:"perf_capability,omitempty"`
+	Caveats   []string                   `json:"caveats,omitempty"`
+}
+
+type traceBundlePerfCapability struct {
+	ProviderKind    string   `json:"provider_kind,omitempty"`
+	ProviderName    string   `json:"provider_name,omitempty"`
+	InputFormat     string   `json:"input_format,omitempty"`
+	OutputFormat    string   `json:"output_format,omitempty"`
+	TimeDomain      string   `json:"time_domain,omitempty"`
+	TimeAlignment   string   `json:"time_alignment,omitempty"`
+	ThreadIdentity  string   `json:"thread_identity,omitempty"`
+	CPUIdentity     string   `json:"cpu_identity,omitempty"`
+	EventWeight     string   `json:"event_weight,omitempty"`
+	Symbolization   string   `json:"symbolization,omitempty"`
+	Callchain       string   `json:"callchain,omitempty"`
+	DSOLabel        string   `json:"dso_label,omitempty"`
+	BuildID         string   `json:"build_id,omitempty"`
+	OffCPU          string   `json:"off_cpu,omitempty"`
+	Confidence      string   `json:"confidence,omitempty"`
+	TraceQueryReady bool     `json:"trace_query_ready,omitempty"`
+	Degraded        bool     `json:"degraded,omitempty"`
+	Caveats         []string `json:"caveats,omitempty"`
+}
+
+type traceBundleProviderDecision struct {
+	Stage           string `json:"stage,omitempty"`
+	ProviderKind    string `json:"provider_kind,omitempty"`
+	ProviderName    string `json:"provider_name,omitempty"`
+	InputFormat     string `json:"input_format,omitempty"`
+	ParserMode      string `json:"parser_mode,omitempty"`
+	Selected        bool   `json:"selected"`
+	Attempted       bool   `json:"attempted"`
+	Succeeded       bool   `json:"succeeded"`
+	Fallback        bool   `json:"fallback"`
+	TraceQueryReady bool   `json:"trace_query_ready"`
+	ArtifactPath    string `json:"artifact_path,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	Caveat          string `json:"caveat,omitempty"`
+}
+
+type traceBundlePerfClockAlignment struct {
+	ArtifactPath    string   `json:"artifact_path,omitempty"`
+	PerfTimeDomain  string   `json:"perf_time_domain,omitempty"`
+	TraceTimeDomain string   `json:"trace_time_domain,omitempty"`
+	Confidence      string   `json:"confidence,omitempty"`
+	Calibrated      bool     `json:"calibrated"`
+	Source          string   `json:"source,omitempty"`
+	Caveats         []string `json:"caveats,omitempty"`
 }
 
 func traceBundlePath(path string) bool {
@@ -608,7 +661,153 @@ func parseTraceBundleFile(ctx context.Context, path string, size int64, modUnix 
 	if len(artifactPaths) == 0 {
 		return nil, fmt.Errorf("trace bundle %s has no systrace or perftrace artifacts", path)
 	}
-	return parseTraceArtifactPathList(ctx, path, size, modUnix, opts, artifactPaths)
+	idx, err := parseTraceArtifactPathList(ctx, path, size, modUnix, opts, artifactPaths)
+	if err != nil {
+		return nil, err
+	}
+	idx.Caveats = append(idx.Caveats, traceBundleCaveats(bundle)...)
+	return idx, nil
+}
+
+func traceBundleCaveats(bundle traceBundleFile) []string {
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		for _, existing := range out {
+			if existing == s {
+				return
+			}
+		}
+		out = append(out, s)
+	}
+	for _, caveat := range bundle.Caveats {
+		add("tracebundle_caveat: " + caveat)
+	}
+	for _, artifact := range bundle.Artifacts {
+		kind := traceBundleLabel(artifact.Type, artifact.Path)
+		for _, caveat := range artifact.Caveats {
+			add(fmt.Sprintf("tracebundle_artifact %s caveat: %s", kind, caveat))
+		}
+		if artifact.Perf != nil {
+			add(traceBundlePerfCapabilityCaveat(kind, *artifact.Perf))
+			for _, caveat := range artifact.Perf.Caveats {
+				add(fmt.Sprintf("tracebundle_artifact %s perf_capability_caveat: %s", kind, caveat))
+			}
+		}
+	}
+	for _, decision := range bundle.ProviderDecisions {
+		if !decision.Selected && !decision.Attempted && decision.Caveat == "" && decision.Reason == "" {
+			continue
+		}
+		add(traceBundleProviderDecisionCaveat(decision))
+	}
+	for _, alignment := range bundle.PerfClockAlignments {
+		if alignment.Confidence == "" && len(alignment.Caveats) == 0 {
+			continue
+		}
+		add(traceBundleClockAlignmentCaveat(alignment))
+		for _, caveat := range alignment.Caveats {
+			add(fmt.Sprintf("tracebundle_perf_clock_alignment artifact=%s caveat: %s", traceBundlePathBase(alignment.ArtifactPath), caveat))
+		}
+	}
+	return out
+}
+
+func traceBundlePerfCapabilityCaveat(kind string, perf traceBundlePerfCapability) string {
+	parts := []string{"tracebundle_perf_capability", kind}
+	appendKV := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, key+"="+traceBundleCompactValue(value))
+		}
+	}
+	appendKV("provider", firstNonEmpty(perf.ProviderName, perf.ProviderKind))
+	appendKV("input", perf.InputFormat)
+	appendKV("output", perf.OutputFormat)
+	appendKV("time_domain", perf.TimeDomain)
+	appendKV("time_alignment", perf.TimeAlignment)
+	appendKV("thread_identity", perf.ThreadIdentity)
+	appendKV("cpu_identity", perf.CPUIdentity)
+	appendKV("event_weight", perf.EventWeight)
+	appendKV("symbolization", perf.Symbolization)
+	appendKV("callchain", perf.Callchain)
+	appendKV("dso_label", perf.DSOLabel)
+	appendKV("build_id", perf.BuildID)
+	appendKV("off_cpu", perf.OffCPU)
+	appendKV("confidence", perf.Confidence)
+	parts = append(parts, fmt.Sprintf("trace_query_ready=%t", perf.TraceQueryReady))
+	parts = append(parts, fmt.Sprintf("degraded=%t", perf.Degraded))
+	return strings.Join(parts, " ")
+}
+
+func traceBundleProviderDecisionCaveat(decision traceBundleProviderDecision) string {
+	parts := []string{"tracebundle_perf_provider"}
+	appendKV := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, key+"="+traceBundleCompactValue(value))
+		}
+	}
+	appendKV("stage", decision.Stage)
+	appendKV("provider", firstNonEmpty(decision.ProviderName, decision.ProviderKind))
+	appendKV("input", decision.InputFormat)
+	appendKV("parser", decision.ParserMode)
+	appendKV("artifact", traceBundlePathBase(decision.ArtifactPath))
+	parts = append(parts, fmt.Sprintf("selected=%t", decision.Selected))
+	parts = append(parts, fmt.Sprintf("attempted=%t", decision.Attempted))
+	parts = append(parts, fmt.Sprintf("succeeded=%t", decision.Succeeded))
+	parts = append(parts, fmt.Sprintf("fallback=%t", decision.Fallback))
+	parts = append(parts, fmt.Sprintf("trace_query_ready=%t", decision.TraceQueryReady))
+	appendKV("reason", decision.Reason)
+	appendKV("caveat", decision.Caveat)
+	return strings.Join(parts, " ")
+}
+
+func traceBundleClockAlignmentCaveat(alignment traceBundlePerfClockAlignment) string {
+	parts := []string{"tracebundle_perf_clock_alignment"}
+	appendKV := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, key+"="+traceBundleCompactValue(value))
+		}
+	}
+	appendKV("artifact", traceBundlePathBase(alignment.ArtifactPath))
+	appendKV("perf_time_domain", alignment.PerfTimeDomain)
+	appendKV("trace_time_domain", alignment.TraceTimeDomain)
+	appendKV("confidence", alignment.Confidence)
+	parts = append(parts, fmt.Sprintf("calibrated=%t", alignment.Calibrated))
+	appendKV("source", alignment.Source)
+	return strings.Join(parts, " ")
+}
+
+func traceBundleLabel(kind, path string) string {
+	kind = traceBundleCompactValue(kind)
+	base := traceBundlePathBase(path)
+	if base == "" {
+		return "type=" + kind
+	}
+	return "type=" + kind + " path=" + traceBundleCompactValue(base)
+}
+
+func traceBundlePathBase(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	return filepath.Base(path)
+}
+
+func traceBundleCompactValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = strings.ReplaceAll(value, "\r", " ")
+	return strings.Join(strings.Fields(value), "_")
 }
 
 func parseTraceArtifactPathList(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions, artifactPaths []string) (*Index, error) {

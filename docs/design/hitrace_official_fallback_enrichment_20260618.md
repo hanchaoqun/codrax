@@ -60,10 +60,34 @@ Compared the current converter and trace query pipeline against the latest publi
   top-level capture metadata in conversion caveats/tracebundle provenance:
   plugin clock/timestamp/version/sample interval, CPU dropped/overrun/read stats,
   structured event counts, overwrite totals, clock details, and symbol examples.
-- `trace_query` parses those fields into `Event` and carries them into perf hotspot
-  examples without changing root-cause ranking weights.
+- `trace_query` parses perf sample context fields into `Event` and carries them
+  into perf hotspot examples without changing root-cause ranking weights.
+- `trace_query` now also consumes `.tracebundle.json` top-level caveats, artifact
+  caveats, perf capability metadata, provider decisions, and perf clock-alignment
+  notes as `Result.Caveats`. This closes the handoff gap for profiler
+  `ftrace-plugin` capture quality metadata and raw-perf record-quality counters:
+  models see them together with query results instead of only in `/htrace convert`
+  terminal output.
 - OpenHarmony ext4 direct IO rows are covered by round-trip tests from binary htrace
   conversion into `file_io_by_inode` and `storage_latency_by_layer`.
+
+## Trace Query Consumption Closure
+
+Official `hiperf` and profiler sources expose several data families with different
+root-cause semantics:
+
+| Official data family | Codrax parse surface | Model consumption rule |
+| --- | --- | --- |
+| `report_sample.proto` / normalized `perf_sample` rows | `window_stats.perf_samples`, `perf_stats`, `perf_timeline`, root-cause perf contexts | Use as code-execution support for running/compute-supply, runnable competitors, chain dependencies, or binder peers; samples alone are not scheduler root cause proof. |
+| raw `perf.data` sample fields and saved hiperf symbols | normalized `.perftrace` `perf_sample` rows with source/symbolization/callchain/clock fields | Consume top symbols/DSOs/callchains/threads with `perf_quality`; keep raw fallback/IP-only caveats attached. |
+| raw perf record-quality counters (`LOST`, `LOST_SAMPLES`, throttle/unthrottle, AUX) | tracebundle/artifact `Result.Caveats` plus generated perftrace `parser_caveats` | Treat as sample quality and coverage risk, not as direct runtime pressure. |
+| profiler `ftrace-plugin` capture metadata (`dropped_events`, overrun, overwrite, clocks, symbols) | tracebundle `Result.Caveats` | Treat as capture quality/provenance; use it to bound confidence and recommend official export when data loss is material. |
+| tracebundle perf capability/provider/clock alignment | tracebundle `Result.Caveats` | Explain whether evidence came from official adapter or raw fallback, whether sample CPU/callchain/symbolization are complete, and whether trace/perf time overlap is calibrated. |
+| scheduler, binder, IO, IRQ, supply, trace-mark rows | `Event`, `WindowStats`, `RootCauseRank`, `FrameRootCauseBundle` | These remain the causal basis for root-cause ranking; quality caveats only calibrate confidence. |
+
+Guardrail: tracebundle metadata is output-side provenance. It does not add model
+tool-call JSON fields and therefore does not need new model input burden; existing
+`trace_query` structured-parameter repair still covers all user/tool-call inputs.
 
 ## Remaining Non-Goals
 
