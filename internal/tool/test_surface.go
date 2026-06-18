@@ -402,7 +402,7 @@ func impactWorkingDirDepth(rel string) int {
 
 func impactCandidateSupportsSuite(cand types.TestSurfaceCandidate) bool {
 	switch cand.Runner {
-	case "go", "ruby":
+	case "go", "node", "ruby":
 		return true
 	case "python":
 		return cand.Framework == "" ||
@@ -457,6 +457,11 @@ func impactSuiteForCandidate(cand types.TestSurfaceCandidate, related string) st
 			return ""
 		}
 		return rel
+	case "node":
+		if !nodeSuiteSelectorPath(rel) {
+			return ""
+		}
+		return rel
 	default:
 		return ""
 	}
@@ -476,6 +481,19 @@ func relatedPathInsideWorkingDir(workingDir, related string) string {
 		return strings.TrimPrefix(related, prefix)
 	}
 	return ""
+}
+
+func nodeSuiteSelectorPath(rel string) bool {
+	rel = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(rel, "\\", "/"), "./"))
+	if rel == "" || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
+		return false
+	}
+	switch strings.ToLower(path.Ext(rel)) {
+	case ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts":
+		return true
+	default:
+		return false
+	}
 }
 
 func surfaceCandidateSuite(cand types.TestSurfaceCandidate) string {

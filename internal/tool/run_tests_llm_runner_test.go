@@ -159,6 +159,23 @@ func TestResolveLLMRunnerChoice_DjangoRuntestsOverridesPytest(t *testing.T) {
 	}
 }
 
+func TestBuildRunCommandForPlan_NodeFileSuiteUsesPositionalSelector(t *testing.T) {
+	repo := t.TempDir()
+	plan := runnerPlan{Runner: "node", Root: repo}
+	cmd, extra := buildRunCommandForPlan(plan, "src/widget.test.ts", "")
+	if extra != "" {
+		t.Fatalf("node runner should parse stdout, extra=%q", extra)
+	}
+	if !strings.Contains(cmd, "src/widget.test.ts") || strings.Contains(cmd, " -t ") {
+		t.Fatalf("node file suite should be positional file selector, got %q", cmd)
+	}
+
+	nameCmd, _ := buildRunCommandForPlan(plan, "renders empty state", "")
+	if !strings.Contains(nameCmd, " -t ") {
+		t.Fatalf("node test-name suite should keep -t selector, got %q", nameCmd)
+	}
+}
+
 // TestAllowedRunnerList_SortedAndComplete locks the runner whitelist
 // against drift: every case in buildRunCommand should appear here,
 // and the exposed list should be sorted (deterministic for prompt

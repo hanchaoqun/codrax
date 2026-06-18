@@ -5076,6 +5076,9 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		if filter == "" {
 			return "npm test -- --json --silent", ""
 		}
+		if nodeSuiteSelectorPath(filter) {
+			return fmt.Sprintf("npm test -- --json --silent %s", shellQuoteWord(filter)), ""
+		}
 		return fmt.Sprintf("npm test -- --json --silent -t %q", filter), ""
 	case "python":
 		if framework == pythonFrameworkDjango {

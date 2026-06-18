@@ -112,6 +112,39 @@ func TestImpactRunnerPlansFromChangePlanTargetsGoPackage(t *testing.T) {
 	}
 }
 
+func TestImpactRunnerPlansFromChangePlanTargetsNodeRelatedTest(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "package.json", `{"scripts":{"test":"jest"}}`)
+	writeImpactSurfaceFixture(t, root, "src/widget.ts", "export function value() { return 1 }\n")
+	writeImpactSurfaceFixture(t, root, "src/widget.test.ts", "test('value', () => {})\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-node",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "src/widget.ts",
+				RelatedPath: "src/widget.test.ts",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+
+	plans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(plans) != 1 {
+		t.Fatalf("expected one node impact runner plan, got %+v surface=%+v", plans, surface.Candidates)
+	}
+	if plans[0].Runner != "node" || plans[0].Suite != "src/widget.test.ts" {
+		t.Fatalf("unexpected node impact plan: %+v", plans[0])
+	}
+	queue := defaultRunnerPlansFromTestSurface(root, surface, "", plans...)
+	if len(queue) == 0 || queue[0].Runner != "node" || queue[0].Suite != "src/widget.test.ts" {
+		t.Fatalf("node impact plan should lead default queue, got %+v", queue)
+	}
+}
+
 func TestImpactRunnerPlansFromChangePlanConsumesObligationFallback(t *testing.T) {
 	root := t.TempDir()
 	writeImpactSurfaceFixture(t, root, "pyproject.toml", "[project]\nname='x'\n")
@@ -188,14 +221,14 @@ func TestImpactRunnerPlansFromChangePlanRejectsUnsafeOrUnsupportedTargets(t *tes
 				Priority:    50,
 			}, {
 				Kind:        "test_surface",
-				RelatedPath: "tests/a.test.js",
+				RelatedPath: "tests/a.txt",
 				Priority:    50,
 			}},
 		},
 	}
 
 	if plans := impactRunnerPlansFromChangePlan(root, surface, plan); len(plans) != 0 {
-		t.Fatalf("unsafe path and unsupported node path selector should be ignored, got %+v", plans)
+		t.Fatalf("unsafe path and unsupported selector should be ignored, got %+v", plans)
 	}
 }
 

@@ -2061,6 +2061,58 @@ request prose, model rationale, or issue text.
 - `make test`
 - `git diff --check`
 
+## RC-39: Node Impact Related-Test Selector
+
+### Gap
+
+`ImpactAnalysisResult.VerificationTargets` can already express "changed source A
+should verify related test B" as typed `kind=test_surface` obligations. The
+deterministic selector then converts those obligations into priority runner
+plans before the broad default queue. That worked for Python, Go, and Ruby, but
+Node/JS/TS targets were still rejected as unsupported even though `run_tests`
+already supports Node/Jest/Vitest and `TestSurface` detects `package.json`.
+
+This undercuts the non-Python "改 A 查 B" workflow:
+
+```text
+ImpactVerificationTarget(test_surface: src/widget.test.ts)
+  -> TestSurface has node/package.json candidate
+  -> impact selector rejects node as unsupported
+  -> default queue runs broad npm test or misses the targeted related test
+```
+
+### Design
+
+- Allow Node candidates to consume typed related-test paths from
+  `ImpactVerificationTarget.RelatedPath`.
+- Accept only repo-relative JavaScript/TypeScript-family file selectors:
+  `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`.
+- Keep unsafe paths and non-test/non-code selectors rejected by the existing
+  boundary checks plus the new extension guard.
+- Adjust Node command construction so file selectors are passed as positional
+  Jest/Vitest filters, while ordinary test-name selectors still use `-t`.
+- Keep routing structural: only typed TestSurface candidates and typed related
+  paths participate; no issue text, user keywords, model rationale, or stdout
+  prose drives the decision.
+
+### Tasks
+
+- [x] Add Node to the impact suite-capable runner set.
+- [x] Map JS/TS-family related test files to Node runner-plan suites.
+- [x] Render Node file suites as positional npm test selectors instead of
+  `-t` test-name patterns.
+- [x] Add regressions for positive Node impact queueing, unsafe/unsupported
+  selector rejection, and command construction.
+
+### Verification
+
+- `go test ./internal/tool -run 'TestImpactRunnerPlansFromChangePlan(TargetsNodeRelatedTest|RejectsUnsafeOrUnsupportedTargets)|TestBuildRunCommandForPlan_NodeFileSuiteUsesPositionalSelector' -count=1`
+- `go test ./internal/tool -count=1`
+- `go test ./...`
+- `make test`
+- `eval/swebench/smoke_local.sh`
+- `git diff --check`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2105,6 +2157,7 @@ request prose, model rationale, or issue text.
 | RC-36 | complete | Impact suite queue preservation: scheduler-owned priority runner plans now dedupe by runner/framework/working_dir/suite, so multiple typed related-test obligations in the same working directory survive into the default `run_tests {}` queue, while broad surface candidates still dedupe by working directory. Verification: focused impact selector tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-37 | complete | Convention evidence projection: advisory convention patch-review findings now carry the source stage, line span, and context summary from the typed `ConventionGraph` node, and context packs render those fields as separate `patch_review_evidence` items for downstream consumers without overloading verdict rows. Verification: focused types/writeflow tests, related packages, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-38 | complete | Multi-language probe-only adapter authority: SWE-bench local confidence now treats any typed `verification_probe/<language>` suite as probe-only evidence and rejects malformed/mixed suites, aligning adapter consumption with the core runtime matrix. Verification: focused/all adapter unit tests, Python compile, SWE adapter smoke, full `go test ./...`, `make test`, and diff check pass. |
+| RC-39 | complete | Node impact related-test selector: typed ImpactAnalysis related-test targets can now prioritize JS/TS-family Node suites, with Node file selectors rendered as positional Jest/Vitest filters. Verification: focused Node impact/command tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 
 ## Acceptance Criteria
 
