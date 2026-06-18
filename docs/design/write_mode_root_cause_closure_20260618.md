@@ -2557,6 +2557,49 @@ RC-48 tasks:
   acceptance, no-prior-context no retry, and test-only path exclusion.
 - [x] Update this ledger and run focused/full regression before commit/push.
 
+## 2026-06-18 RC-49 Official Harness Dry-Run Import Check Design
+
+The RC-48 targeted SWE-bench smoke produced three non-empty predictions and a
+dry-run official harness command, but a follow-up import check exposed an
+evaluation-environment gap: the local `eval/results/swebench/.venv` was Python
+3.9, while the installed `swebench` package uses syntax that requires Python
+3.10+. `run_official_harness.sh` only checked `importlib.util.find_spec`, so a
+dry-run could claim "official harness command" even though the selected Python
+could not actually import `swebench.harness.run_evaluation`.
+
+This is not a write-mode correctness bug, but it directly affects the
+"predictions + official harness consumable" acceptance boundary. The adapter
+should distinguish three facts:
+
+```text
+prediction JSONL validates
+  != official harness module is importable
+  != official resolved/total was executed
+```
+
+RC-49 tightens the eval harness wrapper without making the dependency-free
+local fake smoke heavier:
+
+- actual non-dry official runs must import `swebench.harness.run_evaluation`,
+  not merely locate a package name;
+- Lite dry-runs should check harness import by default so "can consume" means
+  the configured Python can load the official entrypoint;
+- dependency-free local smoke can opt out and remain a command-shape smoke;
+- error messages must name the Python executable/version and point at the
+  documented Python 3.10+ venv setup instead of failing with a later TypeError.
+
+RC-49 tasks:
+
+- [ ] Add a reusable import check in `run_official_harness.sh` for
+  `swebench.harness.run_evaluation`.
+- [ ] Keep `DRY_RUN=1` command-only behavior available, but make
+  `smoke_lite.sh` enable the import check by default.
+- [ ] Update SWE-bench README with the stronger dry-run semantics and Python
+  version caveat.
+- [ ] Validate the wrapper with the existing command-only path and a Python
+  3.11 SWE-bench venv.
+- [ ] Record the targeted RC-48 SWE smoke artifacts and findings in this ledger.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
