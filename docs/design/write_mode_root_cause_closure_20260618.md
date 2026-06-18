@@ -2175,6 +2175,62 @@ the user to know when to run a manual compile command.
 - `eval/swebench/smoke_local.sh`
 - `git diff --check`
 
+## RC-41: TypeScript No-Test Compile Fallback
+
+### Gap
+
+Node's no-test fallback intentionally uses `node --check` only for JavaScript
+family files. That avoids feeding TypeScript syntax to Node, but it leaves a
+TypeScript-only package with no test files in a weak state:
+
+```text
+ChangePlan touches src/widget.ts
+  -> TestSurface detects Node/package.json
+  -> runnerHasNoTestWork("node") == true
+  -> node syntax fallback sees no .js/.mjs/.cjs files
+  -> synthetic no_tests/unavailable can hide tsc-detectable compile errors
+```
+
+This is the same class as RC-40: the system should use the language's standard
+bounded compiler proof when no tests exist, instead of asking the user to know
+which command to run.
+
+### Design
+
+- Keep project-test behavior unchanged. If Jest/Vitest tests exist, the normal
+  runner remains the authority.
+- Extend only the no-test source fallback for `runner=node` to include
+  TypeScript-family plan files.
+- For `.ts/.tsx/.mts/.cts` files, prefer repo-local `node_modules/.bin/tsc`;
+  otherwise use `tsc` from `PATH`. Missing `tsc` stays pass-with-warning /
+  unavailable, not a code failure.
+- Run `tsc --noEmit --pretty false` from the runner root when `tsconfig.json`
+  exists; otherwise pass the plan-touched TypeScript files explicitly.
+- Parse TypeScript diagnostics through the existing `parseBuildErrors` and
+  route them through the same `qualifyChangeReport` /
+  `scopeBuildFailureReportToChangedLines` path.
+- Do not use issue text, user keywords, model rationale, stdout prose, or
+  case-specific identifiers for routing.
+
+### Tasks
+
+- [x] Add a no-test source-check extension set that includes TypeScript for
+  Node without enabling broad TS preflight before ordinary project tests.
+- [x] Add TypeScript `tsc --noEmit --pretty false` fallback inside the Node
+  no-test source checker.
+- [x] Add regressions for TypeScript compile diagnostics and end-to-end
+  `run_tests({})` no-test TS failure.
+- [x] Update user guide Markdown/HTML and this ledger.
+
+### Verification
+
+- `go test ./internal/tool -run 'TestRunNodeCheckFallback_TypeScript|TestRunTestsEmptyParamsNodeTypeScriptNoTestsCompileFailure|TestSourceCheckExtensionsForNoTestWork' -count=1`
+- `go test ./internal/tool -count=1`
+- `go test ./...`
+- `make test`
+- `eval/swebench/smoke_local.sh`
+- `git diff --check`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2221,6 +2277,7 @@ the user to know when to run a manual compile command.
 | RC-38 | complete | Multi-language probe-only adapter authority: SWE-bench local confidence now treats any typed `verification_probe/<language>` suite as probe-only evidence and rejects malformed/mixed suites, aligning adapter consumption with the core runtime matrix. Verification: focused/all adapter unit tests, Python compile, SWE adapter smoke, full `go test ./...`, `make test`, and diff check pass. |
 | RC-39 | complete | Node impact related-test selector: typed ImpactAnalysis related-test targets can now prioritize JS/TS-family Node suites, with Node file selectors rendered as positional Jest/Vitest filters. Verification: focused Node impact/command tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-40 | complete | Go no-test source compile fallback: plan-touched Go packages with no `_test.go` files now run a bounded `go test -json` compile check instead of synthetic no-tests pass. Verification: focused Go fallback tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
+| RC-41 | complete | TypeScript no-test source compile fallback: plan-touched TS files in Node packages now use `tsc --noEmit --pretty false` when available instead of synthetic no-tests pass. Verification: focused TS fallback tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 
 ## Acceptance Criteria
 
@@ -2244,6 +2301,8 @@ the user to know when to run a manual compile command.
   command probes.
 - No-test Go source changes compile automatically through the standard Go
   toolchain before being marked unavailable/pass-with-warning.
+- No-test TypeScript source changes compile automatically through repo-local or
+  PATH `tsc --noEmit --pretty false` when available.
 - Uncovered typed impact obligations become a bounded repair queue before
   finish, instead of remaining passive telemetry after local verifier success.
 - Current read/log/trace/data/operation/computer paths remain untouched.

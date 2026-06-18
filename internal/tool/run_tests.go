@@ -646,7 +646,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				combinedOutputs = append(combinedOutputs, probe.Output)
 				continue
 			}
-			exts := syntaxCheckExtensions(runner)
+			exts := sourceCheckExtensionsForNoTestWork(runner)
 			if len(exts) > 0 {
 				files := planFilesByExt(ctx, runnerRoot, exts)
 				if len(files) > 0 {
@@ -3604,13 +3604,30 @@ func syntaxCheckExtensions(runner string) []string {
 		// node --check parses CommonJS / ESM JavaScript. NOT TypeScript
 		// (needs tsc + project config). Skip .ts/.tsx here so we don't
 		// produce false-positive errors on TS-only repos.
-		return []string{".js", ".jsx", ".mjs", ".cjs"}
+		return nodeJavaScriptExtensions()
 	case "ruby":
 		return []string{".rb"}
 	case "go":
 		return []string{".go"}
 	}
 	return nil
+}
+
+func sourceCheckExtensionsForNoTestWork(runner string) []string {
+	switch runner {
+	case "node":
+		return append(append([]string{}, nodeJavaScriptExtensions()...), nodeTypeScriptExtensions()...)
+	default:
+		return syntaxCheckExtensions(runner)
+	}
+}
+
+func nodeJavaScriptExtensions() []string {
+	return []string{".js", ".jsx", ".mjs", ".cjs"}
+}
+
+func nodeTypeScriptExtensions() []string {
+	return []string{".ts", ".tsx", ".mts", ".cts"}
 }
 
 func syntaxCheckBeforeProjectRunner(runner string) bool {
@@ -3684,87 +3701,204 @@ func runSyntaxPreflightForPlan(ctx *types.BusContext, label, runnerRoot, runner 
 	return report, output, true
 }
 
-// runNodeCheckFallback runs `node --check <file>` per JS file. node
-// --check is a syntax-only parse that catches missing semicolons,
-// unmatched braces, malformed expressions — the same class of errors
-// that block any test runner from importing the file. Used when the
-// repo has no node test infrastructure but the plan added .js files;
-// the operator's intent is "did this code parse?", not "do my tests
-// pass" (there are no tests).
+// runNodeCheckFallback runs bounded source checks for plan-touched Node
+// sources when the repo has no Jest/Vitest-style test work. JavaScript uses
+// `node --check`; TypeScript uses `tsc --noEmit --pretty false` when available.
 func runNodeCheckFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
 	lang := ""
 	if ctx != nil {
 		lang = ctx.Language
 	}
-	bin := "node"
-	if _, err := exec.LookPath(bin); err != nil {
-		// Fall back to a synthetic Passed report — node missing AND
-		// no tests means there is nothing meaningful we can verify
-		// here; the operator gets a warning via the renderer.
-		var skipSummary string
-		if isZh(lang) {
-			skipSummary = "node --check 兜底跳过:PATH 上没有 node 二进制;同时也无 node 测试基础设施,verify 标记 pass-with-warning。要验证 JS 代码请先安装 Node.js。"
-		} else {
-			skipSummary = "node --check fallback skipped: node binary not on PATH; no node test infrastructure either, so verify pass-with-warning. Install Node.js if you intend to verify JS code."
-		}
-		return &types.ChangeReport{
-				Passed:         true,
-				NoTestsRunners: []string{"node"},
-				FailureSummary: skipSummary,
-			},
-			fmt.Sprintf("[run_tests: %s] node --check fallback skipped: node binary not on PATH\n", label)
-	}
 	var (
-		failures []types.TestResult
-		output   strings.Builder
+		failures         []types.TestResult
+		warningSummaries []string
+		output           strings.Builder
 	)
-	output.WriteString(fmt.Sprintf("[run_tests: %s] node --check fallback (no node test infrastructure detected; runner not invoked)\n", label))
-	for _, f := range files {
-		cmd := exec.Command(bin, "--check", f)
-		cmd.Dir = runnerRoot
-		out, err := cmd.CombinedOutput()
-		rel, relErr := filepath.Rel(runnerRoot, f)
-		if relErr != nil {
-			rel = f
+	output.WriteString(fmt.Sprintf("[run_tests: %s] node source-check fallback (no node test infrastructure detected; runner not invoked)\n", label))
+
+	jsFiles, tsFiles := splitNodeSourceCheckFiles(files)
+	if len(jsFiles) > 0 {
+		if _, err := exec.LookPath("node"); err != nil {
+			if isZh(lang) {
+				warningSummaries = append(warningSummaries, "node --check 兜底跳过:PATH 上没有 node 二进制;同时也无 node 测试基础设施,verify 标记 pass-with-warning。要验证 JS 代码请先安装 Node.js。")
+			} else {
+				warningSummaries = append(warningSummaries, "node --check fallback skipped: node binary not on PATH; no node test infrastructure either, so verify pass-with-warning. Install Node.js if you intend to verify JS code.")
+			}
+			output.WriteString(fmt.Sprintf("  skip  node --check: node binary not on PATH (%d JS file(s))\n", len(jsFiles)))
+		} else {
+			for _, f := range jsFiles {
+				cmd := exec.Command("node", "--check", f)
+				cmd.Dir = runnerRoot
+				out, err := cmd.CombinedOutput()
+				rel, relErr := filepath.Rel(runnerRoot, f)
+				if relErr != nil {
+					rel = f
+				}
+				if err == nil {
+					output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
+					continue
+				}
+				detail := strings.TrimSpace(string(out))
+				failures = append(failures, types.TestResult{
+					Kind:          types.TestResultKindBuildError,
+					Suite:         "node_check",
+					AssertionID:   rel,
+					Passed:        false,
+					FailureDetail: detail,
+					BuildErrors:   parseBuildErrors(detail),
+				})
+				output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", rel, err,
+					truncateForLog(string(out), 300)))
+			}
 		}
-		if err == nil {
-			output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
-			continue
-		}
-		detail := strings.TrimSpace(string(out))
-		failures = append(failures, types.TestResult{
-			Kind:          types.TestResultKindBuildError,
-			Suite:         "node_check",
-			AssertionID:   rel,
-			Passed:        false,
-			FailureDetail: detail,
-			BuildErrors:   parseBuildErrors(detail),
-		})
-		output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", rel, err,
-			truncateForLog(string(out), 300)))
 	}
+
+	if len(tsFiles) > 0 {
+		tsReport, tsOutput := runTypeScriptCompileFallback(ctx, label, runnerRoot, tsFiles)
+		output.WriteString(tsOutput)
+		if tsReport != nil && !tsReport.Passed {
+			failures = append(failures, tsReport.TestResults...)
+		} else if tsReport != nil && strings.TrimSpace(tsReport.FailureSummary) != "" {
+			warningSummaries = append(warningSummaries, tsReport.FailureSummary)
+		}
+	}
+
 	if len(failures) == 0 {
 		return &types.ChangeReport{
 			Passed:         true,
 			NoTestsRunners: []string{"node"},
+			FailureSummary: strings.Join(dedupStrings(warningSummaries), " | "),
 		}, output.String()
 	}
 	var summary string
 	if isZh(lang) {
-		summary = fmt.Sprintf("node --check 兜底在 %d 个 plan 文件中发现 %d 处语法错误;由于仓内无 node 测试基础设施,本次未跑 jest/vitest。",
+		summary = fmt.Sprintf("node source-check 兜底在 %d 个 plan 文件中发现 %d 处语法/编译错误;由于仓内无 node 测试基础设施,本次未跑 jest/vitest。",
 			len(files), len(failures))
 	} else {
-		summary = fmt.Sprintf("node --check fallback found %d syntax error(s) across %d plan file(s); jest/vitest was not run because no node test infrastructure exists in the repo.",
+		summary = fmt.Sprintf("node source-check fallback found %d syntax/compile error(s) across %d plan file(s); jest/vitest was not run because no node test infrastructure exists in the repo.",
 			len(failures), len(files))
+	}
+	reason := "node_syntax_check_failed"
+	for _, failure := range failures {
+		if failure.Suite == "typescript_compile_check" {
+			reason = "typescript_compile_check_failed"
+			break
+		}
 	}
 	return &types.ChangeReport{
 		Passed:            false,
 		BuildFailed:       true,
 		FailureSummary:    summary,
 		FailureKind:       types.FailureKindBuildFailure,
-		FailureReasonCode: "node_syntax_check_failed",
+		FailureReasonCode: reason,
 		TestResults:       failures,
 	}, output.String()
+}
+
+func splitNodeSourceCheckFiles(files []string) (jsFiles, tsFiles []string) {
+	jsExts := stringSliceSet(nodeJavaScriptExtensions())
+	tsExts := stringSliceSet(nodeTypeScriptExtensions())
+	for _, file := range files {
+		ext := strings.ToLower(filepath.Ext(file))
+		if jsExts[ext] {
+			jsFiles = append(jsFiles, file)
+			continue
+		}
+		if tsExts[ext] {
+			tsFiles = append(tsFiles, file)
+		}
+	}
+	return jsFiles, tsFiles
+}
+
+func runTypeScriptCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	lang := ""
+	if ctx != nil {
+		lang = ctx.Language
+	}
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("[run_tests: %s] tsc --noEmit fallback (no node test infrastructure detected; runner not invoked)\n", label))
+	tsc, ok := resolveTypeScriptCompiler(runnerRoot)
+	if !ok {
+		var skipSummary string
+		if isZh(lang) {
+			skipSummary = "TypeScript 编译兜底跳过:没有找到 repo-local node_modules/.bin/tsc 或 PATH 上的 tsc;同时也无 node 测试基础设施,verify 标记 pass-with-warning。"
+		} else {
+			skipSummary = "TypeScript compile fallback skipped: no repo-local node_modules/.bin/tsc or tsc on PATH; no node test infrastructure either, so verify pass-with-warning."
+		}
+		output.WriteString(fmt.Sprintf("  skip  tsc --noEmit: compiler not found (%d TypeScript file(s))\n", len(files)))
+		return &types.ChangeReport{
+			Passed:         true,
+			NoTestsRunners: []string{"node"},
+			FailureSummary: skipSummary,
+		}, output.String()
+	}
+	args := []string{"--noEmit", "--pretty", "false"}
+	if !runTestsFileExists(filepath.Join(runnerRoot, "tsconfig.json")) {
+		args = append(args, files...)
+	}
+	cmd := exec.Command(tsc, args...)
+	cmd.Dir = runnerRoot
+	out, err := cmd.CombinedOutput()
+	detail := strings.TrimSpace(string(out))
+	if err == nil {
+		output.WriteString("  ok    TypeScript compile check\n")
+		return &types.ChangeReport{
+			Passed:         true,
+			NoTestsRunners: []string{"node"},
+		}, output.String()
+	}
+	if detail == "" {
+		detail = err.Error()
+	}
+	buildErrs := parseBuildErrors(detail)
+	output.WriteString(fmt.Sprintf("  FAIL  TypeScript compile check: %v\n%s\n", err,
+		truncateForLog(detail, 500)))
+	summary := renderBuildFailureSummary("TypeScript", buildErrs, strings.SplitN(detail, "\n", 2)[0])
+	return &types.ChangeReport{
+		Passed:            false,
+		BuildFailed:       true,
+		FailureKind:       types.FailureKindBuildFailure,
+		FailureReasonCode: "typescript_compile_check_failed",
+		FailureSummary:    summary,
+		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindBuildError,
+			Suite:         "typescript_compile_check",
+			AssertionID:   firstBuildErrorAssertionID(buildErrs),
+			Passed:        false,
+			FailureDetail: detail,
+			BuildErrors:   buildErrs,
+		}},
+	}, output.String()
+}
+
+func resolveTypeScriptCompiler(root string) (string, bool) {
+	for _, rel := range []string{
+		filepath.Join("node_modules", ".bin", "tsc"),
+		filepath.Join("node_modules", ".bin", "tsc.cmd"),
+	} {
+		candidate := filepath.Join(root, rel)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, true
+		}
+	}
+	if path, err := exec.LookPath("tsc"); err == nil {
+		return path, true
+	}
+	return "", false
+}
+
+func runTestsFileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func stringSliceSet(values []string) map[string]bool {
+	out := make(map[string]bool, len(values))
+	for _, value := range values {
+		out[value] = true
+	}
+	return out
 }
 
 // runRubyCheckFallback runs `ruby -wc <file>` per .rb file. Same

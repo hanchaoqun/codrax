@@ -2126,6 +2126,107 @@ exit 1
 	}
 }
 
+func TestRunNodeCheckFallback_TypeScriptFailureCarriesBuildErrors(t *testing.T) {
+	dir := t.TempDir()
+	tscBin := filepath.Join(dir, "tsc")
+	script := `#!/bin/sh
+printf "src/app.ts(3,7): error TS2304: Cannot find name 'missingValue'.\n"
+exit 1
+`
+	if err := os.WriteFile(tscBin, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake tsc: %v", err)
+	}
+	t.Setenv("PATH", dir)
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	app := filepath.Join(srcDir, "app.ts")
+	if err := os.WriteFile(app, []byte("export const value: number = missingValue;\n"), 0o644); err != nil {
+		t.Fatalf("write app.ts: %v", err)
+	}
+	report, output := runNodeCheckFallback(nil, "node@.", root, []string{app})
+	if report == nil || report.Passed {
+		t.Fatalf("compile-broken TypeScript should fail, report=%+v output=%s", report, output)
+	}
+	if report.FailureReasonCode != "typescript_compile_check_failed" {
+		t.Fatalf("FailureReasonCode=%q report=%+v", report.FailureReasonCode, report)
+	}
+	if len(report.TestResults) != 1 || len(report.TestResults[0].BuildErrors) != 1 {
+		t.Fatalf("TypeScript compile failure should carry one build error, got %+v", report.TestResults)
+	}
+	if got := report.TestResults[0].BuildErrors[0]; got.File != "src/app.ts" || got.Line != 3 || got.Column != 7 || got.Symbol != "TS2304" {
+		t.Fatalf("TypeScript build error mis-parsed: %+v", got)
+	}
+}
+
+func TestRunTestsEmptyParamsNodeTypeScriptNoTestsCompileFailure(t *testing.T) {
+	dir := t.TempDir()
+	tscBin := filepath.Join(dir, "tsc")
+	script := `#!/bin/sh
+printf "src/app.ts(3,7): error TS2304: Cannot find name 'missingValue'.\n"
+exit 1
+`
+	if err := os.WriteFile(tscBin, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake tsc: %v", err)
+	}
+	t.Setenv("PATH", dir)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"scripts":{"test":"jest"}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	srcDir := filepath.Join(root, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "app.ts"), []byte("export const value: number = missingValue;\n"), 0o644); err != nil {
+		t.Fatalf("write app.ts: %v", err)
+	}
+	mu := types.NewMutableState("node ts no-test compile failure")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-node-ts-no-test-compile",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"src/app.ts"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("compile-broken no-test TypeScript source must fail, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed; report=%+v", got, report)
+	}
+	if report.FailureReasonCode != "typescript_compile_check_failed" {
+		t.Fatalf("FailureReasonCode=%q report=%+v", report.FailureReasonCode, report)
+	}
+	foundFallback := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "node" && cmd.Outcome == "syntax_check_fallback" {
+			foundFallback = true
+		}
+		if cmd.Runner == "node" && cmd.Outcome == "executed" {
+			t.Fatalf("node project runner should not execute when no tests exist, got %+v", report.ExecutedCommands)
+		}
+	}
+	if !foundFallback {
+		t.Fatalf("executed command evidence should record node source fallback, got %+v", report.ExecutedCommands)
+	}
+}
+
 func TestRunGoCompileFallback_PassWhenPackageCompilesWithoutTests(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go not on PATH; skip")
@@ -2317,6 +2418,22 @@ func TestSyntaxCheckExtensions_OnlySupportedRunners(t *testing.T) {
 		if ok {
 			t.Errorf("runner %q should NOT have syntax-check dispatcher (extensions unsupported)", runner)
 		}
+	}
+}
+
+func TestSourceCheckExtensionsForNoTestWork_NodeIncludesTypeScriptOnlyThere(t *testing.T) {
+	preflight := strings.Join(syntaxCheckExtensions("node"), ",")
+	if strings.Contains(preflight, ".ts") || strings.Contains(preflight, ".tsx") {
+		t.Fatalf("ordinary node syntax preflight must not feed TypeScript to node --check: %v", preflight)
+	}
+	noTest := strings.Join(sourceCheckExtensionsForNoTestWork("node"), ",")
+	for _, want := range []string{".js", ".ts", ".tsx", ".mts", ".cts"} {
+		if !strings.Contains(noTest, want) {
+			t.Fatalf("no-test node source fallback should include %s, got %v", want, noTest)
+		}
+	}
+	if got := strings.Join(sourceCheckExtensionsForNoTestWork("python"), ","); got != ".py" {
+		t.Fatalf("non-node source fallback should keep syntax extensions, got %q", got)
 	}
 }
 
