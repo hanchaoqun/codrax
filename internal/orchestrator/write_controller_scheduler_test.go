@@ -481,6 +481,113 @@ func TestPersistWriteWorkflowRunTerminalWritesFinalReport(t *testing.T) {
 	}
 }
 
+func TestPersistWriteWorkflowRunTerminalAggregatesCompletedBatchProofReports(t *testing.T) {
+	tmp := t.TempDir()
+	mu := types.NewMutableState("terminal cumulative proof")
+	plan := &types.ChangePlan{
+		ID:           "plan-proof",
+		Status:       types.PlanStatusApplied,
+		TargetPaths:  []string{"src/app.py"},
+		AppliedPaths: []string{"src/app.py"},
+	}
+	report := &types.ChangeReport{
+		PlanID:             "plan-proof",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "missing",
+			ReasonCode:   "verification_probe_missing_soft_contract_ref",
+			ContractRefs: []string{"outcome-1"},
+		}},
+	}
+	sourceReport := &types.ChangeReport{
+		PlanID:             "plan-source",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "satisfied",
+			ReasonCode:   "verification_probe_soft_contract_ref_covered",
+			ContractRefs: []string{"outcome-1"},
+		}},
+	}
+	if err := types.WriteChangeReportToFile(sourceReport, filepath.Join(tmp, "plans", "plan-source.report.json")); err != nil {
+		t.Fatalf("WriteChangeReportToFile(source): %v", err)
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof",
+		Status:        types.WriteWorkflowRunComplete,
+		ActiveBatchID: "batch-proof",
+		Completion: &types.WriteWorkflowCompletion{
+			Verdict:    types.WriteWorkflowCompletionVerified,
+			ReasonCode: "tests_passed",
+			Source:     "verify_attempt",
+		},
+		Batches: []types.WriteWorkflowBatch{{
+			ID:        "batch-source",
+			Status:    types.WriteWorkflowBatchComplete,
+			PlanID:    "plan-source",
+			VerifyRef: "plan-source.report.json",
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict:    types.WriteWorkflowCompletionVerified,
+				ReasonCode: "tests_passed",
+				Source:     "verify_attempt",
+			},
+		}, {
+			ID:        "batch-proof",
+			Status:    types.WriteWorkflowBatchComplete,
+			PlanID:    "plan-proof",
+			VerifyRef: "plan-proof.report.json",
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict:    types.WriteWorkflowCompletionVerified,
+				ReasonCode: "tests_passed",
+				Source:     "verify_attempt",
+			},
+		}},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: tmp, Mode: types.ModeApply}}
+
+	o.persistWriteWorkflowRun(run)
+
+	finalPath := filepath.Join(tmp, "plans", "plan-proof.final.json")
+	final, err := types.LoadWriteFinalReportFromFile(finalPath)
+	if err != nil {
+		t.Fatalf("LoadWriteFinalReportFromFile(%s): %v", finalPath, err)
+	}
+	if final.Proof.Status != types.VerificationProofAdequate || !final.Proof.Cumulative {
+		t.Fatalf("final proof = %+v, want cumulative adequate", final.Proof)
+	}
+	if writeControllerFinalProofHasReason(final.Proof, "verification_probe_missing_soft_contract_ref") {
+		t.Fatalf("final proof reasons should not retain resolved missing contract: %+v", final.Proof.ReasonCodes)
+	}
+}
+
+func writeControllerFinalProofHasReason(profile types.VerificationProofProfile, code string) bool {
+	for _, reason := range profile.ReasonCodes {
+		if reason == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPersistWriteWorkflowRunNonTerminalDoesNotWriteFinalReport(t *testing.T) {
 	tmp := t.TempDir()
 	mu := types.NewMutableState("non terminal")

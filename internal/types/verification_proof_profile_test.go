@@ -128,6 +128,165 @@ func TestBuildVerificationProofProfileUnavailable(t *testing.T) {
 	}
 }
 
+func TestBuildCumulativeVerificationProofProfileResolvesCoveredProbeContracts(t *testing.T) {
+	primaryReport := &ChangeReport{
+		PlanID:             "plan-proof",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		TestResults: []TestResult{{
+			AssertionID: "probe/proof",
+			Suite:       "verification_probe/python",
+			Passed:      true,
+		}},
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "missing",
+			ReasonCode:   "verification_probe_missing_soft_contract_ref",
+			ContractRefs: []string{"outcome-3"},
+		}, {
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "satisfied",
+			ReasonCode:   "verification_probe_soft_contract_ref_covered",
+			ContractRefs: []string{"outcome-4"},
+		}},
+	}
+	sourceReport := &ChangeReport{
+		PlanID:             "plan-source",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		TestResults: []TestResult{{
+			AssertionID: "probe/source",
+			Suite:       "verification_probe/python",
+			Passed:      true,
+		}},
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "satisfied",
+			ReasonCode:   "verification_probe_soft_contract_ref_covered",
+			ContractRefs: []string{"outcome-3"},
+		}, {
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "missing",
+			ReasonCode:   "verification_probe_missing_soft_contract_ref",
+			ContractRefs: []string{"outcome-4"},
+		}},
+	}
+
+	got := BuildCumulativeVerificationProofProfile(nil, primaryReport, []VerificationProofArtifact{{
+		Report: sourceReport,
+	}})
+
+	if got.Status != VerificationProofAdequate {
+		t.Fatalf("profile=%+v, want adequate after cumulative soft-contract coverage", got)
+	}
+	if !got.Cumulative || got.ContributingReports != 2 {
+		t.Fatalf("profile cumulative metadata=%+v, want 2 reports", got)
+	}
+	if verificationProofHasReason(got, "verification_probe_missing_soft_contract_ref") {
+		t.Fatalf("resolved missing soft-contract reason should be removed: %+v", got.ReasonCodes)
+	}
+	if got.ProbeCommands != 2 || got.TestCount != 2 {
+		t.Fatalf("profile counts=%+v, want cumulative probe/test counts", got)
+	}
+}
+
+func TestBuildCumulativeVerificationProofProfileKeepsUnresolvedProbeContract(t *testing.T) {
+	primaryReport := &ChangeReport{
+		PlanID:             "plan-proof",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_contract_refs",
+			Status:       "missing",
+			ReasonCode:   "verification_probe_missing_required_contract_ref",
+			ContractRefs: []string{"hard-outcome"},
+		}},
+	}
+	relatedReport := &ChangeReport{
+		PlanID:             "plan-source",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_contract_refs",
+			Status:       "satisfied",
+			ReasonCode:   "verification_probe_contract_ref_covered",
+			ContractRefs: []string{"other-outcome"},
+		}},
+	}
+
+	got := BuildCumulativeVerificationProofProfile(nil, primaryReport, []VerificationProofArtifact{{Report: relatedReport}})
+
+	if got.Status != VerificationProofWeak {
+		t.Fatalf("profile=%+v, want weak with unresolved hard contract", got)
+	}
+	if !verificationProofHasReason(got, "verification_probe_missing_required_contract_ref") {
+		t.Fatalf("profile reasons %+v missing unresolved required-contract reason", got.ReasonCodes)
+	}
+}
+
+func TestBuildCumulativeVerificationProofProfilePreservesUnavailablePrimary(t *testing.T) {
+	primaryReport := &ChangeReport{
+		PlanID:             "plan-proof",
+		VerificationStatus: VerificationStatusUnavailable,
+		FailureKind:        FailureKindParserError,
+		FailureReasonCode:  "parser_error",
+	}
+	relatedReport := &ChangeReport{
+		PlanID:             "plan-source",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_contract_refs",
+			Status:       "satisfied",
+			ReasonCode:   "verification_probe_contract_ref_covered",
+			ContractRefs: []string{"hard-outcome"},
+		}},
+	}
+
+	got := BuildCumulativeVerificationProofProfile(nil, primaryReport, []VerificationProofArtifact{{Report: relatedReport}})
+
+	if got.Status != VerificationProofUnavailable || !verificationProofHasReason(got, "parser_error") {
+		t.Fatalf("profile=%+v, want primary unavailable authority preserved", got)
+	}
+}
+
 func verificationProofHasReason(profile VerificationProofProfile, code string) bool {
 	for _, reason := range profile.ReasonCodes {
 		if reason == code {

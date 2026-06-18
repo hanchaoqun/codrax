@@ -137,13 +137,14 @@ type WriteFinalResidualRisk struct {
 }
 
 type WriteFinalReportInput struct {
-	Run          *WriteWorkflowRun
-	Plan         *ChangePlan
-	Report       *ChangeReport
-	PlanPath     string
-	ReportPath   string
-	WorkflowPath string
-	GeneratedAt  time.Time
+	Run            *WriteWorkflowRun
+	Plan           *ChangePlan
+	Report         *ChangeReport
+	ProofArtifacts []VerificationProofArtifact
+	PlanPath       string
+	ReportPath     string
+	WorkflowPath   string
+	GeneratedAt    time.Time
 }
 
 func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
@@ -183,7 +184,7 @@ func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
 	if input.Report != nil {
 		out.Verification = writeFinalVerificationSummary(input.Report)
 	}
-	out.Proof = BuildVerificationProofProfile(input.Plan, input.Report)
+	out.Proof = BuildCumulativeVerificationProofProfile(input.Plan, input.Report, input.ProofArtifacts)
 	out.ResidualRisks = writeFinalResidualRisks(out)
 	return NormalizeWriteFinalReport(out)
 }

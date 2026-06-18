@@ -3002,12 +3002,13 @@ func (o *Orchestrator) persistWriteFinalReportIfTerminal(run *types.WriteWorkflo
 		reportPath = filepath.Join(planDir, stem+".report.json")
 	}
 	final := types.BuildWriteFinalReport(types.WriteFinalReportInput{
-		Run:          run,
-		Plan:         plan,
-		Report:       report,
-		PlanPath:     planPath,
-		ReportPath:   reportPath,
-		WorkflowPath: workflowPath,
+		Run:            run,
+		Plan:           plan,
+		Report:         report,
+		ProofArtifacts: o.writeFinalReportProofArtifacts(run, plan, report),
+		PlanPath:       planPath,
+		ReportPath:     reportPath,
+		WorkflowPath:   workflowPath,
 	})
 	finalPath := filepath.Join(planDir, stem+".final.json")
 	if err := types.WriteFinalReportToFile(&final, finalPath); err != nil {
@@ -3015,6 +3016,92 @@ func (o *Orchestrator) persistWriteFinalReportIfTerminal(run *types.WriteWorkflo
 		return
 	}
 	logging.Info("[orchestrator] WriteFinalReport saved: %s", finalPath)
+}
+
+func (o *Orchestrator) writeFinalReportProofArtifacts(run *types.WriteWorkflowRun, primaryPlan *types.ChangePlan, primaryReport *types.ChangeReport) []types.VerificationProofArtifact {
+	if o == nil || run == nil {
+		return nil
+	}
+	var out []types.VerificationProofArtifact
+	seen := map[string]bool{}
+	add := func(planID, reportID string) {
+		planID = strings.TrimSpace(planID)
+		reportID = writeFinalReportArtifactBase(reportID)
+		if planID == "" && reportID == "" {
+			return
+		}
+		key := planID
+		if key == "" {
+			key = reportID
+		}
+		if key != "" {
+			if seen[key] {
+				return
+			}
+			seen[key] = true
+		}
+		var plan *types.ChangePlan
+		if primaryPlan != nil && strings.TrimSpace(primaryPlan.ID) == planID {
+			plan = primaryPlan
+		} else if planID != "" {
+			if loaded, err := o.loadWriteFinalReportChangePlan(planID); err == nil && loaded != nil {
+				plan = loaded
+			}
+		}
+		var report *types.ChangeReport
+		if primaryReport != nil && planID != "" && strings.TrimSpace(primaryReport.PlanID) == planID {
+			report = primaryReport
+		}
+		if report == nil && reportID != "" {
+			report = o.loadDurableReportArtifact(reportID)
+		}
+		if report == nil && planID != "" {
+			report = o.loadWriteFinalReportChangeReport(planID)
+		}
+		if plan == nil && report == nil {
+			return
+		}
+		out = append(out, types.VerificationProofArtifact{Plan: plan, Report: report})
+	}
+	for _, batch := range run.Batches {
+		if batch.Status != types.WriteWorkflowBatchComplete {
+			continue
+		}
+		planID := strings.TrimSpace(batch.PlanID)
+		reportID := writeFinalReportBatchReportID(batch, planID)
+		add(planID, reportID)
+	}
+	return out
+}
+
+func writeFinalReportBatchReportID(batch types.WriteWorkflowBatch, planID string) string {
+	if ref := strings.TrimSpace(batch.VerifyRef); ref != "" {
+		return writeFinalReportArtifactBase(ref)
+	}
+	for i := len(batch.Attempts) - 1; i >= 0; i-- {
+		attempt := batch.Attempts[i]
+		if reportID := strings.TrimSpace(attempt.ReportID); reportID != "" {
+			return writeFinalReportArtifactBase(reportID)
+		}
+	}
+	if planID = strings.TrimSpace(planID); planID != "" {
+		if stem := writeWorkflowArtifactFileStem(planID); stem != "" {
+			return stem + ".report.json"
+		}
+	}
+	return ""
+}
+
+func writeFinalReportArtifactBase(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ""
+	}
+	base := strings.TrimSpace(filepath.Base(ref))
+	if base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	return base
 }
 
 func writeFinalReportArtifactID(run *types.WriteWorkflowRun, plan *types.ChangePlan, report *types.ChangeReport) string {

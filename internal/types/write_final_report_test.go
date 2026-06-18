@@ -195,6 +195,66 @@ func TestWriteFinalReportToFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildWriteFinalReportUsesCumulativeProofArtifacts(t *testing.T) {
+	primaryReport := &ChangeReport{
+		PlanID:             "plan-proof",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "missing",
+			ReasonCode:   "verification_probe_missing_soft_contract_ref",
+			ContractRefs: []string{"outcome-1"},
+		}},
+	}
+	sourceReport := &ChangeReport{
+		PlanID:             "plan-source",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "satisfied",
+			ReasonCode:   "verification_probe_soft_contract_ref_covered",
+			ContractRefs: []string{"outcome-1"},
+		}},
+	}
+
+	got := BuildWriteFinalReport(WriteFinalReportInput{
+		Run: &WriteWorkflowRun{
+			RunID:  "run-proof",
+			Status: WriteWorkflowRunComplete,
+			Completion: &WriteWorkflowCompletion{
+				Verdict: WriteWorkflowCompletionVerified,
+			},
+		},
+		Report: primaryReport,
+		ProofArtifacts: []VerificationProofArtifact{{
+			Report: sourceReport,
+		}},
+	})
+
+	if got.Proof.Status != VerificationProofAdequate || !got.Proof.Cumulative {
+		t.Fatalf("Proof=%+v, want cumulative adequate profile", got.Proof)
+	}
+	if writeFinalProofHasReason(got.Proof, "verification_probe_missing_soft_contract_ref") {
+		t.Fatalf("Proof reasons=%+v should not retain resolved soft-contract gap", got.Proof.ReasonCodes)
+	}
+}
+
 func TestWriteOutputKindIncludesFinalReport(t *testing.T) {
 	if !IsValidWriteOutputKind(WriteOutputFinalReport) {
 		t.Fatal("WriteOutputFinalReport must be declared")

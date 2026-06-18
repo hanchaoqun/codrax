@@ -35,6 +35,8 @@ type VerificationProofProfile struct {
 	Status                 VerificationProofStatus         `json:"status,omitempty"`
 	VerificationStatus     VerificationStatus              `json:"verification_status,omitempty"`
 	RunnerEvidence         VerificationProofRunnerEvidence `json:"runner_evidence,omitempty"`
+	Cumulative             bool                            `json:"cumulative,omitempty"`
+	ContributingReports    int                             `json:"contributing_reports,omitempty"`
 	ReasonCodes            []string                        `json:"reason_codes,omitempty"`
 	ConfidenceReasonCodes  []string                        `json:"confidence_reason_codes,omitempty"`
 	TestCount              int                             `json:"test_count,omitempty"`
@@ -48,6 +50,15 @@ type VerificationProofProfile struct {
 	ImpactUnverifiedCount  int                             `json:"impact_unverified_count,omitempty"`
 	PatchReviewVerdict     PatchReviewCoverageVerdict      `json:"patch_review_verdict,omitempty"`
 	LocalizationStatus     SourceLocalizationStatus        `json:"localization_status,omitempty"`
+}
+
+// VerificationProofArtifact is one typed plan/report pair that may contribute
+// to a workflow-level proof profile. Plan is optional because probe-only proof
+// plans can have changes: [] and may not pass the stricter persisted-plan load
+// path, while their ChangeReport confidence records remain authoritative.
+type VerificationProofArtifact struct {
+	Plan   *ChangePlan
+	Report *ChangeReport
 }
 
 func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) VerificationProofProfile {
@@ -154,6 +165,72 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 	return NormalizeVerificationProofProfile(out)
 }
 
+// BuildCumulativeVerificationProofProfile projects the proof strength of a
+// coherent terminal workflow delivery chain. It keeps the primary report's
+// failed/unavailable authority conservative, but lets later/earlier typed
+// satisfied probe records cover missing contract/symbol proof records from a
+// sibling batch in the same workflow. It never reads logs, issue prose, model
+// rationale, or user text.
+func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryReport *ChangeReport, artifacts []VerificationProofArtifact) VerificationProofProfile {
+	base := BuildVerificationProofProfile(primaryPlan, primaryReport)
+	unique := verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts)
+	if len(unique) <= 1 {
+		return base
+	}
+	out := base
+	out.ContributingReports = 0
+	out.TestCount = 0
+	out.CommandCount = 0
+	out.ProbeCount = 0
+	out.ProjectRunnerCommands = 0
+	out.ProbeCommands = 0
+	out.SyntaxFallbackCommands = 0
+	out.RunnerEvidence = VerificationProofRunnerNone
+	var confidence []VerificationConfidenceRecord
+	var confidenceReasonCodes []string
+	for _, artifact := range unique {
+		if artifact.Report == nil {
+			continue
+		}
+		out.ContributingReports++
+		profile := BuildVerificationProofProfile(artifact.Plan, artifact.Report)
+		out.TestCount += profile.TestCount
+		out.CommandCount += profile.CommandCount
+		out.ProbeCount += profile.ProbeCount
+		out.ProjectRunnerCommands += profile.ProjectRunnerCommands
+		out.ProbeCommands += profile.ProbeCommands
+		out.SyntaxFallbackCommands += profile.SyntaxFallbackCommands
+		out.RunnerEvidence = mergeVerificationProofRunnerEvidence(out.RunnerEvidence, profile.RunnerEvidence)
+		confidence = append(confidence, artifact.Report.VerificationConfidence...)
+		confidenceReasonCodes = append(confidenceReasonCodes, profile.ConfidenceReasonCodes...)
+	}
+	if out.ContributingReports == 0 {
+		return base
+	}
+	if out.ContributingReports <= 1 {
+		return base
+	}
+	out.Cumulative = true
+	out.ConfidenceReasonCodes = append(out.ConfidenceReasonCodes, confidenceReasonCodes...)
+	out.ReasonCodes = cumulativeVerificationProofReasonCodes(out.ReasonCodes, confidence)
+	switch out.Status {
+	case VerificationProofFailed, VerificationProofUnavailable, VerificationProofUnknown:
+		// Preserve primary terminal authority for failed/unavailable/unknown.
+	case VerificationProofWeak, VerificationProofAdequate, VerificationProofStrong:
+		if verificationProofHasHardFailure(out) {
+			out.Status = VerificationProofFailed
+		} else if len(out.ReasonCodes) > 0 {
+			out.Status = VerificationProofWeak
+		} else if out.RunnerEvidence == VerificationProofRunnerVerificationProbe ||
+			out.RunnerEvidence == VerificationProofRunnerSyntaxFallback {
+			out.Status = VerificationProofAdequate
+		} else {
+			out.Status = VerificationProofStrong
+		}
+	}
+	return NormalizeVerificationProofProfile(out)
+}
+
 func NormalizeVerificationProofProfile(in VerificationProofProfile) VerificationProofProfile {
 	switch in.Status {
 	case VerificationProofUnavailable, VerificationProofFailed, VerificationProofWeak, VerificationProofAdequate, VerificationProofStrong:
@@ -189,6 +266,9 @@ func NormalizeVerificationProofProfile(in VerificationProofProfile) Verification
 	if in.SyntaxFallbackCommands < 0 {
 		in.SyntaxFallbackCommands = 0
 	}
+	if in.ContributingReports < 0 {
+		in.ContributingReports = 0
+	}
 	if in.ImpactTargetCount < 0 {
 		in.ImpactTargetCount = 0
 	}
@@ -199,6 +279,202 @@ func NormalizeVerificationProofProfile(in VerificationProofProfile) Verification
 		in.ImpactUnverifiedCount = 0
 	}
 	return in
+}
+
+func verificationProofUniqueArtifacts(primaryPlan *ChangePlan, primaryReport *ChangeReport, artifacts []VerificationProofArtifact) []VerificationProofArtifact {
+	raw := make([]VerificationProofArtifact, 0, len(artifacts)+1)
+	raw = append(raw, VerificationProofArtifact{Plan: primaryPlan, Report: primaryReport})
+	raw = append(raw, artifacts...)
+	seen := map[string]bool{}
+	var out []VerificationProofArtifact
+	for _, artifact := range raw {
+		if artifact.Plan == nil && artifact.Report == nil {
+			continue
+		}
+		key := verificationProofArtifactKey(artifact)
+		if key != "" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		out = append(out, artifact)
+	}
+	return out
+}
+
+func verificationProofArtifactKey(artifact VerificationProofArtifact) string {
+	if artifact.Report != nil {
+		if planID := strings.TrimSpace(artifact.Report.PlanID); planID != "" {
+			return "report:" + planID
+		}
+	}
+	if artifact.Plan != nil {
+		if planID := strings.TrimSpace(artifact.Plan.ID); planID != "" {
+			return "plan:" + planID
+		}
+	}
+	return ""
+}
+
+func mergeVerificationProofRunnerEvidence(a, b VerificationProofRunnerEvidence) VerificationProofRunnerEvidence {
+	a = NormalizeVerificationProofProfile(VerificationProofProfile{RunnerEvidence: a}).RunnerEvidence
+	b = NormalizeVerificationProofProfile(VerificationProofProfile{RunnerEvidence: b}).RunnerEvidence
+	switch {
+	case a == VerificationProofRunnerNone:
+		return b
+	case b == VerificationProofRunnerNone:
+		return a
+	case a == b:
+		return a
+	case a == VerificationProofRunnerMixed || b == VerificationProofRunnerMixed:
+		return VerificationProofRunnerMixed
+	default:
+		return VerificationProofRunnerMixed
+	}
+}
+
+func cumulativeVerificationProofReasonCodes(current []string, records []VerificationConfidenceRecord) []string {
+	unresolved := unresolvedVerificationProofConfidenceReasons(records)
+	var out []string
+	seen := map[string]bool{}
+	for _, code := range current {
+		code = strings.TrimSpace(code)
+		if code == "" {
+			continue
+		}
+		if verificationProofReasonCanBeResolvedByConfidence(code) && !unresolved[code] {
+			continue
+		}
+		if !seen[code] {
+			seen[code] = true
+			out = append(out, code)
+		}
+	}
+	for code := range unresolved {
+		if code == "" || seen[code] {
+			continue
+		}
+		seen[code] = true
+		out = append(out, code)
+	}
+	return out
+}
+
+func unresolvedVerificationProofConfidenceReasons(records []VerificationConfidenceRecord) map[string]bool {
+	type missingRecord struct {
+		code     string
+		category string
+		refs     []string
+	}
+	var missing []missingRecord
+	hardCovered := map[string]bool{}
+	softCovered := map[string]bool{}
+	changedCovered := false
+	for _, rec := range records {
+		status := strings.TrimSpace(rec.Status)
+		category := strings.TrimSpace(rec.Category)
+		code := strings.TrimSpace(rec.ReasonCode)
+		switch status {
+		case "satisfied":
+			switch category {
+			case "probe_contract_refs":
+				for _, ref := range rec.ContractRefs {
+					if ref = strings.TrimSpace(ref); ref != "" {
+						hardCovered[ref] = true
+					}
+				}
+			case "probe_soft_contract_refs":
+				for _, ref := range rec.ContractRefs {
+					if ref = strings.TrimSpace(ref); ref != "" {
+						softCovered[ref] = true
+					}
+				}
+			case "probe_changed_symbol":
+				for _, ref := range rec.ChangedSymbolRefs {
+					if strings.TrimSpace(ref) != "" {
+						changedCovered = true
+						break
+					}
+				}
+			}
+		case "missing":
+			if code == "" {
+				continue
+			}
+			switch category {
+			case "probe_contract_refs", "probe_soft_contract_refs":
+				missing = append(missing, missingRecord{code: code, category: category, refs: append([]string(nil), rec.ContractRefs...)})
+			case "probe_changed_symbol":
+				missing = append(missing, missingRecord{code: code, category: category, refs: append([]string(nil), rec.ChangedSymbolRefs...)})
+			default:
+				missing = append(missing, missingRecord{code: code, category: category})
+			}
+		}
+	}
+	unresolved := map[string]bool{}
+	for _, miss := range missing {
+		switch miss.category {
+		case "probe_contract_refs":
+			if !allVerificationProofRefsCovered(miss.refs, hardCovered) {
+				unresolved[miss.code] = true
+			}
+		case "probe_soft_contract_refs":
+			if !allVerificationProofRefsCovered(miss.refs, softCovered) {
+				unresolved[miss.code] = true
+			}
+		case "probe_changed_symbol":
+			if len(dedupTrimWriteWorkflowRunStrings(miss.refs)) == 0 {
+				if !changedCovered {
+					unresolved[miss.code] = true
+				}
+			} else if !allVerificationProofRefsCovered(miss.refs, verificationProofChangedSymbolCoveredMap(records)) {
+				unresolved[miss.code] = true
+			}
+		default:
+			unresolved[miss.code] = true
+		}
+	}
+	return unresolved
+}
+
+func verificationProofChangedSymbolCoveredMap(records []VerificationConfidenceRecord) map[string]bool {
+	out := map[string]bool{}
+	for _, rec := range records {
+		if strings.TrimSpace(rec.Status) != "satisfied" || strings.TrimSpace(rec.Category) != "probe_changed_symbol" {
+			continue
+		}
+		for _, ref := range rec.ChangedSymbolRefs {
+			if ref = strings.TrimSpace(ref); ref != "" {
+				out[ref] = true
+			}
+		}
+	}
+	return out
+}
+
+func allVerificationProofRefsCovered(refs []string, covered map[string]bool) bool {
+	refs = dedupTrimWriteWorkflowRunStrings(refs)
+	if len(refs) == 0 {
+		return false
+	}
+	for _, ref := range refs {
+		if !covered[ref] {
+			return false
+		}
+	}
+	return true
+}
+
+func verificationProofReasonCanBeResolvedByConfidence(code string) bool {
+	switch strings.TrimSpace(code) {
+	case "verification_probe_missing_required_contract_ref",
+		"verification_probe_missing_soft_contract_ref",
+		"verification_probe_missing_changed_symbol_ref":
+		return true
+	default:
+		return false
+	}
 }
 
 func verificationProofRunnerEvidence(report *ChangeReport) VerificationProofRunnerEvidence {

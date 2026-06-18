@@ -5896,18 +5896,40 @@ Verification:
   - Probe-only plans may have `changes: []`; they must still contribute report
     confidence even when `LoadChangePlanFromFile` refuses an empty plan.
 - Task list:
-  - [ ] Add typed `VerificationProofArtifact` / cumulative proof aggregation
+  - [x] Add typed `VerificationProofArtifact` / cumulative proof aggregation
     helpers in `internal/types`.
-  - [ ] Extend `WriteFinalReportInput` so callers can pass coherent proof
+  - [x] Extend `WriteFinalReportInput` so callers can pass coherent proof
     artifacts while preserving the single-plan default.
-  - [ ] Teach `persistWriteFinalReportIfTerminal` to collect completed-batch
+  - [x] Teach `persistWriteFinalReportIfTerminal` to collect completed-batch
     current report artifacts from the workflow store/report directory.
-  - [ ] Add unit coverage for source-plan + proof-follow-up union removing
+  - [x] Add unit coverage for source-plan + proof-follow-up union removing
     resolved missing soft/hard contract reasons while retaining unresolved
     reasons and real failed/unavailable states.
   - [ ] Recompute or rerun the RC98 SymPy spot and verify the final report no
     longer falsely downgrades cumulative proof.
-  - [ ] Run focused, related, full Go regressions and push.
+  - [x] Run focused, related, full Go regressions and push.
+- Implementation:
+  - `VerificationProofProfile` now has cumulative metadata and can merge typed
+    `VerificationConfidenceRecord` evidence across a coherent workflow proof
+    chain.
+  - Only resolvable probe missing reason codes are removed, and only when the
+    same contract/symbol refs are covered by typed satisfied records elsewhere
+    in the same chain.
+  - `WriteFinalReportInput` accepts `ProofArtifacts`; the single-plan default
+    is preserved for callers that do not pass extra artifacts.
+  - `persistWriteFinalReportIfTerminal` collects each terminal completed
+    batch's current plan/report artifact, ignoring historical attempts and
+    accepting report-only proof batches whose plan file may have `changes: []`.
+- Verification:
+  - `go test ./internal/types -run
+    'TestBuild(CumulativeVerificationProofProfile|WriteFinalReport)' -count=1`
+  - `go test ./internal/orchestrator -run
+    'TestPersistWriteWorkflowRunTerminal(WritesFinalReport|AggregatesCompletedBatchProofReports)|TestPersistWriteWorkflowRunNonTerminalDoesNotWriteFinalReport'
+    -count=1`
+  - `go test ./internal/types ./internal/orchestrator ./internal/tool
+    ./internal/writeflow -count=1`
+  - `go test ./...`
+  - `make`
 
 ## Acceptance Criteria
 
