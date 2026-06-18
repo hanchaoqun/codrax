@@ -23,6 +23,7 @@ var (
 	traceTimestampRE = regexp.MustCompile(`\s([0-9]+(?:\.[0-9]+)?):\s+[A-Za-z0-9_./:-]+:?`)
 	kvRE             = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^ ]+)`)
 	blockRequestRE   = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(?:(?:\d+)\s+)?\([^)]*\)\s+(\d+)\s+\+\s+(\d+)`)
+	blockSimpleRE    = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)`)
 	blockRemapRE     = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-(?:\s+\(([^)]+)\)\s+(\d+))?`)
 	blockErrorRE     = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
 )
@@ -1390,7 +1391,11 @@ func populatePluginFields(ev *Event, rawType string, kv map[string]string, inter
 }
 
 func parseBlockRequest(fields string) (dev, op string, sector, length int64) {
-	m := blockRequestRE.FindStringSubmatch(strings.TrimSpace(fields))
+	trimmed := strings.TrimSpace(fields)
+	m := blockRequestRE.FindStringSubmatch(trimmed)
+	if len(m) != 5 {
+		m = blockSimpleRE.FindStringSubmatch(trimmed)
+	}
 	if len(m) != 5 {
 		return "", "", 0, 0
 	}
@@ -1435,7 +1440,7 @@ func classifyEventType(raw, fields string) EventType {
 	switch {
 	case raw == "sched_switch":
 		return EventSchedSwitch
-	case raw == "sched_wakeup":
+	case raw == "sched_wakeup" || raw == "sched_wakeup_new":
 		return EventSchedWakeup
 	case raw == "sched_waking":
 		return EventSchedWaking
@@ -1460,11 +1465,11 @@ func classifyEventType(raw, fields string) EventType {
 		return EventCPUFrequencyLimit
 	case strings.Contains(rawLower, "cpu") && strings.Contains(rawLower, "freq"):
 		return EventCPUFrequency
-	case raw == "block_rq_issue":
+	case raw == "block_rq_issue" || raw == "block_rq_insert" || raw == "block_getrq" || raw == "block_bio_queue":
 		return EventBlockIssue
 	case raw == "block_bio_remap":
 		return EventBlockRemap
-	case raw == "block_rq_complete":
+	case raw == "block_rq_complete" || raw == "block_bio_complete":
 		return EventBlockComplete
 	case raw == "binder_transaction":
 		return EventBinderTransaction
@@ -1484,7 +1489,7 @@ func classifyEventType(raw, fields string) EventType {
 		return EventSoftIRQ
 	case strings.HasPrefix(raw, "irq_"):
 		return EventIRQ
-	case raw == "print" || raw == "tracing_mark_write":
+	case raw == "print" || raw == "tracing_mark_write" || raw == "tracing_mark_write_xacct" || raw == "xacct_tracing_mark_write":
 		if isTraceMarkPayload(fields) {
 			return EventTraceMark
 		}
@@ -1726,7 +1731,7 @@ func isCPUFrequencyClock(fields string) bool {
 }
 
 func isTraceMarkPayload(fields string) bool {
-	fields = strings.TrimSpace(fields)
+	fields = normalizeTraceMarkPayload(fields)
 	if fields == "" {
 		return false
 	}
@@ -1750,7 +1755,7 @@ func isTraceMarkPayload(fields string) bool {
 }
 
 func parseTraceMark(fields string) (action string, spanPID int, name, value string) {
-	fields = strings.TrimSpace(fields)
+	fields = normalizeTraceMarkPayload(fields)
 	if fields == "" {
 		return "", 0, "", ""
 	}
@@ -1787,6 +1792,49 @@ func parseTraceMark(fields string) (action string, spanPID int, name, value stri
 		}
 	}
 	return action, spanPID, name, value
+}
+
+func normalizeTraceMarkPayload(fields string) string {
+	fields = strings.TrimSpace(fields)
+	if fields == "" {
+		return ""
+	}
+	if isDirectTraceMarkPayload(fields) {
+		return fields
+	}
+	if idx := strings.Index(fields, ":"); idx > 0 && idx+1 < len(fields) {
+		prefix := strings.TrimSpace(fields[:idx])
+		payload := strings.TrimSpace(fields[idx+1:])
+		if tracePrintPrefixLooksLikeAddress(prefix) && isDirectTraceMarkPayload(payload) {
+			return payload
+		}
+	}
+	return fields
+}
+
+func isDirectTraceMarkPayload(fields string) bool {
+	fields = strings.TrimSpace(fields)
+	if fields == "E" {
+		return true
+	}
+	return strings.HasPrefix(fields, "B|") ||
+		strings.HasPrefix(fields, "E|") ||
+		strings.HasPrefix(fields, "C|") ||
+		strings.HasPrefix(fields, "S|") ||
+		strings.HasPrefix(fields, "F|")
+}
+
+func tracePrintPrefixLooksLikeAddress(prefix string) bool {
+	prefix = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(prefix), "0x"))
+	if prefix == "" {
+		return false
+	}
+	for _, r := range prefix {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func atoi(raw string) int {

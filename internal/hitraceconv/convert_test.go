@@ -772,6 +772,27 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 		}
 	})
 
+	t.Run("official_sched_wakeup_new", func(t *testing.T) {
+		format := eventFormat{ID: 65, Name: "sched_wakeup_new", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "char", Name: "comm[16]", Offset: 8, Size: 16},
+			{Name: "pid", Offset: 24, Size: 4, Signed: true},
+			{Name: "prio", Offset: 28, Size: 4, Signed: true},
+			{Name: "target_cpu", Offset: 32, Size: 4, Signed: true},
+		}}
+		content := make([]byte, 36)
+		binary.LittleEndian.PutUint16(content[0:2], 65)
+		binary.LittleEndian.PutUint32(content[4:8], 10)
+		copy(content[8:24], []byte("app\x00"))
+		binary.LittleEndian.PutUint32(content[24:28], 20)
+		binary.LittleEndian.PutUint32(content[28:32], 53)
+		binary.LittleEndian.PutUint32(content[32:36], 2)
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		if !known || body != "comm=app pid=20 prio=53 target_cpu=002" {
+			t.Fatalf("sched_wakeup_new: known=%v body=%q", known, body)
+		}
+	})
+
 	t.Run("data_loc_offset_field_does_not_render_raw_integer_bytes", func(t *testing.T) {
 		const nameOffset = 0x4142
 		format := eventFormat{ID: 64, Name: "clock_set_rate", Fields: []eventField{

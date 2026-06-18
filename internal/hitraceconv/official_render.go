@@ -29,7 +29,7 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, boo
 			body += " cg=" + cg
 		}
 		return body, true
-	case name == "sched_wakeup" || name == "sched_waking":
+	case name == "sched_wakeup" || name == "sched_wakeup_new" || name == "sched_waking":
 		return fmt.Sprintf("comm=%s pid=%d prio=%d target_cpu=%03d",
 			firstNonEmpty(stringByCleanName(ev, content, "pname"), stringByCleanName(ev, content, "comm")),
 			intByCleanName(ev, "pid", true), intByCleanName(ev, "prio", true), intByCleanName(ev, "target_cpu", true)), true

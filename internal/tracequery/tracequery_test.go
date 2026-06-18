@@ -184,6 +184,10 @@ func TestParseLineSchedulerEvents(t *testing.T) {
 	if !ok || wake.Type != EventSchedWakeup || wake.PID != 10 || wake.WakeePID != 20 || wake.TargetCPU != 1 {
 		t.Fatalf("unexpected wake event: %+v ok=%v", wake, ok)
 	}
+	wakeNew, ok := ParseLine(6, `      waker-10   (   10) [000] .... 1.181000: sched_wakeup_new: comm=app pid=21 prio=53 target_cpu=002`, intern)
+	if !ok || wakeNew.Type != EventSchedWakeup || wakeNew.Name != "sched_wakeup_new" || wakeNew.WakeePID != 21 || wakeNew.TargetCPU != 2 {
+		t.Fatalf("unexpected wake_new event: %+v ok=%v", wakeNew, ok)
+	}
 }
 
 func TestParseLineAcceptsPerfettoUnknownTGIDAndMissingTGID(t *testing.T) {
@@ -263,6 +267,30 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			},
 		},
 		{
+			name: "official block insert aliases issue",
+			line: `      waker-10   (   10) [000] .... 2.081000: block_rq_insert: 8,0 W 456 + 16 [worker]`,
+			want: EventBlockIssue,
+			check: func(ev Event) bool {
+				return ev.BlockDev == "8,0" && ev.BlockOp == "W" && ev.BlockSector == 456 && ev.BlockLen == 16
+			},
+		},
+		{
+			name: "official bio queue aliases issue",
+			line: `      waker-10   (   10) [000] .... 2.082000: block_bio_queue: 8,0 R 789 + 4 [worker]`,
+			want: EventBlockIssue,
+			check: func(ev Event) bool {
+				return ev.BlockDev == "8,0" && ev.BlockOp == "R" && ev.BlockSector == 789 && ev.BlockLen == 4
+			},
+		},
+		{
+			name: "official bio complete aliases complete",
+			line: `      waker-10   (   10) [000] .... 2.083000: block_bio_complete: 8,0 R 789 + 4 [0]`,
+			want: EventBlockComplete,
+			check: func(ev Event) bool {
+				return ev.BlockDev == "8,0" && ev.BlockOp == "R" && ev.BlockSector == 789 && ev.BlockLen == 4 && ev.BlockError == "0"
+			},
+		},
+		{
 			name:  "block remap",
 			line:  `      waker-10   (   10) [000] .... 2.085000: block_bio_remap: 12,48  66637568 + 8 <- (260,84) 14962432`,
 			want:  EventBlockRemap,
@@ -337,6 +365,20 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line:  `      waker-10   (   10) [000] .... 2.120000: print: B|20|Choreographer#doFrame`,
 			want:  EventTraceMark,
 			check: func(ev Event) bool { return ev.SpanAction == "B" && ev.SpanName == "Choreographer#doFrame" },
+		},
+		{
+			name: "official print address trace mark",
+			line: `      waker-10   (   10) [000] .... 2.121000: print: 0xffffffc010123abc: B|20|bindApplication`,
+			want: EventTraceMark,
+			check: func(ev Event) bool {
+				return ev.SpanAction == "B" && ev.SpanPID == 20 && ev.SpanName == "bindApplication"
+			},
+		},
+		{
+			name:  "xacct trace mark",
+			line:  `      waker-10   (   10) [000] .... 2.122000: tracing_mark_write_xacct: E|20|`,
+			want:  EventTraceMark,
+			check: func(ev Event) bool { return ev.SpanAction == "E" && ev.SpanPID == 20 },
 		},
 		{
 			name: "trace counter",

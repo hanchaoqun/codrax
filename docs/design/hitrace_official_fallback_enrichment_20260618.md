@@ -89,6 +89,43 @@ Guardrail: tracebundle metadata is output-side provenance. It does not add model
 tool-call JSON fields and therefore does not need new model input burden; existing
 `trace_query` structured-parameter repair still covers all user/tool-call inputs.
 
+## Systrace Parser Closure
+
+The latest OpenHarmony profiler formatter sources also expose several official
+systrace spelling variants that must be query-consumable, even when Codrax does
+not implement the full generated formatter matrix.
+
+Delivered closure:
+
+- `sched_wakeup_new` is rendered by the built-in converter with the same
+  `comm/pid/prio/target_cpu` shape as `sched_wakeup` and is parsed as
+  `sched_wakeup`.
+- Official block aliases `block_rq_insert`, `block_getrq`, and
+  `block_bio_queue` are parsed as block issue evidence; `block_bio_complete` is
+  parsed as block completion evidence.
+- Official trace marker variants `tracing_mark_write_xacct` and
+  `xacct_tracing_mark_write` are parsed as trace markers.
+- Official `print` rows whose payload is emitted as `0xADDR: B|...`,
+  `0xADDR: E|...`, `0xADDR: C|...`, `0xADDR: S|...`, or `0xADDR: F|...` are
+  normalized before B/E/C/S/F span parsing. This preserves correct stack-based
+  span matching without asking the model to search for named end markers.
+- The `trace_query.event_types` schema and compatibility repair layer accept
+  those official aliases and map them to the stable structured event types used
+  by `event_search`, `span_window`, `window_stats`, root-cause ranking, and frame
+  bundle views.
+
+Audited but intentionally not folded into current root-cause weighting:
+
+- `sched_stat_wait/sleep/iowait/blocked/runtime` can be useful as corroborating
+  kernel accounting, but the current ranking already derives elapsed runnable,
+  sleep, D-state, IO-wait, and running intervals from `sched_switch`. Folding
+  `sched_stat_*` into impact without a calibrated merge design would risk
+  double-counting. Keep it as a future evidence surface if needed.
+- `ipi_entry/ipi_exit/ipi_raise` can support a broader compute-supply/interrupt
+  pressure summary, but it is not yet a causal dependency primitive in the
+  existing scheduler/binder/IO model. Add it only with a dedicated pressure
+  aggregation design and tests.
+
 ## Remaining Non-Goals
 
 - Do not implement the full official TracePluginResult protobuf formatter matrix in
