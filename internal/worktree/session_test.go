@@ -461,6 +461,73 @@ func TestCommitChanges_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestCommitChangesForPathsFiltersUnownedGeneratedFiles(t *testing.T) {
+	clearActiveSessions(t)
+	root := initTestRepo(t)
+	base := filepath.Join(t.TempDir(), "wts")
+	sess, err := Create(base, root, makeUniqueTraceID(t))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer func() {
+		if err := DiscardByPath(sess.Path(), root); err != nil {
+			t.Errorf("DiscardByPath: %v", err)
+		}
+	}()
+
+	if err := os.WriteFile(filepath.Join(sess.Path(), "README.md"), []byte("owned\n"), 0o644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(sess.Path(), "build"), 0o755); err != nil {
+		t.Fatalf("mkdir build: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sess.Path(), "build", "generated.c"), []byte("generated\n"), 0o644); err != nil {
+		t.Fatalf("write generated: %v", err)
+	}
+
+	sha, err := CommitChangesForPaths(sess.Path(), "owned only", []string{"README.md"})
+	if err != nil {
+		t.Fatalf("CommitChangesForPaths: %v", err)
+	}
+	patch, err := CaptureCommitPatch(sess.Path(), sha)
+	if err != nil {
+		t.Fatalf("CaptureCommitPatch: %v", err)
+	}
+	if !strings.Contains(patch, "diff --git a/README.md b/README.md") || !strings.Contains(patch, "+owned") {
+		t.Fatalf("owned commit missing README change:\n%s", patch)
+	}
+	if strings.Contains(patch, "build/generated.c") || strings.Contains(patch, "+generated") {
+		t.Fatalf("owned commit included generated file:\n%s", patch)
+	}
+	status := exec.Command("git", "status", "--short", "--", "build/generated.c")
+	status.Dir = sess.Path()
+	out, err := status.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git status generated: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "build/generated.c") {
+		t.Fatalf("generated file should remain uncommitted, status=%q", out)
+	}
+}
+
+func TestCommitChangesForPathsRejectsUnsafePathspec(t *testing.T) {
+	clearActiveSessions(t)
+	root := initTestRepo(t)
+	base := filepath.Join(t.TempDir(), "wts")
+	sess, err := Create(base, root, makeUniqueTraceID(t))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer func() {
+		if err := DiscardByPath(sess.Path(), root); err != nil {
+			t.Errorf("DiscardByPath: %v", err)
+		}
+	}()
+	if _, err := CommitChangesForPaths(sess.Path(), "bad", []string{":(top)*"}); err == nil {
+		t.Fatal("unsafe pathspec should be rejected")
+	}
+}
+
 func TestCaptureRangePatchCapturesCumulativeDiff(t *testing.T) {
 	clearActiveSessions(t)
 	root := initTestRepo(t)

@@ -822,7 +822,7 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	// reset to main" path in clearForReplan, which still works
 	// correctly without the SHA, just less effectively.
 	if o.busCtx.WorktreePath != "" && plan.ID != "" {
-		sha, err := worktree.CommitChanges(o.busCtx.WorktreePath, applyCommitMessage(plan))
+		sha, err := worktree.CommitChangesForPaths(o.busCtx.WorktreePath, applyCommitMessage(plan), writeApplyCommitOwnedPaths(plan))
 		if err != nil {
 			logging.Warning("[orchestrator] apply post-hook: git commit (warm-retry checkpoint) failed: %v", err)
 		} else {
@@ -858,6 +858,33 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		}
 	}
 	return nil
+}
+
+func writeApplyCommitOwnedPaths(plan *types.ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		p := normalizeControllerPath(raw)
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	for _, p := range plan.TargetPaths {
+		add(p)
+	}
+	for _, p := range plan.AppliedPaths {
+		add(p)
+	}
+	for _, change := range plan.Changes {
+		add(change.Path)
+		add(change.NewPath)
+	}
+	return out
 }
 
 // verifyPreHook prepares the verify stage. Two responsibilities:

@@ -4322,6 +4322,7 @@ Verification:
 | RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
 | RC-106 | complete | Same-batch source-owner relation after test-only replan: restore-aware delivery lineage now preserves/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code, while still excluding stale pre-restore plans when no precise restored checkpoint relation exists. Focused Go and SWE adapter regressions pass. |
 | RC-107 | queued | Shared typed localization owner/evidence scheduling authority: promote read/write owner anchors into exploration, extraction, planner/replan scheduling, and final report projection so wrong source-surface patches are avoided earlier. |
+| RC-108 | in_progress | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -6338,6 +6339,51 @@ Verification:
     now selects `plan-1781809191030045000-69938` as source-owner export,
     exports `astropy/io/ascii/qdp.py`, and reports relation
     `source_plan_with_later_same_batch_test_replan`.
+
+## 2026-06-19 RC-108 Apply Checkpoint Owned-path Boundary
+
+- Evidence:
+  - Fresh RC106 smoke at
+    `eval/results/swebench/lite-smoke-20260619-rc106-3` produced 3/3
+    harness-consumable non-empty predictions and official harness dry-run/import
+    accepted the JSONL.
+  - The smoke also showed all three workflows blocked locally after apply/replan
+    with `patch_effect_path_outside_plan_scope:cextern/wcslib/C/fitshdr.c`.
+  - RC105 already limited cumulative PatchEffect review to durable plan-owned
+    paths, so this new evidence means the generated artifact entered the apply
+    checkpoint commit itself before cumulative review.
+- Gap:
+  - `worktree.CommitChanges` uses `git add -A`, which stages every dirty,
+    deleted, and untracked file in the worktree.
+  - In SWE/customer project environments, editable installs, partial builds, or
+    verification probes can leave generated files dirty before or during the
+    apply stage. Those files are not plan-owned but can become part of the
+    applied ref and actual PatchEffect, causing hard PatchReview blockers and
+    confusing repair loops.
+- Design:
+  - Keep `CommitChanges` for legacy callers and tests that intentionally want a
+    whole-worktree checkpoint.
+  - Add `CommitChangesForPaths`, which resets the index and stages only a
+    typed repo-relative path allowlist. It rejects parent escapes and git
+    pathspec-magic inputs through the same structural path normalizer as
+    path-limited diff capture.
+  - Wire write apply checkpoint commits to `CommitChangesForPaths` using
+    deterministic plan-owned paths: `target_paths`, `applied_paths`,
+    `changes[].path`, and `changes[].new_path`.
+  - Empty owned-path lists create an empty checkpoint commit and never fall
+    back to whole-worktree `git add -A`.
+  - This is language-agnostic and does not inspect user wording, issue text,
+    model rationale, logs, stdout prose, or `<think>` output.
+- Task list:
+  - [x] Add path-limited apply checkpoint commit helper in `internal/worktree`.
+  - [x] Switch write apply post-hook checkpoint commits to typed plan-owned
+    paths.
+  - [x] Add worktree regression proving unowned generated files remain
+    uncommitted.
+  - [x] Add apply post-hook regression proving applied PatchEffect commits only
+    plan-owned files.
+  - [ ] Run related/full regressions, rebuild, commit, push, and rerun a fresh
+    SWE Lite smoke.
 
 ## 2026-06-19 RC-107 Queued Shared Typed Localization Owner/evidence Scheduling Authority
 

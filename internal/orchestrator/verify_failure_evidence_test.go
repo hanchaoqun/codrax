@@ -16,6 +16,78 @@ import (
 	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
+func TestApplyPostHookCheckpointCommitKeepsOnlyPlanOwnedPaths(t *testing.T) {
+	mainRoot := filepath.Join(t.TempDir(), "main")
+	if err := os.MkdirAll(mainRoot, 0o755); err != nil {
+		t.Fatalf("mkdir main: %v", err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = mainRoot
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	git("config", "user.email", "test@local")
+	git("config", "user.name", "test")
+	if err := os.WriteFile(filepath.Join(mainRoot, "owned.py"), []byte("VALUE = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-q", "-m", "seed")
+
+	sess, err := worktree.Create(filepath.Join(t.TempDir(), "wt"), mainRoot, "trace-owned-apply-test")
+	if err != nil {
+		t.Fatalf("worktree.Create: %v", err)
+	}
+	t.Cleanup(func() { _ = sess.Discard() })
+	if err := os.WriteFile(filepath.Join(sess.Path(), "owned.py"), []byte("VALUE = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sess.Path(), "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sess.Path(), "build", "generated.c"), []byte("generated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mu := types.NewMutableState("owned apply")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-owned",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"owned.py"},
+		Changes: []types.FileChange{{
+			Path: "owned.py",
+			Kind: "patch",
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable:      mu,
+		Mode:         types.ModeApply,
+		WorktreePath: sess.Path(),
+		MainRepoRoot: mainRoot,
+	}}
+
+	if err := applyPostHook(o, &agent.StageOutput{}); err != nil {
+		t.Fatalf("applyPostHook: %v", err)
+	}
+	if strings.TrimSpace(o.currentIterCommitSHA) == "" {
+		t.Fatal("applyPostHook did not create checkpoint commit")
+	}
+	patch, err := worktree.CaptureCommitPatch(sess.Path(), o.currentIterCommitSHA)
+	if err != nil {
+		t.Fatalf("CaptureCommitPatch: %v", err)
+	}
+	if !strings.Contains(patch, "diff --git a/owned.py b/owned.py") || !strings.Contains(patch, "+VALUE = 2") {
+		t.Fatalf("checkpoint patch missing owned change:\n%s", patch)
+	}
+	if strings.Contains(patch, "build/generated.c") || strings.Contains(patch, "+generated") {
+		t.Fatalf("checkpoint patch included unowned generated file:\n%s", patch)
+	}
+}
+
 // A failed verify attempt must leave durable evidence on disk before any
 // cleanup can run: the typed report JSON plus the applied-commit patch, with
 // the diff artifact ref attached to the batch's verify attempt record.

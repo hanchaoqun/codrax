@@ -630,6 +630,47 @@ func CommitChanges(path, message string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// CommitChangesForPaths commits only the supplied repo-relative paths. The
+// index is reset before staging so pre-existing generated files, editable-build
+// outputs, or verifier artifacts cannot leak into the apply checkpoint. An empty
+// path list intentionally creates an empty checkpoint commit rather than
+// falling back to git add -A.
+func CommitChangesForPaths(path, message string, paths []string) (string, error) {
+	if path == "" {
+		return "", errors.New("worktree.CommitChangesForPaths: path is empty")
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "codrax retry checkpoint"
+	}
+	cleanPaths, err := normalizeRangePatchPaths(paths)
+	if err != nil {
+		return "", fmt.Errorf("worktree.CommitChangesForPaths: %w", err)
+	}
+	if out, err := runGitIn(path, "reset", "--"); err != nil {
+		return "", fmt.Errorf("worktree.CommitChangesForPaths: git reset index: %w (output: %s)", err, out)
+	}
+	if len(cleanPaths) > 0 {
+		args := []string{"add", "-A", "--"}
+		args = append(args, cleanPaths...)
+		if out, err := runGitIn(path, args...); err != nil {
+			return "", fmt.Errorf("worktree.CommitChangesForPaths: git add: %w (output: %s)", err, out)
+		}
+	}
+	commitArgs := []string{
+		"-c", "user.email=codrax-retry@local",
+		"-c", "user.name=codrax-retry",
+		"commit", "--allow-empty", "-m", message,
+	}
+	if out, err := runGitIn(path, commitArgs...); err != nil {
+		return "", fmt.Errorf("worktree.CommitChangesForPaths: git commit: %w (output: %s)", err, out)
+	}
+	out, err := runGitIn(path, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("worktree.CommitChangesForPaths: rev-parse HEAD: %w (output: %s)", err, out)
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // ResetHard runs `git reset --hard <sha>` in the worktree at path so
 // the working tree contents match the named commit exactly. Used to
 // rewind a regressed retry iteration back to the best-known-good
