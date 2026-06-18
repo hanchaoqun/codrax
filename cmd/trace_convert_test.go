@@ -46,33 +46,122 @@ func TestTraceConvertNextLineFollowsLanguage(t *testing.T) {
 	}
 }
 
+func TestTraceConvertNextLinePrefersTraceBundle(t *testing.T) {
+	result := hitraceconv.Result{
+		OutputPath: "out.systrace",
+		BundlePath: "out.tracebundle.json",
+		Artifacts: []hitraceconv.Artifact{{
+			Type:      hitraceconv.ArtifactPerfTrace,
+			Path:      "out.perftrace",
+			Converter: "hitraceconv-v1+raw-perfdata",
+		}},
+	}
+	if got := traceConvertNextLine("en", result); !strings.Contains(got, "out.tracebundle.json") || strings.Contains(got, "out.systrace") {
+		t.Fatalf("next line should prefer tracebundle when perf artifacts are present: %q", got)
+	}
+	if got := traceConvertNextLine("zh", result); !strings.Contains(got, "tracebundle") || !strings.Contains(got, "perftrace") {
+		t.Fatalf("zh next line should mention bundled trace/perf handoff: %q", got)
+	}
+}
+
+func TestTraceConvertArtifactLinesIncludeProvenance(t *testing.T) {
+	lines := strings.Join(traceConvertArtifactLines("en", []hitraceconv.Artifact{{
+		Type:          hitraceconv.ArtifactPerfTrace,
+		Path:          "out.perftrace",
+		Bytes:         123,
+		DataType:      1,
+		PluginName:    "hiperf-plugin",
+		PluginVersion: "1",
+		SourceOffset:  1024,
+		SourceBytes:   99,
+		Converter:     "hitraceconv-v1+raw-perfdata",
+		Perf: &hitraceconv.PerfArtifactCapability{
+			ProviderKind:    "raw_fallback",
+			ProviderName:    "codrax_raw_perfdata",
+			InputFormat:     "linux_perf_data",
+			Symbolization:   "unsymbolized_ip",
+			CPUIdentity:     "sample_cpu_when_recorded",
+			Callchain:       "ip_only_when_recorded",
+			TimeAlignment:   "assumed",
+			TraceQueryReady: true,
+			Degraded:        true,
+		},
+		Caveats: []string{"symbolization_status=unsymbolized"},
+	}}), "\n")
+	for _, want := range []string{"bytes=123", "data_type=1", "plugin=hiperf-plugin", "plugin_version=1", "source_offset=1024", "source_bytes=99", "converter=hitraceconv-v1+raw-perfdata", "perf_provider=codrax_raw_perfdata", "perf_input=linux_perf_data", "perf_symbolization=unsymbolized_ip", "trace_query_ready=true", "perf_degraded=true", "symbolization_status=unsymbolized"} {
+		if !strings.Contains(lines, want) {
+			t.Fatalf("artifact detail missing %q:\n%s", want, lines)
+		}
+	}
+}
+
+func TestTraceConvertResultLinesIncludeProviderDecisions(t *testing.T) {
+	result := hitraceconv.Result{
+		InputPath: "capture.bin",
+		ProviderDecisions: []hitraceconv.PerfProviderDecision{{
+			Stage:           "direct_input",
+			ProviderKind:    "raw_fallback",
+			ProviderName:    "codrax_raw_perfdata",
+			InputFormat:     "linux_perf_data",
+			OutputPath:      "capture.perftrace",
+			ParserMode:      "raw",
+			Selected:        true,
+			Attempted:       true,
+			Succeeded:       true,
+			Fallback:        false,
+			TraceQueryReady: true,
+			ArtifactPath:    "capture.perftrace",
+		}},
+	}
+	en := strings.Join(traceConvertResultLines("en", result), "\n")
+	for _, want := range []string{"provider_decision[raw_fallback/codrax_raw_perfdata]", "selected=true", "attempted=true", "succeeded=true", "trace_query_ready=true", "stage=direct_input", "parser=raw", "input=linux_perf_data"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("provider decision output missing %q:\n%s", want, en)
+		}
+	}
+	zh := strings.Join(traceConvertResultLines("zh", result), "\n")
+	if !strings.Contains(zh, "provider_decision[raw_fallback/codrax_raw_perfdata]：") || !strings.Contains(zh, "succeeded=true") {
+		t.Fatalf("zh provider decision output malformed:\n%s", zh)
+	}
+}
+
 func TestTraceConvertPerfToolStatusLines(t *testing.T) {
 	status := hitraceconv.PerfToolStatus{
 		ParserMode:               "auto",
 		SelectedParser:           "auto",
 		SymbolizationExpectation: "official first, raw fallback",
 		Hiperf: hitraceconv.PerfToolProviderStatus{
-			Name:      "openharmony_hiperf",
-			Kind:      "official_harmony",
-			Available: true,
-			Path:      "/tmp/hiperf_host",
-			Source:    "configured hiperf tool",
+			Name:            "openharmony_hiperf",
+			Kind:            "official_harmony",
+			Available:       true,
+			Path:            "/tmp/hiperf_host",
+			Source:          "configured hiperf tool",
+			CheckCommand:    "hiperf_host --help",
+			AuxiliaryChecks: []string{"symbol_root=/symbols check=test -d /symbols"},
+			InstallCommand:  "git clone https://gitee.com/openharmony/developtools_hiperf",
+			DocsURL:         "https://gitee.com/openharmony/developtools_hiperf",
 		},
 		Simpleperf: hitraceconv.PerfToolProviderStatus{
-			Name:        "android_simpleperf_report_sample",
-			Kind:        "official_android",
-			Available:   false,
-			InstallHint: "install simpleperf",
+			Name:            "android_simpleperf_report_sample",
+			Kind:            "official_android",
+			Available:       false,
+			CheckCommand:    "python3 report_sample.py --help",
+			AuxiliaryChecks: []string{"symfs=/symfs check=test -d /symfs", "kallsyms=/proc/kallsyms check=test -r /proc/kallsyms"},
+			InstallCommand:  "fetch simpleperf",
+			DocsURL:         "https://android.googlesource.com/platform/system/extras/+/refs/heads/main/simpleperf/",
+			InstallHint:     "install simpleperf",
 		},
 		RawFallback: hitraceconv.PerfToolProviderStatus{
-			Name:      "codrax_raw_perfdata",
-			Kind:      "raw_fallback",
-			Available: true,
-			Source:    "built-in",
+			Name:           "codrax_raw_perfdata",
+			Kind:           "raw_fallback",
+			Available:      true,
+			Source:         "built-in",
+			CheckCommand:   "codrax trace convert --perf-tools-status --perf-parser=raw",
+			InstallCommand: "built-in",
 		},
 	}
 	en := strings.Join(traceConvertPerfToolStatusLines("en", status), "\n")
-	for _, want := range []string{"perf_parser: auto", "official_harmony", "/tmp/hiperf_host", "official_android", "hint=install simpleperf", "raw_fallback", "built-in"} {
+	for _, want := range []string{"perf_parser: auto", "official_harmony", "/tmp/hiperf_host", "check=hiperf_host --help", "aux_check=symbol_root=/symbols", "docs=https://gitee.com/openharmony/developtools_hiperf", "official_android", "check=python3 report_sample.py --help", "symfs=/symfs", "kallsyms=/proc/kallsyms", "install=fetch simpleperf", "hint=install simpleperf", "raw_fallback", "built-in", "--perf-parser=raw"} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("status lines missing %q:\n%s", want, en)
 		}

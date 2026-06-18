@@ -1,0 +1,4 @@
+# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+          ui-31   (   31) [006] .... 4.004000: perf_sample: cpu=6 cpu_known=true pid=31 tid=31 thread_comm=ui period=12000 event=cpu-cycles symbol=RenderPipeline::draw dso=libui.so callchain=Looper;RenderPipeline::draw source=simpleperf_report_sample symbolization_status=symbolized clock=record clock_confidence=assumed callchain_status=symbolized
+          ui-31   (   31) [006] .... 4.006000: perf_sample: cpu=6 cpu_known=true pid=31 tid=31 thread_comm=ui period=6000 event=cpu-cycles symbol=RenderPipeline::draw dso=libui.so callchain=Looper;RenderPipeline::draw source=simpleperf_report_sample symbolization_status=symbolized clock=record clock_confidence=assumed callchain_status=symbolized

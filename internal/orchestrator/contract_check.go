@@ -615,15 +615,32 @@ func runtimeArtifactCitationFloorWaived(mut *types.MutableState, o *Orchestrator
 			return true
 		}
 	}
-	if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil && o.busCtx.Mutable != mut {
-		if bundle := o.busCtx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
+	if o != nil && runtimeArtifactCitationFloorWaivedForBus(o.busCtx, mut) {
+		return true
+	}
+	return false
+}
+
+func runtimeArtifactCitationFloorWaivedForBus(bus *types.BusContext, alreadyChecked *types.MutableState) bool {
+	if bus == nil {
+		return false
+	}
+	if bus.Mutable != nil && bus.Mutable != alreadyChecked {
+		if bundle := bus.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
 			return true
 		}
-		if perf := o.busCtx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
+		if perf := bus.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
 			return true
 		}
 	}
-	return false
+	plan := types.BuildAnswerSurfacePlanForBusContext(bus)
+	if plan == nil ||
+		plan.RuntimeGroundingDisposition == nil ||
+		!plan.RuntimeGroundingDisposition.IsActive() ||
+		plan.CurrentSourceEvidenceOrigin {
+		return false
+	}
+	return runtimeArtifactObservationSupportCount(bus) > 0
 }
 
 func relaxUnsupportedAnalyzerMustIncludeTerms(c types.AnswerContract, mut *types.MutableState, oracle types.SymbolOracle) types.AnswerContract {
@@ -2399,7 +2416,90 @@ func finalizerCitationSupportCountFrom(bus *types.BusContext, mut *types.Mutable
 			seen[key] = struct{}{}
 		}
 	}
+	if runtimeArtifactCitationFloorWaivedForBus(bus, mut) {
+		for _, key := range runtimeArtifactObservationSupportKeys(bus) {
+			seen[key] = struct{}{}
+		}
+	}
 	return len(seen)
+}
+
+func runtimeArtifactObservationSupportCount(bus *types.BusContext) int {
+	return len(runtimeArtifactObservationSupportKeys(bus))
+}
+
+func runtimeArtifactObservationSupportKeys(bus *types.BusContext) []string {
+	if bus == nil {
+		return nil
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, 128))
+	if len(ledger.Records) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	for _, record := range ledger.Records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			record.SourceRef.Kind != types.ObservationSourceRuntimeArtifact {
+			continue
+		}
+		if record.GroundingPolicy != types.ClaimGroundingHard &&
+			record.Role != types.AnswerAggregateRolePrincipalAnswer &&
+			!record.ProvenanceLane.IsValid() {
+			continue
+		}
+		key := runtimeArtifactObservationSupportKey(record)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	return out
+}
+
+func runtimeArtifactObservationSupportKey(record types.ObservationRecord) string {
+	for _, ref := range record.SupportRefs {
+		if ref = strings.TrimSpace(ref); ref != "" {
+			return "runtime:" + ref
+		}
+	}
+	source := strings.TrimSpace(firstNonEmptyRuntimeObservationSource(
+		record.SourceRef.Path,
+		record.SourceRef.ArtifactID,
+		record.SourceRef.PayloadRef,
+		record.SourceRef.RawRef,
+		record.ID,
+	))
+	if source == "" {
+		return ""
+	}
+	if record.Span.LineStart > 0 {
+		end := record.Span.LineEnd
+		if end < record.Span.LineStart {
+			end = record.Span.LineStart
+		}
+		return fmt.Sprintf("runtime:%s:%d-%d", source, record.Span.LineStart, end)
+	}
+	if record.Span.StartTs != 0 || record.Span.EndTs != 0 {
+		return fmt.Sprintf("runtime:%s:%.6f-%.6f", source, record.Span.StartTs, record.Span.EndTs)
+	}
+	if strings.TrimSpace(record.ID) != "" {
+		return "runtime:" + strings.TrimSpace(record.ID)
+	}
+	return ""
+}
+
+func firstNonEmptyRuntimeObservationSource(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func addCitationSupportKey(seen map[string]struct{}, file string, line int, bus *types.BusContext) {

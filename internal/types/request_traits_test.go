@@ -119,6 +119,25 @@ func TestHasObservationOnlyRuntimeArtifact_DefaultKeepsCurrentSourceLane(t *test
 	}
 }
 
+func TestHasRuntimeArtifactPathReference_ExternalObservationQuoteEmbeddedPath(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			SourceQuotes: []string{
+				"只分析 ../customlogs/xxx_all.systrace 这个 trace 文件，不分析代码",
+			},
+		},
+	}
+	if !rm.HasRuntimeArtifactPathReference() {
+		t.Fatal("runtime artifact path embedded in typed source quote should be recognized")
+	}
+	if got := rm.RuntimeArtifactPathReferenceKind(); got != "trace" {
+		t.Fatalf("runtime artifact path kind = %q, want trace", got)
+	}
+}
+
 func TestHasObservationOnlyRuntimeArtifact_CurrentKeyCodeDimensionOpensCurrentSourceLane(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,

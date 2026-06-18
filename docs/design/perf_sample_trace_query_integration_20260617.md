@@ -142,14 +142,22 @@ flowchart TD
 Codrax-owned text format, one sample per line, ftrace-like enough for `trace_query` to parse and grep:
 
 ```text
-app-5678 ( 1234) [005] .... 928.081774: perf_sample: pid=1234 tid=5678 cpu=5 period=10000 event=cpu-cycles symbol=Foo::bar dso=libfoo.so ip=0x1234 callchain=main;A;B;Foo::bar
+app-5678 ( 1234) [005] .... 928.081774: perf_sample: pid=1234 tid=5678 cpu=5 sample_weight=10000 event=cpu-cycles symbol=Foo::bar dso=libfoo.so ip=0x1234 callchain=main;A;B;Foo::bar
 ```
 
 Rules:
 
 - Timestamp is seconds, same unit as ftrace/systrace. Harmony hiperf `time` from monotonic ns converts to seconds.
 - `pid` is process id when known; `tid` is sampled thread id.
-- `period` is the sample weight/event count. If absent, count each sample as period 1.
+- `sample_weight` is the sample weight/event count. `period`, `sample_period`,
+  `period_weight`, `event_count`, and `count` remain accepted input aliases for
+  imported traces, but generated `.perftrace` uses `sample_weight` to avoid
+  implying elapsed time. If absent, count each sample as weight 1.
+- `trace_query` derives a model-facing `weight_unit` hint from typed perf event
+  semantics. Examples include `cycles`, `instructions`, `ns_on_cpu_event`,
+  `ns_off_cpu_event`, `ns_clock_event`, and `event_count`. This is not a
+  tool-call input field and should not be added to JSON repair aliases unless a
+  future model-authored filter is introduced.
 - `event` is the hardware/software event name such as `cpu-cycles`.
 - `symbol` is the leaf/hot function; `dso` is the mapped binary/library.
 - `callchain` is semicolon-separated from root to leaf when the adapter can determine order; parser records the raw string and does not infer missing frames.
@@ -160,7 +168,7 @@ Rules:
 Add `EventPerfSample` and perf fields to `tracequery.Event`:
 
 - `perf_pid`, `perf_tid`, `perf_comm`
-- `perf_period`, `perf_event`
+- `perf_period`, `perf_event` (`perf_period` stores the parsed sample weight)
 - `perf_symbol`, `perf_dso`, `perf_ip`
 - `perf_callchain`
 - optional `perf_source` and `perf_clock`
@@ -186,7 +194,7 @@ Add a reusable `PerfContext`:
 
 Each hotspot row should carry:
 
-- `symbol`, `dso`, `event`
+- `symbol`, `dso`, `event`, `weight_unit`
 - `sample_count`, `period`, `percent`
 - `threads`, `cpus`
 - `line_start`, `line_end`, `example`
@@ -217,7 +225,7 @@ Ranking still starts from deterministic intervals, overlap, and chain relevance.
 Add three views:
 
 - `perf_stats`: aggregate samples in a window by symbol, dso, callchain, thread, CPU, and event.
-- `perf_timeline`: bucket sample periods by time for a target thread, process, CPU, event, symbol, or dso.
+- `perf_timeline`: bucket sample weights by time for a target thread, process, CPU, event, symbol, or dso.
 - `trace_perf_bundle`: line-backed joint bundle combining window stats, root-cause rank, wakeup/binder chain evidence, and role-specific perf contexts.
 
 Existing views should be enhanced:
@@ -251,7 +259,7 @@ Implemented D2 path:
 - `SymbolTableFile` provides dso path and function names.
 - `ReportInfo.config_name` provides event name.
 - `CallStackSample.event_count` becomes `period`; missing/zero period is normalized to `1`.
-- OpenHarmony report protobuf does not carry a guaranteed CPU id, so generated `.perftrace` rows use prefix CPU `000` but explicit `cpu=-1`. `trace_query` consumes `cpu=-1` as unknown rather than attributing samples to CPU0.
+- OpenHarmony report protobuf does not carry a guaranteed CPU id, so generated `.perftrace` rows use prefix CPU `000` but explicit `cpu=-1`. `trace_query` consumes `cpu=-1` as unknown rather than attributing samples to any concrete CPU/core.
 - `sample.callStackFrame[0]` is treated as the leaf/hot frame, matching hiperf report's non-callstack path. The stored `callchain` is reversed into root-to-leaf text for model consumption.
 
 If the official adapter fails or is not available, conversion still succeeds for `.systrace` / `.perf.data` and emits a caveat. This keeps trace conversion stable while avoiding false confidence in raw perf parsing.
@@ -345,7 +353,7 @@ Status: implemented. `RootCauseRankItem.perf_context` is populated after determi
 - Emit `.perftrace` and `.tracebundle.json` with provenance.
 - Keep `.systrace` behavior stable for traces without perf data.
 
-Status: in progress. D1 landed multi-artifact result metadata, official `TraceFileHeader` scanning for `DataType::HIPERF_DATA`, `.perf.data` sidecar extraction, `.tracebundle.json` provenance output, CLI/REPL artifact reporting, and converter tests for both systrace+perf and standalone-only perf inputs. Remaining D work is the official parser adapter path that turns extracted `.perf.data` into normalized `.perftrace`.
+Status: complete for the current commercial delivery slice. D1 landed multi-artifact result metadata, official `TraceFileHeader` scanning for `DataType::HIPERF_DATA`, `.perf.data` sidecar extraction, `.tracebundle.json` provenance output, CLI/REPL artifact reporting, and converter tests for both systrace+perf and standalone-only perf inputs. D2-D4 then closed the official OpenHarmony hiperf adapter, Android simpleperf adapter, and bounded raw `perf.data` fallback path that turns extracted or directly supplied perf data into normalized `.perftrace`.
 
 D2 landed the OpenHarmony hiperf adapter path: `ConvertFile` can now run a configured/discovered official `hiperf_host`/`hiperf report --proto`, parse the official `report_sample.proto` stream without adding a new dependency, emit `.perftrace`, include it in `.tracebundle.json`, and preserve `.perf.data` with caveats. CLI supports `--hiperf-host`, `--hiperf-symbol-dir`, and `--no-perftrace`; REPL keeps the simple `/htrace convert` form and directs users to CLI when a specific official adapter path is needed.
 
@@ -360,15 +368,27 @@ D4 landed the dual-engine parser strategy: `--perf-parser=auto` prefers official
 - Ensure explicit path questions with one or more runtime artifacts route to `trace_query(path)` instead of source-code analysis.
 - Update user guide examples.
 
-Status: in progress. `tracequery.BuildIndex` now accepts `.tracebundle.json` directly, promotes `*.systrace` / `*.perftrace` to a sibling `*.tracebundle.json` when present, and auto-merges sibling `*.systrace + *.perftrace` pairs when no bundle exists. The merge keeps existing parser/view code as the single consumer, so model tool calls can pass one path and still get joint trace+perf context. REPL prompt labels now surface multi-artifact state compactly (`[log:2]`, `[trace:2+perf]`, `[perftrace]`, `[tracebundle]`), CLI single-shot runs print a compact runtime-artifact status block, and saved markdown/html reports include a typed `Runtime Artifacts` table derived from attachment metadata rather than model prose. Remaining E work is end-to-end eval coverage.
+Status: complete. `tracequery.BuildIndex` now accepts `.tracebundle.json`
+directly, promotes `*.systrace` / `*.perftrace` to a sibling
+`*.tracebundle.json` when present, and auto-merges sibling
+`*.systrace + *.perftrace` pairs when no bundle exists. The merge keeps existing
+parser/view code as the single consumer, so model tool calls can pass one path
+and still get joint trace+perf context. REPL prompt labels now surface
+multi-artifact state compactly (`[log:2]`, `[trace:2+perf]`, `[perftrace]`,
+`[tracebundle]`), CLI single-shot runs print a compact runtime-artifact status
+block, and saved markdown/html reports include a typed `Runtime Artifacts` table
+derived from attachment metadata rather than model prose. Follow-up audit and
+verification evidence lives in
+`docs/design/perf_sample_parser_capability_plan_20260618.md`.
 
-Additional UX gaps found after the raw fallback batch:
+Additional UX gaps found after the raw fallback batch, now closed by the
+Batch E task additions below:
 
-1. **Official tool onboarding is not transparent enough.** The code supports `--hiperf-host`, `CODRAX_HIPERF_HOST`, `PATH` discovery, `--simpleperf-report-sample`, `CODRAX_SIMPLEPERF_REPORT_SAMPLE`, Python discovery, symbol dirs, symfs, and kallsyms, but users do not yet get a single `doctor`/help surface that explains how to install or wire OpenHarmony `hiperf_host` and Android simpleperf `report_sample.py`.
-2. **Tool discovery status is not surfaced before conversion.** `trace convert` caveats report missing adapters after the fact, but there is no explicit preflight table such as `official hiperf: found/missing`, `simpleperf: found/missing`, `raw fallback: available`, `selected parser: auto|official|raw`, and `symbolization expectation`.
-3. **Bundling official tools into the Codrax binary needs a deliberate provider policy.** Embedding a "latest" hiperf/simpleperf binary directly into the main executable is risky because these tools are platform/ABI-specific, update independently, may have upstream licensing/distribution constraints, and need matching symbolization libraries. A safer commercial path is a provider registry plus optional managed tool cache: discover system tools first, then optionally install or point to a versioned external tool bundle. A build-tag or enterprise packaging lane can embed approved binaries later, but default Codrax should not silently ship a stale or wrong-platform official parser.
-4. **Multi runtime-artifact append lacks visible state.** When several traces/logs/perf files are attached or appended, REPL/CLI prompts do not clearly show the active runtime artifact set, which artifact is primary, whether sidecars were auto-merged, and which caveats apply.
-5. **Markdown/HTML reports lack artifact transparency.** Final reports should have a compact "Runtime Artifacts" section that lists each source path, type, size/line count, converter, bundle membership, parser source (`hiperf_proto`, `simpleperf_report_sample`, `raw_perfdata_fallback`), `symbolization_status`, and caveats. This must come from typed artifact metadata, not model prose or keyword matching.
+1. **Official tool onboarding was not transparent enough.** The code supported `--hiperf-host`, `CODRAX_HIPERF_HOST`, `PATH` discovery, `--simpleperf-report-sample`, `CODRAX_SIMPLEPERF_REPORT_SAMPLE`, Python discovery, symbol dirs, symfs, and kallsyms, but users needed a single status/help surface explaining how to install or wire OpenHarmony `hiperf_host` and Android simpleperf `report_sample.py`.
+2. **Tool discovery status was not surfaced before conversion.** `trace convert` caveats reported missing adapters after the fact, but there was no explicit preflight table such as `official hiperf: found/missing`, `simpleperf: found/missing`, `raw fallback: available`, `selected parser: auto|official|raw`, and `symbolization expectation`.
+3. **Bundling official tools into the Codrax binary needed a deliberate provider policy.** Embedding a "latest" hiperf/simpleperf binary directly into the main executable is risky because these tools are platform/ABI-specific, update independently, may have upstream licensing/distribution constraints, and need matching symbolization libraries. The chosen commercial path is a provider registry plus optional managed tool cache: discover system tools first, then optionally install or point to a versioned external tool bundle. A build-tag or enterprise packaging lane can embed approved binaries later, but default Codrax should not silently ship a stale or wrong-platform official parser.
+4. **Multi runtime-artifact append lacked visible state.** When several traces/logs/perf files were attached or appended, REPL/CLI prompts did not clearly show the active runtime artifact set, which artifact is primary, whether sidecars were auto-merged, and which caveats apply.
+5. **Markdown/HTML reports lacked artifact transparency.** Final reports needed a compact "Runtime Artifacts" section that lists each source path, type, size/line count, converter, bundle membership, parser source (`hiperf_proto`, `simpleperf_report_sample`, `raw_perfdata_fallback`), `symbolization_status`, and caveats. This must come from typed artifact metadata, not model prose or keyword matching.
 
 Batch E task additions:
 
@@ -376,11 +396,16 @@ Batch E task additions:
 - [x] Add `trace convert --perf-tools-status` or an equivalent preflight command/output section that shows selected parser, discovered official tools, raw fallback availability, and install guidance when missing.
 - [x] Add concise install/integration documentation for OpenHarmony `hiperf_host` and Android simpleperf `report_sample.py`, including env vars, CLI flags, symbol-dir/symfs/kallsyms, and expected output caveats.
 - [x] Design an optional managed tool-cache/bundle provider before considering embedded binaries. Any embedded-binary lane must be explicit, versioned, platform-scoped, license-reviewed, and observable in `--perf-tools-status`.
-- [ ] Extend REPL/CLI runtime artifact state so multiple `/log`, `/htrace`, `/atrace`, `.perftrace`, `.tracebundle.json`, and direct path attachments display a stable prompt/status summary: count by type, active primary artifact, bundle/sidecar merge status, and caveats.
+- [x] Extend REPL/CLI runtime artifact state so multiple `/log`, `/htrace`, `/atrace`, `.perftrace`, `.tracebundle.json`, and direct path attachments display a stable prompt/status summary: count by type, active primary artifact, bundle/sidecar merge status, and caveats.
   - [x] REPL prompt state labels for multi log/trace/perf/bundle attachments.
   - [x] CLI status/output transparency for multi runtime-artifact inputs.
 - [x] Extend markdown/html report rendering with a typed "Runtime Artifacts" section sourced from attachment metadata, including perf parser source and symbolization status when present in normalized perftrace rows.
-- [ ] Add eval/regression cases for explicit path-based multiple artifacts, appended log+trace+perf flows, prompt/status visibility, and report artifact transparency.
+- [x] Add eval/regression cases for explicit path-based multiple artifacts,
+  appended log+trace+perf flows, prompt/status visibility, and report artifact
+  transparency. Coverage is split across unit tests for CLI/REPL/report
+  surfaces and low-prebake eval cases for explicit path, bundle/perftrace,
+  raw fallback, SIMPLEPERF proto off-cpu, Harmony CPU-unknown, and
+  running-window perf context.
 
 Managed official-tool provider policy:
 
@@ -397,6 +422,13 @@ Managed official-tool provider policy:
 - Add binder peer perf eval.
 - Add `.htrace` converted sidecar fixture eval once converter support lands.
 - Run selected existing trace evals in pairs to guard no regression in trace-only flows.
+
+Status: complete for the current commercial delivery slice. The active
+verification set is documented in the 2026-06-18 audit plan and includes
+two-case parallel eval runs for perf quality, raw fallback, Harmony CPU-unknown,
+SIMPLEPERF proto off-cpu, and running perf context, plus full Go test/make
+coverage. Future real-device fixture expansion should add coverage rather than
+reopen the core architecture work.
 
 ## Test Plan
 
@@ -438,11 +470,15 @@ Eval targets:
   - [x] D2 OpenHarmony official hiperf adapter to normalized `.perftrace` implemented.
   - [x] D3 Android/simpleperf adapter parity implemented.
   - [x] D4 raw `perf.data` fallback parser implemented, committed, pushed.
-- [ ] Batch E implemented, committed, pushed.
+- [x] Batch E implemented, committed, pushed.
 - [x] Raw perf.data fallback designed, implemented, committed, pushed.
-- [ ] Batch F evals added and representative cases run two at a time.
+- [x] Batch F evals added and representative cases run two at a time.
 
-## Open Decisions
+## Non-Blocking Follow-Ups
 
-- Runtime config-file keys for perf adapters beyond CLI/env. Current implementation supports explicit CLI flags, env vars, and PATH discovery.
-- Whether `trace_perf_bundle` should be a new concrete view or an alias to enhanced `frame_root_cause_bundle` when a frame/span window is selected. Initial plan keeps it concrete because non-frame startup/binder/runnable windows also benefit from joint output.
+- Runtime config-file keys for perf adapters beyond CLI/env remain a future
+  convenience. Current commercial delivery supports explicit CLI flags, env
+  vars, PATH discovery, provider status output, and documented install guidance.
+- `trace_perf_bundle` is intentionally a concrete view, not just an alias to
+  `frame_root_cause_bundle`, because non-frame startup, binder, runnable, and
+  explicit perf windows also need one joint trace+perf handoff result.

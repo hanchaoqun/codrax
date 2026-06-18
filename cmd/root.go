@@ -736,7 +736,7 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		logging.Info("[cmd] attached hitrace: %d bytes", len(trace))
 	}
 	if request != "" {
-		printCLIRuntimeArtifactStatus(flagLang, attached, trace)
+		printCLIRuntimeArtifactStatus(flagLang, request, attached, trace)
 	}
 	if flagLogSourcePrefix != "" {
 		logtriage.SetSourcePrefix(flagLogSourcePrefix)
@@ -1196,8 +1196,8 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	return nil
 }
 
-func printCLIRuntimeArtifactStatus(lang, logBody, traceBody string) {
-	artifacts := cliRuntimeArtifacts(logBody, traceBody)
+func printCLIRuntimeArtifactStatus(lang, request, logBody, traceBody string) {
+	artifacts := cliRuntimeArtifacts(request, logBody, traceBody)
 	if len(artifacts) == 0 {
 		return
 	}
@@ -1207,10 +1207,11 @@ func printCLIRuntimeArtifactStatus(lang, logBody, traceBody string) {
 	}
 }
 
-func cliRuntimeArtifacts(logBody, traceBody string) []outputdump.RuntimeArtifact {
-	return append(
+func cliRuntimeArtifacts(request, logBody, traceBody string) []outputdump.RuntimeArtifact {
+	return outputdump.MergeRuntimeArtifacts(
+		outputdump.RuntimeArtifactsFromRequest(request),
 		outputdump.RuntimeArtifactsFromAttachment("log", logBody),
-		outputdump.RuntimeArtifactsFromAttachment("trace", traceBody)...,
+		outputdump.RuntimeArtifactsFromAttachment("trace", traceBody),
 	)
 }
 

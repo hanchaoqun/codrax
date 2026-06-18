@@ -7877,18 +7877,20 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	// Best-effort: the helper logs and swallows every IO error so the
 	// dump never affects the rest of the pipeline.
 	if o.outputDumpDir != "" && strings.TrimSpace(answer) != "" {
+		dumpRequest := o.outputTranscriptRequestForDump()
 		if result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
 			dir:      o.outputDumpDir,
 			max:      o.outputDumpMax,
-			request:  o.outputTranscriptRequestForDump(),
+			request:  dumpRequest,
 			answer:   answer,
 			hasLog:   o.attachedLog != "",
 			logBytes: len(o.attachedLog),
 			hasTrace: o.attachedHitrace != "",
 			traceB:   len(o.attachedHitrace),
-			artifacts: append(
+			artifacts: outputdump.MergeRuntimeArtifacts(
+				outputdump.RuntimeArtifactsFromRequest(dumpRequest),
 				outputdump.RuntimeArtifactsFromAttachment("log", o.attachedLog),
-				outputdump.RuntimeArtifactsFromAttachment("trace", o.attachedHitrace)...,
+				outputdump.RuntimeArtifactsFromAttachment("trace", o.attachedHitrace),
 			),
 			now: time.Now(),
 			pid: os.Getpid(),

@@ -109,7 +109,7 @@ func (t *EmitPerfTrace) Name() string { return "emit_perf_trace" }
 func (t *EmitPerfTrace) Description() string {
 	return "Emits the structured PerfBundle extracted from the attached HiTrace / atrace / systrace / perfetto text excerpt. " +
 		"Call EXACTLY once per dispatch. The system derives ResolvedFiles / Entities / IntentHint / Coverage automatically — " +
-		"do not try to resolve paths yourself."
+		"do not try to resolve paths yourself. For perf_sample rows, distinguish sample CPU scope from scheduler event CPU: cpu=-1, cpu_known=false, or sample_kind=off_cpu means the sample is not tied to a concrete CPU/core, even when the surrounding ftrace row has a [CPU] column."
 }
 
 // Parameters returns the strict JSON schema.
@@ -714,8 +714,8 @@ func buildEmitPerfTraceSchema() map[string]any {
 		"properties": map[string]any{
 			"kind":        map[string]any{"type": "string", "maxLength": 64, "description": "trace-local fact type, e.g. span, threshold_check, line_anchor, duration, absence"},
 			"subject":     map[string]any{"type": "string", "maxLength": 120},
-			"summary":     map[string]any{"type": "string", "maxLength": 300},
-			"evidence":    map[string]any{"type": "string", "maxLength": 300},
+			"summary":     map[string]any{"type": "string", "maxLength": 300, "description": "Concise trace-local fact. For perf_sample facts, keep sample CPU scope separate from scheduler event CPU; cpu=-1/cpu_known=false/sample_kind=off_cpu cannot support concrete CPU/core sample attribution."},
+			"evidence":    map[string]any{"type": "string", "maxLength": 300, "description": "Verbatim key fields from the event row. Include cpu_known/sample_kind/weight_unit when present so downstream consumers do not infer sample CPU or time units from nearby scheduler rows."},
 			"line_start":  map[string]any{"type": "integer", "minimum": 0},
 			"line_end":    map[string]any{"type": "integer", "minimum": 0},
 			"start_ts_ms": map[string]any{"type": "number"},

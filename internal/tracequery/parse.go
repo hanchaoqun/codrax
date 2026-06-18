@@ -32,8 +32,8 @@ var spaceKVKeys = map[string]struct{}{
 	"file": {}, "filename": {}, "i_blocks": {}, "i_mode": {}, "i_nlink": {}, "i_size": {},
 	"duration": {}, "duration_ms": {}, "duration_ns": {}, "duration_us": {},
 	"ino": {}, "inode": {}, "ip": {}, "latency": {}, "latency_ms": {}, "latency_ns": {}, "latency_us": {}, "len": {}, "length": {}, "name": {}, "offset": {}, "ofs": {},
-	"mask": {}, "operation": {}, "op": {}, "orig_cpu": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "path": {}, "period": {}, "pid": {}, "pino": {},
-	"policy": {}, "pos": {}, "reason": {}, "ret": {}, "rw": {}, "rwbs": {}, "sample_period": {}, "size": {}, "source": {}, "symbol": {}, "target_comm": {}, "target_cpu": {}, "target_pid": {}, "task": {}, "task_pid": {}, "thread_comm": {}, "tid": {}, "type": {},
+	"mask": {}, "operation": {}, "op": {}, "orig_cpu": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "path": {}, "period": {}, "period_weight": {}, "pid": {}, "pino": {},
+	"policy": {}, "pos": {}, "reason": {}, "ret": {}, "rw": {}, "rwbs": {}, "sample_period": {}, "sample_weight": {}, "size": {}, "source": {}, "symbol": {}, "target_comm": {}, "target_cpu": {}, "target_pid": {}, "task": {}, "task_pid": {}, "thread_comm": {}, "tid": {}, "type": {},
 }
 
 type parseCacheKey struct {
@@ -893,13 +893,14 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 		ev.PerfTID = ev.PID
 	}
 	ev.PerfComm = intern.intern(cleanTraceValue(firstNonEmpty(kv["thread_comm"], kv["comm"], kv["name"], ev.Comm)))
-	ev.PerfPeriod = atoi64(firstNonEmpty(kv["period"], kv["sample_period"], kv["event_count"], kv["count"]))
+	ev.PerfPeriod = atoi64(firstNonEmpty(kv["sample_weight"], kv["period_weight"], kv["period"], kv["sample_period"], kv["event_count"], kv["count"]))
 	ev.PerfEvent = intern.intern(cleanTraceValue(firstNonEmpty(kv["event"], kv["type"])))
 	ev.PerfSymbol = intern.intern(cleanTraceValue(firstNonEmpty(kv["symbol"], kv["func"], kv["function"])))
 	ev.PerfDSO = intern.intern(cleanTraceValue(firstNonEmpty(kv["dso"], kv["file"], kv["path"])))
 	ev.PerfIP = intern.intern(cleanTraceValue(firstNonEmpty(kv["ip"], kv["addr"], kv["address"])))
 	ev.PerfCallchain = intern.intern(cleanTraceValue(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"])))
 	ev.PerfSource = intern.intern(cleanTraceValue(firstNonEmpty(kv["source"], kv["producer"])))
+	ev.PerfSampleKind = intern.intern(cleanTraceValue(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"])))
 	ev.PerfSymbolizationStatus = intern.intern(cleanTraceValue(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"])))
 	ev.PerfClock = intern.intern(cleanTraceValue(firstNonEmpty(kv["clock"], kv["clockid"])))
 	if known, ok := boolMaybe(firstNonEmpty(kv["cpu_known"], kv["cpu_valid"], kv["cpu_available"])); ok {

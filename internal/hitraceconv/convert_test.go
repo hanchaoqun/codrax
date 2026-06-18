@@ -149,6 +149,50 @@ func TestConvertFileReturnsStandalonePerfArtifactWithoutSystraceContainer(t *tes
 	}
 }
 
+func TestPerfClockAlignmentsForArtifactsCoversConfidenceStates(t *testing.T) {
+	alignments := perfClockAlignmentsForArtifacts([]Artifact{
+		{
+			Type: ArtifactPerfTrace,
+			Path: "assumed.perftrace",
+			Perf: &PerfArtifactCapability{
+				ProviderName:  "assumed_provider",
+				TimeDomain:    "perf_time_ns",
+				TimeAlignment: "assumed",
+			},
+		},
+		{
+			Type: ArtifactPerfTrace,
+			Path: "calibrated.perftrace",
+			Perf: &PerfArtifactCapability{
+				ProviderName:  "calibrated_provider",
+				TimeDomain:    "perf_time_ns",
+				TimeAlignment: "calibrated",
+			},
+		},
+		{
+			Type: ArtifactPerfTrace,
+			Path: "unknown.perftrace",
+			Perf: &PerfArtifactCapability{
+				ProviderName: "unknown_provider",
+				TimeDomain:   "perf_time_ns",
+			},
+		},
+		{Type: ArtifactSystrace, Path: "ignored.systrace"},
+	})
+	if len(alignments) != 3 {
+		t.Fatalf("alignments = %+v", alignments)
+	}
+	if alignments[0].Confidence != "assumed" || alignments[0].Calibrated || len(alignments[0].Caveats) == 0 {
+		t.Fatalf("assumed alignment should be uncalibrated with caveat: %+v", alignments[0])
+	}
+	if alignments[1].Confidence != "calibrated" || !alignments[1].Calibrated || len(alignments[1].Caveats) != 0 {
+		t.Fatalf("calibrated alignment should be marked calibrated without caveat: %+v", alignments[1])
+	}
+	if alignments[2].Confidence != "unknown" || alignments[2].Calibrated || len(alignments[2].Caveats) == 0 {
+		t.Fatalf("unknown alignment should be uncalibrated with caveat: %+v", alignments[2])
+	}
+}
+
 func TestConvertFileSkipsMissingFormatRows(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "missing-format.htrace")

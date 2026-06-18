@@ -3018,7 +3018,9 @@ func attachedLogPreamble(state attachedRuntimeTriageState) string {
 func attachedTracePreamble(state attachedRuntimeTriageState) string {
 	lineNote := "Every line in the fenced block carries an artifact-local gutter `N│`; " +
 		"use that N only as the attached-trace line number / event row, not as a repository source citation. " +
-		"Trace timestamps, span names, and source-frame tokens remain the literal text after the gutter.\n\n"
+		"Trace timestamps, span names, and source-frame tokens remain the literal text after the gutter. " +
+		"For perf_sample rows, fields such as `period`, `sample_period`, `event_count`, `sample_weight`, or `period_weight` are event/sample weights, not elapsed time; do not render them as ms/us/ns unless an explicit duration field says so. " +
+		"When a perf_sample row has `cpu=-1`, `cpu_known=false`, or `sample_kind=off_cpu`, its sample CPU/core is unavailable or off-CPU; any ftrace `[NNN]` or nearby sched_switch CPU is the scheduler event row CPU, not the perf sample CPU location.\n\n"
 	switch state {
 	case attachedTriageProducer:
 		return "The user attached the performance trace below alongside their question. " +

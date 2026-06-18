@@ -880,6 +880,33 @@ func TestNormalizeDiagnosticMirrorSignals_PredicatePromotesMirror(t *testing.T) 
 	}
 }
 
+func TestNormalizeDiagnosticProfileForExternalObservationPolicyClearsCurrentStatus(t *testing.T) {
+	diagnostic := types.DiagnosticIntentProfile{
+		IsDiagnostic:         true,
+		CurrentRisk:          true,
+		HistoricalRegression: true,
+		CurrentVersionCheck:  true,
+		Confidence:           0.92,
+	}
+	policy := &types.ExternalObservationPolicy{
+		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		SourceQuotes:      []string{"只分析 trace，不分析代码"},
+		Confidence:        0.95,
+	}
+
+	got, warnings := normalizeDiagnosticProfileForExternalObservationPolicy(diagnostic, policy)
+
+	if !got.IsDiagnostic {
+		t.Fatalf("trace-only diagnostic should remain diagnostic: %+v", got)
+	}
+	if got.CurrentRisk || got.CurrentVersionCheck || got.HistoricalRegression {
+		t.Fatalf("current-status fields should be cleared by source-exclude policy: %+v", got)
+	}
+	if len(warnings) != 3 {
+		t.Fatalf("expected three repair warnings, got %v", warnings)
+	}
+}
+
 func TestParseErrorGranularityProfile_SoftensUnanchoredQuotes(t *testing.T) {
 	raw := "全面排查finalyzer阶段的各种重试是否真的必要，哪些其实是可以靠系统进行修复的"
 	profile, err, warnings := parseErrorGranularityProfile(raw, &emitErrorGranularityProfileParam{

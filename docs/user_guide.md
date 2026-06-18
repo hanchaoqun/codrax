@@ -428,6 +428,9 @@ codrax trace convert --perf-tools-status --lang en
 - `raw_fallback[codrax_raw_perfdata]`: Codrax 内置 raw `perf.data` fallback 是否可用
 - `perf_parser`: 当前策略,默认 `auto`
 - `symbolization_expectation`: 输出是否可能是官方符号化结果,还是 raw IP/DSO fallback
+- `check`: 用于确认该 provider 是否能在当前机器工作的检查命令
+- `aux_check`: 符号目录、symfs、kallsyms 等辅助输入的检查提示
+- `install` / `docs`: 官方工具获取入口或内置能力说明
 
 推荐策略:
 
@@ -459,7 +462,7 @@ export CODRAX_HIPERF_HOST=/path/to/hiperf_host
 codrax trace convert --input /tmp/capture.htrace
 ```
 
-`hiperf_host` / `hiperf` 来自 OpenHarmony `developtools_hiperf`。官方 lane 会运行 `hiperf report --proto`,再把 protobuf report 转成 Codrax `.perftrace`。OpenHarmony report proto 通常不携带 CPU id,所以 `.perftrace` 中可能显示 `cpu=-1`;这表示 CPU 未知,不是 CPU0。
+`hiperf_host` / `hiperf` 来自 OpenHarmony `developtools_hiperf`。官方 lane 会运行 `hiperf report --proto`,再把 protobuf report 转成 Codrax `.perftrace`。OpenHarmony report proto 通常不携带 CPU id,所以 `.perftrace` 中可能显示 `cpu=-1`;这表示 CPU 未知,不能归因到任何具体 CPU/core。
 
 Android simpleperf 官方工具接入:
 
@@ -477,7 +480,7 @@ export CODRAX_SIMPLEPERF_PYTHON=/usr/bin/python3
 codrax trace convert --input /tmp/perf.data
 ```
 
-官方工具负责完整解析、unwind、Java/ART/native 符号、symfs/kallsyms 等;Codrax raw fallback 只做有限字段提取。raw 输出会明确带上 `source=raw_perfdata_fallback` 和 `symbolization_status=unsymbolized`:它适合做时间、线程、DSO、IP、调用链地址的辅助关联,不要把 IP-only label 当成真实函数名。
+`report_sample.py` 是 Android 官方提供的 `simpleperf_report_lib.py` wrapper。Codrax 执行 wrapper;如果你只传了 `simpleperf_report_lib.py`,系统会尝试使用同目录的 `report_sample.py` / `simpleperf_report_sample.py` / `report_sample`,缺失时 `--perf-tools-status` 会提示补 wrapper。官方工具负责完整解析、unwind、Java/ART/native 符号、symfs/kallsyms 等;Codrax raw fallback 只做有限字段提取。raw 输出会明确带上 `source=raw_perfdata_fallback` 和 `symbolization_status=unsymbolized`:它适合做时间、线程、DSO、IP、调用链地址的辅助关联,不要把 IP-only label 当成真实函数名。
 
 转换产物:
 

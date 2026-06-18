@@ -45,7 +45,7 @@ func TestBuildBodyRendersRuntimeArtifactTable(t *testing.T) {
 		"# codrax-source: frame.systrace",
 		"sched_switch",
 		"# codrax-source: frame.perftrace",
-		`perf_sample: pid=1 tid=1 source=raw_perfdata_fallback symbolization_status=unsymbolized`,
+		`perf_sample: pid=1 tid=1 source=raw_perfdata_fallback sample_kind=off_cpu symbolization_status=unsymbolized cpu_known=false clock_confidence=assumed`,
 	}, "\n")
 	body := BuildBody(Args{
 		Request: "why jank?",
@@ -61,7 +61,10 @@ func TestBuildBodyRendersRuntimeArtifactTable(t *testing.T) {
 		"| trace | frame.systrace |",
 		"| perftrace | frame.perftrace |",
 		"source=raw_perfdata_fallback",
+		"sample_kind=off_cpu",
 		"symbolization_status=unsymbolized",
+		"cpu_known=false",
+		"clock_confidence=assumed",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("runtime artifact table missing %q:\n%s", want, body)
@@ -114,6 +117,71 @@ func TestRuntimeArtifactsFromAttachmentKeepsInlinePreamble(t *testing.T) {
 	for _, want := range []string{"| log | (inline) |", "| log | second.log |"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("inline and sourced artifacts should both render %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestRuntimeArtifactsFromRequestReportsExplicitPaths(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "capture")
+	if err := os.WriteFile(tracePath, []byte("sched_switch: prev_comm=app prev_pid=1 ==> next_comm=worker next_pid=2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	perfPath := filepath.Join(dir, "sample.perftrace")
+	if err := os.WriteFile(perfPath, []byte("perf_sample: pid=1 tid=2 symbol=foo dso=app source=raw_perfdata_fallback sample_kind=off_cpu symbolization_status=unsymbolized cpu_known=false clock_confidence=assumed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	artifacts := RuntimeArtifactsFromRequest("请分析 " + tracePath + " 和 " + perfPath)
+	body := BuildBody(Args{
+		Request:          "why",
+		Answer:           "answer",
+		RuntimeArtifacts: artifacts,
+	})
+	for _, want := range []string{
+		"| trace | " + tracePath + " |",
+		"referenced in request",
+		"| perftrace | " + perfPath + " |",
+		"source=raw_perfdata_fallback",
+		"sample_kind=off_cpu",
+		"symbolization_status=unsymbolized",
+		"cpu_known=false",
+		"clock_confidence=assumed",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("request runtime artifact table missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestRuntimeArtifactsFromRequestExpandsTraceBundlePath(t *testing.T) {
+	dir := t.TempDir()
+	bundlePath := filepath.Join(dir, "capture.tracebundle.json")
+	bundle := strings.Join([]string{
+		`{`,
+		`  "version": "hitraceconv-v1",`,
+		`  "systrace": "capture.systrace",`,
+		`  "artifacts": [`,
+		`    {"type":"perftrace","path":"capture.perftrace","bytes":34,"converter":"hiperf_proto","caveats":["cpu id unavailable"]}`,
+		`  ]`,
+		`}`,
+	}, "\n")
+	if err := os.WriteFile(bundlePath, []byte(bundle), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artifacts := RuntimeArtifactsFromRequest("use " + bundlePath)
+	body := BuildBody(Args{Request: "why", Answer: "answer", RuntimeArtifacts: artifacts})
+	for _, want := range []string{
+		"| tracebundle | " + bundlePath + " |",
+		"version=hitraceconv-v1",
+		"referenced in request",
+		"| systrace | capture.systrace |",
+		"| perftrace | capture.perftrace |",
+		"converter=hiperf_proto",
+		"cpu id unavailable",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("request tracebundle artifact table missing %q:\n%s", want, body)
 		}
 	}
 }

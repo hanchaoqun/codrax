@@ -2,6 +2,19 @@ package types
 
 import "testing"
 
+func TestRuntimeArtifactPathTokensInText(t *testing.T) {
+	got := RuntimeArtifactPathTokensInText("只分析 ../customlogs/xxx_all.systrace 这个 trace 文件和 /tmp/perf.data")
+	want := []string{"../customlogs/xxx_all.systrace", "/tmp/perf.data"}
+	if len(got) != len(want) {
+		t.Fatalf("tokens=%v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("tokens=%v, want %v", got, want)
+		}
+	}
+}
+
 func TestIsCodeOrConfigPathExtension(t *testing.T) {
 	for _, ext := range []string{
 		".go", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
@@ -56,7 +69,12 @@ func TestLooksLikeRuntimeArtifactPath(t *testing.T) {
 		"/tmp/app.log",
 		"trace.HTRACE",
 		"capture.atrace",
+		"capture.ftrace",
 		"sample.perfetto",
+		"sample.perftrace",
+		"sample.tracebundle.json",
+		"perf.data",
+		"sample.perf.data",
 		"attached_trace.txt",
 		"/tmp/.codrax/blob/session/attached_trace.txt",
 		"/tmp/.codrax/blob/session/attached_log.txt",
@@ -65,7 +83,7 @@ func TestLooksLikeRuntimeArtifactPath(t *testing.T) {
 			t.Errorf("LooksLikeRuntimeArtifactPath(%q) = false; want true", s)
 		}
 	}
-	for _, s := range []string{"", "main.go", "config.yaml", "README.md", "trace.txt"} {
+	for _, s := range []string{"", ".log", ".trace", ".systrace", "main.go", "config.yaml", "README.md", "trace.txt"} {
 		if LooksLikeRuntimeArtifactPath(s) {
 			t.Errorf("LooksLikeRuntimeArtifactPath(%q) = true; want false", s)
 		}

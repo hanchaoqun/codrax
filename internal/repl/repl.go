@@ -6826,18 +6826,20 @@ func (r *REPL) writeLocalMarkdownTranscript(request, answer string) outputdump.R
 	if r == nil || strings.TrimSpace(answer) == "" || strings.TrimSpace(r.outputDumpDir) == "" {
 		return outputdump.Result{}
 	}
+	request = strings.TrimSpace(request)
 	return outputdump.WriteResult(outputdump.Args{
 		Dir:        r.outputDumpDir,
 		Max:        r.outputDumpMax,
-		Request:    strings.TrimSpace(request),
+		Request:    request,
 		Answer:     answer,
 		HasLog:     strings.TrimSpace(r.attachedLog) != "",
 		LogBytes:   len(r.attachedLog),
 		HasTrace:   strings.TrimSpace(r.attachedHitrace) != "",
 		TraceBytes: len(r.attachedHitrace),
-		RuntimeArtifacts: append(
+		RuntimeArtifacts: outputdump.MergeRuntimeArtifacts(
+			outputdump.RuntimeArtifactsFromRequest(request),
 			outputdump.RuntimeArtifactsFromAttachment("log", r.attachedLog),
-			outputdump.RuntimeArtifactsFromAttachment("trace", r.attachedHitrace)...,
+			outputdump.RuntimeArtifactsFromAttachment("trace", r.attachedHitrace),
 		),
 		Now: time.Now(),
 		PID: os.Getpid(),
@@ -10776,7 +10778,7 @@ func (r *REPL) handleHitraceConvert(args string) {
 		if artifact.Type == hitraceconv.ArtifactSystrace {
 			continue
 		}
-		r.info(htraceConvertArtifactMsg(r.language, artifact.Type, artifact.Path))
+		r.info(htraceConvertArtifactMsg(r.language, artifact.Type, artifact.Path, hitraceConvertArtifactDetail(artifact)))
 	}
 	if len(result.Caveats) > 0 {
 		for _, caveat := range result.Caveats {
@@ -10784,6 +10786,35 @@ func (r *REPL) handleHitraceConvert(args string) {
 		}
 	}
 	r.info(htraceConvertNextMsg(r.language, result.OutputPath, result.BundlePath, hitraceResultHasArtifact(result, hitraceconv.ArtifactPerfTrace)))
+}
+
+func hitraceConvertArtifactDetail(artifact hitraceconv.Artifact) string {
+	var details []string
+	if artifact.Bytes > 0 {
+		details = append(details, fmt.Sprintf("bytes=%d", artifact.Bytes))
+	}
+	if artifact.Converter != "" {
+		details = append(details, "converter="+artifact.Converter)
+	}
+	if artifact.DataType != 0 {
+		details = append(details, fmt.Sprintf("data_type=%d", artifact.DataType))
+	}
+	if artifact.PluginName != "" {
+		details = append(details, "plugin="+artifact.PluginName)
+	}
+	if artifact.PluginVersion != "" {
+		details = append(details, "plugin_version="+artifact.PluginVersion)
+	}
+	if artifact.SourceOffset > 0 {
+		details = append(details, fmt.Sprintf("source_offset=%d", artifact.SourceOffset))
+	}
+	if artifact.SourceBytes > 0 {
+		details = append(details, fmt.Sprintf("source_bytes=%d", artifact.SourceBytes))
+	}
+	if len(artifact.Caveats) > 0 {
+		details = append(details, "caveats="+strings.Join(artifact.Caveats, "; "))
+	}
+	return strings.Join(details, " ")
 }
 
 func hitraceResultHasArtifact(result hitraceconv.Result, typ string) bool {

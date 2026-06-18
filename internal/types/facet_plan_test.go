@@ -541,6 +541,49 @@ func TestCompileFacetCoverage_ExternalOnlyRuntimeDoesNotPromoteCurrentCodePath(t
 	}
 }
 
+func TestCompileFacetCoverage_RuntimePathSourceExcludeDoesNotRequireCurrentCodePath(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			SourceQuotes: []string{
+				"只分析 /Users/han/opt/customlogs/xxx_all.systrace 这个 trace 文件，不分析代码",
+			},
+			Confidence: 0.95,
+		},
+	}
+	surface := []EvidenceItem{
+		{ID: "runtime-row", Source: "/Users/han/opt/customlogs/xxx_all.systrace", Origin: ClaimOriginPerf},
+		{ID: "repo-helper", Source: "internal/tracequery/query.go", LineStart: 27, AnchorKind: AnchorDefinition},
+	}
+	plan := CompileFacetCoverage(rm, surface)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	for _, req := range plan.Required {
+		if req.Kind == FacetCurrentCodePath {
+			t.Fatalf("runtime path with explicit source exclusion must not keep current_code_path in Required facets: %+v", req)
+		}
+	}
+	var current *FacetRequirement
+	for i := range plan.Optional {
+		if plan.Optional[i].Kind == FacetCurrentCodePath {
+			current = &plan.Optional[i]
+			break
+		}
+	}
+	if current == nil {
+		t.Fatal("current_code_path should remain optional enrichment for runtime path source exclusion")
+	}
+	if current.EffectivePromotionPolicy() != PromotionAdvisoryOnly || current.IsPromoted() {
+		t.Fatalf("runtime path current_code_path should be advisory-only, got policy=%s promoted=%v", current.EffectivePromotionPolicy(), current.IsPromoted())
+	}
+	if len(current.SourceCandidate) != 0 {
+		t.Fatalf("runtime-only path question must not bind repo helper evidence as current_code_path candidates: %+v", current.SourceCandidate)
+	}
+}
+
 func TestCompileFacetCoverage_RuntimeArtifactOptionalSourceDoesNotRequireCurrentCodePath(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,

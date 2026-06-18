@@ -801,6 +801,9 @@ func evidenceItemObservationOrigin(ev EvidenceItem) AnswerEvidenceOrigin {
 	case ClaimOriginLog, ClaimOriginPerf:
 		return AnswerEvidenceOriginRuntimeArtifact
 	default:
+		if RuntimeArtifactPathKind(ev.Source) != "" {
+			return AnswerEvidenceOriginRuntimeArtifact
+		}
 		return AnswerEvidenceOriginCurrentSource
 	}
 }

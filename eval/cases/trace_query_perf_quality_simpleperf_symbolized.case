@@ -9,7 +9,7 @@ QUESTION="请使用 trace_query 分析 4.000s 到 4.012s 的窗口，目标线�
 HTRACE='# tracer: nop
 #           TASK-PID   CPU#    TIMESTAMP  FUNCTION
           ui-31   (   31) [006] .... 4.000000: sched_switch: prev_comm=idle/6 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ui next_pid=31 next_prio=52
-          ui-31   (   31) [006] .... 4.004000: perf_sample: cpu=6 cpu_known=true pid=31 tid=31 thread_comm=ui period=12000 event=cpu-cycles symbol=RenderPipeline::draw dso=libui.so callchain=Looper;RenderPipeline::draw source=simpleperf_report_sample symbolization_status=symbolized clock=record clock_confidence=assumed callchain_status=symbolized
+          ui-31   (   31) [006] .... 4.004000: perf_sample: cpu=6 cpu_known=true pid=31 tid=31 thread_comm=ui sample_weight=12000 event=cpu-cycles symbol=RenderPipeline::draw dso=libui.so callchain=Looper;RenderPipeline::draw source=simpleperf_report_sample symbolization_status=symbolized clock=record clock_confidence=assumed callchain_status=symbolized
           ui-31   (   31) [006] .... 4.010000: sched_switch: prev_comm=ui prev_pid=31 prev_prio=52 prev_state=R+ ==> next_comm=idle/6 next_pid=0 next_prio=120
 '
 EXPECT_CONTAINS="RenderPipeline::draw libui.so"

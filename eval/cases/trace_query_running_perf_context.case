@@ -10,7 +10,7 @@ HTRACE='# tracer: nop
 #           TASK-PID   CPU#    TIMESTAMP  FUNCTION
       rival-300   (  300) [000] .... 2.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=rival next_pid=300 next_prio=20
          app-20   (   20) [000] .... 2.002000: sched_wakeup: comm=app pid=20 prio=52 target_cpu=000
-      rival-300   (  300) [000] .... 2.004000: perf_sample: pid=300 tid=300 cpu=0 period=41000 event=cpu-cycles symbol=Rival::hot dso=librival.so callchain=main;Rival::hot source=hiperf_proto symbolization_status=symbolized
+      rival-300   (  300) [000] .... 2.004000: perf_sample: pid=300 tid=300 cpu=0 sample_weight=41000 event=cpu-cycles symbol=Rival::hot dso=librival.so callchain=main;Rival::hot source=hiperf_proto symbolization_status=symbolized
       rival-300   (  300) [000] .... 2.012000: sched_switch: prev_comm=rival prev_pid=300 prev_prio=20 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=52
          app-20   (   20) [000] .... 2.016000: sched_switch: prev_comm=app prev_pid=20 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
 '

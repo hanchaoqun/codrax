@@ -228,7 +228,7 @@ D-state/IO, and resource pressure remain the causal basis.
 - [x] Add caveats for CPU-unknown, unsymbolized/raw fallback, missing callchain,
   and assumed/unknown clock alignment.
 - [x] Ensure CPU-filtered role contexts do not treat CPU-unknown samples as
-  CPU0 or as absence proof.
+  concrete CPU/core attribution or as absence proof.
 
 ### Batch D - Prompt, Hints, Reports, And JSON Repair
 

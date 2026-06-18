@@ -191,7 +191,7 @@ func TestDefaultsAre512MiB(t *testing.T) {
 func TestCLIRuntimeArtifactStatusLinesSummarizeMultiArtifacts(t *testing.T) {
 	logBody := "# codrax-source: first.log\npanic\n# codrax-source: second.log\ntimeout"
 	traceBody := "# codrax-source: frame.systrace\nsched_switch\n# codrax-source: frame.perftrace\nperf_sample: pid=1 tid=1 source=raw_perfdata_fallback symbolization_status=unsymbolized"
-	lines := cliRuntimeArtifactStatusLines("en", cliRuntimeArtifacts(logBody, traceBody))
+	lines := cliRuntimeArtifactStatusLines("en", cliRuntimeArtifacts("", logBody, traceBody))
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"total=4",
@@ -220,7 +220,7 @@ func TestCLIRuntimeArtifactStatusLinesExpandTraceBundle(t *testing.T) {
 		`  ]`,
 		`}`,
 	}, "\n")
-	lines := cliRuntimeArtifactStatusLines("en", cliRuntimeArtifacts("", bundle))
+	lines := cliRuntimeArtifactStatusLines("en", cliRuntimeArtifacts("", "", bundle))
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"total=3",
@@ -234,6 +234,26 @@ func TestCLIRuntimeArtifactStatusLinesExpandTraceBundle(t *testing.T) {
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("tracebundle status missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestCLIRuntimeArtifactStatusLinesIncludeRequestPaths(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "capture")
+	if err := os.WriteFile(tracePath, []byte("sched_switch: prev_comm=app prev_pid=1 ==> next_comm=worker next_pid=2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lines := cliRuntimeArtifactStatusLines("en", cliRuntimeArtifacts("analyse "+tracePath, "", ""))
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"total=1",
+		"trace=1",
+		"primary: trace " + tracePath,
+		"referenced in request",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("request path runtime artifact status missing %q:\n%s", want, joined)
 		}
 	}
 }

@@ -53,7 +53,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if err := ensureOutputDoesNotExist(output); err != nil {
 		return Result{}, err
 	}
-	standaloneArtifacts, standaloneCaveats, err := extractStandaloneArtifacts(ctx, opts, info.Size(), output)
+	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifacts(ctx, opts, info.Size(), output)
 	if err != nil {
 		return Result{}, err
 	}
@@ -64,10 +64,12 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 				InputPath:  input,
 				InputBytes: info.Size(),
 				Artifacts:  append([]Artifact(nil), standaloneArtifacts...),
+				ProviderDecisions: append([]PerfProviderDecision(nil),
+					standaloneDecisions...),
 				Caveats: append(standaloneCaveats,
 					fmt.Sprintf("systrace output was not produced because the input did not match the supported binary hitrace event-format container: %v", err)),
 			}
-			if bundleArtifact, bundleErr := writeTraceBundle(input, "", result.Artifacts, result.Caveats); bundleErr != nil {
+			if bundleArtifact, bundleErr := writeTraceBundle(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions); bundleErr != nil {
 				return Result{}, bundleErr
 			} else if bundleArtifact.Path != "" {
 				result.BundlePath = bundleArtifact.Path
@@ -123,6 +125,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		LastTimestampSec:   float64(last) / 1e9,
 	}
 	result.Artifacts = append(result.Artifacts, standaloneArtifacts...)
+	result.ProviderDecisions = append(result.ProviderDecisions, standaloneDecisions...)
 	if missing > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d raw event(s) had no event format and were skipped to keep systrace output compatible with official parsers", missing))
 	}
@@ -130,7 +133,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d event row(s) lacked an official-compatible renderer and were emitted as header-only rows", unknown))
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
-	if bundleArtifact, err := writeTraceBundle(input, output, result.Artifacts, result.Caveats); err != nil {
+	if bundleArtifact, err := writeTraceBundle(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions); err != nil {
 		return Result{}, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path

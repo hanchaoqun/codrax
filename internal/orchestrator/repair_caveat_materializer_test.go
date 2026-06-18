@@ -104,6 +104,7 @@ func TestAppendSoftContractCaveatsToAnswerForBus_ObservationOnlyUsesBoundaryCave
 
 	ctx := observationOnlyRuntimeCaveatTestContext("这是什么错误？")
 	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolPrincipalProseUnderfilled, ClusterKey: types.BlockKindClusterKey(types.BlockSummary, "answer_prose_density")},
 		{Kind: types.ViolBlockCoverageMissing, ClusterKey: types.BlockKindClusterKey(types.BlockSummary, "answer_block_coverage")},
 		{Kind: types.ViolUncertaintyBlockMissing, ClusterKey: types.BlockKindClusterKey(types.BlockCaveat, "uncertainty_block")},
 	}, "zh", ctx)
@@ -114,7 +115,7 @@ func TestAppendSoftContractCaveatsToAnswerForBus_ObservationOnlyUsesBoundaryCave
 	if !strings.Contains(out, "栈帧未映射到当前仓库") {
 		t.Fatalf("expected precise runtime-artifact boundary caveat:\n%s", out)
 	}
-	for _, banned := range []string{"覆盖度可能不充分", "结合源码进一步核对", "answer_block_coverage", "uncertainty_block"} {
+	for _, banned := range []string{"覆盖度可能不充分", "结合源码进一步核对", "answer_block_coverage", "uncertainty_block", "answer_prose_density"} {
 		if strings.Contains(out, banned) {
 			t.Fatalf("observation-only soft caveat leaked generic/internal wording %q:\n%s", banned, out)
 		}
@@ -210,6 +211,10 @@ func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceSuppressesG
 			Kind:       types.ViolDeniedTokenUndeclared,
 			Detail:     `answer block "d1" names token "trace中无UI渲染span可关联" without disclosing it as unverified / external`,
 			ClusterKey: "denied_token_undeclared:d1",
+		},
+		{
+			Kind:       types.ViolPrincipalProseUnderfilled,
+			ClusterKey: types.BlockKindClusterKey(types.BlockSummary, "answer_prose_density"),
 		},
 		{
 			Kind:       types.ViolUncertaintyBlockMissing,

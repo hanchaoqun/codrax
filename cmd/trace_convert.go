@@ -33,8 +33,17 @@ var traceConvertCmd = &cobra.Command{
 	Use:   "convert --input <binary-hitrace> [--output <text.systrace>]",
 	Short: "Convert a binary Harmony/OpenHarmony HiTrace file to text systrace",
 	Long: `Convert a binary Harmony/OpenHarmony HiTrace capture to an
-ftrace/systrace-compatible text file that Codrax can later analyze with
---htrace, /htrace, grep/read_file, and trace_query.
+ftrace/systrace-compatible text file plus tracebundle metadata that Codrax can
+later analyze with --htrace, /htrace, and trace_query. When perf sidecars are
+present, the bundle preserves the systrace + perftrace pair so trace_query can
+correlate scheduler/running evidence with CPU samples.
+
+Perf sample conversion uses a two-engine strategy. In --perf-parser=auto,
+Codrax prefers official OpenHarmony hiperf or Android simpleperf adapters for
+symbolized output, then falls back to its built-in raw perf.data parser when
+possible. Use --perf-tools-status to inspect discovered tools, selected parser,
+raw fallback status, and install hints. Use --perf-parser=official to require
+official tooling or --perf-parser=raw for the built-in fallback only.
 
 The command is intentionally manual and does not attach the generated file.
 When --output is omitted, Codrax writes <input>.systrace. Existing output files
@@ -133,6 +142,18 @@ func traceConvertPerfProviderLine(lang string, item hitraceconv.PerfToolProvider
 	if item.Version != "" {
 		details = append(details, "version="+item.Version)
 	}
+	if item.CheckCommand != "" {
+		details = append(details, "check="+item.CheckCommand)
+	}
+	if len(item.AuxiliaryChecks) > 0 {
+		details = append(details, "aux_check="+strings.Join(item.AuxiliaryChecks, "; "))
+	}
+	if item.InstallCommand != "" {
+		details = append(details, "install="+item.InstallCommand)
+	}
+	if item.DocsURL != "" {
+		details = append(details, "docs="+item.DocsURL)
+	}
 	if len(item.Caveats) > 0 {
 		details = append(details, "caveat="+strings.Join(item.Caveats, "; "))
 	}
@@ -158,6 +179,7 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 			lines = append(lines, "输出：未生成 systrace（仅抽取 sidecar artifact）")
 		}
 		lines = append(lines, traceConvertArtifactLines("zh", result.Artifacts)...)
+		lines = append(lines, traceConvertProviderDecisionLines("zh", result.ProviderDecisions)...)
 		return lines
 	}
 	lines := []string{
@@ -170,6 +192,7 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 		lines = append(lines, "output: no systrace produced (sidecar artifacts only)")
 	}
 	lines = append(lines, traceConvertArtifactLines("en", result.Artifacts)...)
+	lines = append(lines, traceConvertProviderDecisionLines("en", result.ProviderDecisions)...)
 	return lines
 }
 
@@ -179,13 +202,132 @@ func traceConvertArtifactLines(lang string, artifacts []hitraceconv.Artifact) []
 		if artifact.Type == hitraceconv.ArtifactSystrace {
 			continue
 		}
+		details := traceConvertArtifactDetails(artifact)
 		if traceConvertUseZh(lang) {
-			lines = append(lines, fmt.Sprintf("artifact[%s]：%s", artifact.Type, artifact.Path))
+			if details != "" {
+				lines = append(lines, fmt.Sprintf("artifact[%s]：%s（%s）", artifact.Type, artifact.Path, details))
+			} else {
+				lines = append(lines, fmt.Sprintf("artifact[%s]：%s", artifact.Type, artifact.Path))
+			}
 		} else {
-			lines = append(lines, fmt.Sprintf("artifact[%s]: %s", artifact.Type, artifact.Path))
+			if details != "" {
+				lines = append(lines, fmt.Sprintf("artifact[%s]: %s (%s)", artifact.Type, artifact.Path, details))
+			} else {
+				lines = append(lines, fmt.Sprintf("artifact[%s]: %s", artifact.Type, artifact.Path))
+			}
 		}
 	}
 	return lines
+}
+
+func traceConvertArtifactDetails(artifact hitraceconv.Artifact) string {
+	var details []string
+	if artifact.Bytes > 0 {
+		details = append(details, fmt.Sprintf("bytes=%d", artifact.Bytes))
+	}
+	if artifact.Converter != "" {
+		details = append(details, "converter="+artifact.Converter)
+	}
+	if artifact.Perf != nil {
+		details = append(details, traceConvertPerfCapabilityDetails(*artifact.Perf)...)
+	}
+	if artifact.DataType != 0 {
+		details = append(details, fmt.Sprintf("data_type=%d", artifact.DataType))
+	}
+	if artifact.PluginName != "" {
+		details = append(details, "plugin="+artifact.PluginName)
+	}
+	if artifact.PluginVersion != "" {
+		details = append(details, "plugin_version="+artifact.PluginVersion)
+	}
+	if artifact.SourceOffset > 0 {
+		details = append(details, fmt.Sprintf("source_offset=%d", artifact.SourceOffset))
+	}
+	if artifact.SourceBytes > 0 {
+		details = append(details, fmt.Sprintf("source_bytes=%d", artifact.SourceBytes))
+	}
+	if len(artifact.Caveats) > 0 {
+		details = append(details, "caveats="+strings.Join(artifact.Caveats, "; "))
+	}
+	return strings.Join(details, " ")
+}
+
+func traceConvertPerfCapabilityDetails(cap hitraceconv.PerfArtifactCapability) []string {
+	var details []string
+	if cap.ProviderName != "" {
+		details = append(details, "perf_provider="+cap.ProviderName)
+	}
+	if cap.ProviderKind != "" {
+		details = append(details, "perf_provider_kind="+cap.ProviderKind)
+	}
+	if cap.InputFormat != "" {
+		details = append(details, "perf_input="+cap.InputFormat)
+	}
+	if cap.Symbolization != "" {
+		details = append(details, "perf_symbolization="+cap.Symbolization)
+	}
+	if cap.CPUIdentity != "" {
+		details = append(details, "perf_cpu="+cap.CPUIdentity)
+	}
+	if cap.Callchain != "" {
+		details = append(details, "perf_callchain="+cap.Callchain)
+	}
+	if cap.TimeAlignment != "" {
+		details = append(details, "perf_time_alignment="+cap.TimeAlignment)
+	}
+	if cap.TraceQueryReady {
+		details = append(details, "trace_query_ready=true")
+	}
+	if cap.Degraded {
+		details = append(details, "perf_degraded=true")
+	}
+	return details
+}
+
+func traceConvertProviderDecisionLines(lang string, decisions []hitraceconv.PerfProviderDecision) []string {
+	var lines []string
+	for _, decision := range decisions {
+		details := traceConvertProviderDecisionDetails(decision)
+		prefix := fmt.Sprintf("provider_decision[%s/%s]", decision.ProviderKind, decision.ProviderName)
+		if traceConvertUseZh(lang) {
+			lines = append(lines, prefix+"："+strings.Join(details, " "))
+		} else {
+			lines = append(lines, prefix+": "+strings.Join(details, " "))
+		}
+	}
+	return lines
+}
+
+func traceConvertProviderDecisionDetails(decision hitraceconv.PerfProviderDecision) []string {
+	details := []string{
+		fmt.Sprintf("selected=%t", decision.Selected),
+		fmt.Sprintf("attempted=%t", decision.Attempted),
+		fmt.Sprintf("succeeded=%t", decision.Succeeded),
+		fmt.Sprintf("fallback=%t", decision.Fallback),
+		fmt.Sprintf("trace_query_ready=%t", decision.TraceQueryReady),
+	}
+	if decision.Stage != "" {
+		details = append(details, "stage="+decision.Stage)
+	}
+	if decision.ParserMode != "" {
+		details = append(details, "parser="+decision.ParserMode)
+	}
+	if decision.InputFormat != "" {
+		details = append(details, "input="+decision.InputFormat)
+	}
+	if decision.OutputPath != "" {
+		details = append(details, "output="+decision.OutputPath)
+	}
+	if decision.ArtifactPath != "" {
+		details = append(details, "artifact="+decision.ArtifactPath)
+	}
+	if decision.Reason != "" {
+		details = append(details, "reason="+decision.Reason)
+	}
+	if decision.Caveat != "" {
+		details = append(details, "caveat="+decision.Caveat)
+	}
+	return details
 }
 
 func traceConvertCaveatLine(lang, caveat string) string {
@@ -196,13 +338,13 @@ func traceConvertCaveatLine(lang, caveat string) string {
 }
 
 func traceConvertNextLine(lang string, result hitraceconv.Result) string {
-	if result.OutputPath == "" {
-		if result.BundlePath != "" {
-			if traceConvertUseZh(lang) {
-				return fmt.Sprintf("下一步：查看 trace bundle %q；若已有 perftrace artifact，可直接作为 trace_query 的 CPU sample 输入；否则用 --hiperf-host/--simpleperf-report-sample 指定官方工具，或用 --perf-parser=raw 走 raw perf.data fallback 重跑转换", result.BundlePath)
-			}
-			return fmt.Sprintf("next: inspect trace bundle %q; if it contains a perftrace artifact, feed it to trace_query for CPU-sample analysis; otherwise rerun with --hiperf-host/--simpleperf-report-sample or --perf-parser=raw", result.BundlePath)
+	if result.BundlePath != "" {
+		if traceConvertUseZh(lang) {
+			return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；优先附加 tracebundle，让 systrace 与 perftrace/raw perf provenance 一起进入 trace_query", result.BundlePath)
 		}
+		return fmt.Sprintf("next: codrax --htrace %q --request <question>; prefer the tracebundle so systrace plus perftrace/raw-perf provenance stay together for trace_query", result.BundlePath)
+	}
+	if result.OutputPath == "" {
 		if traceConvertUseZh(lang) {
 			return "下一步：未生成可直接附加的 systrace"
 		}

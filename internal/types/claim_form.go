@@ -276,6 +276,9 @@ func ClaimFormOf(item EvidenceItem) ClaimForm {
 	case ClaimOriginLog, ClaimOriginPerf:
 		return ClaimExternalObservation
 	}
+	if RuntimeArtifactPathKind(item.Source) != "" {
+		return ClaimExternalObservation
+	}
 
 	// Priority 2: negative scope.
 	if item.Scope == ScopeNegative {

@@ -9,7 +9,7 @@ QUESTION="请使用 trace_query 分析 3.000s 到 3.010s 的窗口，目标线�
 HTRACE='# tracer: nop
 #           TASK-PID   CPU#    TIMESTAMP  FUNCTION
          raw-21   (   20) [005] .... 3.000000: sched_switch: prev_comm=idle/5 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=raw next_pid=21 next_prio=52
-         raw-21   (   20) [005] .... 3.003000: perf_sample: cpu=5 cpu_known=true pid=20 tid=21 thread_comm=raw period=9000 event=cpu-cycles symbol=0x1234 dso=libraw.so ip=0x1234 callchain=0x111;0x1234 source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only
+         raw-21   (   20) [005] .... 3.003000: perf_sample: cpu=5 cpu_known=true pid=20 tid=21 thread_comm=raw sample_weight=9000 event=cpu-cycles symbol=0x1234 dso=libraw.so ip=0x1234 callchain=0x111;0x1234 source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only
          raw-21   (   20) [005] .... 3.008000: sched_switch: prev_comm=raw prev_pid=21 prev_prio=52 prev_state=R+ ==> next_comm=idle/5 next_pid=0 next_prio=120
 '
 EXPECT_CONTAINS="libraw.so raw_perfdata_fallback"

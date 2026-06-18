@@ -1,0 +1,12 @@
+# Trace query — explicit suffixless trace-like path in question
+#
+# Coverage target: an existing path-like file with trace content should expose
+# trace_query even when the file name has no familiar trace suffix.
+ID="trace_query_path_question_suffixless_trace"
+NAME="trace query — suffixless trace path mentioned in question"
+QUESTION="只分析 eval/fixtures/path_runtime_trace_capture 这个文件，不分析代码。请看 1.000s 到 1.006s 的 app-100 窗口，说明等待原因和关键线程。"
+EXPECT_CONTAINS="worker-200 app-100"
+EXPECT_MATCHES_REGEX="(worker-200|worker).*(runnable|调度|wakeup|唤醒)|(runnable|调度|wakeup|唤醒).*(worker-200|worker)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
+EXPECT_LOG_NOT_MATCHES_REGEX="phase=toolcall .*tool=(repo_map|list_files)"
