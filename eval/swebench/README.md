@@ -105,6 +105,14 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `delivery_source_owner_plan_ids`, `delivery_source_paths`,
 `delivery_report_plan_id`, `delivery_source_plan_covers_exported_source_patch`,
 `delivery_context_missing_source_paths`,
+`final_report_present`, `final_report_path`,
+`final_report_completion_verdict`,
+`final_report_completion_reason_code`,
+`final_report_verification_status`,
+`final_report_patch_review_verdict`, `final_report_plan_id`,
+`final_report_patch_fingerprint`,
+`final_report_residual_risk_codes`,
+`final_report_handoff_evidence_refs`,
 `plan_owner_boundary_signals`, `plan_owner_boundary_reason_codes`,
 `plan_patch_review_status`, `plan_patch_review_hard_block`,
 `plan_patch_review_coverage_verdict`,
@@ -182,6 +190,13 @@ outside `self`). These appear in `plan_owner_boundary_signals` with typed reason
 codes such as `diagnostic_signal_conditionally_suppressed` and
 `external_private_state_sync_workaround`; they lower local confidence but do not
 block exporting the official SWE-bench prediction.
+Newer Codrax terminal write workflows also emit `<plan-id>.final.json`, a typed
+delivery report projected from workflow, ChangePlan, ChangeReport, patch-review,
+impact-analysis, and context-pack artifacts. The adapter records the
+`final_report_*` fields when that artifact is present. These fields are audit
+telemetry only: they make delivered status, residual risks, verification
+verdict, patch fingerprint, and handoff evidence refs stable without parsing
+`codrax.out`, model prose, issue text, or visible `<think>` logs.
 Verification telemetry is deliberately split into a normalized typed verdict and
 raw executor telemetry. `verify_passed=true` means
 `verify_status=passed`: Codrax produced a typed local verifier pass. Treat it
@@ -362,10 +377,10 @@ eval/results/swebench/.venv/bin/python eval/swebench/summarize_codrax_results.py
 
 This local summary reports non-empty patch rate, high-confidence local verifier
 pass, low-confidence verifier pass, typed manual audit pass/fail/unknown, local
-audit blockers, local-verify confidence mismatches from older result rows, and
-rows missing current core fields. Use it to avoid mixing old-schema smoke rows
-with current runs or treating low-confidence local verify as an authoritative
-pass.
+audit blockers, final-report presence, local-verify confidence mismatches from
+older result rows, and rows missing current core fields. Use it to avoid mixing
+old-schema smoke rows with current runs or treating low-confidence local verify
+as an authoritative pass.
 
 For current local-acceptance dashboards, require the current core fields:
 
@@ -410,9 +425,10 @@ eval/results/swebench/.venv/bin/python eval/swebench/audit_historical_results.py
 The audit compares the emitted model patch with the public dataset's gold patch
 after the run. It reports conservative `pass/fail/unknown` buckets based on
 typed result fields, source/test/doc patch shape, oracle source-surface overlap,
-token overlap, and verifier status. It also records `codrax.out` log tails for
-final-answer spot checks, but old runs do not have a stable typed final-answer
-artifact. Do not call this output an official SWE-bench pass rate.
+token overlap, and verifier status. It prefers `<plan-id>.final.json` for final
+delivery spot checks when present, and keeps `codrax.out` log tails only as a
+legacy fallback for older runs. Do not call this output an official SWE-bench
+pass rate.
 
 ## Isolation
 

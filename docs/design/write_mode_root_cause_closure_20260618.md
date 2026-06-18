@@ -5289,6 +5289,84 @@ Verification:
   - Audit run with eval venv and SWE-bench Lite dataset completed over 137
     unique instances.
 
+## 2026-06-18 RC-91 Typed Final Delivery Report
+
+- Gap:
+  - RC-90 proved that historical SWE instances have durable `prediction.json`,
+    `result.json`, `ChangePlan`, `ChangeReport`, workflow, context packs, and
+    `codrax.out`, but no stable typed final-answer artifact.
+  - Free-form terminal logs are intentionally transparent to the user, including
+    visible model thinking, but they are not a safe audit contract. Downstream
+    eval and customer review need a typed surface for what was delivered, what
+    was verified, what remains risky, and which evidence refs survived handoff.
+- Design:
+  - Add a lightweight `WriteFinalReport` artifact beside the plan/report pair:
+    `<plan-id>.final.json`.
+  - The artifact is a deterministic projection from existing typed artifacts:
+    `WriteWorkflowRun`, active `ChangePlan`, `ChangeReport`,
+    `PatchReviewRecord`, `ImpactAnalysisResult`, `WriteContextPack`, and
+    workflow completion. It never parses user intent keywords, model rationale,
+    summary prose, terminal logs, or `<think>` text.
+  - The report is not a new scheduler authority. Existing hard gates remain
+    `ObservationAuthority`, approval/risk policy, patch review hard blocks, and
+    workflow transition validation.
+  - Required fields:
+    - schema/kind/generated_at
+    - run/workflow/batch/plan/report refs
+    - completion verdict/reason/source
+    - changed source/test paths and patch fingerprint/effect refs
+    - verification status/failure kind/reason/test count/command count
+    - patch-review coverage verdict/reason codes/block reason
+    - impact target counts by coverage status and uncovered target examples
+    - Top P0-P3 handoff evidence refs
+    - residual risk reason codes, derived from typed unverified/failed coverage
+- SWE adapter consumption:
+  - Read `<plan-id>.final.json` when present.
+  - Emit `final_report_path`, `final_report_present`,
+    `final_report_completion_verdict`, `final_report_verification_status`,
+    `final_report_patch_review_verdict`, `final_report_residual_risk_codes`,
+    and `final_report_handoff_evidence_refs` into `results.jsonl`.
+  - Keep old rows evaluable as `final_report_present=false`; do not infer
+    final-answer quality from `codrax.out` when the typed artifact is absent.
+- Task list:
+  - [x] Add `types.WriteFinalReport` plus normalize/build/write/load helpers.
+  - [x] Persist `<plan-id>.final.json` whenever a controller run reaches
+    `complete` or `blocked`, and at plan-mode terminal completion.
+  - [x] Add orchestrator tests proving terminal controller paths write a final
+    report, and non-terminal paths do not.
+  - [x] Add SWE adapter fields and unit tests.
+  - [x] Update historical audit tooling to prefer `WriteFinalReport` over log
+    tails for future runs while keeping old log-tail fallback for legacy rows.
+  - [x] Run focused tests, `go test ./...`, `make`, Python eval tests, update
+    this ledger, commit, and push.
+- Prompt/hard-gate hygiene:
+  - This batch changes no model prompt routing.
+  - The final report consumes only typed artifacts and enum/boolean fields.
+  - Terminal log text stays visible for user transparency but remains outside
+    hard logic.
+- Implementation notes:
+  - Added `internal/types/write_final_report.go` as the single schema/build/load
+    point.
+  - `persistWriteWorkflowRun` now emits terminal `.final.json` reports from
+    typed workflow/plan/report state; non-terminal runs do not emit the artifact.
+  - SWE adapter result rows expose `final_report_*` fields, and historical
+    audit prefers the typed artifact when present while preserving legacy
+    `codrax.out` tail fallback.
+- Verification:
+  - `go test ./internal/types ./internal/orchestrator ./internal/writeflow -run
+    'Test(BuildWriteFinalReport|WriteFinalReport|WriteOutputKind|PersistWriteWorkflowRun|RunWriteControllerWorkflow|WorkflowRunState)'`
+  - `python3 -m unittest eval.swebench.run_codrax_swebench_test
+    eval.swebench.audit_historical_results_test
+    eval.swebench.summarize_codrax_results_test -v`
+  - `python3 -m py_compile eval/swebench/run_codrax_swebench.py
+    eval/swebench/run_codrax_swebench_test.py
+    eval/swebench/audit_historical_results.py
+    eval/swebench/audit_historical_results_test.py
+    eval/swebench/summarize_codrax_results.py
+    eval/swebench/summarize_codrax_results_test.py`
+  - `go test ./...`
+  - `make`
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

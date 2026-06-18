@@ -34,6 +34,8 @@ class CodraxResultsSummaryTests(unittest.TestCase):
                 "prediction_audit_block_reason": "",
                 "verify_status": "passed",
                 "workflow_status": "complete",
+                "final_report_present": True,
+                "final_report_completion_verdict": "verified",
                 "local_acceptance_verdict": "pass",
                 "local_acceptance_source": "local_verify",
                 "manual_audit_verdict": "",
@@ -49,6 +51,8 @@ class CodraxResultsSummaryTests(unittest.TestCase):
                 "prediction_audit_block_reason": "",
                 "verify_status": "passed",
                 "workflow_status": "complete",
+                "final_report_present": True,
+                "final_report_completion_verdict": "verified",
                 "local_acceptance_verdict": "pass",
                 "local_acceptance_source": "local_verify",
                 "manual_audit_verdict": "",
@@ -64,6 +68,8 @@ class CodraxResultsSummaryTests(unittest.TestCase):
                 "prediction_audit_block_reason": "",
                 "verify_status": "unavailable",
                 "workflow_status": "complete",
+                "final_report_present": True,
+                "final_report_completion_verdict": "unverified",
                 "local_acceptance_verdict": "pass",
                 "local_acceptance_source": "manual_audit",
                 "manual_audit_verdict": "pass",
@@ -79,6 +85,8 @@ class CodraxResultsSummaryTests(unittest.TestCase):
                 "prediction_audit_block_reason": "workflow_in_progress_empty_patch",
                 "verify_status": "",
                 "workflow_status": "in_progress",
+                "final_report_present": False,
+                "final_report_completion_verdict": "",
                 "local_acceptance_verdict": "fail",
                 "local_acceptance_source": "local_audit_block",
                 "manual_audit_verdict": "fail",
@@ -94,6 +102,9 @@ class CodraxResultsSummaryTests(unittest.TestCase):
         self.assertEqual(summary["low_confidence_verify_pass_instances"], 1)
         self.assertEqual(summary["local_acceptance_pass_instances"], 3)
         self.assertEqual(summary["typed_manual_audit_recorded_instances"], 2)
+        self.assertEqual(summary["final_report_present_instances"], 3)
+        self.assertEqual(summary["final_report_completion_verdict_counts"]["verified"], 2)
+        self.assertEqual(summary["final_report_completion_verdict_counts"]["unverified"], 1)
         self.assertEqual(summary["typed_manual_audit_pass_instances"], 1)
         self.assertEqual(summary["typed_manual_audit_fail_instances"], 1)
         self.assertEqual(summary["local_audit_blocked_instances"], 1)

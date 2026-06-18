@@ -393,6 +393,68 @@ class LocalAcceptanceTests(unittest.TestCase):
         self.assertEqual(got["proj__repo-1"]["notes"], "free-form note is audit-only")
 
 
+class FinalReportProjectionTests(unittest.TestCase):
+    def test_load_and_project_final_report_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            plans = Path(raw)
+            plan_path = plans / "plan-1.json"
+            plan_path.write_text(json.dumps({"id": "plan-1"}), encoding="utf-8")
+            final_path = plans / "plan-1.final.json"
+            final_path.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "kind": "final_report",
+                    "completion": {"verdict": "unverified", "reason_code": "runner_missing"},
+                    "plan": {"id": "plan-1"},
+                    "patch": {"diff_fingerprint": "abc123"},
+                    "verification": {"status": "unavailable"},
+                    "patch_review": {"verdict": "unverified"},
+                    "handoff": {
+                        "top_items": [
+                            {"evidence_ref": "src/app.py:10", "fingerprint": "fp-1"},
+                            {"fingerprint": "fp-2"},
+                        ]
+                    },
+                    "residual_risks": [
+                        {"code": "verification_unavailable"},
+                        {"code": "patch_review_semantic_unverified"},
+                    ],
+                }),
+                encoding="utf-8",
+            )
+
+            final_report, loaded_path = adapter.load_final_report_for_plan(plan_path)
+            result: dict[str, object] = {}
+            adapter.apply_final_report_result_fields(result, final_report, loaded_path)
+
+        self.assertTrue(result["final_report_present"])
+        self.assertEqual(result["final_report_path"], str(final_path))
+        self.assertEqual(result["final_report_completion_verdict"], "unverified")
+        self.assertEqual(result["final_report_completion_reason_code"], "runner_missing")
+        self.assertEqual(result["final_report_verification_status"], "unavailable")
+        self.assertEqual(result["final_report_patch_review_verdict"], "unverified")
+        self.assertEqual(result["final_report_plan_id"], "plan-1")
+        self.assertEqual(result["final_report_patch_fingerprint"], "abc123")
+        self.assertEqual(
+            result["final_report_residual_risk_codes"],
+            ["verification_unavailable", "patch_review_semantic_unverified"],
+        )
+        self.assertEqual(
+            result["final_report_handoff_evidence_refs"],
+            ["src/app.py:10", "fp-1", "fp-2"],
+        )
+
+    def test_missing_final_report_fields_are_explicitly_empty(self) -> None:
+        result: dict[str, object] = {}
+        adapter.apply_final_report_result_fields(result, {}, None)
+
+        self.assertFalse(result["final_report_present"])
+        self.assertEqual(result["final_report_path"], "")
+        self.assertEqual(result["final_report_completion_verdict"], "")
+        self.assertEqual(result["final_report_residual_risk_codes"], [])
+        self.assertEqual(result["final_report_handoff_evidence_refs"], [])
+
+
 class PatchReviewSummaryTests(unittest.TestCase):
     def test_patch_review_error_blocks_local_acceptance(self) -> None:
         summary = adapter.plan_patch_review_summary({

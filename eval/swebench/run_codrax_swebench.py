@@ -1380,6 +1380,96 @@ def load_report_for_plan(plan_path: Path | None) -> dict[str, Any]:
     return row if isinstance(row, dict) else {}
 
 
+def load_final_report_for_plan(plan_path: Path | None) -> tuple[dict[str, Any], Path | None]:
+    if not plan_path:
+        return {}, None
+    final_path = plan_path.with_name(plan_path.stem + ".final.json")
+    if not final_path.exists():
+        return {}, None
+    try:
+        row = json.loads(final_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}, None
+    return (row if isinstance(row, dict) else {}), final_path
+
+
+def first_final_report_for_plans(*plan_paths: Path | None) -> tuple[dict[str, Any], Path | None]:
+    seen: set[str] = set()
+    for path in plan_paths:
+        if path is None:
+            continue
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        report, report_path = load_final_report_for_plan(path)
+        if report:
+            return report, report_path
+    return {}, None
+
+
+def final_report_list_values(report: dict[str, Any], *path: str) -> list[str]:
+    value: Any = report
+    for key in path:
+        if not isinstance(value, dict):
+            return []
+        value = value.get(key)
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+        elif isinstance(item, dict):
+            text = str(item.get("code") or item.get("evidence_ref") or item.get("fingerprint") or "").strip()
+        else:
+            text = ""
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def apply_final_report_result_fields(
+    result: dict[str, Any],
+    final_report: dict[str, Any],
+    final_report_path: Path | None,
+) -> None:
+    result["final_report_present"] = bool(final_report)
+    result["final_report_path"] = str(final_report_path) if final_report_path else ""
+    if not final_report:
+        result["final_report_completion_verdict"] = ""
+        result["final_report_completion_reason_code"] = ""
+        result["final_report_verification_status"] = ""
+        result["final_report_patch_review_verdict"] = ""
+        result["final_report_plan_id"] = ""
+        result["final_report_patch_fingerprint"] = ""
+        result["final_report_residual_risk_codes"] = []
+        result["final_report_handoff_evidence_refs"] = []
+        return
+    completion = final_report.get("completion") if isinstance(final_report.get("completion"), dict) else {}
+    verification = final_report.get("verification") if isinstance(final_report.get("verification"), dict) else {}
+    patch_review = final_report.get("patch_review") if isinstance(final_report.get("patch_review"), dict) else {}
+    plan = final_report.get("plan") if isinstance(final_report.get("plan"), dict) else {}
+    patch = final_report.get("patch") if isinstance(final_report.get("patch"), dict) else {}
+    handoff = final_report.get("handoff") if isinstance(final_report.get("handoff"), dict) else {}
+    result["final_report_completion_verdict"] = str(completion.get("verdict") or "").strip()
+    result["final_report_completion_reason_code"] = str(completion.get("reason_code") or "").strip()
+    result["final_report_verification_status"] = str(verification.get("status") or "").strip()
+    result["final_report_patch_review_verdict"] = str(patch_review.get("verdict") or "").strip()
+    result["final_report_plan_id"] = str(plan.get("id") or "").strip()
+    result["final_report_patch_fingerprint"] = str(patch.get("diff_fingerprint") or "").strip()
+    result["final_report_residual_risk_codes"] = final_report_list_values(final_report, "residual_risks")
+    refs: list[str] = []
+    for item in handoff.get("top_items") or []:
+        if not isinstance(item, dict):
+            continue
+        for key in ("evidence_ref", "fingerprint"):
+            text = str(item.get(key) or "").strip()
+            if text and text not in refs:
+                refs.append(text)
+    result["final_report_handoff_evidence_refs"] = refs
+
+
 def plan_change_paths(plan: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for change in plan.get("changes") or []:
@@ -3247,6 +3337,13 @@ def process_instance(
             result["verify_no_tests_runners"] = report.get("no_tests_runners") or []
             result["verify_test_count"] = len(report.get("test_results") or [])
             result["verify_confidence_reason_codes"] = verification_confidence_reason_codes(report)
+        final_report, final_report_path = first_final_report_for_plans(
+            delivery_report_plan_path,
+            final_plan_path,
+            primary_plan_path,
+            export_plan_path,
+        )
+        apply_final_report_result_fields(result, final_report, final_report_path)
         result["delivery_candidate_status"] = str(delivery.get("status") or "")
         result["delivery_candidate_reason_code"] = str(delivery.get("reason_code") or "")
         result["delivery_candidate_relation"] = str(delivery.get("relation") or "")

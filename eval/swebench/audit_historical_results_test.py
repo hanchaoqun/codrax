@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
 import sys
 from pathlib import Path
@@ -94,6 +96,65 @@ diff --git a/tests/test_mod.py b/tests/test_mod.py
             oracle,
         )
         self.assertEqual((verdict, reason), ("pass", "local_verify_passed"))
+
+    def test_audit_rows_prefers_typed_final_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            instance_dir = root / "instances" / "repo__case-1"
+            plan_dir = instance_dir / "repo" / ".codrax" / "plans"
+            plan_dir.mkdir(parents=True)
+            (instance_dir / "prediction.json").write_text(
+                json.dumps(
+                    {
+                        "model_patch": (
+                            "diff --git a/pkg/a.py b/pkg/a.py\n"
+                            "--- a/pkg/a.py\n+++ b/pkg/a.py\n@@ -1 +1 @@\n"
+                            "-old\n+new\n"
+                        )
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (instance_dir / "instance.json").write_text(
+                json.dumps({"repo": "example/repo", "problem_statement": "fix a"}),
+                encoding="utf-8",
+            )
+            final_path = plan_dir / "plan-1.final.json"
+            final_path.write_text(
+                json.dumps(
+                    {
+                        "kind": "final_report",
+                        "completion": {"verdict": "unverified"},
+                        "residual_risks": [{"code": "verification_unavailable"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rows = audit.audit_rows(
+                [
+                    {
+                        "instance_id": "repo__case-1",
+                        "instance_dir": str(instance_dir),
+                        "patch_bytes": 10,
+                    }
+                ],
+                {
+                    "repo__case-1": {
+                        "patch": (
+                            "diff --git a/pkg/a.py b/pkg/a.py\n"
+                            "--- a/pkg/a.py\n+++ b/pkg/a.py\n@@ -1 +1 @@\n"
+                            "-old\n+new\n"
+                        )
+                    }
+                },
+            )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["final_answer_audit_surface"], "write_final_report")
+        self.assertTrue(rows[0]["final_answer_typed_artifact_present"])
+        self.assertEqual(rows[0]["final_report_path"], str(final_path))
+        self.assertEqual(rows[0]["final_report_completion_verdict"], "unverified")
+        self.assertEqual(rows[0]["final_report_residual_risk_codes"], ["verification_unavailable"])
 
 
 if __name__ == "__main__":

@@ -2954,12 +2954,139 @@ func (o *Orchestrator) persistWriteWorkflowRun(run *types.WriteWorkflowRun) {
 		logging.Warning("[orchestrator] write workflow state invariant warning: %s", strings.Join(violations, "; "))
 	}
 	o.busCtx.Mutable.SetWriteWorkflowRun(&normalized)
+	workflowPath := ""
 	if o.writeWorkflowRunStore == nil {
+		o.persistWriteFinalReportIfTerminal(&normalized, "")
 		return
 	}
-	if _, err := o.writeWorkflowRunStore.Save(&normalized); err != nil {
+	if path, err := o.writeWorkflowRunStore.Save(&normalized); err != nil {
 		logging.Warning("[orchestrator] write workflow run persist failed: %v", err)
+	} else {
+		workflowPath = path
 	}
+	o.persistWriteFinalReportIfTerminal(&normalized, workflowPath)
+}
+
+func (o *Orchestrator) persistWriteFinalReportIfTerminal(run *types.WriteWorkflowRun, workflowPath string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return
+	}
+	if run.Status != types.WriteWorkflowRunComplete && run.Status != types.WriteWorkflowRunBlocked {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	report := o.busCtx.Mutable.ChangeReport()
+	planID := writeFinalReportArtifactID(run, plan, report)
+	if report == nil {
+		report = o.loadWriteFinalReportChangeReport(planID)
+	}
+	if plan == nil && strings.TrimSpace(planID) != "" {
+		if loaded, err := o.loadWriteFinalReportChangePlan(planID); err == nil && loaded != nil {
+			plan = loaded
+		}
+	}
+	planPath := ""
+	if plan != nil {
+		planPath = o.ensureChangePlanPath()
+	}
+	planDir := o.ensureChangeReportDir()
+	if planDir == "" {
+		return
+	}
+	stem := writeWorkflowArtifactFileStem(planID)
+	if stem == "" {
+		return
+	}
+	reportPath := ""
+	if report != nil {
+		reportPath = filepath.Join(planDir, stem+".report.json")
+	}
+	final := types.BuildWriteFinalReport(types.WriteFinalReportInput{
+		Run:          run,
+		Plan:         plan,
+		Report:       report,
+		PlanPath:     planPath,
+		ReportPath:   reportPath,
+		WorkflowPath: workflowPath,
+	})
+	finalPath := filepath.Join(planDir, stem+".final.json")
+	if err := types.WriteFinalReportToFile(&final, finalPath); err != nil {
+		logging.Warning("[orchestrator] write final report persist failed: %v", err)
+		return
+	}
+	logging.Info("[orchestrator] WriteFinalReport saved: %s", finalPath)
+}
+
+func writeFinalReportArtifactID(run *types.WriteWorkflowRun, plan *types.ChangePlan, report *types.ChangeReport) string {
+	if plan != nil && strings.TrimSpace(plan.ID) != "" {
+		return strings.TrimSpace(plan.ID)
+	}
+	if report != nil && strings.TrimSpace(report.PlanID) != "" {
+		return strings.TrimSpace(report.PlanID)
+	}
+	if run != nil {
+		activeBatchID := strings.TrimSpace(run.ActiveBatchID)
+		for i := len(run.Batches) - 1; i >= 0; i-- {
+			batch := run.Batches[i]
+			if activeBatchID != "" && strings.TrimSpace(batch.ID) != activeBatchID {
+				continue
+			}
+			if planID := strings.TrimSpace(batch.PlanID); planID != "" {
+				return planID
+			}
+			for j := len(batch.Attempts) - 1; j >= 0; j-- {
+				if planID := strings.TrimSpace(batch.Attempts[j].PlanID); planID != "" {
+					return planID
+				}
+			}
+		}
+		for i := len(run.Batches) - 1; i >= 0; i-- {
+			if planID := strings.TrimSpace(run.Batches[i].PlanID); planID != "" {
+				return planID
+			}
+		}
+		if runID := strings.TrimSpace(run.RunID); runID != "" {
+			return runID
+		}
+	}
+	return ""
+}
+
+func (o *Orchestrator) loadWriteFinalReportChangeReport(planID string) *types.ChangeReport {
+	planID = strings.TrimSpace(planID)
+	if planID == "" {
+		return nil
+	}
+	planDir := o.ensureChangeReportDir()
+	if planDir == "" {
+		return nil
+	}
+	stem := writeWorkflowArtifactFileStem(planID)
+	if stem == "" {
+		return nil
+	}
+	path := filepath.Join(planDir, stem+".report.json")
+	report, err := types.LoadChangeReportFromFile(path)
+	if err != nil {
+		return nil
+	}
+	return report
+}
+
+func (o *Orchestrator) loadWriteFinalReportChangePlan(planID string) (*types.ChangePlan, error) {
+	planID = strings.TrimSpace(planID)
+	if planID == "" {
+		return nil, nil
+	}
+	planDir := o.ensureChangeReportDir()
+	if planDir == "" {
+		return nil, nil
+	}
+	stem := writeWorkflowArtifactFileStem(planID)
+	if stem == "" {
+		return nil, nil
+	}
+	return types.LoadChangePlanFromFile(filepath.Join(planDir, stem+".json"))
 }
 
 func upsertWorkflowRunContextPack(run types.WriteWorkflowRun, pack types.WriteContextPack) types.WriteWorkflowRun {

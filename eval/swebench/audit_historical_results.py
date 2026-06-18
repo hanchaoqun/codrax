@@ -103,6 +103,25 @@ def load_instance(instance_dir: Path) -> dict[str, Any]:
     return load_json_object(instance_dir / "instance.json")
 
 
+def resolve_final_report_path(row: dict[str, Any], instance_dir: Path) -> Path | None:
+    explicit = text(row, "final_report_path")
+    if explicit:
+        path = Path(explicit)
+        if path.exists():
+            return path
+    report_path = text(row, "report_path")
+    if report_path:
+        path = Path(report_path).with_name(Path(report_path).stem.replace(".report", "") + ".final.json")
+        if path.exists():
+            return path
+    prediction = instance_dir / "prediction.json"
+    if prediction.exists():
+        candidates = sorted(instance_dir.glob("repo/.codrax/plans/*.final.json"))
+        if candidates:
+            return candidates[-1]
+    return None
+
+
 def tail_text(path: Path, max_lines: int = 16, max_chars: int = 4000) -> str:
     if not path.exists():
         return ""
@@ -320,6 +339,8 @@ def audit_rows(rows: list[dict[str, Any]], oracle_rows: dict[str, dict[str, Any]
         instance_dir = result_instance_dir(row)
         instance = load_instance(instance_dir)
         codrax_out_path = instance_dir / "codrax.out"
+        final_report_path = resolve_final_report_path(row, instance_dir)
+        final_report = load_json_object(final_report_path) if final_report_path else {}
         model_patch = load_prediction_patch(instance_dir)
         model_summary = diff_summary(model_patch)
         oracle_row = oracle_rows.get(instance_id, {})
@@ -356,8 +377,15 @@ def audit_rows(rows: list[dict[str, Any]], oracle_rows: dict[str, dict[str, Any]
             "local_acceptance_verdict": text(row, "local_acceptance_verdict"),
             "local_acceptance_source": text(row, "local_acceptance_source"),
             "dropped_test_patch_paths": row.get("dropped_test_patch_paths") if isinstance(row.get("dropped_test_patch_paths"), list) else [],
-            "final_answer_audit_surface": "codrax_out_tail" if codrax_out_path.exists() else "missing",
-            "final_answer_typed_artifact_present": False,
+            "final_answer_audit_surface": "write_final_report" if final_report else ("codrax_out_tail" if codrax_out_path.exists() else "missing"),
+            "final_answer_typed_artifact_present": bool(final_report),
+            "final_report_path": str(final_report_path) if final_report_path else text(row, "final_report_path"),
+            "final_report_completion_verdict": str(((final_report.get("completion") if isinstance(final_report.get("completion"), dict) else {}) or {}).get("verdict") or ""),
+            "final_report_residual_risk_codes": [
+                str(risk.get("code") or "").strip()
+                for risk in (final_report.get("residual_risks") or [])
+                if isinstance(risk, dict) and str(risk.get("code") or "").strip()
+            ],
             "codrax_out_bytes": codrax_out_path.stat().st_size if codrax_out_path.exists() else 0,
             "codrax_out_tail": tail_text(codrax_out_path),
             "instance_dir": str(instance_dir),

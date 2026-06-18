@@ -503,6 +503,7 @@ def summarize_results(
     manual_unknown = sum(1 for row in rows if text(row, "manual_audit_verdict") == "unknown")
     manual_recorded = sum(1 for row in rows if is_manual_audit_recorded(row))
     local_blocked = sum(1 for row in rows if bool_value(row, "prediction_blocks_local_acceptance"))
+    final_report_present = sum(1 for row in rows if bool_value(row, "final_report_present"))
     causes = result_cause_rows(rows)
     current_core_complete = sum(1 for row in rows if not missing_core_fields(row))
     local_acceptance_evaluable = sum(1 for row in rows if "local_acceptance_verdict" in row)
@@ -533,6 +534,7 @@ def summarize_results(
         "typed_manual_audit_fail_instances": manual_fail,
         "typed_manual_audit_unknown_instances": manual_unknown,
         "local_audit_blocked_instances": local_blocked,
+        "final_report_present_instances": final_report_present,
         "local_acceptance_evaluable_instances": local_acceptance_evaluable,
         "typed_manual_audit_evaluable_instances": manual_audit_evaluable,
         "current_core_complete_rate": rate(current_core_complete, total),
@@ -544,6 +546,7 @@ def summarize_results(
         "local_acceptance_pass_rate_evaluable": rate(local_acceptance_pass, local_acceptance_evaluable),
         "typed_manual_audit_recorded_rate": rate(manual_recorded, total),
         "typed_manual_audit_recorded_rate_evaluable": rate(manual_recorded, manual_audit_evaluable),
+        "final_report_present_rate": rate(final_report_present, total),
         "current_core_complete_percent": percent(rate(current_core_complete, total)),
         "non_empty_patch_percent": percent(rate(non_empty_patch, total)),
         "high_confidence_local_verify_pass_percent": percent(rate(high_conf_local_verify, total)),
@@ -553,6 +556,7 @@ def summarize_results(
         "local_acceptance_pass_percent_evaluable": percent(rate(local_acceptance_pass, local_acceptance_evaluable)),
         "typed_manual_audit_recorded_percent": percent(rate(manual_recorded, total)),
         "typed_manual_audit_recorded_percent_evaluable": percent(rate(manual_recorded, manual_audit_evaluable)),
+        "final_report_present_percent": percent(rate(final_report_present, total)),
         "prediction_verdict_counts": count_by(rows, "prediction_verdict"),
         "prediction_local_confidence_counts": count_by(rows, "prediction_local_confidence"),
         "verify_status_counts": count_by(rows, "verify_status"),
@@ -560,6 +564,8 @@ def summarize_results(
         "local_acceptance_verdict_counts": count_by(rows, "local_acceptance_verdict"),
         "local_acceptance_source_counts": count_by(rows, "local_acceptance_source"),
         "manual_audit_verdict_counts": count_by(rows, "manual_audit_verdict"),
+        "final_report_present_counts": count_by(rows, "final_report_present"),
+        "final_report_completion_verdict_counts": count_by(rows, "final_report_completion_verdict"),
         "top_confidence_downgrade_reasons": top_counts(count_by(rows, "prediction_confidence_downgrade_reason")),
         "top_audit_block_reasons": top_counts(count_by(rows, "prediction_audit_block_reason")),
         "result_cause_category_counts": count_cause_field(causes, "category"),
@@ -589,6 +595,8 @@ def format_summary(summary: dict[str, Any]) -> str:
         f"({pct_text(summary.get('high_confidence_local_verify_pass_percent'))}) "
         f"low_conf_verify={summary['low_confidence_verify_pass_instances']}/{total} "
         f"({pct_text(summary.get('low_confidence_verify_pass_percent'))}) "
+        f"final_report={summary.get('final_report_present_instances', 0)}/{total} "
+        f"({pct_text(summary.get('final_report_present_percent'))}) "
         f"manual_audit_recorded={summary['typed_manual_audit_recorded_instances']}/{total} "
         f"({pct_text(summary.get('typed_manual_audit_recorded_percent'))})"
     )

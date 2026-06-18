@@ -14,6 +14,11 @@ const (
 	// WriteOutputChangeReport is the apply+verify combined
 	// post-execution report (test results + baseline diff).
 	WriteOutputChangeReport WriteOutputKind = "change_report"
+
+	// WriteOutputFinalReport is the terminal delivery audit projection for a
+	// write workflow. It summarizes typed plan/report/workflow/handoff state;
+	// it is not a scheduler authority and never parses final-answer prose.
+	WriteOutputFinalReport WriteOutputKind = "final_report"
 )
 
 // AllWriteOutputKinds returns every declared WriteOutputKind in a
@@ -24,6 +29,7 @@ func AllWriteOutputKinds() []WriteOutputKind {
 	return []WriteOutputKind{
 		WriteOutputChangePlan,
 		WriteOutputChangeReport,
+		WriteOutputFinalReport,
 	}
 }
 

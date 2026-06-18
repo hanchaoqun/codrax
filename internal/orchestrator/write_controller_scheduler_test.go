@@ -422,6 +422,85 @@ func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 	}
 }
 
+func TestPersistWriteWorkflowRunTerminalWritesFinalReport(t *testing.T) {
+	tmp := t.TempDir()
+	mu := types.NewMutableState("terminal final report")
+	plan := &types.ChangePlan{
+		ID:           "plan-final",
+		Status:       types.PlanStatusApplied,
+		TargetPaths:  []string{"src/app.py"},
+		AppliedPaths: []string{"src/app.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			RecordID:        "patch-effect:plan-final:slice-1:fp",
+			DiffFingerprint: "fp",
+			Files:           []types.PatchEffectFile{{Path: "src/app.py"}},
+		},
+	}
+	report := &types.ChangeReport{
+		PlanID:             "plan-final",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-final",
+		Status:        types.WriteWorkflowRunComplete,
+		ActiveBatchID: "batch-1",
+		Completion: &types.WriteWorkflowCompletion{
+			Verdict:    types.WriteWorkflowCompletionVerified,
+			ReasonCode: "tests_passed",
+			Source:     "verify_attempt",
+		},
+		Batches: []types.WriteWorkflowBatch{{
+			ID:        "batch-1",
+			Status:    types.WriteWorkflowBatchComplete,
+			PlanID:    "plan-final",
+			VerifyRef: "plan-final.report.json",
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict:    types.WriteWorkflowCompletionVerified,
+				ReasonCode: "tests_passed",
+				Source:     "verify_attempt",
+			},
+		}},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: tmp, Mode: types.ModeApply}}
+
+	o.persistWriteWorkflowRun(run)
+
+	finalPath := filepath.Join(tmp, "plans", "plan-final.final.json")
+	final, err := types.LoadWriteFinalReportFromFile(finalPath)
+	if err != nil {
+		t.Fatalf("LoadWriteFinalReportFromFile(%s): %v", finalPath, err)
+	}
+	if final.RunID != "wf-final" || final.Plan.ID != "plan-final" || final.Verification.Status != types.VerificationStatusPassed {
+		t.Fatalf("final report projection = %+v", final)
+	}
+	if final.Completion == nil || final.Completion.Verdict != types.WriteWorkflowCompletionVerified {
+		t.Fatalf("final completion = %+v, want verified", final.Completion)
+	}
+}
+
+func TestPersistWriteWorkflowRunNonTerminalDoesNotWriteFinalReport(t *testing.T) {
+	tmp := t.TempDir()
+	mu := types.NewMutableState("non terminal")
+	mu.SetChangePlan(&types.ChangePlan{ID: "plan-open", Status: types.PlanStatusPending})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: tmp, Mode: types.ModeApply}}
+	o.persistWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-open",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchPlanned,
+			PlanID: "plan-open",
+		}},
+	})
+	if _, err := os.Stat(filepath.Join(tmp, "plans", "plan-open.final.json")); !os.IsNotExist(err) {
+		t.Fatalf("non-terminal run should not write final report, stat err=%v", err)
+	}
+}
+
 func TestRunWriteControllerWorkflow_DegradedExplorationHandoffContinuesToPlan(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("plan after degraded exploration")
