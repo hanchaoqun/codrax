@@ -98,13 +98,13 @@ func traceConvertPerfToolStatusLines(lang string, status hitraceconv.PerfToolSta
 		lines := []string{
 			fmt.Sprintf("perf 解析模式：%s", status.ParserMode),
 			fmt.Sprintf("选中策略：%s", status.SelectedParser),
-			fmt.Sprintf("符号化预期：%s", status.SymbolizationExpectation),
+			fmt.Sprintf("符号化预期：%s", traceConvertPerfSymbolizationExpectationZh(status)),
 		}
 		lines = append(lines, traceConvertPerfProviderLine("zh", status.Hiperf))
 		lines = append(lines, traceConvertPerfProviderLine("zh", status.Simpleperf))
 		lines = append(lines, traceConvertPerfProviderLine("zh", status.RawFallback))
 		for _, caveat := range status.Caveats {
-			lines = append(lines, "提示："+caveat)
+			lines = append(lines, "提示："+traceConvertPerfMessageZh(caveat))
 		}
 		return lines
 	}
@@ -123,6 +123,14 @@ func traceConvertPerfToolStatusLines(lang string, status hitraceconv.PerfToolSta
 }
 
 func traceConvertPerfProviderLine(lang string, item hitraceconv.PerfToolProviderStatus) string {
+	prefix := fmt.Sprintf("%s[%s]", item.Kind, item.Name)
+	if traceConvertUseZh(lang) {
+		return prefix + "：" + strings.Join(traceConvertPerfProviderDetailsZh(item), " ")
+	}
+	return prefix + ": " + strings.Join(traceConvertPerfProviderDetailsEn(item), " ")
+}
+
+func traceConvertPerfProviderDetailsEn(item hitraceconv.PerfToolProviderStatus) []string {
 	state := "missing"
 	if item.Available {
 		state = "available"
@@ -160,11 +168,165 @@ func traceConvertPerfProviderLine(lang string, item hitraceconv.PerfToolProvider
 	if !item.Available && item.InstallHint != "" {
 		details = append(details, "hint="+item.InstallHint)
 	}
-	prefix := fmt.Sprintf("%s[%s]", item.Kind, item.Name)
-	if traceConvertUseZh(lang) {
-		return prefix + "：" + strings.Join(details, " ")
+	return details
+}
+
+func traceConvertPerfProviderDetailsZh(item hitraceconv.PerfToolProviderStatus) []string {
+	state := "缺失"
+	if item.Available {
+		state = "可用"
 	}
-	return prefix + ": " + strings.Join(details, " ")
+	details := []string{
+		fmt.Sprintf("状态=%s", state),
+	}
+	if item.Path != "" {
+		details = append(details, "路径="+item.Path)
+	}
+	if item.Python != "" {
+		details = append(details, "Python="+item.Python)
+	}
+	if item.Source != "" {
+		details = append(details, "来源="+traceConvertPerfSourceZh(item.Source))
+	}
+	if item.Version != "" {
+		details = append(details, "版本="+item.Version)
+	}
+	if item.CheckCommand != "" {
+		details = append(details, "检查="+item.CheckCommand)
+	}
+	if len(item.AuxiliaryChecks) > 0 {
+		details = append(details, "辅助检查="+strings.Join(traceConvertPerfAuxChecksZh(item.AuxiliaryChecks), "; "))
+	}
+	if item.InstallCommand != "" {
+		details = append(details, "安装="+traceConvertPerfInstallCommandZh(item.InstallCommand))
+	}
+	if item.DocsURL != "" {
+		details = append(details, "文档="+item.DocsURL)
+	}
+	if len(item.Caveats) > 0 {
+		details = append(details, "注意="+strings.Join(traceConvertPerfMessagesZh(item.Caveats), "; "))
+	}
+	if !item.Available && item.InstallHint != "" {
+		details = append(details, "提示="+traceConvertPerfMessageZh(item.InstallHint))
+	}
+	return details
+}
+
+func traceConvertPerfSymbolizationExpectationZh(status hitraceconv.PerfToolStatus) string {
+	if strings.EqualFold(strings.TrimSpace(status.SelectedParser), "disabled") {
+		return "不会生成 .perftrace"
+	}
+	switch strings.ToLower(strings.TrimSpace(status.ParserMode)) {
+	case "official":
+		return "要求使用官方 hiperf/simpleperf 适配器；提供匹配符号后可输出符号化结果"
+	case "raw", "fallback":
+		return "仅使用 Codrax 内置 raw perf.data 保底解析；输出为 IP/DSO 级上下文，并标记 symbolization_status=unsymbolized"
+	default:
+		return "auto 优先使用官方 hiperf/simpleperf 生成符号化结果；官方工具不可用时，在支持范围内回退到 raw IP/DSO 上下文"
+	}
+}
+
+func traceConvertPerfAuxChecksZh(checks []string) []string {
+	out := make([]string, 0, len(checks))
+	for _, check := range checks {
+		out = append(out, traceConvertPerfAuxCheckZh(check))
+	}
+	return out
+}
+
+func traceConvertPerfMessagesZh(messages []string) []string {
+	out := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		out = append(out, traceConvertPerfMessageZh(msg))
+	}
+	return out
+}
+
+func traceConvertPerfAuxCheckZh(check string) string {
+	trimmed := strings.TrimSpace(check)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.Contains(lower, "symbol_roots=not_configured"):
+		return "符号目录未配置；可传 --hiperf-symbol-dir /path/to/symbols，并用 test -d /path/to/symbols 验证"
+	case strings.Contains(lower, "symfs=not_configured"):
+		return "symfs 未配置；可传 --simpleperf-symfs /path/to/symfs，并用 test -d /path/to/symfs 验证"
+	case strings.Contains(lower, "kallsyms=not_configured"):
+		return "kallsyms 未配置；可传 --simpleperf-kallsyms /path/to/kallsyms，并用 test -r /path/to/kallsyms 验证"
+	default:
+		replacer := strings.NewReplacer(
+			"symbol_root=", "符号目录=",
+			"symbol_roots=", "符号目录=",
+			"symfs=", "symfs=",
+			"kallsyms=", "kallsyms=",
+			" check=", " 检查=",
+		)
+		return replacer.Replace(trimmed)
+	}
+}
+
+func traceConvertPerfSourceZh(source string) string {
+	trimmed := strings.TrimSpace(source)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case trimmed == "":
+		return ""
+	case strings.EqualFold(trimmed, "built-in"):
+		return "内置"
+	case strings.Contains(lower, "configured hiperf"):
+		return "已配置 hiperf 工具"
+	case strings.Contains(lower, "configured simpleperf_report_lib.py"):
+		return "已配置 simpleperf_report_lib.py"
+	case strings.Contains(lower, "configured simpleperf"):
+		return "已配置 simpleperf report_sample.py"
+	case strings.Contains(lower, "next to") && strings.Contains(lower, "on path"):
+		return trimmed + "（从 PATH 发现 wrapper）"
+	case strings.Contains(lower, "on path"):
+		return trimmed + "（从 PATH 发现）"
+	default:
+		return trimmed
+	}
+}
+
+func traceConvertPerfInstallCommandZh(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if strings.EqualFold(trimmed, "built-in") {
+		return "内置，无需安装"
+	}
+	if trimmed == "" {
+		return ""
+	}
+	return trimmed
+}
+
+func traceConvertPerfMessageZh(message string) string {
+	trimmed := strings.TrimSpace(message)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case trimmed == "":
+		return ""
+	case strings.Contains(lower, "install or build openharmony developtools_hiperf"):
+		return "安装或构建 OpenHarmony developtools_hiperf host 工具，然后传 --hiperf-host 或设置 CODRAX_HIPERF_HOST；需要符号化时补 --hiperf-symbol-dir"
+	case strings.Contains(lower, "use android simpleperf scripts/report_sample.py"):
+		return "使用 Android simpleperf 的 scripts/report_sample.py，然后传 --simpleperf-report-sample 或设置 CODRAX_SIMPLEPERF_REPORT_SAMPLE；按需补 --simpleperf-python、--simpleperf-symfs、--simpleperf-kallsyms"
+	case strings.Contains(lower, "built into codrax"):
+		return "Codrax 内置能力；输出会标记 source=raw_perfdata_fallback 和 symbolization_status=unsymbolized，适合时间/线程/DSO/IP 关联，不等同完整符号化"
+	case strings.Contains(lower, "perftrace generation is disabled"):
+		return "已禁用 perftrace 生成；不会运行官方适配器和 raw fallback"
+	case strings.Contains(lower, "disabled by --no-perftrace"):
+		return "已被 --no-perftrace 禁用"
+	case strings.Contains(lower, "disabled by --perf-parser=official"):
+		return "已被 --perf-parser=official 禁用"
+	case strings.Contains(lower, "python executable was not discovered"):
+		return "没有发现可执行的 Python，无法运行 report_sample.py"
+	case strings.Contains(lower, "simpleperf_report_lib.py is the official library"):
+		return "simpleperf_report_lib.py 是官方库文件；Codrax 需要执行 report_sample.py wrapper，请把 report_sample.py 放到同目录，或通过 --simpleperf-report-sample 指定"
+	case strings.Contains(lower, "configured path is not readable"):
+		return strings.Replace(trimmed, "configured path is not readable", "配置路径不可读", 1)
+	case strings.Contains(lower, "configured path is a directory"):
+		return "配置路径是目录，需要传具体可执行文件或脚本"
+	default:
+		return trimmed
+	}
 }
 
 func traceConvertResultLines(lang string, result hitraceconv.Result) []string {

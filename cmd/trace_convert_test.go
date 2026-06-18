@@ -149,7 +149,7 @@ func TestTraceConvertPerfToolStatusLines(t *testing.T) {
 			AuxiliaryChecks: []string{"symfs=/symfs check=test -d /symfs", "kallsyms=/proc/kallsyms check=test -r /proc/kallsyms"},
 			InstallCommand:  "fetch simpleperf",
 			DocsURL:         "https://android.googlesource.com/platform/system/extras/+/refs/heads/main/simpleperf/",
-			InstallHint:     "install simpleperf",
+			InstallHint:     "Use Android simpleperf scripts/report_sample.py, then pass --simpleperf-report-sample or set CODRAX_SIMPLEPERF_REPORT_SAMPLE; add --simpleperf-python, --simpleperf-symfs, and --simpleperf-kallsyms as needed.",
 		},
 		RawFallback: hitraceconv.PerfToolProviderStatus{
 			Name:           "codrax_raw_perfdata",
@@ -161,13 +161,23 @@ func TestTraceConvertPerfToolStatusLines(t *testing.T) {
 		},
 	}
 	en := strings.Join(traceConvertPerfToolStatusLines("en", status), "\n")
-	for _, want := range []string{"perf_parser: auto", "official_harmony", "/tmp/hiperf_host", "check=hiperf_host --help", "aux_check=symbol_root=/symbols", "docs=https://gitee.com/openharmony/developtools_hiperf", "official_android", "check=python3 report_sample.py --help", "symfs=/symfs", "kallsyms=/proc/kallsyms", "install=fetch simpleperf", "hint=install simpleperf", "raw_fallback", "built-in", "--perf-parser=raw"} {
+	for _, want := range []string{"perf_parser: auto", "official_harmony", "/tmp/hiperf_host", "check=hiperf_host --help", "aux_check=symbol_root=/symbols", "docs=https://gitee.com/openharmony/developtools_hiperf", "official_android", "check=python3 report_sample.py --help", "symfs=/symfs", "kallsyms=/proc/kallsyms", "install=fetch simpleperf", "hint=Use Android simpleperf", "raw_fallback", "built-in", "--perf-parser=raw"} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("status lines missing %q:\n%s", want, en)
 		}
 	}
 	zh := strings.Join(traceConvertPerfToolStatusLines("zh", status), "\n")
-	if !strings.Contains(zh, "perf 解析模式：auto") || !strings.Contains(zh, "符号化预期") {
+	for _, want := range []string{"perf 解析模式：auto", "符号化预期：auto 优先使用官方", "状态=可用", "状态=缺失", "辅助检查=符号目录=/symbols", "提示=使用 Android simpleperf", "安装=内置，无需安装"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh status lines missing %q:\n%s", want, zh)
+		}
+	}
+	for _, leak := range []string{"auto prefers official", "Install or build OpenHarmony", "Use Android simpleperf", "state=missing", "hint=install simpleperf"} {
+		if strings.Contains(zh, leak) {
+			t.Fatalf("zh status lines leaked English detail %q:\n%s", leak, zh)
+		}
+	}
+	if !strings.Contains(zh, "符号化预期") {
 		t.Fatalf("zh status lines malformed:\n%s", zh)
 	}
 }
