@@ -1050,6 +1050,7 @@ class WorkflowAppliedProvenanceTests(unittest.TestCase):
         self.assertEqual(candidate["relation"], "source_plan_with_later_test_followup")
         self.assertEqual(candidate["source_owner_plan_ids"], ["plan-source"])
         self.assertEqual(candidate["primary_source_plan_id"], "plan-source")
+        self.assertEqual(candidate["primary_source_plan_path"], str(plans / "plan-source.json"))
         self.assertTrue(candidate["source_plan_covers_exported_source_patch"])
         self.assertEqual(candidate["report_plan_id"], "plan-test")
 
@@ -1110,6 +1111,7 @@ class WorkflowAppliedProvenanceTests(unittest.TestCase):
         self.assertEqual(candidate["status"], "coherent")
         self.assertEqual(candidate["relation"], "source_plan_with_later_validation_followup")
         self.assertEqual(candidate["source_owner_plan_ids"], ["plan-source"])
+        self.assertEqual(candidate["primary_source_plan_path"], str(plans / "plan-source.json"))
         self.assertTrue(candidate["source_plan_covers_exported_source_patch"])
         self.assertEqual(candidate["report_plan_id"], "plan-proof")
         self.assertTrue(candidate["final_plan_validation_only"])

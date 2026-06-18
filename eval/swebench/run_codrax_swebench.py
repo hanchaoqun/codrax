@@ -3410,10 +3410,15 @@ def process_instance(
             result["verify_no_tests_runners"] = report.get("no_tests_runners") or []
             result["verify_test_count"] = len(report.get("test_results") or [])
             result["verify_confidence_reason_codes"] = verification_confidence_reason_codes(report)
+        delivery_primary_plan_path = (
+            Path(str(delivery.get("primary_source_plan_path")))
+            if str(delivery.get("primary_source_plan_path") or "")
+            else None
+        )
         final_report, final_report_path = first_final_report_for_plans(
             delivery_report_plan_path,
-            final_plan_path,
-            primary_plan_path,
+            plan_path,
+            delivery_primary_plan_path,
             export_plan_path,
         )
         apply_final_report_result_fields(result, final_report, final_report_path)

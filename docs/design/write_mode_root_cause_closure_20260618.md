@@ -4266,6 +4266,7 @@ Verification:
 | RC-82 | complete | PatchReview hard/error diagnostics are now a replacement-patch-only repair lane. A passed functional probe or no-change sentinel cannot clear structural actual-diff failures such as unreachable code; the planner removes `run_tests` for the whole typed replacement lane, forcing bounded source reads plus a replacement ChangePlan or continued needs-replan state. Controller dispatch write-deadline interruptions after a failed-verify repair plan is persisted stay resumable instead of becoming terminal blocked. Focused tests, related packages, full `go test ./...`, `make`, diff check, and targeted Django RC-83 SWE smoke pass the intended state-kernel behavior: non-empty prediction, `workflow_status=complete`, `verify_status=passed`, and harness-shaped predictions JSONL. |
 | RC-83 | complete | Impact related-test precision and coverage aliasing: moved package-marker/generic-stem filtering from only runner selection into the repomap provider boundary, and made coverage projection consume typed executed command suite selectors as normalized path/module aliases across Python/Django and Java-class style runners. Focused/related/full Go regressions and build pass. Targeted Django smoke exported a non-empty harness-shaped prediction and exposed RC-84 stale source-owner provenance, which is now fixed in the adapter. |
 | RC-84 | complete | Restore-aware SWE delivery provenance: the SWE adapter now reads typed workflow `checkpoint_restored_before_replan` progress events and excludes applied source plans before the latest restore in that batch, so rolled-back PatchReview hard errors cannot pollute final delivery audit. Adapter regressions pass and old RC-84 artifact recomputes to a single final source-owner plan. |
+| RC-96 | complete | SWE final-report projection now uses the typed delivery candidate's primary source plan path instead of undefined post-processing locals, eliminating false `status=error` rows after Codrax has already exported a non-empty patch. The RC-95 three-instance rerun validates 3/3 non-empty predictions and official harness import/dry-run consumption, while manual audit keeps the broader exploration/localization gap open for subsequent typed-localization work. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -5605,7 +5606,82 @@ Verification:
   - `go test ./...`
   - `make`
   - `git diff --check`
-  - SWE rerun remains pending after this code commit.
+  - SWE rerun followed up by RC-96.
+
+## 2026-06-19 RC-96 SWE Adapter Final-Report Projection Fix
+
+- Fresh SWE-bench Lite smoke evidence:
+  - Targeted run directory:
+    `eval/results/swebench/lite-smoke-20260619-rc95-localization-proof-3`.
+  - Instances: `pytest-dev__pytest-5227`, `django__django-14534`, and
+    `sympy__sympy-18199`.
+  - All three exported non-empty predictions:
+    `pytest-dev__pytest-5227` 512 bytes, `django__django-14534` 416 bytes,
+    and `sympy__sympy-18199` 594 bytes.
+  - `eval/swebench/validate_predictions.py` accepted the predictions file with
+    `empty_patch=0`.
+  - Official SWE-bench harness import/dry-run accepted the generated command
+    with Python 3.11 and the installed `swebench` package.
+- Gap:
+  - The adapter post-processing path looked up the final report through
+    undefined locals named `final_plan_path` and `primary_plan_path`.
+  - That made result rows print `status=error patch_bytes=0` even when
+    `predictions.jsonl` contained a valid non-empty patch. The false error
+    polluted SWE dashboards and made root-cause/localization analysis look
+    worse or different than the actual Codrax delivery artifact.
+- Design:
+  - Use the already-selected typed delivery candidate as the authority for
+    final-report projection.
+  - Preserve the delivery candidate's `primary_source_plan_path` and pass it to
+    `first_final_report_for_plans` together with the delivery report plan,
+    current plan, and export plan.
+  - Keep official prediction export unchanged; this is telemetry/report
+    normalization only.
+- Manual audit:
+  - `pytest-dev__pytest-5227` changed the default logging format in
+    `src/_pytest/logging.py`; the patch is plausible and local verification
+    stayed `unverified/parser_error`.
+  - `django__django-14534` changed `BoundWidget.id_for_label` to return
+    `self.data["attrs"].get("id")`; post-hoc oracle comparison confirms this
+    matches the historical fix, but local visible tests without SWE
+    `test_patch` still failed. This is a SWE-local-verification nuance, not a
+    reason to weaken customer verification globally.
+  - `sympy__sympy-18199` added the zero-residue nthroot branch and completed
+    with the RC-95 proof follow-up represented as a probe-only
+    `no_change_required` plan.
+- Remaining architecture conclusion:
+  - This RC does not close the full exploration/localization gap.
+  - Completed layers now prevent several downstream false positives and false
+    negatives: typed localization retry, delivery-source provenance,
+    restore-aware provenance, patch critic, proof follow-up materialization,
+    and adapter final-report projection.
+  - The open systemic work is still upstream: read/write localization must
+    produce stronger typed owner/evidence anchors so plans avoid unrelated
+    source surfaces before patch review needs to intervene.
+- Task list:
+  - [x] Replace undefined final-report projection locals with typed delivery
+    candidate paths.
+  - [x] Add regression coverage that delivery candidates preserve
+    `primary_source_plan_path`.
+  - [x] Re-run adapter compile and unit suite.
+  - [x] Validate the RC-95 three-instance predictions file.
+  - [x] Run official harness import/dry-run consumption check.
+  - [x] Record that exploration/localization is only partially closed and
+    remains a system-level follow-up.
+- Prompt/hard-gate hygiene:
+  - No prompt changes.
+  - No keyword matching over user intent, issue text, model prose, logs,
+    stdout, SWE IDs, manual notes, or `<think>`.
+  - The fix consumes typed delivery-candidate metadata and filesystem paths
+    only.
+- Verification:
+  - `python3 -m py_compile eval/swebench/run_codrax_swebench.py
+    eval/swebench/run_codrax_swebench_test.py`
+  - `python3 -m unittest eval.swebench.run_codrax_swebench_test -v`
+  - `PYTHON=/opt/homebrew/bin/python3.11 DRY_RUN=1
+    CHECK_HARNESS_IMPORT=1
+    PREDICTIONS_PATH=eval/results/swebench/lite-smoke-20260619-rc95-localization-proof-3/predictions.jsonl
+    eval/swebench/run_official_harness.sh`
 
 ## Acceptance Criteria
 
