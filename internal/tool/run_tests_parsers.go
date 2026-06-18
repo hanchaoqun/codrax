@@ -372,6 +372,8 @@ func makeOutputUnavailableReason(stdout string) string {
 	switch {
 	case strings.Contains(stdout, "No rule to make target"):
 		return "make_target_missing"
+	case strings.Contains(stdout, "No such file or directory"):
+		return "make_dependency_file_missing"
 	case strings.Contains(stdout, "No module named "):
 		return "make_python_module_missing"
 	default:

@@ -6411,7 +6411,7 @@ Verification:
     unverified with `make_target_missing` plus probe import errors and stayed
     audit-blocked on proof coverage.
 
-## 2026-06-19 RC-109 Queued Verification Environment/probe Unavailable Authority
+## 2026-06-19 RC-109 Complete Verification Environment/probe Unavailable Authority
 
 - Evidence:
   - RC108 smoke shows the write pipeline now gets past apply PatchEffect
@@ -6431,6 +6431,10 @@ Verification:
     local import surface or classify the project environment as unavailable
     without asking the model to infer from traceback prose.
 - Design:
+  - Add one shared `ChangeReport` evidence authority that can answer "are all
+    red rows explained by typed verifier/probe/environment unavailability?" so
+    `run_tests`, controller observation authority, final reports, and eval
+    adapters do not each invent their own interpretation.
   - Add typed environment-unavailable classifiers for common source-checkout
     build-extension boundaries using structured exception class/module/path
     frames and existing environment diagnostics, not natural-language matching
@@ -6445,17 +6449,67 @@ Verification:
   - Keep local acceptance conservative: unavailable proof is not a pass, but it
     should not masquerade as a functional failure or cause broad source edits.
 - Task list:
-  - [ ] Audit verification probe failure normalization and command-derived
+  - [x] Audit verification probe failure normalization and command-derived
     unavailable reason aggregation.
-  - [ ] Add typed classifier for source-checkout build-extension import errors
-    using exception/module/path structure.
-  - [ ] Normalize make target unavailable command fields and prevent malformed
+  - [x] Add shared `ChangeReport` unavailable-evidence authority for probe
+    import failures, unavailable command evidence, and qualified make rows.
+  - [x] Add typed classifier for generated make dependency/include file
+    unavailability.
+  - [x] Normalize TestSurface candidate IDs embedded in `run_tests.suite` into
+    typed runner/framework/working_dir/suite parameters before execution.
+  - [x] Preserve source-checkout build-extension import errors as typed
+    `verification_probe_import_error` unavailable evidence when the probe layer
+    emits that structured reason.
+  - [x] Normalize make target unavailable command fields and prevent malformed
     runner/target concatenation.
-  - [ ] Update observation authority so coherent patch + unavailable proof
+  - [x] Update observation authority so coherent patch + unavailable proof
     produces unverified completion instead of source-code failure loops.
-  - [ ] Add focused verifier/tool/orchestrator regressions and rerun Lite smoke.
+  - [x] Add focused verifier/tool/writeflow regressions.
+  - [x] Run related/full regressions, rebuild, commit, push, and rerun Lite
+    smoke.
+- Verification:
+  - `go test ./internal/types -run
+    'TestChangeReportNormalizeVerificationStatus|TestChangeReportEnsureVerificationStatusBackfillsNoTestsFailureKind'
+    -count=1`
+  - `go test ./internal/writeflow -run
+    'TestDeriveObservationAuthorityFromReport|TestDeriveObservationAuthorityFromAttempt|TestClassifyVerifyAttemptOutcome'
+    -count=1`
+  - `go test ./internal/tool -run
+    'TestRunTestsVerificationProbeProductNameErrorIsTestFailure|Test(ParseMakeOutput_(MissingTargetIsUnavailable|PythonModuleMissingIsUnavailable|DependencyFileMissingIsUnavailable|DependencyFileMissingWithoutNoRuleIsUnavailable)|NormalizeRunTestsCandidateSuiteSelector)'
+    -count=1`
+  - `go test ./internal/types ./internal/writeflow ./internal/tool
+    ./internal/orchestrator -count=1`
+  - `go test ./...`
+  - `make`
+  - `git diff --check`
+  - Fresh smoke:
+    `WORKDIR=eval/results/swebench/lite-smoke-20260619-rc109-3
+    SWEBENCH_SMOKE_LIMIT=3 SWEBENCH_FAIL_ON_EMPTY_PATCH=0
+    SWEBENCH_REQUIRE_NONEMPTY_PATCH=0 SWEBENCH_FAIL_ON_INSTANCE_ERROR=0
+    CODRAX_BIN=/Users/han/opt/codrax/codrax
+    eval/swebench/smoke_lite.sh`
+- RC109 smoke result:
+  - Predictions: 3/3 non-empty; official harness import/dry-run command
+    accepted
+    `eval/results/swebench/lite-smoke-20260619-rc109-3/predictions.jsonl`.
+  - `astropy__astropy-12907` and `astropy__astropy-14182` now complete with
+    `verify_status=unavailable` instead of false functional failure; terminal
+    reports carry typed reasons
+    `verification_probe_import_error,make_dependency_file_missing,make_target_missing`.
+  - `astropy__astropy-14365` remains `workflow_status=complete`,
+    `verify_status=passed`, `prediction_verdict=predicted_passed`, and
+    `prediction_local_confidence=high`.
+  - Remaining blockers are proof/audit confidence and source-owner scheduling,
+    not verifier unavailable being misread as product-code failure. During
+    `astropy__astropy-14182`, `plan_batch` also spent more than three minutes
+    before progressing; record this as a follow-up UX/perf budget signal, not a
+    correctness blocker.
 
-## 2026-06-19 RC-107 Queued Shared Typed Localization Owner/evidence Scheduling Authority
+## 2026-06-19 RC-107 Queued P0 Shared Typed Localization Owner/evidence Scheduling Authority
+
+Priority: **next systemic batch after RC-109 lands**. This is the main upstream
+gap behind wrong-source-surface SWE patches and must not be displaced by
+verifier-only hardening unless a regression blocks mainline stability.
 
 - Evidence:
   - The user-selected follow-up explicitly calls out that upstream typed

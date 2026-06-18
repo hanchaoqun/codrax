@@ -727,6 +727,40 @@ func TestParseMakeOutput_PythonModuleMissingIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestParseMakeOutput_DependencyFileMissingIsUnavailable(t *testing.T) {
+	stdout := "GNUmakefile:41: makedefs: No such file or directory\nmake: *** No rule to make target `makedefs'.  Stop.\n"
+	report, err := parseMakeOutput(stdout, &fakeExitError{msg: "exit status 2"})
+	if err != nil {
+		t.Fatalf("parseMakeOutput: %v", err)
+	}
+	if report.Passed {
+		t.Fatal("missing generated make dependency should not pass")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode != "make_target_missing" {
+		t.Fatalf("FailureReasonCode = %q, want make_target_missing due primary no-rule signal; report=%+v", report.FailureReasonCode, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("NormalizeVerificationStatus = %q, want unavailable", got)
+	}
+}
+
+func TestParseMakeOutput_DependencyFileMissingWithoutNoRuleIsUnavailable(t *testing.T) {
+	stdout := "GNUmakefile:41: makedefs: No such file or directory\nmake: *** [GNUmakefile:41: makedefs] Error 1\n"
+	report, err := parseMakeOutput(stdout, &fakeExitError{msg: "exit status 2"})
+	if err != nil {
+		t.Fatalf("parseMakeOutput: %v", err)
+	}
+	if report.FailureReasonCode != "make_dependency_file_missing" {
+		t.Fatalf("FailureReasonCode = %q, want make_dependency_file_missing; report=%+v", report.FailureReasonCode, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("NormalizeVerificationStatus = %q, want unavailable", got)
+	}
+}
+
 // ── detectRunner additions ─────────────────────────────────────────
 
 func TestDetectRunner_CMake(t *testing.T) {

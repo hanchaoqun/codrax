@@ -84,6 +84,103 @@ func TestChangeReportNormalizeVerificationStatus(t *testing.T) {
 			report: &ChangeReport{Passed: false, TestResults: []TestResult{{AssertionID: "TestBad", Passed: false}}},
 			want:   VerificationStatusFailed,
 		},
+		{
+			name: "probe import unavailable rows are unavailable",
+			report: &ChangeReport{
+				Passed:      false,
+				FailureKind: FailureKindTestsFailed,
+				TestResults: []TestResult{{
+					Kind:        TestResultKindUnit,
+					AssertionID: "probe-import-boundary",
+					Suite:       "verification_probe/python",
+					Passed:      false,
+				}},
+				ExecutedCommands: []ExecutedCommand{{
+					Runner:     "verification_probe",
+					Framework:  "python",
+					Outcome:    "parser_error",
+					ReasonCode: "verification_probe_import_error",
+					ExitCode:   1,
+				}},
+				VerificationConfidence: []VerificationConfidenceRecord{{
+					Source:     "pre_suite_verification_probe",
+					Category:   "probe_execution",
+					Status:     "unavailable",
+					ReasonCode: "verification_probe_import_error",
+				}},
+			},
+			want: VerificationStatusUnavailable,
+		},
+		{
+			name: "make unavailable command explains qualified make row",
+			report: &ChangeReport{
+				Passed:      false,
+				FailureKind: FailureKindTestsFailed,
+				TestResults: []TestResult{{
+					Kind:        TestResultKindUnit,
+					AssertionID: "make@cextern/wcslib::make-test",
+					Suite:       "make@cextern/wcslib::make",
+					Passed:      false,
+				}},
+				ExecutedCommands: []ExecutedCommand{{
+					Runner:     "make",
+					WorkingDir: "cextern/wcslib",
+					Suite:      "make",
+					Outcome:    "parser_error",
+					ReasonCode: "make_dependency_file_missing",
+					ExitCode:   2,
+				}},
+			},
+			want: VerificationStatusUnavailable,
+		},
+		{
+			name: "real red assertion outranks secondary unavailable probe",
+			report: &ChangeReport{
+				Passed:      false,
+				FailureKind: FailureKindTestsFailed,
+				TestResults: []TestResult{{
+					Kind:        TestResultKindUnit,
+					AssertionID: "tests/test_widget.py::test_widget",
+					Suite:       "pytest",
+					Passed:      false,
+				}},
+				ExecutedCommands: []ExecutedCommand{{
+					Runner:     "verification_probe",
+					Framework:  "python",
+					Outcome:    "parser_error",
+					ReasonCode: "verification_probe_import_error",
+					ExitCode:   1,
+				}},
+				VerificationConfidence: []VerificationConfidenceRecord{{
+					Source:     "pre_suite_verification_probe",
+					Category:   "probe_execution",
+					Status:     "unavailable",
+					ReasonCode: "verification_probe_import_error",
+				}},
+			},
+			want: VerificationStatusFailed,
+		},
+		{
+			name: "unreasoned make execution stays failed",
+			report: &ChangeReport{
+				Passed:      false,
+				FailureKind: FailureKindTestsFailed,
+				TestResults: []TestResult{{
+					Kind:        TestResultKindUnit,
+					AssertionID: "make@pkg::make-test",
+					Suite:       "make@pkg::make",
+					Passed:      false,
+				}},
+				ExecutedCommands: []ExecutedCommand{{
+					Runner:     "make",
+					WorkingDir: "pkg",
+					Suite:      "make",
+					Outcome:    "executed",
+					ExitCode:   2,
+				}},
+			},
+			want: VerificationStatusFailed,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

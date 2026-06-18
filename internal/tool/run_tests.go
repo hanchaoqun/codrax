@@ -337,6 +337,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// or runner-missing outcome must not stand as verification while an
 	// unexecuted candidate with real test work exists).
 	surface := BuildTestSurface(ctx.RepoRoot, walkRoot)
+	if rej := normalizeRunTestsCandidateSuiteSelector(&p, surface); rej != "" {
+		return errResult(t.Name(), rej), nil
+	}
 	if rej := validateRunTestsSuiteSelectorAgainstSurface(p.Suite, surface); rej != "" {
 		return errResult(t.Name(), rej), nil
 	}
@@ -1225,6 +1228,47 @@ func validateRunTestsSuiteSelector(suite string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeRunTestsCandidateSuiteSelector(p *runTestsParams, surface types.TestSurface) string {
+	if p == nil {
+		return ""
+	}
+	selector := strings.TrimSpace(p.Suite)
+	candidateID, suite, ok := strings.Cut(selector, "::")
+	if !ok || strings.TrimSpace(candidateID) == "" || strings.TrimSpace(suite) == "" {
+		return ""
+	}
+	candidateID = strings.TrimSpace(candidateID)
+	suite = strings.TrimSpace(suite)
+	for _, cand := range surface.Candidates {
+		if strings.TrimSpace(cand.ID) != candidateID {
+			continue
+		}
+		if existing := strings.TrimSpace(p.Runner); existing != "" && existing != strings.TrimSpace(cand.Runner) {
+			return fmt.Sprintf("run_tests rejected: suite=%q selects %s but runner=%q was also provided; use runner=%q or leave runner empty", selector, candidateID, existing, strings.TrimSpace(cand.Runner))
+		}
+		if existing := strings.TrimSpace(p.Framework); existing != "" && existing != strings.TrimSpace(cand.Framework) {
+			return fmt.Sprintf("run_tests rejected: suite=%q selects %s but framework=%q was also provided; use framework=%q or leave framework empty", selector, candidateID, existing, strings.TrimSpace(cand.Framework))
+		}
+		if existing := normalizeSuiteWorkingDirForCompare(p.WorkingDir); strings.TrimSpace(p.WorkingDir) != "" && existing != normalizeSuiteWorkingDirForCompare(cand.WorkingDir) {
+			return fmt.Sprintf("run_tests rejected: suite=%q selects %s but working_dir=%q was also provided; use working_dir=%q or leave working_dir empty", selector, candidateID, strings.TrimSpace(p.WorkingDir), strings.TrimSpace(cand.WorkingDir))
+		}
+		p.Runner = strings.TrimSpace(cand.Runner)
+		p.Framework = strings.TrimSpace(cand.Framework)
+		p.WorkingDir = normalizeSuiteWorkingDirForCompare(cand.WorkingDir)
+		p.Suite = suite
+		return ""
+	}
+	return ""
+}
+
+func normalizeSuiteWorkingDirForCompare(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "."
+	}
+	return filepath.ToSlash(filepath.Clean(value))
 }
 
 func validateRunTestsSuiteSelectorAgainstSurface(suite string, surface types.TestSurface) string {

@@ -59,6 +59,8 @@ func DeriveObservationAuthorityFromReport(report *types.ChangeReport, err error)
 		return observationUnverified(string(types.FailureKindParserError), failureReason, false)
 	case report.FailureKind == types.FailureKindBuildFailure && types.FailureReasonCodeIndicatesVerificationUnavailable(failureReason):
 		return observationUnverified(observationUnavailableReportReason(report), failureReason, false)
+	case report.FailuresAreVerificationUnavailable():
+		return observationUnverified(observationUnavailableReportReason(report), failureReason, false)
 	case err != nil || status == types.VerificationStatusFailed:
 		return observationFailed(verifyFailureReasonCode(report), failureReason)
 	case report.FailureKind == types.FailureKindNoTests || len(report.NoTestsRunners) > 0:
@@ -203,6 +205,9 @@ func observationUnavailableReportReason(report *types.ChangeReport) string {
 		types.FailureReasonCodeIndicatesVerificationUnavailable(report.FailureReasonCode) {
 		return strings.TrimSpace(report.FailureReasonCode)
 	}
+	if reason := report.VerificationUnavailableReasonCode(); reason != "" {
+		return reason
+	}
 	if report.FailureKind != "" {
 		return string(report.FailureKind)
 	}
@@ -226,7 +231,6 @@ func observationReasonIsUnavailable(reason string) bool {
 		"make_target_missing",
 		"verification_probe_import_error",
 		"verification_probe_module_not_found",
-		"verification_probe_name_error",
 		"verification_probe_syntax_error":
 		return true
 	default:
@@ -246,6 +250,7 @@ func observationReasonIsCodeFailure(reason string) bool {
 		"verify_error",
 		"verification_probe_exception",
 		"verification_probe_expected_stdout_missing",
+		"verification_probe_name_error",
 		"verification_probe_runtime_exception",
 		"verification_probe_timeout":
 		return true

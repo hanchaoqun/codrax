@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestResolveLLMRunnerChoice_HappyPath: a whitelisted runner +
@@ -128,6 +130,45 @@ func TestResolveLLMRunnerChoice_PythonFramework(t *testing.T) {
 	}
 	if _, rej := resolveLLMRunnerChoice(repo, "python", "nose", ""); rej == "" {
 		t.Fatal("unsupported python framework should be rejected")
+	}
+}
+
+func TestNormalizeRunTestsCandidateSuiteSelector(t *testing.T) {
+	params := runTestsParams{
+		Suite: "make@cextern/wcslib::make",
+	}
+	surface := types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+		ID:         "make@cextern/wcslib",
+		Runner:     "make",
+		WorkingDir: "cextern/wcslib",
+		MakeTarget: "make",
+	}}}
+	if rej := normalizeRunTestsCandidateSuiteSelector(&params, surface); rej != "" {
+		t.Fatalf("unexpected rejection: %s", rej)
+	}
+	if params.Runner != "make" {
+		t.Fatalf("Runner = %q, want make", params.Runner)
+	}
+	if params.WorkingDir != "cextern/wcslib" {
+		t.Fatalf("WorkingDir = %q, want cextern/wcslib", params.WorkingDir)
+	}
+	if params.Suite != "make" {
+		t.Fatalf("Suite = %q, want make", params.Suite)
+	}
+}
+
+func TestNormalizeRunTestsCandidateSuiteSelectorRejectsConflictingRunner(t *testing.T) {
+	params := runTestsParams{
+		Runner: "python",
+		Suite:  "make@cextern/wcslib::make",
+	}
+	surface := types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+		ID:         "make@cextern/wcslib",
+		Runner:     "make",
+		WorkingDir: "cextern/wcslib",
+	}}}
+	if rej := normalizeRunTestsCandidateSuiteSelector(&params, surface); rej == "" {
+		t.Fatal("expected conflicting runner rejection")
 	}
 }
 

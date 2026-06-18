@@ -78,6 +78,36 @@ func TestDeriveObservationAuthorityFromReport(t *testing.T) {
 			wantFinish: true,
 		},
 		{
+			name: "probe import unavailable unit row can finish unverified",
+			report: &types.ChangeReport{
+				Passed:      false,
+				FailureKind: types.FailureKindTestsFailed,
+				TestResults: []types.TestResult{{
+					Kind:        types.TestResultKindUnit,
+					AssertionID: "probe-import-boundary",
+					Suite:       "verification_probe/python",
+					Passed:      false,
+				}},
+				ExecutedCommands: []types.ExecutedCommand{{
+					Runner:     "verification_probe",
+					Framework:  "python",
+					Outcome:    "parser_error",
+					ReasonCode: "verification_probe_import_error",
+					ExitCode:   1,
+				}},
+				VerificationConfidence: []types.VerificationConfidenceRecord{{
+					Source:     "pre_suite_verification_probe",
+					Category:   "probe_execution",
+					Status:     "unavailable",
+					ReasonCode: "verification_probe_import_error",
+				}},
+			},
+			wantState:  ObservationAuthorityUnverified,
+			wantAction: ActionFinish,
+			wantReason: "verification_probe_import_error",
+			wantFinish: true,
+		},
+		{
 			name:       "passed report can finish",
 			report:     &types.ChangeReport{Passed: true},
 			wantState:  ObservationAuthorityVerified,

@@ -1034,6 +1034,9 @@ func (r *ChangeReport) NormalizeVerificationStatus() VerificationStatus {
 	if r.FailureKind == FailureKindBuildFailure && FailureReasonCodeIndicatesVerificationUnavailable(r.FailureReasonCode) {
 		return VerificationStatusUnavailable
 	}
+	if r.FailuresAreVerificationUnavailable() {
+		return VerificationStatusUnavailable
+	}
 	switch r.FailureKind {
 	case FailureKindRunnerMissing, FailureKindParserError, FailureKindNoTests, FailureKindPreexistingBuildFailure:
 		return VerificationStatusUnavailable
@@ -1076,13 +1079,13 @@ func FailureReasonCodeIndicatesVerificationUnavailable(raw string) bool {
 			string(FailureKindPreexistingBuildFailure),
 			"skip_verify",
 			"accepted_without_local_verify",
+			"make_dependency_file_missing",
 			"make_python_module_missing",
 			"make_target_missing",
 			"pytest_import_startup_error",
 			"unittest_loader_import_error",
 			"verification_probe_import_error",
 			"verification_probe_module_not_found",
-			"verification_probe_name_error",
 			"verification_probe_syntax_error":
 			continue
 		default:
@@ -1090,6 +1093,238 @@ func FailureReasonCodeIndicatesVerificationUnavailable(raw string) bool {
 		}
 	}
 	return seen
+}
+
+// VerificationUnavailableReasonCode returns the first typed reason proving the
+// local verifier, probe, or project runner was unavailable. It inspects only
+// schema fields emitted by Codrax tools, never model prose or human summaries.
+func (r *ChangeReport) VerificationUnavailableReasonCode() string {
+	if r == nil {
+		return ""
+	}
+	if code := firstVerificationUnavailableReasonCode(r.FailureReasonCode); code != "" {
+		return code
+	}
+	for _, rec := range r.VerificationConfidence {
+		if strings.TrimSpace(rec.Status) != "unavailable" {
+			continue
+		}
+		if code := firstVerificationUnavailableReasonCode(rec.ReasonCode); code != "" {
+			return code
+		}
+	}
+	for _, diag := range r.VerificationDiagnostics {
+		if code := firstVerificationUnavailableReasonCode(diag.ReasonCode); code != "" {
+			return code
+		}
+	}
+	for _, cmd := range r.ExecutedCommands {
+		if code := executedCommandUnavailableReasonCode(cmd); code != "" {
+			return code
+		}
+	}
+	for _, result := range r.TestResults {
+		if code := firstVerificationUnavailableReasonCode(result.AssertionID); code != "" {
+			return code
+		}
+		if code := firstVerificationUnavailableReasonCode(result.Suite); code != "" {
+			return code
+		}
+	}
+	return ""
+}
+
+// FailuresAreVerificationUnavailable reports whether every red evidence row in
+// the report is explained by typed verifier/tooling/environment unavailable
+// evidence. This is stricter than "has an unavailable hint": a real failed
+// assertion remains failed even when secondary probe or runner diagnostics were
+// also unavailable.
+func (r *ChangeReport) FailuresAreVerificationUnavailable() bool {
+	if r == nil || r.Passed || r.VerificationUnavailableReasonCode() == "" {
+		return false
+	}
+	switch r.FailureKind {
+	case FailureKindRunnerMissing, FailureKindParserError, FailureKindNoTests, FailureKindPreexistingBuildFailure:
+		return true
+	case FailureKindBuildFailure:
+		if FailureReasonCodeIndicatesVerificationUnavailable(r.FailureReasonCode) {
+			return true
+		}
+	}
+	if strings.TrimSpace(r.FailureReasonCode) != "" &&
+		!FailureReasonCodeIndicatesVerificationUnavailable(r.FailureReasonCode) {
+		return false
+	}
+	seenFailure := false
+	for _, result := range r.TestResults {
+		if result.Passed {
+			continue
+		}
+		seenFailure = true
+		if !r.testResultFailureIsVerificationUnavailable(result) {
+			return false
+		}
+	}
+	for _, cmd := range r.ExecutedCommands {
+		if !executedCommandFailed(cmd) {
+			continue
+		}
+		seenFailure = true
+		if executedCommandUnavailableReasonCode(cmd) == "" {
+			return false
+		}
+	}
+	return seenFailure
+}
+
+func firstVerificationUnavailableReasonCode(raw string) string {
+	for _, part := range strings.Split(raw, ",") {
+		code := strings.TrimSpace(part)
+		if code == "" {
+			continue
+		}
+		if FailureReasonCodeIndicatesVerificationUnavailable(code) {
+			return code
+		}
+	}
+	return ""
+}
+
+func executedCommandUnavailableReasonCode(cmd ExecutedCommand) string {
+	if code := firstVerificationUnavailableReasonCode(cmd.ReasonCode); code != "" {
+		return code
+	}
+	switch strings.TrimSpace(cmd.Outcome) {
+	case "runner_missing":
+		return string(FailureKindRunnerMissing)
+	case "synthetic_no_tests", "zero_tests":
+		return string(FailureKindNoTests)
+	case "not_configured":
+		return string(FailureKindRunnerMissing)
+	default:
+		return ""
+	}
+}
+
+func executedCommandFailed(cmd ExecutedCommand) bool {
+	switch strings.TrimSpace(cmd.Outcome) {
+	case "", "executed", "syntax_preflight", "syntax_check_fallback", "suite_continued", "suite_skipped":
+		return cmd.ExitCode != 0
+	case "synthetic_no_tests", "zero_tests":
+		return false
+	default:
+		return true
+	}
+}
+
+func (r *ChangeReport) testResultFailureIsVerificationUnavailable(result TestResult) bool {
+	if result.Passed {
+		return true
+	}
+	if code := firstVerificationUnavailableReasonCode(result.AssertionID); code != "" {
+		return true
+	}
+	if code := firstVerificationUnavailableReasonCode(result.Suite); code != "" {
+		return true
+	}
+	surface := testResultVerificationSurface(result)
+	if surface.Runner == "" {
+		return false
+	}
+	for _, cmd := range r.ExecutedCommands {
+		if executedCommandUnavailableReasonCode(cmd) == "" {
+			continue
+		}
+		if verificationSurfacesMatch(surface, commandVerificationSurface(cmd)) {
+			return true
+		}
+	}
+	for _, rec := range r.VerificationConfidence {
+		if strings.TrimSpace(rec.Status) != "unavailable" ||
+			firstVerificationUnavailableReasonCode(rec.ReasonCode) == "" {
+			continue
+		}
+		if surface.Runner == "verification_probe" &&
+			(strings.Contains(strings.TrimSpace(rec.Source), "verification_probe") ||
+				strings.TrimSpace(rec.Category) == "probe_execution") {
+			return true
+		}
+	}
+	return false
+}
+
+type verificationSurface struct {
+	Runner     string
+	WorkingDir string
+}
+
+func testResultVerificationSurface(result TestResult) verificationSurface {
+	for _, raw := range []string{result.Suite, result.AssertionID} {
+		if surface := parseVerificationSurfaceLabel(raw); surface.Runner != "" {
+			return surface
+		}
+	}
+	return verificationSurface{}
+}
+
+func commandVerificationSurface(cmd ExecutedCommand) verificationSurface {
+	return verificationSurface{
+		Runner:     normalizeVerificationSurfaceRunner(cmd.Runner),
+		WorkingDir: normalizeVerificationWorkingDir(cmd.WorkingDir),
+	}
+}
+
+func parseVerificationSurfaceLabel(raw string) verificationSurface {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return verificationSurface{}
+	}
+	label := value
+	if before, _, ok := strings.Cut(value, "::"); ok {
+		label = strings.TrimSpace(before)
+	}
+	if strings.HasPrefix(label, "verification_probe") {
+		return verificationSurface{Runner: "verification_probe"}
+	}
+	runner := label
+	workingDir := "."
+	if before, after, ok := strings.Cut(label, "@"); ok {
+		runner = before
+		workingDir = after
+	}
+	runner = normalizeVerificationSurfaceRunner(runner)
+	switch runner {
+	case "make", "python", "verification_probe":
+	default:
+		return verificationSurface{}
+	}
+	return verificationSurface{Runner: runner, WorkingDir: normalizeVerificationWorkingDir(workingDir)}
+}
+
+func verificationSurfacesMatch(test, command verificationSurface) bool {
+	if test.Runner == "" || command.Runner == "" || test.Runner != command.Runner {
+		return false
+	}
+	if test.Runner == "verification_probe" {
+		return true
+	}
+	return test.WorkingDir == "" || command.WorkingDir == "" || test.WorkingDir == command.WorkingDir
+}
+
+func normalizeVerificationSurfaceRunner(raw string) string {
+	runner := strings.ToLower(strings.TrimSpace(raw))
+	if before, _, ok := strings.Cut(runner, "/"); ok {
+		runner = before
+	}
+	return runner
+}
+
+func normalizeVerificationWorkingDir(raw string) string {
+	wd := strings.TrimSpace(raw)
+	if wd == "" {
+		return "."
+	}
+	return filepath.ToSlash(filepath.Clean(wd))
 }
 
 // IsBetterThan returns true when this report has strictly more
