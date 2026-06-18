@@ -5367,6 +5367,78 @@ Verification:
   - `go test ./...`
   - `make`
 
+## 2026-06-18 RC-92 Shared Source Localization Review
+
+- Gap:
+  - Controller planning already has one typed online correction: when a
+    `ChangePlan` edits production source paths outside prior P0/P1 localization
+    context, `runControllerPlanBatch` retries planning once with a bounded
+    localization critique.
+  - That signal is still split across helper functions, planner hints, context
+    pack rows, and SWE adapter telemetry. It is not a durable first-class
+    artifact on read-mode Turn A handoff, `ChangePlan`, final delivery reports,
+    or downstream audit summaries.
+  - This makes post-hoc diagnosis difficult: reviewers can see that context
+    packs exist, but cannot reliably answer whether the final patch surface was
+    supported by earlier localization evidence, missing it, or had no prior
+    localization context at all.
+- Design:
+  - Add `SourceLocalizationReview` under `internal/types` as a shared read/write
+    artifact. The builder consumes only typed paths and evidence refs:
+    `TurnAArtifacts.ReadFiles`, `EvidenceItem.Source`, `WriteContextPack` P0/P1
+    `scope_anchor`/`target_file`/`evidence_ref`, and `ChangePlan` source paths.
+  - Status is an enum: `unknown`, `observed`, `supported`, `weak`, `missing`.
+    Reason codes are typed strings such as
+    `read_turn_a_source_observed`,
+    `plan_source_paths_supported_by_prior_context`,
+    `plan_source_paths_missing_prior_context`, and
+    `plan_source_paths_without_prior_context`.
+  - Tests/docs/fixtures/examples are excluded from production-source missing
+    path decisions through existing `ClassifySourcePathRole`; this is
+    language-neutral and not Python-specific.
+  - Hard control remains typed. The existing planner retry keeps using
+    `WritePlanSourcePathsOutsidePriorContext`; no user intent keyword, model
+    rationale, summary prose, `<think>` text, or terminal log text can route
+    the workflow.
+  - `WriteFinalReport` and SWE adapter rows should expose the localization
+    review so customers can distinguish export compatibility, local verify, and
+    owner-boundary localization quality.
+- Task list:
+  - [x] Add `SourceLocalizationReview` schema, normalization, clone/merge, and
+    builders for read Turn A and write plan context coverage.
+  - [x] Store the review on `TurnAArtifacts` and preserve it through
+    Set/Get/Fork/Merge defensive-copy paths without touching the read scheduler
+    byte-identity red line.
+  - [x] Store the review on `ChangePlan` during plan context pack attachment
+    and emit review rows into `WriteContextPackFromChangePlan`.
+  - [x] Add localization fields to `WriteFinalReport` and the SWE adapter.
+  - [x] Add focused Go/Python tests and run full regression before commit/push.
+- Implementation notes:
+  - Added `internal/types/source_localization_review.go` as the shared
+    normalization/building point.
+  - `TurnAArtifacts` now carries a read-side localization review derived from
+    read files and evidence refs, and write exploration projection preserves it
+    before planner handoff.
+  - `attachPlanContextPackToWorkflowRun` stamps `ChangePlan.LocalizationReview`
+    from existing P0/P1 context-pack paths before rendering the plan pack.
+  - `WriteFinalReport.plan.localization` and SWE `final_report_localization_*`
+    / `plan_localization_*` fields expose the signal for audit.
+- Verification:
+  - `go test ./internal/types -run
+    'Test(SourceLocalization|TurnAArtifacts|WriteContextPackFromChangePlanCarriesSourceLocalization|BuildWriteFinalReport|WriteFinalReport)'`
+  - `go test ./internal/orchestrator -run
+    'Test(AttachPlanContextPack|RunControllerPlanBatch_.*Localization|RunWriteControllerWorkflow|PersistWriteWorkflowRun)'`
+  - `go test ./internal/agent -run
+    'Test(TurnA|Explorer|Planner.*Localization|WriteExploration|Extractor)'`
+  - `python3 -m unittest eval.swebench.run_codrax_swebench_test -v`
+  - `go test ./...`
+  - `make`
+- Prompt/hard-gate hygiene:
+  - This batch adds no prompt keyword routing.
+  - Planner hints remain advisory text generated from typed missing path arrays.
+  - Future controller actions may consume `SourceLocalizationReview` directly;
+    this batch first makes the signal durable and auditable.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

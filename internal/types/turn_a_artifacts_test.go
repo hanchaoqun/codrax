@@ -82,6 +82,17 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 				}},
 			}},
 		},
+		SourceLocalization: &SourceLocalizationReview{
+			Status:      SourceLocalizationObserved,
+			Source:      "read_turn_a",
+			ReasonCodes: []string{"read_turn_a_source_observed"},
+			SourcePaths: []string{"a.go", "b.go"},
+			EvidenceRefs: []WriteExplorationEvidenceRef{{
+				ID:        "ev1",
+				Source:    "a.go",
+				LineStart: 5,
+			}},
+		},
 		RuntimeObservationOnlyCompletion: true,
 		TerminalEvidenceCount:            3,
 	}
@@ -127,6 +138,12 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 		got.SourceInventoryObservation.Sets[0].Count != 1 ||
 		got.SourceInventoryObservation.Sets[0].Members[0].Language != "python" {
 		t.Errorf("SourceInventoryObservation not preserved: %+v", got.SourceInventoryObservation)
+	}
+	if got.SourceLocalization == nil ||
+		got.SourceLocalization.Status != SourceLocalizationObserved ||
+		len(got.SourceLocalization.SourcePaths) != 2 ||
+		got.SourceLocalization.EvidenceRefs[0].Source != "a.go" {
+		t.Errorf("SourceLocalization not preserved: %+v", got.SourceLocalization)
 	}
 	if !got.RuntimeObservationOnlyCompletion {
 		t.Error("RuntimeObservationOnlyCompletion not preserved")
@@ -220,6 +237,14 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 				}},
 			}},
 		},
+		SourceLocalization: &SourceLocalizationReview{
+			Status:      SourceLocalizationObserved,
+			SourcePaths: []string{"src/run.py"},
+			EvidenceRefs: []WriteExplorationEvidenceRef{{
+				ID:     "ev-run",
+				Source: "src/run.py",
+			}},
+		},
 	})
 	first := m.TurnAArtifacts()
 	first.ReadFiles[0] = "MUTATED.go"
@@ -231,6 +256,8 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	first.SourceInventoryAdvisory.Sets[0].Candidates[0].Member = "Mutated"
 	first.SourceInventoryObservation.Scopes[0] = "mutated"
 	first.SourceInventoryObservation.Sets[0].Members[0].Name = "Mutated"
+	first.SourceLocalization.SourcePaths[0] = "mutated.py"
+	first.SourceLocalization.EvidenceRefs[0].Source = "mutated.py"
 
 	second := m.TurnAArtifacts()
 	if second.ReadFiles[0] != "a.go" {
@@ -255,6 +282,11 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	if second.SourceInventoryObservation.Scopes[0] != "src" ||
 		second.SourceInventoryObservation.Sets[0].Members[0].Name != "Run" {
 		t.Errorf("source-inventory observation mutation leaked back: %+v", second.SourceInventoryObservation)
+	}
+	if second.SourceLocalization == nil ||
+		second.SourceLocalization.SourcePaths[0] != "src/run.py" ||
+		second.SourceLocalization.EvidenceRefs[0].Source != "src/run.py" {
+		t.Errorf("source-localization mutation leaked back: %+v", second.SourceLocalization)
 	}
 }
 
@@ -281,6 +313,7 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 		ReadFiles:               []string{"base.go"},
 		ToolResults:             []ToolResult{{ToolName: "grep", Summary: "base", Success: true}},
 		MCPResponses:            []MCPResponse{{ServerName: "fixture", Summary: "base", Success: true}},
+		SourceLocalization:      &SourceLocalizationReview{Status: SourceLocalizationObserved, SourcePaths: []string{"base.go"}},
 		FlowFindings:            []FlowFindingDigest{{Path: []string{"base"}, Confidence: 0.5}},
 		TerminalEvidenceCount:   1,
 	})
@@ -294,6 +327,7 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 	ta1.ReadFiles = append(ta1.ReadFiles, "fork1.go")
 	ta1.ToolResults = append(ta1.ToolResults, ToolResult{ToolName: "read_file", Summary: "fork1", Success: true})
 	ta1.MCPResponses = append(ta1.MCPResponses, MCPResponse{ServerName: "fixture", Summary: "fork1", Success: true})
+	ta1.SourceLocalization = MergeSourceLocalizationReviews(ta1.SourceLocalization, &SourceLocalizationReview{Status: SourceLocalizationObserved, SourcePaths: []string{"fork1.go"}})
 	ta1.FlowFindings = append(ta1.FlowFindings, FlowFindingDigest{Path: []string{"fork1"}, Confidence: 0.7})
 	ta1.TerminalEvidenceCount = 2
 	fork1.SetTurnAArtifacts(*ta1)
@@ -304,6 +338,7 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 	ta2.ReadFiles = append(ta2.ReadFiles, "fork2.go")
 	ta2.ToolResults = append(ta2.ToolResults, ToolResult{ToolName: "read_file", Summary: "fork2", Success: true})
 	ta2.MCPResponses = append(ta2.MCPResponses, MCPResponse{ServerName: "fixture", Summary: "fork2", Success: true})
+	ta2.SourceLocalization = MergeSourceLocalizationReviews(ta2.SourceLocalization, &SourceLocalizationReview{Status: SourceLocalizationObserved, SourcePaths: []string{"fork2.go"}})
 	ta2.FlowFindings = append(ta2.FlowFindings, FlowFindingDigest{Path: []string{"fork2"}, Confidence: 0.8})
 	ta2.TerminalEvidenceCount = 3
 	fork2.SetTurnAArtifacts(*ta2)
@@ -343,6 +378,20 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("read files %+v missing %s", got.ReadFiles, want)
+		}
+	}
+	for _, want := range []string{"base.go", "fork1.go", "fork2.go"} {
+		var found bool
+		if got.SourceLocalization != nil {
+			for _, file := range got.SourceLocalization.SourcePaths {
+				if file == want {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("source localization %+v missing %s", got.SourceLocalization, want)
 		}
 	}
 }

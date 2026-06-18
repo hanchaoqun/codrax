@@ -5070,6 +5070,9 @@ func TestAttachPlanContextPackToWorkflowRunPersistsPriorContextCoverage(t *testi
 	}
 
 	got := attachPlanContextPackToWorkflowRun(run, plan)
+	if plan.LocalizationReview == nil || plan.LocalizationReview.Status != types.SourceLocalizationSupported {
+		t.Fatalf("plan should be stamped with supported localization review: %+v", plan.LocalizationReview)
+	}
 	if !workflowRunContextContains(&got, "plan_context_coverage", "covered=1/2") ||
 		!workflowRunContextContains(&got, "plan_context_uncovered_path", "helper.py") {
 		t.Fatalf("plan context coverage should persist with workflow run: %+v", got.ContextPacks)
@@ -5097,6 +5100,11 @@ func TestAttachPlanContextPackToWorkflowRunPersistsMissingPriorContext(t *testin
 	}
 
 	got := attachPlanContextPackToWorkflowRun(run, plan)
+	if plan.LocalizationReview == nil ||
+		plan.LocalizationReview.Status != types.SourceLocalizationWeak ||
+		strings.Join(plan.LocalizationReview.MissingPaths, ",") != "pkg/a.py" {
+		t.Fatalf("plan should be stamped with weak no-prior localization review: %+v", plan.LocalizationReview)
+	}
 	if !workflowRunContextContains(&got, "plan_context_coverage", "covered=0/0") ||
 		!workflowRunContextContains(&got, "plan_context_missing_source_path", "pkg/a.py") {
 		t.Fatalf("missing prior context coverage should persist with workflow run: %+v", got.ContextPacks)

@@ -540,6 +540,31 @@ func TestWritePlanSourcePathsOutsidePriorContext(t *testing.T) {
 	}
 }
 
+func TestWriteContextPackFromChangePlanCarriesSourceLocalizationReview(t *testing.T) {
+	plan := &ChangePlan{
+		ID:          "plan-loc",
+		Summary:     "repair owner",
+		TargetPaths: []string{"pkg/caller.py"},
+		Changes:     []FileChange{{Path: "pkg/caller.py", Kind: "modify"}},
+		LocalizationReview: &SourceLocalizationReview{
+			Status:            SourceLocalizationMissing,
+			Source:            "write_plan_context",
+			PlanID:            "plan-loc",
+			SourcePaths:       []string{"pkg/caller.py"},
+			PriorContextPaths: []string{"pkg/owner.py"},
+			MissingPaths:      []string{"pkg/caller.py"},
+			ReasonCodes:       []string{"plan_source_paths_missing_prior_context"},
+		},
+	}
+
+	pack := WriteContextPackFromChangePlan(plan)
+	view := pack.View(WriteConsumerPlanner, 20)
+	if !writeContextViewContains(view, "source_localization_review", "status=missing") ||
+		!writeContextViewContains(view, "source_localization_missing_path", "pkg/caller.py") {
+		t.Fatalf("source localization review not rendered into context pack: %+v", view.Items)
+	}
+}
+
 func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 	report := &ChangeReport{
 		PlanID:                "plan-1",

@@ -459,6 +459,12 @@ type ChangePlan struct {
 	// is deliberately excluded from PlanFingerprint.
 	PatchEffect *PatchEffectRecord `json:"patch_effect,omitempty"`
 
+	// LocalizationReview is the typed owner-boundary support review for the
+	// plan's production source paths against prior localization context. It is
+	// lifecycle/handoff metadata and is deliberately excluded from
+	// PlanFingerprint.
+	LocalizationReview *SourceLocalizationReview `json:"localization_review,omitempty"`
+
 	// ImpactObligations are the typed downstream obligations derived from the
 	// plan's declared changes, dependencies, contracts, symbols, and probes.
 	// They are advisory handoff/confidence inputs, not hard approval authority,

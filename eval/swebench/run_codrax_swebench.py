@@ -1441,6 +1441,10 @@ def apply_final_report_result_fields(
         result["final_report_completion_reason_code"] = ""
         result["final_report_verification_status"] = ""
         result["final_report_patch_review_verdict"] = ""
+        result["final_report_localization_status"] = ""
+        result["final_report_localization_reason_codes"] = []
+        result["final_report_localization_missing_paths"] = []
+        result["final_report_localization_supported_paths"] = []
         result["final_report_plan_id"] = ""
         result["final_report_patch_fingerprint"] = ""
         result["final_report_residual_risk_codes"] = []
@@ -1452,10 +1456,27 @@ def apply_final_report_result_fields(
     plan = final_report.get("plan") if isinstance(final_report.get("plan"), dict) else {}
     patch = final_report.get("patch") if isinstance(final_report.get("patch"), dict) else {}
     handoff = final_report.get("handoff") if isinstance(final_report.get("handoff"), dict) else {}
+    localization = plan.get("localization") if isinstance(plan.get("localization"), dict) else {}
     result["final_report_completion_verdict"] = str(completion.get("verdict") or "").strip()
     result["final_report_completion_reason_code"] = str(completion.get("reason_code") or "").strip()
     result["final_report_verification_status"] = str(verification.get("status") or "").strip()
     result["final_report_patch_review_verdict"] = str(patch_review.get("verdict") or "").strip()
+    result["final_report_localization_status"] = str(localization.get("status") or "").strip()
+    result["final_report_localization_reason_codes"] = [
+        str(value).strip()
+        for value in localization.get("reason_codes") or []
+        if str(value).strip()
+    ]
+    result["final_report_localization_missing_paths"] = [
+        str(value).strip()
+        for value in localization.get("missing_paths") or []
+        if str(value).strip()
+    ]
+    result["final_report_localization_supported_paths"] = [
+        str(value).strip()
+        for value in localization.get("supported_paths") or []
+        if str(value).strip()
+    ]
     result["final_report_plan_id"] = str(plan.get("id") or "").strip()
     result["final_report_patch_fingerprint"] = str(patch.get("diff_fingerprint") or "").strip()
     result["final_report_residual_risk_codes"] = final_report_list_values(final_report, "residual_risks")
@@ -2260,6 +2281,40 @@ def plan_source_paths_missing_prior_context(
         if path not in context
     }
     return sorted(out)
+
+
+def plan_localization_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
+    review = plan.get("localization_review") if isinstance(plan, dict) else {}
+    if not isinstance(review, dict):
+        review = {}
+    return {
+        "plan_localization_review_status": str(review.get("status") or "").strip(),
+        "plan_localization_review_reason_codes": [
+            str(value).strip()
+            for value in review.get("reason_codes") or []
+            if str(value).strip()
+        ],
+        "plan_localization_source_paths": [
+            str(value).strip()
+            for value in review.get("source_paths") or []
+            if str(value).strip()
+        ],
+        "plan_localization_supported_paths": [
+            str(value).strip()
+            for value in review.get("supported_paths") or []
+            if str(value).strip()
+        ],
+        "plan_localization_missing_paths": [
+            str(value).strip()
+            for value in review.get("missing_paths") or []
+            if str(value).strip()
+        ],
+        "plan_localization_prior_context_paths": [
+            str(value).strip()
+            for value in review.get("prior_context_paths") or []
+            if str(value).strip()
+        ],
+    }
 
 
 def plan_owner_boundary_signals(plan: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -3218,6 +3273,7 @@ def process_instance(
             result["plan_change_paths"] = change_paths
             result["plan_test_change_paths"] = test_change_paths
             result["plan_verification_probe_count"] = len(plan.get("verification_probes") or [])
+        result.update(plan_localization_review_summary(plan))
         workflow, workflow_path = load_latest_workflow_run(repo_dir, inst_dir)
         result["workflow_path"] = workflow_path
         if workflow:

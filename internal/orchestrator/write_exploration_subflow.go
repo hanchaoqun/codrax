@@ -186,6 +186,8 @@ func (o *Orchestrator) writeExplorationProjectionArtifacts() (types.TurnAArtifac
 		}
 	}
 	out.EvidenceItems = mergeWriteExplorationProjectionEvidence(out.EvidenceItems, o.busCtx.EvidenceItems, o.busCtx.Mutable.EmittedEvidence())
+	sourceLocalization := types.SourceLocalizationReviewFromTurnA(out.ReadFiles, out.EvidenceItems)
+	out.SourceLocalization = types.MergeSourceLocalizationReviews(out.SourceLocalization, &sourceLocalization)
 	if len(out.ReadFiles) == 0 &&
 		len(out.EvidenceItems) == 0 &&
 		len(out.FlowFindings) == 0 &&

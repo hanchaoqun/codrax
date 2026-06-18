@@ -394,6 +394,24 @@ class LocalAcceptanceTests(unittest.TestCase):
 
 
 class FinalReportProjectionTests(unittest.TestCase):
+    def test_plan_localization_review_summary_projects_typed_plan_fields(self) -> None:
+        got = adapter.plan_localization_review_summary({
+            "localization_review": {
+                "status": "missing",
+                "reason_codes": ["plan_source_paths_missing_prior_context", ""],
+                "source_paths": ["pkg/caller.py"],
+                "supported_paths": [],
+                "missing_paths": ["pkg/caller.py"],
+                "prior_context_paths": ["pkg/owner.py"],
+            }
+        })
+
+        self.assertEqual(got["plan_localization_review_status"], "missing")
+        self.assertEqual(got["plan_localization_review_reason_codes"], ["plan_source_paths_missing_prior_context"])
+        self.assertEqual(got["plan_localization_source_paths"], ["pkg/caller.py"])
+        self.assertEqual(got["plan_localization_missing_paths"], ["pkg/caller.py"])
+        self.assertEqual(got["plan_localization_prior_context_paths"], ["pkg/owner.py"])
+
     def test_load_and_project_final_report_fields(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             plans = Path(raw)
@@ -405,7 +423,15 @@ class FinalReportProjectionTests(unittest.TestCase):
                     "schema_version": 1,
                     "kind": "final_report",
                     "completion": {"verdict": "unverified", "reason_code": "runner_missing"},
-                    "plan": {"id": "plan-1"},
+                    "plan": {
+                        "id": "plan-1",
+                        "localization": {
+                            "status": "weak",
+                            "reason_codes": ["plan_source_paths_without_prior_context"],
+                            "missing_paths": ["src/app.py"],
+                            "supported_paths": ["src/owner.py"],
+                        },
+                    },
                     "patch": {"diff_fingerprint": "abc123"},
                     "verification": {"status": "unavailable"},
                     "patch_review": {"verdict": "unverified"},
@@ -433,6 +459,13 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_completion_reason_code"], "runner_missing")
         self.assertEqual(result["final_report_verification_status"], "unavailable")
         self.assertEqual(result["final_report_patch_review_verdict"], "unverified")
+        self.assertEqual(result["final_report_localization_status"], "weak")
+        self.assertEqual(
+            result["final_report_localization_reason_codes"],
+            ["plan_source_paths_without_prior_context"],
+        )
+        self.assertEqual(result["final_report_localization_missing_paths"], ["src/app.py"])
+        self.assertEqual(result["final_report_localization_supported_paths"], ["src/owner.py"])
         self.assertEqual(result["final_report_plan_id"], "plan-1")
         self.assertEqual(result["final_report_patch_fingerprint"], "abc123")
         self.assertEqual(
@@ -451,6 +484,8 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertFalse(result["final_report_present"])
         self.assertEqual(result["final_report_path"], "")
         self.assertEqual(result["final_report_completion_verdict"], "")
+        self.assertEqual(result["final_report_localization_status"], "")
+        self.assertEqual(result["final_report_localization_missing_paths"], [])
         self.assertEqual(result["final_report_residual_risk_codes"], [])
         self.assertEqual(result["final_report_handoff_evidence_refs"], [])
 

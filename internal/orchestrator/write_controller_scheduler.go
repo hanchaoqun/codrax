@@ -3129,6 +3129,13 @@ func attachPlanContextPackToWorkflowRun(run types.WriteWorkflowRun, plan *types.
 	if plan == nil {
 		return run
 	}
+	localizationReview := types.SourceLocalizationReviewFromWritePlanContext(
+		strings.TrimSpace(run.ActiveBatchID),
+		strings.TrimSpace(run.Goal),
+		run.ContextPacks,
+		plan,
+	)
+	plan.LocalizationReview = types.CloneSourceLocalizationReviewPtr(&localizationReview)
 	pack := types.WriteContextPackFromChangePlan(plan)
 	if strings.TrimSpace(run.ActiveBatchID) != "" {
 		pack = pack.WithScope(strings.TrimSpace(run.ActiveBatchID), activeWorkflowRunSliceID(run, run.ActiveBatchID))

@@ -99,6 +99,7 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 	merged := current
 	merged.InvestigationNotes = types.PreserveSupersededClosureReasonNote(merged.InvestigationNotes, prior.AcceptedClosureReason, current.AcceptedClosureReason)
 	merged.ReadFiles = mergeStrings(prior.ReadFiles, current.ReadFiles)
+	merged.SourceLocalization = types.MergeSourceLocalizationReviews(prior.SourceLocalization, current.SourceLocalization)
 	merged.ToolResults = boundTurnAToolResults(
 		append(append([]types.ToolResult(nil), prior.ToolResults...), current.ToolResults...),
 		turnAToolResultsMergedCountCap,

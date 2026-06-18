@@ -413,6 +413,27 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 		pack.Items = append(pack.Items, writeContextItem("unvalidated_reason", WriteContextP2, reason, "plan",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 	}
+	if SourceLocalizationReviewHasSignal(plan.LocalizationReview) {
+		review := CloneSourceLocalizationReview(*plan.LocalizationReview)
+		if text := renderSourceLocalizationReviewContext(&review); text != "" {
+			priority := WriteContextP2
+			if review.Status == SourceLocalizationMissing {
+				priority = WriteContextP1
+			}
+			item := writeContextItem("source_localization_review", priority, text, "plan_localization",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+			item.SourceID = review.PlanID
+			item.ID = writeContextStableID("source_localization_review", review.PlanID, string(review.Status), strings.Join(review.MissingPaths, ","))
+			pack.Items = append(pack.Items, item)
+		}
+		for _, p := range review.MissingPaths {
+			item := writeContextItem("source_localization_missing_path", WriteContextP1, p, "plan_localization",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+			item.SourceID = review.PlanID
+			item.ID = writeContextStableID("source_localization_missing_path", review.PlanID, p)
+			pack.Items = append(pack.Items, item)
+		}
+	}
 	if plan.PatchEffect != nil {
 		for _, file := range plan.PatchEffect.Files {
 			text := renderPatchEffectFileContext(plan.PatchEffect, file)

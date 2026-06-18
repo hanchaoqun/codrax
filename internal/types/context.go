@@ -864,6 +864,12 @@ type TurnAArtifacts struct {
 	// LLM citing a file it never saw).
 	ReadFiles []string
 
+	// SourceLocalization is the typed read-side localization summary derived
+	// from ReadFiles and grounded evidence sources. It is a handoff/audit
+	// artifact only; read-mode hard gates still consume their existing precise
+	// evidence and answer contracts.
+	SourceLocalization *SourceLocalizationReview
+
 	// ToolResults is the raw tool result history from Turn A, in
 	// chronological order. Carries grep / read_file / repo_map
 	// outputs so Turn B can re-scan them without burning iterations.
@@ -3754,6 +3760,7 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	if a.ReadFiles != nil {
 		snap.ReadFiles = append([]string(nil), a.ReadFiles...)
 	}
+	snap.SourceLocalization = CloneSourceLocalizationReviewPtr(a.SourceLocalization)
 	if a.ToolResults != nil {
 		snap.ToolResults = append([]ToolResult(nil), a.ToolResults...)
 	}
@@ -3803,6 +3810,7 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 	if m.turnAArtifacts.ReadFiles != nil {
 		out.ReadFiles = append([]string(nil), m.turnAArtifacts.ReadFiles...)
 	}
+	out.SourceLocalization = CloneSourceLocalizationReviewPtr(m.turnAArtifacts.SourceLocalization)
 	if m.turnAArtifacts.ToolResults != nil {
 		out.ToolResults = append([]ToolResult(nil), m.turnAArtifacts.ToolResults...)
 	}
@@ -3858,6 +3866,7 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	out.InvestigationNotes = append([]string(nil), in.InvestigationNotes...)
 	out.ValidationBoundaryNotes = append([]string(nil), in.ValidationBoundaryNotes...)
 	out.ReadFiles = append([]string(nil), in.ReadFiles...)
+	out.SourceLocalization = CloneSourceLocalizationReviewPtr(in.SourceLocalization)
 	out.ToolResults = append([]ToolResult(nil), in.ToolResults...)
 	out.MCPResponses = append([]MCPResponse(nil), in.MCPResponses...)
 	out.EvidenceItems = append([]EvidenceItem(nil), in.EvidenceItems...)
@@ -3907,6 +3916,7 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 	)
 	merged.InvestigationNotes = PreserveSupersededClosureReasonNote(merged.InvestigationNotes, prior.AcceptedClosureReason, current.AcceptedClosureReason)
 	merged.ReadFiles = mergeStringsForMutable(prior.ReadFiles, current.ReadFiles)
+	merged.SourceLocalization = MergeSourceLocalizationReviews(prior.SourceLocalization, current.SourceLocalization)
 	merged.ToolResults = append(
 		append([]ToolResult(nil), prior.ToolResults...),
 		current.ToolResults[clampMergeSliceBase(base.ToolLen, len(current.ToolResults)):]...,

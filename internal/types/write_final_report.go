@@ -58,17 +58,18 @@ type WriteFinalBatchSummary struct {
 }
 
 type WriteFinalPlanSummary struct {
-	ID                 string   `json:"id,omitempty"`
-	Status             string   `json:"status,omitempty"`
-	PlanFingerprint    string   `json:"plan_fingerprint,omitempty"`
-	TargetPaths        []string `json:"target_paths,omitempty"`
-	AppliedPaths       []string `json:"applied_paths,omitempty"`
-	SourcePaths        []string `json:"source_paths,omitempty"`
-	TestPaths          []string `json:"test_paths,omitempty"`
-	ApprovalAction     string   `json:"approval_action,omitempty"`
-	ApprovalRiskLevel  string   `json:"approval_risk_level,omitempty"`
-	ApprovalReasonCode string   `json:"approval_reason_code,omitempty"`
-	AppliedCommitSHA   string   `json:"applied_commit_sha,omitempty"`
+	ID                 string                    `json:"id,omitempty"`
+	Status             string                    `json:"status,omitempty"`
+	PlanFingerprint    string                    `json:"plan_fingerprint,omitempty"`
+	TargetPaths        []string                  `json:"target_paths,omitempty"`
+	AppliedPaths       []string                  `json:"applied_paths,omitempty"`
+	SourcePaths        []string                  `json:"source_paths,omitempty"`
+	TestPaths          []string                  `json:"test_paths,omitempty"`
+	ApprovalAction     string                    `json:"approval_action,omitempty"`
+	ApprovalRiskLevel  string                    `json:"approval_risk_level,omitempty"`
+	ApprovalReasonCode string                    `json:"approval_reason_code,omitempty"`
+	AppliedCommitSHA   string                    `json:"applied_commit_sha,omitempty"`
+	Localization       *SourceLocalizationReview `json:"localization,omitempty"`
 }
 
 type WriteFinalPatchSummary struct {
@@ -202,6 +203,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Plan.AppliedPaths = dedupTrimWriteWorkflowRunStrings(in.Plan.AppliedPaths)
 	in.Plan.SourcePaths = dedupTrimWriteWorkflowRunStrings(in.Plan.SourcePaths)
 	in.Plan.TestPaths = dedupTrimWriteWorkflowRunStrings(in.Plan.TestPaths)
+	in.Plan.Localization = CloneSourceLocalizationReviewPtr(in.Plan.Localization)
 	in.Patch.ChangedFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.ChangedFiles)
 	in.Patch.SourceFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.SourceFiles)
 	in.Patch.TestFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.TestFiles)
@@ -316,6 +318,7 @@ func writeFinalPlanSummary(plan *ChangePlan) WriteFinalPlanSummary {
 		out.ApprovalRiskLevel = strings.TrimSpace(plan.Approval.RiskLevel)
 		out.ApprovalReasonCode = strings.TrimSpace(plan.Approval.ReasonCode)
 	}
+	out.Localization = CloneSourceLocalizationReviewPtr(plan.LocalizationReview)
 	return out
 }
 

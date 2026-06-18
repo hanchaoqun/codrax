@@ -12215,10 +12215,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			originSpecificObservationWithoutRequiredSourceForExplorer(ctx, stableAggregateFacts)) &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()) != "" &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != ""
+		sourceLocalization := types.SourceLocalizationReviewFromTurnA(readFilesList, handoffEvidence)
 		snapshot := types.TurnAArtifacts{
 			UserQuestion:       e.userQuestion,
 			InvestigationNotes: e.investigationNotes,
 			ReadFiles:          readFilesList,
+			SourceLocalization: types.CloneSourceLocalizationReviewPtr(&sourceLocalization),
 			// Per-window snapshot bound (count + byte cap, oldest dropped
 			// first, chronological order kept). The merge below applies the
 			// larger cross-window caps on the concatenated history.

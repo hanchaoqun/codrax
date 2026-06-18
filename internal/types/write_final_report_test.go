@@ -56,6 +56,15 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 		TargetPaths:      []string{"src/app.py", "tests/test_app.py"},
 		AppliedPaths:     []string{"src/app.py"},
 		AppliedCommitSHA: "abc123",
+		LocalizationReview: &SourceLocalizationReview{
+			Status:            SourceLocalizationWeak,
+			Source:            "write_plan_context",
+			PlanID:            "plan-1",
+			SourcePaths:       []string{"src/app.py"},
+			PriorContextPaths: []string{"src/owner.py"},
+			MissingPaths:      []string{"src/app.py"},
+			ReasonCodes:       []string{"plan_source_paths_partially_outside_prior_context"},
+		},
 		PatchEffect: &PatchEffectRecord{
 			RecordID:        "patch-effect:plan-1:slice-1:fp",
 			DiffFingerprint: "fp",
@@ -117,6 +126,12 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 	}
 	if got.Plan.ID != "plan-1" || len(got.Plan.SourcePaths) != 1 || got.Plan.SourcePaths[0] != "src/app.py" {
 		t.Fatalf("Plan=%+v, want source path projection", got.Plan)
+	}
+	if got.Plan.Localization == nil ||
+		got.Plan.Localization.Status != SourceLocalizationWeak ||
+		len(got.Plan.Localization.MissingPaths) != 1 ||
+		got.Plan.Localization.MissingPaths[0] != "src/app.py" {
+		t.Fatalf("Plan.Localization=%+v, want weak missing source path", got.Plan.Localization)
 	}
 	if got.Patch.PatchEffectID == "" || len(got.Patch.EffectEventCodes) != 1 {
 		t.Fatalf("Patch=%+v, want patch effect projection", got.Patch)
