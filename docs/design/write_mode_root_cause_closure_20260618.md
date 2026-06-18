@@ -2975,6 +2975,44 @@ RC-56 tasks:
 - [x] Preserve single parser-error reason backfill behavior.
 - [x] Update this progress ledger.
 
+## RC-57: Typed SWE Failure-Cause Taxonomy
+
+After RC-56, the local results summary still required humans to read raw reason
+strings and infer whether low manual/audit pass rate came from localization
+mistakes, proof metadata gaps, actual-diff semantic gaps, local environment
+limits, workflow state, or export issues. That slows the feedback loop and
+invites case-by-case diagnosis.
+
+This is an observability gap rather than a runtime routing gap. The right fix is
+not to parse issue text, terminal logs, or model rationale. The adapter already
+emits typed fields (`prediction_verdict`, `verify_status`,
+`verify_failure_kind`, local acceptance, audit reason codes, and confidence
+reason codes). The summarizer should project those typed fields into a stable
+triage taxonomy.
+
+Design:
+
+- Add per-row `result_cause_category`/family projection inside
+  `summarize_codrax_results.py`.
+- Prefer high-authority typed verdict fields over reason strings. For example,
+  `verify_failure_kind=tests_failed` classifies as
+  `verify_red_tests_or_build` even if an older row still carries a secondary
+  `make_target_missing` confidence reason.
+- Keep reason strings as enum-like evidence for examples/top reasons; do not
+  inspect logs, summaries, issue text, model prose, or manual notes.
+- Report category counts, family counts, top typed reasons, and small examples
+  with source file/line metadata when available.
+
+RC-57 tasks:
+
+- [x] Add typed cause category/family projection to the Codrax results
+  summarizer.
+- [x] Add regressions for red-test-vs-environment precedence, proof gaps,
+  actual-diff gaps, probe authoring gaps, accepted rows, manual audit rows, and
+  empty-patch export.
+- [x] Document the local triage taxonomy in the SWE-bench README.
+- [x] Update this progress ledger.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3039,6 +3077,7 @@ RC-56 tasks:
 | RC-54 | complete | Codrax results summary denominator guard: added dependency-free `summarize_codrax_results.py` so local SWE-bench dashboards can report non-empty patch, high-confidence local verifier pass, low-confidence verifier pass, typed manual audit, local blockers, local-verify confidence mismatches from older rows, and missing current core fields separately from official harness `resolved/*`. |
 | RC-55 | complete | Multi-run Codrax result summary: `summarize_codrax_results.py` now accepts multiple result files or globs, can explicitly dedupe to the latest row per `instance_id` by file mtime, and reports input row count/path/source-line metadata so 137-instance summaries no longer require ad hoc scripts. |
 | RC-56 | complete | Primary failure reason authority: aggregate verify reports now bind `FailureReasonCode` to the final primary `FailureKind`, so secondary unavailable runner signals such as `make_target_missing` remain visible as evidence but no longer overwrite red test/build/resource failure attribution. |
+| RC-57 | complete | Typed SWE failure-cause taxonomy: local Codrax result summaries now group rows into typed cause categories/families such as verification proof, implementation/localization, patch semantics, environment, workflow state, probe generation, export, and accepted/manual-audit buckets. This gives low-pass-rate analysis a stable denominator without parsing logs, issue prose, or model output. |
 
 ## Acceptance Criteria
 

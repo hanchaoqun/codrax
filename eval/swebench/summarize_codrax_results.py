@@ -32,6 +32,57 @@ CORE_FIELDS = [
     "manual_audit_verdict",
 ]
 
+PROOF_COVERAGE_REASON_CODES = {
+    "behavior_contract_without_verify_coverage",
+    "changed_symbol_without_probe_coverage",
+    "verification_probe_baseline_not_run",
+    "verification_probe_changed_source_not_context_covered",
+    "verification_probe_missing_changed_symbol_ref",
+    "verification_probe_missing_required_contract_ref",
+    "verification_probe_missing_soft_contract_ref",
+}
+
+VERIFY_ENVIRONMENT_REASON_CODES = {
+    "accepted_without_local_verify",
+    "make_python_module_missing",
+    "make_target_missing",
+    "project_runner_unavailable",
+    "runner_missing",
+    "skip_verify",
+    "verification_probe_import_error",
+    "verification_probe_module_not_found",
+}
+
+PROBE_AUTHORING_REASON_CODES = {
+    "verification_probe_expected_stdout_missing",
+    "verification_probe_name_error",
+    "verification_probe_syntax_error",
+    "verification_probe_unclassified",
+}
+
+IMPACT_TELEMETRY_REASON_CODES = {
+    "dependent_surface_without_verify_coverage",
+    "related_test_surface_unverified",
+}
+
+RESULT_CAUSE_FAMILIES = {
+    "accepted_high_confidence": "accepted",
+    "accepted_manual_audit": "accepted",
+    "manual_audit_failed": "manual_audit",
+    "empty_patch_export": "prediction_export",
+    "verify_red_tests_or_build": "implementation_or_localization",
+    "verify_environment_unavailable": "environment",
+    "probe_or_contract_authoring_gap": "probe_generation",
+    "proof_coverage_gap": "verification_proof",
+    "impact_telemetry_low_confidence": "impact_analysis",
+    "actual_diff_or_patch_review_gap": "patch_semantics_or_localization",
+    "workflow_state_gap": "workflow_state",
+    "adapter_or_runtime_error": "adapter_runtime",
+    "low_confidence_unclassified": "unknown",
+    "unverified_local_acceptance": "unknown",
+    "unknown": "unknown",
+}
+
 
 def load_jsonl(path: Path, source_index: int = 0) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -199,6 +250,198 @@ def is_manual_audit_recorded(row: dict[str, Any]) -> bool:
     return text(row, "manual_audit_verdict") in {"pass", "fail", "unknown"}
 
 
+def normalize_reason_token(raw: str) -> str:
+    token = str(raw or "").strip()
+    if not token:
+        return ""
+    if ":" in token:
+        token = token.rsplit(":", 1)[1].strip()
+    return token
+
+
+def row_reason_values(row: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in (
+        "prediction_audit_block_reason",
+        "prediction_confidence_downgrade_reason",
+        "verify_failure_reason_code",
+    ):
+        value = text(row, key)
+        if value:
+            values.append(value)
+    raw_confidence = row.get("verify_confidence_reason_codes")
+    if isinstance(raw_confidence, list):
+        values.extend(str(item).strip() for item in raw_confidence if str(item).strip())
+    return values
+
+
+def row_reason_tokens(row: dict[str, Any]) -> set[str]:
+    out: set[str] = set()
+    for value in row_reason_values(row):
+        for part in str(value).split(","):
+            token = normalize_reason_token(part)
+            if token:
+                out.add(token)
+    return out
+
+
+def first_row_reason(row: dict[str, Any]) -> str:
+    for value in row_reason_values(row):
+        for part in str(value).split(","):
+            token = normalize_reason_token(part)
+            if token:
+                return token
+    verdict = text(row, "prediction_verdict")
+    if verdict:
+        return verdict
+    verify_status = text(row, "verify_status")
+    if verify_status:
+        return "verify_status:" + verify_status
+    return "unknown"
+
+
+def first_matching_reason(row: dict[str, Any], allowed: set[str]) -> str:
+    reasons = row_reason_tokens(row)
+    for reason in sorted(reasons):
+        if reason in allowed:
+            return reason
+    return ""
+
+
+def first_reason_with_prefix(row: dict[str, Any], prefix: str) -> str:
+    for value in row_reason_values(row):
+        value = str(value or "").strip()
+        if value.startswith(prefix):
+            return normalize_reason_token(value)
+    return ""
+
+
+def cause_reason_for_row(row: dict[str, Any], category: str) -> str:
+    if category == "accepted_high_confidence":
+        return "local_verify_passed_high_confidence"
+    if category == "accepted_manual_audit":
+        return "manual_audit_pass"
+    if category == "manual_audit_failed":
+        return "manual_audit_fail"
+    if category == "empty_patch_export":
+        return "empty_patch"
+    if category == "verify_red_tests_or_build":
+        return text(row, "verify_failure_kind") or "verify_status:failed"
+    if category == "workflow_state_gap":
+        workflow_reason = first_reason_with_prefix(row, "workflow_")
+        if workflow_reason:
+            return workflow_reason
+        return "workflow_status:" + (text(row, "workflow_status") or "unknown")
+    if category == "proof_coverage_gap":
+        return first_matching_reason(row, PROOF_COVERAGE_REASON_CODES) or first_row_reason(row)
+    if category == "impact_telemetry_low_confidence":
+        return first_matching_reason(row, IMPACT_TELEMETRY_REASON_CODES) or first_row_reason(row)
+    if category == "actual_diff_or_patch_review_gap":
+        return first_reason_with_prefix(row, "patch_review_semantic_uncovered:") or first_row_reason(row)
+    if category == "probe_or_contract_authoring_gap":
+        return first_matching_reason(row, PROBE_AUTHORING_REASON_CODES) or first_row_reason(row)
+    if category == "verify_environment_unavailable":
+        return first_matching_reason(row, VERIFY_ENVIRONMENT_REASON_CODES) or "verify_status:unavailable"
+    return first_row_reason(row)
+
+
+def classify_result_cause(row: dict[str, Any]) -> str:
+    """Return the typed local-triage cause category for a Codrax result row.
+
+    The classifier consumes adapter enums, status fields, and reason codes only.
+    It intentionally avoids issue text, model prose, terminal output, and manual
+    notes so it stays an observability aid rather than another brittle router.
+    """
+
+    manual = text(row, "manual_audit_verdict")
+    verify_status = text(row, "verify_status")
+    verify_failure_kind = text(row, "verify_failure_kind")
+    prediction_verdict = text(row, "prediction_verdict")
+    workflow_status = text(row, "workflow_status")
+    reasons = row_reason_tokens(row)
+
+    if is_high_confidence_local_verify_pass(row):
+        return "accepted_high_confidence"
+    if manual == "pass" and text(row, "local_acceptance_verdict") == "pass":
+        return "accepted_manual_audit"
+    if manual == "fail":
+        return "manual_audit_failed"
+    if not has_non_empty_patch(row):
+        return "empty_patch_export"
+    if text(row, "status") == "error" or prediction_verdict == "adapter_error":
+        return "adapter_or_runtime_error"
+    if verify_status == "failed" and verify_failure_kind in {
+        "tests_failed",
+        "build_failure",
+        "preexisting_build_failure",
+        "timeout",
+        "oom",
+        "cpu_limit",
+        "crash",
+    }:
+        return "verify_red_tests_or_build"
+    if workflow_status in {"blocked", "in_progress"} or any(
+        value.startswith("workflow_") for value in row_reason_values(row)
+    ):
+        return "workflow_state_gap"
+    if reasons & PROOF_COVERAGE_REASON_CODES:
+        return "proof_coverage_gap"
+    if reasons & IMPACT_TELEMETRY_REASON_CODES:
+        return "impact_telemetry_low_confidence"
+    if any(value.startswith("patch_review_semantic_uncovered:") for value in row_reason_values(row)):
+        return "actual_diff_or_patch_review_gap"
+    if reasons & PROBE_AUTHORING_REASON_CODES:
+        return "probe_or_contract_authoring_gap"
+    if verify_status == "unavailable" or reasons & VERIFY_ENVIRONMENT_REASON_CODES:
+        return "verify_environment_unavailable"
+    if is_low_confidence_verify_pass(row):
+        return "low_confidence_unclassified"
+    if text(row, "local_acceptance_verdict") in {"", "unknown"}:
+        return "unverified_local_acceptance"
+    return "unknown"
+
+
+def result_cause_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        category = classify_result_cause(row)
+        item = {
+            "instance_id": text(row, "instance_id"),
+            "category": category,
+            "family": RESULT_CAUSE_FAMILIES.get(category, "unknown"),
+            "reason": cause_reason_for_row(row, category),
+            "verify_status": text(row, "verify_status"),
+            "prediction_verdict": text(row, "prediction_verdict"),
+        }
+        if text(row, "__source_path"):
+            item["source_path"] = text(row, "__source_path")
+        if int_value(row, "__source_line") > 0:
+            item["source_line"] = int_value(row, "__source_line")
+        out.append(item)
+    return out
+
+
+def count_cause_field(causes: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for cause in causes:
+        value = str(cause.get(key) or "").strip() or "<empty>"
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def cause_examples(causes: list[dict[str, Any]], limit_per_category: int = 5) -> dict[str, list[dict[str, Any]]]:
+    out: dict[str, list[dict[str, Any]]] = {}
+    for cause in causes:
+        category = str(cause.get("category") or "").strip()
+        if not category:
+            continue
+        bucket = out.setdefault(category, [])
+        if len(bucket) >= limit_per_category:
+            continue
+        bucket.append(cause)
+    return dict(sorted(out.items()))
+
+
 def core_field_presence(rows: list[dict[str, Any]]) -> dict[str, int]:
     return {field: sum(1 for row in rows if field in row) for field in CORE_FIELDS}
 
@@ -248,6 +491,7 @@ def summarize_results(
     manual_unknown = sum(1 for row in rows if text(row, "manual_audit_verdict") == "unknown")
     manual_recorded = sum(1 for row in rows if is_manual_audit_recorded(row))
     local_blocked = sum(1 for row in rows if bool_value(row, "prediction_blocks_local_acceptance"))
+    causes = result_cause_rows(rows)
 
     return {
         "schema_version": 1,
@@ -291,6 +535,10 @@ def summarize_results(
         "manual_audit_verdict_counts": count_by(rows, "manual_audit_verdict"),
         "top_confidence_downgrade_reasons": top_counts(count_by(rows, "prediction_confidence_downgrade_reason")),
         "top_audit_block_reasons": top_counts(count_by(rows, "prediction_audit_block_reason")),
+        "result_cause_category_counts": count_cause_field(causes, "category"),
+        "result_cause_family_counts": count_cause_field(causes, "family"),
+        "top_result_cause_reasons": top_counts(count_cause_field(causes, "reason")),
+        "result_cause_examples": cause_examples(causes),
         "core_field_presence": core_field_presence(rows),
         "rows_missing_core_fields": rows_missing_core_fields(rows),
     }

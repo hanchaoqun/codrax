@@ -363,6 +363,17 @@ rows missing current core fields. Use it to avoid mixing old-schema smoke rows
 with current runs or treating low-confidence local verify as an authoritative
 pass.
 
+The same summary also emits `result_cause_category_counts`,
+`result_cause_family_counts`, `top_result_cause_reasons`, and bounded
+`result_cause_examples`. These are local triage projections from typed adapter
+fields only: `prediction_verdict`, `verify_status`, `verify_failure_kind`,
+confidence reason codes, audit reason codes, and local acceptance fields. They
+do not parse issue text, model prose, terminal logs, or manual notes. Use them
+to separate implementation/localization failures from verification proof gaps,
+actual-diff patch-review gaps, probe generation gaps, environment limits,
+workflow-state gaps, export failures, and accepted/manual-audit rows before
+choosing the next engineering batch.
+
 ## Isolation
 
 All run artifacts live under `eval/results/swebench/`, which is ignored by Git.

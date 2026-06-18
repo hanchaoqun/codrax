@@ -99,6 +99,106 @@ class CodraxResultsSummaryTests(unittest.TestCase):
         self.assertEqual(summary["local_audit_blocked_instances"], 1)
         self.assertEqual(summary["prediction_verdict_counts"]["predicted_passed_low_confidence"], 1)
         self.assertEqual(summary["top_confidence_downgrade_reasons"][0]["value"], "<empty>")
+        self.assertEqual(summary["result_cause_category_counts"]["accepted_high_confidence"], 1)
+        self.assertEqual(summary["result_cause_category_counts"]["manual_audit_failed"], 1)
+        self.assertEqual(summary["result_cause_category_counts"]["accepted_manual_audit"], 1)
+        self.assertEqual(summary["result_cause_category_counts"]["proof_coverage_gap"], 1)
+        self.assertEqual(summary["result_cause_family_counts"]["accepted"], 2)
+
+    def test_classifies_typed_failure_causes_without_log_text(self) -> None:
+        rows = [
+            {
+                "instance_id": "repo__red-tests-1",
+                "status": "predicted",
+                "patch_bytes": 100,
+                "prediction_verdict": "predicted_failed_verify",
+                "prediction_local_confidence": "failed",
+                "prediction_blocks_local_acceptance": True,
+                "prediction_confidence_downgrade_reason": "make_target_missing",
+                "prediction_audit_block_reason": "",
+                "verify_status": "failed",
+                "verify_failure_kind": "tests_failed",
+                "verify_failure_reason_code": "make_target_missing",
+                "workflow_status": "complete",
+                "local_acceptance_verdict": "fail",
+                "local_acceptance_source": "local_audit_block",
+                "manual_audit_verdict": "",
+            },
+            {
+                "instance_id": "repo__env-1",
+                "status": "predicted",
+                "patch_bytes": 90,
+                "prediction_verdict": "predicted_unverified",
+                "prediction_local_confidence": "failed",
+                "prediction_blocks_local_acceptance": True,
+                "prediction_confidence_downgrade_reason": "verification_probe_module_not_found",
+                "prediction_audit_block_reason": "",
+                "verify_status": "unavailable",
+                "workflow_status": "complete",
+                "local_acceptance_verdict": "fail",
+                "local_acceptance_source": "local_audit_block",
+                "manual_audit_verdict": "",
+            },
+            {
+                "instance_id": "repo__boundary-1",
+                "status": "predicted",
+                "patch_bytes": 80,
+                "prediction_verdict": "predicted_audit_blocked",
+                "prediction_local_confidence": "failed",
+                "prediction_blocks_local_acceptance": True,
+                "prediction_confidence_downgrade_reason": "",
+                "prediction_audit_block_reason": "patch_review_semantic_uncovered:python_nested_string_key_direct_access_added",
+                "verify_status": "passed",
+                "workflow_status": "complete",
+                "local_acceptance_verdict": "fail",
+                "local_acceptance_source": "local_audit_block",
+                "manual_audit_verdict": "",
+            },
+            {
+                "instance_id": "repo__probe-1",
+                "status": "predicted",
+                "patch_bytes": 70,
+                "prediction_verdict": "predicted_failed_verify",
+                "prediction_local_confidence": "failed",
+                "prediction_blocks_local_acceptance": True,
+                "prediction_confidence_downgrade_reason": "verification_probe_expected_stdout_missing",
+                "prediction_audit_block_reason": "",
+                "verify_status": "failed",
+                "workflow_status": "complete",
+                "local_acceptance_verdict": "fail",
+                "local_acceptance_source": "local_audit_block",
+                "manual_audit_verdict": "",
+            },
+            {
+                "instance_id": "repo__empty-1",
+                "status": "empty_patch",
+                "patch_bytes": 0,
+                "prediction_verdict": "empty_patch",
+                "prediction_local_confidence": "none",
+                "prediction_blocks_local_acceptance": True,
+                "prediction_confidence_downgrade_reason": "",
+                "prediction_audit_block_reason": "empty_patch",
+                "verify_status": "",
+                "workflow_status": "complete",
+                "local_acceptance_verdict": "fail",
+                "local_acceptance_source": "local_audit_block",
+                "manual_audit_verdict": "",
+            },
+        ]
+
+        summary = summary_mod.summarize_results(rows)
+
+        counts = summary["result_cause_category_counts"]
+        self.assertEqual(counts["verify_red_tests_or_build"], 1)
+        self.assertEqual(counts["verify_environment_unavailable"], 1)
+        self.assertEqual(counts["actual_diff_or_patch_review_gap"], 1)
+        self.assertEqual(counts["probe_or_contract_authoring_gap"], 1)
+        self.assertEqual(counts["empty_patch_export"], 1)
+        self.assertEqual(summary["result_cause_family_counts"]["implementation_or_localization"], 1)
+        self.assertEqual(
+            summary["result_cause_examples"]["verify_red_tests_or_build"][0]["reason"],
+            "tests_failed",
+        )
 
     def test_reports_missing_core_fields_for_old_schema_rows(self) -> None:
         rows = [{
