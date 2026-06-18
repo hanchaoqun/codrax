@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -876,6 +877,124 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 		}
 	}
 	return NormalizeWriteContextPack(pack)
+}
+
+// WriteContextPackFromPlannerToolResults projects typed observations gathered
+// during a planner/replan dispatch into durable localization context. It
+// consumes ToolResult.Observations only; tool summaries, model rationale, and
+// user prose are intentionally ignored. A read_file observation records that
+// current bytes were inspected, but remains observed/read-file depth rather
+// than owner proof.
+func WriteContextPackFromPlannerToolResults(batchID, goal string, results []ToolResult) WriteContextPack {
+	if len(results) == 0 {
+		return WriteContextPack{}
+	}
+	pack := WriteContextPack{
+		PackID:      "planner-observations",
+		BatchID:     trimWriteContextText(batchID),
+		Goal:        trimWriteContextText(goal),
+		SourceStage: "planner_observation",
+	}
+	seen := map[string]struct{}{}
+	for _, result := range results {
+		if !result.Success {
+			continue
+		}
+		for _, obs := range result.Observations {
+			anchor, ref, priority, ok := writePlannerObservationLocalizationAnchor(result, obs)
+			if !ok {
+				continue
+			}
+			key := sourceLocalizationAnchorKey(anchor)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			text := renderSourceLocalizationAnchorContext(anchor)
+			if text == "" {
+				text = anchor.Path
+			}
+			item := writeContextItem("localization_anchor", priority, text, "planner_observation",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+			item.SourceID = trimWriteContextText(obs.ID)
+			if item.SourceID == "" {
+				item.SourceID = trimWriteContextText(result.RawRef)
+			}
+			anchorCopy := anchor
+			refCopy := ref
+			item.LocalizationAnchor = &anchorCopy
+			item.EvidenceRef = &refCopy
+			item.ID = writeContextStableID("planner_observation_anchor", anchor.Path, string(anchor.Kind), string(anchor.Strength), anchor.OwnerSymbol, anchor.AnchorSymbol, ref.ID)
+			pack.Items = append(pack.Items, item)
+		}
+	}
+	return NormalizeWriteContextPack(pack)
+}
+
+func writePlannerObservationLocalizationAnchor(result ToolResult, obs ObservationRecord) (SourceLocalizationAnchor, WriteExplorationEvidenceRef, WriteContextPriority, bool) {
+	if obs.Origin != AnswerEvidenceOriginCurrentSource || obs.SourceRef.Kind != ObservationSourceCurrentSource {
+		return SourceLocalizationAnchor{}, WriteExplorationEvidenceRef{}, "", false
+	}
+	p := sourceLocalizationPath(obs.SourceRef.Path)
+	if p == "" {
+		return SourceLocalizationAnchor{}, WriteExplorationEvidenceRef{}, "", false
+	}
+	role := ClassifySourcePathRole(p)
+	ownerSymbol := sourceLocalizationOwnerSymbolFromSourceSubject(p, obs.Subject)
+	if ownerSymbol == "" && sourceLocalizationLooksOwnerSymbol(obs.Subject) {
+		ownerSymbol = trimSourceLocalizationText(obs.Subject)
+	}
+	anchorSymbol := trimSourceLocalizationText(obs.Object)
+	kind := SourceLocalizationAnchorEvidence
+	strength := SourceLocalizationAnchorSupporting
+	reason := "planner_current_source_observation"
+	priority := WriteContextP1
+	if CanonicalToolName(result.ToolName) == "read_file" || strings.TrimSpace(obs.Producer) == "read_file" {
+		kind = SourceLocalizationAnchorReadFile
+		strength = SourceLocalizationAnchorObserved
+		reason = "planner_read_file_observed"
+		priority = WriteContextP2
+	}
+	if ownerSymbol != "" && obs.GroundingStatus == GroundingGrounded {
+		kind = SourceLocalizationAnchorGroundedEvidence
+		strength = SourceLocalizationAnchorOwner
+		reason = "planner_observation_owner"
+		priority = WriteContextP1
+	}
+	ref := WriteExplorationEvidenceRef{
+		ID:           trimWriteContextText(obs.ID),
+		Kind:         string(obs.EvidenceKind),
+		Source:       p,
+		LineStart:    obs.Span.LineStart,
+		LineEnd:      obs.Span.LineEnd,
+		Subject:      trimWriteContextText(obs.Subject),
+		OwnerSymbol:  ownerSymbol,
+		AnchorSymbol: anchorSymbol,
+		Summary:      trimWriteContextText(obs.Summary),
+	}
+	if ref.ID == "" {
+		ref.ID = writeContextStableID("planner_observation_ref", p, string(kind), strconv.Itoa(ref.LineStart), strconv.Itoa(ref.LineEnd), ownerSymbol, anchorSymbol)
+	}
+	if ref.Kind == "" {
+		ref.Kind = "observation"
+	}
+	anchor := SourceLocalizationAnchor{
+		Path:         p,
+		Role:         role,
+		SourceStage:  "planner_observation",
+		Kind:         kind,
+		Strength:     strength,
+		EvidenceRef:  &ref,
+		Subject:      ref.Subject,
+		OwnerSymbol:  ownerSymbol,
+		AnchorSymbol: anchorSymbol,
+		ReasonCode:   reason,
+	}
+	anchor = normalizeSourceLocalizationAnchor(anchor)
+	if anchor.Path == "" {
+		return SourceLocalizationAnchor{}, WriteExplorationEvidenceRef{}, "", false
+	}
+	return anchor, normalizeWriteExplorationEvidenceRef(ref), priority, true
 }
 
 // WritePlanSourcePathsOutsidePriorContext returns production/source-like plan

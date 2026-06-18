@@ -889,6 +889,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 				transientUsed, o.transientRetryBudget, err)
 			continue
 		}
+		o.syncPlannerObservationContextPack(batch)
 		if err == nil && changePlanIsNoChangeRequired(o.busCtx.Mutable.ChangePlan()) {
 			plan := o.busCtx.Mutable.ChangePlan()
 			if changePlanIsProofProbeOnly(plan) && activeBatchProofFollowupPurpose(o.busCtx.Mutable.WriteWorkflowRun()) {
@@ -1154,6 +1155,49 @@ func planningRoundHasReadOnlyProgress(results []types.ToolResult) bool {
 		}
 	}
 	return false
+}
+
+func (o *Orchestrator) syncPlannerObservationContextPack(batch *writeflow.WriteBatchPlan) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	results := o.busCtx.Mutable.DispatchToolResults()
+	if len(results) == 0 {
+		return
+	}
+	batchID := "batch-1"
+	goal := ""
+	if batch != nil {
+		normalized := writeflow.NormalizeBatchPlan(*batch)
+		if strings.TrimSpace(normalized.ID) != "" {
+			batchID = strings.TrimSpace(normalized.ID)
+		}
+		goal = strings.TrimSpace(normalized.Goal)
+	}
+	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+		if strings.TrimSpace(run.ActiveBatchID) != "" {
+			batchID = strings.TrimSpace(run.ActiveBatchID)
+		}
+		if goal == "" {
+			goal = strings.TrimSpace(run.Goal)
+		}
+	}
+	pack := types.WriteContextPackFromPlannerToolResults(batchID, goal, results)
+	if len(pack.Items) == 0 {
+		return
+	}
+	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+		updated := types.CloneWriteWorkflowRun(*run)
+		activeBatchID := strings.TrimSpace(updated.ActiveBatchID)
+		activeSliceID := activeWorkflowRunSliceID(updated, activeBatchID)
+		if activeBatchID != "" {
+			pack = pack.WithScope(activeBatchID, activeSliceID)
+		}
+		updated = upsertWorkflowRunContextPack(updated, pack)
+		o.busCtx.Mutable.SetWriteWorkflowRun(&updated)
+		return
+	}
+	o.busCtx.Mutable.SetWriteContextPack(&pack)
 }
 
 func controllerHasBatchOrAnalysisAnchors(mu *types.MutableState, batch *writeflow.WriteBatchPlan) bool {

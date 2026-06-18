@@ -3433,13 +3433,65 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	content = banner + content
 
 	summary, ref := StoreBlobHeadOnly(ctx, t.Name(), content)
+	now := time.Now()
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   summary,
-		RawRef:    ref,
-		Timestamp: time.Now(),
+		ToolName:     t.Name(),
+		Success:      true,
+		Summary:      summary,
+		RawRef:       ref,
+		Observations: readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now),
+		Timestamp:    now,
 	}, nil
+}
+
+func readFileTypedObservations(ctx *types.BusContext, requestedPath, fsPath, rawRef string, lineStart, lineEnd, totalLines int, observedAt time.Time) []types.ObservationRecord {
+	sourcePath := strings.TrimSpace(requestedPath)
+	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
+		if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, fsPath); ok && rel != "" {
+			sourcePath = rel
+		}
+	}
+	sourcePath = strings.TrimSpace(strings.ReplaceAll(sourcePath, "\\", "/"))
+	if sourcePath == "" || strings.HasPrefix(sourcePath, "/") || sourcePath == "." || strings.HasPrefix(sourcePath, "../") {
+		return nil
+	}
+	if lineStart <= 0 {
+		lineStart = 1
+	}
+	if lineEnd < lineStart {
+		lineEnd = lineStart
+	}
+	scope := types.ScopeLineRange
+	switch {
+	case totalLines > 0 && lineStart == 1 && lineEnd >= totalLines:
+		scope = types.ScopeFile
+	case lineStart == lineEnd:
+		scope = types.ScopeLine
+	}
+	role := types.AnswerAggregateRoleSupportingCoverage
+	origin := types.AnswerEvidenceOriginCurrentSource
+	return []types.ObservationRecord{{
+		ID:              fmt.Sprintf("read_file:%s:%d:%d", sourcePath, lineStart, lineEnd),
+		Origin:          origin,
+		Producer:        "read_file",
+		Role:            role,
+		GroundingPolicy: types.AnswerClaimBindingGroundingPolicy(origin, role),
+		SourceRef: types.ObservationSourceRef{
+			Kind:   types.ObservationSourceCurrentSource,
+			Path:   sourcePath,
+			RawRef: strings.TrimSpace(rawRef),
+		},
+		Span: types.ObservationSpan{
+			LineStart: lineStart,
+			LineEnd:   lineEnd,
+		},
+		EvidenceKind:    types.EvidenceDirect,
+		EvidenceScope:   scope,
+		GroundingStatus: types.GroundingGrounded,
+		Summary:         "read_file observed current source bytes",
+		ObservedAt:      observedAt.Format("2006-01-02T15:04:05Z07:00"),
+		Confidence:      1,
+	}}
 }
 
 // renderWithLineGutter joins a slice of source lines into a single

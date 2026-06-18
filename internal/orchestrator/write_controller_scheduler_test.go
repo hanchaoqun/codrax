@@ -261,6 +261,49 @@ func TestRunControllerPlanBatch_ReplansScopeOnlyOwnerLocalization(t *testing.T) 
 	}
 }
 
+func TestSyncPlannerObservationContextPackPersistsReadFileLocalization(t *testing.T) {
+	mu := types.NewMutableState("repair")
+	run := types.WriteWorkflowRun{
+		RunID:         "run-planner-observation",
+		Goal:          "repair",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	mu.SetWriteWorkflowRun(&run)
+	mu.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		RawRef:   "blob://read",
+		Observations: []types.ObservationRecord{{
+			ID:              "read_file:pkg/bug.py:12:18",
+			Origin:          types.AnswerEvidenceOriginCurrentSource,
+			Producer:        "read_file",
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceCurrentSource, Path: "pkg/bug.py", RawRef: "blob://read"},
+			Span:            types.ObservationSpan{LineStart: 12, LineEnd: 18},
+			EvidenceKind:    types.EvidenceDirect,
+			EvidenceScope:   types.ScopeLineRange,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "read_file observed current source bytes",
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+
+	o.syncPlannerObservationContextPack(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair"})
+
+	got := mu.WriteWorkflowRun()
+	if got == nil {
+		t.Fatal("workflow run missing")
+	}
+	if !workflowRunContextContains(got, "localization_anchor", "path=pkg/bug.py") ||
+		!workflowRunContextContains(got, "localization_anchor", "kind=read_file") ||
+		!workflowRunContextContains(got, "localization_anchor", "strength=observed") {
+		t.Fatalf("planner observation context not persisted: %+v", got.ContextPacks)
+	}
+}
+
 func TestRunControllerPlanBatch_LocalizationRetryNeedsPriorContext(t *testing.T) {
 	mu := types.NewMutableState("fix unknown path")
 	ar, sr, sar := buildRegistries(nil)

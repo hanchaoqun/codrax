@@ -4316,7 +4316,7 @@ Verification:
 | RC-104 | complete | Shared localization owner/evidence anchor closure: preserve prior owner/supporting/scope anchors through write plan localization review and downstream context packs, so later controller/planner/verifier consumers see typed anchor evidence instead of only path sets. Focused types tests, related write/read consumers, full `go test ./...`, `make`, and `git diff --check` pass. |
 | RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
 | RC-106 | complete | Same-batch source-owner relation after test-only replan: restore-aware delivery lineage now preserves/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code, while still excluding stale pre-restore plans when no precise restored checkpoint relation exists. Focused Go and SWE adapter regressions pass. |
-| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects; RC107-E adds owner-depth critique for path-covered but owner/evidence-missing plans. Remaining work: planner-read evidence writeback into localization anchors, direct controller/replan slice selection from `OwnerAnchorView`, and read final-answer projection. |
+| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects; RC107-E adds owner-depth critique for path-covered but owner/evidence-missing plans; RC107-F writes planner read observations back into durable localization anchors. Remaining work: direct controller/replan slice selection from `OwnerAnchorView` and read final-answer projection. |
 | RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
 | RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
 
@@ -6749,10 +6749,9 @@ verifier-only hardening unless a regression blocks mainline stability.
     off-scope high-risk, protected-test-contract, and missing-localization
     critiques, so it does not stack extra plan rounds after those stronger
     structural corrections have already fired.
-  - Remaining RC107-F task: planner read-file/repomap observations gathered
-    during that retry still need a typed writeback path into
-    `SourceLocalizationAnchor`; otherwise the retry can improve model context
-    but not durable evidence refs for final reports.
+  - Remaining follow-up after RC107-F: direct controller/replan slice selection
+    from `OwnerAnchorView` and read final-answer projection still need separate
+    batches.
 - RC107-E SWE smoke/audit:
   - Ran
     `WORKDIR=/Users/han/opt/codrax/eval/results/swebench/lite-smoke-20260619-rc107e-12907
@@ -6772,6 +6771,25 @@ verifier-only hardening unless a regression blocks mainline stability.
     `_cstack` matrix-block repair (`1` -> `right`) and the prediction remains
     conservatively `predicted_audit_blocked` due unavailable verification proof,
     not due patch emptiness or harness incompatibility.
+- RC107-F planner observation writeback:
+  - `read_file` now attaches a typed `ObservationRecord` side channel for
+    successful current-source reads: repo-relative path, line window, raw blob
+    ref, producer, grounding status, and current-source origin. The visible
+    read_file summary is unchanged.
+  - Added `WriteContextPackFromPlannerToolResults`, which consumes only
+    `ToolResult.Observations` and projects planner/replan current-source
+    observations into a durable `planner-observation` context pack. It does not
+    parse tool summaries, model rationale, or user prose.
+  - The write controller synchronizes this pack into the active durable
+    workflow after each plan dispatch and before localization/no-plan critiques.
+    A read_file observation is intentionally recorded as
+    `SourceLocalizationAnchorReadFile` / `observed`, not owner proof; future
+    stronger current-source producers can upgrade to supporting/owner anchors
+    only through typed fields.
+  - Focused verification:
+    `go test ./internal/tool ./internal/types ./internal/orchestrator -run
+    'Test(ReadFile_ResolvesAgainstRepoRoot|WriteContextPackFromPlannerToolResults|SyncPlannerObservationContextPack|RunControllerPlanBatch_.*Localization|WriteContextPackFromPlanContextCoverage)'
+    -count=1`.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

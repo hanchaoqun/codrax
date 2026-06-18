@@ -3482,6 +3482,18 @@ func TestReadFile_ResolvesAgainstRepoRoot(t *testing.T) {
 	if !strings.Contains(result.Summary, "["+target+":") {
 		t.Fatalf("banner should echo LLM-supplied relative path %q, got: %s", target, result.Summary)
 	}
+	if len(result.Observations) != 1 {
+		t.Fatalf("read_file should publish one typed observation, got %+v", result.Observations)
+	}
+	obs := result.Observations[0]
+	if obs.Origin != types.AnswerEvidenceOriginCurrentSource ||
+		obs.SourceRef.Kind != types.ObservationSourceCurrentSource ||
+		obs.SourceRef.Path != target ||
+		obs.Producer != "read_file" ||
+		obs.Span.LineStart != 1 ||
+		obs.GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("unexpected read_file observation: %+v", obs)
+	}
 }
 
 // TestListFiles_ResolvesAgainstRepoRoot confirms the same boundary

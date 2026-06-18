@@ -541,6 +541,40 @@ func TestWritePlanSourcePathsWithoutOwnerAnchorSatisfiedByEvidenceAnchor(t *test
 	}
 }
 
+func TestWriteContextPackFromPlannerToolResultsProjectsReadFileObservation(t *testing.T) {
+	results := []ToolResult{{
+		ToolName: "read_file",
+		Success:  true,
+		RawRef:   "blob://read",
+		Observations: []ObservationRecord{{
+			ID:              "read_file:pkg/bug.py:10:20",
+			Origin:          AnswerEvidenceOriginCurrentSource,
+			Producer:        "read_file",
+			SourceRef:       ObservationSourceRef{Kind: ObservationSourceCurrentSource, Path: "pkg/bug.py", RawRef: "blob://read"},
+			Span:            ObservationSpan{LineStart: 10, LineEnd: 20},
+			EvidenceKind:    EvidenceDirect,
+			EvidenceScope:   ScopeLineRange,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "read_file observed current source bytes",
+		}},
+	}}
+
+	pack := WriteContextPackFromPlannerToolResults("batch-1", "repair", results)
+	view := pack.View(WriteConsumerPlanner, 10)
+	if !writeContextViewContains(view, "localization_anchor", "path=pkg/bug.py") ||
+		!writeContextViewContains(view, "localization_anchor", "kind=read_file") ||
+		!writeContextViewContains(view, "localization_anchor", "strength=observed") {
+		t.Fatalf("planner read_file observation not projected as observed localization anchor: %+v", view.Items)
+	}
+	if got := WritePlanSourcePathsWithoutOwnerAnchor([]WriteContextPack{pack}, &ChangePlan{
+		ID:          "plan-1",
+		TargetPaths: []string{"pkg/bug.py"},
+		Changes:     []FileChange{{Path: "pkg/bug.py", Kind: "modify"}},
+	}); len(got) != 0 {
+		t.Fatalf("observed read_file-only context should not be treated as path-covered owner gap input; got %+v", got)
+	}
+}
+
 func TestWriteContextPackFromPlanContextCoverageNormalizesSymbolAnchorsToFiles(t *testing.T) {
 	prior := []WriteContextPack{{
 		PackID:      "exploration-handoff",
