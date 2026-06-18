@@ -6841,6 +6841,16 @@ verifier-only hardening unless a regression blocks mainline stability.
     `go test ./internal/orchestrator -run
     'TestRunWriteControllerWorkflow_DispatchWriteDeadline(AfterPlanBlocksRun|AfterRepairPlanStaysResumable|ProofFollowupCompletesUnverified)'
     -count=1`.
+  - Post-fix single-instance confirmation:
+    `WORKDIR=/Users/han/opt/codrax/eval/results/swebench/lite-smoke-20260619-proof-deadline-14365
+    INSTANCE_ID=astropy__astropy-14365 SWEBENCH_SMOKE_LIMIT=1
+    SWEBENCH_FAIL_ON_INSTANCE_ERROR=0 SWEBENCH_FAIL_ON_EMPTY_PATCH=0
+    SWEBENCH_REQUIRE_NONEMPTY_PATCH=0 CODRAX_BIN=/Users/han/opt/codrax/codrax
+    eval/swebench/smoke_lite.sh` produced one non-empty prediction, passed
+    prediction validation, and finished with `workflow_status=complete`,
+    `verify_status=passed`, `prediction_verdict=predicted_passed`, and high
+    local confidence. The final patch remained the same aligned QDP
+    `re.IGNORECASE` source fix; no proof-only deadline block recurred.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
