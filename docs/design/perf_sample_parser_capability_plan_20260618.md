@@ -336,7 +336,7 @@ Batch D partial implementation notes:
 - [x] Teach trace_query to expose alignment status per perf context.
 - [x] Separate on-cpu and off-cpu sample contexts so off-cpu periods do not get
   narrated as running CPU execution.
-- [ ] Add tests for assumed, calibrated, and unknown clock alignment.
+- [x] Add tests for assumed, calibrated, and unknown clock alignment.
 
 Batch E partial implementation notes:
 
@@ -346,8 +346,10 @@ Batch E partial implementation notes:
 - `trace_query` already exposes per-context `clock` and `clock_confidence`
   through `perf_quality`; Batch C added `sample_kind` so off-cpu samples are
   visible and caveated instead of silently mixed into running CPU narration.
-- Calibrated offset/slope still requires a capture-level clock map, so the
-  calibrated test remains pending until that input exists.
+- Added helper-level coverage for assumed, calibrated, and unknown
+  `perf_clock_alignments` states. Calibrated offset/slope values are still not
+  invented without a capture-level clock map; the test only locks the typed
+  confidence/caveat semantics.
 
 ### Batch F - UX, Prompt, Handoff, And JSON Repair
 
