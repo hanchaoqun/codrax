@@ -330,7 +330,7 @@ Batch C implementation notes:
   when present.
 - [x] Add COMM/FORK/EXIT lifetime repair where fixtures prove pid/tid identity
   would otherwise be wrong.
-- [ ] Improve mmap/build-id DSO labeling without inventing symbols.
+- [x] Improve mmap/build-id DSO labeling without inventing symbols.
 - [x] Preserve unsupported sample bits as typed caveats instead of failing
   entire files when partial extraction is safe.
 
@@ -361,6 +361,11 @@ Batch D partial implementation notes:
   `FORK` to inherit known parent comm labels, and clears active labels on
   `EXIT`. This prevents later thread renames from rewriting earlier samples in
   generated `.perftrace` rows.
+- Raw fallback now parses simpleperf/Linux-style BUILD_ID feature records enough
+  to extract `filename -> build_id`, and only appends `#build_id=<hex>` to the
+  DSO label when that filename exactly matches the mmap path selected for the
+  sample IP. It does not infer symbols, rewrite paths, or apply fuzzy basename
+  joins.
 
 ### Batch E - Time Alignment And Off-CPU Semantics
 

@@ -122,6 +122,7 @@ type rawPerfFeatures struct {
 	Arch         string
 	Cmdline      []string
 	Meta         map[string]string
+	BuildIDs     map[string]string
 	BuildIDCount int
 	Caveats      []string
 }
@@ -557,7 +558,8 @@ func readRawPerfFeatures(r io.ReaderAt, header rawPerfFileHeader, fileSize int64
 		}
 		switch id {
 		case perfFeatureBuildID:
-			features.BuildIDCount = countRawPerfBuildIDRecords(buf)
+			features.BuildIDs = readRawPerfBuildIDRecords(buf)
+			features.BuildIDCount = len(features.BuildIDs)
 		case perfFeatureArch:
 			features.Arch = readRawPerfFeatureString(buf)
 		case perfFeatureCmdline:
@@ -637,17 +639,37 @@ func readRawPerfMetaInfo(buf []byte) map[string]string {
 	return out
 }
 
-func countRawPerfBuildIDRecords(buf []byte) int {
-	count := 0
+func readRawPerfBuildIDRecords(buf []byte) map[string]string {
+	out := map[string]string{}
 	for off := 0; off+8 <= len(buf); {
 		size := int(binary.LittleEndian.Uint16(buf[off+6 : off+8]))
 		if size <= 8 || off+size > len(buf) {
 			break
 		}
-		count++
+		record := buf[off : off+size]
+		if len(record) >= 36 {
+			buildID := hexLower(record[12:32])
+			filename := cString(record[36:])
+			if filename != "" && buildID != "" {
+				out[filename] = buildID
+			}
+		}
 		off += size
 	}
-	return count
+	return out
+}
+
+func hexLower(buf []byte) string {
+	const digits = "0123456789abcdef"
+	if len(buf) == 0 {
+		return ""
+	}
+	out := make([]byte, len(buf)*2)
+	for i, b := range buf {
+		out[i*2] = digits[b>>4]
+		out[i*2+1] = digits[b&0xf]
+	}
+	return string(out)
 }
 
 func rawPerfFeatureCaveats(features rawPerfFeatures) []string {
@@ -674,7 +696,7 @@ func rawPerfFeatureCaveats(features rawPerfFeatures) []string {
 	}
 	if features.BuildIDCount > 0 {
 		parts = append(parts, fmt.Sprintf("build_id_records=%d", features.BuildIDCount))
-		parts = append(parts, "build_id_dso_labeling=not_applied")
+		parts = append(parts, "build_id_dso_labeling=exact_path")
 	}
 	if len(parts) == 0 {
 		parts = append(parts, "features_present")
@@ -1041,7 +1063,7 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 			cpu = sample.CPU
 		}
 		ip := rawPerfIP(sample.IP)
-		dso := rawPerfDSO(data.Mappings, sample)
+		dso := rawPerfDSO(data.Mappings, sample, data.Features)
 		callchain := rawPerfCallchain(sample)
 		ts := float64(sample.TimeNS) / 1e9
 		cpuKnown := "false"
@@ -1091,7 +1113,7 @@ func rawPerfCallchain(sample rawPerfSample) string {
 	return strings.Join(parts, ";")
 }
 
-func rawPerfDSO(mappings []rawPerfMapping, sample rawPerfSample) string {
+func rawPerfDSO(mappings []rawPerfMapping, sample rawPerfSample, features rawPerfFeatures) string {
 	var best rawPerfMapping
 	for _, mapping := range mappings {
 		if mapping.Len == 0 || sample.IP < mapping.Addr || sample.IP >= mapping.Addr+mapping.Len {
@@ -1106,6 +1128,9 @@ func rawPerfDSO(mappings []rawPerfMapping, sample rawPerfSample) string {
 	}
 	if best.Path == "" {
 		return "unknown"
+	}
+	if buildID := features.BuildIDs[best.Path]; buildID != "" {
+		return best.Path + "#build_id=" + buildID
 	}
 	return best.Path
 }

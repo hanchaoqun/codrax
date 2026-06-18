@@ -162,7 +162,7 @@ func TestConvertRawPerfDataPreservesFeatureMetadataCaveats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read feature raw perf data: %v", err)
 	}
-	if data.Features.Arch != "arm64" || strings.Join(data.Features.Cmdline, " ") != "simpleperf record" || data.Features.Meta["clockid"] != "monotonic" || data.Features.BuildIDCount != 1 {
+	if data.Features.Arch != "arm64" || strings.Join(data.Features.Cmdline, " ") != "simpleperf record" || data.Features.Meta["clockid"] != "monotonic" || data.Features.BuildIDCount != 1 || data.Features.BuildIDs["/system/lib64/libfoo.so"] == "" {
 		t.Fatalf("feature metadata not parsed: %+v", data.Features)
 	}
 	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
@@ -172,7 +172,7 @@ func TestConvertRawPerfDataPreservesFeatureMetadataCaveats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`parser_caveats=`, `arch=arm64`, `cmdline=simpleperf record`, `meta.clockid=monotonic`, `meta.event_type_info=present`, `build_id_records=1`, `build_id_dso_labeling=not_applied`} {
+	for _, want := range []string{`parser_caveats=`, `arch=arm64`, `cmdline=simpleperf record`, `meta.clockid=monotonic`, `meta.event_type_info=present`, `build_id_records=1`, `build_id_dso_labeling=exact_path`, `dso="/system/lib64/libfoo.so#build_id=0102030405060708090a0b0c0d0e0f1011121314"`} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("feature perftrace missing %q:\n%s", want, string(body))
 		}
@@ -407,6 +407,7 @@ func syntheticRawPerfDataWithFeatures() []byte {
 	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod)
 	var records bytes.Buffer
 	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "app")))
+	records.Write(rawPerfRecord(perfRecordMmap, rawPerfMmapPayload(1234, 5678, 0x1000, 0x1000, 0, "/system/lib64/libfoo.so")))
 	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
 
 	dataOffset := headerSize + attrSize
@@ -497,11 +498,21 @@ func rawPerfFeatureStringList(values ...string) []byte {
 
 func rawPerfFeatureBuildIDSection() []byte {
 	var out bytes.Buffer
-	recordSize := uint16(24)
+	filename := "/system/lib64/libfoo.so"
+	recordSize := uint16(8 + 4 + 24 + 64)
 	writeRawPerfTestU32(&out, 0)
 	writeRawPerfTestU16(&out, 0)
 	writeRawPerfTestU16(&out, recordSize)
-	out.Write(make([]byte, int(recordSize)-8))
+	writeRawPerfTestU32(&out, 1234)
+	for i := 1; i <= 20; i++ {
+		out.WriteByte(byte(i))
+	}
+	out.Write(make([]byte, 4))
+	out.WriteString(filename)
+	out.WriteByte(0)
+	for out.Len() < int(recordSize) {
+		out.WriteByte(0)
+	}
 	return out.Bytes()
 }
 
