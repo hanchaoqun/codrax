@@ -2202,7 +2202,7 @@ llm:
       split_string_arrays: true
 ```
 
-确认日志里的 `[tool_param_compat] ... audit repairable` 都是机械类型错误后，再对需要的 provider / agent 切到 `repair`。它只按工具 JSON Schema 修确定性问题，例如 `"offset":"146"` → `146`、JSON 字符串里的 array/object 解包、`"a,b"` → `["a","b"]`；不会补缺失字段、猜 path、删 unknown 字段或修 prose。远程大模型不需要打开 `recover_text_tool_calls` 的宽兼容档；系统会默认处理“assistant content 正好是完整显式工具调用 JSON envelope”的安全运输修复。
+确认日志里的 `[tool_param_compat] ... audit repairable` 都是机械类型错误后，再对需要的 provider / agent 切到 `repair`。它只按工具 JSON Schema 修确定性问题，例如 `"offset":"146"` → `146`、JSON 字符串里的 array/object 解包、schema 声明为 object array 时修复 string-carrier 里丢失 `{` 的对象片段、`"a,b"` → `["a","b"]`；不会补缺失字段、猜 path、删 unknown 字段或修 prose。远程大模型不需要打开 `recover_text_tool_calls` 的宽兼容档；系统会默认处理“assistant content 正好是完整显式工具调用 JSON envelope”的安全运输修复。
 
 ### 5.1.7 每个 agent 用不同模型(可选)
 

@@ -2540,7 +2540,7 @@ mcp_servers:
       mode: audit                       # off | audit | repair; audit 不改执行
       split_string_arrays: true
 </code></pre>
-<p>确认日志里的 <code>[tool_param_compat] ... audit repairable</code> 都是机械类型错误后，再对需要的 provider / agent 切到 <code>repair</code>。它只按工具 JSON Schema 修确定性问题，例如 <code>"offset":"146"</code> → <code>146</code>、JSON 字符串里的 array/object 解包、<code>"a,b"</code> → <code>["a","b"]</code>；不会补缺失字段、猜 path、删 unknown 字段或修 prose。远程大模型不需要打开 <code>recover_text_tool_calls</code> 的宽兼容档；系统会默认处理“assistant content 正好是完整显式工具调用 JSON envelope”的安全运输修复。</p>
+<p>确认日志里的 <code>[tool_param_compat] ... audit repairable</code> 都是机械类型错误后，再对需要的 provider / agent 切到 <code>repair</code>。它只按工具 JSON Schema 修确定性问题，例如 <code>"offset":"146"</code> → <code>146</code>、JSON 字符串里的 array/object 解包、schema 声明为 object array 时修复 string-carrier 里丢失 <code>{</code> 的对象片段、<code>"a,b"</code> → <code>["a","b"]</code>；不会补缺失字段、猜 path、删 unknown 字段或修 prose。远程大模型不需要打开 <code>recover_text_tool_calls</code> 的宽兼容档；系统会默认处理“assistant content 正好是完整显式工具调用 JSON envelope”的安全运输修复。</p>
 <h3 id="517-每个-agent-用不同模型可选">5.1.7 每个 agent 用不同模型(可选)</h3>
 <p>每个 agent 都从 <code>default</code> 继承缺省值,只覆盖你要变的字段:</p>
 <pre><code class="language-yaml">llm:

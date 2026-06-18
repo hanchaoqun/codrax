@@ -206,6 +206,32 @@ func TestEmitChangePlan_RepairsStringWrappedChangesArray(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_RepairsSchemaObjectFragmentChangesArray(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	changes := `[{"path":"a.py","kind":"modify","new_content":"A = 1\n","rationale":"set a"}, "path":"b.py","kind":"modify","new_content":"B = 1\n","rationale":"set b","depends_on":"[\"a.py\"]"}]`
+	params := json.RawMessage(`{
+		"request": "update two python constants",
+		"summary": "Modify two small Python files. The second change depends on the first and exercises schema-driven object-fragment recovery for model tool arguments.",
+		"changes": ` + jsonString(changes) + `
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected string-wrapped object-fragment changes[] to be repaired, got summary: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.Changes) != 2 {
+		t.Fatalf("repaired changes[] did not install expected plan: %+v", plan)
+	}
+	if plan.Changes[1].Path != "b.py" || len(plan.Changes[1].DependsOn) != 1 || plan.Changes[1].DependsOn[0] != "a.py" {
+		t.Fatalf("object-fragment repair did not preserve second change: %+v", plan.Changes[1])
+	}
+}
+
 func TestEmitChangePlan_RejectsCreateForExistingFile(t *testing.T) {
 	root := t.TempDir()
 	writeSurfaceFile(t, root, "tests/model_fields/test_charfield.py", "class Existing:\n    pass\n")

@@ -156,6 +156,15 @@ func normalizeValue(value any, schema json.RawMessage, path string, cfg types.To
 				}
 				return value, repairs
 			}
+			if decoded, rule, ok := decodeJSONStringArrayWithSchema(s, node); ok {
+				repairs := []Repair{repair(path, rule, valueKind(value), "array")}
+				value = decoded
+				if arr, ok := value.([]any); ok {
+					out, nestedRepairs := normalizeArray(arr, node, path, cfg)
+					return out, append(repairs, nestedRepairs...)
+				}
+				return value, repairs
+			}
 			if (cfg.SplitStringArraysEnabled() || node.CodraxSplitStringArray) && arrayItemsAllowOnlyString(node) {
 				if arr, ok := splitStringArray(s); ok {
 					return arr, []Repair{repair(path, "delimited_string_array", valueKind(value), "array")}
@@ -917,6 +926,28 @@ func decodeJSONStringAs(s string, want string) (any, string, bool) {
 	return decodeJSONStringAsDepth(s, want, 0)
 }
 
+func decodeJSONStringArrayWithSchema(s string, node schemaNode) (any, string, bool) {
+	keys := arrayObjectItemPropertyKeys(node)
+	if len(keys) == 0 {
+		return nil, "", false
+	}
+	for _, candidate := range JSONRepairCandidates(strings.TrimSpace(s)) {
+		repaired, changed := RepairArrayObjectFragmentsBySchemaKeys(candidate, keys)
+		if !changed {
+			continue
+		}
+		decoded, ok := decodeJSONValue(json.RawMessage(repaired))
+		if !ok {
+			continue
+		}
+		if _, ok := decoded.([]any); !ok {
+			continue
+		}
+		return decoded, "json_string_array_object_fragments", true
+	}
+	return nil, "", false
+}
+
 func decodeJSONStringAsDepth(s string, want string, depth int) (any, string, bool) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
@@ -983,6 +1014,172 @@ func decodeJSONStringAsDepth(s string, want string, depth int) (any, string, boo
 		return decoded, "json_string_" + want + "_syntax", true
 	}
 	return nil, "", false
+}
+
+func arrayObjectItemPropertyKeys(node schemaNode) map[string]struct{} {
+	if len(node.Items) == 0 {
+		return nil
+	}
+	item, ok := parseSchema(node.Items)
+	if !ok || !schemaExpectsObject(item) || len(item.Properties) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(item.Properties))
+	for key := range item.Properties {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		out[key] = struct{}{}
+	}
+	return out
+}
+
+// RepairArrayObjectFragmentsBySchemaKeys repairs a local-model tool-argument
+// artifact where a JSON-stringified array of schema objects drops the opening
+// brace for an item:
+//
+//	[{"path":"a.go"}, "path":"b.go", "kind":"modify"}]
+//
+// The function is intentionally schema-key driven. It inserts an object opener
+// only when the array item schema is object-shaped and the next token is one of
+// that item's declared property names followed by a colon. The candidate is
+// accepted by callers only after normal JSON decoding succeeds.
+func RepairArrayObjectFragmentsBySchemaKeys(s string, itemKeys map[string]struct{}) (string, bool) {
+	if len(itemKeys) == 0 {
+		return s, false
+	}
+	trimmed := strings.TrimSpace(s)
+	if !strings.HasPrefix(trimmed, "[") {
+		return s, false
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	inString := false
+	escape := false
+	arrayDepth := 0
+	objectDepth := 0
+	changed := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			b.WriteByte(ch)
+			if escape {
+				escape = false
+				continue
+			}
+			if ch == '\\' {
+				escape = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+			b.WriteByte(ch)
+		case '[':
+			arrayDepth++
+			b.WriteByte(ch)
+			if arrayDepth == 1 && objectDepth == 0 {
+				next, inserted := maybeInsertSchemaObjectStartAfterArrayDelimiter(s, i+1, itemKeys, &b)
+				if inserted {
+					objectDepth++
+					changed = true
+					i = next - 1
+				}
+			}
+		case ']':
+			if arrayDepth == 1 && objectDepth > 0 {
+				for objectDepth > 0 {
+					b.WriteByte('}')
+					objectDepth--
+					changed = true
+				}
+			}
+			if arrayDepth > 0 {
+				arrayDepth--
+			}
+			b.WriteByte(ch)
+		case '{':
+			objectDepth++
+			b.WriteByte(ch)
+		case '}':
+			if objectDepth > 0 {
+				objectDepth--
+			}
+			b.WriteByte(ch)
+		case ',':
+			b.WriteByte(ch)
+			if arrayDepth == 1 && objectDepth == 0 {
+				next, inserted := maybeInsertSchemaObjectStartAfterArrayDelimiter(s, i+1, itemKeys, &b)
+				if inserted {
+					objectDepth++
+					changed = true
+					i = next - 1
+				}
+			}
+		default:
+			b.WriteByte(ch)
+		}
+	}
+	if !changed {
+		return s, false
+	}
+	return b.String(), true
+}
+
+func maybeInsertSchemaObjectStartAfterArrayDelimiter(s string, start int, itemKeys map[string]struct{}, b *strings.Builder) (int, bool) {
+	j := start
+	for j < len(s) && isJSONWhitespaceByte(s[j]) {
+		j++
+	}
+	if j >= len(s) || s[j] != '"' {
+		return j, false
+	}
+	key, ok := quotedSchemaObjectKeyAt(s, j)
+	if !ok {
+		return j, false
+	}
+	if _, ok := itemKeys[key]; !ok {
+		return j, false
+	}
+	b.WriteString(s[start:j])
+	b.WriteByte('{')
+	return j, true
+}
+
+func quotedSchemaObjectKeyAt(s string, start int) (string, bool) {
+	if start < 0 || start >= len(s) || s[start] != '"' {
+		return "", false
+	}
+	i := start + 1
+	var b strings.Builder
+	escape := false
+	for ; i < len(s); i++ {
+		ch := s[i]
+		if escape {
+			b.WriteByte(ch)
+			escape = false
+			continue
+		}
+		if ch == '\\' {
+			escape = true
+			continue
+		}
+		if ch == '"' {
+			j := i + 1
+			for j < len(s) && isJSONWhitespaceByte(s[j]) {
+				j++
+			}
+			return b.String(), j < len(s) && s[j] == ':'
+		}
+		b.WriteByte(ch)
+	}
+	return "", false
 }
 
 // TrimTransportCloseTagsAfterJSONValue repairs a deterministic tool-call

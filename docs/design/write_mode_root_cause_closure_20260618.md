@@ -551,6 +551,64 @@ RC-36 tasks:
 - [x] Run focused `internal/tool` tests, related regression, full Go tests, SWE
   adapter smoke, and diff check before commit/push.
 
+## 2026-06-18 RC-37 Schema-driven Tool JSON Object-fragment Repair
+
+The SWE-bench logs repeatedly showed `emit_change_plan` failures with
+`strict_decode_remap] string-carrier field "changes" kind=array`. Inspection of
+real planner params showed a provider/tool-call serialization artifact:
+
+```json
+"changes": "[{\"path\":\"a.py\", ...}, \"path\":\"b.py\", ...}]"
+```
+
+The second object lost its opening `{`. Existing tolerance could repair normal
+JSON-stringified arrays and answer-document-specific object fragments, but it
+was not generalized to write-plan object arrays. Asking the model to retry burns
+planning rounds and violates the desired Claude Code-like principle: the
+deterministic harness should absorb mechanical transport mistakes when the
+schema proves the intended structure.
+
+RC-37 moves this into `internal/toolparam`:
+
+```text
+tool-call params + live JSON schema
+  -> array field whose item schema is object-shaped
+  -> stringified array decode fails
+  -> delimiter scanner sees a top-level array item starting with a declared
+     item property key followed by colon
+  -> insert missing object opener
+  -> JSON decode succeeds
+  -> existing recursive schema normalizer fixes nested carriers
+```
+
+Design constraints:
+
+- The repair is schema-driven. It inserts an object opener only when the next
+  token is one of `items.properties` for that array's declared object schema.
+- It never reads user request keywords, issue text, model summary/rationale,
+  `<think>`, or stdout prose.
+- It never invents field values, drops unknown fields, fills missing required
+  fields, or relaxes `emit_change_plan` validators.
+- The repaired candidate must pass normal JSON decoding before it is accepted.
+- Nested fields still flow through the existing recursive normalizer, so
+  examples like `depends_on:"[\"a.py\"]"` become native arrays without a
+  tool-specific path.
+
+RC-37 tasks:
+
+- [x] Add schema-key-driven object-fragment repair for JSON-stringified arrays
+  in `internal/toolparam`.
+- [x] Keep the answer-document legacy repair path intact, but make write-plan
+  arrays rely on the shared schema normalizer.
+- [x] Add normalizer regressions proving object fragments are repaired only
+  when the fragment key is declared by the item schema.
+- [x] Add `emit_change_plan` regression using the real SWE-style
+  `changes:"[{...}, \"path\":...}]"` shape.
+- [x] Update architecture/user docs to clarify that `tool_param_compat` also
+  covers schema-proven object-fragment arrays.
+- [x] Run focused tool/toolparam tests, full regression, diff check, commit, and
+  push.
+
 ## 2026-06-18 SWE-bench Lite Smoke Audit
 
 Run directory:

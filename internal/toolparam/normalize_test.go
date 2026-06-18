@@ -513,6 +513,78 @@ func TestRepairMissingTrailingJSONClosersRejectsUnterminatedStrings(t *testing.T
 	}
 }
 
+func TestNormalize_RepairsSchemaObjectArrayFragments(t *testing.T) {
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"changes":{
+				"type":"array",
+				"items":{
+					"type":"object",
+					"properties":{
+						"path":{"type":"string"},
+						"kind":{"type":"string"},
+						"new_content":{"type":"string"},
+						"rationale":{"type":"string"},
+						"depends_on":{"type":"array","items":{"type":"string"}}
+					}
+				}
+			}
+		}
+	}`)
+	raw := json.RawMessage(`{
+		"changes":"[{\"path\":\"a.py\",\"kind\":\"modify\",\"new_content\":\"A = 1\\n\",\"rationale\":\"first\"}, \"path\":\"b.py\",\"kind\":\"modify\",\"new_content\":\"B = 1\\n\",\"rationale\":\"second\",\"depends_on\":\"[\\\"a.py\\\"]\"}]"
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.changes", "json_string_array_object_fragments") {
+		t.Fatalf("expected schema object-fragment array repair, got %+v\n%s", report, got)
+	}
+	if !hasRepair(report, "$.changes[1].depends_on", "json_string_array") {
+		t.Fatalf("expected nested depends_on repair after object-fragment repair, got %+v\n%s", report, got)
+	}
+	var decoded struct {
+		Changes []struct {
+			Path      string   `json:"path"`
+			Kind      string   `json:"kind"`
+			DependsOn []string `json:"depends_on"`
+		} `json:"changes"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.Changes) != 2 || decoded.Changes[1].Path != "b.py" ||
+		len(decoded.Changes[1].DependsOn) != 1 || decoded.Changes[1].DependsOn[0] != "a.py" {
+		t.Fatalf("unexpected repaired changes: %+v", decoded.Changes)
+	}
+}
+
+func TestNormalize_DoesNotRepairObjectArrayFragmentsWithoutSchemaKey(t *testing.T) {
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"items":{
+				"type":"array",
+				"items":{
+					"type":"object",
+					"properties":{
+						"label":{"type":"string"}
+					}
+				}
+			}
+		}
+	}`)
+	raw := json.RawMessage(`{"items":"[{\"label\":\"one\"}, \"path\":\"two\"}]"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("schema-missing fragment key must not be repaired: %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("payload changed without a schema key match: got %s want %s", got, raw)
+	}
+}
+
 func TestNormalize_StringWrappedArrayWithTrailingCommas(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",
