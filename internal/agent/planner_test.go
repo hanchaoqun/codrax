@@ -287,6 +287,181 @@ func TestPlannerFilterToolSchemas_HandoffSynthesisExhaustsReadBudget(t *testing.
 	}
 }
 
+func TestPlannerFilterToolSchemas_PureProofFollowupMaterializesImmediately(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("pure proof followup")
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-proof",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1-proof-repair",
+			Purpose: "verification_proof_followup",
+			Status:  types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "run_tests"},
+		{Name: emitChangePlanToolName},
+		{Name: emitPlanSkeletonToolName},
+		{Name: emitPlanChangeToolName},
+	}
+
+	if !plannerContextHasWriteHandoffMaterial(ctx) {
+		t.Fatal("pure proof follow-up should activate materialization handoff mode")
+	}
+	if got := plannerHandoffSynthesisReadBudget(ctx); got != 0 {
+		t.Fatalf("pure proof follow-up read budget = %d, want 0", got)
+	}
+	got := e.FilterToolSchemas(ctx, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "run_tests,emit_change_plan,emit_plan_skeleton,emit_plan_change" {
+		t.Fatalf("proof materialization tool surface = %s", names)
+	}
+	if !e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, e.effectiveSoftCap()) {
+		t.Fatalf("read_file should not extend proof materialization planning")
+	}
+	if e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: emitChangePlanToolName}}}, e.effectiveSoftCap()) {
+		t.Fatalf("emit_change_plan should remain callable in proof materialization planning")
+	}
+}
+
+func TestPlannerFilterToolSchemas_PureProofFollowupKeepsMaterializationAfterEmitReject(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("pure proof followup emit reject")
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-proof-reject",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1-proof-repair",
+			Purpose:         "verification_proof_followup",
+			Status:          types.WriteWorkflowBatchReadyToPlan,
+			ExpectedPaths:   []string{"pkg/axis.py"},
+			SuccessCriteria: []string{"impact_obligation=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert"},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	e.ObserveToolResults(ctx, LoopObservation{
+		CurrentToolResults: []types.ToolResult{{
+			ToolName: emitChangePlanToolName,
+			Success:  false,
+			Summary:  "old_text_mismatch",
+		}},
+	})
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "run_tests"},
+		{Name: emitChangePlanToolName},
+		{Name: emitPlanSkeletonToolName},
+		{Name: emitPlanChangeToolName},
+	}
+
+	got := e.FilterToolSchemas(ctx, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "run_tests,emit_change_plan,emit_plan_skeleton,emit_plan_change" {
+		t.Fatalf("proof materialization emit-repair surface = %s", names)
+	}
+	if !e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, e.effectiveSoftCap()) {
+		t.Fatalf("read_file should not extend proof materialization after emit rejection")
+	}
+	obs := LoopObservation{Phase: PhaseMidLoop, CurrentToolResults: []types.ToolResult{{
+		ToolName: "read_file",
+		Success:  false,
+		Repair:   &types.ToolRepair{Code: unavailableToolSurfaceCode},
+	}}}
+	e.ObserveToolResults(ctx, obs)
+	signal := e.Observe(ctx, obs)
+	if !signal.HintRequested || signal.HintKey != "planner.proof-followup-materialization-tool-surface" {
+		t.Fatalf("proof materialization violation should request proof-specific hint, got %+v", signal)
+	}
+	if !strings.Contains(signal.Hint, "changes: []") || !strings.Contains(signal.Hint, "verification_probes[]") {
+		t.Fatalf("proof-specific hint should steer to probe-only plan, got %q", signal.Hint)
+	}
+}
+
+func TestPlannerBuildInitialInstruction_RendersProofFollowupMaterializationSection(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("pure proof followup prompt")
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-proof-prompt",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1-proof-repair",
+			Purpose:         "verification_proof_followup",
+			Status:          types.WriteWorkflowBatchReadyToPlan,
+			ExpectedPaths:   []string{"pkg/axis.py"},
+			SuccessCriteria: []string{"impact_obligation=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert"},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	})
+
+	got := e.BuildInitialInstruction(&types.AgentContext{Mutable: mu}, nil)
+	for _, want := range []string{
+		"## Verification proof materialization",
+		"already-applied worktree",
+		"changes: []",
+		"verification_probes[]",
+		"pkg/axis.py",
+		"Axis.convert",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("proof materialization prompt missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
+func TestPlannerFilterToolSchemas_MixedProofImpactFollowupKeepsReadBudget(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("mixed proof impact followup")
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-proof-impact",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-obligation-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1-obligation-repair",
+			Purpose: "impact_and_verification_proof_followup",
+			Status:  types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "run_tests"},
+		{Name: emitChangePlanToolName},
+	}
+
+	if plannerContextHasWriteHandoffMaterial(ctx) {
+		t.Fatal("mixed impact/proof follow-up should not be forced into proof-only materialization mode")
+	}
+	if got := e.FilterToolSchemas(ctx, schemas); len(got) != len(schemas) {
+		t.Fatalf("mixed impact/proof tool surface should keep read tools, got %v", toolSchemaNamesForTest(got))
+	}
+}
+
 func TestPlannerFilterToolSchemas_StructuredEmitRepairKeepsReadTools(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 	mu := types.NewMutableState("handoff synthesis")

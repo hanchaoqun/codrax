@@ -4524,6 +4524,93 @@ Verification:
     planning budget/direct-synthesis work; RC-77 intentionally does not mix
     that scheduler refinement into the IR repair batch.
 
+## 2026-06-18 RC-78 Proof Follow-up Materialization Lane
+
+- Evidence:
+  - RC-77 restored behavior contracts, but the follow-up
+    `verification_proof_followup` batch spent hundreds of seconds re-reading
+    the already-applied worktree. The planner saw the newly applied code,
+    questioned whether the feature was already implemented, attempted a dry-run
+    probe that failed due missing local dependencies, then continued reading.
+    The batch finally ended `plan_batch_canceled` without a proof plan.
+  - Existing planner code already has a materialization-only tool surface after
+    typed exploration handoff: once read budget is exhausted, it narrows to
+    `run_tests` dry-run probes and structured emit tools. Pure proof follow-up
+    batches lacked the typed signal that activates this lane because they are
+    not exploration handoffs.
+  - RC-78 first smoke (`/private/tmp/codrax-swe-rc78-xarray-20260618-proof-materialization`)
+    showed a second boundary bug: the first proof-follow-up dispatch narrowed
+    to four tools, but the model emitted a production-source patch; the typed
+    `old_text_mismatch` repair path then reopened `read_file`/`grep` and pulled
+    the proof batch back into investigation mode. The run was stopped after the
+    stall was proven in logs.
+- Generalized rule:
+  - A controller-owned pure `verification_proof_followup` batch is not a new
+    investigation. It is a materialization step over an already-applied
+    worktree: emit `changes: []` plus `verification_probes[]`, or fail fast
+    with a typed plan-emission error.
+  - The planner should activate the existing handoff/materialization surface
+    from the first iteration when the durable workflow active batch purpose is
+    `verification_proof_followup` and the run ledger contains
+    `verification_proof_followup_requested`.
+  - A pure proof-follow-up remains materialization-only even after a structured
+    emit validator rejection. The structured emit repair layer may reopen exact
+    reads for ordinary handoff planning, but proof-only batches must recover by
+    emitting a probe-only plan (`changes: []`, `verification_probes[]`) or by
+    failing fast for controller redispatch.
+  - Mixed `impact_and_verification_proof_followup` is not narrowed this way
+    because it may still need executable repair.
+- Prompt and hard-gate hygiene:
+  - The hard routing reads only typed workflow run fields: active batch id,
+    batch purpose, and progress reason code. No user keywords, issue prose,
+    model rationale, summaries, stdout/stderr, or `<think>` output are parsed.
+  - This reuses the existing planner materialization surface and does not
+    introduce a separate proof planner or duplicated tool policy.
+- Task list:
+  - [x] Teach planner handoff detection to treat authorized pure proof
+    follow-up batches as materialization work.
+  - [x] Give pure proof follow-up a zero read budget so schema narrows on the
+    first planner iteration.
+  - [x] Keep pure proof follow-up on the materialization surface after
+    `emit_change_plan`/structured emit rejection; do not reopen read tools from
+    the generic repair layer.
+  - [x] Render a typed proof-materialization prompt section from the durable
+    active workflow batch, so the model sees the proof-only shape without any
+    user-intent keyword routing.
+  - [x] Add planner tool-surface regression proving read tools are removed but
+    `run_tests` and emit tools remain.
+  - [x] Re-run focused proof-follow-up tests and relevant package tests.
+- Verification:
+  - Focused planner tests passed:
+    `TestPlannerFilterToolSchemas_PureProofFollowupMaterializesImmediately`,
+    `TestPlannerFilterToolSchemas_PureProofFollowupKeepsMaterializationAfterEmitReject`,
+    `TestPlannerBuildInitialInstruction_RendersProofFollowupMaterializationSection`,
+    `TestPlannerFilterToolSchemas_MixedProofImpactFollowupKeepsReadBudget`,
+    `TestPlannerFilterToolSchemas_HandoffSynthesisExhaustsReadBudget`, and
+    `TestPlannerFilterToolSchemas_StructuredEmitRepairKeepsReadTools`.
+  - Focused controller proof-lane tests passed:
+    `TestRunControllerPlanBatch_ProofFollowupAcceptsProbeOnlyPlan`,
+    `TestRunControllerPlanBatch_PureProofFollowupRetriesProductionSourcePatchToProbeOnly`,
+    `TestRunControllerPlanBatch_PureProofFollowupAllowsProductionRepairWithFailureHandoff`,
+    `TestRunControllerPlanBatch_ProofFollowupRetriesCommentOnlyProductionPatchToProbeOnly`, and
+    `TestNormalizeControllerTypedStateDecisionProofProbeOnlyPlanVerifiesBeforeFinish`.
+  - RC-78b focused SWE smoke
+    (`/private/tmp/codrax-swe-rc78b-xarray-20260618-proof-materialization`)
+    produced a non-empty prediction (`patch_bytes=691`) and an official harness
+    command. The proof batch completed quickly instead of stalling:
+    `batch-1-proof-repair` emitted `plan-1781785487524167000-78149` with
+    `changes=[]`, `verification_probes=2`, and workflow progress
+    `proof_probe_only_plan_ready`.
+- Remaining gap exposed by RC-78b:
+  - The adapter still reports `local_acceptance_verdict=fail` with
+    `prediction_audit_block_reason=patch_review_semantic_unverified:changed_symbol_without_probe_coverage`
+    when local verification is unavailable (`parser_error`,
+    `make_target_missing`, `unittest_loader_import_error`). This is no longer
+    a proof-planning stall; it is a follow-up acceptance/proof accounting gap:
+    proof probes that cannot execute in the local environment should remain
+    conservative for SWE scoring, but the workflow should carry typed
+    unavailable-verifier evidence and avoid re-requesting the same proof batch.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed
