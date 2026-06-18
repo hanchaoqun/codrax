@@ -5960,7 +5960,7 @@ func TestRunWriteControllerWorkflow_ReplanCancelReportsAppliedPatch(t *testing.T
 	}
 }
 
-func TestRunWriteControllerWorkflow_ReplanWriteDeadlineAfterAppliedPatchBlocksRun(t *testing.T) {
+func TestRunWriteControllerWorkflow_ReplanWriteDeadlineAfterAppliedPatchStaysResumable(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("write deadline after applied patch")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "repair already applied"}}})
@@ -6044,8 +6044,8 @@ func TestRunWriteControllerWorkflow_ReplanWriteDeadlineAfterAppliedPatchBlocksRu
 	if store.last == nil {
 		t.Fatal("workflow state was not persisted")
 	}
-	if store.last.Status != types.WriteWorkflowRunBlocked {
-		t.Fatalf("deadline-interrupted workflow should be blocked, got %+v", store.last)
+	if store.last.Status != types.WriteWorkflowRunInProgress {
+		t.Fatalf("deadline-interrupted repair workflow should remain resumable, got %+v", store.last)
 	}
 	var batchStatus types.WriteWorkflowBatchStatus
 	for _, batch := range store.last.Batches {
@@ -6054,16 +6054,19 @@ func TestRunWriteControllerWorkflow_ReplanWriteDeadlineAfterAppliedPatchBlocksRu
 			break
 		}
 	}
-	if batchStatus != types.WriteWorkflowBatchBlocked {
-		t.Fatalf("deadline-interrupted batch should be blocked, got %s", batchStatus)
+	if batchStatus != types.WriteWorkflowBatchReadyToPlan {
+		t.Fatalf("deadline-interrupted repair batch should be ready to replan, got %s", batchStatus)
 	}
 	for _, want := range []string{
 		"plan_batch_interrupted_after_applied_patch",
-		"plan_batch_interrupted_after_applied_patch_blocked",
+		"plan_batch_interrupted_after_applied_patch_resumable",
 	} {
 		if !workflowProgressHasReason(store.last.ProgressLedger, want) {
 			t.Fatalf("progress ledger missing %s: %+v", want, store.last.ProgressLedger)
 		}
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "plan_batch_interrupted_after_applied_patch_blocked") {
+		t.Fatalf("resumable repair deadline must not record blocked progress: %+v", store.last.ProgressLedger)
 	}
 	if !strings.Contains(mu.Result(), "already applied and preserved") {
 		t.Fatalf("result should preserve applied-patch guidance, got:\n%s", mu.Result())

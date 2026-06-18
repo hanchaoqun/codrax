@@ -4255,6 +4255,7 @@ Verification:
 | RC-73 | complete | Python actual-diff Patch Critic now flags added function-body returns that leave later same-function statements unreachable. This closes the RC-72 Django smoke gap where replan prepended a new method body before the old body, local acceptance failed correctly, but PatchReview lacked a structural hard event for the exported bad patch. Verification: focused Python provider tests, writeflow package, related packages, full `go test ./...`, `make test`, `make`, and diff check pass. |
 | RC-74 | complete | Plan path-state validation now rejects typed `ChangePlan` mismatches before apply: `create` for an existing file/directory, `modify`/`patch`/`rename` source for a missing or directory path, rename destination collisions, repo-boundary escapes, and directory deletes. This closes the RC-78 Django partial-apply/stale-approval class where an existing test file was planned as `create`, the source file applied, test-file create failed, and the workflow blocked with an empty exported patch. Verification: focused `emit_change_plan` path-state tests and full `internal/tool` package pass. |
 | RC-75 | complete | Verify scoped selector handoff now persists `ExecutedCommand.Suite` and falls back to that command-level selector when failure rows are multiple concrete cases under the same prior suite. This closes the RC-79 Django regression where replan verify inherited runner/framework/cwd but an empty suite widened to all 13040 tests, surfacing unrelated host-version failures. Verification: focused handoff inheritance tests and tool regression pass. |
+| RC-81 | complete | Applied-patch interruption policy now keeps failed-verify repair lanes resumable when typed handoff and recovery refs are present, even under `write_deadline`. Non-cancel planner failures and no-evidence deadline interruptions still block. Focused scheduler tests, related packages, full `go test ./...`, `make`, diff check, and targeted Django RC-81b SWE smoke pass the state-kernel objective: non-empty prediction, `workflow_status=in_progress`, `batch.status=ready_to_plan`, and latest progress `plan_batch_interrupted_after_applied_patch_resumable`. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -4684,6 +4685,82 @@ Verification:
     unverified. Prediction export remained harness-consumable and conservative:
     `prediction_verdict=predicted_audit_blocked` with real remaining blocker
     `patch_review_semantic_unverified:behavior_contract_without_verify_coverage`.
+
+## 2026-06-18 RC-81 Resumable Failed-Verify Repair Interruption
+
+- Evidence:
+  - RC-80 Django smoke
+    (`/private/tmp/codrax-swe-rc80-django-20260618-rc80-django-command-suite`)
+    fixed the prior all-suite selector widening, but the final run still ended
+    `workflow_status=blocked` with
+    `workflow_latest_progress_reason_code=plan_batch_interrupted_after_applied_patch_blocked`.
+  - The durable workflow already had an applied recovery ref, failed
+    post-apply verification evidence, `VerifyFailureHandoff`, and an active
+    replan edge. The replanner read the exact local duplicate-symbol cause, but
+    the write-mode wall-clock deadline canceled the planning dispatch before a
+    replacement `ChangePlan` was emitted.
+  - RC-69 intentionally made write-deadline cancellation terminal to avoid
+    ambiguous `in_progress` / empty-patch exports. Live RC-80 evidence shows
+    that rule was too broad for Claude-Code-like online convergence: an
+    already-applied failed-verify repair with typed evidence is resumable, not
+    permanently blocked.
+- Generalized rule:
+  - Hard routing reads only typed state: cancellation source enum, active
+    workflow batch, latest verify attempt status, `VerifyFailureHandoff`, and
+    applied `ChangePlan` recovery metadata.
+  - Non-cancel planner failures after an applied patch still fail loud and mark
+    the run blocked.
+  - Write-deadline cancellation without failed-verify handoff remains allowed
+    to terminalize ambiguous/no-evidence states.
+  - Write-deadline cancellation with an applied patch, failed verify attempt,
+    and matching `VerifyFailureHandoff` preserves `run.status=in_progress` and
+    `batch.status=ready_to_plan`, records
+    `plan_batch_interrupted_after_applied_patch_resumable`, and lets the next
+    write turn auto-resume from the typed failure evidence.
+- Prompt and hard-gate hygiene:
+  - No branch parses error strings, user task text, model rationale, planner
+    prose, stdout/stderr narrative, or visible `<think>`. The cancellation
+    reason text remains user-facing only.
+  - The change is controller-state semantics only; read/log/trace/data,
+    operation, and computer modes are untouched.
+- Task list:
+  - [x] Add a typed resumability predicate for applied-patch interruption:
+    canceled error + active failed verify + matching verify-failure handoff.
+  - [x] Change `appliedPatchInterruptedShouldBlock` to keep that state
+    resumable even when the cancellation source is `write_deadline`.
+  - [x] Record a distinct progress reason for resumable applied repair
+    interruption.
+  - [x] Apply the same predicate to controller-dispatch interruption after an
+    applied patch so the fallback `controller_dispatch_write_deadline` block
+    cannot overwrite a typed resumable repair.
+  - [x] Update scheduler tests so deadline-interrupted failed-verify repair is
+    `in_progress` / `ready_to_plan`, while ordinary replacement planning
+    failure remains blocked.
+- Verification:
+  - Focused scheduler tests passed:
+    `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_Replan(WriteDeadlineAfterAppliedPatchStaysResumable|FailureAfterAppliedPatchBlocksRun|InterruptedAfterAppliedPatchPreservesAppliedPlan)' -count=1`
+    and
+    `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_ControllerDispatchWriteDeadlineBlocks|TestRunWriteControllerWorkflow_ControllerDispatchInterruptedAfterAppliedPatch|TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch' -count=1`.
+  - Related packages passed:
+    `go test ./internal/orchestrator ./internal/writeflow ./internal/types -count=1`.
+  - Full regression/build checks passed: `go test ./...`, `make`, and
+    `git diff --check`.
+  - The first RC-81 smoke at
+    `/private/tmp/codrax-swe-rc81-django-20260618-resumable-repair` failed
+    before write mode because the smoke command omitted `--providers`; the log
+    stopped at `providers.yaml: llm.default.provider is required` and produced
+    no workflow, so it is not system-behavior evidence.
+  - Targeted RC-81b Django smoke at
+    `/private/tmp/codrax-swe-rc81b-django-20260618-resumable-repair` used the
+    provider config, exported a non-empty prediction (`patch_bytes=1971`),
+    and proved the state-kernel fix:
+    `workflow_status=in_progress`,
+    `batch-1.status=ready_to_plan`, and
+    `workflow_latest_progress_reason_code=plan_batch_interrupted_after_applied_patch_resumable`.
+    The prediction remains functionally failed, correctly, because PatchReview
+    found `python_unreachable_body_after_added_return` in
+    `django/db/models/fields/__init__.py`; this is a separate planner
+    patch-quality gap, not an interruption-state regression.
 
 ## Acceptance Criteria
 

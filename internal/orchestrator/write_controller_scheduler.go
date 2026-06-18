@@ -109,13 +109,19 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					return nil
 				}
 				if o.publishAppliedPatchInterruptedGuidance(&run, o.busCtx.Mutable.ChangePlan(), err, "controller_dispatch_interrupted_after_applied_patch") {
-					if o.appliedPatchInterruptedShouldBlock(err) {
+					if o.appliedPatchInterruptedShouldBlock(&run, err) {
 						run.Status = types.WriteWorkflowRunBlocked
 						updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
 						appendControllerProgress(&run, run.ActiveBatchID, "controller_dispatch_interrupted_after_applied_patch_blocked",
 							"applied patch was preserved, but deterministic workflow interruption requires a terminal blocked state")
+					} else if o.appliedPatchInterruptedCanResume(&run, err) {
+						run.Status = types.WriteWorkflowRunInProgress
+						updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
+						appendControllerProgress(&run, run.ActiveBatchID, "controller_dispatch_interrupted_after_applied_patch_resumable",
+							"controller dispatch was interrupted after preserving an applied failed-verify patch; durable run remains resumable from typed failure evidence")
 					}
 					o.persistWriteWorkflowRun(&run)
+					return err
 				}
 				if o.cancellationSourceIsWriteDeadline(err) {
 					run.Status = types.WriteWorkflowRunBlocked
@@ -283,11 +289,16 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			if innerErr != nil {
 				lastInnerErr = innerErr
 				if o.publishAppliedPatchInterruptedGuidance(&run, plan, lastInnerErr, "plan_batch_interrupted_after_applied_patch") {
-					if o.appliedPatchInterruptedShouldBlock(lastInnerErr) {
+					if o.appliedPatchInterruptedShouldBlock(&run, lastInnerErr) {
 						run.Status = types.WriteWorkflowRunBlocked
 						updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
 						appendControllerProgress(&run, run.ActiveBatchID, "plan_batch_interrupted_after_applied_patch_blocked",
 							"failed verification needed a replacement plan, but planning stopped before producing one")
+					} else if o.appliedPatchInterruptedCanResume(&run, lastInnerErr) {
+						run.Status = types.WriteWorkflowRunInProgress
+						updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
+						appendControllerProgress(&run, run.ActiveBatchID, "plan_batch_interrupted_after_applied_patch_resumable",
+							"failed verification repair was interrupted after preserving an applied patch; durable run remains resumable from typed failure evidence")
 					}
 					o.persistWriteWorkflowRun(&run)
 					return lastInnerErr
@@ -1304,14 +1315,17 @@ func changePlanHasAppliedWork(plan *types.ChangePlan) bool {
 	return false
 }
 
-func (o *Orchestrator) appliedPatchInterruptedShouldBlock(err error) bool {
+func (o *Orchestrator) appliedPatchInterruptedShouldBlock(run *types.WriteWorkflowRun, err error) bool {
 	if err == nil {
 		return false
 	}
 	if !errors.Is(err, ErrCanceled) && !errors.Is(err, context.Canceled) {
 		return true
 	}
-	return o.cancellationSourceIsWriteDeadline(err)
+	if !o.cancellationSourceIsWriteDeadline(err) {
+		return false
+	}
+	return !o.appliedPatchInterruptedCanResume(run, err)
 }
 
 func (o *Orchestrator) cancellationSourceIsWriteDeadline(err error) bool {
@@ -1325,6 +1339,46 @@ func (o *Orchestrator) cancellationSourceIsWriteDeadline(err error) bool {
 		return false
 	}
 	return o.cancelToken.Source() == CancelSourceWriteDeadline
+}
+
+func (o *Orchestrator) appliedPatchInterruptedCanResume(run *types.WriteWorkflowRun, err error) bool {
+	if run == nil || err == nil {
+		return false
+	}
+	if !errors.Is(err, ErrCanceled) && !errors.Is(err, context.Canceled) {
+		return false
+	}
+	if !writeWorkflowActiveBatchHasFailedVerify(run) {
+		return false
+	}
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return false
+	}
+	return activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, run.ActiveBatchID)
+}
+
+func writeWorkflowActiveBatchHasFailedVerify(run *types.WriteWorkflowRun) bool {
+	if run == nil {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != activeID {
+			continue
+		}
+		for i := len(batch.Attempts) - 1; i >= 0; i-- {
+			attempt := batch.Attempts[i]
+			if strings.TrimSpace(attempt.Kind) != "verify" {
+				continue
+			}
+			return strings.TrimSpace(attempt.Status) == "failed"
+		}
+		return false
+	}
+	return false
 }
 
 func (o *Orchestrator) publishAppliedPatchInterruptedGuidance(run *types.WriteWorkflowRun, plan *types.ChangePlan, err error, reasonCode string) bool {
