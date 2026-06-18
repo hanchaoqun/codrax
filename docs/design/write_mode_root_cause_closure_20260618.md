@@ -3109,6 +3109,67 @@ RC-59 tasks:
   verify.
 - [x] Update this progress ledger.
 
+RC-59 smoke:
+
+- Reran `pydata__xarray-4248` at
+  `/private/tmp/codrax-swe-rc59-xarray-20260618-122015`.
+- Prediction export stayed non-empty (`patch_bytes=626`) and official harness
+  import/dry-run accepted the predictions file.
+- The workflow no longer stopped at `applied_pending_verify` with missing
+  `verify_status`; it completed with two typed verify attempts.
+- New remaining gap: local verifier was unavailable (`parser_error` from
+  `unittest` loader import errors and missing `make check`), while local audit
+  blocked on `changed_symbol_without_probe_coverage`. The generated patch also
+  showed planner synthesis risk around an existing formatting column variable,
+  so the next fix must improve proof-follow-up scheduling rather than pretend
+  non-empty export implies correctness.
+
+## RC-60: Proof Coverage Follow-Up Must Require Typed Probes
+
+The RC-59 smoke showed that `changed_symbol_without_probe_coverage` was being
+queued as a generic impact repair. That made the next batch look like "repair
+the code again" instead of "prove the changed symbol through a bounded typed
+probe." This is a controller scheduling taxonomy gap:
+
+- `changed_symbol_without_probe_coverage` and
+  `behavior_contract_without_verify_coverage` are proof obligations even when
+  they originate from `PatchReviewRecord`, not only when they originate from
+  `VerificationConfidenceRecord`.
+- A proof follow-up batch without `verification_probes[]` cannot close the
+  missing proof class; applying it as a normal code plan risks blind extra
+  edits when the local project runner is unavailable.
+- The hard gate can be typed and generic: batch purpose
+  `verification_proof_followup` / `impact_and_verification_proof_followup` plus
+  `ChangePlan.VerificationProbes`, never user prose or model rationale.
+
+Design:
+
+- Reclassify typed proof-coverage PatchReview codes as proof follow-up queue
+  items.
+- Add `verification_probe_required=true` to proof success criteria so the
+  planner sees a structured obligation.
+- During proof follow-up planning, retry once with a bounded planning hint if
+  the emitted plan lacks `verification_probes[]`; after that, fail loud instead
+  of applying a code-only proof plan.
+- Bind `symbol=` success criteria into the emitted probe's
+  `changed_symbol_refs` when the probe omitted refs, preserving typed evidence
+  priority for verifier coverage projection.
+- Keep ordinary impact/effect follow-ups unchanged, and keep custom
+  non-proof `ImpactKind=changed_symbol` events classified as impact repairs.
+
+RC-60 tasks:
+
+- [x] Treat `changed_symbol_without_probe_coverage` and
+  `behavior_contract_without_verify_coverage` as verification proof follow-up
+  items independent of source.
+- [x] Add proof criteria marker `verification_probe_required=true`.
+- [x] Add proof-follow-up planning gate requiring `verification_probes[]`, with
+  one structured retry hint.
+- [x] Enrich proof follow-up probe `changed_symbol_refs` from typed
+  `symbol=` criteria before falling back to path-level refs.
+- [x] Add regressions for proof classification and proof-plan probe
+  requirement.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3176,6 +3237,8 @@ RC-59 tasks:
 | RC-57 | complete | Typed SWE failure-cause taxonomy: local Codrax result summaries now group rows into typed cause categories/families such as verification proof, implementation/localization, patch semantics, environment, workflow state, probe generation, export, and accepted/manual-audit buckets. This gives low-pass-rate analysis a stable denominator without parsing logs, issue prose, or model output. |
 | RC-58 | complete | Auto approval refresh after deterministic enrichment: a fresh xarray Lite run showed proof-follow-up probe-ref binding made an auto-executable plan's approval fingerprint stale, causing `approval_authority_invalid` and empty export. Controller-owned deterministic plan mutations now refresh stale auto approvals only when the fresh typed risk policy still allows `auto_execute`; manual/denied/tampered paths remain conservative. Rerunning `pydata__xarray-4248` produced a 1318-byte non-empty prediction and crossed the prior approval boundary; the official harness dry-run still needs a Python 3.10+ eval venv, while the next observed runtime gap is applied-but-unobserved interruption leaving `verify_status` absent. |
 | RC-59 | complete | Applied-but-unobserved interruption closure: controller dispatch `context.Canceled` after a successful apply now runs one bounded typed completion verify before surfacing interruption, unless the orchestrator cancel token was explicitly set. The implementation reuses the budget-completion verify semantics and records `controller_dispatch_completion_verify`; green/unavailable verifier outcomes terminalize the run, while real verify failures persist normal evidence and preserve resumable applied-patch guidance. Verification: focused controller regressions and diff check pass; full regression evidence follows this batch. |
+| RC-59 smoke | complete | Reran `pydata__xarray-4248` at `/private/tmp/codrax-swe-rc59-xarray-20260618-122015`: prediction export is non-empty and official harness dry-run accepts it. Workflow is now `complete` with typed verify attempts instead of missing `verify_status`; local verification remains unavailable (`parser_error`), and audit blocks on `changed_symbol_without_probe_coverage`, motivating RC-60 proof-follow-up scheduling. |
+| RC-60 | complete | Proof follow-up scheduling: typed proof coverage codes from PatchReview now route to `verification_proof_followup`, criteria mark `verification_probe_required=true`, proof batches retry once then fail-loud if the plan omits `verification_probes[]`, and typed `symbol=` criteria enrich probe `changed_symbol_refs`. Ordinary impact repairs remain unchanged. Verification: focused controller regressions pass; full regression evidence follows this batch. |
 
 ## Acceptance Criteria
 

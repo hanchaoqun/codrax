@@ -2616,8 +2616,8 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewAppendsFollowup
 		ReasonCode:        "done",
 		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 	}, run)
-	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.ID != "batch-1-impact-repair" {
-		t.Fatalf("semantic patch review should append impact repair batch, got %+v", got)
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.ID != "batch-1-proof-repair" {
+		t.Fatalf("semantic proof review should append proof repair batch, got %+v", got)
 	}
 	if !strings.Contains(got.Batch.Goal, "pkg/axis.py") {
 		t.Fatalf("follow-up goal should carry typed path scope, got %q", got.Batch.Goal)
@@ -2625,8 +2625,11 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewAppendsFollowup
 	if !containsString(got.Batch.ExpectedPaths, "pkg/axis.py") {
 		t.Fatalf("follow-up batch should carry typed expected path, got %+v", got.Batch.ExpectedPaths)
 	}
-	if !workflowProgressHasReason(run.ProgressLedger, "impact_obligation_followup_requested") {
-		t.Fatalf("impact repair follow-up progress missing: %+v", run.ProgressLedger)
+	if got.Batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("changed-symbol coverage gap should be proof follow-up, got %+v", got.Batch)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("proof repair follow-up progress missing: %+v", run.ProgressLedger)
 	}
 }
 
@@ -2655,17 +2658,20 @@ func TestNormalizeControllerTypedStateDecisionVerifiedButUndercoveredAppendsImpa
 		ReasonCode: "done",
 	}, run)
 
-	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.ID != "batch-1-impact-repair" {
-		t.Fatalf("verified-but-undercovered patch should append impact repair batch, got %+v", got)
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.ID != "batch-1-proof-repair" {
+		t.Fatalf("verified-but-undercovered patch should append proof repair batch, got %+v", got)
 	}
 	if !containsString(got.Batch.ExpectedPaths, "pkg/axis.py") {
-		t.Fatalf("impact repair should be scoped to the typed changed path, got %+v", got.Batch.ExpectedPaths)
+		t.Fatalf("proof repair should be scoped to the typed changed path, got %+v", got.Batch.ExpectedPaths)
 	}
 	if !strings.Contains(strings.Join(got.Batch.SuccessCriteria, "\n"), "changed_symbol_without_probe_coverage") {
-		t.Fatalf("impact repair criteria should preserve typed finding code, got %+v", got.Batch.SuccessCriteria)
+		t.Fatalf("proof repair criteria should preserve typed finding code, got %+v", got.Batch.SuccessCriteria)
 	}
-	if !workflowProgressHasReason(run.ProgressLedger, "impact_obligation_followup_requested") {
-		t.Fatalf("impact repair progress missing: %+v", run.ProgressLedger)
+	if got.Batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("changed-symbol coverage gap should be proof follow-up, got %+v", got.Batch)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("proof repair progress missing: %+v", run.ProgressLedger)
 	}
 }
 
@@ -3279,6 +3285,73 @@ func TestNormalizeControllerTypedStateDecisionImpactRepairUsesTypedImpactKind(t 
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionChangedSymbolCoverageBecomesProofFollowup(t *testing.T) {
+	mu := types.NewMutableState("changed symbol proof followup")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:     "plan-proof-gap",
+		Status: types.PlanStatusUnverified,
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "changed_symbol_without_probe_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				ImpactKind:     types.PatchReviewImpactKindChangedSymbol,
+				Path:           "pkg/axis.py",
+				SubjectSymbol:  "Axis.convert",
+				CoverageStatus: types.PatchReviewCoverageUnavailable,
+				EvidenceRef:    "pkg/axis.py:12",
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-gap",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-proof-gap"},
+				{Kind: "verify", Status: "unverified", ReasonCode: "parser_error", PlanID: "plan-proof-gap"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:            writeflow.ActionFinish,
+		ReasonCode:        "done",
+		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil {
+		t.Fatalf("changed-symbol coverage gap should append proof follow-up batch, got %+v", got)
+	}
+	if got.Batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("batch purpose = %q, want verification_proof_followup: %+v", got.Batch.Purpose, got.Batch)
+	}
+	if !strings.Contains(got.Batch.ID, "proof-repair") {
+		t.Fatalf("proof follow-up batch id should use proof-repair suffix, got %q", got.Batch.ID)
+	}
+	criteria := strings.Join(got.Batch.SuccessCriteria, "\n")
+	for _, want := range []string{
+		"code=changed_symbol_without_probe_coverage",
+		"kind=changed_symbol",
+		"symbol=Axis.convert",
+		"verification_probe_required=true",
+	} {
+		if !strings.Contains(criteria, want) {
+			t.Fatalf("proof criteria missing %q:\n%s", want, criteria)
+		}
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("proof follow-up progress missing: %+v", run.ProgressLedger)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "impact_obligation_followup_requested") {
+		t.Fatalf("changed-symbol proof gap should not be classified as plain impact repair: %+v", run.ProgressLedger)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionImpactRepairWithoutPathExploresFirst(t *testing.T) {
 	mu := types.NewMutableState("impact repair needs localization")
 	mu.SetChangePlan(&types.ChangePlan{
@@ -3317,8 +3390,8 @@ func TestNormalizeControllerTypedStateDecisionImpactRepairWithoutPathExploresFir
 	if got.Action != writeflow.ActionExploreCode || got.ExplorationRequest == nil {
 		t.Fatalf("pathless impact repair should explore before planning, got %+v", got)
 	}
-	if got.ExplorationRequest.BatchID != "batch-1-impact-repair" {
-		t.Fatalf("exploration should target the impact repair batch, got %+v", got.ExplorationRequest)
+	if got.ExplorationRequest.BatchID != "batch-1-proof-repair" {
+		t.Fatalf("exploration should target the proof repair batch, got %+v", got.ExplorationRequest)
 	}
 	if !strings.Contains(strings.Join(got.ExplorationRequest.EvidenceRequirements, "\n"), "behavior_contract_without_verify_coverage") {
 		t.Fatalf("exploration requirements should preserve typed finding code, got %+v", got.ExplorationRequest.EvidenceRequirements)
@@ -5542,6 +5615,84 @@ func TestRunControllerPlanBatch_NoPlanWithoutHandoffStaysTerminal(t *testing.T) 
 	}
 	if planCalls != 1 {
 		t.Fatalf("plan stage calls = %d, want 1 (no retry without typed failure context)", planCalls)
+	}
+}
+
+func TestRunControllerPlanBatch_ProofFollowupRequiresVerificationProbe(t *testing.T) {
+	mu := types.NewMutableState("proof followup requires probe")
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-plan",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1-proof-repair",
+			Goal:            "close proof gap",
+			Purpose:         "verification_proof_followup",
+			ExpectedPaths:   []string{"pkg/axis.py"},
+			SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
+			Status:          types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1-proof-repair",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		plan := &types.ChangePlan{
+			ID:          "plan-proof",
+			Status:      types.PlanStatusPending,
+			Summary:     "close proof gap",
+			TargetPaths: []string{"pkg/axis.py"},
+			Changes: []types.FileChange{{
+				Path:  "pkg/axis.py",
+				Kind:  "patch",
+				Patch: "@@ -1 +1 @@\n-old\n+new\n",
+			}},
+		}
+		if planCalls == 2 {
+			plan.VerificationProbes = []types.VerificationProbe{{
+				ID:       "axis-convert-proof",
+				Language: "python",
+				Code:     "from pkg.axis import Axis\nassert Axis().convert(1) is not None\n",
+			}}
+		}
+		mu.SetChangePlan(plan)
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	batch := &writeflow.WriteBatchPlan{
+		ID:              "batch-1-proof-repair",
+		Goal:            "close proof gap",
+		Purpose:         "verification_proof_followup",
+		ExpectedPaths:   []string{"pkg/axis.py"},
+		SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
+	}
+	if err := o.runControllerPlanBatch(batch, &steps); err != nil {
+		t.Fatalf("proof follow-up should retry once and accept probe-backed plan, got %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan calls = %d, want 2", planCalls)
+	}
+	plan := mu.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) != 1 {
+		t.Fatalf("probe-backed plan missing: %+v", plan)
+	}
+	if got := plan.VerificationProbes[0].ChangedSymbolRefs; len(got) != 1 || got[0] != "Axis.convert" {
+		t.Fatalf("proof criteria symbol should enrich probe changed_symbol_refs, got %+v", got)
+	}
+	if !strings.Contains(mu.PlanningHint(), "verification_probes[]") {
+		t.Fatalf("retry planning hint should mention verification_probes, got:\n%s", mu.PlanningHint())
 	}
 }
 

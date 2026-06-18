@@ -809,6 +809,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	offScopeRiskReplanRetried := false
 	localizationReplanRetried := false
 	testContractReplanRetried := false
+	proofProbeReplanRetried := false
 	lastStallSignature := ""
 	for {
 		priorPlan := o.busCtx.Mutable.ChangePlan()
@@ -882,6 +883,20 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 				}
 			}
 			plan := o.busCtx.Mutable.ChangePlan()
+			if hint := proofFollowupProbeRequiredHint(batch, plan); hint != "" {
+				if !proofProbeReplanRetried {
+					proofProbeReplanRetried = true
+					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
+					if existing != "" {
+						existing += "\n\n"
+					}
+					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
+					o.busCtx.TaskState.LastError = ""
+					logging.Warning("[orchestrator] proof-follow-up plan omitted verification_probes; retrying bounded planning once")
+					continue
+				}
+				return fmt.Errorf("proof follow-up ChangePlan missing verification_probes")
+			}
 			if o.enrichProofFollowupPlanProbeRefs(batch, plan) {
 				o.busCtx.Mutable.SetChangePlan(plan)
 			}
@@ -4295,7 +4310,10 @@ func (o *Orchestrator) enrichProofFollowupPlanProbeRefs(batch *writeflow.WriteBa
 		}
 	}
 	if len(dedupTrimControllerStrings(plan.VerificationProbes[0].ChangedSymbolRefs)) == 0 {
-		if paths := planSourceRepairPaths(plan, 2); len(paths) == 1 {
+		if refs := proofFollowupChangedSymbolRefsFromCriteria(criteria); len(refs) > 0 {
+			plan.VerificationProbes[0].ChangedSymbolRefs = refs
+			changed = true
+		} else if paths := planSourceRepairPaths(plan, 2); len(paths) == 1 {
 			plan.VerificationProbes[0].ChangedSymbolRefs = []string{"path:" + paths[0]}
 			changed = true
 		}
@@ -4373,6 +4391,21 @@ func proofFollowupPurpose(purpose string) bool {
 	}
 }
 
+func proofFollowupProbeRequiredHint(batch *writeflow.WriteBatchPlan, plan *types.ChangePlan) string {
+	if batch == nil || plan == nil || !proofFollowupPurpose(batch.Purpose) || len(plan.VerificationProbes) > 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("This batch is a typed verification proof follow-up. The next ChangePlan must include at least one verification_probes[] entry that imports or executes the changed production code and asserts the uncovered typed symbol/contract behavior.")
+	if len(batch.SuccessCriteria) > 0 {
+		b.WriteString(" Preserve the typed proof criteria when choosing contract_refs or changed_symbol_refs: ")
+		b.WriteString(strings.Join(batch.SuccessCriteria, " | "))
+		b.WriteString(".")
+	}
+	b.WriteString(" Code changes may be included only if the probe or exact current bytes show another code repair is needed; do not emit a prose-only or code-only proof plan.")
+	return b.String()
+}
+
 func proofFollowupContractRefsFromCriteria(criteria []string, plan *types.ChangePlan) []string {
 	if len(criteria) == 0 || plan == nil || len(plan.BehaviorContracts) == 0 {
 		return nil
@@ -4394,6 +4427,24 @@ func proofFollowupContractRefsFromCriteria(criteria []string, plan *types.Change
 			for _, raw := range strings.Split(value, ",") {
 				ref := strings.TrimSpace(raw)
 				if ref != "" && valid[ref] {
+					refs = append(refs, ref)
+				}
+			}
+		}
+	}
+	return dedupTrimControllerStrings(refs)
+}
+
+func proofFollowupChangedSymbolRefsFromCriteria(criteria []string) []string {
+	var refs []string
+	for _, row := range criteria {
+		for _, field := range strings.Fields(row) {
+			key, value, ok := strings.Cut(field, "=")
+			if !ok || strings.TrimSpace(key) != "symbol" {
+				continue
+			}
+			for _, raw := range strings.Split(value, ",") {
+				if ref := strings.TrimSpace(raw); ref != "" {
 					refs = append(refs, ref)
 				}
 			}
@@ -4482,7 +4533,7 @@ func filterPendingImpactRepairQueueItems(run *types.WriteWorkflowRun, items []im
 	proofAlreadyRequested := verificationProofFollowupAlreadyRequested(run)
 	out := make([]impactRepairQueueItem, 0, len(items))
 	for _, item := range items {
-		if impactRepairQueueItemFromVerificationConfidence(item) {
+		if impactRepairQueueItemFromVerificationProof(item) {
 			if proofAlreadyRequested {
 				continue
 			}
@@ -4583,7 +4634,7 @@ func repairFollowupPurposeForItems(items []impactRepairQueueItem) string {
 	hasImpact := false
 	hasProof := false
 	for _, item := range items {
-		if impactRepairQueueItemFromVerificationConfidence(item) {
+		if impactRepairQueueItemFromVerificationProof(item) {
 			hasProof = true
 		} else {
 			hasImpact = true
@@ -4777,6 +4828,19 @@ func impactRepairQueueItemFromVerificationConfidence(item impactRepairQueueItem)
 	return strings.TrimSpace(item.Source) == "verification_confidence"
 }
 
+func impactRepairQueueItemFromVerificationProof(item impactRepairQueueItem) bool {
+	item = normalizeImpactRepairQueueItem(item)
+	if impactRepairQueueItemFromVerificationConfidence(item) {
+		return true
+	}
+	switch item.Code {
+	case "changed_symbol_without_probe_coverage", "behavior_contract_without_verify_coverage":
+		return true
+	default:
+		return false
+	}
+}
+
 func impactRepairKindFromPatchReviewCode(code string) string {
 	switch strings.TrimSpace(code) {
 	case "changed_symbol_without_probe_coverage":
@@ -4856,6 +4920,9 @@ func impactRepairSuccessCriteria(items []impactRepairQueueItem) []string {
 		}
 		if item.ContractRef != "" {
 			parts = append(parts, "contract_ref="+item.ContractRef)
+		}
+		if impactRepairQueueItemFromVerificationProof(item) {
+			parts = append(parts, "verification_probe_required=true")
 		}
 		if item.EvidenceRef != "" {
 			parts = append(parts, "evidence_ref="+item.EvidenceRef)
