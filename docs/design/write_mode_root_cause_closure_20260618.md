@@ -6811,6 +6811,36 @@ verifier-only hardening unless a regression blocks mainline stability.
     `go test ./internal/types ./internal/orchestrator -run
     'Test(OwnerAnchorCandidatePaths|SeedControllerBatchContextPrefersOwnerAnchors)'
     -count=1`.
+  - RC107-G SWE smoke/audit:
+    ran
+    `WORKDIR=/Users/han/opt/codrax/eval/results/swebench/lite-smoke-20260619-rc107g-3
+    SWEBENCH_SMOKE_LIMIT=3 SWEBENCH_FAIL_ON_INSTANCE_ERROR=0
+    SWEBENCH_FAIL_ON_EMPTY_PATCH=0 SWEBENCH_REQUIRE_NONEMPTY_PATCH=0
+    CODRAX_BIN=/Users/han/opt/codrax/codrax eval/swebench/smoke_lite.sh`.
+    Result: 3/3 non-empty predictions, official harness prediction validation
+    passed, and the official harness command was emitted successfully.
+    Manual patch-surface audit:
+    `astropy__astropy-12907` patched
+    `astropy/modeling/separable.py` `_cstack` from scalar `1` to the right
+    matrix block; `astropy__astropy-14182` patched
+    `astropy/io/ascii/rst.py` `RST.__init__` / `RST.write` header-row
+    handling; `astropy__astropy-14365` patched
+    `astropy/io/ascii/qdp.py` line-type regex compilation with
+    `re.IGNORECASE`. These source surfaces are theoretically aligned with the
+    issue behavior.
+  - RC107-G smoke exposed one adjacent UX/state gap, not an owner-localization
+    regression: `astropy__astropy-14365` reached a verified source batch, then
+    appended a proof-only follow-up; the write wall-clock deadline interrupted
+    before that proof follow-up could verify, leaving the run `blocked` despite
+    a coherent verified source patch. The generalized fix completes such
+    proof-only/no-change follow-ups as `unverified` when all non-active source
+    batches already have typed completion verdicts and no verify-failure
+    handoff exists. Ordinary deadline-after-plan and failed-verify repair
+    deadline behavior remains unchanged.
+  - Additional focused verification for the deadline hardening:
+    `go test ./internal/orchestrator -run
+    'TestRunWriteControllerWorkflow_DispatchWriteDeadline(AfterPlanBlocksRun|AfterRepairPlanStaysResumable|ProofFollowupCompletesUnverified)'
+    -count=1`.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

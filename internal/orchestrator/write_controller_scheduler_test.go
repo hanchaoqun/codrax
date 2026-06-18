@@ -1727,6 +1727,91 @@ func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterRepairPlanStaysRes
 	}
 }
 
+func TestRunWriteControllerWorkflow_DispatchWriteDeadlineProofFollowupCompletesUnverified(t *testing.T) {
+	active := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-deadline",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			PlanID: "plan-source",
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict:    types.WriteWorkflowCompletionVerified,
+				ReasonCode: "tests_passed",
+				Source:     "verify_attempt",
+			},
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "plan", Status: "complete", PlanID: "plan-source"},
+				{Kind: "apply", Status: "applied", PlanID: "plan-source"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-source"},
+			},
+		}, {
+			ID:      "batch-1-proof-repair",
+			Purpose: "verification_proof_followup",
+			Status:  types.WriteWorkflowBatchVerifying,
+			PlanID:  "plan-proof",
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "plan", Status: "complete", PlanID: "plan-proof"},
+			},
+		}},
+	}
+	store := &fakeWorkflowRunStore{active: active}
+	mu := types.NewMutableState("deadline during proof followup")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "deadline during proof followup"}}})
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:     "plan-proof",
+		Status: types.PlanStatusNoChangeRequired,
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "probe-proof",
+			Language: "python",
+			Code:     "assert True",
+		}},
+	})
+	controllerCalls := 0
+	var o *Orchestrator
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			controllerCalls++
+			o.cancelWithSource("write mode wall-time exceeded (600s)", CancelSourceWriteDeadline)
+			return nil, context.Canceled
+		},
+	})
+	o = New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if err != nil {
+		t.Fatalf("proof-only deadline should complete with unverified caveat, got %v", err)
+	}
+	if controllerCalls != 1 {
+		t.Fatalf("controller calls = %d, want 1", controllerCalls)
+	}
+	if store.last == nil {
+		t.Fatal("workflow should be persisted")
+	}
+	if store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("proof-only deadline should complete run, got %+v", store.last)
+	}
+	if len(store.last.Batches) != 2 || store.last.Batches[1].Status != types.WriteWorkflowBatchComplete {
+		t.Fatalf("proof follow-up batch should be complete, got %+v", store.last.Batches)
+	}
+	if store.last.Batches[1].Completion == nil ||
+		store.last.Batches[1].Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		store.last.Batches[1].Completion.ReasonCode != "controller_dispatch_write_deadline_proof_followup_unverified" {
+		t.Fatalf("proof follow-up completion wrong: %+v", store.last.Batches[1].Completion)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "controller_dispatch_write_deadline_proof_followup_unverified") {
+		t.Fatalf("proof deadline completion progress missing: %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "controller_dispatch_write_deadline_blocked") {
+		t.Fatalf("proof-only deadline must not block: %+v", store.last.ProgressLedger)
+	}
+}
+
 func TestRunWriteControllerWorkflow_AppendsFollowupBatch(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("two batch change")

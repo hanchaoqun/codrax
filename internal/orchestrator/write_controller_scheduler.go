@@ -108,6 +108,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				if o.runDispatchInterruptedCompletionVerify(&run, stepsUsed, importedPlanMirror) {
 					return nil
 				}
+				if o.completeDispatchInterruptedProofFollowupIfSourceComplete(&run, "controller_dispatch_write_deadline_proof_followup_unverified") {
+					return nil
+				}
 				if o.publishAppliedPatchInterruptedGuidance(&run, o.busCtx.Mutable.ChangePlan(), err, "controller_dispatch_interrupted_after_applied_patch") {
 					if o.appliedPatchInterruptedShouldBlock(&run, err) {
 						run.Status = types.WriteWorkflowRunBlocked
@@ -7049,6 +7052,70 @@ func (o *Orchestrator) runDispatchInterruptedCompletionVerify(run *types.WriteWo
 		"controller_dispatch_completion_verify",
 		"controller dispatch was interrupted after apply; running final verification before surfacing interruption",
 		"controller dispatch interrupted with applied-but-unverified batch")
+}
+
+// completeDispatchInterruptedProofFollowupIfSourceComplete handles write
+// deadlines that land after the source batch already has a typed completion
+// verdict and the active follow-up is proof-only/no-change. In that state a
+// blocked workflow would force needless user recovery for missing local proof,
+// so the run completes with an explicit unverified caveat instead. The decision
+// reads only workflow attempts, batch purpose, ChangePlan shape, and typed
+// failure handoff state.
+func (o *Orchestrator) completeDispatchInterruptedProofFollowupIfSourceComplete(run *types.WriteWorkflowRun, reasonCode string) bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return false
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if !activeBatchProofProbeOnlyPendingVerify(run, plan) {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" || activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, activeID) {
+		return false
+	}
+	if !workflowRunNonActiveBatchesComplete(run) {
+		return false
+	}
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		reasonCode = "proof_followup_unverified"
+	}
+	updateWorkflowRunBatchStatus(run, activeID, types.WriteWorkflowBatchComplete)
+	updateWorkflowRunBatchCompletion(run, activeID, types.WriteWorkflowCompletionUnverified, reasonCode, "write_deadline")
+	appendControllerProgress(run, activeID, reasonCode,
+		"write-mode wall-clock deadline interrupted a proof-only follow-up after source batches already had typed completion verdicts; finishing with unverified proof caveat instead of blocking")
+	run.Status = types.WriteWorkflowRunComplete
+	writeflow.MarkWorkflowRunCompletionFromBatches(run)
+	o.persistWriteWorkflowRun(run)
+	if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
+		result := "write workflow complete"
+		if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
+			result += " — " + caveat
+		}
+		o.busCtx.Mutable.SetResult(result)
+	}
+	return true
+}
+
+func workflowRunNonActiveBatchesComplete(run *types.WriteWorkflowRun) bool {
+	if run == nil {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return false
+	}
+	completed := 0
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == activeID {
+			continue
+		}
+		if batch.Status != types.WriteWorkflowBatchComplete {
+			return false
+		}
+		completed++
+	}
+	return completed > 0
 }
 
 // runAppliedPendingCompletionVerify is the shared completion lane: when the
