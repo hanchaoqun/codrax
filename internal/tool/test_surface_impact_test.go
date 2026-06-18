@@ -42,6 +42,47 @@ func TestImpactRunnerPlansFromChangePlanTargetsPythonRelatedTest(t *testing.T) {
 	}
 }
 
+func TestDefaultRunnerPlansPreservesMultipleImpactSuitesInSameWorkingDir(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "pyproject.toml", "[project]\nname='x'\n")
+	writeImpactSurfaceFixture(t, root, "pkg/a.py", "def value():\n    return 1\n")
+	writeImpactSurfaceFixture(t, root, "tests/test_a.py", "def test_a():\n    assert True\n")
+	writeImpactSurfaceFixture(t, root, "tests/test_b.py", "def test_b():\n    assert True\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-python-multi",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "pkg/a.py",
+				RelatedPath: "tests/test_a.py",
+				Priority:    50,
+				Source:      "impact_engine",
+			}, {
+				Kind:        "test_surface",
+				Path:        "pkg/a.py",
+				RelatedPath: "tests/test_b.py",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+
+	impactPlans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(impactPlans) != 2 {
+		t.Fatalf("expected two impact suite plans, got %+v", impactPlans)
+	}
+	queue := defaultRunnerPlansFromTestSurface(root, surface, "", impactPlans...)
+	if len(queue) < 2 {
+		t.Fatalf("default queue dropped impact suites: %+v", queue)
+	}
+	gotSuites := []string{queue[0].Suite, queue[1].Suite}
+	if gotSuites[0] != "tests/test_a.py" || gotSuites[1] != "tests/test_b.py" {
+		t.Fatalf("impact suites should lead queue in target order, got %+v queue=%+v", gotSuites, queue)
+	}
+}
+
 func TestImpactRunnerPlansFromChangePlanTargetsGoPackage(t *testing.T) {
 	root := t.TempDir()
 	writeImpactSurfaceFixture(t, root, "go.mod", "module example.com/x\n\ngo 1.22\n")

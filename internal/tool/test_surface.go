@@ -201,14 +201,17 @@ func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurfac
 	preferredRunner = strings.TrimSpace(preferredRunner)
 	var out []runnerPlan
 	seenDirs := map[string]bool{}
-	addPlan := func(plan runnerPlan) {
+	seenPriorityPlans := map[string]bool{}
+	addPriorityPlan := func(plan runnerPlan) {
 		workingDir := runnerPlanRel(repoRoot, plan)
 		if workingDir == "" {
 			workingDir = "."
 		}
-		if seenDirs[workingDir] {
+		key := runnerPlanQueueKey(repoRoot, plan)
+		if key == "" || seenPriorityPlans[key] {
 			return
 		}
+		seenPriorityPlans[key] = true
 		seenDirs[workingDir] = true
 		out = append(out, plan)
 	}
@@ -220,13 +223,14 @@ func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurfac
 		if seenDirs[workingDir] {
 			return
 		}
-		addPlan(runnerPlanFromSurfaceCandidate(repoRoot, cand))
+		seenDirs[workingDir] = true
+		out = append(out, runnerPlanFromSurfaceCandidate(repoRoot, cand))
 	}
 	for _, plan := range priorityPlans {
 		if strings.TrimSpace(plan.Runner) == "" || strings.TrimSpace(plan.Root) == "" {
 			continue
 		}
-		addPlan(plan)
+		addPriorityPlan(plan)
 	}
 	if preferredRunner != "" {
 		if cand := nextTestSurfaceEscalationForRunner(surface, nil, preferredRunner); cand != nil {
@@ -251,6 +255,15 @@ func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurfac
 		add(cand)
 	}
 	return out
+}
+
+func runnerPlanQueueKey(repoRoot string, plan runnerPlan) string {
+	key := testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(repoRoot, plan))
+	suite := strings.TrimSpace(plan.Suite)
+	if suite != "" {
+		key += "\x00suite=" + suite
+	}
+	return strings.Trim(key, "\x00")
 }
 
 func impactRunnerPlansFromChangePlan(repoRoot string, surface types.TestSurface, plan *types.ChangePlan) []runnerPlan {

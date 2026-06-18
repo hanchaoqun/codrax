@@ -506,6 +506,51 @@ RC-35 tasks:
 - [x] Run focused type/writeflow/orchestrator/adapter tests, related regression,
   full Go tests, SWE adapter smoke, and diff check before commit/push.
 
+## 2026-06-18 RC-36 Impact Suite Queue Preservation
+
+While checking the verifier target-selection path after RC-35, the deterministic
+test-surface selector showed a narrower scheduling gap. `impactRunnerPlans` can
+produce multiple related-test suite plans from typed `ImpactVerificationTarget`
+rows, but `defaultRunnerPlansFromTestSurface` deduplicates queued plans by
+working directory. When two related tests live under the same runner root, the
+second suite can be dropped before `run_tests` observes it.
+
+This is a system-level verification gap:
+
+```text
+ImpactVerificationTarget(test_surface: tests/test_a.py)
+ImpactVerificationTarget(test_surface: tests/test_b.py)
+  -> two impact runner plans
+  -> default queue collapses by working_dir
+  -> only one focused related test executes
+```
+
+RC-36 changes only the deterministic queue key for scheduler-owned priority
+plans. Broad surface candidates continue to dedupe by working directory so
+`run_tests {}` does not explode into duplicate full-suite executions. Typed
+priority plans dedupe by runner/framework/working_dir/suite, preserving multiple
+bounded related-test obligations from impact analysis.
+
+Design constraints:
+
+- No model prose, issue text, user keywords, or verifier narrative participate in
+  target selection.
+- The verifier still calls `run_tests {}`; the deterministic selector owns suite
+  choice and escalation.
+- Existing no-tests/dead-end escalation keeps using surface-candidate keys, so
+  broad fallback behavior remains stable.
+
+RC-36 tasks:
+
+- [x] Add a runner-plan queue key that includes suite selectors for
+  scheduler-owned priority plans.
+- [x] Preserve multiple impact related-test suites in the default verification
+  queue while still suppressing duplicate broad surface candidates.
+- [x] Add regression coverage for two impact related tests in the same working
+  directory.
+- [x] Run focused `internal/tool` tests, related regression, full Go tests, SWE
+  adapter smoke, and diff check before commit/push.
+
 ## 2026-06-18 SWE-bench Lite Smoke Audit
 
 Run directory:
@@ -1954,6 +1999,7 @@ Verification:
 | RC-33 | complete | Typed plan repair retry consumption: `PlanRepairPack` metadata constants and extraction helpers now live in `internal/types`; controller no-plan retry renders bounded structured repair fields from `ToolResult.Repair.Metadata` instead of asking the planner to mine capped rejection prose. Verification: focused types/tool/orchestrator tests, related package regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
 | RC-34 | complete | Verification probe runtime matrix: existing Python/JavaScript/Ruby/Go inline probe support now has a single typed runtime registry that feeds schema enums, validator supported-values, and plan repair accepted-enums. JVM inline probes remain explicit future work rather than an implied capability. Verification: focused schema/runtime tests, related package regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
 | RC-35 | complete | Root-cause coverage dimensions: PatchReview findings now carry typed `impact_kind`, coverage summary reports per-kind owner/contract/dependent/test/effect buckets, context pack renders the dimension for planner/verifier/controller handoff, controller repair queue prefers typed impact kind over legacy code fallback, and SWE adapter exports per-kind local telemetry without changing official predictions. Verification: focused type/writeflow/orchestrator/adapter tests, related package regression, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
+| RC-36 | complete | Impact suite queue preservation: scheduler-owned priority runner plans now dedupe by runner/framework/working_dir/suite, so multiple typed related-test obligations in the same working directory survive into the default `run_tests {}` queue, while broad surface candidates still dedupe by working directory. Verification: focused impact selector tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 
 ## Acceptance Criteria
 
