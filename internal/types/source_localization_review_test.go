@@ -73,6 +73,38 @@ func TestSourceLocalizationReviewFromTurnAGroundedEvidenceCreatesOwnerAnchor(t *
 	}
 }
 
+func TestSourceLocalizationReviewFromTurnADeterministicConcreteValueNeedsDefiningRoleForAnchor(t *testing.T) {
+	review := SourceLocalizationReviewFromTurnA(
+		[]string{"src/owner.py"},
+		[]EvidenceItem{{
+			ID:        "ev-concrete",
+			Kind:      EvidenceConcrete,
+			Source:    "src/other.py",
+			LineStart: 40,
+			Subject:   "Other.value",
+			Scope:     ScopeLine,
+		}, {
+			ID:          "ev-defining",
+			Kind:        EvidenceConcrete,
+			Source:      "src/defined.py",
+			LineStart:   50,
+			Subject:     "Defined.value",
+			Scope:       ScopeLine,
+			ContextRole: EvidenceContextRoleDefining,
+		}},
+	)
+
+	if sourceLocalizationTestHasAnchor(review, "src/other.py", SourceLocalizationAnchorEvidence, SourceLocalizationAnchorSupporting) {
+		t.Fatalf("broad deterministic concrete value must not become localization anchor: %+v", review.Anchors)
+	}
+	if !sourceLocalizationTestHasAnchor(review, "src/defined.py", SourceLocalizationAnchorEvidence, SourceLocalizationAnchorSupporting) {
+		t.Fatalf("typed defining deterministic evidence should remain eligible: %+v", review.Anchors)
+	}
+	if len(review.EvidenceRefs) != 2 {
+		t.Fatalf("deterministic rows should remain evidence refs, got %+v", review.EvidenceRefs)
+	}
+}
+
 func TestSourceLocalizationReviewFromWritePlanContextSupportedAndMissing(t *testing.T) {
 	prior := []WriteContextPack{{
 		PackID:      "write-analysis",

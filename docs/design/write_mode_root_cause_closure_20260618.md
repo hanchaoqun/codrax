@@ -4268,6 +4268,7 @@ Verification:
 | RC-84 | complete | Restore-aware SWE delivery provenance: the SWE adapter now reads typed workflow `checkpoint_restored_before_replan` progress events and excludes applied source plans before the latest restore in that batch, so rolled-back PatchReview hard errors cannot pollute final delivery audit. Adapter regressions pass and old RC-84 artifact recomputes to a single final source-owner plan. |
 | RC-96 | complete | SWE final-report projection now uses the typed delivery candidate's primary source plan path instead of undefined post-processing locals, eliminating false `status=error` rows after Codrax has already exported a non-empty patch. The RC-95 three-instance rerun validates 3/3 non-empty predictions and official harness import/dry-run consumption, while manual audit keeps the broader exploration/localization gap open for subsequent typed-localization work. |
 | RC-97 | complete | Shared source-localization owner anchors: introduced a read/write typed `SourceLocalizationAnchor` contract so read-mode Turn A distinguishes read-file observation from grounded line-backed owner evidence, write-mode context packs carry typed anchor objects, and plan localization gates prefer precise anchors over broad target-file lists without parsing model prose or stdout. Focused/related tests and full `go test ./...` pass. |
+| RC-98 | complete | Anchor relevance filter: post-RC97 SWE smoke showed broad deterministic `concrete_value` evidence can become supporting localization anchors even when it is not issue-owner evidence. Anchor generation now keeps broad deterministic facts as evidence refs but prevents them from satisfying owner-localization gates unless they carry typed `context_role=defining` authority. Focused/related/full Go regressions pass. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -5769,6 +5770,55 @@ Verification:
     evidence-backed owner support without natural-language parsing.
   - Existing simple write paths without exploration anchors continue to use the
     legacy fallback rather than failing closed.
+
+### RC-97 SWE Smoke Evidence And RC-98 Follow-up
+
+- Post-RC97 SWE-bench Lite smoke:
+  - Workdir:
+    `eval/results/swebench/lite-smoke-20260619-rc97-localization-anchor-3`.
+  - Instances: `pytest-dev__pytest-5227`, `django__django-14534`, and
+    `sympy__sympy-18199`.
+  - Predictions: 3/3 non-empty; validator passed with `empty_patch=0`;
+    official harness import/dry-run accepted the generated command.
+  - Result rows:
+    - Pytest: `status=predicted`, `patch_bytes=512`, workflow complete,
+      verify unavailable, localization supported by `src/_pytest/logging.py`.
+    - Django: `status=predicted`, `patch_bytes=416`, workflow complete,
+      verify unavailable, localization supported by `django/forms/boundfield.py`.
+    - SymPy: `status=predicted`, `patch_bytes=563`, workflow complete,
+      verify passed, localization supported by `sympy/ntheory/residue_ntheory.py`.
+- Audit:
+  - Pytest and Django used write-analysis scope anchors; no read-side
+    localization anchors were present, which is acceptable for direct
+    scope-localized requests.
+  - SymPy persisted `localization_anchor` items, proving the new handoff path
+    works, but the anchors came from broad deterministic `concrete_value`
+    evidence in `sympy/codegen/ast.py` rather than the final owner path.
+  - The plan stayed safe because the write-analysis scope anchor still covered
+    `sympy/ntheory/residue_ntheory.py`, but the broad deterministic anchors are
+    too noisy to satisfy owner localization in future no-scope cases.
+- RC-98 task list:
+  - [x] Let `SourceLocalizationReviewFromTurnA` keep deterministic
+    `concrete_value` / `dataflow_path` rows as evidence refs.
+  - [x] Prevent those broad deterministic rows from becoming
+    owner/supporting localization anchors unless they carry a typed
+    `context_role=defining` authority.
+  - [x] Preserve LLM-emittable grounded/recovered evidence anchors.
+  - [x] Add regression coverage for deterministic concrete-value evidence not
+    satisfying owner localization.
+- RC-98 implementation:
+  - `sourceLocalizationAnchorFromEvidence` now requires either
+    LLM-emittable evidence kind or `context_role=defining` before a line-backed
+    evidence row can become an owner/supporting localization anchor.
+  - Deterministic-only broad rows still remain in `EvidenceRefs`, preserving
+    downstream handoff richness without letting them become hard routing facts.
+- RC-98 verification:
+  - `go test ./internal/types -run
+    'TestSourceLocalization|TestWriteExplorationHandoffCarriesSourceLocalizationAnchors|TestWriteContextPackFromExplorationHandoffProjectsLocalizationAnchors|TestWritePlanSourcePathsOutsidePriorContext|TestWriteContextPackFromPlanContextCoverage'
+    -count=1`
+  - `go test ./internal/types ./internal/tool ./internal/orchestrator
+    ./internal/agent -count=1`
+  - `go test ./...`
 
 ## Acceptance Criteria
 

@@ -482,6 +482,9 @@ func normalizeSourceLocalizationEvidenceRefs(in []WriteExplorationEvidenceRef) [
 }
 
 func sourceLocalizationAnchorFromEvidence(ev EvidenceItem) (SourceLocalizationAnchorKind, SourceLocalizationAnchorStrength, string) {
+	if !sourceLocalizationEvidenceCanAnchorOwner(ev) {
+		return "", "", ""
+	}
 	switch ev.GroundingStatus {
 	case GroundingGrounded:
 		return SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner, "grounded_evidence_owner"
@@ -497,6 +500,13 @@ func sourceLocalizationAnchorFromEvidence(ev EvidenceItem) (SourceLocalizationAn
 		return SourceLocalizationAnchorEvidence, SourceLocalizationAnchorSupporting, "scoped_evidence_supporting"
 	}
 	return "", "", ""
+}
+
+func sourceLocalizationEvidenceCanAnchorOwner(ev EvidenceItem) bool {
+	if ev.Kind.IsLLMEmittable() {
+		return true
+	}
+	return ev.ContextRole == EvidenceContextRoleDefining
 }
 
 func sourceLocalizationHasStrength(anchors []SourceLocalizationAnchor, strength SourceLocalizationAnchorStrength) bool {
