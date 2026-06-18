@@ -412,6 +412,13 @@ Batch F implementation notes:
   model-facing summaries, typed observations, trace_query examples, and runtime
   report notes render `sample_weight` / `total_sample_weight` so the model does
   not misread perf period values as elapsed time.
+- `trace_query` now publishes backend-derived `weight_unit` / `weight_units`
+  hints alongside perf hotspots and `perf_quality`. Known typed perf events map
+  to units such as `cycles`, `instructions`, `ns_on_cpu_event`,
+  `ns_off_cpu_event`, `ns_clock_event`, or `event_count`. These hints are
+  evidence-consumption guidance only: `sample_weight` remains a weighted event
+  value, and the model may treat it as time only when the event definition
+  explicitly makes the unit time-like.
 - CPU-unknown guidance now says samples cannot be attributed to any concrete
   CPU/core. It avoids negated concrete CPU names in prompts and caveats, while
   preserving real CPU0 evidence when actual trace rows carry `cpu=0`.
@@ -423,11 +430,12 @@ Batch F implementation notes:
 - `docs/user_guide.md` already documents official-first, official-only, raw
   fallback, disabled-perftrace, and direct tracebundle analysis workflows; it
   now also explains the preflight `check/aux_check/install/docs` fields.
-- Final answer documents now preserve `sample_kind`, `cpu_known/cpu_unknown`,
-  source, symbolization, clock confidence, callchain quality, and DSO in the
-  auto-materialized `Perf 证据质量` block. Markdown/HTML runtime artifact tables
-  also surface off-CPU, CPU-unknown, and assumed/unknown clock-confidence
-  details when they are present in perftrace rows.
+- Final answer documents now preserve `sample_kind`, `weight_unit`,
+  `cpu_known/cpu_unknown`, source, symbolization, clock confidence, callchain
+  quality, and DSO in the auto-materialized `Perf 证据质量` block.
+  Markdown/HTML runtime artifact tables also surface off-CPU, CPU-unknown,
+  unit-hint, and assumed/unknown clock-confidence details when they are present
+  in perftrace-derived evidence.
 - Confirmed this batch adds only backend-owned status/output fields. No
   model-authored provider filter was introduced, so the unified tool-call JSON
   repair layer needs no new alias/schema entry for this batch.

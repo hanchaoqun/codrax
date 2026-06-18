@@ -1338,6 +1338,7 @@ type perfQualityAcc struct {
 	sources               map[string]*perfValueCountAcc
 	symbolizationStatuses map[string]*perfValueCountAcc
 	sampleKinds           map[string]*perfValueCountAcc
+	weightUnits           map[string]*perfValueCountAcc
 	clocks                map[string]*perfValueCountAcc
 	clockConfidences      map[string]*perfValueCountAcc
 	callchainStatuses     map[string]*perfValueCountAcc
@@ -1375,6 +1376,7 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 		if period <= 0 {
 			period = 1
 		}
+		weightUnit := perfSampleWeightUnit(ev)
 		ctx.SampleCount++
 		ctx.TotalPeriod += period
 		quality.add(ev, period)
@@ -1384,12 +1386,14 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 			Symbol:              ev.PerfSymbol,
 			DSO:                 ev.PerfDSO,
 			Event:               ev.PerfEvent,
+			WeightUnit:          weightUnit,
 			Source:              ev.PerfSource,
 			SymbolizationStatus: ev.PerfSymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byDSO, firstNonEmpty(ev.PerfDSO, "unknown"), PerfHotspot{
 			DSO:                 ev.PerfDSO,
 			Event:               ev.PerfEvent,
+			WeightUnit:          weightUnit,
 			Source:              ev.PerfSource,
 			SymbolizationStatus: ev.PerfSymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
@@ -1398,11 +1402,13 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 			DSO:                 ev.PerfDSO,
 			Callchain:           ev.PerfCallchain,
 			Event:               ev.PerfEvent,
+			WeightUnit:          weightUnit,
 			Source:              ev.PerfSource,
 			SymbolizationStatus: ev.PerfSymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byEvent, firstNonEmpty(ev.PerfEvent, "unknown"), PerfHotspot{
 			Event:               ev.PerfEvent,
+			WeightUnit:          weightUnit,
 			Source:              ev.PerfSource,
 			SymbolizationStatus: ev.PerfSymbolizationStatus,
 		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
@@ -1511,6 +1517,9 @@ func perfSampleExample(ev Event) string {
 	if ev.PerfPeriod > 0 {
 		parts = append(parts, fmt.Sprintf("sample_weight=%d", ev.PerfPeriod))
 	}
+	if unit := perfSampleWeightUnit(ev); unit != "" {
+		parts = append(parts, "weight_unit="+unit)
+	}
 	if ev.PerfSource != "" {
 		parts = append(parts, "source="+ev.PerfSource)
 	}
@@ -1543,6 +1552,7 @@ func newPerfQualityAcc() *perfQualityAcc {
 		sources:               map[string]*perfValueCountAcc{},
 		symbolizationStatuses: map[string]*perfValueCountAcc{},
 		sampleKinds:           map[string]*perfValueCountAcc{},
+		weightUnits:           map[string]*perfValueCountAcc{},
 		clocks:                map[string]*perfValueCountAcc{},
 		clockConfidences:      map[string]*perfValueCountAcc{},
 		callchainStatuses:     map[string]*perfValueCountAcc{},
@@ -1556,6 +1566,7 @@ func (acc *perfQualityAcc) add(ev Event, period int64) {
 	addPerfValueCount(acc.sources, firstNonEmpty(ev.PerfSource, "unknown"), period)
 	addPerfValueCount(acc.symbolizationStatuses, firstNonEmpty(ev.PerfSymbolizationStatus, "unknown"), period)
 	addPerfValueCount(acc.sampleKinds, firstNonEmpty(ev.PerfSampleKind, "unknown"), period)
+	addPerfValueCount(acc.weightUnits, perfSampleWeightUnit(ev), period)
 	addPerfValueCount(acc.clocks, firstNonEmpty(ev.PerfClock, "unknown"), period)
 	addPerfValueCount(acc.clockConfidences, firstNonEmpty(ev.PerfClockConfidence, "unknown"), period)
 	addPerfValueCount(acc.callchainStatuses, firstNonEmpty(ev.PerfCallchainStatus, "unknown"), period)
@@ -1579,6 +1590,7 @@ func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
 		Sources:               sortedPerfValueCounts(acc.sources, total),
 		SymbolizationStatuses: sortedPerfValueCounts(acc.symbolizationStatuses, total),
 		SampleKinds:           sortedPerfValueCounts(acc.sampleKinds, total),
+		WeightUnits:           sortedPerfValueCounts(acc.weightUnits, total),
 		Clocks:                sortedPerfValueCounts(acc.clocks, total),
 		ClockConfidences:      sortedPerfValueCounts(acc.clockConfidences, total),
 		CallchainStatuses:     sortedPerfValueCounts(acc.callchainStatuses, total),
@@ -1588,10 +1600,35 @@ func (acc *perfQualityAcc) summary(total int64) *PerfQualitySummary {
 		CallchainUnknownCount: acc.callchainUnknownCount,
 	}
 	out.Caveats = perfQualityCaveats(*out)
-	if len(out.Sources) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.SampleKinds) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
+	if len(out.Sources) == 0 && len(out.SymbolizationStatuses) == 0 && len(out.SampleKinds) == 0 && len(out.WeightUnits) == 0 && len(out.Clocks) == 0 && out.CPUKnownCount == 0 && out.CPUUnknownCount == 0 {
 		return nil
 	}
 	return out
+}
+
+func perfSampleWeightUnit(ev Event) string {
+	event := strings.ToLower(strings.TrimSpace(ev.PerfEvent))
+	sampleKind := strings.ToLower(strings.TrimSpace(ev.PerfSampleKind))
+	switch {
+	case event == "":
+		return "event_count"
+	case strings.Contains(event, "cpu-cycles") || strings.Contains(event, "cycles"):
+		return "cycles"
+	case strings.Contains(event, "instructions"):
+		return "instructions"
+	case strings.Contains(event, "cpu-clock") || strings.Contains(event, "task-clock"):
+		if sampleKind == "off_cpu" {
+			return "ns_off_cpu_event"
+		}
+		if sampleKind == "on_cpu" {
+			return "ns_on_cpu_event"
+		}
+		return "ns_clock_event"
+	case strings.Contains(event, "sched_switch") && sampleKind == "off_cpu":
+		return "ns_off_cpu_event"
+	default:
+		return "event_count"
+	}
 }
 
 func addPerfValueCount(bucket map[string]*perfValueCountAcc, value string, period int64) {
@@ -1649,8 +1686,18 @@ func perfQualityCaveats(q PerfQualitySummary) []string {
 	if perfValueCountsContain(q.ClockConfidences, "assumed") || perfValueCountsContain(q.ClockConfidences, "unknown") {
 		out = append(out, "perf sample timestamps use assumed or unknown clock alignment; treat trace/perf overlap as supporting evidence unless calibrated")
 	}
+	if unit := perfQualityTopUnit(q.WeightUnits); unit != "" {
+		out = append(out, "perf sample_weight unit hint is "+unit+"; keep it as an event weight unless the event definition explicitly defines a time unit")
+	}
 	out = append(out, "perf period/sample_weight values are event/sample weights, not elapsed duration; do not convert them to time or expected sample density without explicit sampling configuration and calibrated CPU frequency")
 	return out
+}
+
+func perfQualityTopUnit(values []PerfValueCount) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(values[0].Value)
 }
 
 func perfValueCountsContain(values []PerfValueCount, want string) bool {
@@ -9144,7 +9191,7 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 				Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
 				Predicate:  "perf_sample_top_symbol",
 				Object:     hot.DSO,
-				Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+				Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
 				LineStart:  hot.LineStart,
 				LineEnd:    hot.LineEnd,
 				Confidence: 0.72,
@@ -9195,7 +9242,7 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 			Subject:    firstNonEmpty(hot.Symbol, hot.DSO, hot.Event, "perf_sample"),
 			Predicate:  "perf_sample_top_symbol",
 			Object:     hot.DSO,
-			Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+			Summary:    fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
 			LineStart:  hot.LineStart,
 			LineEnd:    hot.LineEnd,
 			Confidence: 0.72,
@@ -9209,7 +9256,7 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 			Subject:    firstNonEmpty(hot.Symbol, hot.Callchain, "perf_callchain"),
 			Predicate:  "perf_sample_top_callchain",
 			Object:     hot.Callchain,
-			Summary:    fmt.Sprintf("perf callchain: %s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Callchain, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
+			Summary:    fmt.Sprintf("perf callchain: %s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Callchain, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent),
 			LineStart:  hot.LineStart,
 			LineEnd:    hot.LineEnd,
 			Confidence: 0.68,
@@ -9455,6 +9502,9 @@ func perfQualitySummaryCompact(q *PerfQualitySummary) string {
 	}
 	if sampleKind := perfQualityTopValue(q.SampleKinds); sampleKind != "" {
 		parts = append(parts, "sample_kind="+sampleKind)
+	}
+	if unit := perfQualityTopValue(q.WeightUnits); unit != "" {
+		parts = append(parts, "weight_unit="+unit)
 	}
 	if clock := perfQualityTopValue(q.Clocks); clock != "" {
 		parts = append(parts, "clock="+clock)

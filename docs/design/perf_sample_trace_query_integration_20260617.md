@@ -153,6 +153,11 @@ Rules:
   `period_weight`, `event_count`, and `count` remain accepted input aliases for
   imported traces, but generated `.perftrace` uses `sample_weight` to avoid
   implying elapsed time. If absent, count each sample as weight 1.
+- `trace_query` derives a model-facing `weight_unit` hint from typed perf event
+  semantics. Examples include `cycles`, `instructions`, `ns_on_cpu_event`,
+  `ns_off_cpu_event`, `ns_clock_event`, and `event_count`. This is not a
+  tool-call input field and should not be added to JSON repair aliases unless a
+  future model-authored filter is introduced.
 - `event` is the hardware/software event name such as `cpu-cycles`.
 - `symbol` is the leaf/hot function; `dso` is the mapped binary/library.
 - `callchain` is semicolon-separated from root to leaf when the adapter can determine order; parser records the raw string and does not infer missing frames.
@@ -189,7 +194,7 @@ Add a reusable `PerfContext`:
 
 Each hotspot row should carry:
 
-- `symbol`, `dso`, `event`
+- `symbol`, `dso`, `event`, `weight_unit`
 - `sample_count`, `period`, `percent`
 - `threads`, `cpus`
 - `line_start`, `line_end`, `example`

@@ -1292,11 +1292,32 @@ func TestPerfSampleQualitySummarizesCPUUnknownAndRawFallback(t *testing.T) {
 	if !perfValueCountsContainTest(q.SymbolizationStatuses, "unsymbolized") || !perfValueCountsContainTest(q.CallchainStatuses, "ip_only") {
 		t.Fatalf("quality should include raw fallback degradation: %+v", q)
 	}
+	if !perfValueCountsContainTest(q.WeightUnits, "cycles") {
+		t.Fatalf("quality should infer cpu-cycles sample weight units: %+v", q.WeightUnits)
+	}
 	if len(q.Caveats) == 0 {
 		t.Fatalf("quality should emit caveats for cpu unknown/raw/ip-only/clock alignment: %+v", q)
 	}
+	if !containsSubstring(q.Caveats, "sample_weight unit hint is cycles") {
+		t.Fatalf("quality caveats should include sample weight unit hint: %+v", q.Caveats)
+	}
 	if !containsSubstring(q.Caveats, "period/sample_weight values are event/sample weights") {
 		t.Fatalf("quality caveats should prevent treating perf period as elapsed time or sample density: %+v", q.Caveats)
+	}
+}
+
+func TestPerfSampleQualityInfersClockAndOffCPUWeightUnits(t *testing.T) {
+	idx := buildTraceIndex(t, "clock-units.perftrace", `
+	worker-41 ( 40) [000] .... 5.004000: perf_sample: cpu=-1 cpu_known=false pid=40 tid=41 thread_comm=worker sample_weight=7000 event=cpu-clock symbol=Worker::waitForReply dso=libworker.so source=simpleperf_report_proto sample_kind=off_cpu symbolization_status=symbolized clock=simpleperf_record clock_confidence=assumed callchain_status=symbolized
+	ui-31 ( 31) [006] .... 5.006000: perf_sample: cpu=6 cpu_known=true pid=31 tid=31 thread_comm=ui sample_weight=12000 event=cpu-clock symbol=RenderPipeline::draw dso=libui.so source=simpleperf_report_sample sample_kind=on_cpu symbolization_status=symbolized clock=record clock_confidence=assumed callchain_status=symbolized
+	`)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 5.0, TimeEnd: 5.010})
+	if stats.PerfSamples == nil || stats.PerfSamples.Quality == nil {
+		t.Fatalf("expected perf quality summary: %+v", stats.PerfSamples)
+	}
+	q := stats.PerfSamples.Quality
+	if !perfValueCountsContainTest(q.WeightUnits, "ns_off_cpu_event") || !perfValueCountsContainTest(q.WeightUnits, "ns_on_cpu_event") {
+		t.Fatalf("quality should infer cpu-clock on/off cpu unit hints: %+v", q.WeightUnits)
 	}
 }
 
