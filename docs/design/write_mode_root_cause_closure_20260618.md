@@ -2453,6 +2453,60 @@ RC-46 tasks:
 - [x] Add focused tests for schema/runtime registry, fake JDK execution,
   compile parser_error, and Java coupling.
 
+## 2026-06-18 RC-47 Owner-Boundary Runtime Signals Design
+
+RC-45/RC-46 closed the "is actual-diff dynamic mapping Python-only?" question:
+mapping/container boundary events are already provider-backed for Python,
+JS/TS, Ruby, Java/Kotlin, and Go. The remaining owner-boundary gap is different:
+the SWE-bench adapter still owns a Python-only audit helper for
+caller-return adapters, conditionally suppressed diagnostics, and external
+private-state synchronization. Those signals currently downgrade eval
+confidence after export, but they cannot help live write mode re-explore or
+replan because they are not emitted as runtime `PatchEffectEvent` records.
+
+RC-47 moves this class of evidence into the same actual-diff provider pipeline:
+
+```text
+actual unified diff + post-apply file bytes
+  -> language source-shape provider
+  -> owner-boundary/workaround hunk signal
+  -> PatchEffectEvent
+  -> PatchReview semantic coverage unknown
+  -> P2 context pack + bounded impact repair queue
+```
+
+Design constraints:
+
+- signals are generated only from typed artifacts: repo-relative paths, actual
+  diff hunk line text, post-apply source bytes, source path role, and provider
+  registry metadata;
+- no user request keywords, issue prose, model rationale, `<think>` text, or
+  manual audit notes drive control flow;
+- findings are soft semantic-coverage unknowns, not apply blockers. They should
+  request proof/replan while budget remains, but they must not increase routine
+  approval friction;
+- event codes are generic enough to be consumed by controller and adapter
+  without language branches, while provider rules remain language-aware where
+  syntax differs;
+- the SWE-bench adapter may continue exporting its audit fields for historical
+  comparison, but runtime PatchReview becomes the authoritative producer for
+  live write-mode scheduling.
+
+RC-47 tasks:
+
+- [ ] Add provider-backed hunk signals for caller-return wrapper adapters,
+  newly guarded diagnostic calls, and external private-state assignment
+  workarounds.
+- [ ] Cover Python plus analogous JS/TS, Ruby, Java/Kotlin syntax shapes where
+  the source-code signal is precise enough; skip languages whose local syntax
+  cannot be identified without noisy inference.
+- [ ] Register the new event codes as PatchReview soft semantic-coverage
+  unknowns so they flow into context packs and bounded repair scheduling.
+- [ ] Add focused actual-diff tests proving the findings are generated from
+  source hunks and remain non-hard-blocking.
+- [ ] Update this ledger with verification evidence and keep the eval adapter's
+  historical fields clearly labeled as audit telemetry.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
