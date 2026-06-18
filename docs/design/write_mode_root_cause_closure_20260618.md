@@ -106,20 +106,15 @@ and deterministic consumers, not user-keyword or model-prose routing.
 
 Current sorted queue:
 
-1. **RC-105: cumulative PatchEffect owned-path boundary.** Cumulative actual
-   diff review must ignore build/verify-generated artifacts outside durable
-   applied plan-owned paths.
-2. **RC-106: source-owner relation after test-only replan.** If an earlier
-   source-owner patch is kept and a later test-only replan proves behavior,
-   delivery export/reporting must preserve the coherent source-owner relation
-   instead of treating the final test-only plan as the whole delivery.
-3. **RC-107: shared owner-anchor scheduling authority.** Promote typed
+1. **RC-107: shared owner-anchor scheduling authority.** Promote typed
    localization owner/evidence anchors into read/write scheduling, repair, and
    report projection so planning avoids wrong source surfaces earlier.
-4. **Environment/unavailable verification clarity.** Missing customer project
-   dependencies should stay warning/unverified evidence and must not drive
-   source replan as if product code failed.
-5. **Broader SWE re-run and audit.** Continue Lite spot runs after each system
+2. **RC-109: verification environment/probe unavailable authority.** Source
+   checkout build-extension import errors and unavailable generated make targets
+   should remain typed environment/probe-unavailable evidence, not source-code
+   failure loops or local hard blockers when the patch effect is otherwise
+   coherent.
+3. **Broader SWE re-run and audit.** Continue Lite spot runs after each system
    fix, keeping official harness compatibility separate from functional
    correctness.
 
@@ -4322,7 +4317,8 @@ Verification:
 | RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
 | RC-106 | complete | Same-batch source-owner relation after test-only replan: restore-aware delivery lineage now preserves/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code, while still excluding stale pre-restore plans when no precise restored checkpoint relation exists. Focused Go and SWE adapter regressions pass. |
 | RC-107 | queued | Shared typed localization owner/evidence scheduling authority: promote read/write owner anchors into exploration, extraction, planner/replan scheduling, and final report projection so wrong source-surface patches are avoided earlier. |
-| RC-108 | in_progress | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. |
+| RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
+| RC-109 | queued | Verification environment/probe unavailable authority: RC108 smoke now reaches proof/verify surfaces, but Astropy source-checkout extension import errors and unavailable make targets still lower/stop local acceptance. Next batch should classify these through typed environment/probe-unavailable records and avoid source replan loops when patch effect is coherent. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -6382,8 +6378,82 @@ Verification:
     uncommitted.
   - [x] Add apply post-hook regression proving applied PatchEffect commits only
     plan-owned files.
-  - [ ] Run related/full regressions, rebuild, commit, push, and rerun a fresh
+  - [x] Run related/full regressions, rebuild, commit, push, and rerun a fresh
     SWE Lite smoke.
+- Verification:
+  - `go test ./internal/worktree -run
+    'TestCommitChangesForPaths|TestCommitChanges_RoundTrip' -count=1`
+  - `go test ./internal/orchestrator -run
+    'TestApplyPostHookCheckpointCommitKeepsOnlyPlanOwnedPaths|TestPersistVerifyFailureEvidence'
+    -count=1`
+  - `go test ./internal/worktree ./internal/orchestrator ./internal/types
+    ./internal/writeflow -count=1`
+  - `go test ./...`
+  - `make`
+  - `git diff --check`
+  - Fresh smoke:
+    `WORKDIR=eval/results/swebench/lite-smoke-20260619-rc108-3
+    SWEBENCH_SMOKE_LIMIT=3 SWEBENCH_FAIL_ON_EMPTY_PATCH=0
+    SWEBENCH_REQUIRE_NONEMPTY_PATCH=0 SWEBENCH_FAIL_ON_INSTANCE_ERROR=0
+    CODRAX_BIN=/Users/han/opt/codrax/codrax
+    eval/swebench/smoke_lite.sh`
+- RC108 smoke result:
+  - Predictions: 3/3 non-empty; official harness dry-run/import accepted
+    `eval/results/swebench/lite-smoke-20260619-rc108-3/predictions.jsonl`.
+  - `grep` over plan artifacts found no
+    `patch_effect_path_outside_plan_scope:cextern` generated-path blocker.
+  - `astropy__astropy-14365` reached `workflow_status=complete`,
+    `verify_status=passed`, `prediction_verdict=predicted_passed`, and
+    `prediction_local_confidence=high`.
+  - Remaining gaps are no longer generated-path PatchEffect pollution:
+    `astropy__astropy-12907` failed local verification due Astropy source
+    checkout extension import error; `astropy__astropy-14182` completed
+    unverified with `make_target_missing` plus probe import errors and stayed
+    audit-blocked on proof coverage.
+
+## 2026-06-19 RC-109 Queued Verification Environment/probe Unavailable Authority
+
+- Evidence:
+  - RC108 smoke shows the write pipeline now gets past apply PatchEffect
+    pollution and reaches proof/verification surfaces.
+  - `astropy__astropy-12907` still becomes `predicted_failed_verify` because a
+    bounded probe imports Astropy from an unbuilt source checkout and raises the
+    project-standard extension-build ImportError.
+  - `astropy__astropy-14182` completes unverified with `make_target_missing`
+    and `verification_probe_import_error`, while local acceptance still blocks
+    on changed-symbol proof coverage.
+- Gap:
+  - The verifier already has typed unavailable states, but source-checkout
+    extension import errors and generated/native make target gaps are not yet
+    consistently promoted to environment/probe-unavailable authority before
+    they drive source replan or hard local failure.
+  - Probe import failures need a repair/selection layer that can choose a more
+    local import surface or classify the project environment as unavailable
+    without asking the model to infer from traceback prose.
+- Design:
+  - Add typed environment-unavailable classifiers for common source-checkout
+    build-extension boundaries using structured exception class/module/path
+    frames and existing environment diagnostics, not natural-language matching
+    over model summaries.
+  - Normalize make target unavailable records so runner/working-dir/target are
+    structured; avoid malformed synthetic targets such as
+    `make@cextern/wcslib::make` becoming proof authority.
+  - When PatchEffect is coherent and verifier evidence is environment/probe
+    unavailable, prefer `unverified` completion and proof telemetry over source
+    replan loops, unless a typed product-code frame/changed-line diagnostic
+    proves the patch caused the failure.
+  - Keep local acceptance conservative: unavailable proof is not a pass, but it
+    should not masquerade as a functional failure or cause broad source edits.
+- Task list:
+  - [ ] Audit verification probe failure normalization and command-derived
+    unavailable reason aggregation.
+  - [ ] Add typed classifier for source-checkout build-extension import errors
+    using exception/module/path structure.
+  - [ ] Normalize make target unavailable command fields and prevent malformed
+    runner/target concatenation.
+  - [ ] Update observation authority so coherent patch + unavailable proof
+    produces unverified completion instead of source-code failure loops.
+  - [ ] Add focused verifier/tool/orchestrator regressions and rerun Lite smoke.
 
 ## 2026-06-19 RC-107 Queued Shared Typed Localization Owner/evidence Scheduling Authority
 
