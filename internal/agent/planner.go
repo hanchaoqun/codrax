@@ -1113,9 +1113,16 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // structured plan emit tools plus the typed dry-run probe tool. This keeps the
 // model flexible enough to validate runtime assumptions while preventing a
 // second full investigation loop from consuming every planning iteration.
-func (e *plannerEvaluator) FilterToolSchemas(_ *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
+func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
 	if e == nil || len(schemas) == 0 {
 		return schemas
+	}
+	requiresReplacementPatch := plannerContextRequiresReplacementPatch(ctx)
+	if requiresReplacementPatch {
+		schemas = filterOutPlannerToolSchema(schemas, "run_tests")
+		if len(schemas) == 0 {
+			return schemas
+		}
 	}
 	if !e.handoffSynthesisActive {
 		return schemas
@@ -1132,6 +1139,9 @@ func (e *plannerEvaluator) FilterToolSchemas(_ *types.AgentContext, schemas []ll
 		return schemas
 	}
 	allowed := plannerHandoffSynthesisMaterializationToolNames()
+	if requiresReplacementPatch {
+		delete(allowed, "run_tests")
+	}
 	out := make([]llm.ToolSchema, 0, len(schemas))
 	for _, schema := range schemas {
 		if allowed[strings.TrimSpace(schema.Name)] {
@@ -1149,6 +1159,33 @@ func (e *plannerEvaluator) FilterToolSchemas(_ *types.AgentContext, schemas []ll
 			e.handoffSynthesisReadCalls, e.handoffSynthesisReadBudget, strings.Join(sortedToolSchemaNames(out), ","))
 	}
 	return out
+}
+
+func filterOutPlannerToolSchema(schemas []llm.ToolSchema, name string) []llm.ToolSchema {
+	name = strings.TrimSpace(name)
+	if name == "" || len(schemas) == 0 {
+		return schemas
+	}
+	out := make([]llm.ToolSchema, 0, len(schemas))
+	removed := false
+	for _, schema := range schemas {
+		if strings.TrimSpace(schema.Name) == name {
+			removed = true
+			continue
+		}
+		out = append(out, schema)
+	}
+	if !removed {
+		return schemas
+	}
+	return out
+}
+
+func plannerContextRequiresReplacementPatch(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	return writeflow.VerifyFailureRequiresReplacementPatch(ctx.Mutable.VerifyFailureHandoff()) != ""
 }
 
 const (

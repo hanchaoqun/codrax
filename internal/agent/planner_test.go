@@ -287,6 +287,54 @@ func TestPlannerFilterToolSchemas_HandoffSynthesisExhaustsReadBudget(t *testing.
 	}
 }
 
+func TestPlannerFilterToolSchemas_PatchReviewHardFailureRequiresReplacementPatch(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("patch review hard failure")
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		TargetFiles: []string{"pkg/fix.py"},
+	})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-prev",
+		BatchID:     "batch-1",
+		FailureKind: types.FailureKindTestsFailed,
+		Diagnostics: []types.VerificationDiagnostic{{
+			Source:     "patch_review",
+			Category:   "structural",
+			Severity:   "error",
+			ReasonCode: "python_unreachable_body_after_added_return",
+			Outcome:    "failed",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "run_tests"},
+		{Name: emitChangePlanToolName},
+		{Name: emitPlanSkeletonToolName},
+		{Name: emitPlanChangeToolName},
+	}
+	got := e.FilterToolSchemas(ctx, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "read_file,grep,emit_change_plan,emit_plan_skeleton,emit_plan_change" {
+		t.Fatalf("patch-review hard failure initial tool surface = %s", names)
+	}
+	for i := 0; i < e.handoffSynthesisReadBudget; i++ {
+		e.ObserveToolResults(nil, LoopObservation{
+			CurrentToolResults: []types.ToolResult{{
+				ToolName: "read_file",
+				Success:  true,
+			}},
+		})
+	}
+
+	got = e.FilterToolSchemas(ctx, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "emit_change_plan,emit_plan_skeleton,emit_plan_change" {
+		t.Fatalf("patch-review hard failure materialization tool surface = %s", names)
+	}
+}
+
 func TestPlannerFilterToolSchemas_PureProofFollowupMaterializesImmediately(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 	mu := types.NewMutableState("pure proof followup")

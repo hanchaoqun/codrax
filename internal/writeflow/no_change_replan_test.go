@@ -61,6 +61,42 @@ func TestQualifyNoChangeReplanSentinelRejectsBuildFailure(t *testing.T) {
 	}
 }
 
+func TestQualifyNoChangeReplanSentinelRejectsPatchReviewHardFailure(t *testing.T) {
+	q := QualifyNoChangeReplanSentinel(NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: &types.VerifyFailureHandoff{
+			PlanID:            "plan-1",
+			FailureKind:       types.FailureKindTestsFailed,
+			FailureReasonCode: "python_unreachable_body_after_added_return",
+			Diagnostics: []types.VerificationDiagnostic{{
+				Source:     "patch_review",
+				Category:   "structural",
+				Severity:   "error",
+				ReasonCode: "python_unreachable_body_after_added_return",
+				Outcome:    "failed",
+			}},
+		},
+		PriorPlan: &types.ChangePlan{AppliedCommitSHA: "abc123"},
+		PlannerProbeReports: []*types.ChangeReport{{
+			PlanID:             "plan-1",
+			Channel:            types.ChangeReportChannelPlannerProbe,
+			VerificationStatus: types.VerificationStatusPassed,
+			Passed:             true,
+			TestResults: []types.TestResult{{
+				AssertionID: "probe",
+				Kind:        types.TestResultKindUnit,
+				Passed:      true,
+			}},
+		}},
+		RequireAppliedWork: true,
+	})
+	if q.Allowed {
+		t.Fatalf("patch-review hard failure must not be probe-resolved: %+v", q)
+	}
+	if q.ReasonCode != "patch_review_hard_failure_requires_replacement_patch" {
+		t.Fatalf("ReasonCode=%q", q.ReasonCode)
+	}
+}
+
 func TestQualifyNoChangeReplanSentinelRejectsWeakPlannerProbeConfidence(t *testing.T) {
 	q := QualifyNoChangeReplanSentinel(NoChangeReplanQualificationInput{
 		VerifyFailureHandoff: &types.VerifyFailureHandoff{

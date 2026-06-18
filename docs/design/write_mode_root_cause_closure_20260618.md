@@ -4256,6 +4256,7 @@ Verification:
 | RC-74 | complete | Plan path-state validation now rejects typed `ChangePlan` mismatches before apply: `create` for an existing file/directory, `modify`/`patch`/`rename` source for a missing or directory path, rename destination collisions, repo-boundary escapes, and directory deletes. This closes the RC-78 Django partial-apply/stale-approval class where an existing test file was planned as `create`, the source file applied, test-file create failed, and the workflow blocked with an empty exported patch. Verification: focused `emit_change_plan` path-state tests and full `internal/tool` package pass. |
 | RC-75 | complete | Verify scoped selector handoff now persists `ExecutedCommand.Suite` and falls back to that command-level selector when failure rows are multiple concrete cases under the same prior suite. This closes the RC-79 Django regression where replan verify inherited runner/framework/cwd but an empty suite widened to all 13040 tests, surfacing unrelated host-version failures. Verification: focused handoff inheritance tests and tool regression pass. |
 | RC-81 | complete | Applied-patch interruption policy now keeps failed-verify repair lanes resumable when typed handoff and recovery refs are present, even under `write_deadline`. Non-cancel planner failures and no-evidence deadline interruptions still block. Focused scheduler tests, related packages, full `go test ./...`, `make`, diff check, and targeted Django RC-81b SWE smoke pass the state-kernel objective: non-empty prediction, `workflow_status=in_progress`, `batch.status=ready_to_plan`, and latest progress `plan_batch_interrupted_after_applied_patch_resumable`. |
+| RC-82 | complete | PatchReview hard/error diagnostics are now a replacement-patch-only repair lane. A passed functional probe or no-change sentinel cannot clear structural actual-diff failures such as unreachable code; the planner removes `run_tests` for the whole typed replacement lane, forcing bounded source reads plus a replacement ChangePlan or continued needs-replan state. Controller dispatch write-deadline interruptions after a failed-verify repair plan is persisted stay resumable instead of becoming terminal blocked. Focused tests, related packages, full `go test ./...`, `make`, diff check, and targeted Django RC-83 SWE smoke pass the intended state-kernel behavior: non-empty prediction, `workflow_status=complete`, `verify_status=passed`, and harness-shaped predictions JSONL. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -4761,6 +4762,76 @@ Verification:
     found `python_unreachable_body_after_added_return` in
     `django/db/models/fields/__init__.py`; this is a separate planner
     patch-quality gap, not an interruption-state regression.
+
+## 2026-06-18 RC-82 PatchReview Hard Failure Replacement Lane
+
+- Evidence:
+  - RC-81b correctly kept the failed-verify repair resumable, but the next
+    blocker showed a deeper convergence gap. The latest typed report carried
+    `VerificationDiagnostic{source=patch_review, category=structural,
+    severity=error, outcome=failed,
+    reason_code=python_unreachable_body_after_added_return}`.
+  - The replanner treated that structural actual-diff failure like an ordinary
+    functional test failure. It spent many turns running `run_tests` planner
+    probes, reasoned that behavior was correct, then tried a no-op
+    `emit_change_plan` for the same source file. The no-op was rejected, and
+    the run hit the write deadline before a replacement patch was emitted.
+  - This is a system-level authority gap: runtime/functional probes can prove
+    behavior, but they cannot clear a typed PatchReview hard error over the
+    actual diff. The repair lane must distinguish "tests failed" from
+    "patch reviewer rejected the diff shape".
+- Generalized rule:
+  - `VerifyFailureHandoff.Diagnostics` is the authority. When any diagnostic
+    has `source=patch_review`, `severity=error`, and failed outcome, the prior
+    verify failure requires a replacement patch.
+  - `no_change_required` sentinels are denied for that state even if planner
+    probes pass.
+  - The planner removes `run_tests` for the whole typed replacement lane. Before
+    exact-read budget is exhausted it may still use bounded source-read tools to
+    synthesize the replacement; after the budget is exhausted the tool surface
+    keeps only structured plan emit tools. Functional probes remain available
+    for ordinary red tests and proof follow-up batches.
+  - If controller dispatch is interrupted by the write wall-clock deadline after
+    a failed-verify repair plan has already been persisted, the run stays
+    `in_progress` and the active batch stays `planned`. This is a durable-state
+    resume condition, not a correctness pass.
+  - The policy is language-general: it reads typed PatchReview diagnostic
+    fields, not Python/Django reason strings, model prose, runner output, or
+    user issue text.
+- Prompt and hard-gate hygiene:
+  - The hard gate lives in `writeflow.QualifyNoChangeReplanSentinel` and the
+    planner schema filter. Both consume typed artifacts only.
+  - The visible `<think>` log remains untouched; transparency is preserved.
+  - No read/log/trace/data/operation/computer mode code is changed.
+- Task list:
+  - [x] Add shared
+    `writeflow.VerifyFailureRequiresReplacementPatch(*VerifyFailureHandoff)`.
+  - [x] Deny no-change replan sentinel when a patch-review hard/error
+    diagnostic is present.
+  - [x] Narrow planner materialization tool surface by removing `run_tests`
+    when the same typed state is active.
+  - [x] Remove `run_tests` before planner materialization too, so structural
+    actual-diff repair cannot burn early turns on functional probes.
+  - [x] Keep controller dispatch write-deadline interruptions resumable when a
+    replacement repair plan is already attached to a failed-verify batch.
+  - [x] Add focused writeflow, planner, and scheduler tests.
+- Verification:
+  - Focused tests passed:
+    `go test ./internal/writeflow -run TestQualifyNoChangeReplanSentinel -count=1`
+    and
+    `go test ./internal/agent -run 'TestPlannerFilterToolSchemas_(HandoffSynthesisExhaustsReadBudget|PatchReviewHardFailureRequiresReplacementPatch|PureProofFollowupMaterializesImmediately|StructuredEmitRepairReadBudgetNarrows)' -count=1`.
+  - Focused scheduler tests passed:
+    `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfter(PlanBlocksRun|RepairPlanStaysResumable)|TestRunWriteControllerWorkflow_(ControllerDispatchWriteDeadlineBlocks|ControllerDispatchInterruptedAfterAppliedPatch|VerifyFailureCanReplanSameBatch)' -count=1`.
+  - Related and full regressions passed:
+    `go test ./internal/agent ./internal/writeflow ./internal/orchestrator ./internal/types -count=1`,
+    `go test ./...`, `make`, and `git diff --check`.
+  - Targeted SWE smoke passed for `django__django-11742` at
+    `/private/tmp/codrax-swe-rc83-django-20260618-repair-plan-resume`:
+    `status=predicted`, `patch_bytes=2359`, `workflow_status=complete`,
+    `verify_status=passed`, `delivery_candidate_status=coherent`, and
+    `predictions.jsonl` contains the official harness-shaped
+    `instance_id/model_name_or_path/model_patch` row. This is not reported as
+    official SWE-bench resolved; Docker harness scoring remains the authority.
 
 ## Acceptance Criteria
 

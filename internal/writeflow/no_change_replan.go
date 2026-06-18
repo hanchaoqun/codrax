@@ -35,6 +35,9 @@ func QualifyNoChangeReplanSentinel(in NoChangeReplanQualificationInput) NoChange
 	if handoff.FailureKind != "" && handoff.FailureKind != types.FailureKindTestsFailed {
 		return noChangeReplanDenied("verify_failure_kind_not_probe_resolvable", "the previous verify failure was not a normal test failure and requires a real replan or environment resolution")
 	}
+	if reason := VerifyFailureRequiresReplacementPatch(handoff); reason != "" {
+		return noChangeReplanDenied(reason, "the previous verify failure is a typed patch-review hard failure and requires a replacement patch, not a no-change probe sentinel")
+	}
 	report := latestPlannerProbeReport(in.PlannerProbeReports)
 	if report == nil {
 		return noChangeReplanDenied("planner_probe_missing", "no typed planner probe report is available")
@@ -55,6 +58,25 @@ func QualifyNoChangeReplanSentinel(in NoChangeReplanQualificationInput) NoChange
 		Detail:      "latest typed planner probe passed against an already-applied worktree",
 		ProbePlanID: strings.TrimSpace(report.PlanID),
 	}
+}
+
+func VerifyFailureRequiresReplacementPatch(handoff *types.VerifyFailureHandoff) string {
+	if handoff == nil {
+		return ""
+	}
+	for _, diag := range handoff.Diagnostics {
+		if strings.TrimSpace(diag.Source) != "patch_review" {
+			continue
+		}
+		if strings.TrimSpace(diag.Severity) != "error" {
+			continue
+		}
+		if outcome := strings.TrimSpace(diag.Outcome); outcome != "" && outcome != "failed" {
+			continue
+		}
+		return "patch_review_hard_failure_requires_replacement_patch"
+	}
+	return ""
 }
 
 func noChangeReplanDenied(code, detail string) NoChangeReplanQualification {

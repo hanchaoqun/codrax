@@ -1171,6 +1171,108 @@ func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterPlanBlocksRun(t *t
 	}
 }
 
+func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterRepairPlanStaysResumable(t *testing.T) {
+	active := &types.WriteWorkflowRun{
+		RunID:         "wf-repair-deadline",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			PlanID: "plan-prev",
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "plan", Status: "complete", PlanID: "plan-prev"},
+				{Kind: "apply", Status: "applied", PlanID: "plan-prev"},
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-prev"},
+			},
+		}},
+	}
+	store := &fakeWorkflowRunStore{active: active}
+	mu := types.NewMutableState("deadline after repair plan")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "deadline after repair plan"}}})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "plan-prev", BatchID: "batch-1", Attempt: 1})
+	controllerCalls := 0
+	var o *Orchestrator
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			controllerCalls++
+			switch controllerCalls {
+			case 1:
+				decision := writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+					Action: writeflow.ActionReplanBatch,
+					Batch:  &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "replacement repair plan"},
+				})
+				raw, err := json.Marshal(decision)
+				if err != nil {
+					t.Fatalf("marshal decision: %v", err)
+				}
+				ctx.Mutable.SetWriteWorkflowDecisionJSON(raw)
+				return &agent.StageOutput{Data: raw}, nil
+			case 2:
+				o.cancelWithSource("write mode wall-time exceeded (600s)", CancelSourceWriteDeadline)
+				return nil, context.Canceled
+			default:
+				t.Fatalf("unexpected extra controller call %d", controllerCalls)
+			}
+			return nil, nil
+		},
+	})
+	o = New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	applyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-repair-before-deadline",
+				Status:      types.PlanStatusPending,
+				Summary:     "replacement repair",
+				TargetPaths: []string{"src/fix.py"},
+				Changes: []types.FileChange{{
+					Path:       "src/fix.py",
+					Kind:       "modify",
+					NewContent: "def fixed():\n    return True\n",
+				}},
+			})
+		case types.StageApply:
+			applyCalls++
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("deadline-dispatch cancellation should surface cancellation, got %v", err)
+	}
+	if applyCalls != 0 {
+		t.Fatalf("deadline dispatch should not continue to apply, applyCalls=%d", applyCalls)
+	}
+	if store.last == nil {
+		t.Fatal("workflow should be persisted")
+	}
+	if store.last.Status != types.WriteWorkflowRunInProgress {
+		t.Fatalf("repair deadline should stay resumable, got %+v", store.last)
+	}
+	if len(store.last.Batches) != 1 || store.last.Batches[0].Status != types.WriteWorkflowBatchPlanned {
+		t.Fatalf("repair deadline should preserve planned active batch, got %+v", store.last.Batches)
+	}
+	if store.last.Batches[0].PlanID != "plan-repair-before-deadline" {
+		t.Fatalf("repair plan id should remain active, got %+v", store.last.Batches[0])
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "controller_dispatch_write_deadline_resumable_repair_plan") {
+		t.Fatalf("resumable repair progress missing: %+v", store.last.ProgressLedger)
+	}
+	if workflowProgressHasReason(store.last.ProgressLedger, "controller_dispatch_write_deadline_blocked") {
+		t.Fatalf("repair deadline must not be marked blocked: %+v", store.last.ProgressLedger)
+	}
+}
+
 func TestRunWriteControllerWorkflow_AppendsFollowupBatch(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("two batch change")

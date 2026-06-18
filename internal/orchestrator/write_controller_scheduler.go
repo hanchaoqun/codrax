@@ -123,6 +123,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					o.persistWriteWorkflowRun(&run)
 					return err
 				}
+				if o.controllerDispatchInterruptedCanResumeRepairPlan(&run, o.busCtx.Mutable.ChangePlan(), err) {
+					run.Status = types.WriteWorkflowRunInProgress
+					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
+					appendControllerProgress(&run, run.ActiveBatchID, "controller_dispatch_write_deadline_resumable_repair_plan",
+						"write-mode wall-clock deadline interrupted controller dispatch after a failed-verify repair plan was persisted; durable run remains resumable")
+					o.persistWriteWorkflowRun(&run)
+					return err
+				}
 				if o.cancellationSourceIsWriteDeadline(err) {
 					run.Status = types.WriteWorkflowRunBlocked
 					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
@@ -1355,6 +1363,40 @@ func (o *Orchestrator) appliedPatchInterruptedCanResume(run *types.WriteWorkflow
 		return false
 	}
 	return activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, run.ActiveBatchID)
+}
+
+func (o *Orchestrator) controllerDispatchInterruptedCanResumeRepairPlan(run *types.WriteWorkflowRun, plan *types.ChangePlan, err error) bool {
+	if run == nil || plan == nil {
+		return false
+	}
+	if !o.cancellationSourceIsWriteDeadline(err) {
+		return false
+	}
+	if !changePlanReadyForApply(plan) || writePlanDeniedByApproval(plan) {
+		return false
+	}
+	if !writeWorkflowActiveBatchHasFailedVerify(run) {
+		return false
+	}
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return false
+	}
+	if !activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, run.ActiveBatchID) {
+		return false
+	}
+	active, ok := activeWriteWorkflowControllerBatch(run)
+	if !ok {
+		return false
+	}
+	if planID := strings.TrimSpace(active.PlanID); planID != "" && strings.TrimSpace(plan.ID) != "" && planID != strings.TrimSpace(plan.ID) {
+		return false
+	}
+	switch active.Status {
+	case types.WriteWorkflowBatchPlanned, types.WriteWorkflowBatchReadyToPlan, types.WriteWorkflowBatchPendingApproval:
+		return true
+	default:
+		return false
+	}
 }
 
 func writeWorkflowActiveBatchHasFailedVerify(run *types.WriteWorkflowRun) bool {
