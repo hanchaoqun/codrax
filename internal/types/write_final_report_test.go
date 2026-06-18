@@ -227,6 +227,95 @@ func TestWriteFinalReportToFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildWriteFinalReportProjectsOwnerAnchorGaps(t *testing.T) {
+	report := BuildWriteFinalReport(WriteFinalReportInput{
+		Run: &WriteWorkflowRun{
+			RunID:  "run-owner-gap",
+			Status: WriteWorkflowRunComplete,
+			ContextPacks: []WriteContextPack{{
+				PackID:      "write-analysis",
+				BatchID:     "batch-1",
+				SourceStage: "write_analysis",
+				Items: []WriteContextItem{{
+					Priority:    WriteContextP1,
+					Kind:        "scope_anchor",
+					Text:        "pkg/bug.py",
+					SourceStage: "write_analysis",
+					Consumers:   []WriteContextConsumer{WriteConsumerPlanner, WriteConsumerController},
+				}},
+			}},
+		},
+		Plan: &ChangePlan{
+			ID:          "plan-owner-gap",
+			TargetPaths: []string{"pkg/bug.py", "tests/test_bug.py"},
+			Changes: []FileChange{{
+				Path: "pkg/bug.py",
+				Kind: "modify",
+			}},
+		},
+	})
+
+	if len(report.Plan.OwnerAnchorGaps) != 1 {
+		t.Fatalf("OwnerAnchorGaps=%+v, want one source owner gap", report.Plan.OwnerAnchorGaps)
+	}
+	gap := report.Plan.OwnerAnchorGaps[0]
+	if gap.Path != "pkg/bug.py" ||
+		gap.ReasonCode != "plan_source_path_without_owner_anchor" ||
+		gap.RequiredEvidence != "typed_owner_or_supporting_localization_anchor" ||
+		gap.Source != "prior_context" {
+		t.Fatalf("wrong owner gap row: %+v", gap)
+	}
+	if !writeFinalReportHasRisk(report, "source_owner_anchor_missing") {
+		t.Fatalf("ResidualRisks=%+v missing owner-anchor gap risk", report.ResidualRisks)
+	}
+}
+
+func TestBuildWriteFinalReportDoesNotProjectOwnerGapWhenEvidenceAnchorExists(t *testing.T) {
+	ref := WriteExplorationEvidenceRef{ID: "ev-owner", Source: "pkg/bug.py", LineStart: 12, OwnerSymbol: "Owner.fix"}
+	report := BuildWriteFinalReport(WriteFinalReportInput{
+		Run: &WriteWorkflowRun{
+			RunID:  "run-owner-covered",
+			Status: WriteWorkflowRunComplete,
+			ContextPacks: []WriteContextPack{{
+				PackID:      "exploration-handoff",
+				BatchID:     "batch-1",
+				SourceStage: "explore",
+				Items: []WriteContextItem{{
+					Priority:    WriteContextP1,
+					Kind:        "localization_anchor",
+					Text:        "path=pkg/bug.py owner=Owner.fix",
+					SourceStage: "explore",
+					Consumers:   []WriteContextConsumer{WriteConsumerPlanner, WriteConsumerController},
+					EvidenceRef: &ref,
+					LocalizationAnchor: &SourceLocalizationAnchor{
+						Path:        "pkg/bug.py",
+						Role:        SourcePathRoleProduction,
+						Kind:        SourceLocalizationAnchorGroundedEvidence,
+						Strength:    SourceLocalizationAnchorSupporting,
+						EvidenceRef: &ref,
+						OwnerSymbol: "Owner.fix",
+					},
+				}},
+			}},
+		},
+		Plan: &ChangePlan{
+			ID:          "plan-owner-covered",
+			TargetPaths: []string{"pkg/bug.py"},
+			Changes: []FileChange{{
+				Path: "pkg/bug.py",
+				Kind: "modify",
+			}},
+		},
+	})
+
+	if len(report.Plan.OwnerAnchorGaps) != 0 {
+		t.Fatalf("OwnerAnchorGaps=%+v, want no gap with typed owner evidence", report.Plan.OwnerAnchorGaps)
+	}
+	if writeFinalReportHasRisk(report, "source_owner_anchor_missing") {
+		t.Fatalf("ResidualRisks=%+v should not include owner-anchor gap", report.ResidualRisks)
+	}
+}
+
 func TestBuildWriteFinalReportUsesCumulativeProofArtifacts(t *testing.T) {
 	primaryReport := &ChangeReport{
 		PlanID:             "plan-proof",

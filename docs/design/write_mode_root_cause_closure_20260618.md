@@ -4316,7 +4316,7 @@ Verification:
 | RC-104 | complete | Shared localization owner/evidence anchor closure: preserve prior owner/supporting/scope anchors through write plan localization review and downstream context packs, so later controller/planner/verifier consumers see typed anchor evidence instead of only path sets. Focused types tests, related write/read consumers, full `go test ./...`, `make`, and `git diff --check` pass. |
 | RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
 | RC-106 | complete | Same-batch source-owner relation after test-only replan: restore-aware delivery lineage now preserves/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code, while still excluding stale pre-restore plans when no precise restored checkpoint relation exists. Focused Go and SWE adapter regressions pass. |
-| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects; RC107-E adds owner-depth critique for path-covered but owner/evidence-missing plans; RC107-F writes planner read observations back into durable localization anchors; RC107-G makes controller planning/exploration seeds prefer typed owner/evidence anchors before broad expected paths; RC107-H stamps read-mode final answers with typed owner anchors and renders a compact localization supplement. Remaining work: final unresolved owner-gap report fields. |
+| RC-107 | complete | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects; RC107-E adds owner-depth critique for path-covered but owner/evidence-missing plans; RC107-F writes planner read observations back into durable localization anchors; RC107-G makes controller planning/exploration seeds prefer typed owner/evidence anchors before broad expected paths; RC107-H stamps read-mode final answers with typed owner anchors and renders a compact localization supplement; RC107-I projects unresolved owner-anchor gaps into typed final reports and residual risks. |
 | RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
 | RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
 
@@ -6565,7 +6565,7 @@ verifier-only hardening unless a regression blocks mainline stability.
   - [x] Add tests proving owner-anchor evidence changes the selected
     source-owner surface rather than only being retained.
   - [x] Add final report fields that show chosen owner anchors for audit.
-  - [ ] Add final report fields that show unresolved owner-anchor gaps for audit.
+  - [x] Add final report fields that show unresolved owner-anchor gaps for audit.
   - [ ] Run read-mode isolation tests, write-mode focused/related/full
     regressions, SWE Lite smoke, and manual patch-surface audit.
 - RC107-A implementation notes:
@@ -6880,6 +6880,18 @@ verifier-only hardening unless a regression blocks mainline stability.
     `系统补充：源码定位锚点核对` table with owner anchors for
     `internal/agent/registry.go`, `internal/agent/subagent.go`, and
     `internal/tool/propose_sub_agents.go`.
+- RC107-I final-report owner-gap audit:
+  - Added `WriteFinalPlanSummary.owner_anchor_gaps[]` with typed rows
+    `{path, reason_code, required_evidence, source}`. Rows are derived only
+    from persisted workflow context packs plus the plan's typed production
+    source paths via `WritePlanSourcePathsWithoutOwnerAnchor`; no terminal
+    logs, model prose, summaries, rationale, `<think>`, or user keywords
+    participate.
+  - Added residual risk `source_owner_anchor_missing` as a compact audit
+    signal when unresolved owner-depth gaps remain at delivery time. This is
+    advisory confidence metadata, not an apply/verify gate.
+  - Focused verification:
+    `go test ./internal/types -run 'TestBuildWriteFinalReport.*Owner' -count=1`.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

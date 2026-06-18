@@ -73,6 +73,18 @@ type WriteFinalPlanSummary struct {
 	AppliedCommitSHA   string                    `json:"applied_commit_sha,omitempty"`
 	Localization       *SourceLocalizationReview `json:"localization,omitempty"`
 	OwnerAnchors       []OwnerAnchorViewItem     `json:"owner_anchors,omitempty"`
+	OwnerAnchorGaps    []WriteFinalOwnerGap      `json:"owner_anchor_gaps,omitempty"`
+}
+
+// WriteFinalOwnerGap is a typed final-report audit row for a production source
+// path that the plan edited after only file/scope localization, without a
+// strong owner/evidence anchor in the prior context. It is advisory confidence
+// metadata, not an apply/verify gate.
+type WriteFinalOwnerGap struct {
+	Path             string `json:"path,omitempty"`
+	ReasonCode       string `json:"reason_code,omitempty"`
+	RequiredEvidence string `json:"required_evidence,omitempty"`
+	Source           string `json:"source,omitempty"`
 }
 
 type WriteFinalPatchSummary struct {
@@ -180,6 +192,7 @@ func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
 			WorkflowPath: strings.TrimSpace(input.WorkflowPath),
 		},
 	}
+	var runContextPacks []WriteContextPack
 	if input.Run != nil {
 		run := NormalizeWriteWorkflowRun(*input.Run)
 		out.RunID = strings.TrimSpace(run.RunID)
@@ -192,9 +205,10 @@ func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
 		}
 		out.Batches = writeFinalBatchSummaries(run)
 		out.Handoff = writeFinalHandoffSummary(run.ContextPacks, 16)
+		runContextPacks = run.ContextPacks
 	}
 	if input.Plan != nil {
-		out.Plan = writeFinalPlanSummary(input.Plan)
+		out.Plan = writeFinalPlanSummary(input.Plan, runContextPacks)
 		out.Patch = writeFinalPatchSummary(input.Plan.PatchEffect)
 		out.PatchReview = writeFinalPatchReviewSummary(input.Plan.PatchReview)
 		out.Impact = writeFinalImpactSummary(input.Plan.ImpactAnalysis)
@@ -227,6 +241,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Plan.TestPaths = dedupTrimWriteWorkflowRunStrings(in.Plan.TestPaths)
 	in.Plan.Localization = CloneSourceLocalizationReviewPtr(in.Plan.Localization)
 	in.Plan.OwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.Plan.OwnerAnchors}, 12).Items
+	in.Plan.OwnerAnchorGaps = normalizeWriteFinalOwnerGaps(in.Plan.OwnerAnchorGaps)
 	in.Patch.ChangedFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.ChangedFiles)
 	in.Patch.SourceFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.SourceFiles)
 	in.Patch.TestFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.TestFiles)
@@ -336,7 +351,7 @@ func batchActiveSliceStatus(batch WriteWorkflowBatch) ChangePlanSliceStatus {
 	return ""
 }
 
-func writeFinalPlanSummary(plan *ChangePlan) WriteFinalPlanSummary {
+func writeFinalPlanSummary(plan *ChangePlan, prior []WriteContextPack) WriteFinalPlanSummary {
 	out := WriteFinalPlanSummary{
 		ID:               strings.TrimSpace(plan.ID),
 		Status:           strings.TrimSpace(plan.Status),
@@ -359,6 +374,7 @@ func writeFinalPlanSummary(plan *ChangePlan) WriteFinalPlanSummary {
 	}
 	out.Localization = CloneSourceLocalizationReviewPtr(plan.LocalizationReview)
 	out.OwnerAnchors = OwnerAnchorViewFromChangePlan(plan, 12).Items
+	out.OwnerAnchorGaps = writeFinalOwnerGaps(prior, plan)
 	return out
 }
 
@@ -545,6 +561,9 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 			add("source_localization_weak", "source_localization", "warning", strings.Join(localization.ReasonCodes, ","))
 		}
 	}
+	if len(report.Plan.OwnerAnchorGaps) > 0 {
+		add("source_owner_anchor_missing", "source_localization", "warning", strings.Join(writeFinalOwnerGapPaths(report.Plan.OwnerAnchorGaps), ","))
+	}
 	for status, count := range report.Impact.CoverageCounts {
 		if count <= 0 || status == "verified" {
 			continue
@@ -585,6 +604,73 @@ func writeFinalNormalizeRisks(in []WriteFinalResidualRisk) []WriteFinalResidualR
 		return out[i].Code < out[j].Code
 	})
 	return out
+}
+
+func writeFinalOwnerGaps(prior []WriteContextPack, plan *ChangePlan) []WriteFinalOwnerGap {
+	paths := WritePlanSourcePathsWithoutOwnerAnchor(prior, plan)
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]WriteFinalOwnerGap, 0, len(paths))
+	for _, path := range paths {
+		out = append(out, WriteFinalOwnerGap{
+			Path:             path,
+			ReasonCode:       "plan_source_path_without_owner_anchor",
+			RequiredEvidence: "typed_owner_or_supporting_localization_anchor",
+			Source:           "prior_context",
+		})
+	}
+	return normalizeWriteFinalOwnerGaps(out)
+}
+
+func normalizeWriteFinalOwnerGaps(in []WriteFinalOwnerGap) []WriteFinalOwnerGap {
+	seen := map[string]int{}
+	var out []WriteFinalOwnerGap
+	for _, gap := range in {
+		gap.Path = strings.TrimSpace(filepath.ToSlash(gap.Path))
+		gap.ReasonCode = strings.TrimSpace(gap.ReasonCode)
+		gap.RequiredEvidence = strings.TrimSpace(gap.RequiredEvidence)
+		gap.Source = strings.TrimSpace(gap.Source)
+		if gap.Path == "" {
+			continue
+		}
+		if gap.ReasonCode == "" {
+			gap.ReasonCode = "plan_source_path_without_owner_anchor"
+		}
+		if gap.RequiredEvidence == "" {
+			gap.RequiredEvidence = "typed_owner_or_supporting_localization_anchor"
+		}
+		if gap.Source == "" {
+			gap.Source = "prior_context"
+		}
+		key := gap.Path + "|" + gap.ReasonCode + "|" + gap.Source
+		if idx, ok := seen[key]; ok {
+			if out[idx].RequiredEvidence == "" {
+				out[idx].RequiredEvidence = gap.RequiredEvidence
+			}
+			continue
+		}
+		seen[key] = len(out)
+		out = append(out, gap)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		if out[i].ReasonCode != out[j].ReasonCode {
+			return out[i].ReasonCode < out[j].ReasonCode
+		}
+		return out[i].Source < out[j].Source
+	})
+	return out
+}
+
+func writeFinalOwnerGapPaths(gaps []WriteFinalOwnerGap) []string {
+	var paths []string
+	for _, gap := range normalizeWriteFinalOwnerGaps(gaps) {
+		paths = append(paths, gap.Path)
+	}
+	return paths
 }
 
 func writeFinalSeverityRank(severity string) int {
