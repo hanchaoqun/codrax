@@ -4992,6 +4992,54 @@ Verification:
   - Focused regression passed:
     `go test ./internal/orchestrator -run 'TestSyncCurrentWriteContextPackToRun(KeepsStaleBatchEvidenceOutOfActiveBatch|MergesPriorVerifyFailureEvidence)' -count=1`.
 
+## 2026-06-18 RC-86 Durable Context Pack Capacity Governance
+
+- Evidence:
+  - After RC-85, a fresh targeted SWE smoke for `pydata__xarray-4248` at
+    `/private/tmp/codrax-swe-rc86-xarray-20260618-context-retention` improved
+    materially: `workflow_status=complete`, `verify_status=passed`,
+    `prediction_verdict=predicted_passed`, `prediction_local_confidence=high`,
+    and `patch_bytes=1733`.
+  - The workflow shows the desired online convergence shape:
+    first plan/apply/verify failed, controller restored the checkpoint, replanned
+    the same batch, applied the second plan, and verified successfully.
+  - A follow-up audit of the final durable merged context pack still found a
+    capacity issue. The pack contained 96 items, exactly
+    `writeContextPackMaxItems`, but did not retain the prior failed verify rows.
+    The consumer view layer already had planner must-carry logic for verify
+    failures, but the pack normalization layer had already truncated later items
+    by insertion order, so the view layer never saw those rows.
+- Generalized rule:
+  - Durable pack normalization must be an evidence-governance layer, not FIFO
+    truncation. P0 safety/context items and typed verify-failure rows must be
+    eligible to displace ordinary lower-value context when the persisted pack is
+    full.
+  - The rule is typed and language-neutral: it reads priority, source stage,
+    item kind, and normalized item identity. It does not inspect issue text,
+    model prose, output logs, SWE-bench IDs, or manual notes.
+  - Consumer Top-N views still do their own budgeted rendering; the new
+    pack-level rule only ensures critical typed rows survive long enough to be
+    available to controller/planner/verifier views and recovery/audit tooling.
+- Prompt and hard-gate hygiene:
+  - No prompt change is required. `<think>` transparency remains intact.
+  - No new hard gate is introduced; this is durable evidence retention for
+    existing typed artifacts.
+  - Read/log/trace/data/operation/computer mode paths remain unchanged.
+- Task list:
+  - [x] Remove insertion-order early break from `NormalizeWriteContextPack`.
+  - [x] Add pack-level bounded selection that retains P0 items and
+    verify-failure must-carry items by replacing ordinary non-P0 context when
+    the pack is full.
+  - [x] Keep durable pack size bounded at `writeContextPackMaxItems`.
+  - [x] Add regression coverage for a full pack where late
+    `verify_failure`/`failed_test` rows displace ordinary P2 impact context.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/types -run 'Test(WriteContextPackPlannerLimitedViewRetainsVerifyFailureLane|NormalizeWriteContextPackRetainsLateVerifyFailureWhenPackFull|WriteContextPackBudgetedViewRetainsSafetyAndFailure)' -count=1`.
+  - SWE smoke evidence before this code change is recorded above. A follow-up
+    smoke should confirm the final durable merged pack now retains prior failed
+    verify rows after successful replan.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

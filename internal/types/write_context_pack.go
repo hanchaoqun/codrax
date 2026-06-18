@@ -106,9 +106,9 @@ func NormalizeWriteContextPack(in WriteContextPack) WriteContextPack {
 		}
 		seenIndex[key] = len(items)
 		items = append(items, item)
-		if len(items) >= writeContextPackMaxItems {
-			break
-		}
+	}
+	if len(items) > writeContextPackMaxItems {
+		items = writeContextBoundedPackItems(items, writeContextPackMaxItems)
 	}
 	in.Items = items
 	return in
@@ -1345,6 +1345,59 @@ func writeContextMustCarryInLimitedView(item WriteContextItem, consumer WriteCon
 		item.SourceStage == "verify" &&
 		item.Priority == WriteContextP2 &&
 		writeContextVerifyFailureKind(item.Kind)
+}
+
+func writeContextBoundedPackItems(items []WriteContextItem, limit int) []WriteContextItem {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	selected := cloneWriteContextItems(items[:limit])
+	selectedKeys := map[string]struct{}{}
+	for _, item := range selected {
+		selectedKeys[writeContextItemKey(item)] = struct{}{}
+	}
+	for _, item := range items[limit:] {
+		if !writeContextMustCarryInPack(item) {
+			continue
+		}
+		key := writeContextItemKey(item)
+		if _, ok := selectedKeys[key]; ok {
+			continue
+		}
+		replace := writeContextPackReplacementIndex(selected)
+		if replace < 0 {
+			continue
+		}
+		delete(selectedKeys, writeContextItemKey(selected[replace]))
+		selected[replace] = item
+		selectedKeys[key] = struct{}{}
+	}
+	return selected
+}
+
+func writeContextMustCarryInPack(item WriteContextItem) bool {
+	if item.Priority == WriteContextP0 {
+		return true
+	}
+	return item.SourceStage == "verify" &&
+		item.Priority == WriteContextP2 &&
+		writeContextVerifyFailureKind(item.Kind)
+}
+
+func writeContextPackReplacementIndex(selected []WriteContextItem) int {
+	best := -1
+	bestRank := -1
+	for i, item := range selected {
+		if item.Priority == WriteContextP0 || writeContextMustCarryInPack(item) {
+			continue
+		}
+		rank := writeContextPriorityRank(item.Priority)
+		if rank > bestRank || (rank == bestRank && i > best) {
+			best = i
+			bestRank = rank
+		}
+	}
+	return best
 }
 
 func writeContextLimitedViewReplacementIndex(selected []WriteContextItem, consumer WriteContextConsumer, limit int) int {

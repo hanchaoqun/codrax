@@ -873,6 +873,50 @@ func TestWriteContextPackPlannerLimitedViewRetainsVerifyFailureLane(t *testing.T
 	}
 }
 
+func TestNormalizeWriteContextPackRetainsLateVerifyFailureWhenPackFull(t *testing.T) {
+	pack := WriteContextPack{
+		PackID:  "merged",
+		BatchID: "batch-1",
+	}
+	for i := 0; i < writeContextPackMaxItems; i++ {
+		pack.Items = append(pack.Items, WriteContextItem{
+			Priority:    WriteContextP2,
+			Kind:        "impact_obligation",
+			Text:        fmt.Sprintf("ordinary obligation %02d", i),
+			SourceStage: "impact_analysis",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		})
+	}
+	pack.Items = append(pack.Items,
+		WriteContextItem{
+			Priority:    WriteContextP2,
+			Kind:        "verify_failure",
+			Text:        "verification failed after apply",
+			SourceStage: "verify",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		},
+		WriteContextItem{
+			Priority:    WriteContextP2,
+			Kind:        "failed_test",
+			Text:        "TestRepair expected durable handoff",
+			SourceStage: "verify",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		},
+	)
+
+	got := NormalizeWriteContextPack(pack)
+	if len(got.Items) != writeContextPackMaxItems {
+		t.Fatalf("normalized pack should remain bounded, got %d", len(got.Items))
+	}
+	view := got.View(WriteConsumerPlanner, writeContextPackMaxItems)
+	if !writeContextViewContains(view, "verify_failure", "verification failed") {
+		t.Fatalf("late verify failure should displace ordinary P2 context: %+v", got.Items)
+	}
+	if !writeContextViewContains(view, "failed_test", "TestRepair") {
+		t.Fatalf("late failed test should displace ordinary P2 context: %+v", got.Items)
+	}
+}
+
 func TestWriteContextPackGovernanceMetadata(t *testing.T) {
 	pack := NormalizeWriteContextPack(WriteContextPack{
 		PackID:  "governance",
