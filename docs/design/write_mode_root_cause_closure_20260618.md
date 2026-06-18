@@ -5819,6 +5819,17 @@ Verification:
   - `go test ./internal/types ./internal/tool ./internal/orchestrator
     ./internal/agent -count=1`
   - `go test ./...`
+  - `make`
+- Post-fix SWE spot:
+  - Reran `sympy__sympy-18199` at
+    `eval/results/swebench/lite-smoke-20260619-rc98-anchor-filter-sympy`.
+  - Prediction validation passed with `empty_patch=0`; official harness
+    import/dry-run accepted the generated command.
+  - Result row: `status=predicted`, `patch_bytes=549`, workflow complete,
+    `verify_status=passed`, `prediction_verdict=predicted_passed_low_confidence`.
+  - Context audit: `localization_anchor` rows now point to
+    `sympy/ntheory/residue_ntheory.py`; broad `sympy/codegen/ast.py`
+    deterministic evidence no longer appears as localization anchors.
 
 ## Acceptance Criteria
 
