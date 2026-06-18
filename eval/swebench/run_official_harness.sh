@@ -15,6 +15,7 @@ MAX_WORKERS="${MAX_WORKERS:-1}"
 RUN_ID="${RUN_ID:-codrax-swebench-smoke}"
 DRY_RUN="${DRY_RUN:-0}"
 REPORT_DIR="${REPORT_DIR:-.}"
+CHECK_HARNESS_IMPORT="${CHECK_HARNESS_IMPORT:-0}"
 
 if [[ -z "$PREDICTIONS_PATH" ]]; then
   echo "usage: PREDICTIONS_PATH=/path/to/predictions.jsonl $0" >&2
@@ -37,19 +38,41 @@ cmd=(
   --report_dir "$REPORT_DIR"
 )
 
+check_harness_import() {
+  "$PYTHON" - <<'PY'
+import platform
+import sys
+
+try:
+    import swebench.harness.run_evaluation  # noqa: F401
+except Exception as exc:
+    print(
+        "Official SWE-bench harness import failed for "
+        f"{sys.executable} (Python {platform.python_version()}): "
+        f"{type(exc).__name__}: {exc}",
+        file=sys.stderr,
+    )
+    print(
+        "Install the official SWE-bench package in a Python 3.10+ environment; "
+        "see eval/swebench/README.md.",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+PY
+}
+
 if [[ "$DRY_RUN" == "1" ]]; then
+  if [[ "$CHECK_HARNESS_IMPORT" == "1" ]]; then
+    check_harness_import
+  fi
   printf 'official harness command:'
   printf ' %q' "${cmd[@]}"
   printf '\n'
   exit 0
 fi
 
-if ! "$PYTHON" - <<'PY'
-import importlib.util
-raise SystemExit(0 if importlib.util.find_spec("swebench") else 1)
-PY
+if ! check_harness_import
 then
-  echo "Python package 'swebench' is not installed. Install the official SWE-bench harness before scoring." >&2
   exit 3
 fi
 

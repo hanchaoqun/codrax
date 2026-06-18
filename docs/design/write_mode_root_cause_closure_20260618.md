@@ -2590,15 +2590,49 @@ local fake smoke heavier:
 
 RC-49 tasks:
 
-- [ ] Add a reusable import check in `run_official_harness.sh` for
+- [x] Add a reusable import check in `run_official_harness.sh` for
   `swebench.harness.run_evaluation`.
-- [ ] Keep `DRY_RUN=1` command-only behavior available, but make
+- [x] Keep `DRY_RUN=1` command-only behavior available, but make
   `smoke_lite.sh` enable the import check by default.
-- [ ] Update SWE-bench README with the stronger dry-run semantics and Python
+- [x] Update SWE-bench README with the stronger dry-run semantics and Python
   version caveat.
-- [ ] Validate the wrapper with the existing command-only path and a Python
+- [x] Validate the wrapper with the existing command-only path and a Python
   3.11 SWE-bench venv.
-- [ ] Record the targeted RC-48 SWE smoke artifacts and findings in this ledger.
+- [x] Record the targeted RC-48 SWE smoke artifacts and findings in this ledger.
+
+RC-48 targeted SWE-bench smoke artifacts:
+
+- Workdir: `/private/tmp/codrax-swe-rc48-20260618-095217`
+- Predictions: `/private/tmp/codrax-swe-rc48-20260618-095217/predictions.jsonl`
+- Results: `/private/tmp/codrax-swe-rc48-20260618-095217/results.jsonl`
+- Instances: `django__django-11742`, `mwaskom__seaborn-3190`,
+  `pydata__xarray-4248`
+- Export result: 3/3 non-empty predictions, `validate_predictions.py` passed,
+  and RC-49 Python 3.11 import-check dry-run produced an official harness
+  command for the same predictions.
+
+Manual audit notes from gold-patch comparison:
+
+- `django__django-11742`: Codrax exported a source patch and even appended an
+  impact-repair batch, but local verification was unavailable with
+  `parser_error/make_target_missing`. The patch adds a separate
+  `_check_max_length_for_choices()` and uses error id `fields.E180`, while the
+  gold fix integrates with `_check_choices()` and id `fields.E009`. Treat as
+  still failed/blocked, not pass.
+- `mwaskom__seaborn-3190`: Codrax patch is plausibly close for NumPy boolean
+  extrema but narrower than the gold `map(float, axis.convert_units(...))`
+  normalization. Local verify passed only as low confidence because probe
+  contract refs were soft/missing. Treat as unknown/low-confidence until
+  official harness.
+- `pydata__xarray-4248`: Codrax added `attrs["units"]` formatting, while the
+  gold fix routes through `_data._repr_inline_()` so array-like unit wrappers
+  can render themselves. Treat as likely wrong-owner/incomplete despite local
+  low-confidence verify.
+
+System implication: RC-47/RC-48 improved observability and online repair
+behavior, but local correctness still depends on stronger behavior-contract
+proof. The next root-cause batches should target contract/probe generation and
+owner-boundary proof rather than patch export.
 
 ## Progress Ledger
 
@@ -2654,6 +2688,7 @@ RC-49 tasks:
 | RC-46 | complete | Java verification probe runtime: bounded `verification_probes[]` now support Java through the typed runtime registry, with `javac` compile, `java -ea` execution, missing-JDK unavailable semantics, Java production-class coupling, packaged full-source probes, and soft docs/prompt sync. Verification: focused runtime/coupling tests, full `internal/tool`, related packages, `go test ./...`, `make test`, and diff check pass. |
 | RC-47 | complete | Owner-boundary runtime signals: actual-diff source providers now emit typed soft semantic-coverage events for caller-return wrapper adapters, newly guarded diagnostic calls, and external private-state writes across precise Python/JS/TS/Ruby/Java/Kotlin shapes, while Go keeps only the precise return-wrapper shape. PatchReview registers the generic event codes as unknown coverage so they reach P2 handoff and bounded repair scheduling instead of staying SWE-bench adapter-only audit telemetry. Verification: focused writeflow owner-boundary/registry tests and related package regression pass. |
 | RC-48 | complete | Plan localization retry: controller planning now consumes typed prior-localization context and gives one bounded retry when a fresh source plan edits paths outside P0/P1 evidence-backed anchors. The helper excludes plan-authored context and test-only paths, skips no-prior-context cases, and preserves legal new owner discovery after the bounded retry. Verification: focused types/orchestrator localization tests, related package regression, `go test ./...`, `make test`, and diff check pass. |
+| RC-49 | complete | Official harness dry-run import check: the harness wrapper now imports `swebench.harness.run_evaluation` for non-dry runs and for Lite dry-runs by default, while command-only dry-run remains available. README documents Python 3.10+ and the `SWEBENCH_CHECK_OFFICIAL_IMPORT` / `CHECK_HARNESS_IMPORT` knobs. Targeted RC-48 smoke exported 3/3 non-empty predictions and exposed continued correctness gaps; Python 3.9 import-check fails clearly, Python 3.11 import-check dry-run passes, and dependency-free `smoke_local.sh` still passes. |
 
 ## Acceptance Criteria
 

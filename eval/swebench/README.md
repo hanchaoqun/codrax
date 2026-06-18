@@ -257,9 +257,17 @@ INSTANCE_ID=pallets__flask-4045 SWEBENCH_SMOKE_LIMIT=1 eval/swebench/smoke_lite.
 
 By default the smoke script validates predictions, requires every selected
 instance to export a non-empty patch, fails on adapter setup errors, and prints
-the official harness command with `DRY_RUN=1`. This keeps hardening runs from
-silently treating empty patches as success while still leaving the JSONL
-artifacts on disk for audit. Set `SWEBENCH_FAIL_ON_INSTANCE_ERROR=0`,
+the official harness command with `DRY_RUN=1`. Lite dry-run also checks that
+the configured Python can import `swebench.harness.run_evaluation`, so
+"harness-consumable" means both prediction JSONL validation and importable
+official entrypoint. Use a Python 3.10+ eval venv; Python 3.9 can install a
+package named `swebench` yet fail to import the current harness. Set
+`SWEBENCH_CHECK_OFFICIAL_IMPORT=0` only when you intentionally want a
+command-shape smoke without official package validation.
+
+This keeps hardening runs from silently treating empty patches or an unusable
+harness environment as success while still leaving the JSONL artifacts on disk
+for audit. Set `SWEBENCH_FAIL_ON_INSTANCE_ERROR=0`,
 `SWEBENCH_FAIL_ON_EMPTY_PATCH=0`, or `SWEBENCH_REQUIRE_NONEMPTY_PATCH=0` only
 when deliberately collecting negative fixtures. To run the official
 Docker-backed scorer on a prepared Linux/x86_64 SWE-bench host:
@@ -296,6 +304,16 @@ Then score with the official harness:
 
 ```bash
 PREDICTIONS_PATH=eval/results/swebench/custom-run/predictions.jsonl \
+  eval/swebench/run_official_harness.sh
+```
+
+For a command-shape dry-run, set `DRY_RUN=1`. Add
+`CHECK_HARNESS_IMPORT=1` when the dry-run should also prove that the configured
+Python can load the official harness module:
+
+```bash
+DRY_RUN=1 CHECK_HARNESS_IMPORT=1 \
+  PREDICTIONS_PATH=eval/results/swebench/custom-run/predictions.jsonl \
   eval/swebench/run_official_harness.sh
 ```
 
