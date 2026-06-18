@@ -425,6 +425,17 @@ class FinalReportProjectionTests(unittest.TestCase):
                     "completion": {"verdict": "unverified", "reason_code": "runner_missing"},
                     "plan": {
                         "id": "plan-1",
+                        "owner_anchors": [{
+                            "id": "anchor-plan",
+                            "path": "src/owner.py",
+                            "owner_symbol": "Owner",
+                            "anchor_symbol": "Owner.handle",
+                            "evidence_ref": {
+                                "id": "ev-owner",
+                                "source": "src/owner.py",
+                                "owner_symbol": "Owner",
+                            },
+                        }],
                         "localization": {
                             "status": "weak",
                             "reason_codes": ["plan_source_paths_without_prior_context"],
@@ -442,6 +453,12 @@ class FinalReportProjectionTests(unittest.TestCase):
                     },
                     "patch_review": {"verdict": "unverified"},
                     "handoff": {
+                        "owner_anchors": [{
+                            "id": "anchor-handoff",
+                            "path": "src/handoff_owner.py",
+                            "owner_symbol": "HandoffOwner",
+                            "anchor_symbol": "run",
+                        }],
                         "top_items": [
                             {"evidence_ref": "src/app.py:10", "fingerprint": "fp-1"},
                             {"fingerprint": "fp-2"},
@@ -492,6 +509,12 @@ class FinalReportProjectionTests(unittest.TestCase):
             result["final_report_handoff_evidence_refs"],
             ["src/app.py:10", "fp-1", "fp-2"],
         )
+        self.assertEqual(result["final_report_plan_owner_anchor_ids"], ["anchor-plan", "ev-owner"])
+        self.assertEqual(result["final_report_plan_owner_anchor_paths"], ["src/owner.py"])
+        self.assertEqual(result["final_report_plan_owner_symbols"], ["Owner"])
+        self.assertEqual(result["final_report_handoff_owner_anchor_ids"], ["anchor-handoff"])
+        self.assertEqual(result["final_report_handoff_owner_anchor_paths"], ["src/handoff_owner.py"])
+        self.assertEqual(result["final_report_handoff_owner_symbols"], ["HandoffOwner"])
 
     def test_missing_final_report_fields_are_explicitly_empty(self) -> None:
         result: dict[str, object] = {}
@@ -506,6 +529,8 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_localization_missing_paths"], [])
         self.assertEqual(result["final_report_residual_risk_codes"], [])
         self.assertEqual(result["final_report_handoff_evidence_refs"], [])
+        self.assertEqual(result["final_report_plan_owner_anchor_ids"], [])
+        self.assertEqual(result["final_report_handoff_owner_anchor_ids"], [])
 
 
 class PatchReviewSummaryTests(unittest.TestCase):

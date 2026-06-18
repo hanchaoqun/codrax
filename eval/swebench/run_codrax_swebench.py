@@ -1429,6 +1429,37 @@ def final_report_list_values(report: dict[str, Any], *path: str) -> list[str]:
     return out
 
 
+def final_report_owner_anchor_summary(report: dict[str, Any], *path: str) -> dict[str, list[str]]:
+    value: Any = report
+    for key in path:
+        if not isinstance(value, dict):
+            return {"ids": [], "paths": [], "owners": [], "symbols": []}
+        value = value.get(key)
+    if not isinstance(value, list):
+        return {"ids": [], "paths": [], "owners": [], "symbols": []}
+    out: dict[str, list[str]] = {"ids": [], "paths": [], "owners": [], "symbols": []}
+
+    def add(bucket: str, raw: Any) -> None:
+        text = str(raw or "").strip()
+        if text and text not in out[bucket]:
+            out[bucket].append(text)
+
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        add("ids", item.get("id"))
+        add("paths", item.get("path"))
+        add("owners", item.get("owner_symbol"))
+        add("symbols", item.get("anchor_symbol"))
+        evidence = item.get("evidence_ref")
+        if isinstance(evidence, dict):
+            add("ids", evidence.get("id"))
+            add("paths", evidence.get("source"))
+            add("owners", evidence.get("owner_symbol"))
+            add("symbols", evidence.get("anchor_symbol"))
+    return out
+
+
 def apply_final_report_result_fields(
     result: dict[str, Any],
     final_report: dict[str, Any],
@@ -1453,6 +1484,12 @@ def apply_final_report_result_fields(
         result["final_report_patch_fingerprint"] = ""
         result["final_report_residual_risk_codes"] = []
         result["final_report_handoff_evidence_refs"] = []
+        result["final_report_plan_owner_anchor_ids"] = []
+        result["final_report_plan_owner_anchor_paths"] = []
+        result["final_report_plan_owner_symbols"] = []
+        result["final_report_handoff_owner_anchor_ids"] = []
+        result["final_report_handoff_owner_anchor_paths"] = []
+        result["final_report_handoff_owner_symbols"] = []
         return
     completion = final_report.get("completion") if isinstance(final_report.get("completion"), dict) else {}
     verification = final_report.get("verification") if isinstance(final_report.get("verification"), dict) else {}
@@ -1497,6 +1534,14 @@ def apply_final_report_result_fields(
     result["final_report_plan_id"] = str(plan.get("id") or "").strip()
     result["final_report_patch_fingerprint"] = str(patch.get("diff_fingerprint") or "").strip()
     result["final_report_residual_risk_codes"] = final_report_list_values(final_report, "residual_risks")
+    plan_owner = final_report_owner_anchor_summary(final_report, "plan", "owner_anchors")
+    handoff_owner = final_report_owner_anchor_summary(final_report, "handoff", "owner_anchors")
+    result["final_report_plan_owner_anchor_ids"] = plan_owner["ids"]
+    result["final_report_plan_owner_anchor_paths"] = plan_owner["paths"]
+    result["final_report_plan_owner_symbols"] = plan_owner["owners"]
+    result["final_report_handoff_owner_anchor_ids"] = handoff_owner["ids"]
+    result["final_report_handoff_owner_anchor_paths"] = handoff_owner["paths"]
+    result["final_report_handoff_owner_symbols"] = handoff_owner["owners"]
     refs: list[str] = []
     for item in handoff.get("top_items") or []:
         if not isinstance(item, dict):
