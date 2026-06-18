@@ -5860,6 +5860,55 @@ Verification:
     `sympy/ntheory/residue_ntheory.py`; broad `sympy/codegen/ast.py`
     deterministic evidence no longer appears as localization anchors.
 
+## 2026-06-19 RC-99 Coherent Delivery Proof Aggregation
+
+- Evidence:
+  - Post-RC98 `sympy__sympy-18199` produced a non-empty patch on the correct
+    source owner path and local verification passed.
+  - The source plan's report covered `outcome-1`, `outcome-2`,
+    `outcome-3`, and `zero-is-nthpow-residue`, while the proof follow-up
+    report covered the previously missing `outcome-4` and
+    `zero-root-included`.
+  - The terminal final report still marked proof `weak` because
+    `BuildWriteFinalReport` projected only one `ChangePlan + ChangeReport`.
+    A pure proof-follow-up batch can therefore satisfy the missing typed
+    obligations but look weak in isolation because it does not re-mention the
+    already-covered source-plan contracts.
+- Root cause:
+  - The online controller now works like an edit/run/observe loop, but the
+    durable final audit artifact still has a single-batch proof lens.
+  - This is not an eval-adapter issue and not a prompt issue. It is a typed
+    artifact aggregation boundary: final proof should represent the coherent
+    terminal delivery chain, not the last batch only.
+- Design:
+  - Add a cumulative proof helper that consumes typed `ChangeReport`
+    `VerificationConfidenceRecord` rows from the terminal workflow's completed
+    current batches.
+  - Keep hard failure/unavailable authority conservative. The helper may remove
+    `verification_probe_missing_*` reason codes only when typed satisfied
+    records cover the same contract/symbol references elsewhere in the same
+    coherent delivery chain.
+  - Do not parse stdout/stderr, model prose, issue text, final answer text, or
+    SWE oracle data.
+  - Do not load historical attempts. Use each completed batch's current
+    `PlanID` / report artifact so rolled-back or superseded attempts do not
+    strengthen or weaken final proof.
+  - Probe-only plans may have `changes: []`; they must still contribute report
+    confidence even when `LoadChangePlanFromFile` refuses an empty plan.
+- Task list:
+  - [ ] Add typed `VerificationProofArtifact` / cumulative proof aggregation
+    helpers in `internal/types`.
+  - [ ] Extend `WriteFinalReportInput` so callers can pass coherent proof
+    artifacts while preserving the single-plan default.
+  - [ ] Teach `persistWriteFinalReportIfTerminal` to collect completed-batch
+    current report artifacts from the workflow store/report directory.
+  - [ ] Add unit coverage for source-plan + proof-follow-up union removing
+    resolved missing soft/hard contract reasons while retaining unresolved
+    reasons and real failed/unavailable states.
+  - [ ] Recompute or rerun the RC98 SymPy spot and verify the final report no
+    longer falsely downgrades cumulative proof.
+  - [ ] Run focused, related, full Go regressions and push.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed
