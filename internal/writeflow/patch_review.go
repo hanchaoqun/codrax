@@ -13,6 +13,7 @@ import (
 var patchReviewEffectHardEventCodes = map[string]bool{
 	"duplicate_inserted_block_added":             true,
 	"patch_effect_path_outside_worktree":         true,
+	"python_docstring_section_executable_added":  true,
 	"python_duplicate_symbol_added":              true,
 	"python_top_level_self_method":               true,
 	"python_unreachable_body_after_added_return": true,

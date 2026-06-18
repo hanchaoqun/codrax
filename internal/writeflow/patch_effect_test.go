@@ -289,6 +289,103 @@ func TestAnnotatePatchEffectPythonNestedReturnDoesNotMarkFollowingFunctionBodyUn
 	}
 }
 
+func TestAnnotatePatchEffectPythonDocstringSectionExecutableHardBlocks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sympy/ntheory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `def nthroot_mod(a, n, p, all_roots=False):
+    """
+    Find the solutions to x**n = a mod p
+    Parameters
+    if a % p == 0:
+        if all_roots:
+            return [0]
+        return 0
+    ==========
+    a : integer
+    """
+    return []
+`
+	if err := os.WriteFile(filepath.Join(root, "sympy/ntheory/residue_ntheory.py"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/sympy/ntheory/residue_ntheory.py b/sympy/ntheory/residue_ntheory.py
+--- a/sympy/ntheory/residue_ntheory.py
++++ b/sympy/ntheory/residue_ntheory.py
+@@ -1,8 +1,12 @@
+ def nthroot_mod(a, n, p, all_roots=False):
+     """
+     Find the solutions to x**n = a mod p
+     Parameters
++    if a % p == 0:
++        if all_roots:
++            return [0]
++        return 0
+     ==========
+     a : integer
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "sympy/ntheory/residue_ntheory.py")
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if !patchEffectHasEvent(*file, "python_docstring_section_executable_added") {
+		t.Fatalf("docstring executable section event missing: %+v", file.Events)
+	}
+
+	review := ReviewAppliedPatchScope(&types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"sympy/ntheory/residue_ntheory.py"},
+		PatchEffect: &record,
+	}, types.ChangePlanSlice{})
+	if !review.HardBlock || !patchReviewHasFinding(review, "python_docstring_section_executable_added") {
+		t.Fatalf("docstring executable section should hard block review: %+v", review)
+	}
+}
+
+func TestAnnotatePatchEffectPythonDocstringCodeExampleDoesNotHardBlock(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `def example(value):
+    """
+    Examples
+    ========
+
+    Use a normal code block::
+        if value:
+            return value
+    """
+    return value
+`
+	if err := os.WriteFile(filepath.Join(root, "pkg", "example.py"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/pkg/example.py b/pkg/example.py
+--- a/pkg/example.py
++++ b/pkg/example.py
+@@ -5,6 +5,8 @@
+     Use a normal code block::
++        if value:
++            return value
+     """
+     return value
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "pkg/example.py")
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if patchEffectHasEvent(*file, "python_docstring_section_executable_added") {
+		t.Fatalf("docstring code example should not emit section-disruption event: %+v", file.Events)
+	}
+}
+
 func TestAnnotatePatchEffectDuplicateInsertedBlockHardBlocks(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "sympy/ntheory"), 0o755); err != nil {

@@ -4301,6 +4301,7 @@ Verification:
 | RC-99 | complete | Coherent delivery proof aggregation: final reports now aggregate typed verification proof artifacts across completed current workflow batches, so proof-follow-up batches can satisfy missing contract/symbol refs without parsing verifier prose or historical attempts. Focused type/orchestrator tests, related write packages, full `go test ./...`, and `make` pass. |
 | RC-100 | complete | Planner materialization convergence: active workflow expected paths and write-analysis scope anchors now count as typed localization material, suppressing broad rediscovery and allowing one bounded post-`run_tests` structured emit window before the hard cap. Focused planner tests, related write/read-isolated packages, full `go test ./...`, and `make` pass. |
 | RC-101 | complete | Patch Critic quality-shape expansion: production-source non-ASCII comment and nearby duplicate-assignment events are now emitted from typed diff/file bytes only and consumed as PatchReview soft/unknown coverage. Focused, related, full Go regressions and build pass. |
+| RC-102 | complete | Docstring/text-region executable insertion guard: Python provider now emits `python_docstring_section_executable_added` as a PatchReview hard event when added executable-looking statements disrupt structured docstring section shape. Focused, related, full Go regressions and build pass. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -6032,6 +6033,85 @@ Verification:
     ./internal/tool -count=1`
   - `go test ./...`
   - `make`
+
+## 2026-06-19 RC-102 Python Docstring Section Executable Insertions
+
+- Evidence:
+  - Current run `eval/results/swebench/lite-smoke-20260619-rc102-current-3`
+    exported three non-empty predictions and official harness dry-run accepted
+    the predictions JSONL.
+  - `sympy__sympy-18199` exported a patch that inserted:
+    `if a % p == 0: ... return 0` inside the `nthroot_mod()` docstring,
+    between the `Parameters` title and its underline. The patch is not
+    executable product code even though the user-visible behavior request needs
+    runtime logic.
+  - Local verification was unavailable (`make_target_missing` plus probe
+    syntax/unavailable evidence), so the bad patch survived as
+    `predicted_unverified`. Existing PatchEffect events were empty for the
+    affected file.
+- Root cause:
+  - Actual-diff Patch Critic catches many source-shape defects, but it does not
+    distinguish executable-looking added statements in non-executable text
+    regions such as docstrings.
+  - This is not an issue-specific SymPy rule. It is a source-region authority
+    gap: a patch can target the right owner file and still land the behavior
+    code in a non-runtime region.
+- Design:
+  - Add a Python provider hook that computes triple-quoted string/docstring line
+    spans from post-apply file bytes.
+  - Emit a hard `python_docstring_section_executable_added` event only when an
+    added executable-looking Python statement is inside such a span and disrupts
+    structured docstring section shape, i.e. the inserted block sits before the
+    next non-added section underline. This keeps ordinary doctest/code-block
+    documentation examples from becoming hard failures.
+  - The event uses only actual diff line numbers/text, `SourcePathRole`, and
+    post-apply source bytes. It does not read user intent, issue text, stdout,
+    model rationale, final answer prose, or `<think>`.
+  - PatchReview consumes the event as a structural hard block, reusing the
+    existing replacement-patch repair lane and retry budget.
+- Task list:
+  - [x] Record the three-instance smoke evidence and RC-102 design.
+  - [x] Add the Python docstring section executable event producer.
+  - [x] Register the event as a PatchReview structural hard event.
+  - [x] Add focused tests for the SymPy-style section disruption and a safe
+    docstring code-example non-event.
+  - [x] Run focused, related, full Go regressions, rebuild, commit, and push.
+- Verification:
+  - `go test ./internal/writeflow -run
+    'TestAnnotatePatchEffectPythonDocstring(SectionExecutableHardBlocks|CodeExampleDoesNotHardBlock)'
+    -count=1`
+  - `go test ./internal/writeflow ./internal/orchestrator ./internal/types
+    ./internal/tool -count=1`
+  - `go test ./...`
+  - `make`
+
+## 2026-06-19 RC-103+ Sorted Follow-up Queue From Current Three-instance Smoke
+
+The current smoke is not an official SWE score. It is a typed system triage
+run. It produced 3/3 non-empty harness-consumable predictions, validated by
+`validate_predictions.py` and official harness dry-run/import. Manual audit
+classified the next systemic gaps:
+
+1. **Planner repair tool affordance mismatch.**
+   `django__django-14534` entered online restore/replan several times. During
+   repair planning, the model attempted an unavailable `grep` call. Restoring
+   broad exec access would violate the planning-lane safety model; the right fix
+   is a typed search/repomap/read affordance and prompt/hint unification for
+   repair lanes, so the planner can localize failure evidence without ordinary
+   command execution.
+2. **Probe generation repair layer.**
+   `pytest-dev__pytest-5227` and `sympy__sympy-18199` both ended unverified due
+   typed probe unavailability/syntax/top-level exceptions. These should feed a
+   shared probe-normalization/repair layer before the verifier treats them as
+   final unavailable evidence. The layer must consume structured probe source,
+   language/runtime, parser diagnostics, and import boundary records, not stdout
+   prose.
+3. **Active-run delivery UX.**
+   `django__django-14534` exported a non-empty failed-verify prediction while
+   workflow status remained `in_progress`. That is acceptable for adapter
+   compatibility but poor for routine users. The CLI/REPL should surface a
+   single typed next-action card and auto-resume safe active runs instead of
+   requiring users to discover `/workflow` commands.
 
 ## Acceptance Criteria
 

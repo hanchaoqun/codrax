@@ -25,6 +25,8 @@ var (
 	pythonClassDefLineRE                = regexp.MustCompile(`^(\s*)class\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
 	pythonDefLineRE                     = regexp.MustCompile(`^(\s*)def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	pythonTopLevelSelfMethodDefRE       = regexp.MustCompile(`^def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(\s*(?:self|cls)\b`)
+	pythonTextExecutableStatementRE     = regexp.MustCompile(`^\s*(?:if|elif|else|for|while|try|except|finally|with|def|class|return|raise|assert|yield|import|from)\b`)
+	pythonDocSectionUnderlineRE         = regexp.MustCompile(`^\s*[-=~^]{3,}\s*$`)
 	dynamicNestedStringKeyAccessRE      = regexp.MustCompile(`(?:\b(?:self|cls|this)\.[A-Za-z_$][A-Za-z0-9_$]*|\b[A-Za-z_$][A-Za-z0-9_$]*)(?:\s*\[\s*['"][^'"]+['"]\s*\]){2,}`)
 	rubyNestedSymbolOrStringKeyAccessRE = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\s*\[\s*(?::[A-Za-z_][A-Za-z0-9_]*|['"][^'"]+['"])\s*\]){2,}`)
 	jvmChainedStringMapGetRE            = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\.get\(\s*"[^"]+"\s*\)){2,}`)
@@ -607,6 +609,130 @@ func annotatePatchEffectPythonOwnerShape(file *types.PatchEffectFile, lines []st
 			})
 		}
 		appendPatchEffectPythonUnreachableAfterAddedReturn(file, lines, lineNo)
+	}
+	appendPatchEffectPythonDocstringSectionExecutableEvent(file, lines, hunk)
+}
+
+func appendPatchEffectPythonDocstringSectionExecutableEvent(file *types.PatchEffectFile, lines []string, hunk types.PatchEffectHunk) {
+	if file == nil || file.PathRole != types.SourcePathRoleProduction || len(lines) == 0 {
+		return
+	}
+	docLines := pythonPatchEffectTripleQuotedLineSet(lines)
+	if len(docLines) == 0 {
+		return
+	}
+	added := map[int]bool{}
+	for _, lineNo := range hunk.AddedLineNumbers {
+		if lineNo > 0 {
+			added[lineNo] = true
+		}
+	}
+	for _, addedLine := range hunk.AddedLineTexts {
+		lineNo := addedLine.Line
+		if lineNo <= 0 || !docLines[lineNo] || !pythonTextExecutableStatementRE.MatchString(addedLine.Text) {
+			continue
+		}
+		if !pythonPatchEffectDocstringSectionDisrupted(lines, docLines, added, lineNo) {
+			continue
+		}
+		file.Events = append(file.Events, types.PatchEffectEvent{
+			Code:        "python_docstring_section_executable_added",
+			Severity:    "error",
+			Path:        file.Path,
+			Message:     "added executable-looking Python statement inside a docstring section header region; move behavior changes into executable source code",
+			EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
+		})
+		return
+	}
+}
+
+func pythonPatchEffectDocstringSectionDisrupted(lines []string, docLines map[int]bool, added map[int]bool, lineNo int) bool {
+	next := pythonPatchEffectNextNonAddedDocstringLine(lines, docLines, added, lineNo+1, 8)
+	if next <= 0 || !pythonDocSectionUnderlineRE.MatchString(lines[next-1]) {
+		return false
+	}
+	prev := pythonPatchEffectPrevNonAddedDocstringLine(lines, docLines, added, lineNo-1, 8)
+	if prev <= 0 {
+		return false
+	}
+	prevText := strings.TrimSpace(lines[prev-1])
+	if prevText == "" || pythonDocSectionUnderlineRE.MatchString(prevText) ||
+		strings.HasSuffix(prevText, "::") ||
+		strings.HasPrefix(prevText, ">>>") ||
+		strings.HasPrefix(prevText, "...") {
+		return false
+	}
+	return true
+}
+
+func pythonPatchEffectNextNonAddedDocstringLine(lines []string, docLines map[int]bool, added map[int]bool, start, limit int) int {
+	seen := 0
+	for lineNo := start; lineNo <= len(lines) && seen < limit; lineNo++ {
+		if !docLines[lineNo] {
+			return 0
+		}
+		seen++
+		if added[lineNo] || strings.TrimSpace(lines[lineNo-1]) == "" {
+			continue
+		}
+		return lineNo
+	}
+	return 0
+}
+
+func pythonPatchEffectPrevNonAddedDocstringLine(lines []string, docLines map[int]bool, added map[int]bool, start, limit int) int {
+	seen := 0
+	for lineNo := start; lineNo >= 1 && seen < limit; lineNo-- {
+		if !docLines[lineNo] {
+			return 0
+		}
+		seen++
+		if added[lineNo] || strings.TrimSpace(lines[lineNo-1]) == "" {
+			continue
+		}
+		return lineNo
+	}
+	return 0
+}
+
+func pythonPatchEffectTripleQuotedLineSet(lines []string) map[int]bool {
+	out := map[int]bool{}
+	inString := false
+	delim := ""
+	for i, line := range lines {
+		lineNo := i + 1
+		if inString {
+			out[lineNo] = true
+			if strings.Contains(line, delim) {
+				inString = false
+				delim = ""
+			}
+			continue
+		}
+		start, marker := pythonPatchEffectFirstTripleQuote(line)
+		if start < 0 {
+			continue
+		}
+		if strings.Contains(line[start+len(marker):], marker) {
+			continue
+		}
+		out[lineNo] = true
+		inString = true
+		delim = marker
+	}
+	return out
+}
+
+func pythonPatchEffectFirstTripleQuote(line string) (int, string) {
+	doubleIdx := strings.Index(line, `"""`)
+	singleIdx := strings.Index(line, `'''`)
+	switch {
+	case doubleIdx < 0 && singleIdx < 0:
+		return -1, ""
+	case doubleIdx >= 0 && (singleIdx < 0 || doubleIdx < singleIdx):
+		return doubleIdx, `"""`
+	default:
+		return singleIdx, `'''`
 	}
 }
 
