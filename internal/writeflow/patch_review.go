@@ -19,8 +19,11 @@ var patchReviewEffectHardEventCodes = map[string]bool{
 }
 
 var patchReviewEffectSoftEventCodes = map[string]bool{
+	"caller_return_shape_adapter_added":                true,
 	"control_flow_guard_touched":                       true,
 	"call_site_touched":                                true,
+	"diagnostic_signal_conditionally_suppressed":       true,
+	"external_private_state_sync_workaround":           true,
 	"state_assignment_touched":                         true,
 	"go_nested_string_map_assignment_added":            true,
 	"java_chained_string_map_get_added":                true,
@@ -33,6 +36,9 @@ var patchReviewEffectSoftEventCodes = map[string]bool{
 }
 
 var patchReviewEffectUnknownCoverageEventCodes = map[string]bool{
+	"caller_return_shape_adapter_added":                true,
+	"diagnostic_signal_conditionally_suppressed":       true,
+	"external_private_state_sync_workaround":           true,
 	"go_nested_string_map_assignment_added":            true,
 	"java_chained_string_map_get_added":                true,
 	"javascript_nested_string_key_direct_access_added": true,

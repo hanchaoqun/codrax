@@ -1,8 +1,10 @@
 package writeflow
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -294,6 +296,146 @@ func TestAnnotatePatchEffectPythonNestedStringKeyAccessWarns(t *testing.T) {
 	}
 }
 
+func TestAnnotatePatchEffectOwnerBoundaryWarnings(t *testing.T) {
+	cases := []struct {
+		name      string
+		path      string
+		before    []string
+		after     []string
+		eventCode string
+	}{
+		{
+			name:      "python caller return wrapper",
+			path:      "pkg/predict.py",
+			before:    []string{"return estimator.predict(X)"},
+			after:     []string{"return np.asarray(estimator.predict(X))"},
+			eventCode: "caller_return_shape_adapter_added",
+		},
+		{
+			name:      "javascript caller return wrapper",
+			path:      "src/predict.js",
+			before:    []string{"return service.load(input);"},
+			after:     []string{"return Promise.resolve(service.load(input));"},
+			eventCode: "caller_return_shape_adapter_added",
+		},
+		{
+			name:      "java caller return wrapper",
+			path:      "src/main/java/Predictor.java",
+			before:    []string{"return service.compute(input);"},
+			after:     []string{"return Result.wrap(service.compute(input));"},
+			eventCode: "caller_return_shape_adapter_added",
+		},
+		{
+			name:      "python diagnostic suppression",
+			path:      "pkg/warnings.py",
+			before:    []string{`warnings.warn("slow path")`},
+			after:     []string{"if verbose:", `    warnings.warn("slow path")`},
+			eventCode: "diagnostic_signal_conditionally_suppressed",
+		},
+		{
+			name:      "typescript diagnostic suppression",
+			path:      "src/warnings.ts",
+			before:    []string{`logger.warn("slow path");`},
+			after:     []string{"if (verbose) {", `  logger.warn("slow path");`, "}"},
+			eventCode: "diagnostic_signal_conditionally_suppressed",
+		},
+		{
+			name:      "python external private state",
+			path:      "pkg/state.py",
+			before:    []string{"pass"},
+			after:     []string{"other._cache = value"},
+			eventCode: "external_private_state_sync_workaround",
+		},
+		{
+			name:      "ruby external private state",
+			path:      "lib/state.rb",
+			before:    []string{"nil"},
+			after:     []string{"other.instance_variable_set(:@cache, value)"},
+			eventCode: "external_private_state_sync_workaround",
+		},
+		{
+			name:      "kotlin external private state",
+			path:      "src/main/kotlin/State.kt",
+			before:    []string{"return"},
+			after:     []string{"other._cache = value"},
+			eventCode: "external_private_state_sync_workaround",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			abs := filepath.Join(root, filepath.FromSlash(tc.path))
+			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(abs, []byte(strings.Join(tc.after, "\n")+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			diff := patchEffectSingleHunkDiff(tc.path, tc.before, tc.after)
+			record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+			AnnotatePatchEffectStructuredFileParses(&record, root)
+			file := findPatchEffectFile(record, tc.path)
+			if file == nil {
+				t.Fatalf("patch effect file missing: %+v", record.Files)
+			}
+			if !patchEffectHasEvent(*file, tc.eventCode) {
+				t.Fatalf("event %s missing: %+v", tc.eventCode, file.Events)
+			}
+
+			review := ReviewAppliedPatchScope(&types.ChangePlan{
+				ID:          "plan-1",
+				Status:      types.PlanStatusAppliedPendingVerify,
+				TargetPaths: []string{tc.path},
+				PatchEffect: &record,
+			}, types.ChangePlanSlice{})
+			if review.HardBlock {
+				t.Fatalf("owner-boundary signal is a soft semantic finding, not a hard block: %+v", review)
+			}
+			finding := patchReviewFindingByCode(review, tc.eventCode)
+			if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+				finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+				finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
+				t.Fatalf("owner-boundary finding should be semantic coverage unknown: %+v", finding)
+			}
+		})
+	}
+}
+
+func TestAnnotatePatchEffectOwnerBoundaryInternalReceiverIgnored(t *testing.T) {
+	cases := []struct {
+		name  string
+		path  string
+		after string
+	}{
+		{name: "python self", path: "pkg/state.py", after: "self._cache = value"},
+		{name: "javascript this", path: "src/state.js", after: "this._cache = value;"},
+		{name: "java this", path: "src/main/java/State.java", after: "this._cache = value;"},
+		{name: "ruby self", path: "lib/state.rb", after: "self.instance_variable_set(:@cache, value)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			abs := filepath.Join(root, filepath.FromSlash(tc.path))
+			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(abs, []byte(tc.after+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			diff := patchEffectSingleHunkDiff(tc.path, []string{"pass"}, []string{tc.after})
+			record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+			AnnotatePatchEffectStructuredFileParses(&record, root)
+			file := findPatchEffectFile(record, tc.path)
+			if file == nil {
+				t.Fatalf("patch effect file missing: %+v", record.Files)
+			}
+			if patchEffectHasEvent(*file, "external_private_state_sync_workaround") {
+				t.Fatalf("internal receiver should not emit external private-state event: %+v", file.Events)
+			}
+		})
+	}
+}
+
 func TestAnnotatePatchEffectMultiLanguageLineShapeWarnings(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -414,6 +556,9 @@ func TestPatchEffectSourceProviderRegistryCoverage(t *testing.T) {
 			if provider.ProductionTestRule.code == "" || provider.ProductionTestRule.match == nil {
 				t.Fatalf("provider %q has no production-test scaffold rule: %+v", provider.Kind, provider.ProductionTestRule)
 			}
+			if !provider.OwnerBoundary.ReturnWrapper {
+				t.Fatalf("provider %q has no owner-boundary return-wrapper rule", provider.Kind)
+			}
 		})
 	}
 
@@ -442,6 +587,20 @@ func TestPatchEffectSourceProviderRegistryCoverage(t *testing.T) {
 	}
 }
 
+func TestPatchEffectOwnerBoundaryEventsRequireCoverage(t *testing.T) {
+	for _, code := range []string{
+		"caller_return_shape_adapter_added",
+		"diagnostic_signal_conditionally_suppressed",
+		"external_private_state_sync_workaround",
+	} {
+		t.Run(code, func(t *testing.T) {
+			if !PatchReviewEffectUnknownCoverage(code) {
+				t.Fatalf("event %s must remain semantic coverage unknown", code)
+			}
+		})
+	}
+}
+
 func findPatchEffectFile(record types.PatchEffectRecord, path string) *types.PatchEffectFile {
 	for i := range record.Files {
 		if record.Files[i].Path == path {
@@ -458,4 +617,26 @@ func patchEffectHasEvent(file types.PatchEffectFile, code string) bool {
 		}
 	}
 	return false
+}
+
+func patchEffectSingleHunkDiff(path string, before, after []string) string {
+	var b strings.Builder
+	b.WriteString("diff --git a/" + path + " b/" + path + "\n")
+	b.WriteString("--- a/" + path + "\n")
+	b.WriteString("+++ b/" + path + "\n")
+	b.WriteString("@@ -1," + testItoa(len(before)) + " +1," + testItoa(len(after)) + " @@\n")
+	for _, line := range before {
+		b.WriteString("-" + line + "\n")
+	}
+	for _, line := range after {
+		b.WriteString("+" + line + "\n")
+	}
+	return b.String()
+}
+
+func testItoa(n int) string {
+	if n <= 0 {
+		return "0"
+	}
+	return fmt.Sprintf("%d", n)
 }

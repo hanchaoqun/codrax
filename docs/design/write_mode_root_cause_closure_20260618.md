@@ -2494,17 +2494,17 @@ Design constraints:
 
 RC-47 tasks:
 
-- [ ] Add provider-backed hunk signals for caller-return wrapper adapters,
+- [x] Add provider-backed hunk signals for caller-return wrapper adapters,
   newly guarded diagnostic calls, and external private-state assignment
   workarounds.
-- [ ] Cover Python plus analogous JS/TS, Ruby, Java/Kotlin syntax shapes where
+- [x] Cover Python plus analogous JS/TS, Ruby, Java/Kotlin syntax shapes where
   the source-code signal is precise enough; skip languages whose local syntax
   cannot be identified without noisy inference.
-- [ ] Register the new event codes as PatchReview soft semantic-coverage
+- [x] Register the new event codes as PatchReview soft semantic-coverage
   unknowns so they flow into context packs and bounded repair scheduling.
-- [ ] Add focused actual-diff tests proving the findings are generated from
+- [x] Add focused actual-diff tests proving the findings are generated from
   source hunks and remain non-hard-blocking.
-- [ ] Update this ledger with verification evidence and keep the eval adapter's
+- [x] Update this ledger with verification evidence and keep the eval adapter's
   historical fields clearly labeled as audit telemetry.
 
 ## Progress Ledger
@@ -2559,6 +2559,7 @@ RC-47 tasks:
 | RC-44 | complete | Verify source-compile fallback reuse: Java/Kotlin and Swift no-test source changes now use typed source-check providers instead of synthetic no-tests when plan-touched files exist. Java reuses the Maven/Gradle compile command selector shared with plan dry-build; Kotlin uses bounded `kotlinc` when available; Swift uses `swift build --skip-build`. Missing tools/manifests or unparseable environment output stay pass-with-warning, while parseable build diagnostics fail verify with structured `BuildErrors[]`. |
 | RC-45 | complete | User-facing guide sync: Markdown and HTML now document Java/Kotlin/Swift source compile fallback and clarify that actual-diff mapping/container boundary signals are multi-language provider events, not Python-only logic. Verification: diff check and focused `internal/tool` regressions pass. |
 | RC-46 | complete | Java verification probe runtime: bounded `verification_probes[]` now support Java through the typed runtime registry, with `javac` compile, `java -ea` execution, missing-JDK unavailable semantics, Java production-class coupling, packaged full-source probes, and soft docs/prompt sync. Verification: focused runtime/coupling tests, full `internal/tool`, related packages, `go test ./...`, `make test`, and diff check pass. |
+| RC-47 | complete | Owner-boundary runtime signals: actual-diff source providers now emit typed soft semantic-coverage events for caller-return wrapper adapters, newly guarded diagnostic calls, and external private-state writes across precise Python/JS/TS/Ruby/Java/Kotlin shapes, while Go keeps only the precise return-wrapper shape. PatchReview registers the generic event codes as unknown coverage so they reach P2 handoff and bounded repair scheduling instead of staying SWE-bench adapter-only audit telemetry. Verification: focused writeflow owner-boundary/registry tests and related package regression pass. |
 
 ## Acceptance Criteria
 

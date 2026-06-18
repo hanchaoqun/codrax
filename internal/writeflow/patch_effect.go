@@ -34,6 +34,14 @@ var (
 	goTestScaffoldDeclarationRE         = regexp.MustCompile(`^\s*func\s+Test[A-Z0-9_][A-Za-z0-9_]*\s*\(`)
 	jsTestScaffoldDeclarationRE         = regexp.MustCompile(`^\s*(?:export\s+)?(?:class|function)\s+[A-Za-z_$][A-Za-z0-9_$]*(?:Test|Tests|Spec)\b`)
 	rubyTestScaffoldDeclarationRE       = regexp.MustCompile(`^\s*(?:class\s+[A-Za-z_:][A-Za-z0-9_:]*(?:Test|Tests)\b|def\s+test_[A-Za-z0-9_!?=]*\b)`)
+	sourceReturnStatementRE             = regexp.MustCompile(`^\s*return\s+(.+?)\s*;?\s*$`)
+	sourceConditionalGuardLineRE        = regexp.MustCompile(`^\s*(?:if|elif|else\s+if|unless)\b`)
+	pythonDiagnosticCallRE              = regexp.MustCompile(`\b(?:warnings\.)?(?:warn|warning)\s*\(`)
+	jsDiagnosticCallRE                  = regexp.MustCompile(`\b(?:console|logger|log)\.(?:warn|warning|error)\s*\(`)
+	jvmDiagnosticCallRE                 = regexp.MustCompile(`\b(?:logger|log)\.(?:warn|warning|error)\s*\(`)
+	rubyDiagnosticCallRE                = regexp.MustCompile(`\b(?:warn|warning|logger\.(?:warn|warning|error))\s*(?:\(|\s)`)
+	externalUnderscoreFieldAssignRE     = regexp.MustCompile(`\b([A-Za-z_$][A-Za-z0-9_$]*)\._[A-Za-z_$][A-Za-z0-9_$]*\s*=`)
+	rubyExternalPrivateStateAssignRE    = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\.instance_variable_set\s*\(\s*:@[A-Za-z_][A-Za-z0-9_]*`)
 )
 
 type patchEffectLineShapeRule struct {
@@ -47,8 +55,16 @@ type patchEffectSourceProvider struct {
 	Extensions         []string
 	LineRules          []patchEffectLineShapeRule
 	ProductionTestRule patchEffectLineShapeRule
+	OwnerBoundary      patchEffectOwnerBoundaryRules
 	AnnotateFile       func(file *types.PatchEffectFile, lines []string)
 	AnnotateHunk       func(file *types.PatchEffectFile, lines []string, hunk types.PatchEffectHunk)
+}
+
+type patchEffectOwnerBoundaryRules struct {
+	ReturnWrapper             bool
+	DiagnosticCall            *regexp.Regexp
+	ExternalPrivateAssignment *regexp.Regexp
+	InternalReceivers         []string
 }
 
 var patchEffectSourceProviders = []patchEffectSourceProvider{
@@ -64,6 +80,12 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			code:    "production_test_scaffold_added",
 			match:   pythonTestScaffoldDeclarationRE,
 			message: "added test-shaped Python declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+		OwnerBoundary: patchEffectOwnerBoundaryRules{
+			ReturnWrapper:             true,
+			DiagnosticCall:            pythonDiagnosticCallRE,
+			ExternalPrivateAssignment: externalUnderscoreFieldAssignRE,
+			InternalReceivers:         []string{"self", "cls"},
 		},
 		AnnotateFile: annotatePatchEffectPythonDuplicateDeclarations,
 		AnnotateHunk: annotatePatchEffectPythonOwnerShape,
@@ -81,6 +103,12 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			match:   jsTestScaffoldDeclarationRE,
 			message: "added test-shaped JS/TS declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
 		},
+		OwnerBoundary: patchEffectOwnerBoundaryRules{
+			ReturnWrapper:             true,
+			DiagnosticCall:            jsDiagnosticCallRE,
+			ExternalPrivateAssignment: externalUnderscoreFieldAssignRE,
+			InternalReceivers:         []string{"this", "super"},
+		},
 	},
 	{
 		Kind:       "typescript",
@@ -94,6 +122,12 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			code:    "production_test_scaffold_added",
 			match:   jsTestScaffoldDeclarationRE,
 			message: "added test-shaped JS/TS declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+		OwnerBoundary: patchEffectOwnerBoundaryRules{
+			ReturnWrapper:             true,
+			DiagnosticCall:            jsDiagnosticCallRE,
+			ExternalPrivateAssignment: externalUnderscoreFieldAssignRE,
+			InternalReceivers:         []string{"this", "super"},
 		},
 	},
 	{
@@ -109,6 +143,12 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			match:   rubyTestScaffoldDeclarationRE,
 			message: "added test-shaped Ruby declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
 		},
+		OwnerBoundary: patchEffectOwnerBoundaryRules{
+			ReturnWrapper:             true,
+			DiagnosticCall:            rubyDiagnosticCallRE,
+			ExternalPrivateAssignment: rubyExternalPrivateStateAssignRE,
+			InternalReceivers:         []string{"self", "super"},
+		},
 	},
 	{
 		Kind:       "java",
@@ -122,6 +162,12 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			code:    "production_test_scaffold_added",
 			match:   jvmTestScaffoldDeclarationRE,
 			message: "added test-shaped JVM declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+		OwnerBoundary: patchEffectOwnerBoundaryRules{
+			ReturnWrapper:             true,
+			DiagnosticCall:            jvmDiagnosticCallRE,
+			ExternalPrivateAssignment: externalUnderscoreFieldAssignRE,
+			InternalReceivers:         []string{"this", "super"},
 		},
 	},
 	{
@@ -137,6 +183,12 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			match:   jvmTestScaffoldDeclarationRE,
 			message: "added test-shaped JVM declaration in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
 		},
+		OwnerBoundary: patchEffectOwnerBoundaryRules{
+			ReturnWrapper:             true,
+			DiagnosticCall:            jvmDiagnosticCallRE,
+			ExternalPrivateAssignment: externalUnderscoreFieldAssignRE,
+			InternalReceivers:         []string{"this", "super"},
+		},
 	},
 	{
 		Kind:       "go",
@@ -150,6 +202,9 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			code:    "production_test_scaffold_added",
 			match:   goTestScaffoldDeclarationRE,
 			message: "added Go test function in a production path; verify that test scaffolding belongs in production source or move it to the repository's test surface",
+		},
+		OwnerBoundary: patchEffectOwnerBoundaryRules{
+			ReturnWrapper: true,
 		},
 	},
 }
@@ -470,6 +525,7 @@ func annotatePatchEffectSourceShape(file *types.PatchEffectFile, data []byte, pr
 		if provider.AnnotateHunk != nil {
 			provider.AnnotateHunk(file, lines, hunk)
 		}
+		appendPatchEffectOwnerBoundaryEvents(file, provider, hunk)
 		for _, added := range hunk.AddedLineTexts {
 			appendPatchEffectLineShapeEvents(file, provider, added)
 			appendPatchEffectProductionTestScaffoldEvent(file, provider, added)
@@ -601,6 +657,173 @@ func pythonPatchEffectIndent(line string) int {
 		}
 	}
 	return indent
+}
+
+func appendPatchEffectOwnerBoundaryEvents(file *types.PatchEffectFile, provider *patchEffectSourceProvider, hunk types.PatchEffectHunk) {
+	if file == nil || provider == nil {
+		return
+	}
+	rules := provider.OwnerBoundary
+	if rules.ReturnWrapper {
+		appendPatchEffectReturnWrapperEvent(file, provider, hunk)
+	}
+	if rules.DiagnosticCall != nil {
+		appendPatchEffectGuardedDiagnosticEvent(file, provider, hunk)
+	}
+	if rules.ExternalPrivateAssignment != nil {
+		appendPatchEffectExternalPrivateAssignmentEvent(file, provider, hunk)
+	}
+}
+
+func appendPatchEffectReturnWrapperEvent(file *types.PatchEffectFile, provider *patchEffectSourceProvider, hunk types.PatchEffectHunk) {
+	for _, removed := range hunk.RemovedLineTexts {
+		oldExpr, ok := patchEffectReturnExpression(removed.Text)
+		if !ok || !strings.Contains(oldExpr, "(") {
+			continue
+		}
+		for _, added := range hunk.AddedLineTexts {
+			newExpr, ok := patchEffectReturnExpression(added.Text)
+			if !ok || !patchEffectExpressionWraps(newExpr, oldExpr) {
+				continue
+			}
+			appendPatchEffectProviderWarning(file, "caller_return_shape_adapter_added",
+				fmt.Sprintf("added %s return wraps an existing returned call; verify the owner boundary instead of only adapting the caller shape", provider.Kind),
+				added)
+			return
+		}
+	}
+}
+
+func appendPatchEffectGuardedDiagnosticEvent(file *types.PatchEffectFile, provider *patchEffectSourceProvider, hunk types.PatchEffectHunk) {
+	if provider.OwnerBoundary.DiagnosticCall == nil || !patchEffectLinesMatch(hunk.RemovedLineTexts, provider.OwnerBoundary.DiagnosticCall) {
+		return
+	}
+	for idx, added := range hunk.AddedLineTexts {
+		if !provider.OwnerBoundary.DiagnosticCall.MatchString(added.Text) {
+			continue
+		}
+		if !patchEffectPriorAddedGuard(hunk.AddedLineTexts, idx) {
+			continue
+		}
+		appendPatchEffectProviderWarning(file, "diagnostic_signal_conditionally_suppressed",
+			fmt.Sprintf("added %s diagnostic call is guarded where the previous diagnostic was unguarded; verify the diagnostic semantics rather than suppressing the symptom", provider.Kind),
+			added)
+		return
+	}
+}
+
+func appendPatchEffectExternalPrivateAssignmentEvent(file *types.PatchEffectFile, provider *patchEffectSourceProvider, hunk types.PatchEffectHunk) {
+	rule := provider.OwnerBoundary.ExternalPrivateAssignment
+	if rule == nil {
+		return
+	}
+	for _, added := range hunk.AddedLineTexts {
+		match := rule.FindStringSubmatch(added.Text)
+		if len(match) < 2 {
+			continue
+		}
+		receiver := strings.TrimSpace(match[1])
+		if patchEffectReceiverIsInternal(receiver, provider.OwnerBoundary.InternalReceivers) {
+			continue
+		}
+		appendPatchEffectProviderWarning(file, "external_private_state_sync_workaround",
+			fmt.Sprintf("added %s code writes private state on external receiver %q; verify the owner API or callback boundary instead of synchronizing private state", provider.Kind, receiver),
+			added)
+		return
+	}
+}
+
+func patchEffectReturnExpression(line string) (string, bool) {
+	match := sourceReturnStatementRE.FindStringSubmatch(strings.TrimSpace(line))
+	if len(match) < 2 {
+		return "", false
+	}
+	expr := strings.TrimSpace(match[1])
+	expr = strings.TrimSuffix(expr, ";")
+	expr = strings.TrimSpace(expr)
+	return expr, expr != ""
+}
+
+func patchEffectExpressionWraps(newExpr, oldExpr string) bool {
+	newNorm := patchEffectCompactExpression(newExpr)
+	oldNorm := patchEffectCompactExpression(oldExpr)
+	if newNorm == "" || oldNorm == "" || newNorm == oldNorm {
+		return false
+	}
+	idx := strings.Index(newNorm, oldNorm)
+	if idx <= 0 {
+		return false
+	}
+	prefix := newNorm[:idx]
+	suffix := newNorm[idx+len(oldNorm):]
+	if prefix == "(" || !strings.Contains(prefix, "(") || suffix == "" {
+		return false
+	}
+	return strings.HasPrefix(suffix, ")") || strings.HasPrefix(suffix, ",")
+}
+
+func patchEffectCompactExpression(expr string) string {
+	expr = strings.TrimSpace(expr)
+	expr = strings.TrimSuffix(expr, ";")
+	var b strings.Builder
+	for _, r := range expr {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func patchEffectLinesMatch(lines []types.PatchEffectLine, re *regexp.Regexp) bool {
+	if re == nil {
+		return false
+	}
+	for _, line := range lines {
+		if re.MatchString(line.Text) {
+			return true
+		}
+	}
+	return false
+}
+
+func patchEffectPriorAddedGuard(lines []types.PatchEffectLine, idx int) bool {
+	for i := 0; i < idx && i < len(lines); i++ {
+		if sourceConditionalGuardLineRE.MatchString(lines[i].Text) {
+			return true
+		}
+	}
+	return false
+}
+
+func patchEffectReceiverIsInternal(receiver string, internal []string) bool {
+	receiver = strings.TrimSpace(receiver)
+	if receiver == "" {
+		return true
+	}
+	for _, candidate := range internal {
+		if receiver == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func appendPatchEffectProviderWarning(file *types.PatchEffectFile, code, message string, line types.PatchEffectLine) {
+	if file == nil {
+		return
+	}
+	evidence := file.Path
+	if line.Line > 0 {
+		evidence = fmt.Sprintf("%s:%d", file.Path, line.Line)
+	}
+	file.Events = append(file.Events, types.PatchEffectEvent{
+		Code:        code,
+		Severity:    "warning",
+		Path:        file.Path,
+		Message:     message,
+		EvidenceRef: evidence,
+	})
 }
 
 func appendPatchEffectLineShapeEvents(file *types.PatchEffectFile, provider *patchEffectSourceProvider, line types.PatchEffectLine) {
