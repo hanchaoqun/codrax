@@ -3063,6 +3063,52 @@ RC-58 tasks:
   becomes empty for this approval-staleness path.
 - [x] Update this progress ledger.
 
+## RC-59: Applied-But-Unobserved Dispatch Interruption Completion Verify
+
+The RC-58 xarray rerun crossed the approval boundary and produced a non-empty
+prediction, but the workflow still ended `in_progress` with:
+
+```text
+workflow_latest_progress_reason_code=controller_dispatch_interrupted_after_applied_patch
+plan_status=applied_pending_verify
+verify_status=<missing>
+```
+
+The active proof-repair batch had applied its patch, then the next
+`write_controller` dispatch returned `context canceled` before the controller
+could ask for `verify_batch`. This is an online-convergence state-kernel gap:
+the system performed Edit but failed to deterministically run Observe before
+surfacing the interruption. It is not a patch-export issue and should not be
+fixed by special-casing the xarray instance.
+
+Design:
+
+- Reuse the existing budget-completion verify lane as a generic
+  "applied-pending-observe" helper.
+- Trigger the helper when controller dispatch is interrupted and typed workflow
+  attempts show the active batch's latest successful apply has no later verify.
+- Respect explicit user/global cancellation: if the orchestrator cancel token is
+  set, return the interruption immediately and do not run extra work.
+- If the completion verify passes or is typed unavailable/no-tests/runner-missing,
+  terminalize the batch/run with the same typed completion semantics used by the
+  budget lane.
+- If the completion verify fails, persist normal P2 verify evidence and let the
+  caller preserve the applied-patch interruption guidance for later resume.
+- Keep hard logic on typed workflow attempts, typed reports, and cancel-token
+  state only; do not inspect model prose, issue text, logs, or user keywords.
+
+RC-59 tasks:
+
+- [x] Factor `runBudgetCompletionVerify` through shared
+  `runAppliedPendingCompletionVerify`.
+- [x] Add `runDispatchInterruptedCompletionVerify` and call it before publishing
+  applied-patch interruption guidance.
+- [x] Add regression proving dispatch `context.Canceled` after apply runs one
+  bounded verify and completes a green batch.
+- [x] Add regression proving explicit cancel token does not run completion
+  verify.
+- [x] Update this progress ledger.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3129,6 +3175,7 @@ RC-58 tasks:
 | RC-56 | complete | Primary failure reason authority: aggregate verify reports now bind `FailureReasonCode` to the final primary `FailureKind`, so secondary unavailable runner signals such as `make_target_missing` remain visible as evidence but no longer overwrite red test/build/resource failure attribution. |
 | RC-57 | complete | Typed SWE failure-cause taxonomy: local Codrax result summaries now group rows into typed cause categories/families such as verification proof, implementation/localization, patch semantics, environment, workflow state, probe generation, export, and accepted/manual-audit buckets. This gives low-pass-rate analysis a stable denominator without parsing logs, issue prose, or model output. |
 | RC-58 | complete | Auto approval refresh after deterministic enrichment: a fresh xarray Lite run showed proof-follow-up probe-ref binding made an auto-executable plan's approval fingerprint stale, causing `approval_authority_invalid` and empty export. Controller-owned deterministic plan mutations now refresh stale auto approvals only when the fresh typed risk policy still allows `auto_execute`; manual/denied/tampered paths remain conservative. Rerunning `pydata__xarray-4248` produced a 1318-byte non-empty prediction and crossed the prior approval boundary; the official harness dry-run still needs a Python 3.10+ eval venv, while the next observed runtime gap is applied-but-unobserved interruption leaving `verify_status` absent. |
+| RC-59 | complete | Applied-but-unobserved interruption closure: controller dispatch `context.Canceled` after a successful apply now runs one bounded typed completion verify before surfacing interruption, unless the orchestrator cancel token was explicitly set. The implementation reuses the budget-completion verify semantics and records `controller_dispatch_completion_verify`; green/unavailable verifier outcomes terminalize the run, while real verify failures persist normal evidence and preserve resumable applied-patch guidance. Verification: focused controller regressions and diff check pass; full regression evidence follows this batch. |
 
 ## Acceptance Criteria
 

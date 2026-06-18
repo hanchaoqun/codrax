@@ -105,6 +105,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				if o.completeDispatchInterruptedRunIfAllBatchesComplete(&run, "controller_dispatch_interrupted_after_complete") {
 					return nil
 				}
+				if o.runDispatchInterruptedCompletionVerify(&run, stepsUsed, importedPlanMirror) {
+					return nil
+				}
 				if o.publishAppliedPatchInterruptedGuidance(&run, o.busCtx.Mutable.ChangePlan(), err, "controller_dispatch_interrupted_after_applied_patch") {
 					o.persistWriteWorkflowRun(&run)
 				}
@@ -5320,6 +5323,33 @@ func (o *Orchestrator) mirrorActivePlanToImportFile(mirrorPath string) {
 // evidence persistence runs and the caller proceeds to the blocked verdict.
 // All conditions read typed attempt records — never prose.
 func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, stepsUsed *int, importedPlanMirror string) bool {
+	return o.runAppliedPendingCompletionVerify(run, stepsUsed, importedPlanMirror,
+		"budget_completion_verify",
+		"running final verification for the applied batch before the budget verdict",
+		"budget exhausted with applied-but-unverified batch")
+}
+
+// runDispatchInterruptedCompletionVerify gives the online convergence loop one
+// final observation opportunity when controller dispatch is interrupted after a
+// patch has already been applied. User/global cancellation remains authoritative:
+// if the cancel token is set, the scheduler returns the interruption immediately.
+func (o *Orchestrator) runDispatchInterruptedCompletionVerify(run *types.WriteWorkflowRun, stepsUsed *int, importedPlanMirror string) bool {
+	if o != nil && o.cancelToken != nil && o.cancelToken.IsCanceled() {
+		return false
+	}
+	return o.runAppliedPendingCompletionVerify(run, stepsUsed, importedPlanMirror,
+		"controller_dispatch_completion_verify",
+		"controller dispatch was interrupted after apply; running final verification before surfacing interruption",
+		"controller dispatch interrupted with applied-but-unverified batch")
+}
+
+// runAppliedPendingCompletionVerify is the shared completion lane: when the
+// active batch's latest apply attempt succeeded and no verify attempt followed
+// it, run one bounded typed verify before a terminal pacing/interruption verdict.
+// Returns true when that verdict completes the run. On failure it persists the
+// standard verify evidence and returns false so the caller can keep its original
+// terminal behavior. All conditions read typed workflow attempts, never prose.
+func (o *Orchestrator) runAppliedPendingCompletionVerify(run *types.WriteWorkflowRun, stepsUsed *int, importedPlanMirror, reasonCode, message, logPrefix string) bool {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || o.skipVerify {
 		return false
 	}
@@ -5350,8 +5380,20 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 	if lastApplyIdx < 0 || lastVerifyIdx > lastApplyIdx {
 		return false
 	}
-	logging.Info("[orchestrator] budget exhausted with applied-but-unverified batch %s — running completion verify", run.ActiveBatchID)
-	appendControllerProgress(run, run.ActiveBatchID, "budget_completion_verify", "running final verification for the applied batch before the budget verdict")
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		reasonCode = "completion_verify"
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = "running final verification for the applied batch before terminalizing the workflow"
+	}
+	logPrefix = strings.TrimSpace(logPrefix)
+	if logPrefix == "" {
+		logPrefix = "terminalizing with applied-but-unverified batch"
+	}
+	logging.Info("[orchestrator] %s %s — running completion verify", logPrefix, run.ActiveBatchID)
+	appendControllerProgress(run, run.ActiveBatchID, reasonCode, message)
 	innerErr := o.runControllerVerifyBatch(stepsUsed)
 	report := o.busCtx.Mutable.ChangeReport()
 	if report != nil {
