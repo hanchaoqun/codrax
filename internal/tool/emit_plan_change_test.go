@@ -95,6 +95,7 @@ func TestEmitPlanChange_FinalFillFinalizesPlan(t *testing.T) {
 func TestEmitPlanChange_FinalizeRejectsPythonProbeNotImportingChangedTarget(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.RepoRoot = t.TempDir()
+	writeSurfaceFile(t, bus.RepoRoot, "sphinx/domains/std.py", "option_desc_re = None\n")
 	installSkeletonForTest(t, bus, `{
 		"request": "fix option directive parsing",
 		"summary": "Single-file Python plan with a verification probe that must exercise the changed module.",

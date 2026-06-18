@@ -4195,6 +4195,53 @@ Verification:
 | RC-71 | complete | Python verification probes now separate probe-authored top-level exceptions from product-code runtime failures using the wrapper's typed `probe_top_level` status. Top-level probe exceptions become unavailable probe-authoring diagnostics; product-frame exceptions remain red `tests_failed`. Focused probe-boundary tests, related packages, and full `go test ./...` pass. |
 | RC-72 | complete | Actual-diff nested collection branch exclusion signal is now a multi-language provider event, not a Python-only or Django-specific patch. Newly skipped nested collection branches become soft semantic coverage obligations with `impact_kind=effect_followup`, preserving automation while requiring bounded proof/replan before high-confidence local acceptance. Verification: focused provider tests, writeflow package, related packages, full `go test ./...`, `make test`, `make`, and diff check pass. |
 | RC-73 | complete | Python actual-diff Patch Critic now flags added function-body returns that leave later same-function statements unreachable. This closes the RC-72 Django smoke gap where replan prepended a new method body before the old body, local acceptance failed correctly, but PatchReview lacked a structural hard event for the exported bad patch. Verification: focused Python provider tests, writeflow package, related packages, full `go test ./...`, `make test`, `make`, and diff check pass. |
+| RC-74 | complete | Plan path-state validation now rejects typed `ChangePlan` mismatches before apply: `create` for an existing file/directory, `modify`/`patch`/`rename` source for a missing or directory path, rename destination collisions, repo-boundary escapes, and directory deletes. This closes the RC-78 Django partial-apply/stale-approval class where an existing test file was planned as `create`, the source file applied, test-file create failed, and the workflow blocked with an empty exported patch. Verification: focused `emit_change_plan` path-state tests and full `internal/tool` package pass. |
+
+## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
+
+- Evidence:
+  - SWE-bench Lite targeted run `django__django-11742` at
+    `/private/tmp/codrax-swe-rc78-django-20260618-rc78-django-cumulative`
+    ended with `workflow_status=blocked`, `plan_status=partially_applied`,
+    `prediction_verdict=empty_patch`, and
+    `prediction_audit_block_reason=workflow_blocked_empty_patch`.
+  - The plan combined a valid production patch with
+    `kind=create` for `tests/model_fields/test_charfield.py`, but that test
+    file already existed in the checkout. Apply wrote the production file,
+    rejected the test-file create, and the next controller pass hit a stale
+    approval boundary before cumulative patch review could converge.
+- Generalized rule:
+  - `emit_change_plan` validates current path state before any apply/export
+    path. The gate consumes only typed `ChangePlan` fields
+    (`kind`, `path`, `new_path`) plus repo-relative filesystem state under
+    `BusContext.RepoRoot`.
+  - `create` must target an absent path. `modify` and `patch` must target an
+    existing regular file. `rename` source must be an existing regular file and
+    destination must be absent. `delete` stays idempotent for missing paths but
+    refuses directories.
+  - Boundary escapes, stat failures, and directory/file mismatches return a
+    structured `PlanRepairPack`, so planner retry can change the typed kind or
+    path without mining rejection prose.
+- Prompt and hard-gate hygiene:
+  - No user issue keywords, model rationale, natural-language summary,
+    stdout/stderr narrative, or visible `<think>` text participates in the
+    decision.
+  - This is a plan-time hard gate that prevents partial apply; it does not
+    change read/log/trace/data/operation/computer modes or approval policy.
+- Task list:
+  - [x] Add `validatePlanPathStateWithRepair` to the shared
+    `emit_change_plan` full-content validation chain.
+  - [x] Cover create-existing, modify/patch-missing, and rename-destination
+    collision regressions.
+  - [x] Update existing probe tests with realistic current-file fixtures now
+    that source changes must reference existing files.
+  - [x] Document the path-state hard gate in architecture and user guides,
+    including the synchronized HTML guide.
+- Verification:
+  - Focused path-state tests passed:
+    `go test ./internal/tool -run 'TestEmitChangePlan_(RejectsCreateForExistingFile|RejectsModifyAndPatchForMissingFile|RejectsRenameDestinationExisting|RepairsStringWrappedChangesArray)' -count=1`.
+  - Tool package regression passed:
+    `go test ./internal/tool -count=1`.
 
 ## Acceptance Criteria
 

@@ -516,6 +516,12 @@ func TestEmitChangePlanAcceptsJavaScriptProbeImportingPackageName(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, "package.json"), []byte(`{"name":"@codrax/widgets"}`), 0o644); err != nil {
 		t.Fatalf("write package.json: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, "src", "widget.ts"), []byte("export const value = 0;\n"), 0o644); err != nil {
+		t.Fatalf("write src/widget.ts: %v", err)
+	}
 	params := json.RawMessage(`{
 		"request": "fix a TypeScript public package behaviour",
 		"summary": "Modify src/widget.ts and verify through the package public entrypoint declared in package.json.",

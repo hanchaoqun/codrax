@@ -240,6 +240,9 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej, pack := validatePlanContentCarriersWithRepair(toolName, changes); rej != "" {
 		return rej, pack
 	}
+	if rej, pack := validatePlanPathStateWithRepair(ctx, toolName, changes); rej != "" {
+		return rej, pack
+	}
 	if rej, pack := validateFullModifyCompletenessWithRepair(ctx, toolName, changes); rej != "" {
 		return rej, pack
 	}
@@ -295,6 +298,112 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 		return rej, planRepairPackFromReason(toolName, "verification_probe_coupling_failed", rej, []string{"$.verification_probes[].code", "$.verification_probes[].changed_symbol_refs"}, nil)
 	}
 	return "", nil
+}
+
+func validatePlanPathStateWithRepair(ctx *types.BusContext, toolName string, changes []types.FileChange) (string, *types.PlanRepairPack) {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return "", nil
+	}
+	rootAbs, err := filepath.Abs(ctx.RepoRoot)
+	if err != nil {
+		return "", nil
+	}
+	for _, change := range changes {
+		path := strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(change.Path)), "./")
+		if path == "" {
+			continue
+		}
+		kind := strings.TrimSpace(change.Kind)
+		exists, isDir, statErr, ok := planPathState(rootAbs, path)
+		if !ok {
+			rej := fmt.Sprintf("change %q path escapes RepoRoot; use a repo-relative path inside the checkout", path)
+			return rej, planRepairPackFromReason(toolName, "path_state_outside_repo", rej, []string{"$.changes[].path"}, []string{path})
+		}
+		if statErr != nil && !os.IsNotExist(statErr) {
+			rej := fmt.Sprintf("change %q cannot be statted before planning: %v", path, statErr)
+			return rej, planRepairPackFromReason(toolName, "path_state_stat_failed", rej, []string{"$.changes[].path"}, []string{path})
+		}
+		switch kind {
+		case "create":
+			if exists {
+				state := "file"
+				if isDir {
+					state = "directory"
+				}
+				rej := fmt.Sprintf("change %q has kind=create but that %s already exists; use kind=patch/modify for an existing file or choose a new path", path, state)
+				return rej, planRepairPackWithEnums(toolName, "create_path_exists", rej, []string{"$.changes[].kind", "$.changes[].path"}, map[string][]string{
+					"$.changes[].kind": {"patch", "modify", "create"},
+				})
+			}
+		case "modify", "patch":
+			if !exists {
+				rej := fmt.Sprintf("change %q has kind=%s but the file does not exist; use kind=create for a new file", path, kind)
+				return rej, planRepairPackWithEnums(toolName, kind+"_path_missing", rej, []string{"$.changes[].kind", "$.changes[].path"}, map[string][]string{
+					"$.changes[].kind": {"create", kind},
+				})
+			}
+			if isDir {
+				rej := fmt.Sprintf("change %q has kind=%s but the path is a directory; choose a regular file path", path, kind)
+				return rej, planRepairPackFromReason(toolName, kind+"_path_is_directory", rej, []string{"$.changes[].path"}, []string{path})
+			}
+		case "delete":
+			if exists && isDir {
+				rej := fmt.Sprintf("change %q has kind=delete but the path is a directory; delete changes must target files, not directories", path)
+				return rej, planRepairPackFromReason(toolName, "delete_path_is_directory", rej, []string{"$.changes[].path"}, []string{path})
+			}
+		case "rename":
+			if !exists {
+				rej := fmt.Sprintf("change %q has kind=rename but the source file does not exist", path)
+				return rej, planRepairPackFromReason(toolName, "rename_source_missing", rej, []string{"$.changes[].path"}, []string{path})
+			}
+			if isDir {
+				rej := fmt.Sprintf("change %q has kind=rename but the source path is a directory; rename changes must target files", path)
+				return rej, planRepairPackFromReason(toolName, "rename_source_is_directory", rej, []string{"$.changes[].path"}, []string{path})
+			}
+			newPath := strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(change.NewPath)), "./")
+			if newPath == "" {
+				continue
+			}
+			destExists, destIsDir, destErr, destOK := planPathState(rootAbs, newPath)
+			if !destOK {
+				rej := fmt.Sprintf("change %q new_path %q escapes RepoRoot; use a repo-relative destination inside the checkout", path, newPath)
+				return rej, planRepairPackFromReason(toolName, "rename_destination_outside_repo", rej, []string{"$.changes[].new_path"}, []string{path, newPath})
+			}
+			if destErr != nil && !os.IsNotExist(destErr) {
+				rej := fmt.Sprintf("change %q new_path %q cannot be statted before planning: %v", path, newPath, destErr)
+				return rej, planRepairPackFromReason(toolName, "rename_destination_stat_failed", rej, []string{"$.changes[].new_path"}, []string{path, newPath})
+			}
+			if destExists {
+				state := "file"
+				if destIsDir {
+					state = "directory"
+				}
+				rej := fmt.Sprintf("change %q has kind=rename but destination %q already exists as a %s", path, newPath, state)
+				return rej, planRepairPackFromReason(toolName, "rename_destination_exists", rej, []string{"$.changes[].new_path"}, []string{path, newPath})
+			}
+		}
+	}
+	return "", nil
+}
+
+func planPathState(rootAbs, repoRel string) (exists bool, isDir bool, statErr error, ok bool) {
+	if strings.TrimSpace(rootAbs) == "" || strings.TrimSpace(repoRel) == "" {
+		return false, false, os.ErrNotExist, false
+	}
+	abs := filepath.Join(rootAbs, filepath.FromSlash(repoRel))
+	abs, err := filepath.Abs(abs)
+	if err != nil {
+		return false, false, err, true
+	}
+	rel, err := filepath.Rel(rootAbs, abs)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || filepath.IsAbs(rel) {
+		return false, false, err, false
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return false, false, err, true
+	}
+	return true, info.IsDir(), nil, true
 }
 
 func validatePlanContentCarriers(changes []types.FileChange) string {

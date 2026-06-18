@@ -206,6 +206,109 @@ func TestEmitChangePlan_RepairsStringWrappedChangesArray(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_RejectsCreateForExistingFile(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "tests/model_fields/test_charfield.py", "class Existing:\n    pass\n")
+	ctx := &types.BusContext{Mutable: types.NewMutableState("path state"), RepoRoot: root}
+	params := json.RawMessage(`{
+		"request": "add a regression test",
+		"summary": "Add a regression test in the existing test file. The path already exists so the plan must patch or modify it rather than create it.",
+		"changes": [{
+			"path": "tests/model_fields/test_charfield.py",
+			"kind": "create",
+			"new_content": "class Existing:\n    pass\n\nclass NewTest:\n    pass\n",
+			"rationale": "add the regression test"
+		}]
+	}`)
+
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("kind=create for an existing file should be rejected before apply")
+	}
+	if !strings.Contains(res.Summary, "kind=create") || !strings.Contains(res.Summary, "already exists") {
+		t.Fatalf("rejection should name create/existing-file mismatch, got: %s", res.Summary)
+	}
+	if ctx.Mutable.ChangePlan() != nil {
+		t.Fatalf("rejected path-state plan must not install ChangePlan: %+v", ctx.Mutable.ChangePlan())
+	}
+}
+
+func TestEmitChangePlan_RejectsModifyAndPatchForMissingFile(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind string
+		body string
+	}{
+		{
+			name: "modify",
+			kind: "modify",
+			body: `"new_content": "VALUE = 1\n"`,
+		},
+		{
+			name: "patch",
+			kind: "patch",
+			body: `"patch": "--- a/missing.py\n+++ b/missing.py\n@@ -1,1 +1,1 @@\n-old\n+new\n"`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			ctx := &types.BusContext{Mutable: types.NewMutableState("path state"), RepoRoot: root}
+			params := json.RawMessage(`{
+				"request": "update missing file",
+				"summary": "Attempt to update a file that is absent from the current checkout. The validator should catch the path-state mismatch before apply.",
+				"changes": [{
+					"path": "missing.py",
+					"kind": "` + tc.kind + `",
+					` + tc.body + `,
+					"rationale": "update missing file"
+				}]
+			}`)
+
+			res, err := (&EmitChangePlan{}).Execute(ctx, params)
+			if err != nil {
+				t.Fatalf("Execute returned error: %v", err)
+			}
+			if res.Success {
+				t.Fatalf("kind=%s for a missing file should be rejected before apply", tc.kind)
+			}
+			if !strings.Contains(res.Summary, "does not exist") || !strings.Contains(res.Summary, "kind="+tc.kind) {
+				t.Fatalf("rejection should name %s/missing-file mismatch, got: %s", tc.kind, res.Summary)
+			}
+		})
+	}
+}
+
+func TestEmitChangePlan_RejectsRenameDestinationExisting(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "old.txt", "old\n")
+	writeSurfaceFile(t, root, "new.txt", "new\n")
+	ctx := &types.BusContext{Mutable: types.NewMutableState("path state"), RepoRoot: root}
+	params := json.RawMessage(`{
+		"request": "rename a file",
+		"summary": "Rename old.txt to new.txt. The destination exists, so this plan must be rejected before apply instead of partially mutating the worktree.",
+		"changes": [{
+			"path": "old.txt",
+			"kind": "rename",
+			"new_path": "new.txt",
+			"rationale": "move the file"
+		}]
+	}`)
+
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("rename to an existing destination should be rejected before apply")
+	}
+	if !strings.Contains(res.Summary, "destination") || !strings.Contains(res.Summary, "already exists") {
+		t.Fatalf("rejection should name existing rename destination, got: %s", res.Summary)
+	}
+}
+
 func TestEmitChangePlan_PersistsBehaviorContractsAndProbeRefs(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
@@ -724,6 +827,7 @@ func TestEmitChangePlan_AcceptsPythonProbeImportingRepoLocalSiblingPublicPackage
 			t.Fatalf("write %s __init__: %v", path, err)
 		}
 	}
+	writeSurfaceFile(t, ctx.RepoRoot, "lib/mpl_toolkits/mplot3d/axes3d.py", "class Axes3D:\n    def draw(self, renderer):\n        pass\n")
 	params := json.RawMessage(`{
 		"request": "fix 3D axes visibility",
 		"summary": "Modify Axes3D.draw and verify the behavior through Matplotlib's public pyplot entrypoint, which lives in a sibling top-level package under the same lib source root.",

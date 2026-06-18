@@ -1418,7 +1418,7 @@ emit_change_plan 跑多步 pre-flight gate（任一失败 reject 全部并 re-pr
 3. 一文件一变更（同 path 不能有两个 entry）
 4. TargetPaths 去重（保序，第一次出现胜出）
 5. DependsOn 校验（每个引用必须命名兄弟 path；DFS 拒环）
-6. 文件存在性（create 必须不存在；modify 必须存在；delete 缺失幂等）
+6. 文件路径状态（repo-relative `path/new_path` 经 worktree boundary 解析；create 必须指向不存在路径；modify / patch / rename source 必须指向已存在普通文件；delete 缺失幂等但目录删除拒绝；rename destination 必须不存在）
 7. Rename 目标（new_path 不能与现有冲突）
 8. **Deps-closure**（Go imports vs go.mod；同 plan go.mod modify 也算）
 9. **Wiring-closure**（`internal/{mcp,skill,tool,agent}/*.go` 创建必须搭配 wiring 文件 modify）
