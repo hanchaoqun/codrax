@@ -326,12 +326,23 @@ Batch D partial implementation notes:
 
 ### Batch E - Time Alignment And Off-CPU Semantics
 
-- [ ] Add optional tracebundle clock alignment metadata:
+- [x] Add optional tracebundle clock alignment metadata:
   `perf_time_ns -> trace_seconds` offset/slope/confidence.
-- [ ] Teach trace_query to expose alignment status per perf context.
-- [ ] Separate on-cpu and off-cpu sample contexts so off-cpu periods do not get
+- [x] Teach trace_query to expose alignment status per perf context.
+- [x] Separate on-cpu and off-cpu sample contexts so off-cpu periods do not get
   narrated as running CPU execution.
 - [ ] Add tests for assumed, calibrated, and unknown clock alignment.
+
+Batch E partial implementation notes:
+
+- Tracebundle JSON now emits `perf_clock_alignments` for every generated
+  `.perftrace` artifact using provider capability metadata. Uncalibrated
+  providers expose confidence such as `assumed` and do not invent offset/slope.
+- `trace_query` already exposes per-context `clock` and `clock_confidence`
+  through `perf_quality`; Batch C added `sample_kind` so off-cpu samples are
+  visible and caveated instead of silently mixed into running CPU narration.
+- Calibrated offset/slope still requires a capture-level clock map, so the
+  calibrated test remains pending until that input exists.
 
 ### Batch F - UX, Prompt, Handoff, And JSON Repair
 

@@ -43,12 +43,13 @@ type standaloneSegment struct {
 }
 
 type traceBundleMetadata struct {
-	Version           string                 `json:"version"`
-	InputPath         string                 `json:"input_path"`
-	Systrace          string                 `json:"systrace,omitempty"`
-	Artifacts         []Artifact             `json:"artifacts,omitempty"`
-	ProviderDecisions []PerfProviderDecision `json:"provider_decisions,omitempty"`
-	Caveats           []string               `json:"caveats,omitempty"`
+	Version             string                 `json:"version"`
+	InputPath           string                 `json:"input_path"`
+	Systrace            string                 `json:"systrace,omitempty"`
+	Artifacts           []Artifact             `json:"artifacts,omitempty"`
+	ProviderDecisions   []PerfProviderDecision `json:"provider_decisions,omitempty"`
+	PerfClockAlignments []PerfClockAlignment   `json:"perf_clock_alignments,omitempty"`
+	Caveats             []string               `json:"caveats,omitempty"`
 }
 
 func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int64, outputPath string) ([]Artifact, []string, []PerfProviderDecision, error) {
@@ -227,12 +228,13 @@ func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []
 		return Artifact{}, err
 	}
 	meta := traceBundleMetadata{
-		Version:           converterVersion,
-		InputPath:         input,
-		Systrace:          outputPath,
-		Artifacts:         artifacts,
-		ProviderDecisions: decisions,
-		Caveats:           caveats,
+		Version:             converterVersion,
+		InputPath:           input,
+		Systrace:            outputPath,
+		Artifacts:           artifacts,
+		ProviderDecisions:   decisions,
+		PerfClockAlignments: perfClockAlignmentsForArtifacts(artifacts),
+		Caveats:             caveats,
 	}
 	body, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -247,6 +249,29 @@ func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []
 		return Artifact{}, err
 	}
 	return Artifact{Type: ArtifactTraceBundle, Path: path, Bytes: info.Size(), Converter: converterVersion}, nil
+}
+
+func perfClockAlignmentsForArtifacts(artifacts []Artifact) []PerfClockAlignment {
+	var out []PerfClockAlignment
+	for _, artifact := range artifacts {
+		if artifact.Type != ArtifactPerfTrace || artifact.Perf == nil {
+			continue
+		}
+		confidence := firstNonEmpty(artifact.Perf.TimeAlignment, "unknown")
+		item := PerfClockAlignment{
+			ArtifactPath:    artifact.Path,
+			PerfTimeDomain:  artifact.Perf.TimeDomain,
+			TraceTimeDomain: "trace_seconds",
+			Confidence:      confidence,
+			Calibrated:      strings.EqualFold(confidence, "calibrated"),
+			Source:          firstNonEmpty(artifact.Perf.ProviderName, artifact.Converter),
+		}
+		if !item.Calibrated {
+			item.Caveats = append(item.Caveats, "no capture-level trace/perf clock map is available; trace_query treats timestamp overlap as supporting evidence unless calibrated")
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func traceSidecarBase(input, outputPath string) string {

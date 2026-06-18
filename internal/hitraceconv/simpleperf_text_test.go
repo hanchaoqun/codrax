@@ -115,7 +115,7 @@ func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfDataByContent(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"type": "perftrace"`, perfTrace.Path, `"perf_capability"`, `"provider_kind": "official_android"`, `"input_format": "linux_perf_data"`, `"provider_decisions"`, `"provider_name": "android_simpleperf_report_sample"`, `"succeeded": true`} {
+	for _, want := range []string{`"type": "perftrace"`, perfTrace.Path, `"perf_capability"`, `"provider_kind": "official_android"`, `"input_format": "linux_perf_data"`, `"provider_decisions"`, `"provider_name": "android_simpleperf_report_sample"`, `"succeeded": true`, `"perf_clock_alignments"`, `"confidence": "assumed"`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("bundle missing %q:\n%s", want, string(bundle))
 		}
@@ -236,7 +236,7 @@ func TestConvertFileRunsSimpleperfProtoProviderForDirectReportProtoByContent(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"perf_capability"`, `"provider_name": "android_simpleperf_report_proto"`, `"input_format": "simpleperf_report_sample_proto"`, `"trace_query_ready": true`, `"provider_decisions"`} {
+	for _, want := range []string{`"perf_capability"`, `"provider_name": "android_simpleperf_report_proto"`, `"input_format": "simpleperf_report_sample_proto"`, `"trace_query_ready": true`, `"provider_decisions"`, `"perf_clock_alignments"`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("bundle missing %q:\n%s", want, string(bundle))
 		}

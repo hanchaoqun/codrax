@@ -82,6 +82,18 @@ type PerfProviderDecision struct {
 	Caveat          string `json:"caveat,omitempty"`
 }
 
+type PerfClockAlignment struct {
+	ArtifactPath    string   `json:"artifact_path,omitempty"`
+	PerfTimeDomain  string   `json:"perf_time_domain,omitempty"`
+	TraceTimeDomain string   `json:"trace_time_domain,omitempty"`
+	OffsetSec       *float64 `json:"offset_sec,omitempty"`
+	Slope           *float64 `json:"slope,omitempty"`
+	Confidence      string   `json:"confidence,omitempty"`
+	Calibrated      bool     `json:"calibrated"`
+	Source          string   `json:"source,omitempty"`
+	Caveats         []string `json:"caveats,omitempty"`
+}
+
 // Result summarizes a completed conversion.
 type Result struct {
 	InputPath          string
