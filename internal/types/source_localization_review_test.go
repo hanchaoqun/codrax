@@ -49,7 +49,8 @@ func TestSourceLocalizationReviewFromTurnAGroundedEvidenceCreatesOwnerAnchor(t *
 			LineStart:       24,
 			LineEnd:         28,
 			Subject:         "Owner.handle",
-			AnchorSymbol:    "Owner.handle",
+			OwnerSymbol:     "Owner",
+			AnchorSymbol:    "if",
 			GroundingStatus: GroundingGrounded,
 			Scope:           ScopeLine,
 		}, {
@@ -64,6 +65,13 @@ func TestSourceLocalizationReviewFromTurnAGroundedEvidenceCreatesOwnerAnchor(t *
 
 	if !sourceLocalizationTestHasAnchor(review, "src/owner.py", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner) {
 		t.Fatalf("owner evidence anchor missing: %+v", review.Anchors)
+	}
+	ownerAnchor := sourceLocalizationTestAnchor(review, "src/owner.py", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner)
+	if ownerAnchor == nil || ownerAnchor.OwnerSymbol != "Owner" || ownerAnchor.AnchorSymbol != "if" {
+		t.Fatalf("owner/member symbols not preserved: %+v", ownerAnchor)
+	}
+	if len(review.EvidenceRefs) == 0 || review.EvidenceRefs[0].OwnerSymbol != "Owner" {
+		t.Fatalf("owner symbol not preserved on evidence refs: %+v", review.EvidenceRefs)
 	}
 	if sourceLocalizationTestHasAnchor(review, "tests/test_owner.py", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner) {
 		t.Fatalf("auxiliary test evidence must not become owner anchor: %+v", review.Anchors)
@@ -239,10 +247,15 @@ func TestSourceLocalizationReviewFromWritePlanContextNoPriorIsWeakNotRoutingGrad
 }
 
 func sourceLocalizationTestHasAnchor(review SourceLocalizationReview, path string, kind SourceLocalizationAnchorKind, strength SourceLocalizationAnchorStrength) bool {
+	return sourceLocalizationTestAnchor(review, path, kind, strength) != nil
+}
+
+func sourceLocalizationTestAnchor(review SourceLocalizationReview, path string, kind SourceLocalizationAnchorKind, strength SourceLocalizationAnchorStrength) *SourceLocalizationAnchor {
 	for _, anchor := range review.Anchors {
 		if anchor.Path == path && anchor.Kind == kind && anchor.Strength == strength {
-			return true
+			anchorCopy := anchor
+			return &anchorCopy
 		}
 	}
-	return false
+	return nil
 }

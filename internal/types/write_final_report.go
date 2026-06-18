@@ -612,7 +612,7 @@ func writeFinalEvidenceRefID(ref *WriteExplorationEvidenceRef) string {
 	if ref == nil {
 		return ""
 	}
-	for _, value := range []string{ref.ID, ref.Source, ref.Subject, ref.AnchorSymbol} {
+	for _, value := range []string{ref.ID, ref.Source, ref.OwnerSymbol, ref.Subject, ref.AnchorSymbol} {
 		if value = strings.TrimSpace(value); value != "" {
 			return value
 		}

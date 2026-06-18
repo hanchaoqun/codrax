@@ -17,11 +17,13 @@ func TestOwnerAnchorViewFromSourceLocalizationReviewRanksOwnerAnchors(t *testing
 			Path:         "pkg/owner.py",
 			Kind:         SourceLocalizationAnchorGroundedEvidence,
 			Strength:     SourceLocalizationAnchorOwner,
-			AnchorSymbol: "Owner.handle",
+			OwnerSymbol:  "Owner",
+			AnchorSymbol: "if",
 			EvidenceRef: &WriteExplorationEvidenceRef{
-				ID:        "ev-owner",
-				Source:    "pkg/owner.py",
-				LineStart: 12,
+				ID:          "ev-owner",
+				Source:      "pkg/owner.py",
+				LineStart:   12,
+				OwnerSymbol: "Owner",
 			},
 		}, {
 			Path:     "tests/test_owner.py",
@@ -36,6 +38,9 @@ func TestOwnerAnchorViewFromSourceLocalizationReviewRanksOwnerAnchors(t *testing
 	}
 	if view.Items[0].Path != "pkg/owner.py" || view.Items[0].Strength != SourceLocalizationAnchorOwner {
 		t.Fatalf("first item = %+v, want owner anchor", view.Items[0])
+	}
+	if view.Items[0].OwnerSymbol != "Owner" || view.Items[0].AnchorSymbol != "if" {
+		t.Fatalf("owner/member symbols not carried into view: %+v", view.Items[0])
 	}
 	if !view.HasOwner || !view.HasStrong {
 		t.Fatalf("owner/strong flags missing: %+v", view)
@@ -59,6 +64,7 @@ func TestOwnerAnchorViewFromWriteContextPackUsesScopedConsumerView(t *testing.T)
 				Path:         "pkg/owner.py",
 				Kind:         SourceLocalizationAnchorGroundedEvidence,
 				Strength:     SourceLocalizationAnchorOwner,
+				OwnerSymbol:  "Owner",
 				AnchorSymbol: "Owner.handle",
 			},
 		}, {
@@ -89,5 +95,8 @@ func TestOwnerAnchorViewFromWriteContextPackUsesScopedConsumerView(t *testing.T)
 	}
 	if view.Items[0].Path != "pkg/owner.py" || view.Items[0].AnchorSymbol != "Owner.handle" {
 		t.Fatalf("planner anchor = %+v", view.Items[0])
+	}
+	if view.Items[0].OwnerSymbol != "Owner" {
+		t.Fatalf("planner owner symbol missing: %+v", view.Items[0])
 	}
 }

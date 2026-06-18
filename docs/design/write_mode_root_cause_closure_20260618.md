@@ -4316,9 +4316,9 @@ Verification:
 | RC-104 | complete | Shared localization owner/evidence anchor closure: preserve prior owner/supporting/scope anchors through write plan localization review and downstream context packs, so later controller/planner/verifier consumers see typed anchor evidence instead of only path sets. Focused types tests, related write/read consumers, full `go test ./...`, `make`, and `git diff --check` pass. |
 | RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
 | RC-106 | complete | Same-batch source-owner relation after test-only replan: restore-aware delivery lineage now preserves/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code, while still excluding stale pre-restore plans when no precise restored checkpoint relation exists. Focused Go and SWE adapter regressions pass. |
-| RC-107 | queued | Shared typed localization owner/evidence scheduling authority: promote read/write owner anchors into exploration, extraction, planner/replan scheduling, and final report projection so wrong source-surface patches are avoided earlier. |
+| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B now preserves `owner_symbol` across read/write typed handoff artifacts so owner/member evidence is not downgraded to local anchor tokens. Remaining work: controller/replan chosen-anchor scheduling and explicit final report owner-anchor fields. |
 | RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
-| RC-109 | queued | Verification environment/probe unavailable authority: RC108 smoke now reaches proof/verify surfaces, but Astropy source-checkout extension import errors and unavailable make targets still lower/stop local acceptance. Next batch should classify these through typed environment/probe-unavailable records and avoid source replan loops when patch effect is coherent. |
+| RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -6546,8 +6546,12 @@ verifier-only hardening unless a regression blocks mainline stability.
     controller decisions, planner hints, replan repair, verifier confidence,
     PatchReview/Impact, and final reports.
   - [x] Add a normalized ranked `OwnerAnchorView` helper in shared types.
-  - [ ] Project read-mode extraction/finalization owner evidence into that view
-    without changing L1 read scheduler byte identity.
+  - [x] Preserve read-mode `EvidenceItem.OwnerSymbol` through
+    `WriteExplorationEvidenceRef`, `SourceLocalizationAnchor`,
+    `OwnerAnchorViewItem`, context pack render/dedupe, and final evidence-ref
+    identity without changing L1 read scheduler byte identity.
+  - [ ] Project read-mode extraction/finalization owner evidence into final
+    answer/report owner-anchor fields beyond the handoff identity layer.
   - [x] Make write planner context-pack view and handoff-material budgeting
     consume `OwnerAnchorView` before broad target-file hints.
   - [ ] Make write controller/replan repair consume `OwnerAnchorView` before broad
@@ -6604,6 +6608,29 @@ verifier-only hardening unless a regression blocks mainline stability.
     exploration/extraction owner attribution and project those owner-strength
     anchors through the same `OwnerAnchorView`; otherwise write mode can rank
     anchors, but it cannot create stronger evidence than read/explore produced.
+- RC107-B implementation notes:
+  - The first concrete owner-attribution leak was in the typed handoff schema,
+    not in a single SWE case: `EvidenceItem.OwnerSymbol` existed, but
+    `WriteExplorationEvidenceRef`, `SourceLocalizationAnchor`, and
+    `OwnerAnchorViewItem` only preserved `Subject` and `AnchorSymbol`. This let
+    planner-visible anchors degrade to local tokens such as `if`, `super`, or
+    `split` even when read-mode evidence had an owner/member symbol.
+  - Added durable `owner_symbol` fields to those shared artifacts and threaded
+    them through `SourceLocalizationReviewFromTurnA`, exploration handoff,
+    context pack rendering/stable IDs/dedupe keys, owner-anchor ranking, and
+    final evidence-ref identity. Duplicate context/evidence merges now retain a
+    later owner symbol when the earlier row only had a local anchor token.
+  - Hard routing remains typed-only. The new field is copied from structured
+    evidence and normalized structs; no user intent keyword, model rationale,
+    stdout narrative, or `<think>` prose participates in the decision.
+  - Focused verification:
+    `go test ./internal/types -run
+    'Test(SourceLocalization|OwnerAnchorView|WriteContextPack.*Localization|WriteContextPackPlanner.*Owner|WriteContextPackPlannerLimitedViewRetainsOwnerAnchor)'
+    -count=1`
+  - Related verification:
+    `go test ./internal/types ./internal/agent ./internal/orchestrator -run
+    'Test(WriteExplorationHandoff|PlannerHandoffSynthesisReadBudget|PlannerWriteContextPack|RunController.*Localization|RunController.*Handoff|WriteContext|SourceLocalization)'
+    -count=1`
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

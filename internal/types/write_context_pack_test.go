@@ -521,7 +521,7 @@ func TestWriteExplorationHandoffCarriesSourceLocalizationAnchors(t *testing.T) {
 }
 
 func TestWriteContextPackFromExplorationHandoffProjectsLocalizationAnchors(t *testing.T) {
-	ref := WriteExplorationEvidenceRef{ID: "ev-owner", Source: "src/owner.py", LineStart: 12, Subject: "Owner", AnchorSymbol: "Owner.handle"}
+	ref := WriteExplorationEvidenceRef{ID: "ev-owner", Source: "src/owner.py", LineStart: 12, Subject: "Owner.handle", OwnerSymbol: "Owner", AnchorSymbol: "if"}
 	pack := WriteContextPackFromExplorationHandoff(WriteExplorationHandoff{
 		BatchID:     "batch-1",
 		Goal:        "fix",
@@ -534,20 +534,24 @@ func TestWriteContextPackFromExplorationHandoffProjectsLocalizationAnchors(t *te
 				Kind:         SourceLocalizationAnchorGroundedEvidence,
 				Strength:     SourceLocalizationAnchorOwner,
 				EvidenceRef:  &ref,
-				Subject:      "Owner",
-				AnchorSymbol: "Owner.handle",
+				Subject:      "Owner.handle",
+				OwnerSymbol:  "Owner",
+				AnchorSymbol: "if",
 			}},
 		},
 	})
 
 	view := pack.View(WriteConsumerPlanner, 20)
 	if !writeContextViewContains(view, "localization_anchor", "path=src/owner.py") ||
-		!writeContextViewContains(view, "localization_anchor", "strength=owner") {
+		!writeContextViewContains(view, "localization_anchor", "strength=owner") ||
+		!writeContextViewContains(view, "localization_anchor", "owner=Owner") ||
+		!writeContextViewContains(view, "localization_anchor", "anchor=if") {
 		t.Fatalf("localization anchor not rendered: %+v", view.Items)
 	}
 	var foundTyped bool
 	for _, item := range view.Items {
-		if item.Kind == "localization_anchor" && item.LocalizationAnchor != nil && item.LocalizationAnchor.Path == "src/owner.py" {
+		if item.Kind == "localization_anchor" && item.LocalizationAnchor != nil && item.LocalizationAnchor.Path == "src/owner.py" &&
+			item.LocalizationAnchor.OwnerSymbol == "Owner" && item.EvidenceRef != nil && item.EvidenceRef.OwnerSymbol == "Owner" {
 			foundTyped = true
 		}
 	}

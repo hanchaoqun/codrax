@@ -33,6 +33,7 @@ type WriteExplorationEvidenceRef struct {
 	LineStart    int    `json:"line_start,omitempty"`
 	LineEnd      int    `json:"line_end,omitempty"`
 	Subject      string `json:"subject,omitempty"`
+	OwnerSymbol  string `json:"owner_symbol,omitempty"`
 	AnchorSymbol string `json:"anchor_symbol,omitempty"`
 	Summary      string `json:"summary,omitempty"`
 }
@@ -171,6 +172,7 @@ func WriteExplorationHandoffFromTurnA(req WriteExplorationRequest, turnA TurnAAr
 			LineStart:    ev.LineStart,
 			LineEnd:      ev.LineEnd,
 			Subject:      ev.Subject,
+			OwnerSymbol:  ev.OwnerSymbol,
 			AnchorSymbol: ev.AnchorSymbol,
 			Summary:      ev.Summary,
 		}
@@ -239,6 +241,7 @@ func normalizeWriteExplorationEvidenceRef(in WriteExplorationEvidenceRef) WriteE
 	in.Kind = trimWriteExplorationText(in.Kind)
 	in.Source = trimWriteExplorationText(in.Source)
 	in.Subject = trimWriteExplorationText(in.Subject)
+	in.OwnerSymbol = trimWriteExplorationText(in.OwnerSymbol)
 	in.AnchorSymbol = trimWriteExplorationText(in.AnchorSymbol)
 	in.Summary = trimWriteExplorationText(in.Summary)
 	if in.LineStart < 0 {
@@ -251,6 +254,39 @@ func normalizeWriteExplorationEvidenceRef(in WriteExplorationEvidenceRef) WriteE
 		in.LineEnd = in.LineStart
 	}
 	return in
+}
+
+func mergeWriteExplorationEvidenceRef(existing, incoming WriteExplorationEvidenceRef) WriteExplorationEvidenceRef {
+	out := normalizeWriteExplorationEvidenceRef(existing)
+	incoming = normalizeWriteExplorationEvidenceRef(incoming)
+	if out.ID == "" {
+		out.ID = incoming.ID
+	}
+	if out.Kind == "" {
+		out.Kind = incoming.Kind
+	}
+	if out.Source == "" {
+		out.Source = incoming.Source
+	}
+	if out.LineStart == 0 {
+		out.LineStart = incoming.LineStart
+	}
+	if out.LineEnd == 0 {
+		out.LineEnd = incoming.LineEnd
+	}
+	if out.Subject == "" {
+		out.Subject = incoming.Subject
+	}
+	if out.OwnerSymbol == "" {
+		out.OwnerSymbol = incoming.OwnerSymbol
+	}
+	if out.AnchorSymbol == "" {
+		out.AnchorSymbol = incoming.AnchorSymbol
+	}
+	if out.Summary == "" {
+		out.Summary = incoming.Summary
+	}
+	return normalizeWriteExplorationEvidenceRef(out)
 }
 
 func normalizeWriteExplorationConfidence(raw string) string {

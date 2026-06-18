@@ -358,7 +358,7 @@ func WriteContextPackFromExplorationHandoff(h WriteExplorationHandoff) WriteCont
 				refCopy := normalizeWriteExplorationEvidenceRef(*anchor.EvidenceRef)
 				item.EvidenceRef = &refCopy
 			}
-			item.ID = writeContextStableID("localization_anchor", anchor.Path, string(anchor.Kind), string(anchor.Strength), anchor.AnchorSymbol)
+			item.ID = writeContextStableID("localization_anchor", anchor.Path, string(anchor.Kind), string(anchor.Strength), anchor.OwnerSymbol, anchor.AnchorSymbol)
 			pack.Items = append(pack.Items, item)
 		}
 	}
@@ -481,7 +481,7 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 				item.EvidenceRef = &refCopy
 			}
 			item.ID = writeContextStableID("source_localization_anchor", review.PlanID, anchor.Path,
-				string(anchor.Kind), string(anchor.Strength), anchor.AnchorSymbol)
+				string(anchor.Kind), string(anchor.Strength), anchor.OwnerSymbol, anchor.AnchorSymbol)
 			pack.Items = append(pack.Items, item)
 		}
 	}
@@ -1454,6 +1454,9 @@ func mergeWriteContextDuplicateItem(existing, incoming WriteContextItem) WriteCo
 	if out.EvidenceRef == nil && incoming.EvidenceRef != nil {
 		ref := *incoming.EvidenceRef
 		out.EvidenceRef = &ref
+	} else if out.EvidenceRef != nil && incoming.EvidenceRef != nil {
+		ref := mergeWriteExplorationEvidenceRef(*out.EvidenceRef, *incoming.EvidenceRef)
+		out.EvidenceRef = &ref
 	}
 	if out.LocalizationAnchor == nil && incoming.LocalizationAnchor != nil {
 		anchor := *incoming.LocalizationAnchor
@@ -1461,6 +1464,9 @@ func mergeWriteContextDuplicateItem(existing, incoming WriteContextItem) WriteCo
 			ref := *anchor.EvidenceRef
 			anchor.EvidenceRef = &ref
 		}
+		out.LocalizationAnchor = &anchor
+	} else if out.LocalizationAnchor != nil && incoming.LocalizationAnchor != nil {
+		anchor := mergeSourceLocalizationAnchor(*out.LocalizationAnchor, *incoming.LocalizationAnchor)
 		out.LocalizationAnchor = &anchor
 	}
 	out.Stale = existing.Stale && incoming.Stale
@@ -1484,7 +1490,7 @@ func writeContextItemKey(item WriteContextItem) string {
 	anchor := ""
 	if item.LocalizationAnchor != nil {
 		a := normalizeSourceLocalizationAnchor(*item.LocalizationAnchor)
-		anchor = strings.Join([]string{a.Path, string(a.Role), string(a.Kind), string(a.Strength), a.Subject, a.AnchorSymbol}, ":")
+		anchor = strings.Join([]string{a.Path, string(a.Role), string(a.Kind), string(a.Strength), a.Subject, a.OwnerSymbol, a.AnchorSymbol}, ":")
 	}
 	// Items anchored to a typed evidence location dedupe on the fact, not
 	// its wording: retries re-project the same file:line finding with
@@ -1807,7 +1813,10 @@ func renderWriteRiskContext(r WriteRiskProfile) string {
 }
 
 func renderWriteEvidenceRefText(ref WriteExplorationEvidenceRef) string {
-	label := ref.Subject
+	label := ref.OwnerSymbol
+	if label == "" {
+		label = ref.Subject
+	}
 	if label == "" {
 		label = ref.AnchorSymbol
 	}

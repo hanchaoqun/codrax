@@ -64,6 +64,7 @@ type SourceLocalizationAnchor struct {
 	Strength     SourceLocalizationAnchorStrength `json:"strength,omitempty"`
 	EvidenceRef  *WriteExplorationEvidenceRef     `json:"evidence_ref,omitempty"`
 	Subject      string                           `json:"subject,omitempty"`
+	OwnerSymbol  string                           `json:"owner_symbol,omitempty"`
 	AnchorSymbol string                           `json:"anchor_symbol,omitempty"`
 	ReasonCode   string                           `json:"reason_code,omitempty"`
 }
@@ -237,6 +238,7 @@ func SourceLocalizationReviewFromTurnA(readFiles []string, evidence []EvidenceIt
 			LineStart:    ev.LineStart,
 			LineEnd:      ev.LineEnd,
 			Subject:      ev.Subject,
+			OwnerSymbol:  ev.OwnerSymbol,
 			AnchorSymbol: ev.AnchorSymbol,
 			Summary:      ev.Summary,
 		}
@@ -257,6 +259,7 @@ func SourceLocalizationReviewFromTurnA(readFiles []string, evidence []EvidenceIt
 			Strength:     strength,
 			EvidenceRef:  &ref,
 			Subject:      ev.Subject,
+			OwnerSymbol:  ev.OwnerSymbol,
 			AnchorSymbol: ev.AnchorSymbol,
 			ReasonCode:   reason,
 		})
@@ -380,6 +383,9 @@ func renderSourceLocalizationAnchorContext(anchor SourceLocalizationAnchor) stri
 	}
 	if anchor.Subject != "" {
 		parts = append(parts, "subject="+anchor.Subject)
+	}
+	if anchor.OwnerSymbol != "" {
+		parts = append(parts, "owner="+anchor.OwnerSymbol)
 	}
 	if anchor.AnchorSymbol != "" {
 		parts = append(parts, "anchor="+anchor.AnchorSymbol)
@@ -552,6 +558,9 @@ func normalizeSourceLocalizationAnchors(in []SourceLocalizationAnchor) []SourceL
 		if out[i].Kind != out[j].Kind {
 			return out[i].Kind < out[j].Kind
 		}
+		if out[i].OwnerSymbol != out[j].OwnerSymbol {
+			return out[i].OwnerSymbol < out[j].OwnerSymbol
+		}
 		return out[i].AnchorSymbol < out[j].AnchorSymbol
 	})
 	return out
@@ -561,6 +570,7 @@ func normalizeSourceLocalizationAnchor(in SourceLocalizationAnchor) SourceLocali
 	in.Path = sourceLocalizationPath(in.Path)
 	in.SourceStage = trimSourceLocalizationText(in.SourceStage)
 	in.Subject = trimSourceLocalizationText(in.Subject)
+	in.OwnerSymbol = trimSourceLocalizationText(in.OwnerSymbol)
 	in.AnchorSymbol = trimSourceLocalizationText(in.AnchorSymbol)
 	in.ReasonCode = trimSourceLocalizationText(in.ReasonCode)
 	if in.Role == SourcePathRoleUnknown && in.Path != "" {
@@ -604,6 +614,46 @@ func normalizeSourceLocalizationAnchor(in SourceLocalizationAnchor) SourceLocali
 	return in
 }
 
+func mergeSourceLocalizationAnchor(existing, incoming SourceLocalizationAnchor) SourceLocalizationAnchor {
+	out := normalizeSourceLocalizationAnchor(existing)
+	incoming = normalizeSourceLocalizationAnchor(incoming)
+	if out.Path == "" {
+		out.Path = incoming.Path
+	}
+	if out.Role == SourcePathRoleUnknown {
+		out.Role = incoming.Role
+	}
+	if out.SourceStage == "" {
+		out.SourceStage = incoming.SourceStage
+	}
+	if out.Kind == "" {
+		out.Kind = incoming.Kind
+	}
+	if out.Strength == "" {
+		out.Strength = incoming.Strength
+	}
+	if out.EvidenceRef == nil && incoming.EvidenceRef != nil {
+		ref := *incoming.EvidenceRef
+		out.EvidenceRef = &ref
+	} else if out.EvidenceRef != nil && incoming.EvidenceRef != nil {
+		ref := mergeWriteExplorationEvidenceRef(*out.EvidenceRef, *incoming.EvidenceRef)
+		out.EvidenceRef = &ref
+	}
+	if out.Subject == "" {
+		out.Subject = incoming.Subject
+	}
+	if out.OwnerSymbol == "" {
+		out.OwnerSymbol = incoming.OwnerSymbol
+	}
+	if out.AnchorSymbol == "" {
+		out.AnchorSymbol = incoming.AnchorSymbol
+	}
+	if out.ReasonCode == "" {
+		out.ReasonCode = incoming.ReasonCode
+	}
+	return normalizeSourceLocalizationAnchor(out)
+}
+
 func sourceLocalizationAnchorKey(anchor SourceLocalizationAnchor) string {
 	ref := ""
 	if anchor.EvidenceRef != nil {
@@ -621,6 +671,7 @@ func sourceLocalizationAnchorKey(anchor SourceLocalizationAnchor) string {
 		string(anchor.Strength),
 		anchor.SourceStage,
 		anchor.Subject,
+		anchor.OwnerSymbol,
 		anchor.AnchorSymbol,
 		ref,
 	}, "\x00")

@@ -35,6 +35,7 @@ type OwnerAnchorViewItem struct {
 	BatchID      string                           `json:"batch_id,omitempty"`
 	SliceID      string                           `json:"slice_id,omitempty"`
 	Subject      string                           `json:"subject,omitempty"`
+	OwnerSymbol  string                           `json:"owner_symbol,omitempty"`
 	AnchorSymbol string                           `json:"anchor_symbol,omitempty"`
 	ReasonCode   string                           `json:"reason_code,omitempty"`
 	EvidenceRef  *WriteExplorationEvidenceRef     `json:"evidence_ref,omitempty"`
@@ -121,6 +122,12 @@ func NormalizeOwnerAnchorView(in OwnerAnchorView, limit int) OwnerAnchorView {
 		if items[i].Path != items[j].Path {
 			return items[i].Path < items[j].Path
 		}
+		if (items[i].OwnerSymbol != "") != (items[j].OwnerSymbol != "") {
+			return items[i].OwnerSymbol != ""
+		}
+		if items[i].OwnerSymbol != items[j].OwnerSymbol {
+			return items[i].OwnerSymbol < items[j].OwnerSymbol
+		}
 		if items[i].AnchorSymbol != items[j].AnchorSymbol {
 			return items[i].AnchorSymbol < items[j].AnchorSymbol
 		}
@@ -185,6 +192,7 @@ func ownerAnchorViewItemFromAnchor(anchor SourceLocalizationAnchor, priority Wri
 		BatchID:      strings.TrimSpace(batchID),
 		SliceID:      strings.TrimSpace(sliceID),
 		Subject:      anchor.Subject,
+		OwnerSymbol:  anchor.OwnerSymbol,
 		AnchorSymbol: anchor.AnchorSymbol,
 		ReasonCode:   anchor.ReasonCode,
 	}
@@ -203,6 +211,7 @@ func normalizeOwnerAnchorViewItem(in OwnerAnchorViewItem) OwnerAnchorViewItem {
 		Strength:     in.Strength,
 		SourceStage:  in.SourceStage,
 		Subject:      in.Subject,
+		OwnerSymbol:  in.OwnerSymbol,
 		AnchorSymbol: in.AnchorSymbol,
 		ReasonCode:   in.ReasonCode,
 		EvidenceRef:  in.EvidenceRef,
@@ -218,6 +227,7 @@ func normalizeOwnerAnchorViewItem(in OwnerAnchorViewItem) OwnerAnchorViewItem {
 	in.BatchID = trimSourceLocalizationText(in.BatchID)
 	in.SliceID = trimSourceLocalizationText(in.SliceID)
 	in.Subject = anchor.Subject
+	in.OwnerSymbol = anchor.OwnerSymbol
 	in.AnchorSymbol = anchor.AnchorSymbol
 	in.ReasonCode = anchor.ReasonCode
 	if anchor.EvidenceRef != nil {
@@ -244,6 +254,9 @@ func strongerOwnerAnchorViewItem(existing, incoming OwnerAnchorViewItem) OwnerAn
 	if out.EvidenceRef == nil && incoming.EvidenceRef != nil {
 		ref := *incoming.EvidenceRef
 		out.EvidenceRef = &ref
+	} else if out.EvidenceRef != nil && incoming.EvidenceRef != nil {
+		ref := mergeWriteExplorationEvidenceRef(*out.EvidenceRef, *incoming.EvidenceRef)
+		out.EvidenceRef = &ref
 	}
 	if out.SourceStage == "" {
 		out.SourceStage = incoming.SourceStage
@@ -253,6 +266,9 @@ func strongerOwnerAnchorViewItem(existing, incoming OwnerAnchorViewItem) OwnerAn
 	}
 	if out.Subject == "" {
 		out.Subject = incoming.Subject
+	}
+	if out.OwnerSymbol == "" {
+		out.OwnerSymbol = incoming.OwnerSymbol
 	}
 	if out.AnchorSymbol == "" {
 		out.AnchorSymbol = incoming.AnchorSymbol
@@ -280,6 +296,7 @@ func ownerAnchorViewItemKey(item OwnerAnchorViewItem) string {
 		string(item.Strength),
 		item.SourceStage,
 		item.Subject,
+		item.OwnerSymbol,
 		item.AnchorSymbol,
 		ref,
 	}, "\x00")
