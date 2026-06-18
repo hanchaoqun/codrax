@@ -147,6 +147,75 @@ func TestSourceLocalizationReviewFromWritePlanContextSupportedAndMissing(t *test
 	}
 }
 
+func TestSourceLocalizationReviewFromWritePlanContextCarriesMatchedPriorAnchors(t *testing.T) {
+	ref := WriteExplorationEvidenceRef{ID: "ev-owner", Source: "pkg/owner.py", LineStart: 12, Subject: "Owner", AnchorSymbol: "Owner.handle"}
+	prior := []WriteContextPack{{
+		PackID:      "exploration-handoff",
+		SourceStage: "explore",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "localization_anchor",
+			Text:        "path=pkg/owner.py strength=owner",
+			SourceStage: "explore",
+			LocalizationAnchor: &SourceLocalizationAnchor{
+				Path:         "pkg/owner.py",
+				Role:         SourcePathRoleProduction,
+				SourceStage:  "read_turn_a",
+				Kind:         SourceLocalizationAnchorGroundedEvidence,
+				Strength:     SourceLocalizationAnchorOwner,
+				EvidenceRef:  &ref,
+				Subject:      "Owner",
+				AnchorSymbol: "Owner.handle",
+			},
+		}, {
+			Priority:    WriteContextP1,
+			Kind:        "scope_anchor",
+			Text:        "pkg/scope",
+			SourceStage: "write_analysis",
+		}, {
+			Priority:    WriteContextP2,
+			Kind:        "localization_anchor",
+			Text:        "path=pkg/observed.py strength=observed",
+			SourceStage: "explore",
+			LocalizationAnchor: &SourceLocalizationAnchor{
+				Path:     "pkg/observed.py",
+				Role:     SourcePathRoleProduction,
+				Kind:     SourceLocalizationAnchorReadFile,
+				Strength: SourceLocalizationAnchorObserved,
+			},
+		}},
+	}}
+	plan := &ChangePlan{
+		ID:          "plan-1",
+		TargetPaths: []string{"pkg/owner.py", "pkg/scope/helper.py", "pkg/observed.py"},
+		Changes: []FileChange{
+			{Path: "pkg/owner.py", Kind: "modify"},
+			{Path: "pkg/scope/helper.py", Kind: "modify"},
+			{Path: "pkg/observed.py", Kind: "modify"},
+		},
+	}
+
+	review := SourceLocalizationReviewFromWritePlanContext("batch-1", "repair", prior, plan)
+	if review.Status != SourceLocalizationWeak {
+		t.Fatalf("status = %s, want weak because observed.py is not owner-supported: %+v", review.Status, review)
+	}
+	if strings.Join(review.SupportedPaths, ",") != "pkg/owner.py,pkg/scope/helper.py" {
+		t.Fatalf("supported paths = %+v", review.SupportedPaths)
+	}
+	if strings.Join(review.MissingPaths, ",") != "pkg/observed.py" {
+		t.Fatalf("missing paths = %+v", review.MissingPaths)
+	}
+	if !sourceLocalizationTestHasAnchor(review, "pkg/owner.py", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner) {
+		t.Fatalf("owner anchor not carried into plan review: %+v", review.Anchors)
+	}
+	if !sourceLocalizationTestHasAnchor(review, "pkg/scope", SourceLocalizationAnchorScope, SourceLocalizationAnchorSupporting) {
+		t.Fatalf("scope anchor not carried into plan review: %+v", review.Anchors)
+	}
+	if sourceLocalizationTestHasAnchor(review, "pkg/observed.py", SourceLocalizationAnchorReadFile, SourceLocalizationAnchorObserved) {
+		t.Fatalf("observed read-file anchors must not satisfy plan review: %+v", review.Anchors)
+	}
+}
+
 func TestSourceLocalizationReviewFromWritePlanContextNoPriorIsWeakNotRoutingGrade(t *testing.T) {
 	plan := &ChangePlan{
 		ID:          "plan-1",

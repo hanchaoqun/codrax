@@ -462,6 +462,28 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 			item.ID = writeContextStableID("source_localization_missing_path", review.PlanID, p)
 			pack.Items = append(pack.Items, item)
 		}
+		for _, anchor := range review.Anchors {
+			anchor = normalizeSourceLocalizationAnchor(anchor)
+			if !sourceLocalizationAnchorSatisfiesPriorContext(anchor) {
+				continue
+			}
+			text := renderSourceLocalizationAnchorContext(anchor)
+			if text == "" {
+				continue
+			}
+			item := writeContextItem("localization_anchor", WriteContextP1, text, "plan_localization",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+			item.SourceID = review.PlanID
+			anchorCopy := anchor
+			item.LocalizationAnchor = &anchorCopy
+			if anchor.EvidenceRef != nil {
+				refCopy := normalizeWriteExplorationEvidenceRef(*anchor.EvidenceRef)
+				item.EvidenceRef = &refCopy
+			}
+			item.ID = writeContextStableID("source_localization_anchor", review.PlanID, anchor.Path,
+				string(anchor.Kind), string(anchor.Strength), anchor.AnchorSymbol)
+			pack.Items = append(pack.Items, item)
+		}
 	}
 	if plan.PatchEffect != nil {
 		for _, file := range plan.PatchEffect.Files {
@@ -1058,6 +1080,81 @@ func writeContextCoveragePriorPathsWithAnchorSignal(packs []WriteContextPack) ([
 	}
 	sort.Strings(legacy)
 	return legacy, false
+}
+
+func writeContextCoveragePriorAnchors(packs []WriteContextPack) []SourceLocalizationAnchor {
+	if len(packs) == 0 {
+		return nil
+	}
+	var out []SourceLocalizationAnchor
+	add := func(anchor SourceLocalizationAnchor) {
+		anchor = normalizeSourceLocalizationAnchor(anchor)
+		if !sourceLocalizationAnchorSatisfiesPriorContext(anchor) {
+			return
+		}
+		p := writeContextCoveragePath(anchor.Path)
+		if p == "" || writeContextCoveragePathIsTest(p) {
+			return
+		}
+		anchor.Path = p
+		out = append(out, anchor)
+	}
+	for _, pack := range packs {
+		pack = NormalizeWriteContextPack(pack)
+		if pack.PackID == "change-plan" || pack.SourceStage == "plan" {
+			continue
+		}
+		for _, item := range pack.Items {
+			if item.Kind == "localization_anchor" {
+				if (item.Priority == WriteContextP0 || item.Priority == WriteContextP1) && item.LocalizationAnchor != nil {
+					add(*item.LocalizationAnchor)
+				}
+				continue
+			}
+			if item.SourceStage == "plan" || (item.Priority != WriteContextP0 && item.Priority != WriteContextP1) {
+				continue
+			}
+			if item.Kind != "scope_anchor" {
+				continue
+			}
+			p := writeContextCoveragePath(item.Text)
+			if p == "" || writeContextCoveragePathIsTest(p) {
+				continue
+			}
+			stage := item.SourceStage
+			if stage == "" {
+				stage = pack.SourceStage
+			}
+			add(SourceLocalizationAnchor{
+				Path:        p,
+				Role:        ClassifySourcePathRole(p),
+				SourceStage: stage,
+				Kind:        SourceLocalizationAnchorScope,
+				Strength:    SourceLocalizationAnchorSupporting,
+				ReasonCode:  "scope_anchor_prior_context",
+			})
+		}
+	}
+	return normalizeSourceLocalizationAnchors(out)
+}
+
+func writeContextCoveragePriorAnchorsForPath(anchors []SourceLocalizationAnchor, planPath string) []SourceLocalizationAnchor {
+	planPath = writeContextCoveragePath(planPath)
+	if planPath == "" || len(anchors) == 0 {
+		return nil
+	}
+	var out []SourceLocalizationAnchor
+	for _, anchor := range anchors {
+		anchor = normalizeSourceLocalizationAnchor(anchor)
+		if !sourceLocalizationAnchorSatisfiesPriorContext(anchor) {
+			continue
+		}
+		if !writeContextCoveragePathCoveredByContext(planPath, []string{anchor.Path}) {
+			continue
+		}
+		out = append(out, anchor)
+	}
+	return normalizeSourceLocalizationAnchors(out)
 }
 
 func writeContextCoveragePlanPaths(plan *ChangePlan) []string {

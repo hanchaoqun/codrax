@@ -4303,7 +4303,7 @@ Verification:
 | RC-101 | complete | Patch Critic quality-shape expansion: production-source non-ASCII comment and nearby duplicate-assignment events are now emitted from typed diff/file bytes only and consumed as PatchReview soft/unknown coverage. Focused, related, full Go regressions and build pass. |
 | RC-102 | complete | Docstring/text-region executable insertion guard: Python provider now emits `python_docstring_section_executable_added` as a PatchReview hard event when added executable-looking statements disrupt structured docstring section shape. Focused, related, full Go regressions and build pass. |
 | RC-103 | complete | Verify-failure repair read affordance: split typed failed-verify repair planning from initial handoff synthesis so a bounded read/search window remains available after build/test failure evidence, without reopening ordinary exec or broad exploration. Focused planner tests, related write/read packages, full `go test ./...`, `make`, and `git diff --check` pass. |
-| RC-104 | queued | Shared localization owner/evidence anchor closure: record and prioritize the remaining upstream read/write gap where line-backed owner anchors and evidence anchors must be produced/consumed consistently so plans avoid wrong source surfaces earlier, instead of relying on later PatchReview/verify repair. |
+| RC-104 | complete | Shared localization owner/evidence anchor closure: preserve prior owner/supporting/scope anchors through write plan localization review and downstream context packs, so later controller/planner/verifier consumers see typed anchor evidence instead of only path sets. Focused types tests, related write/read consumers, full `go test ./...`, `make`, and `git diff --check` pass. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -6135,6 +6135,61 @@ Verification:
   - `go test ./...`
   - `make`
 
+## 2026-06-19 RC-104 Localization Anchor Consumption Closure
+
+- Evidence:
+  - The post-RC102/RC103 SWE audit still classifies wrong-source-surface
+    localization as the largest upstream correctness gap. RC97/RC98 introduced
+    `SourceLocalizationAnchor` production and path-level plan localization
+    gates, but the write plan review compressed prior localization evidence into
+    `SupportedPaths` / `MissingPaths`.
+  - That path-only compression loses the consumer-critical distinction between
+    owner anchor, supporting evidence anchor, scope anchor, and merely observed
+    read-file rows. Downstream context packs could tell that a plan path was
+    supported, but not which typed anchor supported it or which evidence ref
+    carried the line-backed owner signal.
+- Gap:
+  - `SourceLocalizationReviewFromWritePlanContext` consumed prior context as a
+    path set. `WriteContextPackFromChangePlan` rendered the resulting review
+    summary and missing paths, but did not project matched prior anchors from
+    the review into typed context items.
+  - The system already had the right artifact type; the missing piece was
+    end-to-end consumption and preservation across the plan boundary. Rebuilding
+    another localization model would duplicate RC97/RC98.
+- Design:
+  - Add a typed prior-localization anchor extractor for `WriteContextPack`
+    arrays. It reads only P0/P1 `localization_anchor` structs and explicit
+    `scope_anchor` rows, skips plan-authored packs and test paths, and returns
+    normalized `SourceLocalizationAnchor` values.
+  - Keep routing semantics unchanged: `WritePlanSourcePathsOutsidePriorContext`
+    still uses the existing path coverage logic. The new anchor view enriches
+    the review and downstream handoff; it does not introduce user-intent
+    keyword gates or prompt-prose parsing.
+  - When a plan path is covered by prior context, attach the matched
+    owner/supporting/scope anchors to `ChangePlan.LocalizationReview.Anchors`.
+    Observed read-file anchors still do not satisfy localization coverage.
+  - Project `LocalizationReview.Anchors` back into the change-plan context pack
+    as typed `localization_anchor` rows with evidence refs preserved, so
+    controller/planner/verifier Top-N views can consume anchor strength,
+    symbol, line ref, and stage without mining summary text.
+- Task list:
+  - [x] Audit current RC97/RC98 localization anchor production and consumption.
+  - [x] Record RC104 design and sorted priority in this ledger.
+  - [x] Add typed prior-anchor extraction from write context packs.
+  - [x] Carry matched prior anchors into plan localization reviews.
+  - [x] Project plan localization anchors into downstream context packs.
+  - [x] Add focused tests for owner/scope anchor carry-through and observed
+    anchor exclusion.
+  - [x] Run related/full regressions, rebuild, commit, and push.
+- Verification:
+  - `go test ./internal/types -run
+    'TestSourceLocalizationReviewFromWritePlanContext|TestWriteContextPackFromChangePlanCarriesSourceLocalizationReview|TestWritePlanSourcePathsOutsidePriorContext'
+    -count=1`
+  - `go test ./internal/types ./internal/orchestrator ./internal/agent
+    ./internal/writeflow -count=1`
+  - `go test ./...`
+  - `make`
+
 ## 2026-06-19 RC-103+ Sorted Follow-up Queue From Current Three-instance Smoke
 
 The current smoke is not an official SWE score. It is a typed system triage
@@ -6153,7 +6208,10 @@ classified the next systemic gaps:
    gates, and replan repair slices; then make controller/planner consume owner
    anchors before broader target-file hints. Hard routing must use only typed
    anchor fields such as owner kind, path, line span, consumer, priority,
-   source stage, and evidence refs.
+   source stage, and evidence refs. RC-104 starts this closure by preserving
+   matched prior owner/supporting/scope anchors across the plan review boundary;
+   follow-up SWE audits should check whether additional owner-selection or
+   impact-graph consumption gaps remain.
 2. **Planner repair tool affordance mismatch.**
    `django__django-14534` entered online restore/replan several times. During
    repair planning, the model attempted an unavailable `grep` call. Restoring

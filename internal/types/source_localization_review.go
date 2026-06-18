@@ -284,6 +284,7 @@ func SourceLocalizationReviewFromWritePlanContext(batchID, goal string, prior []
 		return SourceLocalizationReview{}
 	}
 	contextPaths := writeContextCoveragePriorPaths(prior)
+	contextAnchors := writeContextCoveragePriorAnchors(prior)
 	planPaths := writeContextCoveragePlanPaths(plan)
 	out := SourceLocalizationReview{
 		Source:            "write_plan_context",
@@ -307,6 +308,7 @@ func SourceLocalizationReviewFromWritePlanContext(batchID, goal string, prior []
 	for _, p := range planPaths {
 		if writeContextCoveragePathCoveredByContext(p, contextPaths) {
 			out.SupportedPaths = append(out.SupportedPaths, p)
+			out.Anchors = append(out.Anchors, writeContextCoveragePriorAnchorsForPath(contextAnchors, p)...)
 			continue
 		}
 		out.MissingPaths = append(out.MissingPaths, p)

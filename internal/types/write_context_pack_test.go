@@ -678,6 +678,7 @@ func TestWritePlanSourcePathsOutsidePriorContext(t *testing.T) {
 }
 
 func TestWriteContextPackFromChangePlanCarriesSourceLocalizationReview(t *testing.T) {
+	ref := WriteExplorationEvidenceRef{ID: "ev-owner", Source: "pkg/owner.py", LineStart: 12, Subject: "Owner", AnchorSymbol: "Owner.handle"}
 	plan := &ChangePlan{
 		ID:          "plan-loc",
 		Summary:     "repair owner",
@@ -691,14 +692,40 @@ func TestWriteContextPackFromChangePlanCarriesSourceLocalizationReview(t *testin
 			PriorContextPaths: []string{"pkg/owner.py"},
 			MissingPaths:      []string{"pkg/caller.py"},
 			ReasonCodes:       []string{"plan_source_paths_missing_prior_context"},
+			Anchors: []SourceLocalizationAnchor{{
+				Path:         "pkg/owner.py",
+				Role:         SourcePathRoleProduction,
+				SourceStage:  "read_turn_a",
+				Kind:         SourceLocalizationAnchorGroundedEvidence,
+				Strength:     SourceLocalizationAnchorOwner,
+				EvidenceRef:  &ref,
+				Subject:      "Owner",
+				AnchorSymbol: "Owner.handle",
+			}},
 		},
 	}
 
 	pack := WriteContextPackFromChangePlan(plan)
 	view := pack.View(WriteConsumerPlanner, 20)
 	if !writeContextViewContains(view, "source_localization_review", "status=missing") ||
-		!writeContextViewContains(view, "source_localization_missing_path", "pkg/caller.py") {
+		!writeContextViewContains(view, "source_localization_missing_path", "pkg/caller.py") ||
+		!writeContextViewContains(view, "localization_anchor", "path=pkg/owner.py") ||
+		!writeContextViewContains(view, "localization_anchor", "anchor=Owner.handle") {
 		t.Fatalf("source localization review not rendered into context pack: %+v", view.Items)
+	}
+	var foundTyped bool
+	for _, item := range view.Items {
+		if item.Kind == "localization_anchor" &&
+			item.SourceStage == "plan_localization" &&
+			item.LocalizationAnchor != nil &&
+			item.LocalizationAnchor.Path == "pkg/owner.py" &&
+			item.EvidenceRef != nil &&
+			item.EvidenceRef.ID == "ev-owner" {
+			foundTyped = true
+		}
+	}
+	if !foundTyped {
+		t.Fatalf("typed localization anchor not projected from plan review: %+v", view.Items)
 	}
 }
 
