@@ -2339,6 +2339,48 @@ RC-43 tasks:
 - [x] Add focused regressions proving priority queue order and command
   rendering.
 
+## 2026-06-18 RC-44 Verify Source-Compile Fallback Reuse Design
+
+RC-43 widened the targeted test selector path. The next observed executor gap
+is the no-test branch: plan emit already has dry-build checks for Java, Kotlin,
+Swift, and Rust, but verify could still treat Java/Swift source changes with no
+test files as synthetic no-tests evidence. That is a weaker online convergence
+signal than the system already knows how to produce.
+
+RC-44 reuses the existing compile-check shape in verify-time source-check
+providers:
+
+```text
+no test work for runner
+  -> plan-touched source extension set
+  -> source-check provider
+  -> build diagnostics with parseable file/line evidence
+  -> failed verify only when attributable
+```
+
+Policy boundary:
+
+- Missing tools, missing manifests, or compile output without parseable source
+  diagnostics remain pass-with-warning/unavailable. Customer environments often
+  lack full toolchains, and delivery should not hard-block on that alone.
+- Parseable build errors become `FailureKindBuildFailure` with structured
+  `BuildErrors[]`, so changed-line scoping and P2 handoff continue to work.
+- The provider dispatch consumes only runner id, repo-relative target paths,
+  manifest files, tool availability, and parser output. No user intent keyword
+  or model prose controls routing.
+
+RC-44 tasks:
+
+- [x] Share Java Maven/Gradle compile command selection between plan dry-build
+  and verify source fallback.
+- [x] Register Java/Kotlin no-test source fallback in the source-check provider
+  registry.
+- [x] Register Swift Package no-test source fallback in the provider registry.
+- [x] Preserve environment-missing outcomes as pass-with-warning rather than
+  hard blockers.
+- [x] Add focused regressions for Java compile fallback success/failure, Swift
+  build fallback, and provider registry drift.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2388,6 +2430,7 @@ RC-43 tasks:
 | RC-41 | complete | TypeScript no-test source compile fallback: plan-touched TS files in Node packages now use `tsc --noEmit --pretty false` when available instead of synthetic no-tests pass. Verification: focused TS fallback tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-42 | complete | Source-check provider registry: source-check extensions, no-test extensions, before-runner policy, and dispatch now share one typed registry to avoid future language drift. Verification: focused provider-registry tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-43 | complete | Impact selector language coverage: typed related-test targets now prioritize Java/Kotlin, Rust integration-test, and Swift Package test selectors in addition to existing Python/Go/Node/Ruby coverage. Runner command construction normalizes Java/Kotlin path selectors to class selectors, Rust integration paths to `cargo test --test`, and Swift paths to `swift test --filter`, all from structured paths rather than prose. Verification: focused selector/command regressions, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
+| RC-44 | complete | Verify source-compile fallback reuse: Java/Kotlin and Swift no-test source changes now use typed source-check providers instead of synthetic no-tests when plan-touched files exist. Java reuses the Maven/Gradle compile command selector shared with plan dry-build; Kotlin uses bounded `kotlinc` when available; Swift uses `swift build --skip-build`. Missing tools/manifests or unparseable environment output stay pass-with-warning, while parseable build diagnostics fail verify with structured `BuildErrors[]`. |
 
 ## Acceptance Criteria
 
@@ -2418,6 +2461,9 @@ RC-43 tasks:
 - Impact related-test obligations choose the smallest supported runner-native
   selector across Python, Go, Node, Ruby, Java/Kotlin, Rust integration tests,
   and Swift Package tests before falling back to broad TestSurface execution.
+- Java/Kotlin and Swift no-test source changes compile when the local toolchain
+  can provide attributable diagnostics; missing customer toolchains remain
+  warning evidence rather than hard blockers.
 - Current read/log/trace/data/operation/computer paths remain untouched.
 - All new eval fields and docs distinguish export compatibility from
   functional correctness.

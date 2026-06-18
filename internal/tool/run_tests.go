@@ -3630,6 +3630,18 @@ var sourceCheckProviderRegistry = []sourceCheckProvider{
 		BeforeProjectRunner: false,
 		Run:                 runGoCompileFallback,
 	},
+	{
+		Runner:              "java",
+		NoTestExtensions:    []string{".java", ".kt"},
+		BeforeProjectRunner: false,
+		Run:                 runJavaCompileFallback,
+	},
+	{
+		Runner:              "swift",
+		NoTestExtensions:    []string{".swift"},
+		BeforeProjectRunner: false,
+		Run:                 runSwiftCompileFallback,
+	},
 }
 
 func nodeJavaScriptExtensions() []string {
@@ -4094,6 +4106,235 @@ func runGoCompileFallback(ctx *types.BusContext, label, runnerRoot string, files
 		}
 	}
 	return merged, output.String()
+}
+
+func runJavaCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	lang := ""
+	if ctx != nil {
+		lang = ctx.Language
+	}
+	javaFiles, kotlinFiles := splitJavaSourceCheckFiles(files)
+	var reports []*types.ChangeReport
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("[run_tests: %s] java source-compile fallback (no Java/Kotlin test files detected; runner not invoked)\n", label))
+	if len(javaFiles) > 0 {
+		report, section := runJavaProjectCompileFallback(ctx, label, runnerRoot, javaFiles)
+		reports = append(reports, report)
+		output.WriteString(section)
+	}
+	if len(kotlinFiles) > 0 {
+		report, section := runKotlinFileCompileFallback(ctx, label, runnerRoot, kotlinFiles)
+		reports = append(reports, report)
+		output.WriteString(section)
+	}
+	if len(reports) == 0 {
+		return &types.ChangeReport{Passed: true, NoTestsRunners: []string{"java"}}, output.String()
+	}
+	merged := mergeChangeReports(reports)
+	if merged == nil {
+		merged = &types.ChangeReport{Passed: true, NoTestsRunners: []string{"java"}}
+	}
+	if merged.Passed {
+		merged.NoTestsRunners = dedupStrings(append(merged.NoTestsRunners, "java"))
+		return merged, output.String()
+	}
+	if strings.TrimSpace(merged.FailureSummary) == "" {
+		if isZh(lang) {
+			merged.FailureSummary = "Java/Kotlin 编译兜底发现可归因的 build error;由于仓内无 Java/Kotlin 测试文件,本次只做编译验证。"
+		} else {
+			merged.FailureSummary = "Java/Kotlin compile fallback found attributable build error(s); no Java/Kotlin test files were present, so only source compilation was verified."
+		}
+	}
+	return merged, output.String()
+}
+
+func splitJavaSourceCheckFiles(files []string) (javaFiles, kotlinFiles []string) {
+	for _, file := range files {
+		switch strings.ToLower(filepath.Ext(file)) {
+		case ".java":
+			javaFiles = append(javaFiles, file)
+		case ".kt":
+			kotlinFiles = append(kotlinFiles, file)
+		}
+	}
+	return javaFiles, kotlinFiles
+}
+
+func runJavaProjectCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	lang := ""
+	if ctx != nil {
+		lang = ctx.Language
+	}
+	var output strings.Builder
+	spec, unavailable := javaCompileCommandSpec(runnerRoot)
+	output.WriteString(fmt.Sprintf("[run_tests: %s] Java compile fallback on %d plan file(s)\n", label, len(files)))
+	if unavailable != "" || spec.Name == "" {
+		summary := sourceCompileUnavailableSummary(lang, "Java", unavailableOrDefault(unavailable, "no Maven/Gradle manifest detected"))
+		output.WriteString("  skip  Java compile fallback: " + unavailableOrDefault(unavailable, "no Maven/Gradle manifest detected") + "\n")
+		return sourceCompileWarningReport("java", summary), output.String()
+	}
+	cmd := exec.Command(spec.Name, spec.Args...)
+	cmd.Dir = runnerRoot
+	out, err := cmd.CombinedOutput()
+	detail := strings.TrimSpace(string(out))
+	if err == nil {
+		output.WriteString("  ok    " + spec.Label + "\n")
+		return &types.ChangeReport{Passed: true, NoTestsRunners: []string{"java"}}, output.String()
+	}
+	if detail == "" {
+		detail = err.Error()
+	}
+	buildErrs := parseBuildErrors(detail)
+	output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", spec.Label, err, truncateForLog(detail, 500)))
+	if len(buildErrs) == 0 {
+		summary := sourceCompileUnavailableSummary(lang, "Java", "compile command failed without parseable source diagnostics")
+		return sourceCompileWarningReport("java", summary), output.String()
+	}
+	return sourceCompileFailureReport("Java", "java_compile_check", "java_compile_check_failed", detail, buildErrs), output.String()
+}
+
+func runKotlinFileCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	lang := ""
+	if ctx != nil {
+		lang = ctx.Language
+	}
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("[run_tests: %s] Kotlin kotlinc fallback on %d plan file(s)\n", label, len(files)))
+	if _, err := exec.LookPath("kotlinc"); err != nil {
+		summary := sourceCompileUnavailableSummary(lang, "Kotlin", "kotlinc not in PATH")
+		output.WriteString("  skip  kotlinc: binary not on PATH\n")
+		return sourceCompileWarningReport("java", summary), output.String()
+	}
+	outDir, err := os.MkdirTemp("", "codrax-kotlinc-*")
+	if err != nil {
+		summary := sourceCompileUnavailableSummary(lang, "Kotlin", "temporary output directory could not be created")
+		output.WriteString("  skip  kotlinc: " + err.Error() + "\n")
+		return sourceCompileWarningReport("java", summary), output.String()
+	}
+	defer os.RemoveAll(outDir)
+	var failures []types.TestResult
+	for _, file := range files {
+		cmd := exec.Command("kotlinc", "-d", outDir, "-nowarn", file)
+		cmd.Dir = runnerRoot
+		out, err := cmd.CombinedOutput()
+		rel, relErr := filepath.Rel(runnerRoot, file)
+		if relErr != nil {
+			rel = file
+		}
+		detail := strings.TrimSpace(string(out))
+		if err == nil {
+			output.WriteString(fmt.Sprintf("  ok    %s\n", filepath.ToSlash(rel)))
+			continue
+		}
+		if detail == "" {
+			detail = err.Error()
+		}
+		buildErrs := parseBuildErrors(detail)
+		output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", filepath.ToSlash(rel), err, truncateForLog(detail, 500)))
+		if len(buildErrs) == 0 {
+			continue
+		}
+		failures = append(failures, types.TestResult{
+			Kind:          types.TestResultKindBuildError,
+			Suite:         "kotlin_compile_check",
+			AssertionID:   firstBuildErrorAssertionID(buildErrs),
+			Passed:        false,
+			FailureDetail: detail,
+			BuildErrors:   buildErrs,
+		})
+	}
+	if len(failures) == 0 {
+		return &types.ChangeReport{Passed: true, NoTestsRunners: []string{"java"}}, output.String()
+	}
+	return &types.ChangeReport{
+		Passed:            false,
+		BuildFailed:       true,
+		FailureKind:       types.FailureKindBuildFailure,
+		FailureReasonCode: "kotlin_compile_check_failed",
+		FailureSummary:    renderBuildFailureSummary("Kotlin", failures[0].BuildErrors, strings.SplitN(failures[0].FailureDetail, "\n", 2)[0]),
+		TestResults:       failures,
+	}, output.String()
+}
+
+func runSwiftCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	lang := ""
+	if ctx != nil {
+		lang = ctx.Language
+	}
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("[run_tests: %s] swift build fallback (no Swift test files detected; runner not invoked)\n", label))
+	if !runTestsFileExists(filepath.Join(runnerRoot, "Package.swift")) {
+		summary := sourceCompileUnavailableSummary(lang, "Swift", "Package.swift not detected")
+		output.WriteString("  skip  swift build: Package.swift not detected\n")
+		return sourceCompileWarningReport("swift", summary), output.String()
+	}
+	if _, err := exec.LookPath("swift"); err != nil {
+		summary := sourceCompileUnavailableSummary(lang, "Swift", "swift binary not in PATH")
+		output.WriteString("  skip  swift build: binary not on PATH\n")
+		return sourceCompileWarningReport("swift", summary), output.String()
+	}
+	cmd := exec.Command("swift", "build", "--skip-build")
+	cmd.Dir = runnerRoot
+	out, err := cmd.CombinedOutput()
+	detail := strings.TrimSpace(string(out))
+	if err == nil {
+		output.WriteString(fmt.Sprintf("  ok    swift build --skip-build (%d Swift file(s))\n", len(files)))
+		return &types.ChangeReport{Passed: true, NoTestsRunners: []string{"swift"}}, output.String()
+	}
+	if detail == "" {
+		detail = err.Error()
+	}
+	buildErrs := parseBuildErrors(detail)
+	output.WriteString(fmt.Sprintf("  FAIL  swift build --skip-build: %v\n%s\n", err, truncateForLog(detail, 500)))
+	if len(buildErrs) == 0 {
+		summary := sourceCompileUnavailableSummary(lang, "Swift", "swift build failed without parseable source diagnostics")
+		return sourceCompileWarningReport("swift", summary), output.String()
+	}
+	return sourceCompileFailureReport("Swift", "swift_compile_check", "swift_compile_check_failed", detail, buildErrs), output.String()
+}
+
+func sourceCompileWarningReport(runner, summary string) *types.ChangeReport {
+	return &types.ChangeReport{
+		Passed:         true,
+		NoTestsRunners: []string{runner},
+		FailureSummary: summary,
+	}
+}
+
+func sourceCompileUnavailableSummary(lang, name, reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "tooling unavailable"
+	}
+	if isZh(lang) {
+		return fmt.Sprintf("%s 编译兜底跳过:%s;同时也无对应测试文件,verify 标记 pass-with-warning。", name, reason)
+	}
+	return fmt.Sprintf("%s compile fallback skipped: %s; no matching test files exist either, so verify pass-with-warning.", name, reason)
+}
+
+func unavailableOrDefault(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return fallback
+}
+
+func sourceCompileFailureReport(langName, suite, reason, detail string, buildErrs []types.BuildError) *types.ChangeReport {
+	return &types.ChangeReport{
+		Passed:            false,
+		BuildFailed:       true,
+		FailureKind:       types.FailureKindBuildFailure,
+		FailureReasonCode: reason,
+		FailureSummary:    renderBuildFailureSummary(langName, buildErrs, strings.SplitN(detail, "\n", 2)[0]),
+		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindBuildError,
+			Suite:         suite,
+			AssertionID:   firstBuildErrorAssertionID(buildErrs),
+			Passed:        false,
+			FailureDetail: detail,
+			BuildErrors:   buildErrs,
+		}},
+	}
 }
 
 func goCompilePackageDirs(runnerRoot string, files []string) []string {

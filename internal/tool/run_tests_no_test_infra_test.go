@@ -245,6 +245,152 @@ func TestRunTestsEmptyParamsUsesPlanTouchedSyntaxFallback(t *testing.T) {
 	}
 }
 
+func TestRunTestsJavaNoTestWorkUsesCompileFallback(t *testing.T) {
+	fakeBin := t.TempDir()
+	mvn := filepath.Join(fakeBin, "mvn")
+	if err := os.WriteFile(mvn, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake mvn: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pom.xml"), []byte("<project/>\n"), 0o644); err != nil {
+		t.Fatalf("write pom: %v", err)
+	}
+	src := filepath.Join(root, "src", "main", "java")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "Widget.java"), []byte("class Widget {}\n"), 0o644); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+
+	mu := types.NewMutableState("java compile fallback")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-java-compile-fallback",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"src/main/java/Widget.java"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("java compile fallback should pass with fake mvn, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "java" {
+		t.Fatalf("report should preserve no-tests runner evidence after Java compile fallback: %+v", report)
+	}
+	foundFallback := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "java" && cmd.Outcome == "syntax_check_fallback" {
+			foundFallback = true
+		}
+	}
+	if !foundFallback {
+		t.Fatalf("executed command evidence should record Java compile fallback, got %+v", report.ExecutedCommands)
+	}
+}
+
+func TestRunJavaCompileFallbackFailureCarriesBuildErrors(t *testing.T) {
+	fakeBin := t.TempDir()
+	mvn := filepath.Join(fakeBin, "mvn")
+	script := `#!/bin/sh
+echo "src/main/java/Widget.java:3: error: ';' expected"
+exit 1
+`
+	if err := os.WriteFile(mvn, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake mvn: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pom.xml"), []byte("<project/>\n"), 0o644); err != nil {
+		t.Fatalf("write pom: %v", err)
+	}
+	file := filepath.Join(root, "src", "main", "java", "Widget.java")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("class Widget {\n"), 0o644); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+
+	report, output := runJavaCompileFallback(nil, "java@.", root, []string{file})
+	if report == nil || report.Passed {
+		t.Fatalf("broken Java compile fallback should fail, report=%+v output=%s", report, output)
+	}
+	if report.FailureReasonCode != "java_compile_check_failed" {
+		t.Fatalf("FailureReasonCode=%q", report.FailureReasonCode)
+	}
+	if len(report.TestResults) != 1 || len(report.TestResults[0].BuildErrors) != 1 {
+		t.Fatalf("expected one structured build error, got %+v", report.TestResults)
+	}
+	if got := report.TestResults[0].BuildErrors[0]; !strings.Contains(got.File, "Widget.java") || got.Line != 3 {
+		t.Fatalf("build error not preserved: %+v", got)
+	}
+}
+
+func TestRunTestsSwiftNoTestWorkUsesBuildFallback(t *testing.T) {
+	fakeBin := t.TempDir()
+	swift := filepath.Join(fakeBin, "swift")
+	if err := os.WriteFile(swift, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake swift: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Package.swift"), []byte("// swift-tools-version: 5.9\n"), 0o644); err != nil {
+		t.Fatalf("write Package.swift: %v", err)
+	}
+	src := filepath.Join(root, "Sources", "App")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "Widget.swift"), []byte("struct Widget {}\n"), 0o644); err != nil {
+		t.Fatalf("write swift: %v", err)
+	}
+
+	mu := types.NewMutableState("swift compile fallback")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-swift-compile-fallback",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"Sources/App/Widget.swift"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("swift build fallback should pass with fake swift, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "swift" {
+		t.Fatalf("report should preserve no-tests runner evidence after Swift fallback: %+v", report)
+	}
+}
+
 // TestRunPyCompileFallback_FailOnSyntaxError verifies broken syntax
 // produces a build_error TestResult with the file as AssertionID
 // and a non-empty FailureDetail. Skipped when no usable Python
@@ -2413,7 +2559,7 @@ func TestSyntaxCheckExtensions_OnlySupportedRunners(t *testing.T) {
 	if syntaxCheckBeforeProjectRunner("go") {
 		t.Error("Go compile fallback must be no-test only; ordinary go test already compiles")
 	}
-	for _, runner := range []string{"rust", "java", "cmake"} {
+	for _, runner := range []string{"rust", "cmake"} {
 		_, _, ok := runSyntaxCheckFallback(nil, "test", t.TempDir(), runner, nil)
 		if ok {
 			t.Errorf("runner %q should NOT have syntax-check dispatcher (extensions unsupported)", runner)
@@ -2453,7 +2599,7 @@ func TestSourceCheckProviderRegistry_UniqueAndDispatchCovered(t *testing.T) {
 			t.Fatalf("provider %q dispatcher returned nil report", provider.Runner)
 		}
 	}
-	for _, runner := range []string{"rust", "java", "cmake"} {
+	for _, runner := range []string{"rust", "cmake"} {
 		if _, ok := sourceCheckProviderForRunner(runner); ok {
 			t.Fatalf("runner %q unexpectedly registered as source-check provider", runner)
 		}
@@ -2473,6 +2619,12 @@ func TestSourceCheckExtensionsForNoTestWork_NodeIncludesTypeScriptOnlyThere(t *t
 	}
 	if got := strings.Join(sourceCheckExtensionsForNoTestWork("python"), ","); got != ".py" {
 		t.Fatalf("non-node source fallback should keep syntax extensions, got %q", got)
+	}
+	if got := strings.Join(sourceCheckExtensionsForNoTestWork("java"), ","); got != ".java,.kt" {
+		t.Fatalf("java no-test source fallback should include Java and Kotlin extensions, got %q", got)
+	}
+	if got := strings.Join(sourceCheckExtensionsForNoTestWork("swift"), ","); got != ".swift" {
+		t.Fatalf("swift no-test source fallback should include Swift extension, got %q", got)
 	}
 }
 

@@ -1867,49 +1867,13 @@ func dryBuildJava(ctx *types.BusContext, changes []types.FileChange) string {
 		return ""
 	}
 
-	pomPath := filepath.Join(repoRoot, "pom.xml")
-	gradleKts := filepath.Join(repoRoot, "build.gradle.kts")
-	gradleGroovy := filepath.Join(repoRoot, "build.gradle")
-
-	var (
-		cmdName  string
-		cmdArgs  []string
-		cmdLabel string
-	)
-	switch {
-	case fileExists(pomPath):
-		if _, err := exec.LookPath("mvn"); err != nil {
-			logging.Warning("[emit_change_plan] V2 Java dry-build skipped: mvn binary not on PATH (plan unvalidated for Java/Maven)")
-			recordUnvalidated(ctx, "java/maven: mvn not in PATH")
-			return ""
-		}
-		cmdName = "mvn"
-		cmdArgs = []string{"-B", "-q", "compile", "-DskipTests=true", "-o"}
-		cmdLabel = "mvn -B -q compile -DskipTests=true -o"
-	case fileExists(gradleKts) || fileExists(gradleGroovy):
-		// Prefer the wrapper if it exists — it pins the Gradle
-		// version the project expects; only fall back to a system
-		// `gradle` binary when the wrapper is missing.
-		wrapper := filepath.Join(repoRoot, "gradlew")
-		switch {
-		case fileExists(wrapper):
-			cmdName = wrapper
-			cmdArgs = []string{"compileJava", "--offline", "-q", "-x", "test"}
-			cmdLabel = "./gradlew compileJava --offline -x test"
-		default:
-			if _, err := exec.LookPath("gradle"); err != nil {
-				logging.Warning("[emit_change_plan] V2 Java dry-build skipped: neither ./gradlew nor system gradle available (plan unvalidated for Java/Gradle)")
-				recordUnvalidated(ctx, "java/gradle: neither ./gradlew nor system gradle available")
-				return ""
-			}
-			cmdName = "gradle"
-			cmdArgs = []string{"compileJava", "--offline", "-q", "-x", "test"}
-			cmdLabel = "gradle compileJava --offline -x test"
-		}
-	default:
-		// .java change but no Maven / Gradle manifest detected —
-		// likely a vanilla javac project. Skip silently rather than
-		// trying to invoke javac with hand-rolled classpath.
+	spec, unavailable := javaCompileCommandSpec(repoRoot)
+	if unavailable != "" {
+		logging.Warning("[emit_change_plan] V2 Java dry-build skipped: %s (plan unvalidated for Java)", unavailable)
+		recordUnvalidated(ctx, "java: "+unavailable)
+		return ""
+	}
+	if spec.Name == "" {
 		return ""
 	}
 
@@ -1919,14 +1883,56 @@ func dryBuildJava(ctx *types.BusContext, changes []types.FileChange) string {
 	}
 	defer cleanup()
 
-	cmd := exec.Command(cmdName, cmdArgs...)
+	cmd := exec.Command(spec.Name, spec.Args...)
 	cmd.Dir = scratch
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return formatDryBuildRejection("Java", cmdLabel, out, len(out))
+		return formatDryBuildRejection("Java", spec.Label, out, len(out))
 	}
-	logging.Debug("[emit_change_plan] V2 Java dry-build PASS via %s", cmdLabel)
+	logging.Debug("[emit_change_plan] V2 Java dry-build PASS via %s", spec.Label)
 	return ""
+}
+
+type javaCompileCommand struct {
+	Name  string
+	Args  []string
+	Label string
+}
+
+func javaCompileCommandSpec(repoRoot string) (javaCompileCommand, string) {
+	pomPath := filepath.Join(repoRoot, "pom.xml")
+	gradleKts := filepath.Join(repoRoot, "build.gradle.kts")
+	gradleGroovy := filepath.Join(repoRoot, "build.gradle")
+	switch {
+	case fileExists(pomPath):
+		if _, err := exec.LookPath("mvn"); err != nil {
+			return javaCompileCommand{}, "java/maven: mvn not in PATH"
+		}
+		return javaCompileCommand{
+			Name:  "mvn",
+			Args:  []string{"-B", "-q", "compile", "-DskipTests=true", "-o"},
+			Label: "mvn -B -q compile -DskipTests=true -o",
+		}, ""
+	case fileExists(gradleKts) || fileExists(gradleGroovy):
+		wrapper := filepath.Join(repoRoot, "gradlew")
+		if fileExists(wrapper) {
+			return javaCompileCommand{
+				Name:  wrapper,
+				Args:  []string{"compileJava", "--offline", "-q", "-x", "test"},
+				Label: "./gradlew compileJava --offline -x test",
+			}, ""
+		}
+		if _, err := exec.LookPath("gradle"); err != nil {
+			return javaCompileCommand{}, "java/gradle: neither ./gradlew nor system gradle available"
+		}
+		return javaCompileCommand{
+			Name:  "gradle",
+			Args:  []string{"compileJava", "--offline", "-q", "-x", "test"},
+			Label: "gradle compileJava --offline -x test",
+		}, ""
+	default:
+		return javaCompileCommand{}, ""
+	}
 }
 
 // dryBuildKotlin runs `kotlinc -nowarn` on each changed .kt file in
