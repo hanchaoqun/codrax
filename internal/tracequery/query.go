@@ -1520,6 +1520,57 @@ func perfSampleExample(ev Event) string {
 	if unit := perfSampleWeightUnit(ev); unit != "" {
 		parts = append(parts, "weight_unit="+unit)
 	}
+	if ev.PerfIP != "" {
+		parts = append(parts, "ip="+ev.PerfIP)
+	}
+	if ev.PerfAddr != "" && ev.PerfAddr != ev.PerfIP {
+		parts = append(parts, "addr="+ev.PerfAddr)
+	}
+	if ev.PerfSampleID != "" {
+		parts = append(parts, "sample_id="+ev.PerfSampleID)
+	}
+	if ev.PerfStreamID != "" {
+		parts = append(parts, "stream_id="+ev.PerfStreamID)
+	}
+	if ev.PerfRawWeight > 0 {
+		parts = append(parts, fmt.Sprintf("perf_weight=%d", ev.PerfRawWeight))
+	}
+	if ev.PerfDataSrc != "" {
+		parts = append(parts, "data_src="+ev.PerfDataSrc)
+	}
+	if ev.PerfTransaction != "" {
+		parts = append(parts, "transaction="+ev.PerfTransaction)
+	}
+	if ev.PerfPhysAddr != "" {
+		parts = append(parts, "phys_addr="+ev.PerfPhysAddr)
+	}
+	if ev.PerfCGroupID != "" {
+		parts = append(parts, "cgroup_id="+ev.PerfCGroupID)
+	}
+	if ev.PerfDataPageSize > 0 {
+		parts = append(parts, fmt.Sprintf("data_page_size=%d", ev.PerfDataPageSize))
+	}
+	if ev.PerfCodePageSize > 0 {
+		parts = append(parts, fmt.Sprintf("code_page_size=%d", ev.PerfCodePageSize))
+	}
+	if ev.PerfRawSize > 0 {
+		parts = append(parts, fmt.Sprintf("raw_size=%d", ev.PerfRawSize))
+	}
+	if ev.PerfBranchCount > 0 {
+		parts = append(parts, fmt.Sprintf("branch_count=%d", ev.PerfBranchCount))
+	}
+	if ev.PerfUserRegsABI != "" {
+		parts = append(parts, "user_regs_abi="+ev.PerfUserRegsABI)
+	}
+	if ev.PerfUserRegsCount > 0 {
+		parts = append(parts, fmt.Sprintf("user_regs_count=%d", ev.PerfUserRegsCount))
+	}
+	if ev.PerfUserStackSize > 0 {
+		parts = append(parts, fmt.Sprintf("user_stack_size=%d", ev.PerfUserStackSize))
+	}
+	if ev.PerfAuxSize > 0 {
+		parts = append(parts, fmt.Sprintf("aux_size=%d", ev.PerfAuxSize))
+	}
 	if ev.PerfSource != "" {
 		parts = append(parts, "source="+ev.PerfSource)
 	}
