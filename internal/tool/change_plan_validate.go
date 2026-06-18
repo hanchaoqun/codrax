@@ -474,6 +474,13 @@ var verificationProbeCouplingProviders = []verificationProbeCouplingProvider{
 		Covers:         rubyRequireCoversTarget,
 	},
 	{
+		Language:       "java",
+		DisplayName:    "Java",
+		TargetProducer: javaProductionClassCandidates,
+		ProbeRefs:      javaImportDeclarations,
+		Covers:         javaRefCoversTarget,
+	},
+	{
 		Language:       "go",
 		DisplayName:    "Go",
 		TargetProducer: goProductionPackageCandidates,
@@ -1299,6 +1306,194 @@ func rubyRequireDeclarations(probe types.VerificationProbe) map[string]struct{} 
 		}
 	}
 	return out
+}
+
+func javaProductionClassCandidates(repoRoot string, changes []types.FileChange) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, change := range changes {
+		rel := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if rel == "" || !strings.HasSuffix(rel, ".java") || types.LooksLikeTestFilePath(rel) {
+			continue
+		}
+		className := strings.TrimSuffix(pathBaseSlash(rel), ".java")
+		if isJavaIdentifier(className) {
+			out[className] = struct{}{}
+		}
+		content := strings.TrimSpace(change.NewContent)
+		if content == "" && strings.TrimSpace(repoRoot) != "" {
+			if data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel))); err == nil {
+				content = string(data)
+			}
+		}
+		if pkg := javaPackageDeclaration(content); pkg != "" && className != "" {
+			out[pkg+"."+className] = struct{}{}
+		}
+		for _, candidate := range javaClassCandidatesFromPath(rel) {
+			out[candidate] = struct{}{}
+		}
+	}
+	return out
+}
+
+func javaImportDeclarations(probe types.VerificationProbe) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, line := range strings.Split(probe.Code, "\n") {
+		line = strings.TrimSpace(stripCLikeLineComment(line))
+		if strings.HasPrefix(line, "import ") {
+			ref := strings.TrimSpace(strings.TrimPrefix(line, "import "))
+			ref = strings.TrimSpace(strings.TrimPrefix(ref, "static "))
+			ref = strings.TrimSuffix(ref, ";")
+			ref = strings.TrimSpace(ref)
+			if isJavaDottedRef(ref) || strings.HasSuffix(ref, ".*") {
+				out[ref] = struct{}{}
+			}
+			continue
+		}
+		for _, token := range javaTypeTokens(line) {
+			out[token] = struct{}{}
+		}
+	}
+	return out
+}
+
+func javaRefCoversTarget(ref, target string) bool {
+	ref = strings.TrimSpace(ref)
+	target = strings.TrimSpace(target)
+	if ref == "" || target == "" {
+		return false
+	}
+	if ref == target {
+		return true
+	}
+	if strings.HasSuffix(ref, ".*") {
+		prefix := strings.TrimSuffix(ref, "*")
+		return strings.HasPrefix(target, prefix)
+	}
+	if strings.Contains(ref, ".") && strings.HasPrefix(ref, target+".") {
+		return true
+	}
+	if !strings.Contains(target, ".") && strings.HasSuffix(ref, "."+target) {
+		return true
+	}
+	if strings.Contains(target, ".") && strings.HasSuffix(target, "."+ref) {
+		return true
+	}
+	return false
+}
+
+func javaPackageDeclaration(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(stripCLikeLineComment(line))
+		if strings.HasPrefix(line, "package ") {
+			pkg := strings.TrimSpace(strings.TrimPrefix(line, "package "))
+			pkg = strings.TrimSuffix(pkg, ";")
+			pkg = strings.TrimSpace(pkg)
+			if isJavaDottedRef(pkg) {
+				return pkg
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+func javaClassCandidatesFromPath(rel string) []string {
+	rel = filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(rel), "./"))
+	if !strings.HasSuffix(rel, ".java") {
+		return nil
+	}
+	noExt := strings.TrimSuffix(rel, ".java")
+	className := pathBaseSlash(rel)
+	className = strings.TrimSuffix(className, ".java")
+	var out []string
+	for _, marker := range []string{
+		"src/main/java/",
+		"src/test/java/",
+		"app/src/main/java/",
+		"java/",
+	} {
+		if strings.Contains(noExt, marker) {
+			idx := strings.LastIndex(noExt, marker)
+			candidate := strings.Trim(strings.ReplaceAll(noExt[idx+len(marker):], "/", "."), ".")
+			if isJavaDottedRef(candidate) {
+				out = append(out, candidate)
+			}
+		}
+	}
+	if isJavaIdentifier(className) {
+		out = append(out, className)
+	}
+	return uniqueNonEmptyStrings(out)
+}
+
+func javaTypeTokens(line string) []string {
+	line = stripCLikeLineComment(line)
+	var out []string
+	var cur strings.Builder
+	flush := func() {
+		token := cur.String()
+		cur.Reset()
+		if token == "" {
+			return
+		}
+		if isJavaIdentifier(token) && token[0] >= 'A' && token[0] <= 'Z' {
+			out = append(out, token)
+		}
+	}
+	for _, r := range line {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '$' {
+			cur.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return uniqueNonEmptyStrings(out)
+}
+
+func isJavaDottedRef(ref string) bool {
+	ref = strings.TrimSpace(ref)
+	if strings.HasSuffix(ref, ".*") {
+		ref = strings.TrimSuffix(ref, ".*")
+	}
+	if ref == "" {
+		return false
+	}
+	for _, part := range strings.Split(ref, ".") {
+		if !isJavaIdentifier(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func isJavaIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if i == 0 {
+			if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_' || r == '$') {
+				return false
+			}
+			continue
+		}
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '$') {
+			return false
+		}
+	}
+	return true
+}
+
+func pathBaseSlash(rel string) string {
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
+	if rel == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(rel, "/"); idx >= 0 {
+		return rel[idx+1:]
+	}
+	return rel
 }
 
 func goProductionPackageCandidates(repoRoot string, changes []types.FileChange) map[string]struct{} {

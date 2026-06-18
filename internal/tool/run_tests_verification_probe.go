@@ -301,6 +301,8 @@ func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		return runJavaScriptVerificationProbe(ctx, probe, id, wd, rel, source)
 	case "ruby":
 		return runRubyVerificationProbe(ctx, probe, id, wd, rel, source)
+	case "java":
+		return runJavaVerificationProbe(ctx, probe, id, wd, rel, source)
 	case "go":
 		return runGoVerificationProbe(ctx, probe, id, wd, rel, source)
 	default:
@@ -370,6 +372,112 @@ func runRubyVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 	})
 }
 
+func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
+	tmpDir, err := createVerificationProbeTempDir(ctx.RepoRoot, "java")
+	if err != nil {
+		detail := fmt.Sprintf("verification probe %q could not create temp Java source directory: %v", id, err)
+		return verificationProbeConfigError(id, "java", rel, source, detail)
+	}
+	defer os.RemoveAll(tmpDir)
+	sourcePath := filepath.Join(tmpDir, "CodraxVerificationProbe.java")
+	sourceCode := javaVerificationProbeSource(probe.Code)
+	mainClass := javaVerificationProbeMainClass(sourceCode)
+	if err := os.WriteFile(sourcePath, []byte(sourceCode), 0o600); err != nil {
+		detail := fmt.Sprintf("verification probe %q could not write temp Java source: %v", id, err)
+		return verificationProbeConfigError(id, "java", rel, source, detail)
+	}
+
+	classPath := javaVerificationProbeClassPath(ctx.RepoRoot, wd, tmpDir)
+	sourcePathArg := javaVerificationProbeSourcePath(ctx.RepoRoot, wd)
+	javacArgs := []string{"-encoding", "UTF-8", "-cp", classPath, "-sourcepath", sourcePathArg, "-d", tmpDir, sourcePath}
+	compileCtx, compileCmd, compileTimeout, compileCancel := newVerificationProbeCommand("javac", javacArgs, wd, "java", ctx, probe, "")
+	compileOutput, compileExit, compileDuration, compileExitKind, compileErr := runVerificationProbeCommand(compileCtx, compileCmd, compileTimeout)
+	compileCancel()
+	if compileErr != nil {
+		outcome := "parser_error"
+		failureKind := types.FailureKindParserError
+		reasonCode := "verification_probe_java_compile_error"
+		if verificationProbeRunnerMissing("javac", compileErr, compileOutput) || javaRuntimeMissingOutput(compileOutput) {
+			outcome = "runner_missing"
+			failureKind = types.FailureKindRunnerMissing
+			reasonCode = "verification_probe_runner_missing"
+		}
+		switch compileExitKind {
+		case SupervisedExitTimeout:
+			outcome = "timeout"
+			failureKind = types.FailureKindTimeout
+			reasonCode = ""
+		case SupervisedExitOOM:
+			outcome = "oom"
+			failureKind = types.FailureKindOOM
+			reasonCode = ""
+		case SupervisedExitCPULimit:
+			outcome = "cpu_limit"
+			failureKind = types.FailureKindCPULimit
+			reasonCode = ""
+		}
+		detail := strings.TrimSpace(compileOutput)
+		if detail == "" {
+			detail = fmt.Sprintf("verification probe %q javac exited with code %d", id, compileExit)
+		}
+		detail = stdoutHead(detail, 4000)
+		logging.Info("[run_tests] verification_probe id=%s lang=java cwd=%s compile_outcome=%s exit=%d duration=%v",
+			id, rel, outcome, compileExit, compileDuration)
+		return verificationProbeRunResult{
+			Report: &types.ChangeReport{
+				TestResults: []types.TestResult{{
+					Kind:          types.TestResultKindUnit,
+					AssertionID:   id,
+					Suite:         "verification_probe/java",
+					Passed:        false,
+					Duration:      compileDuration,
+					FailureDetail: detail,
+				}},
+				Passed:            false,
+				FailureKind:       failureKind,
+				FailureReasonCode: reasonCode,
+				FailureSummary:    detail,
+			},
+			Output: detail,
+			Commands: []types.ExecutedCommand{{
+				Runner:     "verification_probe",
+				Framework:  "java",
+				WorkingDir: rel,
+				Command:    "javac <verification_probe:" + id + ">",
+				ExitCode:   compileExit,
+				DurationMS: compileDuration.Milliseconds(),
+				Source:     source,
+				Outcome:    outcome,
+				ReasonCode: reasonCode,
+			}},
+		}
+	}
+
+	runCtx, runCmd, timeout, runCancel := newVerificationProbeCommand("java", []string{"-ea", "-cp", classPath, mainClass}, wd, "java", ctx, probe, "")
+	defer runCancel()
+	res := runExternalVerificationProbe(ctx, probe, externalVerificationProbeInput{
+		ID:          id,
+		Language:    "java",
+		Command:     runCmd,
+		ExecCtx:     runCtx,
+		Timeout:     timeout,
+		WorkingDir:  rel,
+		Source:      source,
+		CommandText: "java -ea <verification_probe:" + id + ">",
+	})
+	res.Commands = append([]types.ExecutedCommand{{
+		Runner:     "verification_probe",
+		Framework:  "java",
+		WorkingDir: rel,
+		Command:    "javac <verification_probe:" + id + ">",
+		ExitCode:   compileExit,
+		DurationMS: compileDuration.Milliseconds(),
+		Source:     source,
+		Outcome:    "executed",
+	}}, res.Commands...)
+	return res
+}
+
 func runGoVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
 	tmp, cleanup, err := createGoVerificationProbeTemp(ctx.RepoRoot)
 	if err != nil {
@@ -419,6 +527,24 @@ func createGoVerificationProbeTemp(repoRoot string) (*os.File, func(), error) {
 		return nil, func() {}, err
 	}
 	return f, func() { _ = os.Remove(f.Name()) }, nil
+}
+
+func createVerificationProbeTempDir(repoRoot, language string) (string, error) {
+	language = strings.TrimSpace(language)
+	if language == "" {
+		language = "probe"
+	}
+	base := ""
+	if strings.TrimSpace(repoRoot) != "" {
+		base = filepath.Join(repoRoot, ".codrax", "tmp", "verification-probes")
+		if err := os.MkdirAll(base, 0o700); err != nil {
+			base = ""
+		}
+	}
+	if base == "" {
+		return os.MkdirTemp("", "codrax-verification-probe-"+language+"-*")
+	}
+	return os.MkdirTemp(base, language+"-*")
 }
 
 func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
@@ -618,6 +744,27 @@ func newVerificationProbeCommand(binary string, args []string, wd, runner string
 	return execCtx, cmd, timeout, cancel
 }
 
+func runVerificationProbeCommand(execCtx context.Context, cmd *exec.Cmd, timeout time.Duration) (string, int, time.Duration, SupervisedExitKind, error) {
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	start := time.Now()
+	caps := verifyResourceCaps()
+	if timeoutSeconds := uint64(timeout.Seconds()); timeoutSeconds > 0 && caps.CPULimitSeconds > timeoutSeconds {
+		caps.CPULimitSeconds = timeoutSeconds
+	}
+	supRes := SupervisedRun(execCtx, cmd, caps)
+	duration := time.Since(start)
+	output := stdout.String()
+	if stderr.Len() > 0 {
+		if output != "" {
+			output += "\n"
+		}
+		output += stderr.String()
+	}
+	return output, extractExitCode(supRes.Err), duration, supRes.ExitKind, supRes.Err
+}
+
 func verificationProbeTimeout(probe types.VerificationProbe) time.Duration {
 	timeout := time.Duration(probe.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
@@ -807,7 +954,136 @@ func verificationProbeRunnerMissing(binary string, runErr error, output string) 
 			return true
 		}
 	}
-	return outputIndicatesMissingBinary(output, binary)
+	return outputIndicatesMissingBinary(output, binary) || ((binary == "java" || binary == "javac") && javaRuntimeMissingOutput(output))
+}
+
+func javaVerificationProbeSource(code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return "public final class CodraxVerificationProbe { public static void main(String[] args) {} }\n"
+	}
+	if strings.Contains(code, "class CodraxVerificationProbe") {
+		return code + "\n"
+	}
+	var imports []string
+	var body []string
+	seenBody := false
+	for _, line := range strings.Split(code, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !seenBody && (trimmed == "" || strings.HasPrefix(trimmed, "import ")) {
+			if trimmed != "" {
+				imports = append(imports, line)
+			}
+			continue
+		}
+		seenBody = true
+		body = append(body, line)
+	}
+	var b strings.Builder
+	for _, line := range imports {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	b.WriteString("public final class CodraxVerificationProbe {\n")
+	b.WriteString("  public static void main(String[] args) throws Exception {\n")
+	for _, line := range body {
+		if strings.TrimSpace(line) == "" {
+			b.WriteByte('\n')
+			continue
+		}
+		b.WriteString("    ")
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	b.WriteString("  }\n")
+	b.WriteString("}\n")
+	return b.String()
+}
+
+func javaVerificationProbeMainClass(source string) string {
+	if pkg := javaPackageDeclaration(source); pkg != "" {
+		return pkg + ".CodraxVerificationProbe"
+	}
+	return "CodraxVerificationProbe"
+}
+
+func javaVerificationProbeClassPath(repoRoot, wd, tmpDir string) string {
+	var entries []string
+	seen := map[string]struct{}{}
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+		key := cleanAbsPathKey(path)
+		if key == "" {
+			key = path
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		entries = append(entries, path)
+	}
+	add(tmpDir)
+	for _, root := range []string{wd, repoRoot} {
+		add(root)
+		for _, rel := range []string{
+			"src/main/java",
+			"src/test/java",
+			"target/classes",
+			"target/test-classes",
+			"build/classes/java/main",
+			"build/classes/java/test",
+			"build/classes/kotlin/main",
+			"build/classes/kotlin/test",
+			"out/production/classes",
+			"out/test/classes",
+		} {
+			add(filepath.Join(root, rel))
+		}
+	}
+	return strings.Join(entries, string(os.PathListSeparator))
+}
+
+func javaVerificationProbeSourcePath(repoRoot, wd string) string {
+	var entries []string
+	seen := map[string]struct{}{}
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+		key := cleanAbsPathKey(path)
+		if key == "" {
+			key = path
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		entries = append(entries, path)
+	}
+	for _, root := range []string{wd, repoRoot} {
+		add(root)
+		for _, rel := range []string{"src/main/java", "src/test/java"} {
+			add(filepath.Join(root, rel))
+		}
+	}
+	return strings.Join(entries, string(os.PathListSeparator))
+}
+
+func javaRuntimeMissingOutput(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "unable to locate a java runtime") ||
+		strings.Contains(lower, "could not find java") ||
+		strings.Contains(lower, "no java runtime present")
 }
 
 func readInlineVerificationProbeStatus(path string) inlineVerificationProbeStatus {

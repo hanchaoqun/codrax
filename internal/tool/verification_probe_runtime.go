@@ -17,6 +17,7 @@ var verificationProbeRuntimeSpecs = []verificationProbeRuntimeSpec{
 	{Language: "python", Aliases: []string{"py"}, Description: "python"},
 	{Language: "javascript", Aliases: []string{"js", "node"}, Description: "javascript (Node.js)"},
 	{Language: "ruby", Aliases: []string{"rb"}, Description: "ruby"},
+	{Language: "java", Aliases: []string{"javac"}, Description: "java (JDK javac/java)"},
 	{Language: "go", Aliases: []string{"golang"}, Description: "go"},
 }
 
@@ -86,6 +87,8 @@ func verificationProbeHasExecutableFailureSignal(language, code string) bool {
 		return javascriptVerificationProbeHasExecutableFailureSignal(code)
 	case "ruby":
 		return rubyVerificationProbeHasExecutableFailureSignal(code)
+	case "java":
+		return javaVerificationProbeHasExecutableFailureSignal(code)
 	case "go":
 		return goVerificationProbeHasExecutableFailureSignal(code)
 	default:
@@ -119,6 +122,28 @@ func rubyVerificationProbeHasExecutableFailureSignal(code string) bool {
 		"fail(",
 		"abort(",
 		"exit(",
+	} {
+		if strings.Contains(surface, compactProbeSignalSurface(signal)) {
+			return true
+		}
+	}
+	return false
+}
+
+func javaVerificationProbeHasExecutableFailureSignal(code string) bool {
+	surface := compactProbeSignalSurface(stripCLikeProbeStringsAndComments(code))
+	for _, signal := range []string{
+		"assert ",
+		"assert(",
+		"throw ",
+		"throw new",
+		"System.exit(",
+		"Assertions.",
+		"Assert.",
+		"assertEquals(",
+		"assertTrue(",
+		"assertFalse(",
+		"fail(",
 	} {
 		if strings.Contains(surface, compactProbeSignalSurface(signal)) {
 			return true

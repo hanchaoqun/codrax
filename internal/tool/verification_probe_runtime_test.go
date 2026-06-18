@@ -17,15 +17,16 @@ func TestNormalizeVerificationProbesAcceptsMultiLanguageRuntimes(t *testing.T) {
 		{ID: "py", Language: "python", Code: "assert True\n"},
 		{ID: "js", Language: "node", Code: "throw new Error('expected failure when false')"},
 		{ID: "rb", Language: "ruby", Code: "raise 'bad' unless true\n"},
+		{ID: "java", Language: "javac", Code: "throw new AssertionError(\"bad\");"},
 		{ID: "go", Language: "golang", Code: "package main\nfunc main() { panic(\"bad\") }\n"},
 	})
 	if rej != "" {
 		t.Fatalf("normalizeVerificationProbes rejected supported runtimes: %s", rej)
 	}
-	if got, want := len(probes), 4; got != want {
+	if got, want := len(probes), 5; got != want {
 		t.Fatalf("normalized probes = %d, want %d", got, want)
 	}
-	wantLanguages := []string{"python", "javascript", "ruby", "go"}
+	wantLanguages := []string{"python", "javascript", "ruby", "java", "go"}
 	for i, want := range wantLanguages {
 		if probes[i].Language != want {
 			t.Fatalf("probe[%d].Language = %q, want %q", i, probes[i].Language, want)
@@ -123,6 +124,20 @@ func TestNormalizeVerificationProbesRejectsPrintOnlyJavaScriptProbe(t *testing.T
 	}
 }
 
+func TestNormalizeVerificationProbesRejectsPrintOnlyJavaProbe(t *testing.T) {
+	_, rej := normalizeVerificationProbes([]types.VerificationProbe{{
+		ID:       "print_only",
+		Language: "java",
+		Code:     "System.out.println(\"FAIL\");",
+	}})
+	if rej == "" {
+		t.Fatal("expected print-only Java probe to be rejected")
+	}
+	if !strings.Contains(rej, "java executable failure signal") {
+		t.Fatalf("rejection should name Java failure-signal requirement, got: %s", rej)
+	}
+}
+
 func TestRunTestsDryRunJavaScriptVerificationProbe(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not available on PATH")
@@ -186,6 +201,183 @@ func TestRunTestsDryRunRubyVerificationProbe(t *testing.T) {
 	}
 	if !result.Success {
 		t.Fatalf("expected Ruby probe to pass, got: %s", result.Summary)
+	}
+}
+
+func TestRunTestsDryRunJavaVerificationProbeWithFakeJDK(t *testing.T) {
+	root := t.TempDir()
+	capturePath := filepath.Join(t.TempDir(), "generated-java.txt")
+	installFakeJavaProbeRuntime(t, capturePath, true)
+	mu := types.NewMutableState("java probe")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"verification_probe": map[string]any{
+			"id":              "java_value",
+			"language":        "java",
+			"code":            "import java.util.Objects;\nif (!Objects.equals(\"VALUE=42\", \"VALUE=42\")) throw new AssertionError(\"wrong\");\nSystem.out.println(\"VALUE=42\");",
+			"expected_stdout": []string{"VALUE=42"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected Java probe to pass, got: %s", result.Summary)
+	}
+	reports := mu.PlanStageProbeReports()
+	if len(reports) != 1 || !reports[0].Passed {
+		t.Fatalf("expected one passing planner probe report, got %+v", reports)
+	}
+	if got := len(reports[0].ExecutedCommands); got != 2 {
+		t.Fatalf("executed commands = %d, want javac + java", got)
+	}
+	if got := reports[0].ExecutedCommands[0].Framework; got != "java" {
+		t.Fatalf("compile framework = %q, want java", got)
+	}
+	generated, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("read captured Java probe source: %v", err)
+	}
+	source := string(generated)
+	for _, want := range []string{
+		"import java.util.Objects;",
+		"public final class CodraxVerificationProbe",
+		"public static void main(String[] args) throws Exception",
+		"System.out.println(\"VALUE=42\");",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("generated Java source missing %q:\n%s", want, source)
+		}
+	}
+}
+
+func TestRunTestsDryRunJavaVerificationProbeFullSourceUsesPackagedMainClass(t *testing.T) {
+	root := t.TempDir()
+	javaArgsPath := filepath.Join(t.TempDir(), "java-args.txt")
+	installFakeJavaProbeRuntime(t, "", true)
+	t.Setenv("CODRAX_TEST_JAVA_ARGS_CAPTURE", javaArgsPath)
+	mu := types.NewMutableState("java packaged probe")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"verification_probe": map[string]any{
+			"id":       "java_packaged",
+			"language": "java",
+			"code": "package com.acme.probe;\n\n" +
+				"public final class CodraxVerificationProbe {\n" +
+				"  public static void main(String[] args) {\n" +
+				"    if (false) throw new AssertionError(\"wrong\");\n" +
+				"    System.out.println(\"VALUE=42\");\n" +
+				"  }\n" +
+				"}\n",
+			"expected_stdout": []string{"VALUE=42"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected packaged Java probe to pass, got: %s", result.Summary)
+	}
+	args, err := os.ReadFile(javaArgsPath)
+	if err != nil {
+		t.Fatalf("read captured java args: %v", err)
+	}
+	if !strings.Contains(string(args), "com.acme.probe.CodraxVerificationProbe") {
+		t.Fatalf("java command should use packaged main class, args:\n%s", string(args))
+	}
+}
+
+func TestRunTestsDryRunJavaVerificationProbeCompileFailureIsParserError(t *testing.T) {
+	root := t.TempDir()
+	installFakeJavaProbeRuntime(t, "", false)
+	mu := types.NewMutableState("java probe compile failure")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"verification_probe": map[string]any{
+			"id":       "java_compile",
+			"language": "java",
+			"code":     "throw new AssertionError(\"bad\");",
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("expected Java compile failure to fail, got success: %s", result.Summary)
+	}
+	reports := mu.PlanStageProbeReports()
+	if len(reports) != 1 {
+		t.Fatalf("expected one planner probe report, got %+v", reports)
+	}
+	if got := reports[0].FailureKind; got != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", got, reports[0])
+	}
+	if got := reports[0].FailureReasonCode; got != "verification_probe_java_compile_error" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_java_compile_error", got)
+	}
+}
+
+func installFakeJavaProbeRuntime(t *testing.T, capturePath string, compileOK bool) {
+	t.Helper()
+	bin := t.TempDir()
+	javacPath := filepath.Join(bin, "javac")
+	javaPath := filepath.Join(bin, "java")
+	javacBody := `#!/bin/sh
+set -eu
+last=""
+for arg in "$@"; do
+  case "$arg" in
+    *.java) last="$arg" ;;
+  esac
+done
+if [ "${CODRAX_TEST_JAVAC_COMPILE_OK:-1}" != "1" ]; then
+  echo "CodraxVerificationProbe.java:3: error: cannot find symbol" >&2
+  exit 1
+fi
+if [ -n "${CODRAX_TEST_JAVAC_CAPTURE:-}" ] && [ -n "$last" ]; then
+  cat "$last" > "$CODRAX_TEST_JAVAC_CAPTURE"
+fi
+exit 0
+`
+	javaBody := `#!/bin/sh
+set -eu
+if [ -n "${CODRAX_TEST_JAVA_ARGS_CAPTURE:-}" ]; then
+  printf '%s\n' "$@" > "$CODRAX_TEST_JAVA_ARGS_CAPTURE"
+fi
+echo "VALUE=42"
+exit 0
+`
+	if err := os.WriteFile(javacPath, []byte(javacBody), 0o755); err != nil {
+		t.Fatalf("write fake javac: %v", err)
+	}
+	if err := os.WriteFile(javaPath, []byte(javaBody), 0o755); err != nil {
+		t.Fatalf("write fake java: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CODRAX_TEST_JAVAC_COMPILE_OK", map[bool]string{true: "1", false: "0"}[compileOK])
+	if capturePath != "" {
+		t.Setenv("CODRAX_TEST_JAVAC_CAPTURE", capturePath)
 	}
 }
 
@@ -341,6 +533,85 @@ func TestEmitChangePlanAcceptsJavaScriptProbeImportingPackageName(t *testing.T) 
 	}
 	if !res.Success {
 		t.Fatalf("expected package-entrypoint JavaScript probe to be accepted, got: %s", res.Summary)
+	}
+}
+
+func TestEmitChangePlanRejectsJavaProbeThatCopiesImplementation(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a Java behaviour",
+		"summary": "Modify Widget.java and attach a probe that incorrectly checks a copied local value.",
+		"changes": [
+			{"path": "src/main/java/com/acme/Widget.java", "kind": "modify", "new_content": "package com.acme;\npublic final class Widget { public static int value() { return 42; } }\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "copied_value", "language": "java", "code": "if (42 != 42) throw new AssertionError(\"wrong\");"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected copied Java probe to be rejected, got success: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "changed Java production module") {
+		t.Fatalf("summary should explain Java changed-module coupling, got: %s", res.Summary)
+	}
+}
+
+func TestEmitChangePlanAcceptsJavaProbeImportingChangedClass(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a Java behaviour",
+		"summary": "Modify Widget.java and verify through the changed Java class.",
+		"changes": [
+			{"path": "src/main/java/com/acme/Widget.java", "kind": "modify", "new_content": "package com.acme;\npublic final class Widget { public static int value() { return 42; } }\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "imported_value", "language": "java", "code": "import com.acme.Widget;\nif (Widget.value() != 42) throw new AssertionError(\"wrong\");"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected changed-class Java probe to be accepted, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.VerificationProbes) != 1 {
+		t.Fatalf("expected accepted plan with one probe, got: %+v", plan)
+	}
+	if got := plan.VerificationProbes[0].Language; got != "java" {
+		t.Fatalf("probe language = %q, want java", got)
+	}
+}
+
+func TestEmitChangePlanAcceptsJavaProbeStaticImportingChangedClass(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "fix a Java behaviour",
+		"summary": "Modify Widget.java and verify through a static import of the changed class.",
+		"changes": [
+			{"path": "src/main/java/com/acme/Widget.java", "kind": "modify", "new_content": "package com.acme;\npublic final class Widget { public static int value() { return 42; } }\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "static_imported_value", "language": "java", "code": "import static com.acme.Widget.value;\nif (value() != 42) throw new AssertionError(\"wrong\");"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected static-import Java probe to be accepted, got: %s", res.Summary)
 	}
 }
 

@@ -2401,6 +2401,58 @@ RC-45 is a documentation-only commercial UX closure:
   prose parsing is introduced.
 - Keep read/log/trace/data/operation/computer surfaces untouched.
 
+## 2026-06-18 RC-46 Java Verification Probe Runtime
+
+RC-45 clarified that source-check and actual-diff coverage are multi-language,
+but the bounded runtime proof lane still had a concrete gap: `verification_probes[]`
+could run Python, JavaScript, Ruby, and Go, while Java/Kotlin source changes had
+only compile-level fallback and project runner coverage. That leaves a common
+customer scenario under-proved: a Java bug report may have no runnable JUnit
+suite locally, but a tiny behavior assertion against the changed class is still
+valuable online evidence.
+
+RC-46 adds Java to the same typed verification-probe registry rather than adding
+a prompt branch:
+
+```text
+ChangePlan.verification_probes[].language=java
+  -> registry enum / alias javac
+  -> failure-signal validator
+  -> temporary CodraxVerificationProbe.java
+  -> javac compile with repo/source/classpath candidates
+  -> java -ea execution
+  -> ChangeReport TestResult + ExecutedCommands
+```
+
+Commercial constraints:
+
+- Java probe code may be a main-method body or a full `CodraxVerificationProbe`
+  class. Imports are preserved when wrapping body code.
+- Missing JDK remains `runner_missing/unavailable`, not a product-code failure.
+  Compile diagnostics from the temporary probe itself are `parser_error`, so a
+  broken probe does not trigger incorrect product-code repair.
+- Same-language production Java changes now participate in the copied-probe
+  hard gate: a Java probe must import or type-reference the changed production
+  class, including static imports, instead of testing a copied local expression.
+- Hard routing consumes only typed probe language enums, repo-relative paths,
+  Java package/import declarations, executable failure signals, and process exit
+  status. No user-intent keywords or model prose affect the decision.
+
+RC-46 tasks:
+
+- [x] Register Java/JDK in the verification-probe runtime provider matrix and
+  schema enums.
+- [x] Add Java executable failure-signal validation.
+- [x] Execute Java probes through bounded `javac` + `java -ea` with temp source
+  cleanup and structured command evidence.
+- [x] Map Java compile failure, missing JDK, timeout/OOM/CPU outcomes to typed
+  `ChangeReport` failure kinds.
+- [x] Extend copied-implementation coupling to Java production classes,
+  package imports, wildcard imports, static imports, and simple type refs.
+- [x] Update planner soft guidance, Markdown/HTML user docs, and this ledger.
+- [x] Add focused tests for schema/runtime registry, fake JDK execution,
+  compile parser_error, and Java coupling.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2452,6 +2504,7 @@ RC-45 is a documentation-only commercial UX closure:
 | RC-43 | complete | Impact selector language coverage: typed related-test targets now prioritize Java/Kotlin, Rust integration-test, and Swift Package test selectors in addition to existing Python/Go/Node/Ruby coverage. Runner command construction normalizes Java/Kotlin path selectors to class selectors, Rust integration paths to `cargo test --test`, and Swift paths to `swift test --filter`, all from structured paths rather than prose. Verification: focused selector/command regressions, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-44 | complete | Verify source-compile fallback reuse: Java/Kotlin and Swift no-test source changes now use typed source-check providers instead of synthetic no-tests when plan-touched files exist. Java reuses the Maven/Gradle compile command selector shared with plan dry-build; Kotlin uses bounded `kotlinc` when available; Swift uses `swift build --skip-build`. Missing tools/manifests or unparseable environment output stay pass-with-warning, while parseable build diagnostics fail verify with structured `BuildErrors[]`. |
 | RC-45 | complete | User-facing guide sync: Markdown and HTML now document Java/Kotlin/Swift source compile fallback and clarify that actual-diff mapping/container boundary signals are multi-language provider events, not Python-only logic. Verification: diff check and focused `internal/tool` regressions pass. |
+| RC-46 | complete | Java verification probe runtime: bounded `verification_probes[]` now support Java through the typed runtime registry, with `javac` compile, `java -ea` execution, missing-JDK unavailable semantics, Java production-class coupling, packaged full-source probes, and soft docs/prompt sync. Verification: focused runtime/coupling tests, full `internal/tool`, related packages, `go test ./...`, `make test`, and diff check pass. |
 
 ## Acceptance Criteria
 
@@ -2471,8 +2524,8 @@ RC-45 is a documentation-only commercial UX closure:
 - Natural-language `satisfies` expected text stays soft; hard exact verifier
   targets require typed exact fields/operators with evidence.
 - `verification_probes[]` provide bounded local behavior checks for common
-  non-Python projects without requiring project-wide test runners or shell
-  command probes.
+  non-Python projects, including Java, without requiring project-wide test
+  runners or shell command probes.
 - No-test Go source changes compile automatically through the standard Go
   toolchain before being marked unavailable/pass-with-warning.
 - No-test TypeScript source changes compile automatically through repo-local or
