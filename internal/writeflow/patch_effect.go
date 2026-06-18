@@ -594,17 +594,88 @@ func annotatePatchEffectPythonOwnerShape(file *types.PatchEffectFile, lines []st
 			continue
 		}
 		line := lines[lineNo-1]
-		if !pythonTopLevelSelfMethodDefRE.MatchString(line) {
+		if pythonTopLevelSelfMethodDefRE.MatchString(line) {
+			file.Events = append(file.Events, types.PatchEffectEvent{
+				Code:        "python_top_level_self_method",
+				Severity:    "error",
+				Path:        file.Path,
+				Message:     "added top-level Python function uses self/cls as its first parameter; this usually means a class method was de-indented out of its owner class",
+				EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
+			})
+		}
+		appendPatchEffectPythonUnreachableAfterAddedReturn(file, lines, lineNo)
+	}
+}
+
+func appendPatchEffectPythonUnreachableAfterAddedReturn(file *types.PatchEffectFile, lines []string, lineNo int) {
+	if file == nil || lineNo <= 0 || lineNo > len(lines) {
+		return
+	}
+	line := lines[lineNo-1]
+	if _, ok := patchEffectReturnExpression(line); !ok {
+		return
+	}
+	lineIndent := pythonPatchEffectIndent(line)
+	defIndent, bodyIndent, ok := pythonPatchEffectFunctionBodyIndent(lines, lineNo, lineIndent)
+	if !ok || lineIndent != bodyIndent {
+		return
+	}
+	for idx := lineNo; idx < len(lines); idx++ {
+		next := lines[idx]
+		trimmed := strings.TrimSpace(next)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		file.Events = append(file.Events, types.PatchEffectEvent{
-			Code:        "python_top_level_self_method",
-			Severity:    "error",
-			Path:        file.Path,
-			Message:     "added top-level Python function uses self/cls as its first parameter; this usually means a class method was de-indented out of its owner class",
-			EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
-		})
+		nextIndent := pythonPatchEffectIndent(next)
+		if nextIndent <= defIndent {
+			return
+		}
+		if nextIndent >= bodyIndent {
+			file.Events = append(file.Events, types.PatchEffectEvent{
+				Code:        "python_unreachable_body_after_added_return",
+				Severity:    "error",
+				Path:        file.Path,
+				Message:     "added Python function-body return leaves later statements in the same function unreachable; remove the stale body or place the return under a narrower guard",
+				EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
+			})
+			return
+		}
 	}
+}
+
+func pythonPatchEffectFunctionBodyIndent(lines []string, lineNo, lineIndent int) (int, int, bool) {
+	for idx := lineNo - 2; idx >= 0; idx-- {
+		line := lines[idx]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := pythonPatchEffectIndent(line)
+		if indent >= lineIndent {
+			continue
+		}
+		if !pythonDefLineRE.MatchString(line) {
+			continue
+		}
+		bodyIndent := lineIndent
+		for bodyIdx := idx + 1; bodyIdx < lineNo; bodyIdx++ {
+			bodyLine := lines[bodyIdx]
+			bodyTrimmed := strings.TrimSpace(bodyLine)
+			if bodyTrimmed == "" || strings.HasPrefix(bodyTrimmed, "#") {
+				continue
+			}
+			bodyLineIndent := pythonPatchEffectIndent(bodyLine)
+			if bodyLineIndent > indent {
+				bodyIndent = bodyLineIndent
+				break
+			}
+		}
+		if lineIndent < bodyIndent {
+			return 0, 0, false
+		}
+		return indent, bodyIndent, true
+	}
+	return 0, 0, false
 }
 
 func appendPatchEffectDuplicateInsertedBlockEvent(file *types.PatchEffectFile, hunk types.PatchEffectHunk) {

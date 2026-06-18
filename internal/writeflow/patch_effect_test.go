@@ -209,6 +209,86 @@ func TestAnnotatePatchEffectPythonDuplicateSymbolHardBlocks(t *testing.T) {
 	}
 }
 
+func TestAnnotatePatchEffectPythonAddedReturnBeforeExistingBodyHardBlocks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `class Field:
+    def _check(self):
+        return []
+        if self.max_length is None:
+            return []
+        return []
+`
+	if err := os.WriteFile(filepath.Join(root, "pkg", "field.py"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/pkg/field.py b/pkg/field.py
+--- a/pkg/field.py
++++ b/pkg/field.py
+@@ -1,5 +1,6 @@
+ class Field:
+     def _check(self):
++        return []
+         if self.max_length is None:
+             return []
+         return []
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "pkg/field.py")
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if !patchEffectHasEvent(*file, "python_unreachable_body_after_added_return") {
+		t.Fatalf("unreachable body event missing: %+v", file.Events)
+	}
+
+	review := ReviewAppliedPatchScope(&types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"pkg/field.py"},
+		PatchEffect: &record,
+	}, types.ChangePlanSlice{})
+	if !review.HardBlock || !patchReviewHasFinding(review, "python_unreachable_body_after_added_return") {
+		t.Fatalf("unreachable body after added return should hard block review: %+v", review)
+	}
+}
+
+func TestAnnotatePatchEffectPythonNestedReturnDoesNotMarkFollowingFunctionBodyUnreachable(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `def check(flag):
+    if flag:
+        return []
+    return ["fallback"]
+`
+	if err := os.WriteFile(filepath.Join(root, "pkg", "field.py"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/pkg/field.py b/pkg/field.py
+--- a/pkg/field.py
++++ b/pkg/field.py
+@@ -1,3 +1,4 @@
+ def check(flag):
+     if flag:
++        return []
+     return ["fallback"]
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "pkg/field.py")
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if patchEffectHasEvent(*file, "python_unreachable_body_after_added_return") {
+		t.Fatalf("nested guard return should not mark the following function body unreachable: %+v", file.Events)
+	}
+}
+
 func TestAnnotatePatchEffectDuplicateInsertedBlockHardBlocks(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "sympy/ntheory"), 0o755); err != nil {

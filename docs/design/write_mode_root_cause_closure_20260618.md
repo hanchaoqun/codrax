@@ -4043,6 +4043,73 @@ Verification:
 - Full `go test ./...` passes.
 - `make test`, `make`, and `git diff --check` pass.
 
+## 2026-06-18 RC-73 Actual-Diff Unreachable Body Hard Gate
+
+The post-RC-72 `django__django-11742` rerun produced a useful split signal:
+
+- prediction export stayed non-empty and official-harness dry-run consumable;
+- workflow correctly restored checkpoints and replanned after red verification;
+- local acceptance became `fail` instead of a weak pass;
+- the final exported patch was still structurally bad.
+
+The bad patch was not the earlier nested-collection exclusion shape. It inserted
+a full new body under an already existing Python method and left the previous
+method body in place:
+
+```text
+def _check_max_length_covers_choices(self):
+    ...new logic...
+    return []
+    if self.max_length is None:
+        ...
+```
+
+Existing `duplicate_inserted_block_added` only detects adjacent duplication
+inside newly added lines. It cannot catch a new function-body return that makes
+pre-existing same-function code unreachable. That is a Patch Critic gap over
+the actual final source shape.
+
+RC-73 adds a Python provider hard event:
+
+```text
+actual added line number + post-apply Python source bytes
+  -> added return statement at function-body base indent
+  -> later non-comment statement still exists in the same function body
+  -> PatchEffectEvent(code=python_unreachable_body_after_added_return, severity=error)
+  -> PatchReview hard block
+```
+
+Design constraints:
+
+- The gate reads only `PatchEffectHunk.AddedLineNumbers`, post-apply file bytes,
+  and deterministic Python indentation/`def` structure.
+- It does not inspect user issue text, model rationale, stdout narrative,
+  manual audit notes, `<think>` content, or finding prose.
+- It is intentionally structural: an added `return` nested under a guard does
+  not trigger when following function-body statements remain reachable.
+- This batch implements Python because the current failure is Python and Codrax
+  already has Python hunk annotators. The provider model remains the extension
+  point for JS/TS/Ruby/JVM/Go equivalent unreachable-code producers.
+
+Tasks:
+
+- [x] Add `python_unreachable_body_after_added_return` PatchEffect hard event.
+- [x] Detect only function-body base-indent added returns that leave later
+  same-function statements unreachable.
+- [x] Register the event as a PatchReview hard blocker.
+- [x] Add regression for the RC-72 shape: added return before existing method
+  body hard-blocks.
+- [x] Add regression proving nested/guarded returns do not mark following
+  function code unreachable.
+
+Verification:
+
+- Focused Python unreachable-return PatchEffect tests pass.
+- `go test ./internal/writeflow -count=1` passes.
+- `go test ./internal/writeflow ./internal/types ./internal/orchestrator -count=1` passes.
+- Full `go test ./...` passes.
+- `make test`, `make`, and `git diff --check` pass.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -4127,6 +4194,7 @@ Verification:
 | RC-70 | complete | Structured edit compilation now relocates repeated `old_text` anchors only when current same-file bytes prove exactly one match inside a bounded local window around the submitted line. This reduces `emit_change_plan` retry loops for nearby stale line numbers without reading prompt prose, user issue text, stdout narrative, or `<think>`. Focused relocation tests, related packages, and full `go test ./...` pass. |
 | RC-71 | complete | Python verification probes now separate probe-authored top-level exceptions from product-code runtime failures using the wrapper's typed `probe_top_level` status. Top-level probe exceptions become unavailable probe-authoring diagnostics; product-frame exceptions remain red `tests_failed`. Focused probe-boundary tests, related packages, and full `go test ./...` pass. |
 | RC-72 | complete | Actual-diff nested collection branch exclusion signal is now a multi-language provider event, not a Python-only or Django-specific patch. Newly skipped nested collection branches become soft semantic coverage obligations with `impact_kind=effect_followup`, preserving automation while requiring bounded proof/replan before high-confidence local acceptance. Verification: focused provider tests, writeflow package, related packages, full `go test ./...`, `make test`, `make`, and diff check pass. |
+| RC-73 | complete | Python actual-diff Patch Critic now flags added function-body returns that leave later same-function statements unreachable. This closes the RC-72 Django smoke gap where replan prepended a new method body before the old body, local acceptance failed correctly, but PatchReview lacked a structural hard event for the exported bad patch. Verification: focused Python provider tests, writeflow package, related packages, full `go test ./...`, `make test`, `make`, and diff check pass. |
 
 ## Acceptance Criteria
 
