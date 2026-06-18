@@ -4267,6 +4267,7 @@ Verification:
 | RC-83 | complete | Impact related-test precision and coverage aliasing: moved package-marker/generic-stem filtering from only runner selection into the repomap provider boundary, and made coverage projection consume typed executed command suite selectors as normalized path/module aliases across Python/Django and Java-class style runners. Focused/related/full Go regressions and build pass. Targeted Django smoke exported a non-empty harness-shaped prediction and exposed RC-84 stale source-owner provenance, which is now fixed in the adapter. |
 | RC-84 | complete | Restore-aware SWE delivery provenance: the SWE adapter now reads typed workflow `checkpoint_restored_before_replan` progress events and excludes applied source plans before the latest restore in that batch, so rolled-back PatchReview hard errors cannot pollute final delivery audit. Adapter regressions pass and old RC-84 artifact recomputes to a single final source-owner plan. |
 | RC-96 | complete | SWE final-report projection now uses the typed delivery candidate's primary source plan path instead of undefined post-processing locals, eliminating false `status=error` rows after Codrax has already exported a non-empty patch. The RC-95 three-instance rerun validates 3/3 non-empty predictions and official harness import/dry-run consumption, while manual audit keeps the broader exploration/localization gap open for subsequent typed-localization work. |
+| RC-97 | planned | Shared source-localization owner anchors: introduce a read/write typed `SourceLocalizationAnchor` contract so read-mode Turn A can distinguish read-file observation from grounded line-backed owner evidence, write-mode context packs can carry typed anchor objects, and plan localization gates can prefer precise anchors over broad target-file lists without parsing model prose or stdout. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -5682,6 +5683,69 @@ Verification:
     CHECK_HARNESS_IMPORT=1
     PREDICTIONS_PATH=eval/results/swebench/lite-smoke-20260619-rc95-localization-proof-3/predictions.jsonl
     eval/swebench/run_official_harness.sh`
+
+## 2026-06-19 RC-97 Shared Source-Localization Owner Anchors
+
+- Current code audit:
+  - Read mode already persists `TurnAArtifacts.SourceLocalization` from
+    `ReadFiles` plus grounded evidence.
+  - Write mode already stamps `ChangePlan.LocalizationReview` and retries once
+    when a source plan edits paths outside prior P0/P1 localization context.
+  - `WriteContextPackFromExplorationHandoff` still projects broad
+    `target_file` rows from every read file, and the plan gate treats those
+    rows like owner evidence when no finer artifact exists.
+  - Therefore the system can know "a file was read" but cannot reliably
+    distinguish that from "this file has line-backed owner evidence". Wrong
+    localization can survive until PatchReview or verifier failure.
+- Architecture:
+  - Add `SourceLocalizationAnchor` as a typed artifact shared by read and
+    write:
+    - `path`, `role`, `source_stage`, `kind`, `strength`,
+      `evidence_ref`, `subject`, `anchor_symbol`, `reason_code`.
+    - `kind` examples: `read_file`, `grounded_evidence`,
+      `recovered_evidence`, `scope_anchor`.
+    - `strength` examples: `observed`, `supporting`, `owner`.
+  - `SourceLocalizationReviewFromTurnA` derives anchors from structured
+    read-mode facts:
+    - production `read_file` rows become `observed` anchors.
+    - grounded/recovered line-backed evidence in production paths becomes
+      `owner` anchors with evidence refs.
+    - auxiliary paths remain auxiliary and cannot satisfy production owner
+      localization.
+  - `WriteExplorationHandoff` carries the normalized localization review.
+  - `WriteContextPack` projects each anchor as a `localization_anchor` item
+    with a typed `localization_anchor` sub-object. Prompt text remains
+    advisory; hard gates consume the sub-object.
+  - `writeContextCoveragePriorPaths` prefers typed owner/supporting
+    localization anchors when they exist, plus explicit write-analysis scope
+    anchors. It falls back to legacy target/evidence rows only when no typed
+    localization anchor is available, preserving stable simple flows.
+- Prompt and hard-gate hygiene:
+  - No user-intent keyword matching.
+  - No parsing model summary/rationale/`<think>`.
+  - No stdout/stderr prose routing.
+  - The only new hard signal is a schema-owned typed struct produced from
+    deterministic path roles and grounded evidence metadata.
+- Task list:
+  - [ ] Add `SourceLocalizationAnchor` types, normalization, cloning, and
+    merge support.
+  - [ ] Derive anchors in `SourceLocalizationReviewFromTurnA`.
+  - [ ] Carry localization review through `WriteExplorationHandoff`.
+  - [ ] Project typed `localization_anchor` context items.
+  - [ ] Make prior-path coverage prefer typed owner/supporting anchors while
+    retaining fallback behavior when absent.
+  - [ ] Add read/write type tests for grounded evidence anchors, read-file-only
+    weak anchors, auxiliary exclusion, handoff projection, and fallback.
+  - [ ] Run focused tests, related package tests, full regression if touched
+    surfaces warrant it, then SWE-bench Lite spot validation.
+- Acceptance criteria:
+  - Read mode still returns the same answer pipeline and keeps L1 scheduler
+    untouched.
+  - Rich read-mode exploration produces durable typed localization anchors.
+  - Write-mode planning can distinguish broad read observation from
+    evidence-backed owner support without natural-language parsing.
+  - Existing simple write paths without exploration anchors continue to use the
+    legacy fallback rather than failing closed.
 
 ## Acceptance Criteria
 
