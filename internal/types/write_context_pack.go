@@ -821,6 +821,7 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 	contextPaths := writeContextCoveragePriorPaths(prior)
 	planPaths := writeContextCoveragePlanPaths(plan)
 	ownerGapPaths := WritePlanSourcePathsWithoutOwnerAnchor(prior, plan)
+	requirements := LocalizationRequirementsFromWritePlanContext(batchID, "", WriteConsumerPlanner, prior, plan, 0)
 	if len(contextPaths) == 0 && len(planPaths) == 0 {
 		return WriteContextPack{}
 	}
@@ -874,6 +875,18 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 		for _, p := range ownerGapPaths {
 			pack.Items = append(pack.Items, writeContextItem("plan_context_owner_gap_path", WriteContextP1, p, "plan_context",
 				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		}
+	}
+	for _, req := range requirements.Items {
+		if req.Status != LocalizationRequirementOpen {
+			continue
+		}
+		for _, row := range LocalizationRequirementEvidenceRows(LocalizationRequirementSet{Items: []LocalizationRequirement{req}}, 1) {
+			item := writeContextItem("localization_requirement", WriteContextP1, row, "plan_context",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+			item.SourceID = req.ID
+			item.ID = writeContextStableID("localization_requirement", req.ID, req.Path, req.ReasonCode)
+			pack.Items = append(pack.Items, item)
 		}
 	}
 	return NormalizeWriteContextPack(pack)

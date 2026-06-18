@@ -497,6 +497,10 @@ func TestWriteContextPackFromPlanContextCoverageReportsScopeOnlyOwnerGap(t *test
 		!writeContextViewContains(view, "plan_context_owner_gap_path", "pkg/bug.py") {
 		t.Fatalf("scope-only context must report missing owner-depth evidence: %+v", view.Items)
 	}
+	if !writeContextViewContains(view, "localization_requirement", "path=pkg/bug.py") ||
+		!writeContextViewContains(view, "localization_requirement", "reason=plan_source_path_without_owner_anchor") {
+		t.Fatalf("scope-only context must project a typed localization requirement: %+v", view.Items)
+	}
 	if got := WritePlanSourcePathsWithoutOwnerAnchor(prior, plan); strings.Join(got, ",") != "pkg/bug.py" {
 		t.Fatalf("owner-gap paths = %+v, want pkg/bug.py", got)
 	}

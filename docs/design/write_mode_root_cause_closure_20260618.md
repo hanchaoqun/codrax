@@ -4320,7 +4320,7 @@ Verification:
 | RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
 | RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
 | RC-110 | complete | Auditable partial final reports: persist typed final reports for non-terminal workflows once apply/verify evidence exists, add `workflow_nonterminal` residual risk, export final-report owner-gap telemetry in the SWE adapter, and reran the failed Django spot case to confirm failed-verify `in_progress` deliveries no longer fall back to prose/log audit. Focused Go/Python tests, full `go test ./...`, `make`, diff check, prediction validation, and official harness dry-run pass. |
-| RC-111 | queued P0 | Shared localization owner/evidence pre-plan authority: make read/write typed localization anchors a required planning input before broad path hints, so vague symptom reports trigger owner discovery and plans avoid wrong source surfaces earlier. This is now the highest-priority root-cause repair after RC110; it must cover read exploration, read final handoff, write context projection, planner localization gates, and replan repair slices without keyword/prose routing. |
+| RC-111 | in progress | Shared localization owner/evidence pre-plan authority: RC111-A added a shared typed `LocalizationRequirement` projection, write pre-plan/exploration/replan consumption, plan-context persistence, read-source projection tests, and hygiene coverage proving plan narrative/prose does not drive requirements. Remaining RC111 work is runtime read exploration owner-discovery obligation and SWE/vague-symptom measurement. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -7019,8 +7019,9 @@ RC111 design:
 - Introduce a typed `LocalizationRequirement` view compiled from existing
   `SourceLocalizationAnchor`, `WriteContextPack`, verify-failure handoff, and
   read-mode answer/evidence artifacts. It carries only precise fields:
-  `path`, `line_span`, `symbol`, `owner_kind`, `context_role`, `priority`,
-  `consumer`, `source_stage`, and `evidence_ref`.
+  `path`, `role`, `kind`, `status`, `priority`, `consumer`, `source_stage`,
+  `reason_code`, `required_evidence`, `owner_anchors`, and `evidence_refs`
+  whose refs preserve line spans and symbols.
 - Planning and replan consume this view before broad expected paths. A plan that
   edits a path with only scope/read-file support and no owner/supporting
   evidence receives a typed repair/exploration obligation; this remains a soft
@@ -7039,23 +7040,47 @@ RC111 design:
 
 RC111 task list:
 
-- [ ] Audit current producers/consumers of `SourceLocalizationAnchor`,
+- [x] Audit current producers/consumers of `SourceLocalizationAnchor`,
   `WriteContextPack`, read answer owner anchors, planner localization review,
   and verify-failure repair handoff.
-- [ ] Add a shared typed `LocalizationRequirement` projection layer with unit
+- [x] Add a shared typed `LocalizationRequirement` projection layer with unit
   tests covering owner/supporting/scope/read-file-only distinctions.
 - [ ] Make read-mode exploration and final handoff preserve owner-discovery
   obligations without changing the L1 scheduler byte identity.
-- [ ] Make write controller/planner/replan consume the requirement view before
+- [x] Make write controller/planner/replan consume the requirement view before
   broad path hints, and emit bounded exploration/repair obligations when owner
   evidence is missing.
-- [ ] Add hygiene tests proving no user-intent keywords, model prose,
+- [x] Add hygiene tests proving no user-intent keywords, model prose,
   `<think>`, stdout narrative, or final-summary text drive localization gates.
 - [ ] Rerun the existing SWE spot set plus at least one vague symptom-style
   issue to compare owner-gap telemetry, patch surface, prediction export, and
   official harness dry-run consumption.
 - [ ] Update this ledger with measured before/after signals and push the batch
   as a separate commit after RC110 lands.
+
+RC111-A implementation notes:
+
+- Added `LocalizationRequirement` / `LocalizationRequirementSet` as a shared
+  typed projection over `SourceLocalizationReview`, `WriteContextPack`,
+  `OwnerAnchorView`, candidate paths, and `ChangePlan` source paths.
+- Controller planning hints now render typed localization requirements before
+  broad expected paths; exploration requests carry those rows before success
+  criteria, while owner-anchor candidates remain first.
+- Replan localization critiques consume the same requirement set. The old
+  stable behavior is preserved: a total absence of prior localization context
+  does not become a hard replan loop; it remains exploration/plan-context
+  guidance.
+- `WriteContextPackFromPlanContextCoverage` persists open
+  `localization_requirement` items so controller/planner/verifier handoff can
+  carry the obligation as typed context.
+- Read-mode synchronization begins at the shared projection boundary:
+  `LocalizationRequirementsFromSourceLocalizationReview` converts TurnA
+  observed-only source paths into owner-discovery obligations without changing
+  the read scheduler. A later RC111 batch should attach these obligations to
+  runtime read exploration/final handoff.
+- Hygiene test `TestLocalizationRequirementsIgnorePlanNarrativeText` verifies
+  that changing `ChangePlan.Summary` does not alter requirements; the new layer
+  reads typed path/context/anchor fields only.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

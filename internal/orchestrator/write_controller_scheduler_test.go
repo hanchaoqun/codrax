@@ -1131,16 +1131,18 @@ func TestSeedControllerBatchContextPrefersOwnerAnchorsBeforeExpectedPaths(t *tes
 			t.Fatalf("candidate paths = %+v, want owner anchor first", req.CandidatePaths)
 		}
 	}
-	if len(req.EvidenceRequirements) < 2 ||
+	if len(req.EvidenceRequirements) < 3 ||
 		!strings.Contains(req.EvidenceRequirements[0], "owner_anchor path=pkg/owner.py") ||
-		req.EvidenceRequirements[1] != "regression probe passes" {
-		t.Fatalf("evidence requirements should lead with typed owner anchor then batch criteria: %+v", req.EvidenceRequirements)
+		!strings.Contains(req.EvidenceRequirements[1], "localization_requirement path=pkg/symptom.py") ||
+		req.EvidenceRequirements[2] != "regression probe passes" {
+		t.Fatalf("evidence requirements should lead with typed owner anchor, localization requirement, then batch criteria: %+v", req.EvidenceRequirements)
 	}
 	hint := mu.PlanningHint()
 	ownerIdx := strings.Index(hint, "Typed owner-anchor repair candidates")
+	requirementIdx := strings.Index(hint, "Typed localization requirements")
 	expectedIdx := strings.Index(hint, "Expected paths")
-	if ownerIdx < 0 || expectedIdx < 0 || ownerIdx > expectedIdx {
-		t.Fatalf("planning hint should render typed owner anchors before broad expected paths, got:\n%s", hint)
+	if ownerIdx < 0 || requirementIdx < 0 || expectedIdx < 0 || ownerIdx > requirementIdx || requirementIdx > expectedIdx {
+		t.Fatalf("planning hint should render typed owner anchors and localization requirements before broad expected paths, got:\n%s", hint)
 	}
 }
 

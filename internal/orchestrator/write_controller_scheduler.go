@@ -1231,13 +1231,8 @@ func (o *Orchestrator) localizationCoverageReplanHint(plan *types.ChangePlan) (s
 	if ir != nil && (ir.Request.Risk.ChangesBuildSystem || ir.Request.Task.Kind == types.WriteTaskConfig) {
 		return "", nil
 	}
-	var prior []types.WriteContextPack
-	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
-		prior = append(prior, run.ContextPacks...)
-	}
-	if pack := o.busCtx.Mutable.WriteContextPack(); pack != nil {
-		prior = append(prior, *pack)
-	}
+	prior := o.localizationRequirementPriorContextPacks()
+	requirements := types.LocalizationRequirementsFromWritePlanContext("", "", types.WriteConsumerPlanner, prior, plan, 0)
 	missing := types.WritePlanSourcePathsOutsidePriorContext(prior, plan)
 	if len(missing) == 0 {
 		return "", nil
@@ -1248,6 +1243,12 @@ func (o *Orchestrator) localizationCoverageReplanHint(plan *types.ChangePlan) (s
 	b.WriteString("Source paths missing prior localization evidence:\n")
 	for _, p := range missing {
 		fmt.Fprintf(&b, "- %s\n", p)
+	}
+	if rows := types.LocalizationRequirementEvidenceRows(requirements, 8); len(rows) > 0 {
+		b.WriteString("\nTyped localization requirements:\n")
+		for _, row := range rows {
+			fmt.Fprintf(&b, "- %s\n", row)
+		}
 	}
 	if ir != nil && len(ir.Request.ScopeAnchors) > 0 {
 		b.WriteString("\nCurrent WriteAnalysisIR scope anchors:\n")
@@ -1270,14 +1271,8 @@ func (o *Orchestrator) localizationOwnerDepthReplanHint(plan *types.ChangePlan) 
 	if ir != nil && (ir.Request.Risk.ChangesBuildSystem || ir.Request.Task.Kind == types.WriteTaskConfig) {
 		return "", nil
 	}
-	var prior []types.WriteContextPack
-	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
-		prior = append(prior, run.ContextPacks...)
-	}
-	if pack := o.busCtx.Mutable.WriteContextPack(); pack != nil {
-		prior = append(prior, *pack)
-	}
-	missing := types.WritePlanSourcePathsWithoutOwnerAnchor(prior, plan)
+	requirements := types.LocalizationRequirementsFromWritePlanContext("", "", types.WriteConsumerPlanner, o.localizationRequirementPriorContextPacks(), plan, 0)
+	missing := requirements.MissingOwnerAnchorPaths
 	if len(missing) == 0 {
 		return "", nil
 	}
@@ -1288,6 +1283,12 @@ func (o *Orchestrator) localizationOwnerDepthReplanHint(plan *types.ChangePlan) 
 	for _, p := range missing {
 		fmt.Fprintf(&b, "- %s\n", p)
 	}
+	if rows := types.LocalizationRequirementEvidenceRows(requirements, 8); len(rows) > 0 {
+		b.WriteString("\nTyped localization requirements:\n")
+		for _, row := range rows {
+			fmt.Fprintf(&b, "- %s\n", row)
+		}
+	}
 	if ir != nil && len(ir.Request.ScopeAnchors) > 0 {
 		b.WriteString("\nCurrent WriteAnalysisIR scope anchors:\n")
 		for _, p := range normalizedWorkflowScopeAnchors(ir.Request.ScopeAnchors) {
@@ -1296,6 +1297,20 @@ func (o *Orchestrator) localizationOwnerDepthReplanHint(plan *types.ChangePlan) 
 	}
 	b.WriteString("\nIf the path remains correct, preserve the patch and add exact current-repo read/repomap evidence for the enclosing owner symbol before re-emitting the bounded ChangePlan. If owner evidence points elsewhere, move or split the fix accordingly. This is advisory localization depth, not an apply-risk denial.")
 	return strings.TrimSpace(b.String()), missing
+}
+
+func (o *Orchestrator) localizationRequirementPriorContextPacks() []types.WriteContextPack {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return nil
+	}
+	var prior []types.WriteContextPack
+	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+		prior = append(prior, run.ContextPacks...)
+	}
+	if pack := o.busCtx.Mutable.WriteContextPack(); pack != nil {
+		prior = append(prior, *pack)
+	}
+	return prior
 }
 
 func (o *Orchestrator) offScopeHighRiskReplanHint(plan *types.ChangePlan) (string, []string) {
@@ -3034,6 +3049,14 @@ func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatc
 		}
 		b.WriteString("\n")
 	}
+	requirements := types.LocalizationRequirementsFromCandidatePaths(batch.ExpectedPaths, ownerView, batchIDOrDefault(batch.ID, "batch-1"), "", "controller_preplan", 8)
+	if requirementRows := types.LocalizationRequirementEvidenceRows(requirements, 6); len(requirementRows) > 0 {
+		b.WriteString("Typed localization requirements:\n")
+		for _, row := range requirementRows {
+			fmt.Fprintf(&b, "- %s\n", row)
+		}
+		b.WriteString("\n")
+	}
 	if len(batch.ExpectedPaths) > 0 {
 		b.WriteString("Expected paths:\n")
 		for _, p := range batch.ExpectedPaths {
@@ -3054,7 +3077,9 @@ func (o *Orchestrator) seedControllerBatchExplorationContext(batch writeflow.Wri
 	batch = writeflow.NormalizeBatchPlan(batch)
 	ownerView := o.controllerPlanningOwnerAnchorView(batch, types.WriteConsumerPlanner, 12)
 	candidatePaths := types.OwnerAnchorCandidatePaths(ownerView, batch.ExpectedPaths, 16)
-	evidenceRequirements := append(types.OwnerAnchorEvidenceRequirements(ownerView, 8), batch.SuccessCriteria...)
+	prePlanRequirements := types.LocalizationRequirementsFromCandidatePaths(batch.ExpectedPaths, ownerView, batchIDOrDefault(batch.ID, "batch-1"), "", "controller_preplan", 8)
+	evidenceRequirements := append(types.OwnerAnchorEvidenceRequirements(ownerView, 8), types.LocalizationRequirementEvidenceRows(prePlanRequirements, 8)...)
+	evidenceRequirements = append(evidenceRequirements, batch.SuccessCriteria...)
 	req := types.WriteExplorationRequest{
 		BatchID:              batchIDOrDefault(batch.ID, "batch-1"),
 		Goal:                 batch.Goal,
