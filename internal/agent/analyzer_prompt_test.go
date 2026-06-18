@@ -521,6 +521,27 @@ func TestAnalyzerPrompt_ExistingSuffixlessTracePathTriggersArtifactShortcut(t *t
 	}
 }
 
+func TestAnalyzerPrompt_BareRelativeSuffixlessTracePathTriggersArtifactShortcut(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "capture")
+	body := "app-1 (1) [000] .... 1.000000: sched_switch prev_comm=app prev_pid=1 prev_state=S ==> next_comm=idle next_pid=0\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: "只分析 capture 这个文件里的调度问题",
+		RepoRoot:  dir,
+	}
+	sk := skill.BuildAnalysisSkill()
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
+	if !strings.Contains(got, "Explicit Runtime Artifact Path Classification Shortcut") {
+		t.Fatalf("existing bare relative suffixless trace-like path should trigger artifact shortcut:\n%s", got)
+	}
+}
+
 // TestAnalyzerPrompt_NoDuplicateSkillTitles is a second-layer
 // boundary guard: IF a future refactor legitimately adds dynamic
 // content to BuildInitialInstruction (the rule is "dynamic content only",

@@ -4685,7 +4685,7 @@ func analyzerRuntimeArtifactPathKind(ctx *types.AgentContext, path string) strin
 	if kind := types.RuntimeArtifactPathKind(path); kind != "" {
 		return kind
 	}
-	if !analyzerRuntimeArtifactPathHasLocator(path) {
+	if !analyzerRuntimeArtifactPathHasLocator(path) && !analyzerRuntimeArtifactPathExists(ctx, path) {
 		return ""
 	}
 	return analyzerRuntimeArtifactContentKind(ctx, path)
@@ -4722,9 +4722,18 @@ func analyzerRuntimeArtifactContentKind(ctx *types.AgentContext, path string) st
 	raw := string(buf[:n])
 	lower := strings.ToLower(raw)
 	if strings.HasPrefix(raw, "PERFILE2") ||
+		strings.HasPrefix(raw, "SIMPLEPERF") ||
 		strings.Contains(raw, "perf_sample:") ||
-		strings.Contains(raw, "sched_switch:") ||
+		strings.Contains(raw, "sched_switch") ||
+		strings.Contains(raw, "sched_wakeup") ||
 		strings.Contains(raw, "tracing_mark_write:") ||
+		strings.Contains(raw, "binder_transaction:") ||
+		strings.Contains(raw, "block_rq_issue:") ||
+		strings.Contains(raw, "block_rq_complete:") ||
+		strings.Contains(raw, "android_fs_") ||
+		strings.Contains(raw, "f2fs_") ||
+		strings.Contains(raw, "mm_filemap_") ||
+		strings.Contains(raw, "scsi_") ||
 		strings.Contains(raw, "# tracer:") ||
 		(strings.Contains(lower, `"artifacts"`) && strings.Contains(lower, `"tracebundle"`)) {
 		return "trace"

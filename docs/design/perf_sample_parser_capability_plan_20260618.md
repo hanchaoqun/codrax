@@ -509,3 +509,19 @@ Follow-up eval evidence: `trace_query_path_question_suffixless_trace` and
 `PARALLEL=2`; both passed. The only flags were answer-document contract
 warnings that auto-repaired to zero violations, with no semantic-quality
 concerns and no repo-map/list-files source exploration.
+
+2026-06-18 second continuation audit found the same content-vs-suffix issue in
+the analyzer shortcut/tool-surface path. The analyzer already had a content
+probe, but it only covered a narrow trace subset and required `./` or another
+locator for suffixless paths. The fix extends analyzer content sniffing to
+`SIMPLEPERF`, loose `sched_switch` / `sched_wakeup`, binder, block, Android FS,
+F2FS, filemap, SCSI, perf_sample, and tracebundle tokens, and allows bare
+relative filenames when the file exists and its bounded prefix validates as a
+runtime artifact. Tests now cover both bare suffixless trace paths in analyzer
+classification and suffixless SIMPLEPERF artifacts in `trace_query` tool
+exposure.
+
+Focused eval evidence for this second audit:
+`trace_query_path_question_suffixless_trace` passed with `flagged=0` after the
+analyzer content-sniffing update, with zero repo-map/list-files/source-lens
+activity.

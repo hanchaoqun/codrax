@@ -178,7 +178,7 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 func renderAnalyzerExplicitRuntimeArtifactPathShortcut() string {
 	return "## Explicit Runtime Artifact Path Classification Shortcut\n\n" +
-		"The current request explicitly names one or more runtime artifact paths (for example a concrete .log / .systrace / .hitrace / .atrace / .ftrace / .perfetto / .trace file). " +
+		"The current request explicitly names one or more runtime artifact paths. Use the user's requested operation plus typed path/content signals; common suffixes such as .log / .systrace / .htrace / .atrace / .ftrace / .perfetto / .perftrace / .tracebundle.json / .perf.data / .trace are examples, not the decision rule. " +
 		"Do not run repo pre-scan (`repo_map`, `grep`, or `list_files`) just to classify the artifact path, stack-frame literal, thread label, timestamp, wakeup chain, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
 		"Classify from the user's wording and call `emit_analysis` now; later exploration can read the log artifact or use `trace_query` for deterministic trace evidence. " +
 		"If the current request also asks to compare with, verify against, or explain current source, keep the mixed runtime-artifact plus current-source lane in the emitted model; do not collapse mixed artifact + current-code requests into artifact-only. " +

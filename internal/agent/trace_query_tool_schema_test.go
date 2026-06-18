@@ -57,6 +57,15 @@ func TestTraceQueryToolSchemaLazyRuntimeExposure(t *testing.T) {
 	if hasToolSchema(base.buildToolSchemas(sk, perfDataCodeCtx), "trace_query") {
 		t.Fatal("bare perf.data source-code discussion must not expose trace_query")
 	}
+
+	simpleperfProto := filepath.Join(dir, "simpleperf_proto_without_suffix")
+	if err := os.WriteFile(simpleperfProto, []byte("SIMPLEPERF\x00\x00\x00\x00"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	simpleperfCtx := &types.AgentContext{Stage: types.StageExplore, RepoRoot: dir, Objective: "analyze simpleperf_proto_without_suffix for sampled CPU hotspots"}
+	if !hasToolSchema(base.buildToolSchemas(sk, simpleperfCtx), "trace_query") {
+		t.Fatal("trace_query should be exposed for an explicit existing suffixless SIMPLEPERF artifact path")
+	}
 }
 
 func hasToolSchema(schemas []llm.ToolSchema, name string) bool {
