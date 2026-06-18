@@ -2827,6 +2827,50 @@ RC-52 tasks:
   model turn.
 - [x] Add regression proving pending typed proof follow-up is not swallowed.
 
+## RC-53: Local Acceptance Confidence Boundary
+
+The post-RC-52 aggregate audit over 137 latest SWE-bench result rows showed
+that `local_acceptance_verdict=pass/source=local_verify` could still be emitted
+for `prediction_verdict=predicted_passed_low_confidence`. The concrete
+RC-51 `pydata__xarray-4248` rerun had:
+
+- `verify_status=passed`;
+- `prediction_verdict=predicted_passed_low_confidence`;
+- `prediction_local_confidence=unknown`;
+- `prediction_confidence_downgrade_reason=patch_review_semantic_unverified:...`;
+- `local_acceptance_verdict=pass`.
+
+That muddles the user's requested pass-rate denominator. A local verifier pass
+with typed confidence downgrades is valuable evidence, but it is not the same
+as an authoritative local pass. Otherwise dashboards that combine
+"authoritative local verify passed + typed manual audit passed" overstate
+correctness and hide the reason manual audit is still needed.
+
+Design:
+
+- Official SWE-bench prediction export remains unchanged.
+- `prediction_verdict` and `prediction_local_confidence` remain the primary
+  typed confidence fields.
+- The internal `local_acceptance_verdict` proxy counts `local_verify` pass only
+  when `verify_status=passed` and there is no
+  `prediction_confidence_downgrade_reason`.
+- A typed manual audit `pass` may accept a low-confidence local verify pass,
+  but cannot override failed local verification or hard local audit blockers.
+- Free-form manual notes remain audit-only; no natural-language text drives
+  acceptance.
+
+RC-53 tasks:
+
+- [x] Thread `confidence_downgrade_reason` into
+  `local_acceptance_verdict`.
+- [x] Keep high-confidence local verifier pass unchanged.
+- [x] Add tests that low-confidence verifier passes stay `unknown` without
+  manual audit.
+- [x] Add tests that explicit manual pass can accept low-confidence verifier
+  evidence but still cannot override hard blockers/failed verify.
+- [x] Update SWE-bench README so dashboards do not call missing manual audit
+  rows a manual pass rate.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2887,12 +2931,16 @@ RC-52 tasks:
 | RC-51 | complete | Durable proof criteria and probe-ref binding: controller-owned batch purpose/expected paths/success criteria now persist across append/split/replan/hydration, and authorized proof-follow-up plans deterministically bind criteria `contract_ref=` IDs to exactly one verification probe after validating against typed behavior contracts. Multi-probe and unauthorized plans remain unchanged. Verification: focused controller/type/writeflow regressions, related packages, `go test ./...`, `make test`, `git diff --check`, and SWE local smoke pass. |
 | RC-51 smoke | complete | Single Lite rerun `pydata__xarray-4248` generated a non-empty harness-consumable prediction at `/private/tmp/codrax-swe-rc51-xarray-20260618-110606`; local verify passed and `verify_confidence_reason_codes` was empty. The run did not exercise proof-follow-up because online replan converged directly, but it exposed RC-52: workflow status could remain `in_progress` after a typed passed batch when the final controller dispatch was interrupted. |
 | RC-52 | complete | Dispatch-interrupted terminalization: if every batch already has typed terminal status and finish normalization does not request a follow-up batch, controller cancellation after local verify now completes the run deterministically with `controller_dispatch_interrupted_after_complete`. A cloned normalization preserves proof/impact follow-up red lines. Verification: focused orchestrator regressions pass; full regression evidence is recorded with RC-51 implementation verification. |
+| RC-53 | complete | Local acceptance confidence boundary: SWE-bench adapter no longer counts low-confidence verifier passes as `local_acceptance_verdict=pass/source=local_verify`; only no-downgrade `verify_status=passed` is high-confidence local acceptance, while explicit typed manual pass can accept low-confidence evidence. README now separates high-confidence local verifier pass, low-confidence local verifier pass, typed manual audit, and official score. |
 
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed
   `PatchReviewRecord` says the actual diff has a hard error or unverified
   semantic coverage.
+- SWE local acceptance no longer counts low-confidence local verifier passes as
+  authoritative local verification; they require explicit typed manual pass or
+  remain unknown.
 - Official prediction export remains unchanged and harness-consumable.
 - Runtime hard gates continue to read typed artifacts only.
 - No prompt red-line changes: no keyword routing over user intent or model

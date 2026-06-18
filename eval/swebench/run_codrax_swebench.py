@@ -2495,6 +2495,7 @@ def local_acceptance_verdict(
     *,
     verify_status: str,
     prediction_blocks_local_acceptance: bool,
+    confidence_downgrade_reason: str = "",
     manual_audit_verdict: str = "",
 ) -> tuple[str, str]:
     """Return Codrax's internal acceptance proxy.
@@ -2505,6 +2506,7 @@ def local_acceptance_verdict(
     """
 
     status = str(verify_status or "").strip()
+    downgrade = str(confidence_downgrade_reason or "").strip()
     manual = str(manual_audit_verdict or "").strip().lower()
     if bool(prediction_blocks_local_acceptance):
         return "fail", "local_audit_block"
@@ -2512,7 +2514,7 @@ def local_acceptance_verdict(
         return "fail", "local_verify"
     if manual == "fail":
         return "fail", "manual_audit"
-    if status == "passed":
+    if status == "passed" and not downgrade:
         return "pass", "local_verify"
     if manual == "pass":
         return "pass", "manual_audit"
@@ -3245,6 +3247,7 @@ def process_instance(
         local_verdict, local_source = local_acceptance_verdict(
             verify_status=str(result.get("verify_status") or ""),
             prediction_blocks_local_acceptance=bool(blocks_local_acceptance),
+            confidence_downgrade_reason=confidence_downgrade_reason,
             manual_audit_verdict=str(result.get("manual_audit_verdict") or ""),
         )
         result["local_acceptance_verdict"] = local_verdict

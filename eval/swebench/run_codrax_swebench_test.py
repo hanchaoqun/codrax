@@ -316,6 +316,25 @@ class LocalAcceptanceTests(unittest.TestCase):
 
         self.assertEqual((verdict, source), ("pass", "local_verify"))
 
+    def test_low_confidence_verify_pass_is_not_internal_acceptance(self) -> None:
+        verdict, source = adapter.local_acceptance_verdict(
+            verify_status="passed",
+            prediction_blocks_local_acceptance=False,
+            confidence_downgrade_reason="patch_review_semantic_unverified:behavior_contract_without_verify_coverage",
+        )
+
+        self.assertEqual((verdict, source), ("unknown", ""))
+
+    def test_manual_pass_can_accept_low_confidence_verify_pass(self) -> None:
+        verdict, source = adapter.local_acceptance_verdict(
+            verify_status="passed",
+            prediction_blocks_local_acceptance=False,
+            confidence_downgrade_reason="verification_probe_changed_source_not_context_covered",
+            manual_audit_verdict="pass",
+        )
+
+        self.assertEqual((verdict, source), ("pass", "manual_audit"))
+
     def test_manual_fail_overrides_local_verify_pass(self) -> None:
         verdict, source = adapter.local_acceptance_verdict(
             verify_status="passed",

@@ -180,10 +180,12 @@ codes such as `diagnostic_signal_conditionally_suppressed` and
 block exporting the official SWE-bench prediction.
 Verification telemetry is deliberately split into a normalized typed verdict and
 raw executor telemetry. `verify_passed=true` means
-`verify_status=passed`: Codrax produced an authoritative local verifier pass.
-The raw ChangeReport `passed` bit is preserved separately as
-`verify_report_passed_raw`; it can be true for no-tests/unavailable outcomes and
-must not be used as a functional-correctness pass rate.
+`verify_status=passed`: Codrax produced a typed local verifier pass. Treat it
+as high-confidence local acceptance only when `prediction_local_confidence=high`
+and `prediction_confidence_downgrade_reason` is empty. The raw ChangeReport
+`passed` bit is preserved separately as `verify_report_passed_raw`; it can be
+true for no-tests/unavailable outcomes and must not be used as a
+functional-correctness pass rate.
 For internal reporting only, the adapter can also merge a typed human audit file
 into `results.jsonl`:
 
@@ -198,17 +200,18 @@ Each manual audit row should contain `instance_id` plus `verdict` or
 `manual_audit_verdict` with one of `pass`, `fail`, or `unknown`; optional
 `reason_code`, `source`, and `notes` are copied as audit telemetry. The adapter
 then emits `manual_audit_*` fields and `local_acceptance_verdict/source`.
-`local_acceptance_verdict=pass` means either typed local verification passed or
-local verification was unavailable/unknown and an explicit manual audit passed.
-True failed local verification, local audit blockers, and typed manual audit
-`fail` rows stay `fail`; free-form manual notes never drive logic. This combined
-local acceptance proxy is useful for triage dashboards, but it is still not the
-official SWE-bench score. Only the official harness `resolved/total` result
-should be called pass rate.
+`local_acceptance_verdict=pass` means either typed local verification passed
+with no confidence downgrade, or local verification was unavailable/unknown/low
+confidence and an explicit manual audit passed. True failed local verification,
+local audit blockers, and typed manual audit `fail` rows stay `fail`;
+free-form manual notes never drive logic. This combined local acceptance proxy
+is useful for triage dashboards, but it is still not the official SWE-bench
+score. Only the official harness `resolved/total` result should be called pass
+rate.
 When no `--manual-audit-jsonl` is supplied, `manual_audit_verdict` is empty for
-every row. Dashboards should label that as "typed manual audit recorded pass",
-not as a human-audit pass rate; no manual correctness conclusion exists until
-per-instance typed audit rows are actually recorded.
+every row. Dashboards should label that as "no typed manual audit recorded",
+not as a human-audit pass or fail rate; no manual correctness conclusion exists
+until per-instance typed audit rows are actually recorded.
 By default
 the exported SWE-bench prediction strips repository test/spec path changes and
 records them in `dropped_test_patch_paths`; pass `--include-test-patches` only
@@ -331,8 +334,9 @@ The summary reports `resolved/submitted`, `resolved/completed`, and
 `resolved/total` separately. Use `resolved/submitted` for a selected subset run,
 and reserve `resolved/total` for full-suite official runs where the report's
 `total_instances` denominator matches the intended benchmark scope. Non-empty
-patch rate, local verifier pass, and typed manual audit remain separate
-telemetry and must not be called official SWE-bench pass rate.
+patch rate, high-confidence local verifier pass, low-confidence local verifier
+pass, and typed manual audit remain separate telemetry and must not be called
+official SWE-bench pass rate.
 
 ## Isolation
 
