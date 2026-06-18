@@ -346,6 +346,16 @@ eval/results/swebench/.venv/bin/python eval/swebench/summarize_codrax_results.py
   --output-json eval/results/swebench/custom-run/codrax-summary.json
 ```
 
+For a directory of historical smoke runs, pass a glob and explicitly choose the
+duplicate-instance policy:
+
+```bash
+eval/results/swebench/.venv/bin/python eval/swebench/summarize_codrax_results.py \
+  --results-glob 'eval/results/swebench/**/results.jsonl' \
+  --dedupe latest-by-file-mtime \
+  --output-json eval/results/swebench/codrax-latest-summary.json
+```
+
 This local summary reports non-empty patch rate, high-confidence local verifier
 pass, low-confidence verifier pass, typed manual audit pass/fail/unknown, local
 audit blockers, local-verify confidence mismatches from older result rows, and

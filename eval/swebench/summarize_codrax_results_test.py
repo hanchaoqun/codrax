@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -100,8 +101,12 @@ class CodraxResultsSummaryTests(unittest.TestCase):
         self.assertEqual(summary["top_confidence_downgrade_reasons"][0]["value"], "<empty>")
 
     def test_reports_missing_core_fields_for_old_schema_rows(self) -> None:
-        rows = [
-            {"instance_id": "repo__old-1", "status": "predicted"},
+        rows = [{
+            "instance_id": "repo__old-1",
+            "status": "predicted",
+            "__source_path": "/tmp/results-old.jsonl",
+            "__source_line": 3,
+        },
             {"instance_id": "repo__new-1", **{field: "" for field in summary_mod.CORE_FIELDS if field != "instance_id"}},
         ]
 
@@ -110,7 +115,44 @@ class CodraxResultsSummaryTests(unittest.TestCase):
         self.assertEqual(summary["core_field_presence"]["prediction_verdict"], 1)
         self.assertEqual(len(summary["rows_missing_core_fields"]), 1)
         self.assertEqual(summary["rows_missing_core_fields"][0]["instance_id"], "repo__old-1")
+        self.assertEqual(summary["rows_missing_core_fields"][0]["source_path"], "/tmp/results-old.jsonl")
+        self.assertEqual(summary["rows_missing_core_fields"][0]["source_line"], 3)
         self.assertIn("prediction_verdict", summary["rows_missing_core_fields"][0]["missing_fields"])
+
+    def test_dedupe_latest_by_instance_uses_file_mtime(self) -> None:
+        rows = [
+            {
+                "instance_id": "repo__dup-1",
+                "prediction_local_confidence": "high",
+                "prediction_confidence_downgrade_reason": "",
+                "local_acceptance_verdict": "pass",
+                "local_acceptance_source": "local_verify",
+                "__source_mtime": 10.0,
+                "__source_index": 0,
+                "__source_line": 1,
+            },
+            {
+                "instance_id": "repo__dup-1",
+                "prediction_local_confidence": "unknown",
+                "prediction_confidence_downgrade_reason": "verification_probe_import_error",
+                "local_acceptance_verdict": "unknown",
+                "local_acceptance_source": "",
+                "__source_mtime": 20.0,
+                "__source_index": 1,
+                "__source_line": 1,
+            },
+            {
+                "instance_id": "repo__solo-1",
+                "__source_mtime": 15.0,
+                "__source_index": 0,
+                "__source_line": 2,
+            },
+        ]
+
+        got = summary_mod.dedupe_latest_by_instance(rows)
+
+        self.assertEqual([row["instance_id"] for row in got], ["repo__dup-1", "repo__solo-1"])
+        self.assertEqual(got[0]["prediction_local_confidence"], "unknown")
 
     def test_cli_writes_json_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -157,7 +199,78 @@ class CodraxResultsSummaryTests(unittest.TestCase):
             self.assertIn("codrax_results rows=1", proc.stdout)
             saved = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(saved["high_confidence_local_verify_pass_instances"], 1)
-            self.assertEqual(saved["results_path"], str(results))
+            self.assertEqual(saved["results_path"], str(results.resolve()))
+
+    def test_cli_accepts_multiple_files_and_dedupes_latest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = root / "old.results.jsonl"
+            new = root / "new.results.jsonl"
+            old.write_text(
+                json.dumps({
+                    "instance_id": "repo__dup-1",
+                    "status": "predicted",
+                    "patch_bytes": 10,
+                    "prediction_verdict": "predicted_passed",
+                    "prediction_local_confidence": "high",
+                    "prediction_blocks_local_acceptance": False,
+                    "prediction_confidence_downgrade_reason": "",
+                    "prediction_audit_block_reason": "",
+                    "verify_status": "passed",
+                    "workflow_status": "complete",
+                    "local_acceptance_verdict": "pass",
+                    "local_acceptance_source": "local_verify",
+                    "manual_audit_verdict": "",
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+            new.write_text(
+                json.dumps({
+                    "instance_id": "repo__dup-1",
+                    "status": "predicted",
+                    "patch_bytes": 12,
+                    "prediction_verdict": "predicted_passed_low_confidence",
+                    "prediction_local_confidence": "unknown",
+                    "prediction_blocks_local_acceptance": False,
+                    "prediction_confidence_downgrade_reason": "verification_probe_import_error",
+                    "prediction_audit_block_reason": "",
+                    "verify_status": "passed",
+                    "workflow_status": "complete",
+                    "local_acceptance_verdict": "unknown",
+                    "local_acceptance_source": "",
+                    "manual_audit_verdict": "",
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+            os.utime(old, (10, 10))
+            os.utime(new, (20, 20))
+
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--results-jsonl",
+                    str(old),
+                    "--results-jsonl",
+                    str(new),
+                    "--dedupe",
+                    "latest-by-file-mtime",
+                    "--json-only",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+
+            saved = json.loads(proc.stdout)
+            self.assertEqual(saved["input_row_count"], 2)
+            self.assertEqual(saved["row_count"], 1)
+            self.assertEqual(saved["dedupe_mode"], "latest-by-file-mtime")
+            self.assertEqual(saved["high_confidence_local_verify_pass_instances"], 0)
+            self.assertEqual(saved["low_confidence_verify_pass_instances"], 1)
 
 
 if __name__ == "__main__":

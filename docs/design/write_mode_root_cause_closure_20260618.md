@@ -2915,6 +2915,31 @@ RC-54 tasks:
 - [x] Update SWE-bench README with the local summary command and denominator
   warnings.
 
+## RC-55: Multi-Run Codrax Result Summary
+
+RC-54 covers one `results.jsonl`, but the user's 137-instance question spans
+many historical smoke directories. Without first-class multi-file support,
+engineers still need ad hoc scripts to choose the latest row per instance and
+will keep mixing old and new schema rows.
+
+Design:
+
+- Allow `summarize_codrax_results.py` to read multiple `--results-jsonl` files
+  and/or `--results-glob` patterns.
+- Preserve source path, line, and file mtime as audit metadata for each row.
+- Add explicit `--dedupe latest-by-file-mtime` for "latest per instance"
+  summaries. This is an audit/reporting choice, not a hidden default.
+- Keep `--dedupe none` as the default so raw run summaries remain literal.
+- Surface `input_row_count`, `input_results_paths`, `dedupe_mode`, duplicate
+  IDs, and source locations for rows missing current core fields.
+
+RC-55 tasks:
+
+- [x] Add multi-file/glob loading.
+- [x] Add latest-by-file-mtime instance de-duplication.
+- [x] Add tests for dedupe selection and CLI multi-file summary.
+- [x] Update SWE-bench README with the multi-run command.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2977,6 +3002,7 @@ RC-54 tasks:
 | RC-52 | complete | Dispatch-interrupted terminalization: if every batch already has typed terminal status and finish normalization does not request a follow-up batch, controller cancellation after local verify now completes the run deterministically with `controller_dispatch_interrupted_after_complete`. A cloned normalization preserves proof/impact follow-up red lines. Verification: focused orchestrator regressions pass; full regression evidence is recorded with RC-51 implementation verification. |
 | RC-53 | complete | Local acceptance confidence boundary: SWE-bench adapter no longer counts low-confidence verifier passes as `local_acceptance_verdict=pass/source=local_verify`; only no-downgrade `verify_status=passed` is high-confidence local acceptance, while explicit typed manual pass can accept low-confidence evidence. README now separates high-confidence local verifier pass, low-confidence local verifier pass, typed manual audit, and official score. |
 | RC-54 | complete | Codrax results summary denominator guard: added dependency-free `summarize_codrax_results.py` so local SWE-bench dashboards can report non-empty patch, high-confidence local verifier pass, low-confidence verifier pass, typed manual audit, local blockers, local-verify confidence mismatches from older rows, and missing current core fields separately from official harness `resolved/*`. |
+| RC-55 | complete | Multi-run Codrax result summary: `summarize_codrax_results.py` now accepts multiple result files or globs, can explicitly dedupe to the latest row per `instance_id` by file mtime, and reports input row count/path/source-line metadata so 137-instance summaries no longer require ad hoc scripts. |
 
 ## Acceptance Criteria
 
