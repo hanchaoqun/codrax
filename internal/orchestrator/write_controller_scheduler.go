@@ -3049,6 +3049,7 @@ func (o *Orchestrator) persistWriteFinalReportIfTerminal(run *types.WriteWorkflo
 		Plan:           plan,
 		Report:         report,
 		ProofArtifacts: o.writeFinalReportProofArtifacts(run, plan, report),
+		Delivery:       o.writeFinalReportDeliverySummary(run, plan, report),
 		PlanPath:       planPath,
 		ReportPath:     reportPath,
 		WorkflowPath:   workflowPath,
@@ -3059,6 +3060,264 @@ func (o *Orchestrator) persistWriteFinalReportIfTerminal(run *types.WriteWorkflo
 		return
 	}
 	logging.Info("[orchestrator] WriteFinalReport saved: %s", finalPath)
+}
+
+func (o *Orchestrator) writeFinalReportDeliverySummary(run *types.WriteWorkflowRun, finalPlan *types.ChangePlan, report *types.ChangeReport) types.WriteFinalDeliverySummary {
+	out := types.WriteFinalDeliverySummary{}
+	if run == nil && finalPlan == nil {
+		return out
+	}
+	if finalPlan != nil {
+		out.FinalPlanID = strings.TrimSpace(finalPlan.ID)
+		finalSources, finalTests := writeFinalReportPlanPathRoles(finalPlan)
+		out.FinalPlanTestOnly = len(writeFinalReportPlanChangePaths(finalPlan)) > 0 && len(finalSources) == 0
+		out.FinalPlanValidationOnly = len(writeFinalReportPlanChangePaths(finalPlan)) == 0 && len(finalPlan.VerificationProbes) > 0
+		if len(finalSources) > 0 {
+			out.SourcePaths = append(out.SourcePaths, finalSources...)
+		}
+		if len(finalTests) > 0 {
+			out.TestPaths = append(out.TestPaths, finalTests...)
+		}
+	}
+	if report != nil {
+		out.ReportPlanID = strings.TrimSpace(report.PlanID)
+	}
+
+	restoredByBatch := writeFinalReportRestoredPlanIDsByBatch(run)
+	restoredSourceOwner := false
+	for _, planID := range o.writeFinalReportAppliedPlanIDs(run) {
+		plan := finalPlan
+		if plan == nil || strings.TrimSpace(plan.ID) != planID {
+			if loaded, err := o.loadWriteFinalReportChangePlan(planID); err == nil && loaded != nil {
+				plan = loaded
+			} else {
+				plan = nil
+			}
+		}
+		if plan == nil {
+			continue
+		}
+		sources, tests := writeFinalReportPlanPathRoles(plan)
+		if len(tests) > 0 {
+			out.TestPaths = append(out.TestPaths, tests...)
+		}
+		if len(sources) == 0 {
+			continue
+		}
+		out.SourceOwnerPlanIDs = append(out.SourceOwnerPlanIDs, planID)
+		if out.PrimarySourcePlanID == "" {
+			out.PrimarySourcePlanID = planID
+		}
+		out.SourcePaths = append(out.SourcePaths, sources...)
+		if writeFinalReportPlanIDInRestoredBatches(planID, restoredByBatch) {
+			restoredSourceOwner = true
+		}
+	}
+	if len(out.SourceOwnerPlanIDs) == 0 && finalPlan != nil {
+		finalSources, _ := writeFinalReportPlanPathRoles(finalPlan)
+		if len(finalSources) > 0 {
+			out.SourceOwnerPlanIDs = append(out.SourceOwnerPlanIDs, strings.TrimSpace(finalPlan.ID))
+			out.PrimarySourcePlanID = strings.TrimSpace(finalPlan.ID)
+			out.SourcePaths = append(out.SourcePaths, finalSources...)
+		}
+	}
+	if len(out.SourceOwnerPlanIDs) > 0 {
+		out.Status = "coherent"
+		out.Relation = "source_plan_owns_final_delivery"
+		if out.FinalPlanTestOnly && out.FinalPlanID != "" && !writeFinalReportStringSliceContains(out.SourceOwnerPlanIDs, out.FinalPlanID) {
+			if restoredSourceOwner {
+				out.Relation = "source_plan_with_later_same_batch_test_replan"
+			} else {
+				out.Relation = "source_plan_with_later_test_followup"
+			}
+		} else if out.FinalPlanValidationOnly && out.FinalPlanID != "" && !writeFinalReportStringSliceContains(out.SourceOwnerPlanIDs, out.FinalPlanID) {
+			out.Relation = "source_plan_with_later_validation_followup"
+		}
+	} else if out.FinalPlanTestOnly || out.FinalPlanValidationOnly {
+		out.Status = "empty"
+		out.ReasonCode = "delivery_no_source_owner_plan"
+	} else if out.FinalPlanID != "" {
+		out.Status = "empty"
+		out.ReasonCode = "delivery_no_source_patch"
+	}
+	return types.NormalizeWriteFinalDeliverySummary(out)
+}
+
+func (o *Orchestrator) writeFinalReportAppliedPlanIDs(run *types.WriteWorkflowRun) []string {
+	if run == nil {
+		return nil
+	}
+	restoreCutoffs := writeFinalReportRestoreCutoffsByBatch(run)
+	restoredByBatch := writeFinalReportRestoredPlanIDsByBatch(run)
+	seen := map[string]bool{}
+	var out []string
+	for _, batch := range run.Batches {
+		batchID := strings.TrimSpace(batch.ID)
+		cutoff := restoreCutoffs[batchID]
+		restored := restoredByBatch[batchID]
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) != "apply" || strings.TrimSpace(attempt.Status) != "applied" {
+				continue
+			}
+			planID := strings.TrimSpace(attempt.PlanID)
+			if planID == "" {
+				continue
+			}
+			if !cutoff.IsZero() && !restored[planID] {
+				at := writeFinalReportAttemptTime(attempt)
+				if at.IsZero() || at.Before(cutoff) {
+					continue
+				}
+			}
+			if seen[planID] {
+				continue
+			}
+			seen[planID] = true
+			out = append(out, planID)
+		}
+	}
+	return out
+}
+
+func writeFinalReportRestoreCutoffsByBatch(run *types.WriteWorkflowRun) map[string]time.Time {
+	out := map[string]time.Time{}
+	if run == nil {
+		return out
+	}
+	for _, item := range run.ProgressLedger {
+		if strings.TrimSpace(item.ReasonCode) != "checkpoint_restored_before_replan" {
+			continue
+		}
+		batchID := strings.TrimSpace(item.BatchID)
+		if batchID == "" || item.At.IsZero() {
+			continue
+		}
+		if out[batchID].IsZero() || item.At.After(out[batchID]) {
+			out[batchID] = item.At
+		}
+	}
+	return out
+}
+
+func writeFinalReportRestoredPlanIDsByBatch(run *types.WriteWorkflowRun) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	latest := map[string]time.Time{}
+	if run == nil {
+		return out
+	}
+	for _, batch := range run.Batches {
+		batchID := strings.TrimSpace(batch.ID)
+		if batchID == "" {
+			continue
+		}
+		for _, event := range batch.SliceEvents {
+			if event.Event != types.WriteWorkflowSliceEventRestored {
+				continue
+			}
+			planID := strings.TrimSpace(event.PlanID)
+			if planID == "" {
+				planID = strings.TrimPrefix(strings.TrimSpace(event.ArtifactRef), "refs/codrax/applied/")
+			}
+			planID = strings.TrimSpace(planID)
+			if planID == "" {
+				continue
+			}
+			if latest[batchID].IsZero() || event.At.After(latest[batchID]) {
+				latest[batchID] = event.At
+				out[batchID] = map[string]bool{planID: true}
+			} else if event.At.Equal(latest[batchID]) {
+				if out[batchID] == nil {
+					out[batchID] = map[string]bool{}
+				}
+				out[batchID][planID] = true
+			}
+		}
+	}
+	return out
+}
+
+func writeFinalReportPlanIDInRestoredBatches(planID string, restored map[string]map[string]bool) bool {
+	planID = strings.TrimSpace(planID)
+	if planID == "" {
+		return false
+	}
+	for _, ids := range restored {
+		if ids[planID] {
+			return true
+		}
+	}
+	return false
+}
+
+func writeFinalReportAttemptTime(attempt types.WriteWorkflowAttempt) time.Time {
+	if !attempt.FinishedAt.IsZero() {
+		return attempt.FinishedAt
+	}
+	return attempt.StartedAt
+}
+
+func writeFinalReportPlanPathRoles(plan *types.ChangePlan) ([]string, []string) {
+	var sources, tests []string
+	for _, path := range writeFinalReportPlanChangePaths(plan) {
+		if types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+			tests = append(tests, path)
+		} else {
+			sources = append(sources, path)
+		}
+	}
+	return writeFinalReportDedupStrings(sources), writeFinalReportDedupStrings(tests)
+}
+
+func writeFinalReportPlanChangePaths(plan *types.ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	var out []string
+	add := func(raw string) {
+		p := normalizeControllerPath(raw)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	for _, p := range plan.TargetPaths {
+		add(p)
+	}
+	for _, p := range plan.AppliedPaths {
+		add(p)
+	}
+	for _, change := range plan.Changes {
+		add(change.Path)
+		add(change.NewPath)
+	}
+	return writeFinalReportDedupStrings(out)
+}
+
+func writeFinalReportStringSliceContains(items []string, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func writeFinalReportDedupStrings(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, raw := range in {
+		item := strings.TrimSpace(raw)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (o *Orchestrator) writeFinalReportProofArtifacts(run *types.WriteWorkflowRun, primaryPlan *types.ChangePlan, primaryReport *types.ChangeReport) []types.VerificationProofArtifact {

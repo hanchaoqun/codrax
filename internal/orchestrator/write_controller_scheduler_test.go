@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -481,6 +482,91 @@ func TestPersistWriteWorkflowRunTerminalWritesFinalReport(t *testing.T) {
 	}
 }
 
+func TestPersistWriteWorkflowRunFinalReportPreservesRestoredSourceOwnerForTestOnlyReplan(t *testing.T) {
+	tmp := t.TempDir()
+	planDir := filepath.Join(tmp, "plans")
+	sourcePlan := &types.ChangePlan{
+		ID:           "plan-source",
+		Status:       types.PlanStatusVerifyFailed,
+		TargetPaths:  []string{"pkg/fix.py", "tests/test_fix.py"},
+		AppliedPaths: []string{"pkg/fix.py", "tests/test_fix.py"},
+		Changes: []types.FileChange{
+			{Path: "pkg/fix.py", Kind: "patch"},
+			{Path: "tests/test_fix.py", Kind: "patch"},
+		},
+	}
+	testPlan := &types.ChangePlan{
+		ID:           "plan-test",
+		Status:       types.PlanStatusApplied,
+		TargetPaths:  []string{"tests/test_fix.py"},
+		AppliedPaths: []string{"tests/test_fix.py"},
+		Changes: []types.FileChange{
+			{Path: "tests/test_fix.py", Kind: "patch"},
+		},
+	}
+	if err := types.WritePlanToFile(sourcePlan, filepath.Join(planDir, "plan-source.json")); err != nil {
+		t.Fatalf("WritePlanToFile(source): %v", err)
+	}
+	report := &types.ChangeReport{
+		PlanID:             "plan-test",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+	}
+	mu := types.NewMutableState("terminal restored source owner")
+	mu.SetChangePlan(testPlan)
+	mu.SetChangeReport(report)
+	baseTime := time.Date(2026, 6, 19, 3, 0, 0, 0, time.FixedZone("CST", 8*60*60))
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-restored-source-owner",
+		Status:        types.WriteWorkflowRunComplete,
+		ActiveBatchID: "batch-1",
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "checkpoint_restored_before_replan",
+			At:         baseTime.Add(53 * time.Second),
+		}},
+		Batches: []types.WriteWorkflowBatch{{
+			ID:        "batch-1",
+			Status:    types.WriteWorkflowBatchComplete,
+			PlanID:    "plan-test",
+			VerifyRef: "plan-test.report.json",
+			SliceEvents: []types.WriteWorkflowSliceEvent{{
+				Event:       types.WriteWorkflowSliceEventRestored,
+				PlanID:      "plan-source",
+				ArtifactRef: "refs/codrax/applied/plan-source",
+				At:          baseTime.Add(53 * time.Second),
+			}},
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-source", FinishedAt: baseTime.Add(5 * time.Second)},
+				{Kind: "verify", Status: "failed", PlanID: "plan-source", FinishedAt: baseTime.Add(39 * time.Second)},
+				{Kind: "apply", Status: "applied", PlanID: "plan-test", FinishedAt: baseTime.Add(106 * time.Second)},
+				{Kind: "verify", Status: "passed", PlanID: "plan-test", ReportID: "plan-test.report.json", FinishedAt: baseTime.Add(122 * time.Second)},
+			},
+		}},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: tmp, Mode: types.ModeApply}}
+
+	o.persistWriteWorkflowRun(run)
+
+	finalPath := filepath.Join(planDir, "plan-test.final.json")
+	final, err := types.LoadWriteFinalReportFromFile(finalPath)
+	if err != nil {
+		t.Fatalf("LoadWriteFinalReportFromFile(%s): %v", finalPath, err)
+	}
+	if final.Plan.ID != "plan-test" || !final.Delivery.FinalPlanTestOnly {
+		t.Fatalf("final plan summary should remain test-only terminal plan, got plan=%+v delivery=%+v", final.Plan, final.Delivery)
+	}
+	if final.Delivery.Status != "coherent" ||
+		final.Delivery.Relation != "source_plan_with_later_same_batch_test_replan" ||
+		final.Delivery.PrimarySourcePlanID != "plan-source" {
+		t.Fatalf("delivery relation not preserved: %+v", final.Delivery)
+	}
+	if !writeControllerFinalStringSliceContains(final.Delivery.SourceOwnerPlanIDs, "plan-source") ||
+		!writeControllerFinalStringSliceContains(final.Delivery.SourcePaths, "pkg/fix.py") {
+		t.Fatalf("delivery source owner/path missing: %+v", final.Delivery)
+	}
+}
+
 func TestPersistWriteWorkflowRunTerminalAggregatesCompletedBatchProofReports(t *testing.T) {
 	tmp := t.TempDir()
 	mu := types.NewMutableState("terminal cumulative proof")
@@ -582,6 +668,15 @@ func TestPersistWriteWorkflowRunTerminalAggregatesCompletedBatchProofReports(t *
 func writeControllerFinalProofHasReason(profile types.VerificationProofProfile, code string) bool {
 	for _, reason := range profile.ReasonCodes {
 		if reason == code {
+			return true
+		}
+	}
+	return false
+}
+
+func writeControllerFinalStringSliceContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
 			return true
 		}
 	}

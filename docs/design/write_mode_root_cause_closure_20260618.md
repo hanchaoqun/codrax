@@ -4320,7 +4320,7 @@ Verification:
 | RC-103 | complete | Verify-failure repair read affordance: split typed failed-verify repair planning from initial handoff synthesis so a bounded read/search window remains available after build/test failure evidence, without reopening ordinary exec or broad exploration. Focused planner tests, related write/read packages, full `go test ./...`, `make`, and `git diff --check` pass. |
 | RC-104 | complete | Shared localization owner/evidence anchor closure: preserve prior owner/supporting/scope anchors through write plan localization review and downstream context packs, so later controller/planner/verifier consumers see typed anchor evidence instead of only path sets. Focused types tests, related write/read consumers, full `go test ./...`, `make`, and `git diff --check` pass. |
 | RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
-| RC-106 | queued | Same-batch source-owner relation after test-only replan: preserve/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code. |
+| RC-106 | complete | Same-batch source-owner relation after test-only replan: restore-aware delivery lineage now preserves/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code, while still excluding stale pre-restore plans when no precise restored checkpoint relation exists. Focused Go and SWE adapter regressions pass. |
 | RC-107 | queued | Shared typed localization owner/evidence scheduling authority: promote read/write owner anchors into exploration, extraction, planner/replan scheduling, and final report projection so wrong source-surface patches are avoided earlier. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
@@ -6268,7 +6268,7 @@ Verification:
   - `make`
   - `git diff --check`
 
-## 2026-06-19 RC-106 Queued Same-batch Source-owner Relation After Test-only Replan
+## 2026-06-19 RC-106 Same-batch Source-owner Relation After Test-only Replan
 
 - Evidence:
   - In the same RC104 smoke, `astropy__astropy-14365` reached workflow
@@ -6290,16 +6290,54 @@ Verification:
     model prose, final summaries, issue text, or logs.
   - If restore events prove the earlier source patch was rolled back, exclude it
     as RC-84 already requires.
+  - Distinguish two restore meanings through typed slice events:
+    progress-ledger restore cutoffs without precise restored plan metadata still
+    exclude older attempts, while `slice_restored` events that point to
+    `plan_id` or `refs/codrax/applied/<plan_id>` retain that restored plan in
+    the active delivery lineage.
+  - Final reports now include a typed `delivery` summary so normal write-mode
+    users and auditors can see the source-owner plan relation even when the
+    terminal plan is test-only.
 - Task list:
-  - [ ] Audit delivery candidate construction in core final report and
+  - [x] Audit delivery candidate construction in core final report and
     `eval/swebench/run_codrax_swebench.py`.
-  - [ ] Add a typed delivery relation such as
+  - [x] Add a typed delivery relation such as
     `source_plan_with_later_same_batch_test_replan`.
-  - [ ] Preserve source-owner plan export when terminal verification is
+  - [x] Preserve source-owner plan export when terminal verification is
     test-only but proves the coherent source patch.
-  - [ ] Add adapter/core regressions for source+test initial plan, failed
+  - [x] Add adapter/core regressions for source+test initial plan, failed
     assertion, restore, test-only repair, passed verify, non-empty export.
-  - [ ] Run focused, related, full regressions and a fresh Lite smoke.
+  - [x] Run focused, related, full regressions and commit/push this batch.
+  - [ ] Run a fresh Lite smoke after the RC-106 code batch is on `main`.
+- Implementation:
+  - `eval/swebench/run_codrax_swebench.py` now keeps restored source-owner plan
+    ids in `workflow_applied_plan_ids()` when typed `slice_restored` events
+    prove that the checkpoint was restored into the active lineage.
+  - `BuildWriteFinalReport` now carries `delivery`, a typed summary containing
+    final/report/source-owner plan ids, source/test paths, relation, and
+    test-only/validation-only terminal semantics.
+  - `persistWriteFinalReportIfTerminal` computes that delivery summary from
+    durable workflow attempts, restored slice events, and durable `ChangePlan`
+    artifacts.
+- Verification so far:
+  - `eval/results/swebench/.venv/bin/python
+    eval/swebench/run_codrax_swebench_test.py`
+  - `go test ./internal/orchestrator -run
+    'TestPersistWriteWorkflowRunTerminalWritesFinalReport|TestPersistWriteWorkflowRunFinalReportPreservesRestoredSourceOwnerForTestOnlyReplan|TestPersistWriteWorkflowRunTerminalAggregatesCompletedBatchProofReports'
+    -count=1`
+  - `go test ./internal/types -run
+    'TestBuildWriteFinalReport|TestWriteOutputKindIncludesFinalReport'
+    -count=1`
+  - `go test ./internal/orchestrator ./internal/types ./internal/writeflow
+    ./internal/worktree -count=1`
+  - `go test ./...`
+  - `make`
+  - `git diff --check`
+  - Offline recompute of
+    `eval/results/swebench/lite-smoke-20260619-024215/instances/astropy__astropy-14365`
+    now selects `plan-1781809191030045000-69938` as source-owner export,
+    exports `astropy/io/ascii/qdp.py`, and reports relation
+    `source_plan_with_later_same_batch_test_replan`.
 
 ## 2026-06-19 RC-107 Queued Shared Typed Localization Owner/evidence Scheduling Authority
 

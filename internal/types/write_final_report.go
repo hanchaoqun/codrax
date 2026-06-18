@@ -32,6 +32,7 @@ type WriteFinalReport struct {
 	Patch         WriteFinalPatchSummary        `json:"patch,omitempty"`
 	Verification  WriteFinalVerificationSummary `json:"verification,omitempty"`
 	Proof         VerificationProofProfile      `json:"proof,omitempty"`
+	Delivery      WriteFinalDeliverySummary     `json:"delivery,omitempty"`
 	PatchReview   WriteFinalPatchReviewSummary  `json:"patch_review,omitempty"`
 	Impact        WriteFinalImpactSummary       `json:"impact,omitempty"`
 	Handoff       WriteFinalHandoffSummary      `json:"handoff,omitempty"`
@@ -97,6 +98,20 @@ type WriteFinalVerificationSummary struct {
 	NoTestsRunners        []string           `json:"no_tests_runners,omitempty"`
 }
 
+type WriteFinalDeliverySummary struct {
+	Status                  string   `json:"status,omitempty"`
+	Relation                string   `json:"relation,omitempty"`
+	ReasonCode              string   `json:"reason_code,omitempty"`
+	FinalPlanID             string   `json:"final_plan_id,omitempty"`
+	ReportPlanID            string   `json:"report_plan_id,omitempty"`
+	PrimarySourcePlanID     string   `json:"primary_source_plan_id,omitempty"`
+	SourceOwnerPlanIDs      []string `json:"source_owner_plan_ids,omitempty"`
+	SourcePaths             []string `json:"source_paths,omitempty"`
+	TestPaths               []string `json:"test_paths,omitempty"`
+	FinalPlanTestOnly       bool     `json:"final_plan_test_only,omitempty"`
+	FinalPlanValidationOnly bool     `json:"final_plan_validation_only,omitempty"`
+}
+
 type WriteFinalPatchReviewSummary struct {
 	Status          string                     `json:"status,omitempty"`
 	Verdict         PatchReviewCoverageVerdict `json:"verdict,omitempty"`
@@ -141,6 +156,7 @@ type WriteFinalReportInput struct {
 	Plan           *ChangePlan
 	Report         *ChangeReport
 	ProofArtifacts []VerificationProofArtifact
+	Delivery       WriteFinalDeliverySummary
 	PlanPath       string
 	ReportPath     string
 	WorkflowPath   string
@@ -185,6 +201,7 @@ func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
 		out.Verification = writeFinalVerificationSummary(input.Report)
 	}
 	out.Proof = BuildCumulativeVerificationProofProfile(input.Plan, input.Report, input.ProofArtifacts)
+	out.Delivery = NormalizeWriteFinalDeliverySummary(input.Delivery)
 	out.ResidualRisks = writeFinalResidualRisks(out)
 	return NormalizeWriteFinalReport(out)
 }
@@ -214,6 +231,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Verification.ConfidenceReasonCodes = dedupTrimWriteWorkflowRunStrings(in.Verification.ConfidenceReasonCodes)
 	in.Verification.NoTestsRunners = dedupTrimWriteWorkflowRunStrings(in.Verification.NoTestsRunners)
 	in.Proof = NormalizeVerificationProofProfile(in.Proof)
+	in.Delivery = NormalizeWriteFinalDeliverySummary(in.Delivery)
 	in.PatchReview.ReasonCodes = dedupTrimWriteWorkflowRunStrings(in.PatchReview.ReasonCodes)
 	in.PatchReview.UnverifiedKinds = dedupTrimWriteWorkflowRunStrings(in.PatchReview.UnverifiedKinds)
 	in.Impact.UncoveredTargets = writeFinalBoundedImpactTargets(in.Impact.UncoveredTargets, 12)
@@ -259,6 +277,19 @@ func WriteFinalReportToFile(report *WriteFinalReport, path string) error {
 		return fmt.Errorf("WriteFinalReportToFile: rename %s -> %s: %w", tmp, path, err)
 	}
 	return nil
+}
+
+func NormalizeWriteFinalDeliverySummary(in WriteFinalDeliverySummary) WriteFinalDeliverySummary {
+	in.Status = strings.TrimSpace(in.Status)
+	in.Relation = strings.TrimSpace(in.Relation)
+	in.ReasonCode = strings.TrimSpace(in.ReasonCode)
+	in.FinalPlanID = strings.TrimSpace(in.FinalPlanID)
+	in.ReportPlanID = strings.TrimSpace(in.ReportPlanID)
+	in.PrimarySourcePlanID = strings.TrimSpace(in.PrimarySourcePlanID)
+	in.SourceOwnerPlanIDs = dedupTrimWriteWorkflowRunStrings(in.SourceOwnerPlanIDs)
+	in.SourcePaths = dedupTrimWriteWorkflowRunStrings(in.SourcePaths)
+	in.TestPaths = dedupTrimWriteWorkflowRunStrings(in.TestPaths)
+	return in
 }
 
 func writeFinalBatchSummaries(run WriteWorkflowRun) []WriteFinalBatchSummary {

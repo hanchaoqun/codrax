@@ -1002,6 +1002,94 @@ class WorkflowAppliedProvenanceTests(unittest.TestCase):
         self.assertEqual(summary["block_reason"], "")
         self.assertFalse(summary["hard_block"])
 
+    def test_restore_event_preserves_restored_source_plan_before_test_only_replan(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = Path(raw) / "repo"
+            inst = Path(raw) / "inst"
+            plans = repo / ".codrax" / "plans"
+            plans.mkdir(parents=True)
+            inst.mkdir()
+            source_plan = {
+                "id": "plan-source",
+                "changes": [
+                    {"path": "pkg/fix.py", "kind": "patch"},
+                    {"path": "tests/test_fix.py", "kind": "patch"},
+                ],
+                "patch_review": {"status": "passed", "findings": []},
+            }
+            test_plan = {
+                "id": "plan-test",
+                "changes": [{"path": "tests/test_fix.py", "kind": "patch"}],
+            }
+            (plans / "plan-source.json").write_text(json.dumps(source_plan), encoding="utf-8")
+            (plans / "plan-test.json").write_text(json.dumps(test_plan), encoding="utf-8")
+            (plans / "plan-test.report.json").write_text(
+                json.dumps({"verification_status": "passed", "passed": True}),
+                encoding="utf-8",
+            )
+            workflow = {
+                "progress_ledger": [{
+                    "batch_id": "batch-1",
+                    "reason_code": "checkpoint_restored_before_replan",
+                    "at": "2026-06-19T03:00:53+08:00",
+                }],
+                "batches": [{
+                    "id": "batch-1",
+                    "slice_events": [{
+                        "event": "slice_restored",
+                        "plan_id": "plan-source",
+                        "artifact_ref": "refs/codrax/applied/plan-source",
+                        "at": "2026-06-19T03:00:53+08:00",
+                    }],
+                    "attempts": [
+                        {
+                            "kind": "apply",
+                            "status": "applied",
+                            "plan_id": "plan-source",
+                            "finished_at": "2026-06-19T03:00:05+08:00",
+                        },
+                        {
+                            "kind": "verify",
+                            "status": "failed",
+                            "plan_id": "plan-source",
+                            "finished_at": "2026-06-19T03:00:39+08:00",
+                        },
+                        {
+                            "kind": "apply",
+                            "status": "applied",
+                            "plan_id": "plan-test",
+                            "finished_at": "2026-06-19T03:01:46+08:00",
+                        },
+                    ],
+                }],
+            }
+
+            got = adapter.summarize_workflow_applied_plan_provenance(
+                workflow,
+                repo,
+                inst,
+                final_plan_id="plan-test",
+            )
+            candidate = adapter.build_write_delivery_candidate(
+                repo_dir=repo,
+                inst_dir=inst,
+                workflow=workflow,
+                final_plan=test_plan,
+                final_plan_path=plans / "plan-test.json",
+                exported_source_paths=["pkg/fix.py"],
+                exported_test_paths=[],
+                patch_source="refs/codrax/applied/plan-source",
+            )
+
+        self.assertEqual(got["workflow_applied_plan_ids"], ["plan-source", "plan-test"])
+        self.assertEqual(got["workflow_applied_source_paths"], ["pkg/fix.py"])
+        self.assertEqual(got["workflow_applied_test_paths"], ["tests/test_fix.py"])
+        self.assertEqual(candidate["status"], "coherent")
+        self.assertEqual(candidate["relation"], "source_plan_with_later_same_batch_test_replan")
+        self.assertEqual(candidate["source_owner_plan_ids"], ["plan-source"])
+        self.assertEqual(candidate["primary_source_plan_id"], "plan-source")
+        self.assertTrue(candidate["source_plan_covers_exported_source_patch"])
+
     def test_delivery_candidate_binds_exported_source_patch_to_prior_source_plan(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             repo = Path(raw) / "repo"

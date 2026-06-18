@@ -1571,6 +1571,47 @@ def workflow_restore_cutoffs_by_batch(workflow: dict[str, Any]) -> dict[str, flo
     return cutoffs
 
 
+def workflow_restored_plan_ids_by_batch(workflow: dict[str, Any]) -> dict[str, set[str]]:
+    """Return plan ids restored into the active lineage for each batch.
+
+    Progress-ledger restore timestamps are intentionally coarse. A restore can
+    mean "discard everything before this point", but it can also mean "reset to
+    the just-applied checkpoint for this plan before a small replan". Slice
+    events carry the precise typed checkpoint relation; keep those restored
+    plan ids instead of dropping them by timestamp.
+    """
+
+    restored: dict[str, set[str]] = {}
+    latest_at: dict[str, float] = {}
+    for batch in workflow.get("batches") or []:
+        if not isinstance(batch, dict):
+            continue
+        batch_id = str(batch.get("id") or "").strip()
+        if not batch_id:
+            continue
+        for event in batch.get("slice_events") or []:
+            if not isinstance(event, dict):
+                continue
+            if str(event.get("event") or "").strip() != "slice_restored":
+                continue
+            plan_id = str(event.get("plan_id") or "").strip()
+            if not plan_id:
+                artifact_ref = str(event.get("artifact_ref") or "").strip()
+                prefix = "refs/codrax/applied/"
+                if artifact_ref.startswith(prefix):
+                    plan_id = artifact_ref[len(prefix):].strip()
+            if not plan_id:
+                continue
+            at = workflow_event_timestamp(event.get("at"))
+            prior = latest_at.get(batch_id, 0.0)
+            if at > prior:
+                latest_at[batch_id] = at
+                restored[batch_id] = {plan_id}
+            elif at == prior:
+                restored.setdefault(batch_id, set()).add(plan_id)
+    return restored
+
+
 def workflow_attempt_timestamp(attempt: dict[str, Any]) -> float:
     return max(
         workflow_event_timestamp(attempt.get("finished_at")),
@@ -1582,11 +1623,13 @@ def workflow_applied_plan_ids(workflow: dict[str, Any]) -> list[str]:
     ids: list[str] = []
     seen: set[str] = set()
     restore_cutoffs = workflow_restore_cutoffs_by_batch(workflow)
+    restored_plan_ids = workflow_restored_plan_ids_by_batch(workflow)
     for batch in workflow.get("batches") or []:
         if not isinstance(batch, dict):
             continue
         batch_id = str(batch.get("id") or "").strip()
         restore_cutoff = restore_cutoffs.get(batch_id, 0.0)
+        restored_ids = restored_plan_ids.get(batch_id, set())
         for attempt in batch.get("attempts") or []:
             if not isinstance(attempt, dict):
                 continue
@@ -1594,11 +1637,11 @@ def workflow_applied_plan_ids(workflow: dict[str, Any]) -> list[str]:
                 continue
             if str(attempt.get("status") or "").strip() != "applied":
                 continue
+            plan_id = str(attempt.get("plan_id") or "").strip()
             if restore_cutoff > 0:
                 attempt_at = workflow_attempt_timestamp(attempt)
-                if attempt_at <= 0 or attempt_at < restore_cutoff:
+                if plan_id not in restored_ids and (attempt_at <= 0 or attempt_at < restore_cutoff):
                     continue
-            plan_id = str(attempt.get("plan_id") or "").strip()
             if not plan_id or plan_id in seen:
                 continue
             seen.add(plan_id)
@@ -2097,7 +2140,15 @@ def build_write_delivery_candidate(
         reason_code = "delivery_source_paths_not_owned"
         relation = ""
     elif final_test_only and source_owner_ids and final_plan_id and final_plan_id not in source_owner_ids:
-        relation = "source_plan_with_later_test_followup"
+        restored_ids = {
+            plan_id
+            for ids in workflow_restored_plan_ids_by_batch(workflow).values()
+            for plan_id in ids
+        } if workflow else set()
+        if restored_ids & set(source_owner_ids):
+            relation = "source_plan_with_later_same_batch_test_replan"
+        else:
+            relation = "source_plan_with_later_test_followup"
     elif final_validation_only and source_owner_ids and final_plan_id and final_plan_id not in source_owner_ids:
         relation = "source_plan_with_later_validation_followup"
     elif not exported_source_paths and exported_test_paths:
