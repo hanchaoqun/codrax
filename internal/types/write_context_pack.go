@@ -796,6 +796,27 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 	return NormalizeWriteContextPack(pack)
 }
 
+// WritePlanSourcePathsOutsidePriorContext returns production/source-like plan
+// paths that are not covered by earlier P0/P1 localization context. Empty prior
+// context intentionally returns nil: without any localization evidence there is
+// nothing precise enough to route on.
+func WritePlanSourcePathsOutsidePriorContext(prior []WriteContextPack, plan *ChangePlan) []string {
+	contextPaths := writeContextCoveragePriorPaths(prior)
+	if len(contextPaths) == 0 {
+		return nil
+	}
+	planPaths := writeContextCoveragePlanPaths(plan)
+	var out []string
+	for _, p := range planPaths {
+		if writeContextCoveragePathCoveredByContext(p, contextPaths) {
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 	if report == nil {
 		return WriteContextPack{}
@@ -965,6 +986,26 @@ func writeContextCoveragePath(raw string) string {
 		return ""
 	}
 	return cleaned
+}
+
+func writeContextCoveragePathCoveredByContext(p string, contextPaths []string) bool {
+	p = writeContextCoveragePath(p)
+	if p == "" {
+		return false
+	}
+	for _, raw := range contextPaths {
+		c := writeContextCoveragePath(raw)
+		if c == "" {
+			continue
+		}
+		if p == c {
+			return true
+		}
+		if path.Ext(c) == "" && strings.HasPrefix(p, strings.TrimSuffix(c, "/")+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func writeContextCoveragePathIsTest(p string) bool {

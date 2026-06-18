@@ -2547,15 +2547,15 @@ Design constraints:
 
 RC-48 tasks:
 
-- [ ] Add a controller-side helper that derives missing source localization
+- [x] Add a controller-side helper that derives missing source localization
   paths from `WriteContextPackFromPlanContextCoverage`.
-- [ ] Invoke it in `runControllerPlanBatch` as one bounded retry before accepting
+- [x] Invoke it in `runControllerPlanBatch` as one bounded retry before accepting
   a fresh low/medium-risk plan.
-- [ ] Scope it to existing workflow/context packs and exclude the current plan's
+- [x] Scope it to existing workflow/context packs and exclude the current plan's
   self-generated context so it cannot satisfy itself.
-- [ ] Add regressions for missing localization retry, covered source plan
+- [x] Add regressions for missing localization retry, covered source plan
   acceptance, no-prior-context no retry, and test-only path exclusion.
-- [ ] Update this ledger and run focused/full regression before commit/push.
+- [x] Update this ledger and run focused/full regression before commit/push.
 
 ## Progress Ledger
 
@@ -2610,6 +2610,7 @@ RC-48 tasks:
 | RC-45 | complete | User-facing guide sync: Markdown and HTML now document Java/Kotlin/Swift source compile fallback and clarify that actual-diff mapping/container boundary signals are multi-language provider events, not Python-only logic. Verification: diff check and focused `internal/tool` regressions pass. |
 | RC-46 | complete | Java verification probe runtime: bounded `verification_probes[]` now support Java through the typed runtime registry, with `javac` compile, `java -ea` execution, missing-JDK unavailable semantics, Java production-class coupling, packaged full-source probes, and soft docs/prompt sync. Verification: focused runtime/coupling tests, full `internal/tool`, related packages, `go test ./...`, `make test`, and diff check pass. |
 | RC-47 | complete | Owner-boundary runtime signals: actual-diff source providers now emit typed soft semantic-coverage events for caller-return wrapper adapters, newly guarded diagnostic calls, and external private-state writes across precise Python/JS/TS/Ruby/Java/Kotlin shapes, while Go keeps only the precise return-wrapper shape. PatchReview registers the generic event codes as unknown coverage so they reach P2 handoff and bounded repair scheduling instead of staying SWE-bench adapter-only audit telemetry. Verification: focused writeflow owner-boundary/registry tests and related package regression pass. |
+| RC-48 | complete | Plan localization retry: controller planning now consumes typed prior-localization context and gives one bounded retry when a fresh source plan edits paths outside P0/P1 evidence-backed anchors. The helper excludes plan-authored context and test-only paths, skips no-prior-context cases, and preserves legal new owner discovery after the bounded retry. Verification: focused types/orchestrator localization tests, related package regression, `go test ./...`, `make test`, and diff check pass. |
 
 ## Acceptance Criteria
 

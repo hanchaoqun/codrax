@@ -84,6 +84,171 @@ func TestSeedWriteWorkflowRunPersistsWriteAnalysisContextForDirectPlan(t *testin
 	}
 }
 
+func TestRunControllerPlanBatch_ReplansMissingSourceLocalization(t *testing.T) {
+	mu := types.NewMutableState("fix owner boundary")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task:         types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix owner boundary"},
+			Risk:         types.WriteRiskProfile{Overall: types.RiskBandLow},
+			ScopeAnchors: []string{"pkg/owner.py"},
+		},
+	})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	run := o.seedWriteWorkflowRun()
+	mu.SetWriteWorkflowRun(&run)
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		if planCalls == 1 {
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-caller",
+				Status:      types.PlanStatusPending,
+				Summary:     "patch caller symptom",
+				TargetPaths: []string{"pkg/caller.py"},
+				Changes:     []types.FileChange{{Path: "pkg/caller.py", Kind: "patch"}},
+			})
+		} else {
+			hint := mu.PlanningHint()
+			if !strings.Contains(hint, "Typed localization coverage critique") ||
+				!strings.Contains(hint, "pkg/caller.py") ||
+				!strings.Contains(hint, "pkg/owner.py") {
+				t.Fatalf("localization retry hint missing context: %q", hint)
+			}
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-owner",
+				Status:      types.PlanStatusPending,
+				Summary:     "patch owner boundary",
+				TargetPaths: []string{"pkg/owner.py"},
+				Changes:     []types.FileChange{{Path: "pkg/owner.py", Kind: "patch"}},
+			})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "fix owner boundary"}, &steps); err != nil {
+		t.Fatalf("runControllerPlanBatch: %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan calls = %d, want 2", planCalls)
+	}
+	if plan := mu.ChangePlan(); plan == nil || plan.ID != "plan-owner" {
+		t.Fatalf("expected re-localized plan, got %+v", plan)
+	}
+}
+
+func TestRunControllerPlanBatch_AcceptsCoveredSourceLocalization(t *testing.T) {
+	mu := types.NewMutableState("fix owner boundary")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task:         types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix owner boundary"},
+			Risk:         types.WriteRiskProfile{Overall: types.RiskBandLow},
+			ScopeAnchors: []string{"pkg/owner.py"},
+		},
+	})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	run := o.seedWriteWorkflowRun()
+	mu.SetWriteWorkflowRun(&run)
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		planCalls++
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-owner",
+			Status:      types.PlanStatusPending,
+			Summary:     "patch owner boundary",
+			TargetPaths: []string{"pkg/owner.py"},
+			Changes:     []types.FileChange{{Path: "pkg/owner.py", Kind: "patch"}},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "fix owner boundary"}, &steps); err != nil {
+		t.Fatalf("runControllerPlanBatch: %v", err)
+	}
+	if planCalls != 1 {
+		t.Fatalf("covered source localization should not retry, plan calls = %d", planCalls)
+	}
+}
+
+func TestRunControllerPlanBatch_LocalizationRetryNeedsPriorContext(t *testing.T) {
+	mu := types.NewMutableState("fix unknown path")
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		planCalls++
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-new",
+			Status:      types.PlanStatusPending,
+			Summary:     "patch newly found source",
+			TargetPaths: []string{"pkg/new_owner.py"},
+			Changes:     []types.FileChange{{Path: "pkg/new_owner.py", Kind: "patch"}},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "fix unknown path"}, &steps); err != nil {
+		t.Fatalf("runControllerPlanBatch: %v", err)
+	}
+	if planCalls != 1 {
+		t.Fatalf("no prior localization context should not retry, plan calls = %d", planCalls)
+	}
+}
+
+func TestRunControllerPlanBatch_LocalizationRetryExcludesTestOnlyPlan(t *testing.T) {
+	mu := types.NewMutableState("add regression")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task:         types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "add regression"},
+			Risk:         types.WriteRiskProfile{Overall: types.RiskBandLow},
+			ScopeAnchors: []string{"pkg/owner.py"},
+		},
+	})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	run := o.seedWriteWorkflowRun()
+	mu.SetWriteWorkflowRun(&run)
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		planCalls++
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-test-only",
+			Status:      types.PlanStatusPending,
+			Summary:     "add regression",
+			TargetPaths: []string{"tests/test_owner.py"},
+			Changes:     []types.FileChange{{Path: "tests/test_owner.py", Kind: "patch"}},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+
+	steps := 0
+	if err := o.runControllerPlanBatch(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "add regression"}, &steps); err != nil {
+		t.Fatalf("runControllerPlanBatch: %v", err)
+	}
+	if planCalls != 1 {
+		t.Fatalf("test-only plan should not trigger localization retry, plan calls = %d", planCalls)
+	}
+}
+
 func TestUpdateWorkflowRunBatchPlanStampsImpactObligations(t *testing.T) {
 	run := &types.WriteWorkflowRun{
 		RunID:         "run-impact",

@@ -496,6 +496,50 @@ func TestWriteContextPackFromPlanContextCoverageNormalizesSymbolAnchorsToFiles(t
 	}
 }
 
+func TestWritePlanSourcePathsOutsidePriorContext(t *testing.T) {
+	prior := []WriteContextPack{{
+		PackID:      "write-analysis",
+		BatchID:     "batch-1",
+		SourceStage: "write_analysis",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "scope_anchor",
+			Text:        "pkg/owner.py",
+			SourceStage: "write_analysis",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}, {
+			Priority:    WriteContextP1,
+			Kind:        "target_file",
+			Text:        "pkg/covered",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+		}},
+	}}
+
+	plan := &ChangePlan{
+		ID:          "plan-1",
+		TargetPaths: []string{"pkg/owner.py", "pkg/caller.py", "tests/test_owner.py", "pkg/covered/helper.py"},
+		Changes: []FileChange{
+			{Path: "pkg/owner.py", Kind: "modify"},
+			{Path: "pkg/caller.py", Kind: "modify"},
+			{Path: "tests/test_owner.py", Kind: "modify"},
+			{Path: "pkg/covered/helper.py", Kind: "modify"},
+		},
+	}
+
+	got := WritePlanSourcePathsOutsidePriorContext(prior, plan)
+	if strings.Join(got, ",") != "pkg/caller.py" {
+		t.Fatalf("missing localization paths = %+v, want [pkg/caller.py]", got)
+	}
+	if got := WritePlanSourcePathsOutsidePriorContext(nil, plan); len(got) != 0 {
+		t.Fatalf("no prior context should not create routing-grade missing paths: %+v", got)
+	}
+	testOnly := &ChangePlan{ID: "plan-test", TargetPaths: []string{"tests/test_owner.py"}, Changes: []FileChange{{Path: "tests/test_owner.py", Kind: "modify"}}}
+	if got := WritePlanSourcePathsOutsidePriorContext(prior, testOnly); len(got) != 0 {
+		t.Fatalf("test-only changes should be excluded from localization miss routing: %+v", got)
+	}
+}
+
 func TestWriteContextPackFromChangeReportCarriesVerifyFailure(t *testing.T) {
 	report := &ChangeReport{
 		PlanID:                "plan-1",

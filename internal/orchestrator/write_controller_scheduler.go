@@ -797,6 +797,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	transientUsed := 0
 	noPlanRetryCount := 0
 	offScopeRiskReplanRetried := false
+	localizationReplanRetried := false
 	testContractReplanRetried := false
 	lastStallSignature := ""
 	for {
@@ -854,6 +855,19 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
 					o.busCtx.TaskState.LastError = ""
 					logging.Warning("[orchestrator] controller plan touched off-scope high-risk path(s); retrying bounded planning once paths=%s", strings.Join(paths, ","))
+					continue
+				}
+			}
+			if !localizationReplanRetried {
+				if hint, paths := o.localizationCoverageReplanHint(o.busCtx.Mutable.ChangePlan()); hint != "" {
+					localizationReplanRetried = true
+					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
+					if existing != "" {
+						existing += "\n\n"
+					}
+					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
+					o.busCtx.TaskState.LastError = ""
+					logging.Warning("[orchestrator] controller plan touched source path(s) outside prior localization context; retrying bounded planning once paths=%s", strings.Join(paths, ","))
 					continue
 				}
 			}
@@ -996,6 +1010,45 @@ func controllerHasBatchOrAnalysisAnchors(mu *types.MutableState, batch *writeflo
 		return false
 	}
 	return len(ir.Request.ScopeAnchors) > 0
+}
+
+func (o *Orchestrator) localizationCoverageReplanHint(plan *types.ChangePlan) (string, []string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
+		return "", nil
+	}
+	ir := plan.WriteAnalysisIR
+	if ir == nil {
+		ir = o.busCtx.Mutable.WriteAnalysisIR()
+	}
+	if ir != nil && (ir.Request.Risk.ChangesBuildSystem || ir.Request.Task.Kind == types.WriteTaskConfig) {
+		return "", nil
+	}
+	var prior []types.WriteContextPack
+	if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+		prior = append(prior, run.ContextPacks...)
+	}
+	if pack := o.busCtx.Mutable.WriteContextPack(); pack != nil {
+		prior = append(prior, *pack)
+	}
+	missing := types.WritePlanSourcePathsOutsidePriorContext(prior, plan)
+	if len(missing) == 0 {
+		return "", nil
+	}
+	var b strings.Builder
+	b.WriteString("## Typed localization coverage critique\n\n")
+	b.WriteString("The previous ChangePlan edited source paths that were not present in prior P0/P1 localization context. Replan this same batch once using the evidence-backed owner paths where possible.\n\n")
+	b.WriteString("Source paths missing prior localization evidence:\n")
+	for _, p := range missing {
+		fmt.Fprintf(&b, "- %s\n", p)
+	}
+	if ir != nil && len(ir.Request.ScopeAnchors) > 0 {
+		b.WriteString("\nCurrent WriteAnalysisIR scope anchors:\n")
+		for _, p := range normalizedWorkflowScopeAnchors(ir.Request.ScopeAnchors) {
+			fmt.Fprintf(&b, "- %s\n", p)
+		}
+	}
+	b.WriteString("\nKeep a new source path only if direct current-repo read/repomap evidence in this planning round proves it is the owner boundary; otherwise split the new owner investigation into a later explore/replan batch. Test-only paths are excluded from this critique.")
+	return strings.TrimSpace(b.String()), missing
 }
 
 func (o *Orchestrator) offScopeHighRiskReplanHint(plan *types.ChangePlan) (string, []string) {
