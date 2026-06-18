@@ -674,7 +674,7 @@ func runtimeTracePerfQualityText(record types.ObservationRecord) string {
 		return ""
 	}
 	values := map[string]string{}
-	runtimeTraceMergeSummaryMetricTokens(values, quality, []string{"source", "sample_kind", "weight_unit", "symbolization", "symbolization_status", "cpu_known", "cpu_unknown", "clock", "clock_confidence", "callchain_status"})
+	runtimeTraceMergeSummaryMetricTokens(values, quality, []string{"source", "sample_kind", "weight_unit", "symbolization", "symbolization_status", "cpu_known", "cpu_unknown", "sample_cpu_scope", "clock", "clock_confidence", "callchain_status"})
 	dso := runtimeTraceObservationRichNoteValue(record.RichNotes, "dso")
 	parts := make([]string, 0, 6)
 	if values["source"] != "" {
@@ -695,6 +695,9 @@ func runtimeTracePerfQualityText(record types.ObservationRecord) string {
 	}
 	if values["cpu_unknown"] != "" {
 		parts = append(parts, "cpu_unknown="+values["cpu_unknown"])
+	}
+	if values["sample_cpu_scope"] != "" {
+		parts = append(parts, "sample_cpu_scope="+values["sample_cpu_scope"])
 	}
 	if values["clock"] != "" {
 		parts = append(parts, "clock="+values["clock"])

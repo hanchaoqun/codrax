@@ -383,7 +383,7 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTracePerfQuality(t *testing.T) 
 			Subject:   "0x1234",
 			RichNotes: []string{
 				"dso=libraw.so",
-				"perf_quality=cpu_known=0,cpu_unknown=1,source=raw_perfdata_fallback,sample_kind=off_cpu,symbolization=unsymbolized,clock=perf_data,clock_confidence=assumed,callchain_status=ip_only",
+				"perf_quality=cpu_known=0,cpu_unknown=1,sample_cpu_scope=unknown,source=raw_perfdata_fallback,sample_kind=off_cpu,symbolization=unsymbolized,clock=perf_data,clock_confidence=assumed,callchain_status=ip_only",
 			},
 		}},
 	}}
@@ -418,6 +418,7 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTracePerfQuality(t *testing.T) 
 		"symbolization_status=unsymbolized",
 		"cpu_known=0",
 		"cpu_unknown=1",
+		"sample_cpu_scope=unknown",
 		"clock=perf_data",
 		"clock_confidence=assumed",
 		"callchain_status=ip_only",

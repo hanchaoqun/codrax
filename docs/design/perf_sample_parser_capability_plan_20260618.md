@@ -350,10 +350,11 @@ Batch D implementation notes:
   hiperf/simpleperf tooling rather than risking shifted evidence.
 - Raw fallback now reads bounded perf feature descriptors, extracts safe
   metadata for `FEAT_ARCH`, `FEAT_CMDLINE`, `FEAT_META_INFO`, and BUILD_ID
-  record counts, and carries it through `parser_caveats`. BUILD_ID is not yet
-  applied to DSO labeling because Linux/simpleperf build-id records have ABI
-  quirks; without real fixtures, Codrax exposes the count and
-  `build_id_dso_labeling=not_applied` instead of inventing symbol provenance.
+  record counts, and carries it through `parser_caveats`. BUILD_ID evidence is
+  applied to DSO labeling only when the BUILD_ID filename exactly matches the
+  mmap path selected for the sample IP. Non-exact or unsupported BUILD_ID
+  layouts stay visible as caveats such as `build_id_dso_labeling=not_applied`
+  instead of inventing symbol provenance.
 - Raw fallback now binds `COMM` by record lifetime when samples are read, uses
   `FORK` to inherit known parent comm labels, and clears active labels on
   `EXIT`. This prevents later thread renames from rewriting earlier samples in
@@ -436,6 +437,12 @@ Batch F implementation notes:
   Markdown/HTML runtime artifact tables also surface off-CPU, CPU-unknown,
   unit-hint, and assumed/unknown clock-confidence details when they are present
   in perftrace-derived evidence.
+- `trace_query` now derives backend-owned `sample_cpu_scope`
+  (`known|unknown|partial|none`) from perf quality counts and carries it through
+  compact summaries, `Perf 证据质量`, and evaluator supplements. This prevents
+  consumers from conflating a scheduler event row's CPU column with the perf
+  sample CPU when official/simpleperf/hyperf data reports `cpu=-1` or
+  `cpu_known=false`.
 - Confirmed this batch adds only backend-owned status/output fields. No
   model-authored provider filter was introduced, so the unified tool-call JSON
   repair layer needs no new alias/schema entry for this batch.
@@ -493,10 +500,10 @@ simpleperf sources found two residual delivery-quality gaps:
    to parse command path tokens, read a bounded prefix from regular files, and
    sniff trace/perf/tracebundle content before falling back to suffixes only
    when no readable file candidate exists.
-2. The older 2026-06-17 integration plan still marked Batch E/F as incomplete
-   even though the newer capability audit and current code had closed the
-   corresponding implementation, UX, prompt, handoff, and eval work. The fix is
-   to update that historical design document so status, task checkboxes, and
+2. The older 2026-06-17 integration plan had stale Batch D/E/F language even
+   though the newer capability audit and current code had closed the
+   corresponding implementation, UX, prompt, handoff, and eval work. That
+   historical design document is now aligned so status, task checkboxes, and
    non-blocking follow-ups match current evidence.
 
 Validation added for the first item: a suffixless readable file containing
@@ -525,3 +532,40 @@ Focused eval evidence for this second audit:
 `trace_query_path_question_suffixless_trace` passed with `flagged=0` after the
 analyzer content-sniffing update, with zero repo-map/list-files/source-lens
 activity.
+
+2026-06-18 third continuation audit found one residual model-consumption gap:
+the SIMPLEPERF off-CPU eval correctly used `trace_query`, but the final answer
+still mixed a nearby `sched_switch` row's CPU column into the perf evidence
+quality explanation. The underlying trace_query data was correct
+(`cpu_known=0`, `cpu_unknown=1`, `sample_kind=off_cpu`,
+`weight_unit=ns_off_cpu_event`), so the fix is not a prose keyword gate. Codrax
+now emits `sample_cpu_scope` as a backend-owned perf-quality field and teaches
+the raw perf_triage preamble, `emit_perf_trace` schema, trace_query schema, and
+explore skill that sample CPU scope is separate from scheduler event CPU. No
+new model-authored input field was added, so JSON repair needs no alias change.
+
+Validation for the third audit: the same two-case batch
+`trace_query_path_question_suffixless_trace` +
+`trace_query_perf_quality_simpleperf_proto_offcpu` passed with `flagged=0`
+after the sample CPU scope change. Manual spot-check confirmed the final answer
+preserved `sample_cpu_scope=unknown` and did not attribute the off-CPU sample to
+a concrete CPU/core.
+
+## Completion Audit Matrix
+
+| Requirement | Evidence inspected | Status |
+| --- | --- | --- |
+| Re-read the original `/Users/han/opt/perf_query.md` requirements before completion. | The source request asks for perf sample import through `trace_convert`, `EventPerfSample`, `event_types=["perf_sample"]`, `window_stats.perf_samples`, `root_cause_rank` supporting evidence, `perf_stats`, `perf_timeline`, `trace_perf_bundle`, and reuse of the existing `trace_query` stack. | Proven |
+| Use public official references instead of inventing a parser contract. | Public source findings cite OpenHarmony `developtools_hiperf`, `report_sample.proto`, profiler `TraceFileHeader`, OpenHarmony hiperf report protobuf code, and AOSP simpleperf `report_sample.py` / `simpleperf_report_lib.py` / record metadata. | Proven |
+| Do not create a parallel analysis framework. | Implementation reuses `trace_convert`, normalized text `perf_sample` rows, `EventPerfSample`, `WindowStats`, `RootCauseRank`, `FrameRootCauseBundle`, typed observations, and answer-document runtime artifact surfaces. | Proven |
+| Convert/import Harmony/OpenHarmony and Android perf data. | Batch D records official OpenHarmony hiperf adapter, Android simpleperf adapter, direct `.perf.data` handling, `.perftrace` output, `.tracebundle.json` provenance, and raw fallback. | Proven |
+| Query perf samples by symbol/DSO/callchain/event/thread/source/quality. | `trace_query` schema and prompt include `event_types=["perf_sample"]`; tests cover alias repair, `event_search`, `perf_stats`, `perf_timeline`, and `trace_perf_bundle`. | Proven |
+| Treat perf samples as execution context, not scheduler causality by themselves. | Tool descriptions and skill prompts state that scheduler overlap, chain relevance, binder peer state, D-state/IO, CPU supply, and frequency/affinity remain the causal basis; perf contexts support running/runnable/on-chain/binder-peer explanations. | Proven |
+| Preserve role-specific handoff evidence. | `root_cause_rank` carries `perf_context` and role-aware `perf_contexts`; `frame_root_cause_bundle` carries `target_running_perf`, `on_chain_perf`, `binder_peer_perf`, and `same_cpu_competitor_perf`; typed observations include source, symbolization, callchain, clock, sample kind, and weight unit. | Proven |
+| Preserve perf sample CPU scope without confusing scheduler event CPU. | `trace_query` renders backend-derived `sample_cpu_scope`, `Perf 证据质量` carries it to final reports, and prompt/schema guidance says `cpu=-1`/`cpu_known=false`/`off_cpu` samples are not concrete CPU/core execution locations. | Proven |
+| Handle running/runnable analysis with CPU/core/affinity/load and perf context. | The trace-query teaching directs consumers to use runnable context, thread load, same-CPU competitors, core class, other-core idle, `next_info` affinity/restricted evidence, cpuset/allowed CPU evidence, and role-specific perf contexts before process rollups. | Proven |
+| Keep model-authored JSON fields in schema/prompt/repair. | `trace_query` still routes tool payloads through `applyStructuredPayloadCompat`; view/event-type aliases and split-string `event_types` are tested. New provider/status/sample quality fields are backend-owned outputs, not model-authored input filters. | Proven |
+| Avoid hard routing based only on suffix or keyword intent. | Analyzer and exec-command advisory now content-sniff readable path tokens for trace/perf/tracebundle signals and use suffixes only as path-candidate/fallback hints; tests cover suffixless trace and SIMPLEPERF artifacts. | Proven |
+| Support attachments and explicit relative/absolute paths in user questions. | Analyzer classification tests and low-prebake evals cover explicit path runtime artifacts, suffixless readable paths, direct perftrace/perf data, tracebundle promotion, and multi-artifact REPL/CLI state. | Proven |
+| Surface official tool installation/status and artifact transparency. | `--perf-tools-status`, CLI runtime-artifact status blocks, REPL prompt labels, `docs/user_guide.md`, and markdown/html runtime artifact tables expose provider, parser source, symbolization status, caveats, and bundle membership. | Proven |
+| Guard with unit tests and low-prebake evals. | Completion evidence lists `go test ./...`, `make`, targeted unit coverage, and two-case parallel eval summaries for raw fallback, SIMPLEPERF proto off-cpu, Harmony CPU-unknown, simpleperf symbolized, running perf context, suffixless trace, and relative perftrace paths. | Proven |

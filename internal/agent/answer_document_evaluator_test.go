@@ -6935,7 +6935,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryPerfQualityMetricS
 				RichNotes: []string{
 					"symbol=RenderPipeline::draw",
 					"dso=libui.so",
-					"perf_quality=cpu_known=1,cpu_unknown=0,source=simpleperf_report_sample,symbolization=symbolized,sample_kind=on_cpu,weight_unit=cycles,clock=record,clock_confidence=assumed,callchain_status=symbolized",
+					"perf_quality=cpu_known=1,cpu_unknown=0,sample_cpu_scope=known,source=simpleperf_report_sample,symbolization=symbolized,sample_kind=on_cpu,weight_unit=cycles,clock=record,clock_confidence=assumed,callchain_status=symbolized",
 					"perf_quality_caveats=perf period/sample_weight values are event/sample weights, not elapsed duration or expected sample density unless explicit sampling configuration plus calibrated CPU frequency are available",
 				},
 				SupportRefs: []string{"attached_trace.txt:4"},
@@ -6959,7 +6959,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryPerfQualityMetricS
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
-	want := "perf_quality=cpu_known=1,cpu_unknown=0,source=simpleperf_report_sample,symbolization=symbolized,sample_kind=on_cpu,weight_unit=cycles"
+	want := "perf_quality=cpu_known=1,cpu_unknown=0,sample_cpu_scope=known,source=simpleperf_report_sample,symbolization=symbolized,sample_kind=on_cpu,weight_unit=cycles"
 	if !strings.Contains(out.FinalAnswer, "系统补充：结构化指标核对") || !strings.Contains(out.FinalAnswer, want) {
 		t.Fatalf("final answer missing perf quality metric supplement %q:\n%s", want, out.FinalAnswer)
 	}
