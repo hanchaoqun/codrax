@@ -4298,10 +4298,41 @@ func (o *Orchestrator) enrichProofFollowupPlanProbeRefs(batch *writeflow.WriteBa
 		}
 	}
 	if changed {
+		o.refreshAutoApprovalAfterDeterministicPlanMutation(plan, "proof_followup_probe_ref_enrichment")
 		logging.Info("[orchestrator] enriched proof-follow-up verification probe refs plan=%s contracts=%s",
 			strings.TrimSpace(plan.ID), strings.Join(contractRefs, ","))
 	}
 	return changed
+}
+
+func (o *Orchestrator) refreshAutoApprovalAfterDeterministicPlanMutation(plan *types.ChangePlan, source string) bool {
+	if o == nil || plan == nil || plan.Approval == nil {
+		return false
+	}
+	if strings.TrimSpace(plan.Approval.Action) != string(writeflow.ApprovalActionAutoExecute) ||
+		strings.TrimSpace(plan.Approval.UserDecision) != "auto" {
+		return false
+	}
+	if !plan.ApprovalRecordIntegrityOK() {
+		return false
+	}
+	if writeflow.DeriveApprovalExecutionView(plan).State == writeflow.ApprovalExecutionAutoAllowed {
+		return false
+	}
+	policy := o.writeApprovalPolicy
+	if policy == "" {
+		policy = writeflow.ApprovalPolicyAutoSafe
+	}
+	assessment := writeflow.AssessWriteRisk(o.writeRiskAssessmentInput(plan))
+	decision := writeflow.DecideWriteApproval(policy, assessment)
+	if decision.Action != writeflow.ApprovalActionAutoExecute {
+		return false
+	}
+	stampWriteApprovalRecord(o, plan, assessment, decision, strings.TrimSpace(source), "auto", types.PlanFingerprint(plan))
+	persistWriteApprovalRecord(o, plan)
+	mergeWriteRiskContextPack(o, plan, assessment, decision)
+	mergeWritePlanContextPack(o, plan)
+	return true
 }
 
 func proofFollowupRunAuthorized(run *types.WriteWorkflowRun) bool {

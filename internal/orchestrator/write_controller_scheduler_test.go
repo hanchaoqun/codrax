@@ -2707,6 +2707,73 @@ func TestEnrichProofFollowupPlanProbeRefsBindsDurableContractRefs(t *testing.T) 
 	}
 }
 
+func TestEnrichProofFollowupPlanProbeRefsRefreshesAutoApprovalFingerprint(t *testing.T) {
+	mu := types.NewMutableState("proof followup approval refresh")
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-refresh",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1-proof-repair",
+			Purpose: "verification_proof_followup",
+			SuccessCriteria: []string{
+				"impact_obligation=soft-1 kind=behavior_contract code=verification_probe_missing_soft_contract_ref paths=pkg/widget.py contract_ref=outcome-1 evidence_ref=verification_probe:probe_soft_contract_refs source=verification_confidence",
+			},
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	plan := &types.ChangePlan{
+		ID:          "plan-proof-refresh",
+		Status:      types.PlanStatusPending,
+		Summary:     "refresh auto approval after deterministic proof binding",
+		TargetPaths: []string{"pkg/widget.py"},
+		Changes: []types.FileChange{{
+			Path:       "pkg/widget.py",
+			Kind:       "modify",
+			NewContent: "VALUE = 1\n",
+		}},
+		BehaviorContracts: []types.WriteBehaviorContract{
+			{ID: "outcome-1", Kind: types.WriteBehaviorObservable},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "probe-1",
+			Language: "python",
+			Code:     "assert True",
+		}},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	assessment := writeflow.AssessWriteRisk(o.writeRiskAssessmentInput(plan))
+	decision := writeflow.DecideWriteApproval(writeflow.ApprovalPolicyAutoSafe, assessment)
+	if decision.Action != writeflow.ApprovalActionAutoExecute {
+		t.Fatalf("test fixture should be auto executable, got %+v", decision)
+	}
+	plan.Approval = writeflow.NewApprovalRecord(assessment, decision, "plan_post_hook", "auto", types.PlanFingerprint(plan), "")
+	priorFingerprint := plan.Approval.PlanFingerprint
+
+	if !o.enrichProofFollowupPlanProbeRefs(nil, plan) {
+		t.Fatal("proof follow-up plan should receive deterministic probe refs")
+	}
+	currentFingerprint := types.PlanFingerprint(plan)
+	if currentFingerprint == priorFingerprint {
+		t.Fatal("test fixture should mutate the apply-relevant plan fingerprint")
+	}
+	if plan.Approval == nil || plan.Approval.PlanFingerprint != currentFingerprint {
+		t.Fatalf("auto approval fingerprint was not refreshed: approval=%+v current=%s", plan.Approval, currentFingerprint)
+	}
+	if plan.Approval.Source != "proof_followup_probe_ref_enrichment" {
+		t.Fatalf("approval refresh source = %q", plan.Approval.Source)
+	}
+	view := writeflow.DeriveApprovalExecutionView(plan)
+	if view.State != writeflow.ApprovalExecutionAutoAllowed {
+		t.Fatalf("refreshed approval should be auto allowed, got %+v", view)
+	}
+}
+
 func TestEnrichProofFollowupPlanProbeRefsRequiresAuthorizedDurableBatch(t *testing.T) {
 	mu := types.NewMutableState("proof followup unauthorized")
 	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{

@@ -3013,6 +3013,56 @@ RC-57 tasks:
 - [x] Document the local triage taxonomy in the SWE-bench README.
 - [x] Update this progress ledger.
 
+## RC-58: Auto Approval Refresh After Deterministic Plan Enrichment
+
+A fresh `pydata__xarray-4248` Lite run after RC-57 exercised the intended
+online loop:
+
+```
+explore -> plan -> apply -> verify failed -> checkpoint restore -> replan
+-> apply -> verify -> impact repair -> apply -> verify -> proof repair
+```
+
+The run then blocked with `approval_authority_invalid` and exported an empty
+prediction even though earlier source-owner plans had applied and local verify
+had passed. The active proof-repair plan was low/medium risk and had
+`approval.action=auto_execute`, but controller-owned proof-ref binding appended
+`verification_probes[].contract_refs`/`changed_symbol_refs` after the plan
+post-hook had already stamped the approval fingerprint. Because
+`PlanFingerprint` correctly includes verification probes, the approval record
+became stale and Auto Pilot asked for approval in a non-interactive eval lane.
+
+This is a system-level low-friction approval gap:
+
+- The deterministic controller may mutate apply-relevant plan payload after
+  planner emission.
+- Those mutations must either run before approval stamping or refresh the
+  auto approval record when the refreshed risk policy still allows
+  auto-execute.
+- High/manual/deny paths must remain conservative; stale manual approvals still
+  require the user.
+
+Design:
+
+- Add a controller helper that refreshes stale `auto_execute` approvals after
+  deterministic controller mutations.
+- The helper consumes only structured plan payload, current approval record,
+  typed risk assessment, and policy decision.
+- It refuses missing/tampered/manual/denied approval records and refuses to
+  upgrade any plan whose fresh policy decision is not `auto_execute`.
+- Wire it into proof-follow-up probe-ref binding, the current mutation point
+  that changes `verification_probes[]` after plan approval.
+
+RC-58 tasks:
+
+- [x] Add `refreshAutoApprovalAfterDeterministicPlanMutation`.
+- [x] Refresh approval after proof-follow-up probe-ref enrichment.
+- [x] Add regression proving proof-ref enrichment changes the plan fingerprint
+  but leaves a valid `auto_allowed` approval view.
+- [x] Re-run the xarray Lite instance to verify predictions export no longer
+  becomes empty for this approval-staleness path.
+- [x] Update this progress ledger.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3078,6 +3128,7 @@ RC-57 tasks:
 | RC-55 | complete | Multi-run Codrax result summary: `summarize_codrax_results.py` now accepts multiple result files or globs, can explicitly dedupe to the latest row per `instance_id` by file mtime, and reports input row count/path/source-line metadata so 137-instance summaries no longer require ad hoc scripts. |
 | RC-56 | complete | Primary failure reason authority: aggregate verify reports now bind `FailureReasonCode` to the final primary `FailureKind`, so secondary unavailable runner signals such as `make_target_missing` remain visible as evidence but no longer overwrite red test/build/resource failure attribution. |
 | RC-57 | complete | Typed SWE failure-cause taxonomy: local Codrax result summaries now group rows into typed cause categories/families such as verification proof, implementation/localization, patch semantics, environment, workflow state, probe generation, export, and accepted/manual-audit buckets. This gives low-pass-rate analysis a stable denominator without parsing logs, issue prose, or model output. |
+| RC-58 | complete | Auto approval refresh after deterministic enrichment: a fresh xarray Lite run showed proof-follow-up probe-ref binding made an auto-executable plan's approval fingerprint stale, causing `approval_authority_invalid` and empty export. Controller-owned deterministic plan mutations now refresh stale auto approvals only when the fresh typed risk policy still allows `auto_execute`; manual/denied/tampered paths remain conservative. Rerunning `pydata__xarray-4248` produced a 1318-byte non-empty prediction and crossed the prior approval boundary; the official harness dry-run still needs a Python 3.10+ eval venv, while the next observed runtime gap is applied-but-unobserved interruption leaving `verify_status` absent. |
 
 ## Acceptance Criteria
 
