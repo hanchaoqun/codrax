@@ -338,6 +338,21 @@ patch rate, high-confidence local verifier pass, low-confidence local verifier
 pass, and typed manual audit remain separate telemetry and must not be called
 official SWE-bench pass rate.
 
+Summarize Codrax's local `results.jsonl` with the same separation:
+
+```bash
+eval/results/swebench/.venv/bin/python eval/swebench/summarize_codrax_results.py \
+  --results-jsonl eval/results/swebench/custom-run/results.jsonl \
+  --output-json eval/results/swebench/custom-run/codrax-summary.json
+```
+
+This local summary reports non-empty patch rate, high-confidence local verifier
+pass, low-confidence verifier pass, typed manual audit pass/fail/unknown, local
+audit blockers, local-verify confidence mismatches from older result rows, and
+rows missing current core fields. Use it to avoid mixing old-schema smoke rows
+with current runs or treating low-confidence local verify as an authoritative
+pass.
+
 ## Isolation
 
 All run artifacts live under `eval/results/swebench/`, which is ignored by Git.

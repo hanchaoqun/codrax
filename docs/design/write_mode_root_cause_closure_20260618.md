@@ -2871,6 +2871,50 @@ RC-53 tasks:
 - [x] Update SWE-bench README so dashboards do not call missing manual audit
   rows a manual pass rate.
 
+## RC-54: Codrax Results Summary Denominator Guard
+
+The same aggregate audit also showed that many "latest 137" rows came from
+older smoke runs with missing current fields. A one-off grep or ad hoc Python
+script can therefore mix:
+
+- current rows where `prediction_local_confidence` and
+  `local_acceptance_verdict/source` are meaningful;
+- old-schema rows where those fields are absent;
+- official prediction export shape;
+- high-confidence local verifier pass;
+- low-confidence verifier pass;
+- typed manual audit pass/fail/unknown.
+
+That is a system-level eval observability gap. It does not change write-mode
+runtime, but it directly affects the user's pass-rate question and can lead
+engineers to optimize the wrong layer.
+
+Design:
+
+- Add a dependency-free Codrax `results.jsonl` summarizer separate from the
+  official harness summarizer.
+- Consume only typed adapter fields; do not parse issue text, model prose,
+  terminal logs, or manual notes.
+- Report separate denominators for:
+  - non-empty patch;
+  - high-confidence local verifier pass;
+  - low-confidence verifier pass;
+  - local acceptance pass/fail/unknown;
+  - typed manual audit recorded/pass/fail/unknown;
+  - local audit blockers;
+  - recorded local-verify pass rows that fail the current high-confidence
+    boundary;
+  - missing current core fields.
+- Keep official `resolved/*` metrics in `summarize_official_results.py`.
+
+RC-54 tasks:
+
+- [x] Add `eval/swebench/summarize_codrax_results.py`.
+- [x] Add unit tests for confidence/manual/schema-missing summaries and CLI
+  JSON output.
+- [x] Update SWE-bench README with the local summary command and denominator
+  warnings.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2932,6 +2976,7 @@ RC-53 tasks:
 | RC-51 smoke | complete | Single Lite rerun `pydata__xarray-4248` generated a non-empty harness-consumable prediction at `/private/tmp/codrax-swe-rc51-xarray-20260618-110606`; local verify passed and `verify_confidence_reason_codes` was empty. The run did not exercise proof-follow-up because online replan converged directly, but it exposed RC-52: workflow status could remain `in_progress` after a typed passed batch when the final controller dispatch was interrupted. |
 | RC-52 | complete | Dispatch-interrupted terminalization: if every batch already has typed terminal status and finish normalization does not request a follow-up batch, controller cancellation after local verify now completes the run deterministically with `controller_dispatch_interrupted_after_complete`. A cloned normalization preserves proof/impact follow-up red lines. Verification: focused orchestrator regressions pass; full regression evidence is recorded with RC-51 implementation verification. |
 | RC-53 | complete | Local acceptance confidence boundary: SWE-bench adapter no longer counts low-confidence verifier passes as `local_acceptance_verdict=pass/source=local_verify`; only no-downgrade `verify_status=passed` is high-confidence local acceptance, while explicit typed manual pass can accept low-confidence evidence. README now separates high-confidence local verifier pass, low-confidence local verifier pass, typed manual audit, and official score. |
+| RC-54 | complete | Codrax results summary denominator guard: added dependency-free `summarize_codrax_results.py` so local SWE-bench dashboards can report non-empty patch, high-confidence local verifier pass, low-confidence verifier pass, typed manual audit, local blockers, local-verify confidence mismatches from older rows, and missing current core fields separately from official harness `resolved/*`. |
 
 ## Acceptance Criteria
 
