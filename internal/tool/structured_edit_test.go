@@ -443,6 +443,107 @@ func TestCompileStructuredEdits_InsertAnchorMismatchEchoesCurrentBytes(t *testin
 	}
 }
 
+func TestCompileStructuredEdits_InsertBeforeRelocatesLocalUniqueRepeatedAnchor(t *testing.T) {
+	root := t.TempDir()
+	content := "return []\n" + strings.Repeat("filler\n", 18) + "target:\nreturn []\n"
+	writeSurfaceFile(t, root, "src/a.py", content)
+	change := &types.FileChange{
+		Path: "src/a.py",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:      "insert_before",
+			StartLine: 20,
+			OldText:   "return []\n",
+			Content:   "inserted = True\n",
+		}},
+	}
+	_, newContent, err := compileStructuredEditsToContent(root, change)
+	if err != nil {
+		t.Fatalf("local repeated anchor should relocate: %v", err)
+	}
+	if !strings.Contains(newContent, "target:\ninserted = True\nreturn []\n") {
+		t.Fatalf("insert_before should relocate to the local return, got:\n%s", newContent)
+	}
+	if strings.HasPrefix(newContent, "inserted = True\nreturn []") {
+		t.Fatalf("insert_before relocated to distant repeated anchor:\n%s", newContent)
+	}
+}
+
+func TestCompileStructuredEdits_InsertAfterRelocatesOffByOneLocalAnchor(t *testing.T) {
+	root := t.TempDir()
+	content := "break\n" + strings.Repeat("filler\n", 18) + "if ok:\n    break\n"
+	writeSurfaceFile(t, root, "src/a.py", content)
+	change := &types.FileChange{
+		Path: "src/a.py",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:      "insert_after",
+			StartLine: 20,
+			OldText:   "    break\n",
+			Content:   "    inserted()\n",
+		}},
+	}
+	_, newContent, err := compileStructuredEditsToContent(root, change)
+	if err != nil {
+		t.Fatalf("off-by-one local anchor should relocate: %v", err)
+	}
+	if !strings.Contains(newContent, "if ok:\n    break\n    inserted()\n") {
+		t.Fatalf("insert_after should relocate after the local break, got:\n%s", newContent)
+	}
+}
+
+func TestCompileStructuredEdits_ReplaceRelocatesLocalUniqueRepeatedOldText(t *testing.T) {
+	root := t.TempDir()
+	content := "value = 1\n" + strings.Repeat("filler\n", 18) + "nearby = True\nvalue = 1\n"
+	writeSurfaceFile(t, root, "src/a.py", content)
+	change := &types.FileChange{
+		Path: "src/a.py",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:      "replace",
+			StartLine: 20,
+			OldText:   "value = 1\n",
+			Content:   "value = 2\n",
+		}},
+	}
+	_, newContent, err := compileStructuredEditsToContent(root, change)
+	if err != nil {
+		t.Fatalf("replace should relocate to local repeated old_text: %v", err)
+	}
+	if !strings.HasPrefix(newContent, "value = 1\n") {
+		t.Fatalf("distant repeated old_text should remain unchanged:\n%s", newContent)
+	}
+	if !strings.Contains(newContent, "nearby = True\nvalue = 2\n") {
+		t.Fatalf("nearby old_text should be replaced:\n%s", newContent)
+	}
+}
+
+func TestCompileStructuredEdits_LocalAnchorRelocationRejectsAmbiguousWindow(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/a.py", "target\nfiller\ntarget\n")
+	change := &types.FileChange{
+		Path: "src/a.py",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:      "insert_before",
+			StartLine: 2,
+			OldText:   "target\n",
+			Content:   "inserted\n",
+		}},
+	}
+	_, err := compileStructuredEditsToPatch(root, change)
+	if err == nil {
+		t.Fatal("ambiguous local old_text should still reject")
+	}
+	var diag *structuredEditDiagnosticError
+	if !errors.As(err, &diag) {
+		t.Fatalf("ambiguous relocation should return structured diagnostic: %v", err)
+	}
+	if diag.diagnostic.ReasonCode != "old_text_mismatch" {
+		t.Fatalf("reason=%q, want old_text_mismatch; diag=%+v", diag.diagnostic.ReasonCode, diag.diagnostic)
+	}
+}
+
 func TestCompileStructuredEdits_InsertAfterMultiLineOldTextAnchorsAfterRange(t *testing.T) {
 	root := t.TempDir()
 	anchor := "        self._set_parameters(best_params)\n        self.n_iter_ = best_n_iter\n\n        return self\n"

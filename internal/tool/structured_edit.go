@@ -12,6 +12,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+const structuredEditLocalRelocationRadius = 8
+
 type compiledStructuredEdit struct {
 	kind      string
 	start     int
@@ -186,7 +188,12 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 			if edit.OldText != "" {
 				got := strings.Join(lines[start:end], "")
 				if !structuredEditOldTextMatches(got, edit.OldText) {
-					if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
+					if relocatedStart, relocatedEnd, ok := localUniqueStructuredOldTextRange(lines, edit.OldText, start, structuredEditLocalRelocationRadius); ok {
+						start = relocatedStart
+						end = relocatedEnd
+						edit.StartLine = relocatedStart + 1
+						endLine = relocatedEnd
+					} else if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
 						start = relocatedStart
 						end = relocatedEnd
 						edit.StartLine = relocatedStart + 1
@@ -277,7 +284,17 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 					anchor = lines[edit.StartLine-1]
 				}
 				if !structuredEditOldTextMatches(anchor, edit.OldText) {
-					if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
+					if relocatedStart, relocatedEnd, ok := localUniqueStructuredOldTextRange(lines, edit.OldText, edit.StartLine-1, structuredEditLocalRelocationRadius); ok {
+						anchorLines = append([]string(nil), lines[relocatedStart:relocatedEnd]...)
+						edit.StartLine = relocatedStart + 1
+						anchorStartLine = relocatedStart + 1
+						anchorEndLine = relocatedEnd
+						if kind == "insert_before" {
+							start = relocatedStart
+						} else {
+							start = relocatedEnd
+						}
+					} else if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
 						anchorLines = append([]string(nil), lines[relocatedStart:relocatedEnd]...)
 						edit.StartLine = relocatedStart + 1
 						anchorStartLine = relocatedStart + 1
@@ -403,6 +420,45 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 		}
 	}
 	return out, nil
+}
+
+func localUniqueStructuredOldTextRange(lines []string, oldText string, preferredStart, radius int) (start, end int, ok bool) {
+	if oldText == "" || len(lines) == 0 || preferredStart < 0 || radius < 0 {
+		return 0, 0, false
+	}
+	needleLines := splitContentLines(oldText)
+	if len(needleLines) == 0 || len(needleLines) > len(lines) {
+		return 0, 0, false
+	}
+	maxStart := len(lines) - len(needleLines)
+	windowStart := preferredStart - radius
+	if windowStart < 0 {
+		windowStart = 0
+	}
+	windowEnd := preferredStart + radius
+	if windowEnd > maxStart {
+		windowEnd = maxStart
+	}
+	if windowStart > windowEnd {
+		return 0, 0, false
+	}
+	matchStart := -1
+	matchEnd := -1
+	for i := windowStart; i <= windowEnd; i++ {
+		j := i + len(needleLines)
+		if !structuredEditOldTextMatches(strings.Join(lines[i:j], ""), oldText) {
+			continue
+		}
+		if matchStart >= 0 {
+			return 0, 0, false
+		}
+		matchStart = i
+		matchEnd = j
+	}
+	if matchStart < 0 {
+		return 0, 0, false
+	}
+	return matchStart, matchEnd, true
 }
 
 func uniqueStructuredOldTextRange(lines []string, oldText string) (start, end int, ok bool) {

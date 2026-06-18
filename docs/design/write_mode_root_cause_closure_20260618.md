@@ -3863,6 +3863,57 @@ SWE smoke:
   verification-probe fixture/lifecycle quality for framework objects. Those are
   separate follow-up batches, not RC-69 state-kernel regressions.
 
+## 2026-06-18 RC-70 Local Structured-Edit Anchor Relocation
+
+The RC-69 Django smoke still spent several planner turns correcting
+`emit_change_plan` structured edits:
+
+- the model supplied the right `old_text` but a nearby stale line number;
+- existing structured-edit validation could auto-relocate only when the
+  submitted `old_text` was unique across the whole file;
+- common anchors such as `return []` or `break` are not globally unique, so the
+  planner had to re-emit several times using repair-pack prose and line
+  arithmetic.
+
+This is not a prompt issue and should not be fixed by keyword matching model
+output. It is a deterministic edit affordance gap: when the intended anchor can
+be proven from current bytes in a small local window, the tool should compile
+the edit directly.
+
+Design:
+
+- Extend structured-edit normalization with same-file, local-window relocation:
+  if `old_text` mismatches the submitted line/range, look for an exact
+  `old_text` range within a bounded window around the submitted start line.
+- Accept relocation only when there is exactly one match in that local window.
+  Ambiguous or missing matches stay rejected with the existing typed
+  `old_text_mismatch` repair pack.
+- Apply the same local-window proof to replace/delete and insert_before/after.
+- Keep existing whole-file unique relocation as a second chance; the local
+  window handles common repeated anchors without broadening to unrelated file
+  regions.
+- Hard routing reads only current file bytes, edit kind, line numbers, and exact
+  `old_text`; no user issue text, model prose, stdout narrative, or `<think>`
+  content can trigger relocation.
+
+Tasks:
+
+- [x] Add a bounded helper for local unique old_text range lookup.
+- [x] Use it before whole-file unique relocation for replace/delete.
+- [x] Use it before whole-file unique relocation for insert_before/after and
+  keep insert_before/after positioning relative to the relocated old_text range.
+- [x] Add focused tests for repeated global anchors with one local match,
+  off-by-one insert anchors, and ambiguous local matches that still reject.
+- [x] Run focused, related, full regressions, refresh this ledger, commit, and
+  push.
+
+Verification:
+
+- Focused structured-edit and `emit_change_plan` relocation tests pass.
+- Related `internal/tool`, `internal/types`, and `internal/orchestrator`
+  regressions pass.
+- Full `go test ./...` passes.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3944,6 +3995,7 @@ SWE smoke:
 | RC-67 | complete | Impact runner plans now filter Python package-marker `__init__.py` paths and render Django related test paths as runner-native labels via the existing `djangoSuiteSelector`; focused selector tests, full `internal/tool`, full `go test ./...`, `make test`, and `git diff --check` pass. |
 | RC-68 | complete | Observation authority now classifies mixed red-test plus secondary no-tests/unavailable evidence as failed/replan instead of unverified/finish. Focused writeflow tests, related packages, full `go test ./...`, `make test`, and `git diff --check` pass. Targeted Django smoke confirmed failed suite evidence now restores checkpoint and replans instead of terminalizing as unverified; the run exposed a follow-up probe-construction/interruption gap. |
 | RC-69 | complete | Typed cancellation source now distinguishes public user cancellation from write-mode wall-clock deadline cancellation. The write deadline terminalizes controller dispatch interruption as blocked both after an applied failed patch and after a plan-before-apply interruption, while user/unknown cancellation preserves resumability. Focused/related/full regressions, `make test`, `make`, and diff check pass. Targeted Django smoke now exports a non-empty harness-consumable prediction with `workflow_status=blocked` instead of `workflow_in_progress_empty_patch`; local correctness still fails and is tracked as planner edit-affordance/probe-fixture follow-up. |
+| RC-70 | complete | Structured edit compilation now relocates repeated `old_text` anchors only when current same-file bytes prove exactly one match inside a bounded local window around the submitted line. This reduces `emit_change_plan` retry loops for nearby stale line numbers without reading prompt prose, user issue text, stdout narrative, or `<think>`. Focused relocation tests, related packages, and full `go test ./...` pass. |
 
 ## Acceptance Criteria
 

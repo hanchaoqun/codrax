@@ -938,6 +938,66 @@ func TestEmitChangePlan_AllowsPythonAddedStatementBeforeReturn(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_StructuredEditRelocatesLocalRepeatedAnchor(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = t.TempDir()
+	path := "pkg/module.py"
+	if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	body := "def old():\n" +
+		"    return []\n" +
+		"\n" +
+		strings.Repeat("# filler\n", 15) +
+		"def target():\n" +
+		"    value = 1\n" +
+		"    return []\n"
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(path)), []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	params := json.RawMessage(`{
+		"request": "adjust target before return",
+		"summary": "Insert a bounded target guard before the local return.",
+		"changes": [
+			{
+				"path": "pkg/module.py",
+				"kind": "patch",
+				"edits": [
+					{
+						"kind": "insert_before",
+						"start_line": 20,
+						"old_text": "    return []\n",
+						"content": "    if value:\n        value = 2\n"
+					}
+				],
+				"rationale": "insert before the target return, not the distant repeated return"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected local repeated anchor relocation to be accepted, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.Changes) != 1 {
+		t.Fatalf("accepted relocation should install one ChangePlan, got %+v", plan)
+	}
+	patch := plan.Changes[0].Patch
+	for _, want := range []string{"+    if value:", "+        value = 2", " def target():"} {
+		if !strings.Contains(patch, want) {
+			t.Fatalf("compiled patch missing %q:\n%s", want, patch)
+		}
+	}
+	if strings.Contains(patch, "@@ -1,") {
+		t.Fatalf("patch should not relocate to the distant first return:\n%s", patch)
+	}
+}
+
 func TestEmitChangePlan_RejectsStructuredEditDuplicatePythonDefinitionStutter(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
