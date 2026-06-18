@@ -4944,6 +4944,54 @@ Verification:
   - `python3 -m unittest eval.swebench.run_codrax_swebench_test -v` passed.
   - The old RC-83 artifact recompute confirms restore-aware owner selection.
 
+## 2026-06-18 RC-85 Durable Verify-Failure Handoff Retention
+
+- Evidence:
+  - Targeted SWE smoke for `pydata__xarray-4248` at
+    `/private/tmp/codrax-swe-rc85-xarray-20260618-impact-provenance` exported a
+    non-empty harness-shaped prediction, but local confidence correctly stayed
+    failed: `workflow_status=in_progress`, `verify_status=failed`, and
+    `workflow_latest_progress=plan_batch_interrupted_after_applied_patch_resumable`.
+  - The typed verify report contained the actionable failure:
+    `text_repr_with_units` still expected full unit text such as
+    `x, in metres`, while the patch produced truncated output such as
+    `x, in m...`.
+  - The durable workflow context pack for the active batch did not retain
+    `verify_failure`, `failed_test`, or `failure_signal` items after later plan
+    context synchronization. Inspection showed only plan/effect/review/impact
+    context. The root cause was `upsertWorkflowRunContextPack()` replacing an
+    existing same-key pack (`merged|batch-1`) with the later pack, so the
+    append-only workflow ledger kept attempts but the consumer-facing handoff
+    view lost unresolved P2 evidence.
+- Generalized rule:
+  - Workflow context packs are evidence ledgers. Same-key upsert means "merge
+    this newer projection into the existing scoped handoff", not "replace all
+    earlier evidence for this batch".
+  - Replacement is unsafe because replan, plan-context coverage, impact, and
+    verify-failure projections can all share the same durable batch key while
+    representing different typed facts needed by the next consumer.
+  - The merge preserves pack identity for stable storage/recovery while
+    deduplicating items through `NormalizeWriteContextPack`; stale cross-batch
+    evidence is still filtered by `ForScope()` before sync.
+- Prompt and hard-gate hygiene:
+  - No prompt change is required. The fix consumes and preserves only typed
+    `WriteContextPack` items, batch IDs, slice IDs, and normalized item
+    fingerprints.
+  - It does not inspect issue text, SWE-bench IDs, model rationale, summaries,
+    visible `<think>`, stdout prose, or manual audit notes.
+  - Read/log/trace/data/operation/computer mode paths remain unchanged.
+- Task list:
+  - [x] Change workflow context same-key upsert from replacement to
+    normalized merge while preserving durable pack identity.
+  - [x] Add regression coverage where a scoped verify failure pack is synced,
+    then a later scoped plan pack is synced for the same active batch, and the
+    planner view sees both the unresolved failure and the new target file.
+  - [x] Keep stale completed-batch failure evidence out of the active batch via
+    the existing scope filter regression.
+- Verification:
+  - Focused regression passed:
+    `go test ./internal/orchestrator -run 'TestSyncCurrentWriteContextPackToRun(KeepsStaleBatchEvidenceOutOfActiveBatch|MergesPriorVerifyFailureEvidence)' -count=1`.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

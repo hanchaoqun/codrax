@@ -5081,6 +5081,64 @@ func TestSyncCurrentWriteContextPackToRunKeepsStaleBatchEvidenceOutOfActiveBatch
 	}
 }
 
+func TestSyncCurrentWriteContextPackToRunMergesPriorVerifyFailureEvidence(t *testing.T) {
+	mu := types.NewMutableState("repair formatting failure")
+	run := types.WriteWorkflowRun{
+		RunID:         "run-1",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchReadyToPlan,
+			ActiveSliceID: "slice-1",
+		}},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+
+	reportPack := types.WriteContextPackFromChangeReport(&types.ChangeReport{
+		PlanID:         "plan-failed",
+		Passed:         false,
+		FailureSummary: "text_repr_with_units still omits full units",
+		TestResults: []types.TestResult{{
+			Suite:         "verification_probe/python",
+			AssertionID:   "text_repr_with_units",
+			Passed:        false,
+			FailureDetail: "AssertionError: expected x, in metres; actual x, in m...",
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:    "verification_probe",
+			Framework: "python",
+			Suite:     "xarray/core/formatting.py",
+			Outcome:   "executed",
+			ExitCode:  1,
+		}},
+	}).WithScope("batch-1", "slice-1")
+	first := types.MergeWriteContextPacks("batch-1", "repair formatting failure", reportPack)
+	mu.SetWriteContextPack(&first)
+	o.syncCurrentWriteContextPackToRun(&run)
+
+	planPack := types.WriteContextPackFromChangePlan(&types.ChangePlan{
+		ID:          "plan-repair",
+		Summary:     "repair formatting units",
+		TargetPaths: []string{"xarray/core/formatting.py"},
+		Changes:     []types.FileChange{{Path: "xarray/core/formatting.py", Kind: "modify"}},
+	}).WithScope("batch-1", "slice-1")
+	second := types.MergeWriteContextPacks("batch-1", "repair formatting failure", planPack)
+	mu.SetWriteContextPack(&second)
+	o.syncCurrentWriteContextPackToRun(&run)
+
+	merged := types.MergeWriteContextPacks("batch-1", "repair formatting failure", run.ContextPacks...)
+	view := merged.ViewForScope(types.WriteConsumerPlanner, 20, "batch-1", "slice-1")
+	if !writeContextViewContains(view, "verify_failure", "text_repr_with_units") {
+		t.Fatalf("prior verify failure should survive later plan context sync: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "failed_test", "expected x, in metres") {
+		t.Fatalf("failed test detail should survive later plan context sync: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "target_file", "xarray/core/formatting.py") {
+		t.Fatalf("later plan context should also be visible after merge: %+v", view.Items)
+	}
+}
+
 func TestRunWriteControllerWorkflow_FinishGateRequiresTypedDisposition(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("finish after failed verify")

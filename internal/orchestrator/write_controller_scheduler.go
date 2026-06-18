@@ -2970,7 +2970,27 @@ func upsertWorkflowRunContextPack(run types.WriteWorkflowRun, pack types.WriteCo
 	key := workflowContextPackKey(pack)
 	for i := range run.ContextPacks {
 		if workflowContextPackKey(run.ContextPacks[i]) == key {
-			run.ContextPacks[i] = pack
+			existing := types.NormalizeWriteContextPack(run.ContextPacks[i])
+			batchID := strings.TrimSpace(existing.BatchID)
+			if batchID == "" {
+				batchID = strings.TrimSpace(pack.BatchID)
+			}
+			goal := strings.TrimSpace(existing.Goal)
+			if goal == "" {
+				goal = strings.TrimSpace(pack.Goal)
+			}
+			merged := types.MergeWriteContextPacks(batchID, goal, existing, pack)
+			if strings.TrimSpace(existing.PackID) != "" {
+				merged.PackID = strings.TrimSpace(existing.PackID)
+			} else if strings.TrimSpace(pack.PackID) != "" {
+				merged.PackID = strings.TrimSpace(pack.PackID)
+			}
+			if strings.TrimSpace(existing.SourceStage) != "" {
+				merged.SourceStage = strings.TrimSpace(existing.SourceStage)
+			} else {
+				merged.SourceStage = strings.TrimSpace(pack.SourceStage)
+			}
+			run.ContextPacks[i] = types.NormalizeWriteContextPack(merged)
 			return types.NormalizeWriteWorkflowRun(run)
 		}
 	}
