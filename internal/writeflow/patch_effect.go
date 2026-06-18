@@ -522,6 +522,7 @@ func annotatePatchEffectSourceShape(file *types.PatchEffectFile, data []byte, pr
 		provider.AnnotateFile(file, lines)
 	}
 	for _, hunk := range file.Hunks {
+		appendPatchEffectDuplicateInsertedBlockEvent(file, hunk)
 		if provider.AnnotateHunk != nil {
 			provider.AnnotateHunk(file, lines, hunk)
 		}
@@ -550,6 +551,85 @@ func annotatePatchEffectPythonOwnerShape(file *types.PatchEffectFile, lines []st
 			EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
 		})
 	}
+}
+
+func appendPatchEffectDuplicateInsertedBlockEvent(file *types.PatchEffectFile, hunk types.PatchEffectHunk) {
+	if file == nil || len(hunk.AddedLineTexts) < 6 {
+		return
+	}
+	lines := make([]string, 0, len(hunk.AddedLineTexts))
+	original := make([]types.PatchEffectLine, 0, len(hunk.AddedLineTexts))
+	for _, line := range hunk.AddedLineTexts {
+		normalized := patchEffectDuplicateBlockLine(line.Text)
+		if normalized == "" {
+			continue
+		}
+		lines = append(lines, normalized)
+		original = append(original, line)
+	}
+	if len(lines) < 6 {
+		return
+	}
+	maxWindow := len(lines) / 2
+	for size := maxWindow; size >= 3; size-- {
+		for start := 0; start+2*size <= len(lines); start++ {
+			if !patchEffectDuplicateBlockHasCode(lines[start : start+size]) {
+				continue
+			}
+			if !patchEffectStringSlicesEqual(lines[start:start+size], lines[start+size:start+2*size]) {
+				continue
+			}
+			line := original[start+size]
+			evidence := file.Path
+			if line.Line > 0 {
+				evidence = fmt.Sprintf("%s:%d", file.Path, line.Line)
+			}
+			file.Events = append(file.Events, types.PatchEffectEvent{
+				Code:        "duplicate_inserted_block_added",
+				Severity:    "error",
+				Path:        file.Path,
+				Message:     fmt.Sprintf("added adjacent duplicate code block of %d nonblank lines; remove the repeated block or prove the duplication is intentional", size),
+				EvidenceRef: evidence,
+			})
+			return
+		}
+	}
+}
+
+func patchEffectDuplicateBlockLine(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return ""
+	}
+	return trimmed
+}
+
+func patchEffectDuplicateBlockHasCode(lines []string) bool {
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") ||
+			strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "*") {
+			continue
+		}
+		for _, r := range trimmed {
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_' {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func patchEffectStringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func annotatePatchEffectPythonDuplicateDeclarations(file *types.PatchEffectFile, lines []string) {

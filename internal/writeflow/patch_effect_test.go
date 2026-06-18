@@ -209,6 +209,67 @@ func TestAnnotatePatchEffectPythonDuplicateSymbolHardBlocks(t *testing.T) {
 	}
 }
 
+func TestAnnotatePatchEffectDuplicateInsertedBlockHardBlocks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sympy/ntheory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `def nthroot_mod(a, n, p, all_roots=False):
+    if not isprime(p):
+        raise NotImplementedError("Not implemented for composite p")
+
+    if a % p == 0:
+        if all_roots:
+            return [0]
+        return 0
+    if a % p == 0:
+        if all_roots:
+            return [0]
+        return 0
+    return None
+`
+	if err := os.WriteFile(filepath.Join(root, "sympy/ntheory/residue_ntheory.py"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/sympy/ntheory/residue_ntheory.py b/sympy/ntheory/residue_ntheory.py
+--- a/sympy/ntheory/residue_ntheory.py
++++ b/sympy/ntheory/residue_ntheory.py
+@@ -1,4 +1,12 @@
+ def nthroot_mod(a, n, p, all_roots=False):
+     if not isprime(p):
+         raise NotImplementedError("Not implemented for composite p")
+
++    if a % p == 0:
++        if all_roots:
++            return [0]
++        return 0
++    if a % p == 0:
++        if all_roots:
++            return [0]
++        return 0
+     return None
+`
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, "sympy/ntheory/residue_ntheory.py")
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if !patchEffectHasEvent(*file, "duplicate_inserted_block_added") {
+		t.Fatalf("duplicate inserted block event missing: %+v", file.Events)
+	}
+
+	review := ReviewAppliedPatchScope(&types.ChangePlan{
+		ID:          "plan-1",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"sympy/ntheory/residue_ntheory.py"},
+		PatchEffect: &record,
+	}, types.ChangePlanSlice{})
+	if !review.HardBlock || !patchReviewHasFinding(review, "duplicate_inserted_block_added") {
+		t.Fatalf("duplicate inserted block should hard block review: %+v", review)
+	}
+}
+
 func TestAnnotatePatchEffectProductionTestScaffoldWarns(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src/_pytest/assertion"), 0o755); err != nil {

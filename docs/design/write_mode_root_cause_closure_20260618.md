@@ -3423,6 +3423,87 @@ Verification:
 - `go test ./...`
 - `make test`
 
+RC-63 smoke:
+
+- Reran `pydata__xarray-4248` at
+  `/private/tmp/codrax-swe-rc63-xarray-20260618-142300`.
+- Prediction export was non-empty (`patch_bytes=942`) and official SWE-bench
+  harness dry-run accepted the generated predictions file.
+- The first verify failed on bounded probes with concrete assertion evidence:
+  expected `x, in metres` / `rainfall, in mm`, but output was truncated to
+  `x, in m...` / `rainfal...`.
+- After replan, the workflow completed with `verify_status=passed`,
+  `verify_test_count=32`, `prediction_verdict=predicted_passed`,
+  `prediction_confidence_downgrade_reason=""`,
+  `patch_review_confidence_authority_source=final_plan`, and
+  `local_acceptance_verdict=pass/source=local_verify`.
+- Manual audit: the final patch adjusts formatter column width before
+  `pretty_print`, preserving existing formatting tests while exposing units.
+  This is materially better than the RC-62 fresh run, where failed-test evidence
+  led to a narrower patch that broke diff repr tests.
+
+## 2026-06-18 RC-64 Adjacent Duplicate Inserted Block Critic
+
+The second RC-63 smoke (`sympy__sympy-18199`) produced a non-empty,
+harness-consumable patch but inserted the exact same `if a % p == 0` block
+twice in adjacent lines. Codrax correctly kept the row low-confidence
+(`prediction_verdict=predicted_passed_low_confidence`,
+`local_acceptance_verdict=unknown`), but the actual diff critic did not flag
+the duplicate block as a structural patch defect.
+
+This is a general Patch Critic gap:
+
+- duplicate adjacent inserted code blocks are visible in the applied diff, so
+  they should be caught deterministically before relying on local probes;
+- the signal is language-agnostic and belongs in `PatchEffect`, not SWE-bench
+  post-processing;
+- the hard gate must read only structured diff lines and file roles, not issue
+  text, model summaries, or keywords from the user request;
+- to avoid false positives, the rule should be conservative: same hunk,
+  adjacent duplicate, at least three nonblank normalized lines, and at least one
+  real code line.
+
+Design:
+
+- Add `duplicate_inserted_block_added` as a `PatchEffectEvent`.
+- Detect only adjacent duplicate added blocks inside one hunk.
+- Treat the event as a PatchReview structural error/hard block.
+- Preserve existing soft actual-diff events and language-provider hooks.
+
+Tasks:
+
+- [x] Add the duplicate inserted block detector in `patch_effect.go`.
+- [x] Register the event as a hard PatchReview event.
+- [x] Add focused tests proving adjacent duplicate blocks hard-block review.
+- [x] Run focused writeflow tests, related regressions, full Go regression, and
+  update smoke/eval evidence.
+
+Verification:
+
+- `go test ./internal/writeflow -run 'TestAnnotatePatchEffect(DuplicateInsertedBlock|PythonDuplicateSymbol|PythonTopLevelSelfMethod|ProductionTestScaffold|PythonNestedStringKeyAccess)|TestReviewAppliedPatch' -count=1`
+- `go test ./internal/writeflow ./internal/types ./internal/orchestrator -count=1`
+- `go test ./...`
+- `make test`
+
+RC-64 smoke:
+
+- Reran `sympy__sympy-18199` at
+  `/private/tmp/codrax-swe-rc64-sympy18199-20260618-143900`.
+- Prediction export remained non-empty (`patch_bytes=537`) and official
+  SWE-bench harness dry-run accepted the generated predictions file.
+- This trajectory did not reproduce the duplicate adjacent block; the patch
+  inserted one guard:
+  `if a % p == 0: return [0] if all_roots else 0`.
+- Local verdict remained conservative: `verify_status=unavailable`,
+  `prediction_verdict=predicted_unverified`,
+  `prediction_confidence_downgrade_reason=make_target_missing`,
+  `local_acceptance_verdict=unknown`.
+- Manual audit: the patch is plausible for the prime-modulus zero-residue case
+  but remains unproven locally and likely incomplete for the broader historical
+  issue. The important system evidence is that Codrax no longer labels it a
+  functional pass without authoritative verify; duplicate-block hard blocking is
+  locked by focused PatchEffect/PatchReview tests.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3497,6 +3578,8 @@ Verification:
 | RC-61 smoke | complete | Reran `pydata__xarray-4248` at `/private/tmp/codrax-swe-rc61-xarray-20260618-125247`: prediction export was non-empty, official harness dry-run accepted it, verify executed the bounded probe plus scoped `xarray/tests/test_formatting.py` and `xarray/tests/test_formatting_html.py`, `verify_test_count=32`, and final PatchReview coverage was `verified`. A stale adapter confidence downgrade from earlier plan-level telemetry remains as RC-62 candidate. |
 | RC-62 | complete | PatchReview confidence authority selector now makes coherent passed deliveries consume final report-plan PatchReview for confidence while preserving delivery/source-owner hard blockers and telemetry. Adapter unit tests, Python compile, local adapter smoke, and RC-61 xarray artifact recompute pass; a fresh xarray smoke correctly failed local acceptance after scoped impact tests caught a narrower bad patch, exposing a separate replan-quality follow-up. |
 | RC-63 | complete | Typed failure-signal handoff now projects failed verify observations into compact assertion/location/signal rows in `VerifyFailureHandoff` and `WriteContextPack`, renders them before raw failing-test details in planner replan prompts, and keeps all routing tied to typed report verdicts. Focused tests, related package tests, full `go test ./...`, and `make test` pass. |
+| RC-63 smoke | complete | Reran `pydata__xarray-4248`: first verify failed with typed probe evidence about truncated unit labels, replan completed, final verify passed 32 scoped tests, final PatchReview was verified, and local acceptance became `pass/source=local_verify`. |
+| RC-64 | complete | Adjacent duplicate inserted block PatchEffect detection now hard-blocks structural duplicate source additions. Focused writeflow tests, related regressions, full `go test ./...`, and `make test` pass. A fresh SymPy smoke did not reproduce the duplicate block and stayed `predicted_unverified` because local proof was unavailable, preserving conservative acceptance semantics. |
 
 ## Acceptance Criteria
 
