@@ -90,6 +90,13 @@ type AnswerDocumentV2 struct {
 	// Snippets carries optional CodeSnippet entries the renderer
 	// shows alongside the answer. Reused from V1.
 	Snippets []CodeSnippet `json:"snippets,omitempty"`
+
+	// ReadOwnerAnchors is an internal, deterministic projection of read-mode
+	// source-localization owner/evidence anchors that supported the final
+	// answer. It is stamped by the tool runtime from TurnAArtifacts after a
+	// structured answer emit succeeds; it is not part of the LLM-facing
+	// emit_answer_document schema and must never be parsed from model prose.
+	ReadOwnerAnchors []OwnerAnchorViewItem `json:"read_owner_anchors,omitempty"`
 }
 
 // AnswerMissingRequestedRole is a typed answer-level disclosure that

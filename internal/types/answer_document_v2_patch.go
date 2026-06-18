@@ -266,6 +266,9 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 	} else {
 		out.Snippets = append([]CodeSnippet(nil), prev.Snippets...)
 	}
+	if len(prev.ReadOwnerAnchors) > 0 {
+		out.ReadOwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: prev.ReadOwnerAnchors}, 0).Items
+	}
 
 	// Block merge:
 	//

@@ -151,6 +151,9 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceObservationBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace observation block from structured perf facts", toolName)
 	}
+	if stamped := stampReadOwnerAnchorsFromTurnA(ctx, merged); stamped > 0 {
+		logging.Info("[%s] stamped %d read owner anchor(s) from typed source localization", toolName, stamped)
+	}
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
@@ -168,6 +171,62 @@ func persistMergedAnswerDocument(
 			summarizeV2Blocks(merged.Blocks)),
 		Timestamp: now,
 	}, nil
+}
+
+func stampReadOwnerAnchorsFromTurnA(ctx *types.BusContext, doc *types.AnswerDocumentV2) int {
+	if ctx == nil || ctx.Mutable == nil || doc == nil {
+		return 0
+	}
+	turnA := ctx.Mutable.TurnAArtifacts()
+	if turnA == nil {
+		return 0
+	}
+	var review *types.SourceLocalizationReview
+	if types.SourceLocalizationReviewHasSignal(turnA.SourceLocalization) {
+		review = turnA.SourceLocalization
+	} else {
+		derived := types.SourceLocalizationReviewFromTurnA(turnA.ReadFiles, turnA.EvidenceItems)
+		if types.SourceLocalizationReviewHasSignal(&derived) {
+			review = &derived
+		}
+	}
+	if review == nil {
+		doc.ReadOwnerAnchors = nil
+		return 0
+	}
+	view := types.OwnerAnchorViewFromSourceLocalizationReview(*review, 0)
+	items := make([]types.OwnerAnchorViewItem, 0, minInt(len(view.Items), 12))
+	for _, item := range view.Items {
+		if !readFinalAnswerOwnerAnchorItem(item) {
+			continue
+		}
+		items = append(items, item)
+		if len(items) >= 12 {
+			break
+		}
+	}
+	doc.ReadOwnerAnchors = types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: items}, 12).Items
+	return len(doc.ReadOwnerAnchors)
+}
+
+func readFinalAnswerOwnerAnchorItem(item types.OwnerAnchorViewItem) bool {
+	normalized := types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: []types.OwnerAnchorViewItem{item}}, 1)
+	if len(normalized.Items) == 0 {
+		return false
+	}
+	item = normalized.Items[0]
+	if item.Path == "" || types.SourcePathRoleIsAuxiliary(item.Role) || item.Kind == types.SourceLocalizationAnchorScope {
+		return false
+	}
+	switch item.Strength {
+	case types.SourceLocalizationAnchorOwner, types.SourceLocalizationAnchorSupporting:
+	default:
+		return false
+	}
+	return item.EvidenceRef != nil ||
+		strings.TrimSpace(item.OwnerSymbol) != "" ||
+		strings.TrimSpace(item.Subject) != "" ||
+		strings.TrimSpace(item.AnchorSymbol) != ""
 }
 
 func filterAcceptedAnswerDisplayAttachments(doc *types.AnswerDocumentV2, in []types.AnswerDisplayAttachment) []types.AnswerDisplayAttachment {

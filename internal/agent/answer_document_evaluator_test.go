@@ -6699,6 +6699,83 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRequestedDimensionSourceQuot
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_AppendsReadOwnerAnchorSupplement(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "模型答案回答了调用关系，但压缩了源码定位依据。",
+		}},
+		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
+			Path:         "internal/agent/subagent_runtime.go",
+			Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:     types.SourceLocalizationAnchorOwner,
+			Priority:     types.WriteContextP1,
+			OwnerSymbol:  "SubAgentRuntime.Run",
+			AnchorSymbol: "Run",
+			EvidenceRef: &types.WriteExplorationEvidenceRef{
+				ID:        "ev-owner",
+				Source:    "internal/agent/subagent_runtime.go",
+				LineStart: 218,
+			},
+		}, {
+			Path:     "internal/agent/subagent_runtime.go",
+			Kind:     types.SourceLocalizationAnchorReadFile,
+			Strength: types.SourceLocalizationAnchorObserved,
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"系统补充：源码定位锚点核对",
+		"`internal/agent/subagent_runtime.go`",
+		"`SubAgentRuntime.Run` / `Run`",
+		"`internal/agent/subagent_runtime.go:218` (`ev-owner`)",
+		"`owner`",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if strings.Contains(out.FinalAnswer, "observed") {
+		t.Fatalf("observed read_file-only anchors must not render as owner proof:\n%s", out.FinalAnswer)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendReadOwnerAnchorSupplementForObservedOnly(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "模型答案不应因为只读过文件就显示 owner 锚点。",
+		}},
+		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
+			Path:     "pkg/observed.py",
+			Kind:     types.SourceLocalizationAnchorReadFile,
+			Strength: types.SourceLocalizationAnchorObserved,
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：源码定位锚点核对") {
+		t.Fatalf("observed-only localization must not append owner supplement:\n%s", out.FinalAnswer)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendRequestedDimensionWhenQuoteEqualsLabel(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

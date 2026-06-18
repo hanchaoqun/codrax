@@ -4316,7 +4316,7 @@ Verification:
 | RC-104 | complete | Shared localization owner/evidence anchor closure: preserve prior owner/supporting/scope anchors through write plan localization review and downstream context packs, so later controller/planner/verifier consumers see typed anchor evidence instead of only path sets. Focused types tests, related write/read consumers, full `go test ./...`, `make`, and `git diff --check` pass. |
 | RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
 | RC-106 | complete | Same-batch source-owner relation after test-only replan: restore-aware delivery lineage now preserves/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code, while still excluding stale pre-restore plans when no precise restored checkpoint relation exists. Focused Go and SWE adapter regressions pass. |
-| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects; RC107-E adds owner-depth critique for path-covered but owner/evidence-missing plans; RC107-F writes planner read observations back into durable localization anchors; RC107-G makes controller planning/exploration seeds prefer typed owner/evidence anchors before broad expected paths. Remaining work: read final-answer projection and final unresolved owner-gap report fields. |
+| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects; RC107-E adds owner-depth critique for path-covered but owner/evidence-missing plans; RC107-F writes planner read observations back into durable localization anchors; RC107-G makes controller planning/exploration seeds prefer typed owner/evidence anchors before broad expected paths; RC107-H stamps read-mode final answers with typed owner anchors and renders a compact localization supplement. Remaining work: final unresolved owner-gap report fields. |
 | RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
 | RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
 
@@ -6552,7 +6552,7 @@ verifier-only hardening unless a regression blocks mainline stability.
     identity without changing L1 read scheduler byte identity.
   - [x] Project selected write-plan and handoff owner anchors into typed final
     report fields for audit.
-  - [ ] Project read-mode extraction/finalization owner evidence into read
+  - [x] Project read-mode extraction/finalization owner evidence into read
     final-answer owner-anchor fields beyond the write handoff/report layer.
   - [x] Make write planner context-pack view and handoff-material budgeting
     consume `OwnerAnchorView` before broad target-file hints.
@@ -6851,6 +6851,35 @@ verifier-only hardening unless a regression blocks mainline stability.
     `verify_status=passed`, `prediction_verdict=predicted_passed`, and high
     local confidence. The final patch remained the same aligned QDP
     `re.IGNORECASE` source fix; no proof-only deadline block recurred.
+- RC107-H read final-answer owner-anchor projection:
+  - Added internal `AnswerDocumentV2.read_owner_anchors` as a deterministic
+    projection from read-mode `TurnAArtifacts.SourceLocalization`. The field is
+    stamped in the unified answer-document persist path, so full emits and patch
+    emits share one code path.
+  - The LLM-facing `emit_answer_document` schema is unchanged. Models do not
+    emit this field, and hard routing never reads model prose, summaries,
+    rationale, `<think>`, stdout, or user keywords. The projection consumes only
+    typed `SourceLocalizationAnchor`, `OwnerAnchorViewItem`, evidence refs,
+    path role, kind, and strength.
+  - The final answer renderer appends a compact
+    `系统补充：源码定位锚点核对` / `source-localization anchors` table when
+    strong owner/evidence anchors exist. Observed `read_file` anchors and
+    broad scope anchors are intentionally filtered out so a file read cannot
+    masquerade as owner proof.
+  - Focused verification:
+    `go test ./internal/tool ./internal/agent -run
+    'TestApplyAndPersistMutation_StampsReadOwnerAnchorsFromTurnA|TestAnswerDocumentEvaluator_ParseOutput_.*ReadOwnerAnchor'
+    -count=1`.
+  - Related/full verification: `go test ./internal/types ./internal/tool
+    ./internal/agent -run
+    'Test(ApplyAndPersistMutation|AnswerDocumentEvaluator_ParseOutput|AnswerDocumentV2Patch|OwnerAnchor|NormalizeOwnerAnchor|SourceLocalization|Clone|clone)'
+    -count=1`, `git diff --check`, `go test ./...`, and `make`.
+  - Read-mode smoke: `./codrax --repo . --branch main --request
+    "哪个agent可以调用subagent？" --pipeline-max-steps 60 --log-level info`
+    answered `AgentExplorer` and rendered the typed
+    `系统补充：源码定位锚点核对` table with owner anchors for
+    `internal/agent/registry.go`, `internal/agent/subagent.go`, and
+    `internal/tool/propose_sub_agents.go`.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

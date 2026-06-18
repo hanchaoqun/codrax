@@ -10094,6 +10094,13 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 		}
 	}
+	if supplement := renderReadOwnerAnchorSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
+		if strings.TrimSpace(prose) == "" {
+			prose = strings.TrimSpace(supplement)
+		} else {
+			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+		}
+	}
 	if supplement := renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
 		if strings.TrimSpace(prose) == "" {
 			return strings.TrimSpace(supplement)
@@ -10101,6 +10108,119 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 		return strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 	}
 	return prose
+}
+
+type readOwnerAnchorSupplementRow struct {
+	Path         string
+	OwnerSymbol  string
+	AnchorSymbol string
+	EvidenceID   string
+	LineStart    int
+	LineEnd      int
+	Strength     types.SourceLocalizationAnchorStrength
+}
+
+func renderReadOwnerAnchorSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+	rows := readOwnerAnchorSupplementRows(ctx, doc)
+	if len(rows) == 0 {
+		return ""
+	}
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("---\n\n")
+		b.WriteString("> **系统补充：源码定位锚点核对**\n>\n")
+		b.WriteString("> 下表来自本轮读模式探索阶段的 typed owner/evidence anchor，用于避免最终成文压缩时丢失定位依据；它不替代上方模型答案，也不是新的路由依据。\n\n")
+		b.WriteString("| 文件 | Owner/符号 | 证据 | 强度 |\n|---|---|---|---|\n")
+	} else {
+		b.WriteString("---\n\n")
+		b.WriteString("> **System supplement: source-localization anchors**\n>\n")
+		b.WriteString("> The table below is derived from typed owner/evidence anchors gathered during read-mode exploration. It preserves localization evidence that can be lost during final compression. It does not replace the model-authored answer above and is not a routing signal.\n\n")
+		b.WriteString("| File | Owner / symbol | Evidence | Strength |\n|---|---|---|---|\n")
+	}
+	for _, row := range rows {
+		fmt.Fprintf(&b, "| `%s` | %s | %s | `%s` |\n",
+			row.Path,
+			readOwnerAnchorSupplementSymbol(row),
+			readOwnerAnchorSupplementEvidence(row),
+			row.Strength)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func readOwnerAnchorSupplementRows(_ *types.AgentContext, doc *types.AnswerDocumentV2) []readOwnerAnchorSupplementRow {
+	if doc == nil || len(doc.ReadOwnerAnchors) == 0 {
+		return nil
+	}
+	view := types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: doc.ReadOwnerAnchors}, 8)
+	seen := map[string]bool{}
+	var rows []readOwnerAnchorSupplementRow
+	for _, item := range view.Items {
+		if item.Path == "" || types.SourcePathRoleIsAuxiliary(item.Role) || item.Kind == types.SourceLocalizationAnchorScope {
+			continue
+		}
+		switch item.Strength {
+		case types.SourceLocalizationAnchorOwner, types.SourceLocalizationAnchorSupporting:
+		default:
+			continue
+		}
+		row := readOwnerAnchorSupplementRow{
+			Path:         item.Path,
+			OwnerSymbol:  strings.TrimSpace(item.OwnerSymbol),
+			AnchorSymbol: strings.TrimSpace(item.AnchorSymbol),
+			Strength:     item.Strength,
+		}
+		if row.OwnerSymbol == "" {
+			row.OwnerSymbol = strings.TrimSpace(item.Subject)
+		}
+		if item.EvidenceRef != nil {
+			row.EvidenceID = strings.TrimSpace(item.EvidenceRef.ID)
+			row.LineStart = item.EvidenceRef.LineStart
+			row.LineEnd = item.EvidenceRef.LineEnd
+			if row.OwnerSymbol == "" {
+				row.OwnerSymbol = strings.TrimSpace(item.EvidenceRef.OwnerSymbol)
+			}
+			if row.AnchorSymbol == "" {
+				row.AnchorSymbol = strings.TrimSpace(item.EvidenceRef.AnchorSymbol)
+			}
+		}
+		key := strings.Join([]string{row.Path, row.OwnerSymbol, row.AnchorSymbol, row.EvidenceID}, "\x00")
+		if row.Path == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func readOwnerAnchorSupplementSymbol(row readOwnerAnchorSupplementRow) string {
+	var parts []string
+	if row.OwnerSymbol != "" {
+		parts = append(parts, "`"+row.OwnerSymbol+"`")
+	}
+	if row.AnchorSymbol != "" && row.AnchorSymbol != row.OwnerSymbol {
+		parts = append(parts, "`"+row.AnchorSymbol+"`")
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, " / ")
+}
+
+func readOwnerAnchorSupplementEvidence(row readOwnerAnchorSupplementRow) string {
+	loc := row.Path
+	if row.LineStart > 0 {
+		if row.LineEnd > row.LineStart {
+			loc += fmt.Sprintf(":%d-%d", row.LineStart, row.LineEnd)
+		} else {
+			loc += fmt.Sprintf(":%d", row.LineStart)
+		}
+	}
+	if row.EvidenceID != "" {
+		return fmt.Sprintf("`%s` (`%s`)", loc, row.EvidenceID)
+	}
+	return "`" + loc + "`"
 }
 
 func renderRequestedAnswerDimensionSourceQuoteSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {

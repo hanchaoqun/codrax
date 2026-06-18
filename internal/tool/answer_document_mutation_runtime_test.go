@@ -47,6 +47,55 @@ func TestApplyAndPersistMutation_ReplaceAllPersistsDocAndClearsPatchFlag(t *test
 	}
 }
 
+func TestApplyAndPersistMutation_StampsReadOwnerAnchorsFromTurnA(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		SourceLocalization: &types.SourceLocalizationReview{
+			Source: "read_turn_a",
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:     "pkg/observed.py",
+				Kind:     types.SourceLocalizationAnchorReadFile,
+				Strength: types.SourceLocalizationAnchorObserved,
+			}, {
+				Path:        "pkg/owner.py",
+				Kind:        types.SourceLocalizationAnchorGroundedEvidence,
+				Strength:    types.SourceLocalizationAnchorOwner,
+				OwnerSymbol: "Owner.Handle",
+				EvidenceRef: &types.WriteExplorationEvidenceRef{
+					ID:          "ev-owner",
+					Source:      "pkg/owner.py",
+					LineStart:   12,
+					OwnerSymbol: "Owner.Handle",
+				},
+			}},
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "answer"},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.ReadOwnerAnchors) != 1 {
+		t.Fatalf("read owner anchors not stamped: %+v", got)
+	}
+	if got.ReadOwnerAnchors[0].Path != "pkg/owner.py" || got.ReadOwnerAnchors[0].OwnerSymbol != "Owner.Handle" {
+		t.Fatalf("wrong stamped anchor: %+v", got.ReadOwnerAnchors[0])
+	}
+	if got.ReadOwnerAnchors[0].EvidenceRef == nil || got.ReadOwnerAnchors[0].EvidenceRef.ID != "ev-owner" {
+		t.Fatalf("stamped anchor lost evidence ref: %+v", got.ReadOwnerAnchors[0])
+	}
+}
+
 // TestApplyAndPersistMutation_PartialPersistsDocAndSetsPatchFlag
 // — patch path: NewPartialMutation → LastEmitFromPatch=true.
 func TestApplyAndPersistMutation_PartialPersistsDocAndSetsPatchFlag(t *testing.T) {
