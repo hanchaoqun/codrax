@@ -154,7 +154,8 @@ func WriteExplorationHandoffFromTurnA(req WriteExplorationRequest, turnA TurnAAr
 	for _, ev := range turnA.EvidenceItems {
 		addFile(ev.Source)
 		addSymbol(ev.AnchorSymbol)
-		addSymbol(ev.OwnerSymbol)
+		ownerSymbol := sourceLocalizationEvidenceOwnerSymbol(ev)
+		addSymbol(ownerSymbol)
 		addSymbol(ev.Subject)
 		if ev.Kind == EvidenceUnresolved || ev.Kind == EvidenceTruncated || ev.GroundingStatus == GroundingUngrounded {
 			addUnknown(compactEvidenceSurface(ev))
@@ -172,7 +173,7 @@ func WriteExplorationHandoffFromTurnA(req WriteExplorationRequest, turnA TurnAAr
 			LineStart:    ev.LineStart,
 			LineEnd:      ev.LineEnd,
 			Subject:      ev.Subject,
-			OwnerSymbol:  ev.OwnerSymbol,
+			OwnerSymbol:  ownerSymbol,
 			AnchorSymbol: ev.AnchorSymbol,
 			Summary:      ev.Summary,
 		}

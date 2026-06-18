@@ -93,6 +93,31 @@ func TestWriteExplorationHandoffFromTurnAProjectsBoundedPlanningContext(t *testi
 	}
 }
 
+func TestWriteExplorationHandoffFromTurnAInfersOwnerFromSourcePrefixedSubject(t *testing.T) {
+	got := WriteExplorationHandoffFromTurnA(WriteExplorationRequest{BatchID: "batch-1", Goal: "fix"}, TurnAArtifacts{
+		EvidenceItems: []EvidenceItem{{
+			ID:              "ev-owner-subject",
+			Kind:            EvidenceDirect,
+			Source:          "pkg/owner.py",
+			LineStart:       42,
+			Subject:         "pkg/owner.py:Owner.handle",
+			AnchorSymbol:    "if",
+			GroundingStatus: GroundingGrounded,
+			Scope:           ScopeLine,
+		}},
+	})
+
+	if len(got.EvidenceRefs) != 1 || got.EvidenceRefs[0].OwnerSymbol != "Owner.handle" {
+		t.Fatalf("handoff evidence ref owner not inferred: %+v", got.EvidenceRefs)
+	}
+	if !containsWriteExplorationString(got.RelevantSymbols, "Owner.handle") {
+		t.Fatalf("derived owner not projected as relevant symbol: %+v", got.RelevantSymbols)
+	}
+	if got.SourceLocalization == nil || !sourceLocalizationTestHasAnchor(*got.SourceLocalization, "pkg/owner.py", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner) {
+		t.Fatalf("source localization owner anchor missing: %+v", got.SourceLocalization)
+	}
+}
+
 func TestMutableStateWriteExplorationDefensiveCopy(t *testing.T) {
 	mu := NewMutableState("request")
 	req := &WriteExplorationRequest{

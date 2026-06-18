@@ -4316,7 +4316,7 @@ Verification:
 | RC-104 | complete | Shared localization owner/evidence anchor closure: preserve prior owner/supporting/scope anchors through write plan localization review and downstream context packs, so later controller/planner/verifier consumers see typed anchor evidence instead of only path sets. Focused types tests, related write/read consumers, full `go test ./...`, `make`, and `git diff --check` pass. |
 | RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
 | RC-106 | complete | Same-batch source-owner relation after test-only replan: restore-aware delivery lineage now preserves/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code, while still excluding stale pre-restore plans when no precise restored checkpoint relation exists. Focused Go and SWE adapter regressions pass. |
-| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports. Remaining work: direct controller/replan slice selection from `OwnerAnchorView`, read final-answer projection, unresolved owner-gap reporting, and SWE smoke/audit. |
+| RC-107 | in_progress | Shared typed localization owner/evidence scheduling authority: RC107-A added ranked owner-anchor views and planner consumption; RC107-B preserves `owner_symbol` across read/write typed handoff artifacts; RC107-C records selected owner-anchor IDs on plans and projects plan/handoff owner anchors into final reports; RC107-D infers owner symbols from typed `source_path:symbol` evidence subjects. Remaining work: direct controller/replan slice selection from `OwnerAnchorView`, read final-answer projection, unresolved owner-gap reporting, and another SWE smoke/audit after RC107-D. |
 | RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
 | RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
 
@@ -6656,6 +6656,53 @@ verifier-only hardening unless a regression blocks mainline stability.
     'Test(OwnerAnchorView|BuildWriteFinalReport|WriteFinalReport)' -count=1`
     and `go test ./internal/orchestrator -run
     'TestAttachPlanContextPackToWorkflowRun.*|TestPersistWriteWorkflowRunTerminalWritesFinalReport'
+    -count=1`.
+- RC107-C SWE smoke/audit:
+  - Ran
+    `WORKDIR=/Users/han/opt/codrax/eval/results/swebench/lite-smoke-20260619-rc107c-3
+    SWEBENCH_SMOKE_LIMIT=3 SWEBENCH_FAIL_ON_INSTANCE_ERROR=0
+    SWEBENCH_FAIL_ON_EMPTY_PATCH=0 SWEBENCH_REQUIRE_NONEMPTY_PATCH=0
+    CODRAX_BIN=/Users/han/opt/codrax/codrax eval/swebench/smoke_lite.sh`.
+  - Result: 3/3 non-empty predictions and official harness import/dry-run
+    command accepted. Local summary:
+    `current_core=3/3`, `non_empty_patch=3/3`, `high_conf_local_verify=1/3`,
+    `final_report=3/3`.
+  - Manual patch audit:
+    `astropy__astropy-12907` changed `astropy/modeling/separable.py` from
+    constant `1` to `right` in `_cstack`, theoretically aligned with expected
+    separability behavior but locally unverified due typed environment/probe
+    unavailable evidence.
+    `astropy__astropy-14182` changed `astropy/io/ascii/rst.py` to thread
+    `header_rows`, theoretically aligned but locally unverified for the same
+    environment/probe reasons.
+    `astropy__astropy-14365` changed QDP line-type regex compilation to
+    `re.IGNORECASE`, reached `verify_status=passed` and high local confidence.
+  - Newly exposed RC107-D gap: the final-report owner-anchor fields are present
+    and exported, but `owner_symbol` remained empty for several real anchors.
+    The evidence had typed `subject=source_path:symbol` rows such as
+    `astropy/modeling/separable.py:separability_matrix`, while the local
+    `anchor_symbol` was a statement token such as `if` or `np.where`. The next
+    producer-side fix should infer owner symbols from this exact typed
+    `source_path:symbol` shape and feed both read-mode handoff and write-mode
+    localization, without parsing user intent or model prose.
+- RC107-D implementation notes:
+  - Added a conservative typed owner fallback in shared types: when
+    `EvidenceItem.OwnerSymbol` is empty but `EvidenceItem.Subject` exactly
+    starts with the normalized `EvidenceItem.Source` path (or basename)
+    followed by `:` / `::`, the suffix is accepted as `owner_symbol` only if it
+    is a compact identifier-shaped symbol. This consumes structured evidence
+    fields only; summaries, rationale, stdout, issue text, and `<think>` are
+    ignored.
+  - `SourceLocalizationReviewFromTurnA` and
+    `WriteExplorationHandoffFromTurnA` now use the same helper, so read-mode
+    TurnA artifacts and write-mode context packs see one consistent owner
+    projection.
+  - Focused/related verification:
+    `go test ./internal/types -run
+    'Test(SourceLocalizationReviewFromTurnA.*Owner|WriteExplorationHandoffFromTurnAInfersOwner|OwnerAnchorView|BuildWriteFinalReport)'
+    -count=1`
+    and `go test ./internal/types ./internal/agent ./internal/orchestrator -run
+    'Test(SourceLocalization|WriteExplorationHandoff|TurnA|AnswerDocument|Explorer|AttachPlanContextPack)'
     -count=1`.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue

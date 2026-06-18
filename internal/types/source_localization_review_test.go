@@ -81,6 +81,33 @@ func TestSourceLocalizationReviewFromTurnAGroundedEvidenceCreatesOwnerAnchor(t *
 	}
 }
 
+func TestSourceLocalizationReviewFromTurnAInfersOwnerFromSourcePrefixedSubject(t *testing.T) {
+	review := SourceLocalizationReviewFromTurnA(
+		nil,
+		[]EvidenceItem{{
+			ID:              "ev-owner-subject",
+			Kind:            EvidenceDirect,
+			Source:          "pkg/owner.py",
+			LineStart:       42,
+			Subject:         "pkg/owner.py:Owner.handle",
+			AnchorSymbol:    "if",
+			GroundingStatus: GroundingGrounded,
+			Scope:           ScopeLine,
+		}},
+	)
+
+	ownerAnchor := sourceLocalizationTestAnchor(review, "pkg/owner.py", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner)
+	if ownerAnchor == nil {
+		t.Fatalf("owner anchor missing: %+v", review.Anchors)
+	}
+	if ownerAnchor.OwnerSymbol != "Owner.handle" || ownerAnchor.AnchorSymbol != "if" {
+		t.Fatalf("source-prefixed subject owner not inferred: %+v", ownerAnchor)
+	}
+	if len(review.EvidenceRefs) != 1 || review.EvidenceRefs[0].OwnerSymbol != "Owner.handle" {
+		t.Fatalf("evidence ref owner not inferred: %+v", review.EvidenceRefs)
+	}
+}
+
 func TestSourceLocalizationReviewFromTurnADeterministicConcreteValueNeedsDefiningRoleForAnchor(t *testing.T) {
 	review := SourceLocalizationReviewFromTurnA(
 		[]string{"src/owner.py"},

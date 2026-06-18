@@ -231,6 +231,7 @@ func SourceLocalizationReviewFromTurnA(readFiles []string, evidence []EvidenceIt
 		if p == "" {
 			continue
 		}
+		ownerSymbol := sourceLocalizationEvidenceOwnerSymbol(ev)
 		ref := WriteExplorationEvidenceRef{
 			ID:           ev.ID,
 			Kind:         string(ev.Kind),
@@ -238,7 +239,7 @@ func SourceLocalizationReviewFromTurnA(readFiles []string, evidence []EvidenceIt
 			LineStart:    ev.LineStart,
 			LineEnd:      ev.LineEnd,
 			Subject:      ev.Subject,
-			OwnerSymbol:  ev.OwnerSymbol,
+			OwnerSymbol:  ownerSymbol,
 			AnchorSymbol: ev.AnchorSymbol,
 			Summary:      ev.Summary,
 		}
@@ -259,7 +260,7 @@ func SourceLocalizationReviewFromTurnA(readFiles []string, evidence []EvidenceIt
 			Strength:     strength,
 			EvidenceRef:  &ref,
 			Subject:      ev.Subject,
-			OwnerSymbol:  ev.OwnerSymbol,
+			OwnerSymbol:  ownerSymbol,
 			AnchorSymbol: ev.AnchorSymbol,
 			ReasonCode:   reason,
 		})
@@ -515,6 +516,58 @@ func sourceLocalizationEvidenceCanAnchorOwner(ev EvidenceItem) bool {
 		return true
 	}
 	return ev.ContextRole == EvidenceContextRoleDefining
+}
+
+func sourceLocalizationEvidenceOwnerSymbol(ev EvidenceItem) string {
+	if owner := trimSourceLocalizationText(ev.OwnerSymbol); owner != "" {
+		return owner
+	}
+	if owner := sourceLocalizationOwnerSymbolFromSourceSubject(ev.Source, ev.Subject); owner != "" {
+		return owner
+	}
+	if ev.ContextRole == EvidenceContextRoleDefining && sourceLocalizationLooksOwnerSymbol(ev.Subject) {
+		return trimSourceLocalizationText(ev.Subject)
+	}
+	if ev.AnchorKind == AnchorDefinition && sourceLocalizationLooksOwnerSymbol(ev.AnchorSymbol) {
+		return trimSourceLocalizationText(ev.AnchorSymbol)
+	}
+	return ""
+}
+
+func sourceLocalizationOwnerSymbolFromSourceSubject(source, subject string) string {
+	p := sourceLocalizationPath(source)
+	subject = trimSourceLocalizationText(subject)
+	if p == "" || subject == "" {
+		return ""
+	}
+	for _, prefix := range []string{p + "::", p + ":", path.Base(p) + ":"} {
+		if strings.HasPrefix(subject, prefix) {
+			candidate := strings.TrimPrefix(subject, prefix)
+			candidate = strings.Trim(candidate, " \t`'\"")
+			if sourceLocalizationLooksOwnerSymbol(candidate) {
+				return trimSourceLocalizationText(candidate)
+			}
+		}
+	}
+	return ""
+}
+
+func sourceLocalizationLooksOwnerSymbol(raw string) bool {
+	raw = trimSourceLocalizationText(raw)
+	if raw == "" || strings.ContainsAny(raw, "/\\ \t\r\n") {
+		return false
+	}
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '.' || r == ':' || r == '#':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func sourceLocalizationHasStrength(anchors []SourceLocalizationAnchor, strength SourceLocalizationAnchorStrength) bool {
