@@ -79,8 +79,8 @@ const (
 )
 
 const (
-	rawPerfParsedSampleBits    = perfSampleIP | perfSampleTID | perfSampleTime | perfSampleAddr | perfSampleCallchain | perfSampleID | perfSampleCPU | perfSamplePeriod | perfSampleStreamID | perfSampleIdentifier
-	rawPerfSkippedSampleBits   = perfSampleRead | perfSampleRaw | perfSampleBranchStack | perfSampleRegsUser | perfSampleStackUser | perfSampleWeight | perfSampleDataSrc | perfSampleTransaction | perfSampleRegsIntr | perfSamplePhysAddr | perfSampleAux | perfSampleCGroup | perfSampleDataPageSize | perfSampleCodePageSize | rawPerfVendorSampleBit31
+	rawPerfParsedSampleBits    = perfSampleIP | perfSampleTID | perfSampleTime | perfSampleAddr | perfSampleCallchain | perfSampleID | perfSampleCPU | perfSamplePeriod | perfSampleStreamID | perfSampleIdentifier | perfSampleWeight | perfSampleDataSrc | perfSampleTransaction | perfSamplePhysAddr | perfSampleCGroup | perfSampleDataPageSize | perfSampleCodePageSize
+	rawPerfSkippedSampleBits   = perfSampleRead | perfSampleRaw | perfSampleBranchStack | perfSampleRegsUser | perfSampleStackUser | perfSampleRegsIntr | perfSampleAux | rawPerfVendorSampleBit31
 	rawPerfSupportedSampleBits = rawPerfParsedSampleBits | rawPerfSkippedSampleBits
 
 	rawPerfSymbolFileKernel       = 0

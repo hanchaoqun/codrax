@@ -78,11 +78,11 @@ func TestConvertRawPerfDataFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 	}
 }
 
-func TestConvertRawPerfDataSkipsSafeExtraSampleFields(t *testing.T) {
+func TestConvertRawPerfDataPreservesSafeExtraSampleFields(t *testing.T) {
 	dir := t.TempDir()
 	perfData := filepath.Join(dir, "perf-extra.data")
 	outPath := filepath.Join(dir, "raw-extra.perftrace")
-	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod | perfSampleCallchain | perfSampleRaw | perfSampleWeight)
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleAddr | perfSampleID | perfSampleStreamID | perfSampleCPU | perfSamplePeriod | perfSampleCallchain | perfSampleRaw | perfSampleBranchStack | perfSampleWeight | perfSampleDataSrc | perfSampleTransaction | perfSamplePhysAddr | perfSampleCGroup | perfSampleDataPageSize | perfSampleCodePageSize)
 	if err := os.WriteFile(perfData, syntheticRawPerfDataWithSampleType(sampleType, 0), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -91,8 +91,11 @@ func TestConvertRawPerfDataSkipsSafeExtraSampleFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read raw perf data with extra fields: %v", err)
 	}
-	if len(data.Caveats) == 0 || !strings.Contains(strings.Join(data.Caveats, "\n"), "raw,weight") {
+	if len(data.Caveats) == 0 || !strings.Contains(strings.Join(data.Caveats, "\n"), "raw,branch_stack") {
 		t.Fatalf("expected skipped-field caveat, got %+v", data.Caveats)
+	}
+	if len(data.Samples) != 1 || data.Samples[0].Addr != 0xfeed || data.Samples[0].ID != 202 || data.Samples[0].StreamID != 303 || data.Samples[0].Weight != 123 || data.Samples[0].DataSrc != 0x45 || data.Samples[0].Transaction != 0x67 || data.Samples[0].PhysAddr != 0x89000 || data.Samples[0].CGroupID != 404 || data.Samples[0].DataPageSize != 4096 || data.Samples[0].CodePageSize != 16384 || data.Samples[0].RawSize != 3 || data.Samples[0].BranchStackCount != 1 {
+		t.Fatalf("extra sample fields not parsed: %+v", data.Samples)
 	}
 	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
 		t.Fatalf("convert raw perf.data with extra fields: %v", err)
@@ -101,7 +104,7 @@ func TestConvertRawPerfDataSkipsSafeExtraSampleFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`symbol="0x1234"`, `parser_caveats=`, `raw fallback skipped non-causal sample payload field(s): raw,weight`} {
+	for _, want := range []string{`symbol="0x1234"`, `addr=0xfeed`, `sample_id=202`, `stream_id=303`, `perf_weight=123`, `data_src=0x45`, `transaction=0x67`, `phys_addr=0x89000`, `cgroup_id=404`, `data_page_size=4096`, `code_page_size=16384`, `raw_size=3`, `branch_count=1`, `parser_caveats=`, `raw fallback skipped non-causal sample payload field(s): raw,branch_stack`} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("perftrace missing %q:\n%s", want, string(body))
 		}
@@ -110,8 +113,12 @@ func TestConvertRawPerfDataSkipsSafeExtraSampleFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse perftrace: %v", err)
 	}
-	if len(idx.Events) != 1 || idx.Events[0].PerfSymbol != "0x1234" {
+	if len(idx.Events) != 1 || idx.Events[0].PerfSymbol != "0x1234" || idx.Events[0].PerfAddr != "0xfeed" || idx.Events[0].PerfSampleID != "202" || idx.Events[0].PerfStreamID != "303" || idx.Events[0].PerfRawWeight != 123 || idx.Events[0].PerfDataSrc != "0x45" || idx.Events[0].PerfTransaction != "0x67" || idx.Events[0].PerfPhysAddr != "0x89000" || idx.Events[0].PerfCGroupID != "404" || idx.Events[0].PerfDataPageSize != 4096 || idx.Events[0].PerfCodePageSize != 16384 || idx.Events[0].PerfRawSize != 3 || idx.Events[0].PerfBranchCount != 1 {
 		t.Fatalf("extra fields should not disturb sample parsing: %+v", idx.Events)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
+	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) == 0 || !strings.Contains(stats.PerfSamples.TopSymbols[0].Example, "perf_weight=123") || !strings.Contains(stats.PerfSamples.TopSymbols[0].Example, "data_src=0x45") {
+		t.Fatalf("extra fields should reach hotspot examples: %+v", stats.PerfSamples)
 	}
 }
 
@@ -1018,17 +1025,23 @@ func rawPerfSamplePayload(sampleType uint64) []byte {
 	if sampleType&perfSampleTime != 0 {
 		writeU64(1_234_567_000)
 	}
+	if sampleType&perfSampleAddr != 0 {
+		writeU64(0xfeed)
+	}
 	if sampleType&perfSampleID != 0 {
 		writeU64(202)
 	}
 	if sampleType&perfSampleStreamID != 0 {
-		writeU64(202)
+		writeU64(303)
 	}
 	if sampleType&perfSampleCPU != 0 {
 		writeU32Pair(5, 0)
 	}
 	if sampleType&perfSamplePeriod != 0 {
 		writeU64(99)
+	}
+	if sampleType&perfSampleRead != 0 {
+		writeU64(777)
 	}
 	if sampleType&perfSampleCallchain != 0 {
 		writeU64(2)
@@ -1044,6 +1057,12 @@ func rawPerfSamplePayload(sampleType uint64) []byte {
 			out.WriteByte(0)
 		}
 	}
+	if sampleType&perfSampleBranchStack != 0 {
+		writeU64(1)
+		writeU64(0x1000)
+		writeU64(0x2000)
+		writeU64(0)
+	}
 	if sampleType&perfSampleRegsUser != 0 {
 		writeU64(0)
 	}
@@ -1054,6 +1073,31 @@ func rawPerfSamplePayload(sampleType uint64) []byte {
 	}
 	if sampleType&perfSampleWeight != 0 {
 		writeU64(123)
+	}
+	if sampleType&perfSampleDataSrc != 0 {
+		writeU64(0x45)
+	}
+	if sampleType&perfSampleTransaction != 0 {
+		writeU64(0x67)
+	}
+	if sampleType&perfSampleRegsIntr != 0 {
+		writeU64(0)
+	}
+	if sampleType&perfSamplePhysAddr != 0 {
+		writeU64(0x89000)
+	}
+	if sampleType&perfSampleAux != 0 {
+		writeU64(2)
+		out.Write([]byte{0xdd, 0xee})
+	}
+	if sampleType&perfSampleCGroup != 0 {
+		writeU64(404)
+	}
+	if sampleType&perfSampleDataPageSize != 0 {
+		writeU64(4096)
+	}
+	if sampleType&perfSampleCodePageSize != 0 {
+		writeU64(16384)
 	}
 	return out.Bytes()
 }

@@ -849,6 +849,8 @@ func TestConvertFileRoundTripsInodeIOThroughTraceQuery(t *testing.T) {
 		{EventID: 83, OffsetNS: 4_000_000, Content: syntheticMMFilemapContent(83, 0)},
 		{EventID: 84, OffsetNS: 5_000_000, Content: syntheticF2FSContent(84, false)},
 		{EventID: 85, OffsetNS: 8_000_000, Content: syntheticF2FSContent(85, true)},
+		{EventID: 86, OffsetNS: 9_000_000, Content: syntheticExt4DirectIOContent(86, false)},
+		{EventID: 87, OffsetNS: 11_000_000, Content: syntheticExt4DirectIOContent(87, true)},
 	}))
 	if err := os.WriteFile(input, b.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
@@ -874,13 +876,20 @@ func TestConvertFileRoundTripsInodeIOThroughTraceQuery(t *testing.T) {
 		t.Fatalf("converted page-cache rows did not aggregate: %+v", stats.PageCacheByInode)
 	}
 	foundF2FS := false
+	foundExt4 := false
 	for _, item := range stats.StorageLatencyByLayer {
 		if item.Layer == "f2fs" && item.PairedCount == 1 && item.MaxLatencyMs > 0 {
 			foundF2FS = true
 		}
+		if item.Layer == "ext4" && item.PairedCount == 1 && item.Inode == "0xcafe" && item.MaxLatencyMs > 0 {
+			foundExt4 = true
+		}
 	}
 	if !foundF2FS {
 		t.Fatalf("converted f2fs rows did not produce storage latency: %+v", stats.StorageLatencyByLayer)
+	}
+	if !foundExt4 {
+		t.Fatalf("converted ext4 rows did not produce storage latency: %+v", stats.StorageLatencyByLayer)
 	}
 	if stats.IOPressureSummary == nil || stats.IOPressureSummary.TopInode != "0xb9b8e" {
 		t.Fatalf("converted IO rows did not produce IO pressure summary: %+v", stats.IOPressureSummary)
@@ -1065,6 +1074,23 @@ func syntheticIOEventFormat() string {
 		syntheticField("int", "ret", 48, 4, true),
 		syntheticField("unsigned int", "latency_us", 52, 4, false),
 	})...)
+	lines = append(lines, syntheticFormatBlock("ext4_direct_IO_enter", 86, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("unsigned long", "dev", 8, 8, false),
+		syntheticField("unsigned long", "ino", 16, 8, false),
+		syntheticField("unsigned long", "pos", 24, 8, false),
+		syntheticField("unsigned long", "len", 32, 8, false),
+		syntheticField("int", "rw", 40, 4, true),
+	})...)
+	lines = append(lines, syntheticFormatBlock("ext4_direct_IO_exit", 87, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("unsigned long", "dev", 8, 8, false),
+		syntheticField("unsigned long", "ino", 16, 8, false),
+		syntheticField("unsigned long", "pos", 24, 8, false),
+		syntheticField("unsigned long", "len", 32, 8, false),
+		syntheticField("int", "rw", 40, 4, true),
+		syntheticField("int", "ret", 44, 4, true),
+	})...)
 	return strings.Join(lines, "\n")
 }
 
@@ -1146,6 +1172,21 @@ func syntheticF2FSContent(eventID uint16, done bool) []byte {
 	if done {
 		binary.LittleEndian.PutUint32(content[48:52], 8192)
 		binary.LittleEndian.PutUint32(content[52:56], 5700)
+	}
+	return content
+}
+
+func syntheticExt4DirectIOContent(eventID uint16, done bool) []byte {
+	content := make([]byte, 48)
+	binary.LittleEndian.PutUint16(content[0:2], eventID)
+	binary.LittleEndian.PutUint32(content[4:8], 20)
+	binary.LittleEndian.PutUint64(content[8:16], syntheticDev(260, 136))
+	binary.LittleEndian.PutUint64(content[16:24], 0xcafe)
+	binary.LittleEndian.PutUint64(content[24:32], 16384)
+	binary.LittleEndian.PutUint64(content[32:40], 4096)
+	binary.LittleEndian.PutUint32(content[40:44], 0)
+	if done {
+		binary.LittleEndian.PutUint32(content[44:48], 4096)
 	}
 	return content
 }
