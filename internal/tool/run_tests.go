@@ -62,6 +62,14 @@ type runnerPlan struct {
 
 const maxTestSurfaceEscalations = 3
 
+const (
+	verificationProbeContinuationPlanTouchesTestPath       = "plan_touches_test_path"
+	verificationProbeContinuationMissingChangedSymbolRef   = "verification_probe_missing_changed_symbol_ref"
+	verificationProbeContinuationImpactRelatedTestSurface  = "impact_related_test_surface"
+	verificationProbeContinuationSourceImpactTestSurface   = "impact_test_surface"
+	verificationProbeContinuationSourceProbeSuiteContinued = "probe_primary_suite_continued"
+)
+
 type pytestTextFallbackResult struct {
 	Report   *types.ChangeReport
 	ParseErr error
@@ -462,15 +470,31 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			probeStatus := probe.Report.NormalizeVerificationStatus()
 			switch probeStatus {
 			case types.VerificationStatusPassed:
-				if reasonCode := verificationProbePassProjectSuiteContinuationReason(ctx, surface); reasonCode != "" {
+				if reasonCode := verificationProbePassProjectSuiteContinuationReason(ctx, surface, plans, planSources); reasonCode != "" {
 					preSuiteProbeContinuationReason = reasonCode
-					if cand := selectedSurfaceCandidate(surface); cand != nil && cand.HasTestSignal {
+					if reasonCode == verificationProbeContinuationImpactRelatedTestSurface {
+						plans = filterRunnerPlansBySource(ctx.RepoRoot, plans, planSources, verificationProbeContinuationSourceImpactTestSurface)
+					}
+					if len(plans) > 0 {
+						for _, plan := range plans {
+							cmdPreview, _ := buildRunCommandForPlan(plan, plan.Suite, ctx.MainRepoRoot)
+							executedCmds = append(executedCmds, types.ExecutedCommand{
+								Runner:     plan.Runner,
+								Framework:  plan.Framework,
+								WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+								Command:    cmdPreview,
+								Source:     verificationProbeContinuationSourceProbeSuiteContinued,
+								Outcome:    "suite_continued",
+								ReasonCode: reasonCode,
+							})
+						}
+					} else if cand := selectedSurfaceCandidate(surface); cand != nil && cand.HasTestSignal {
 						executedCmds = append(executedCmds, types.ExecutedCommand{
 							Runner:     cand.Runner,
 							Framework:  cand.Framework,
 							WorkingDir: cand.WorkingDir,
 							Command:    cand.Command,
-							Source:     "probe_primary_suite_continued",
+							Source:     verificationProbeContinuationSourceProbeSuiteContinued,
 							Outcome:    "suite_continued",
 							ReasonCode: reasonCode,
 						})
@@ -521,7 +545,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if preSuiteProbe.Report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
 			return nil, false
 		}
-		if strings.TrimSpace(preSuiteProbeContinuationReason) != "plan_touches_test_path" {
+		if !verificationProbeContinuationAllowsInfraDowngrade(preSuiteProbeContinuationReason) {
 			return nil, false
 		}
 		reasonCode := "project_suite_" + strings.TrimSpace(string(kind)) + "_after_probe_pass"
@@ -1214,7 +1238,7 @@ func shouldRunPreSuiteVerificationProbes(ctx *types.BusContext, dryRunProbe bool
 	return ctx != nil && ctx.PipelineStage == types.StageVerify && !dryRunProbe
 }
 
-func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, surface types.TestSurface) string {
+func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, surface types.TestSurface, plans []runnerPlan, planSources map[string]string) string {
 	if cand := selectedSurfaceCandidate(surface); cand == nil || !cand.HasTestSignal {
 		return ""
 	}
@@ -1222,18 +1246,50 @@ func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, 
 	if ctx != nil && ctx.Mutable != nil {
 		plan = ctx.Mutable.ChangePlan()
 	}
+	if hasRunnerPlanWithSource(ctxRepoRoot(ctx), plans, planSources, verificationProbeContinuationSourceImpactTestSurface) {
+		return verificationProbeContinuationImpactRelatedTestSurface
+	}
 	// Missing contract refs are recorded by verificationConfidenceRecordsFromReport
 	// as a typed confidence downgrade. They are not, by themselves, a reason to
 	// escalate a passed scoped probe into a potentially expensive full project
 	// suite; otherwise partial customer environments turn usable proof into a
 	// timeout hard failure.
 	if changePlanTouchesTestOrSpecPath(plan) {
-		return "plan_touches_test_path"
+		return verificationProbeContinuationPlanTouchesTestPath
 	}
 	if verificationProbeMissingChangedSymbolRefs(plan) {
-		return "verification_probe_missing_changed_symbol_ref"
+		return verificationProbeContinuationMissingChangedSymbolRef
 	}
 	return ""
+}
+
+func hasRunnerPlanWithSource(repoRoot string, plans []runnerPlan, planSources map[string]string, source string) bool {
+	return len(filterRunnerPlansBySource(repoRoot, plans, planSources, source)) > 0
+}
+
+func filterRunnerPlansBySource(repoRoot string, plans []runnerPlan, planSources map[string]string, source string) []runnerPlan {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return nil
+	}
+	var out []runnerPlan
+	for _, plan := range plans {
+		key := testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(repoRoot, plan))
+		if strings.TrimSpace(planSources[key]) == source {
+			out = append(out, plan)
+		}
+	}
+	return out
+}
+
+func verificationProbeContinuationAllowsInfraDowngrade(reason string) bool {
+	switch strings.TrimSpace(reason) {
+	case verificationProbeContinuationPlanTouchesTestPath,
+		verificationProbeContinuationImpactRelatedTestSurface:
+		return true
+	default:
+		return false
+	}
 }
 
 func verificationProbeMissingRequiredContractRefs(plan *types.ChangePlan) []string {
@@ -5706,6 +5762,9 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 			if filter == "" {
 				return fmt.Sprintf("%s -m unittest discover -v", interp), ""
 			}
+			if pythonUnittestSuiteIsDirectory(repoRoot, filter) {
+				return fmt.Sprintf("%s -m unittest discover -s %q -v", interp, filter), ""
+			}
 			if strings.HasSuffix(filter, ".py") || strings.Contains(filter, "/") {
 				return fmt.Sprintf("%s -m unittest discover -s %q -v", interp, filter), ""
 			}
@@ -5888,6 +5947,19 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		return fmt.Sprintf("cjpm test --filter %q", filter), ""
 	}
 	return "", ""
+}
+
+func pythonUnittestSuiteIsDirectory(repoRoot, suite string) bool {
+	suite = strings.TrimSpace(suite)
+	if suite == "" || strings.HasPrefix(suite, "-") || filepath.IsAbs(suite) {
+		return false
+	}
+	cleaned := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(suite, "./")))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(repoRoot, cleaned))
+	return err == nil && info.IsDir()
 }
 
 func djangoSuiteSelector(suite string) string {

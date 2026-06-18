@@ -370,9 +370,13 @@ func safeImpactRelatedPath(repoRoot, related string) string {
 func impactCandidateForRelatedPath(surface types.TestSurface, related string) *types.TestSurfaceCandidate {
 	var best *types.TestSurfaceCandidate
 	bestDepth := -1
+	bestPrecision := -1
 	for i := range surface.Candidates {
 		cand := surface.Candidates[i]
 		if !cand.HasTestSignal || !impactCandidateSupportsSuite(cand) {
+			continue
+		}
+		if impactSuiteForCandidate(cand, related) == "" {
 			continue
 		}
 		workingDir := strings.TrimSpace(cand.WorkingDir)
@@ -383,13 +387,37 @@ func impactCandidateForRelatedPath(surface types.TestSurface, related string) *t
 			continue
 		}
 		depth := impactWorkingDirDepth(workingDir)
-		if best == nil || depth > bestDepth {
+		precision := impactCandidateSuitePrecision(cand)
+		if best == nil || depth > bestDepth || (depth == bestDepth && precision > bestPrecision) {
 			next := cand
 			best = &next
 			bestDepth = depth
+			bestPrecision = precision
 		}
 	}
 	return best
+}
+
+func impactCandidateSuitePrecision(cand types.TestSurfaceCandidate) int {
+	switch cand.Runner {
+	case "python":
+		switch cand.Framework {
+		case pythonFrameworkPytest:
+			return 40
+		case pythonFrameworkDjango:
+			return 35
+		case pythonFrameworkUnittest:
+			return 20
+		default:
+			return 10
+		}
+	case "node", "java", "ruby", "rust", "swift":
+		return 30
+	case "go":
+		return 20
+	default:
+		return 0
+	}
 }
 
 func impactWorkingDirDepth(rel string) int {

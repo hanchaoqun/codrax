@@ -43,6 +43,35 @@ func TestImpactRunnerPlansFromChangePlanTargetsPythonRelatedTest(t *testing.T) {
 	}
 }
 
+func TestImpactRunnerPlansPreferPytestFileSelectorOverUnittestFallback(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "pyproject.toml", "[tool.pytest.ini_options]\ntestpaths=['tests']\n")
+	writeImpactSurfaceFixture(t, root, "pkg/a.py", "def value():\n    return 1\n")
+	writeImpactSurfaceFixture(t, root, "tests/test_a.py", "import unittest\n\ndef test_value():\n    assert True\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-python-pytest-precision",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "pkg/a.py",
+				RelatedPath: "tests/test_a.py",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+
+	plans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(plans) != 1 {
+		t.Fatalf("expected one impact runner plan, got %+v surface=%+v", plans, surface.Candidates)
+	}
+	if plans[0].Runner != "python" || plans[0].Framework != pythonFrameworkPytest || plans[0].Suite != "tests/test_a.py" {
+		t.Fatalf("pytest file selector should beat unittest fallback for impact test path, got %+v surface=%+v", plans[0], surface.Candidates)
+	}
+}
+
 func TestDefaultRunnerPlansPreservesMultipleImpactSuitesInSameWorkingDir(t *testing.T) {
 	root := t.TempDir()
 	writeImpactSurfaceFixture(t, root, "pyproject.toml", "[project]\nname='x'\n")

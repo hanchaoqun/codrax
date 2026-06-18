@@ -1017,6 +1017,179 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenOnlyContractRefMissin
 	}
 }
 
+func TestRunTestsVerificationProbePassContinuesImpactRelatedTestSurface(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tests", "__init__.py"), []byte(""), 0o644); err != nil {
+		t.Fatalf("write tests package marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	testBody := "import unittest\n\nclass ImpactSuite(unittest.TestCase):\n    def test_related_surface_fails(self):\n        self.assertTrue(False)\n"
+	if err := os.WriteFile(filepath.Join(root, "tests", "test_widget.py"), []byte(testBody), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	mu := types.NewMutableState("probe continues impact related test")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-impact-related",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "test_surface",
+				Path:           "widget.py",
+				RelatedPath:    "tests/test_widget.py",
+				CoverageStatus: "unverified",
+				Source:         "impact_engine",
+			}},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "value_contract",
+			Language:          "python",
+			Code:              "import widget\nassert widget.VALUE == 42\n",
+			ChangedSymbolRefs: []string{"widget.VALUE"},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("failing impact related test should fail after passing probe, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.NormalizeVerificationStatus() != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed; report=%+v", report.NormalizeVerificationStatus(), report)
+	}
+	foundContinued := false
+	foundImpactExecution := false
+	foundSkipped := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
+			cmd.Source == "probe_primary_suite_continued" &&
+			cmd.Outcome == "suite_continued" &&
+			cmd.ReasonCode == "impact_related_test_surface" {
+			foundContinued = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
+			cmd.Source == "impact_test_surface" && cmd.Outcome == "executed" {
+			foundImpactExecution = true
+		}
+		if cmd.Source == "probe_primary_suite_skipped" {
+			foundSkipped = true
+		}
+	}
+	if !foundContinued || !foundImpactExecution {
+		t.Fatalf("expected probe continuation and impact test execution; got %+v", report.ExecutedCommands)
+	}
+	if foundSkipped {
+		t.Fatalf("impact related test surface must not be skipped after passing probe: %+v", report.ExecutedCommands)
+	}
+}
+
+func TestRunTestsVerificationProbePassDowngradesImpactRelatedTestTimeout(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tests", "__init__.py"), []byte(""), 0o644); err != nil {
+		t.Fatalf("write tests package marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	testBody := "import time\nimport unittest\n\nclass ImpactSuite(unittest.TestCase):\n    def test_related_surface_is_too_heavy(self):\n        time.sleep(5)\n"
+	if err := os.WriteFile(filepath.Join(root, "tests", "test_widget.py"), []byte(testBody), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	mu := types.NewMutableState("probe impact timeout downgrade")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-impact-timeout",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "test_surface",
+				Path:           "widget.py",
+				RelatedPath:    "tests/test_widget.py",
+				CoverageStatus: "unverified",
+				Source:         "impact_engine",
+			}},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "value_contract",
+			Language:          "python",
+			Code:              "import widget\nassert widget.VALUE == 42\n",
+			ChangedSymbolRefs: []string{"widget.VALUE"},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"timeout_seconds": 1,
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("impact related test timeout after covered probe should be a confidence warning, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("VerificationStatus = %q, want passed; report=%+v", report.NormalizeVerificationStatus(), report)
+	}
+	foundContinued := false
+	foundTimeout := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
+			cmd.Source == "probe_primary_suite_continued" &&
+			cmd.Outcome == "suite_continued" &&
+			cmd.ReasonCode == "impact_related_test_surface" {
+			foundContinued = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
+			cmd.Source == "impact_test_surface" && cmd.Outcome == "timeout" {
+			foundTimeout = true
+		}
+	}
+	if !foundContinued || !foundTimeout {
+		t.Fatalf("expected continued impact suite and timeout evidence; got %+v", report.ExecutedCommands)
+	}
+	if !changeReportHasVerificationConfidence(report, "project_runner", "unavailable", "project_suite_timeout_after_probe_pass") {
+		t.Fatalf("suite timeout confidence downgrade should be retained: %+v", report.VerificationConfidence)
+	}
+	if strings.TrimSpace(report.FailureReasonCode) != "" || report.FailureKind != "" {
+		t.Fatalf("probe-primary pass should not keep hard failure fields: kind=%q reason=%q", report.FailureKind, report.FailureReasonCode)
+	}
+}
+
 func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanTouchesTests(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

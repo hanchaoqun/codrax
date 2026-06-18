@@ -3196,6 +3196,85 @@ RC-60 smoke:
   confidence escalation from bounded probes plus related convention/test
   evidence, not patch export or a Python-only boundary signal.
 
+## RC-61: Probe-Pass Should Continue Concrete Impact Test Surfaces
+
+RC-60 showed that the online loop can recover from a failing bounded probe, but
+the final confidence stayed low because `related_test_surface_unverified`
+remained telemetry even when the `ChangePlan.ImpactAnalysis` contained concrete
+related test paths:
+
+- `impactRunnerPlansFromChangePlan` already maps typed related tests to
+  runner-native suites across Python, Go, Node, Ruby, Java/Kotlin, Rust, and
+  Swift.
+- `run_tests` already queues these impact runner plans before broad default
+  TestSurface plans for normal verification.
+- The pre-suite `verification_probes[]` fast path returns immediately after a
+  pass unless the plan touched tests or the probes omit changed-symbol refs.
+  That skips concrete impact test surfaces and leaves low-confidence evidence
+  even though the next action is bounded and deterministic.
+
+This is a proof-quality scheduling gap, not an xarray-specific test rule. The
+right behavior is:
+
+- If bounded probes pass and the queued runner plan list contains
+  `impact_test_surface` entries, continue to those scoped impact plans.
+- Trim the continuation queue to the impact plans for that verify call so a
+  concrete related-test proof does not escalate into a broad project suite.
+- A real red related test remains `failed` and drives normal online replan.
+- Timeout/OOM/CPU/parser/runner infrastructure after a passed probe remains a
+  typed confidence warning, preserving the probe pass as the local behavior
+  verdict instead of turning partial customer infrastructure into a hard
+  blocker.
+- Hard logic reads only `ChangePlan.ImpactAnalysis`,
+  `ImpactVerificationTarget`, `TestSurface`, runner plan provenance, and typed
+  execution status. It must not inspect user prose, issue text, model
+  rationale, or `<think>`.
+
+RC-61 tasks:
+
+- [x] Add `impact_related_test_surface` as a pre-suite probe continuation
+  reason when queued runner plans include concrete impact test surfaces.
+- [x] Trim the post-probe continuation queue to impact runner plans for that
+  reason.
+- [x] Preserve the existing `plan_touches_test_path` and
+  `verification_probe_missing_changed_symbol_ref` behavior.
+- [x] Extend probe-primary infrastructure downgrade to
+  `impact_related_test_surface`.
+- [x] Add regressions proving a passing probe continues a failing scoped impact
+  test, and a timed-out scoped impact test becomes confidence warning rather
+  than hard failure.
+- [x] Prefer the most precise same-depth impact runner candidate so Python
+  pytest file selectors beat unittest fallback when both are available.
+- [x] Render unittest directory selectors as `unittest discover -s <dir>` so
+  scoped related-test directories do not become zero-test module invocations.
+- [x] Run focused `internal/tool`, related write packages, full Go regression,
+  `make test`, diff check, and a targeted SWE Lite rerun.
+
+RC-61 smoke:
+
+- Reran `pydata__xarray-4248` at
+  `/private/tmp/codrax-swe-rc61-xarray-20260618-125247`.
+- Final prediction export was non-empty (`patch_bytes=1248`) and the official
+  SWE-bench harness dry-run accepted the generated predictions file.
+- The workflow failed the first bounded probe, restored the checkpoint,
+  replanned, and then passed the bounded probe plus two concrete impact test
+  surfaces:
+  `pytest xarray/tests/test_formatting.py` and
+  `pytest xarray/tests/test_formatting_html.py`.
+- `verify_status=passed`, `verify_test_count=32`, and final PatchReview
+  coverage moved from the RC-60 `unverified` state to `verified`; no final
+  semantic-unverified telemetry codes remained.
+- Manual audit: this patch is stronger than RC-60 because it adjusts both
+  `summarize_variable` and `_get_col_items`, so column-width calculation
+  accounts for units before formatting. The scoped xarray formatting tests are
+  exactly the related surfaces the impact engine derived, so local functional
+  confidence is materially higher than probe-only verification.
+- New remaining gap for the next batch: the adapter still exported a stale
+  top-level `prediction_confidence_downgrade_reason` from earlier
+  `plan_patch_review_*` telemetry even though `final_plan_patch_review_*` was
+  verified. This is a result-authority aggregation gap, not a write runtime or
+  patch correctness gap.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3266,6 +3345,8 @@ RC-60 smoke:
 | RC-59 smoke | complete | Reran `pydata__xarray-4248` at `/private/tmp/codrax-swe-rc59-xarray-20260618-122015`: prediction export is non-empty and official harness dry-run accepts it. Workflow is now `complete` with typed verify attempts instead of missing `verify_status`; local verification remains unavailable (`parser_error`), and audit blocks on `changed_symbol_without_probe_coverage`, motivating RC-60 proof-follow-up scheduling. |
 | RC-60 | complete | Proof follow-up scheduling: typed proof coverage codes from PatchReview now route to `verification_proof_followup`, criteria mark `verification_probe_required=true`, proof batches retry once then fail-loud if the plan omits `verification_probes[]`, and typed `symbol=` criteria enrich probe `changed_symbol_refs`. Ordinary impact repairs remain unchanged. Verification: focused controller regressions, related packages, full `go test ./...`, `make test`, and diff check pass. |
 | RC-60 smoke | complete | Reran `pydata__xarray-4248` at `/private/tmp/codrax-swe-rc60-xarray-20260618-123244`: the workflow failed the first bounded probe, restored checkpoint, replanned, then passed two typed verification probes and exported a non-empty harness-consumable prediction. Manual audit marks the patch plausible but low-confidence because related project test surfaces remain telemetry rather than executed proof. |
+| RC-61 | complete | Probe-pass continuation now runs concrete impact related-test surfaces instead of skipping them, trims that continuation to impact runner plans, preserves probe-primary infra downgrades, fixes unittest directory selector rendering, and prefers precise pytest file selectors over unittest fallback. Verification: focused `internal/tool`, related packages, full `go test ./...`, `make test`, diff check, and xarray RC-61 SWE smoke pass. |
+| RC-61 smoke | complete | Reran `pydata__xarray-4248` at `/private/tmp/codrax-swe-rc61-xarray-20260618-125247`: prediction export was non-empty, official harness dry-run accepted it, verify executed the bounded probe plus scoped `xarray/tests/test_formatting.py` and `xarray/tests/test_formatting_html.py`, `verify_test_count=32`, and final PatchReview coverage was `verified`. A stale adapter confidence downgrade from earlier plan-level telemetry remains as RC-62 candidate. |
 
 ## Acceptance Criteria
 
