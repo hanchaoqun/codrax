@@ -266,6 +266,59 @@ func runnerPlanQueueKey(repoRoot string, plan runnerPlan) string {
 	return strings.Trim(key, "\x00")
 }
 
+// scopedRunnerPlansForExplicitChoice narrows a verifier-supplied runner or
+// runner/framework choice with typed impact targets when the verifier left the
+// suite empty. This keeps the model's useful language/framework decision while
+// preventing an empty selector from widening to a full repository suite when
+// ChangePlan already carries safer related-test obligations.
+func scopedRunnerPlansForExplicitChoice(repoRoot string, surface types.TestSurface, plan *types.ChangePlan, choice runnerPlan, params runTestsParams) []runnerPlan {
+	if strings.TrimSpace(repoRoot) == "" || plan == nil {
+		return nil
+	}
+	if strings.TrimSpace(choice.Runner) == "" {
+		return nil
+	}
+	if strings.TrimSpace(choice.Suite) != "" || strings.TrimSpace(params.Suite) != "" {
+		return nil
+	}
+	impactPlans := impactRunnerPlansFromChangePlan(repoRoot, surface, plan)
+	if len(impactPlans) == 0 {
+		return nil
+	}
+	wantRunner := strings.TrimSpace(choice.Runner)
+	wantFramework := ""
+	if strings.TrimSpace(params.Framework) != "" {
+		wantFramework = strings.TrimSpace(choice.Framework)
+	}
+	wantWorkingDir := ""
+	if strings.TrimSpace(params.WorkingDir) != "" {
+		wantWorkingDir = normalizeRunTestsWorkingDir(params.WorkingDir)
+	}
+	var out []runnerPlan
+	seen := map[string]bool{}
+	for _, impactPlan := range impactPlans {
+		if strings.TrimSpace(impactPlan.Runner) != wantRunner {
+			continue
+		}
+		if wantFramework != "" && strings.TrimSpace(impactPlan.Framework) != wantFramework {
+			continue
+		}
+		if wantWorkingDir != "" && normalizeRunTestsWorkingDir(runnerPlanRel(repoRoot, impactPlan)) != wantWorkingDir {
+			continue
+		}
+		if strings.TrimSpace(impactPlan.Suite) == "" {
+			continue
+		}
+		key := runnerPlanQueueKey(repoRoot, impactPlan)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, impactPlan)
+	}
+	return out
+}
+
 func impactRunnerPlansFromChangePlan(repoRoot string, surface types.TestSurface, plan *types.ChangePlan) []runnerPlan {
 	repoRoot = strings.TrimSpace(repoRoot)
 	if repoRoot == "" || plan == nil {

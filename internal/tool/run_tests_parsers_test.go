@@ -215,7 +215,13 @@ Destroying test database for alias 'default'...
 		t.Fatal("progress-only unittest failure should not pass")
 	}
 	if len(report.TestResults) != 1 {
-		t.Fatalf("TestResults len = %d, want synthetic aggregate row", len(report.TestResults))
+		t.Fatalf("TestResults len = %d, want one concrete unittest failure row", len(report.TestResults))
+	}
+	if got := report.TestResults[0].AssertionID; got != "test_multiline_rawsql_ordering" {
+		t.Fatalf("AssertionID = %q, want concrete unittest failure name", got)
+	}
+	if got := report.TestResults[0].Suite; got != "queries.tests.RawSQLOrderingTests.test_multiline_rawsql_ordering" {
+		t.Fatalf("Suite = %q, want concrete unittest failure suite", got)
 	}
 	detail := report.TestResults[0].FailureDetail
 	for _, want := range []string{

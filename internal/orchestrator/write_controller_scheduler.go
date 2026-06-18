@@ -1641,6 +1641,156 @@ func patchReviewHardBlockReason(review types.PatchReviewRecord) string {
 	return "patch_review_failed"
 }
 
+func patchReviewHardBlockShouldReplan(review types.PatchReviewRecord) bool {
+	review = types.NormalizePatchReviewRecord(review)
+	for _, finding := range review.Findings {
+		if finding.Severity == types.PatchReviewSeverityError &&
+			finding.Category == types.PatchReviewCategoryStructural {
+			return true
+		}
+	}
+	return false
+}
+
+func patchReviewFailureReasonCode(review types.PatchReviewRecord) string {
+	review = types.NormalizePatchReviewRecord(review)
+	for _, finding := range review.Findings {
+		if finding.Severity != types.PatchReviewSeverityError ||
+			finding.Category != types.PatchReviewCategoryStructural {
+			continue
+		}
+		if code := strings.TrimSpace(finding.Code); code != "" {
+			return code
+		}
+	}
+	return "patch_review_structural_failed"
+}
+
+func patchReviewFailureReport(plan *types.ChangePlan, review types.PatchReviewRecord, reason string) *types.ChangeReport {
+	review = types.NormalizePatchReviewRecord(review)
+	planID := ""
+	if plan != nil {
+		planID = strings.TrimSpace(plan.ID)
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = patchReviewHardBlockReason(review)
+	}
+	reasonCode := patchReviewFailureReasonCode(review)
+	if reasonCode == "" {
+		reasonCode = "patch_review_structural_failed"
+	}
+	detail := "patch review structural finding requires replan"
+	if reason != "" {
+		detail += ": " + reason
+	}
+	report := &types.ChangeReport{
+		PlanID:            planID,
+		Channel:           types.ChangeReportChannelPostApplyVerify,
+		Passed:            false,
+		FailureKind:       types.FailureKindTestsFailed,
+		FailureReasonCode: reasonCode,
+		FailureSummary:    detail,
+		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindUnit,
+			AssertionID:   "patch_review:" + reasonCode,
+			Suite:         "patch_review",
+			Passed:        false,
+			FailureDetail: detail,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "patch_review",
+			Framework:  "semantic_patch_review",
+			Command:    "post-apply patch review",
+			Source:     "post_apply_patch_review",
+			Outcome:    "failed",
+			ReasonCode: reasonCode,
+		}},
+		VerificationDiagnostics: []types.VerificationDiagnostic{{
+			Source:     "patch_review",
+			Category:   string(types.PatchReviewCategoryStructural),
+			Severity:   string(types.PatchReviewSeverityError),
+			ReasonCode: reasonCode,
+			Runner:     "patch_review",
+			Framework:  "semantic_patch_review",
+			Outcome:    "failed",
+			Detail:     detail,
+		}},
+		GeneratedAt: time.Now(),
+	}
+	report.EnsureVerificationStatus()
+	return report
+}
+
+func workflowBatchPatchReviewFailureCount(run *types.WriteWorkflowRun, batchID string) int {
+	if run == nil {
+		return 0
+	}
+	batchID = strings.TrimSpace(batchID)
+	count := 0
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != batchID {
+			continue
+		}
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) == "patch_review" &&
+				strings.TrimSpace(attempt.Status) == "failed" {
+				count++
+			}
+		}
+		return count
+	}
+	return 0
+}
+
+func (o *Orchestrator) handlePatchReviewHardBlock(run *types.WriteWorkflowRun, plan *types.ChangePlan, review types.PatchReviewRecord, reason string) (writeControllerApplyTransitionOutcome, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = patchReviewHardBlockReason(review)
+	}
+	if patchReviewHardBlockShouldReplan(review) && workflowBatchPatchReviewFailureCount(run, run.ActiveBatchID) < o.writeRetryBudget {
+		report := patchReviewFailureReport(plan, review, reason)
+		if plan != nil {
+			plan.Status = types.PlanStatusVerifyFailed
+			o.busCtx.Mutable.SetChangePlan(plan)
+			o.persistCurrentChangePlanSnapshot()
+		}
+		o.busCtx.Mutable.SetChangeReport(report)
+		updateWorkflowRunBatchVerify(run, run.ActiveBatchID, report, "failed", "patch_review_structural_failed")
+		updateWorkflowRunActiveSliceObserve(run, run.ActiveBatchID, report, "failed", "patch_review_structural_failed")
+		markWorkflowRunActiveSlicePatchReviewFailed(run, run.ActiveBatchID, plan, reason)
+		updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
+		appendControllerProgress(run, run.ActiveBatchID, "patch_review_failed", reason)
+		diffRef, surfaceRef := o.persistVerifyFailureEvidence(run, report, workflowBatchPatchReviewFailureCount(run, run.ActiveBatchID))
+		if handoff := o.resolveVerifyFailureHandoffArtifacts(types.BuildVerifyFailureHandoff(report, run.ActiveBatchID, workflowBatchPatchReviewFailureCount(run, run.ActiveBatchID), diffRef, surfaceRef)); handoff != nil {
+			o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
+		}
+		reportPack := types.WriteContextPackFromChangeReport(report).
+			WithScope(run.ActiveBatchID, activeWorkflowRunSliceID(*run, run.ActiveBatchID))
+		o.busCtx.Mutable.MergeWriteContextPack(reportPack)
+		o.syncCurrentWriteContextPackToRun(run)
+		o.persistWriteWorkflowRun(run)
+		o.busCtx.TaskState.LastError = ""
+		return writeControllerApplyTransitionRetry, fmt.Errorf("patch review failed: %s", reason)
+	}
+	if plan != nil {
+		plan.Status = types.PlanStatusBlocked
+		o.busCtx.Mutable.SetChangePlan(plan)
+		o.persistCurrentChangePlanSnapshot()
+	}
+	run.Status = types.WriteWorkflowRunBlocked
+	updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+	markWorkflowRunActiveSlicePatchReviewBlocked(run, run.ActiveBatchID, plan, reason)
+	reasonCode := "patch_review_blocked"
+	if patchReviewHardBlockShouldReplan(review) {
+		reasonCode = "patch_review_retry_budget_exhausted"
+	}
+	appendControllerProgress(run, run.ActiveBatchID, reasonCode, reason)
+	o.persistWriteWorkflowRun(run)
+	o.publishBlockedRunGuidance(run, reasonCode)
+	return writeControllerApplyTransitionTerminal, fmt.Errorf("patch review blocked: %s", reason)
+}
+
 func (o *Orchestrator) runControllerApplyPlanTransition(run *types.WriteWorkflowRun, stepsUsed *int, reasonCode string) (writeControllerApplyTransitionOutcome, error) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
 		return writeControllerApplyTransitionTerminal, fmt.Errorf("write controller apply transition missing context")
@@ -1682,18 +1832,7 @@ func (o *Orchestrator) runControllerApplyPlanTransition(run *types.WriteWorkflow
 			plan = o.busCtx.Mutable.ChangePlan()
 			if review.HardBlock {
 				reason := patchReviewHardBlockReason(review)
-				if plan != nil {
-					plan.Status = types.PlanStatusBlocked
-					o.busCtx.Mutable.SetChangePlan(plan)
-					o.persistCurrentChangePlanSnapshot()
-				}
-				run.Status = types.WriteWorkflowRunBlocked
-				updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
-				markWorkflowRunActiveSlicePatchReviewBlocked(run, run.ActiveBatchID, plan, reason)
-				appendControllerProgress(run, run.ActiveBatchID, "patch_review_blocked", reason)
-				o.persistWriteWorkflowRun(run)
-				o.publishBlockedRunGuidance(run, "patch_review_blocked")
-				return writeControllerApplyTransitionTerminal, fmt.Errorf("patch review blocked: %s", reason)
+				return o.handlePatchReviewHardBlock(run, plan, review, reason)
 			}
 		}
 		*run = attachPlanContextPackToWorkflowRun(*run, plan)
@@ -2721,6 +2860,38 @@ func markWorkflowRunActiveSlicePatchReviewBlocked(run *types.WriteWorkflowRun, b
 	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
 		SliceID:    slice.ID,
 		Event:      types.WriteWorkflowSliceEventBlocked,
+		Status:     slice.Status,
+		ReasonCode: reasonCode,
+		PlanID:     planID,
+		At:         now,
+	})
+	slice.UpdatedAt = now
+	batch.UpdatedAt = now
+}
+
+func markWorkflowRunActiveSlicePatchReviewFailed(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan, reasonCode string) {
+	if run == nil || plan == nil || strings.TrimSpace(batchID) == "" {
+		return
+	}
+	batch := activeWorkflowBatchForUpdate(run, batchID)
+	if batch == nil {
+		return
+	}
+	slice := activeWorkflowSliceForUpdate(batch)
+	if slice == nil {
+		return
+	}
+	now := time.Now()
+	planID := strings.TrimSpace(plan.ID)
+	reasonCode = strings.TrimSpace(reasonCode)
+	slice.PlanID = firstNonEmptyController(planID, slice.PlanID)
+	slice.Status = types.ChangePlanSliceFailed
+	slice.Completion = nil
+	appendWorkflowSliceAttempt(slice, "patch_review", "failed", reasonCode, planID, "", "")
+	appendWorkflowBatchAttempt(batch, "patch_review", "failed", reasonCode, planID, "", "")
+	batch.SliceEvents = append(batch.SliceEvents, types.WriteWorkflowSliceEvent{
+		SliceID:    slice.ID,
+		Event:      types.WriteWorkflowSliceEventFailed,
 		Status:     slice.Status,
 		ReasonCode: reasonCode,
 		PlanID:     planID,

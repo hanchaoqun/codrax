@@ -423,10 +423,19 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return errResult(t.Name(), rej), nil
 		}
 		choice.Suite = strings.TrimSpace(p.Suite)
-		plans = []runnerPlan{choice}
-		planSources[testSurfaceCandidateKey(choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice))] = selectedSource
-		logging.Info("[run_tests] typed-selected runner=%s framework=%s working_dir=%s source=%s (manifest auto-detect bypassed)",
-			choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice), selectedSource)
+		if scoped := scopedRunnerPlansForExplicitChoice(ctx.RepoRoot, surface, ctx.Mutable.ChangePlan(), choice, p); len(scoped) > 0 {
+			plans = scoped
+			for _, plan := range plans {
+				planSources[testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))] = "impact_scoped_" + selectedSource
+			}
+			logging.Info("[run_tests] typed-selected runner=%s framework=%s working_dir=%s source=%s narrowed to %d impact-scoped suite(s)",
+				choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice), selectedSource, len(plans))
+		} else {
+			plans = []runnerPlan{choice}
+			planSources[testSurfaceCandidateKey(choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice))] = selectedSource
+			logging.Info("[run_tests] typed-selected runner=%s framework=%s working_dir=%s source=%s (manifest auto-detect bypassed)",
+				choice.Runner, choice.Framework, runnerPlanRel(ctx.RepoRoot, choice), selectedSource)
+		}
 	} else {
 		preferredRunner := preferredRunnerFromChangePlan(ctx)
 		impactPlans := impactRunnerPlansFromChangePlan(ctx.RepoRoot, surface, ctx.Mutable.ChangePlan())

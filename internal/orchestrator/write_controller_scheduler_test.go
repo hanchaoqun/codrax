@@ -2477,6 +2477,211 @@ func TestReviewActiveAppliedPatchScopeLearnsPatchConvention(t *testing.T) {
 	}
 }
 
+func TestPatchReviewStructuralHardBlockQueuesReplan(t *testing.T) {
+	mu := types.NewMutableState("patch review structural replan")
+	plan := &types.ChangePlan{
+		ID:          "plan-structural-review",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		Summary:     "repair structure",
+		TargetPaths: []string{"pkg/a.py"},
+	}
+	mu.SetChangePlan(plan)
+	store := &fakeWorkflowRunStore{}
+	o := &Orchestrator{
+		busCtx:                &types.BusContext{Mutable: mu, Mode: types.ModeApply},
+		writeRetryBudget:      2,
+		writeWorkflowRunStore: store,
+		reportDir:             t.TempDir(),
+	}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-structural-review",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchVerifying,
+			PlanID:        plan.ID,
+			ActiveSliceID: "slice-001",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-001",
+				Status: types.ChangePlanSliceObserving,
+				PlanID: plan.ID,
+				Paths:  []string{"pkg/a.py"},
+			}},
+		}},
+	}
+	review := types.NormalizePatchReviewRecord(types.PatchReviewRecord{
+		HardBlock: true,
+		Findings: []types.PatchReviewFinding{{
+			Code:     "python_unreachable_body_after_added_return",
+			Severity: types.PatchReviewSeverityError,
+			Category: types.PatchReviewCategoryStructural,
+			Path:     "pkg/a.py",
+		}},
+	})
+	outcome, err := o.handlePatchReviewHardBlock(run, plan, review, patchReviewHardBlockReason(review))
+	if outcome != writeControllerApplyTransitionRetry || err == nil {
+		t.Fatalf("structural patch review should retry via replan, outcome=%s err=%v", outcome, err)
+	}
+	if run.Status != types.WriteWorkflowRunInProgress {
+		t.Fatalf("run should remain in progress, got %s", run.Status)
+	}
+	if run.Batches[0].Status != types.WriteWorkflowBatchReadyToPlan {
+		t.Fatalf("batch should return to ready_to_plan, got %+v", run.Batches[0])
+	}
+	if run.Batches[0].Slices[0].Status != types.ChangePlanSliceFailed {
+		t.Fatalf("slice should be failed for replan, got %+v", run.Batches[0].Slices[0])
+	}
+	if _, ok := activeBatchNeedsReplan(run); !ok {
+		t.Fatalf("structural patch review failure must mark active batch needs-replan: %+v", run.Batches[0])
+	}
+	if got := mu.ChangePlan(); got == nil || got.Status != types.PlanStatusVerifyFailed {
+		t.Fatalf("plan should be verify_failed for repair, got %+v", got)
+	}
+	if report := mu.ChangeReport(); report == nil || report.FailureReasonCode != "python_unreachable_body_after_added_return" {
+		t.Fatalf("synthetic patch review report missing reason code, got %+v", report)
+	}
+	if handoff := mu.VerifyFailureHandoff(); handoff == nil ||
+		handoff.FailureReasonCode != "python_unreachable_body_after_added_return" ||
+		handoff.BatchID != "batch-1" {
+		t.Fatalf("patch review failure should populate replan handoff, got %+v", handoff)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "patch_review_failed") {
+		t.Fatalf("progress should record patch_review_failed: %+v", run.ProgressLedger)
+	}
+	foundPatchReviewAttempt := false
+	for _, attempt := range run.Batches[0].Attempts {
+		if attempt.Kind == "patch_review" &&
+			attempt.Status == "failed" &&
+			attempt.ReasonCode == "python_unreachable_body_after_added_return:pkg/a.py" &&
+			attempt.PlanID == plan.ID {
+			foundPatchReviewAttempt = true
+		}
+	}
+	if !foundPatchReviewAttempt {
+		t.Fatalf("patch_review failed attempt missing: %+v", run.Batches[0].Attempts)
+	}
+}
+
+func TestPatchReviewScopeHardBlockRemainsTerminal(t *testing.T) {
+	mu := types.NewMutableState("patch review scope block")
+	plan := &types.ChangePlan{
+		ID:          "plan-scope-review",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"pkg/a.py"},
+	}
+	mu.SetChangePlan(plan)
+	store := &fakeWorkflowRunStore{}
+	o := &Orchestrator{
+		busCtx:                &types.BusContext{Mutable: mu, Mode: types.ModeApply},
+		writeRetryBudget:      2,
+		writeWorkflowRunStore: store,
+		reportDir:             t.TempDir(),
+	}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-scope-review",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchVerifying,
+			PlanID:        plan.ID,
+			ActiveSliceID: "slice-001",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-001",
+				Status: types.ChangePlanSliceObserving,
+				PlanID: plan.ID,
+				Paths:  []string{"pkg/a.py"},
+			}},
+		}},
+	}
+	review := types.NormalizePatchReviewRecord(types.PatchReviewRecord{
+		HardBlock: true,
+		Findings: []types.PatchReviewFinding{{
+			Code:     "applied_path_outside_active_slice",
+			Severity: types.PatchReviewSeverityError,
+			Category: types.PatchReviewCategoryScope,
+			Path:     "pkg/b.py",
+		}},
+	})
+	outcome, err := o.handlePatchReviewHardBlock(run, plan, review, patchReviewHardBlockReason(review))
+	if outcome != writeControllerApplyTransitionTerminal || err == nil {
+		t.Fatalf("scope patch review should terminal block, outcome=%s err=%v", outcome, err)
+	}
+	if run.Status != types.WriteWorkflowRunBlocked || run.Batches[0].Status != types.WriteWorkflowBatchBlocked {
+		t.Fatalf("run/batch should be blocked, got %+v", run)
+	}
+	if got := mu.ChangePlan(); got == nil || got.Status != types.PlanStatusBlocked {
+		t.Fatalf("plan should be blocked, got %+v", got)
+	}
+	if mu.VerifyFailureHandoff() != nil {
+		t.Fatalf("scope block must not seed repair handoff: %+v", mu.VerifyFailureHandoff())
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "patch_review_blocked") {
+		t.Fatalf("progress should record patch_review_blocked: %+v", run.ProgressLedger)
+	}
+}
+
+func TestPatchReviewStructuralHardBlockBudgetExhaustionBlocks(t *testing.T) {
+	mu := types.NewMutableState("patch review budget")
+	plan := &types.ChangePlan{
+		ID:          "plan-review-budget",
+		Status:      types.PlanStatusAppliedPendingVerify,
+		TargetPaths: []string{"pkg/a.py"},
+	}
+	mu.SetChangePlan(plan)
+	store := &fakeWorkflowRunStore{}
+	o := &Orchestrator{
+		busCtx:                &types.BusContext{Mutable: mu, Mode: types.ModeApply},
+		writeRetryBudget:      1,
+		writeWorkflowRunStore: store,
+		reportDir:             t.TempDir(),
+	}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-review-budget",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchVerifying,
+			PlanID:        plan.ID,
+			ActiveSliceID: "slice-001",
+			Attempts: []types.WriteWorkflowAttempt{{
+				ID:         "attempt-1",
+				Kind:       "patch_review",
+				Status:     "failed",
+				ReasonCode: "python_unreachable_body_after_added_return:pkg/a.py",
+				PlanID:     plan.ID,
+			}},
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-001",
+				Status: types.ChangePlanSliceObserving,
+				PlanID: plan.ID,
+				Paths:  []string{"pkg/a.py"},
+			}},
+		}},
+	}
+	review := types.NormalizePatchReviewRecord(types.PatchReviewRecord{
+		HardBlock: true,
+		Findings: []types.PatchReviewFinding{{
+			Code:     "python_unreachable_body_after_added_return",
+			Severity: types.PatchReviewSeverityError,
+			Category: types.PatchReviewCategoryStructural,
+			Path:     "pkg/a.py",
+		}},
+	})
+	outcome, err := o.handlePatchReviewHardBlock(run, plan, review, patchReviewHardBlockReason(review))
+	if outcome != writeControllerApplyTransitionTerminal || err == nil {
+		t.Fatalf("exhausted structural patch review should terminal block, outcome=%s err=%v", outcome, err)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "patch_review_retry_budget_exhausted") {
+		t.Fatalf("progress should record budget exhaustion: %+v", run.ProgressLedger)
+	}
+	if mu.VerifyFailureHandoff() != nil {
+		t.Fatalf("budget exhausted block must not seed new handoff: %+v", mu.VerifyFailureHandoff())
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionSuppressesRepeatedAskUserFact(t *testing.T) {
 	mu := types.NewMutableState("repeat ask")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}

@@ -126,6 +126,85 @@ func TestImpactRunnerPlansNormalizeDjangoRelatedTestSelectors(t *testing.T) {
 	}
 }
 
+func TestScopedRunnerPlansForExplicitChoiceNarrowsDjangoFrameworkChoice(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "setup.py", "from setuptools import setup\n")
+	writeImpactSurfaceFixture(t, root, "tests/runtests.py", "print('django tests')\n")
+	writeImpactSurfaceFixture(t, root, "django/db/models/fields/__init__.py", "class Field: pass\n")
+	writeImpactSurfaceFixture(t, root, "tests/invalid_models_tests/__init__.py", "")
+	writeImpactSurfaceFixture(t, root, "tests/invalid_models_tests/test_ordinary_fields.py", "class FieldChoicesTests: pass\n")
+	writeImpactSurfaceFixture(t, root, "tests/model_fields/tests.py", "class FieldTests: pass\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-django-explicit-runner",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "django/db/models/fields/__init__.py",
+				RelatedPath: "tests/invalid_models_tests/test_ordinary_fields.py",
+				Priority:    50,
+				Source:      "impact_engine",
+			}, {
+				Kind:        "test_surface",
+				Path:        "django/db/models/fields/__init__.py",
+				RelatedPath: "tests/model_fields/tests.py",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+	choice, rej := resolveLLMRunnerChoice(root, "python", pythonFrameworkDjango, ".")
+	if rej != "" {
+		t.Fatalf("resolve choice: %s", rej)
+	}
+
+	scoped := scopedRunnerPlansForExplicitChoice(root, surface, plan, choice, runTestsParams{Framework: pythonFrameworkDjango})
+	if len(scoped) != 2 {
+		t.Fatalf("expected two scoped django plans, got %+v", scoped)
+	}
+	got := []string{scoped[0].Suite, scoped[1].Suite}
+	want := []string{"invalid_models_tests.test_ordinary_fields", "model_fields.tests"}
+	if got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("scoped django suites = %+v, want %+v", got, want)
+	}
+	for _, plan := range scoped {
+		if plan.Runner != "python" || plan.Framework != pythonFrameworkDjango {
+			t.Fatalf("unexpected scoped django plan: %+v", plan)
+		}
+	}
+}
+
+func TestScopedRunnerPlansForExplicitChoicePreservesExplicitSuite(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "pyproject.toml", "[project]\nname='x'\n")
+	writeImpactSurfaceFixture(t, root, "pkg/a.py", "def value():\n    return 1\n")
+	writeImpactSurfaceFixture(t, root, "tests/test_a.py", "def test_value():\n    assert True\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-python-explicit-suite",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "pkg/a.py",
+				RelatedPath: "tests/test_a.py",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+	choice, rej := resolveLLMRunnerChoice(root, "python", pythonFrameworkPytest, ".")
+	if rej != "" {
+		t.Fatalf("resolve choice: %s", rej)
+	}
+	choice.Suite = "tests/test_override.py"
+
+	if scoped := scopedRunnerPlansForExplicitChoice(root, surface, plan, choice, runTestsParams{Runner: "python", Framework: pythonFrameworkPytest, Suite: choice.Suite}); len(scoped) != 0 {
+		t.Fatalf("explicit suite must not be replaced by impact scope, got %+v", scoped)
+	}
+}
+
 func TestDefaultRunnerPlansPreservesMultipleImpactSuitesInSameWorkingDir(t *testing.T) {
 	root := t.TempDir()
 	writeImpactSurfaceFixture(t, root, "pyproject.toml", "[project]\nname='x'\n")
@@ -193,6 +272,39 @@ func TestImpactRunnerPlansFromChangePlanTargetsGoPackage(t *testing.T) {
 	}
 	if plans[0].Runner != "go" || plans[0].Suite != "./pkg" {
 		t.Fatalf("unexpected go impact plan: %+v", plans[0])
+	}
+}
+
+func TestScopedRunnerPlansForExplicitChoiceNarrowsNodeRunnerChoice(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "package.json", `{"scripts":{"test":"jest"}}`)
+	writeImpactSurfaceFixture(t, root, "src/widget.ts", "export function value() { return 1 }\n")
+	writeImpactSurfaceFixture(t, root, "src/widget.test.ts", "test('value', () => {})\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID: "plan-impact-node-explicit-runner",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:        "test_surface",
+				Path:        "src/widget.ts",
+				RelatedPath: "src/widget.test.ts",
+				Priority:    50,
+				Source:      "impact_engine",
+			}},
+		},
+	}
+	choice, rej := resolveLLMRunnerChoice(root, "node", "", ".")
+	if rej != "" {
+		t.Fatalf("resolve choice: %s", rej)
+	}
+
+	scoped := scopedRunnerPlansForExplicitChoice(root, surface, plan, choice, runTestsParams{Runner: "node"})
+	if len(scoped) != 1 {
+		t.Fatalf("expected one node scoped plan, got %+v", scoped)
+	}
+	if scoped[0].Runner != "node" || scoped[0].Suite != "src/widget.test.ts" {
+		t.Fatalf("unexpected node scoped plan: %+v", scoped[0])
 	}
 }
 

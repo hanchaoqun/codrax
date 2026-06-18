@@ -80,11 +80,12 @@ func parseRunnerOutputForPlan(plan runnerPlan, stdout, extraFile, cmdStr string,
 }
 
 var (
-	reUnittestCaseLine = regexp.MustCompile(`^(.+?) \(([^)]+)\) \.\.\. (ok|FAIL|ERROR|skipped\b.*)$`)
-	reUnittestRan      = regexp.MustCompile(`(?m)^Ran (\d+) tests?`)
-	rePytestTextCase   = regexp.MustCompile(`(?m)^([^\s=][^\s]*?(?:::?[^\s]+)+)\s+(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b`)
-	rePytestSummary    = regexp.MustCompile(`(?m)^=+.*(?:passed|failed|error|skipped|xfailed|xpassed).*=+$`)
-	rePytestSummaryTok = regexp.MustCompile(`(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed)\b`)
+	reUnittestCaseLine      = regexp.MustCompile(`^(.+?) \(([^)]+)\) \.\.\. (ok|FAIL|ERROR|skipped\b.*)$`)
+	reUnittestFailureHeader = regexp.MustCompile(`^(FAIL|ERROR):\s+(.+?)\s+\(([^)]+)\)$`)
+	reUnittestRan           = regexp.MustCompile(`(?m)^Ran (\d+) tests?`)
+	rePytestTextCase        = regexp.MustCompile(`(?m)^([^\s=][^\s]*?(?:::?[^\s]+)+)\s+(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b`)
+	rePytestSummary         = regexp.MustCompile(`(?m)^=+.*(?:passed|failed|error|skipped|xfailed|xpassed).*=+$`)
+	rePytestSummaryTok      = regexp.MustCompile(`(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed)\b`)
 )
 
 const unittestLoaderImportErrorReasonCode = "unittest_loader_import_error"
@@ -136,15 +137,21 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 		return report, nil
 	}
 	if len(results) == 0 {
-		report.TestResults = []types.TestResult{{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   "unittest",
-			Suite:         "unittest",
-			Passed:        passed,
-			FailureDetail: unittestAggregateFailureDetail(stdout),
-		}}
-		if !passed {
-			failed = 1
+		results, loaderFailures = unittestResultsFromFailureBlocks(stdout)
+		if len(results) > 0 {
+			report.TestResults = results
+			failed = countFailed(results)
+		} else {
+			report.TestResults = []types.TestResult{{
+				Kind:          types.TestResultKindUnit,
+				AssertionID:   "unittest",
+				Suite:         "unittest",
+				Passed:        passed,
+				FailureDetail: unittestAggregateFailureDetail(stdout),
+			}}
+			if !passed {
+				failed = 1
+			}
 		}
 	}
 	if !report.Passed {
@@ -167,6 +174,42 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 		}
 	}
 	return report, nil
+}
+
+func unittestResultsFromFailureBlocks(stdout string) ([]types.TestResult, int) {
+	blocks := unittestFailureBlocks(stdout)
+	if len(blocks) == 0 {
+		return nil, 0
+	}
+	results := make([]types.TestResult, 0, len(blocks))
+	loaderFailures := 0
+	for _, block := range blocks {
+		first := firstNonEmptyLine(block)
+		m := reUnittestFailureHeader.FindStringSubmatch(first)
+		if len(m) != 4 {
+			continue
+		}
+		name := strings.TrimSpace(m[2])
+		suite := strings.TrimSpace(m[3])
+		if name == "" || suite == "" {
+			continue
+		}
+		if unittestSuiteIsLoaderFailure(suite) {
+			loaderFailures++
+		}
+		detail := block
+		if tail := unittestSummaryTail(stdout); tail != "" && !strings.Contains(detail, tail) {
+			detail += "\n\n" + tail
+		}
+		results = append(results, types.TestResult{
+			Kind:          types.TestResultKindUnit,
+			AssertionID:   name,
+			Suite:         suite,
+			Passed:        false,
+			FailureDetail: truncateDetail(detail, 4000),
+		})
+	}
+	return results, loaderFailures
 }
 
 func unittestSuiteIsLoaderFailure(suite string) bool {

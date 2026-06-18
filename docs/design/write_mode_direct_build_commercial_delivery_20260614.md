@@ -4757,6 +4757,118 @@ CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/patch_c_typo.case eval
     commercial Auto Pilot should treat structural patch-review findings as P2
     repair evidence before terminal blocked/export.
 - Follow-up task:
-  - [ ] Add `patch_review_failed` / structural PatchReview findings to the same
+  - [x] Add `patch_review_failed` / structural PatchReview findings to the same
     online replan lane as failed post-apply verify, with bounded retry budget
     and checkpoint restore, before considering final block/export.
+
+## 2026-06-18 PatchReview structural-finding online replan
+
+- Evidence:
+  - The RC-74 rerun showed the next online-convergence gap clearly:
+    `PatchReview` correctly found
+    `python_unreachable_body_after_added_return` on the actual applied diff,
+    but the controller marked the workflow terminal `blocked`.
+  - That behavior was safe but not Claude-Code-like online convergence. The
+    observation should have been another edit/run/observe signal for a bounded
+    replan, not an immediate stop, because the finding points to patch shape,
+    not user/security approval.
+- Generalized rule:
+  - Scope and safety hard blocks remain terminal. Examples:
+    `applied_path_outside_active_slice`, plan-scope mismatch, approval/risk
+    denial, or external-path policy.
+  - Structural PatchReview hard blocks become replan evidence when they are
+    typed as `PatchReviewFinding{severity=error, category=structural}`.
+  - The controller emits a synthetic typed `ChangeReport` with
+    `runner=patch_review`, `suite=patch_review`, and
+    `failure_reason_code=<patch_review finding code>`, then stores a
+    `VerifyFailureHandoff`. Replan therefore consumes the same P2 evidence path
+    as failed tests/builds instead of a new prompt-only lane.
+  - The existing write retry budget bounds structural patch-review replans. If
+    the budget is exhausted, the same finding becomes terminal
+    `patch_review_retry_budget_exhausted`.
+- Prompt and hard-gate hygiene:
+  - No user keywords, model prose, rationale, `<think>`, or exception text
+    participates in the decision. Routing reads only normalized
+    `PatchReviewFinding` enums, `ChangePlan.PatchEffect`, workflow attempts,
+    and typed retry budget.
+  - Planner receives the finding through existing `VerifyFailureHandoff` and
+    `WriteContextPack` P2 projection, preserving evidence refs and reducing
+    command/UX burden.
+- Task list:
+  - [x] Add `patchReviewHardBlockShouldReplan` for structural errors only.
+  - [x] Add synthetic patch-review `ChangeReport` and diagnostic projection.
+  - [x] Mark active slice failed, batch `ready_to_plan`, and preserve run as
+    `in_progress` for structural findings.
+  - [x] Preserve terminal block for scope/safety hard blocks.
+  - [x] Enforce structural patch-review retry budget before terminal block.
+  - [x] Add focused controller tests for structural replan, scope terminal
+    block, and budget exhaustion.
+- Verification:
+  - Focused controller tests passed:
+    `go test ./internal/orchestrator -run 'Test(PatchReviewStructuralHardBlockQueuesReplan|PatchReviewScopeHardBlockRemainsTerminal|PatchReviewStructuralHardBlockBudgetExhaustionBlocks|ReviewActiveAppliedPatchScopeRecordsContext|ReviewActiveAppliedPatchScopeLearnsPatchConvention)' -count=1`.
+  - Orchestrator regression passed:
+    `go test ./internal/orchestrator -count=1`.
+
+## 2026-06-18 Explicit verifier scope convergence
+
+- Evidence:
+  - The RC-75 Django rerun confirmed that structural PatchReview no longer
+    terminal-blocked the workflow, but exposed the next online convergence
+    issue: the verifier eventually executed a broad Django suite with 13040
+    tests and hit the write deadline.
+  - The root cause was not a Django prompt problem. A verifier-supplied typed
+    `runner/framework` with an empty `suite` bypassed the deterministic
+    `ImpactAnalysis -> TestSurface -> runnerPlan` queue, so a useful framework
+    choice widened into a full project-suite run.
+  - The same run also showed a handoff fidelity issue: long unittest/Django
+    progress output can omit per-case `test_x (...) ... FAIL` lines and only
+    include standard failure block headers. The parser previously emitted the
+    aggregate `Suite=unittest`, preventing scoped-suite inheritance.
+- Generalized rule:
+  - If verifier supplies `runner` or `framework` but leaves `suite` empty,
+    `run_tests` first tries to intersect that typed choice with existing
+    `ChangePlan.ImpactAnalysis` / `ImpactObligations` test-surface targets.
+  - Explicit `suite` always wins and is never replaced by impact scope.
+  - Explicit `working_dir` is a hard structured filter. If absent, impact scope
+    may choose the correct sub-project/root from `TestSurface`.
+  - Explicit `framework` is a hard structured filter. A runner-only choice may
+    consume any compatible framework already emitted by the impact engine.
+  - This is cross-language: Go narrows to package selectors, Node/Ruby to test
+    paths, Java/Kotlin to class selectors, Rust to integration-test selectors,
+    Swift to filters, and Python/Django to framework-specific selectors.
+- Parser/handoff rule:
+  - The unittest parser now extracts `AssertionID` and `Suite` from standard
+    `FAIL/ERROR: name (suite)` failure block headers when progress-only output
+    lacks individual case status lines.
+  - The failure detail still preserves the failure block plus summary tail
+    (`Ran N tests`, `FAILED (...)`) for user transparency and replan evidence.
+  - `VerifyFailureHandoff` can therefore inherit a real reusable selector from
+    the previous failed execution instead of falling back to an aggregate
+    non-selector.
+- Prompt and hard-gate hygiene:
+  - No hard behavior depends on user issue keywords, model prose, summaries,
+    rationale, or `<think>` text. Routing reads only `run_tests` JSON params,
+    `ChangePlan` impact artifacts, `TestSurface` candidates, normalized runner
+    enums, working-directory containment, and parser-recognized unittest
+    headers.
+  - User-facing logs remain transparent; visible `<think>` output is expected
+    and is not consumed by these hard gates.
+- Task list:
+  - [x] Add `scopedRunnerPlansForExplicitChoice` to narrow runner/framework
+    choices with typed impact plans when `suite` is empty.
+  - [x] Preserve explicit `suite` and explicit `working_dir` semantics.
+  - [x] Add cross-language scope tests for Django and Node, plus explicit-suite
+    preservation.
+  - [x] Upgrade unittest progress-only parser output to concrete
+    `AssertionID/Suite` rows from failure block headers.
+  - [x] Keep failure summary tail in `FailureDetail` for handoff and audit.
+- Verification:
+  - Focused tool tests passed:
+    `go test ./internal/tool -run 'Test(ScopedRunnerPlansForExplicitChoice|ImpactRunnerPlansNormalizeDjangoRelatedTestSelectors|DefaultRunnerPlansPreservesMultipleImpactSuitesInSameWorkingDir|ImpactRunnerPlansFromChangePlanTargetsNodeRelatedTest|ParseUnittestOutput_ProgressOnlyFailurePreservesFailureTail|ParseUnittestOutput_RealTestFailureStaysUnclassified|ParseUnittestOutput_LoaderOnlyFailureIsParserError)' -count=1`.
+  - Tool and orchestrator package regressions passed:
+    `go test ./internal/tool -count=1` and
+    `go test ./internal/orchestrator -count=1`.
+  - Full regression passed:
+    `go test ./...`.
+  - Build passed:
+    `make`.
