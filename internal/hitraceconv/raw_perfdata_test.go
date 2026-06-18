@@ -158,6 +158,46 @@ func TestConvertRawPerfDataSkipsUserRegsStackAndVendorBit(t *testing.T) {
 	}
 }
 
+func TestConvertRawPerfDataPreservesRecordQualityCounters(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf-quality.data")
+	outPath := filepath.Join(dir, "raw-quality.perftrace")
+	if err := os.WriteFile(perfData, syntheticRawPerfDataWithRecordQuality(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := readRawPerfData(context.Background(), perfData)
+	if err != nil {
+		t.Fatalf("read raw perf data with quality records: %v", err)
+	}
+	if data.LostRecords != 1 || data.LostEvents != 7 || data.LostSampleRecords != 1 || data.LostSamples != 5 || data.ThrottleRecords != 1 || data.UnthrottleRecords != 1 || data.AuxRecords != 1 || data.AuxBytes != 4096 {
+		t.Fatalf("quality counters not parsed: %+v", data)
+	}
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+		t.Fatalf("convert raw perf.data with quality records: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"perf_sample:",
+		"raw fallback observed perf record quality counters:",
+		"lost_records=1",
+		"lost_events=7",
+		"lost_sample_records=1",
+		"lost_samples=5",
+		"throttle_records=1",
+		"unthrottle_records=1",
+		"aux_records=1",
+		"aux_bytes=4096",
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("quality perftrace missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestConvertRawPerfDataMapsMultiAttrSampleIDToEvent(t *testing.T) {
 	dir := t.TempDir()
 	perfData := filepath.Join(dir, "perf-multi.data")
@@ -977,6 +1017,37 @@ func syntheticRawPerfDataWithCommLifetime() []byte {
 	return out
 }
 
+func syntheticRawPerfDataWithRecordQuality() []byte {
+	const headerSize = 104
+	const attrSize = 48
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod)
+	var records bytes.Buffer
+	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "app")))
+	records.Write(rawPerfRecord(perfRecordLost, rawPerfLostPayload(202, 7)))
+	records.Write(rawPerfRecord(perfRecordLostSamples, rawPerfLostSamplesPayload(5)))
+	records.Write(rawPerfRecord(perfRecordThrottle, nil))
+	records.Write(rawPerfRecord(perfRecordUnthrottle, nil))
+	records.Write(rawPerfRecord(perfRecordAux, rawPerfAuxPayload(4096)))
+	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+
+	dataOffset := headerSize + attrSize
+	out := make([]byte, dataOffset)
+	copy(out[0:8], []byte(perfMagic2))
+	binary.LittleEndian.PutUint64(out[8:16], headerSize)
+	binary.LittleEndian.PutUint64(out[16:24], attrSize)
+	binary.LittleEndian.PutUint64(out[24:32], headerSize)
+	binary.LittleEndian.PutUint64(out[32:40], attrSize)
+	binary.LittleEndian.PutUint64(out[40:48], uint64(dataOffset))
+	binary.LittleEndian.PutUint64(out[48:56], uint64(records.Len()))
+	attr := out[headerSize:dataOffset]
+	binary.LittleEndian.PutUint32(attr[0:4], 0)
+	binary.LittleEndian.PutUint32(attr[4:8], 40)
+	binary.LittleEndian.PutUint64(attr[8:16], 0)
+	binary.LittleEndian.PutUint64(attr[24:32], sampleType)
+	out = append(out, records.Bytes()...)
+	return out
+}
+
 func rawPerfFeatureString(s string) []byte {
 	var out bytes.Buffer
 	writeRawPerfTestU32(&out, uint32(len(s)+1))
@@ -1093,6 +1164,27 @@ func rawPerfRecord(typ int, payload []byte) []byte {
 	binary.LittleEndian.PutUint16(out[6:8], uint16(size))
 	copy(out[8:], payload)
 	return out
+}
+
+func rawPerfLostPayload(id, lost uint64) []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU64(&out, id)
+	writeRawPerfTestU64(&out, lost)
+	return out.Bytes()
+}
+
+func rawPerfLostSamplesPayload(lost uint64) []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU64(&out, lost)
+	return out.Bytes()
+}
+
+func rawPerfAuxPayload(size uint64) []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU64(&out, 0)
+	writeRawPerfTestU64(&out, size)
+	writeRawPerfTestU64(&out, 0)
+	return out.Bytes()
 }
 
 func rawPerfCommPayload(pid, tid int, name string) []byte {

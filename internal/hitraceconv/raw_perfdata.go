@@ -17,12 +17,17 @@ const (
 	rawPerfDataAdapterVersion = converterVersion + "+raw-perfdata"
 	perfMagic2                = "PERFILE2"
 
-	perfRecordMmap   = 1
-	perfRecordComm   = 3
-	perfRecordExit   = 4
-	perfRecordFork   = 7
-	perfRecordSample = 9
-	perfRecordMmap2  = 10
+	perfRecordMmap        = 1
+	perfRecordLost        = 2
+	perfRecordComm        = 3
+	perfRecordExit        = 4
+	perfRecordThrottle    = 5
+	perfRecordUnthrottle  = 6
+	perfRecordFork        = 7
+	perfRecordSample      = 9
+	perfRecordMmap2       = 10
+	perfRecordAux         = 11
+	perfRecordLostSamples = 13
 
 	perfFeatureBuildID   = 2
 	perfFeatureHostname  = 3
@@ -196,6 +201,15 @@ type rawPerfData struct {
 	Mappings   []rawPerfMapping
 	Samples    []rawPerfSample
 	Caveats    []string
+
+	LostRecords       int
+	LostEvents        uint64
+	LostSampleRecords int
+	LostSamples       uint64
+	ThrottleRecords   int
+	UnthrottleRecords int
+	AuxRecords        int
+	AuxBytes          uint64
 }
 
 type rawPerfFeatures struct {
@@ -468,6 +482,25 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 			if mapping, ok := parseRawPerfMmap2(payload); ok {
 				out.Mappings = append(out.Mappings, mapping)
 			}
+		case perfRecordLost:
+			if lost, ok := parseRawPerfLost(payload); ok {
+				out.LostRecords++
+				out.LostEvents += lost
+			}
+		case perfRecordLostSamples:
+			if lost, ok := parseRawPerfLostSamples(payload); ok {
+				out.LostSampleRecords++
+				out.LostSamples += lost
+			}
+		case perfRecordThrottle:
+			out.ThrottleRecords++
+		case perfRecordUnthrottle:
+			out.UnthrottleRecords++
+		case perfRecordAux:
+			if auxSize, ok := parseRawPerfAux(payload); ok {
+				out.AuxRecords++
+				out.AuxBytes += auxSize
+			}
 		case perfRecordSample:
 			sample, ok := parseRawPerfSample(payload, attr)
 			if ok {
@@ -479,6 +512,7 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 		}
 		remaining -= int64(size)
 	}
+	out.Caveats = append(out.Caveats, rawPerfRecordQualityCaveats(out)...)
 	return out, nil
 }
 
@@ -1242,6 +1276,32 @@ func rawPerfFeatureCaveats(features rawPerfFeatures) []string {
 	return out
 }
 
+func rawPerfRecordQualityCaveats(data rawPerfData) []string {
+	var parts []string
+	if data.LostRecords > 0 {
+		parts = append(parts, fmt.Sprintf("lost_records=%d", data.LostRecords))
+		parts = append(parts, fmt.Sprintf("lost_events=%d", data.LostEvents))
+	}
+	if data.LostSampleRecords > 0 {
+		parts = append(parts, fmt.Sprintf("lost_sample_records=%d", data.LostSampleRecords))
+		parts = append(parts, fmt.Sprintf("lost_samples=%d", data.LostSamples))
+	}
+	if data.ThrottleRecords > 0 {
+		parts = append(parts, fmt.Sprintf("throttle_records=%d", data.ThrottleRecords))
+	}
+	if data.UnthrottleRecords > 0 {
+		parts = append(parts, fmt.Sprintf("unthrottle_records=%d", data.UnthrottleRecords))
+	}
+	if data.AuxRecords > 0 {
+		parts = append(parts, fmt.Sprintf("aux_records=%d", data.AuxRecords))
+		parts = append(parts, fmt.Sprintf("aux_bytes=%d", data.AuxBytes))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return []string{"raw fallback observed perf record quality counters: " + strings.Join(parts, "; ")}
+}
+
 func joinInts(values []int, sep string) string {
 	if len(values) == 0 {
 		return ""
@@ -1375,6 +1435,27 @@ func parseRawPerfMmap2(payload []byte) (rawPerfMapping, bool) {
 		Path:  cString(payload[64:]),
 	}
 	return mapping, mapping.Len > 0 && strings.TrimSpace(mapping.Path) != ""
+}
+
+func parseRawPerfLost(payload []byte) (uint64, bool) {
+	if len(payload) < 16 {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint64(payload[8:16]), true
+}
+
+func parseRawPerfLostSamples(payload []byte) (uint64, bool) {
+	if len(payload) < 8 {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint64(payload[0:8]), true
+}
+
+func parseRawPerfAux(payload []byte) (uint64, bool) {
+	if len(payload) < 16 {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint64(payload[8:16]), true
 }
 
 func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) {

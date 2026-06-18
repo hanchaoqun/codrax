@@ -39,8 +39,12 @@ Compared the current converter and trace query pipeline against the latest publi
 4. `developtools_profiler` ftrace proto includes capture-level stats (`ftrace_cpu_stats`,
    `overwrite`, `clocks_detail`, `symbols_detail`) and a very large generated event
    matrix. Codrax should continue to prefer official tooling for full protobuf
-   TracePluginResult rendering. For built-in conversion, add targeted official
-   renderers only when the fields feed existing trace_query structures.
+   TracePluginResult event rendering. For built-in conversion, parse the
+   top-level quality metadata (`dropped_events`, `overrun`, `overwrite`,
+   `trace_clock`, plugin timestamp/version/sample interval, clock details, symbol
+   count/examples) because it is stable, compact, and directly guides confidence.
+   Add targeted event renderers only when the fields feed existing trace_query
+   structures.
 
 5. `ext4_direct_IO_enter/exit` is a direct match for existing inode IO aggregation.
    It should be rendered to the same stable field shape as android_fs/f2fs:
@@ -52,6 +56,10 @@ Compared the current converter and trace query pipeline against the latest publi
 - Raw perf `.perftrace` rows include safe sample-level context fields when present.
 - Saved hiperf kernel/kernel-thread symbols can now resolve raw perf samples even
   when the perf stream does not carry an explicit `[kernel.kallsyms]` mmap record.
+- OpenHarmony profiler `ftrace-plugin` structured protobuf messages now surface
+  top-level capture metadata in conversion caveats/tracebundle provenance:
+  plugin clock/timestamp/version/sample interval, CPU dropped/overrun/read stats,
+  structured event counts, overwrite totals, clock details, and symbol examples.
 - `trace_query` parses those fields into `Event` and carries them into perf hotspot
   examples without changing root-cause ranking weights.
 - OpenHarmony ext4 direct IO rows are covered by round-trip tests from binary htrace

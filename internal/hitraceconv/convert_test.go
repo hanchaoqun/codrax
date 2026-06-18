@@ -244,6 +244,52 @@ func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
 	}
 }
 
+func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "profiler-structured.htrace")
+	body := syntheticProfilerTraceFile(syntheticProfilerPluginDataWithTiming(
+		"ftrace-plugin",
+		syntheticTracePluginResultMetadata(),
+		1,
+		12,
+		34,
+		"1.03",
+		250,
+	))
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: filepath.Join(dir, "out.systrace")})
+	if err != nil {
+		t.Fatalf("convert structured profiler trace file: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 || result.UnknownEventCount != 1 {
+		t.Fatalf("structured ftrace metadata should not pretend to render systrace rows: %+v", result)
+	}
+	for _, want := range []string{
+		"profiler plugin ftrace-plugin metadata: clock_id=MONOTONIC",
+		"tv=12.000000034",
+		"sample_interval_ms=250",
+		"ftrace-plugin structured metadata:",
+		"version=trace-plugin-v1",
+		"stats_end=1",
+		"trace_clock=boot",
+		"end_dropped=3",
+		"end_overrun=1",
+		"end_commit_overrun=2",
+		"structured_event_records=2",
+		"detail_overwrite=4",
+		"symbols=1",
+		"symbol_examples=0x1234=schedule",
+		"clock_details=MONOTONIC(time=10.000000020/res=0.000000001)",
+	} {
+		if !containsString(result.Caveats, want) {
+			t.Fatalf("structured profiler caveats missing %q:\n%v", want, result.Caveats)
+		}
+	}
+}
+
 func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "hiprofiler_data.htrace")
@@ -938,14 +984,61 @@ func syntheticProfilerTraceFile(messages ...[]byte) []byte {
 }
 
 func syntheticProfilerPluginData(name string, data []byte) []byte {
+	return syntheticProfilerPluginDataWithTiming(name, data, 7, 1, 2, "1.02", 0)
+}
+
+func syntheticProfilerPluginDataWithTiming(name string, data []byte, clockID, tvSec, tvNsec uint64, version string, sampleInterval uint32) []byte {
 	var out bytes.Buffer
 	writeProtoStringField(&out, 1, name)
 	writeProtoVarintField(&out, 2, 0)
 	writeProtoBytesField(&out, 3, data)
-	writeProtoVarintField(&out, 4, 7)
-	writeProtoVarintField(&out, 5, 1)
-	writeProtoVarintField(&out, 6, 2)
-	writeProtoStringField(&out, 7, "1.02")
+	writeProtoVarintField(&out, 4, clockID)
+	writeProtoVarintField(&out, 5, tvSec)
+	writeProtoVarintField(&out, 6, tvNsec)
+	writeProtoStringField(&out, 7, version)
+	if sampleInterval != 0 {
+		writeProtoVarintField(&out, 8, uint64(sampleInterval))
+	}
+	return out.Bytes()
+}
+
+func syntheticTracePluginResultMetadata() []byte {
+	var out bytes.Buffer
+	out.Write(protoMessage(1,
+		protoVarint(1, 1),
+		protoMessage(2,
+			protoVarint(1, 0),
+			protoVarint(2, 100),
+			protoVarint(3, 1),
+			protoVarint(4, 2),
+			protoVarint(5, 4096),
+			protoVarint(8, 3),
+			protoVarint(9, 97),
+		),
+		protoBytes(3, []byte("boot")),
+	))
+	out.Write(protoMessage(2,
+		protoVarint(1, 0),
+		protoBytes(2, []byte{0x08, 0x01}),
+		protoBytes(2, []byte{0x08, 0x02}),
+		protoVarint(3, 4),
+	))
+	out.Write(protoMessage(5,
+		protoVarint(1, 0x1234),
+		protoBytes(2, []byte("schedule")),
+	))
+	out.Write(protoMessage(6,
+		protoVarint(1, 4),
+		protoMessage(2,
+			protoVarint(1, 10),
+			protoVarint(2, 20),
+		),
+		protoMessage(3,
+			protoVarint(1, 0),
+			protoVarint(2, 1),
+		),
+	))
+	out.Write(protoBytes(7, []byte("trace-plugin-v1")))
 	return out.Bytes()
 }
 

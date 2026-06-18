@@ -51,6 +51,72 @@ type profilerContainerExtraction struct {
 	Caveats            []string
 }
 
+type profilerFtraceSummary struct {
+	Version           string
+	StatsMessages     int
+	StartStats        int
+	EndStats          int
+	TraceClocks       map[string]int
+	StatsCPUs         map[uint64]bool
+	StartTotals       profilerFtraceCPUTotals
+	EndTotals         profilerFtraceCPUTotals
+	DetailMessages    int
+	DetailCPUs        map[uint64]bool
+	DetailEventCount  int
+	DetailOverwrite   uint64
+	SymbolCount       int
+	SymbolExamples    []string
+	ClockDetails      []string
+	recognizedMessage bool
+}
+
+type profilerFtraceCPUTotals struct {
+	Entries       uint64
+	Overrun       uint64
+	CommitOverrun uint64
+	Bytes         uint64
+	DroppedEvents uint64
+	ReadEvents    uint64
+}
+
+type profilerFtraceCPUStats struct {
+	Status   uint64
+	Clock    string
+	PerCPU   []profilerFtracePerCPUStats
+	HasStats bool
+}
+
+type profilerFtracePerCPUStats struct {
+	CPU           uint64
+	Entries       uint64
+	Overrun       uint64
+	CommitOverrun uint64
+	Bytes         uint64
+	DroppedEvents uint64
+	ReadEvents    uint64
+}
+
+type profilerFtraceCPUDetail struct {
+	CPU        uint64
+	EventCount int
+	Overwrite  uint64
+}
+
+type profilerFtraceSymbolDetail struct {
+	Addr uint64
+	Name string
+}
+
+type profilerFtraceClockDetail struct {
+	ID       uint64
+	TimeSec  uint64
+	TimeNsec uint64
+	ResSec   uint64
+	ResNsec  uint64
+	HasTime  bool
+	HasRes   bool
+}
+
 func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision) (Result, bool, error) {
 	extracted, err := extractProfilerContainerSystraceRows(ctx, opts.InputPath, inputSize)
 	if err != nil {
@@ -179,12 +245,19 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 		if plugin, ok := parseProfilerPluginData(msg); ok {
 			name := firstNonEmpty(plugin.Name, "unknown-plugin")
 			out.PluginMessages[name]++
+			out.Caveats = append(out.Caveats, profilerPluginMetadataCaveat(name, plugin))
 			rows := extractSystraceRowsFromBytes(plugin.Data, &seq)
 			if len(rows) > 0 {
 				out.Rows = append(out.Rows, rows...)
 				out.TextPluginMessages++
 			} else if strings.EqualFold(name, "ftrace-plugin") {
 				out.StructuredFtrace++
+				summary, ok, summaryErr := decodeProfilerFtraceSummary(plugin.Data)
+				if summaryErr != nil {
+					out.Caveats = append(out.Caveats, fmt.Sprintf("ftrace-plugin structured metadata parse failed: %v", summaryErr))
+				} else if ok {
+					out.Caveats = append(out.Caveats, profilerFtraceSummaryCaveat(summary))
+				}
 			}
 		}
 		off += 4 + n
@@ -199,6 +272,414 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 		out.Caveats = append(out.Caveats, fmt.Sprintf("extracted %d systrace text row(s) from %d profiler plugin message(s)", len(out.Rows), out.TextPluginMessages))
 	}
 	return out, nil
+}
+
+func profilerPluginMetadataCaveat(name string, plugin profilerPluginData) string {
+	var parts []string
+	if plugin.Status != 0 {
+		parts = append(parts, fmt.Sprintf("status=%d", plugin.Status))
+	}
+	if plugin.ClockID != 0 {
+		parts = append(parts, "clock_id="+profilerPluginClockName(plugin.ClockID))
+	}
+	if plugin.TvSec != 0 || plugin.TvNsec != 0 {
+		parts = append(parts, fmt.Sprintf("tv=%d.%09d", plugin.TvSec, plugin.TvNsec))
+	}
+	if plugin.Version != "" {
+		parts = append(parts, "version="+plugin.Version)
+	}
+	if plugin.SampleInterval != 0 {
+		parts = append(parts, fmt.Sprintf("sample_interval_ms=%d", plugin.SampleInterval))
+	}
+	if len(plugin.Data) > 0 {
+		parts = append(parts, fmt.Sprintf("payload_bytes=%d", len(plugin.Data)))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "metadata=present")
+	}
+	return fmt.Sprintf("profiler plugin %s metadata: %s", name, strings.Join(parts, "; "))
+}
+
+func profilerPluginClockName(id uint64) string {
+	switch id {
+	case 0:
+		return "REALTIME"
+	case 1:
+		return "MONOTONIC"
+	case 2:
+		return "PROCESS_CPUTIME_ID"
+	case 3:
+		return "THREAD_CPUTIME_ID"
+	case 4:
+		return "MONOTONIC_RAW"
+	case 5:
+		return "REALTIME_COARSE"
+	case 6:
+		return "MONOTONIC_COARSE"
+	case 7:
+		return "BOOTTIME"
+	case 8:
+		return "REALTIME_ALARM"
+	case 9:
+		return "BOOTTIME_ALARM"
+	case 10:
+		return "SGI_CYCLE"
+	case 11:
+		return "TAI"
+	default:
+		return fmt.Sprintf("UNKNOWN(%d)", id)
+	}
+}
+
+func decodeProfilerFtraceSummary(data []byte) (profilerFtraceSummary, bool, error) {
+	summary := profilerFtraceSummary{
+		TraceClocks: map[string]int{},
+		StatsCPUs:   map[uint64]bool{},
+		DetailCPUs:  map[uint64]bool{},
+	}
+	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+		switch field {
+		case 1:
+			if wire != 2 {
+				return nil
+			}
+			stats, err := decodeProfilerFtraceCPUStats(raw)
+			if err != nil {
+				return err
+			}
+			summary.recognizedMessage = true
+			summary.StatsMessages++
+			if stats.Clock != "" {
+				summary.TraceClocks[stats.Clock]++
+			}
+			if stats.Status == 1 {
+				summary.EndStats++
+			} else {
+				summary.StartStats++
+			}
+			for _, cpu := range stats.PerCPU {
+				summary.StatsCPUs[cpu.CPU] = true
+				if stats.Status == 1 {
+					summary.EndTotals.add(cpu)
+				} else {
+					summary.StartTotals.add(cpu)
+				}
+			}
+		case 2:
+			if wire != 2 {
+				return nil
+			}
+			detail, err := decodeProfilerFtraceCPUDetail(raw)
+			if err != nil {
+				return err
+			}
+			summary.recognizedMessage = true
+			summary.DetailMessages++
+			summary.DetailCPUs[detail.CPU] = true
+			summary.DetailEventCount += detail.EventCount
+			summary.DetailOverwrite += detail.Overwrite
+		case 5:
+			if wire != 2 {
+				return nil
+			}
+			symbol, err := decodeProfilerFtraceSymbolDetail(raw)
+			if err != nil {
+				return err
+			}
+			summary.recognizedMessage = true
+			summary.SymbolCount++
+			if symbol.Name != "" && len(summary.SymbolExamples) < 5 {
+				if symbol.Addr != 0 {
+					summary.SymbolExamples = append(summary.SymbolExamples, fmt.Sprintf("0x%x=%s", symbol.Addr, symbol.Name))
+				} else {
+					summary.SymbolExamples = append(summary.SymbolExamples, symbol.Name)
+				}
+			}
+		case 6:
+			if wire != 2 {
+				return nil
+			}
+			clock, err := decodeProfilerFtraceClockDetail(raw)
+			if err != nil {
+				return err
+			}
+			summary.recognizedMessage = true
+			if label := profilerFtraceClockDetailLabel(clock); label != "" && len(summary.ClockDetails) < 8 {
+				summary.ClockDetails = append(summary.ClockDetails, label)
+			}
+		case 7:
+			if wire == 2 {
+				summary.recognizedMessage = true
+				summary.Version = string(raw)
+			}
+		}
+		_ = v
+		return nil
+	})
+	return summary, summary.recognizedMessage, err
+}
+
+func decodeProfilerFtraceCPUStats(data []byte) (profilerFtraceCPUStats, error) {
+	var stats profilerFtraceCPUStats
+	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+		switch field {
+		case 1:
+			if wire == 0 {
+				stats.Status = v
+			}
+		case 2:
+			if wire != 2 {
+				return nil
+			}
+			perCPU, err := decodeProfilerFtracePerCPUStats(raw)
+			if err != nil {
+				return err
+			}
+			stats.HasStats = true
+			stats.PerCPU = append(stats.PerCPU, perCPU)
+		case 3:
+			if wire == 2 {
+				stats.Clock = string(raw)
+			}
+		}
+		return nil
+	})
+	return stats, err
+}
+
+func decodeProfilerFtracePerCPUStats(data []byte) (profilerFtracePerCPUStats, error) {
+	var stats profilerFtracePerCPUStats
+	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+		switch field {
+		case 1:
+			if wire == 0 {
+				stats.CPU = v
+			}
+		case 2:
+			if wire == 0 {
+				stats.Entries = v
+			}
+		case 3:
+			if wire == 0 {
+				stats.Overrun = v
+			}
+		case 4:
+			if wire == 0 {
+				stats.CommitOverrun = v
+			}
+		case 5:
+			if wire == 0 {
+				stats.Bytes = v
+			}
+		case 8:
+			if wire == 0 {
+				stats.DroppedEvents = v
+			}
+		case 9:
+			if wire == 0 {
+				stats.ReadEvents = v
+			}
+		}
+		_ = raw
+		return nil
+	})
+	return stats, err
+}
+
+func decodeProfilerFtraceCPUDetail(data []byte) (profilerFtraceCPUDetail, error) {
+	var detail profilerFtraceCPUDetail
+	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+		switch field {
+		case 1:
+			if wire == 0 {
+				detail.CPU = v
+			}
+		case 2:
+			if wire == 2 {
+				detail.EventCount++
+			}
+		case 3:
+			if wire == 0 {
+				detail.Overwrite = v
+			}
+		}
+		_ = raw
+		return nil
+	})
+	return detail, err
+}
+
+func decodeProfilerFtraceSymbolDetail(data []byte) (profilerFtraceSymbolDetail, error) {
+	var symbol profilerFtraceSymbolDetail
+	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+		switch field {
+		case 1:
+			if wire == 0 {
+				symbol.Addr = v
+			}
+		case 2:
+			if wire == 2 {
+				symbol.Name = string(raw)
+			}
+		}
+		return nil
+	})
+	return symbol, err
+}
+
+func decodeProfilerFtraceClockDetail(data []byte) (profilerFtraceClockDetail, error) {
+	var clock profilerFtraceClockDetail
+	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+		switch field {
+		case 1:
+			if wire == 0 {
+				clock.ID = v
+			}
+		case 2:
+			if wire == 2 {
+				sec, nsec, err := decodeProfilerFtraceTimeSpec(raw)
+				if err != nil {
+					return err
+				}
+				clock.TimeSec, clock.TimeNsec, clock.HasTime = sec, nsec, true
+			}
+		case 3:
+			if wire == 2 {
+				sec, nsec, err := decodeProfilerFtraceTimeSpec(raw)
+				if err != nil {
+					return err
+				}
+				clock.ResSec, clock.ResNsec, clock.HasRes = sec, nsec, true
+			}
+		}
+		return nil
+	})
+	return clock, err
+}
+
+func decodeProfilerFtraceTimeSpec(data []byte) (uint64, uint64, error) {
+	var sec, nsec uint64
+	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+		switch field {
+		case 1:
+			if wire == 0 {
+				sec = v
+			}
+		case 2:
+			if wire == 0 {
+				nsec = v
+			}
+		}
+		_ = raw
+		return nil
+	})
+	return sec, nsec, err
+}
+
+func (totals *profilerFtraceCPUTotals) add(stats profilerFtracePerCPUStats) {
+	totals.Entries += stats.Entries
+	totals.Overrun += stats.Overrun
+	totals.CommitOverrun += stats.CommitOverrun
+	totals.Bytes += stats.Bytes
+	totals.DroppedEvents += stats.DroppedEvents
+	totals.ReadEvents += stats.ReadEvents
+}
+
+func profilerFtraceSummaryCaveat(summary profilerFtraceSummary) string {
+	var parts []string
+	if summary.Version != "" {
+		parts = append(parts, "version="+summary.Version)
+	}
+	parts = append(parts, fmt.Sprintf("stats_messages=%d", summary.StatsMessages))
+	if summary.StartStats != 0 || summary.EndStats != 0 {
+		parts = append(parts, fmt.Sprintf("stats_start=%d", summary.StartStats))
+		parts = append(parts, fmt.Sprintf("stats_end=%d", summary.EndStats))
+	}
+	if len(summary.TraceClocks) > 0 {
+		parts = append(parts, "trace_clock="+joinStringCounts(summary.TraceClocks))
+	}
+	if len(summary.StatsCPUs) > 0 {
+		totals := summary.StartTotals
+		label := "observed"
+		if summary.EndStats > 0 {
+			totals = summary.EndTotals
+			label = "end"
+		}
+		parts = append(parts, fmt.Sprintf("stats_cpus=%d", len(summary.StatsCPUs)))
+		parts = append(parts, fmt.Sprintf("%s_entries=%d", label, totals.Entries))
+		parts = append(parts, fmt.Sprintf("%s_dropped=%d", label, totals.DroppedEvents))
+		parts = append(parts, fmt.Sprintf("%s_overrun=%d", label, totals.Overrun))
+		parts = append(parts, fmt.Sprintf("%s_commit_overrun=%d", label, totals.CommitOverrun))
+		parts = append(parts, fmt.Sprintf("%s_read=%d", label, totals.ReadEvents))
+		parts = append(parts, fmt.Sprintf("%s_bytes=%d", label, totals.Bytes))
+	}
+	if summary.DetailMessages > 0 {
+		parts = append(parts, fmt.Sprintf("detail_messages=%d", summary.DetailMessages))
+		parts = append(parts, fmt.Sprintf("detail_cpus=%d", len(summary.DetailCPUs)))
+		parts = append(parts, fmt.Sprintf("structured_event_records=%d", summary.DetailEventCount))
+		parts = append(parts, fmt.Sprintf("detail_overwrite=%d", summary.DetailOverwrite))
+	}
+	if summary.SymbolCount > 0 {
+		parts = append(parts, fmt.Sprintf("symbols=%d", summary.SymbolCount))
+		if len(summary.SymbolExamples) > 0 {
+			parts = append(parts, "symbol_examples="+strings.Join(summary.SymbolExamples, ","))
+		}
+	}
+	if len(summary.ClockDetails) > 0 {
+		parts = append(parts, "clock_details="+strings.Join(summary.ClockDetails, ","))
+	}
+	return "ftrace-plugin structured metadata: " + strings.Join(parts, "; ")
+}
+
+func joinStringCounts(values map[string]int) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if values[key] == 1 {
+			parts = append(parts, key)
+		} else {
+			parts = append(parts, fmt.Sprintf("%s:%d", key, values[key]))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func profilerFtraceClockDetailLabel(clock profilerFtraceClockDetail) string {
+	name := profilerFtraceClockName(clock.ID)
+	var parts []string
+	if clock.HasTime {
+		parts = append(parts, fmt.Sprintf("time=%d.%09d", clock.TimeSec, clock.TimeNsec))
+	}
+	if clock.HasRes {
+		parts = append(parts, fmt.Sprintf("res=%d.%09d", clock.ResSec, clock.ResNsec))
+	}
+	if len(parts) == 0 {
+		return name
+	}
+	return name + "(" + strings.Join(parts, "/") + ")"
+}
+
+func profilerFtraceClockName(id uint64) string {
+	switch id {
+	case 1:
+		return "BOOTTIME"
+	case 2:
+		return "REALTIME"
+	case 3:
+		return "REALTIME_COARSE"
+	case 4:
+		return "MONOTONIC"
+	case 5:
+		return "MONOTONIC_COARSE"
+	case 6:
+		return "MONOTONIC_RAW"
+	default:
+		return fmt.Sprintf("UNKNOWN(%d)", id)
+	}
 }
 
 func extractProfilerSessionPackage(ctx context.Context, path string) (profilerContainerExtraction, error) {
