@@ -1728,7 +1728,11 @@ func (o *Orchestrator) buildCumulativePatchReviewPlan(run *types.WriteWorkflowRu
 	if baseRef == "" {
 		return nil
 	}
-	patch, captureErr := worktree.CaptureRangePatch(wt, baseRef, "HEAD")
+	ownedPaths := o.cumulativeReviewOwnedPaths(run)
+	if len(ownedPaths) == 0 {
+		return nil
+	}
+	patch, captureErr := worktree.CaptureRangePatchForPaths(wt, baseRef, "HEAD", ownedPaths)
 	if captureErr != nil {
 		logging.Warning("[orchestrator] cumulative patch review diff capture failed: %v", captureErr)
 		return nil
@@ -1737,7 +1741,7 @@ func (o *Orchestrator) buildCumulativePatchReviewPlan(run *types.WriteWorkflowRu
 		return nil
 	}
 	planID := "plan-cumulative-" + sanitizeWorkflowArtifactID(run.RunID)
-	effect := writeflow.PatchEffectRecordFromUnifiedDiff(planID, "cumulative", "workflow_cumulative_diff", baseRef, "HEAD", patch)
+	effect := writeflow.PatchEffectRecordFromUnifiedDiff(planID, "cumulative", "workflow_cumulative_owned_diff", baseRef, "HEAD", patch)
 	writeflow.AnnotatePatchEffectStructuredFileParses(&effect, wt)
 	graphProvider := writeimpact.GraphProviderFromSearchGraph(o.busCtx.Mutable.SearchGraph())
 	writeimpact.AnnotatePatchEffectLineFeatureEvents(&effect, graphProvider)
@@ -1775,6 +1779,45 @@ func (o *Orchestrator) buildCumulativePatchReviewPlan(run *types.WriteWorkflowRu
 	plan.PatchReview = &review
 	applyVerifyCoverageToChangePlan(plan, report, err)
 	return plan
+}
+
+func (o *Orchestrator) cumulativeReviewOwnedPaths(run *types.WriteWorkflowRun) []string {
+	if o == nil || run == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		p := normalizeControllerPath(raw)
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	for _, batch := range run.Batches {
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) != "apply" || strings.TrimSpace(attempt.Status) != "applied" {
+				continue
+			}
+			plan := o.loadDurablePlanArtifact(attempt.PlanID)
+			if plan == nil {
+				continue
+			}
+			for _, p := range plan.TargetPaths {
+				add(p)
+			}
+			for _, p := range plan.AppliedPaths {
+				add(p)
+			}
+			for _, change := range plan.Changes {
+				add(change.Path)
+				add(change.NewPath)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func firstAppliedWorkflowBaseRef(run *types.WriteWorkflowRun) string {

@@ -511,6 +511,75 @@ func TestCaptureRangePatchCapturesCumulativeDiff(t *testing.T) {
 	}
 }
 
+func TestCaptureRangePatchForPathsFiltersUnownedDiff(t *testing.T) {
+	clearActiveSessions(t)
+	root := initTestRepo(t)
+	base := filepath.Join(t.TempDir(), "wts")
+	sess, err := Create(base, root, makeUniqueTraceID(t))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer func() {
+		if err := DiscardByPath(sess.Path(), root); err != nil {
+			t.Errorf("DiscardByPath: %v", err)
+		}
+	}()
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = sess.Path()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-parse HEAD: %v\n%s", err, out)
+	}
+	baseRef := strings.TrimSpace(string(out))
+
+	if err := os.WriteFile(filepath.Join(sess.Path(), "README.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+	if _, err := CommitChanges(sess.Path(), "owned readme change"); err != nil {
+		t.Fatalf("CommitChanges readme: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(sess.Path(), "build"), 0o755); err != nil {
+		t.Fatalf("mkdir build: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sess.Path(), "build", "generated.c"), []byte("generated\n"), 0o644); err != nil {
+		t.Fatalf("write generated: %v", err)
+	}
+	if _, err := CommitChanges(sess.Path(), "generated build artifact"); err != nil {
+		t.Fatalf("CommitChanges generated: %v", err)
+	}
+
+	patch, err := CaptureRangePatchForPaths(sess.Path(), baseRef, "HEAD", []string{"README.md"})
+	if err != nil {
+		t.Fatalf("CaptureRangePatchForPaths: %v", err)
+	}
+	if !strings.Contains(patch, "diff --git a/README.md b/README.md") || !strings.Contains(patch, "+changed") {
+		t.Fatalf("owned patch missing README change:\n%s", patch)
+	}
+	if strings.Contains(patch, "build/generated.c") || strings.Contains(patch, "+generated") {
+		t.Fatalf("path-limited patch included unowned generated artifact:\n%s", patch)
+	}
+}
+
+func TestCaptureRangePatchForPathsRejectsUnsafePath(t *testing.T) {
+	clearActiveSessions(t)
+	root := initTestRepo(t)
+	base := filepath.Join(t.TempDir(), "wts")
+	sess, err := Create(base, root, makeUniqueTraceID(t))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer func() {
+		if err := DiscardByPath(sess.Path(), root); err != nil {
+			t.Errorf("DiscardByPath: %v", err)
+		}
+	}()
+	for _, unsafePath := range []string{"../outside", ":(top)*"} {
+		if _, err := CaptureRangePatchForPaths(sess.Path(), "HEAD", "HEAD", []string{unsafePath}); err == nil {
+			t.Fatalf("unsafe path %q should be rejected", unsafePath)
+		}
+	}
+}
+
 // TestCommitChanges_AllowsEmpty verifies the --allow-empty flag is
 // in effect — a no-op apply (nothing changed) still produces a fresh
 // SHA so the orchestrator's bookkeeping doesn't have to special-case

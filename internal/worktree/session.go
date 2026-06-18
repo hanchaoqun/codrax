@@ -806,3 +806,57 @@ func CaptureRangePatch(path, baseRef, headRef string) (string, error) {
 	}
 	return out, nil
 }
+
+// CaptureRangePatchForPaths returns the unified patch between two refs, limited
+// to a typed repo-relative path allowlist. It is read-only. Callers use this
+// when a later build/test step may have generated tracked artifacts in the
+// worktree but the review surface must remain bound to plan-owned paths.
+func CaptureRangePatchForPaths(path, baseRef, headRef string, paths []string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", errors.New("worktree.CaptureRangePatchForPaths: path is empty")
+	}
+	baseRef = strings.TrimSpace(baseRef)
+	if baseRef == "" {
+		return "", errors.New("worktree.CaptureRangePatchForPaths: baseRef is empty")
+	}
+	headRef = strings.TrimSpace(headRef)
+	if headRef == "" {
+		headRef = "HEAD"
+	}
+	cleanPaths, err := normalizeRangePatchPaths(paths)
+	if err != nil {
+		return "", fmt.Errorf("worktree.CaptureRangePatchForPaths: %w", err)
+	}
+	if len(cleanPaths) == 0 {
+		return "", errors.New("worktree.CaptureRangePatchForPaths: paths is empty")
+	}
+	args := []string{"diff", "--no-color", "--binary", baseRef, headRef, "--"}
+	args = append(args, cleanPaths...)
+	out, err := runGitIn(path, args...)
+	if err != nil {
+		return "", fmt.Errorf("worktree.CaptureRangePatchForPaths: %w (output: %s)", err, out)
+	}
+	return out, nil
+}
+
+func normalizeRangePatchPaths(paths []string) ([]string, error) {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, raw := range paths {
+		p := strings.TrimSpace(filepath.ToSlash(raw))
+		p = strings.TrimPrefix(p, "./")
+		if p == "" || p == "." {
+			continue
+		}
+		if filepath.IsAbs(p) || strings.HasPrefix(p, "../") || strings.Contains(p, "/../") || p == ".." || strings.HasPrefix(p, ":") {
+			return nil, fmt.Errorf("unsafe path %q", raw)
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out, nil
+}

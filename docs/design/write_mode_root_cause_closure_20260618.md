@@ -86,7 +86,8 @@ gap is a P0 prerequisite for every later SWE correctness improvement because
 wrong source-owner localization makes verifier, patch critic, and impact
 analysis reason over the wrong surface.
 
-This gap is now recorded and closed by RC-97 / RC-98:
+This gap is partially implemented by RC-97 / RC-98 / RC-104, but it is not
+fully closed as a scheduling authority:
 
 - RC-97 introduced `SourceLocalizationAnchor` as a shared read/write typed
   artifact, distinguishing read-file observation from grounded owner/support
@@ -94,17 +95,31 @@ This gap is now recorded and closed by RC-97 / RC-98:
 - RC-98 filtered broad deterministic evidence so `concrete_value` and similar
   rows remain available as evidence but cannot satisfy owner localization
   unless they carry typed defining authority.
+- RC-104 preserves prior owner/supporting/scope anchors through write plan
+  localization review and downstream context packs.
 
-Current sorted queue after this closure:
+The remaining P0 gap is now explicitly queued as RC-107: read and write need
+one shared typed owner/evidence-anchor authority that influences exploration,
+extraction, planning, replan repair slices, and final answer/report projection
+before broader target-file hints. This must be solved through typed artifacts
+and deterministic consumers, not user-keyword or model-prose routing.
 
-1. **RC-99: coherent delivery proof aggregation.** Verification/proof
-   follow-up batches can cumulatively cover all contracts while the terminal
-   single-batch report still looks weak. Fix by aggregating typed proof records
-   across the coherent delivery chain, not by parsing verifier prose.
-2. **Environment/unavailable verification clarity.** Missing customer project
+Current sorted queue:
+
+1. **RC-105: cumulative PatchEffect owned-path boundary.** Cumulative actual
+   diff review must ignore build/verify-generated artifacts outside durable
+   applied plan-owned paths.
+2. **RC-106: source-owner relation after test-only replan.** If an earlier
+   source-owner patch is kept and a later test-only replan proves behavior,
+   delivery export/reporting must preserve the coherent source-owner relation
+   instead of treating the final test-only plan as the whole delivery.
+3. **RC-107: shared owner-anchor scheduling authority.** Promote typed
+   localization owner/evidence anchors into read/write scheduling, repair, and
+   report projection so planning avoids wrong source surfaces earlier.
+4. **Environment/unavailable verification clarity.** Missing customer project
    dependencies should stay warning/unverified evidence and must not drive
    source replan as if product code failed.
-3. **Broader SWE re-run and audit.** Continue Lite spot runs after each system
+5. **Broader SWE re-run and audit.** Continue Lite spot runs after each system
    fix, keeping official harness compatibility separate from functional
    correctness.
 
@@ -4304,6 +4319,9 @@ Verification:
 | RC-102 | complete | Docstring/text-region executable insertion guard: Python provider now emits `python_docstring_section_executable_added` as a PatchReview hard event when added executable-looking statements disrupt structured docstring section shape. Focused, related, full Go regressions and build pass. |
 | RC-103 | complete | Verify-failure repair read affordance: split typed failed-verify repair planning from initial handoff synthesis so a bounded read/search window remains available after build/test failure evidence, without reopening ordinary exec or broad exploration. Focused planner tests, related write/read packages, full `go test ./...`, `make`, and `git diff --check` pass. |
 | RC-104 | complete | Shared localization owner/evidence anchor closure: preserve prior owner/supporting/scope anchors through write plan localization review and downstream context packs, so later controller/planner/verifier consumers see typed anchor evidence instead of only path sets. Focused types tests, related write/read consumers, full `go test ./...`, `make`, and `git diff --check` pass. |
+| RC-105 | complete | Cumulative PatchEffect owned-path boundary: limit cumulative actual-diff review to durable applied plan-owned paths, so verify/build generated artifacts do not become plan hard blockers or patch-review scope evidence. Focused/related/full Go regressions, `make`, and `git diff --check` pass. |
+| RC-106 | queued | Same-batch source-owner relation after test-only replan: preserve/export earlier source-owner plans when a later test-only replan verifies the batch without re-editing production code. |
+| RC-107 | queued | Shared typed localization owner/evidence scheduling authority: promote read/write owner anchors into exploration, extraction, planner/replan scheduling, and final report projection so wrong source-surface patches are avoided earlier. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -6190,12 +6208,155 @@ Verification:
   - `go test ./...`
   - `make`
 
-## 2026-06-19 RC-103+ Sorted Follow-up Queue From Current Three-instance Smoke
+## 2026-06-19 RC-105 Cumulative PatchEffect Owned-path Boundary
 
-The current smoke is not an official SWE score. It is a typed system triage
-run. It produced 3/3 non-empty harness-consumable predictions, validated by
+- Evidence:
+  - The post-RC104 three-instance SWE-bench Lite smoke wrote results under
+    `eval/results/swebench/lite-smoke-20260619-024215`.
+  - `validate_predictions.py` accepted 3 prediction rows and official harness
+    import/dry-run accepted the JSONL. This proves export compatibility, not
+    functional correctness.
+  - `astropy__astropy-12907` and `astropy__astropy-14182` exported clean
+    non-empty source patches, but the workflow blocked on
+    `patch_effect_path_outside_plan_scope`.
+  - Manual audit showed the cumulative PatchEffect included verify/build
+    generated tracked artifacts such as `cextern/wcslib/*` in addition to the
+    owned source file. The official exported patch did not contain those files.
+- Gap:
+  - Per-apply `PatchEffectRecord` already captures the single applied commit.
+    The pollution came from cumulative review using `git diff base..HEAD`
+    across the whole worktree after verify/build side effects.
+  - Treating those generated artifacts as hard patch-review scope evidence can
+    block a valid source patch, and it makes controller repair reason over
+    files the plan never owned.
+- Design:
+  - Keep cumulative review, because it is needed when a later test-only proof
+    batch must review an earlier source patch.
+  - Limit cumulative diff capture to a deterministic allowlist derived from
+    durable applied `ChangePlan` artifacts: `target_paths`, `applied_paths`,
+    `changes[].path`, and `changes[].new_path`.
+  - Normalize allowlist entries as repo-relative pathspecs and reject absolute,
+    parent-escaping, or git pathspec-magic paths before passing them to git.
+  - If no durable owned paths exist, skip cumulative review rather than falling
+    back to whole-worktree diff. This fails narrow and preserves the typed
+    boundary.
+  - Generated verify/build artifacts may remain telemetry elsewhere, but they
+    cannot become cumulative actual-diff hard blockers unless a typed plan
+    explicitly owned them.
+- Task list:
+  - [x] Add a path-limited worktree diff helper with repo-relative path
+    normalization and unsafe-path rejection.
+  - [x] Derive cumulative review owned paths from durable applied plan
+    artifacts.
+  - [x] Switch cumulative PatchEffect source to
+    `workflow_cumulative_owned_diff`.
+  - [x] Add worktree regression for excluding unowned generated artifacts.
+  - [x] Add controller regression proving cumulative follow-up keeps source
+    evidence while ignoring verify-generated artifacts.
+  - [x] Run focused, related, full Go regressions, rebuild, diff check, commit,
+    and push.
+- Verification:
+  - `go test ./internal/worktree -run
+    'TestCaptureRangePatchForPaths|TestCaptureRangePatchCapturesCumulativeDiff'
+    -count=1`
+  - `go test ./internal/orchestrator -run
+    'TestAppendCumulativePatchReviewFollowupCoversSourcePatchAfterTestOnlyPlan'
+    -count=1`
+  - `go test ./internal/worktree ./internal/orchestrator ./internal/writeflow
+    ./internal/types -count=1`
+  - `go test ./...`
+  - `make`
+  - `git diff --check`
+
+## 2026-06-19 RC-106 Queued Same-batch Source-owner Relation After Test-only Replan
+
+- Evidence:
+  - In the same RC104 smoke, `astropy__astropy-14365` reached workflow
+    `complete` with typed verify passed, but prediction export was empty.
+  - The earlier plan modified `astropy/io/ascii/qdp.py` and its test. Verify
+    failed on the test assertion. After checkpoint restore, a later replan
+    changed only `astropy/io/ascii/tests/test_qdp.py` and passed.
+  - The final delivery candidate treated the terminal test-only plan as the
+    whole delivery, losing the source-owner relation to the earlier source
+    patch in the same coherent batch.
+- Design:
+  - Use typed workflow attempts, checkpoint restore events, plan IDs,
+    PatchReview records, and final verify reports to build a coherent delivery
+    chain.
+  - A later test-only replan can prove an earlier source-owner plan only when
+    the earlier source patch remains in the worktree lineage after restore and
+    has no current actual-diff hard blocker.
+  - Export/report source-owner patches from that coherent chain; do not parse
+    model prose, final summaries, issue text, or logs.
+  - If restore events prove the earlier source patch was rolled back, exclude it
+    as RC-84 already requires.
+- Task list:
+  - [ ] Audit delivery candidate construction in core final report and
+    `eval/swebench/run_codrax_swebench.py`.
+  - [ ] Add a typed delivery relation such as
+    `source_plan_with_later_same_batch_test_replan`.
+  - [ ] Preserve source-owner plan export when terminal verification is
+    test-only but proves the coherent source patch.
+  - [ ] Add adapter/core regressions for source+test initial plan, failed
+    assertion, restore, test-only repair, passed verify, non-empty export.
+  - [ ] Run focused, related, full regressions and a fresh Lite smoke.
+
+## 2026-06-19 RC-107 Queued Shared Typed Localization Owner/evidence Scheduling Authority
+
+- Evidence:
+  - The user-selected follow-up explicitly calls out that upstream typed
+    localization owner/evidence anchors are still the main unfinished gap:
+    plans can still reach wrong source surfaces before patch critic or verifier
+    gets a chance to correct them.
+  - RC97/RC98/RC104 created and preserved anchor artifacts, but they do not yet
+    form one shared read/write scheduling authority across exploration,
+    extraction, planning, replan, and final report consumption.
+- Gap:
+  - Read mode can discover rich evidence and write mode can carry context
+    packs, but controller/planner still often see path sets or broad hints
+    before an explicit ranked owner-anchor view.
+  - Handoff quality must be measured by whether later patch surface changes in
+    response to owner evidence, not merely by whether a context pack exists.
+- Design:
+  - Define a single typed owner-anchor view consumed by read finalization,
+    write controller, planner, replan repair, verifier, PatchReview/Impact, and
+    final delivery report.
+  - Anchor priority is structural: owner/support/scope/observed kind, evidence
+    refs, line span, symbol, path role, source stage, confidence, and consumer.
+    No hard gate may inspect user-intent keywords, model rationale, summaries,
+    or stdout narrative.
+  - Exploration should expand from weak/missing owner anchors; planning should
+    prefer owner anchors over broad target files; replan should keep failed
+    evidence near the owner slice; final answer/report should expose which
+    anchors justified the chosen patch surface.
+  - Existing `SourceLocalizationAnchor`, `WriteContextPack`, repomap,
+    `ImpactAnalysisResult`, and `PatchReviewRecord` are reused rather than
+    introducing a parallel localization system.
+- Task list:
+  - [ ] Audit current anchor producers and consumers across read analyze,
+    explore, extract/finalize, write analysis, context pack projection,
+    controller decisions, planner hints, replan repair, verifier confidence,
+    PatchReview/Impact, and final reports.
+  - [ ] Add a normalized ranked `OwnerAnchorView` helper in shared types.
+  - [ ] Project read-mode extraction/finalization owner evidence into that view
+    without changing L1 read scheduler byte identity.
+  - [ ] Make write controller/planner consume `OwnerAnchorView` before broad
+    target-file hints and record the chosen anchor IDs on the plan/replan.
+  - [ ] Add handoff tests proving rich read evidence survives to write planning
+    and changes the selected source-owner surface through typed artifacts.
+  - [ ] Add final report fields that show chosen owner anchors and unresolved
+    owner-anchor gaps for audit.
+  - [ ] Run read-mode isolation tests, write-mode focused/related/full
+    regressions, SWE Lite smoke, and manual patch-surface audit.
+
+## 2026-06-19 Historical RC-103+ Follow-up Queue
+
+This queue came from the pre-RC104 three-instance smoke. It is not an official
+SWE score. The current priority order is superseded by RC-105 / RC-106 /
+RC-107 above, but the historical evidence remains useful context. That earlier
+typed triage run produced harness-consumable predictions validated by
 `validate_predictions.py` and official harness dry-run/import. Manual audit
-classified the next systemic gaps:
+classified these systemic gaps:
 
 1. **Shared localization owner/evidence anchor closure.**
    This is the remaining upstream gap behind many wrong-source-surface patches:
@@ -6208,10 +6369,10 @@ classified the next systemic gaps:
    gates, and replan repair slices; then make controller/planner consume owner
    anchors before broader target-file hints. Hard routing must use only typed
    anchor fields such as owner kind, path, line span, consumer, priority,
-   source stage, and evidence refs. RC-104 starts this closure by preserving
-   matched prior owner/supporting/scope anchors across the plan review boundary;
-   follow-up SWE audits should check whether additional owner-selection or
-   impact-graph consumption gaps remain.
+   source stage, and evidence refs. RC-104 preserved matched prior
+   owner/supporting/scope anchors across the plan review boundary; RC-107 is
+   now the queued scheduling-authority closure for the remaining upstream
+   owner-anchor gap.
 2. **Planner repair tool affordance mismatch.**
    `django__django-14534` entered online restore/replan several times. During
    repair planning, the model attempted an unavailable `grep` call. Restoring
