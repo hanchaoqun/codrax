@@ -5320,6 +5320,59 @@ func TestAttachPlanContextPackToWorkflowRunPersistsPriorContextCoverage(t *testi
 	}
 }
 
+func TestAttachPlanContextPackToWorkflowRunStampsSelectedOwnerAnchors(t *testing.T) {
+	ref := types.WriteExplorationEvidenceRef{
+		ID:           "ev-owner",
+		Source:       "pkg/owner.py",
+		LineStart:    12,
+		OwnerSymbol:  "Owner",
+		AnchorSymbol: "if",
+	}
+	run := types.WriteWorkflowRun{
+		RunID:         "run-owner",
+		ActiveBatchID: "batch-1",
+		ContextPacks: []types.WriteContextPack{{
+			PackID:      "exploration-handoff",
+			BatchID:     "batch-1",
+			SourceStage: "explore",
+			Items: []types.WriteContextItem{{
+				Priority:    types.WriteContextP1,
+				Kind:        "localization_anchor",
+				Text:        "path=pkg/owner.py owner=Owner anchor=if strength=owner",
+				SourceStage: "explore",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner, types.WriteConsumerController},
+				EvidenceRef: &ref,
+				LocalizationAnchor: &types.SourceLocalizationAnchor{
+					Path:         "pkg/owner.py",
+					Role:         types.SourcePathRoleProduction,
+					Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+					Strength:     types.SourceLocalizationAnchorOwner,
+					EvidenceRef:  &ref,
+					OwnerSymbol:  "Owner",
+					AnchorSymbol: "if",
+				},
+			}},
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-owner",
+		Summary:     "repair owner",
+		TargetPaths: []string{"pkg/owner.py"},
+		Changes:     []types.FileChange{{Path: "pkg/owner.py", Kind: "modify"}},
+	}
+
+	got := attachPlanContextPackToWorkflowRun(run, plan)
+	if plan.LocalizationReview == nil || plan.LocalizationReview.Status != types.SourceLocalizationSupported {
+		t.Fatalf("plan localization review = %+v, want supported", plan.LocalizationReview)
+	}
+	if len(plan.OwnerAnchors) != 1 || plan.OwnerAnchors[0].OwnerSymbol != "Owner" || plan.OwnerAnchors[0].AnchorSymbol != "if" {
+		t.Fatalf("plan owner anchors not stamped from prior typed context: %+v", plan.OwnerAnchors)
+	}
+	if !workflowRunContextContains(&got, "localization_anchor", "owner=Owner") {
+		t.Fatalf("workflow context missing selected owner anchor: %+v", got.ContextPacks)
+	}
+}
+
 func TestAttachPlanContextPackToWorkflowRunPersistsMissingPriorContext(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "run-1",

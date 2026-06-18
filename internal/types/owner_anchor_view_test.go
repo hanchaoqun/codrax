@@ -100,3 +100,37 @@ func TestOwnerAnchorViewFromWriteContextPackUsesScopedConsumerView(t *testing.T)
 		t.Fatalf("planner owner symbol missing: %+v", view.Items[0])
 	}
 }
+
+func TestStampChangePlanOwnerAnchorsUsesLocalizationReview(t *testing.T) {
+	plan := &ChangePlan{
+		ID: "plan-owner",
+		LocalizationReview: &SourceLocalizationReview{
+			Source:  "write_plan_context",
+			PlanID:  "plan-owner",
+			BatchID: "batch-1",
+			Anchors: []SourceLocalizationAnchor{{
+				Path:         "pkg/owner.py",
+				Kind:         SourceLocalizationAnchorGroundedEvidence,
+				Strength:     SourceLocalizationAnchorOwner,
+				Subject:      "Owner.handle",
+				OwnerSymbol:  "Owner",
+				AnchorSymbol: "if",
+				EvidenceRef: &WriteExplorationEvidenceRef{
+					ID:          "ev-owner",
+					Source:      "pkg/owner.py",
+					LineStart:   12,
+					OwnerSymbol: "Owner",
+				},
+			}},
+		},
+	}
+
+	StampChangePlanOwnerAnchors(plan, 12)
+	view := OwnerAnchorViewFromChangePlan(plan, 12)
+	if len(plan.OwnerAnchors) != 1 || len(view.Items) != 1 {
+		t.Fatalf("owner anchors not stamped: plan=%+v view=%+v", plan.OwnerAnchors, view.Items)
+	}
+	if plan.OwnerAnchors[0].ID == "" || plan.OwnerAnchors[0].OwnerSymbol != "Owner" || plan.OwnerAnchors[0].AnchorSymbol != "if" {
+		t.Fatalf("stamped anchor lost owner/member identity: %+v", plan.OwnerAnchors[0])
+	}
+}

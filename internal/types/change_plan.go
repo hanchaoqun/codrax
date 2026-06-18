@@ -465,6 +465,12 @@ type ChangePlan struct {
 	// PlanFingerprint.
 	LocalizationReview *SourceLocalizationReview `json:"localization_review,omitempty"`
 
+	// OwnerAnchors are the ranked typed owner/support anchors selected for this
+	// plan from prior localization context. They explain which read/write
+	// evidence justified the plan's source-owner surface. Lifecycle/audit
+	// metadata only; deliberately excluded from PlanFingerprint.
+	OwnerAnchors []OwnerAnchorViewItem `json:"owner_anchors,omitempty"`
+
 	// ImpactObligations are the typed downstream obligations derived from the
 	// plan's declared changes, dependencies, contracts, symbols, and probes.
 	// They are advisory handoff/confidence inputs, not hard approval authority,

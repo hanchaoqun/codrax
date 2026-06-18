@@ -99,6 +99,36 @@ func OwnerAnchorViewFromWriteContextPacks(packs []WriteContextPack, consumer Wri
 	return out
 }
 
+// OwnerAnchorViewFromChangePlan returns the durable owner-anchor view stamped
+// onto a plan. It falls back to the plan localization review for older plans or
+// tests that have not yet persisted OwnerAnchors.
+func OwnerAnchorViewFromChangePlan(plan *ChangePlan, limit int) OwnerAnchorView {
+	if plan == nil {
+		return OwnerAnchorView{}
+	}
+	if len(plan.OwnerAnchors) > 0 {
+		return NormalizeOwnerAnchorView(OwnerAnchorView{Items: plan.OwnerAnchors}, limit)
+	}
+	if plan.LocalizationReview != nil {
+		return OwnerAnchorViewFromSourceLocalizationReview(*plan.LocalizationReview, limit)
+	}
+	return OwnerAnchorView{}
+}
+
+// StampChangePlanOwnerAnchors records which typed owner/support anchors were
+// selected for the current plan. The selection is derived from
+// SourceLocalizationReview, not prompt text or model rationale.
+func StampChangePlanOwnerAnchors(plan *ChangePlan, limit int) {
+	if plan == nil {
+		return
+	}
+	if plan.LocalizationReview == nil {
+		plan.OwnerAnchors = nil
+		return
+	}
+	plan.OwnerAnchors = OwnerAnchorViewFromSourceLocalizationReview(*plan.LocalizationReview, limit).Items
+}
+
 func NormalizeOwnerAnchorView(in OwnerAnchorView, limit int) OwnerAnchorView {
 	seen := map[string]int{}
 	items := make([]OwnerAnchorViewItem, 0, len(in.Items))

@@ -47,6 +47,18 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 				Kind:        "constraint",
 				SourceStage: "write_analysis",
 				Text:        "must stay scoped",
+			}, {
+				Priority:    WriteContextP1,
+				Kind:        "localization_anchor",
+				SourceStage: "explore",
+				Text:        "path=src/owner.py owner=Owner strength=owner",
+				LocalizationAnchor: &SourceLocalizationAnchor{
+					Path:         "src/owner.py",
+					Kind:         SourceLocalizationAnchorGroundedEvidence,
+					Strength:     SourceLocalizationAnchorOwner,
+					OwnerSymbol:  "Owner",
+					AnchorSymbol: "Owner.handle",
+				},
 			}},
 		}},
 	}
@@ -64,7 +76,21 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 			PriorContextPaths: []string{"src/owner.py"},
 			MissingPaths:      []string{"src/app.py"},
 			ReasonCodes:       []string{"plan_source_paths_partially_outside_prior_context"},
+			Anchors: []SourceLocalizationAnchor{{
+				Path:         "src/owner.py",
+				Kind:         SourceLocalizationAnchorGroundedEvidence,
+				Strength:     SourceLocalizationAnchorOwner,
+				OwnerSymbol:  "Owner",
+				AnchorSymbol: "Owner.handle",
+			}},
 		},
+		OwnerAnchors: []OwnerAnchorViewItem{{
+			Path:         "src/owner.py",
+			Kind:         SourceLocalizationAnchorGroundedEvidence,
+			Strength:     SourceLocalizationAnchorOwner,
+			OwnerSymbol:  "Owner",
+			AnchorSymbol: "Owner.handle",
+		}},
 		PatchEffect: &PatchEffectRecord{
 			RecordID:        "patch-effect:plan-1:slice-1:fp",
 			DiffFingerprint: "fp",
@@ -133,6 +159,9 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 		got.Plan.Localization.MissingPaths[0] != "src/app.py" {
 		t.Fatalf("Plan.Localization=%+v, want weak missing source path", got.Plan.Localization)
 	}
+	if len(got.Plan.OwnerAnchors) != 1 || got.Plan.OwnerAnchors[0].OwnerSymbol != "Owner" {
+		t.Fatalf("Plan.OwnerAnchors=%+v, want selected owner anchor", got.Plan.OwnerAnchors)
+	}
 	if got.Patch.PatchEffectID == "" || len(got.Patch.EffectEventCodes) != 1 {
 		t.Fatalf("Patch=%+v, want patch effect projection", got.Patch)
 	}
@@ -152,8 +181,11 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 	if got.Impact.CoverageCounts["unverified"] != 1 || len(got.Impact.UncoveredTargets) != 1 {
 		t.Fatalf("Impact=%+v, want one unverified target", got.Impact)
 	}
-	if len(got.Handoff.TopItems) != 1 || got.Handoff.TopItems[0].Kind != "constraint" {
+	if len(got.Handoff.TopItems) == 0 || got.Handoff.TopItems[0].Kind != "constraint" {
 		t.Fatalf("Handoff=%+v, want typed context item", got.Handoff)
+	}
+	if len(got.Handoff.OwnerAnchors) != 1 || got.Handoff.OwnerAnchors[0].OwnerSymbol != "Owner" {
+		t.Fatalf("Handoff.OwnerAnchors=%+v, want typed owner anchor", got.Handoff.OwnerAnchors)
 	}
 	if len(got.ResidualRisks) == 0 {
 		t.Fatalf("ResidualRisks empty, want unverified risks")

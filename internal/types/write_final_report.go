@@ -72,6 +72,7 @@ type WriteFinalPlanSummary struct {
 	ApprovalReasonCode string                    `json:"approval_reason_code,omitempty"`
 	AppliedCommitSHA   string                    `json:"applied_commit_sha,omitempty"`
 	Localization       *SourceLocalizationReview `json:"localization,omitempty"`
+	OwnerAnchors       []OwnerAnchorViewItem     `json:"owner_anchors,omitempty"`
 }
 
 type WriteFinalPatchSummary struct {
@@ -131,8 +132,9 @@ type WriteFinalImpactSummary struct {
 }
 
 type WriteFinalHandoffSummary struct {
-	TotalItems int                     `json:"total_items,omitempty"`
-	TopItems   []WriteFinalHandoffItem `json:"top_items,omitempty"`
+	TotalItems   int                     `json:"total_items,omitempty"`
+	TopItems     []WriteFinalHandoffItem `json:"top_items,omitempty"`
+	OwnerAnchors []OwnerAnchorViewItem   `json:"owner_anchors,omitempty"`
 }
 
 type WriteFinalHandoffItem struct {
@@ -224,6 +226,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Plan.SourcePaths = dedupTrimWriteWorkflowRunStrings(in.Plan.SourcePaths)
 	in.Plan.TestPaths = dedupTrimWriteWorkflowRunStrings(in.Plan.TestPaths)
 	in.Plan.Localization = CloneSourceLocalizationReviewPtr(in.Plan.Localization)
+	in.Plan.OwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.Plan.OwnerAnchors}, 12).Items
 	in.Patch.ChangedFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.ChangedFiles)
 	in.Patch.SourceFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.SourceFiles)
 	in.Patch.TestFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.TestFiles)
@@ -235,6 +238,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.PatchReview.ReasonCodes = dedupTrimWriteWorkflowRunStrings(in.PatchReview.ReasonCodes)
 	in.PatchReview.UnverifiedKinds = dedupTrimWriteWorkflowRunStrings(in.PatchReview.UnverifiedKinds)
 	in.Impact.UncoveredTargets = writeFinalBoundedImpactTargets(in.Impact.UncoveredTargets, 12)
+	in.Handoff.OwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.Handoff.OwnerAnchors}, 12).Items
 	in.ResidualRisks = writeFinalNormalizeRisks(in.ResidualRisks)
 	return in
 }
@@ -354,6 +358,7 @@ func writeFinalPlanSummary(plan *ChangePlan) WriteFinalPlanSummary {
 		out.ApprovalReasonCode = strings.TrimSpace(plan.Approval.ReasonCode)
 	}
 	out.Localization = CloneSourceLocalizationReviewPtr(plan.LocalizationReview)
+	out.OwnerAnchors = OwnerAnchorViewFromChangePlan(plan, 12).Items
 	return out
 }
 
@@ -478,7 +483,10 @@ func writeFinalHandoffSummary(packs []WriteContextPack, limit int) WriteFinalHan
 	}
 	merged = NormalizeWriteContextPack(merged)
 	view := merged.View(WriteConsumerController, limit)
-	out := WriteFinalHandoffSummary{TotalItems: len(merged.Items)}
+	out := WriteFinalHandoffSummary{
+		TotalItems:   len(merged.Items),
+		OwnerAnchors: OwnerAnchorViewFromWriteContextPack(merged, WriteConsumerController, "", "", 12).Items,
+	}
 	for _, item := range view.Items {
 		out.TopItems = append(out.TopItems, WriteFinalHandoffItem{
 			Priority:    item.Priority,
