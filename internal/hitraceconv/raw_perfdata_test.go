@@ -115,6 +115,42 @@ func TestConvertRawPerfDataSkipsSafeExtraSampleFields(t *testing.T) {
 	}
 }
 
+func TestConvertRawPerfDataSkipsUserRegsStackAndVendorBit(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf-user-stack.data")
+	outPath := filepath.Join(dir, "raw-user-stack.perftrace")
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod | perfSampleRegsUser | perfSampleStackUser | rawPerfVendorSampleBit31)
+	if err := os.WriteFile(perfData, syntheticRawPerfDataWithSampleType(sampleType, 0), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := readRawPerfData(context.Background(), perfData)
+	if err != nil {
+		t.Fatalf("read raw perf data with user regs/stack/vendor bit: %v", err)
+	}
+	joined := strings.Join(data.Caveats, "\n")
+	for _, want := range []string{"regs_user", "stack_user", "unknown:0x80000000"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected skipped sample field %q in caveats: %+v", want, data.Caveats)
+		}
+	}
+	if len(data.Samples) != 1 || data.Samples[0].PID != 1234 || data.Samples[0].CPU != 5 || data.Samples[0].Period != 99 {
+		t.Fatalf("sample identity should survive skipped user stack fields: %+v", data.Samples)
+	}
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+		t.Fatalf("convert raw perf.data with user regs/stack/vendor bit: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`pid=1234`, `cpu=5`, `raw fallback skipped non-causal sample payload field(s): regs_user,stack_user,unknown:0x80000000`} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("perftrace missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestConvertRawPerfDataMapsMultiAttrSampleIDToEvent(t *testing.T) {
 	dir := t.TempDir()
 	perfData := filepath.Join(dir, "perf-multi.data")
@@ -607,6 +643,14 @@ func rawPerfSamplePayload(sampleType uint64) []byte {
 		for out.Len()%8 != 0 {
 			out.WriteByte(0)
 		}
+	}
+	if sampleType&perfSampleRegsUser != 0 {
+		writeU64(0)
+	}
+	if sampleType&perfSampleStackUser != 0 {
+		writeU64(3)
+		out.Write([]byte{0xaa, 0xbb, 0xcc})
+		writeU64(3)
 	}
 	if sampleType&perfSampleWeight != 0 {
 		writeU64(123)

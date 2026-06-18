@@ -149,6 +149,93 @@ func TestConvertFileReturnsStandalonePerfArtifactWithoutSystraceContainer(t *tes
 	}
 }
 
+func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "profiler.htrace")
+	textTrace := strings.Join([]string{
+		"worker-1234  ( 1234) [005] ....     1.234567: sched_wakeup: comm=main pid=5678 prio=53 target_cpu=005",
+		"main-5678    ( 5678) [005] ....     1.234890: tracing_mark_write: B|5678|doFrame",
+		"Binder:43397_19-23088 (23088) [007] ....     1.235000: sched_wakeup: comm=main pid=5678 prio=53 target_cpu=007",
+	}, "\n")
+	body := syntheticProfilerTraceFile(syntheticProfilerPluginData("bytrace_plugin", []byte(textTrace)))
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(dir, "out.systrace")
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	if err != nil {
+		t.Fatalf("convert official profiler trace file: %v", err)
+	}
+	if result.OutputPath != output || result.EventsWritten != 3 || result.UnknownEventCount != 0 {
+		t.Fatalf("bad profiler conversion result: %+v", result)
+	}
+	if !containsString(result.Caveats, "TraceFileHeader detected") || !containsString(result.Caveats, "extracted 3 systrace text row") {
+		t.Fatalf("official profiler caveats should explain format and extraction: %+v", result.Caveats)
+	}
+	converted, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"sched_wakeup: comm=main pid=5678", "tracing_mark_write: B|5678|doFrame"} {
+		if !strings.Contains(string(converted), want) {
+			t.Fatalf("converted profiler systrace missing %q:\n%s", want, converted)
+		}
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), output)
+	if err != nil {
+		t.Fatalf("tracequery parse profiler output: %v", err)
+	}
+	if len(idx.Events) != 3 {
+		t.Fatalf("profiler output did not round-trip through tracequery: %+v", idx.Events)
+	}
+}
+
+func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "hiprofiler_data.htrace")
+	perfPayload := append([]byte("PERF-DATA-PAYLOAD"), bytes.Repeat([]byte{0xa5}, 9*1024*1024)...)
+	var body bytes.Buffer
+	body.Write([]byte("PKGHEAD0"))
+	body.WriteString("SessionJSON-")
+	body.WriteString(`{"plugins":["bytrace_plugin","hiperf-plugin"]}`)
+	body.WriteByte('\n')
+	body.WriteString("app-1000     ( 1000) [003] ....  1858.767865: tracing_mark_write: B|11029|bindApplication\n")
+	body.Write(syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", perfPayload))
+	if err := os.WriteFile(input, body.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(dir, "session.systrace")
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	if err != nil {
+		t.Fatalf("convert SessionJSON package: %v", err)
+	}
+	if result.OutputPath != output || result.EventsWritten != 1 || result.BundlePath == "" {
+		t.Fatalf("session package should produce systrace and bundle: %+v", result)
+	}
+	if !containsString(result.Caveats, "SessionJSON- detected") || containsString(result.Caveats, "invalid segment type") {
+		t.Fatalf("session package should not surface legacy segment-parser error: %+v", result.Caveats)
+	}
+	var perf Artifact
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactPerfData {
+			perf = artifact
+			break
+		}
+	}
+	if perf.Path == "" || perf.PluginName != "hiperf-plugin" || perf.PluginVersion != "1.02" {
+		t.Fatalf("session package should preserve HIPERF_DATA sidecar: %+v", result.Artifacts)
+	}
+	converted, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(converted), "bindApplication") {
+		t.Fatalf("session systrace missing embedded text row:\n%s", converted)
+	}
+}
+
 func TestPerfClockAlignmentsForArtifactsCoversConfidenceStates(t *testing.T) {
 	alignments := perfClockAlignmentsForArtifacts([]Artifact{
 		{
@@ -741,6 +828,59 @@ func syntheticStandaloneProfilerBlock(dataType uint32, pluginName, pluginVersion
 	copy(block[profilerPluginVersionOffset:profilerPluginVersionOffset+profilerPluginVersionSize], []byte(pluginVersion))
 	copy(block[profilerTraceHeaderSize:], payload)
 	return block
+}
+
+func syntheticProfilerTraceFile(messages ...[]byte) []byte {
+	var payload bytes.Buffer
+	for _, msg := range messages {
+		var lenBuf [4]byte
+		binary.LittleEndian.PutUint32(lenBuf[:], uint32(len(msg)))
+		payload.Write(lenBuf[:])
+		payload.Write(msg)
+	}
+	body := make([]byte, profilerTraceHeaderSize+payload.Len())
+	binary.LittleEndian.PutUint64(body[0:8], profilerTraceHeaderMagic)
+	binary.LittleEndian.PutUint64(body[8:16], uint64(len(body)))
+	binary.LittleEndian.PutUint32(body[16:20], 0x00010000)
+	binary.LittleEndian.PutUint32(body[20:24], uint32(len(messages)*2))
+	binary.LittleEndian.PutUint32(body[56:60], profilerDataTypeProtobuf)
+	copy(body[profilerTraceHeaderSize:], payload.Bytes())
+	return body
+}
+
+func syntheticProfilerPluginData(name string, data []byte) []byte {
+	var out bytes.Buffer
+	writeProtoStringField(&out, 1, name)
+	writeProtoVarintField(&out, 2, 0)
+	writeProtoBytesField(&out, 3, data)
+	writeProtoVarintField(&out, 4, 7)
+	writeProtoVarintField(&out, 5, 1)
+	writeProtoVarintField(&out, 6, 2)
+	writeProtoStringField(&out, 7, "1.02")
+	return out.Bytes()
+}
+
+func writeProtoStringField(out *bytes.Buffer, field int, value string) {
+	writeProtoBytesField(out, field, []byte(value))
+}
+
+func writeProtoBytesField(out *bytes.Buffer, field int, value []byte) {
+	writeProfilerProtoVarint(out, uint64(field<<3|2))
+	writeProfilerProtoVarint(out, uint64(len(value)))
+	out.Write(value)
+}
+
+func writeProtoVarintField(out *bytes.Buffer, field int, value uint64) {
+	writeProfilerProtoVarint(out, uint64(field<<3))
+	writeProfilerProtoVarint(out, value)
+}
+
+func writeProfilerProtoVarint(out *bytes.Buffer, value uint64) {
+	for value >= 0x80 {
+		out.WriteByte(byte(value) | 0x80)
+		value >>= 7
+	}
+	out.WriteByte(byte(value))
 }
 
 func containsString(items []string, needle string) bool {

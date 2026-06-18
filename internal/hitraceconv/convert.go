@@ -57,6 +57,9 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if result, ok, err := tryConvertProfilerContainer(ctx, opts, info.Size(), output, standaloneArtifacts, standaloneCaveats, standaloneDecisions); ok || err != nil {
+		return result, err
+	}
 	meta, err := scanMetadata(ctx, input, info.Size())
 	if err != nil {
 		if len(standaloneArtifacts) > 0 {

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math/bits"
 	"os"
 	"strconv"
 	"strings"
@@ -52,6 +53,8 @@ const (
 	perfSampleDataPageSize = 1 << 22
 	perfSampleCodePageSize = 1 << 23
 
+	rawPerfVendorSampleBit31 = 1 << 31
+
 	perfFormatTotalTimeEnabled = 1 << 0
 	perfFormatTotalTimeRunning = 1 << 1
 	perfFormatID               = 1 << 2
@@ -61,16 +64,20 @@ const (
 
 const (
 	rawPerfParsedSampleBits    = perfSampleIP | perfSampleTID | perfSampleTime | perfSampleAddr | perfSampleCallchain | perfSampleID | perfSampleCPU | perfSamplePeriod | perfSampleStreamID | perfSampleIdentifier
-	rawPerfSkippedSampleBits   = perfSampleRead | perfSampleRaw | perfSampleWeight | perfSampleDataSrc | perfSampleTransaction | perfSamplePhysAddr | perfSampleCGroup | perfSampleDataPageSize | perfSampleCodePageSize
+	rawPerfSkippedSampleBits   = perfSampleRead | perfSampleRaw | perfSampleBranchStack | perfSampleRegsUser | perfSampleStackUser | perfSampleWeight | perfSampleDataSrc | perfSampleTransaction | perfSampleRegsIntr | perfSamplePhysAddr | perfSampleAux | perfSampleCGroup | perfSampleDataPageSize | perfSampleCodePageSize | rawPerfVendorSampleBit31
 	rawPerfSupportedSampleBits = rawPerfParsedSampleBits | rawPerfSkippedSampleBits
 )
 
 type rawPerfAttr struct {
-	SampleType uint64
-	ReadFormat uint64
-	EventName  string
-	IDs        []uint64
-	Caveats    []string
+	SampleType       uint64
+	ReadFormat       uint64
+	BranchSampleType uint64
+	SampleRegsUser   uint64
+	SampleStackUser  uint32
+	SampleRegsIntr   uint64
+	EventName        string
+	IDs              []uint64
+	Caveats          []string
 }
 
 type rawPerfFileHeader struct {
@@ -454,6 +461,18 @@ func parseRawPerfAttrEntry(r io.ReaderAt, attr []byte) (rawPerfAttr, error) {
 	}
 	if len(attr) >= 40 {
 		out.ReadFormat = binary.LittleEndian.Uint64(attr[32:40])
+	}
+	if len(attr) >= 80 {
+		out.BranchSampleType = binary.LittleEndian.Uint64(attr[72:80])
+	}
+	if len(attr) >= 88 {
+		out.SampleRegsUser = binary.LittleEndian.Uint64(attr[80:88])
+	}
+	if len(attr) >= 92 {
+		out.SampleStackUser = binary.LittleEndian.Uint32(attr[88:92])
+	}
+	if len(attr) >= 104 {
+		out.SampleRegsIntr = binary.LittleEndian.Uint64(attr[96:104])
 	}
 	attrStructSize := int(binary.LittleEndian.Uint32(attr[4:8]))
 	if attrStructSize <= 0 || attrStructSize > len(attr) {
@@ -965,11 +984,49 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 			return rawPerfSample{}, false
 		}
 	}
+	if sampleType&perfSampleBranchStack != 0 {
+		nr, ok := readU64()
+		if !ok || nr > 4096 {
+			return rawPerfSample{}, false
+		}
+		if !skipBytes(int(nr) * 24) {
+			return rawPerfSample{}, false
+		}
+	}
+	if sampleType&perfSampleRegsUser != 0 {
+		if !skipRawPerfSampleRegs(&off, payload, attr.SampleRegsUser) {
+			return rawPerfSample{}, false
+		}
+	}
+	if sampleType&perfSampleStackUser != 0 {
+		if !skipRawPerfSampleStackUser(&off, payload) {
+			return rawPerfSample{}, false
+		}
+	}
 	for _, bit := range []uint64{
 		perfSampleWeight,
 		perfSampleDataSrc,
 		perfSampleTransaction,
-		perfSamplePhysAddr,
+	} {
+		if sampleType&bit != 0 && !skipU64() {
+			return rawPerfSample{}, false
+		}
+	}
+	if sampleType&perfSampleRegsIntr != 0 {
+		if !skipRawPerfSampleRegs(&off, payload, attr.SampleRegsIntr) {
+			return rawPerfSample{}, false
+		}
+	}
+	if sampleType&perfSamplePhysAddr != 0 && !skipU64() {
+		return rawPerfSample{}, false
+	}
+	if sampleType&perfSampleAux != 0 {
+		size, ok := readU64()
+		if !ok || size > uint64(len(payload)-off) || !skipBytes(int(size)) {
+			return rawPerfSample{}, false
+		}
+	}
+	for _, bit := range []uint64{
 		perfSampleCGroup,
 		perfSampleDataPageSize,
 		perfSampleCodePageSize,
@@ -982,6 +1039,43 @@ func parseRawPerfSample(payload []byte, attr rawPerfAttr) (rawPerfSample, bool) 
 		sample.Period = 1
 	}
 	return sample, true
+}
+
+func skipRawPerfSampleRegs(off *int, payload []byte, regsMask uint64) bool {
+	if *off+8 > len(payload) {
+		return false
+	}
+	abi := binary.LittleEndian.Uint64(payload[*off : *off+8])
+	*off += 8
+	if abi == 0 {
+		return true
+	}
+	bytesToSkip := bits.OnesCount64(regsMask) * 8
+	if bytesToSkip < 0 || *off+bytesToSkip > len(payload) {
+		return false
+	}
+	*off += bytesToSkip
+	return true
+}
+
+func skipRawPerfSampleStackUser(off *int, payload []byte) bool {
+	if *off+8 > len(payload) {
+		return false
+	}
+	size := binary.LittleEndian.Uint64(payload[*off : *off+8])
+	*off += 8
+	if size > uint64(len(payload)-*off) {
+		return false
+	}
+	*off += int(size)
+	if size == 0 {
+		return true
+	}
+	if *off+8 > len(payload) {
+		return false
+	}
+	*off += 8
+	return true
 }
 
 func skipRawPerfRead(off *int, payload []byte, readFormat uint64) bool {
