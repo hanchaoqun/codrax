@@ -198,8 +198,17 @@ func TestConvertRawPerfDataPreservesFeatureMetadataCaveats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read feature raw perf data: %v", err)
 	}
-	if data.Features.Arch != "arm64" || strings.Join(data.Features.Cmdline, " ") != "simpleperf record" || data.Features.Meta["clockid"] != "monotonic" || data.Features.BuildIDCount != 1 || data.Features.BuildIDs["/system/lib64/libfoo.so"] == "" {
+	if data.Features.Arch != "arm64" || data.Features.Hostname != "device-01" || data.Features.OSRelease != "5.10.0-HM" || data.Features.Version != "hiperf-test" || data.Features.CPUDesc != "arm big.LITTLE" || data.Features.CPUID != "0x41" {
+		t.Fatalf("basic feature metadata not parsed: %+v", data.Features)
+	}
+	if strings.Join(data.Features.Cmdline, " ") != "simpleperf record" || data.Features.WorkloadCmd != "com.example.app" || data.Features.RecordTime != "Thu Jun 18 12:00:00 2026" || data.Features.HMDevhost != "4242" || !data.Features.CPUOff {
+		t.Fatalf("command/hiperf feature metadata not parsed: %+v", data.Features)
+	}
+	if data.Features.Meta["clockid"] != "monotonic" || data.Features.BuildIDCount != 1 || data.Features.BuildIDs["/system/lib64/libfoo.so"] == "" || len(data.Features.EventDescs) != 1 || data.Features.UniStackTables != 1 || data.Features.UniStackNodes != 2 {
 		t.Fatalf("feature metadata not parsed: %+v", data.Features)
+	}
+	if len(data.Samples) != 1 || data.Samples[0].EventName != "cpu-cycles" {
+		t.Fatalf("EVENT_DESC should name raw perf samples, got %+v", data.Samples)
 	}
 	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
 		t.Fatalf("convert feature raw perf.data: %v", err)
@@ -208,10 +217,76 @@ func TestConvertRawPerfDataPreservesFeatureMetadataCaveats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`parser_caveats=`, `arch=arm64`, `cmdline=simpleperf record`, `meta.clockid=monotonic`, `meta.event_type_info=present`, `build_id_records=1`, `build_id_dso_labeling=exact_path`, `dso="/system/lib64/libfoo.so#build_id=0102030405060708090a0b0c0d0e0f1011121314"`} {
+	for _, want := range []string{
+		`event="cpu-cycles"`,
+		`parser_caveats=`,
+		`arch=arm64`,
+		`hostname=device-01`,
+		`osrelease=5.10.0-HM`,
+		`version=hiperf-test`,
+		`cpu_desc=arm big.LITTLE`,
+		`cpuid=0x41`,
+		`nr_cpus_available=8`,
+		`nr_cpus_online=6`,
+		`total_mem_kb=123456`,
+		`cmdline=simpleperf record`,
+		`hiperf_workload_cmd=com.example.app`,
+		`hiperf_record_time=Thu Jun 18 12:00:00 2026`,
+		`hiperf_cpu_off=true`,
+		`hiperf_hm_devhost=4242`,
+		`meta.clockid=monotonic`,
+		`meta.event_type_info=present`,
+		`build_id_records=1`,
+		`build_id_dso_labeling=exact_path`,
+		`event_desc_records=1`,
+		`event_name_source=event_desc`,
+		`hiperf_unistack_tables=1`,
+		`hiperf_unistack_nodes=2`,
+		`raw fallback detected HIPERF_FILES_UNISTACK_TABLE`,
+		`dso="/system/lib64/libfoo.so#build_id=0102030405060708090a0b0c0d0e0f1011121314"`,
+	} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("feature perftrace missing %q:\n%s", want, string(body))
 		}
+	}
+}
+
+func TestConvertRawPerfDataMarksHiperfCPUOffSchedSwitchSamples(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf-offcpu.data")
+	outPath := filepath.Join(dir, "raw-offcpu.perftrace")
+	if err := os.WriteFile(perfData, syntheticRawPerfDataWithHiperfCPUOffEventDesc(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+		t.Fatalf("convert offcpu raw perf.data: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		`event="sched:sched_switch"`,
+		`sample_kind=off_cpu`,
+		`hiperf_cpu_off=true`,
+		`event_name_source=event_desc`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("offcpu perftrace missing %q:\n%s", want, text)
+		}
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("parse offcpu perftrace: %v", err)
+	}
+	if len(idx.Events) != 1 || idx.Events[0].PerfSampleKind != "off_cpu" || idx.Events[0].PerfEvent != "sched:sched_switch" {
+		t.Fatalf("offcpu sample fields did not reach tracequery: %+v", idx.Events)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 1.0, TimeEnd: 2.0})
+	if stats.PerfSamples == nil || stats.PerfSamples.Quality == nil || !strings.Contains(strings.Join(stats.PerfSamples.Quality.Caveats, "\n"), "off_cpu") {
+		t.Fatalf("offcpu quality caveat should reach perf stats: %+v", stats.PerfSamples)
 	}
 }
 
@@ -564,14 +639,45 @@ func syntheticRawPerfDataWithFeatures() []byte {
 	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
 
 	dataOffset := headerSize + attrSize
-	featureIDs := []int{perfFeatureBuildID, perfFeatureArch, perfFeatureCmdline, perfFeatureMetaInfo}
+	featureIDs := []int{
+		perfFeatureBuildID,
+		perfFeatureHostname,
+		perfFeatureOSRelease,
+		perfFeatureVersion,
+		perfFeatureArch,
+		perfFeatureNrCpus,
+		perfFeatureCPUDesc,
+		perfFeatureCPUID,
+		perfFeatureTotalMem,
+		perfFeatureCmdline,
+		perfFeatureEventDesc,
+		perfFeatureMetaInfo,
+		perfFeatureHiperfWorkloadCmd,
+		perfFeatureHiperfRecordTime,
+		perfFeatureHiperfCPUOff,
+		perfFeatureHiperfHMDevhost,
+		perfFeatureHiperfUniStackTable,
+	}
 	descriptorOffset := dataOffset + records.Len()
 	sectionOffset := descriptorOffset + len(featureIDs)*16
 	sections := [][]byte{
 		rawPerfFeatureBuildIDSection(),
+		rawPerfFeatureString("device-01"),
+		rawPerfFeatureString("5.10.0-HM"),
+		rawPerfFeatureString("hiperf-test"),
 		rawPerfFeatureString("arm64"),
+		rawPerfFeatureU32Pair(8, 6),
+		rawPerfFeatureString("arm big.LITTLE"),
+		rawPerfFeatureString("0x41"),
+		rawPerfFeatureU64(123456),
 		rawPerfFeatureStringList("simpleperf", "record"),
+		rawPerfFeatureEventDesc("cpu-cycles", 0, 0, sampleType, 777),
 		[]byte("clockid\x00monotonic\x00event_type_info\x00cpu-cycles\x00"),
+		rawPerfFeatureString("com.example.app"),
+		rawPerfFeatureString("Thu Jun 18 12:00:00 2026"),
+		rawPerfFeatureU64(1),
+		rawPerfFeatureString("4242"),
+		rawPerfFeatureUniStackTable(),
 	}
 	out := make([]byte, sectionOffset)
 	copy(out[0:8], []byte(perfMagic2))
@@ -588,6 +694,51 @@ func syntheticRawPerfDataWithFeatures() []byte {
 	binary.LittleEndian.PutUint32(attr[0:4], 0)
 	binary.LittleEndian.PutUint32(attr[4:8], 40)
 	binary.LittleEndian.PutUint64(attr[8:16], 0)
+	binary.LittleEndian.PutUint64(attr[24:32], sampleType)
+	copy(out[dataOffset:descriptorOffset], records.Bytes())
+
+	cur := sectionOffset
+	for i, section := range sections {
+		desc := out[descriptorOffset+i*16 : descriptorOffset+(i+1)*16]
+		binary.LittleEndian.PutUint64(desc[0:8], uint64(cur))
+		binary.LittleEndian.PutUint64(desc[8:16], uint64(len(section)))
+		out = append(out, section...)
+		cur += len(section)
+	}
+	return out
+}
+
+func syntheticRawPerfDataWithHiperfCPUOffEventDesc() []byte {
+	const headerSize = 104
+	const attrSize = 48
+	sampleType := uint64(perfSampleIdentifier | perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod)
+	var records bytes.Buffer
+	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "app")))
+	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+
+	dataOffset := headerSize + attrSize
+	featureIDs := []int{perfFeatureEventDesc, perfFeatureHiperfCPUOff}
+	descriptorOffset := dataOffset + records.Len()
+	sectionOffset := descriptorOffset + len(featureIDs)*16
+	sections := [][]byte{
+		rawPerfFeatureEventDesc("sched:sched_switch", 0, 0xfeed, sampleType, 202),
+		rawPerfFeatureU64(1),
+	}
+	out := make([]byte, sectionOffset)
+	copy(out[0:8], []byte(perfMagic2))
+	binary.LittleEndian.PutUint64(out[8:16], headerSize)
+	binary.LittleEndian.PutUint64(out[16:24], attrSize)
+	binary.LittleEndian.PutUint64(out[24:32], headerSize)
+	binary.LittleEndian.PutUint64(out[32:40], attrSize)
+	binary.LittleEndian.PutUint64(out[40:48], uint64(dataOffset))
+	binary.LittleEndian.PutUint64(out[48:56], uint64(records.Len()))
+	for _, id := range featureIDs {
+		out[72+id/8] |= 1 << (id % 8)
+	}
+	attr := out[headerSize:dataOffset]
+	binary.LittleEndian.PutUint32(attr[0:4], 0)
+	binary.LittleEndian.PutUint32(attr[4:8], 40)
+	binary.LittleEndian.PutUint64(attr[8:16], 0xfeed)
 	binary.LittleEndian.PutUint64(attr[24:32], sampleType)
 	copy(out[dataOffset:descriptorOffset], records.Bytes())
 
@@ -646,6 +797,51 @@ func rawPerfFeatureStringList(values ...string) []byte {
 		out.WriteString(value)
 		out.WriteByte(0)
 	}
+	return out.Bytes()
+}
+
+func rawPerfFeatureU32Pair(a, b uint32) []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU32(&out, a)
+	writeRawPerfTestU32(&out, b)
+	return out.Bytes()
+}
+
+func rawPerfFeatureU64(v uint64) []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU64(&out, v)
+	return out.Bytes()
+}
+
+func rawPerfFeatureEventDesc(name string, typ uint32, config uint64, sampleType uint64, ids ...uint64) []byte {
+	const attrSize = 40
+	var out bytes.Buffer
+	writeRawPerfTestU32(&out, 1)
+	writeRawPerfTestU32(&out, attrSize)
+	attr := make([]byte, attrSize)
+	binary.LittleEndian.PutUint32(attr[0:4], typ)
+	binary.LittleEndian.PutUint32(attr[4:8], attrSize)
+	binary.LittleEndian.PutUint64(attr[8:16], config)
+	binary.LittleEndian.PutUint64(attr[24:32], sampleType)
+	out.Write(attr)
+	writeRawPerfTestU32(&out, uint32(len(ids)))
+	writeRawPerfTestString(&out, name)
+	for _, id := range ids {
+		writeRawPerfTestU64(&out, id)
+	}
+	return out.Bytes()
+}
+
+func rawPerfFeatureUniStackTable() []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU32(&out, 1)
+	writeRawPerfTestU32(&out, 1234)
+	writeRawPerfTestU32(&out, 32)
+	writeRawPerfTestU32(&out, 2)
+	writeRawPerfTestU32(&out, 1)
+	writeRawPerfTestU64(&out, 0x1111000000000001)
+	writeRawPerfTestU32(&out, 2)
+	writeRawPerfTestU64(&out, 0x2222000000000002)
 	return out.Bytes()
 }
 

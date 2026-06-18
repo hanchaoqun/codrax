@@ -45,6 +45,20 @@ planner kept `current_code_path` optional rather than hard-required.
   `--no-perftrace`, and `--perf-tools-status`.
 - `--perf-parser=auto` prefers official hiperf/simpleperf adapters, then falls
   back to Codrax raw perf.data parsing when supported.
+- Raw perf.data fallback now consumes official OpenHarmony hiperf feature
+  sections where their layouts are stable: `HOSTNAME`, `OSRELEASE`, `VERSION`,
+  `ARCH`, `NRCPUS`, `CPUDESC`, `CPUID`, `TOTAL_MEM`, `CMDLINE`, `EVENT_DESC`,
+  `HIPERF_WORKLOAD_CMD`, `HIPERF_RECORD_TIME`, `HIPERF_CPU_OFF`,
+  `HIPERF_HM_DEVHOST`, `HIPERF_FILES_SYMBOL`, and a bounded summary of
+  `HIPERF_FILES_UNISTACK_TABLE`.
+- `EVENT_DESC` upgrades raw sample labels from `config:0x...` to official event
+  names and maps sample ids when present. `HIPERF_CPU_OFF` plus
+  `sched:sched_switch` marks raw samples as `sample_kind=off_cpu`; other raw
+  samples remain conservative rather than forcing `on_cpu`.
+- `HIPERF_FILES_UNISTACK_TABLE` is exposed as table/node/pid provenance only.
+  Full deduplicated stack-id expansion remains an official hiperf report
+  responsibility because it depends on sample stack ids plus the full
+  `UniqueStackTable` flow.
 - Converter outputs can include `.systrace`, `.perf.data`, `.perftrace`, and
   `.tracebundle.json`; trace_query accepts the bundle directly and can merge
   systrace+perftrace evidence.
@@ -135,6 +149,30 @@ planner kept `current_code_path` optional rather than hard-required.
   candidates; ranking remains based on overlap, chain relevance, cumulative
   impact, CPU/core/frequency/affinity, runnable pressure, D/io_wait, IO, and
   supply evidence.
+- Keep raw fallback official-feature consumption as provenance and bounded
+  sample enrichment. Do not treat unexpanded unistack tables as recovered
+  callchains, and do not promote perf-only samples to standalone scheduler root
+  causes.
+
+## Official Format Delta After Latest Comparison
+
+- OpenHarmony profiler/ftrace protos include useful systrace event families
+  already relevant to Codrax analysis: binder, sched, sched_blocked_reason,
+  filemap, f2fs, mmc, irq/softirq/ipi, workqueue, clock_set_rate,
+  cpu_frequency, cpu_frequency_limits, and related trace marker events. Existing
+  text systrace parsing consumes many of these once rendered as stable text
+  rows; remaining converter work should add explicit renderers per event family,
+  not generic unknown-event body dumping.
+- OpenHarmony hiperf official perf.data feature layouts confirmed useful
+  fallback fields beyond samples: device/kernel/arch/cpu/memory provenance,
+  command line and workload command, record time, event descriptions, Harmony
+  devhost pid, CPU-off mode, saved symbols, and deduplicated stack-table
+  presence. The low-risk subset is now parsed into `.perftrace` parser caveats
+  and trace_query quality context.
+- Larger future work: expand `PERF_RECORD_HIPERF_CALLSTACK` / deduplicated
+  stack ids only if the raw parser can faithfully reproduce official
+  `UniqueStackTable` expansion. Until then the commercial path remains
+  official-first with raw fallback providing transparent degraded evidence.
 
 ## Task List
 
@@ -177,6 +215,9 @@ planner kept `current_code_path` optional rather than hard-required.
   provenance details.
 - [x] Unit-test zero-impact state_churn snapshot suppression.
 - [x] Unit-test raw fallback perf quality materialization.
+- [x] Unit-test official hiperf raw feature parsing: EVENT_DESC event names,
+  device/cpu/memory/workload/record-time metadata, CPU-off sample kind, saved
+  symbol provenance, and unistack summary caveats.
 - [x] Unit-test runtime artifact path preservation in `required_files` repair.
 - [x] Unit-test current-request runtime artifact path projection into typed
   hints.

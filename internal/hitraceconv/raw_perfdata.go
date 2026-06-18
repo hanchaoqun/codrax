@@ -23,12 +23,25 @@ const (
 	perfRecordSample = 9
 	perfRecordMmap2  = 10
 
-	perfFeatureBuildID  = 2
-	perfFeatureArch     = 6
-	perfFeatureCmdline  = 11
-	perfFeatureMetaInfo = 129
+	perfFeatureBuildID   = 2
+	perfFeatureHostname  = 3
+	perfFeatureOSRelease = 4
+	perfFeatureVersion   = 5
+	perfFeatureArch      = 6
+	perfFeatureNrCpus    = 7
+	perfFeatureCPUDesc   = 8
+	perfFeatureCPUID     = 9
+	perfFeatureTotalMem  = 10
+	perfFeatureCmdline   = 11
+	perfFeatureEventDesc = 12
+	perfFeatureMetaInfo  = 129
 
-	perfFeatureHiperfFilesSymbol = 192
+	perfFeatureHiperfFilesSymbol   = 192
+	perfFeatureHiperfWorkloadCmd   = 193
+	perfFeatureHiperfRecordTime    = 194
+	perfFeatureHiperfCPUOff        = 195
+	perfFeatureHiperfHMDevhost     = 196
+	perfFeatureHiperfUniStackTable = 197
 
 	perfSampleIP           = 1 << 0
 	perfSampleTID          = 1 << 1
@@ -81,6 +94,8 @@ const (
 )
 
 type rawPerfAttr struct {
+	Type             uint32
+	Config           uint64
 	SampleType       uint64
 	ReadFormat       uint64
 	BranchSampleType uint64
@@ -130,6 +145,14 @@ type rawPerfSymbol struct {
 	Name  string
 }
 
+type rawPerfEventDesc struct {
+	Type       uint32
+	Config     uint64
+	SampleType uint64
+	Name       string
+	IDs        []uint64
+}
+
 type rawPerfSymbolFile struct {
 	Path                    string
 	SymbolType              uint32
@@ -159,15 +182,31 @@ type rawPerfData struct {
 }
 
 type rawPerfFeatures struct {
-	Present      []int
-	Arch         string
-	Cmdline      []string
-	Meta         map[string]string
-	BuildIDs     map[string]string
-	SymbolFiles  []rawPerfSymbolFile
-	BuildIDCount int
-	SymbolCount  int
-	Caveats      []string
+	Present         []int
+	Hostname        string
+	OSRelease       string
+	Version         string
+	Arch            string
+	CPUDesc         string
+	CPUID           string
+	Cmdline         []string
+	WorkloadCmd     string
+	RecordTime      string
+	HMDevhost       string
+	NrCpusAvailable uint32
+	NrCpusOnline    uint32
+	TotalMemKB      uint64
+	CPUOff          bool
+	Meta            map[string]string
+	BuildIDs        map[string]string
+	EventDescs      []rawPerfEventDesc
+	SymbolFiles     []rawPerfSymbolFile
+	UniStackTables  int
+	UniStackNodes   int
+	UniStackPIDs    []int
+	BuildIDCount    int
+	SymbolCount     int
+	Caveats         []string
 }
 
 func rawPerfParserAllowed(opts Options) bool {
@@ -317,6 +356,7 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 	if err != nil {
 		return rawPerfData{}, err
 	}
+	attrs = rawPerfApplyEventDescs(attrs, features.EventDescs)
 	attr := attrs[0]
 	for _, candidate := range attrs[1:] {
 		if candidate.SampleType != attr.SampleType || candidate.ReadFormat != attr.ReadFormat {
@@ -341,7 +381,7 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 		Caveats:    attr.Caveats,
 	}
 	out.Caveats = append(out.Caveats, rawPerfFeatureCaveats(features)...)
-	eventIDs := rawPerfEventIDMap(attrs)
+	eventIDs := rawPerfEventIDMap(attrs, features.EventDescs)
 	if len(attrs) > 1 {
 		if len(eventIDs) > 0 {
 			out.Caveats = append(out.Caveats, fmt.Sprintf("raw fallback parsed %d perf attrs and maps sample ids to event names when present", len(attrs)))
@@ -490,8 +530,11 @@ func parseRawPerfAttrEntry(r io.ReaderAt, attr []byte) (rawPerfAttr, error) {
 	if len(attr) < 32 {
 		return rawPerfAttr{}, fmt.Errorf("perf attr too small: %d", len(attr))
 	}
+	typ := binary.LittleEndian.Uint32(attr[0:4])
 	config := binary.LittleEndian.Uint64(attr[8:16])
 	out := rawPerfAttr{
+		Type:       typ,
+		Config:     config,
 		SampleType: binary.LittleEndian.Uint64(attr[24:32]),
 		EventName:  "config:0x" + strconv.FormatUint(config, 16),
 	}
@@ -548,12 +591,54 @@ func readRawPerfAttrIDs(r io.ReaderAt, offset, size uint64) ([]uint64, string) {
 	return ids, ""
 }
 
-func rawPerfEventIDMap(attrs []rawPerfAttr) map[uint64]string {
+func rawPerfApplyEventDescs(attrs []rawPerfAttr, descs []rawPerfEventDesc) []rawPerfAttr {
+	if len(attrs) == 0 || len(descs) == 0 {
+		return attrs
+	}
+	byConfig := map[string]string{}
+	byID := map[uint64]string{}
+	for _, desc := range descs {
+		if desc.Name == "" {
+			continue
+		}
+		byConfig[rawPerfEventConfigKey(desc.Type, desc.Config)] = desc.Name
+		for _, id := range desc.IDs {
+			if id != 0 {
+				byID[id] = desc.Name
+			}
+		}
+	}
+	for i := range attrs {
+		for _, id := range attrs[i].IDs {
+			if name := byID[id]; name != "" {
+				attrs[i].EventName = name
+				break
+			}
+		}
+		if name := byConfig[rawPerfEventConfigKey(attrs[i].Type, attrs[i].Config)]; name != "" {
+			attrs[i].EventName = name
+		}
+	}
+	return attrs
+}
+
+func rawPerfEventConfigKey(typ uint32, config uint64) string {
+	return strconv.FormatUint(uint64(typ), 10) + ":" + strconv.FormatUint(config, 16)
+}
+
+func rawPerfEventIDMap(attrs []rawPerfAttr, descs []rawPerfEventDesc) map[uint64]string {
 	out := make(map[uint64]string)
 	for _, attr := range attrs {
 		for _, id := range attr.IDs {
 			if id != 0 && attr.EventName != "" {
 				out[id] = attr.EventName
+			}
+		}
+	}
+	for _, desc := range descs {
+		for _, id := range desc.IDs {
+			if id != 0 && desc.Name != "" {
+				out[id] = desc.Name
 			}
 		}
 	}
@@ -615,10 +700,28 @@ func readRawPerfFeatures(r io.ReaderAt, header rawPerfFileHeader, fileSize int64
 		case perfFeatureBuildID:
 			features.BuildIDs = readRawPerfBuildIDRecords(buf)
 			features.BuildIDCount = len(features.BuildIDs)
+		case perfFeatureHostname:
+			features.Hostname = readRawPerfFeatureString(buf)
+		case perfFeatureOSRelease:
+			features.OSRelease = readRawPerfFeatureString(buf)
+		case perfFeatureVersion:
+			features.Version = readRawPerfFeatureString(buf)
 		case perfFeatureArch:
 			features.Arch = readRawPerfFeatureString(buf)
+		case perfFeatureNrCpus:
+			features.NrCpusAvailable, features.NrCpusOnline = readRawPerfFeatureU32Pair(buf)
+		case perfFeatureCPUDesc:
+			features.CPUDesc = readRawPerfFeatureString(buf)
+		case perfFeatureCPUID:
+			features.CPUID = readRawPerfFeatureString(buf)
+		case perfFeatureTotalMem:
+			features.TotalMemKB = readRawPerfFeatureU64(buf)
 		case perfFeatureCmdline:
 			features.Cmdline = readRawPerfFeatureStringList(buf)
+		case perfFeatureEventDesc:
+			eventDescs, caveats := readRawPerfEventDescs(buf)
+			features.EventDescs = eventDescs
+			features.Caveats = append(features.Caveats, caveats...)
 		case perfFeatureMetaInfo:
 			features.Meta = readRawPerfMetaInfo(buf)
 		case perfFeatureHiperfFilesSymbol:
@@ -628,14 +731,31 @@ func readRawPerfFeatures(r io.ReaderAt, header rawPerfFileHeader, fileSize int64
 				features.SymbolCount += len(file.Symbols)
 			}
 			features.Caveats = append(features.Caveats, caveats...)
+		case perfFeatureHiperfWorkloadCmd:
+			features.WorkloadCmd = readRawPerfFeatureString(buf)
+		case perfFeatureHiperfRecordTime:
+			features.RecordTime = readRawPerfFeatureString(buf)
+		case perfFeatureHiperfCPUOff:
+			features.CPUOff = readRawPerfFeatureU64(buf) != 0
+		case perfFeatureHiperfHMDevhost:
+			features.HMDevhost = readRawPerfFeatureString(buf)
+		case perfFeatureHiperfUniStackTable:
+			summary, caveats := readRawPerfUniStackSummary(buf)
+			features.UniStackTables = summary.tables
+			features.UniStackNodes = summary.nodes
+			features.UniStackPIDs = summary.pids
+			features.Caveats = append(features.Caveats, caveats...)
 		}
 	}
 	return features
 }
 
 func rawPerfFeatureMaxSectionSize(id int) uint64 {
-	if id == perfFeatureHiperfFilesSymbol {
+	switch id {
+	case perfFeatureHiperfFilesSymbol, perfFeatureHiperfUniStackTable:
 		return 64 << 20
+	case perfFeatureEventDesc:
+		return 16 << 20
 	}
 	return 1 << 20
 }
@@ -686,6 +806,20 @@ func readRawPerfFeatureStringList(buf []byte) []string {
 		off += n
 	}
 	return out
+}
+
+func readRawPerfFeatureU32Pair(buf []byte) (uint32, uint32) {
+	if len(buf) < 8 {
+		return 0, 0
+	}
+	return binary.LittleEndian.Uint32(buf[0:4]), binary.LittleEndian.Uint32(buf[4:8])
+}
+
+func readRawPerfFeatureU64(buf []byte) uint64 {
+	if len(buf) < 8 {
+		return 0
+	}
+	return binary.LittleEndian.Uint64(buf[0:8])
 }
 
 func readRawPerfMetaInfo(buf []byte) map[string]string {
@@ -751,6 +885,15 @@ func (r *rawPerfFeatureReader) readU64() (uint64, bool) {
 	return v, true
 }
 
+func (r *rawPerfFeatureReader) readBytes(n int) ([]byte, bool) {
+	if n < 0 || r.off+n > len(r.buf) {
+		return nil, false
+	}
+	raw := r.buf[r.off : r.off+n]
+	r.off += n
+	return raw, true
+}
+
 func (r *rawPerfFeatureReader) readString() (string, bool) {
 	n, ok := r.readU32()
 	if !ok || n == 0 || n > uint32(len(r.buf)-r.off) {
@@ -762,6 +905,136 @@ func (r *rawPerfFeatureReader) readString() (string, bool) {
 		return "", false
 	}
 	return cString(raw), true
+}
+
+func readRawPerfEventDescs(buf []byte) ([]rawPerfEventDesc, []string) {
+	// OpenHarmony hiperf FEATURE::EVENT_DESC stores PerfFileSectionEventDesc:
+	// uint32 nr, uint32 attr_size, then attr bytes, nr_ids, string name, ids.
+	reader := rawPerfFeatureReader{buf: buf}
+	count, ok := reader.readU32()
+	if !ok {
+		return nil, []string{"raw fallback could not parse EVENT_DESC: missing event count"}
+	}
+	attrSize, ok := reader.readU32()
+	if !ok {
+		return nil, []string{"raw fallback could not parse EVENT_DESC: missing attr size"}
+	}
+	if count > 4096 {
+		return nil, []string{fmt.Sprintf("raw fallback skipped EVENT_DESC: too many events (%d)", count)}
+	}
+	if attrSize < 32 || attrSize > 4096 {
+		return nil, []string{fmt.Sprintf("raw fallback skipped EVENT_DESC: unsupported attr size %d", attrSize)}
+	}
+	out := make([]rawPerfEventDesc, 0, count)
+	var caveats []string
+	totalIDs := uint64(0)
+	for i := uint32(0); i < count; i++ {
+		attr, ok := reader.readBytes(int(attrSize))
+		if !ok {
+			caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing EVENT_DESC at event %d: truncated attr", i))
+			return out, caveats
+		}
+		nrIDs, ok := reader.readU32()
+		if !ok {
+			caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing EVENT_DESC at event %d: missing id count", i))
+			return out, caveats
+		}
+		totalIDs += uint64(nrIDs)
+		if nrIDs > 4096 || totalIDs > 65536 {
+			caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing EVENT_DESC at event %d: too many ids", i))
+			return out, caveats
+		}
+		name, ok := reader.readString()
+		if !ok {
+			caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing EVENT_DESC at event %d: malformed name", i))
+			return out, caveats
+		}
+		desc := rawPerfEventDesc{
+			Type:       binary.LittleEndian.Uint32(attr[0:4]),
+			Config:     binary.LittleEndian.Uint64(attr[8:16]),
+			SampleType: binary.LittleEndian.Uint64(attr[24:32]),
+			Name:       strings.TrimSpace(name),
+			IDs:        make([]uint64, 0, nrIDs),
+		}
+		for j := uint32(0); j < nrIDs; j++ {
+			id, ok := reader.readU64()
+			if !ok {
+				caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing EVENT_DESC event %d id %d: truncated id", i, j))
+				return out, caveats
+			}
+			if id != 0 {
+				desc.IDs = append(desc.IDs, id)
+			}
+		}
+		if nrIDs == 0 {
+			caveats = append(caveats, fmt.Sprintf("raw fallback ignored EVENT_DESC event %d with no ids", i))
+			continue
+		}
+		if desc.Name != "" && len(desc.IDs) > 0 {
+			out = append(out, desc)
+		}
+	}
+	return out, caveats
+}
+
+type rawPerfUniStackFeatureSummary struct {
+	tables int
+	nodes  int
+	pids   []int
+}
+
+func readRawPerfUniStackSummary(buf []byte) (rawPerfUniStackFeatureSummary, []string) {
+	// OpenHarmony hiperf FEATURE::HIPERF_FILES_UNISTACK_TABLE stores only the
+	// deduplicated stack table. Raw fallback records the summary but does not
+	// expand sample stack ids without the full official UniqueStackTable flow.
+	reader := rawPerfFeatureReader{buf: buf}
+	count, ok := reader.readU32()
+	if !ok {
+		return rawPerfUniStackFeatureSummary{}, []string{"raw fallback could not parse HIPERF_FILES_UNISTACK_TABLE: missing table count"}
+	}
+	if count > 65536 {
+		return rawPerfUniStackFeatureSummary{}, []string{fmt.Sprintf("raw fallback skipped HIPERF_FILES_UNISTACK_TABLE: too many process tables (%d)", count)}
+	}
+	summary := rawPerfUniStackFeatureSummary{tables: int(count)}
+	var caveats []string
+	for i := uint32(0); i < count; i++ {
+		pid, ok := reader.readU32()
+		if !ok {
+			caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing HIPERF_FILES_UNISTACK_TABLE at table %d: missing pid", i))
+			return summary, caveats
+		}
+		if tableSize, ok := reader.readU32(); !ok || tableSize == 0 {
+			caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing HIPERF_FILES_UNISTACK_TABLE at table %d: malformed table size", i))
+			return summary, caveats
+		}
+		numNodes, ok := reader.readU32()
+		if !ok {
+			caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing HIPERF_FILES_UNISTACK_TABLE at table %d: missing node count", i))
+			return summary, caveats
+		}
+		if numNodes > 1_000_000 || summary.nodes+int(numNodes) > 1_000_000 {
+			caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing HIPERF_FILES_UNISTACK_TABLE at table %d: too many nodes", i))
+			return summary, caveats
+		}
+		if len(summary.pids) < 16 {
+			summary.pids = append(summary.pids, int(pid))
+		}
+		summary.nodes += int(numNodes)
+		for j := uint32(0); j < numNodes; j++ {
+			if _, ok := reader.readU32(); !ok {
+				caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing HIPERF_FILES_UNISTACK_TABLE table %d node %d: missing index", i, j))
+				return summary, caveats
+			}
+			if _, ok := reader.readU64(); !ok {
+				caveats = append(caveats, fmt.Sprintf("raw fallback stopped parsing HIPERF_FILES_UNISTACK_TABLE table %d node %d: missing node value", i, j))
+				return summary, caveats
+			}
+		}
+	}
+	if summary.tables > 0 {
+		caveats = append(caveats, "raw fallback detected HIPERF_FILES_UNISTACK_TABLE; deduplicated stack ids are not expanded without the official hiperf report flow")
+	}
+	return summary, caveats
 }
 
 func readRawPerfHiperfSymbolFiles(buf []byte) ([]rawPerfSymbolFile, []string) {
@@ -873,8 +1146,42 @@ func rawPerfFeatureCaveats(features rawPerfFeatures) []string {
 	if features.Arch != "" {
 		parts = append(parts, "arch="+features.Arch)
 	}
+	if features.Hostname != "" {
+		parts = append(parts, "hostname="+features.Hostname)
+	}
+	if features.OSRelease != "" {
+		parts = append(parts, "osrelease="+features.OSRelease)
+	}
+	if features.Version != "" {
+		parts = append(parts, "version="+features.Version)
+	}
+	if features.CPUDesc != "" {
+		parts = append(parts, "cpu_desc="+features.CPUDesc)
+	}
+	if features.CPUID != "" {
+		parts = append(parts, "cpuid="+features.CPUID)
+	}
+	if features.NrCpusAvailable != 0 || features.NrCpusOnline != 0 {
+		parts = append(parts, fmt.Sprintf("nr_cpus_available=%d", features.NrCpusAvailable))
+		parts = append(parts, fmt.Sprintf("nr_cpus_online=%d", features.NrCpusOnline))
+	}
+	if features.TotalMemKB != 0 {
+		parts = append(parts, fmt.Sprintf("total_mem_kb=%d", features.TotalMemKB))
+	}
 	if len(features.Cmdline) > 0 {
 		parts = append(parts, "cmdline="+strings.Join(features.Cmdline, " "))
+	}
+	if features.WorkloadCmd != "" {
+		parts = append(parts, "hiperf_workload_cmd="+features.WorkloadCmd)
+	}
+	if features.RecordTime != "" {
+		parts = append(parts, "hiperf_record_time="+features.RecordTime)
+	}
+	if features.CPUOff {
+		parts = append(parts, "hiperf_cpu_off=true")
+	}
+	if features.HMDevhost != "" {
+		parts = append(parts, "hiperf_hm_devhost="+features.HMDevhost)
 	}
 	if len(features.Meta) > 0 {
 		if clock := features.Meta["clockid"]; clock != "" {
@@ -888,10 +1195,21 @@ func rawPerfFeatureCaveats(features rawPerfFeatures) []string {
 		parts = append(parts, fmt.Sprintf("build_id_records=%d", features.BuildIDCount))
 		parts = append(parts, "build_id_dso_labeling=exact_path")
 	}
+	if len(features.EventDescs) > 0 {
+		parts = append(parts, fmt.Sprintf("event_desc_records=%d", len(features.EventDescs)))
+		parts = append(parts, "event_name_source=event_desc")
+	}
 	if len(features.SymbolFiles) > 0 {
 		parts = append(parts, fmt.Sprintf("hiperf_symbol_files=%d", len(features.SymbolFiles)))
 		parts = append(parts, fmt.Sprintf("hiperf_symbol_names=%d", features.SymbolCount))
 		parts = append(parts, "symbol_source=hiperf_files_symbol")
+	}
+	if features.UniStackTables > 0 {
+		parts = append(parts, fmt.Sprintf("hiperf_unistack_tables=%d", features.UniStackTables))
+		parts = append(parts, fmt.Sprintf("hiperf_unistack_nodes=%d", features.UniStackNodes))
+		if len(features.UniStackPIDs) > 0 {
+			parts = append(parts, "hiperf_unistack_pids="+joinInts(features.UniStackPIDs, ","))
+		}
 	}
 	if len(parts) == 0 {
 		parts = append(parts, "features_present")
@@ -1346,12 +1664,28 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 		eventName := firstNonEmpty(sample.EventName, data.EventName, "unknown")
 		symbolizationStatus := perfTraceSymbolizationStatus(frame.Symbol, frame.DSO, "raw_perfdata_fallback")
 		callchainStatus := perfTraceCallchainStatus(callchain, "raw_perfdata_fallback")
-		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback symbolization_status=%s clock=perf_data clock_confidence=assumed callchain_status=%s%s\n",
-			comm, tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(eventName), quoteTraceValue(frame.Symbol), quoteTraceValue(frame.DSO), quoteTraceValue(frame.IP), quoteTraceValue(callchain), symbolizationStatus, callchainStatus, parserCaveats); err != nil {
+		sampleKind := rawPerfSampleKind(data.Features, eventName)
+		sampleKindField := ""
+		if sampleKind != "" {
+			sampleKindField = " sample_kind=" + sampleKind
+		}
+		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback%s symbolization_status=%s clock=perf_data clock_confidence=assumed callchain_status=%s%s\n",
+			comm, tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(eventName), quoteTraceValue(frame.Symbol), quoteTraceValue(frame.DSO), quoteTraceValue(frame.IP), quoteTraceValue(callchain), sampleKindField, symbolizationStatus, callchainStatus, parserCaveats); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func rawPerfSampleKind(features rawPerfFeatures, eventName string) string {
+	if !features.CPUOff {
+		return ""
+	}
+	eventName = strings.ToLower(strings.TrimSpace(eventName))
+	if eventName == "sched:sched_switch" || strings.Contains(eventName, "sched_switch") {
+		return "off_cpu"
+	}
+	return ""
 }
 
 func rawPerfHeaderCPU(cpu int) int {

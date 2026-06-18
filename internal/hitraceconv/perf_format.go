@@ -81,12 +81,13 @@ func perfCapabilityForRawFallback(inputFormat perfInputFormat) *PerfArtifactCapa
 		Callchain:       "symbolized_when_hiperf_files_symbol_present_else_ip_only",
 		DSOLabel:        "mmap_best_effort",
 		BuildID:         "feature_build_id_when_present",
-		OffCPU:          "not_supported",
+		OffCPU:          "hiperf_cpu_off_sched_switch_when_event_desc_present",
 		Confidence:      "degraded",
 		TraceQueryReady: true,
 		Degraded:        true,
 		Caveats: []string{
 			"raw fallback resolves function names only from saved hiperf symbol sections; without those sections it remains IP/DSO-level",
+			"raw fallback can label hiperf --offcpu sched_switch samples when official EVENT_DESC and HIPERF_CPU_OFF features are present, but full off-CPU stack expansion still needs official hiperf report flow",
 		},
 	}
 }
