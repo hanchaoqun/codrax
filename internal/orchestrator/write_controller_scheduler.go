@@ -3470,33 +3470,34 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			},
 		})
 	}
+	repairBatch := impactObligationRepairFollowupBatch(run, batchID, plan, o.busCtx.Mutable.ChangeReport())
 	if activeBatchCompletedWithNonFailedVerifierVerdict(run) &&
 		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
-		impactObligationRepairFollowupNeeded(run, batchID, plan) &&
+		repairBatch != nil &&
 		(decision.Action == writeflow.ActionFinish ||
 			decision.Action == writeflow.ActionReplanBatch ||
 			controllerActionInterruptsUnverifiedCompletion(decision.Action)) {
-		nextBatch := impactObligationRepairFollowupBatch(run, batchID, plan)
-		appendControllerProgress(run, batchID, "impact_obligation_followup_requested",
-			"typed impact obligations remain uncovered after a non-failed verifier attempt; appending one bounded follow-up batch")
-		if nextBatch != nil && nextBatch.NeedsCodeExploration {
+		for _, reasonCode := range repairFollowupRequestedReasonCodes(repairBatch.Purpose) {
+			appendControllerProgress(run, batchID, reasonCode, repairFollowupProgressMessage(repairBatch.Purpose))
+		}
+		if repairBatch.NeedsCodeExploration {
 			return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
 				Action:     writeflow.ActionExploreCode,
-				ReasonCode: "impact_obligation_followup_explore",
-				Reason:     "typed impact obligations need bounded localization before repair planning",
+				ReasonCode: repairFollowupActionReasonCode(repairBatch.Purpose, true),
+				Reason:     repairFollowupDecisionReason(repairBatch.Purpose, true),
 				ExplorationRequest: &types.WriteExplorationRequest{
-					BatchID:              nextBatch.ID,
-					Goal:                 nextBatch.Goal,
-					CandidatePaths:       nextBatch.ExpectedPaths,
-					EvidenceRequirements: nextBatch.SuccessCriteria,
+					BatchID:              repairBatch.ID,
+					Goal:                 repairBatch.Goal,
+					CandidatePaths:       repairBatch.ExpectedPaths,
+					EvidenceRequirements: repairBatch.SuccessCriteria,
 				},
 			})
 		}
 		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
 			Action:     writeflow.ActionAppendBatch,
-			ReasonCode: "impact_obligation_followup",
-			Reason:     "typed impact obligations remain uncovered after local observation",
-			Batch:      nextBatch,
+			ReasonCode: repairFollowupActionReasonCode(repairBatch.Purpose, false),
+			Reason:     repairFollowupDecisionReason(repairBatch.Purpose, false),
+			Batch:      repairBatch,
 		})
 	}
 	if decision.Action == writeflow.ActionReplanBatch &&
@@ -4232,19 +4233,13 @@ type impactRepairQueueItem struct {
 	Kind           string
 	Path           string
 	RelatedPath    string
+	Paths          []string
 	Symbol         string
 	ContractRef    string
 	CoverageStatus string
 	EvidenceRef    string
 	Source         string
 	Priority       int
-}
-
-func impactObligationRepairFollowupNeeded(run *types.WriteWorkflowRun, batchID string, plan *types.ChangePlan) bool {
-	if plan == nil || len(selectImpactRepairQueueItems(plan, 4)) == 0 {
-		return false
-	}
-	return !impactRepairFollowupAlreadyRequested(run, batchID)
 }
 
 func impactRepairFollowupAlreadyRequested(run *types.WriteWorkflowRun, batchID string) bool {
@@ -4256,14 +4251,27 @@ func impactRepairFollowupAlreadyRequested(run *types.WriteWorkflowRun, batchID s
 	return workflowProgressReasonCount(run, "", "semantic_patch_review_followup_requested") > 0
 }
 
-func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatchID string, plan *types.ChangePlan) *writeflow.WriteBatchPlan {
-	items := selectImpactRepairQueueItems(plan, 4)
-	id := nextImpactRepairBatchID(run, activeBatchID)
+func verificationProofFollowupAlreadyRequested(run *types.WriteWorkflowRun) bool {
+	return workflowProgressReasonCount(run, "", "verification_proof_followup_requested") > 0
+}
+
+func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatchID string, plan *types.ChangePlan, report *types.ChangeReport) *writeflow.WriteBatchPlan {
+	items := selectImpactRepairQueueItems(plan, report, 0)
+	items = filterPendingImpactRepairQueueItems(run, items)
+	if len(items) == 0 {
+		return nil
+	}
+	if len(items) > 4 {
+		items = items[:4]
+	}
+	purpose := repairFollowupPurposeForItems(items)
+	id := nextRepairBatchID(run, activeBatchID, repairFollowupBatchIDSuffix(purpose))
 	expectedPaths := impactRepairExpectedPaths(items)
 	criteria := impactRepairSuccessCriteria(items)
 	batch := writeflow.WriteBatchPlan{
 		ID:                   id,
 		Goal:                 impactRepairFollowupGoal(items),
+		Purpose:              purpose,
 		Status:               writeflow.BatchReadyForChangePlan,
 		NeedsCodeExploration: len(expectedPaths) == 0,
 		ExploreTargets:       expectedPaths,
@@ -4273,7 +4281,7 @@ func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatc
 	return &batch
 }
 
-func selectImpactRepairQueueItems(plan *types.ChangePlan, limit int) []impactRepairQueueItem {
+func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeReport, limit int) []impactRepairQueueItem {
 	if plan == nil {
 		return nil
 	}
@@ -4304,6 +4312,9 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, limit int) []impactRep
 			add(impactRepairQueueItemFromTarget(target))
 		}
 	}
+	for _, item := range verificationConfidenceRepairQueueItems(plan, report) {
+		add(item)
+	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Priority != items[j].Priority {
 			return items[i].Priority < items[j].Priority
@@ -4314,6 +4325,199 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, limit int) []impactRep
 		items = items[:limit]
 	}
 	return items
+}
+
+func filterPendingImpactRepairQueueItems(run *types.WriteWorkflowRun, items []impactRepairQueueItem) []impactRepairQueueItem {
+	if len(items) == 0 {
+		return nil
+	}
+	impactAlreadyRequested := impactRepairFollowupAlreadyRequested(run, "")
+	proofAlreadyRequested := verificationProofFollowupAlreadyRequested(run)
+	out := make([]impactRepairQueueItem, 0, len(items))
+	for _, item := range items {
+		if impactRepairQueueItemFromVerificationConfidence(item) {
+			if proofAlreadyRequested {
+				continue
+			}
+		} else if impactAlreadyRequested {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func verificationConfidenceRepairQueueItems(plan *types.ChangePlan, report *types.ChangeReport) []impactRepairQueueItem {
+	if plan == nil || report == nil || len(report.VerificationConfidence) == 0 {
+		return nil
+	}
+	planID := strings.TrimSpace(plan.ID)
+	reportPlanID := strings.TrimSpace(report.PlanID)
+	if planID != "" && reportPlanID != "" && planID != reportPlanID {
+		return nil
+	}
+	paths := planSourceRepairPaths(plan, 4)
+	var items []impactRepairQueueItem
+	addContractRefs := func(rec types.VerificationConfidenceRecord, refs []string) {
+		for _, ref := range dedupTrimControllerStrings(refs) {
+			items = append(items, impactRepairQueueItem{
+				ID:             "verification-confidence:" + strings.TrimSpace(rec.Category) + ":" + strings.TrimSpace(rec.ReasonCode) + ":" + ref,
+				Code:           strings.TrimSpace(rec.ReasonCode),
+				Kind:           "behavior_contract",
+				Paths:          paths,
+				ContractRef:    ref,
+				CoverageStatus: impactCoverageUnverified,
+				EvidenceRef:    strings.Trim(strings.TrimSpace(rec.Source)+":"+strings.TrimSpace(rec.Category), ":"),
+				Source:         "verification_confidence",
+				Priority:       impactRepairPriority("behavior_contract"),
+			})
+		}
+	}
+	addChangedSymbolRefs := func(rec types.VerificationConfidenceRecord, refs []string) {
+		for _, ref := range dedupTrimControllerStrings(refs) {
+			items = append(items, impactRepairQueueItem{
+				ID:             "verification-confidence:" + strings.TrimSpace(rec.Category) + ":" + strings.TrimSpace(rec.ReasonCode) + ":" + ref,
+				Code:           strings.TrimSpace(rec.ReasonCode),
+				Kind:           "changed_symbol",
+				Paths:          paths,
+				Symbol:         ref,
+				CoverageStatus: impactCoverageUnverified,
+				EvidenceRef:    strings.Trim(strings.TrimSpace(rec.Source)+":"+strings.TrimSpace(rec.Category), ":"),
+				Source:         "verification_confidence",
+				Priority:       impactRepairPriority("changed_symbol"),
+			})
+		}
+	}
+	for _, rec := range report.VerificationConfidence {
+		if strings.TrimSpace(rec.Status) != "missing" || strings.TrimSpace(rec.ReasonCode) == "" {
+			continue
+		}
+		switch strings.TrimSpace(rec.Category) {
+		case "probe_soft_contract_refs", "probe_contract_refs":
+			addContractRefs(rec, rec.ContractRefs)
+		case "probe_changed_symbol":
+			addChangedSymbolRefs(rec, rec.ChangedSymbolRefs)
+		}
+	}
+	return items
+}
+
+func planSourceRepairPaths(plan *types.ChangePlan, limit int) []string {
+	if plan == nil {
+		return nil
+	}
+	var raw []string
+	raw = append(raw, plan.AppliedPaths...)
+	raw = append(raw, plan.TargetPaths...)
+	for _, change := range plan.Changes {
+		raw = append(raw, change.Path, change.NewPath)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, candidate := range raw {
+		path := normalizeControllerPath(candidate)
+		if path == "" || seen[path] {
+			continue
+		}
+		if types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func repairFollowupPurposeForItems(items []impactRepairQueueItem) string {
+	hasImpact := false
+	hasProof := false
+	for _, item := range items {
+		if impactRepairQueueItemFromVerificationConfidence(item) {
+			hasProof = true
+		} else {
+			hasImpact = true
+		}
+	}
+	switch {
+	case hasImpact && hasProof:
+		return "impact_and_verification_proof_followup"
+	case hasProof:
+		return "verification_proof_followup"
+	default:
+		return "impact_obligation_followup"
+	}
+}
+
+func repairFollowupBatchIDSuffix(purpose string) string {
+	switch strings.TrimSpace(purpose) {
+	case "verification_proof_followup":
+		return "proof-repair"
+	case "impact_and_verification_proof_followup":
+		return "obligation-repair"
+	default:
+		return "impact-repair"
+	}
+}
+
+func repairFollowupRequestedReasonCodes(purpose string) []string {
+	switch strings.TrimSpace(purpose) {
+	case "verification_proof_followup":
+		return []string{"verification_proof_followup_requested"}
+	case "impact_and_verification_proof_followup":
+		return []string{"impact_obligation_followup_requested", "verification_proof_followup_requested"}
+	default:
+		return []string{"impact_obligation_followup_requested"}
+	}
+}
+
+func repairFollowupProgressMessage(purpose string) string {
+	switch strings.TrimSpace(purpose) {
+	case "verification_proof_followup":
+		return "typed verification proof obligations remain uncovered after a non-failed verifier attempt; appending one bounded proof follow-up batch"
+	case "impact_and_verification_proof_followup":
+		return "typed impact and verification proof obligations remain uncovered after a non-failed verifier attempt; appending one bounded follow-up batch"
+	default:
+		return "typed impact obligations remain uncovered after a non-failed verifier attempt; appending one bounded follow-up batch"
+	}
+}
+
+func repairFollowupActionReasonCode(purpose string, explore bool) string {
+	suffix := ""
+	if explore {
+		suffix = "_explore"
+	}
+	switch strings.TrimSpace(purpose) {
+	case "verification_proof_followup":
+		return "verification_proof_followup" + suffix
+	case "impact_and_verification_proof_followup":
+		return "typed_obligation_followup" + suffix
+	default:
+		return "impact_obligation_followup" + suffix
+	}
+}
+
+func repairFollowupDecisionReason(purpose string, explore bool) string {
+	switch strings.TrimSpace(purpose) {
+	case "verification_proof_followup":
+		if explore {
+			return "typed verification proof obligations need bounded localization before repair planning"
+		}
+		return "typed verification proof obligations remain uncovered after local observation"
+	case "impact_and_verification_proof_followup":
+		if explore {
+			return "typed impact and verification proof obligations need bounded localization before repair planning"
+		}
+		return "typed impact and verification proof obligations remain uncovered after local observation"
+	default:
+		if explore {
+			return "typed impact obligations need bounded localization before repair planning"
+		}
+		return "typed impact obligations remain uncovered after local observation"
+	}
 }
 
 func impactRepairQueueItemFromTarget(target types.ImpactVerificationTarget) impactRepairQueueItem {
@@ -4362,6 +4566,10 @@ func normalizeImpactRepairQueueItem(item impactRepairQueueItem) impactRepairQueu
 	item.Kind = strings.TrimSpace(item.Kind)
 	item.Path = normalizeControllerPath(item.Path)
 	item.RelatedPath = normalizeControllerPath(item.RelatedPath)
+	for i, raw := range item.Paths {
+		item.Paths[i] = normalizeControllerPath(raw)
+	}
+	item.Paths = dedupTrimControllerStrings(item.Paths)
 	item.Symbol = strings.TrimSpace(item.Symbol)
 	item.ContractRef = strings.TrimSpace(item.ContractRef)
 	item.CoverageStatus = strings.TrimSpace(item.CoverageStatus)
@@ -4374,7 +4582,7 @@ func normalizeImpactRepairQueueItem(item impactRepairQueueItem) impactRepairQueu
 		item.Priority = impactRepairPriority(item.Kind)
 	}
 	if item.ID == "" {
-		item.ID = strings.Join([]string{item.Kind, item.Code, item.Path, item.RelatedPath, item.Symbol, item.ContractRef, item.EvidenceRef}, "|")
+		item.ID = strings.Join([]string{item.Kind, item.Code, item.Path, item.RelatedPath, strings.Join(item.Paths, ","), item.Symbol, item.ContractRef, item.EvidenceRef}, "|")
 	}
 	return item
 }
@@ -4385,6 +4593,7 @@ func impactRepairQueueItemDedupeKey(item impactRepairQueueItem) string {
 		item.Kind,
 		item.Path,
 		item.RelatedPath,
+		strings.Join(item.Paths, ","),
 		item.Symbol,
 		item.ContractRef,
 		item.EvidenceRef,
@@ -4415,6 +4624,10 @@ func impactRepairQueueItemRequiresFollowup(item impactRepairQueueItem) bool {
 	default:
 		return false
 	}
+}
+
+func impactRepairQueueItemFromVerificationConfidence(item impactRepairQueueItem) bool {
+	return strings.TrimSpace(item.Source) == "verification_confidence"
 }
 
 func impactRepairKindFromPatchReviewCode(code string) string {
@@ -4455,7 +4668,8 @@ func impactRepairExpectedPaths(items []impactRepairQueueItem) []string {
 	seen := map[string]bool{}
 	var paths []string
 	for _, item := range items {
-		for _, raw := range []string{item.Path, item.RelatedPath} {
+		rawPaths := append([]string{item.Path, item.RelatedPath}, item.Paths...)
+		for _, raw := range rawPaths {
 			path := normalizeControllerPath(raw)
 			if path == "" || seen[path] {
 				continue
@@ -4487,6 +4701,9 @@ func impactRepairSuccessCriteria(items []impactRepairQueueItem) []string {
 		if item.RelatedPath != "" {
 			parts = append(parts, "related_path="+item.RelatedPath)
 		}
+		if len(item.Paths) > 0 {
+			parts = append(parts, "paths="+strings.Join(item.Paths, ","))
+		}
 		if item.Symbol != "" {
 			parts = append(parts, "symbol="+item.Symbol)
 		}
@@ -4495,6 +4712,9 @@ func impactRepairSuccessCriteria(items []impactRepairQueueItem) []string {
 		}
 		if item.EvidenceRef != "" {
 			parts = append(parts, "evidence_ref="+item.EvidenceRef)
+		}
+		if item.Source != "" {
+			parts = append(parts, "source="+item.Source)
 		}
 		criteria = append(criteria, strings.Join(parts, " "))
 	}
@@ -4523,15 +4743,30 @@ func impactRepairFollowupGoal(items []impactRepairQueueItem) string {
 	if len(codes) > 0 {
 		suffix = " Required coverage: " + strings.Join(codes, ", ") + "."
 	}
-	return "Close the typed impact obligations left uncovered by the active patch; keep the follow-up bounded to " + scope + "." + suffix
+	switch repairFollowupPurposeForItems(items) {
+	case "verification_proof_followup":
+		return "Close the typed verification proof obligations left uncovered by the latest local observation; keep the follow-up bounded to " + scope + "." + suffix
+	case "impact_and_verification_proof_followup":
+		return "Close the typed impact and verification proof obligations left uncovered by the active patch; keep the follow-up bounded to " + scope + "." + suffix
+	default:
+		return "Close the typed impact obligations left uncovered by the active patch; keep the follow-up bounded to " + scope + "." + suffix
+	}
 }
 
 func nextImpactRepairBatchID(run *types.WriteWorkflowRun, activeBatchID string) string {
+	return nextRepairBatchID(run, activeBatchID, "impact-repair")
+}
+
+func nextRepairBatchID(run *types.WriteWorkflowRun, activeBatchID string, suffix string) string {
 	activeBatchID = strings.TrimSpace(activeBatchID)
 	if activeBatchID == "" {
 		activeBatchID = "batch-1"
 	}
-	base := activeBatchID + "-impact-repair"
+	suffix = strings.Trim(strings.TrimSpace(suffix), "-")
+	if suffix == "" {
+		suffix = "impact-repair"
+	}
+	base := activeBatchID + "-" + suffix
 	if !workflowBatchIDExists(run, base) {
 		return base
 	}

@@ -2496,6 +2496,163 @@ func TestNormalizeControllerTypedStateDecisionVerifiedButUndercoveredAppendsImpa
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionMissingSoftProofAppendsProofFollowup(t *testing.T) {
+	mu := types.NewMutableState("verified but soft proof missing")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-soft-proof",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"pkg/axis.py", "tests/test_axis.py"},
+	})
+	mu.SetChangeReport(&types.ChangeReport{
+		PlanID:             "plan-soft-proof",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "missing",
+			Severity:     "warning",
+			ReasonCode:   "verification_probe_missing_soft_contract_ref",
+			ContractRefs: []string{"soft-outcome"},
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-soft-proof",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-soft-proof"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-soft-proof"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.ID != "batch-1-proof-repair" {
+		t.Fatalf("missing soft proof should append proof repair batch, got %+v", got)
+	}
+	if got.Batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("proof follow-up purpose not preserved, got %q", got.Batch.Purpose)
+	}
+	if !containsString(got.Batch.ExpectedPaths, "pkg/axis.py") || containsString(got.Batch.ExpectedPaths, "tests/test_axis.py") {
+		t.Fatalf("proof follow-up should scope to production plan paths only, got %+v", got.Batch.ExpectedPaths)
+	}
+	criteria := strings.Join(got.Batch.SuccessCriteria, "\n")
+	for _, want := range []string{
+		"code=verification_probe_missing_soft_contract_ref",
+		"contract_ref=soft-outcome",
+		"source=verification_confidence",
+	} {
+		if !strings.Contains(criteria, want) {
+			t.Fatalf("proof follow-up criteria missing %q: %+v", want, got.Batch.SuccessCriteria)
+		}
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("proof follow-up progress missing: %+v", run.ProgressLedger)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionMissingProofWithoutRefsDoesNotAppendBlindBatch(t *testing.T) {
+	mu := types.NewMutableState("verified but proof record has no refs")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-no-proof-ref",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"pkg/axis.py"},
+	})
+	mu.SetChangeReport(&types.ChangeReport{
+		PlanID:             "plan-no-proof-ref",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:     "verification_probe",
+			Category:   "probe_soft_contract_refs",
+			Status:     "missing",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_missing_soft_contract_ref",
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-no-proof-ref",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-no-proof-ref"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-no-proof-ref"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionFinish {
+		t.Fatalf("proof records without typed refs should remain telemetry, got %+v", got)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionProofFollowupDoesNotRecurse(t *testing.T) {
+	mu := types.NewMutableState("proof followup recursion")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-proof-recursion",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"pkg/axis.py"},
+	})
+	mu.SetChangeReport(&types.ChangeReport{
+		PlanID:             "plan-proof-recursion",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_contract_refs",
+			Status:       "missing",
+			Severity:     "warning",
+			ReasonCode:   "verification_probe_missing_required_contract_ref",
+			ContractRefs: []string{"hard-outcome"},
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-recursion",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1-proof-repair",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-proof-recursion"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-proof-recursion"},
+			},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionFinish {
+		t.Fatalf("proof follow-up should not recursively append another batch, got %+v", got)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionVerifiedSoftTelemetryOnlyFinishes(t *testing.T) {
 	mu := types.NewMutableState("verified soft telemetry only")
 	mu.SetChangePlan(&types.ChangePlan{
