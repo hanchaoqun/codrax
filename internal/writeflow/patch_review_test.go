@@ -241,7 +241,10 @@ func TestReviewAppliedPatchSemanticAddsConventionFindingAsAdvisory(t *testing.T)
 				Category:      types.ConventionCategoryMechanism,
 				Summary:       "axis converters validate input before conversion",
 				Source:        "pkg/axis.py",
+				LineStart:     12,
+				LineEnd:       18,
 				EvidenceRefID: "evidence:axis",
+				SourceStage:   "convention_graph",
 				Strength:      "repo_local",
 			}},
 		},
@@ -254,6 +257,13 @@ func TestReviewAppliedPatchSemanticAddsConventionFindingAsAdvisory(t *testing.T)
 		finding.CoverageStatus != types.PatchReviewCoverageAdvisory ||
 		finding.Relation != string(types.ConventionCategoryMechanism) {
 		t.Fatalf("convention finding not typed advisory: %+v", finding)
+	}
+	if finding.ContextSummary != "axis converters validate input before conversion" ||
+		finding.SourceStage != "convention_graph" ||
+		finding.LineStart != 12 ||
+		finding.LineEnd != 18 ||
+		finding.EvidenceRef != "evidence:axis" {
+		t.Fatalf("convention finding lost typed evidence: %+v", finding)
 	}
 }
 

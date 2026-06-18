@@ -307,6 +307,15 @@ func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 				Path:           "pkg/a.py",
 				SubjectSymbol:  "pkg.A",
 				CoverageStatus: PatchReviewCoverageUnverified,
+				SourceStage:    "convention_graph",
+				LineStart:      10,
+				LineEnd:        12,
+				ContextSummary: "axis converters validate input before conversion",
+			}, {
+				Code:     "scope_warning_without_evidence_projection",
+				Severity: PatchReviewSeverityInfo,
+				Category: PatchReviewCategoryScope,
+				Path:     "pkg/a.py",
 			}},
 		},
 		ImpactAnalysis: &ImpactAnalysisResult{
@@ -357,6 +366,14 @@ func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 		!writeContextViewContains(verifier, "patch_review_finding", "coverage_status=unverified") ||
 		!writeContextViewContains(verifier, "patch_review_finding", "symbol=pkg.A") {
 		t.Fatalf("patch review finding missing from context pack: planner=%+v verifier=%+v", planner.Items, verifier.Items)
+	}
+	if !writeContextViewContains(planner, "patch_review_evidence", "source_stage=convention_graph") ||
+		!writeContextViewContains(planner, "patch_review_evidence", "line_start=10") ||
+		!writeContextViewContains(verifier, "patch_review_evidence", "context_summary=axis converters validate input before conversion") {
+		t.Fatalf("patch review evidence missing from context pack: planner=%+v verifier=%+v", planner.Items, verifier.Items)
+	}
+	if writeContextViewKindCount(planner, "patch_review_evidence") != 1 {
+		t.Fatalf("unexpected patch review evidence noise: %+v", planner.Items)
 	}
 	if !writeContextViewContains(planner, "impact_changed_surface", "symbol=pkg.A") ||
 		!writeContextViewContains(verifier, "impact_verification_target", "priority=20") ||

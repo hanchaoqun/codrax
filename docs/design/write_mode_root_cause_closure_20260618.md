@@ -1958,6 +1958,58 @@ Verification:
 - `eval/swebench/smoke_local.sh`
 - `git diff --check`
 
+## RC-37: Convention Evidence Projection
+
+### Gap
+
+`ConventionGraph` now persists repository-local style/mechanism/relationship
+signals and `PatchReview` can emit advisory convention findings, but the
+finding only carried generic `convention_surface_available` metadata. The
+actual convention summary, source stage, and line span stayed on the graph node.
+That made downstream planner/verifier/controller views know that convention
+context existed, without giving them enough typed evidence to decide what to
+inspect next.
+
+This is a handoff-consumption gap rather than a new hard-gate opportunity.
+Repository convention text is a noisy signal and must remain soft guidance. The
+fix must not route on user intent keywords, model rationale, or natural-language
+summaries. It should only preserve already-produced typed evidence fields.
+
+### Design
+
+- Extend `PatchReviewFinding` with generic evidence projection fields:
+  `source_stage`, `line_start`, `line_end`, and `context_summary`.
+- Populate those fields from normalized `ConventionNode` values when
+  `patchReviewConventionFindings` emits advisory convention findings.
+- Render those fields through `WriteContextPack` as a separate
+  `patch_review_evidence` item so planner/verifier/controller Top-N views can
+  consume convention evidence without overloading the verdict-oriented
+  `patch_review_finding` row or reopening the whole graph.
+- Keep convention findings `coverage_status=advisory`; they must never become
+  hard blockers by themselves.
+- Keep all hard routing on typed enums/booleans already present in
+  `PatchReviewCoverageSummary` and controller scheduling. `context_summary` is
+  handoff text only.
+
+### Tasks
+
+- [x] Add normalized evidence projection fields to `PatchReviewFinding`.
+- [x] Copy `ConventionNode` summary/source-stage/line span into advisory
+  convention patch-review findings.
+- [x] Render the fields in `WriteContextPack` patch-review evidence rows.
+- [x] Add regressions for normalize, semantic review, and context-pack
+  projection.
+
+### Verification
+
+- `go test ./internal/types -run 'TestNormalizePatchReviewRecord|TestWriteContextPackFromChangePlanCarriesPatchEffect' -count=1`
+- `go test ./internal/writeflow -run 'TestReviewAppliedPatchSemanticAddsConventionFindingAsAdvisory' -count=1`
+- `go test ./internal/types ./internal/writeflow ./internal/orchestrator -count=1`
+- `go test ./...`
+- `make test`
+- `eval/swebench/smoke_local.sh`
+- `git diff --check`
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -2000,6 +2052,7 @@ Verification:
 | RC-34 | complete | Verification probe runtime matrix: existing Python/JavaScript/Ruby/Go inline probe support now has a single typed runtime registry that feeds schema enums, validator supported-values, and plan repair accepted-enums. JVM inline probes remain explicit future work rather than an implied capability. Verification: focused schema/runtime tests, related package regression, full `go test ./...`, SWE adapter unit/smoke, and diff check pass. |
 | RC-35 | complete | Root-cause coverage dimensions: PatchReview findings now carry typed `impact_kind`, coverage summary reports per-kind owner/contract/dependent/test/effect buckets, context pack renders the dimension for planner/verifier/controller handoff, controller repair queue prefers typed impact kind over legacy code fallback, and SWE adapter exports per-kind local telemetry without changing official predictions. Verification: focused type/writeflow/orchestrator/adapter tests, related package regression, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 | RC-36 | complete | Impact suite queue preservation: scheduler-owned priority runner plans now dedupe by runner/framework/working_dir/suite, so multiple typed related-test obligations in the same working directory survive into the default `run_tests {}` queue, while broad surface candidates still dedupe by working directory. Verification: focused impact selector tests, full `internal/tool`, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
+| RC-37 | complete | Convention evidence projection: advisory convention patch-review findings now carry the source stage, line span, and context summary from the typed `ConventionGraph` node, and context packs render those fields as separate `patch_review_evidence` items for downstream consumers without overloading verdict rows. Verification: focused types/writeflow tests, related packages, full `go test ./...`, `make test`, SWE adapter smoke, and diff check pass. |
 
 ## Acceptance Criteria
 

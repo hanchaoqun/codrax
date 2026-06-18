@@ -336,8 +336,12 @@ func patchReviewConventionFindings(graph *types.ConventionGraph, appliedPaths []
 		finding.SubjectSymbol = symbol
 		finding.Strength = strings.TrimSpace(node.Strength)
 		finding.CoverageStatus = types.PatchReviewCoverageAdvisory
+		finding.SourceStage = strings.TrimSpace(node.SourceStage)
+		finding.LineStart = node.LineStart
+		finding.LineEnd = node.LineEnd
+		finding.ContextSummary = strings.TrimSpace(node.Summary)
 		finding.EvidenceRef = strings.TrimSpace(node.EvidenceRefID)
-		key := strings.Join([]string{finding.Code, finding.Path, finding.SubjectSymbol, finding.Relation, finding.EvidenceRef}, "|")
+		key := strings.Join([]string{finding.Code, finding.Path, finding.SubjectSymbol, finding.Relation, finding.SourceStage, finding.EvidenceRef}, "|")
 		if seen[key] {
 			continue
 		}

@@ -66,6 +66,10 @@ type PatchReviewFinding struct {
 	SubjectSymbol  string                     `json:"subject_symbol,omitempty"`
 	Strength       string                     `json:"strength,omitempty"`
 	CoverageStatus PatchReviewCoverageStatus  `json:"coverage_status,omitempty"`
+	SourceStage    string                     `json:"source_stage,omitempty"`
+	LineStart      int                        `json:"line_start,omitempty"`
+	LineEnd        int                        `json:"line_end,omitempty"`
+	ContextSummary string                     `json:"context_summary,omitempty"`
 	EvidenceRef    string                     `json:"evidence_ref,omitempty"`
 }
 
@@ -142,6 +146,19 @@ func NormalizePatchReviewRecord(in PatchReviewRecord) PatchReviewRecord {
 		finding.Relation = strings.TrimSpace(finding.Relation)
 		finding.ImpactKind = normalizePatchReviewImpactKind(finding.ImpactKind)
 		finding.Strength = strings.TrimSpace(finding.Strength)
+		finding.SourceStage = strings.TrimSpace(finding.SourceStage)
+		finding.ContextSummary = strings.TrimSpace(finding.ContextSummary)
+		if finding.LineStart < 0 {
+			finding.LineStart = 0
+		}
+		if finding.LineEnd < 0 {
+			finding.LineEnd = 0
+		}
+		if finding.LineStart == 0 {
+			finding.LineEnd = 0
+		} else if finding.LineEnd > 0 && finding.LineEnd < finding.LineStart {
+			finding.LineEnd = finding.LineStart
+		}
 		finding.EvidenceRef = strings.TrimSpace(finding.EvidenceRef)
 		finding.Category = normalizePatchReviewFindingCategory(finding.Category)
 		finding.CoverageStatus = normalizePatchReviewCoverageStatus(finding.CoverageStatus)

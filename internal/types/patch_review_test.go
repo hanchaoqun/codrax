@@ -131,3 +131,32 @@ func TestNormalizePatchReviewRecordSummaryDoesNotTreatAdvisoryAsUncovered(t *tes
 		t.Fatalf("unexpected advisory summary: %+v", review.CoverageSummary)
 	}
 }
+
+func TestNormalizePatchReviewRecordNormalizesEvidenceProjection(t *testing.T) {
+	review := NormalizePatchReviewRecord(PatchReviewRecord{
+		Findings: []PatchReviewFinding{{
+			Code:           " convention_surface_available ",
+			Severity:       PatchReviewSeverityInfo,
+			Category:       PatchReviewCategoryConvention,
+			CoverageStatus: PatchReviewCoverageAdvisory,
+			SourceStage:    " convention_graph ",
+			LineStart:      24,
+			LineEnd:        12,
+			ContextSummary: " repository local relation ",
+			EvidenceRef:    " evidence:axis ",
+		}},
+	})
+
+	if len(review.Findings) != 1 {
+		t.Fatalf("finding missing after normalize: %+v", review)
+	}
+	finding := review.Findings[0]
+	if finding.Code != "convention_surface_available" ||
+		finding.SourceStage != "convention_graph" ||
+		finding.LineStart != 24 ||
+		finding.LineEnd != 24 ||
+		finding.ContextSummary != "repository local relation" ||
+		finding.EvidenceRef != "evidence:axis" {
+		t.Fatalf("typed evidence projection not normalized: %+v", finding)
+	}
+}

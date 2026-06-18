@@ -437,6 +437,13 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 			item.ID = writeContextStableID("patch_review_finding", plan.PatchReview.ReviewID, finding.Code, finding.Path, string(finding.Severity))
 			item.SourceID = plan.PatchReview.ReviewID
 			pack.Items = append(pack.Items, item)
+			if evidenceText := renderPatchReviewFindingEvidenceContext(finding); evidenceText != "" {
+				evidence := writeContextItem("patch_review_evidence", WriteContextP2, evidenceText, "patch_review",
+					WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+				evidence.ID = writeContextStableID("patch_review_evidence", plan.PatchReview.ReviewID, finding.Code, finding.Path, finding.EvidenceRef)
+				evidence.SourceID = plan.PatchReview.ReviewID
+				pack.Items = append(pack.Items, evidence)
+			}
 		}
 	}
 	if plan.ImpactAnalysis != nil {
@@ -556,6 +563,39 @@ func renderPatchReviewFindingContext(finding PatchReviewFinding) string {
 	}
 	if finding.CoverageStatus != "" {
 		parts = append(parts, "coverage_status="+string(finding.CoverageStatus))
+	}
+	if finding.EvidenceRef != "" {
+		parts = append(parts, "evidence_ref="+finding.EvidenceRef)
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderPatchReviewFindingEvidenceContext(finding PatchReviewFinding) string {
+	finding.Code = strings.TrimSpace(finding.Code)
+	finding.SourceStage = strings.TrimSpace(finding.SourceStage)
+	finding.ContextSummary = strings.TrimSpace(finding.ContextSummary)
+	finding.EvidenceRef = strings.TrimSpace(finding.EvidenceRef)
+	if finding.SourceStage == "" && finding.ContextSummary == "" && finding.EvidenceRef == "" && finding.LineStart <= 0 && finding.LineEnd <= 0 {
+		return ""
+	}
+	parts := []string{}
+	if finding.Code != "" {
+		parts = append(parts, "code="+finding.Code)
+	}
+	if finding.SourceStage != "" {
+		parts = append(parts, "source_stage="+finding.SourceStage)
+	}
+	if finding.Path != "" {
+		parts = append(parts, "path="+strings.TrimSpace(finding.Path))
+	}
+	if finding.LineStart > 0 {
+		parts = append(parts, fmt.Sprintf("line_start=%d", finding.LineStart))
+	}
+	if finding.LineEnd > 0 {
+		parts = append(parts, fmt.Sprintf("line_end=%d", finding.LineEnd))
+	}
+	if finding.ContextSummary != "" {
+		parts = append(parts, "context_summary="+compactWriteContextValue(finding.ContextSummary, 128))
 	}
 	if finding.EvidenceRef != "" {
 		parts = append(parts, "evidence_ref="+finding.EvidenceRef)
@@ -1361,6 +1401,22 @@ func trimWriteContextText(raw string) string {
 	runes := []rune(raw)
 	if len(runes) > writeContextPackTextLen {
 		return string(runes[:writeContextPackTextLen]) + "..."
+	}
+	return raw
+}
+
+func compactWriteContextValue(raw string, limit int) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	raw = strings.Join(strings.Fields(raw), " ")
+	if limit <= 0 {
+		limit = writeContextPackTextLen
+	}
+	runes := []rune(raw)
+	if len(runes) > limit {
+		return string(runes[:limit]) + "..."
 	}
 	return raw
 }
