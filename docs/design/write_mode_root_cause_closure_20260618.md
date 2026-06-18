@@ -2507,6 +2507,56 @@ RC-47 tasks:
 - [x] Update this ledger with verification evidence and keep the eval adapter's
   historical fields clearly labeled as audit telemetry.
 
+## 2026-06-18 RC-48 Plan Localization Retry Design
+
+The controller already persists `plan_context_coverage` items that compare the
+source files a `ChangePlan` edits against prior typed localization context from
+write analysis and exploration. That evidence currently behaves mostly as
+telemetry for recovery/audit/SWE-bench adapter reporting. It does not
+consistently give the planner one immediate chance to correct a plan that edits
+source files outside the evidence-backed localization set.
+
+This is a root-cause gap, not a prompt wording gap. Several manual-audit
+failures were not empty patches or parser failures; they were plausible
+symptom-site fixes where the plan skipped the owner boundary that exploration
+had already hinted at. The right generalized response is to make localization
+coverage a typed planning observation:
+
+```text
+prior WriteContextPack localization paths
+  + current ChangePlan source paths
+  -> plan_context_coverage
+  -> one bounded planner retry when source paths are missing prior localization
+  -> persist the same coverage context for controller/planner/verifier
+```
+
+Design constraints:
+
+- this is not a hard gate. Legitimate newly discovered files can still proceed
+  after one retry, and high-risk approval remains governed by the existing risk
+  engine;
+- routing consumes only typed context items and ChangePlan paths. It must not
+  parse issue text, model rationale, manual audit notes, stdout prose, or
+  `<think>`;
+- test-only paths are excluded from the localization miss calculation, matching
+  the existing adapter and context-pack semantics;
+- the retry hint should be precise and short: preserve evidence-backed paths,
+  explain any new source path with direct read/repomap evidence, or split the
+  new owner investigation into a later batch;
+- existing read/log/trace/data/operation/computer paths remain untouched.
+
+RC-48 tasks:
+
+- [ ] Add a controller-side helper that derives missing source localization
+  paths from `WriteContextPackFromPlanContextCoverage`.
+- [ ] Invoke it in `runControllerPlanBatch` as one bounded retry before accepting
+  a fresh low/medium-risk plan.
+- [ ] Scope it to existing workflow/context packs and exclude the current plan's
+  self-generated context so it cannot satisfy itself.
+- [ ] Add regressions for missing localization retry, covered source plan
+  acceptance, no-prior-context no retry, and test-only path exclusion.
+- [ ] Update this ledger and run focused/full regression before commit/push.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
