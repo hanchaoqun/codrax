@@ -316,6 +316,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			o.mirrorActivePlanToImportFile(importedPlanMirror)
 			o.syncCurrentWriteContextPackToRun(&run)
 			o.persistWriteWorkflowRun(&run)
+			if o.busCtx.Mode == types.ModeApply && changePlanIsProofProbeOnly(plan) {
+				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchVerifying)
+				appendControllerProgress(&run, run.ActiveBatchID, "proof_probe_only_plan_ready",
+					"controller-owned proof follow-up produced no source edits and will verify typed probes against the current worktree")
+				o.persistWriteWorkflowRun(&run)
+				o.busCtx.TaskState.LastError = ""
+				continue
+			}
 			if writePlanDeniedByApproval(plan) {
 				run.Status = types.WriteWorkflowRunBlocked
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
@@ -836,6 +844,8 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	localizationReplanRetried := false
 	testContractReplanRetried := false
 	proofProbeReplanRetried := false
+	proofSourceEditReplanRetried := false
+	proofNonExecutableReplanRetried := false
 	lastStallSignature := ""
 	for {
 		priorPlan := o.busCtx.Mutable.ChangePlan()
@@ -860,6 +870,13 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			continue
 		}
 		if err == nil && changePlanIsNoChangeRequired(o.busCtx.Mutable.ChangePlan()) {
+			plan := o.busCtx.Mutable.ChangePlan()
+			if changePlanIsProofProbeOnly(plan) && activeBatchProofFollowupPurpose(o.busCtx.Mutable.WriteWorkflowRun()) {
+				if o.enrichProofFollowupPlanProbeRefs(batch, plan) {
+					o.busCtx.Mutable.SetChangePlan(plan)
+				}
+				return nil
+			}
 			if plannerProbePassedExistingAppliedWorktree(o.busCtx.Mutable, priorPlan) {
 				o.busCtx.Mutable.SetChangePlan(priorPlan)
 				o.busCtx.TaskState.LastError = ""
@@ -925,6 +942,36 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			}
 			if o.enrichProofFollowupPlanProbeRefs(batch, plan) {
 				o.busCtx.Mutable.SetChangePlan(plan)
+			}
+			if !proofSourceEditReplanRetried {
+				if hint, paths := proofFollowupProductionEditWithoutFailureHint(o.busCtx.Mutable, batch, plan); hint != "" {
+					proofSourceEditReplanRetried = true
+					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
+					if existing != "" {
+						existing += "\n\n"
+					}
+					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
+					o.busCtx.TaskState.LastError = ""
+					logging.Warning("[orchestrator] pure proof follow-up tried to edit production source without typed failure evidence; retrying bounded planning once paths=%s", strings.Join(paths, ","))
+					continue
+				}
+			} else if hint, paths := proofFollowupProductionEditWithoutFailureHint(o.busCtx.Mutable, batch, plan); hint != "" {
+				return fmt.Errorf("pure proof follow-up ChangePlan edited production source without typed failure evidence in %s", strings.Join(paths, ","))
+			}
+			if !proofNonExecutableReplanRetried {
+				if hint, paths := proofFollowupNonExecutableChangeHint(batch, plan); hint != "" {
+					proofNonExecutableReplanRetried = true
+					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
+					if existing != "" {
+						existing += "\n\n"
+					}
+					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
+					o.busCtx.TaskState.LastError = ""
+					logging.Warning("[orchestrator] proof-follow-up plan only added non-executable production comments; retrying bounded planning once paths=%s", strings.Join(paths, ","))
+					continue
+				}
+			} else if hint, paths := proofFollowupNonExecutableChangeHint(batch, plan); hint != "" {
+				return fmt.Errorf("proof follow-up ChangePlan only added non-executable production comments in %s", strings.Join(paths, ","))
 			}
 			return nil
 		}
@@ -993,6 +1040,32 @@ func changePlanIsNoChangeRequired(plan *types.ChangePlan) bool {
 	return plan != nil &&
 		strings.TrimSpace(plan.Status) == types.PlanStatusNoChangeRequired &&
 		len(plan.Changes) == 0
+}
+
+func changePlanIsProofProbeOnly(plan *types.ChangePlan) bool {
+	return changePlanIsNoChangeRequired(plan) && len(plan.VerificationProbes) > 0
+}
+
+func activeBatchProofFollowupPurpose(run *types.WriteWorkflowRun) bool {
+	if run == nil {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != activeID {
+			continue
+		}
+		switch strings.TrimSpace(batch.Purpose) {
+		case "verification_proof_followup", "impact_and_verification_proof_followup":
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 func plannerProbePassedExistingAppliedWorktree(mu *types.MutableState, priorPlan *types.ChangePlan) bool {
@@ -3920,6 +3993,15 @@ func (o *Orchestrator) controllerDecisionFromTypedStateAfterDispatchError(run *t
 			Reason:     "typed workflow state requires post-apply verification of the active plan",
 		}), true
 	}
+	if activeBatchProofProbeOnlyPendingVerify(run, plan) {
+		appendControllerProgress(run, batchID, "controller_dispatch_recovered_proof_probe_verify",
+			"controller dispatch failed, but typed workflow state requires verification of the proof-only probe plan")
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionVerifyBatch,
+			ReasonCode: "proof_probe_only_verify_required",
+			Reason:     "typed workflow state requires verification of the proof-only probe plan",
+		}), true
+	}
 	if o.writePlanCanProceedWithoutApprovalPause(plan) {
 		appendControllerProgress(run, batchID, "controller_dispatch_recovered_ready_plan",
 			"controller dispatch failed, but deterministic write approval policy allows the current plan to apply")
@@ -3950,6 +4032,18 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 				Action:     writeflow.ActionVerifyBatch,
 				ReasonCode: "post_apply_verify_required",
 				Reason:     "active applied plan requires a post-apply verification verdict before more planning",
+			})
+		}
+		return decision
+	}
+	if activeBatchProofProbeOnlyPendingVerify(run, plan) {
+		if controllerActionDelaysPostApplyVerify(decision.Action) {
+			appendControllerProgress(run, batchID, "proof_probe_only_verify_action_overridden",
+				fmt.Sprintf("controller action %s suppressed because the active proof-only probe plan has no verification verdict", decision.Action))
+			return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+				Action:     writeflow.ActionVerifyBatch,
+				ReasonCode: "proof_probe_only_verify_required",
+				Reason:     "active proof-only probe plan requires a verification verdict before more planning",
 			})
 		}
 		return decision
@@ -4665,6 +4759,35 @@ func activeBatchAppliedPlanPendingVerify(run *types.WriteWorkflowRun, plan *type
 	return false
 }
 
+func activeBatchProofProbeOnlyPendingVerify(run *types.WriteWorkflowRun, plan *types.ChangePlan) bool {
+	if run == nil || !changePlanIsProofProbeOnly(plan) || !activeBatchProofFollowupPurpose(run) {
+		return false
+	}
+	planID := strings.TrimSpace(plan.ID)
+	if planID == "" {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != activeID {
+			continue
+		}
+		if batch.Status != types.WriteWorkflowBatchVerifying && batch.Status != types.WriteWorkflowBatchPlanned {
+			return false
+		}
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) != "verify" {
+				continue
+			}
+			if strings.TrimSpace(attempt.PlanID) == "" || strings.TrimSpace(attempt.PlanID) == planID {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func activeBatchCompletedWithUnverifiedVerdict(run *types.WriteWorkflowRun) bool {
 	if run == nil {
 		return false
@@ -4880,6 +5003,138 @@ func proofFollowupProbeRequiredHint(batch *writeflow.WriteBatchPlan, plan *types
 	}
 	b.WriteString(" Code changes may be included only if the probe or exact current bytes show another code repair is needed; do not emit a prose-only or code-only proof plan.")
 	return b.String()
+}
+
+func proofFollowupProductionEditWithoutFailureHint(mu *types.MutableState, batch *writeflow.WriteBatchPlan, plan *types.ChangePlan) (string, []string) {
+	if batch == nil || plan == nil || strings.TrimSpace(batch.Purpose) != "verification_proof_followup" || len(plan.Changes) == 0 {
+		return "", nil
+	}
+	if activeBatchHasVerifyFailureHandoff(mu, batch.ID) {
+		return "", nil
+	}
+	paths := proofFollowupProductionChangePaths(plan)
+	if len(paths) == 0 {
+		return "", nil
+	}
+	var b strings.Builder
+	b.WriteString("## Typed proof-follow-up source-edit boundary\n\n")
+	b.WriteString("This batch is a pure verification proof follow-up and there is no active typed verification-failure handoff for this batch. It must not modify production source just to close proof metadata. Emit changes: [] with verification_probes[] for the already-applied worktree, or ask the controller to split a separate impact repair batch when a typed probe failure proves source behavior still needs a repair.\n\n")
+	b.WriteString("Production source paths in the rejected proof plan:\n")
+	for _, p := range paths {
+		fmt.Fprintf(&b, "- %s\n", p)
+	}
+	return strings.TrimSpace(b.String()), paths
+}
+
+func proofFollowupProductionChangePaths(plan *types.ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	var paths []string
+	for _, change := range plan.Changes {
+		path := normalizeControllerPath(change.Path)
+		if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	return dedupTrimControllerStrings(paths)
+}
+
+func proofFollowupNonExecutableChangeHint(batch *writeflow.WriteBatchPlan, plan *types.ChangePlan) (string, []string) {
+	if batch == nil || plan == nil || !proofFollowupPurpose(batch.Purpose) || len(plan.Changes) == 0 {
+		return "", nil
+	}
+	paths := proofFollowupNonExecutableProductionChangePaths(plan)
+	if len(paths) == 0 {
+		return "", nil
+	}
+	var b strings.Builder
+	b.WriteString("## Typed proof-follow-up patch critique\n\n")
+	b.WriteString("The previous proof-follow-up ChangePlan only added comments or blank lines to production source paths. A controller-owned proof follow-up must either emit a real executable source/test repair or emit changes: [] with verification_probes[] to verify the already-applied worktree.\n\n")
+	b.WriteString("Non-executable production source changes:\n")
+	for _, p := range paths {
+		fmt.Fprintf(&b, "- %s\n", p)
+	}
+	b.WriteString("\nDo not add explanatory comments, doc placeholders, or verification notes to production files just to satisfy changes[]. If the current source bytes are already correct, emit a probe-only proof plan with changes: [] and the typed verification_probes[] required by this batch.")
+	return strings.TrimSpace(b.String()), paths
+}
+
+func proofFollowupNonExecutableProductionChangePaths(plan *types.ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	var paths []string
+	for _, change := range plan.Changes {
+		path := normalizeControllerPath(change.Path)
+		if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+			continue
+		}
+		if changeOnlyAddsCommentOrBlankLines(change) {
+			paths = append(paths, path)
+		}
+	}
+	return dedupTrimControllerStrings(paths)
+}
+
+func changeOnlyAddsCommentOrBlankLines(change types.FileChange) bool {
+	switch strings.TrimSpace(change.Kind) {
+	case "patch":
+		return patchOnlyAddsCommentOrBlankLines(change.Patch)
+	default:
+		return false
+	}
+}
+
+func patchOnlyAddsCommentOrBlankLines(patch string) bool {
+	added := 0
+	for _, line := range strings.Split(patch, "\n") {
+		if strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---") ||
+			strings.HasPrefix(line, "@@") || strings.HasPrefix(line, "diff --git ") ||
+			strings.HasPrefix(line, "index ") || strings.HasPrefix(line, "new file mode ") ||
+			strings.HasPrefix(line, "deleted file mode ") {
+			continue
+		}
+		if strings.HasPrefix(line, "-") {
+			if strings.TrimSpace(strings.TrimPrefix(line, "-")) != "" {
+				return false
+			}
+			continue
+		}
+		if !strings.HasPrefix(line, "+") {
+			continue
+		}
+		text := strings.TrimSpace(strings.TrimPrefix(line, "+"))
+		if text == "" {
+			continue
+		}
+		added++
+		if !lineLooksLikeCommentOnly(text) {
+			return false
+		}
+	}
+	return added > 0
+}
+
+func lineLooksLikeCommentOnly(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return true
+	}
+	switch {
+	case strings.HasPrefix(text, "#"),
+		strings.HasPrefix(text, "//"),
+		strings.HasPrefix(text, "/*"),
+		strings.HasPrefix(text, "*"),
+		strings.HasPrefix(text, "*/"),
+		strings.HasPrefix(text, "<!--"),
+		strings.HasPrefix(text, "-->"),
+		strings.HasPrefix(text, `"""`),
+		strings.HasPrefix(text, `'''`):
+		return true
+	default:
+		return false
+	}
 }
 
 func proofFollowupContractRefsFromCriteria(criteria []string, plan *types.ChangePlan) []string {

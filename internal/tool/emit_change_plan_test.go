@@ -79,6 +79,102 @@ func TestEmitChangePlan_HappyPath(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_ProofFollowupProbeOnlyPlanAccepted(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	ctx.Mutable.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-proof-only",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1-proof-repair",
+			Status:        types.WriteWorkflowBatchReadyToPlan,
+			Purpose:       "verification_proof_followup",
+			ExpectedPaths: []string{"pkg/widget.py"},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	})
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			BehaviorContracts: []types.WriteBehaviorContract{{
+				ID:       "soft-outcome",
+				Kind:     "output",
+				Expected: "widget value is formatted",
+				Required: true,
+			}},
+		},
+	})
+	params := json.RawMessage(`{
+		"request": "close proof coverage",
+		"summary": "Rerun a bounded proof probe for pkg/widget.py without changing source bytes.",
+		"changes": [],
+		"verification_probes": [{
+			"id": "widget-proof",
+			"language": "python",
+			"code": "import sys\nassert True\n",
+			"contract_refs": ["soft-outcome"],
+			"changed_symbol_refs": ["pkg.widget"]
+		}]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("proof-follow-up probe-only plan should be accepted, summary: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		t.Fatal("expected proof-follow-up ChangePlan")
+	}
+	if plan.Status != types.PlanStatusNoChangeRequired || len(plan.Changes) != 0 {
+		t.Fatalf("plan should be no-change probe-only, got status=%q changes=%d", plan.Status, len(plan.Changes))
+	}
+	if len(plan.VerificationProbes) != 1 {
+		t.Fatalf("verification probe not preserved: %+v", plan.VerificationProbes)
+	}
+	if len(plan.TargetPaths) != 1 || plan.TargetPaths[0] != "pkg/widget.py" {
+		t.Fatalf("expected durable proof batch path to become target path, got %+v", plan.TargetPaths)
+	}
+}
+
+func TestEmitChangePlan_ProbeOnlyPlanRejectedOutsideProofFollowup(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	params := json.RawMessage(`{
+		"request": "pretend no code changes are needed",
+		"summary": "This ordinary write plan tries to skip file edits.",
+		"changes": [],
+		"verification_probes": [{
+			"id": "probe",
+			"language": "python",
+			"code": "assert True\n"
+		}]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("ordinary probe-only plan must not be accepted")
+	}
+	if ctx.Mutable.ChangePlan() != nil {
+		t.Fatalf("rejected ordinary probe-only plan should not install ChangePlan: %+v", ctx.Mutable.ChangePlan())
+	}
+	if !strings.Contains(res.Summary, "changes[] cannot be empty") {
+		t.Fatalf("rejection should preserve ordinary empty-changes boundary, got: %s", res.Summary)
+	}
+}
+
 func TestEmitChangePlan_StructuredPayloadCompatRepairsStringArrays(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()

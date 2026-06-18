@@ -4359,6 +4359,110 @@ Verification:
     `python_duplicate_symbol_added` in a generated test file; that is tracked
     as a planner/patch-quality follow-up, not a selector handoff failure.
 
+## 2026-06-18 RC-76 Proof Follow-up Probe-only Lane
+
+- Evidence:
+  - The Claude-Code-like online convergence target is `Edit -> Run -> Observe`
+    in small slices, but not every observed gap needs another source edit. A
+    typed proof gap such as `verification_probe_missing_soft_contract_ref` or
+    `verification_probe_missing_changed_symbol_ref` can mean "rerun or relabel
+    the bounded probe against the already-applied worktree", not "invent a new
+    file diff".
+  - Current `emit_change_plan` still rejected `changes: []` outside the older
+    failed-verify no-change sentinel. Therefore controller-owned
+    `verification_proof_followup` batches were forced through the source-edit
+    ChangePlan lane, which can pressure the planner into no-op structured edits
+    or harmless-looking doc/comment patches just to satisfy the non-empty
+    `changes[]` schema.
+  - RC-76 focused SWE rerun confirmed the adjacent mixed-obligation shape:
+    `pydata__xarray-4248` generated a non-empty prediction, but the
+    `impact_and_verification_proof_followup` batch added only verification
+    comments to `xarray/core/formatting.py`. The first planning rejection log
+    already showed the model understood this was proof-only work, but the
+    schema pressure still pushed it toward a production comment patch.
+- Generalized rule:
+  - Ordinary write plans still require at least one file change.
+  - A probe-only plan is accepted only when all of these typed conditions hold:
+    write mode, plan stage, active durable workflow batch purpose is
+    `verification_proof_followup` or `impact_and_verification_proof_followup`,
+    the run ledger contains `verification_proof_followup_requested`, and the
+    payload includes at least one valid `verification_probes[]` entry.
+  - Accepted probe-only plans use the existing internal
+    `PlanStatusNoChangeRequired` sentinel and carry durable batch
+    `expected_paths` into `target_paths`, but they do not enqueue source file
+    applies.
+  - For proof-follow-up batches that do produce a ChangePlan with source
+    changes, deterministic acceptance rejects production patches that only add
+    comments or blank lines. The retry hint instructs the planner to either
+    emit a real executable source/test repair or use the probe-only lane.
+  - Pure `verification_proof_followup` batches cannot modify production source
+    unless the active batch has a typed verification-failure handoff. A missing
+    proof record means "observe the already-applied worktree"; a failed typed
+    probe can still become a normal executable repair through the existing
+    failure handoff lane. Mixed `impact_and_verification_proof_followup`
+    batches keep their source-repair lane, but still cannot add comment-only
+    production patches.
+  - Controller scheduling recognizes this plan as a proof lane and moves the
+    active batch directly to `verifying`; if the controller later emits
+    `finish`, `apply_plan`, `replan_batch`, or another delaying action before a
+    verdict, deterministic normalization overrides it to `verify_batch`.
+- Prompt and hard-gate hygiene:
+  - No user issue keywords, model rationale, summary prose, stdout/stderr text,
+    or `<think>` content drives the decision.
+  - The hard authorization reads only typed workflow state, batch purpose,
+    progress reason code, and schema-validated `verification_probes[]`.
+  - The comment-only guard reads only typed ChangePlan changes and diff line
+    prefixes for production paths; it does not parse issue text, model
+    rationale, or output prose.
+  - This separates proof metadata/observe work from source-edit work without
+    weakening the stable code-change path.
+- Task list:
+  - [x] Add a controller-authorized proof-follow-up probe-only sentinel to
+    `emit_change_plan`.
+  - [x] Keep ordinary probe-only/empty-change plans rejected.
+  - [x] Teach controller plan scheduling to mark proof-probe-only plans as
+    `verifying` instead of applying them.
+  - [x] Add deterministic normalize/recovery fallback that forces
+    `verify_batch` before terminal or replanning actions.
+  - [x] Reject proof-follow-up production patches that only add comments or
+    blank lines, and retry once toward executable repair or probe-only proof.
+  - [x] Reject pure proof-follow-up production source edits when there is no
+    typed verify-failure handoff for that batch.
+  - [x] Add focused tool and controller regressions.
+- Verification:
+  - Focused tests added:
+    `TestEmitChangePlan_ProofFollowupProbeOnlyPlanAccepted`,
+    `TestEmitChangePlan_ProbeOnlyPlanRejectedOutsideProofFollowup`,
+    `TestRunControllerPlanBatch_ProofFollowupAcceptsProbeOnlyPlan`,
+    `TestRunControllerPlanBatch_PureProofFollowupRetriesProductionSourcePatchToProbeOnly`,
+    `TestRunControllerPlanBatch_PureProofFollowupAllowsProductionRepairWithFailureHandoff`,
+    `TestRunControllerPlanBatch_ProofFollowupRetriesCommentOnlyProductionPatchToProbeOnly`, and
+    `TestNormalizeControllerTypedStateDecisionProofProbeOnlyPlanVerifiesBeforeFinish`.
+  - Focused RC-76 SWE rerun:
+    `/private/tmp/codrax-swe-rc76-xarray-20260618-proof-probe-only`
+    exported a non-empty prediction and generated an official harness command;
+    it also exposed the mixed-obligation comment-only production patch that
+    this RC now guards.
+  - Follow-up RC-76b SWE rerun:
+    `/private/tmp/codrax-swe-rc76b-xarray-20260618-proof-probe-only`
+    exported a non-empty prediction and generated an official harness command.
+    The exported patch no longer contained verification comments, but it still
+    showed a pure proof batch could make additional executable production
+    source edits without a typed failed probe. The pure-proof source-edit guard
+    closes that state-machine gap.
+  - Final RC-76c SWE rerun:
+    `/private/tmp/codrax-swe-rc76c-xarray-20260618-proof-source-boundary`
+    exported a non-empty prediction and generated an official harness command.
+    The first batch applied one production patch, then the controller appended
+    `verification_proof_followup`; that proof batch produced
+    `proof_probe_only_plan_ready`, was normalized to `verify_batch`, and added
+    no production source diff. Local acceptance remained `fail` because the
+    local project environment made verification unavailable and typed
+    changed-symbol proof stayed uncovered; that is intentionally not counted as
+    functional SWE success.
+  - Full verification for this batch is recorded in the commit that lands this
+    RC.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

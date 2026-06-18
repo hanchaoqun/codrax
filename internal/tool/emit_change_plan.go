@@ -332,7 +332,32 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		summary := "emit_change_plan rejected: summary is required and must be non-empty. " + emitChangePlanSchemaReminder
 		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "summary_required", summary, []string{"$.summary"}, nil)), nil
 	}
+	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
+	if rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
+			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, supportedVerificationProbeLanguageSet())), nil
+	}
 	if len(p.Changes) == 0 {
+		if plan := proofFollowupProbeOnlyPlanSentinel(ctx, p, probes); plan != nil {
+			attachWriteBehaviorContracts(ctx, plan)
+			enrichVerificationProbeRefs(plan)
+			if rej, pack := validatePlanFullContentWithRepair(ctx, t.Name(), p.Summary, nil, plan.VerificationProbes); rej != "" {
+				return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej, pack), nil
+			}
+			ctx.Mutable.SetChangePlan(plan)
+			summary := fmt.Sprintf(
+				"[emit_change_plan: id=%s changes=0 status=%s verification_probes=%d]\n"+
+					"emit_change_plan recorded a proof-follow-up probe-only plan",
+				plan.ID, plan.Status, len(plan.VerificationProbes))
+			logging.Info("[emit_change_plan] plan=%s changes=0 status=%s probes=%d proof_followup=true",
+				plan.ID, plan.Status, len(plan.VerificationProbes))
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   true,
+				Summary:   summary,
+				Timestamp: time.Now(),
+			}, nil
+		}
 		if plan := noChangeRequiredReplanSentinel(ctx, p); plan != nil {
 			ctx.Mutable.SetChangePlan(plan)
 			summary := fmt.Sprintf(
@@ -393,12 +418,6 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	if cycle := detectDepsCycle(fcs); cycle != "" {
 		summary := fmt.Sprintf("emit_change_plan rejected: depends_on cycle detected: %s", cycle)
 		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "depends_on_cycle", summary, []string{"$.changes[].depends_on"}, nil)), nil
-	}
-
-	probes, rej := normalizeVerificationProbes(p.VerificationProbes)
-	if rej != "" {
-		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
-			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, supportedVerificationProbeLanguageSet())), nil
 	}
 
 	// 4) Patch pre-flight. For every kind=patch change, dry-run
@@ -508,6 +527,90 @@ func noChangeRequiredReplanSentinel(ctx *types.BusContext, p emitChangePlanParam
 		Status:          types.PlanStatusNoChangeRequired,
 		CreatedAt:       time.Now(),
 	}
+}
+
+func proofFollowupProbeOnlyPlanSentinel(ctx *types.BusContext, p emitChangePlanParams, probes []types.VerificationProbe) *types.ChangePlan {
+	if ctx == nil || ctx.Mutable == nil || !ctx.Mode.IsWrite() || ctx.PipelineStage != types.StagePlan || len(probes) == 0 {
+		return nil
+	}
+	batch, ok := activeProofFollowupWorkflowBatch(ctx.Mutable.WriteWorkflowRun())
+	if !ok {
+		return nil
+	}
+	request := strings.TrimSpace(p.Request)
+	if request == "" {
+		request = strings.TrimSpace(ctx.Mutable.Objective())
+	}
+	if request == "" {
+		request = "close verification proof obligations"
+	}
+	summary := strings.TrimSpace(p.Summary)
+	if summary == "" {
+		summary = "No source edits are required for this proof-follow-up batch; the plan reruns typed verification probes against the already-applied worktree."
+	}
+	plan := newChangePlanFromChanges(request, summary, nil, p.AcceptanceTests, probes)
+	plan.Status = types.PlanStatusNoChangeRequired
+	plan.TargetPaths = append([]string(nil), batch.ExpectedPaths...)
+	if len(plan.TargetPaths) == 0 {
+		plan.TargetPaths = append([]string(nil), batch.ExploreTargets...)
+	}
+	plan.TargetPaths = dedupTrimEmitChangePlanStrings(plan.TargetPaths)
+	return plan
+}
+
+func activeProofFollowupWorkflowBatch(run *types.WriteWorkflowRun) (writeflow.WriteBatchPlan, bool) {
+	if run == nil {
+		return writeflow.WriteBatchPlan{}, false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return writeflow.WriteBatchPlan{}, false
+	}
+	progressAuthorized := false
+	for _, event := range run.ProgressLedger {
+		if strings.TrimSpace(event.ReasonCode) == "verification_proof_followup_requested" {
+			progressAuthorized = true
+			break
+		}
+	}
+	if !progressAuthorized {
+		return writeflow.WriteBatchPlan{}, false
+	}
+	for _, candidate := range run.Batches {
+		if strings.TrimSpace(candidate.ID) != activeID {
+			continue
+		}
+		purpose := strings.TrimSpace(candidate.Purpose)
+		if purpose != "verification_proof_followup" && purpose != "impact_and_verification_proof_followup" {
+			return writeflow.WriteBatchPlan{}, false
+		}
+		return writeflow.WriteBatchPlan{
+			ID:              candidate.ID,
+			Goal:            candidate.Goal,
+			Purpose:         candidate.Purpose,
+			ExpectedPaths:   append([]string(nil), candidate.ExpectedPaths...),
+			SuccessCriteria: append([]string(nil), candidate.SuccessCriteria...),
+		}, true
+	}
+	return writeflow.WriteBatchPlan{}, false
+}
+
+func dedupTrimEmitChangePlanStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		v := strings.TrimSpace(filepath.ToSlash(raw))
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func sanitizeNoChangePlanIDComponent(raw string) string {

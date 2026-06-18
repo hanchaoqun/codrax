@@ -6207,6 +6207,8 @@ func TestRunControllerPlanBatch_ProofFollowupRequiresVerificationProbe(t *testin
 			}},
 		}
 		if planCalls == 2 {
+			plan.Status = types.PlanStatusNoChangeRequired
+			plan.Changes = nil
 			plan.VerificationProbes = []types.VerificationProbe{{
 				ID:       "axis-convert-proof",
 				Language: "python",
@@ -6240,6 +6242,361 @@ func TestRunControllerPlanBatch_ProofFollowupRequiresVerificationProbe(t *testin
 	}
 	if !strings.Contains(mu.PlanningHint(), "verification_probes[]") {
 		t.Fatalf("retry planning hint should mention verification_probes, got:\n%s", mu.PlanningHint())
+	}
+}
+
+func TestRunControllerPlanBatch_ProofFollowupAcceptsProbeOnlyPlan(t *testing.T) {
+	mu := types.NewMutableState("proof followup accepts probe-only plan")
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-probe-only",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1-proof-repair",
+			Goal:            "close proof gap",
+			Purpose:         "verification_proof_followup",
+			ExpectedPaths:   []string{"pkg/axis.py"},
+			SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
+			Status:          types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-proof-probe-only",
+			Status:      types.PlanStatusNoChangeRequired,
+			Summary:     "verify proof only",
+			TargetPaths: []string{"pkg/axis.py"},
+			VerificationProbes: []types.VerificationProbe{{
+				ID:                "axis-convert-proof",
+				Language:          "python",
+				Code:              "from pkg.axis import Axis\nassert Axis().convert(1) is not None\n",
+				ChangedSymbolRefs: []string{"Axis.convert"},
+			}},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	batch := &writeflow.WriteBatchPlan{
+		ID:              "batch-1-proof-repair",
+		Goal:            "close proof gap",
+		Purpose:         "verification_proof_followup",
+		ExpectedPaths:   []string{"pkg/axis.py"},
+		SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
+	}
+	if err := o.runControllerPlanBatch(batch, &steps); err != nil {
+		t.Fatalf("proof follow-up probe-only plan should be accepted, got %v", err)
+	}
+	if planCalls != 1 {
+		t.Fatalf("plan calls = %d, want 1", planCalls)
+	}
+	plan := mu.ChangePlan()
+	if !changePlanIsProofProbeOnly(plan) {
+		t.Fatalf("expected proof-probe-only plan, got %+v", plan)
+	}
+}
+
+func TestRunControllerPlanBatch_PureProofFollowupRetriesProductionSourcePatchToProbeOnly(t *testing.T) {
+	mu := types.NewMutableState("pure proof followup rejects production source edit")
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-source-edit",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1-proof-repair",
+			Goal:            "close proof gap",
+			Purpose:         "verification_proof_followup",
+			ExpectedPaths:   []string{"pkg/axis.py"},
+			SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
+			Status:          types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		if planCalls == 1 {
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-source-edit",
+				Status:      types.PlanStatusPending,
+				Summary:     "repair source while closing proof",
+				TargetPaths: []string{"pkg/axis.py"},
+				Changes: []types.FileChange{{
+					Path:  "pkg/axis.py",
+					Kind:  "patch",
+					Patch: "diff --git a/pkg/axis.py b/pkg/axis.py\n--- a/pkg/axis.py\n+++ b/pkg/axis.py\n@@ -10,1 +10,1 @@\n-return value\n+return converted\n",
+				}},
+				VerificationProbes: []types.VerificationProbe{{
+					ID:                "axis-convert-proof",
+					Language:          "python",
+					Code:              "from pkg.axis import Axis\nassert Axis().convert(1) is not None\n",
+					ChangedSymbolRefs: []string{"Axis.convert"},
+				}},
+			})
+		} else {
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-proof-probe-only",
+				Status:      types.PlanStatusNoChangeRequired,
+				Summary:     "verify proof only",
+				TargetPaths: []string{"pkg/axis.py"},
+				VerificationProbes: []types.VerificationProbe{{
+					ID:                "axis-convert-proof",
+					Language:          "python",
+					Code:              "from pkg.axis import Axis\nassert Axis().convert(1) is not None\n",
+					ChangedSymbolRefs: []string{"Axis.convert"},
+				}},
+			})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	batch := &writeflow.WriteBatchPlan{
+		ID:              "batch-1-proof-repair",
+		Goal:            "close proof gap",
+		Purpose:         "verification_proof_followup",
+		ExpectedPaths:   []string{"pkg/axis.py"},
+		SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
+	}
+	if err := o.runControllerPlanBatch(batch, &steps); err != nil {
+		t.Fatalf("pure proof follow-up should retry production source patch and accept probe-only plan, got %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan calls = %d, want 2", planCalls)
+	}
+	if !changePlanIsProofProbeOnly(mu.ChangePlan()) {
+		t.Fatalf("expected retry to settle on proof-probe-only plan, got %+v", mu.ChangePlan())
+	}
+	hint := mu.PlanningHint()
+	if !strings.Contains(hint, "pure verification proof follow-up") || !strings.Contains(hint, "changes: []") {
+		t.Fatalf("planning hint should preserve typed pure-proof source-edit boundary, got:\n%s", hint)
+	}
+}
+
+func TestRunControllerPlanBatch_PureProofFollowupAllowsProductionRepairWithFailureHandoff(t *testing.T) {
+	mu := types.NewMutableState("pure proof followup allows repair after failed probe")
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-failure-repair",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1-proof-repair",
+			Goal:            "repair failed proof probe",
+			Purpose:         "verification_proof_followup",
+			ExpectedPaths:   []string{"pkg/axis.py"},
+			SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
+			Status:          types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "plan-prev", BatchID: "batch-1-proof-repair", Attempt: 1})
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-source-repair",
+			Status:      types.PlanStatusPending,
+			Summary:     "repair failed proof probe",
+			TargetPaths: []string{"pkg/axis.py"},
+			Changes: []types.FileChange{{
+				Path:  "pkg/axis.py",
+				Kind:  "patch",
+				Patch: "diff --git a/pkg/axis.py b/pkg/axis.py\n--- a/pkg/axis.py\n+++ b/pkg/axis.py\n@@ -10,1 +10,1 @@\n-return value\n+return converted\n",
+			}},
+			VerificationProbes: []types.VerificationProbe{{
+				ID:                "axis-convert-proof",
+				Language:          "python",
+				Code:              "from pkg.axis import Axis\nassert Axis().convert(1) is not None\n",
+				ChangedSymbolRefs: []string{"Axis.convert"},
+			}},
+		})
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	batch := &writeflow.WriteBatchPlan{
+		ID:              "batch-1-proof-repair",
+		Goal:            "repair failed proof probe",
+		Purpose:         "verification_proof_followup",
+		ExpectedPaths:   []string{"pkg/axis.py"},
+		SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
+	}
+	if err := o.runControllerPlanBatch(batch, &steps); err != nil {
+		t.Fatalf("typed failure handoff should allow executable source repair, got %v", err)
+	}
+	if planCalls != 1 {
+		t.Fatalf("plan calls = %d, want 1", planCalls)
+	}
+	plan := mu.ChangePlan()
+	if plan == nil || len(plan.Changes) != 1 || plan.Changes[0].Path != "pkg/axis.py" {
+		t.Fatalf("expected source repair plan to remain installed, got %+v", plan)
+	}
+}
+
+func TestRunControllerPlanBatch_ProofFollowupRetriesCommentOnlyProductionPatchToProbeOnly(t *testing.T) {
+	mu := types.NewMutableState("proof followup rejects comment-only production patch")
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-comment-only",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-obligation-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1-obligation-repair",
+			Goal:            "close impact and proof gap",
+			Purpose:         "impact_and_verification_proof_followup",
+			ExpectedPaths:   []string{"pkg/axis.py"},
+			SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
+			Status:          types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage != types.StagePlan {
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		planCalls++
+		if planCalls == 1 {
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-comment-only",
+				Status:      types.PlanStatusPending,
+				Summary:     "add verification note",
+				TargetPaths: []string{"pkg/axis.py"},
+				Changes: []types.FileChange{{
+					Path:      "pkg/axis.py",
+					Kind:      "patch",
+					Patch:     "diff --git a/pkg/axis.py b/pkg/axis.py\n--- a/pkg/axis.py\n+++ b/pkg/axis.py\n@@ -10,0 +11,2 @@\n+# verification note\n+# proof only\n",
+					Rationale: "record proof",
+				}},
+				VerificationProbes: []types.VerificationProbe{{
+					ID:                "axis-convert-proof",
+					Language:          "python",
+					Code:              "from pkg.axis import Axis\nassert Axis().convert(1) is not None\n",
+					ChangedSymbolRefs: []string{"Axis.convert"},
+				}},
+			})
+		} else {
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-proof-probe-only",
+				Status:      types.PlanStatusNoChangeRequired,
+				Summary:     "verify proof only",
+				TargetPaths: []string{"pkg/axis.py"},
+				VerificationProbes: []types.VerificationProbe{{
+					ID:                "axis-convert-proof",
+					Language:          "python",
+					Code:              "from pkg.axis import Axis\nassert Axis().convert(1) is not None\n",
+					ChangedSymbolRefs: []string{"Axis.convert"},
+				}},
+			})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	batch := &writeflow.WriteBatchPlan{
+		ID:              "batch-1-obligation-repair",
+		Goal:            "close impact and proof gap",
+		Purpose:         "impact_and_verification_proof_followup",
+		ExpectedPaths:   []string{"pkg/axis.py"},
+		SuccessCriteria: []string{"impact_obligation=proof-gap kind=changed_symbol code=changed_symbol_without_probe_coverage path=pkg/axis.py symbol=Axis.convert verification_probe_required=true"},
+	}
+	if err := o.runControllerPlanBatch(batch, &steps); err != nil {
+		t.Fatalf("proof follow-up should retry comment-only production patch and accept probe-only plan, got %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan calls = %d, want 2", planCalls)
+	}
+	plan := mu.ChangePlan()
+	if !changePlanIsProofProbeOnly(plan) {
+		t.Fatalf("expected retry to settle on proof-probe-only plan, got %+v", plan)
+	}
+	if !strings.Contains(mu.PlanningHint(), "changes: []") {
+		t.Fatalf("planning hint should direct probe-only proof plan, got:\n%s", mu.PlanningHint())
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionProofProbeOnlyPlanVerifiesBeforeFinish(t *testing.T) {
+	mu := types.NewMutableState("proof probe only verifies before finish")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-proof-probe-only",
+		Status:      types.PlanStatusNoChangeRequired,
+		TargetPaths: []string{"pkg/axis.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "axis-convert-proof",
+			Language:          "python",
+			Code:              "from pkg.axis import Axis\nassert Axis().convert(1) is not None\n",
+			ChangedSymbolRefs: []string{"Axis.convert"},
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-probe-only",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1-proof-repair",
+			Status:  types.WriteWorkflowBatchVerifying,
+			Purpose: "verification_proof_followup",
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionVerifyBatch || got.ReasonCode != "proof_probe_only_verify_required" {
+		t.Fatalf("proof-probe-only plan should force verify_batch before finish, got %+v", got)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "proof_probe_only_verify_action_overridden") {
+		t.Fatalf("override progress missing: %+v", run.ProgressLedger)
 	}
 }
 
