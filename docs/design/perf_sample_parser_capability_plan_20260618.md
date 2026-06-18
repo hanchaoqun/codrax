@@ -373,7 +373,7 @@ Batch D partial implementation notes:
   narrated as running CPU execution.
 - [x] Add tests for assumed, calibrated, and unknown clock alignment.
 
-Batch E partial implementation notes:
+Batch E implementation notes:
 
 - Tracebundle JSON now emits `perf_clock_alignments` for every generated
   `.perftrace` artifact using provider capability metadata. Uncalibrated
@@ -398,7 +398,7 @@ Batch E partial implementation notes:
 - [x] Add low-prebake evals covering path-only, attachment, bundle, official
   symbolized, raw degraded, CPU-unknown, and no-suffix content-detected inputs.
 
-Batch F partial implementation notes:
+Batch F implementation notes:
 
 - Existing perf/runtime evals cover path-mentioned perftrace, simpleperf
   symbolized rows, raw fallback degraded rows, Harmony CPU-unknown rows, and
@@ -406,6 +406,15 @@ Batch F partial implementation notes:
 - Added `trace_query_perf_quality_simpleperf_proto_offcpu` so SIMPLEPERF proto
   rows with `sample_kind=off_cpu` and `cpu_known=false` are guarded without
   giving the model a prewritten root-cause answer.
+- Generated `.perftrace` rows now use `sample_weight=` for perf sample
+  event/count weights. `trace_query` still accepts imported `period`,
+  `sample_period`, `period_weight`, `event_count`, and `count` aliases, but all
+  model-facing summaries, typed observations, trace_query examples, and runtime
+  report notes render `sample_weight` / `total_sample_weight` so the model does
+  not misread perf period values as elapsed time.
+- CPU-unknown guidance now says samples cannot be attributed to any concrete
+  CPU/core. It avoids negated concrete CPU names in prompts and caveats, while
+  preserving real CPU0 evidence when actual trace rows carry `cpu=0`.
 - `--perf-tools-status` now emits `check=`, `aux_check=`, `install=`, and
   `docs=` for the OpenHarmony hiperf official lane, Android simpleperf
   official lane, and Codrax raw fallback lane. `aux_check` covers symbol roots,
@@ -422,6 +431,14 @@ Batch F partial implementation notes:
 - Confirmed this batch adds only backend-owned status/output fields. No
   model-authored provider filter was introduced, so the unified tool-call JSON
   repair layer needs no new alias/schema entry for this batch.
+- Verification evidence captured on 2026-06-18:
+  `go test ./...`, `make`, and four perf-quality evals in two-case batches all
+  passed with `flagged=0`: `trace_query_perf_quality_harmony_cpu_unknown`,
+  `trace_query_perf_quality_simpleperf_symbolized`,
+  `trace_query_running_perf_context`, and
+  `trace_query_perf_quality_raw_fallback`. The off-cpu SIMPLEPERF proto eval
+  also passed after adding guards against `period=7000`, `7000ms`, and related
+  elapsed-time misreadings.
 
 ## Acceptance Criteria
 
