@@ -367,6 +367,21 @@ rows missing current core fields. Use it to avoid mixing old-schema smoke rows
 with current runs or treating low-confidence local verify as an authoritative
 pass.
 
+For current local-acceptance dashboards, require the current core fields:
+
+```bash
+eval/results/swebench/.venv/bin/python eval/swebench/summarize_codrax_results.py \
+  --results-glob 'eval/results/swebench/**/results.jsonl' \
+  --dedupe latest-by-file-mtime \
+  --require-current-core
+```
+
+Without `--require-current-core`, legacy rows remain usable for export and
+cause-family telemetry, but local-acceptance percentages should be read with the
+`current_core_*` and `*_evaluable` denominators. A missing
+`local_acceptance_verdict` field means "not evaluated with the current
+acceptance schema", not "failed".
+
 The same summary also emits `result_cause_category_counts`,
 `result_cause_family_counts`, `top_result_cause_reasons`, and bounded
 `result_cause_examples`. These are local triage projections from typed adapter

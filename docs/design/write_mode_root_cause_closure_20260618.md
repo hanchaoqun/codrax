@@ -5176,6 +5176,50 @@ Verification:
   - This RC is a runtime proof-policy classification fix; official SWE
     prediction export remains separate and harness-consumable.
 
+## 2026-06-18 RC-89 Local SWE Summary Current-Schema Denominator Guard
+
+- Evidence:
+  - Running the local Codrax summarizer over historical
+    `eval/results/swebench/**/results.jsonl` with
+    `--dedupe latest-by-file-mtime` produced 137 unique rows and preserved the
+    known export signal: `non_empty_patch=130/137 (94.89%)`.
+  - The same summary reported `local_acceptance_pass=0/137`, but every row was
+    missing the current local-acceptance fields
+    `local_acceptance_verdict`, `local_acceptance_source`, and
+    `manual_audit_verdict`. That means the historical artifacts are not
+    evaluable under the current acceptance schema; treating absent fields as
+    `0% pass` would understate current capability and pollute the low-pass-rate
+    root-cause analysis.
+- Generalized rule:
+  - Official SWE-bench pass rate remains only `resolved/total` from the
+    official harness.
+  - Local Codrax acceptance metrics must carry their own denominator. Rows that
+    lack current core fields can still support non-empty export and typed
+    cause-family telemetry, but they cannot support current
+    `local_acceptance` pass/fail percentages.
+  - The summarizer must fail loud on demand for current dashboards rather than
+    silently mixing old-schema artifacts with current-run acceptance fields.
+- Prompt and hard-gate hygiene:
+  - This is an eval observability fix only. It reads JSON field presence and
+    typed adapter fields.
+  - It does not inspect issue text, model prose, terminal logs, manual audit
+    notes, stdout narrative, or visible `<think>` output.
+- Task list:
+  - [x] Add current-core completeness counts and missing-field counts to
+    `summarize_codrax_results.py`.
+  - [x] Add `local_acceptance_evaluable_instances` and `*_evaluable` rates so
+    absent current fields are not interpreted as failures.
+  - [x] Add `--require-current-core` to make current local-acceptance
+    dashboards fail loud when rows are stale.
+  - [x] Update SWE-bench README with current-core denominator guidance.
+  - [x] Add unit coverage for legacy rows and CLI fail-loud behavior.
+- Verification:
+  - Focused summarizer tests and Python compile cover the new denominator
+    fields and fail-loud flag.
+  - Re-running the 137-row historical summary now exposes
+    `current_core=0/137`, making the current local-acceptance pass ratio
+    explicitly unevaluable from those artifacts.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

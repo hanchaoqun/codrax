@@ -449,7 +449,7 @@ def core_field_presence(rows: list[dict[str, Any]]) -> dict[str, int]:
 def rows_missing_core_fields(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for idx, row in enumerate(rows, 1):
-        missing = [field for field in CORE_FIELDS if field not in row]
+        missing = missing_core_fields(row)
         if not missing:
             continue
         item = {
@@ -463,6 +463,18 @@ def rows_missing_core_fields(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             item["source_line"] = int_value(row, "__source_line")
         out.append(item)
     return out
+
+
+def missing_core_fields(row: dict[str, Any]) -> list[str]:
+    return [field for field in CORE_FIELDS if field not in row]
+
+
+def core_missing_field_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {field: 0 for field in CORE_FIELDS}
+    for row in rows:
+        for field in missing_core_fields(row):
+            counts[field] += 1
+    return {field: count for field, count in counts.items() if count > 0}
 
 
 def summarize_results(
@@ -492,6 +504,9 @@ def summarize_results(
     manual_recorded = sum(1 for row in rows if is_manual_audit_recorded(row))
     local_blocked = sum(1 for row in rows if bool_value(row, "prediction_blocks_local_acceptance"))
     causes = result_cause_rows(rows)
+    current_core_complete = sum(1 for row in rows if not missing_core_fields(row))
+    local_acceptance_evaluable = sum(1 for row in rows if "local_acceptance_verdict" in row)
+    manual_audit_evaluable = sum(1 for row in rows if "manual_audit_verdict" in row)
 
     return {
         "schema_version": 1,
@@ -503,6 +518,8 @@ def summarize_results(
         "unique_instance_count": len(unique_ids),
         "duplicate_instance_count": len(duplicate_ids),
         "duplicate_instance_ids": duplicate_ids,
+        "current_core_complete_instances": current_core_complete,
+        "current_core_incomplete_instances": total - current_core_complete,
         "non_empty_patch_instances": non_empty_patch,
         "empty_patch_instances": empty_patch,
         "high_confidence_local_verify_pass_instances": high_conf_local_verify,
@@ -516,16 +533,26 @@ def summarize_results(
         "typed_manual_audit_fail_instances": manual_fail,
         "typed_manual_audit_unknown_instances": manual_unknown,
         "local_audit_blocked_instances": local_blocked,
+        "local_acceptance_evaluable_instances": local_acceptance_evaluable,
+        "typed_manual_audit_evaluable_instances": manual_audit_evaluable,
+        "current_core_complete_rate": rate(current_core_complete, total),
         "non_empty_patch_rate": rate(non_empty_patch, total),
         "high_confidence_local_verify_pass_rate": rate(high_conf_local_verify, total),
+        "high_confidence_local_verify_pass_rate_evaluable": rate(high_conf_local_verify, local_acceptance_evaluable),
         "low_confidence_verify_pass_rate": rate(low_conf_verify, total),
         "local_acceptance_pass_rate": rate(local_acceptance_pass, total),
+        "local_acceptance_pass_rate_evaluable": rate(local_acceptance_pass, local_acceptance_evaluable),
         "typed_manual_audit_recorded_rate": rate(manual_recorded, total),
+        "typed_manual_audit_recorded_rate_evaluable": rate(manual_recorded, manual_audit_evaluable),
+        "current_core_complete_percent": percent(rate(current_core_complete, total)),
         "non_empty_patch_percent": percent(rate(non_empty_patch, total)),
         "high_confidence_local_verify_pass_percent": percent(rate(high_conf_local_verify, total)),
+        "high_confidence_local_verify_pass_percent_evaluable": percent(rate(high_conf_local_verify, local_acceptance_evaluable)),
         "low_confidence_verify_pass_percent": percent(rate(low_conf_verify, total)),
         "local_acceptance_pass_percent": percent(rate(local_acceptance_pass, total)),
+        "local_acceptance_pass_percent_evaluable": percent(rate(local_acceptance_pass, local_acceptance_evaluable)),
         "typed_manual_audit_recorded_percent": percent(rate(manual_recorded, total)),
+        "typed_manual_audit_recorded_percent_evaluable": percent(rate(manual_recorded, manual_audit_evaluable)),
         "prediction_verdict_counts": count_by(rows, "prediction_verdict"),
         "prediction_local_confidence_counts": count_by(rows, "prediction_local_confidence"),
         "verify_status_counts": count_by(rows, "verify_status"),
@@ -540,6 +567,7 @@ def summarize_results(
         "top_result_cause_reasons": top_counts(count_cause_field(causes, "reason")),
         "result_cause_examples": cause_examples(causes),
         "core_field_presence": core_field_presence(rows),
+        "core_missing_field_counts": core_missing_field_counts(rows),
         "rows_missing_core_fields": rows_missing_core_fields(rows),
     }
 
@@ -553,6 +581,8 @@ def format_summary(summary: dict[str, Any]) -> str:
     return (
         f"codrax_results rows={total} input_rows={summary.get('input_row_count', total)} "
         f"dedupe={summary.get('dedupe_mode', 'none')} unique={summary['unique_instance_count']} "
+        f"current_core={summary['current_core_complete_instances']}/{total} "
+        f"({pct_text(summary.get('current_core_complete_percent'))}) "
         f"non_empty_patch={summary['non_empty_patch_instances']}/{total} "
         f"({pct_text(summary.get('non_empty_patch_percent'))}) "
         f"high_conf_local_verify={summary['high_confidence_local_verify_pass_instances']}/{total} "
@@ -585,6 +615,11 @@ def main() -> int:
         default="none",
         help="Optional duplicate instance_id handling across multiple result files",
     )
+    parser.add_argument(
+        "--require-current-core",
+        action="store_true",
+        help="Fail if any summarized row lacks the current core result fields used for local acceptance denominators",
+    )
     parser.add_argument("--output-json", type=Path, help="Write normalized summary JSON to this path")
     parser.add_argument("--json-only", action="store_true", help="Print only normalized JSON to stdout")
     args = parser.parse_args()
@@ -602,6 +637,12 @@ def main() -> int:
         input_paths=[str(path) for path in paths],
         dedupe_mode=args.dedupe,
     )
+    if args.require_current_core and summary["current_core_incomplete_instances"] > 0:
+        raise SystemExit(
+            "current core result fields missing for "
+            f"{summary['current_core_incomplete_instances']}/{summary['row_count']} summarized rows; "
+            "rerun Codrax SWE-bench with the current adapter or omit --require-current-core for legacy telemetry"
+        )
     if len(paths) == 1:
         summary["results_path"] = str(paths[0])
     encoded = json.dumps(summary, indent=2, sort_keys=True)

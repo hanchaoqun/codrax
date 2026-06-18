@@ -213,11 +213,38 @@ class CodraxResultsSummaryTests(unittest.TestCase):
         summary = summary_mod.summarize_results(rows)
 
         self.assertEqual(summary["core_field_presence"]["prediction_verdict"], 1)
+        self.assertEqual(summary["current_core_complete_instances"], 1)
+        self.assertEqual(summary["current_core_incomplete_instances"], 1)
+        self.assertEqual(summary["current_core_complete_percent"], 50.0)
+        self.assertEqual(summary["core_missing_field_counts"]["prediction_verdict"], 1)
         self.assertEqual(len(summary["rows_missing_core_fields"]), 1)
         self.assertEqual(summary["rows_missing_core_fields"][0]["instance_id"], "repo__old-1")
         self.assertEqual(summary["rows_missing_core_fields"][0]["source_path"], "/tmp/results-old.jsonl")
         self.assertEqual(summary["rows_missing_core_fields"][0]["source_line"], 3)
         self.assertIn("prediction_verdict", summary["rows_missing_core_fields"][0]["missing_fields"])
+
+    def test_missing_local_acceptance_fields_make_pass_rate_not_evaluable(self) -> None:
+        rows = [
+            {
+                "instance_id": "repo__legacy-pass",
+                "status": "predicted",
+                "patch_bytes": 100,
+                "prediction_verdict": "predicted_passed",
+                "prediction_local_confidence": "high",
+                "prediction_blocks_local_acceptance": False,
+                "prediction_confidence_downgrade_reason": "",
+                "prediction_audit_block_reason": "",
+                "verify_status": "passed",
+            }
+        ]
+
+        summary = summary_mod.summarize_results(rows)
+
+        self.assertEqual(summary["local_acceptance_evaluable_instances"], 0)
+        self.assertIsNone(summary["local_acceptance_pass_rate_evaluable"])
+        self.assertIsNone(summary["high_confidence_local_verify_pass_rate_evaluable"])
+        self.assertEqual(summary["local_acceptance_pass_instances"], 0)
+        self.assertEqual(summary["current_core_incomplete_instances"], 1)
 
     def test_dedupe_latest_by_instance_uses_file_mtime(self) -> None:
         rows = [
@@ -299,7 +326,40 @@ class CodraxResultsSummaryTests(unittest.TestCase):
             self.assertIn("codrax_results rows=1", proc.stdout)
             saved = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(saved["high_confidence_local_verify_pass_instances"], 1)
+            self.assertEqual(saved["current_core_complete_instances"], 1)
             self.assertEqual(saved["results_path"], str(results.resolve()))
+
+    def test_cli_require_current_core_fails_on_legacy_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results = root / "results.jsonl"
+            results.write_text(
+                json.dumps({
+                    "instance_id": "repo__legacy",
+                    "status": "predicted",
+                    "patch_bytes": 10,
+                    "prediction_verdict": "predicted_passed",
+                    "verify_status": "passed",
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--results-jsonl",
+                    str(results),
+                    "--require-current-core",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("current core result fields missing", proc.stderr)
 
     def test_cli_accepts_multiple_files_and_dedupes_latest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
