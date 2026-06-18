@@ -91,6 +91,7 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 			SourceOffset:  seg.Offset,
 			SourceBytes:   seg.Length,
 			Converter:     converterVersion,
+			Perf:          perfCapabilityForRawPerfDataArtifact(detectPerfInputFormat(outPath)),
 		}
 		perfTracePath := numberedSidecarPath(base, perfOrdinal, ".perftrace")
 		perfTrace, caveat, err := maybeConvertHiperfPerfData(ctx, opts, outPath, perfTracePath)

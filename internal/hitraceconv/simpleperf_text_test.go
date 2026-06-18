@@ -66,12 +66,113 @@ func TestConvertSimpleperfReportFileToPerfTraceRoundTripsThroughTraceQuery(t *te
 	}
 }
 
-func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfData(t *testing.T) {
+func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectPerfDataByContent(t *testing.T) {
 	dir := t.TempDir()
-	perfData := filepath.Join(dir, "perf.data")
-	if err := os.WriteFile(perfData, []byte("ANDROID-PERF-DATA"), 0o644); err != nil {
+	perfData := filepath.Join(dir, "capture.no_suffix")
+	if err := os.WriteFile(perfData, syntheticRawPerfData(), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	toolPath := writeFakeSimpleperfReportTool(t, dir)
+
+	output := filepath.Join(dir, "ignored.systrace")
+	result, err := ConvertFile(context.Background(), Options{InputPath: perfData, OutputPath: output, SimpleperfReportPath: toolPath})
+	if err != nil {
+		t.Fatalf("convert direct perf data: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 {
+		t.Fatalf("direct perf.data should be sidecar-only: %+v", result)
+	}
+	var perfTrace Artifact
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactPerfTrace {
+			perfTrace = artifact
+			break
+		}
+	}
+	if perfTrace.Path == "" {
+		t.Fatalf("missing perftrace artifact: %+v", result.Artifacts)
+	}
+	if perfTrace.Perf == nil || perfTrace.Perf.ProviderKind != "official_android" || perfTrace.Perf.InputFormat != string(perfInputLinuxPerfData) {
+		t.Fatalf("missing simpleperf capability: %+v", perfTrace.Perf)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), perfTrace.Path)
+	if err != nil {
+		t.Fatalf("parse generated perftrace: %v", err)
+	}
+	if len(idx.Events) != 1 || idx.Events[0].PerfSymbol != "Foo::bar" {
+		t.Fatalf("generated perftrace did not round-trip: %+v", idx.Events)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"type": "perftrace"`, perfTrace.Path, `"perf_capability"`, `"provider_kind": "official_android"`, `"input_format": "linux_perf_data"`} {
+		if !strings.Contains(string(bundle), want) {
+			t.Fatalf("bundle missing %q:\n%s", want, string(bundle))
+		}
+	}
+	if _, err := os.Stat(output); err == nil {
+		t.Fatalf("direct perf.data conversion should not create systrace output %s", output)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
+func TestConvertFileRunsConfiguredSimpleperfAdapterForDirectReportProtoByContent(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "capture.bin")
+	if err := os.WriteFile(perfData, syntheticSimpleperfProtoHeader(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	toolPath := writeFakeSimpleperfReportTool(t, dir)
+
+	result, err := ConvertFile(context.Background(), Options{InputPath: perfData, SimpleperfReportPath: toolPath})
+	if err != nil {
+		t.Fatalf("convert direct simpleperf report proto: %v", err)
+	}
+	var perfTrace Artifact
+	for _, artifact := range result.Artifacts {
+		if artifact.Type == ArtifactPerfTrace {
+			perfTrace = artifact
+			break
+		}
+	}
+	if perfTrace.Path == "" {
+		t.Fatalf("missing perftrace artifact: %+v", result.Artifacts)
+	}
+	if perfTrace.Perf == nil || perfTrace.Perf.InputFormat != string(perfInputSimpleperfReportProto) {
+		t.Fatalf("simpleperf report proto input format should reach capability: %+v", perfTrace.Perf)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"perf_capability"`, `"input_format": "simpleperf_report_sample_proto"`, `"trace_query_ready": true`} {
+		if !strings.Contains(string(bundle), want) {
+			t.Fatalf("bundle missing %q:\n%s", want, string(bundle))
+		}
+	}
+}
+
+func TestConvertFileDoesNotTreatArbitraryInputAsPerfBecauseSimpleperfConfigured(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "not-perf.bin")
+	if err := os.WriteFile(input, []byte("ANDROID-PERF-DATA"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	toolPath := filepath.Join(dir, "report_sample")
+	if err := os.WriteFile(toolPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ConvertFile(context.Background(), Options{InputPath: input, SimpleperfReportPath: toolPath})
+	if err == nil || strings.Contains(err.Error(), "simpleperf") {
+		t.Fatalf("arbitrary non-perf input should fall through to hitrace validation, got %v", err)
+	}
+}
+
+func writeFakeSimpleperfReportTool(t *testing.T, dir string) string {
+	t.Helper()
 	reportFixture := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(reportFixture, []byte(syntheticSimpleperfReport()), 0o644); err != nil {
 		t.Fatal(err)
@@ -92,44 +193,7 @@ cp "$SIMPLEPERF_REPORT_FIXTURE" "$out"
 		t.Fatal(err)
 	}
 	t.Setenv("SIMPLEPERF_REPORT_FIXTURE", reportFixture)
-
-	output := filepath.Join(dir, "ignored.systrace")
-	result, err := ConvertFile(context.Background(), Options{InputPath: perfData, OutputPath: output, SimpleperfReportPath: toolPath})
-	if err != nil {
-		t.Fatalf("convert direct perf data: %v", err)
-	}
-	if result.OutputPath != "" || result.EventsWritten != 0 {
-		t.Fatalf("direct perf.data should be sidecar-only: %+v", result)
-	}
-	var perfTrace Artifact
-	for _, artifact := range result.Artifacts {
-		if artifact.Type == ArtifactPerfTrace {
-			perfTrace = artifact
-			break
-		}
-	}
-	if perfTrace.Path == "" {
-		t.Fatalf("missing perftrace artifact: %+v", result.Artifacts)
-	}
-	idx, err := tracequery.BuildIndex(context.Background(), perfTrace.Path)
-	if err != nil {
-		t.Fatalf("parse generated perftrace: %v", err)
-	}
-	if len(idx.Events) != 1 || idx.Events[0].PerfSymbol != "Foo::bar" {
-		t.Fatalf("generated perftrace did not round-trip: %+v", idx.Events)
-	}
-	bundle, err := os.ReadFile(result.BundlePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(bundle), `"type": "perftrace"`) || !strings.Contains(string(bundle), perfTrace.Path) {
-		t.Fatalf("bundle missing perftrace artifact:\n%s", string(bundle))
-	}
-	if _, err := os.Stat(output); err == nil {
-		t.Fatalf("direct perf.data conversion should not create systrace output %s", output)
-	} else if !os.IsNotExist(err) {
-		t.Fatal(err)
-	}
+	return toolPath
 }
 
 func syntheticSimpleperfReport() string {
@@ -142,4 +206,8 @@ func syntheticSimpleperfReport() string {
 		"\t            1111 main (/system/lib64/libfoo.so)",
 		"",
 	}, "\n")
+}
+
+func syntheticSimpleperfProtoHeader() []byte {
+	return []byte("SIMPLEPERF\x01\x00\x00\x00\x00\x00")
 }

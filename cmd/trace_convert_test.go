@@ -75,9 +75,20 @@ func TestTraceConvertArtifactLinesIncludeProvenance(t *testing.T) {
 		SourceOffset:  1024,
 		SourceBytes:   99,
 		Converter:     "hitraceconv-v1+raw-perfdata",
-		Caveats:       []string{"symbolization_status=unsymbolized"},
+		Perf: &hitraceconv.PerfArtifactCapability{
+			ProviderKind:    "raw_fallback",
+			ProviderName:    "codrax_raw_perfdata",
+			InputFormat:     "linux_perf_data",
+			Symbolization:   "unsymbolized_ip",
+			CPUIdentity:     "sample_cpu_when_recorded",
+			Callchain:       "ip_only_when_recorded",
+			TimeAlignment:   "assumed",
+			TraceQueryReady: true,
+			Degraded:        true,
+		},
+		Caveats: []string{"symbolization_status=unsymbolized"},
 	}}), "\n")
-	for _, want := range []string{"bytes=123", "data_type=1", "plugin=hiperf-plugin", "plugin_version=1", "source_offset=1024", "source_bytes=99", "converter=hitraceconv-v1+raw-perfdata", "symbolization_status=unsymbolized"} {
+	for _, want := range []string{"bytes=123", "data_type=1", "plugin=hiperf-plugin", "plugin_version=1", "source_offset=1024", "source_bytes=99", "converter=hitraceconv-v1+raw-perfdata", "perf_provider=codrax_raw_perfdata", "perf_input=linux_perf_data", "perf_symbolization=unsymbolized_ip", "trace_query_ready=true", "perf_degraded=true", "symbolization_status=unsymbolized"} {
 		if !strings.Contains(lines, want) {
 			t.Fatalf("artifact detail missing %q:\n%s", want, lines)
 		}

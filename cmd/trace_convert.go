@@ -214,6 +214,9 @@ func traceConvertArtifactDetails(artifact hitraceconv.Artifact) string {
 	if artifact.Converter != "" {
 		details = append(details, "converter="+artifact.Converter)
 	}
+	if artifact.Perf != nil {
+		details = append(details, traceConvertPerfCapabilityDetails(*artifact.Perf)...)
+	}
 	if artifact.DataType != 0 {
 		details = append(details, fmt.Sprintf("data_type=%d", artifact.DataType))
 	}
@@ -233,6 +236,38 @@ func traceConvertArtifactDetails(artifact hitraceconv.Artifact) string {
 		details = append(details, "caveats="+strings.Join(artifact.Caveats, "; "))
 	}
 	return strings.Join(details, " ")
+}
+
+func traceConvertPerfCapabilityDetails(cap hitraceconv.PerfArtifactCapability) []string {
+	var details []string
+	if cap.ProviderName != "" {
+		details = append(details, "perf_provider="+cap.ProviderName)
+	}
+	if cap.ProviderKind != "" {
+		details = append(details, "perf_provider_kind="+cap.ProviderKind)
+	}
+	if cap.InputFormat != "" {
+		details = append(details, "perf_input="+cap.InputFormat)
+	}
+	if cap.Symbolization != "" {
+		details = append(details, "perf_symbolization="+cap.Symbolization)
+	}
+	if cap.CPUIdentity != "" {
+		details = append(details, "perf_cpu="+cap.CPUIdentity)
+	}
+	if cap.Callchain != "" {
+		details = append(details, "perf_callchain="+cap.Callchain)
+	}
+	if cap.TimeAlignment != "" {
+		details = append(details, "perf_time_alignment="+cap.TimeAlignment)
+	}
+	if cap.TraceQueryReady {
+		details = append(details, "trace_query_ready=true")
+	}
+	if cap.Degraded {
+		details = append(details, "perf_degraded=true")
+	}
+	return details
 }
 
 func traceConvertCaveatLine(lang, caveat string) string {

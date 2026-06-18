@@ -39,12 +39,13 @@ type simpleperfFrame struct {
 }
 
 func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, input string, inputBytes int64, outputPath string) (Result, bool, error) {
-	if !simpleperfDirectRequested(opts, input) {
+	inputFormat := detectPerfInputFormat(input)
+	if !simpleperfDirectRequested(opts, inputFormat) {
 		return Result{}, false, nil
 	}
 	base := traceSidecarBase(input, outputPath)
 	perfTracePath := base + ".perftrace"
-	perfTrace, caveat, err := maybeConvertSimpleperfPerfData(ctx, opts, input, perfTracePath)
+	perfTrace, caveat, err := maybeConvertSimpleperfPerfData(ctx, opts, input, perfTracePath, inputFormat)
 	if err != nil {
 		return Result{}, true, err
 	}
@@ -58,6 +59,7 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, inp
 			Path:      input,
 			Bytes:     inputBytes,
 			Converter: "external",
+			Perf:      perfCapabilityForRawPerfDataArtifact(inputFormat),
 			Caveats:   []string{"input perf.data preserved; normalized .perftrace is the trace_query CPU-sample artifact"},
 		}},
 	}
@@ -76,24 +78,17 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, inp
 	return result, true, nil
 }
 
-func simpleperfDirectRequested(opts Options, input string) bool {
+func simpleperfDirectRequested(opts Options, inputFormat perfInputFormat) bool {
 	if opts.DisablePerfAdapter {
 		return false
 	}
-	if rawPerfParserRequired(opts) && hasRawPerfDataMagic(input) {
-		return true
-	}
-	if strings.TrimSpace(opts.SimpleperfReportPath) != "" || strings.TrimSpace(os.Getenv("CODRAX_SIMPLEPERF_REPORT_SAMPLE")) != "" {
-		return true
-	}
-	name := strings.ToLower(filepath.Base(strings.TrimSpace(input)))
-	if name == "perf.data" || strings.HasSuffix(name, ".perf.data") {
+	if inputFormat == perfInputLinuxPerfData || inputFormat == perfInputSimpleperfReportProto {
 		return true
 	}
 	return false
 }
 
-func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath, perfTracePath string) (Artifact, string, error) {
+func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath, perfTracePath string, inputFormat perfInputFormat) (Artifact, string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -101,11 +96,14 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 		return Artifact{}, "perf.data preserved; perftrace generation disabled, so .perftrace was not generated", nil
 	}
 	if rawPerfParserRequired(opts) {
+		if inputFormat != perfInputLinuxPerfData {
+			return Artifact{}, fmt.Sprintf("%s preserved; Codrax raw fallback supports %s only, so .perftrace was not generated", firstNonEmpty(string(inputFormat), "input"), perfInputLinuxPerfData), nil
+		}
 		return maybeConvertRawPerfData(ctx, opts, perfPath, perfTracePath)
 	}
 	tool, python, source := resolveSimpleperfReportTool(opts)
 	if tool == "" {
-		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, "perf.data preserved; no official simpleperf report_sample.py adapter was configured or found")
+		return maybeRawPerfFallbackForSimpleperf(ctx, opts, perfPath, perfTracePath, inputFormat, "perf data preserved; no official simpleperf report_sample.py adapter was configured or found")
 	}
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
 		return Artifact{}, "", err
@@ -141,11 +139,11 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 		return Artifact{}, "", ctxErr
 	}
 	if runErr != nil {
-		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, fmt.Sprintf("official simpleperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output)))
+		return maybeRawPerfFallbackForSimpleperf(ctx, opts, perfPath, perfTracePath, inputFormat, fmt.Sprintf("official simpleperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output)))
 	}
 	if err := ConvertSimpleperfReportFileToPerfTrace(ctx, reportPath, perfTracePath); err != nil {
 		_ = os.Remove(perfTracePath)
-		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, fmt.Sprintf("official simpleperf adapter %q produced unreadable report (%v)", tool, err))
+		return maybeRawPerfFallbackForSimpleperf(ctx, opts, perfPath, perfTracePath, inputFormat, fmt.Sprintf("official simpleperf adapter %q produced unreadable report (%v)", tool, err))
 	}
 	info, err := os.Stat(perfTracePath)
 	if err != nil {
@@ -156,10 +154,24 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 		Path:      perfTracePath,
 		Bytes:     info.Size(),
 		Converter: simpleperfAdapterVersion,
+		Perf:      perfCapabilityForSimpleperfReportSample(inputFormat, source),
 		Caveats: []string{
-			fmt.Sprintf("generated from perf.data through %s; sample CPU comes from simpleperf SampleStruct.cpu", source),
+			fmt.Sprintf("generated from perf data through %s; sample CPU comes from simpleperf SampleStruct.cpu", source),
 		},
 	}, "", nil
+}
+
+func maybeRawPerfFallbackForSimpleperf(ctx context.Context, opts Options, perfPath, perfTracePath string, inputFormat perfInputFormat, prior string) (Artifact, string, error) {
+	if inputFormat == perfInputLinuxPerfData {
+		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, prior)
+	}
+	if !rawPerfParserAllowed(opts) {
+		return Artifact{}, prior + "; raw perf.data fallback disabled by perf parser mode, so .perftrace was not generated", nil
+	}
+	if inputFormat == perfInputSimpleperfReportProto {
+		return Artifact{}, prior + "; Codrax raw fallback does not parse Android SIMPLEPERF report-sample protobuf yet, so .perftrace was not generated", nil
+	}
+	return Artifact{}, prior + "; unsupported perf input format for raw fallback, so .perftrace was not generated", nil
 }
 
 func resolveSimpleperfReportTool(opts Options) (tool string, python string, source string) {

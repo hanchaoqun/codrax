@@ -78,9 +78,9 @@ func TestConvertRawPerfDataFileToPerfTraceRoundTripsThroughTraceQuery(t *testing
 	}
 }
 
-func TestConvertFileUsesRawPerfParserForDirectPerfData(t *testing.T) {
+func TestConvertFileUsesRawPerfParserForDirectPerfDataByContent(t *testing.T) {
 	dir := t.TempDir()
-	perfData := filepath.Join(dir, "perf.data")
+	perfData := filepath.Join(dir, "capture.bin")
 	if err := os.WriteFile(perfData, syntheticRawPerfData(), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -102,6 +102,9 @@ func TestConvertFileUsesRawPerfParserForDirectPerfData(t *testing.T) {
 	}
 	if perfTrace.Path == "" || !strings.Contains(perfTrace.Converter, "raw-perfdata") {
 		t.Fatalf("missing raw perftrace artifact: %+v", result.Artifacts)
+	}
+	if perfTrace.Perf == nil || perfTrace.Perf.ProviderKind != "raw_fallback" || perfTrace.Perf.InputFormat != string(perfInputLinuxPerfData) {
+		t.Fatalf("missing raw perf capability: %+v", perfTrace.Perf)
 	}
 	idx, err := tracequery.BuildIndex(context.Background(), perfTrace.Path)
 	if err != nil {
@@ -138,6 +141,9 @@ func TestConvertFilePreservesDirectPerfDataWhenOfficialParserUnavailable(t *test
 	for _, artifact := range result.Artifacts {
 		if artifact.Type == ArtifactPerfTrace {
 			t.Fatalf("official-only mode without official adapter should not emit raw perftrace: %+v", result.Artifacts)
+		}
+		if artifact.Type == ArtifactPerfData && (artifact.Perf == nil || artifact.Perf.InputFormat != string(perfInputLinuxPerfData)) {
+			t.Fatalf("perf_data artifact should carry detected input capability: %+v", artifact.Perf)
 		}
 	}
 }

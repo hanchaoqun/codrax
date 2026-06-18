@@ -113,6 +113,7 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 		Path:      perfTracePath,
 		Bytes:     info.Size(),
 		Converter: hiperfAdapterVersion,
+		Perf:      perfCapabilityForHiperfProto(source),
 		Caveats: []string{
 			fmt.Sprintf("generated from perf.data through %s; sample CPU is unavailable in OpenHarmony report_sample.proto and is emitted as cpu=-1", source),
 		},
