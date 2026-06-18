@@ -28,12 +28,12 @@ var (
 )
 
 var spaceKVKeys = map[string]struct{}{
-	"addr": {}, "address": {}, "affinity": {}, "allowed_cpus": {}, "bytes": {}, "callchain": {}, "cg": {}, "cgroup": {}, "clock": {}, "cmdline": {}, "comm": {}, "cpu": {}, "cpumask": {}, "cpus": {}, "cpus_allowed": {}, "cpuset": {}, "dev": {}, "dest_cpu": {}, "dso": {}, "entry_name": {}, "event": {},
-	"file": {}, "filename": {}, "i_blocks": {}, "i_mode": {}, "i_nlink": {}, "i_size": {},
+	"addr": {}, "address": {}, "affinity": {}, "allowed_cpus": {}, "aux_size": {}, "branch_count": {}, "bytes": {}, "callchain": {}, "cg": {}, "cgroup": {}, "cgroup_id": {}, "clock": {}, "cmdline": {}, "code_page_size": {}, "comm": {}, "cpu": {}, "cpumask": {}, "cpus": {}, "cpus_allowed": {}, "cpuset": {}, "data_page_size": {}, "data_src": {}, "dev": {}, "dest_cpu": {}, "dso": {}, "entry_name": {}, "event": {},
+	"file": {}, "filename": {}, "i_blocks": {}, "i_mode": {}, "i_nlink": {}, "i_size": {}, "event_period": {},
 	"duration": {}, "duration_ms": {}, "duration_ns": {}, "duration_us": {},
 	"ino": {}, "inode": {}, "ip": {}, "latency": {}, "latency_ms": {}, "latency_ns": {}, "latency_us": {}, "len": {}, "length": {}, "name": {}, "offset": {}, "ofs": {},
-	"mask": {}, "operation": {}, "op": {}, "orig_cpu": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "path": {}, "period": {}, "period_weight": {}, "pid": {}, "pino": {},
-	"policy": {}, "pos": {}, "reason": {}, "ret": {}, "rw": {}, "rwbs": {}, "sample_period": {}, "sample_weight": {}, "size": {}, "source": {}, "symbol": {}, "target_comm": {}, "target_cpu": {}, "target_pid": {}, "task": {}, "task_pid": {}, "thread_comm": {}, "tid": {}, "type": {},
+	"mask": {}, "operation": {}, "op": {}, "orig_cpu": {}, "parent": {}, "parent_ino": {}, "parent_inode": {}, "path": {}, "perf_weight": {}, "period": {}, "period_weight": {}, "phys_addr": {}, "pid": {}, "pino": {},
+	"policy": {}, "pos": {}, "raw_size": {}, "reason": {}, "ret": {}, "rw": {}, "rwbs": {}, "sample_id": {}, "sample_period": {}, "sample_weight": {}, "size": {}, "source": {}, "stream_id": {}, "symbol": {}, "target_comm": {}, "target_cpu": {}, "target_pid": {}, "task": {}, "task_pid": {}, "thread_comm": {}, "tid": {}, "transaction": {}, "type": {}, "user_regs_abi": {}, "user_regs_count": {}, "user_stack_size": {},
 }
 
 type parseCacheKey struct {
@@ -898,6 +898,22 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 	ev.PerfSymbol = intern.intern(cleanTraceValue(firstNonEmpty(kv["symbol"], kv["func"], kv["function"])))
 	ev.PerfDSO = intern.intern(cleanTraceValue(firstNonEmpty(kv["dso"], kv["file"], kv["path"])))
 	ev.PerfIP = intern.intern(cleanTraceValue(firstNonEmpty(kv["ip"], kv["addr"], kv["address"])))
+	ev.PerfAddr = intern.intern(cleanTraceValue(kv["addr"]))
+	ev.PerfSampleID = intern.intern(cleanTraceValue(kv["sample_id"]))
+	ev.PerfStreamID = intern.intern(cleanTraceValue(kv["stream_id"]))
+	ev.PerfRawWeight = atoi64Auto(kv["perf_weight"])
+	ev.PerfDataSrc = intern.intern(cleanTraceValue(kv["data_src"]))
+	ev.PerfTransaction = intern.intern(cleanTraceValue(kv["transaction"]))
+	ev.PerfPhysAddr = intern.intern(cleanTraceValue(kv["phys_addr"]))
+	ev.PerfCGroupID = intern.intern(cleanTraceValue(kv["cgroup_id"]))
+	ev.PerfDataPageSize = atoi64Auto(kv["data_page_size"])
+	ev.PerfCodePageSize = atoi64Auto(kv["code_page_size"])
+	ev.PerfRawSize = atoi64Auto(kv["raw_size"])
+	ev.PerfBranchCount = atoi64Auto(kv["branch_count"])
+	ev.PerfUserRegsABI = intern.intern(cleanTraceValue(kv["user_regs_abi"]))
+	ev.PerfUserRegsCount = atoi64Auto(kv["user_regs_count"])
+	ev.PerfUserStackSize = atoi64Auto(kv["user_stack_size"])
+	ev.PerfAuxSize = atoi64Auto(kv["aux_size"])
 	ev.PerfCallchain = intern.intern(cleanTraceValue(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"])))
 	ev.PerfSource = intern.intern(cleanTraceValue(firstNonEmpty(kv["source"], kv["producer"])))
 	ev.PerfSampleKind = intern.intern(cleanTraceValue(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"])))

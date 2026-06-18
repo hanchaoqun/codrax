@@ -173,6 +173,22 @@ type Event struct {
 	PerfSymbol              string `json:"perf_symbol,omitempty"`
 	PerfDSO                 string `json:"perf_dso,omitempty"`
 	PerfIP                  string `json:"perf_ip,omitempty"`
+	PerfAddr                string `json:"perf_addr,omitempty"`
+	PerfSampleID            string `json:"perf_sample_id,omitempty"`
+	PerfStreamID            string `json:"perf_stream_id,omitempty"`
+	PerfRawWeight           int64  `json:"perf_raw_weight,omitempty"`
+	PerfDataSrc             string `json:"perf_data_src,omitempty"`
+	PerfTransaction         string `json:"perf_transaction,omitempty"`
+	PerfPhysAddr            string `json:"perf_phys_addr,omitempty"`
+	PerfCGroupID            string `json:"perf_cgroup_id,omitempty"`
+	PerfDataPageSize        int64  `json:"perf_data_page_size,omitempty"`
+	PerfCodePageSize        int64  `json:"perf_code_page_size,omitempty"`
+	PerfRawSize             int64  `json:"perf_raw_size,omitempty"`
+	PerfBranchCount         int64  `json:"perf_branch_count,omitempty"`
+	PerfUserRegsABI         string `json:"perf_user_regs_abi,omitempty"`
+	PerfUserRegsCount       int64  `json:"perf_user_regs_count,omitempty"`
+	PerfUserStackSize       int64  `json:"perf_user_stack_size,omitempty"`
+	PerfAuxSize             int64  `json:"perf_aux_size,omitempty"`
 	PerfCallchain           string `json:"perf_callchain,omitempty"`
 	PerfSource              string `json:"perf_source,omitempty"`
 	PerfSampleKind          string `json:"perf_sample_kind,omitempty"`
