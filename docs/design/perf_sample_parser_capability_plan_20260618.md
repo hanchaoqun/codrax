@@ -349,9 +349,9 @@ Batch E partial implementation notes:
 - [x] Update `--perf-tools-status` with install/check commands for hiperf,
   report_sample.py, symfs, kallsyms, and symbol roots.
 - [x] Add docs showing official-first and raw fallback workflows.
-- [ ] Add report sections that summarize provider capabilities before hotspot
+- [x] Add report sections that summarize provider capabilities before hotspot
   prose.
-- [ ] If any provider-related filter becomes a model-authored `trace_query`
+- [x] If any provider-related filter becomes a model-authored `trace_query`
   field, add it to schema, enum aliases, and unified structured JSON repair.
 - [x] Add low-prebake evals covering path-only, attachment, bundle, official
   symbolized, raw degraded, CPU-unknown, and no-suffix content-detected inputs.
@@ -372,6 +372,14 @@ Batch F partial implementation notes:
 - `docs/user_guide.md` already documents official-first, official-only, raw
   fallback, disabled-perftrace, and direct tracebundle analysis workflows; it
   now also explains the preflight `check/aux_check/install/docs` fields.
+- Final answer documents now preserve `sample_kind`, `cpu_known/cpu_unknown`,
+  source, symbolization, clock confidence, callchain quality, and DSO in the
+  auto-materialized `Perf 证据质量` block. Markdown/HTML runtime artifact tables
+  also surface off-CPU, CPU-unknown, and assumed/unknown clock-confidence
+  details when they are present in perftrace rows.
+- Confirmed this batch adds only backend-owned status/output fields. No
+  model-authored provider filter was introduced, so the unified tool-call JSON
+  repair layer needs no new alias/schema entry for this batch.
 
 ## Acceptance Criteria
 

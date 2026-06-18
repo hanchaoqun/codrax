@@ -45,7 +45,7 @@ func TestBuildBodyRendersRuntimeArtifactTable(t *testing.T) {
 		"# codrax-source: frame.systrace",
 		"sched_switch",
 		"# codrax-source: frame.perftrace",
-		`perf_sample: pid=1 tid=1 source=raw_perfdata_fallback symbolization_status=unsymbolized`,
+		`perf_sample: pid=1 tid=1 source=raw_perfdata_fallback sample_kind=off_cpu symbolization_status=unsymbolized cpu_known=false clock_confidence=assumed`,
 	}, "\n")
 	body := BuildBody(Args{
 		Request: "why jank?",
@@ -61,7 +61,10 @@ func TestBuildBodyRendersRuntimeArtifactTable(t *testing.T) {
 		"| trace | frame.systrace |",
 		"| perftrace | frame.perftrace |",
 		"source=raw_perfdata_fallback",
+		"sample_kind=off_cpu",
 		"symbolization_status=unsymbolized",
+		"cpu_known=false",
+		"clock_confidence=assumed",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("runtime artifact table missing %q:\n%s", want, body)
@@ -125,7 +128,7 @@ func TestRuntimeArtifactsFromRequestReportsExplicitPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	perfPath := filepath.Join(dir, "sample.perftrace")
-	if err := os.WriteFile(perfPath, []byte("perf_sample: pid=1 tid=2 symbol=foo dso=app source=raw_perfdata_fallback symbolization_status=unsymbolized\n"), 0o644); err != nil {
+	if err := os.WriteFile(perfPath, []byte("perf_sample: pid=1 tid=2 symbol=foo dso=app source=raw_perfdata_fallback sample_kind=off_cpu symbolization_status=unsymbolized cpu_known=false clock_confidence=assumed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -140,7 +143,10 @@ func TestRuntimeArtifactsFromRequestReportsExplicitPaths(t *testing.T) {
 		"referenced in request",
 		"| perftrace | " + perfPath + " |",
 		"source=raw_perfdata_fallback",
+		"sample_kind=off_cpu",
 		"symbolization_status=unsymbolized",
+		"cpu_known=false",
+		"clock_confidence=assumed",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("request runtime artifact table missing %q:\n%s", want, body)

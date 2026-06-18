@@ -535,6 +535,17 @@ func traceArtifactKindAndDetail(source, body string) (string, string) {
 	if strings.Contains(body, "symbolization_status=unsymbolized") {
 		detail = appendDetail(detail, "symbolization_status=unsymbolized")
 	}
+	if strings.Contains(body, "sample_kind=off_cpu") {
+		detail = appendDetail(detail, "sample_kind=off_cpu")
+	}
+	if strings.Contains(body, "cpu_known=false") {
+		detail = appendDetail(detail, "cpu_known=false")
+	}
+	if strings.Contains(body, "clock_confidence=assumed") {
+		detail = appendDetail(detail, "clock_confidence=assumed")
+	} else if strings.Contains(body, "clock_confidence=unknown") {
+		detail = appendDetail(detail, "clock_confidence=unknown")
+	}
 	if strings.Contains(body, "perf_sample:") && kind == "trace" {
 		kind = "perftrace"
 		detail = appendDetail("perf sample text", "inline perf_sample rows")
