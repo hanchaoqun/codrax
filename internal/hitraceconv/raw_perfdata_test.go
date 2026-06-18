@@ -179,6 +179,37 @@ func TestConvertRawPerfDataPreservesFeatureMetadataCaveats(t *testing.T) {
 	}
 }
 
+func TestConvertRawPerfDataBindsCommByRecordLifetime(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf-comm-lifetime.data")
+	outPath := filepath.Join(dir, "raw-comm-lifetime.perftrace")
+	if err := os.WriteFile(perfData, syntheticRawPerfDataWithCommLifetime(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := readRawPerfData(context.Background(), perfData)
+	if err != nil {
+		t.Fatalf("read comm lifetime raw perf data: %v", err)
+	}
+	if len(data.Samples) != 2 || data.Samples[0].Comm != "before" || data.Samples[1].Comm != "after" {
+		t.Fatalf("samples should preserve record-order comm lifetime: %+v", data.Samples)
+	}
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+		t.Fatalf("convert comm lifetime raw perf.data: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, `thread_comm="before"`) || !strings.Contains(text, `thread_comm="after"`) {
+		t.Fatalf("perftrace should contain both comm lifetimes:\n%s", text)
+	}
+	if strings.Count(text, `thread_comm="after"`) != 1 {
+		t.Fatalf("later COMM should not rewrite earlier sample:\n%s", text)
+	}
+}
+
 func TestConvertFileUsesRawPerfParserForDirectPerfDataByContent(t *testing.T) {
 	dir := t.TempDir()
 	perfData := filepath.Join(dir, "capture.bin")
@@ -414,6 +445,34 @@ func syntheticRawPerfDataWithFeatures() []byte {
 		out = append(out, section...)
 		cur += len(section)
 	}
+	return out
+}
+
+func syntheticRawPerfDataWithCommLifetime() []byte {
+	const headerSize = 104
+	const attrSize = 48
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod)
+	var records bytes.Buffer
+	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "before")))
+	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "after")))
+	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+
+	dataOffset := headerSize + attrSize
+	out := make([]byte, dataOffset)
+	copy(out[0:8], []byte(perfMagic2))
+	binary.LittleEndian.PutUint64(out[8:16], headerSize)
+	binary.LittleEndian.PutUint64(out[16:24], attrSize)
+	binary.LittleEndian.PutUint64(out[24:32], headerSize)
+	binary.LittleEndian.PutUint64(out[32:40], attrSize)
+	binary.LittleEndian.PutUint64(out[40:48], uint64(dataOffset))
+	binary.LittleEndian.PutUint64(out[48:56], uint64(records.Len()))
+	attr := out[headerSize:dataOffset]
+	binary.LittleEndian.PutUint32(attr[0:4], 0)
+	binary.LittleEndian.PutUint32(attr[4:8], 40)
+	binary.LittleEndian.PutUint64(attr[8:16], 0)
+	binary.LittleEndian.PutUint64(attr[24:32], sampleType)
+	out = append(out, records.Bytes()...)
 	return out
 }
 

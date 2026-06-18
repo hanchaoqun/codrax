@@ -328,7 +328,7 @@ Batch C implementation notes:
 - [x] Parse multiple perf attrs and event ids instead of first attr only.
 - [x] Parse feature sections for build-id, cmdline, arch, and meta information
   when present.
-- [ ] Add COMM/FORK/EXIT lifetime repair where fixtures prove pid/tid identity
+- [x] Add COMM/FORK/EXIT lifetime repair where fixtures prove pid/tid identity
   would otherwise be wrong.
 - [ ] Improve mmap/build-id DSO labeling without inventing symbols.
 - [x] Preserve unsupported sample bits as typed caveats instead of failing
@@ -357,6 +357,10 @@ Batch D partial implementation notes:
   applied to DSO labeling because Linux/simpleperf build-id records have ABI
   quirks; without real fixtures, Codrax exposes the count and
   `build_id_dso_labeling=not_applied` instead of inventing symbol provenance.
+- Raw fallback now binds `COMM` by record lifetime when samples are read, uses
+  `FORK` to inherit known parent comm labels, and clears active labels on
+  `EXIT`. This prevents later thread renames from rewriting earlier samples in
+  generated `.perftrace` rows.
 
 ### Batch E - Time Alignment And Off-CPU Semantics
 

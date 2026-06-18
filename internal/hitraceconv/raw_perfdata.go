@@ -17,6 +17,8 @@ const (
 
 	perfRecordMmap   = 1
 	perfRecordComm   = 3
+	perfRecordExit   = 4
+	perfRecordFork   = 7
 	perfRecordSample = 9
 	perfRecordMmap2  = 10
 
@@ -90,6 +92,7 @@ type rawPerfSample struct {
 	Period    uint64
 	ID        uint64
 	EventName string
+	Comm      string
 	Callchain []uint64
 }
 
@@ -305,6 +308,7 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 	if _, err := f.Seek(int64(header.DataOffset), io.SeekStart); err != nil {
 		return rawPerfData{}, err
 	}
+	activeThreads := map[int]string{}
 	remaining := int64(header.DataSize)
 	for remaining > 0 {
 		if err := ctx.Err(); err != nil {
@@ -325,7 +329,36 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 		}
 		switch typ {
 		case perfRecordComm:
-			parseRawPerfComm(payload, out.Threads)
+			comm, ok := parseRawPerfComm(payload)
+			if ok {
+				out.Threads[comm.TID] = comm.Name
+				activeThreads[comm.TID] = comm.Name
+				if comm.PID > 0 {
+					out.Threads[comm.PID] = comm.Name
+					activeThreads[comm.PID] = comm.Name
+				}
+			}
+		case perfRecordFork:
+			lifetime, ok := parseRawPerfLifetime(payload)
+			if ok {
+				name := firstNonEmpty(activeThreads[lifetime.PTID], activeThreads[lifetime.PPID])
+				if name != "" {
+					out.Threads[lifetime.TID] = name
+					activeThreads[lifetime.TID] = name
+					if lifetime.PID > 0 {
+						out.Threads[lifetime.PID] = name
+						activeThreads[lifetime.PID] = name
+					}
+				}
+			}
+		case perfRecordExit:
+			lifetime, ok := parseRawPerfLifetime(payload)
+			if ok {
+				delete(activeThreads, lifetime.TID)
+				if lifetime.PID > 0 {
+					delete(activeThreads, lifetime.PID)
+				}
+			}
 		case perfRecordMmap:
 			if mapping, ok := parseRawPerfMmap(payload); ok {
 				out.Mappings = append(out.Mappings, mapping)
@@ -338,6 +371,7 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 			sample, ok := parseRawPerfSample(payload, attr)
 			if ok {
 				sample.EventName = rawPerfEventNameForSample(sample, attr.EventName, eventIDs)
+				sample.Comm = firstNonEmpty(activeThreads[sample.TID], activeThreads[sample.PID])
 				out.Samples = append(out.Samples, sample)
 			}
 		default:
@@ -717,20 +751,42 @@ func rawPerfSampleBitNames(bits uint64) string {
 	return strings.Join(names, ",")
 }
 
-func parseRawPerfComm(payload []byte, threads map[int]string) {
+type rawPerfCommRecord struct {
+	PID  int
+	TID  int
+	Name string
+}
+
+type rawPerfLifetimeRecord struct {
+	PID  int
+	PPID int
+	TID  int
+	PTID int
+}
+
+func parseRawPerfComm(payload []byte) (rawPerfCommRecord, bool) {
 	if len(payload) < 8 {
-		return
+		return rawPerfCommRecord{}, false
 	}
 	pid := int(binary.LittleEndian.Uint32(payload[0:4]))
 	tid := int(binary.LittleEndian.Uint32(payload[4:8]))
 	name := cString(payload[8:])
 	if name == "" {
-		return
+		return rawPerfCommRecord{}, false
 	}
-	threads[tid] = name
-	if pid > 0 {
-		threads[pid] = name
+	return rawPerfCommRecord{PID: pid, TID: tid, Name: name}, true
+}
+
+func parseRawPerfLifetime(payload []byte) (rawPerfLifetimeRecord, bool) {
+	if len(payload) < 16 {
+		return rawPerfLifetimeRecord{}, false
 	}
+	return rawPerfLifetimeRecord{
+		PID:  int(binary.LittleEndian.Uint32(payload[0:4])),
+		PPID: int(binary.LittleEndian.Uint32(payload[4:8])),
+		TID:  int(binary.LittleEndian.Uint32(payload[8:12])),
+		PTID: int(binary.LittleEndian.Uint32(payload[12:16])),
+	}, true
 }
 
 func parseRawPerfMmap(payload []byte) (rawPerfMapping, bool) {
@@ -979,7 +1035,7 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 		if pid <= 0 {
 			pid = tid
 		}
-		comm := sanitizePerfTraceComm(firstNonEmpty(data.Threads[tid], fmt.Sprintf("tid%d", tid)))
+		comm := sanitizePerfTraceComm(firstNonEmpty(sample.Comm, data.Threads[tid], fmt.Sprintf("tid%d", tid)))
 		cpu := -1
 		if sample.CPUValid {
 			cpu = sample.CPU
