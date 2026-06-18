@@ -5114,6 +5114,20 @@ Verification:
     produces `patch_bytes=514`, and exports only
     `astropy/io/fits/fitsrec.py`. Local confidence remains blocked by the typed
     proof/verification failure evidence.
+  - Full rerun for `astropy__astropy-6938` at
+    `/private/tmp/codrax-swe-rc89-astropy6938-export-source-owner` confirms the
+    end-to-end adapter boundary:
+    `status=predicted`, `patch_bytes=523`,
+    `prediction_verdict=predicted_audit_blocked`,
+    `workflow_status=blocked`,
+    `prediction_audit_block_reason=patch_review_semantic_unverified:changed_symbol_without_probe_coverage`,
+    `delivery_candidate_status=coherent`, and
+    `exported_patch_source_paths=['astropy/io/fits/fitsrec.py']`. The exported
+    patch is harness-consumable while local acceptance remains failed.
+  - New follow-up candidate from the rerun: when proof-repair fails due missing
+    environment dependencies such as `numpy`, the controller can still spend a
+    later batch on source edits that remain unverified. That is a runtime proof
+    policy gap, not an export/provenance gap, and should be handled separately.
 
 ## Acceptance Criteria
 
