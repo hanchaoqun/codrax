@@ -5036,9 +5036,18 @@ Verification:
 - Verification:
   - Focused regression passed:
     `go test ./internal/types -run 'Test(WriteContextPackPlannerLimitedViewRetainsVerifyFailureLane|NormalizeWriteContextPackRetainsLateVerifyFailureWhenPackFull|WriteContextPackBudgetedViewRetainsSafetyAndFailure)' -count=1`.
-  - SWE smoke evidence before this code change is recorded above. A follow-up
-    smoke should confirm the final durable merged pack now retains prior failed
-    verify rows after successful replan.
+  - Related and full regressions passed:
+    `go test ./internal/types ./internal/orchestrator -count=1`,
+    `go test ./...`, `make`, and `git diff --check`.
+  - Follow-up SWE smoke for `pydata__xarray-4248` at
+    `/private/tmp/codrax-swe-rc87-xarray-20260618-context-pack-cap` confirms
+    the full path:
+    `workflow_status=complete`, `verify_status=passed`,
+    `prediction_verdict=predicted_passed`, `prediction_local_confidence=high`,
+    `patch_bytes=1700`, and final durable
+    `wf-1781793569872758000-34553-batch-1-merged.json` remained bounded at 96
+    items while retaining one `verify_failure`, one `failed_test`, and one
+    `failure_signal` from the prior failed verify after successful replan.
 
 ## Acceptance Criteria
 
