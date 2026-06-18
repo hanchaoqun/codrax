@@ -5442,6 +5442,60 @@ Verification:
   - Future controller actions may consume `SourceLocalizationReview` directly;
     this batch first makes the signal durable and auditable.
 
+## 2026-06-18 RC-93 Verify Evidence Width And Failure Handoff Audit
+
+- Gap re-check:
+  - The original finding was accurate for old historical runs: a local
+    `verify passed` line could be narrower than the functional owner boundary.
+  - Current code no longer treats verifier prose as authority. The typed path is
+    `ChangeReport.NormalizeVerificationStatus` +
+    `VerificationConfidenceRecord` + `ImpactAnalysisResult.VerificationTargets`
+    + `PatchReviewRecord.CoverageSummary` + workflow observation authority.
+  - SWE local confidence already downgrades probe-only passes when changed
+    source paths lack prior typed context; project-runner passes are not
+    downgraded purely for context absence, because many customer environments
+    can only provide partial runners and useful code delivery should not be
+    blocked by missing dependency setup.
+- Existing handoff/repair-slice evidence:
+  - Failed post-apply verify calls `BuildVerifyFailureHandoff` and persists
+    diff/surface artifact refs before returning the batch to `ready_to_plan`.
+  - `planner.buildVerifyFailureHandoffSection` renders that typed carrier as
+    the leading replan section, so the next plan sees failed tests,
+    diagnostics, commands, and artifact refs instead of restarting broad
+    exploration.
+  - `selectImpactRepairQueueItems` derives bounded proof/impact follow-up
+    batches from patch-review findings, impact targets, and verification
+    confidence rows.
+  - Tests covering this include
+    `TestRunWriteControllerWorkflow_VerifyFailureHandoffSurvivesIntoReplan`,
+    `TestNormalizeControllerTypedStateDecisionVerifiedButUndercoveredAppendsImpactRepair`,
+    proof-follow-up source-edit rejection/allowance tests, and context-pack
+    verify-failure scoping tests.
+- Incremental fix completed in RC-92/RC-93:
+  - Source localization risk now appears in `WriteFinalReport.residual_risks`.
+    This keeps final delivery transparent when code may be usable but
+    localization evidence was weak or missing.
+- Decision:
+  - Do not add another scheduler gate in this batch. The current hard-routing
+    inputs already use typed artifacts; adding a new broad block on weak
+    localization would overfit SWE oracle-style audits and would risk customer
+    cases where local dependency/runners are incomplete.
+  - Next meaningful code batch, if needed after fresh SWE runs, should target a
+    typed `VerificationProofProfile` artifact that summarizes runner strength,
+    probe coverage, impact-target coverage, and localization status in one
+    normalized record. It should consume the existing artifacts above rather
+    than parse logs or model prose.
+- Task list:
+  - [x] Re-audit observation authority, patch-review, impact repair, and
+    verify-failure handoff code paths.
+  - [x] Confirm failure handoff survives reset into replan and is cleared after
+    green verify by existing tests.
+  - [x] Confirm proof-follow-up and impact repair batches consume typed
+    coverage gaps instead of broad re-exploration.
+  - [x] Surface weak/missing localization as final residual risk.
+  - [x] Leave project-runner pass semantics stable; continue downgrading
+    probe-only pass when typed context coverage is missing.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed
