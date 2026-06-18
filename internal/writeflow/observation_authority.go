@@ -57,12 +57,12 @@ func DeriveObservationAuthorityFromReport(report *types.ChangeReport, err error)
 		return observationUnverified(string(types.FailureKindRunnerMissing), failureReason, false)
 	case report.FailureKind == types.FailureKindParserError:
 		return observationUnverified(string(types.FailureKindParserError), failureReason, false)
+	case err != nil || status == types.VerificationStatusFailed:
+		return observationFailed(verifyFailureReasonCode(report), failureReason)
 	case report.FailureKind == types.FailureKindNoTests || len(report.NoTestsRunners) > 0:
 		return observationUnverified(string(types.FailureKindNoTests), failureReason, false)
 	case status == types.VerificationStatusUnavailable:
 		return observationUnverified(observationUnavailableReportReason(report), failureReason, false)
-	case err != nil || status == types.VerificationStatusFailed:
-		return observationFailed(verifyFailureReasonCode(report), failureReason)
 	default:
 		return observationVerified("tests_passed", failureReason)
 	}

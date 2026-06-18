@@ -41,6 +41,23 @@ func TestDeriveObservationAuthorityFromReport(t *testing.T) {
 			wantFinish: true,
 		},
 		{
+			name: "red tests outrank secondary no-tests evidence",
+			report: &types.ChangeReport{
+				Passed:         false,
+				FailureKind:    types.FailureKindTestsFailed,
+				NoTestsRunners: []string{"make"},
+				TestResults: []types.TestResult{{
+					Kind:        types.TestResultKindUnit,
+					AssertionID: "TestWidget",
+					Suite:       "python",
+					Passed:      false,
+				}},
+			},
+			wantState:  ObservationAuthorityFailed,
+			wantAction: ActionReplanBatch,
+			wantReason: "tests_failed",
+		},
+		{
 			name:       "build failure requires replan",
 			report:     &types.ChangeReport{Passed: false, BuildFailed: true},
 			wantState:  ObservationAuthorityFailed,

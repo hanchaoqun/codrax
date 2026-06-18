@@ -3712,6 +3712,77 @@ Verification so far:
 - `make test`
 - `git diff --check`
 
+## 2026-06-18 RC-68 Observation Authority Red-Test Precedence
+
+The RC-67 targeted Django smoke at
+`/private/tmp/codrax-swe-rc67-django-20260618-142500` validated RC-66/RC-67 and
+then exposed a state-machine authority bug:
+
+- prediction export stayed non-empty and harness-consumable;
+- verify executed the correct Django selector
+  `invalid_models_tests.test_ordinary_fields` instead of dozens of
+  `__init__` selectors;
+- `FailureReasonCode` was no longer polluted by `make_target_missing`;
+- however the report also carried secondary unavailable make runners, so
+  `DeriveObservationAuthorityFromReport` classified the mixed report as
+  unverified/no-tests before checking the red Django failures;
+- the batch was terminalized as `complete/accepted_failed`, and a later
+  controller `replan_batch` decision was rejected because the workflow was
+  already complete.
+
+This is a generic observation-authority ordering gap. A report can contain
+multiple typed signals: red tests, build failures, no-tests runners, parser
+errors, missing make targets, resource limits, and probe confidence warnings.
+Only unavailable-only reports should finish as unverified. Any report with a
+typed failed verification status must keep `ObservationAuthorityFailed` and
+route to replan/block according to budget.
+
+Design:
+
+- Keep explicit runner-missing/parser-error/no-tests-only reports as
+  `ObservationAuthorityUnverified`.
+- Promote `VerificationStatusFailed` before generic `NoTestsRunners` caveats,
+  so mixed red-test + unavailable-runner reports remain failures.
+- Preserve legacy empty `Passed=false + NoTestsRunners` behavior because
+  `ChangeReport.NormalizeVerificationStatus` still classifies reports with no
+  test rows as unavailable.
+- Do not inspect failure detail text, command stdout, model prose, user intent,
+  or `<think>` content.
+
+Tasks:
+
+- [x] Reorder observation authority to prefer typed failed verification over
+  secondary no-tests evidence.
+- [x] Add observation-authority and verify-outcome tests for mixed red-test +
+  no-tests reports.
+- [x] Run related/full regressions, rerun targeted Django smoke, refresh
+  progress, commit, and push.
+
+Verification so far:
+
+- `go test ./internal/writeflow -run 'TestDeriveObservationAuthorityFromReport|TestClassifyVerifyAttemptOutcome'`
+- `go test ./internal/writeflow ./internal/orchestrator ./internal/types`
+- `go test ./...`
+- `make test`
+- `git diff --check`
+- Targeted Django smoke:
+  `/private/tmp/codrax-swe-rc68-django-20260618-143400`
+
+Smoke evidence:
+
+- The first failed Django suite now left the workflow in
+  `batch-1:ready_to_plan` with
+  `checkpoint_restored_before_replan`, proving red-test observations no longer
+  terminalize as unverified completion.
+- The run generated a non-empty harness-consumable prediction
+  (`patch_bytes=1530`).
+- The final row still ended `workflow_status=in_progress` with
+  `plan_batch_interrupted_after_applied_patch`; final verify failed because a
+  model-generated verification probe called `Field.check()` on an unbound
+  Django field, causing `AttributeError: 'NoneType' object has no attribute
+  'endswith'`. That is a separate probe-construction/budget-terminalization gap
+  for the next batch, not an RC-68 regression.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3791,6 +3862,7 @@ Verification so far:
 | RC-65 | complete | Structured plan repair now carries unique typed relocation candidates for wrong-path `old_text_mismatch` and controller retry hints render them; canceled plan batches now terminalize as blocked with `plan_batch_canceled`. Focused, related, full `go test ./...`, `make test`, `make`, and `git diff --check` pass. Targeted Django rerun moved the pre-fix `empty_patch` / stale `in_progress` run to a non-empty harness-consumable prediction with `workflow_status=complete`; local verify remains failed and is tracked as the next verifier/coverage-attribution gap. |
 | RC-66 | complete | Command-derived failure reasons now carry typed failure-kind attribution, so secondary unavailable runner signals such as `make_target_missing` cannot become the primary reason for a red `tests_failed` report. Focused tests, full `internal/tool`, full `go test ./...`, `make test`, and `git diff --check` pass. |
 | RC-67 | complete | Impact runner plans now filter Python package-marker `__init__.py` paths and render Django related test paths as runner-native labels via the existing `djangoSuiteSelector`; focused selector tests, full `internal/tool`, full `go test ./...`, `make test`, and `git diff --check` pass. |
+| RC-68 | complete | Observation authority now classifies mixed red-test plus secondary no-tests/unavailable evidence as failed/replan instead of unverified/finish. Focused writeflow tests, related packages, full `go test ./...`, `make test`, and `git diff --check` pass. Targeted Django smoke confirmed failed suite evidence now restores checkpoint and replans instead of terminalizing as unverified; the run exposed a follow-up probe-construction/interruption gap. |
 
 ## Acceptance Criteria
 

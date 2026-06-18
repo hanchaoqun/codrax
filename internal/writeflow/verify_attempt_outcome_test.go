@@ -61,6 +61,23 @@ func TestClassifyVerifyAttemptOutcome(t *testing.T) {
 			wantReason: "no_tests",
 		},
 		{
+			name: "red tests with secondary no tests replans",
+			report: &types.ChangeReport{
+				Passed:         false,
+				FailureKind:    types.FailureKindTestsFailed,
+				NoTestsRunners: []string{"make"},
+				TestResults: []types.TestResult{{
+					Kind:        types.TestResultKindUnit,
+					AssertionID: "TestWidget",
+					Suite:       "python",
+					Passed:      false,
+				}},
+			},
+			wantKind:   VerifyOutcomeReportFailed,
+			wantAction: ActionReplanBatch,
+			wantReason: "tests_failed",
+		},
+		{
 			name:       "passed report finishes",
 			report:     &types.ChangeReport{Passed: true},
 			wantKind:   VerifyOutcomeReportPassed,
