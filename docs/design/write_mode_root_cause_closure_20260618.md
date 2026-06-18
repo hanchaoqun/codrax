@@ -2749,16 +2749,83 @@ Design:
 
 RC-51 tasks:
 
-- [ ] Add durable batch `purpose`, `expected_paths`, and `success_criteria`
+- [x] Add durable batch `purpose`, `expected_paths`, and `success_criteria`
   fields plus normalization tests.
-- [ ] Persist those fields when workflow batches are created/updated from
+- [x] Persist those fields when workflow batches are created/updated from
   `WriteBatchPlan`.
-- [ ] Add proof-follow-up ref extraction from durable batch criteria.
-- [ ] Add post-plan enrichment for authorized proof-follow-up plans.
-- [ ] Prove ordinary multi-contract plan behavior remains unchanged.
-- [ ] Add focused controller tests for first proof plan and failed-proof replan.
-- [ ] Run focused/related/full Go tests, SWE local smoke, and a small Lite
+- [x] Add proof-follow-up ref extraction from durable batch criteria.
+- [x] Add post-plan enrichment for authorized proof-follow-up plans.
+- [x] Prove ordinary multi-probe plan behavior remains unchanged.
+- [x] Add focused controller tests for first proof plan and failed-proof replan.
+- [x] Run focused/related/full Go tests, SWE local smoke, and a small Lite
   rerun evidence check.
+
+Implementation:
+
+- `types.WriteWorkflowBatch` now persists `purpose`, `expected_paths`, and
+  `success_criteria`; normalization trims and dedupes them.
+- `writeflow.ApplyWorkflowDecisionToRun` stores those fields for
+  `plan_batch`, `append_batch`, `split_batch`, and `replan_batch`.
+- `HydrateWriteWorkflowDecisionFromRun` restores them from the durable active
+  batch when a later controller action only supplies the batch ID.
+- `runControllerPlanBatch` enriches exactly one verification probe for
+  authorized proof-follow-up batches by reading controller-owned
+  `success_criteria` rows and validating `contract_ref=` IDs against typed
+  `BehaviorContracts`.
+- Multi-probe plans and plans without the proof-follow-up ledger reason remain
+  unchanged.
+
+Verification:
+
+- Focused tests:
+  `TestEnrichProofFollowupPlanProbeRefsBindsDurableContractRefs`,
+  `TestEnrichProofFollowupPlanProbeRefsRequiresAuthorizedDurableBatch`,
+  `TestEnrichProofFollowupPlanProbeRefsDoesNotGuessAcrossMultipleProbes`.
+- Related tests:
+  `go test ./internal/orchestrator ./internal/types ./internal/writeflow ./internal/tool -count=1`.
+- Full regression:
+  `go test ./...`, `make test`, `git diff --check`, and
+  `eval/swebench/smoke_local.sh`.
+- Lite rerun:
+  `pydata__xarray-4248` at
+  `/private/tmp/codrax-swe-rc51-xarray-20260618-110606` generated a non-empty
+  prediction, passed prediction validation, and produced an official
+  harness-consumable command. The run did not re-enter the proof-follow-up path
+  because online replan found a directly passing batch; focused tests cover the
+  proof-follow-up binding itself.
+
+## RC-52: Dispatch-Interrupted Terminalization
+
+The RC-51 Lite rerun exposed a separate user-facing state gap: after online
+replan, `pydata__xarray-4248` reached a typed passed verifier result and
+exported a coherent patch, but the workflow persisted as `in_progress` because
+the final controller dispatch was interrupted after the batch had already
+recorded a terminal verify verdict.
+
+This is a state-machine/UX gap, not a Python-specific one. A completed batch
+should not require another successful model turn merely to write the run-level
+terminal state when deterministic typed artifacts already prove completion.
+
+Design:
+
+- On controller dispatch cancellation/interruption, first check whether all
+  workflow batches already have terminal typed statuses.
+- Run the existing typed finish normalization on a cloned run so pending
+  deterministic follow-ups, such as proof/impact repair batches, can still
+  block terminalization.
+- If the normalized action remains `finish`, complete the run through the same
+  completion aggregator used by budget terminalization and write an explicit
+  progress reason `controller_dispatch_interrupted_after_complete`.
+- If the cloned normalization would append a follow-up batch, leave the real
+  run unchanged and keep the existing applied-patch-interrupted guidance.
+
+RC-52 tasks:
+
+- [x] Add dispatch-interrupted terminalization helper.
+- [x] Wire it before applied-patch-interrupted guidance on cancellation.
+- [x] Add regression proving verified completed runs finish without another
+  model turn.
+- [x] Add regression proving pending typed proof follow-up is not swallowed.
 
 ## Progress Ledger
 
@@ -2817,7 +2884,9 @@ RC-51 tasks:
 | RC-49 | complete | Official harness dry-run import check: the harness wrapper now imports `swebench.harness.run_evaluation` for non-dry runs and for Lite dry-runs by default, while command-only dry-run remains available. README documents Python 3.10+ and the `SWEBENCH_CHECK_OFFICIAL_IMPORT` / `CHECK_HARNESS_IMPORT` knobs. Targeted RC-48 smoke exported 3/3 non-empty predictions and exposed continued correctness gaps; Python 3.9 import-check fails clearly, Python 3.11 import-check dry-run passes, and dependency-free `smoke_local.sh` still passes. |
 | RC-50 | complete | Verification proof obligation follow-up: controller now promotes typed missing `verification_confidence` proof refs into the existing bounded follow-up queue. Local passes with incomplete soft/hard contract probe proof append one scoped `proof-repair` batch when concrete refs exist, preserve reason/refs/source in success criteria, skip blind no-ref records, and stop after one proof follow-up. Verification: focused controller regressions and related write packages pass. |
 | RC-50 smoke | complete | Reran three Lite instances (`django__django-11742`, `mwaskom__seaborn-3190`, `pydata__xarray-4248`) at `/private/tmp/codrax-swe-rc50-20260618-102834`: predictions validated 3/3 non-empty and official harness import/dry-run succeeded. Django remained failed/unverified (`make_target_missing`); Seaborn blocked after failed verify and no-change replan; Xarray triggered RC-50 `batch-1-proof-repair` but still ended low-confidence because final probe metadata lacked the missing soft `contract_refs`, motivating RC-51. |
-| RC-51 | planned | Durable proof criteria and probe-ref binding: persist controller-owned proof batch criteria across replans and deterministically attach missing proof refs to the single proof-follow-up probe before approval/apply. |
+| RC-51 | complete | Durable proof criteria and probe-ref binding: controller-owned batch purpose/expected paths/success criteria now persist across append/split/replan/hydration, and authorized proof-follow-up plans deterministically bind criteria `contract_ref=` IDs to exactly one verification probe after validating against typed behavior contracts. Multi-probe and unauthorized plans remain unchanged. Verification: focused controller/type/writeflow regressions, related packages, `go test ./...`, `make test`, `git diff --check`, and SWE local smoke pass. |
+| RC-51 smoke | complete | Single Lite rerun `pydata__xarray-4248` generated a non-empty harness-consumable prediction at `/private/tmp/codrax-swe-rc51-xarray-20260618-110606`; local verify passed and `verify_confidence_reason_codes` was empty. The run did not exercise proof-follow-up because online replan converged directly, but it exposed RC-52: workflow status could remain `in_progress` after a typed passed batch when the final controller dispatch was interrupted. |
+| RC-52 | complete | Dispatch-interrupted terminalization: if every batch already has typed terminal status and finish normalization does not request a follow-up batch, controller cancellation after local verify now completes the run deterministically with `controller_dispatch_interrupted_after_complete`. A cloned normalization preserves proof/impact follow-up red lines. Verification: focused orchestrator regressions pass; full regression evidence is recorded with RC-51 implementation verification. |
 
 ## Acceptance Criteria
 

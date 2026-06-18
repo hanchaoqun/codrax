@@ -50,6 +50,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 			run.Budget.BatchesUsed++
 		}
 		updateWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
+		applyWorkflowBatchPlanMetadata(&run, batchID, decision.Batch)
 		run.ActiveBatchID = batchID
 		run.Status = types.WriteWorkflowRunInProgress
 		appendWorkflowEdge(&run, types.WriteWorkflowEdgePlan, "", batchID, decision.ReasonCode)
@@ -74,6 +75,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		if added {
 			run.Budget.BatchesUsed++
 		}
+		applyWorkflowBatchPlanMetadata(&run, batchID, decision.Batch)
 		run.ActiveBatchID = batchID
 		run.Status = types.WriteWorkflowRunInProgress
 		appendWorkflowEdge(&run, types.WriteWorkflowEdgeFollowup, "", batchID, decision.ReasonCode)
@@ -84,6 +86,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		if added {
 			run.Budget.BatchesUsed++
 		}
+		applyWorkflowBatchPlanMetadata(&run, batchID, decision.Batch)
 		run.ActiveBatchID = batchID
 		run.Status = types.WriteWorkflowRunInProgress
 		appendWorkflowEdge(&run, types.WriteWorkflowEdgeSplit, "", batchID, decision.ReasonCode)
@@ -91,6 +94,7 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 	case ActionReplanBatch:
 		batchID, goal := batchIDAndGoalFromBatch(decision, run)
 		updateWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchReadyToPlan)
+		applyWorkflowBatchPlanMetadata(&run, batchID, decision.Batch)
 		run.ActiveBatchID = batchID
 		run.Status = types.WriteWorkflowRunInProgress
 		appendWorkflowEdge(&run, types.WriteWorkflowEdgePlan, batchID, batchID, decision.ReasonCode)
@@ -208,6 +212,42 @@ func updateWorkflowBatch(run *types.WriteWorkflowRun, id, goal string, status ty
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	})
+}
+
+func applyWorkflowBatchPlanMetadata(run *types.WriteWorkflowRun, id string, batch *WriteBatchPlan) {
+	if run == nil || batch == nil {
+		return
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = strings.TrimSpace(batch.ID)
+	}
+	if id == "" {
+		return
+	}
+	normalized := NormalizeBatchPlan(*batch)
+	for i := range run.Batches {
+		if strings.TrimSpace(run.Batches[i].ID) != id {
+			continue
+		}
+		if normalized.Goal != "" {
+			run.Batches[i].Goal = normalized.Goal
+		}
+		if normalized.Purpose != "" {
+			run.Batches[i].Purpose = normalized.Purpose
+		}
+		if len(normalized.ExpectedPaths) > 0 {
+			run.Batches[i].ExpectedPaths = append([]string(nil), normalized.ExpectedPaths...)
+		}
+		if len(normalized.SuccessCriteria) > 0 {
+			run.Batches[i].SuccessCriteria = append([]string(nil), normalized.SuccessCriteria...)
+		}
+		if len(normalized.DependsOn) > 0 {
+			run.Batches[i].DependsOn = append([]string(nil), normalized.DependsOn...)
+		}
+		run.Batches[i].UpdatedAt = time.Now()
+		return
+	}
 }
 
 func markWorkflowBatchCompletionFromLatestVerify(run *types.WriteWorkflowRun, batchID string, decision WriteWorkflowDecision) {

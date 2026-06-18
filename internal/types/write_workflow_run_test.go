@@ -14,14 +14,17 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 		Status:        WriteWorkflowRunInProgress,
 		ActiveBatchID: " batch-1 ",
 		Batches: []WriteWorkflowBatch{{
-			ID:             " batch-1 ",
-			Status:         WriteWorkflowBatchNeedsExploration,
-			DependsOn:      []string{" batch-0 ", "batch-0"},
-			PlanRef:        " plan-ref ",
-			ApplyRef:       " apply-ref ",
-			VerifyRef:      " verify-ref ",
-			ApprovalRef:    " approval-ref ",
-			ContextPackIDs: []string{" pack-1 ", "pack-1"},
+			ID:              " batch-1 ",
+			Purpose:         " verification_proof_followup ",
+			ExpectedPaths:   []string{" pkg/fix.py ", "pkg/fix.py"},
+			SuccessCriteria: []string{" contract_ref=outcome-1 ", "contract_ref=outcome-1"},
+			Status:          WriteWorkflowBatchNeedsExploration,
+			DependsOn:       []string{" batch-0 ", "batch-0"},
+			PlanRef:         " plan-ref ",
+			ApplyRef:        " apply-ref ",
+			VerifyRef:       " verify-ref ",
+			ApprovalRef:     " approval-ref ",
+			ContextPackIDs:  []string{" pack-1 ", "pack-1"},
 			Attempts: []WriteWorkflowAttempt{{
 				ID:                " attempt-1 ",
 				Kind:              " plan ",
@@ -78,6 +81,11 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 	}
 	if len(got.Batches[0].DependsOn) != 1 || got.Batches[0].DependsOn[0] != "batch-0" {
 		t.Fatalf("batch dependencies not normalized: %+v", got.Batches[0].DependsOn)
+	}
+	if got.Batches[0].Purpose != "verification_proof_followup" ||
+		len(got.Batches[0].ExpectedPaths) != 1 || got.Batches[0].ExpectedPaths[0] != "pkg/fix.py" ||
+		len(got.Batches[0].SuccessCriteria) != 1 || got.Batches[0].SuccessCriteria[0] != "contract_ref=outcome-1" {
+		t.Fatalf("batch typed criteria not normalized: %+v", got.Batches[0])
 	}
 	if got.Batches[0].PlanRef != "plan-ref" || got.Batches[0].ApplyRef != "apply-ref" ||
 		got.Batches[0].VerifyRef != "verify-ref" || got.Batches[0].ApprovalRef != "approval-ref" {

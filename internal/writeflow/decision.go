@@ -108,34 +108,54 @@ func batchPlanIsEmpty(batch WriteBatchPlan) bool {
 // active run's matching batch goal is the canonical source of that value.
 func HydrateWriteWorkflowDecisionFromRun(decision WriteWorkflowDecision, run types.WriteWorkflowRun) WriteWorkflowDecision {
 	decision = NormalizeWriteWorkflowDecision(decision)
-	if decision.Batch == nil || strings.TrimSpace(decision.Batch.Goal) != "" {
+	if decision.Batch == nil {
 		return decision
 	}
 	run = types.NormalizeWriteWorkflowRun(run)
-	goal := workflowRunBatchGoal(run, decision.Batch.ID)
-	if goal == "" && strings.TrimSpace(decision.Batch.ID) == "" {
-		goal = workflowRunBatchGoal(run, run.ActiveBatchID)
+	batch, ok := workflowRunBatch(run, decision.Batch.ID)
+	if !ok && strings.TrimSpace(decision.Batch.ID) == "" {
+		batch, ok = workflowRunBatch(run, run.ActiveBatchID)
 	}
-	if goal == "" && (strings.TrimSpace(decision.Batch.ID) == "" || strings.TrimSpace(decision.Batch.ID) == strings.TrimSpace(run.ActiveBatchID)) {
-		goal = strings.TrimSpace(run.Goal)
+	if ok {
+		if strings.TrimSpace(decision.Batch.Goal) == "" {
+			decision.Batch.Goal = strings.TrimSpace(batch.Goal)
+		}
+		if strings.TrimSpace(decision.Batch.Purpose) == "" {
+			decision.Batch.Purpose = strings.TrimSpace(batch.Purpose)
+		}
+		if len(decision.Batch.ExpectedPaths) == 0 {
+			decision.Batch.ExpectedPaths = append([]string(nil), batch.ExpectedPaths...)
+		}
+		if len(decision.Batch.SuccessCriteria) == 0 {
+			decision.Batch.SuccessCriteria = append([]string(nil), batch.SuccessCriteria...)
+		}
 	}
-	if goal != "" {
-		decision.Batch.Goal = goal
+	if strings.TrimSpace(decision.Batch.Goal) == "" &&
+		(strings.TrimSpace(decision.Batch.ID) == "" || strings.TrimSpace(decision.Batch.ID) == strings.TrimSpace(run.ActiveBatchID)) {
+		decision.Batch.Goal = strings.TrimSpace(run.Goal)
 	}
 	return NormalizeWriteWorkflowDecision(decision)
 }
 
 func workflowRunBatchGoal(run types.WriteWorkflowRun, batchID string) string {
+	batch, ok := workflowRunBatch(run, batchID)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(batch.Goal)
+}
+
+func workflowRunBatch(run types.WriteWorkflowRun, batchID string) (types.WriteWorkflowBatch, bool) {
 	batchID = strings.TrimSpace(batchID)
 	if batchID == "" {
-		return ""
+		return types.WriteWorkflowBatch{}, false
 	}
 	for _, batch := range run.Batches {
 		if strings.TrimSpace(batch.ID) == batchID {
-			return strings.TrimSpace(batch.Goal)
+			return batch, true
 		}
 	}
-	return ""
+	return types.WriteWorkflowBatch{}, false
 }
 
 func normalizeMissingUserFacts(in []MissingUserFact) []MissingUserFact {

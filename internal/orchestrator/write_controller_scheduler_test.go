@@ -2653,6 +2653,211 @@ func TestNormalizeControllerTypedStateDecisionProofFollowupDoesNotRecurse(t *tes
 	}
 }
 
+func TestEnrichProofFollowupPlanProbeRefsBindsDurableContractRefs(t *testing.T) {
+	mu := types.NewMutableState("proof followup probe refs")
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-bind",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1-proof-repair",
+			Purpose: "verification_proof_followup",
+			SuccessCriteria: []string{
+				"impact_obligation=soft-1 kind=behavior_contract code=verification_probe_missing_soft_contract_ref paths=pkg/widget.py contract_ref=outcome-1 evidence_ref=verification_probe:probe_soft_contract_refs source=verification_confidence",
+				"impact_obligation=soft-2 kind=behavior_contract contract_ref=missing-contract",
+				"impact_obligation=soft-3 kind=behavior_contract contract_ref=outcome-2",
+			},
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	plan := &types.ChangePlan{
+		ID:          "plan-proof-bind",
+		TargetPaths: []string{"pkg/widget.py", "tests/test_widget.py"},
+		Changes: []types.FileChange{{
+			Path: "pkg/widget.py",
+			Kind: "patch",
+		}},
+		BehaviorContracts: []types.WriteBehaviorContract{
+			{ID: "outcome-1", Kind: types.WriteBehaviorObservable},
+			{ID: "outcome-2", Kind: types.WriteBehaviorObservable},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "probe-1",
+			Language: "python",
+			Code:     "pass",
+		}},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+
+	if !o.enrichProofFollowupPlanProbeRefs(nil, plan) {
+		t.Fatal("proof follow-up plan should receive deterministic probe refs")
+	}
+	if !containsString(plan.VerificationProbes[0].ContractRefs, "outcome-1") ||
+		!containsString(plan.VerificationProbes[0].ContractRefs, "outcome-2") ||
+		containsString(plan.VerificationProbes[0].ContractRefs, "missing-contract") {
+		t.Fatalf("contract refs should bind only criteria refs known to behavior contracts, got %+v", plan.VerificationProbes[0].ContractRefs)
+	}
+	if got := plan.VerificationProbes[0].ChangedSymbolRefs; len(got) != 1 || got[0] != "path:pkg/widget.py" {
+		t.Fatalf("single production target should seed changed-symbol fallback, got %+v", got)
+	}
+}
+
+func TestEnrichProofFollowupPlanProbeRefsRequiresAuthorizedDurableBatch(t *testing.T) {
+	mu := types.NewMutableState("proof followup unauthorized")
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-proof-unauthorized",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1",
+			Purpose:         "verification_proof_followup",
+			SuccessCriteria: []string{"contract_ref=outcome-1"},
+			Status:          types.WriteWorkflowBatchReadyToPlan,
+		}},
+	})
+	plan := &types.ChangePlan{
+		ID:                "plan-proof-unauthorized",
+		TargetPaths:       []string{"pkg/widget.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{ID: "outcome-1", Kind: types.WriteBehaviorObservable}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "probe-1",
+			Language: "python",
+			Code:     "pass",
+		}},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+
+	if o.enrichProofFollowupPlanProbeRefs(nil, plan) {
+		t.Fatal("proof refs must not bind without the controller proof-follow-up ledger reason")
+	}
+	if len(plan.VerificationProbes[0].ContractRefs) != 0 || len(plan.VerificationProbes[0].ChangedSymbolRefs) != 0 {
+		t.Fatalf("unauthorized plan should remain unchanged, got %+v", plan.VerificationProbes[0])
+	}
+}
+
+func TestEnrichProofFollowupPlanProbeRefsDoesNotGuessAcrossMultipleProbes(t *testing.T) {
+	mu := types.NewMutableState("proof followup multiple probes")
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-proof-multi-probe",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1-proof-repair",
+			Purpose:         "verification_proof_followup",
+			SuccessCriteria: []string{"contract_ref=outcome-1"},
+			Status:          types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	})
+	plan := &types.ChangePlan{
+		ID:                "plan-proof-multi-probe",
+		TargetPaths:       []string{"pkg/widget.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{ID: "outcome-1", Kind: types.WriteBehaviorObservable}},
+		VerificationProbes: []types.VerificationProbe{
+			{ID: "probe-1", Language: "python", Code: "pass"},
+			{ID: "probe-2", Language: "python", Code: "pass"},
+		},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+
+	if o.enrichProofFollowupPlanProbeRefs(nil, plan) {
+		t.Fatal("multiple probes should not receive guessed proof refs")
+	}
+	if len(plan.VerificationProbes[0].ContractRefs) != 0 || len(plan.VerificationProbes[1].ContractRefs) != 0 {
+		t.Fatalf("multiple probes should remain unchanged, got %+v", plan.VerificationProbes)
+	}
+}
+
+func TestCompleteDispatchInterruptedRunIfAllBatchesCompleteFinishesVerifiedRun(t *testing.T) {
+	mu := types.NewMutableState("complete after interrupted dispatch")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-dispatch-complete",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "passed",
+				ReasonCode: "tests_passed",
+				PlanID:     "plan-1",
+			}},
+		}},
+	}
+
+	if !o.completeDispatchInterruptedRunIfAllBatchesComplete(run, "controller_dispatch_interrupted_after_complete") {
+		t.Fatal("complete run should terminalize when controller dispatch is interrupted")
+	}
+	if run.Status != types.WriteWorkflowRunComplete || run.Completion == nil ||
+		run.Completion.Verdict != types.WriteWorkflowCompletionVerified {
+		t.Fatalf("run should be complete and verified, got status=%s completion=%+v", run.Status, run.Completion)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "controller_dispatch_interrupted_after_complete") {
+		t.Fatalf("terminalization progress missing: %+v", run.ProgressLedger)
+	}
+	if got := mu.WriteWorkflowRun(); got == nil || got.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("mutable workflow run should be complete, got %+v", got)
+	}
+}
+
+func TestCompleteDispatchInterruptedRunIfAllBatchesCompleteDoesNotSwallowProofFollowup(t *testing.T) {
+	mu := types.NewMutableState("interrupted dispatch with proof followup")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-proof-needed",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"pkg/widget.py"},
+	})
+	mu.SetChangeReport(&types.ChangeReport{
+		PlanID:             "plan-proof-needed",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_contract_refs",
+			Status:       "missing",
+			Severity:     "error",
+			ReasonCode:   "verification_probe_missing_required_contract_ref",
+			ContractRefs: []string{"outcome-1"},
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-needed",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "passed",
+				ReasonCode: "tests_passed",
+				PlanID:     "plan-proof-needed",
+			}},
+		}},
+	}
+
+	if o.completeDispatchInterruptedRunIfAllBatchesComplete(run, "controller_dispatch_interrupted_after_complete") {
+		t.Fatal("pending typed proof follow-up should not be swallowed by interrupted-dispatch terminalization")
+	}
+	if run.Status != types.WriteWorkflowRunInProgress {
+		t.Fatalf("run should remain in progress when proof follow-up is pending, got %s", run.Status)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("follow-up probe should run on a cloned decision state, not mutate original run: %+v", run.ProgressLedger)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionVerifiedSoftTelemetryOnlyFinishes(t *testing.T) {
 	mu := types.NewMutableState("verified soft telemetry only")
 	mu.SetChangePlan(&types.ChangePlan{

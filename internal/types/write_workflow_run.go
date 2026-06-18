@@ -153,23 +153,26 @@ type WriteWorkflowSliceEvent struct {
 }
 
 type WriteWorkflowBatch struct {
-	ID             string                    `json:"id"`
-	Goal           string                    `json:"goal,omitempty"`
-	Status         WriteWorkflowBatchStatus  `json:"status,omitempty"`
-	Completion     *WriteWorkflowCompletion  `json:"completion,omitempty"`
-	DependsOn      []string                  `json:"depends_on,omitempty"`
-	PlanID         string                    `json:"plan_id,omitempty"`
-	PlanRef        string                    `json:"plan_ref,omitempty"`
-	ApplyRef       string                    `json:"apply_ref,omitempty"`
-	VerifyRef      string                    `json:"verify_ref,omitempty"`
-	ApprovalRef    string                    `json:"approval_ref,omitempty"`
-	ContextPackIDs []string                  `json:"context_pack_ids,omitempty"`
-	Attempts       []WriteWorkflowAttempt    `json:"attempts,omitempty"`
-	ActiveSliceID  string                    `json:"active_slice_id,omitempty"`
-	Slices         []WriteWorkflowSlice      `json:"slices,omitempty"`
-	SliceEvents    []WriteWorkflowSliceEvent `json:"slice_events,omitempty"`
-	CreatedAt      time.Time                 `json:"created_at,omitempty"`
-	UpdatedAt      time.Time                 `json:"updated_at,omitempty"`
+	ID              string                    `json:"id"`
+	Goal            string                    `json:"goal,omitempty"`
+	Purpose         string                    `json:"purpose,omitempty"`
+	ExpectedPaths   []string                  `json:"expected_paths,omitempty"`
+	SuccessCriteria []string                  `json:"success_criteria,omitempty"`
+	Status          WriteWorkflowBatchStatus  `json:"status,omitempty"`
+	Completion      *WriteWorkflowCompletion  `json:"completion,omitempty"`
+	DependsOn       []string                  `json:"depends_on,omitempty"`
+	PlanID          string                    `json:"plan_id,omitempty"`
+	PlanRef         string                    `json:"plan_ref,omitempty"`
+	ApplyRef        string                    `json:"apply_ref,omitempty"`
+	VerifyRef       string                    `json:"verify_ref,omitempty"`
+	ApprovalRef     string                    `json:"approval_ref,omitempty"`
+	ContextPackIDs  []string                  `json:"context_pack_ids,omitempty"`
+	Attempts        []WriteWorkflowAttempt    `json:"attempts,omitempty"`
+	ActiveSliceID   string                    `json:"active_slice_id,omitempty"`
+	Slices          []WriteWorkflowSlice      `json:"slices,omitempty"`
+	SliceEvents     []WriteWorkflowSliceEvent `json:"slice_events,omitempty"`
+	CreatedAt       time.Time                 `json:"created_at,omitempty"`
+	UpdatedAt       time.Time                 `json:"updated_at,omitempty"`
 }
 
 type WriteWorkflowAttempt struct {
@@ -313,6 +316,9 @@ func normalizeWriteWorkflowBatches(in []WriteWorkflowBatch) []WriteWorkflowBatch
 			continue
 		}
 		batch.Goal = trimWriteWorkflowRunText(batch.Goal)
+		batch.Purpose = trimWriteWorkflowRunText(batch.Purpose)
+		batch.ExpectedPaths = dedupTrimWriteWorkflowRunStrings(batch.ExpectedPaths)
+		batch.SuccessCriteria = dedupTrimWriteWorkflowRunStrings(batch.SuccessCriteria)
 		batch.DependsOn = dedupTrimWriteWorkflowRunStrings(batch.DependsOn)
 		batch.PlanID = trimWriteWorkflowRunText(batch.PlanID)
 		batch.PlanRef = trimWriteWorkflowRunText(batch.PlanRef)

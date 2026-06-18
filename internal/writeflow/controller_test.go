@@ -36,8 +36,11 @@ func TestApplyWorkflowDecisionToRunExploreThenPlan(t *testing.T) {
 		Action:     ActionPlanBatch,
 		ReasonCode: "enough_context",
 		Batch: &WriteBatchPlan{
-			ID:   "batch-1",
-			Goal: "patch apply gate",
+			ID:              "batch-1",
+			Goal:            "patch apply gate",
+			Purpose:         "verification_proof_followup",
+			ExpectedPaths:   []string{"internal/orchestrator/stage_hooks.go"},
+			SuccessCriteria: []string{"contract_ref=approval-boundary"},
 		},
 	})
 	if err != nil {
@@ -48,6 +51,11 @@ func TestApplyWorkflowDecisionToRunExploreThenPlan(t *testing.T) {
 	}
 	if run.Batches[0].Goal != "patch apply gate" {
 		t.Fatalf("batch goal not updated: %+v", run.Batches[0])
+	}
+	if run.Batches[0].Purpose != "verification_proof_followup" ||
+		len(run.Batches[0].ExpectedPaths) != 1 || run.Batches[0].ExpectedPaths[0] != "internal/orchestrator/stage_hooks.go" ||
+		len(run.Batches[0].SuccessCriteria) != 1 || run.Batches[0].SuccessCriteria[0] != "contract_ref=approval-boundary" {
+		t.Fatalf("batch metadata not persisted: %+v", run.Batches[0])
 	}
 	if len(run.Edges) != 2 || run.Edges[1].Kind != types.WriteWorkflowEdgePlan {
 		t.Fatalf("plan edge not appended: %+v", run.Edges)

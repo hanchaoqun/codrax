@@ -114,14 +114,22 @@ func TestHydrateWriteWorkflowDecisionFromRunFillsActiveBatchGoal(t *testing.T) {
 		Goal:          "overall change",
 		ActiveBatchID: "batch-1",
 		Batches: []types.WriteWorkflowBatch{{
-			ID:     "batch-1",
-			Goal:   "repair the failing behavior",
-			Status: types.WriteWorkflowBatchReadyToPlan,
+			ID:              "batch-1",
+			Goal:            "repair the failing behavior",
+			Purpose:         "verification_proof_followup",
+			ExpectedPaths:   []string{"pkg/fix.py"},
+			SuccessCriteria: []string{"contract_ref=outcome-1"},
+			Status:          types.WriteWorkflowBatchReadyToPlan,
 		}},
 	}
 	got := HydrateWriteWorkflowDecisionFromRun(decision, run)
 	if got.Batch == nil || got.Batch.Goal != "repair the failing behavior" {
 		t.Fatalf("hydrated decision = %+v", got)
+	}
+	if got.Batch.Purpose != "verification_proof_followup" ||
+		len(got.Batch.ExpectedPaths) != 1 || got.Batch.ExpectedPaths[0] != "pkg/fix.py" ||
+		len(got.Batch.SuccessCriteria) != 1 || got.Batch.SuccessCriteria[0] != "contract_ref=outcome-1" {
+		t.Fatalf("hydrated batch metadata missing: %+v", got.Batch)
 	}
 	if errs := ValidateWriteWorkflowDecision(got); len(errs) != 0 {
 		t.Fatalf("hydrated decision should validate: %v", errs)

@@ -102,6 +102,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 		*stepsUsed++
 		if err != nil {
 			if errors.Is(err, ErrCanceled) || errors.Is(err, context.Canceled) {
+				if o.completeDispatchInterruptedRunIfAllBatchesComplete(&run, "controller_dispatch_interrupted_after_complete") {
+					return nil
+				}
 				if o.publishAppliedPatchInterruptedGuidance(&run, o.busCtx.Mutable.ChangePlan(), err, "controller_dispatch_interrupted_after_applied_patch") {
 					o.persistWriteWorkflowRun(&run)
 				}
@@ -160,6 +163,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 		if err != nil {
 			return err
 		}
+		o.busCtx.Mutable.SetWriteWorkflowRun(&run)
 		// A batch switch invalidates the previous batch's verify-failure
 		// carrier: the new batch's planner must not open with another
 		// batch's failure section.
@@ -700,11 +704,14 @@ func (o *Orchestrator) seedWriteWorkflowRun() types.WriteWorkflowRun {
 			status = types.WriteWorkflowBatchReadyToPlan
 		}
 		run.Batches = append(run.Batches, types.WriteWorkflowBatch{
-			ID:        run.ActiveBatchID,
-			Goal:      seed.NextBatch.Goal,
-			Status:    status,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			ID:              run.ActiveBatchID,
+			Goal:            seed.NextBatch.Goal,
+			Purpose:         seed.NextBatch.Purpose,
+			ExpectedPaths:   append([]string(nil), seed.NextBatch.ExpectedPaths...),
+			SuccessCriteria: append([]string(nil), seed.NextBatch.SuccessCriteria...),
+			Status:          status,
+			CreatedAt:       time.Now(),
+			UpdatedAt:       time.Now(),
 		})
 		run.Budget.BatchesUsed = 1
 	} else {
@@ -870,6 +877,10 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 					logging.Warning("[orchestrator] controller plan touched source path(s) outside prior localization context; retrying bounded planning once paths=%s", strings.Join(paths, ","))
 					continue
 				}
+			}
+			plan := o.busCtx.Mutable.ChangePlan()
+			if o.enrichProofFollowupPlanProbeRefs(batch, plan) {
+				o.busCtx.Mutable.SetChangePlan(plan)
 			}
 			return nil
 		}
@@ -4255,6 +4266,108 @@ func verificationProofFollowupAlreadyRequested(run *types.WriteWorkflowRun) bool
 	return workflowProgressReasonCount(run, "", "verification_proof_followup_requested") > 0
 }
 
+func (o *Orchestrator) enrichProofFollowupPlanProbeRefs(batch *writeflow.WriteBatchPlan, plan *types.ChangePlan) bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
+		return false
+	}
+	if len(plan.VerificationProbes) != 1 {
+		return false
+	}
+	run := o.busCtx.Mutable.WriteWorkflowRun()
+	if !proofFollowupRunAuthorized(run) {
+		return false
+	}
+	purpose, criteria := proofFollowupBatchMetadata(run, batch)
+	if !proofFollowupPurpose(purpose) {
+		return false
+	}
+	changed := false
+	contractRefs := proofFollowupContractRefsFromCriteria(criteria, plan)
+	if len(contractRefs) > 0 {
+		before := strings.Join(dedupTrimControllerStrings(plan.VerificationProbes[0].ContractRefs), "\x00")
+		plan.VerificationProbes[0].ContractRefs = dedupTrimControllerStrings(append(plan.VerificationProbes[0].ContractRefs, contractRefs...))
+		after := strings.Join(plan.VerificationProbes[0].ContractRefs, "\x00")
+		if after != before {
+			changed = true
+		}
+	}
+	if len(dedupTrimControllerStrings(plan.VerificationProbes[0].ChangedSymbolRefs)) == 0 {
+		if paths := planSourceRepairPaths(plan, 2); len(paths) == 1 {
+			plan.VerificationProbes[0].ChangedSymbolRefs = []string{"path:" + paths[0]}
+			changed = true
+		}
+	}
+	if changed {
+		logging.Info("[orchestrator] enriched proof-follow-up verification probe refs plan=%s contracts=%s",
+			strings.TrimSpace(plan.ID), strings.Join(contractRefs, ","))
+	}
+	return changed
+}
+
+func proofFollowupRunAuthorized(run *types.WriteWorkflowRun) bool {
+	return run != nil && workflowProgressReasonCount(run, "", "verification_proof_followup_requested") > 0
+}
+
+func proofFollowupBatchMetadata(run *types.WriteWorkflowRun, batch *writeflow.WriteBatchPlan) (string, []string) {
+	if run != nil {
+		activeID := strings.TrimSpace(run.ActiveBatchID)
+		if activeID != "" {
+			for _, candidate := range run.Batches {
+				if strings.TrimSpace(candidate.ID) != activeID {
+					continue
+				}
+				if candidate.Purpose != "" || len(candidate.SuccessCriteria) > 0 {
+					return strings.TrimSpace(candidate.Purpose), append([]string(nil), candidate.SuccessCriteria...)
+				}
+				break
+			}
+		}
+	}
+	if batch == nil {
+		return "", nil
+	}
+	normalized := writeflow.NormalizeBatchPlan(*batch)
+	return strings.TrimSpace(normalized.Purpose), append([]string(nil), normalized.SuccessCriteria...)
+}
+
+func proofFollowupPurpose(purpose string) bool {
+	switch strings.TrimSpace(purpose) {
+	case "verification_proof_followup", "impact_and_verification_proof_followup":
+		return true
+	default:
+		return false
+	}
+}
+
+func proofFollowupContractRefsFromCriteria(criteria []string, plan *types.ChangePlan) []string {
+	if len(criteria) == 0 || plan == nil || len(plan.BehaviorContracts) == 0 {
+		return nil
+	}
+	valid := map[string]bool{}
+	for _, contract := range plan.BehaviorContracts {
+		id := strings.TrimSpace(contract.ID)
+		if id != "" {
+			valid[id] = true
+		}
+	}
+	var refs []string
+	for _, row := range criteria {
+		for _, field := range strings.Fields(row) {
+			key, value, ok := strings.Cut(field, "=")
+			if !ok || strings.TrimSpace(key) != "contract_ref" {
+				continue
+			}
+			for _, raw := range strings.Split(value, ",") {
+				ref := strings.TrimSpace(raw)
+				if ref != "" && valid[ref] {
+					refs = append(refs, ref)
+				}
+			}
+		}
+	}
+	return dedupTrimControllerStrings(refs)
+}
+
 func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatchID string, plan *types.ChangePlan, report *types.ChangeReport) *writeflow.WriteBatchPlan {
 	items := selectImpactRepairQueueItems(plan, report, 0)
 	items = filterPendingImpactRepairQueueItems(run, items)
@@ -5281,6 +5394,25 @@ func (o *Orchestrator) completeBudgetExhaustedRunIfAllBatchesComplete(run *types
 		o.busCtx.Mutable.SetResult(result)
 	}
 	return true
+}
+
+func (o *Orchestrator) completeDispatchInterruptedRunIfAllBatchesComplete(run *types.WriteWorkflowRun, reasonCode string) bool {
+	if o == nil || run == nil || !workflowRunAllBatchesComplete(run) {
+		return false
+	}
+	probe := types.CloneWriteWorkflowRun(*run)
+	decision := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: reasonCode,
+		Reason:     "controller dispatch was interrupted after all batches already had typed completion verdicts",
+	}, &probe)
+	if decision.Action != writeflow.ActionFinish {
+		return false
+	}
+	if blocked := writeflow.FinishBlockedReason(*run, decision); blocked != "" {
+		return false
+	}
+	return o.completeBudgetExhaustedRunIfAllBatchesComplete(run, reasonCode)
 }
 
 func workflowRunAllBatchesComplete(run *types.WriteWorkflowRun) bool {
