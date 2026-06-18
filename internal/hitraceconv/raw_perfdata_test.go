@@ -115,6 +115,41 @@ func TestConvertRawPerfDataSkipsSafeExtraSampleFields(t *testing.T) {
 	}
 }
 
+func TestConvertRawPerfDataMapsMultiAttrSampleIDToEvent(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf-multi.data")
+	outPath := filepath.Join(dir, "raw-multi.perftrace")
+	if err := os.WriteFile(perfData, syntheticRawPerfDataMultiAttrByIdentifier(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := readRawPerfData(context.Background(), perfData)
+	if err != nil {
+		t.Fatalf("read multi-attr raw perf data: %v", err)
+	}
+	if len(data.Attrs) != 2 {
+		t.Fatalf("expected two attrs, got %+v", data.Attrs)
+	}
+	if len(data.Samples) != 1 || data.Samples[0].EventName != "config:0x2" {
+		t.Fatalf("sample should map id to second attr event: %+v", data.Samples)
+	}
+	if got := strings.Join(data.Caveats, " "); !strings.Contains(got, "parsed 2 perf attrs") {
+		t.Fatalf("multi-attr parse should remain visible as caveat: %+v", data.Caveats)
+	}
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+		t.Fatalf("convert multi-attr raw perf.data: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`event="config:0x2"`, `parser_caveats=`, `maps sample ids to event names`} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("multi-attr perftrace missing %q:\n%s", want, string(body))
+		}
+	}
+}
+
 func TestConvertFileUsesRawPerfParserForDirectPerfDataByContent(t *testing.T) {
 	dir := t.TempDir()
 	perfData := filepath.Join(dir, "capture.bin")
@@ -263,6 +298,49 @@ func syntheticRawPerfDataWithSampleType(sampleType uint64, readFormat uint64) []
 	return out
 }
 
+func syntheticRawPerfDataMultiAttrByIdentifier() []byte {
+	const headerSize = 104
+	const attrStructSize = 40
+	const attrEntrySize = 56
+	sampleType := uint64(perfSampleIdentifier | perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod)
+	var records bytes.Buffer
+	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "app")))
+	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+
+	attrsSize := attrEntrySize * 2
+	idsOffset := headerSize + attrsSize
+	idsSize := 16
+	dataOffset := idsOffset + idsSize
+	out := make([]byte, dataOffset)
+	copy(out[0:8], []byte(perfMagic2))
+	binary.LittleEndian.PutUint64(out[8:16], headerSize)
+	binary.LittleEndian.PutUint64(out[16:24], attrEntrySize)
+	binary.LittleEndian.PutUint64(out[24:32], headerSize)
+	binary.LittleEndian.PutUint64(out[32:40], uint64(attrsSize))
+	binary.LittleEndian.PutUint64(out[40:48], uint64(dataOffset))
+	binary.LittleEndian.PutUint64(out[48:56], uint64(records.Len()))
+
+	for i, item := range []struct {
+		config uint64
+		id     uint64
+	}{
+		{config: 0x1, id: 101},
+		{config: 0x2, id: 202},
+	} {
+		entry := out[headerSize+i*attrEntrySize : headerSize+(i+1)*attrEntrySize]
+		binary.LittleEndian.PutUint32(entry[0:4], 0)
+		binary.LittleEndian.PutUint32(entry[4:8], attrStructSize)
+		binary.LittleEndian.PutUint64(entry[8:16], item.config)
+		binary.LittleEndian.PutUint64(entry[24:32], sampleType)
+		binary.LittleEndian.PutUint64(entry[attrStructSize:attrStructSize+8], uint64(idsOffset+i*8))
+		binary.LittleEndian.PutUint64(entry[attrStructSize+8:attrStructSize+16], 8)
+		binary.LittleEndian.PutUint64(out[idsOffset+i*8:idsOffset+(i+1)*8], item.id)
+	}
+
+	out = append(out, records.Bytes()...)
+	return out
+}
+
 func rawPerfRecord(typ int, payload []byte) []byte {
 	size := 8 + len(payload)
 	out := make([]byte, size)
@@ -305,6 +383,9 @@ func rawPerfSamplePayload(sampleType uint64) []byte {
 		binary.LittleEndian.PutUint32(buf[4:8], b)
 		out.Write(buf[:])
 	}
+	if sampleType&perfSampleIdentifier != 0 {
+		writeU64(202)
+	}
 	if sampleType&perfSampleIP != 0 {
 		writeU64(0x1234)
 	}
@@ -313,6 +394,12 @@ func rawPerfSamplePayload(sampleType uint64) []byte {
 	}
 	if sampleType&perfSampleTime != 0 {
 		writeU64(1_234_567_000)
+	}
+	if sampleType&perfSampleID != 0 {
+		writeU64(202)
+	}
+	if sampleType&perfSampleStreamID != 0 {
+		writeU64(202)
 	}
 	if sampleType&perfSampleCPU != 0 {
 		writeU32Pair(5, 0)

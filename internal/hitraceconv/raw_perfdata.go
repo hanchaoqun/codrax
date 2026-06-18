@@ -62,6 +62,7 @@ type rawPerfAttr struct {
 	SampleType uint64
 	ReadFormat uint64
 	EventName  string
+	IDs        []uint64
 	Caveats    []string
 }
 
@@ -82,6 +83,7 @@ type rawPerfSample struct {
 	CPUValid  bool
 	Period    uint64
 	ID        uint64
+	EventName string
 	Callchain []uint64
 }
 
@@ -98,6 +100,7 @@ type rawPerfData struct {
 	SampleType uint64
 	ReadFormat uint64
 	EventName  string
+	Attrs      []rawPerfAttr
 	Threads    map[int]string
 	Mappings   []rawPerfMapping
 	Samples    []rawPerfSample
@@ -242,9 +245,15 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 	if err != nil {
 		return rawPerfData{}, err
 	}
-	attr, err := readRawPerfAttr(f, header)
+	attrs, err := readRawPerfAttrs(f, header)
 	if err != nil {
 		return rawPerfData{}, err
+	}
+	attr := attrs[0]
+	for _, candidate := range attrs[1:] {
+		if candidate.SampleType != attr.SampleType || candidate.ReadFormat != attr.ReadFormat {
+			return rawPerfData{}, fmt.Errorf("raw fallback cannot safely parse multi-event perf.data with different sample layouts; use official hiperf/simpleperf tooling")
+		}
 	}
 	unsupported := attr.SampleType &^ rawPerfSupportedSampleBits
 	if unsupported != 0 {
@@ -258,8 +267,17 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 		SampleType: attr.SampleType,
 		ReadFormat: attr.ReadFormat,
 		EventName:  attr.EventName,
+		Attrs:      attrs,
 		Threads:    map[int]string{},
 		Caveats:    attr.Caveats,
+	}
+	eventIDs := rawPerfEventIDMap(attrs)
+	if len(attrs) > 1 {
+		if len(eventIDs) > 0 {
+			out.Caveats = append(out.Caveats, fmt.Sprintf("raw fallback parsed %d perf attrs and maps sample ids to event names when present", len(attrs)))
+		} else {
+			out.Caveats = append(out.Caveats, fmt.Sprintf("raw fallback parsed %d perf attrs but no event id section was present; event labels are best-effort", len(attrs)))
+		}
 	}
 	if _, err := f.Seek(int64(header.DataOffset), io.SeekStart); err != nil {
 		return rawPerfData{}, err
@@ -296,6 +314,7 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 		case perfRecordSample:
 			sample, ok := parseRawPerfSample(payload, attr)
 			if ok {
+				sample.EventName = rawPerfEventNameForSample(sample, attr.EventName, eventIDs)
 				out.Samples = append(out.Samples, sample)
 			}
 		default:
@@ -326,18 +345,44 @@ func readRawPerfHeader(r io.ReaderAt) (rawPerfFileHeader, error) {
 	}, nil
 }
 
-func readRawPerfAttr(r io.ReaderAt, header rawPerfFileHeader) (rawPerfAttr, error) {
+func readRawPerfAttrs(r io.ReaderAt, header rawPerfFileHeader) ([]rawPerfAttr, error) {
 	if header.AttrsOffset == 0 || header.AttrsSize == 0 {
-		return rawPerfAttr{}, fmt.Errorf("perf.data has no attrs section")
+		return nil, fmt.Errorf("perf.data has no attrs section")
 	}
 	attrSize := header.AttrSize
 	if attrSize == 0 || attrSize > header.AttrsSize {
 		attrSize = header.AttrsSize
 	}
-	attr := make([]byte, attrSize)
-	if _, err := r.ReadAt(attr, int64(header.AttrsOffset)); err != nil {
-		return rawPerfAttr{}, fmt.Errorf("read perf attrs: %w", err)
+	if attrSize < 32 {
+		return nil, fmt.Errorf("perf attr too small: %d", attrSize)
 	}
+	count := int(header.AttrsSize / attrSize)
+	if count <= 0 {
+		count = 1
+	}
+	if count > 1024 {
+		return nil, fmt.Errorf("too many perf attrs: %d", count)
+	}
+	attrs := make([]rawPerfAttr, 0, count)
+	for i := 0; i < count; i++ {
+		attr := make([]byte, attrSize)
+		offset := int64(header.AttrsOffset + uint64(i)*attrSize)
+		if _, err := r.ReadAt(attr, offset); err != nil {
+			return nil, fmt.Errorf("read perf attr %d: %w", i, err)
+		}
+		parsed, err := parseRawPerfAttrEntry(r, attr)
+		if err != nil {
+			return nil, fmt.Errorf("parse perf attr %d: %w", i, err)
+		}
+		attrs = append(attrs, parsed)
+	}
+	if rem := header.AttrsSize % attrSize; rem != 0 {
+		attrs[0].Caveats = append(attrs[0].Caveats, fmt.Sprintf("raw fallback ignored %d trailing perf attr byte(s)", rem))
+	}
+	return attrs, nil
+}
+
+func parseRawPerfAttrEntry(r io.ReaderAt, attr []byte) (rawPerfAttr, error) {
 	if len(attr) < 32 {
 		return rawPerfAttr{}, fmt.Errorf("perf attr too small: %d", len(attr))
 	}
@@ -349,10 +394,63 @@ func readRawPerfAttr(r io.ReaderAt, header rawPerfFileHeader) (rawPerfAttr, erro
 	if len(attr) >= 40 {
 		out.ReadFormat = binary.LittleEndian.Uint64(attr[32:40])
 	}
-	if attrSize < header.AttrsSize {
-		out.Caveats = append(out.Caveats, "raw fallback used the first perf attr only; multi-event perf.data is degraded")
+	attrStructSize := int(binary.LittleEndian.Uint32(attr[4:8]))
+	if attrStructSize <= 0 || attrStructSize > len(attr) {
+		attrStructSize = 0
+	}
+	if attrStructSize > 0 && len(attr) >= attrStructSize+16 {
+		idsOffset := binary.LittleEndian.Uint64(attr[attrStructSize : attrStructSize+8])
+		idsSize := binary.LittleEndian.Uint64(attr[attrStructSize+8 : attrStructSize+16])
+		ids, caveat := readRawPerfAttrIDs(r, idsOffset, idsSize)
+		out.IDs = ids
+		if caveat != "" {
+			out.Caveats = append(out.Caveats, caveat)
+		}
 	}
 	return out, nil
+}
+
+func readRawPerfAttrIDs(r io.ReaderAt, offset, size uint64) ([]uint64, string) {
+	if offset == 0 || size == 0 {
+		return nil, ""
+	}
+	if size%8 != 0 {
+		return nil, fmt.Sprintf("raw fallback ignored malformed perf attr ids section size=%d", size)
+	}
+	count := size / 8
+	if count > 4096 {
+		return nil, fmt.Sprintf("raw fallback ignored oversized perf attr ids section count=%d", count)
+	}
+	buf := make([]byte, size)
+	if _, err := r.ReadAt(buf, int64(offset)); err != nil {
+		return nil, fmt.Sprintf("raw fallback could not read perf attr ids section: %v", err)
+	}
+	ids := make([]uint64, 0, count)
+	for i := uint64(0); i < count; i++ {
+		ids = append(ids, binary.LittleEndian.Uint64(buf[i*8:i*8+8]))
+	}
+	return ids, ""
+}
+
+func rawPerfEventIDMap(attrs []rawPerfAttr) map[uint64]string {
+	out := make(map[uint64]string)
+	for _, attr := range attrs {
+		for _, id := range attr.IDs {
+			if id != 0 && attr.EventName != "" {
+				out[id] = attr.EventName
+			}
+		}
+	}
+	return out
+}
+
+func rawPerfEventNameForSample(sample rawPerfSample, fallback string, eventIDs map[uint64]string) string {
+	if sample.ID != 0 {
+		if event := eventIDs[sample.ID]; event != "" {
+			return event
+		}
+	}
+	return fallback
 }
 
 func rawPerfSampleBitNames(bits uint64) string {
@@ -681,8 +779,9 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 		if len(data.Caveats) > 0 {
 			parserCaveats = " parser_caveats=" + quoteTraceValue(strings.Join(data.Caveats, "; "))
 		}
+		eventName := firstNonEmpty(sample.EventName, data.EventName, "unknown")
 		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s period=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback symbolization_status=unsymbolized clock=perf_data clock_confidence=assumed callchain_status=ip_only%s\n",
-			comm, tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(data.EventName), quoteTraceValue(ip), quoteTraceValue(dso), quoteTraceValue(ip), quoteTraceValue(callchain), parserCaveats); err != nil {
+			comm, tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(eventName), quoteTraceValue(ip), quoteTraceValue(dso), quoteTraceValue(ip), quoteTraceValue(callchain), parserCaveats); err != nil {
 			return err
 		}
 	}

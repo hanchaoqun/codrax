@@ -302,7 +302,7 @@ Batch C implementation notes:
 
 ### Batch D - Raw Fallback Hardening
 
-- [ ] Parse multiple perf attrs and event ids instead of first attr only.
+- [x] Parse multiple perf attrs and event ids instead of first attr only.
 - [ ] Parse feature sections for build-id, cmdline, arch, and meta information
   when present.
 - [ ] Add COMM/FORK/EXIT lifetime repair where fixtures prove pid/tid identity
@@ -323,6 +323,11 @@ Batch D partial implementation notes:
 - Unsafe variable-context fields such as regs, stack, aux, and branch stack
   remain fail-loud until attr-aware parsing is added; this avoids shifted
   records and invented symbols.
+- Raw fallback now parses multiple attr entries when they share a sample layout,
+  reads attr id sections, and maps `PERF_SAMPLE_IDENTIFIER` / `PERF_SAMPLE_ID`
+  rows to the corresponding `event=` label. If multi-event attrs use different
+  sample layouts, raw fallback fails loud and tells the user to use official
+  hiperf/simpleperf tooling rather than risking shifted evidence.
 
 ### Batch E - Time Alignment And Off-CPU Semantics
 
