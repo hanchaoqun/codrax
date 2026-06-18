@@ -153,6 +153,9 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 	if len(got.ResidualRisks) == 0 {
 		t.Fatalf("ResidualRisks empty, want unverified risks")
 	}
+	if !writeFinalReportHasRisk(got, "source_localization_weak") {
+		t.Fatalf("ResidualRisks=%+v missing source localization risk", got.ResidualRisks)
+	}
 }
 
 func TestWriteFinalReportToFileRoundTrip(t *testing.T) {
@@ -188,4 +191,13 @@ func TestWriteOutputKindIncludesFinalReport(t *testing.T) {
 	if !IsValidWriteOutputKind(WriteOutputFinalReport) {
 		t.Fatal("WriteOutputFinalReport must be declared")
 	}
+}
+
+func writeFinalReportHasRisk(report WriteFinalReport, code string) bool {
+	for _, risk := range report.ResidualRisks {
+		if risk.Code == code {
+			return true
+		}
+	}
+	return false
 }

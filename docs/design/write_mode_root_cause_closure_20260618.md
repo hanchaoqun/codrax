@@ -5423,6 +5423,9 @@ Verification:
     from existing P0/P1 context-pack paths before rendering the plan pack.
   - `WriteFinalReport.plan.localization` and SWE `final_report_localization_*`
     / `plan_localization_*` fields expose the signal for audit.
+  - `WriteFinalReport.residual_risks` now includes
+    `source_localization_weak` / `source_localization_missing` when the final
+    plan's production source paths lack strong prior localization support.
 - Verification:
   - `go test ./internal/types -run
     'Test(SourceLocalization|TurnAArtifacts|WriteContextPackFromChangePlanCarriesSourceLocalization|BuildWriteFinalReport|WriteFinalReport)'`

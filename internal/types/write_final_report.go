@@ -485,6 +485,15 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 	if report.PatchReview.Verdict == PatchReviewCoverageVerdictUnverified {
 		add("patch_review_semantic_unverified", "patch_review", "warning", strings.Join(report.PatchReview.UnverifiedKinds, ","))
 	}
+	if report.Plan.Localization != nil {
+		localization := NormalizeSourceLocalizationReview(*report.Plan.Localization)
+		switch localization.Status {
+		case SourceLocalizationMissing:
+			add("source_localization_missing", "source_localization", "warning", strings.Join(localization.MissingPaths, ","))
+		case SourceLocalizationWeak:
+			add("source_localization_weak", "source_localization", "warning", strings.Join(localization.ReasonCodes, ","))
+		}
+	}
 	for status, count := range report.Impact.CoverageCounts {
 		if count <= 0 || status == "verified" {
 			continue
