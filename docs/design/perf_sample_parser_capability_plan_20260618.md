@@ -144,56 +144,53 @@ Already implemented on current `main`:
   markdown/html reports and preserves runtime artifact paths as external
   observations rather than current-source facts.
 
-## Remaining Architecture Gaps
+## Initial Gaps Closed By This Plan
 
-1. Parser providers are implicit functions, not a typed registry.
-   Hiperf proto, simpleperf text, raw fallback, and future SIMPLEPERF proto each
-   have different field guarantees. Today those guarantees are scattered across
-   caveat strings and output rows.
+The following architecture gaps were found at the beginning of the audit and
+are now closed on current `main` unless a residual caveat is explicitly stated:
 
-2. Artifact capability is not consistently machine-readable.
-   Tracebundle metadata should state which provider generated an artifact,
-   which input format was detected, whether symbolization/callchain/CPU/clock
-   data is known, and whether trace_query can consume it directly.
+1. **Provider selection and capability metadata.** Parser providers now emit
+   `PerfProviderDecision` and `PerfArtifactCapability` through `Result`,
+   `.tracebundle.json`, and `trace convert` output. Provider behavior is driven
+   by parser mode, content-sniffed input format, official tool availability, and
+   typed capability data, not by user-intent keywords or model prose.
 
-3. Direct perf input detection still had suffix/config paths.
-   A direct perf conversion should be triggered by content magic such as
-   `PERFILE2` or `SIMPLEPERF`, not by `perf.data` file names or the mere presence
-   of a configured adapter.
+2. **Direct perf input detection.** Direct raw `PERFILE2`, Android
+   `SIMPLEPERF`, generated `.perftrace`, and tracebundle inputs are identified
+   by content and typed artifact metadata, not only by suffix.
 
-4. Android SIMPLEPERF proto is not a first-class provider.
-   The official Python library can consume it, but Codrax currently only invokes
-   text `report_sample.py` and then parses that text. A future provider should
-   either call the official library in proto mode or manually read the public
-   proto when Python dependencies are unavailable.
+3. **Android SIMPLEPERF proto.** `SIMPLEPERF` report-sample protobuf files are
+   first-class inputs. Codrax reads the public `cmd_report_sample.proto` fields
+   needed for trace_query, emits `cpu_known=false` when CPU is not exposed, and
+   separates `sample_kind=on_cpu|off_cpu|unknown`.
 
-5. Raw fallback remains intentionally narrow.
-   It does not parse multi-attr/multi-event correlation, feature sections,
-   build-id sections, endian variants, kernel/JIT/Java symbolization, fork/exit
-   lifetime repair, or off-cpu semantics. This is acceptable only if it is
-   loudly typed as degraded.
+4. **Official Android tool integration.** `report_sample.py` remains the
+   official executable wrapper, while `simpleperf_report_lib.py` is treated as
+   the underlying library. If users configure the library path, Codrax resolves
+   a sibling wrapper or reports an actionable `--perf-tools-status` caveat.
 
-6. Time alignment is still assumed.
-   Hiperf/simpleperf times are ns in their recording clock domain; ftrace rows
-   use trace seconds. Codrax currently joins by numeric timestamps and emits
-   `clock_confidence=assumed`. A commercial implementation needs an optional
-   capture-level clock map/alignment manifest.
+5. **Raw fallback hardening.** Raw `perf.data` fallback now parses matching
+   multi-attr layouts, attr id sections, safe extra sample fields, feature
+   metadata, exact-path build-id DSO labels, and record-order `COMM/FORK/EXIT`
+   thread identity. Residual caveat: raw fallback still does not perform
+   kernel/JIT/Java symbolization or fuzzy build-id/path joins; those remain
+   official-tool responsibilities and are deliberately not inferred.
 
-7. Off-cpu sample semantics are not modeled.
-   Android simpleperf supports trace-offcpu modes where period may represent
-   off-CPU time. Codrax currently treats samples as CPU execution context, so
-   off-cpu samples must be separated before they can influence root-cause
-   narration.
+6. **Clock and off-CPU semantics.** Tracebundle clock alignment metadata and
+   trace_query `perf_quality` expose `assumed|calibrated|unknown` confidence.
+   Off-CPU samples are visible as `sample_kind=off_cpu` and must not be narrated
+   as running CPU execution.
 
-8. Provider install/discovery is helpful but not self-healing.
-   `--perf-tools-status` reports hints, but docs and status output should guide
-   users through official tool installation, symbol roots, symfs/kallsyms, and
-   when raw fallback is acceptable.
+7. **UX and handoff transparency.** CLI/REPL runtime artifact status,
+   `--perf-tools-status`, markdown/html runtime artifact tables, and
+   AnswerDocument V2 all preserve provider/source/symbolization/CPU/clock/
+   callchain/sample-kind caveats before hotspot prose.
 
-9. Handoff should carry capability before prose.
-   Final answers and markdown/html reports should consume typed provider quality
-   rather than relying on model prose to remember raw/source/symbolization
-   limitations.
+8. **JSON repair boundary.** This delivery adds backend-owned output/status
+   fields only. No model-authored provider filter was added; therefore no new
+   trace_query JSON repair alias is required. If a future user-facing filter is
+   introduced, it must be added to schema teaching and unified structured JSON
+   repair together.
 
 ## Target Architecture
 
@@ -438,3 +435,22 @@ Batch F partial implementation notes:
 - Final reports preserve source/symbolization/CPU/clock/callchain caveats.
 - Every model-authored input field is present in prompt teaching, schema, and
   JSON repair; output-only capability fields remain backend-owned.
+
+## Completion Evidence
+
+- Static/build verification on current `main`:
+  `GOCACHE=/private/tmp/codrax-gocache go test ./...` and
+  `GOCACHE=/private/tmp/codrax-gocache PYTHONPYCACHEPREFIX=/private/tmp/codrax-pycache make`.
+- Targeted unit coverage includes official Android wrapper/library resolution,
+  SIMPLEPERF proto off-CPU/CPU-unknown parsing, raw multi-attr event id mapping,
+  safe skipped sample fields, raw feature metadata, exact-path build-id DSO
+  labels, record-order `COMM/FORK/EXIT` comm lifetime, clock alignment states,
+  report quality materialization, and runtime artifact report tables.
+- Low-prebake eval cases exist for raw fallback quality and SIMPLEPERF proto
+  off-CPU quality. The last run reached artifact discovery but produced
+  `no_result` because the configured model endpoint failed DNS resolution:
+  `lookup api.minimaxi.com: no such host`. No `trace_query` toolcall was made,
+  so this is an external model-service availability blocker, not a semantic
+  trace_query regression signal. Re-run the same cases when the provider is
+  reachable:
+  `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/trace_query_perf_quality_simpleperf_proto_offcpu.case eval/cases/trace_query_perf_quality_raw_fallback.case' PARALLEL=2 RUNS=1 TIMEOUT=1200 SUMMARY=eval/results/perf_proto_offcpu_raw_final_20260618_summary.md bash eval/convergence_audit.sh`.
