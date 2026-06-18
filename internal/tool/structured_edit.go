@@ -21,20 +21,21 @@ type compiledStructuredEdit struct {
 }
 
 type structuredEditDiagnostic struct {
-	ReasonCode       string   `json:"reason_code"`
-	Path             string   `json:"path,omitempty"`
-	EditIndex        int      `json:"edit_index,omitempty"`
-	FileLineCount    int      `json:"file_line_count,omitempty"`
-	StartLine        int      `json:"start_line,omitempty"`
-	EndLine          int      `json:"end_line,omitempty"`
-	AnchorLine       int      `json:"anchor_line,omitempty"`
-	CurrentBytes     string   `json:"current_bytes,omitempty"`
-	SuppliedOldText  string   `json:"supplied_old_text,omitempty"`
-	ExpectedOldText  string   `json:"expected_old_text,omitempty"`
-	CurrentByteLen   int      `json:"current_byte_len,omitempty"`
-	SuppliedByteLen  int      `json:"supplied_byte_len,omitempty"`
-	RetryInstruction string   `json:"retry_instruction,omitempty"`
-	SafeEditKinds    []string `json:"safe_edit_kinds,omitempty"`
+	ReasonCode           string                                `json:"reason_code"`
+	Path                 string                                `json:"path,omitempty"`
+	EditIndex            int                                   `json:"edit_index,omitempty"`
+	FileLineCount        int                                   `json:"file_line_count,omitempty"`
+	StartLine            int                                   `json:"start_line,omitempty"`
+	EndLine              int                                   `json:"end_line,omitempty"`
+	AnchorLine           int                                   `json:"anchor_line,omitempty"`
+	CurrentBytes         string                                `json:"current_bytes,omitempty"`
+	SuppliedOldText      string                                `json:"supplied_old_text,omitempty"`
+	ExpectedOldText      string                                `json:"expected_old_text,omitempty"`
+	CurrentByteLen       int                                   `json:"current_byte_len,omitempty"`
+	SuppliedByteLen      int                                   `json:"supplied_byte_len,omitempty"`
+	RetryInstruction     string                                `json:"retry_instruction,omitempty"`
+	SafeEditKinds        []string                              `json:"safe_edit_kinds,omitempty"`
+	RelocationCandidates []types.PlanRepairRelocationCandidate `json:"relocation_candidates,omitempty"`
 }
 
 type structuredEditDiagnosticError struct {
@@ -429,6 +430,151 @@ func uniqueStructuredOldTextRange(lines []string, oldText string) (start, end in
 		return 0, 0, false
 	}
 	return matchStart, matchEnd, true
+}
+
+type structuredEditRepairCandidatePath struct {
+	Path   string
+	Source string
+}
+
+func annotateStructuredEditRelocationCandidates(ctx *types.BusContext, changes []types.FileChange, diagnostic *structuredEditDiagnostic) {
+	if ctx == nil || diagnostic == nil || strings.TrimSpace(diagnostic.ReasonCode) != "old_text_mismatch" {
+		return
+	}
+	if strings.TrimSpace(diagnostic.SuppliedOldText) == "" {
+		return
+	}
+	candidates := structuredEditRepairCandidatePaths(ctx, changes)
+	var matches []types.PlanRepairRelocationCandidate
+	for _, candidate := range candidates {
+		if candidate.Path == "" || candidate.Path == diagnostic.Path {
+			continue
+		}
+		lines, ok := readStructuredEditCandidateLines(ctx.RepoRoot, candidate.Path)
+		if !ok {
+			continue
+		}
+		start, end, ok := uniqueStructuredOldTextRange(lines, diagnostic.SuppliedOldText)
+		if !ok {
+			continue
+		}
+		matches = append(matches, types.PlanRepairRelocationCandidate{
+			Path:      candidate.Path,
+			StartLine: start + 1,
+			EndLine:   end,
+			Source:    candidate.Source,
+		})
+		if len(matches) > 1 {
+			return
+		}
+	}
+	if len(matches) != 1 {
+		return
+	}
+	diagnostic.RelocationCandidates = matches
+	if diagnostic.RetryInstruction != "" {
+		diagnostic.RetryInstruction += "; "
+	}
+	diagnostic.RetryInstruction += "supplied_old_text uniquely matches relocation_candidates[0]; move this edit to that path and line range instead of changing unrelated bytes on the original path"
+}
+
+func structuredEditRepairCandidatePaths(ctx *types.BusContext, changes []types.FileChange) []structuredEditRepairCandidatePath {
+	seen := map[string]bool{}
+	var out []structuredEditRepairCandidatePath
+	add := func(path, source string) {
+		path = normalizeStructuredEditRepairCandidatePath(path)
+		source = strings.TrimSpace(source)
+		if path == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		out = append(out, structuredEditRepairCandidatePath{Path: path, Source: source})
+	}
+	for _, change := range changes {
+		add(change.Path, "change_plan")
+		add(change.NewPath, "change_plan")
+	}
+	if ctx == nil || ctx.Mutable == nil {
+		return out
+	}
+	if ir := ctx.Mutable.WriteAnalysisIR(); ir != nil {
+		for _, path := range ir.Request.ScopeAnchors {
+			add(path, "write_analysis_scope_anchor")
+		}
+		for _, path := range ir.PrescanFiles {
+			add(path, "write_analysis_prescan")
+		}
+		for _, phase := range ir.PhaseProposal.Phases {
+			for _, path := range phase.RoughTargetPaths {
+				add(path, "write_analysis_phase_target")
+			}
+		}
+	}
+	if req := ctx.Mutable.WriteExplorationRequest(); req != nil {
+		for _, path := range req.CandidatePaths {
+			add(path, "exploration_request_candidate")
+		}
+	}
+	if handoff := ctx.Mutable.WriteExplorationHandoff(); handoff != nil {
+		for _, path := range handoff.TargetFiles {
+			add(path, "exploration_handoff_target")
+		}
+		for _, path := range handoff.TestSurface {
+			add(path, "exploration_handoff_test_surface")
+		}
+		for _, ref := range handoff.EvidenceRefs {
+			add(ref.Source, "exploration_handoff_evidence")
+		}
+	}
+	if pack := ctx.Mutable.WriteContextPack(); pack != nil {
+		for _, item := range pack.Items {
+			if item.EvidenceRef != nil {
+				add(item.EvidenceRef.Source, "context_pack_evidence")
+			}
+		}
+	}
+	return out
+}
+
+func normalizeStructuredEditRepairCandidatePath(path string) string {
+	path = filepath.ToSlash(strings.TrimSpace(path))
+	path = strings.TrimPrefix(path, "a/")
+	path = strings.TrimPrefix(path, "b/")
+	path = strings.TrimPrefix(path, "./")
+	if path == "" || strings.HasPrefix(path, "../") || path == "." || path == ".." {
+		return ""
+	}
+	return path
+}
+
+func readStructuredEditCandidateLines(repoRoot, path string) ([]string, bool) {
+	root := strings.TrimSpace(repoRoot)
+	path = normalizeStructuredEditRepairCandidatePath(path)
+	if root == "" || path == "" {
+		return nil, false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, false
+	}
+	absPath := filepath.Join(absRoot, filepath.FromSlash(path))
+	absPath, err = filepath.Abs(absPath)
+	if err != nil {
+		return nil, false
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil || rel == "." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+		return nil, false
+	}
+	info, err := os.Stat(absPath)
+	if err != nil || info.IsDir() {
+		return nil, false
+	}
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, false
+	}
+	return splitContentLines(string(data)), true
 }
 
 func isStructuredInsertKind(kind string) bool {

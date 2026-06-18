@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -29,18 +30,26 @@ type PlanRepairPack struct {
 }
 
 type PlanRepairCurrentBytes struct {
-	Path            string   `json:"path,omitempty"`
-	EditIndex       int      `json:"edit_index,omitempty"`
-	FileLineCount   int      `json:"file_line_count,omitempty"`
-	StartLine       int      `json:"start_line,omitempty"`
-	EndLine         int      `json:"end_line,omitempty"`
-	AnchorLine      int      `json:"anchor_line,omitempty"`
-	CurrentBytes    string   `json:"current_bytes,omitempty"`
-	SuppliedOldText string   `json:"supplied_old_text,omitempty"`
-	ExpectedOldText string   `json:"expected_old_text,omitempty"`
-	CurrentByteLen  int      `json:"current_byte_len,omitempty"`
-	SuppliedByteLen int      `json:"supplied_byte_len,omitempty"`
-	SafeEditKinds   []string `json:"safe_edit_kinds,omitempty"`
+	Path                 string                          `json:"path,omitempty"`
+	EditIndex            int                             `json:"edit_index,omitempty"`
+	FileLineCount        int                             `json:"file_line_count,omitempty"`
+	StartLine            int                             `json:"start_line,omitempty"`
+	EndLine              int                             `json:"end_line,omitempty"`
+	AnchorLine           int                             `json:"anchor_line,omitempty"`
+	CurrentBytes         string                          `json:"current_bytes,omitempty"`
+	SuppliedOldText      string                          `json:"supplied_old_text,omitempty"`
+	ExpectedOldText      string                          `json:"expected_old_text,omitempty"`
+	CurrentByteLen       int                             `json:"current_byte_len,omitempty"`
+	SuppliedByteLen      int                             `json:"supplied_byte_len,omitempty"`
+	SafeEditKinds        []string                        `json:"safe_edit_kinds,omitempty"`
+	RelocationCandidates []PlanRepairRelocationCandidate `json:"relocation_candidates,omitempty"`
+}
+
+type PlanRepairRelocationCandidate struct {
+	Path      string `json:"path,omitempty"`
+	StartLine int    `json:"start_line,omitempty"`
+	EndLine   int    `json:"end_line,omitempty"`
+	Source    string `json:"source,omitempty"`
 }
 
 func NormalizePlanRepairPack(in PlanRepairPack) PlanRepairPack {
@@ -81,6 +90,25 @@ func NormalizePlanRepairPack(in PlanRepairPack) PlanRepairPack {
 		in.CurrentBytes[i].SuppliedOldText = truncatePlanRepairBytes(in.CurrentBytes[i].SuppliedOldText, 1200)
 		in.CurrentBytes[i].ExpectedOldText = truncatePlanRepairBytes(in.CurrentBytes[i].ExpectedOldText, 1200)
 		in.CurrentBytes[i].SafeEditKinds = normalizePlanRepairStrings(in.CurrentBytes[i].SafeEditKinds, 16, 80)
+		candidates := in.CurrentBytes[i].RelocationCandidates[:0]
+		seenRelocation := map[string]bool{}
+		for _, c := range in.CurrentBytes[i].RelocationCandidates {
+			c.Path = strings.TrimSpace(c.Path)
+			c.Source = trimPlanRepairText(c.Source, 80)
+			if c.Path == "" || c.StartLine <= 0 || c.EndLine < c.StartLine {
+				continue
+			}
+			key := c.Path + "#" + strconv.Itoa(c.StartLine) + ":" + strconv.Itoa(c.EndLine)
+			if seenRelocation[key] {
+				continue
+			}
+			seenRelocation[key] = true
+			candidates = append(candidates, c)
+			if len(candidates) >= 4 {
+				break
+			}
+		}
+		in.CurrentBytes[i].RelocationCandidates = candidates
 	}
 	outBytes := in.CurrentBytes[:0]
 	for _, b := range in.CurrentBytes {

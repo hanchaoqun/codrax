@@ -2056,6 +2056,7 @@ func compileStructuredEditPatchesWithRepair(ctx *types.BusContext, toolName stri
 			msg := enrichStructuredEditReplanDiagnostic(ctx, err.Error())
 			var diagErr *structuredEditDiagnosticError
 			if errors.As(err, &diagErr) && diagErr != nil {
+				annotateStructuredEditRelocationCandidates(ctx, changes, &diagErr.diagnostic)
 				return msg, planRepairPackFromStructuredEditDiagnostic(toolName, msg, diagErr.diagnostic)
 			}
 			return msg, planRepairPackFromReason(toolName, "structured_edit_compile_failed", msg, []string{"$.changes[].edits"}, []string{strings.TrimSpace(changes[i].Path)})

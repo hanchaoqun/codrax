@@ -3504,6 +3504,113 @@ RC-64 smoke:
   functional pass without authoritative verify; duplicate-block hard blocking is
   locked by focused PatchEffect/PatchReview tests.
 
+## 2026-06-18 RC-65 Structured Plan Repair Relocation And Canceled Run Terminalization
+
+RC-65 three-instance SWE Lite smoke started at
+`/private/tmp/codrax-swe-rc65-three-20260618-151000` exposed a workflow-level
+gap before any new source patch was produced:
+
+- `django__django-11742` located the correct source/test surfaces for the
+  `Field.max_length` + `choices` check, then repeatedly failed
+  `emit_change_plan`. The decisive validator error was an `old_text_mismatch`
+  where a test-file edit body was placed inside the production file's
+  `changes[].edits[]`. The existing repair pack carried exact current bytes, but
+  it did not use the already-typed target/test paths from `WriteAnalysisIR`,
+  exploration request, handoff, or context pack to identify that the supplied
+  `old_text` uniquely belonged to another candidate file. The planner retried
+  until write wall-time expired and exported an empty patch.
+- The same Django row recorded `workflow_status=in_progress` even though the
+  controller had already emitted `plan_batch_canceled` after wall-time expiry.
+  That leaves `/workflow show`, resume semantics, and eval attribution in a
+  contradictory state: no patch was produced, but the durable run still looks
+  active.
+- `mwaskom__seaborn-3190` is running under the pre-RC-65 binary and exposed a
+  separate candidate gap: the applied boolean-scale fix can satisfy a narrow
+  typed probe, while the full `Plot(...).add(so.Bar())._plot()` verifier probe
+  fails on host dependency drift (`pandas` no longer has
+  `mode.use_inf_as_na`). This should be treated as a future environment
+  attribution / verifier-baseline issue, not folded into the structured repair
+  batch.
+
+Root-cause classification:
+
+- The Django failure is not primarily exploration accuracy. The planner had
+  scoped files and behavioral intent. The failure is a structural plan-emission
+  repair gap: typed validation detected the bad edit, but the repair artifact
+  lacked a deterministic cross-file relocation candidate derived from typed
+  path evidence.
+- The workflow status issue is a state-kernel gap: canceled plan batch terminal
+  semantics were optimized for manual resume, but in Auto Pilot/eval they create
+  stale active runs and ambiguous empty-patch rows.
+
+Design:
+
+- Extend `PlanRepairCurrentBytes` with
+  `relocation_candidates[] { path, start_line, end_line, source }`.
+- On structured-edit `old_text_mismatch`, inspect only typed candidate paths:
+  `ChangePlan` paths, `WriteAnalysisIR` scope anchors / prescan / phase targets,
+  `WriteExplorationRequest.candidate_paths`, `WriteExplorationHandoff`
+  target/test/evidence refs, and context-pack evidence refs.
+- Read no broad repository glob and do not parse user request text, model
+  summary, rationale, or `<think>`. If the supplied old text uniquely matches
+  exactly one candidate file/line range, attach that relocation candidate to the
+  repair pack. Ambiguous or absent matches remain ordinary `old_text_mismatch`.
+- Render relocation candidates in the controller retry hint so the planner
+  receives a bounded typed edit-location repair instead of prose-only retry
+  advice.
+- Treat plan-batch cancellation after wall-time/context cancellation as a
+  terminal blocked workflow run when no applied-patch interruption guidance owns
+  the state. Preserve `plan_batch_canceled` as the reason code so user-visible
+  status and eval telemetry stay transparent.
+
+Tasks:
+
+- [x] Add relocation-candidate fields to `PlanRepairCurrentBytes` and normalize
+  them.
+- [x] Add structured-edit relocation candidate discovery over typed candidate
+  paths only.
+- [x] Copy relocation candidates into `write_plan_repair_pack` metadata and
+  render them in controller no-plan retry hints.
+- [x] Mark canceled plan-batch workflows as blocked terminal runs while
+  preserving `plan_batch_canceled` evidence.
+- [x] Add focused tests for wrong-path `old_text` relocation, retry-hint
+  rendering, and canceled workflow terminalization.
+- [x] Run full Go regression, `make test`, `make`, and `git diff --check`.
+- [x] Rerun the Django RC-65 reproducer with the rebuilt binary after this
+  batch lands, then decide whether RC-66 should address dependency-drift
+  verifier attribution from the Seaborn smoke.
+
+Verification so far:
+
+- `go test ./internal/tool -run 'TestEmitChangePlan_OldTextMismatch|TestEmitPlanChange_FinalizeOldTextMismatch'`
+- `go test ./internal/orchestrator -run 'TestLastPlanEmitRejectionView|TestRunWriteControllerWorkflow_CanceledPlanRecordsCanceledReason'`
+- `go test ./internal/types -run TestPlanRepairPack`
+- `go test ./internal/tool ./internal/types ./internal/orchestrator`
+- `go test ./...`
+- `make test`
+- `make`
+- `git diff --check`
+
+Reproducer evidence:
+
+- Pre-fix three-instance smoke:
+  `/private/tmp/codrax-swe-rc65-three-20260618-151000`
+  recorded `django__django-11742` as `status=empty_patch`,
+  `empty_patch_reason=write_wall_time_empty_patch`,
+  `workflow_status=in_progress`, and
+  `workflow_latest_progress_reason_code=plan_batch_canceled`.
+- Rebuilt targeted Django rerun:
+  `/private/tmp/codrax-swe-rc65-django-rerun-20260618-140600`
+  recorded `status=predicted`, `patch_bytes=1408`,
+  `workflow_status=complete`, and validated one non-empty
+  harness-consumable prediction. This closes the RC-65 empty-export and stale
+  active-run symptoms.
+- The same targeted rerun still reports `verify_status=failed` with
+  `prediction_verdict=predicted_failed_verify`. That is deliberately not
+  counted as RC-65 functional correctness. The remaining typed evidence belongs
+  to the next verifier/coverage-attribution line: scoped test selection,
+  environment baseline attribution, and proof authority.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
@@ -3580,6 +3687,7 @@ RC-64 smoke:
 | RC-63 | complete | Typed failure-signal handoff now projects failed verify observations into compact assertion/location/signal rows in `VerifyFailureHandoff` and `WriteContextPack`, renders them before raw failing-test details in planner replan prompts, and keeps all routing tied to typed report verdicts. Focused tests, related package tests, full `go test ./...`, and `make test` pass. |
 | RC-63 smoke | complete | Reran `pydata__xarray-4248`: first verify failed with typed probe evidence about truncated unit labels, replan completed, final verify passed 32 scoped tests, final PatchReview was verified, and local acceptance became `pass/source=local_verify`. |
 | RC-64 | complete | Adjacent duplicate inserted block PatchEffect detection now hard-blocks structural duplicate source additions. Focused writeflow tests, related regressions, full `go test ./...`, and `make test` pass. A fresh SymPy smoke did not reproduce the duplicate block and stayed `predicted_unverified` because local proof was unavailable, preserving conservative acceptance semantics. |
+| RC-65 | complete | Structured plan repair now carries unique typed relocation candidates for wrong-path `old_text_mismatch` and controller retry hints render them; canceled plan batches now terminalize as blocked with `plan_batch_canceled`. Focused, related, full `go test ./...`, `make test`, `make`, and `git diff --check` pass. Targeted Django rerun moved the pre-fix `empty_patch` / stale `in_progress` run to a non-empty harness-consumable prediction with `workflow_status=complete`; local verify remains failed and is tracked as the next verifier/coverage-attribution gap. |
 
 ## Acceptance Criteria
 

@@ -106,6 +106,8 @@ func planRepairPackFromStructuredEditDiagnostic(toolName, message string, diagno
 			CurrentByteLen:  diagnostic.CurrentByteLen,
 			SuppliedByteLen: diagnostic.SuppliedByteLen,
 			SafeEditKinds:   append([]string(nil), diagnostic.SafeEditKinds...),
+			RelocationCandidates: append([]types.PlanRepairRelocationCandidate(nil),
+				diagnostic.RelocationCandidates...),
 		}},
 	}
 	normalized := types.NormalizePlanRepairPack(*pack)

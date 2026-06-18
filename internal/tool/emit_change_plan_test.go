@@ -2043,7 +2043,7 @@ func TestEmitChangePlan_PatchPreflight_EmptyPatchRejected(t *testing.T) {
 
 func TestEmitChangePlan_OldTextMismatchExposesPlanRepairPack(t *testing.T) {
 	root := t.TempDir()
-	writeSurfaceFile(t, root, "widget.py", "VALUE = 1\n")
+	writeSurfaceFile(t, root, "widget.py", "VALUE = 1\nOTHER = 0\n")
 	ctx := &types.BusContext{
 		Mutable:  types.NewMutableState("repair old_text mismatch"),
 		RepoRoot: root,
@@ -2079,6 +2079,62 @@ func TestEmitChangePlan_OldTextMismatchExposesPlanRepairPack(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, planRepairSummaryTag) {
 		t.Fatalf("summary should retain transparent repair pack line, got %q", res.Summary)
+	}
+}
+
+func TestEmitChangePlan_OldTextMismatchSuggestsTypedRelocationCandidate(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "widget.py", "VALUE = 1\nOTHER = 0\n")
+	writeSurfaceFile(t, root, "tests/test_widget.py", "def test_value():\n    assert VALUE == 1\n")
+	ctx := &types.BusContext{
+		Mutable:  types.NewMutableState("repair wrong path old_text mismatch"),
+		RepoRoot: root,
+	}
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task:         types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "repair value and tests"},
+			ScopeAnchors: []string{"widget.py", "tests/test_widget.py"},
+		},
+	})
+	params := json.RawMessage(`{
+		"request": "fix widget value",
+		"summary": "Change widget.py with a bounded structured edit.",
+		"changes": [{
+			"path": "widget.py",
+			"kind": "patch",
+			"rationale": "update the value",
+			"edits": [{
+				"kind": "replace",
+				"start_line": 1,
+				"end_line": 2,
+				"old_text": "def test_value():\n    assert VALUE == 1\n",
+				"content": "def test_value():\n    assert VALUE == 2\n"
+			}]
+		}]
+	}`)
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("wrong-path old_text mismatch should reject the plan")
+	}
+	pack := mustPlanRepairPack(t, res)
+	if pack.ReasonCode != "old_text_mismatch" {
+		t.Fatalf("reason_code=%q, want old_text_mismatch; pack=%+v", pack.ReasonCode, pack)
+	}
+	if len(pack.CurrentBytes) != 1 {
+		t.Fatalf("repair pack should carry one current_bytes entry, got %+v", pack.CurrentBytes)
+	}
+	candidates := pack.CurrentBytes[0].RelocationCandidates
+	if len(candidates) != 1 {
+		t.Fatalf("expected one typed relocation candidate, got %+v", candidates)
+	}
+	if got := candidates[0]; got.Path != "tests/test_widget.py" || got.StartLine != 1 || got.EndLine != 2 {
+		t.Fatalf("unexpected relocation candidate: %+v", got)
+	}
+	if !strings.Contains(pack.RetryInstruction, "relocation_candidates[0]") {
+		t.Fatalf("retry instruction should name relocation candidate, got %q", pack.RetryInstruction)
 	}
 }
 

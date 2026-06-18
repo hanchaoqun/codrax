@@ -5772,8 +5772,11 @@ func TestRunWriteControllerWorkflow_CanceledPlanRecordsCanceledReason(t *testing
 	if store.last == nil {
 		t.Fatal("workflow run should be persisted")
 	}
-	if store.last.Status == types.WriteWorkflowRunBlocked {
-		t.Fatalf("canceled workflow should remain resumable, got blocked: %+v", store.last)
+	if store.last.Status != types.WriteWorkflowRunBlocked {
+		t.Fatalf("canceled workflow should be terminal blocked, got %+v", store.last)
+	}
+	if len(store.last.Batches) != 1 || store.last.Batches[0].Status != types.WriteWorkflowBatchBlocked {
+		t.Fatalf("canceled active batch should be blocked, got %+v", store.last.Batches)
 	}
 	if !workflowProgressHasReason(store.last.ProgressLedger, "plan_batch_canceled") {
 		t.Fatalf("progress ledger missing plan_batch_canceled: %+v", store.last.ProgressLedger)
@@ -6074,6 +6077,12 @@ func TestLastPlanEmitRejectionView_PrefersTypedRepairPackMetadata(t *testing.T) 
 			ExpectedOldText: "VALUE = 1\n",
 			SuppliedOldText: "VALUE = 0\n",
 			SafeEditKinds:   []string{"replace"},
+			RelocationCandidates: []types.PlanRepairRelocationCandidate{{
+				Path:      "tests/test_widget.py",
+				StartLine: 22,
+				EndLine:   23,
+				Source:    "write_analysis_scope_anchor",
+			}},
 		}},
 	}
 	results := []types.ToolResult{{
@@ -6100,6 +6109,8 @@ func TestLastPlanEmitRejectionView_PrefersTypedRepairPackMetadata(t *testing.T) 
 		"failing_paths: src/widget.py",
 		"expected_old_text:",
 		"VALUE = 1",
+		"relocation_candidates:",
+		"path=tests/test_widget.py lines=22-23 source=write_analysis_scope_anchor",
 	} {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("rendered hint missing %q:\n%s", want, hint)

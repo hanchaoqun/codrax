@@ -268,7 +268,6 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 			if innerErr != nil {
 				lastInnerErr = innerErr
-				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
 				if o.publishAppliedPatchInterruptedGuidance(&run, plan, lastInnerErr, "plan_batch_interrupted_after_applied_patch") {
 					if !errors.Is(lastInnerErr, ErrCanceled) && !errors.Is(lastInnerErr, context.Canceled) {
 						run.Status = types.WriteWorkflowRunBlocked
@@ -277,6 +276,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 							"failed verification needed a replacement plan, but planning stopped before producing one")
 					}
 					o.persistWriteWorkflowRun(&run)
+					return lastInnerErr
+				}
+				if errors.Is(lastInnerErr, ErrCanceled) || errors.Is(lastInnerErr, context.Canceled) {
+					run.Status = types.WriteWorkflowRunBlocked
+					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
+					appendControllerProgress(&run, run.ActiveBatchID, "plan_batch_canceled", lastInnerErr.Error())
+					o.persistWriteWorkflowRun(&run)
+					o.publishBlockedRunGuidance(&run, "plan_batch_canceled")
 					return lastInnerErr
 				}
 				if !errors.Is(lastInnerErr, ErrCanceled) && !errors.Is(lastInnerErr, context.Canceled) {
@@ -288,13 +295,6 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					o.publishBlockedRunGuidance(&run, "plan_batch_failed")
 					return lastInnerErr
 				}
-				reasonCode := "plan_batch_failed"
-				if errors.Is(lastInnerErr, ErrCanceled) || errors.Is(lastInnerErr, context.Canceled) {
-					reasonCode = "plan_batch_canceled"
-				}
-				appendControllerProgress(&run, run.ActiveBatchID, reasonCode, lastInnerErr.Error())
-				o.persistWriteWorkflowRun(&run)
-				return lastInnerErr
 			}
 			updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
 			appendControllerProgress(&run, run.ActiveBatchID, "batch_planned", "")
@@ -5682,6 +5682,25 @@ func renderPlanRepairPackRetryHint(pack types.PlanRepairPack) string {
 			writePlanRepairBytesPreview(&b, "current_bytes", entry.CurrentBytes)
 			if len(entry.SafeEditKinds) > 0 {
 				fmt.Fprintf(&b, "    safe_edit_kinds: %s\n", strings.Join(entry.SafeEditKinds, ", "))
+			}
+			if len(entry.RelocationCandidates) > 0 {
+				b.WriteString("    relocation_candidates:\n")
+				for _, candidate := range entry.RelocationCandidates {
+					parts := []string{}
+					if candidate.Path != "" {
+						parts = append(parts, "path="+candidate.Path)
+					}
+					if candidate.StartLine > 0 || candidate.EndLine > 0 {
+						parts = append(parts, fmt.Sprintf("lines=%d-%d", candidate.StartLine, candidate.EndLine))
+					}
+					if candidate.Source != "" {
+						parts = append(parts, "source="+candidate.Source)
+					}
+					if len(parts) == 0 {
+						continue
+					}
+					fmt.Fprintf(&b, "      - %s\n", strings.Join(parts, " "))
+				}
 			}
 		}
 	}
