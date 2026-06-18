@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -701,6 +702,38 @@ class ContextCoverageTests(unittest.TestCase):
         self.assertEqual(missing, ["pkg/a.py", "pkg/b.py"])
 
 
+class ChangePlanDiscoveryTests(unittest.TestCase):
+    def test_latest_change_plan_includes_probe_only_no_change_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            plans = Path(raw) / "repo" / ".codrax" / "plans"
+            plans.mkdir(parents=True)
+            source_plan_path = plans / "plan-source.json"
+            proof_plan_path = plans / "plan-proof.json"
+            source_plan_path.write_text(
+                json.dumps({
+                    "id": "plan-source",
+                    "summary": "source fix",
+                    "changes": [{"path": "pkg/fix.py", "kind": "patch"}],
+                }),
+                encoding="utf-8",
+            )
+            proof_plan_path.write_text(
+                json.dumps({
+                    "id": "plan-proof",
+                    "summary": "probe-only proof follow-up",
+                    "changes": None,
+                    "verification_probes": [{"id": "probe", "language": "python"}],
+                }),
+                encoding="utf-8",
+            )
+            os.utime(source_plan_path, (100, 100))
+            os.utime(proof_plan_path, (200, 200))
+
+            got = adapter.find_latest_change_plan(plans)
+
+        self.assertEqual(got, proof_plan_path)
+
+
 class WorkflowAppliedProvenanceTests(unittest.TestCase):
     def test_summarizes_applied_source_and_test_plan_paths(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -810,6 +843,65 @@ class WorkflowAppliedProvenanceTests(unittest.TestCase):
             final_plan_covers_exported_source_patch=candidate["source_plan_covers_exported_source_patch"],
         )
 
+        self.assertEqual(reason, "")
+
+    def test_delivery_candidate_binds_later_probe_only_report_to_prior_source_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = Path(raw) / "repo"
+            inst = Path(raw) / "inst"
+            plans = repo / ".codrax" / "plans"
+            plans.mkdir(parents=True)
+            inst.mkdir()
+            source_plan = {
+                "id": "plan-source",
+                "summary": "source fix",
+                "changes": [{"path": "pkg/fix.py", "kind": "patch"}],
+                "patch_review": {"status": "passed", "findings": []},
+            }
+            proof_plan = {
+                "id": "plan-proof",
+                "summary": "probe-only validation",
+                "changes": None,
+                "verification_probes": [{"id": "probe", "language": "python"}],
+            }
+            (plans / "plan-source.json").write_text(json.dumps(source_plan), encoding="utf-8")
+            (plans / "plan-proof.json").write_text(json.dumps(proof_plan), encoding="utf-8")
+            (plans / "plan-proof.report.json").write_text(
+                json.dumps({"verification_status": "unavailable", "passed": False}),
+                encoding="utf-8",
+            )
+            workflow = {
+                "batches": [
+                    {"attempts": [
+                        {"kind": "apply", "status": "applied", "plan_id": "plan-source"},
+                        {"kind": "verify", "status": "unverified", "plan_id": "plan-proof"},
+                    ]}
+                ]
+            }
+
+            candidate = adapter.build_write_delivery_candidate(
+                repo_dir=repo,
+                inst_dir=inst,
+                workflow=workflow,
+                final_plan=proof_plan,
+                final_plan_path=plans / "plan-proof.json",
+                exported_source_paths=["pkg/fix.py"],
+                exported_test_paths=[],
+                patch_source="refs/codrax/applied/plan-source",
+            )
+
+        self.assertEqual(candidate["status"], "coherent")
+        self.assertEqual(candidate["relation"], "source_plan_with_later_validation_followup")
+        self.assertEqual(candidate["source_owner_plan_ids"], ["plan-source"])
+        self.assertTrue(candidate["source_plan_covers_exported_source_patch"])
+        self.assertEqual(candidate["report_plan_id"], "plan-proof")
+        self.assertTrue(candidate["final_plan_validation_only"])
+        reason = adapter.prediction_audit_block_reason(
+            exported_source_paths=["pkg/fix.py"],
+            final_plan_source_paths=candidate["source_paths"],
+            final_plan_test_only=False,
+            final_plan_covers_exported_source_patch=candidate["source_plan_covers_exported_source_patch"],
+        )
         self.assertEqual(reason, "")
 
     def test_delivery_candidate_blocks_exported_source_without_applied_owner(self) -> None:

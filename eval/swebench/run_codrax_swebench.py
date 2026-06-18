@@ -1320,12 +1320,20 @@ def find_latest_change_plan(*roots: Path) -> Path | None:
                 row = json.loads(path.read_text(encoding="utf-8"))
             except Exception:
                 continue
-            if isinstance(row, dict) and row.get("id") and row.get("summary") and isinstance(row.get("changes"), list):
+            if is_change_plan_artifact(row):
                 candidates.append((path.stat().st_mtime, path))
     if not candidates:
         return None
     candidates.sort(key=lambda item: item[0])
     return candidates[-1][1]
+
+
+def is_change_plan_artifact(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    if not row.get("id") or not row.get("summary"):
+        return False
+    return isinstance(row.get("changes"), list) or isinstance(row.get("verification_probes"), list)
 
 
 def load_plan(path: Path | None) -> dict[str, Any]:
@@ -1848,6 +1856,10 @@ def build_write_delivery_candidate(
     final_source_paths = plan_source_paths(final_plan)
     final_test_paths = plan_test_paths(final_plan)
     final_test_only = bool(plan_change_paths(final_plan)) and not final_source_paths
+    final_validation_only = (
+        not plan_change_paths(final_plan)
+        and bool(final_plan.get("verification_probes") or [])
+    )
     summaries = workflow_applied_plan_summaries(workflow, repo_dir, inst_dir) if workflow else []
     if not summaries and final_plan:
         summaries = [{
@@ -1907,6 +1919,8 @@ def build_write_delivery_candidate(
         relation = ""
     elif final_test_only and source_owner_ids and final_plan_id and final_plan_id not in source_owner_ids:
         relation = "source_plan_with_later_test_followup"
+    elif final_validation_only and source_owner_ids and final_plan_id and final_plan_id not in source_owner_ids:
+        relation = "source_plan_with_later_validation_followup"
     elif not exported_source_paths and exported_test_paths:
         relation = "test_patch_only"
     elif not exported_source_paths:
@@ -1925,6 +1939,7 @@ def build_write_delivery_candidate(
         "final_plan_source_paths": final_source_paths,
         "final_plan_test_paths": final_test_paths,
         "final_plan_test_only": final_test_only,
+        "final_plan_validation_only": final_validation_only,
         "source_owner_plan_ids": source_owner_ids,
         "primary_source_plan_id": str(primary_summary.get("plan_id") or ""),
         "primary_source_plan_path": str(primary_summary.get("plan_path") or ""),
@@ -3151,6 +3166,7 @@ def process_instance(
         result["delivery_primary_source_plan_id"] = str(delivery.get("primary_source_plan_id") or "")
         result["delivery_source_owner_plan_ids"] = delivery.get("source_owner_plan_ids") or []
         result["delivery_source_paths"] = delivery_plan_source_paths
+        result["delivery_final_plan_validation_only"] = bool(delivery.get("final_plan_validation_only"))
         result["delivery_report_plan_id"] = str(delivery.get("report_plan_id") or "")
         result["delivery_report_plan_path"] = str(delivery.get("report_plan_path") or "")
         result["delivery_source_plan_covers_exported_source_patch"] = delivery.get("source_plan_covers_exported_source_patch")
@@ -3240,11 +3256,18 @@ def process_instance(
         if result["delivery_candidate_status"] == "incoherent":
             audit_block_reason = str(result["delivery_candidate_reason_code"] or "delivery_candidate_incoherent")
         else:
+            audit_source_paths = result["final_plan_source_paths"]
+            audit_test_only = bool(result["final_plan_test_only"])
+            audit_covers_exported_source_patch = result["final_plan_covers_exported_source_patch"]
+            if str(result.get("delivery_candidate_status") or "") == "coherent":
+                audit_source_paths = delivery_plan_source_paths
+                audit_test_only = False
+                audit_covers_exported_source_patch = result["delivery_source_plan_covers_exported_source_patch"]
             audit_block_reason = prediction_audit_block_reason(
                 exported_source_paths=exported_source_paths,
-                final_plan_source_paths=result["final_plan_source_paths"],
-                final_plan_test_only=bool(result["final_plan_test_only"]),
-                final_plan_covers_exported_source_patch=result["final_plan_covers_exported_source_patch"],
+                final_plan_source_paths=audit_source_paths,
+                final_plan_test_only=audit_test_only,
+                final_plan_covers_exported_source_patch=audit_covers_exported_source_patch,
                 workflow_status=str(result.get("workflow_status") or ""),
                 verify_status=str(result.get("verify_status") or ""),
                 plan_status=str(result.get("plan_status") or ""),

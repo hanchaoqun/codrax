@@ -3117,6 +3117,70 @@ func TestNormalizeControllerTypedStateDecisionProofFollowupDoesNotRecurse(t *tes
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionProofFollowupUnverifiedDoesNotAppendImpact(t *testing.T) {
+	mu := types.NewMutableState("proof followup unavailable")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-proof-unverified",
+		Status:      types.PlanStatusUnverified,
+		TargetPaths: []string{"pkg/axis.py"},
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "changed_symbol_without_probe_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				Path:           "pkg/axis.py",
+				SubjectSymbol:  "Axis.convert",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+			}},
+		},
+	})
+	mu.SetChangeReport(&types.ChangeReport{
+		PlanID:             "plan-proof-unverified",
+		Passed:             false,
+		VerificationStatus: types.VerificationStatusUnavailable,
+		FailureKind:        types.FailureKindParserError,
+		FailureReasonCode:  "unittest_loader_import_error,make_target_missing",
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-proof-unverified",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1-proof-repair",
+			Purpose: "verification_proof_followup",
+			Status:  types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "plan", Status: "complete", PlanID: "plan-proof-unverified"},
+				{Kind: "verify", Status: "unverified", ReasonCode: "parser_error", FailureReasonCode: "unittest_loader_import_error,make_target_missing", PlanID: "plan-proof-unverified"},
+			},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:            writeflow.ActionFinish,
+		ReasonCode:        "done",
+		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("unverified proof follow-up should finish, got %+v", got)
+	}
+	if got.ReasonCode != "accept_unverified_followup_without_failure_evidence" {
+		t.Fatalf("reason_code = %q", got.ReasonCode)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "impact_obligation_followup_requested") {
+		t.Fatalf("unverified proof follow-up must not append impact follow-up: %+v", run.ProgressLedger)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "followup_unverified_terminal_overridden") {
+		t.Fatalf("terminal override progress missing: %+v", run.ProgressLedger)
+	}
+}
+
 func TestEnrichProofFollowupPlanProbeRefsBindsDurableContractRefs(t *testing.T) {
 	mu := types.NewMutableState("proof followup probe refs")
 	run := &types.WriteWorkflowRun{

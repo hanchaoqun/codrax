@@ -4611,6 +4611,80 @@ Verification:
     conservative for SWE scoring, but the workflow should carry typed
     unavailable-verifier evidence and avoid re-requesting the same proof batch.
 
+## 2026-06-18 RC-79 Validation Follow-up Artifact Discovery
+
+- Evidence:
+  - RC-78b generated a proof-only ChangePlan, but the SWE adapter still
+    reported the earlier source plan as `plan_id`/`delivery_report_plan_id`.
+    Root cause: `find_latest_change_plan` accepted only artifacts whose
+    `changes` field was a JSON list. Probe-only/no-change plans are valid
+    ChangePlans but serialize with `changes: null` and
+    `verification_probes[]`, so artifact discovery dropped them.
+  - After allowing probe-only plans into discovery, RC-79 smoke correctly
+    surfaced the validation follow-up plan/report, but prediction audit briefly
+    reported `final_plan_exported_source_drift`: the final plan was
+    validation-only, while the exported patch was owned by the earlier applied
+    source plan. The adapter already computed a coherent delivery source-owner
+    view but the drift check still consumed final-plan paths.
+  - RC-79b fixed that metadata binding: `delivery_relation` became
+    `source_plan_with_later_validation_followup`,
+    `delivery_report_plan_id` pointed at the proof-only plan, and
+    `delivery_source_plan_covers_exported_source_patch=true`. The prediction
+    remained conservative for the real blocker:
+    `patch_review_semantic_unverified:changed_symbol_without_probe_coverage`
+    because verification was unavailable.
+- Generalized rule:
+  - Durable ChangePlan discovery must accept either source/test edits
+    (`changes[]`) or typed verification materialization (`verification_probes[]`
+    with no changes). Final-plan/report metadata must reflect the latest
+    durable plan, even when patch export is owned by an earlier source plan.
+  - Local prediction drift audit should consume the coherent delivery view
+    (source-owner plan paths and coverage) rather than the final plan's empty
+    changes when the final plan is a validation-only follow-up.
+  - A follow-up batch that completes with typed unavailable verification and no
+    failed-verification handoff is terminal for the current workflow turn. The
+    controller must not append another follow-up from the same unverifiable
+    observation; it should finish with `accept_unverified`.
+- Prompt and hard-gate hygiene:
+  - All decisions read typed artifacts: ChangePlan JSON shape, workflow
+    attempts, batch purpose/status, report status/reason codes, delivery
+    source-owner paths, and patch-review records. No user keywords, model
+    narrative, stdout prose, or `<think>` text controls routing.
+- Task list:
+  - [x] Broaden SWE adapter ChangePlan discovery to include no-change
+    probe-only plans via `verification_probes[]`.
+  - [x] Mark delivery candidates whose final plan is validation-only and bind
+    their report as the report authority while preserving source-owner patch
+    ownership.
+  - [x] Use delivery source-owner coverage for local drift audit when delivery
+    is coherent.
+  - [x] Add controller terminal override for proof/impact follow-up batches
+    completed as unverified due verification infrastructure, with no failure
+    handoff.
+  - [x] Add Python adapter tests and focused controller tests for these paths.
+- Verification:
+  - Python adapter tests passed:
+    `python3 -m unittest eval.swebench.run_codrax_swebench_test`.
+  - Focused controller tests passed:
+    `TestNormalizeControllerTypedStateDecisionProofFollowupUnverifiedDoesNotAppendImpact`,
+    `TestNormalizeControllerTypedStateDecisionProofFollowupDoesNotRecurse`,
+    `TestNormalizeControllerTypedStateDecisionSemanticPatchReviewAppendsFollowup`,
+    `TestNormalizeControllerTypedStateDecisionVerifiedButUndercoveredAppendsImpactRepair`,
+    `TestNormalizeControllerTypedStateDecisionMissingSoftProofAppendsProofFollowup`, and
+    `TestCompleteDispatchInterruptedRunIfAllBatchesCompleteDoesNotSwallowProofFollowup`.
+  - RC-79b focused SWE smoke produced a non-empty prediction
+    (`patch_bytes=1076`), coherent delivery metadata, final validation-only
+    report binding, and no `final_plan_exported_source_drift`.
+  - RC-79c focused SWE smoke
+    (`/private/tmp/codrax-swe-rc79c-xarray-20260618-followup-terminal`)
+    rebuilt the Go binary and confirmed the controller terminal override:
+    workflow progress contained `followup_unverified_terminal_overridden` and
+    final reason `accept_unverified_followup_without_failure_evidence`, with no
+    `workflow_transition_rejected` retry after the follow-up batch completed
+    unverified. Prediction export remained harness-consumable and conservative:
+    `prediction_verdict=predicted_audit_blocked` with real remaining blocker
+    `patch_review_semantic_unverified:behavior_contract_without_verify_coverage`.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

@@ -4069,6 +4069,21 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			},
 		})
 	}
+	if activeBatchProofFollowupPurpose(run) &&
+		activeBatchCompletedWithUnverifiedVerdict(run) &&
+		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
+		(decision.Action == writeflow.ActionFinish ||
+			decision.Action == writeflow.ActionReplanBatch ||
+			controllerActionInterruptsUnverifiedCompletion(decision.Action)) {
+		appendControllerProgress(run, batchID, "followup_unverified_terminal_overridden",
+			"controller follow-up repair suppressed because the active follow-up batch completed with typed unavailable verification and no code-failure handoff")
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:            writeflow.ActionFinish,
+			ReasonCode:        "accept_unverified_followup_without_failure_evidence",
+			Reason:            "active follow-up batch is complete; local verification is unavailable, but there is no typed code-failure evidence for another follow-up",
+			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+		})
+	}
 	repairBatch := impactObligationRepairFollowupBatch(run, batchID, plan, o.busCtx.Mutable.ChangeReport())
 	if activeBatchCompletedWithNonFailedVerifierVerdict(run) &&
 		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
