@@ -150,6 +150,35 @@ func TestConvertRawPerfDataMapsMultiAttrSampleIDToEvent(t *testing.T) {
 	}
 }
 
+func TestConvertRawPerfDataPreservesFeatureMetadataCaveats(t *testing.T) {
+	dir := t.TempDir()
+	perfData := filepath.Join(dir, "perf-feature.data")
+	outPath := filepath.Join(dir, "raw-feature.perftrace")
+	if err := os.WriteFile(perfData, syntheticRawPerfDataWithFeatures(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := readRawPerfData(context.Background(), perfData)
+	if err != nil {
+		t.Fatalf("read feature raw perf data: %v", err)
+	}
+	if data.Features.Arch != "arm64" || strings.Join(data.Features.Cmdline, " ") != "simpleperf record" || data.Features.Meta["clockid"] != "monotonic" || data.Features.BuildIDCount != 1 {
+		t.Fatalf("feature metadata not parsed: %+v", data.Features)
+	}
+	if err := ConvertRawPerfDataFileToPerfTrace(context.Background(), perfData, outPath); err != nil {
+		t.Fatalf("convert feature raw perf.data: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`parser_caveats=`, `arch=arm64`, `cmdline=simpleperf record`, `meta.clockid=monotonic`, `meta.event_type_info=present`, `build_id_records=1`, `build_id_dso_labeling=not_applied`} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("feature perftrace missing %q:\n%s", want, string(body))
+		}
+	}
+}
+
 func TestConvertFileUsesRawPerfParserForDirectPerfDataByContent(t *testing.T) {
 	dir := t.TempDir()
 	perfData := filepath.Join(dir, "capture.bin")
@@ -339,6 +368,94 @@ func syntheticRawPerfDataMultiAttrByIdentifier() []byte {
 
 	out = append(out, records.Bytes()...)
 	return out
+}
+
+func syntheticRawPerfDataWithFeatures() []byte {
+	const headerSize = 104
+	const attrSize = 48
+	sampleType := uint64(perfSampleIP | perfSampleTID | perfSampleTime | perfSampleCPU | perfSamplePeriod)
+	var records bytes.Buffer
+	records.Write(rawPerfRecord(perfRecordComm, rawPerfCommPayload(1234, 5678, "app")))
+	records.Write(rawPerfRecord(perfRecordSample, rawPerfSamplePayload(sampleType)))
+
+	dataOffset := headerSize + attrSize
+	featureIDs := []int{perfFeatureBuildID, perfFeatureArch, perfFeatureCmdline, perfFeatureMetaInfo}
+	descriptorOffset := dataOffset + records.Len()
+	sectionOffset := descriptorOffset + len(featureIDs)*16
+	sections := [][]byte{
+		rawPerfFeatureBuildIDSection(),
+		rawPerfFeatureString("arm64"),
+		rawPerfFeatureStringList("simpleperf", "record"),
+		[]byte("clockid\x00monotonic\x00event_type_info\x00cpu-cycles\x00"),
+	}
+	out := make([]byte, sectionOffset)
+	copy(out[0:8], []byte(perfMagic2))
+	binary.LittleEndian.PutUint64(out[8:16], headerSize)
+	binary.LittleEndian.PutUint64(out[16:24], attrSize)
+	binary.LittleEndian.PutUint64(out[24:32], headerSize)
+	binary.LittleEndian.PutUint64(out[32:40], attrSize)
+	binary.LittleEndian.PutUint64(out[40:48], uint64(dataOffset))
+	binary.LittleEndian.PutUint64(out[48:56], uint64(records.Len()))
+	for _, id := range featureIDs {
+		out[72+id/8] |= 1 << (id % 8)
+	}
+	attr := out[headerSize:dataOffset]
+	binary.LittleEndian.PutUint32(attr[0:4], 0)
+	binary.LittleEndian.PutUint32(attr[4:8], 40)
+	binary.LittleEndian.PutUint64(attr[8:16], 0)
+	binary.LittleEndian.PutUint64(attr[24:32], sampleType)
+	copy(out[dataOffset:descriptorOffset], records.Bytes())
+
+	cur := sectionOffset
+	for i, section := range sections {
+		desc := out[descriptorOffset+i*16 : descriptorOffset+(i+1)*16]
+		binary.LittleEndian.PutUint64(desc[0:8], uint64(cur))
+		binary.LittleEndian.PutUint64(desc[8:16], uint64(len(section)))
+		out = append(out, section...)
+		cur += len(section)
+	}
+	return out
+}
+
+func rawPerfFeatureString(s string) []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU32(&out, uint32(len(s)+1))
+	out.WriteString(s)
+	out.WriteByte(0)
+	return out.Bytes()
+}
+
+func rawPerfFeatureStringList(values ...string) []byte {
+	var out bytes.Buffer
+	writeRawPerfTestU32(&out, uint32(len(values)))
+	for _, value := range values {
+		writeRawPerfTestU32(&out, uint32(len(value)+1))
+		out.WriteString(value)
+		out.WriteByte(0)
+	}
+	return out.Bytes()
+}
+
+func rawPerfFeatureBuildIDSection() []byte {
+	var out bytes.Buffer
+	recordSize := uint16(24)
+	writeRawPerfTestU32(&out, 0)
+	writeRawPerfTestU16(&out, 0)
+	writeRawPerfTestU16(&out, recordSize)
+	out.Write(make([]byte, int(recordSize)-8))
+	return out.Bytes()
+}
+
+func writeRawPerfTestU32(out *bytes.Buffer, v uint32) {
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], v)
+	out.Write(buf[:])
+}
+
+func writeRawPerfTestU16(out *bytes.Buffer, v uint16) {
+	var buf [2]byte
+	binary.LittleEndian.PutUint16(buf[:], v)
+	out.Write(buf[:])
 }
 
 func rawPerfRecord(typ int, payload []byte) []byte {

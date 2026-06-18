@@ -20,6 +20,11 @@ const (
 	perfRecordSample = 9
 	perfRecordMmap2  = 10
 
+	perfFeatureBuildID  = 2
+	perfFeatureArch     = 6
+	perfFeatureCmdline  = 11
+	perfFeatureMetaInfo = 129
+
 	perfSampleIP           = 1 << 0
 	perfSampleTID          = 1 << 1
 	perfSampleTime         = 1 << 2
@@ -72,6 +77,7 @@ type rawPerfFileHeader struct {
 	AttrsSize   uint64
 	DataOffset  uint64
 	DataSize    uint64
+	Features    [32]byte
 }
 
 type rawPerfSample struct {
@@ -101,10 +107,20 @@ type rawPerfData struct {
 	ReadFormat uint64
 	EventName  string
 	Attrs      []rawPerfAttr
+	Features   rawPerfFeatures
 	Threads    map[int]string
 	Mappings   []rawPerfMapping
 	Samples    []rawPerfSample
 	Caveats    []string
+}
+
+type rawPerfFeatures struct {
+	Present      []int
+	Arch         string
+	Cmdline      []string
+	Meta         map[string]string
+	BuildIDCount int
+	Caveats      []string
 }
 
 func rawPerfParserAllowed(opts Options) bool {
@@ -245,6 +261,11 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 	if err != nil {
 		return rawPerfData{}, err
 	}
+	info, err := f.Stat()
+	if err != nil {
+		return rawPerfData{}, err
+	}
+	features := readRawPerfFeatures(f, header, info.Size())
 	attrs, err := readRawPerfAttrs(f, header)
 	if err != nil {
 		return rawPerfData{}, err
@@ -268,9 +289,11 @@ func readRawPerfData(ctx context.Context, path string) (rawPerfData, error) {
 		ReadFormat: attr.ReadFormat,
 		EventName:  attr.EventName,
 		Attrs:      attrs,
+		Features:   features,
 		Threads:    map[int]string{},
 		Caveats:    attr.Caveats,
 	}
+	out.Caveats = append(out.Caveats, rawPerfFeatureCaveats(features)...)
 	eventIDs := rawPerfEventIDMap(attrs)
 	if len(attrs) > 1 {
 		if len(eventIDs) > 0 {
@@ -336,12 +359,15 @@ func readRawPerfHeader(r io.ReaderAt) (rawPerfFileHeader, error) {
 	if size < 80 {
 		return rawPerfFileHeader{}, fmt.Errorf("unsupported perf.data header size %d", size)
 	}
+	var features [32]byte
+	copy(features[:], buf[72:104])
 	return rawPerfFileHeader{
 		AttrSize:    binary.LittleEndian.Uint64(buf[16:24]),
 		AttrsOffset: binary.LittleEndian.Uint64(buf[24:32]),
 		AttrsSize:   binary.LittleEndian.Uint64(buf[32:40]),
 		DataOffset:  binary.LittleEndian.Uint64(buf[40:48]),
 		DataSize:    binary.LittleEndian.Uint64(buf[48:56]),
+		Features:    features,
 	}, nil
 }
 
@@ -451,6 +477,197 @@ func rawPerfEventNameForSample(sample rawPerfSample, fallback string, eventIDs m
 		}
 	}
 	return fallback
+}
+
+func readRawPerfFeatures(r io.ReaderAt, header rawPerfFileHeader, fileSize int64) rawPerfFeatures {
+	ids := rawPerfFeatureIDs(header.Features)
+	features := rawPerfFeatures{Present: ids, Meta: map[string]string{}}
+	if len(ids) == 0 {
+		return features
+	}
+	if len(ids) > 128 {
+		features.Caveats = append(features.Caveats, fmt.Sprintf("raw fallback skipped perf feature descriptors: too many features (%d)", len(ids)))
+		return features
+	}
+	descOffset := header.DataOffset + header.DataSize
+	descBytes := uint64(len(ids) * 16)
+	if descOffset == 0 || descBytes == 0 || descOffset+descBytes < descOffset || (fileSize > 0 && descOffset+descBytes > uint64(fileSize)) {
+		features.Caveats = append(features.Caveats, "raw fallback skipped malformed perf feature descriptors")
+		return features
+	}
+	descData := make([]byte, descBytes)
+	if _, err := r.ReadAt(descData, int64(descOffset)); err != nil {
+		features.Caveats = append(features.Caveats, fmt.Sprintf("raw fallback could not read perf feature descriptors: %v", err))
+		return features
+	}
+	minSectionOffset := descOffset + descBytes
+	for i, id := range ids {
+		desc := descData[i*16 : i*16+16]
+		offset := binary.LittleEndian.Uint64(desc[0:8])
+		size := binary.LittleEndian.Uint64(desc[8:16])
+		if size == 0 {
+			continue
+		}
+		if offset < minSectionOffset || offset+size < offset || (fileSize > 0 && offset+size > uint64(fileSize)) {
+			features.Caveats = append(features.Caveats, fmt.Sprintf("raw fallback skipped invalid perf feature %d section", id))
+			continue
+		}
+		if size > 1<<20 {
+			features.Caveats = append(features.Caveats, fmt.Sprintf("raw fallback skipped oversized perf feature %d section (%d bytes)", id, size))
+			continue
+		}
+		buf := make([]byte, size)
+		if _, err := r.ReadAt(buf, int64(offset)); err != nil {
+			features.Caveats = append(features.Caveats, fmt.Sprintf("raw fallback could not read perf feature %d section: %v", id, err))
+			continue
+		}
+		switch id {
+		case perfFeatureBuildID:
+			features.BuildIDCount = countRawPerfBuildIDRecords(buf)
+		case perfFeatureArch:
+			features.Arch = readRawPerfFeatureString(buf)
+		case perfFeatureCmdline:
+			features.Cmdline = readRawPerfFeatureStringList(buf)
+		case perfFeatureMetaInfo:
+			features.Meta = readRawPerfMetaInfo(buf)
+		}
+	}
+	return features
+}
+
+func rawPerfFeatureIDs(bits [32]byte) []int {
+	var ids []int
+	for i, b := range bits {
+		for j := 0; j < 8; j++ {
+			if b&(1<<j) != 0 {
+				ids = append(ids, i*8+j)
+			}
+		}
+	}
+	return ids
+}
+
+func readRawPerfFeatureString(buf []byte) string {
+	if len(buf) < 4 {
+		return ""
+	}
+	n := int(binary.LittleEndian.Uint32(buf[0:4]))
+	if n <= 0 || n > len(buf)-4 {
+		n = len(buf) - 4
+	}
+	return cString(buf[4 : 4+n])
+}
+
+func readRawPerfFeatureStringList(buf []byte) []string {
+	if len(buf) < 4 {
+		return nil
+	}
+	count := int(binary.LittleEndian.Uint32(buf[0:4]))
+	if count < 0 || count > 128 {
+		return nil
+	}
+	off := 4
+	var out []string
+	for i := 0; i < count; i++ {
+		if off+4 > len(buf) {
+			return out
+		}
+		n := int(binary.LittleEndian.Uint32(buf[off : off+4]))
+		off += 4
+		if n <= 0 || off+n > len(buf) {
+			return out
+		}
+		out = append(out, cString(buf[off:off+n]))
+		off += n
+	}
+	return out
+}
+
+func readRawPerfMetaInfo(buf []byte) map[string]string {
+	out := map[string]string{}
+	off := 0
+	for off < len(buf) {
+		keyEnd := indexByte(buf[off:], 0)
+		if keyEnd <= 0 {
+			break
+		}
+		key := string(buf[off : off+keyEnd])
+		off += keyEnd + 1
+		valueEnd := indexByte(buf[off:], 0)
+		if valueEnd <= 0 {
+			break
+		}
+		out[key] = string(buf[off : off+valueEnd])
+		off += valueEnd + 1
+	}
+	return out
+}
+
+func countRawPerfBuildIDRecords(buf []byte) int {
+	count := 0
+	for off := 0; off+8 <= len(buf); {
+		size := int(binary.LittleEndian.Uint16(buf[off+6 : off+8]))
+		if size <= 8 || off+size > len(buf) {
+			break
+		}
+		count++
+		off += size
+	}
+	return count
+}
+
+func rawPerfFeatureCaveats(features rawPerfFeatures) []string {
+	if len(features.Present) == 0 && len(features.Caveats) == 0 {
+		return nil
+	}
+	var parts []string
+	if len(features.Present) > 0 {
+		parts = append(parts, "features="+joinInts(features.Present, ","))
+	}
+	if features.Arch != "" {
+		parts = append(parts, "arch="+features.Arch)
+	}
+	if len(features.Cmdline) > 0 {
+		parts = append(parts, "cmdline="+strings.Join(features.Cmdline, " "))
+	}
+	if len(features.Meta) > 0 {
+		if clock := features.Meta["clockid"]; clock != "" {
+			parts = append(parts, "meta.clockid="+clock)
+		}
+		if _, ok := features.Meta["event_type_info"]; ok {
+			parts = append(parts, "meta.event_type_info=present")
+		}
+	}
+	if features.BuildIDCount > 0 {
+		parts = append(parts, fmt.Sprintf("build_id_records=%d", features.BuildIDCount))
+		parts = append(parts, "build_id_dso_labeling=not_applied")
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "features_present")
+	}
+	out := []string{"raw fallback parsed perf feature metadata: " + strings.Join(parts, "; ")}
+	out = append(out, features.Caveats...)
+	return out
+}
+
+func joinInts(values []int, sep string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, strconv.Itoa(value))
+	}
+	return strings.Join(parts, sep)
+}
+
+func indexByte(buf []byte, b byte) int {
+	for i, c := range buf {
+		if c == b {
+			return i
+		}
+	}
+	return -1
 }
 
 func rawPerfSampleBitNames(bits uint64) string {

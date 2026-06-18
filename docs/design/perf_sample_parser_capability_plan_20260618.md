@@ -326,7 +326,7 @@ Batch C implementation notes:
 ### Batch D - Raw Fallback Hardening
 
 - [x] Parse multiple perf attrs and event ids instead of first attr only.
-- [ ] Parse feature sections for build-id, cmdline, arch, and meta information
+- [x] Parse feature sections for build-id, cmdline, arch, and meta information
   when present.
 - [ ] Add COMM/FORK/EXIT lifetime repair where fixtures prove pid/tid identity
   would otherwise be wrong.
@@ -351,6 +351,12 @@ Batch D partial implementation notes:
   rows to the corresponding `event=` label. If multi-event attrs use different
   sample layouts, raw fallback fails loud and tells the user to use official
   hiperf/simpleperf tooling rather than risking shifted evidence.
+- Raw fallback now reads bounded perf feature descriptors, extracts safe
+  metadata for `FEAT_ARCH`, `FEAT_CMDLINE`, `FEAT_META_INFO`, and BUILD_ID
+  record counts, and carries it through `parser_caveats`. BUILD_ID is not yet
+  applied to DSO labeling because Linux/simpleperf build-id records have ABI
+  quirks; without real fixtures, Codrax exposes the count and
+  `build_id_dso_labeling=not_applied` instead of inventing symbol provenance.
 
 ### Batch E - Time Alignment And Off-CPU Semantics
 
