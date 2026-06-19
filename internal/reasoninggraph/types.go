@@ -72,6 +72,10 @@ const (
 	ReasoningEventReadLocalizationProjected  ReasoningEventKind = "read_localization_projected"
 	ReasoningEventReadNavigationProjected    ReasoningEventKind = "read_navigation_projected"
 	ReasoningEventReadAnswerProjected        ReasoningEventKind = "read_answer_projected"
+	ReasoningEventWorkerRequested            ReasoningEventKind = "worker_requested"
+	ReasoningEventWorkerCompleted            ReasoningEventKind = "worker_completed"
+	ReasoningEventSubAgentRequested          ReasoningEventKind = "subagent_requested"
+	ReasoningEventSubAgentCompleted          ReasoningEventKind = "subagent_completed"
 )
 
 type ReasoningGraph struct {
@@ -147,6 +151,20 @@ type ObservationPayload struct {
 	OriginalByteLen   int    `json:"original_byte_len,omitempty"`
 	NormalizedByteLen int    `json:"normalized_byte_len,omitempty"`
 	Message           string `json:"message,omitempty"`
+	WorkerKind        string `json:"worker_kind,omitempty"`
+	WorkerStatus      string `json:"worker_status,omitempty"`
+	WorkerRole        string `json:"worker_role,omitempty"`
+	SubAgentName      string `json:"subagent_name,omitempty"`
+	PermissionAction  string `json:"permission_action,omitempty"`
+	PermissionReason  string `json:"permission_reason_code,omitempty"`
+	ScopePathCount    int    `json:"scope_path_count,omitempty"`
+	InputRefCount     int    `json:"input_ref_count,omitempty"`
+	OutputRefCount    int    `json:"output_ref_count,omitempty"`
+	EvidenceRefCount  int    `json:"evidence_ref_count,omitempty"`
+	ToolResultCount   int    `json:"tool_result_count,omitempty"`
+	FactCount         int    `json:"fact_count,omitempty"`
+	FlowFindingCount  int    `json:"flow_finding_count,omitempty"`
+	MCPResponseCount  int    `json:"mcp_response_count,omitempty"`
 }
 
 type ObservationInput struct {
@@ -181,6 +199,20 @@ type ReasoningEventSummary struct {
 	OriginalByteLen   int                `json:"original_byte_len,omitempty"`
 	NormalizedByteLen int                `json:"normalized_byte_len,omitempty"`
 	Message           string             `json:"message,omitempty"`
+	WorkerKind        string             `json:"worker_kind,omitempty"`
+	WorkerStatus      string             `json:"worker_status,omitempty"`
+	WorkerRole        string             `json:"worker_role,omitempty"`
+	SubAgentName      string             `json:"subagent_name,omitempty"`
+	PermissionAction  string             `json:"permission_action,omitempty"`
+	PermissionReason  string             `json:"permission_reason_code,omitempty"`
+	ScopePathCount    int                `json:"scope_path_count,omitempty"`
+	InputRefCount     int                `json:"input_ref_count,omitempty"`
+	OutputRefCount    int                `json:"output_ref_count,omitempty"`
+	EvidenceRefCount  int                `json:"evidence_ref_count,omitempty"`
+	ToolResultCount   int                `json:"tool_result_count,omitempty"`
+	FactCount         int                `json:"fact_count,omitempty"`
+	FlowFindingCount  int                `json:"flow_finding_count,omitempty"`
+	MCPResponseCount  int                `json:"mcp_response_count,omitempty"`
 	At                time.Time          `json:"at,omitempty"`
 }
 
@@ -209,6 +241,8 @@ type ReasoningGraphView struct {
 	LLMEvents       []ReasoningEventSummary `json:"llm_events,omitempty"`
 	WorkflowEvents  []ReasoningEventSummary `json:"workflow_events,omitempty"`
 	ReadEvents      []ReasoningEventSummary `json:"read_events,omitempty"`
+	WorkerEvents    []ReasoningEventSummary `json:"worker_events,omitempty"`
+	SubAgentEvents  []ReasoningEventSummary `json:"subagent_events,omitempty"`
 	EventKindCounts []EventKindCount        `json:"event_kind_counts,omitempty"`
 }
 
@@ -377,6 +411,26 @@ func IsReadObservationKind(kind ReasoningEventKind) bool {
 	}
 }
 
+func IsWorkerObservationKind(kind ReasoningEventKind) bool {
+	switch kind {
+	case ReasoningEventWorkerRequested,
+		ReasoningEventWorkerCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsSubAgentObservationKind(kind ReasoningEventKind) bool {
+	switch kind {
+	case ReasoningEventSubAgentRequested,
+		ReasoningEventSubAgentCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
 func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	in.ToolName = strings.TrimSpace(in.ToolName)
 	in.Agent = strings.TrimSpace(in.Agent)
@@ -389,6 +443,12 @@ func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	in.SchemaName = strings.TrimSpace(in.SchemaName)
 	in.FallbackTarget = strings.TrimSpace(in.FallbackTarget)
 	in.Message = trimText(in.Message, 512)
+	in.WorkerKind = strings.TrimSpace(in.WorkerKind)
+	in.WorkerStatus = strings.TrimSpace(in.WorkerStatus)
+	in.WorkerRole = strings.TrimSpace(in.WorkerRole)
+	in.SubAgentName = strings.TrimSpace(in.SubAgentName)
+	in.PermissionAction = strings.TrimSpace(in.PermissionAction)
+	in.PermissionReason = strings.TrimSpace(in.PermissionReason)
 	if in.Attempt < 0 {
 		in.Attempt = 0
 	}
@@ -403,6 +463,30 @@ func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	}
 	if in.NormalizedByteLen < 0 {
 		in.NormalizedByteLen = 0
+	}
+	if in.ScopePathCount < 0 {
+		in.ScopePathCount = 0
+	}
+	if in.InputRefCount < 0 {
+		in.InputRefCount = 0
+	}
+	if in.OutputRefCount < 0 {
+		in.OutputRefCount = 0
+	}
+	if in.EvidenceRefCount < 0 {
+		in.EvidenceRefCount = 0
+	}
+	if in.ToolResultCount < 0 {
+		in.ToolResultCount = 0
+	}
+	if in.FactCount < 0 {
+		in.FactCount = 0
+	}
+	if in.FlowFindingCount < 0 {
+		in.FlowFindingCount = 0
+	}
+	if in.MCPResponseCount < 0 {
+		in.MCPResponseCount = 0
 	}
 	return in
 }

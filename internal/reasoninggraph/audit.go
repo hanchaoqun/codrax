@@ -30,13 +30,17 @@ func AuditSummaryFromView(view ReasoningGraphView, source string, limit int) *ty
 		Lanes: []types.ReasoningGraphAuditLane{
 			{Name: "workflow", Count: len(view.WorkflowEvents)},
 			{Name: "read", Count: len(view.ReadEvents)},
+			{Name: "worker", Count: len(view.WorkerEvents)},
+			{Name: "subagent", Count: len(view.SubAgentEvents)},
 			{Name: "tool", Count: len(view.ToolEvents)},
 			{Name: "repair", Count: len(view.RepairEvents)},
 			{Name: "llm", Count: len(view.LLMEvents)},
 		},
-		RecentEvents: auditEventsFromSummaries(recentReasoningEvents(view, limit)),
-		RepairEvents: auditEventsFromSummaries(limitReasoningEventSummaries(view.RepairEvents, limit)),
-		LLMEvents:    auditEventsFromSummaries(limitReasoningEventSummaries(view.LLMEvents, limit)),
+		RecentEvents:   auditEventsFromSummaries(recentReasoningEvents(view, limit)),
+		RepairEvents:   auditEventsFromSummaries(limitReasoningEventSummaries(view.RepairEvents, limit)),
+		LLMEvents:      auditEventsFromSummaries(limitReasoningEventSummaries(view.LLMEvents, limit)),
+		WorkerEvents:   auditEventsFromSummaries(limitReasoningEventSummaries(view.WorkerEvents, limit)),
+		SubAgentEvents: auditEventsFromSummaries(limitReasoningEventSummaries(view.SubAgentEvents, limit)),
 	}
 	if out.Source == "" {
 		out.Source = "reasoning_graph_view"
@@ -53,9 +57,11 @@ func AuditSummaryFromView(view ReasoningGraphView, source string, limit int) *ty
 
 func recentReasoningEvents(view ReasoningGraphView, limit int) []ReasoningEventSummary {
 	all := make([]ReasoningEventSummary, 0,
-		len(view.WorkflowEvents)+len(view.ReadEvents)+len(view.ToolEvents)+len(view.RepairEvents)+len(view.LLMEvents))
+		len(view.WorkflowEvents)+len(view.ReadEvents)+len(view.WorkerEvents)+len(view.SubAgentEvents)+len(view.ToolEvents)+len(view.RepairEvents)+len(view.LLMEvents))
 	all = append(all, view.WorkflowEvents...)
 	all = append(all, view.ReadEvents...)
+	all = append(all, view.WorkerEvents...)
+	all = append(all, view.SubAgentEvents...)
 	all = append(all, view.ToolEvents...)
 	all = append(all, view.RepairEvents...)
 	all = append(all, view.LLMEvents...)
@@ -88,20 +94,34 @@ func auditEventsFromSummaries(events []ReasoningEventSummary) []types.ReasoningG
 	out := make([]types.ReasoningGraphAuditEvent, 0, len(events))
 	for _, event := range events {
 		out = append(out, types.ReasoningGraphAuditEvent{
-			EventID:       event.EventID,
-			NodeID:        event.NodeID,
-			Kind:          string(event.Kind),
-			ReasonCode:    event.ReasonCode,
-			ToolName:      event.ToolName,
-			Agent:         event.Agent,
-			Stage:         event.Stage,
-			Model:         event.Model,
-			Attempt:       event.Attempt,
-			MaxAttempts:   event.MaxAttempts,
-			ElapsedMillis: event.ElapsedMillis,
-			RepairCode:    event.RepairCode,
-			ViolationKind: event.ViolationKind,
-			RepairLocus:   event.RepairLocus,
+			EventID:          event.EventID,
+			NodeID:           event.NodeID,
+			Kind:             string(event.Kind),
+			ReasonCode:       event.ReasonCode,
+			ToolName:         event.ToolName,
+			Agent:            event.Agent,
+			Stage:            event.Stage,
+			Model:            event.Model,
+			Attempt:          event.Attempt,
+			MaxAttempts:      event.MaxAttempts,
+			ElapsedMillis:    event.ElapsedMillis,
+			RepairCode:       event.RepairCode,
+			ViolationKind:    event.ViolationKind,
+			RepairLocus:      event.RepairLocus,
+			WorkerKind:       event.WorkerKind,
+			WorkerStatus:     event.WorkerStatus,
+			WorkerRole:       event.WorkerRole,
+			SubAgentName:     event.SubAgentName,
+			PermissionAction: event.PermissionAction,
+			PermissionReason: event.PermissionReason,
+			ScopePathCount:   event.ScopePathCount,
+			InputRefCount:    event.InputRefCount,
+			OutputRefCount:   event.OutputRefCount,
+			EvidenceRefCount: event.EvidenceRefCount,
+			ToolResultCount:  event.ToolResultCount,
+			FactCount:        event.FactCount,
+			FlowFindingCount: event.FlowFindingCount,
+			MCPResponseCount: event.MCPResponseCount,
 		})
 	}
 	return out

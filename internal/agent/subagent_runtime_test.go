@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -146,6 +147,64 @@ func TestCollectSubAgentRuntimeStatsCountsToolsAndDuplicates(t *testing.T) {
 	if stats.RepoMapTools != 1 || stats.Facts != 1 || stats.Evidence != 1 || stats.Flow != 1 || stats.AdvisoryNotes != 1 || stats.Outputs != 1 {
 		t.Fatalf("content stats = %+v", stats)
 	}
+}
+
+func TestSubAgentRuntimeProjectsReasoningEventsWhenObserverConfigured(t *testing.T) {
+	registry := NewSubAgentRegistry()
+	registry.Register(fakeReasoningSubAgent{name: "FakeExplorer"})
+	collector := reasoninggraph.NewEventCollector("trace-subagent")
+	runtime := NewSubAgentRuntime(registry)
+	runtime.SetMaxParallelism(1)
+	runtime.SetReasoningObserver(collector)
+
+	_, err := runtime.Run(&types.BusContext{
+		TraceID:  "trace-subagent",
+		RepoRoot: t.TempDir(),
+	}, &types.SubAgentProposal{
+		Reason: "parallel evidence",
+		Goal:   "collect scoped evidence",
+		SubTasks: []types.SubTask{{
+			ID:        "st-1",
+			SubAgent:  "FakeExplorer",
+			Objective: "inspect one scope",
+			Scope:     []string{"."},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("runtime.Run: %v", err)
+	}
+	view := collector.View()
+	if len(view.SubAgentEvents) != 2 {
+		t.Fatalf("subagent events = %+v", view.SubAgentEvents)
+	}
+	if view.SubAgentEvents[0].Kind != reasoninggraph.ReasoningEventSubAgentRequested ||
+		view.SubAgentEvents[0].SubAgentName != "FakeExplorer" ||
+		view.SubAgentEvents[0].ScopePathCount != 1 {
+		t.Fatalf("request event = %+v", view.SubAgentEvents[0])
+	}
+	if view.SubAgentEvents[1].Kind != reasoninggraph.ReasoningEventSubAgentCompleted ||
+		view.SubAgentEvents[1].EvidenceRefCount != 1 ||
+		view.SubAgentEvents[1].FactCount != 1 {
+		t.Fatalf("result event = %+v", view.SubAgentEvents[1])
+	}
+}
+
+type fakeReasoningSubAgent struct {
+	name string
+}
+
+func (f fakeReasoningSubAgent) Name() string { return f.name }
+
+func (f fakeReasoningSubAgent) Run(req *types.SubAgentRequest) (*types.SubAgentResult, error) {
+	return &types.SubAgentResult{
+		RequestID: req.ID,
+		SubAgent:  req.SubAgent,
+		Facts: []types.RepoFact{{
+			Key:         "fake.fact",
+			Value:       "ok",
+			EvidenceRef: "fake:evidence",
+		}},
+	}, nil
 }
 
 type fakeActiveSetGater struct {

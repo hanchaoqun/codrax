@@ -43,6 +43,10 @@ func ReduceEvents(events []ReasoningEvent) ReasoningGraphView {
 			view.WorkflowEvents = append(view.WorkflowEvents, summary)
 		case IsReadObservationKind(event.Kind):
 			view.ReadEvents = append(view.ReadEvents, summary)
+		case IsWorkerObservationKind(event.Kind):
+			view.WorkerEvents = append(view.WorkerEvents, summary)
+		case IsSubAgentObservationKind(event.Kind):
+			view.SubAgentEvents = append(view.SubAgentEvents, summary)
 		}
 	}
 	view.Nodes = sortedNodeViews(nodes)
@@ -63,6 +67,10 @@ func nodeKindForEvent(kind ReasoningEventKind) ReasoningNodeKind {
 		return ReasoningNodeEvidence
 	case IsReadObservationKind(kind):
 		return ReasoningNodeEvidence
+	case IsWorkerObservationKind(kind):
+		return ReasoningNodeWorker
+	case IsSubAgentObservationKind(kind):
+		return ReasoningNodeSubAgent
 	default:
 		return ""
 	}
@@ -89,6 +97,20 @@ func eventSummary(event ReasoningEvent) ReasoningEventSummary {
 		OriginalByteLen:   payload.OriginalByteLen,
 		NormalizedByteLen: payload.NormalizedByteLen,
 		Message:           payload.Message,
+		WorkerKind:        payload.WorkerKind,
+		WorkerStatus:      payload.WorkerStatus,
+		WorkerRole:        payload.WorkerRole,
+		SubAgentName:      payload.SubAgentName,
+		PermissionAction:  payload.PermissionAction,
+		PermissionReason:  payload.PermissionReason,
+		ScopePathCount:    payload.ScopePathCount,
+		InputRefCount:     payload.InputRefCount,
+		OutputRefCount:    payload.OutputRefCount,
+		EvidenceRefCount:  payload.EvidenceRefCount,
+		ToolResultCount:   payload.ToolResultCount,
+		FactCount:         payload.FactCount,
+		FlowFindingCount:  payload.FlowFindingCount,
+		MCPResponseCount:  payload.MCPResponseCount,
 		At:                event.At,
 	}
 }

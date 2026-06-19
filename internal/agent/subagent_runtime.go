@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -190,6 +191,7 @@ type SubAgentRuntime struct {
 	validator      *SubAgentValidator
 	reducer        *SubAgentReducer
 	maxParallelism int
+	observer       reasoninggraph.Observer
 }
 
 // NewSubAgentRuntime creates a new runtime with built-in validator and reducer.
@@ -215,6 +217,13 @@ func (r *SubAgentRuntime) SetMaxParallelism(v int) {
 	r.maxParallelism = v
 }
 
+func (r *SubAgentRuntime) SetReasoningObserver(observer reasoninggraph.Observer) {
+	if r == nil {
+		return
+	}
+	r.observer = observer
+}
+
 // Run is the single entry point for the Orchestrator.
 // It validates the proposal, executes SubAgents in parallel, and reduces results.
 func (r *SubAgentRuntime) Run(bus *types.BusContext, proposal *types.SubAgentProposal) (*StageOutput, error) {
@@ -234,6 +243,7 @@ func (r *SubAgentRuntime) Run(bus *types.BusContext, proposal *types.SubAgentPro
 
 	// 2. Execute parallel
 	results, execErr := r.execute(requests)
+	r.observeSubAgentEvents(requests, results)
 
 	// 3. Reduce
 	merged := r.reducer.Reduce(results)
@@ -258,6 +268,21 @@ func (r *SubAgentRuntime) Run(bus *types.BusContext, proposal *types.SubAgentPro
 	)
 
 	return merged, execErr
+}
+
+func (r *SubAgentRuntime) observeSubAgentEvents(requests []*types.SubAgentRequest, results []*types.SubAgentResult) {
+	if r == nil || r.observer == nil {
+		return
+	}
+	for i, req := range requests {
+		var result *types.SubAgentResult
+		if i >= 0 && i < len(results) {
+			result = results[i]
+		}
+		for _, event := range reasoninggraph.EventsFromSubAgentRequestResult(req, result) {
+			r.observer.ObserveReasoningEvent(event)
+		}
+	}
 }
 
 // execute runs all requests in parallel and returns results in the same order.

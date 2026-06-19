@@ -234,6 +234,8 @@ type ReasoningGraphView struct {
     LLMEvents       []ReasoningEventSummary
     WorkflowEvents  []ReasoningEventSummary
     ReadEvents      []ReasoningEventSummary
+    WorkerEvents    []ReasoningEventSummary
+    SubAgentEvents  []ReasoningEventSummary
     EventKindCounts []EventKindCount
 }
 ```
@@ -270,6 +272,8 @@ type ReasoningGraphAuditSummary struct {
     RecentEvents     []ReasoningGraphAuditEvent
     RepairEvents     []ReasoningGraphAuditEvent
     LLMEvents        []ReasoningGraphAuditEvent
+    WorkerEvents     []ReasoningGraphAuditEvent
+    SubAgentEvents   []ReasoningGraphAuditEvent
     Missing          []ReasoningGraphAuditGap
 }
 ```
@@ -423,6 +427,21 @@ type AnswerReasoningGraphSummary struct {
 
 ## 7. 分批任务规划
 
+### 7.0 当前交付状态
+
+| 批次 | 状态 | 已形成的商用交付面 |
+| --- | --- | --- |
+| P0-B1 Tool / Repair / LLM Wait Observation Graph | delivered | `internal/reasoninggraph` core、typed observer、tool/repair/LLM wait events |
+| P0-B2 Write Graph Telemetry | delivered | write workflow -> graph projection、final report graph refs、SWE results graph telemetry |
+| P0-B3 Read Evidence Graph Shadow | delivered | accepted answer `read_reasoning_graph` summary、read typed evidence projection、不改 read scheduler |
+| P0-B4 Graph Audit / Status Card | delivered | `ReasoningGraphAuditSummary`、`--write-audit.graph_audit`、`/workflow show` graph reason card |
+| P1-B5 Worker / SubAgent Projection | delivered | worker Request/Result projection、subagent Request/Result projection、optional SubAgentRuntime observer、worker/subagent graph lanes |
+| P1-B6 Log / Trace / Data / Operation Projection | next | 外部/辅助模式 typed artifacts 进入 graph evidence |
+| P1-B7 Eval / Support Report | planned | graph coverage metrics、support report、historical audit grouping |
+| P2-B8 Graph-Guided Controller | planned | typed graph view 反哺 bounded controller action |
+| P2-B9 Graph-Native Replay Executor | planned | read-only replay/local recompute |
+| P2-B10 收敛重复状态字段 | planned | 内部投影去重、文档和用户指南同步 |
+
 ### P0-B1：Tool / Repair / LLM Wait Observation Graph
 
 目标：优先解决真实痛点：planner 长时间等待、`emit_change_plan` 重试、工具不可用、schema repair 循环不可解释。
@@ -545,12 +564,14 @@ type AnswerReasoningGraphSummary struct {
 3. 记录 worker scope、budget、input/output artifact refs、evidence refs。
 4. 记录 effect/permission decision。
 5. 增加 Localizer / ImpactAnalyzer / PatchCritic / ProofAuditor / FailureAnalyzer projection tests。
+6. `SubAgentRuntime` 仅在显式配置 observer 时追加 graph events；默认 nil 不改变稳定 read/write 路径。
 
 验收：
 
 - worker 输出不会在后续 batch 中丢失。
 - subagent 不能通过 graph 绕过 permission/effect policy。
 - mutation 仍只由 write controller 持有。
+- graph payload 只包含 typed scope/status/reason/permission/counts/artifact refs/evidence refs，不携带 worker/subagent prose。
 
 ### P1-B6：Log / Trace / Data / Operation Projection
 

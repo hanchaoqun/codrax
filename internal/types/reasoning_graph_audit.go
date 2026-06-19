@@ -28,6 +28,8 @@ type ReasoningGraphAuditSummary struct {
 	RecentEvents     []ReasoningGraphAuditEvent `json:"recent_events,omitempty"`
 	RepairEvents     []ReasoningGraphAuditEvent `json:"repair_events,omitempty"`
 	LLMEvents        []ReasoningGraphAuditEvent `json:"llm_events,omitempty"`
+	WorkerEvents     []ReasoningGraphAuditEvent `json:"worker_events,omitempty"`
+	SubAgentEvents   []ReasoningGraphAuditEvent `json:"subagent_events,omitempty"`
 	Missing          []ReasoningGraphAuditGap   `json:"missing,omitempty"`
 }
 
@@ -37,20 +39,34 @@ type ReasoningGraphAuditLane struct {
 }
 
 type ReasoningGraphAuditEvent struct {
-	EventID       string `json:"event_id,omitempty"`
-	NodeID        string `json:"node_id,omitempty"`
-	Kind          string `json:"kind,omitempty"`
-	ReasonCode    string `json:"reason_code,omitempty"`
-	ToolName      string `json:"tool_name,omitempty"`
-	Agent         string `json:"agent,omitempty"`
-	Stage         string `json:"stage,omitempty"`
-	Model         string `json:"model,omitempty"`
-	Attempt       int    `json:"attempt,omitempty"`
-	MaxAttempts   int    `json:"max_attempts,omitempty"`
-	ElapsedMillis int64  `json:"elapsed_millis,omitempty"`
-	RepairCode    string `json:"repair_code,omitempty"`
-	ViolationKind string `json:"violation_kind,omitempty"`
-	RepairLocus   string `json:"repair_locus,omitempty"`
+	EventID          string `json:"event_id,omitempty"`
+	NodeID           string `json:"node_id,omitempty"`
+	Kind             string `json:"kind,omitempty"`
+	ReasonCode       string `json:"reason_code,omitempty"`
+	ToolName         string `json:"tool_name,omitempty"`
+	Agent            string `json:"agent,omitempty"`
+	Stage            string `json:"stage,omitempty"`
+	Model            string `json:"model,omitempty"`
+	Attempt          int    `json:"attempt,omitempty"`
+	MaxAttempts      int    `json:"max_attempts,omitempty"`
+	ElapsedMillis    int64  `json:"elapsed_millis,omitempty"`
+	RepairCode       string `json:"repair_code,omitempty"`
+	ViolationKind    string `json:"violation_kind,omitempty"`
+	RepairLocus      string `json:"repair_locus,omitempty"`
+	WorkerKind       string `json:"worker_kind,omitempty"`
+	WorkerStatus     string `json:"worker_status,omitempty"`
+	WorkerRole       string `json:"worker_role,omitempty"`
+	SubAgentName     string `json:"subagent_name,omitempty"`
+	PermissionAction string `json:"permission_action,omitempty"`
+	PermissionReason string `json:"permission_reason_code,omitempty"`
+	ScopePathCount   int    `json:"scope_path_count,omitempty"`
+	InputRefCount    int    `json:"input_ref_count,omitempty"`
+	OutputRefCount   int    `json:"output_ref_count,omitempty"`
+	EvidenceRefCount int    `json:"evidence_ref_count,omitempty"`
+	ToolResultCount  int    `json:"tool_result_count,omitempty"`
+	FactCount        int    `json:"fact_count,omitempty"`
+	FlowFindingCount int    `json:"flow_finding_count,omitempty"`
+	MCPResponseCount int    `json:"mcp_response_count,omitempty"`
 }
 
 type ReasoningGraphAuditGap struct {
@@ -131,6 +147,8 @@ func NormalizeReasoningGraphAuditSummary(in ReasoningGraphAuditSummary) Reasonin
 	in.RecentEvents = normalizeReasoningGraphAuditEvents(in.RecentEvents)
 	in.RepairEvents = normalizeReasoningGraphAuditEvents(in.RepairEvents)
 	in.LLMEvents = normalizeReasoningGraphAuditEvents(in.LLMEvents)
+	in.WorkerEvents = normalizeReasoningGraphAuditEvents(in.WorkerEvents)
+	in.SubAgentEvents = normalizeReasoningGraphAuditEvents(in.SubAgentEvents)
 	in.Missing = normalizeReasoningGraphAuditGaps(in.Missing)
 	if in.EventCount < 0 {
 		in.EventCount = 0
@@ -195,6 +213,12 @@ func normalizeReasoningGraphAuditEvents(in []ReasoningGraphAuditEvent) []Reasoni
 		event.RepairCode = strings.TrimSpace(event.RepairCode)
 		event.ViolationKind = strings.TrimSpace(event.ViolationKind)
 		event.RepairLocus = strings.TrimSpace(event.RepairLocus)
+		event.WorkerKind = strings.TrimSpace(event.WorkerKind)
+		event.WorkerStatus = strings.TrimSpace(event.WorkerStatus)
+		event.WorkerRole = strings.TrimSpace(event.WorkerRole)
+		event.SubAgentName = strings.TrimSpace(event.SubAgentName)
+		event.PermissionAction = strings.TrimSpace(event.PermissionAction)
+		event.PermissionReason = strings.TrimSpace(event.PermissionReason)
 		if event.Attempt < 0 {
 			event.Attempt = 0
 		}
@@ -203,6 +227,30 @@ func normalizeReasoningGraphAuditEvents(in []ReasoningGraphAuditEvent) []Reasoni
 		}
 		if event.ElapsedMillis < 0 {
 			event.ElapsedMillis = 0
+		}
+		if event.ScopePathCount < 0 {
+			event.ScopePathCount = 0
+		}
+		if event.InputRefCount < 0 {
+			event.InputRefCount = 0
+		}
+		if event.OutputRefCount < 0 {
+			event.OutputRefCount = 0
+		}
+		if event.EvidenceRefCount < 0 {
+			event.EvidenceRefCount = 0
+		}
+		if event.ToolResultCount < 0 {
+			event.ToolResultCount = 0
+		}
+		if event.FactCount < 0 {
+			event.FactCount = 0
+		}
+		if event.FlowFindingCount < 0 {
+			event.FlowFindingCount = 0
+		}
+		if event.MCPResponseCount < 0 {
+			event.MCPResponseCount = 0
 		}
 		if event.EventID == "" && event.Kind == "" && event.ReasonCode == "" {
 			continue
@@ -252,5 +300,7 @@ func reasoningGraphAuditSummaryEmpty(in ReasoningGraphAuditSummary) bool {
 		len(in.RecentEvents) == 0 &&
 		len(in.RepairEvents) == 0 &&
 		len(in.LLMEvents) == 0 &&
+		len(in.WorkerEvents) == 0 &&
+		len(in.SubAgentEvents) == 0 &&
 		len(in.Missing) == 0
 }
