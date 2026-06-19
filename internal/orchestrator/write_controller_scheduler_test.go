@@ -2296,6 +2296,75 @@ func TestRunWriteControllerWorkflow_ReplansProtectedRegressionTestWeakening(t *t
 	}
 }
 
+func TestTestContractReplanHintProtectsFailedVerifyAssertion(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "tests/forms_tests/tests/test_forms.py", strings.Join([]string{
+		"def test_iterable_boundfield_select():",
+		"    self.assertEqual(fields[0].id_for_label, 'id_name_0')",
+		"    self.assertEqual(fields[0].choice_label, 'John')",
+		"",
+	}, "\n"))
+	mu := types.NewMutableState("repair failed verify")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-prev",
+		BatchID: "batch-1",
+		FailingTests: []types.TestResult{{
+			AssertionID:   "test_iterable_boundfield_select",
+			Suite:         "forms_tests.tests.test_forms.FormsTestCase.test_iterable_boundfield_select",
+			Passed:        false,
+			FailureDetail: fmt.Sprintf("Traceback (most recent call last):\n  File %q, line 2, in test_iterable_boundfield_select\n    self.assertEqual(fields[0].id_for_label, 'id_name_0')\nAssertionError: None != 'id_name_0'\n", filepath.Join(root, "tests/forms_tests/tests/test_forms.py")),
+		}},
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: root, MainRepoRoot: root}
+	plan := &types.ChangePlan{
+		ID: "plan-weakens-failed-test",
+		Changes: []types.FileChange{{
+			Path:  "tests/forms_tests/tests/test_forms.py",
+			Kind:  "patch",
+			Patch: "--- a/tests/forms_tests/tests/test_forms.py\n+++ b/tests/forms_tests/tests/test_forms.py\n@@ -1,3 +1,3 @@\n def test_iterable_boundfield_select():\n-    self.assertEqual(fields[0].id_for_label, 'id_name_0')\n+    self.assertEqual(fields[0].id_for_label, None)\n     self.assertEqual(fields[0].choice_label, 'John')\n",
+		}},
+		TargetPaths: []string{"tests/forms_tests/tests/test_forms.py"},
+	}
+
+	hint, paths := o.testContractReplanHint(plan)
+	if !strings.Contains(hint, "Typed test-contract critique") ||
+		!strings.Contains(hint, "preserve_failed_test_assertion") ||
+		!strings.Contains(hint, "id_name_0") {
+		t.Fatalf("failed verify assertion should be protected, hint:\n%s", hint)
+	}
+	if len(paths) != 1 || paths[0] != "tests/forms_tests/tests/test_forms.py" {
+		t.Fatalf("paths = %v", paths)
+	}
+}
+
+func TestTestContractReplanHintFailedVerifyAssertionIgnoresSourceOnlyPlan(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "tests/test_widget.py", "def test_widget():\n    assert widget.value == 42\n")
+	mu := types.NewMutableState("source-only repair")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-prev",
+		BatchID: "batch-1",
+		FailingTests: []types.TestResult{{
+			AssertionID:   "test_widget",
+			Suite:         "tests/test_widget.py::test_widget",
+			Passed:        false,
+			FailureDetail: fmt.Sprintf("%s:2: AssertionError: expected 42, got 7", filepath.Join(root, "tests/test_widget.py")),
+		}},
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: root, MainRepoRoot: root}
+	plan := &types.ChangePlan{
+		ID:          "plan-source-only",
+		Changes:     []types.FileChange{{Path: "pkg/widget.py", Kind: "patch", Patch: "--- a/pkg/widget.py\n+++ b/pkg/widget.py\n@@ -1 +1 @@\n-old\n+new\n"}},
+		TargetPaths: []string{"pkg/widget.py"},
+	}
+
+	if hint, paths := o.testContractReplanHint(plan); hint != "" || len(paths) != 0 {
+		t.Fatalf("source-only repair must not trigger failed-test protection, hint=%q paths=%v", hint, paths)
+	}
+}
+
 func TestTestContractReplanHintDoesNotParseConstraintNote(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "tests/test_tokenizer.py", "def test_newline():\n    assert tok.tokenize(\"#include <set>\\n\\n\\n\\n\\n\") == [300]\n")

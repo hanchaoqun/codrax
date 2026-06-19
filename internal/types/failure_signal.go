@@ -9,11 +9,12 @@ import (
 const defaultFailureSignalMaxChars = 900
 
 var (
-	failureLocationRE   = regexp.MustCompile(`(?m)([A-Za-z0-9_./\\-]+):([0-9]+)(?::[0-9]+)?`)
-	expectedGotRE       = regexp.MustCompile(`(?i)\bexpected\s+(.+?)(?:,\s*(?:but\s+)?|\s+)got\s+(.+)`)
-	wantGotRE           = regexp.MustCompile(`(?i)\bwant(?:ed)?\s+(.+?)(?:,\s*|\s+)got\s+(.+)`)
-	assertionEqualsRE   = regexp.MustCompile(`(?i)AssertionError:\s*(.+?)\s*(?:==|!=)\s*(.+)`)
-	pytestAssertionLine = regexp.MustCompile(`(?m)^\s*E\s+AssertionError:\s*(.+)$`)
+	failureLocationRE         = regexp.MustCompile(`(?m)([A-Za-z0-9_./\\-]+):([0-9]+)(?::[0-9]+)?`)
+	pythonTracebackLocationRE = regexp.MustCompile(`(?m)File "([^"]+)", line ([0-9]+)`)
+	expectedGotRE             = regexp.MustCompile(`(?i)\bexpected\s+(.+?)(?:,\s*(?:but\s+)?|\s+)got\s+(.+)`)
+	wantGotRE                 = regexp.MustCompile(`(?i)\bwant(?:ed)?\s+(.+?)(?:,\s*|\s+)got\s+(.+)`)
+	assertionEqualsRE         = regexp.MustCompile(`(?i)AssertionError:\s*(.+?)\s*(?:==|!=)\s*(.+)`)
+	pytestAssertionLine       = regexp.MustCompile(`(?m)^\s*E\s+AssertionError:\s*(.+)$`)
 )
 
 // TestFailureSignal is a compact, typed projection of a failed unit-test row.
@@ -77,6 +78,9 @@ func renderTestFailureSignal(signal TestFailureSignal) string {
 }
 
 func extractFailureLocation(detail string) string {
+	if match := pythonTracebackLocationRE.FindStringSubmatch(detail); len(match) >= 3 {
+		return filepathSlash(match[1]) + ":" + match[2]
+	}
 	match := failureLocationRE.FindStringSubmatch(detail)
 	if len(match) < 3 {
 		return ""

@@ -11,6 +11,7 @@ import (
 )
 
 const writeConstraintPreserveRegressionTest = "preserve_regression_test"
+const writeConstraintPreserveFailedTestAssertion = "preserve_failed_test_assertion"
 
 type writeTestContractFinding struct {
 	Path     string
@@ -22,37 +23,34 @@ func (o *Orchestrator) testContractReplanHint(plan *types.ChangePlan) (string, [
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
 		return "", nil
 	}
+	var findings []writeTestContractFinding
 	ir := plan.WriteAnalysisIR
 	if ir == nil {
 		ir = o.busCtx.Mutable.WriteAnalysisIR()
 	}
-	if ir == nil {
-		return "", nil
-	}
-	contracts := protectedRegressionTestContracts(ir.Request.Constraints)
-	if len(contracts) == 0 {
-		return "", nil
-	}
-	var findings []writeTestContractFinding
-	for _, change := range plan.Changes {
-		path, ok := normalizeWorkflowScopePath(change.Path)
-		if !ok {
-			continue
-		}
-		for _, contract := range contracts {
-			target, ok := normalizeWorkflowScopePath(contract.Target)
-			if !ok || !workflowPathWithinAnyScope(path, []string{target}) {
+	if ir != nil {
+		contracts := protectedRegressionTestContracts(ir.Request.Constraints)
+		for _, change := range plan.Changes {
+			path, ok := normalizeWorkflowScopePath(change.Path)
+			if !ok {
 				continue
 			}
-			for _, snippet := range removedProtectedTestSnippets(o.busCtx.RepoRoot, path, change) {
-				findings = append(findings, writeTestContractFinding{
-					Path:     path,
-					Snippet:  snippet,
-					Contract: contract,
-				})
+			for _, contract := range contracts {
+				target, ok := normalizeWorkflowScopePath(contract.Target)
+				if !ok || !workflowPathWithinAnyScope(path, []string{target}) {
+					continue
+				}
+				for _, snippet := range removedProtectedTestSnippets(o.busCtx.RepoRoot, path, change) {
+					findings = append(findings, writeTestContractFinding{
+						Path:     path,
+						Snippet:  snippet,
+						Contract: contract,
+					})
+				}
 			}
 		}
 	}
+	findings = append(findings, o.failedVerifyTestContractFindings(plan)...)
 	if len(findings) == 0 {
 		return "", nil
 	}
@@ -87,6 +85,144 @@ func removedProtectedTestSnippets(repoRoot, relPath string, change types.FileCha
 	default:
 		return nil
 	}
+}
+
+func (o *Orchestrator) failedVerifyTestContractFindings(plan *types.ChangePlan) []writeTestContractFinding {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
+		return nil
+	}
+	handoff := o.busCtx.Mutable.VerifyFailureHandoff()
+	if handoff == nil || len(handoff.FailingTests) == 0 {
+		return nil
+	}
+	protected := failedVerifyProtectedTestLines(o.busCtx.RepoRoot, handoff.FailingTests)
+	if len(protected) == 0 {
+		return nil
+	}
+	var findings []writeTestContractFinding
+	for _, change := range plan.Changes {
+		path, ok := normalizeWorkflowScopePath(change.Path)
+		if !ok {
+			continue
+		}
+		wantSnippets := protected[path]
+		if len(wantSnippets) == 0 {
+			continue
+		}
+		for _, removed := range removedProtectedTestSnippets(o.busCtx.RepoRoot, path, change) {
+			if !containsNormalizedSnippet(wantSnippets, removed) {
+				continue
+			}
+			findings = append(findings, writeTestContractFinding{
+				Path:    path,
+				Snippet: removed,
+				Contract: types.WriteConstraint{
+					Kind:   writeConstraintPreserveFailedTestAssertion,
+					Target: path,
+				},
+			})
+		}
+	}
+	return findings
+}
+
+func failedVerifyProtectedTestLines(repoRoot string, tests []types.TestResult) map[string][]string {
+	out := map[string][]string{}
+	for _, result := range tests {
+		if result.Passed {
+			continue
+		}
+		signal := types.ExtractTestFailureSignal(result, 900)
+		path, line, ok := failureSignalRepoLocation(repoRoot, signal.Location)
+		if !ok || line <= 0 || types.ClassifySourcePathRole(path) != types.SourcePathRoleTest {
+			continue
+		}
+		snippet := readRepoLine(repoRoot, path, line)
+		if strings.TrimSpace(snippet) == "" {
+			continue
+		}
+		out[path] = appendBoundedUnique(out[path], snippet, 6)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func failureSignalRepoLocation(repoRoot, location string) (string, int, bool) {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return "", 0, false
+	}
+	idx := strings.LastIndex(location, ":")
+	if idx <= 0 || idx == len(location)-1 {
+		return "", 0, false
+	}
+	line, ok := parsePositiveInt(strings.TrimSpace(location[idx+1:]))
+	if !ok {
+		return "", 0, false
+	}
+	rawPath := strings.TrimSpace(location[:idx])
+	if rawPath == "" {
+		return "", 0, false
+	}
+	if filepath.IsAbs(rawPath) {
+		root := strings.TrimSpace(repoRoot)
+		if root == "" {
+			return "", 0, false
+		}
+		if absRoot, err := filepath.Abs(root); err == nil {
+			root = absRoot
+		}
+		rel, err := filepath.Rel(root, rawPath)
+		if err != nil {
+			return "", 0, false
+		}
+		if rel == "." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+			return "", 0, false
+		}
+		rawPath = rel
+	}
+	path, ok := normalizeWorkflowScopePath(filepath.ToSlash(rawPath))
+	if !ok {
+		return "", 0, false
+	}
+	return path, line, true
+}
+
+func parsePositiveInt(raw string) (int, bool) {
+	var n int
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n, n > 0
+}
+
+func readRepoLine(repoRoot, relPath string, line int) string {
+	if line <= 0 {
+		return ""
+	}
+	lines := readWriteCriticFileLines(repoRoot, relPath)
+	if line > len(lines) {
+		return ""
+	}
+	return strings.TrimRight(lines[line-1], "\r\n")
+}
+
+func containsNormalizedSnippet(snippets []string, candidate string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return false
+	}
+	for _, snippet := range snippets {
+		if strings.TrimSpace(snippet) == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func removedLinesFromUnifiedDiff(patch string) []string {
@@ -192,7 +328,7 @@ func renderTestContractReplanHint(findings []writeTestContractFinding) string {
 	})
 	var b strings.Builder
 	b.WriteString("## Typed test-contract critique\n\n")
-	b.WriteString("The previous ChangePlan removed or replaced content from regression tests protected by WriteAnalysisIR constraints. Replan this same batch preserving the protected regression assertions; production fixes and additional tests are allowed.\n\n")
+	b.WriteString("The previous ChangePlan removed or replaced content from regression tests protected by typed request constraints or prior failed verification evidence. Replan this same batch preserving the protected regression assertions; production fixes and additional tests are allowed.\n\n")
 	b.WriteString("Protected test changes to preserve:\n")
 	for _, f := range findings {
 		fmt.Fprintf(&b, "- %s: %s\n", f.Path, boundedTestContractSnippet(f.Snippet))

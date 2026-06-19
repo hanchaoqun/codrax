@@ -4322,6 +4322,7 @@ Verification:
 | RC-110 | complete | Auditable partial final reports: persist typed final reports for non-terminal workflows once apply/verify evidence exists, add `workflow_nonterminal` residual risk, export final-report owner-gap telemetry in the SWE adapter, and reran the failed Django spot case to confirm failed-verify `in_progress` deliveries no longer fall back to prose/log audit. Focused Go/Python tests, full `go test ./...`, `make`, diff check, prediction validation, and official harness dry-run pass. |
 | RC-111 | in progress | Shared localization owner/evidence pre-plan authority: RC111-A added a shared typed `LocalizationRequirement` projection, write pre-plan/exploration/replan consumption, plan-context persistence, read-source projection tests, and hygiene coverage proving plan narrative/prose does not drive requirements. RC111-B adds a one-shot pre-apply bounded read-only exploration when an open owner-localization requirement remains. Remaining work is runtime read-mode owner-discovery final handoff and vague-symptom measurement. |
 | RC-112 | complete | SWE delivery PatchReview authority: adapter acceptance now scopes actual-diff/effect hard blockers to the typed primary delivery source plan, while proof blockers still use the typed report-plan authority. Stale source-owner PatchReview findings remain explicit non-authoritative telemetry and no longer block or downgrade final delivery when the exported patch comes from a later clean source plan. |
+| RC-113 | complete | Failed-test assertion preservation: verifier failure handoff now promotes the failed test's typed file:line assertion into a temporary replan-only protected test contract. Replans may still fix production code or add tests, but deleting/replacing the exact failed assertion line triggers the existing bounded test-contract critique instead of silently weakening the local regression oracle. Python traceback `File "...", line N` locations now feed the shared failure-signal parser. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -7193,6 +7194,38 @@ RC112 implementation notes:
     `changed_symbol_without_probe_coverage` and owner-anchor residual risk.
     This is the remaining localization/proof gap, not a PatchReview authority
     aggregation bug.
+
+RC113 implementation notes:
+
+- The RC112 Django smoke exposed a follow-up system gap:
+  - attempt 1 failed an existing Django test with
+    `None != 'id_name_0'`;
+  - attempt 2 fixed the production fallback but also changed the existing test
+    assertion to expect `None`, causing the verifier to fail with the inverted
+    assertion.
+- Existing `write_test_contract_critic` already protected user-declared
+  `preserve_regression_test` constraints. RC113 generalizes that mechanism to
+  verifier-discovered failed assertions:
+  - `VerifyFailureHandoff.FailingTests` is projected through
+    `types.ExtractTestFailureSignal`;
+  - Python traceback locations of the form `File "...", line N` are parsed into
+    the same typed `location=path:line` field as pytest/go-style locations;
+  - the controller reads the current repo line at that location, only when the
+    path is classified as a test path;
+  - if the next `ChangePlan` removes or replaces that exact line, the existing
+    bounded `Typed test-contract critique` retries planning once.
+- This is not a blanket ban on test edits. It is a typed preservation rule for
+  the concrete failed assertion line from the latest verifier evidence. New
+  regression tests and production fixes remain allowed.
+- Hard routing does not inspect user request keywords, model rationale,
+  summaries, `<think>`, or arbitrary terminal prose. The only inputs are typed
+  `TestResult`, parsed runner file:line location, repo-relative path role, and
+  deterministic plan diff removed lines.
+- Verification:
+  - `go test ./internal/types -run 'TestExtractTestFailureSignal' -count=1`
+    passes.
+  - `go test ./internal/orchestrator -run 'Test(TestContractReplanHint|RunWriteControllerWorkflow_ReplansProtectedRegressionTestWeakening)' -count=1`
+    passes.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

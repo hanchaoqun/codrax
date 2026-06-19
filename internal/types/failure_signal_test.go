@@ -63,3 +63,19 @@ func TestExtractTestFailureSignal_ExpectedGotPair(t *testing.T) {
 		t.Fatalf("expected/actual = %q/%q", got.Expected, got.Actual)
 	}
 }
+
+func TestExtractTestFailureSignal_PythonTracebackLocation(t *testing.T) {
+	got := ExtractTestFailureSignal(TestResult{
+		AssertionID: "test_iterable_boundfield_select",
+		Suite:       "forms_tests.tests.test_forms.FormsTestCase.test_iterable_boundfield_select",
+		Passed:      false,
+		FailureDetail: `Traceback (most recent call last):
+  File "/tmp/repo/tests/forms_tests/tests/test_forms.py", line 723, in test_iterable_boundfield_select
+    self.assertEqual(fields[0].id_for_label, 'id_name_0')
+AssertionError: None != 'id_name_0'`,
+	}, 400)
+
+	if got.Location != "/tmp/repo/tests/forms_tests/tests/test_forms.py:723" {
+		t.Fatalf("Location = %q", got.Location)
+	}
+}
