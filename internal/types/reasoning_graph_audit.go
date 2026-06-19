@@ -74,6 +74,15 @@ type ReasoningGraphAuditEvent struct {
 	ResourceURI      string `json:"resource_uri,omitempty"`
 	PayloadRef       string `json:"payload_ref,omitempty"`
 	ObservationID    string `json:"observation_id,omitempty"`
+	WorkflowID       string `json:"workflow_id,omitempty"`
+	ActionID         string `json:"action_id,omitempty"`
+	ActionStatus     string `json:"action_status,omitempty"`
+	OperationKind    string `json:"operation_kind,omitempty"`
+	TargetSurface    string `json:"target_surface,omitempty"`
+	RiskLevel        string `json:"risk_level,omitempty"`
+	ActionCount      int    `json:"action_count,omitempty"`
+	EdgeCount        int    `json:"edge_count,omitempty"`
+	QueueCount       int    `json:"queue_count,omitempty"`
 }
 
 type ReasoningGraphAuditGap struct {
@@ -266,6 +275,21 @@ func normalizeReasoningGraphAuditEvents(in []ReasoningGraphAuditEvent) []Reasoni
 		event.ResourceURI = strings.TrimSpace(event.ResourceURI)
 		event.PayloadRef = strings.TrimSpace(event.PayloadRef)
 		event.ObservationID = strings.TrimSpace(event.ObservationID)
+		event.WorkflowID = strings.TrimSpace(event.WorkflowID)
+		event.ActionID = strings.TrimSpace(event.ActionID)
+		event.ActionStatus = strings.TrimSpace(event.ActionStatus)
+		event.OperationKind = strings.TrimSpace(event.OperationKind)
+		event.TargetSurface = strings.TrimSpace(event.TargetSurface)
+		event.RiskLevel = strings.TrimSpace(event.RiskLevel)
+		if event.ActionCount < 0 {
+			event.ActionCount = 0
+		}
+		if event.EdgeCount < 0 {
+			event.EdgeCount = 0
+		}
+		if event.QueueCount < 0 {
+			event.QueueCount = 0
+		}
 		if event.EventID == "" && event.Kind == "" && event.ReasonCode == "" {
 			continue
 		}

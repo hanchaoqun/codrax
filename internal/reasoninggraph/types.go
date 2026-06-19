@@ -78,6 +78,8 @@ const (
 	ReasoningEventSubAgentCompleted          ReasoningEventKind = "subagent_completed"
 	ReasoningEventAuxiliaryEvidenceProjected ReasoningEventKind = "auxiliary_evidence_projected"
 	ReasoningEventMCPObservationProjected    ReasoningEventKind = "mcp_observation_projected"
+	ReasoningEventOperationWorkflowProjected ReasoningEventKind = "operation_workflow_projected"
+	ReasoningEventOperationActionProjected   ReasoningEventKind = "operation_action_projected"
 )
 
 type ReasoningGraph struct {
@@ -173,6 +175,15 @@ type ObservationPayload struct {
 	ResourceURI       string `json:"resource_uri,omitempty"`
 	PayloadRef        string `json:"payload_ref,omitempty"`
 	ObservationID     string `json:"observation_id,omitempty"`
+	WorkflowID        string `json:"workflow_id,omitempty"`
+	ActionID          string `json:"action_id,omitempty"`
+	ActionStatus      string `json:"action_status,omitempty"`
+	OperationKind     string `json:"operation_kind,omitempty"`
+	TargetSurface     string `json:"target_surface,omitempty"`
+	RiskLevel         string `json:"risk_level,omitempty"`
+	ActionCount       int    `json:"action_count,omitempty"`
+	EdgeCount         int    `json:"edge_count,omitempty"`
+	QueueCount        int    `json:"queue_count,omitempty"`
 }
 
 type ObservationInput struct {
@@ -227,6 +238,15 @@ type ReasoningEventSummary struct {
 	ResourceURI       string             `json:"resource_uri,omitempty"`
 	PayloadRef        string             `json:"payload_ref,omitempty"`
 	ObservationID     string             `json:"observation_id,omitempty"`
+	WorkflowID        string             `json:"workflow_id,omitempty"`
+	ActionID          string             `json:"action_id,omitempty"`
+	ActionStatus      string             `json:"action_status,omitempty"`
+	OperationKind     string             `json:"operation_kind,omitempty"`
+	TargetSurface     string             `json:"target_surface,omitempty"`
+	RiskLevel         string             `json:"risk_level,omitempty"`
+	ActionCount       int                `json:"action_count,omitempty"`
+	EdgeCount         int                `json:"edge_count,omitempty"`
+	QueueCount        int                `json:"queue_count,omitempty"`
 	At                time.Time          `json:"at,omitempty"`
 }
 
@@ -449,7 +469,9 @@ func IsSubAgentObservationKind(kind ReasoningEventKind) bool {
 func IsAuxiliaryObservationKind(kind ReasoningEventKind) bool {
 	switch kind {
 	case ReasoningEventAuxiliaryEvidenceProjected,
-		ReasoningEventMCPObservationProjected:
+		ReasoningEventMCPObservationProjected,
+		ReasoningEventOperationWorkflowProjected,
+		ReasoningEventOperationActionProjected:
 		return true
 	default:
 		return false
@@ -480,6 +502,12 @@ func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	in.ResourceURI = strings.TrimSpace(in.ResourceURI)
 	in.PayloadRef = strings.TrimSpace(in.PayloadRef)
 	in.ObservationID = strings.TrimSpace(in.ObservationID)
+	in.WorkflowID = strings.TrimSpace(in.WorkflowID)
+	in.ActionID = strings.TrimSpace(in.ActionID)
+	in.ActionStatus = strings.TrimSpace(in.ActionStatus)
+	in.OperationKind = strings.TrimSpace(in.OperationKind)
+	in.TargetSurface = strings.TrimSpace(in.TargetSurface)
+	in.RiskLevel = strings.TrimSpace(in.RiskLevel)
 	if in.Attempt < 0 {
 		in.Attempt = 0
 	}
@@ -518,6 +546,15 @@ func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	}
 	if in.MCPResponseCount < 0 {
 		in.MCPResponseCount = 0
+	}
+	if in.ActionCount < 0 {
+		in.ActionCount = 0
+	}
+	if in.EdgeCount < 0 {
+		in.EdgeCount = 0
+	}
+	if in.QueueCount < 0 {
+		in.QueueCount = 0
 	}
 	return in
 }

@@ -121,6 +121,15 @@ func eventSummary(event ReasoningEvent) ReasoningEventSummary {
 		ResourceURI:       payload.ResourceURI,
 		PayloadRef:        payload.PayloadRef,
 		ObservationID:     payload.ObservationID,
+		WorkflowID:        payload.WorkflowID,
+		ActionID:          payload.ActionID,
+		ActionStatus:      payload.ActionStatus,
+		OperationKind:     payload.OperationKind,
+		TargetSurface:     payload.TargetSurface,
+		RiskLevel:         payload.RiskLevel,
+		ActionCount:       payload.ActionCount,
+		EdgeCount:         payload.EdgeCount,
+		QueueCount:        payload.QueueCount,
 		At:                event.At,
 	}
 }

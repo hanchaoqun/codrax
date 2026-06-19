@@ -131,6 +131,15 @@ func auditEventsFromSummaries(events []ReasoningEventSummary) []types.ReasoningG
 			ResourceURI:      event.ResourceURI,
 			PayloadRef:       event.PayloadRef,
 			ObservationID:    event.ObservationID,
+			WorkflowID:       event.WorkflowID,
+			ActionID:         event.ActionID,
+			ActionStatus:     event.ActionStatus,
+			OperationKind:    event.OperationKind,
+			TargetSurface:    event.TargetSurface,
+			RiskLevel:        event.RiskLevel,
+			ActionCount:      event.ActionCount,
+			EdgeCount:        event.EdgeCount,
+			QueueCount:       event.QueueCount,
 		})
 	}
 	return out
