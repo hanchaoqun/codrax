@@ -55,6 +55,15 @@ func EventsFromWriteWorkflowRun(run types.WriteWorkflowRun) []LoopEvent {
 }
 
 func addWriteWorkflowBatchEvents(add func(LoopEventKind, string, string, any), batch types.WriteWorkflowBatch, unitID string) {
+	if effect, ok := writeWorkflowRuntimeUnitEffect(batch, unitID); ok {
+		payload := EffectEventPayload{
+			Effect:      effect,
+			Fingerprint: safety.EffectFingerprint(effect),
+		}
+		add(LoopEventEffectDescribed, unitID, "runtime_unit_effect_described", payload)
+		permission := DerivePermissionAuthorityFromEffects(WriteWorkflowAdapterSource, effect)
+		add(LoopEventPermissionDecided, unitID, permission.ReasonCode, permission)
+	}
 	if strings.TrimSpace(batch.PlanID) != "" {
 		add(LoopEventPlanEmitted, unitID, "write_workflow_plan_available", nil)
 	}
@@ -65,7 +74,9 @@ func addWriteWorkflowBatchEvents(add func(LoopEventKind, string, string, any), b
 		add(LoopEventContextObserved, unitID, "batch_ready_to_plan", nil)
 		add(LoopEventPlanRequested, unitID, "batch_ready_to_plan", nil)
 	case types.WriteWorkflowBatchPlanned:
-		add(LoopEventEffectDescribed, unitID, "batch_planned", nil)
+		if _, ok := writeWorkflowRuntimeUnitEffect(batch, unitID); !ok {
+			add(LoopEventEffectDescribed, unitID, "batch_planned", nil)
+		}
 	case types.WriteWorkflowBatchPendingApproval:
 		permission := DerivePermissionAuthority(WriteWorkflowAdapterSource,
 			safety.AskPermission(WriteWorkflowAdapterSource, "manual_approval_required", "active write batch requires approval"),
@@ -85,6 +96,66 @@ func addWriteWorkflowBatchEvents(add func(LoopEventKind, string, string, any), b
 	case types.WriteWorkflowBatchBlocked:
 		add(LoopEventUnitBlocked, unitID, "batch_blocked", nil)
 	}
+}
+
+func writeWorkflowRuntimeUnitEffect(batch types.WriteWorkflowBatch, unitID string) (safety.EffectDescriptor, bool) {
+	if !writeWorkflowBatchHasRuntimeEffect(batch) {
+		return safety.EffectDescriptor{}, false
+	}
+	effect := safety.EffectDescriptor{
+		Role:            safety.EffectRoleCoder,
+		Kind:            safety.EffectKindApplyPatch,
+		Tool:            "apply_patch",
+		Stage:           "write_runtime_unit",
+		Mode:            "write",
+		Paths:           writeWorkflowRuntimeUnitEffectPaths(batch, unitID),
+		MutatesWorktree: true,
+		Source:          WriteWorkflowAdapterSource,
+	}
+	return safety.NormalizeEffectDescriptor(effect), true
+}
+
+func writeWorkflowBatchHasRuntimeEffect(batch types.WriteWorkflowBatch) bool {
+	if strings.TrimSpace(batch.PlanID) == "" && len(batch.Slices) == 0 {
+		return false
+	}
+	switch batch.Status {
+	case types.WriteWorkflowBatchPlanned,
+		types.WriteWorkflowBatchPendingApproval,
+		types.WriteWorkflowBatchApplying,
+		types.WriteWorkflowBatchVerifying,
+		types.WriteWorkflowBatchComplete,
+		types.WriteWorkflowBatchBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
+func writeWorkflowRuntimeUnitEffectPaths(batch types.WriteWorkflowBatch, unitID string) []string {
+	unitID = strings.TrimSpace(unitID)
+	for _, slice := range batch.Slices {
+		if strings.TrimSpace(slice.ID) == unitID {
+			if len(slice.Paths) > 0 {
+				return append([]string(nil), slice.Paths...)
+			}
+			break
+		}
+	}
+	if len(batch.ExpectedPaths) > 0 {
+		return append([]string(nil), batch.ExpectedPaths...)
+	}
+	for _, slice := range batch.Slices {
+		if !writeWorkflowSliceTerminal(slice.Status) && len(slice.Paths) > 0 {
+			return append([]string(nil), slice.Paths...)
+		}
+	}
+	for _, slice := range batch.Slices {
+		if len(slice.Paths) > 0 {
+			return append([]string(nil), slice.Paths...)
+		}
+	}
+	return nil
 }
 
 func activeWriteWorkflowBatch(run types.WriteWorkflowRun) (types.WriteWorkflowBatch, bool) {

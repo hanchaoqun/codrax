@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/safety"
 )
 
 type LoopRunStatus string
@@ -105,6 +107,11 @@ type RuntimeUnitView struct {
 	Status     RuntimeUnitStatus `json:"status,omitempty"`
 	ReasonCode string            `json:"reason_code,omitempty"`
 	UpdatedAt  time.Time         `json:"updated_at,omitempty"`
+}
+
+type EffectEventPayload struct {
+	Effect      safety.EffectDescriptor `json:"effect,omitempty"`
+	Fingerprint string                  `json:"fingerprint,omitempty"`
 }
 
 type LoopStateView struct {

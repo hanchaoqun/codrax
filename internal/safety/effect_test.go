@@ -124,6 +124,10 @@ func TestDecideEffectPermissionExternalDirectoryAndGitMetadataAreHardGates(t *te
 	if externalWrite.Action != PermissionDeny || externalWrite.ReasonCode != "external_directory_write" {
 		t.Fatalf("external write should deny, got %+v", externalWrite)
 	}
+	externalPathWrite := DecideEffectPermission(EffectDescriptor{Role: EffectRoleCoder, Kind: EffectKindEdit, Paths: []string{"../outside.py"}})
+	if externalPathWrite.Action != PermissionDeny || externalPathWrite.ReasonCode != "external_directory_write" {
+		t.Fatalf("external path should be detected and denied, got %+v", externalPathWrite)
+	}
 	gitMeta := DecideEffectPermission(EffectDescriptor{Role: EffectRoleCoder, Kind: EffectKindEdit, Paths: []string{".git/config"}})
 	if gitMeta.Action != PermissionDeny || gitMeta.ReasonCode != "git_metadata_effect" {
 		t.Fatalf("git metadata should deny, got %+v", gitMeta)

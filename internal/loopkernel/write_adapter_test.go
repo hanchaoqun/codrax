@@ -1,8 +1,10 @@
 package loopkernel
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/safety"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -26,6 +28,72 @@ func TestEventsFromWriteWorkflowRunPendingApprovalProjectsAsk(t *testing.T) {
 	}
 	if got.ActiveUnitID != "batch:batch-1" {
 		t.Fatalf("active unit = %q", got.ActiveUnitID)
+	}
+}
+
+func TestEventsFromWriteWorkflowRunPlannedProjectsRuntimeUnitEffect(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-effect",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchPlanned,
+			PlanID:        "plan-1",
+			ActiveSliceID: "slice-1",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-1",
+				Status: types.ChangePlanSlicePending,
+				Paths:  []string{"pkg/a.go"},
+			}},
+		}},
+	}
+	events := EventsFromWriteWorkflowRun(run)
+	var payload EffectEventPayload
+	for _, event := range events {
+		if event.Kind != LoopEventEffectDescribed {
+			continue
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("effect payload decode: %v", err)
+		}
+		break
+	}
+	if payload.Fingerprint == "" {
+		t.Fatalf("runtime unit effect fingerprint missing: %+v", payload)
+	}
+	if payload.Effect.Role != safety.EffectRoleCoder || payload.Effect.Kind != safety.EffectKindApplyPatch {
+		t.Fatalf("runtime unit effect mismatch: %+v", payload.Effect)
+	}
+	if len(payload.Effect.Paths) != 1 || payload.Effect.Paths[0] != "pkg/a.go" {
+		t.Fatalf("runtime unit effect paths mismatch: %+v", payload.Effect.Paths)
+	}
+	state := ReduceEvents(events)
+	if state.Permission.State != PermissionAuthorityAllow {
+		t.Fatalf("ordinary runtime unit should project allow permission, got %+v", state.Permission)
+	}
+}
+
+func TestEventsFromWriteWorkflowRunExternalRuntimeUnitEffectDenies(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-effect-deny",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchPlanned,
+			PlanID:        "plan-1",
+			ActiveSliceID: "slice-1",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-1",
+				Status: types.ChangePlanSlicePending,
+				Paths:  []string{"../outside.py"},
+			}},
+		}},
+	}
+	got := ReduceEvents(EventsFromWriteWorkflowRun(run))
+	if got.Permission.State != PermissionAuthorityDeny || got.Permission.ReasonCode != "external_directory_write" {
+		t.Fatalf("external runtime unit effect should deny, got %+v", got.Permission)
 	}
 }
 

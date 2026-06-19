@@ -172,7 +172,9 @@ func NormalizeEffectDescriptor(in EffectDescriptor) EffectDescriptor {
 	for _, p := range in.Paths {
 		if p == ".git" || strings.HasPrefix(p, ".git/") {
 			in.TargetsGitMetadata = true
-			break
+		}
+		if p == ".." || strings.HasPrefix(p, "../") {
+			in.ExternalDirectory = true
 		}
 	}
 	return in
