@@ -104,6 +104,12 @@ type AnswerDocumentV2 struct {
 	// supplements even when no owner anchor is strong enough to render as
 	// proof. It is stamped from TurnAArtifacts, not emitted by the model.
 	ReadSourceLocalization *SourceLocalizationReview `json:"read_source_localization,omitempty"`
+
+	// ReadNavigationCoverage is the typed repo_map navigation coverage observed
+	// during read-mode exploration. It is derived from AnalysisIR navigation
+	// policy plus producer-published ToolResult observations. It is not emitted
+	// by the model and must never be reconstructed from model prose.
+	ReadNavigationCoverage *RepoMapNavigationCoverage `json:"read_navigation_coverage,omitempty"`
 }
 
 // AnswerMissingRequestedRole is a typed answer-level disclosure that

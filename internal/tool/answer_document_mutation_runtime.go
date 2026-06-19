@@ -155,6 +155,9 @@ func persistMergedAnswerDocument(
 	if stamped := stampReadOwnerAnchorsFromTurnA(ctx, merged); stamped > 0 {
 		logging.Info("[%s] stamped %d read owner anchor(s) from typed source localization", toolName, stamped)
 	}
+	if stampReadNavigationCoverageFromTurnA(ctx, merged) {
+		logging.Info("[%s] stamped read repo_map navigation coverage from typed TurnA observations", toolName)
+	}
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
@@ -219,6 +222,24 @@ func stampReadOwnerAnchorsFromTurnA(ctx *types.BusContext, doc *types.AnswerDocu
 	}
 	doc.ReadOwnerAnchors = types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: items}, 12).Items
 	return len(doc.ReadOwnerAnchors)
+}
+
+func stampReadNavigationCoverageFromTurnA(ctx *types.BusContext, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || ctx.Mutable == nil || doc == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	turnA := ctx.Mutable.TurnAArtifacts()
+	if turnA == nil {
+		return false
+	}
+	coverage := types.RepoMapNavigationCoverageFromReadArtifacts(ctx.AnalysisIR, ctx.ExploreLanePlan, turnA)
+	coverage = types.NormalizeRepoMapNavigationCoverage(coverage)
+	if coverage.State == "" || coverage.State == types.RepoMapNavigationCoverageNotRequired {
+		doc.ReadNavigationCoverage = nil
+		return false
+	}
+	doc.ReadNavigationCoverage = &coverage
+	return true
 }
 
 func readFinalAnswerOwnerAnchorItem(item types.OwnerAnchorViewItem) bool {

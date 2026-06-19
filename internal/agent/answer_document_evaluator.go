@@ -10102,6 +10102,13 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 		}
 	}
+	if supplement := renderReadNavigationCoverageSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
+		if strings.TrimSpace(prose) == "" {
+			prose = strings.TrimSpace(supplement)
+		} else {
+			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+		}
+	}
 	if supplement := renderReadOwnerAnchorSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
 		if strings.TrimSpace(prose) == "" {
 			prose = strings.TrimSpace(supplement)
@@ -10162,6 +10169,67 @@ func readLocalizationAuthorityPathList(paths []string, limit int) string {
 	}
 	if len(paths) > limit {
 		parts = append(parts, fmt.Sprintf("...(+%d)", len(paths)-limit))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func renderReadNavigationCoverageSupplement(_ *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+	if doc == nil || doc.ReadNavigationCoverage == nil {
+		return ""
+	}
+	coverage := types.NormalizeRepoMapNavigationCoverage(*doc.ReadNavigationCoverage)
+	if coverage.State == "" || coverage.State == types.RepoMapNavigationCoverageNotRequired {
+		return ""
+	}
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("---\n\n")
+		b.WriteString("> **系统补充：repo_map 导航覆盖**\n>\n")
+		b.WriteString("> 下表来自读模式探索阶段的 typed repo_map navigation coverage，用于保留推荐 lens 是否已覆盖；它不替代上方模型答案，也不是语义源码引用。\n\n")
+		b.WriteString("| 状态 | 原因 | 必需 lens | 已覆盖 | 缺失 | 证据 |\n|---|---|---|---|---|---|\n")
+	} else {
+		b.WriteString("---\n\n")
+		b.WriteString("> **System supplement: repo_map navigation coverage**\n>\n")
+		b.WriteString("> The table below is derived from typed repo_map navigation coverage gathered during read-mode exploration. It preserves whether recommended lenses were covered. It does not replace the model-authored answer and is not semantic source citation.\n\n")
+		b.WriteString("| State | Reason | Required lenses | Covered | Missing | Evidence |\n|---|---|---|---|---|---|\n")
+	}
+	fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s | %s | %s |\n",
+		coverage.State,
+		firstNonEmptyString(coverage.ReasonCode, "none"),
+		readNavigationCoverageRouteList(coverage.RequiredRoutes, 5),
+		readNavigationCoverageRouteList(coverage.CoveredRoutes, 5),
+		readNavigationCoverageRouteList(coverage.MissingRoutes, 5),
+		readLocalizationAuthorityPathList(coverage.EvidenceRefs, 4))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func readNavigationCoverageRouteList(routes []types.RepoMapNavigationRoute, limit int) string {
+	if len(routes) == 0 {
+		return "-"
+	}
+	var values []string
+	seen := map[types.RepoMapNavigationRoute]bool{}
+	for _, route := range routes {
+		route = types.NormalizeRepoMapNavigationRoute(string(route))
+		if !route.Valid() || seen[route] {
+			continue
+		}
+		seen[route] = true
+		values = append(values, string(route))
+	}
+	if len(values) == 0 {
+		return "-"
+	}
+	if limit <= 0 || limit > len(values) {
+		limit = len(values)
+	}
+	parts := make([]string, 0, limit+1)
+	for _, value := range values[:limit] {
+		parts = append(parts, "`"+value+"`")
+	}
+	if len(values) > limit {
+		parts = append(parts, fmt.Sprintf("...(+%d)", len(values)-limit))
 	}
 	return strings.Join(parts, ", ")
 }

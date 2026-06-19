@@ -148,6 +148,14 @@ func RepoMapNavigationCoverageFromToolResults(policy RepoMapNavigationPolicy, re
 	return RepoMapNavigationCoverageFromObservations(policy, records)
 }
 
+func RepoMapNavigationCoverageFromReadArtifacts(ir *AnalysisIR, lanes ExploreLanePlan, turnA *TurnAArtifacts) RepoMapNavigationCoverage {
+	if ir == nil || turnA == nil {
+		return RepoMapNavigationCoverage{}
+	}
+	policy := CompileRepoMapNavigationPolicy(ir.RequestModel, &ir.AnswerContract, lanes)
+	return RepoMapNavigationCoverageFromToolResults(policy, turnA.ToolResults)
+}
+
 func RepoMapNavigationCoverageFromObservations(policy RepoMapNavigationPolicy, records []ObservationRecord) RepoMapNavigationCoverage {
 	required := repoMapNavigationRequiredRoutes(policy)
 	observed, evidenceRefs := repoMapNavigationObservedRoutes(records)

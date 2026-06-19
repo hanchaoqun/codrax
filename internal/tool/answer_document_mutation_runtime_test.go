@@ -106,6 +106,76 @@ func TestApplyAndPersistMutation_StampsReadOwnerAnchorsFromTurnA(t *testing.T) {
 	}
 }
 
+func TestApplyAndPersistMutation_StampsReadNavigationCoverageFromTurnA(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqCallChain),
+				Entities: []string{"dispatch"},
+			},
+		},
+	}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "repo_map",
+			Success:  true,
+			RawRef:   "blob://repo-map-task",
+			Observations: []types.ObservationRecord{{
+				ID:        "repo_map:task#navigation:task_map",
+				Origin:    types.AnswerEvidenceOriginCrossRepoIndex,
+				Producer:  "repo_map",
+				SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceCrossRepoIndex, RawRef: "blob://repo-map-task"},
+				Predicate: types.RepoMapNavigationObservationPredicate,
+				Object:    string(types.RepoMapNavigationRouteTaskMap),
+			}},
+		}},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "answer"},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || got.ReadNavigationCoverage == nil {
+		t.Fatalf("read navigation coverage not stamped: %+v", got)
+	}
+	coverage := got.ReadNavigationCoverage
+	if coverage.State != types.RepoMapNavigationCoveragePartial {
+		t.Fatalf("coverage state = %s, want partial: %+v", coverage.State, coverage)
+	}
+	if !testRepoMapRoutePresent(coverage.CoveredRoutes, types.RepoMapNavigationRouteTaskMap) {
+		t.Fatalf("task_map should be covered: %+v", coverage)
+	}
+	if !testRepoMapRoutePresent(coverage.MissingRoutes, types.RepoMapNavigationRouteRelationMap) ||
+		!testRepoMapRoutePresent(coverage.MissingRoutes, types.RepoMapNavigationRouteCallPath) {
+		t.Fatalf("relation_map and call_path should stay missing for call-chain policy: %+v", coverage)
+	}
+	if len(coverage.EvidenceRefs) == 0 || coverage.EvidenceRefs[0] != "blob://repo-map-task" {
+		t.Fatalf("typed evidence ref not preserved: %+v", coverage.EvidenceRefs)
+	}
+}
+
+func testRepoMapRoutePresent(routes []types.RepoMapNavigationRoute, want types.RepoMapNavigationRoute) bool {
+	for _, route := range routes {
+		if route == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestApplyAndPersistMutation_StampsStructuralReadOwnerAnchorsFromLineEvidence(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, "pkg"), 0o755); err != nil {

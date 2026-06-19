@@ -27,6 +27,15 @@ func samplePrevDoc() *AnswerDocumentV2 {
 			Status:      SourceLocalizationObserved,
 			SourcePaths: []string{"pkg/observed.py"},
 		},
+		ReadNavigationCoverage: &RepoMapNavigationCoverage{
+			State:          RepoMapNavigationCoveragePartial,
+			ReasonCode:     "repo_map_navigation_partial",
+			RequiredRoutes: []RepoMapNavigationRoute{RepoMapNavigationRouteTaskMap, RepoMapNavigationRouteRelationMap},
+			ObservedRoutes: []RepoMapNavigationRoute{RepoMapNavigationRouteTaskMap},
+			CoveredRoutes:  []RepoMapNavigationRoute{RepoMapNavigationRouteTaskMap},
+			MissingRoutes:  []RepoMapNavigationRoute{RepoMapNavigationRouteRelationMap},
+			EvidenceRefs:   []string{"blob://repo-map-task"},
+		},
 		Blocks: []AnswerBlock{
 			{
 				ID: "s1", Kind: BlockSummary,
@@ -132,6 +141,11 @@ func TestApplyPatch_PureUnchangedPreservesAllFields(t *testing.T) {
 	}
 	if got.ReadSourceLocalization == nil || got.ReadSourceLocalization.SourcePaths[0] != "pkg/observed.py" {
 		t.Errorf("read source localization not preserved; got %+v", got.ReadSourceLocalization)
+	}
+	if got.ReadNavigationCoverage == nil ||
+		got.ReadNavigationCoverage.State != RepoMapNavigationCoveragePartial ||
+		!containsRepoMapRoute(got.ReadNavigationCoverage.MissingRoutes, RepoMapNavigationRouteRelationMap) {
+		t.Errorf("read navigation coverage not preserved; got %+v", got.ReadNavigationCoverage)
 	}
 	if len(got.Blocks[2].Columns) != 3 || got.Blocks[2].Columns[1] != "codrax" ||
 		len(got.Blocks[2].Items) != 2 || len(got.Blocks[2].Items[0].Cells) != 3 {

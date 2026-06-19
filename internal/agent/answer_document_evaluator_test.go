@@ -7559,6 +7559,33 @@ func TestAnswerDocumentEvaluator_ParseOutputV2_AuthorityCaveatUsesMergedEvidence
 	}
 }
 
+func TestRenderReadNavigationCoverageSupplement(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		ReadNavigationCoverage: &types.RepoMapNavigationCoverage{
+			State:          types.RepoMapNavigationCoveragePartial,
+			ReasonCode:     "repo_map_navigation_partial",
+			RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap, types.RepoMapNavigationRouteRelationMap},
+			ObservedRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap},
+			CoveredRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap},
+			MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+			EvidenceRefs:   []string{"blob://repo-map-task"},
+		},
+	}
+	got := renderReadNavigationCoverageSupplement(nil, doc, "en")
+	for _, want := range []string{
+		"repo_map navigation coverage",
+		"`partial`",
+		"`task_map`",
+		"`relation_map`",
+		"blob://repo-map-task",
+		"not semantic source citation",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("navigation coverage supplement missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_ParseOutput_CardinalityDowngrade is the
 // critical P2.2 test: when Shape == list_of_symbols + Completeness ==
 // complete + len(Symbols) < baseline, ParseOutput downgrades to

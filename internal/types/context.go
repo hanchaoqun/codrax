@@ -2908,6 +2908,10 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 		out.ReadOwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.ReadOwnerAnchors}, 0).Items
 	}
 	out.ReadSourceLocalization = CloneSourceLocalizationReviewPtr(in.ReadSourceLocalization)
+	if in.ReadNavigationCoverage != nil {
+		coverage := NormalizeRepoMapNavigationCoverage(*in.ReadNavigationCoverage)
+		out.ReadNavigationCoverage = &coverage
+	}
 	return out
 }
 
