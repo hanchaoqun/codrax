@@ -40,49 +40,56 @@ type ReasoningGraphAuditLane struct {
 }
 
 type ReasoningGraphAuditEvent struct {
-	EventID          string `json:"event_id,omitempty"`
-	NodeID           string `json:"node_id,omitempty"`
-	Kind             string `json:"kind,omitempty"`
-	ReasonCode       string `json:"reason_code,omitempty"`
-	ToolName         string `json:"tool_name,omitempty"`
-	Agent            string `json:"agent,omitempty"`
-	Stage            string `json:"stage,omitempty"`
-	Model            string `json:"model,omitempty"`
-	Attempt          int    `json:"attempt,omitempty"`
-	MaxAttempts      int    `json:"max_attempts,omitempty"`
-	ElapsedMillis    int64  `json:"elapsed_millis,omitempty"`
-	RepairCode       string `json:"repair_code,omitempty"`
-	ViolationKind    string `json:"violation_kind,omitempty"`
-	RepairLocus      string `json:"repair_locus,omitempty"`
-	WorkerKind       string `json:"worker_kind,omitempty"`
-	WorkerStatus     string `json:"worker_status,omitempty"`
-	WorkerRole       string `json:"worker_role,omitempty"`
-	SubAgentName     string `json:"subagent_name,omitempty"`
-	PermissionAction string `json:"permission_action,omitempty"`
-	PermissionReason string `json:"permission_reason_code,omitempty"`
-	ScopePathCount   int    `json:"scope_path_count,omitempty"`
-	InputRefCount    int    `json:"input_ref_count,omitempty"`
-	OutputRefCount   int    `json:"output_ref_count,omitempty"`
-	EvidenceRefCount int    `json:"evidence_ref_count,omitempty"`
-	ToolResultCount  int    `json:"tool_result_count,omitempty"`
-	FactCount        int    `json:"fact_count,omitempty"`
-	FlowFindingCount int    `json:"flow_finding_count,omitempty"`
-	MCPResponseCount int    `json:"mcp_response_count,omitempty"`
-	ExternalOrigin   string `json:"external_origin,omitempty"`
-	SourceKind       string `json:"source_kind,omitempty"`
-	Producer         string `json:"producer,omitempty"`
-	ResourceURI      string `json:"resource_uri,omitempty"`
-	PayloadRef       string `json:"payload_ref,omitempty"`
-	ObservationID    string `json:"observation_id,omitempty"`
-	WorkflowID       string `json:"workflow_id,omitempty"`
-	ActionID         string `json:"action_id,omitempty"`
-	ActionStatus     string `json:"action_status,omitempty"`
-	OperationKind    string `json:"operation_kind,omitempty"`
-	TargetSurface    string `json:"target_surface,omitempty"`
-	RiskLevel        string `json:"risk_level,omitempty"`
-	ActionCount      int    `json:"action_count,omitempty"`
-	EdgeCount        int    `json:"edge_count,omitempty"`
-	QueueCount       int    `json:"queue_count,omitempty"`
+	EventID           string `json:"event_id,omitempty"`
+	NodeID            string `json:"node_id,omitempty"`
+	Kind              string `json:"kind,omitempty"`
+	ReasonCode        string `json:"reason_code,omitempty"`
+	ToolName          string `json:"tool_name,omitempty"`
+	Agent             string `json:"agent,omitempty"`
+	Stage             string `json:"stage,omitempty"`
+	Model             string `json:"model,omitempty"`
+	Attempt           int    `json:"attempt,omitempty"`
+	MaxAttempts       int    `json:"max_attempts,omitempty"`
+	ElapsedMillis     int64  `json:"elapsed_millis,omitempty"`
+	RepairCode        string `json:"repair_code,omitempty"`
+	ViolationKind     string `json:"violation_kind,omitempty"`
+	RepairLocus       string `json:"repair_locus,omitempty"`
+	WorkerKind        string `json:"worker_kind,omitempty"`
+	WorkerStatus      string `json:"worker_status,omitempty"`
+	WorkerRole        string `json:"worker_role,omitempty"`
+	SubAgentName      string `json:"subagent_name,omitempty"`
+	PermissionAction  string `json:"permission_action,omitempty"`
+	PermissionReason  string `json:"permission_reason_code,omitempty"`
+	ScopePathCount    int    `json:"scope_path_count,omitempty"`
+	InputRefCount     int    `json:"input_ref_count,omitempty"`
+	OutputRefCount    int    `json:"output_ref_count,omitempty"`
+	EvidenceRefCount  int    `json:"evidence_ref_count,omitempty"`
+	ToolResultCount   int    `json:"tool_result_count,omitempty"`
+	FactCount         int    `json:"fact_count,omitempty"`
+	FlowFindingCount  int    `json:"flow_finding_count,omitempty"`
+	MCPResponseCount  int    `json:"mcp_response_count,omitempty"`
+	ExternalOrigin    string `json:"external_origin,omitempty"`
+	SourceKind        string `json:"source_kind,omitempty"`
+	Producer          string `json:"producer,omitempty"`
+	ResourceURI       string `json:"resource_uri,omitempty"`
+	PayloadRef        string `json:"payload_ref,omitempty"`
+	ObservationID     string `json:"observation_id,omitempty"`
+	WorkflowID        string `json:"workflow_id,omitempty"`
+	ActionID          string `json:"action_id,omitempty"`
+	ActionStatus      string `json:"action_status,omitempty"`
+	OperationKind     string `json:"operation_kind,omitempty"`
+	TargetSurface     string `json:"target_surface,omitempty"`
+	RiskLevel         string `json:"risk_level,omitempty"`
+	DataStage         string `json:"data_stage,omitempty"`
+	DataActionKind    string `json:"data_action_kind,omitempty"`
+	DataEvalStatus    string `json:"data_evaluation_status,omitempty"`
+	DataViolationCode string `json:"data_violation_code,omitempty"`
+	ActionCount       int    `json:"action_count,omitempty"`
+	EdgeCount         int    `json:"edge_count,omitempty"`
+	QueueCount        int    `json:"queue_count,omitempty"`
+	RecordCount       int    `json:"record_count,omitempty"`
+	ResultCount       int    `json:"result_count,omitempty"`
+	ViolationCount    int    `json:"violation_count,omitempty"`
 }
 
 type ReasoningGraphAuditGap struct {
@@ -281,6 +288,10 @@ func normalizeReasoningGraphAuditEvents(in []ReasoningGraphAuditEvent) []Reasoni
 		event.OperationKind = strings.TrimSpace(event.OperationKind)
 		event.TargetSurface = strings.TrimSpace(event.TargetSurface)
 		event.RiskLevel = strings.TrimSpace(event.RiskLevel)
+		event.DataStage = strings.TrimSpace(event.DataStage)
+		event.DataActionKind = strings.TrimSpace(event.DataActionKind)
+		event.DataEvalStatus = strings.TrimSpace(event.DataEvalStatus)
+		event.DataViolationCode = strings.TrimSpace(event.DataViolationCode)
 		if event.ActionCount < 0 {
 			event.ActionCount = 0
 		}
@@ -289,6 +300,15 @@ func normalizeReasoningGraphAuditEvents(in []ReasoningGraphAuditEvent) []Reasoni
 		}
 		if event.QueueCount < 0 {
 			event.QueueCount = 0
+		}
+		if event.RecordCount < 0 {
+			event.RecordCount = 0
+		}
+		if event.ResultCount < 0 {
+			event.ResultCount = 0
+		}
+		if event.ViolationCount < 0 {
+			event.ViolationCount = 0
 		}
 		if event.EventID == "" && event.Kind == "" && event.ReasonCode == "" {
 			continue

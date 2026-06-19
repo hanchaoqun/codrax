@@ -438,7 +438,7 @@ type AnswerReasoningGraphSummary struct {
 | P0-B3 Read Evidence Graph Shadow | delivered | accepted answer `read_reasoning_graph` summary、read typed evidence projection、不改 read scheduler |
 | P0-B4 Graph Audit / Status Card | delivered | `ReasoningGraphAuditSummary`、`--write-audit.graph_audit`、`/workflow show` graph reason card |
 | P1-B5 Worker / SubAgent Projection | delivered | worker Request/Result projection、subagent Request/Result projection、optional SubAgentRuntime observer、worker/subagent graph lanes |
-| P1-B6 Log / Trace / Data / Operation Projection | in progress | ToolResult/MCP typed observations 与 operation workflow state 已进入 auxiliary graph lane；data/computer workflow state 待后续切片 |
+| P1-B6 Log / Trace / Data / Operation Projection | delivered | ToolResult/MCP typed observations、operation workflow state、data workflow runtime/state/journal projection 已进入 auxiliary graph lane；computer/桌面操作当前复用 operation workflow action/surface/risk 投影 |
 | P1-B7 Eval / Support Report | planned | graph coverage metrics、support report、historical audit grouping |
 | P2-B8 Graph-Guided Controller | planned | typed graph view 反哺 bounded controller action |
 | P2-B9 Graph-Native Replay Executor | planned | read-only replay/local recompute |
@@ -585,14 +585,16 @@ type AnswerReasoningGraphSummary struct {
 2. MCP typed resource observations 投影为 auxiliary evidence node，标记 external resource boundary。
 3. log triage / perf triage / htrace / atrace typed artifacts 投影为 graph evidence node。
 4. operation workflow state 投影为 graph node。
-5. data / computer workflow state 投影为 graph node。
-6. 标记 external evidence trust boundary。
-7. 增加 tests：
+5. data workflow runtime/state/journal 投影为 graph node，覆盖 action、evaluation、violation、process event、record/result counts。
+6. computer / desktop operation 当前没有独立 workflow IR；通过 operation workflow action/surface/risk/status 投影承接，未来若出现专用 computer state，必须复用本 auxiliary projector contract，不新增散文解析路径。
+7. 标记 external evidence trust boundary。
+8. 增加 tests：
    - trace/log 用户路径不变
    - external evidence 不直接成为 semantic citation
    - operation graph projection 不改变 operation execution
    - typed ToolResult/MCP observation projection 不解析 Summary/RawExcerpt
    - operation workflow projection 不调用 provider / command / approval
+   - data workflow projection 只消费 RuntimeSnapshot / WorkflowStateSnapshot / WorkflowJournal typed fields，线性遍历 actions/records/violations，不调用 provider / command / approval
 
 验收：
 

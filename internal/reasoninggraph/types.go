@@ -80,6 +80,10 @@ const (
 	ReasoningEventMCPObservationProjected    ReasoningEventKind = "mcp_observation_projected"
 	ReasoningEventOperationWorkflowProjected ReasoningEventKind = "operation_workflow_projected"
 	ReasoningEventOperationActionProjected   ReasoningEventKind = "operation_action_projected"
+	ReasoningEventDataWorkflowProjected      ReasoningEventKind = "data_workflow_projected"
+	ReasoningEventDataActionProjected        ReasoningEventKind = "data_action_projected"
+	ReasoningEventDataEvaluationProjected    ReasoningEventKind = "data_evaluation_projected"
+	ReasoningEventDataViolationProjected     ReasoningEventKind = "data_violation_projected"
 )
 
 type ReasoningGraph struct {
@@ -181,9 +185,16 @@ type ObservationPayload struct {
 	OperationKind     string `json:"operation_kind,omitempty"`
 	TargetSurface     string `json:"target_surface,omitempty"`
 	RiskLevel         string `json:"risk_level,omitempty"`
+	DataStage         string `json:"data_stage,omitempty"`
+	DataActionKind    string `json:"data_action_kind,omitempty"`
+	DataEvalStatus    string `json:"data_evaluation_status,omitempty"`
+	DataViolationCode string `json:"data_violation_code,omitempty"`
 	ActionCount       int    `json:"action_count,omitempty"`
 	EdgeCount         int    `json:"edge_count,omitempty"`
 	QueueCount        int    `json:"queue_count,omitempty"`
+	RecordCount       int    `json:"record_count,omitempty"`
+	ResultCount       int    `json:"result_count,omitempty"`
+	ViolationCount    int    `json:"violation_count,omitempty"`
 }
 
 type ObservationInput struct {
@@ -244,9 +255,16 @@ type ReasoningEventSummary struct {
 	OperationKind     string             `json:"operation_kind,omitempty"`
 	TargetSurface     string             `json:"target_surface,omitempty"`
 	RiskLevel         string             `json:"risk_level,omitempty"`
+	DataStage         string             `json:"data_stage,omitempty"`
+	DataActionKind    string             `json:"data_action_kind,omitempty"`
+	DataEvalStatus    string             `json:"data_evaluation_status,omitempty"`
+	DataViolationCode string             `json:"data_violation_code,omitempty"`
 	ActionCount       int                `json:"action_count,omitempty"`
 	EdgeCount         int                `json:"edge_count,omitempty"`
 	QueueCount        int                `json:"queue_count,omitempty"`
+	RecordCount       int                `json:"record_count,omitempty"`
+	ResultCount       int                `json:"result_count,omitempty"`
+	ViolationCount    int                `json:"violation_count,omitempty"`
 	At                time.Time          `json:"at,omitempty"`
 }
 
@@ -471,7 +489,11 @@ func IsAuxiliaryObservationKind(kind ReasoningEventKind) bool {
 	case ReasoningEventAuxiliaryEvidenceProjected,
 		ReasoningEventMCPObservationProjected,
 		ReasoningEventOperationWorkflowProjected,
-		ReasoningEventOperationActionProjected:
+		ReasoningEventOperationActionProjected,
+		ReasoningEventDataWorkflowProjected,
+		ReasoningEventDataActionProjected,
+		ReasoningEventDataEvaluationProjected,
+		ReasoningEventDataViolationProjected:
 		return true
 	default:
 		return false
@@ -508,6 +530,10 @@ func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	in.OperationKind = strings.TrimSpace(in.OperationKind)
 	in.TargetSurface = strings.TrimSpace(in.TargetSurface)
 	in.RiskLevel = strings.TrimSpace(in.RiskLevel)
+	in.DataStage = strings.TrimSpace(in.DataStage)
+	in.DataActionKind = strings.TrimSpace(in.DataActionKind)
+	in.DataEvalStatus = strings.TrimSpace(in.DataEvalStatus)
+	in.DataViolationCode = strings.TrimSpace(in.DataViolationCode)
 	if in.Attempt < 0 {
 		in.Attempt = 0
 	}
@@ -555,6 +581,15 @@ func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	}
 	if in.QueueCount < 0 {
 		in.QueueCount = 0
+	}
+	if in.RecordCount < 0 {
+		in.RecordCount = 0
+	}
+	if in.ResultCount < 0 {
+		in.ResultCount = 0
+	}
+	if in.ViolationCount < 0 {
+		in.ViolationCount = 0
 	}
 	return in
 }

@@ -127,9 +127,16 @@ func eventSummary(event ReasoningEvent) ReasoningEventSummary {
 		OperationKind:     payload.OperationKind,
 		TargetSurface:     payload.TargetSurface,
 		RiskLevel:         payload.RiskLevel,
+		DataStage:         payload.DataStage,
+		DataActionKind:    payload.DataActionKind,
+		DataEvalStatus:    payload.DataEvalStatus,
+		DataViolationCode: payload.DataViolationCode,
 		ActionCount:       payload.ActionCount,
 		EdgeCount:         payload.EdgeCount,
 		QueueCount:        payload.QueueCount,
+		RecordCount:       payload.RecordCount,
+		ResultCount:       payload.ResultCount,
+		ViolationCount:    payload.ViolationCount,
 		At:                event.At,
 	}
 }
