@@ -36,6 +36,10 @@ func EventsFromWriteWorkflowRun(run types.WriteWorkflowRun) []LoopEvent {
 	if batch, ok := activeWriteWorkflowBatch(run); ok {
 		unitID := writeWorkflowRuntimeUnitID(batch)
 		add(LoopEventUnitCreated, unitID, "write_workflow_active_batch", nil)
+		if review := LocalizationReviewFromWriteWorkflowRun(run, batch.ID); review != nil {
+			authority := DeriveLocalizationAuthority(review)
+			add(LoopEventLocalizationProjected, unitID, authority.ReasonCode, authority)
+		}
 		addWriteWorkflowBatchEvents(add, batch, unitID)
 	}
 	switch run.Status {

@@ -1096,7 +1096,7 @@ The implementation must move in small commercial batches. Each batch updates thi
 | L0 | complete | Design ledger and task breakdown | This document, P0/P1 mapping, batch checklist, progress ledger | `git diff --check` |
 | L1 | complete | Loop kernel skeleton | `internal/loopkernel` event schema, reducer, typed authority projections, atomic event persistence | focused `go test ./internal/loopkernel` |
 | L2 | complete | Shadow write adapter | emit loop events from current write controller without changing effects; reducer parity with `WriteWorkflowRun` | loopkernel/repl focused tests |
-| L3 | next | Localization authority consumption | shared `LocalizationAuthority` consumed by read sidecar, write controller, planner/replan, final report | read/write localization tests |
+| L3 | in_progress | Localization authority consumption | shared `LocalizationAuthority` consumed by read sidecar, write controller, planner/replan, final report | read/write localization tests |
 | L4 | pending | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
 | L5 | pending | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
 | L6 | pending | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
@@ -1125,11 +1125,13 @@ The implementation must move in small commercial batches. Each batch updates thi
 
 ### L3 Task Breakdown
 
-- Add `LocalizationAuthority` consumer to write controller state view.
-- Add typed localizer action recommendation when source paths are observed-only, auxiliary-only, missing, or conflicted.
-- Add read sidecar projection from TurnA artifacts without rewriting the read scheduler loop.
-- Feed owner-supported Top-N anchors into planner/replan/final report.
-- Add tests proving no user keyword/model prose is consumed by hard routing.
+- [x] Project `WriteContextPack` localization anchors into `LocalizationAuthority` loop events.
+- [x] Persist the projected localization authority in shadow workflow loop event artifacts.
+- [ ] Add `LocalizationAuthority` consumer to write controller state view.
+- [ ] Add typed localizer action recommendation when source paths are observed-only, auxiliary-only, missing, or conflicted.
+- [ ] Add read sidecar projection from TurnA artifacts without rewriting the read scheduler loop.
+- [ ] Feed owner-supported Top-N anchors into planner/replan/final report.
+- [ ] Add tests proving no user keyword/model prose is consumed by hard routing.
 
 ### L4 Task Breakdown
 
@@ -1186,7 +1188,7 @@ The implementation must move in small commercial batches. Each batch updates thi
 | 2026-06-19 | L0 | complete | Document includes current code audit, Codrax-specific P0/P1 priorities, detailed delivery task ledger, and phased roadmap. |
 | 2026-06-19 | L1 | complete | Added `internal/loopkernel` event schema, reducer, authority projections, atomic event persistence, and focused tests. `go test ./internal/loopkernel` passed. |
 | 2026-06-19 | L2 | complete | Added `EventsFromWriteWorkflowRun`, shadow event persistence under `workflows/events/<runID>.json`, Clear cleanup, and parity tests. Focused `loopkernel`/`repl` tests passed. |
-| 2026-06-19 | L3 | next | Localization authority should become a consumed read/write state view instead of only handoff/audit metadata. |
+| 2026-06-19 | L3 | in_progress | Shadow loop events now include `LocalizationAuthority` projected from typed `WriteContextPack.LocalizationAnchor` evidence. Remaining work: controller/read sidecar/planner/final report consumption. |
 
 ## Phased Roadmap
 

@@ -29,6 +29,72 @@ func TestEventsFromWriteWorkflowRunPendingApprovalProjectsAsk(t *testing.T) {
 	}
 }
 
+func TestEventsFromWriteWorkflowRunProjectsOwnerLocalizationAuthority(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-localized",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ContextPacks: []types.WriteContextPack{{
+			BatchID: "batch-1",
+			Items: []types.WriteContextItem{{
+				Priority: types.WriteContextP1,
+				Kind:     "localization_anchor",
+				Text:     "pkg/owner.py",
+				LocalizationAnchor: &types.SourceLocalizationAnchor{
+					Path:     "pkg/owner.py",
+					Role:     types.SourcePathRoleProduction,
+					Kind:     types.SourceLocalizationAnchorGroundedEvidence,
+					Strength: types.SourceLocalizationAnchorOwner,
+				},
+			}},
+		}},
+	}
+	got := ReduceEvents(EventsFromWriteWorkflowRun(run))
+	if got.Localization.State != LocalizationAuthorityOwnerSupported {
+		t.Fatalf("localization = %+v, want owner_supported", got.Localization)
+	}
+	if got.Localization.RecommendedAction != LoopActionContinue {
+		t.Fatalf("owner localization should continue: %+v", got.Localization)
+	}
+}
+
+func TestEventsFromWriteWorkflowRunObservedLocalizationNeedsLocalizer(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-observed",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ContextPacks: []types.WriteContextPack{{
+			BatchID: "batch-1",
+			Items: []types.WriteContextItem{{
+				Priority: types.WriteContextP1,
+				Kind:     "localization_anchor",
+				Text:     "pkg/maybe.py",
+				LocalizationAnchor: &types.SourceLocalizationAnchor{
+					Path:     "pkg/maybe.py",
+					Role:     types.SourcePathRoleProduction,
+					Kind:     types.SourceLocalizationAnchorReadFile,
+					Strength: types.SourceLocalizationAnchorObserved,
+				},
+			}},
+		}},
+	}
+	got := ReduceEvents(EventsFromWriteWorkflowRun(run))
+	if got.Localization.State != LocalizationAuthorityObservedOnly {
+		t.Fatalf("localization = %+v, want observed_only", got.Localization)
+	}
+	if got.Localization.RecommendedAction != LoopActionLocalize || !got.Localization.RequiresMoreContext {
+		t.Fatalf("observed-only localization should request localizer: %+v", got.Localization)
+	}
+}
+
 func TestEventsFromWriteWorkflowRunVerifyingUsesActiveSlice(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "wf-verify",
