@@ -43,6 +43,9 @@ const verificationProbeExceptionOutsideChangedLinesReasonCode = "verification_pr
 var pythonTracebackFrameRE = regexp.MustCompile(`^\s*File "([^"]+)", line ([0-9]+), in .*$`)
 var pythonModuleNotFoundRE = regexp.MustCompile(`(?m)ModuleNotFoundError:\s+No module named ['"]([^'"]+)['"]`)
 var pythonCannotImportNameRE = regexp.MustCompile(`(?m)ImportError:\s+cannot import name ['"]([^'"]+)['"] from ['"]([^'"]+)['"]`)
+var javascriptStackFrameRE = regexp.MustCompile(`(?m)(?:^|\s)at\s+(?:[^\s(]+\s+\()?([^()\s]+):([0-9]+):[0-9]+\)?`)
+var rubyStackFrameRE = regexp.MustCompile(`(?m)^\s*([^:\n]+\.rb):([0-9]+):in\b`)
+var goStackFrameRE = regexp.MustCompile(`(?m)^\s*([^:\n]+\.go):([0-9]+)(?:\s|\+)`)
 
 const pythonVerificationProbeWrapper = `
 import base64
@@ -863,8 +866,14 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 			reasonCode = inlineVerificationProbeReasonCode(in.Language, status)
 		case "exception":
 			passed = false
-			failureKind = types.FailureKindTestsFailed
 			reasonCode = inlineVerificationProbeReasonCode(in.Language, status)
+			if inlineVerificationProbeExceptionOutsideChangedLines(ctx, in.Language, output) {
+				outcome = "parser_error"
+				failureKind = types.FailureKindParserError
+				reasonCode = verificationProbeExceptionOutsideChangedLinesReasonCode
+			} else {
+				failureKind = types.FailureKindTestsFailed
+			}
 		default:
 			passed = false
 			outcome = "parser_error"
@@ -918,6 +927,17 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 	}
 	logging.Info("[run_tests] verification_probe id=%s lang=%s cwd=%s outcome=%s exit=%d duration=%v",
 		in.ID, in.Language, in.WorkingDir, outcome, exitCode, duration)
+	command := types.ExecutedCommand{
+		Runner:     "verification_probe",
+		Framework:  in.Language,
+		WorkingDir: in.WorkingDir,
+		Command:    in.CommandText,
+		ExitCode:   exitCode,
+		DurationMS: duration.Milliseconds(),
+		Source:     in.Source,
+		Outcome:    outcome,
+		ReasonCode: reasonCode,
+	}
 	return verificationProbeRunResult{
 		Report: &types.ChangeReport{
 			TestResults: []types.TestResult{{
@@ -932,19 +952,19 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 			FailureKind:       failureKind,
 			FailureReasonCode: reasonCode,
 			FailureSummary:    detail,
+			VerificationDiagnostics: inlineVerificationProbeDiagnostics(in.Language, inlineVerificationProbeDiagnosticInput{
+				Status:     status,
+				Output:     output,
+				Source:     in.Source,
+				WorkingDir: in.WorkingDir,
+				Command:    in.CommandText,
+				Outcome:    outcome,
+				ReasonCode: reasonCode,
+				ExitCode:   exitCode,
+			}),
 		},
-		Output: output,
-		Commands: []types.ExecutedCommand{{
-			Runner:     "verification_probe",
-			Framework:  in.Language,
-			WorkingDir: in.WorkingDir,
-			Command:    in.CommandText,
-			ExitCode:   exitCode,
-			DurationMS: duration.Milliseconds(),
-			Source:     in.Source,
-			Outcome:    outcome,
-			ReasonCode: reasonCode,
-		}},
+		Output:   output,
+		Commands: []types.ExecutedCommand{command},
 	}
 }
 
@@ -1159,6 +1179,138 @@ func inlineVerificationProbeReasonCode(language string, status inlineVerificatio
 	}
 }
 
+type inlineVerificationProbeDiagnosticInput struct {
+	Status     inlineVerificationProbeStatus
+	Output     string
+	Source     string
+	WorkingDir string
+	Command    string
+	Outcome    string
+	ReasonCode string
+	ExitCode   int
+}
+
+func inlineVerificationProbeDiagnostics(language string, in inlineVerificationProbeDiagnosticInput) []types.VerificationDiagnostic {
+	reasonCode := strings.TrimSpace(in.ReasonCode)
+	if reasonCode == "" {
+		reasonCode = inlineVerificationProbeReasonCode(language, in.Status)
+	}
+	outcome := strings.TrimSpace(in.Outcome)
+	if outcome == "" {
+		outcome = strings.TrimSpace(in.Status.Outcome)
+	}
+	cmd := types.ExecutedCommand{
+		Runner:     "verification_probe",
+		Framework:  strings.TrimSpace(language),
+		WorkingDir: strings.TrimSpace(in.WorkingDir),
+		Command:    strings.TrimSpace(in.Command),
+		Source:     strings.TrimSpace(in.Source),
+		Outcome:    outcome,
+		ReasonCode: reasonCode,
+		ExitCode:   in.ExitCode,
+	}
+	diag, ok := verificationDiagnosticFromExecutedCommand(cmd)
+	if !ok {
+		return nil
+	}
+	detail := inlineVerificationProbeDiagnosticDetail(language, in.Status, in.Output, reasonCode)
+	if detail != "" {
+		diag.Detail = detail
+	}
+	return []types.VerificationDiagnostic{diag}
+}
+
+func inlineVerificationProbeDiagnosticDetail(language string, status inlineVerificationProbeStatus, output, reasonCode string) string {
+	payload := map[string]string{
+		"language":    strings.TrimSpace(language),
+		"exception":   strings.TrimSpace(status.Exception),
+		"outcome":     strings.TrimSpace(status.Outcome),
+		"reason_code": strings.TrimSpace(reasonCode),
+	}
+	switch strings.TrimSpace(language) {
+	case "javascript":
+		if module := javascriptProbeMissingModule(output); module != "" {
+			payload["missing_module"] = module
+		}
+	case "ruby":
+		if module := rubyProbeLoadErrorTarget(output); module != "" {
+			payload["missing_module"] = module
+		}
+	case "go":
+		if symbol := goProbeCompileUndefinedSymbol(output); symbol != "" {
+			payload["undefined_symbol"] = symbol
+		}
+	case "java":
+		if symbol := javaProbeCompileMissingSymbol(output); symbol != "" {
+			payload["missing_symbol"] = symbol
+		}
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return payload["reason_code"]
+	}
+	return string(data)
+}
+
+func javascriptProbeMissingModule(output string) string {
+	for _, marker := range []string{"Cannot find module '", `Cannot find module "`} {
+		idx := strings.Index(output, marker)
+		if idx < 0 {
+			continue
+		}
+		start := idx + len(marker)
+		end := start
+		quote := marker[len(marker)-1]
+		for end < len(output) && output[end] != quote {
+			end++
+		}
+		return strings.TrimSpace(output[start:end])
+	}
+	return ""
+}
+
+func rubyProbeLoadErrorTarget(output string) string {
+	for _, marker := range []string{"cannot load such file -- ", "LoadError: "} {
+		idx := strings.Index(output, marker)
+		if idx < 0 {
+			continue
+		}
+		value := strings.TrimSpace(output[idx+len(marker):])
+		if nl := strings.IndexByte(value, '\n'); nl >= 0 {
+			value = strings.TrimSpace(value[:nl])
+		}
+		return strings.Trim(value, `"'`)
+	}
+	return ""
+}
+
+func goProbeCompileUndefinedSymbol(output string) string {
+	idx := strings.Index(output, "undefined: ")
+	if idx < 0 {
+		return ""
+	}
+	value := strings.TrimSpace(output[idx+len("undefined: "):])
+	if nl := strings.IndexByte(value, '\n'); nl >= 0 {
+		value = strings.TrimSpace(value[:nl])
+	}
+	return value
+}
+
+func javaProbeCompileMissingSymbol(output string) string {
+	for _, marker := range []string{"cannot find symbol", "package "} {
+		idx := strings.Index(output, marker)
+		if idx < 0 {
+			continue
+		}
+		value := strings.TrimSpace(output[idx:])
+		if nl := strings.IndexByte(value, '\n'); nl >= 0 {
+			value = strings.TrimSpace(value[:nl])
+		}
+		return value
+	}
+	return ""
+}
+
 func looksLikeGoProbeCompileError(output string) bool {
 	for _, marker := range []string{
 		"# command-line-arguments",
@@ -1338,6 +1490,73 @@ func pythonVerificationProbeTracebackPatchAttribution(ctx *types.BusContext, out
 		}
 	}
 	return attr
+}
+
+func inlineVerificationProbeExceptionOutsideChangedLines(ctx *types.BusContext, language, output string) bool {
+	attr := inlineVerificationProbeStackPatchAttribution(ctx, language, output)
+	return attr.HasPrecisePatchSurface && attr.HasProductFrame && !attr.HasChangedLineFrame
+}
+
+func inlineVerificationProbeStackPatchAttribution(ctx *types.BusContext, language, output string) pythonTracebackPatchAttribution {
+	changedLines, hasSurface := changePlanAddedLineSurface(ctx)
+	attr := pythonTracebackPatchAttribution{HasPrecisePatchSurface: hasSurface}
+	if !hasSurface {
+		return attr
+	}
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = strings.TrimSpace(ctx.RepoRoot)
+	}
+	if repoRoot == "" {
+		return attr
+	}
+	for _, frame := range inlineVerificationProbeStackFrames(language, output) {
+		rel, ok := verificationProbeRepoRelativeFramePath(repoRoot, frame.Path)
+		if !ok {
+			continue
+		}
+		attr.HasProductFrame = true
+		if lines := changedLines[rel]; lines[frame.Line] {
+			attr.HasChangedLineFrame = true
+		}
+	}
+	return attr
+}
+
+type verificationProbeStackFrame struct {
+	Path string
+	Line int
+}
+
+func inlineVerificationProbeStackFrames(language, output string) []verificationProbeStackFrame {
+	var re *regexp.Regexp
+	switch strings.TrimSpace(language) {
+	case "javascript":
+		re = javascriptStackFrameRE
+	case "ruby":
+		re = rubyStackFrameRE
+	case "go":
+		re = goStackFrameRE
+	default:
+		return nil
+	}
+	matches := re.FindAllStringSubmatch(output, -1)
+	frames := make([]verificationProbeStackFrame, 0, len(matches))
+	for _, match := range matches {
+		if len(match) != 3 {
+			continue
+		}
+		lineNo, err := strconv.Atoi(match[2])
+		if err != nil || lineNo <= 0 {
+			continue
+		}
+		path := strings.TrimSpace(match[1])
+		if path == "" || strings.HasPrefix(path, "<") {
+			continue
+		}
+		frames = append(frames, verificationProbeStackFrame{Path: path, Line: lineNo})
+	}
+	return frames
 }
 
 func changePlanAddedLineSurface(ctx *types.BusContext) (map[string]map[int]bool, bool) {

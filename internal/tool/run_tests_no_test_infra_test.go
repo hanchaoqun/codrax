@@ -2078,6 +2078,89 @@ func TestPythonVerificationProbeTracebackAttributionUsesPatchEffectAddedLines(t 
 	}
 }
 
+func TestInlineVerificationProbeStackAttributionUsesPatchEffectAddedLines(t *testing.T) {
+	root := t.TempDir()
+	ctx := probeAttributionTestContext(root, "widget.js", 4)
+
+	changedJS := fmt.Sprintf("Error: bad\n    at changed (%s:4:3)\n", filepath.Join(root, "widget.js"))
+	if inlineVerificationProbeExceptionOutsideChangedLines(ctx, "javascript", changedJS) {
+		t.Fatalf("javascript stack on an added patch line must remain product failure")
+	}
+	outsideJS := fmt.Sprintf("Error: bad\n    at explode (%s:7:3)\n", filepath.Join(root, "widget.js"))
+	if !inlineVerificationProbeExceptionOutsideChangedLines(ctx, "javascript", outsideJS) {
+		t.Fatalf("javascript stack outside the precise patch line surface should be probe-authoring unavailable")
+	}
+
+	ctx = probeAttributionTestContext(root, "lib/widget.rb", 4)
+	outsideRuby := fmt.Sprintf("%s:7:in `explode': bad (RuntimeError)\n", filepath.Join(root, "lib", "widget.rb"))
+	if !inlineVerificationProbeExceptionOutsideChangedLines(ctx, "ruby", outsideRuby) {
+		t.Fatalf("ruby stack outside the precise patch line surface should be probe-authoring unavailable")
+	}
+
+	ctx = probeAttributionTestContext(root, "widget.go", 4)
+	outsideGo := fmt.Sprintf("panic: bad\n\ngoroutine 1 [running]:\nmain.explode()\n\t%s:7 +0x12\n", filepath.Join(root, "widget.go"))
+	if !inlineVerificationProbeExceptionOutsideChangedLines(ctx, "go", outsideGo) {
+		t.Fatalf("go stack outside the precise patch line surface should be probe-authoring unavailable")
+	}
+
+	javaStackWithoutPath := "java.lang.RuntimeException: bad\n\tat com.example.Widget.explode(Widget.java:7)\n"
+	if inlineVerificationProbeExceptionOutsideChangedLines(ctx, "java", javaStackWithoutPath) {
+		t.Fatalf("java class-only stack frame must not be downgraded without a repo-relative path")
+	}
+}
+
+func TestInlineVerificationProbeDiagnosticsCarryStructuredDetails(t *testing.T) {
+	diags := inlineVerificationProbeDiagnostics("javascript", inlineVerificationProbeDiagnosticInput{
+		Status: inlineVerificationProbeStatus{
+			Outcome:   "import_error",
+			Exception: "Error",
+			ExitCode:  1,
+		},
+		Output:     "Error: Cannot find module 'left-pad'\n",
+		Source:     "pre_suite_verification_probe",
+		WorkingDir: ".",
+		Command:    "node -e <verification_probe:missing>",
+		Outcome:    "parser_error",
+		ReasonCode: "verification_probe_import_error",
+		ExitCode:   1,
+	})
+	if !verificationDiagnosticsContain(diags, "probe_import_or_environment", "verification_probe_import_error") {
+		t.Fatalf("import diagnostic missing: %+v", diags)
+	}
+	if len(diags) != 1 ||
+		!strings.Contains(diags[0].Detail, `"language":"javascript"`) ||
+		!strings.Contains(diags[0].Detail, `"missing_module":"left-pad"`) {
+		t.Fatalf("structured diagnostic detail missing language/module: %+v", diags)
+	}
+}
+
+func probeAttributionTestContext(root, path string, addedLine int) *types.BusContext {
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		_ = os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755)
+	}
+	mu := types.NewMutableState("probe attribution")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-attribution",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{path},
+		PatchEffect: &types.PatchEffectRecord{
+			Files: []types.PatchEffectFile{{
+				Path: path,
+				Hunks: []types.PatchEffectHunk{{
+					NewStart:         addedLine,
+					NewLines:         1,
+					AddedLineNumbers: []int{addedLine},
+				}},
+			}},
+		},
+	})
+	return &types.BusContext{
+		Mutable:      mu,
+		RepoRoot:     root,
+		MainRepoRoot: root,
+	}
+}
+
 func TestRunPlanVerificationProbeExceptionOutsideChangedLinesIsUnavailable(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

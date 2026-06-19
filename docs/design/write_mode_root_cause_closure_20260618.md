@@ -8784,7 +8784,7 @@ Audit ledger:
 | Priority | Area | Finding | Status / action |
 | --- | --- | --- | --- |
 | P0 | Read/write structural owner localization | The Xarray failure was Python-triggered, but the class of bug is multiline declaration owner extraction. It affects read-mode owner-anchor supplements and write-mode apply authority. Go/Ruby already had coverage for common multiline headers; brace languages could degrade `Class.method` to class-only owner. | RC132 fixes this in shared `sourceowner` and adds Python/Go/Ruby/brace-language regressions. |
-| P0 | Verification probe failure attribution | Python probes have richer import/startup diagnostics and traceback-to-changed-line attribution (`verification_probe_exception_outside_changed_lines`). JS/Ruby/Go/Java probes use the shared runtime matrix but do not yet have equivalent provider-level stack-frame attribution or import-detail diagnostics. | Record as RC133 candidate: add a typed `ProbeFailureClassifier` provider interface for JS/Ruby/Go/Java/Python so local verification confidence is not Python-biased. |
+| P0 | Verification probe failure attribution | Python probes have richer import/startup diagnostics and traceback-to-changed-line attribution (`verification_probe_exception_outside_changed_lines`). JS/Ruby/Go/Java probes use the shared runtime matrix but do not yet have equivalent provider-level stack-frame attribution or import-detail diagnostics. | RC133 starts the provider-level closure: JS/Ruby/Go now get precise stack-frame changed-line attribution, inline probes emit structured diagnostics, and Java remains conservative when stack frames lack repo paths. |
 | P1 | No-test/source-check verification | The original Python static preflight has already been generalized into `sourceCheckProviderRegistry` for Python, Node JS/TS, Ruby, Go, Java/Kotlin, and Swift. | Closed for these families. Remaining gap: supported languages without providers (for example Rust/C/C++/ArkTS/Cangjie) should be evaluated before claiming full multi-language source-check coverage. |
 | P1 | Patch-effect semantic shape review | Several Python-triggered shape checks were generalized through `patchEffectSourceProviders` across JS/TS, Ruby, JVM, and Go. However Python still has extra hard owner/body-shape events: top-level `self/cls`, executable-looking docstring insertion, duplicate declaration, and unreachable body after added return. | Record as RC134 candidate: move language-specific hard shape rules behind provider capabilities and add analogous JS/TS/Ruby/Go/JVM regressions where structural parsing is reliable. |
 | P1 | Test-surface fallback UX | Python has a synthetic stdlib `unittest` candidate so missing pytest does not dead-end verification. Other ecosystems use typed detectors/source-check fallbacks, but Node built-in `node --test`, Ruby stdlib minitest, and Cargo/Gradle/Maven equivalent fallback semantics are not yet audited as a unified provider policy. | Record as RC135 candidate: add a typed test-surface fallback policy matrix; keep missing toolchains as `unverified`, not hard source failures. |
@@ -8885,6 +8885,61 @@ RC132 focused evidence:
 - `go test ./internal/sourceowner ./internal/tool ./internal/orchestrator -run 'TestFindEnclosingOwner|TestEnrichSourceLocalizationReview|TestApplyAndPersistMutation_Stamps.*Owner|TestAnswerDocumentEvaluator_ParseOutput_.*Owner|TestOwnerLocalization|TestRunController|TestSeedWriteWorkflowRun' -count=1`: pass.
 - `go test ./internal/writeflow -run 'TestPatchEffectSourceProviderRegistryCoverage|TestAnnotatePatchEffectNestedCollectionBranchExclusionWarnsAcrossProviders' -count=1`: pass.
 - `go test ./internal/tool -run 'TestSourceCheckProviderRegistry|TestSourceCheckExtensions|Test.*VerificationProbe' -count=1`: pass.
+- `go test ./...`: pass.
+- `make test`: pass.
+- `git diff --check`: pass.
+
+## 2026-06-19 RC133 In Progress: Multi-language Verification Probe Failure Attribution
+
+Gap:
+
+- Recent probe fixes made Python verification probes much better at separating
+  product failures from probe-authoring/environment failures:
+  `ModuleNotFoundError`, assertion-wrapped imports, top-level exceptions, and
+  tracebacks outside changed patch lines could become typed unavailable
+  evidence instead of driving a wrong source replan.
+- JS/Ruby/Go/Java probes already shared the runtime matrix, but their failure
+  attribution remained thinner: external inline probes generally reported
+  generic exceptions or import errors without provider-level diagnostics, and
+  exceptions outside the precise changed-line patch surface still looked like
+  product failures.
+- This creates a non-Python correctness gap in both write mode and local
+  verification confidence: a bad probe fixture or missing module can steer
+  controller replan even when the patch itself is not implicated.
+
+Design:
+
+- Keep hard authority typed-only. The classifier consumes only
+  `VerificationProbe.language`, wrapper-emitted structured status, command
+  output stack frames, repo-relative path resolution, and `PatchEffect`
+  added-line surfaces.
+- JS/Ruby/Go stack frames can satisfy the precise rule only when a frame path
+  resolves inside the repo and maps to a changed/unchanged line in the current
+  patch surface.
+- Java stack frames such as `Class.java:line` do not carry enough path
+  authority, so they remain product failures unless a future provider can map
+  class names to source paths through a typed build graph.
+- Inline probe diagnostics now carry structured JSON details for module/load
+  errors and compile-symbol failures, aligning non-Python probes with Python's
+  `probe_import_or_environment` diagnostic surface.
+
+Tasks:
+
+- [x] Add JS/Ruby/Go stack-frame parsers for repo-relative path + line
+      attribution.
+- [x] Reuse the existing patch-effect added-line surface to distinguish
+      changed-line failures from outside-surface probe authoring failures.
+- [x] Keep Java conservative when only class-local stack frames are available.
+- [x] Emit structured non-Python inline probe diagnostics from command outcome
+      and wrapper status.
+- [x] Add focused regressions for JS/Ruby/Go outside-line attribution, Java
+      conservative behavior, and structured JS import diagnostics.
+- [x] Run related/full regression and push.
+
+RC133 focused evidence:
+
+- `go test ./internal/tool -run 'TestInlineVerificationProbe|TestPythonVerificationProbeTracebackAttribution|TestRunPlanVerificationProbeExceptionOutsideChangedLinesIsUnavailable|TestVerificationDiagnosticsPreserveProbeAndSuiteSignals|Test.*VerificationProbe' -count=1`: pass.
+- `go test ./internal/tool ./internal/writeflow ./internal/types -run 'Test.*VerificationProbe|TestObservationAuthority|TestVerificationConfidence|TestChangePlanScore|TestWriteFinalReport|TestInlineVerificationProbe' -count=1`: pass.
 - `go test ./...`: pass.
 - `make test`: pass.
 - `git diff --check`: pass.
