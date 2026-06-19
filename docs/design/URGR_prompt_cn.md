@@ -463,7 +463,7 @@ type AnswerReasoningGraphSummary struct {
 | P1-Perf-4 CompletionPreflightView | delivered | `emit_investigation_complete` 构建 typed preflight view；precheck/grounding/tier1 gate 共享 evidence、effective aggregate facts、relation facts、generic/tier1 tally |
 | P2-B8 Graph-Guided Controller | delivered | controller enforcement 消费 typed graph audit guidance；missing evidence / repair storm 只推荐 existing `explore_code`，LLM wait 仅 advisory |
 | P2-B9 Graph-Native Replay Executor | delivered | read-only graph replay/local recompute：events/file -> view/audit，node-local filter，budget/cancellation/idempotence tests |
-| P2-B10 收敛重复状态字段 | planned | 内部投影去重、文档和用户指南同步 |
+| P2-B10 收敛重复状态字段 | delivered | write final graph summary 从 orchestrator 本地重复实现收敛到 `reasoninggraph` projector；外部 JSON 字段保留；docs/user guide 同步 |
 
 ### P0-B1：Tool / Repair / LLM Wait Observation Graph
 
@@ -876,12 +876,20 @@ type AnswerReasoningGraphSummary struct {
 
 目标：当 graph consumers 稳定后，删除重复 projection，降低维护成本。
 
+当前进展：
+
+- 已完成：审计 final report、REPL workflow audit、read answer graph summary、SWE/eval graph telemetry 的生成点。
+- 已完成：`WriteFinalReasoningGraphSummary` 从 orchestrator 本地 reducer/count helper 迁移到 `reasoninggraph.WriteFinalReasoningGraphSummaryFromRun`，orchestrator 只调用共享 projector。
+- 已完成：外部 `reasoning_graph` / `graph_audit` JSON 字段保持不变；`BuildWriteFinalAuditSummary` 继续从 final report typed field 生成 audit，不要求消费者改协议。
+- 已完成：新增 projector 单测覆盖 workflow counts、node count、event refs cap、nil-safe。
+- 已完成：`docs/architecture.md`、`docs/user_guide.md`、`docs/user_guide.html` 同步说明 graph replay/projector 是内部权威生成层。
+
 任务：
 
-1. 审计 final report、SWE results、workflow view 中与 graph view 重复的字段。
-2. 保留外部兼容字段，内部统一从 graph view 生成。
-3. 更新 `docs/architecture.md`、`docs/user_guide.md`。
-4. 全量回归。
+1. 审计 final report、SWE results、workflow view 中与 graph view 重复的字段：已完成首批审计，write final summary 是当前重复度最高且低风险的收敛点。
+2. 保留外部兼容字段，内部统一从 graph view 生成：已完成 write final graph summary；后续如继续收敛 SWE support table，只能保留现有外部字段。
+3. 更新 `docs/architecture.md`、`docs/user_guide.md`：已完成。
+4. 全量回归：本批完成后执行。
 
 验收：
 

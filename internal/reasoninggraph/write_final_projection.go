@@ -1,29 +1,28 @@
-package orchestrator
+package reasoninggraph
 
 import (
 	"strings"
 
-	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const writeFinalReasoningGraphEventRefLimit = 128
+const DefaultWriteFinalReasoningGraphEventRefLimit = 128
 
-func writeFinalReasoningGraphSummaryFromRun(run *types.WriteWorkflowRun) *types.WriteFinalReasoningGraphSummary {
+func WriteFinalReasoningGraphSummaryFromRun(run *types.WriteWorkflowRun, limit int) *types.WriteFinalReasoningGraphSummary {
 	if run == nil {
 		return nil
 	}
-	events := reasoninggraph.EventsFromWriteWorkflowRun(*run)
+	events := EventsFromWriteWorkflowRun(*run)
 	if len(events) == 0 {
 		return nil
 	}
-	view := reasoninggraph.ReduceEvents(events)
+	view := ReduceEvents(events)
 	out := &types.WriteFinalReasoningGraphSummary{
 		GraphID:            strings.TrimSpace(view.GraphID),
 		EventCount:         view.EventCount,
 		LastEventKind:      string(view.LastEventKind),
 		LastReasonCode:     strings.TrimSpace(view.LastReasonCode),
-		EventRefs:          writeFinalReasoningGraphEventRefs(events, writeFinalReasoningGraphEventRefLimit),
+		EventRefs:          writeFinalReasoningGraphEventRefs(events, limit),
 		WorkflowEventCount: len(view.WorkflowEvents),
 		ToolEventCount:     len(view.ToolEvents),
 		RepairEventCount:   len(view.RepairEvents),
@@ -34,7 +33,7 @@ func writeFinalReasoningGraphSummaryFromRun(run *types.WriteWorkflowRun) *types.
 	return normalized.ReasoningGraph
 }
 
-func writeFinalReasoningGraphEventRefs(events []reasoninggraph.ReasoningEvent, limit int) []string {
+func writeFinalReasoningGraphEventRefs(events []ReasoningEvent, limit int) []string {
 	if limit <= 0 {
 		limit = len(events)
 	}
