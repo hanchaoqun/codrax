@@ -53,7 +53,9 @@ func TestApplyAndPersistMutation_StampsReadOwnerAnchorsFromTurnA(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
 		SourceLocalization: &types.SourceLocalizationReview{
-			Source: "read_turn_a",
+			Source:      "read_turn_a",
+			Status:      types.SourceLocalizationObserved,
+			SourcePaths: []string{"pkg/observed.py", "pkg/owner.py"},
 			Anchors: []types.SourceLocalizationAnchor{{
 				Path:     "pkg/observed.py",
 				Kind:     types.SourceLocalizationAnchorReadFile,
@@ -89,6 +91,12 @@ func TestApplyAndPersistMutation_StampsReadOwnerAnchorsFromTurnA(t *testing.T) {
 	got := bus.Mutable.AnswerDocumentV2()
 	if got == nil || len(got.ReadOwnerAnchors) != 1 {
 		t.Fatalf("read owner anchors not stamped: %+v", got)
+	}
+	if got.ReadSourceLocalization == nil || got.ReadSourceLocalization.Status != types.SourceLocalizationObserved {
+		t.Fatalf("read source localization not stamped: %+v", got.ReadSourceLocalization)
+	}
+	if len(got.ReadSourceLocalization.SourcePaths) == 0 || got.ReadSourceLocalization.SourcePaths[0] != "pkg/observed.py" {
+		t.Fatalf("read source localization lost observed path: %+v", got.ReadSourceLocalization)
 	}
 	if got.ReadOwnerAnchors[0].Path != "pkg/owner.py" || got.ReadOwnerAnchors[0].OwnerSymbol != "Owner.Handle" {
 		t.Fatalf("wrong stamped anchor: %+v", got.ReadOwnerAnchors[0])

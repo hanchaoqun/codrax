@@ -269,6 +269,7 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 	if len(prev.ReadOwnerAnchors) > 0 {
 		out.ReadOwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: prev.ReadOwnerAnchors}, 0).Items
 	}
+	out.ReadSourceLocalization = CloneSourceLocalizationReviewPtr(prev.ReadSourceLocalization)
 
 	// Block merge:
 	//

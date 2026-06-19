@@ -35,6 +35,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -10094,6 +10095,13 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 		}
 	}
+	if supplement := renderReadLocalizationAuthoritySupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
+		if strings.TrimSpace(prose) == "" {
+			prose = strings.TrimSpace(supplement)
+		} else {
+			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+		}
+	}
 	if supplement := renderReadOwnerAnchorSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
 		if strings.TrimSpace(prose) == "" {
 			prose = strings.TrimSpace(supplement)
@@ -10108,6 +10116,71 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 		return strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 	}
 	return prose
+}
+
+func renderReadLocalizationAuthoritySupplement(_ *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+	if doc == nil || !types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
+		return ""
+	}
+	authority := loopkernel.DeriveLocalizationAuthority(doc.ReadSourceLocalization)
+	if authority.State == "" {
+		return ""
+	}
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("---\n\n")
+		b.WriteString("> **系统补充：源码定位状态**\n>\n")
+		b.WriteString("> 下表来自读模式探索阶段的 typed localization review，用于保留 owner/observed 定位状态；它不替代上方模型答案，也不是新的路由依据。\n\n")
+		b.WriteString("| 状态 | 原因 | 源码路径 | Owner 路径 | 缺口 |\n|---|---|---|---|---|\n")
+	} else {
+		b.WriteString("---\n\n")
+		b.WriteString("> **System supplement: source-localization status**\n>\n")
+		b.WriteString("> The table below is derived from the typed localization review gathered during read-mode exploration. It preserves owner/observed localization state. It does not replace the model-authored answer above and is not a routing signal.\n\n")
+		b.WriteString("| State | Reason | Source paths | Owner paths | Gaps |\n|---|---|---|---|---|\n")
+	}
+	fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s | %s |\n",
+		authority.State,
+		firstNonEmptyString(authority.ReasonCode, "none"),
+		readLocalizationAuthorityPathList(authority.SourcePaths, 4),
+		readLocalizationAuthorityPathList(authority.OwnerSupportedPaths, 4),
+		readLocalizationAuthorityPathList(authority.OwnerMissingPaths, 4))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func readLocalizationAuthorityPathList(paths []string, limit int) string {
+	paths = dedupTrimReadLocalizationStrings(paths)
+	if len(paths) == 0 {
+		return "-"
+	}
+	if limit <= 0 || limit > len(paths) {
+		limit = len(paths)
+	}
+	parts := make([]string, 0, limit+1)
+	for _, path := range paths[:limit] {
+		parts = append(parts, "`"+path+"`")
+	}
+	if len(paths) > limit {
+		parts = append(parts, fmt.Sprintf("...(+%d)", len(paths)-limit))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func dedupTrimReadLocalizationStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, raw := range in {
+		value := strings.TrimSpace(raw)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 type readOwnerAnchorSupplementRow struct {

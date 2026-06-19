@@ -97,6 +97,13 @@ type AnswerDocumentV2 struct {
 	// structured answer emit succeeds; it is not part of the LLM-facing
 	// emit_answer_document schema and must never be parsed from model prose.
 	ReadOwnerAnchors []OwnerAnchorViewItem `json:"read_owner_anchors,omitempty"`
+
+	// ReadSourceLocalization is the full typed read-side source-localization
+	// review behind ReadOwnerAnchors. It preserves observed-only / weak /
+	// owner-supported localization status for audit and deterministic
+	// supplements even when no owner anchor is strong enough to render as
+	// proof. It is stamped from TurnAArtifacts, not emitted by the model.
+	ReadSourceLocalization *SourceLocalizationReview `json:"read_source_localization,omitempty"`
 }
 
 // AnswerMissingRequestedRole is a typed answer-level disclosure that

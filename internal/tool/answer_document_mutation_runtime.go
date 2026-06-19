@@ -193,6 +193,7 @@ func stampReadOwnerAnchorsFromTurnA(ctx *types.BusContext, doc *types.AnswerDocu
 	}
 	if review == nil {
 		doc.ReadOwnerAnchors = nil
+		doc.ReadSourceLocalization = nil
 		return 0
 	}
 	repoRoot := strings.TrimSpace(ctx.RepoRoot)
@@ -203,6 +204,8 @@ func stampReadOwnerAnchorsFromTurnA(ctx *types.BusContext, doc *types.AnswerDocu
 		enriched := sourceowner.EnrichSourceLocalizationReview(repoRoot, *review, "read_final_structural_owner")
 		review = &enriched
 	}
+	normalizedReview := types.NormalizeSourceLocalizationReview(*review)
+	doc.ReadSourceLocalization = types.CloneSourceLocalizationReviewPtr(&normalizedReview)
 	view := types.OwnerAnchorViewFromSourceLocalizationReview(*review, 0)
 	items := make([]types.OwnerAnchorViewItem, 0, minInt(len(view.Items), 12))
 	for _, item := range view.Items {

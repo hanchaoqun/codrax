@@ -6764,6 +6764,16 @@ func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendReadOwnerAnchorSupplem
 			Kind:     types.SourceLocalizationAnchorReadFile,
 			Strength: types.SourceLocalizationAnchorObserved,
 		}},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Source:      "read_turn_a",
+			Status:      types.SourceLocalizationObserved,
+			SourcePaths: []string{"pkg/observed.py"},
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:     "pkg/observed.py",
+				Kind:     types.SourceLocalizationAnchorReadFile,
+				Strength: types.SourceLocalizationAnchorObserved,
+			}},
+		},
 	})
 	ctx := &types.AgentContext{Mutable: mu}
 	e := &answerDocumentEvaluator{language: "zh"}
@@ -6773,6 +6783,16 @@ func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendReadOwnerAnchorSupplem
 	}
 	if strings.Contains(out.FinalAnswer, "系统补充：源码定位锚点核对") {
 		t.Fatalf("observed-only localization must not append owner supplement:\n%s", out.FinalAnswer)
+	}
+	for _, want := range []string{
+		"系统补充：源码定位状态",
+		"`observed_only`",
+		"`localization_observed_without_owner`",
+		"`pkg/observed.py`",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("observed-only localization status missing %q:\n%s", want, out.FinalAnswer)
+		}
 	}
 }
 

@@ -1131,8 +1131,9 @@ The implementation must move in small commercial batches. Each batch updates thi
 - [x] Add `LocalizationAuthority` consumer to write controller state view.
 - [x] Redirect first ready-to-plan/replan transition with weak production-source localization to `explore_code` using typed candidate paths and owner-evidence requirements; analyzer scope/expected paths remain advisory unless a read/evidence anchor makes the localization gate eligible.
 - [ ] Extend auxiliary-only/no-signal/missing localization handling beyond explicit production batch expected paths and context-pack evidence.
-- [ ] Add read sidecar projection from TurnA artifacts without rewriting the read scheduler loop.
-- [ ] Feed owner-supported Top-N anchors into planner/replan/final report.
+- [x] Add read sidecar projection from TurnA artifacts into the final `AnswerDocumentV2` artifact without rewriting the read scheduler loop.
+- [x] Render read-mode localization authority/status supplements from typed final-answer artifacts, including observed-only status without pretending it is owner proof.
+- [ ] Feed owner-supported Top-N anchors into planner/replan/write final report.
 - [ ] Add tests proving no user keyword/model prose is consumed by hard routing.
 
 ### L4 Task Breakdown
@@ -1190,7 +1191,7 @@ The implementation must move in small commercial batches. Each batch updates thi
 | 2026-06-19 | L0 | complete | Document includes current code audit, Codrax-specific P0/P1 priorities, detailed delivery task ledger, and phased roadmap. |
 | 2026-06-19 | L1 | complete | Added `internal/loopkernel` event schema, reducer, authority projections, atomic event persistence, and focused tests. `go test ./internal/loopkernel` passed. |
 | 2026-06-19 | L2 | complete | Added `EventsFromWriteWorkflowRun`, shadow event persistence under `workflows/events/<runID>.json`, Clear cleanup, and parity tests. Focused `loopkernel`/`repl` tests passed. |
-| 2026-06-19 | L3 | in_progress | Shadow loop events now include `LocalizationAuthority` projected from typed `WriteContextPack.LocalizationAnchor` evidence. `/workflow show` and the running next-action card render typed localization state/reason/action. `WorkflowExecutionView` consumes localization authority, projects batch `ExpectedPaths` as advisory context, and transition validation redirects the first weak production-source ready-to-plan/replan action to `explore_code` only when read/evidence anchors make the gate eligible. Focused `loopkernel`/`writeflow`/`orchestrator` tests passed. Remaining work: auxiliary-only/no-signal localization, read sidecar, planner/replan/final report consumption. |
+| 2026-06-19 | L3 | in_progress | Shadow loop events now include `LocalizationAuthority` projected from typed `WriteContextPack.LocalizationAnchor` evidence. `/workflow show` and the running next-action card render typed localization state/reason/action. `WorkflowExecutionView` consumes localization authority, projects batch `ExpectedPaths` as advisory context, and transition validation redirects the first weak production-source ready-to-plan/replan action to `explore_code` only when read/evidence anchors make the gate eligible. Read mode now persists `ReadSourceLocalization` on `AnswerDocumentV2` and renders typed localization-status supplements, including observed-only status without owner-proof inflation. Focused `loopkernel`/`writeflow`/`orchestrator`/`agent`/`tool`/`types` tests passed. Remaining work: auxiliary-only/no-signal localization, planner/replan/write final report consumption. |
 
 ## Phased Roadmap
 
