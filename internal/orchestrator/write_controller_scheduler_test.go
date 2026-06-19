@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
@@ -6509,6 +6510,142 @@ func TestNormalizeControllerTypedStateDecisionMissingNavigationCoverageAutoExplo
 	}
 }
 
+func TestControllerTruthLedgerFailedFinishRequiresReplan(t *testing.T) {
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-truth-failed",
+		Goal:          "repair failed behavior",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:   "batch-1",
+			Goal: "repair failed behavior",
+		}},
+	}
+	got, ok := controllerTruthLedgerDecisionFromView(
+		writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish, ReasonCode: "done"},
+		writeflow.WorkflowExecutionView{
+			State:   writeflow.WorkflowExecutionComplete,
+			BatchID: "batch-1",
+		},
+		types.TruthLedger{
+			State:             types.TruthLedgerFailed,
+			ReasonCode:        "tests_failed",
+			RecommendedAction: types.TruthActionRepair,
+		},
+		run,
+	)
+	if !ok || got.Action != writeflow.ActionReplanBatch || got.ReasonCode != "truth_ledger_failed_requires_repair" {
+		t.Fatalf("failed truth should replan before finish, ok=%v got=%+v", ok, got)
+	}
+	if got.Batch == nil || got.Batch.ID != "batch-1" || got.Batch.Goal != "repair failed behavior" {
+		t.Fatalf("truth replan should preserve active batch identity, got %+v", got.Batch)
+	}
+}
+
+func TestControllerTruthLedgerWeakProofFinishRequiresVerify(t *testing.T) {
+	got, ok := controllerTruthLedgerDecisionFromView(
+		writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish, ReasonCode: "done"},
+		writeflow.WorkflowExecutionView{
+			State:   writeflow.WorkflowExecutionComplete,
+			BatchID: "batch-1",
+		},
+		types.TruthLedger{
+			State:             types.TruthLedgerWeak,
+			ReasonCode:        "impact_targets_unverified",
+			RecommendedAction: types.TruthActionAddProof,
+		},
+		&types.WriteWorkflowRun{ActiveBatchID: "batch-1"},
+	)
+	if !ok || got.Action != writeflow.ActionVerifyBatch || got.ReasonCode != "truth_ledger_weak_requires_proof" {
+		t.Fatalf("weak proof should verify before finish, ok=%v got=%+v", ok, got)
+	}
+}
+
+func TestControllerTruthLedgerWeakLocalizationAskUserAutoExplores(t *testing.T) {
+	run := &types.WriteWorkflowRun{
+		Goal:          "find owner surface",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:   "batch-1",
+			Goal: "find owner surface",
+		}},
+	}
+	got, ok := controllerTruthLedgerDecisionFromView(
+		writeflow.WriteWorkflowDecision{Action: writeflow.ActionAskUser, ReasonCode: "need_hint"},
+		writeflow.WorkflowExecutionView{
+			State:                    writeflow.WorkflowExecutionReadyToPlan,
+			BatchID:                  "batch-1",
+			LocalizationGateEligible: true,
+			Localization: loopkernel.LocalizationAuthorityView{
+				State:               loopkernel.LocalizationAuthorityObservedOnly,
+				ReasonCode:          "localization_observed_without_owner",
+				SourcePaths:         []string{"pkg/bug.py"},
+				OwnerMissingPaths:   []string{"pkg/bug.py"},
+				RequiresMoreContext: true,
+			},
+		},
+		types.TruthLedger{
+			State:             types.TruthLedgerWeak,
+			ReasonCode:        "localization_observed_without_owner",
+			RecommendedAction: types.TruthActionLocalize,
+		},
+		run,
+	)
+	if !ok || got.Action != writeflow.ActionExploreCode || got.ReasonCode != "truth_ledger_weak_requires_localization" {
+		t.Fatalf("weak localization should explore before asking user, ok=%v got=%+v", ok, got)
+	}
+	if got.ExplorationRequest == nil || got.ExplorationRequest.BatchID != "batch-1" {
+		t.Fatalf("truth localization explore missing request: %+v", got.ExplorationRequest)
+	}
+	if !containsString(got.ExplorationRequest.CandidatePaths, "pkg/bug.py") {
+		t.Fatalf("truth localization should carry typed candidate path, got %+v", got.ExplorationRequest.CandidatePaths)
+	}
+}
+
+func TestControllerTruthLedgerUnverifiedAndReadyPlanDoNotOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		view   writeflow.WorkflowExecutionView
+		ledger types.TruthLedger
+	}{
+		{
+			name: "unverified complete",
+			view: writeflow.WorkflowExecutionView{
+				State:   writeflow.WorkflowExecutionComplete,
+				BatchID: "batch-1",
+			},
+			ledger: types.TruthLedger{
+				State:             types.TruthLedgerUnverified,
+				ReasonCode:        "runner_missing",
+				RecommendedAction: types.TruthActionContinue,
+			},
+		},
+		{
+			name: "weak before apply",
+			view: writeflow.WorkflowExecutionView{
+				State:   writeflow.WorkflowExecutionApplyReady,
+				BatchID: "batch-1",
+			},
+			ledger: types.TruthLedger{
+				State:             types.TruthLedgerWeak,
+				ReasonCode:        "proof_missing",
+				RecommendedAction: types.TruthActionAddProof,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := controllerTruthLedgerDecisionFromView(
+				writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish, ReasonCode: "done"},
+				tc.view,
+				tc.ledger,
+				&types.WriteWorkflowRun{ActiveBatchID: "batch-1"},
+			)
+			if ok {
+				t.Fatalf("truth ledger should not override %s, got %+v", tc.name, got)
+			}
+		})
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionPlanBatchAfterExplorationAttemptAllowed(t *testing.T) {
 	mu := types.NewMutableState("needs exploration already attempted")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
@@ -7166,9 +7303,11 @@ func TestRunWriteControllerWorkflow_FinishGateRequiresTypedDisposition(t *testin
 		{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "one attempt"}},
 		{Action: writeflow.ActionApplyPlan, ReasonCode: "ready"},
 		{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
-		// Bare finish after a failed verify must be rejected by the typed gate…
+		// Bare finish after a failed verify must be folded back into repair by
+		// the truth ledger before the older finish gate is reached.
 		{Action: writeflow.ActionFinish, ReasonCode: "premature"},
-		// …and accept_unverified is still rejected for typed code-failure evidence.
+		// accept_unverified still cannot turn typed code-failure evidence into
+		// a successful terminal state.
 		{Action: writeflow.ActionFinish, ReasonCode: "accepted", FinishDisposition: writeflow.FinishDispositionAcceptUnverified},
 		{Action: writeflow.ActionBlock, ReasonCode: "post_apply_failed"},
 	}
@@ -7196,10 +7335,10 @@ func TestRunWriteControllerWorkflow_FinishGateRequiresTypedDisposition(t *testin
 		t.Fatal("workflow should block after failed verification finish attempts are rejected")
 	}
 	if controllerCalls != 6 {
-		t.Fatalf("controller calls = %d, want 6 (two finish rejections, then block)", controllerCalls)
+		t.Fatalf("controller calls = %d, want 6 (truth repair, retry apply, then block)", controllerCalls)
 	}
-	if !workflowProgressHasReason(store.last.ProgressLedger, "finish_rejected_failed_verify") {
-		t.Fatalf("typed finish rejection should be recorded: %+v", store.last.ProgressLedger)
+	if !workflowProgressHasReason(store.last.ProgressLedger, "truth_ledger_failed_requires_repair") {
+		t.Fatalf("truth repair requirement should be recorded: %+v", store.last.ProgressLedger)
 	}
 	if store.last.Status != types.WriteWorkflowRunBlocked {
 		t.Fatalf("code-failure verification should block when controller stops, got %+v", store.last.Status)
@@ -7297,8 +7436,8 @@ func TestRunWriteControllerWorkflow_PlannerProbePassCannotFinishFailedPostApplyV
 	if store.last == nil || store.last.Status != types.WriteWorkflowRunBlocked {
 		t.Fatalf("workflow should be blocked by the final controller decision, got %+v", store.last)
 	}
-	if !workflowProgressHasReason(store.last.ProgressLedger, "finish_rejected_failed_verify") {
-		t.Fatalf("planner probe pass must not unblock failed post-apply finish: %+v", store.last.ProgressLedger)
+	if !workflowProgressHasReason(store.last.ProgressLedger, "truth_ledger_failed_requires_repair") {
+		t.Fatalf("planner probe pass must not unblock failed post-apply truth repair: %+v", store.last.ProgressLedger)
 	}
 	if !workflowBatchHasAttempt(store.last.Batches[0], "verify", "failed", "tests_failed", "plan-probe-pass.report.json") {
 		t.Fatalf("post-apply failure should be the authoritative verify attempt: %+v", store.last.Batches[0].Attempts)
@@ -9763,7 +9902,7 @@ func TestRunWriteControllerWorkflow_ExplorationBudgetSoftRejects(t *testing.T) {
 	}
 }
 
-// G3: switching the active batch clears the previous batch's carrier.
+// G3: switching the active batch clears a stale previous batch's carrier.
 func TestRunWriteControllerWorkflow_BatchSwitchClearsStaleHandoff(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("batch switch handoff")
@@ -9800,7 +9939,13 @@ func TestRunWriteControllerWorkflow_BatchSwitchClearsStaleHandoff(t *testing.T) 
 		case types.StageVerify:
 			plan := mu.ChangePlan()
 			if planCount == 1 {
-				mu.SetChangeReport(&types.ChangeReport{PlanID: plan.ID, Passed: false, FailureSummary: "batch-1 red"})
+				mu.SetChangeReport(&types.ChangeReport{PlanID: plan.ID, Passed: true})
+				mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+					PlanID:         plan.ID,
+					BatchID:        "batch-1",
+					Attempt:        1,
+					FailureSummary: "stale batch-1 red",
+				})
 			} else {
 				mu.SetChangeReport(&types.ChangeReport{PlanID: plan.ID, Passed: true})
 			}

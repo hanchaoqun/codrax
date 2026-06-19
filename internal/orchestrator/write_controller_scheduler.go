@@ -16,6 +16,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/sourceowner"
+	truthledger "github.com/hanchaoqun/codrax/internal/truth"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
@@ -5617,6 +5618,10 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 		})
 	}
+	if truthDecision, ok := o.controllerTruthLedgerDecision(decision, run); ok {
+		appendControllerProgress(run, batchID, truthDecision.ReasonCode, truthDecision.Reason)
+		return truthDecision
+	}
 	if plan == nil && controllerPlanDecisionRequiresInitialExploration(decision, run) {
 		explore := controllerExplorationDecisionFromPlanDecision(decision, run)
 		appendControllerProgress(run, batchIDOrDefault(explore.ExplorationRequest.BatchID, batchID), "plan_batch_needs_exploration_overridden",
@@ -5658,6 +5663,135 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		}
 	}
 	return decision
+}
+
+func (o *Orchestrator) controllerTruthLedgerDecision(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	report := o.busCtx.Mutable.ChangeReport()
+	view := writeflow.DeriveWorkflowExecutionViewWithReport(o.busCtx.Mode, *run, plan, report)
+	ledger := truthledger.Project(truthledger.ProjectInput{
+		View:   view,
+		Plan:   plan,
+		Report: report,
+	})
+	return controllerTruthLedgerDecisionFromView(decision, view, ledger, run)
+}
+
+func controllerTruthLedgerDecisionFromView(decision writeflow.WriteWorkflowDecision, view writeflow.WorkflowExecutionView, ledger types.TruthLedger, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
+	decision = writeflow.NormalizeWriteWorkflowDecision(decision)
+	ledger = types.NormalizeTruthLedger(ledger)
+	switch ledger.State {
+	case types.TruthLedgerFailed:
+		return controllerTruthLedgerFailedDecision(decision, view, ledger, run)
+	case types.TruthLedgerWeak:
+		return controllerTruthLedgerWeakDecision(decision, view, ledger, run)
+	default:
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+}
+
+func controllerTruthLedgerFailedDecision(decision writeflow.WriteWorkflowDecision, view writeflow.WorkflowExecutionView, ledger types.TruthLedger, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
+	switch decision.Action {
+	case writeflow.ActionExploreCode, writeflow.ActionReplanBatch, writeflow.ActionBlock:
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	switch view.State {
+	case writeflow.WorkflowExecutionNeedsReplan,
+		writeflow.WorkflowExecutionObserveRequired,
+		writeflow.WorkflowExecutionComplete:
+	default:
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	batchID := firstNonEmptyController(view.BatchID, controllerDecisionBatchID(decision, run), "batch-1")
+	return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionReplanBatch,
+		ReasonCode: "truth_ledger_failed_requires_repair",
+		Reason:     "typed truth ledger is failed (" + firstNonEmptyController(ledger.ReasonCode, "truth_failed") + "); repair the active batch before continuing",
+		Batch: &writeflow.WriteBatchPlan{
+			ID:     batchID,
+			Goal:   workflowTransitionBatchGoal(view, run, batchID),
+			Status: writeflow.BatchReadyForChangePlan,
+		},
+	}), true
+}
+
+func controllerTruthLedgerWeakDecision(decision writeflow.WriteWorkflowDecision, view writeflow.WorkflowExecutionView, ledger types.TruthLedger, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
+	if !controllerTruthLedgerWeakActionNeedsOverride(decision.Action) {
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	switch ledger.RecommendedAction {
+	case types.TruthActionLocalize:
+		if !controllerTruthLedgerLocalizationActionable(view) {
+			return writeflow.WriteWorkflowDecision{}, false
+		}
+		switch view.State {
+		case writeflow.WorkflowExecutionReadyToPlan,
+			writeflow.WorkflowExecutionNeedsReplan,
+			writeflow.WorkflowExecutionComplete:
+		default:
+			return writeflow.WriteWorkflowDecision{}, false
+		}
+		batchID := firstNonEmptyController(view.BatchID, controllerDecisionBatchID(decision, run), "batch-1")
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionExploreCode,
+			ReasonCode: "truth_ledger_weak_requires_localization",
+			Reason:     "typed truth ledger requires localization before this workflow can finish",
+			ExplorationRequest: &types.WriteExplorationRequest{
+				BatchID:              batchID,
+				Goal:                 workflowTransitionBatchGoal(view, run, batchID),
+				CandidatePaths:       workflowTransitionLocalizationCandidatePaths(view),
+				EvidenceRequirements: workflowTransitionEvidenceRequirements(view),
+			},
+		}), true
+	case types.TruthActionVerify, types.TruthActionAddProof:
+		if view.State != writeflow.WorkflowExecutionComplete {
+			return writeflow.WriteWorkflowDecision{}, false
+		}
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionVerifyBatch,
+			ReasonCode: "truth_ledger_weak_requires_proof",
+			Reason:     "typed truth ledger is weak (" + firstNonEmptyController(ledger.ReasonCode, "truth_weak") + "); collect proof before finishing",
+		}), true
+	case types.TruthActionRepair:
+		if view.State != writeflow.WorkflowExecutionNeedsReplan && view.State != writeflow.WorkflowExecutionComplete {
+			return writeflow.WriteWorkflowDecision{}, false
+		}
+		batchID := firstNonEmptyController(view.BatchID, controllerDecisionBatchID(decision, run), "batch-1")
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionReplanBatch,
+			ReasonCode: "truth_ledger_weak_requires_repair",
+			Reason:     "typed truth ledger requires a bounded repair before finishing",
+			Batch: &writeflow.WriteBatchPlan{
+				ID:     batchID,
+				Goal:   workflowTransitionBatchGoal(view, run, batchID),
+				Status: writeflow.BatchReadyForChangePlan,
+			},
+		}), true
+	default:
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+}
+
+func controllerTruthLedgerLocalizationActionable(view writeflow.WorkflowExecutionView) bool {
+	if !view.Localization.RequiresMoreContext {
+		return false
+	}
+	if view.LocalizationGateEligible {
+		return true
+	}
+	return writeflow.WorkflowTransitionNeedsNavigationCoverage(view)
+}
+
+func controllerTruthLedgerWeakActionNeedsOverride(action writeflow.WorkflowAction) bool {
+	switch action {
+	case writeflow.ActionFinish, writeflow.ActionAskUser:
+		return true
+	default:
+		return false
+	}
 }
 
 func (o *Orchestrator) controllerNavigationCoverageExploreDecision(run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
