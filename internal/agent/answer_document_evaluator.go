@@ -10109,6 +10109,13 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 		}
 	}
+	if supplement := renderReadLocalizerFollowupSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
+		if strings.TrimSpace(prose) == "" {
+			prose = strings.TrimSpace(supplement)
+		} else {
+			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+		}
+	}
 	if supplement := renderReadOwnerAnchorSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
 		if strings.TrimSpace(prose) == "" {
 			prose = strings.TrimSpace(supplement)
@@ -10232,6 +10239,54 @@ func readNavigationCoverageRouteList(routes []types.RepoMapNavigationRoute, limi
 		parts = append(parts, fmt.Sprintf("...(+%d)", len(values)-limit))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func renderReadLocalizerFollowupSupplement(_ *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+	if doc == nil || doc.ReadLocalizerFollowup == nil {
+		return ""
+	}
+	followup := types.NormalizeReadLocalizerFollowup(*doc.ReadLocalizerFollowup)
+	if followup.State != types.ReadLocalizerFollowupNeeded {
+		return ""
+	}
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("---\n\n")
+		b.WriteString("> **系统补充：读模式定位补充请求**\n>\n")
+		b.WriteString("> 下表来自 typed localization/navigation authority，用于保留系统为何需要更窄的只读定位补充；它不替代上方模型答案，也不把 repo_map 结果当作语义源码引用。\n\n")
+		b.WriteString("| 状态 | 原因 | 候选路径 | 缺失 lens | 证据要求 |\n|---|---|---|---|---|\n")
+	} else {
+		b.WriteString("---\n\n")
+		b.WriteString("> **System supplement: read localizer follow-up**\n>\n")
+		b.WriteString("> The table below is derived from typed localization/navigation authority. It preserves why a narrower read-only localization follow-up is needed; it does not replace the answer above or treat repo_map output as semantic source citation.\n\n")
+		b.WriteString("| State | Reason | Candidate paths | Missing lenses | Evidence requirements |\n|---|---|---|---|---|\n")
+	}
+	fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s | %s |\n",
+		followup.State,
+		firstNonEmptyString(followup.ReasonCode, "none"),
+		readLocalizationAuthorityPathList(followup.CandidatePaths, 4),
+		readNavigationCoverageRouteList(followup.MissingRoutes, 5),
+		readLocalizerFollowupRequirementList(followup.EvidenceRequirements, 4))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func readLocalizerFollowupRequirementList(rows []string, limit int) string {
+	rows = dedupTrimReadLocalizationStrings(rows)
+	if len(rows) == 0 {
+		return "-"
+	}
+	if limit <= 0 || limit > len(rows) {
+		limit = len(rows)
+	}
+	parts := make([]string, 0, limit+1)
+	for _, row := range rows[:limit] {
+		parts = append(parts, "`"+row+"`")
+	}
+	if len(rows) > limit {
+		parts = append(parts, fmt.Sprintf("...(+%d)", len(rows)-limit))
+	}
+	return strings.Join(parts, "<br>")
 }
 
 func dedupTrimReadLocalizationStrings(in []string) []string {

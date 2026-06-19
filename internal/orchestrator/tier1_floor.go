@@ -32,6 +32,15 @@ import (
 // requeue nodes + record a retry + set pendingViolation=msg and
 // continue the main loop.
 func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) (msg string, proceed bool, exhausted bool) {
+	if followup := readLocalizerFollowupForTier1(o.busCtx, ir); followup != nil {
+		logging.Info("[orchestrator] pre-finalize read localizer follow-up: reason=%s paths=%d missing_routes=%d — will requeue explorer",
+			followup.ReasonCode, len(followup.CandidatePaths), len(followup.MissingRoutes))
+		msg := renderReadLocalizerFollowupRetryMessage(followup)
+		if exhausted := state.retryBudgetExhausted(); exhausted {
+			return msg, false, true
+		}
+		return msg, false, false
+	}
 	floor := tool.CurrentGroundingPolicy().Tier1Floor
 	if floor <= 0 {
 		return "", true, false
@@ -69,6 +78,60 @@ func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) 
 		return b.String(), false, true
 	}
 	return b.String(), false, false
+}
+
+func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisIR) *types.ReadLocalizerFollowup {
+	if busCtx == nil || busCtx.Mutable == nil || ir == nil {
+		return nil
+	}
+	turnA := busCtx.Mutable.TurnAArtifacts()
+	if turnA == nil {
+		return nil
+	}
+	review := types.SourceLocalizationReviewFromTurnAArtifacts(turnA)
+	var coveragePtr *types.RepoMapNavigationCoverage
+	coverage := types.RepoMapNavigationCoverageFromReadArtifacts(ir, busCtx.ExploreLanePlan, turnA)
+	coverage = types.NormalizeRepoMapNavigationCoverage(coverage)
+	if coverage.State != "" && coverage.State != types.RepoMapNavigationCoverageNotRequired {
+		coveragePtr = &coverage
+	}
+	followup := types.DeriveReadLocalizerFollowup(review, coveragePtr)
+	if followup == nil || followup.State != types.ReadLocalizerFollowupNeeded {
+		return nil
+	}
+	return followup
+}
+
+func renderReadLocalizerFollowupRetryMessage(followup *types.ReadLocalizerFollowup) string {
+	if followup == nil {
+		return ""
+	}
+	normalized := types.NormalizeReadLocalizerFollowup(*followup)
+	if normalized.State != types.ReadLocalizerFollowupNeeded {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Source localization is not yet narrow enough to finish safely.")
+	if len(normalized.CandidatePaths) > 0 {
+		b.WriteString(" Candidate paths: ")
+		b.WriteString(strings.Join(normalized.CandidatePaths, ", "))
+		b.WriteString(".")
+	}
+	if len(normalized.MissingRoutes) > 0 {
+		var routes []string
+		for _, route := range normalized.MissingRoutes {
+			if route.Valid() {
+				routes = append(routes, string(route))
+			}
+		}
+		if len(routes) > 0 {
+			b.WriteString(" Missing repo_map lenses: ")
+			b.WriteString(strings.Join(routes, ", "))
+			b.WriteString(".")
+		}
+	}
+	b.WriteString(" Run a focused read-only pass: use repo_map for the missing lenses, then read_file on the strongest owner/source paths and emit evidence before declaring completion.")
+	return b.String()
 }
 
 // countTier1Evidence returns (tier1, total) where tier1 is the count

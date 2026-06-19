@@ -36,6 +36,13 @@ func samplePrevDoc() *AnswerDocumentV2 {
 			MissingRoutes:  []RepoMapNavigationRoute{RepoMapNavigationRouteRelationMap},
 			EvidenceRefs:   []string{"blob://repo-map-task"},
 		},
+		ReadLocalizerFollowup: &ReadLocalizerFollowup{
+			State:                ReadLocalizerFollowupNeeded,
+			ReasonCode:           "read_localizer_owner_and_navigation_missing",
+			CandidatePaths:       []string{"pkg/observed.py"},
+			MissingRoutes:        []RepoMapNavigationRoute{RepoMapNavigationRouteRelationMap},
+			EvidenceRequirements: []string{"localization_requirement path=pkg/observed.py kind=owner_evidence required=typed_owner_localization_anchor"},
+		},
 		Blocks: []AnswerBlock{
 			{
 				ID: "s1", Kind: BlockSummary,
@@ -146,6 +153,11 @@ func TestApplyPatch_PureUnchangedPreservesAllFields(t *testing.T) {
 		got.ReadNavigationCoverage.State != RepoMapNavigationCoveragePartial ||
 		!containsRepoMapRoute(got.ReadNavigationCoverage.MissingRoutes, RepoMapNavigationRouteRelationMap) {
 		t.Errorf("read navigation coverage not preserved; got %+v", got.ReadNavigationCoverage)
+	}
+	if got.ReadLocalizerFollowup == nil ||
+		got.ReadLocalizerFollowup.State != ReadLocalizerFollowupNeeded ||
+		!containsRepoMapRoute(got.ReadLocalizerFollowup.MissingRoutes, RepoMapNavigationRouteRelationMap) {
+		t.Errorf("read localizer follow-up not preserved; got %+v", got.ReadLocalizerFollowup)
 	}
 	if len(got.Blocks[2].Columns) != 3 || got.Blocks[2].Columns[1] != "codrax" ||
 		len(got.Blocks[2].Items) != 2 || len(got.Blocks[2].Items[0].Cells) != 3 {

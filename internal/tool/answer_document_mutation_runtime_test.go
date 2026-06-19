@@ -167,6 +167,46 @@ func TestApplyAndPersistMutation_StampsReadNavigationCoverageFromTurnA(t *testin
 	}
 }
 
+func TestApplyAndPersistMutation_StampsReadLocalizerFollowupFromTypedAuthorities(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{Intent: types.IntentTrace},
+	}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"pkg/handler.py"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "answer"},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || got.ReadLocalizerFollowup == nil {
+		t.Fatalf("read localizer follow-up not stamped: %+v", got)
+	}
+	followup := got.ReadLocalizerFollowup
+	if followup.State != types.ReadLocalizerFollowupNeeded {
+		t.Fatalf("follow-up state = %s, want needed: %+v", followup.State, followup)
+	}
+	if len(followup.CandidatePaths) == 0 || followup.CandidatePaths[0] != "pkg/handler.py" {
+		t.Fatalf("candidate paths not preserved: %+v", followup.CandidatePaths)
+	}
+	requirements := strings.Join(followup.EvidenceRequirements, "\n")
+	if !strings.Contains(requirements, "typed_owner_localization_anchor") ||
+		!strings.Contains(requirements, "repo_map_navigation_requirement") {
+		t.Fatalf("follow-up requirements incomplete:\n%s", requirements)
+	}
+}
+
 func testRepoMapRoutePresent(routes []types.RepoMapNavigationRoute, want types.RepoMapNavigationRoute) bool {
 	for _, route := range routes {
 		if route == want {

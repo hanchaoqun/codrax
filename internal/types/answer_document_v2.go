@@ -110,6 +110,13 @@ type AnswerDocumentV2 struct {
 	// policy plus producer-published ToolResult observations. It is not emitted
 	// by the model and must never be reconstructed from model prose.
 	ReadNavigationCoverage *RepoMapNavigationCoverage `json:"read_navigation_coverage,omitempty"`
+
+	// ReadLocalizerFollowup is the deterministic read-side follow-up request
+	// derived from ReadSourceLocalization plus ReadNavigationCoverage. It tells
+	// downstream schedulers/reports that owner localization or repo_map
+	// navigation evidence is still needed; it is stamped by the runtime and
+	// never parsed from model-authored text.
+	ReadLocalizerFollowup *ReadLocalizerFollowup `json:"read_localizer_followup,omitempty"`
 }
 
 // AnswerMissingRequestedRole is a typed answer-level disclosure that

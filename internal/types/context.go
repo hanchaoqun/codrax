@@ -2912,6 +2912,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 		coverage := NormalizeRepoMapNavigationCoverage(*in.ReadNavigationCoverage)
 		out.ReadNavigationCoverage = &coverage
 	}
+	out.ReadLocalizerFollowup = CloneReadLocalizerFollowupPtr(in.ReadLocalizerFollowup)
 	return out
 }
 

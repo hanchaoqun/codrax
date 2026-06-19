@@ -158,6 +158,9 @@ func persistMergedAnswerDocument(
 	if stampReadNavigationCoverageFromTurnA(ctx, merged) {
 		logging.Info("[%s] stamped read repo_map navigation coverage from typed TurnA observations", toolName)
 	}
+	if stampReadLocalizerFollowup(ctx, merged) {
+		logging.Info("[%s] stamped read localizer follow-up from typed localization/navigation state", toolName)
+	}
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
@@ -239,6 +242,19 @@ func stampReadNavigationCoverageFromTurnA(ctx *types.BusContext, doc *types.Answ
 		return false
 	}
 	doc.ReadNavigationCoverage = &coverage
+	return true
+}
+
+func stampReadLocalizerFollowup(ctx *types.BusContext, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || doc == nil {
+		return false
+	}
+	followup := types.DeriveReadLocalizerFollowup(doc.ReadSourceLocalization, doc.ReadNavigationCoverage)
+	if followup == nil {
+		doc.ReadLocalizerFollowup = nil
+		return false
+	}
+	doc.ReadLocalizerFollowup = followup
 	return true
 }
 

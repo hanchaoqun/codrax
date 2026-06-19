@@ -274,6 +274,7 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 		coverage := NormalizeRepoMapNavigationCoverage(*prev.ReadNavigationCoverage)
 		out.ReadNavigationCoverage = &coverage
 	}
+	out.ReadLocalizerFollowup = CloneReadLocalizerFollowupPtr(prev.ReadLocalizerFollowup)
 
 	// Block merge:
 	//

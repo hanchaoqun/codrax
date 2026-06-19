@@ -7586,6 +7586,31 @@ func TestRenderReadNavigationCoverageSupplement(t *testing.T) {
 	}
 }
 
+func TestRenderReadLocalizerFollowupSupplement(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		ReadLocalizerFollowup: &types.ReadLocalizerFollowup{
+			State:                types.ReadLocalizerFollowupNeeded,
+			ReasonCode:           "read_localizer_owner_and_navigation_missing",
+			CandidatePaths:       []string{"pkg/handler.py"},
+			MissingRoutes:        []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+			EvidenceRequirements: []string{"localization_requirement path=pkg/handler.py kind=owner_evidence required=typed_owner_localization_anchor"},
+		},
+	}
+	got := renderReadLocalizerFollowupSupplement(nil, doc, "en")
+	for _, want := range []string{
+		"read localizer follow-up",
+		"`needed`",
+		"pkg/handler.py",
+		"`relation_map`",
+		"typed_owner_localization_anchor",
+		"does not replace the answer",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("localizer follow-up supplement missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_ParseOutput_CardinalityDowngrade is the
 // critical P2.2 test: when Shape == list_of_symbols + Completeness ==
 // complete + len(Symbols) < baseline, ParseOutput downgrades to

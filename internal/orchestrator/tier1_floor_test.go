@@ -241,3 +241,92 @@ func TestCheckTier1Floor_RejectMessageR6(t *testing.T) {
 		t.Errorf("reject message must still tell the model to call read_file: %q", msg)
 	}
 }
+
+func TestCheckTier1Floor_ReadLocalizerFollowupRequeuesMissingCoverage(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("where is the request dispatched")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"pkg/handler.py"},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentTrace},
+		},
+	}}
+	ir := o.busCtx.AnalysisIR
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(ir, state)
+	if proceed || exhausted {
+		t.Fatalf("expected non-exhausted localizer retry, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+	for _, want := range []string{"repo_map", "read_file", "pkg/handler.py"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("localizer retry message missing %q:\n%s", want, msg)
+		}
+	}
+}
+
+func TestCheckTier1Floor_ReadLocalizerFollowupCoveredDoesNotBlock(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("where is the request dispatched")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"pkg/handler.py"},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev-owner",
+			Source:          "pkg/handler.py",
+			Kind:            types.EvidenceDirect,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			OwnerSymbol:     "Handler",
+		}},
+		ToolResults: []types.ToolResult{{
+			ToolName: "repo_map",
+			Success:  true,
+			Observations: []types.ObservationRecord{
+				{
+					ID:        "repo_map:file#navigation:file_map",
+					Producer:  "repo_map",
+					Predicate: types.RepoMapNavigationObservationPredicate,
+					Object:    string(types.RepoMapNavigationRouteFileMap),
+				},
+				{
+					ID:        "repo_map:relation#navigation:relation_map",
+					Producer:  "repo_map",
+					Predicate: types.RepoMapNavigationObservationPredicate,
+					Object:    string(types.RepoMapNavigationRouteRelationMap),
+				},
+				{
+					ID:        "repo_map:call#navigation:call_path",
+					Producer:  "repo_map",
+					Predicate: types.RepoMapNavigationObservationPredicate,
+					Object:    string(types.RepoMapNavigationRouteCallPath),
+				},
+			},
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentTrace},
+		},
+	}}
+	ir := o.busCtx.AnalysisIR
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(ir, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("covered localization/navigation should proceed, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
