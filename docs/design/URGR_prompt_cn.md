@@ -427,6 +427,23 @@ type AnswerReasoningGraphSummary struct {
 - 防止 worker 输出在后续 batch 中丢失。
 - 不改变 mutation 权限边界。
 
+### 6.6 Tool Runtime Efficiency And Preflight Observability
+
+要跟踪并分批修复：
+
+- 本地工具执行整体耗时没有统一 typed telemetry，`emit_evidence` / `emit_investigation_complete` 慢时难以区分是 LLM tool args 生成慢、schema normalize 慢、工具执行慢，还是 summary/render 慢。
+- `emit_evidence` / `emit_investigation_complete` 的大 schema 在 tool surface 构建、response normalize、execute-time compat normalize 路径上重复取 `Parameters()`；其中 `emit_evidence` 还会动态构造 map 并 marshal。
+- LLM response 已经按当前 tool schema normalize 后，`BaseAgent.executeTool` 仍可能再从 registry 取 schema 并重复 normalize 同一个 payload。
+- `ground.BuildContext(ctx)` 每次从 TurnA / stage ToolResults / dispatch ToolResults 重建 read/grep line index；`emit_evidence`、completion precheck、change-impact、call-chain 等 gate 会在一次终局检查中重复建索引。
+- `emit_investigation_complete` 的 pre-complete chain 仍是多个 gate 顺序扫描 evidence / aggregate facts / read history；缺少一次性 `CompletionPreflightView`，无法复用已计算的 citation floor、pending reads、grounding context、aggregate enrichment 和 proof obligations。
+
+商业价值：
+
+- 解释“工具调用慢”到底发生在 schema、JSON repair、grounding、precheck、summary 还是 LLM 等待。
+- 降低 `emit_evidence` 高频小批量调用和 `emit_investigation_complete` 多次重试时的固定成本。
+- 避免后续为了排查性能引入散文日志依赖；所有调度可见信息必须来自 typed timing event / reason code。
+- 为 Graph-Guided Controller 提供可消费的低风险信号，例如 tool/runtime storm、precheck 重复、grounding cache miss，而不是从日志文本猜测。
+
 ## 7. 分批任务规划
 
 ### 7.0 当前交付状态
@@ -440,6 +457,10 @@ type AnswerReasoningGraphSummary struct {
 | P1-B5 Worker / SubAgent Projection | delivered | worker Request/Result projection、subagent Request/Result projection、optional SubAgentRuntime observer、worker/subagent graph lanes |
 | P1-B6 Log / Trace / Data / Operation Projection | delivered | ToolResult/MCP typed observations、operation workflow state、data workflow runtime/state/journal projection 已进入 auxiliary graph lane；computer/桌面操作当前复用 operation workflow action/surface/risk 投影 |
 | P1-B7 Eval / Support Report | delivered | SWE results summary graph coverage metrics、historical audit graph reason grouping、per-instance support table graph columns |
+| P1-Perf-1 Tool Runtime Telemetry | planned | 本地工具整体耗时、tool success/failure、summary/ref/count telemetry、`emit_evidence` / `emit_investigation_complete` 子阶段 timing |
+| P1-Perf-2 Static Schema Cache And Normalize De-dupe | planned | 静态 `Parameters()` cache、schema-aware normalize 单次化、execute-time duplicate normalize guard |
+| P1-Perf-3 Grounding Context Cache | planned | dispatch/version scoped `ground.BuildContext` cache、line-index reuse、cache hit/miss typed telemetry |
+| P1-Perf-4 CompletionPreflightView | planned | `emit_investigation_complete` precheck 一次性 view、gate 共享 typed view、避免重复扫 evidence/aggregate/read history |
 | P2-B8 Graph-Guided Controller | planned | typed graph view 反哺 bounded controller action |
 | P2-B9 Graph-Native Replay Executor | planned | read-only replay/local recompute |
 | P2-B10 收敛重复状态字段 | planned | 内部投影去重、文档和用户指南同步 |
@@ -631,6 +652,137 @@ type AnswerReasoningGraphSummary struct {
 - local verify unavailable 与 source repair failure 可区分。
 - manual audit 能直接定位到 graph refs。
 
+### P1-Perf-1：Tool Runtime Telemetry
+
+目标：先把“慢在哪里”变成 typed evidence，避免依赖日志散文或人工猜测。
+
+任务：
+
+1. 在 `BaseAgent` 本地工具和 MCP 工具边界追加 `tool_call_observed` event。
+2. event payload 只记录 typed fields：
+   - tool name
+   - agent / stage
+   - elapsed millis
+   - success / failure status
+   - tool result count / MCP response count
+   - observation count
+   - raw/payload ref count
+3. 为 `emit_evidence` 增加子阶段 timing：
+   - schema/compat decode
+   - `ground.BuildContext`
+   - per-item grounding/stabilize
+   - duplicate/amendment merge
+   - summary/repair render
+4. 为 `emit_investigation_complete` 增加子阶段 timing：
+   - strict decode / aggregate normalization
+   - decorator/member support validation
+   - grounding / citation floors
+   - pre-complete gate chain
+   - accepted completion state write
+5. timing 进入 reasoning graph/audit summary 的 typed event，不读取 tool Summary、模型 rationale、prompt 或 visible thinking。
+6. 增加 tests：
+   - successful local tool emits `tool_call_observed`
+   - failed local tool emits `tool_call_observed` with failure status
+   - rejected tool 继续使用既有 `tool_call_rejected`，不伪造成 observed
+   - `emit_evidence` 子阶段 timing 不改变 `ToolResult`
+   - `emit_investigation_complete` 子阶段 timing 不改变 completion semantics
+
+验收：
+
+- UI/日志里“工具慢”的场景能在 graph audit 中看到 tool elapsed。
+- `emit_evidence` / `emit_investigation_complete` 慢能定位到子阶段。
+- 不改变 read/write 调度、工具执行结果、prompt schema、approval、worktree cleanup。
+
+### P1-Perf-2：Static Schema Cache And Normalize De-dupe
+
+目标：降低大 schema 固定成本，避免同一 tool call payload 被重复 schema normalize。
+
+任务：
+
+1. 给静态工具 schema 建只读 cache：
+   - `emit_evidence.Parameters()`
+   - `emit_investigation_complete.Parameters()`
+   - 其它动态 map/marshal 型大 schema 工具按测量结果纳入。
+2. 保留 per-dispatch projection schema 的现有行为：
+   - `emit_answer_document.ParametersFor(ctx)`
+   - `emit_write_workflow_decision.ParametersFor(ctx)`
+   - `run_tests` planner/verifier projected schema
+3. 在 LLM response normalize 后给当前 tool call 附带 typed normalized marker，或在 `executeTool` 中复用本轮 effective schema，避免 registry 再取 schema 重跑 normalize。
+4. execute-time normalize 仅作为 fallback：
+   - direct test / legacy caller / MCP resource path 未经过 response normalize 时仍启用。
+   - 已经过同一 schema normalize 的调用不重复执行。
+5. 增加 tests：
+   - `emit_evidence.Parameters()` 多次调用返回等价 schema 且不重复构造动态 map。
+   - response normalize 后 execute 不重复 schema normalize。
+   - direct `executeTool` 仍能修复 malformed/compat payload。
+   - projected dynamic schema 不被错误缓存成跨 ctx 全局 schema。
+
+验收：
+
+- 高频 `emit_evidence` 调用固定成本下降。
+- 不牺牲 tool param compat 的安全修复能力。
+- 不把模型 prose / 用户关键词纳入 normalize 判断。
+
+### P1-Perf-3：Grounding Context Cache
+
+目标：让一次 dispatch / precheck 内重复 grounding 消费同一份 typed line index，而不是多次重建。
+
+任务：
+
+1. 为 `ground.BuildContext(ctx)` 增加可选 cache key：
+   - TurnA ToolResults version
+   - ctx.ToolResults length/version
+   - Mutable.DispatchToolResults length/version
+   - repo root / active set identity
+   - search graph pointer/version
+2. cache scope 限定在 AgentContext / BusContext 当前 dispatch，不做跨 run 全局缓存。
+3. cache value 只保存 parsed line index / observed line index / graph pointer / active set resolver，不保存模型 prose。
+4. `emit_evidence`、completion precheck、change-impact、call-chain、answer pre-emit check 优先复用 cached grounding context。
+5. 新增 cache hit/miss typed telemetry，作为 soft observability，不驱动硬门。
+6. 增加 tests：
+   - same dispatch repeated `BuildContext` 命中 cache。
+   - new read_file result appended 后 cache version 变化。
+   - TurnA artifact change 不复用 stale cache。
+   - read mode L1 byte-preserved。
+
+验收：
+
+- 大型 read/write 会话中 completion precheck 重复建索引成本下降。
+- cache miss 不影响正确性，只退化到现有 `BuildContext`。
+- 不改变 grounding verdict。
+
+### P1-Perf-4：CompletionPreflightView
+
+目标：把 `emit_investigation_complete` 的终局检查从“多个 gate 各自扫描状态”收敛成“一次构建 typed preflight view，各 gate 只消费 view”。
+
+任务：
+
+1. 新增 `CompletionPreflightView`：
+   - evidence snapshot
+   - effective aggregate facts
+   - structured relation authority facts
+   - read set / pending reads
+   - grounding policy verdicts
+   - citation floor tally
+   - principal member-set coverage
+   - proof obligation summary
+   - cached grounding context
+2. `preCompleteContractCheckWithEvidence` 改为构建 view 后调 gate list。
+3. 每个 gate 从 view 读取 typed fields，不再自行重扫 Mutable / TurnA / ToolResults，除非 view 明确缺字段。
+4. 保持 gate reason code / repair directive 与现有行为等价。
+5. 增加 tests：
+   - citation floor verdict 与旧逻辑一致。
+   - pending reads drain 行为一致。
+   - aggregate member_set 支持引用一致。
+   - exact absence / call-chain / change-impact gates 不回归。
+   - view 构建失败 fail-loud，不从 prose 兜底。
+
+验收：
+
+- `emit_investigation_complete` 多次重试的 CPU 和内存开销下降。
+- gate 逻辑更可测，后续 Graph-Guided Controller 能消费 view summary。
+- 不改变用户可见答案语义和 read scheduler。
+
 ### P2-B8：Graph-Guided Controller
 
 目标：让 graph view 反哺调度，但仅限 typed、低风险、可回滚决策。
@@ -695,6 +847,10 @@ type AnswerReasoningGraphSummary struct {
 | 写模式 eval 可复盘 | final report 和 SWE results 带 graph refs |
 | 读模式 handoff 不丢 | final answer artifact 带 read graph evidence refs |
 | 用户心智降低 | 状态卡解释下一步，不要求用户输入新命令 |
+| 工具慢可定位 | graph tool event 有 elapsed；`emit_evidence` / `emit_investigation_complete` 有子阶段 timing |
+| 工具固定成本下降 | 大 schema cache + normalize de-dupe 测试覆盖，dynamic projected schema 不被全局缓存 |
+| grounding 重复扫描下降 | dispatch/version cache 命中，stale cache 测试覆盖 |
+| completion precheck 可复用 | `CompletionPreflightView` gate tests 覆盖 citation/pending/aggregate/proof |
 | prompt 红线 | hygiene tests 证明硬门不读用户关键词/模型 prose/prompt 文本 |
 | replay 安全 | audit/replay 不调用 LLM/tool，不创建 worktree |
 | 商用稳定 | `go test ./...`、`make test`、SWE smoke/eval audit |
@@ -709,6 +865,10 @@ P0-B1 Tool/Repair/LLM Observation
     -> P1-B5 Worker/SubAgent Projection
     -> P1-B6 Log/Trace/Data/Operation Projection
     -> P1-B7 Eval/Support Report
+    -> P1-Perf-1 Tool Runtime Telemetry
+    -> P1-Perf-2 Static Schema Cache And Normalize De-dupe
+    -> P1-Perf-3 Grounding Context Cache
+    -> P1-Perf-4 CompletionPreflightView
     -> P2-B8 Graph-Guided Controller
     -> P2-B9 Graph-Native Replay Executor
     -> P2-B10 State Field Consolidation
@@ -720,6 +880,7 @@ URGR 达成商用目标时，应满足：
 
 - 读写任务关键证据都可通过 graph refs 追踪。
 - tool/schema/JSON/fallback/LLM wait 事件可复盘。
+- tool execution / emit evidence / investigation completion 的耗时可通过 typed graph timing 复盘。
 - final answer 和 write final report 不丢 P0/P1 evidence。
 - SWE/企业 eval 可区分 patch exported、local verified、unverified、environment unavailable、proof weak、audit blocked。
 - Auto Pilot 状态卡能解释系统为什么继续、暂停、重试或结束。
