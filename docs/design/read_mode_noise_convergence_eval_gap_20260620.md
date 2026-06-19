@@ -1,0 +1,166 @@
+# Codrax Read Mode Noise And Convergence Eval Gap Plan
+
+## Scope
+
+This document records the system gaps exposed by the 2026-06-20 read-mode
+representative eval batch. Noise reduction is the highest-priority track, but
+the repair scope is broader: schema ergonomics, typed handoff, relation
+support, trace causal projection, eval watchdogs, and final-answer evidence
+preservation all need phased work.
+
+The target is a generalized commercial design, not case-by-case prompt patches.
+Hard gates must consume typed artifacts only: request-model fields, aggregate
+facts, relation axes, support refs, read ranges, trace rows, and structured
+tool results. User prose, model rationale, visible thinking, and rendered
+summaries remain soft context only.
+
+## Eval Batch Summary
+
+Results root:
+`eval/results/goal-stagehandoff-20260620`.
+
+| Case | Result | Key signals | System gap |
+| --- | --- | --- | --- |
+| `qf_relation_subagent_registry` | killed after runaway | One branch accepted the `explorer` answer, while another repeatedly downgraded relation `member_set` support. Logs also promoted and demoted many unrelated tool-registration Resolution Chains. | Relation support and chain evidence lack a low-delta convergence boundary. Noise can keep a solved one-member lookup alive. |
+| `qf_architecture` | pass, slow | 171s, 8 `repo_map`, 49k estimated context tokens, 3 answer-contract violations. | Broad architecture questions need compact typed inventory views, not raw evidence floods. |
+| `sr_cpp_virtual_chain` | pass, slow | 250s, 22 reads, 20 explorer iterations, 5 dispatches, 40 answer-chain lines. | Cross-language call-chain answers still over-read and over-promote chains. |
+| `arkts_repomap` | timeout | Model proved no real ArkTS entries, then bounced between `absence`, `negative_observation`, `scalar_value`, and required `member_set`. | Empty exhaustive sets are not first-class. The contract requires `member_set`, while type validation rejects `members=[]`. |
+| `trace_query_wakeup_causal_io_chain` | fail | 22 `trace_query` calls and 55k estimated context tokens, but final answer dropped the intermediate network/cookie path-role facet. | Trace causal-path observations are collected but not projected into a compact final-answer obligation. |
+| `read_combo_log_current_code_dimensions` | timeout | Completed initial exploration, then re-entered more exploration after "verification not stable enough" and reached extraction near the timeout. | Mixed runtime-log plus current-source answers need better typed proof coverage and low-delta completion semantics. |
+
+Visible `<think>` content in REPL logs is expected for user transparency and is
+not a bug. The gap is that executable repair/navigation instructions and noisy
+evidence surfaces can enter the wrong consumer stage.
+
+## Gap Ledger
+
+| ID | Priority | Gap | Root cause | Target state |
+| --- | --- | --- | --- | --- |
+| RNE-C1 | P0 | Noisy Resolution Chain / concrete-value / registry evidence can dominate convergence. | Chain promotion and concrete-value extraction can generate many support-context rows for broad architecture questions; downstream gates see repeated missing anchors even when the principal answer is solved. | Build a typed relevance budget before handoff: principal answer evidence, mandatory proof obligations, and unresolved blockers are rendered first; support chains are capped by consumer and demoted when they do not change the next action. |
+| RNE-C2 | P0 | Empty exhaustive sets loop forever. | `aggregate_facts.member_set` requires positive members, but exhaustive enumeration gates require a member-set handoff even when the correct answer is zero. | Treat `kind=member_set, value="0", members=[]` as a valid exact empty set. It satisfies exhaustive handoff only when backed by typed `negative_search` or `negative_observation` zero-result evidence. |
+| RNE-C3 | P0 | Relation `member_set` support can fail despite usable line-backed evidence. | Support refs and evidence labels are stricter than the evidence surface: one member can have multiple support locations, and labels such as method names may not equal the answer member string. | Member support resolution should accept typed support refs when the cited location or emitted evidence proves the member, with deterministic label/location matching and no prose inference. |
+| RNE-C4 | P0 | Repeated downgrade lacks low-delta stop conditions. | The same pre-complete rejection can be reissued after no new typed evidence, no new reads, and no new candidate set. | Record downgrade fingerprints per exploration lane. When a retry produces no typed delta, either accept with caveat if proof obligations are met or block with a concise typed reason instead of broadening. |
+| RNE-C5 | P0 | Trace causal path facts can be lost in final answer. | Trace queries emit many rows, but the finalizer receives no compact path-role obligation ledger for source, sink, intermediate, and exclusion roles. | Add a typed trace path projection consumed by extractor/finalizer: path members, role labels, confidence, and supporting trace row refs. |
+| RNE-C6 | P1 | `Resolution Chain anchor line is outside the fetched slices` is correct but noisy. | The range-aware guard demotes chains whose anchors were not read and schedules surgical reads. On low-value support chains this creates repair churn. | Keep the guard, but make its pending reads consumer-scoped and budgeted. Support-only chains become advisory when principal proof is already satisfied. |
+| RNE-C7 | P1 | Large read-mode evals can run without a watchdog. | `eval/run.sh` read-mode paths do not consistently wrap Codrax with the shared timeout helper. | Add eval-level wall-time controls for read mode, with configurable defaults and typed timeout summaries. |
+| RNE-C8 | P1 | Mixed log/current-source tasks can re-explore after enough evidence exists. | Runtime observation proof and source-localization proof are not unified into a single coverage ledger. | Observation proof coverage should become an online state: runtime symptom, source owner, impact path, and verification caveats are independently tracked. |
+| RNE-C9 | P1 | Cross-language call-chain cases still over-read. | Repo-map navigation facts and read-range obligations are not used as a strict enough exploration budget for C/C++, ArkTS, Cangjie, Java/Kotlin, JS/TS, Ruby, Go, config, and workflow files. | Language-neutral localization and impact views set read budgets and proof obligations, with language adapters providing typed parse/edge facts where available. |
+
+## Architecture Direction
+
+### 1. Typed Relevance Budget
+
+Before rendering handoff context, build a deterministic relevance view with:
+
+- Principal obligations: the exact scalar/member/path/trace answer carrier.
+- Blocking proof debt: missing typed evidence, missing read range, failed support
+  ref, unavailable environment, or unresolved contradiction.
+- Advisory support: mechanisms, registries, helper chains, concrete values,
+  broad inventories, and historical repair notes.
+- Consumer scope: explorer, extractor, finalizer, evaluator, and report writer
+  each receive different Top-N slices.
+
+The view must preserve full artifact refs for audit, while prompt surfaces stay
+small and role-labeled.
+
+### 2. First-Class Empty Member Sets
+
+`member_set` represents an exact set. Exact sets can be empty. A zero-member
+set is a valid principal carrier only when:
+
+- `kind=member_set`
+- `value="0"`
+- `members=[]`
+- role resolves to `principal_answer`
+- the request requires an exhaustive set or relation set, and
+- typed no-hit evidence is available through `negative_search` or
+  `negative_observation` aggregate facts. External trace/log/history no-hit
+  results also use `negative_observation` instead of relying on prose or broad
+  origin metadata.
+
+This avoids forcing the model into `scalar_value` for set-valued zero answers.
+
+### 3. Relation Support Resolver
+
+Support resolution should be deterministic and evidence-backed:
+
+- Prefer explicit `support_refs`.
+- Accept multiple refs for one member when each ref location or evidence row
+  proves that member.
+- Accept method/owner support when the cited snippet contains the member value
+  or the typed evidence object binds owner to return/literal value.
+- Do not use raw user words, closure reasons, or model rationale.
+
+### 4. Low-Delta Convergence Guard
+
+Each soft downgrade records a typed fingerprint:
+
+- gate kind
+- required carrier type
+- invalid fact/member ids
+- pending read origin and line ranges
+- current evidence/read aggregate version
+
+If the next attempt repeats the same fingerprint without new typed inputs, the
+controller should stop broadening. It should either ask for the exact missing
+typed carrier, accept with a caveat if enough proof exists, or produce a
+blocked report with a concise reason.
+
+### 5. Trace Path Projection
+
+Trace-heavy tasks need a compact causal ledger:
+
+- path source/sink/intermediate/exclusion roles
+- trace row ids / span ids / timestamps
+- observed vs inferred causality
+- missing current-source anchors, if any
+
+Final answer obligations consume that ledger directly instead of rediscovering
+roles from many raw trace rows.
+
+## Delivery Plan
+
+| Batch | Status | Task | Acceptance |
+| --- | --- | --- | --- |
+| Batch A | delivered | Record this eval/gap/design ledger. | All P0/P1 gaps above are tracked with testable acceptance criteria. |
+| Batch B | delivered | Implement first-class empty `member_set` support. | `value="0", members=[]` validates, satisfies exhaustive handoff when principal and backed by `negative_search` / `negative_observation`, and does not create bogus answer rows. Unit tests cover the no-hit path; the ArkTS representative rerun confirms the change does not break positive ArkTS enumeration. |
+| Batch C | planned | Strengthen relation support resolution and relation retry deltas. | One-member relation answers with line-backed method/literal evidence do not re-loop on missing support refs. Duplicate support rows stay advisory. |
+| Batch D | planned | Add typed relevance budget for chain/concrete/support evidence. | Architecture inventory and C++ call-chain cases render bounded Top-N prompt sections while preserving full refs in audit artifacts. |
+| Batch E | planned | Add downgrade fingerprint / low-delta guard. | Identical pre-complete rejection without new typed input stops after one bounded repair turn. |
+| Batch F | planned | Add trace causal path projection. | Trace eval preserves intermediate path-role facets in final answer with fewer trace_query calls. |
+| Batch G | planned | Add read eval watchdog. | Read-mode eval paths use a configurable timeout and emit typed timeout summaries. |
+| Batch H | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
+
+## Test Matrix
+
+- Unit: aggregate fact normalization accepts exact empty `member_set`.
+- Unit: exhaustive handoff accepts a principal empty `member_set` with typed
+  negative/no-hit evidence.
+- Unit: positive `member_set` still rejects missing members or mismatched
+  cardinality.
+- Unit: relation support resolver accepts deterministic evidence/location
+  matches and rejects unsupported members.
+- Unit: repeated downgrade fingerprints are stable and delta-aware.
+- Eval: `arkts_repomap` no longer loops on empty set shape.
+- Eval: `qf_relation_subagent_registry` converges without repeated identical
+  relation support downgrade.
+- Eval: `trace_query_wakeup_causal_io_chain` preserves intermediate path roles.
+- Eval: architecture inventory and C++ call-chain cases stay bounded in reads,
+  context tokens, and explorer iterations.
+
+## Progress Ledger
+
+- 2026-06-20 Batch A delivered: representative eval results recorded. First
+  implementation target selected as typed empty `member_set` because it is a
+  structural contradiction that can cause unbounded retries across languages and
+  no-result repository searches.
+- 2026-06-20 Batch B delivered: exact empty `member_set` is now a first-class
+  typed aggregate. Exhaustive completion accepts it only when paired with
+  `negative_search` or `negative_observation`; positive empty member sets still
+  reject, and unsupported empty sets soft-downgrade instead of closing.
+- 2026-06-20 Batch B verification: `arkts_repomap` rerun passed under
+  `eval/results/goal-stagehandoff-20260620-rerun` with the new binary. This
+  rerun exercised positive ArkTS fixture enumeration rather than the exact
+  empty-set branch, so the no-hit branch is covered by focused unit tests. The
+  eval still took 215s, 18 `read_file` calls, 19 explorer iterations, and ~48k
+  estimated context tokens, so Batch D/E remain P0 for commercial smoothness.

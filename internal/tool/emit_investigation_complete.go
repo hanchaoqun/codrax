@@ -98,14 +98,14 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"aggregate_facts": {
 				"type": "array",
-				"description": "OPTIONAL but expected for derived scalar/count answers, categorical behavior verdicts, and exhaustive member enumerations. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, scalar durations/latencies/frequencies, behavior outcomes, and excluded-candidate counts. Use this instead of burying aggregates, verdicts, or complete member lists only in reason prose. Count values must be non-negative integer strings with units kept in unit. Durations such as 119.227 ms, latency, percentage, frequency, and other non-integer measurements must use kind=scalar_value, not total_count. behavior_outcome/error_granularity_verdict values are stable category strings. For kind=member_set, value may be omitted when members contains the complete set; if a numeric value drifts from members length, the framework canonicalizes value to len(members) from that same model-authored payload. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
+				"description": "OPTIONAL but expected for derived scalar/count answers, categorical behavior verdicts, and exhaustive member enumerations. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, scalar durations/latencies/frequencies, behavior outcomes, and excluded-candidate counts. Use this instead of burying aggregates, verdicts, or complete member lists only in reason prose. Count values must be non-negative integer strings with units kept in unit. Durations such as 119.227 ms, latency, percentage, frequency, and other non-integer measurements must use kind=scalar_value, not total_count. behavior_outcome/error_granularity_verdict values are stable category strings. For kind=member_set, value may be omitted when members contains a non-empty complete set; a verified empty set uses value=\"0\" and members=[]. If a numeric value drifts from non-empty members length, the framework canonicalizes value to len(members) from that same model-authored payload. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
 				"items": {
 					"type": "object",
 					"properties": {
 						"kind": {
 							"type": "string",
 							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value", "member_set", "negative_search", "negative_observation", "behavior_outcome", "error_granularity_verdict"],
-							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members); behavior_outcome = a categorical code behavior result such as accepted/rejected/partial_success/fail_fast/collect_errors; error_granularity_verdict = the categorical failure-scope verdict for item/batch/transaction behavior questions. behavior_outcome and error_granularity_verdict use value as a stable category string, not a number; put compared axes in dimensions and support in support_refs. negative_search = a verified zero-result repository search. For negative_search, set value=\"0\", unit=\"matches\", and dimensions for repo, query or pattern, scope, and searched_at; do NOT fake a file:line evidence item such as repo:0 for not-found proof. negative_observation = a verified zero-result observation over a non-repo source such as git history/diff output, an attached log, a trace, command output, or repo-map/index output. For negative_observation, set value=\"0\", unit=\"matches\", include origin/evidence_origin, target/query/pattern/predicate, scope, and searched_at; do NOT invent repo dimensions."
+							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members), including value=\"0\" with members=[] for a verified empty set; behavior_outcome = a categorical code behavior result such as accepted/rejected/partial_success/fail_fast/collect_errors; error_granularity_verdict = the categorical failure-scope verdict for item/batch/transaction behavior questions. behavior_outcome and error_granularity_verdict use value as a stable category string, not a number; put compared axes in dimensions and support in support_refs. negative_search = a verified zero-result repository search. For negative_search, set value=\"0\", unit=\"matches\", and dimensions for repo, query or pattern, scope, and searched_at; do NOT fake a file:line evidence item such as repo:0 for not-found proof. negative_observation = a verified zero-result observation over a non-repo source such as git history/diff output, an attached log, a trace, command output, or repo-map/index output. For negative_observation, set value=\"0\", unit=\"matches\", include origin/evidence_origin, target/query/pattern/predicate, scope, and searched_at; do NOT invent repo dimensions."
 						},
 						"label": {
 							"type": "string",
@@ -142,7 +142,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"members": {
 							"type": "array",
-							"description": "Optional exact principal members backing the aggregate, such as enum/type names, file:line labels for total_count, or file paths for unique_count. For member_set this is required and must be the complete answer member set. If you provide members for a count fact, the member count must equal value; omit members rather than provide samples.",
+							"description": "Optional exact principal members backing the aggregate, such as enum/type names, file:line labels for total_count, or file paths for unique_count. For member_set this must be the complete answer member set; use an empty array only for a verified empty set with value=\"0\" and typed negative/no-hit support. If you provide members for a count fact, the member count must equal value; omit members rather than provide samples.",
 							"items": {"type": "string"}
 						},
 						"member_notes": {
@@ -3402,7 +3402,7 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	if originSpecificOnlyMemberSet {
 		b.WriteString("Either emit the completed `emit_answer_symbol` slate, or repair `aggregate_facts` with kind=`member_set`, role=`principal_answer`, value equal to the exact member count, and `members` containing every principal answer member copied from the origin-specific tool/resource results. Preserve structured origin/provenance dimensions such as origin=`runtime_artifact`, artifact_id/artifact_kind, payload_ref/row_set_ref, or the producer token that identifies the external observation lane. Do not call `emit_evidence` for external trace/log/document/resource rows, and do not invent repo file:line `support_refs` for artifact-local members. If the external result has artifact-local line/row/time coordinates, carry them in dimensions/supporting aggregate facts or member notes rather than converting them into current-source citations. Then re-call `emit_investigation_complete`.")
 	} else {
-		b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. For code symbols, paths, routes, config keys, macros, spans, and source-location members, each member must be backed by typed evidence already emitted through `emit_evidence`, or by member-specific `support_refs` such as `Member @ path/file.ext:123` that point to the same grounded evidence line. Exclude related-context/helper candidates from the principal member_set. If your broad candidate search count is different from the verified member_set count, also emit companion total_count/excluded_count aggregate facts with dimensions that name the candidate stage and exclusion basis. Then re-call `emit_investigation_complete`.")
+		b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. For a verified empty set, use value=\"0\" and members=[] together with typed zero-result support such as `negative_search` or `negative_observation`; do not use `scalar_value` as the principal set carrier. For code symbols, paths, routes, config keys, macros, spans, and source-location members, each non-empty member must be backed by typed evidence already emitted through `emit_evidence`, or by member-specific `support_refs` such as `Member @ path/file.ext:123` that point to the same grounded evidence line. Exclude related-context/helper candidates from the principal member_set. If your broad candidate search count is different from the verified member_set count, also emit companion total_count/excluded_count aggregate facts with dimensions that name the candidate stage and exclusion basis. Then re-call `emit_investigation_complete`.")
 	}
 	return b.String()
 }
@@ -3615,8 +3615,7 @@ func sourceInventoryMemberSetRepairFiles(ctx *types.BusContext, maxFiles int) []
 func aggregateFactsContainMemberSet(facts []types.AnswerAggregateFact) bool {
 	for _, fact := range facts {
 		if types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
-			types.AnswerAggregateFactRoleForRequest(fact, nil).IsPrincipal() &&
-			len(fact.Members) > 0 {
+			types.AnswerAggregateFactRoleForRequest(fact, nil).IsPrincipal() {
 			return true
 		}
 	}
@@ -3644,7 +3643,11 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 			continue
 		}
 		if len(fact.Members) == 0 {
-			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] has no members", factIdx))
+			if types.AnswerAggregateFactIsExactEmptyMemberSet(fact) &&
+				exactEmptyMemberSetHasTypedNoHitSupport(fact, facts) {
+				return true, ""
+			}
+			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] is an empty member_set without typed zero-result support", factIdx))
 			continue
 		}
 		if aggregateMemberSetCanRelyOnOriginSpecificProvenance(ctx, fact) {
@@ -3672,6 +3675,23 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 		return false, ""
 	}
 	return false, strings.Join(invalid, "; ")
+}
+
+func exactEmptyMemberSetHasTypedNoHitSupport(fact types.AnswerAggregateFact, facts []types.AnswerAggregateFact) bool {
+	if !types.AnswerAggregateFactIsExactEmptyMemberSet(fact) {
+		return false
+	}
+	for _, candidate := range facts {
+		switch candidate.Kind {
+		case types.AnswerAggregateNegativeSearch, types.AnswerAggregateNegativeObservation:
+		default:
+			continue
+		}
+		if strings.TrimSpace(candidate.Value) == "0" {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateMemberSetCanRelyOnOriginSpecificProvenance(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {

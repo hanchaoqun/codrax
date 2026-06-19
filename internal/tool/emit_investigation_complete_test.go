@@ -3285,6 +3285,109 @@ func TestEmitInvestigationComplete_MemberSetNarrowsAnalyzerEntityCandidates(t *t
 	}
 }
 
+func TestEmitInvestigationComplete_AcceptsExactEmptyMemberSetWithNegativeSearch(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all ArkTS entry components")
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all ArkTS entry components",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"the bounded repository search found no ArkTS entry components",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"negative_search",
+				"label":"ArkTS @Entry component search",
+				"value":"0",
+				"unit":"matches",
+				"dimensions":[
+					{"name":"repo","value":"current repository"},
+					{"name":"pattern","value":"@Entry|@Builder"},
+					{"name":"scope","value":"ArkTS source files"},
+					{"name":"searched_at","value":"current_investigation"}
+				]
+			},
+			{
+				"kind":"member_set",
+				"label":"ArkTS entry components",
+				"value":"0",
+				"unit":"components",
+				"role":"principal_answer",
+				"members":[]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("empty member_set with typed negative support should pass: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "exhaustive member-set handoff is missing") ||
+		strings.Contains(res.Summary, "empty member_set without typed zero-result support") {
+		t.Fatalf("empty supported member_set should not downgrade: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 2 || !types.AnswerAggregateFactIsExactEmptyMemberSet(facts[1]) {
+		t.Fatalf("stored aggregate facts = %+v, want negative_search plus exact empty member_set", facts)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored after exact empty member_set")
+	}
+}
+
+func TestEmitInvestigationComplete_RejectsExactEmptyMemberSetWithoutTypedNoHitSupport(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all ArkTS entry components")
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all ArkTS entry components",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"empty set without typed no-hit support",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"ArkTS entry components",
+			"value":"0",
+			"unit":"components",
+			"role":"principal_answer",
+			"members":[]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unsupported empty member_set should be a soft downgrade, not hard failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "empty member_set without typed zero-result support") {
+		t.Fatalf("summary should explain typed no-hit support requirement, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("downgraded empty member_set must not mark investigation complete")
+	}
+}
+
 func TestEmitInvestigationComplete_BucketCountMembersCoverPrincipalTerms(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

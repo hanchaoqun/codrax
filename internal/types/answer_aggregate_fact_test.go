@@ -134,6 +134,44 @@ func TestNormalizeAnswerAggregateFacts_AcceptsMemberSet(t *testing.T) {
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_AcceptsExactEmptyMemberSet(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "ArkTS entry components",
+		Value:   "0",
+		Unit:    "components",
+		Members: []string{},
+	}})
+	if err != nil {
+		t.Fatalf("empty member_set aggregate should validate: %v", err)
+	}
+	if len(got) != 1 || got[0].Kind != AnswerAggregateMemberSet {
+		t.Fatalf("empty member_set not preserved: %+v", got)
+	}
+	if got[0].Value != "0" || len(got[0].Members) != 0 {
+		t.Fatalf("empty member_set shape drifted: %+v", got[0])
+	}
+	if !AnswerAggregateFactCarriesCompleteMemberSet(got[0]) ||
+		!AnswerAggregateFactIsExactEmptyMemberSet(got[0]) {
+		t.Fatalf("empty member_set should be an exact complete set: %+v", got[0])
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_RejectsPositiveEmptyMemberSet(t *testing.T) {
+	_, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "ArkTS entry components",
+		Value:   "1",
+		Members: []string{},
+	}})
+	if err == nil {
+		t.Fatal("positive member_set with no members should reject")
+	}
+	if !strings.Contains(err.Error(), "requires exact members") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestHistoryMemberSetIsPrincipalList_PureVCSRecentN(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentExplain,

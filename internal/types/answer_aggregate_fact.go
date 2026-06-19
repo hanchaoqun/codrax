@@ -2883,11 +2883,14 @@ func aggregateRelationLeftAxisSet(fact AnswerAggregateFact) (map[string]bool, bo
 }
 
 func answerAggregateFactCarriesCompleteMemberSet(fact AnswerAggregateFact) bool {
+	if fact.Kind == AnswerAggregateMemberSet {
+		if len(fact.Members) == 0 {
+			return AnswerAggregateFactIsExactEmptyMemberSet(fact)
+		}
+		return true
+	}
 	if len(fact.Members) == 0 {
 		return false
-	}
-	if fact.Kind == AnswerAggregateMemberSet {
-		return true
 	}
 	switch fact.Kind {
 	case AnswerAggregateTotalCount, AnswerAggregateUniqueCount, AnswerAggregateGroupedCount, AnswerAggregateBucketCount:
@@ -2896,6 +2899,18 @@ func answerAggregateFactCarriesCompleteMemberSet(fact AnswerAggregateFact) bool 
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(fact.Value))
 	return err == nil && n == len(fact.Members)
+}
+
+// AnswerAggregateFactIsExactEmptyMemberSet reports whether a model emitted a
+// first-class exact empty set. It is intentionally limited to the dedicated
+// member_set kind so zero counts and prose scalars cannot impersonate an
+// exhaustive empty answer slate.
+func AnswerAggregateFactIsExactEmptyMemberSet(fact AnswerAggregateFact) bool {
+	if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) != 0 {
+		return false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(fact.Value))
+	return err == nil && n == 0
 }
 
 // AnswerAggregateFactCarriesCompleteMemberSet reports whether an aggregate fact
@@ -4420,6 +4435,9 @@ func validateAggregateCountCardinality(facts []AnswerAggregateFact) error {
 			}
 		case AnswerAggregateMemberSet:
 			if len(fact.Members) == 0 {
+				if want == 0 {
+					continue
+				}
 				return fmt.Errorf("%s %q requires exact members; use scalar_value for prose-only summaries",
 					fact.Kind, fact.Label)
 			}
