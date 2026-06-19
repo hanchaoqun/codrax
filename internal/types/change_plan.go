@@ -1285,9 +1285,30 @@ func parseVerificationSurfaceLabel(raw string) verificationSurface {
 	if value == "" {
 		return verificationSurface{}
 	}
-	label := value
-	if before, _, ok := strings.Cut(value, "::"); ok {
-		label = strings.TrimSpace(before)
+	if strings.Contains(value, "::") {
+		var fallback verificationSurface
+		parts := strings.Split(value, "::")
+		for i, part := range parts {
+			surface := parseVerificationSurfaceAtom(part)
+			if surface.Runner == "" {
+				continue
+			}
+			if surface.Runner == "verification_probe" {
+				return surface
+			}
+			if i == 0 {
+				fallback = surface
+			}
+		}
+		return fallback
+	}
+	return parseVerificationSurfaceAtom(value)
+}
+
+func parseVerificationSurfaceAtom(raw string) verificationSurface {
+	label := strings.TrimSpace(raw)
+	if label == "" {
+		return verificationSurface{}
 	}
 	if strings.HasPrefix(label, "verification_probe") {
 		return verificationSurface{Runner: "verification_probe"}

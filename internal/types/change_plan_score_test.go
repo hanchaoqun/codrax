@@ -112,6 +112,34 @@ func TestChangeReportNormalizeVerificationStatus(t *testing.T) {
 			want: VerificationStatusUnavailable,
 		},
 		{
+			name: "nested probe import unavailable rows are unavailable",
+			report: &ChangeReport{
+				Passed:      false,
+				FailureKind: FailureKindTestsFailed,
+				TestResults: []TestResult{{
+					Kind:        TestResultKindUnit,
+					AssertionID: "python/pytest@examples/javascript::blueprint_name_dot_error",
+					Suite:       "python/pytest@examples/javascript::verification_probe/python",
+					Passed:      false,
+				}},
+				ExecutedCommands: []ExecutedCommand{{
+					Runner:     "verification_probe",
+					Framework:  "python",
+					Outcome:    "parser_error",
+					ReasonCode: "verification_probe_import_error",
+					ExitCode:   1,
+					Source:     "parser_error_verification_probe",
+				}},
+				VerificationConfidence: []VerificationConfidenceRecord{{
+					Source:     "parser_error_verification_probe",
+					Category:   "probe_execution",
+					Status:     "unavailable",
+					ReasonCode: "verification_probe_import_error",
+				}},
+			},
+			want: VerificationStatusUnavailable,
+		},
+		{
 			name: "make unavailable command explains qualified make row",
 			report: &ChangeReport{
 				Passed:      false,

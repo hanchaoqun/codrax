@@ -8125,7 +8125,8 @@ Validation:
 Status: RC127-A implemented; RC127-B1 implemented for probe startup
 dependency boundaries; RC127-B2 implemented for assertion-wrapped probe import
 boundaries; RC127-B3 implemented for proof-ledger unavailable command
-capability accounting; broader proof-environment follow-up remains queued.
+capability accounting; RC127-B4 implemented for nested verification-probe
+surface normalization; broader proof-environment follow-up remains queued.
 
 Trigger evidence:
 
@@ -8181,6 +8182,10 @@ Tasks:
       typed unavailable reason helper used by `ChangeReport`, so
       `parser_error`/`runner_missing`/`no_tests` local verifier rows do not
       inflate `capability_failed_count`.
+- [x] Normalize composite verification surface labels such as
+      `python/pytest@cwd::verification_probe/python`, so nested probe failures
+      with typed import/startup unavailable evidence are not treated as product
+      test failures.
 - [ ] Extend proof-follow-up scheduling so unavailable proof records can request
       bounded environment/probe capability checks before terminalizing, without
       broad source replan.
@@ -8223,6 +8228,11 @@ Implementation notes:
   SWE telemetry, and future controller decisions aligned on the same typed
   unavailable evidence instead of showing an unavailable final state with
   misleading failed command counters.
+- Composite `TestResult.Suite` / `AssertionID` labels now parse every `::`
+  segment for a typed verifier surface before falling back to the outer runner.
+  This preserves normal `python/pytest@cwd::test_name` semantics while correctly
+  attributing `python/pytest@cwd::verification_probe/python` rows to the probe
+  surface.
 
 RC127-A validation:
 
@@ -8272,6 +8282,73 @@ RC127-A validation:
 - RC127-B3 focused regression:
   `go test ./internal/types -run 'TestBuildVerificationProof(LedgerTreatsProbeParserErrorCommandAsUnavailable|LedgerProjectsCoverageObligations|ProfileUnavailable|CumulativeVerificationProofProfilePreservesUnavailablePrimary)' -count=1`
   passed.
+- RC127-B3/B4 SWE smoke:
+  `eval/results/swebench/lite-smoke-20260619-rc127b3-flask-xarray` on
+  `pallets__flask-4045` and `pydata__xarray-4248` produced one non-empty patch
+  and one empty patch. Plain prediction validation passed with
+  `empty_patch=1`; `--require-nonempty-patch` failed on
+  `pydata__xarray-4248`, which is expected evidence for the next owner-gate
+  batch.
+  - Flask exposed a verification authority gap: every red probe/pytest row was
+    backed by `verification_probe_import_error` or
+    `pytest_import_startup_error`, but nested suite labels like
+    `python/pytest@examples/javascript::verification_probe/python` were parsed
+    as project pytest surfaces, causing `verify_retry_budget_exhausted`.
+    RC127-B4 fixes the shared label normalizer and adds a regression.
+  - Flask manual audit: the exported patch used `assert "." not in name`, which
+    is weaker than the desired explicit `ValueError` API behavior and remains a
+    patch-quality issue for future behavior-contract proof work even after the
+    unavailable-verifier classification is corrected.
+  - Xarray exposed the next localization-state gap:
+    `workflow_latest_progress_reason_code=owner_localization_authority_unresolved_blocked`,
+    `empty_patch_reason=workflow_blocked_empty_patch`, while final telemetry
+    simultaneously showed `final_report_localization_status=supported` and
+    `final_report_plan_owner_gap_paths=["xarray/core/formatting.py"]`. This is
+    a single-state-machine / owner-evidence-consumption inconsistency, not a
+    one-off Xarray rule.
+- RC127-B4 focused regression:
+  `go test ./internal/types -run 'TestChangeReportNormalizeVerificationStatus|TestBuildVerificationProofLedgerTreatsProbeParserErrorCommandAsUnavailable' -count=1`
+  passed.
+
+## 2026-06-19 RC128 Queued: Owner Localization State Machine Consistency
+
+Gap:
+
+- SWE spot `pydata__xarray-4248` blocked before apply with
+  `owner_localization_authority_unresolved_blocked`, yet final-report telemetry
+  had both `localization_status=supported` and a non-empty owner-gap path for
+  the same file.
+- This is a controller/type-state contradiction. It risks empty patches on
+  tasks where exploration actually gathered enough evidence, and it makes
+  downstream consumers choose between conflicting localization fields.
+
+Design direction:
+
+- Make source-localization review a single typed authority shared by read and
+  write paths: `unknown / weak / supported / blocked`.
+- Split "file had prior context" from "owner evidence satisfies apply gate" in
+  one normalized record rather than parallel fields that can disagree.
+- Require final reports, controller gates, context packs, and SWE adapter rows
+  to consume the same normalized status and owner-gap list.
+- Preserve the red line: hard gates read typed owner evidence only
+  (`SourceLocalizationReview`, `WriteContextPack` owner anchors, structural
+  edit-owner anchors), never user keywords, model prose, issue text, or
+  rationale strings.
+
+Tasks:
+
+- [ ] Trace `owner_localization_authority_unresolved_blocked` in controller and
+      identify every writer of `SourceLocalizationReview` / final report owner
+      gap fields.
+- [ ] Add a normalizer that cannot return `supported` when required source
+      owner gaps remain.
+- [ ] Feed structural owner anchors from exploration, plan edits, and read-mode
+      evidence through the same normalized owner-evidence projection before the
+      apply gate.
+- [ ] Add read/write regression tests proving supported status and owner gaps
+      cannot contradict each other.
+- [ ] Re-run `pydata__xarray-4248` and at least one non-Xarray owner-gated SWE
+      instance after the fix.
 
 ## Acceptance Criteria
 
