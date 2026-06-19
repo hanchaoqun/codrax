@@ -430,7 +430,7 @@ type Orchestrator struct {
 	// mode Runs are unaffected — the timer is only armed when Mode
 	// is plan / apply / verify. Hard-capped at 1800 seconds inside
 	// SetWriteMaxSeconds. Default 0 (no cap, legacy behaviour);
-	// cmd/root.go sets 600 from yaml.
+	// cmd/root.go sets the runtime default from yaml.
 	writeMaxSeconds int
 
 	// keepWorktreeOnSuccess, when true, skips the post-Run worktree

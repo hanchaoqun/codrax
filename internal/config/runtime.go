@@ -693,7 +693,7 @@ type RuntimeSettings struct {
 	// the orchestrator cancels the in-flight stage and surfaces a
 	// "write mode wall-time exceeded" error. Read-mode Runs are NOT
 	// subject to this cap (read-mode latency expectations differ).
-	// Default 600 seconds. 0 = no cap (legacy behaviour). Hard-
+	// Default 900 seconds. 0 = no cap (legacy behaviour). Hard-
 	// capped at 1800 inside the orchestrator setter so a typo
 	// cannot starve a Run that is genuinely making progress.
 	PipelineWriteMaxSeconds *int `yaml:"pipeline_write_max_seconds"`

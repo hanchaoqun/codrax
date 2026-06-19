@@ -69,19 +69,20 @@ var (
 // in initApp; absolute YAML overrides and CLI flags pass through
 // verbatim.
 const (
-	defaultLogDir           = "logs"
-	defaultLogLevel         = "debug"
-	defaultLogStdout        = false
-	defaultMemoryDir        = "memory"
-	defaultLang             = "zh"
-	defaultThinkingTruncate = false
-	defaultRepo             = "."
-	defaultBranch           = "main"
-	defaultMaxSteps         = 50
-	defaultProvidersConfig  = "providers.yaml"
-	runtimeAnchorDir        = ".codrax"
-	blobSubdir              = "blob"
-	defaultBlobMaxSessions  = 7
+	defaultLogDir                  = "logs"
+	defaultLogLevel                = "debug"
+	defaultLogStdout               = false
+	defaultMemoryDir               = "memory"
+	defaultLang                    = "zh"
+	defaultThinkingTruncate        = false
+	defaultRepo                    = "."
+	defaultBranch                  = "main"
+	defaultMaxSteps                = 50
+	defaultPipelineWriteMaxSeconds = 900
+	defaultProvidersConfig         = "providers.yaml"
+	runtimeAnchorDir               = ".codrax"
+	blobSubdir                     = "blob"
+	defaultBlobMaxSessions         = 7
 
 	// Final-answer transcript dump (read-mode only). The orchestrator
 	// writes one .md file plus one self-contained .html sibling per
@@ -2850,10 +2851,10 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.PipelineBaselineCacheMax != nil {
 			pipelineSettings.BaselineCacheMax = *rs.PipelineBaselineCacheMax
 		}
-		// Write-mode wall-time cap (commit 2 P0 C). Default 600 s;
+		// Write-mode wall-time cap (commit 2 P0 C). Default 900 s;
 		// 0 disables the cap; hard-capped at 1800 inside the orch
 		// setter.
-		pipelineSettings.WriteMaxSeconds = 600
+		pipelineSettings.WriteMaxSeconds = defaultPipelineWriteMaxSeconds
 		if rs.PipelineWriteMaxSeconds != nil {
 			pipelineSettings.WriteMaxSeconds = *rs.PipelineWriteMaxSeconds
 		}

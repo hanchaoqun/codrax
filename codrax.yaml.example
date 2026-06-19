@@ -687,11 +687,11 @@
 
 # pipeline_write_max_seconds — wall-clock ceiling for write-mode Runs
 #   (plan/apply/verify). On expiry the in-flight stage is cancelled.
-#   Read-mode Runs are NOT capped. Default 600. 0 = no cap (hard-capped
+#   Read-mode Runs are NOT capped. Default 900 (15 minutes). 0 = no cap (hard-capped
 #   at 1800).
 #   写模式 Run(plan/apply/verify)的墙钟上限。到期则取消进行中的阶段。
-#   读模式不受此限。默认 600。0 = 不限(硬上限 1800)。
-# pipeline_write_max_seconds: 600
+#   读模式不受此限。默认 900(15 分钟)。0 = 不限(硬上限 1800)。
+# pipeline_write_max_seconds: 900
 
 # pipeline_plan_critic_enabled — optional pre-apply plan review LLM call.
 #   When true (and a plan_critic adapter is configured), one Chat call
