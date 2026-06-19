@@ -1773,6 +1773,23 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if rs != nil {
+		// L2 fail-safe: if the operator left write_enabled unset but a
+		// stray key looks like a misspelled write_enabled, treat the kill
+		// switch as ENGAGED (fail CLOSED) instead of defaulting to writes
+		// enabled. A nil WriteEnabled otherwise reads as "writes on", so a
+		// one-character typo of the org write disable would silently fail
+		// OPEN. Mutating WriteEnabled to an explicit false here makes every
+		// downstream consumer (app.writeEnabled below and the REPL mode
+		// gate) refuse writes consistently. Only when the real key was not
+		// successfully set, so a correct write_enabled is never overridden.
+		if rs.WriteEnabled == nil {
+			if typo, ok := config.WriteKillSwitchTypoKey(rs.UnknownKeys); ok {
+				logging.Error("[cmd] %s: yaml key %q looks like a misspelled %q; treating the write kill switch as ENGAGED (writes disabled). Fix the key name to re-enable writes.",
+					settingsPath, typo, "write_enabled")
+				disabled := false
+				rs.WriteEnabled = &disabled
+			}
+		}
 		// log_triage_source_prefix mirrors the --log-source-prefix CLI
 		// flag for users who prefer persistent config. The CLI flag
 		// still wins because rootRun applies it after initApp returns.

@@ -305,3 +305,134 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 		t.Errorf("empty file should leave all fields nil, got %+v", s)
 	}
 }
+
+// containsKey reports whether keys includes target.
+func containsKey(keys []string, target string) bool {
+	for _, k := range keys {
+		if k == target {
+			return true
+		}
+	}
+	return false
+}
+
+// Bug #5: a typo'd knob must be surfaced via UnknownKeys (strict decode),
+// not silently dropped — while the load itself stays non-fatal so valid
+// fields are still applied.
+func TestLoadRuntimeSettings_TypoKnobIsReportedNonFatal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codrax.yaml")
+	// pipeline_max_stpes is a typo of pipeline_max_steps; log_level is valid.
+	if err := os.WriteFile(path, []byte("log_level: warning\npipeline_max_stpes: 100\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s, err := LoadRuntimeSettings(path)
+	if err != nil {
+		t.Fatalf("typo'd knob must not be fatal: %v", err)
+	}
+	if s.LogLevel == nil || *s.LogLevel != "warning" {
+		t.Errorf("valid field should still load, got %+v", s.LogLevel)
+	}
+	if s.PipelineMaxSteps != nil {
+		t.Errorf("typo'd pipeline_max_steps must stay nil (default fires), got %v", *s.PipelineMaxSteps)
+	}
+	if !containsKey(s.UnknownKeys, "pipeline_max_stpes") {
+		t.Errorf("typo'd key must be reported in UnknownKeys, got %v", s.UnknownKeys)
+	}
+}
+
+// Bug #9: a typo'd write_enabled leaves the field nil (otherwise fail-OPEN);
+// the loader must surface the stray key so the caller can fail the kill
+// switch CLOSED. WriteKillSwitchTypoKey is the detection the caller uses.
+func TestLoadRuntimeSettings_TypoWriteEnabledDetectedForFailClosed(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codrax.yaml")
+	if err := os.WriteFile(path, []byte("write_enbaled: false\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s, err := LoadRuntimeSettings(path)
+	if err != nil {
+		t.Fatalf("typo'd write_enabled must not be fatal: %v", err)
+	}
+	if s.WriteEnabled != nil {
+		t.Fatalf("typo means the real key was not set; WriteEnabled must be nil, got %v", *s.WriteEnabled)
+	}
+	if !containsKey(s.UnknownKeys, "write_enbaled") {
+		t.Fatalf("typo'd write_enabled must appear in UnknownKeys, got %v", s.UnknownKeys)
+	}
+	if key, ok := WriteKillSwitchTypoKey(s.UnknownKeys); !ok || key != "write_enbaled" {
+		t.Fatalf("WriteKillSwitchTypoKey should flag the kill-switch typo, got %q ok=%v", key, ok)
+	}
+}
+
+func TestWriteKillSwitchTypoKey(t *testing.T) {
+	cases := []struct {
+		key  string
+		want bool
+	}{
+		{"write_enbaled", true},  // transposed suffix
+		{"write_enabld", true},   // dropped char
+		{"write-enabled", true},  // separator slip
+		{"writeenabled", true},   // missing separator
+		{"wirte_enabled", true},  // transposed prefix
+		{"WRITE_ENABLED", false}, // exact (case-folded) is a known key, not a typo
+		{"write_plan_dir", false},
+		{"write_scaffold_enabled", false},
+		{"log_level", false},
+	}
+	for _, tc := range cases {
+		key, ok := WriteKillSwitchTypoKey([]string{tc.key})
+		if ok != tc.want {
+			t.Errorf("WriteKillSwitchTypoKey(%q) = (%q,%v), want ok=%v", tc.key, key, ok, tc.want)
+		}
+	}
+}
+
+// A recognised legacy rename is reported as unknown (it is no longer a
+// struct field) so warnUnknownKeys can give it the migration hint.
+func TestLoadRuntimeSettings_LegacyKeyReported(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codrax.yaml")
+	if err := os.WriteFile(path, []byte("pipeline_max_verify_retries: 3\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s, err := LoadRuntimeSettings(path)
+	if err != nil {
+		t.Fatalf("legacy key must not be fatal: %v", err)
+	}
+	if !containsKey(s.UnknownKeys, "pipeline_max_verify_retries") {
+		t.Errorf("legacy key should be reported, got %v", s.UnknownKeys)
+	}
+}
+
+// A real type mismatch must stay FATAL exactly as before strict decoding.
+func TestLoadRuntimeSettings_TypeMismatchStillFatal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codrax.yaml")
+	if err := os.WriteFile(path, []byte("pipeline_max_steps: not_a_number\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := LoadRuntimeSettings(path); err == nil {
+		t.Fatalf("type mismatch must remain a fatal load error")
+	}
+}
+
+// A fully valid config produces no unknown keys (regression guard against
+// over-warning / mis-classifying real fields).
+func TestLoadRuntimeSettings_ValidConfigNoUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codrax.yaml")
+	if err := os.WriteFile(path, []byte("log_level: warning\nwrite_enabled: false\npipeline_max_steps: 50\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s, err := LoadRuntimeSettings(path)
+	if err != nil {
+		t.Fatalf("valid config must load: %v", err)
+	}
+	if len(s.UnknownKeys) != 0 {
+		t.Errorf("valid config must yield no unknown keys, got %v", s.UnknownKeys)
+	}
+	if s.WriteEnabled == nil || *s.WriteEnabled {
+		t.Errorf("explicit write_enabled:false must bind, got %v", s.WriteEnabled)
+	}
+}

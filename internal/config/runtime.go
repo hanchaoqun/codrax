@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -1382,6 +1384,14 @@ type RuntimeSettings struct {
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.
 	ProvidersConfig *string `yaml:"providers_config"`
+
+	// UnknownKeys holds the yaml keys present in the loaded file that do
+	// NOT map to any field above (detected via strict KnownFields
+	// decoding). It carries no yaml tag — it is populated post-decode,
+	// never read from the file. Callers use it to warn on typos and to
+	// fail the write kill switch CLOSED when a key looks like a
+	// misspelled write_enabled (see WriteKillSwitchTypoKey).
+	UnknownKeys []string `yaml:"-"`
 }
 
 // LoadRuntimeSettings reads path as a YAML document into a
@@ -1404,39 +1414,173 @@ func LoadRuntimeSettings(path string) (*RuntimeSettings, error) {
 		return nil, err
 	}
 	var s RuntimeSettings
-	if err := yaml.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("parse runtime settings: %w", err)
+	// Strict decode (KnownFields) so a typo'd or stale key is surfaced
+	// rather than silently dropped — silent drops let an operator's knob
+	// (a budget, a gate floor, or the write_enabled kill switch) read its
+	// code default while the operator believes it took effect. An empty
+	// file decodes as io.EOF; treat it as "inherit all defaults" exactly
+	// like the pre-strict yaml.Unmarshal did.
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&s); err != nil && !errors.Is(err, io.EOF) {
+		unknown, fatal := classifyKnownFieldsError(err)
+		if fatal {
+			// A genuine parse error or type mismatch stays fatal, matching
+			// the pre-strict behaviour for malformed configs.
+			return nil, fmt.Errorf("parse runtime settings: %w", err)
+		}
+		// Only unknown-key errors remain: the valid fields are still
+		// populated, so keep the partially-decoded struct and report the
+		// stray keys for warning + kill-switch fail-safe.
+		s.UnknownKeys = unknown
 	}
-	warnLegacyKeys(path, data)
+	warnUnknownKeys(path, s.UnknownKeys)
 	return &s, nil
 }
 
-// warnLegacyKeys scans the raw yaml bytes for deprecated key names
-// and prints a migration hint to stderr. Cheap substring scan;
-// avoids a second yaml unmarshal pass.
+// classifyKnownFieldsError splits a strict-decode error into the set of
+// unknown yaml keys (recoverable; the struct is still populated) and a
+// fatal flag set when any sub-error is something other than an unknown
+// field — a real type mismatch or a non-TypeError parse failure, which
+// must stay fatal as it did before strict decoding.
+func classifyKnownFieldsError(err error) (unknownKeys []string, fatal bool) {
+	var te *yaml.TypeError
+	if !errors.As(err, &te) {
+		return nil, true
+	}
+	for _, e := range te.Errors {
+		if key, ok := unknownFieldName(e); ok {
+			unknownKeys = append(unknownKeys, key)
+			continue
+		}
+		fatal = true
+	}
+	return unknownKeys, fatal
+}
+
+// unknownFieldName extracts the yaml key from a yaml.v3 KnownFields
+// sub-error of the form `line N: field <key> not found in type <T>`.
+// Anything not matching that shape is not an unknown-field error.
+func unknownFieldName(msg string) (string, bool) {
+	const fieldMarker = "field "
+	const notFoundMarker = " not found"
+	fi := strings.Index(msg, fieldMarker)
+	if fi < 0 {
+		return "", false
+	}
+	rest := msg[fi+len(fieldMarker):]
+	ni := strings.Index(rest, notFoundMarker)
+	if ni <= 0 {
+		return "", false
+	}
+	name := strings.TrimSpace(rest[:ni])
+	if name == "" {
+		return "", false
+	}
+	return name, true
+}
+
+// warnUnknownKeys prints a non-fatal stderr line per unknown yaml key.
+// A recognised legacy rename gets the friendlier migration hint; every
+// other unknown key is flagged as a probable typo. The stderr channel
+// matches how cmd/root.go surfaces other non-fatal config issues.
 //
-// Add new entries here when renaming an exported yaml field. The
-// stderr-warning channel matches how cmd/root.go surfaces other
-// non-fatal config issues.
-func warnLegacyKeys(path string, data []byte) {
-	type rename struct {
-		old, new string
+// Add a rename entry here when renaming an exported yaml field so the
+// old name keeps its migration hint instead of the generic typo warning.
+func warnUnknownKeys(path string, unknownKeys []string) {
+	renames := map[string]string{
+		"pipeline_max_verify_retries": "pipeline_write_retry_budget",
 	}
-	renames := []rename{
-		{"pipeline_max_verify_retries", "pipeline_write_retry_budget"},
-	}
-	body := string(data)
-	for _, r := range renames {
-		// Match `<key>:` at line start (yaml convention) so a string
-		// literal containing the old name in a comment/value doesn't
-		// false-positive.
-		needle := "\n" + r.old + ":"
-		if strings.Contains("\n"+body, needle) {
+	for _, key := range unknownKeys {
+		if newName, ok := renames[key]; ok {
 			fmt.Fprintf(os.Stderr,
-				"[config] %s: deprecated yaml key %q renamed to %q (see CHANGELOG); old key is silently ignored\n",
-				path, r.old, r.new)
+				"[config] %s: deprecated yaml key %q renamed to %q (see CHANGELOG); old key is ignored\n",
+				path, key, newName)
+			continue
+		}
+		fmt.Fprintf(os.Stderr,
+			"[config] %s: unknown yaml key %q ignored (check for a typo)\n",
+			path, key)
+	}
+}
+
+// writeEnabledKey is the verbatim yaml tag of the organisational write
+// kill switch (RuntimeSettings.WriteEnabled). The fail-safe below matches
+// typos against this literal.
+const writeEnabledKey = "write_enabled"
+
+// WriteKillSwitchTypoKey reports whether any unknown key is a near-miss of
+// write_enabled — i.e. the operator likely intended to set the kill switch
+// but mistyped the key, leaving it nil (which otherwise defaults to writes
+// ENABLED, a fail-OPEN of a safety control). It matches by case-insensitive
+// Levenshtein distance <= 2 to "write_enabled", which covers suffix typos
+// (write_enabld), separator slips (write-enabled / writeenabled) AND prefix
+// transpositions (wirte_enabled) without colliding with unrelated write_*
+// knobs (e.g. write_plan_dir is far away), so it does not collaterally
+// disable writes when a different write knob is misspelled.
+func WriteKillSwitchTypoKey(unknownKeys []string) (string, bool) {
+	for _, key := range unknownKeys {
+		norm := strings.ToLower(strings.TrimSpace(key))
+		if norm == writeEnabledKey {
+			continue // exact match is a known field, never an "unknown" key
+		}
+		if boundedLevenshtein(norm, writeEnabledKey, 2) <= 2 {
+			return key, true
 		}
 	}
+	return "", false
+}
+
+// boundedLevenshtein returns the Levenshtein edit distance between a and
+// b, capped at max+1 (callers only care whether it is within a small
+// threshold, so the cap keeps it cheap and the return comparable).
+func boundedLevenshtein(a, b string, max int) int {
+	la, lb := len(a), len(b)
+	if abs(la-lb) > max {
+		return max + 1
+	}
+	prev := make([]int, lb+1)
+	curr := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		curr[0] = i
+		rowMin := curr[0]
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			curr[j] = min3(prev[j]+1, curr[j-1]+1, prev[j-1]+cost)
+			if curr[j] < rowMin {
+				rowMin = curr[j]
+			}
+		}
+		if rowMin > max {
+			return max + 1
+		}
+		prev, curr = curr, prev
+	}
+	return prev[lb]
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+func min3(a, b, c int) int {
+	m := a
+	if b < m {
+		m = b
+	}
+	if c < m {
+		m = c
+	}
+	return m
 }
 
 // IsNotExist is re-exported so main.go can keep its runtime-config
