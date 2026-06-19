@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -372,6 +373,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 		writeWorkflowBatchLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowApprovalLines(&b, lang, batch, hasBatch, plan)
 		writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
+		writeWorkflowLocalizationAuthorityLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowProgressLines(&b, lang, run)
 		for _, line := range writeWorkflowNextActionLines(lang, run) {
 			b.WriteString("\n" + line)
@@ -386,6 +388,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 	writeWorkflowBatchLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowApprovalLines(&b, lang, batch, hasBatch, plan)
 	writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
+	writeWorkflowLocalizationAuthorityLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowProgressLines(&b, lang, run)
 	for _, line := range writeWorkflowNextActionLines(lang, run) {
 		b.WriteString("\n" + line)
@@ -396,6 +399,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []string {
 	advanced := "/workflow list"
 	view := types.DeriveWriteWorkflowNextActionView(run)
+	localization := writeWorkflowLocalizationAuthority(run)
 	switch view.State {
 	case types.WriteWorkflowNextNeedsApproval:
 		return writeNextActionCardLines(lang, writeActionNeedsApproval, "/approve · /reject <reason> · /workflow list")
@@ -406,6 +410,20 @@ func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []str
 	case types.WriteWorkflowNextPlanReady:
 		return writeNextActionCardLines(lang, writeActionPlanReady, "/approve · /reject <reason> · /workflow list")
 	case types.WriteWorkflowNextRunning:
+		if localization.State != "" && localization.RecommendedAction == loopkernel.LoopActionLocalize {
+			if isZh(lang) {
+				return []string{
+					"  状态：workflow 正在推进；暂不需要用户操作。",
+					fmt.Sprintf("  下一步：继续 owner 定位；localization_authority=`%s` reason=`%s`。", localization.State, localization.ReasonCode),
+					"  高级入口：" + advanced,
+				}
+			}
+			return []string{
+				"  Status: workflow is running; no user action is needed yet.",
+				fmt.Sprintf("  Next: continue owner localization; localization_authority=`%s` reason=`%s`.", localization.State, localization.ReasonCode),
+				"  Advanced: " + advanced,
+			}
+		}
 		if isZh(lang) {
 			return []string{
 				"  状态：workflow 正在推进；暂不需要用户操作。",
@@ -431,6 +449,68 @@ func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []str
 		"  Next: inspect saved workflows or start a new write goal.",
 		"  Advanced: " + advanced,
 	}
+}
+
+func writeWorkflowLocalizationAuthorityLines(b *strings.Builder, lang string, run types.WriteWorkflowRun, batch types.WriteWorkflowBatch, hasBatch bool) {
+	if !hasBatch {
+		return
+	}
+	authority := writeWorkflowLocalizationAuthorityForBatch(run, batch.ID)
+	if authority.State == "" {
+		return
+	}
+	if isZh(lang) {
+		b.WriteString("\nLocalization authority:\n")
+	} else {
+		b.WriteString("\nLocalization authority:\n")
+	}
+	fmt.Fprintf(b, "- state=`%s` reason=`%s` action=`%s` support=%.2f\n",
+		authority.State,
+		firstNonEmptyString(authority.ReasonCode, "none"),
+		firstNonEmptyString(string(authority.RecommendedAction), "none"),
+		authority.SupportRatio)
+	if len(authority.SourcePaths) > 0 {
+		fmt.Fprintf(b, "- source_paths=%s\n", writeWorkflowPathList(authority.SourcePaths, 5))
+	}
+	if len(authority.OwnerSupportedPaths) > 0 {
+		fmt.Fprintf(b, "- owner_supported=%s\n", writeWorkflowPathList(authority.OwnerSupportedPaths, 5))
+	}
+	if len(authority.OwnerMissingPaths) > 0 {
+		fmt.Fprintf(b, "- owner_missing=%s\n", writeWorkflowPathList(authority.OwnerMissingPaths, 5))
+	}
+}
+
+func writeWorkflowLocalizationAuthority(run types.WriteWorkflowRun) loopkernel.LocalizationAuthorityView {
+	batch, ok := activeWriteWorkflowBatch(run)
+	if !ok {
+		return loopkernel.LocalizationAuthorityView{}
+	}
+	return writeWorkflowLocalizationAuthorityForBatch(run, batch.ID)
+}
+
+func writeWorkflowLocalizationAuthorityForBatch(run types.WriteWorkflowRun, batchID string) loopkernel.LocalizationAuthorityView {
+	review := loopkernel.LocalizationReviewFromWriteWorkflowRun(run, batchID)
+	if review == nil {
+		return loopkernel.LocalizationAuthorityView{}
+	}
+	return loopkernel.DeriveLocalizationAuthority(review)
+}
+
+func writeWorkflowPathList(paths []string, limit int) string {
+	if limit <= 0 || limit > len(paths) {
+		limit = len(paths)
+	}
+	if limit == 0 {
+		return "[]"
+	}
+	parts := make([]string, 0, limit+1)
+	for _, path := range paths[:limit] {
+		parts = append(parts, "`"+strings.TrimSpace(path)+"`")
+	}
+	if len(paths) > limit {
+		parts = append(parts, fmt.Sprintf("...(+%d)", len(paths)-limit))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func writeWorkflowBudgetLine(b *strings.Builder, lang string, budget types.WriteWorkflowBudget) {

@@ -158,6 +158,66 @@ func TestWorkflowShowReadyToPlanDoesNotAskForApproval(t *testing.T) {
 	}
 }
 
+func TestWorkflowShowDisplaysLocalizationAuthority(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-localization",
+		Goal:          "repair owner surface",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ContextPacks: []types.WriteContextPack{{
+			PackID:  "pack-observed",
+			BatchID: "batch-1",
+			Items: []types.WriteContextItem{{
+				Priority: types.WriteContextP1,
+				Kind:     "localization_anchor",
+				Text:     "pkg/maybe.py",
+				LocalizationAnchor: &types.SourceLocalizationAnchor{
+					Path:     "pkg/maybe.py",
+					Role:     types.SourcePathRoleProduction,
+					Kind:     types.SourceLocalizationAnchorReadFile,
+					Strength: types.SourceLocalizationAnchorObserved,
+				},
+			}},
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:                stubRunner{},
+		In:                    strings.NewReader(""),
+		Out:                   out,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+	})
+
+	r.handleWorkflowCmd("/workflow show")
+
+	got := out.String()
+	for _, want := range []string{
+		"Localization authority:",
+		"state=`observed_only`",
+		"reason=`localization_observed_without_owner`",
+		"action=`localize`",
+		"source_paths=`pkg/maybe.py`",
+		"Next: continue owner localization",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("workflow show missing localization authority %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestApproveUsesActiveWorkflowBatchPlan(t *testing.T) {
 	runner := &capturingRunner{}
 	planStore := NewPlanStore(t.TempDir())

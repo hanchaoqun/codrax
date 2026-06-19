@@ -1127,6 +1127,7 @@ The implementation must move in small commercial batches. Each batch updates thi
 
 - [x] Project `WriteContextPack` localization anchors into `LocalizationAuthority` loop events.
 - [x] Persist the projected localization authority in shadow workflow loop event artifacts.
+- [x] Render `LocalizationAuthority` in `/workflow show` and the running next-action card from typed reason codes.
 - [ ] Add `LocalizationAuthority` consumer to write controller state view.
 - [ ] Add typed localizer action recommendation when source paths are observed-only, auxiliary-only, missing, or conflicted.
 - [ ] Add read sidecar projection from TurnA artifacts without rewriting the read scheduler loop.
@@ -1188,7 +1189,7 @@ The implementation must move in small commercial batches. Each batch updates thi
 | 2026-06-19 | L0 | complete | Document includes current code audit, Codrax-specific P0/P1 priorities, detailed delivery task ledger, and phased roadmap. |
 | 2026-06-19 | L1 | complete | Added `internal/loopkernel` event schema, reducer, authority projections, atomic event persistence, and focused tests. `go test ./internal/loopkernel` passed. |
 | 2026-06-19 | L2 | complete | Added `EventsFromWriteWorkflowRun`, shadow event persistence under `workflows/events/<runID>.json`, Clear cleanup, and parity tests. Focused `loopkernel`/`repl` tests passed. |
-| 2026-06-19 | L3 | in_progress | Shadow loop events now include `LocalizationAuthority` projected from typed `WriteContextPack.LocalizationAnchor` evidence. Remaining work: controller/read sidecar/planner/final report consumption. |
+| 2026-06-19 | L3 | in_progress | Shadow loop events now include `LocalizationAuthority` projected from typed `WriteContextPack.LocalizationAnchor` evidence. `/workflow show` and the running next-action card render typed localization state/reason/action. Remaining work: controller/read sidecar/planner/final report consumption. |
 
 ## Phased Roadmap
 
