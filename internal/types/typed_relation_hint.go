@@ -398,19 +398,20 @@ func TypedRelationKindsForResolvedSources(rm RequestModel, purpose TypedRelation
 
 // TypedRelationQuerySources returns the source-entity lane for typed relation
 // probes. Prompt hints retain the previous soft fallback to analyzer entities
-// when no provenance lane exists; coverage gates retain their stricter
-// primary/entity fallback because candidate rows are filtered again by exact
-// precision, source scope, and grounded evidence before any hard complaint.
+// when no provenance lane exists. Coverage gates are stricter: they consume
+// only mentioned/exact/primary lanes, because broad analyzer entities can mix
+// relation targets, helper concepts, and generic role labels and must not seed a
+// hard missing-member complaint.
 func TypedRelationQuerySources(rm RequestModel, purpose TypedRelationPurpose) []string {
-	out := StructuralRelationScopeCandidates(rm)
-	if len(out) > 0 {
-		return out
-	}
 	switch purpose {
 	case TypedRelationPurposePromptHint:
+		out := StructuralRelationScopeCandidates(rm)
+		if len(out) > 0 {
+			return out
+		}
 		return dedupTypedRelationStrings(rm.AnalyzerHints.Entities)
 	case TypedRelationPurposeCoverageGate:
-		return dedupTypedRelationStrings(append(append([]string{}, rm.AnalyzerHints.PrimaryEntities...), rm.AnalyzerHints.Entities...))
+		return StructuralRelationCoverageScopeCandidates(rm)
 	default:
 		return nil
 	}

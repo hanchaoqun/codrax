@@ -1812,7 +1812,10 @@ func TestRelationMemberSetCoverageGaps_UsesEvidenceDrivenRegistrationCarrier(t *
 				IsRelationalLookup:    true,
 				IsCategoryEnumeration: true,
 			},
-			AnalyzerHints: types.AnalyzerHints{Entities: []string{"FeatureA"}},
+			AnalyzerHints: types.AnalyzerHints{
+				PrimaryEntities: []string{"FeatureA"},
+				Entities:        []string{"FeatureA"},
+			},
 		}},
 	}
 	facts := []types.AnswerAggregateFact{{

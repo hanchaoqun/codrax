@@ -675,33 +675,51 @@ func TestRequiresRelationMemberSetHandoff_TypedOnly(t *testing.T) {
 	}
 }
 
-func TestRequiresSourceOperationSiteMemberSetHandoff_PreciseRawBoundary(t *testing.T) {
+func TestRequiresSourceOperationSiteMemberSetHandoff_TypedBoundary(t *testing.T) {
 	cgroup := RequestModel{
-		RawRequest: "当前代码仓进程切换cgroup分组，其pid和tid是在哪儿写入cgroup分组下面的文件里的，都有哪些写入点？",
-		Intent:     IntentRootCause,
+		Intent: IntentRootCause,
+		Predicates: SemanticPredicates{
+			HasPerMemberTable: true,
+		},
 		AnalyzerHints: AnalyzerHints{
 			Kind: string(ReqMechanism),
 		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction, AnswerCandidateRoleMethod},
+		},
 	}
 	if !RequiresSourceOperationSiteMemberSetHandoff(cgroup) {
-		t.Fatal("explicit all-write-points mechanism request should require source operation-site member_set handoff")
+		t.Fatal("typed operation-site set request should require source operation-site member_set handoff")
 	}
 
 	callSites := RequestModel{
-		RawRequest: "List all registration points and call sites for FooDispatcher.",
-		Intent:     IntentExplain,
+		Intent:        IntentEnumerate,
+		PredicateAxis: AxisRegister,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
 		AnalyzerHints: AnalyzerHints{
 			Kind: string(ReqRegistration),
 		},
 	}
 	if !RequiresSourceOperationSiteMemberSetHandoff(callSites) {
-		t.Fatal("explicit English operation-site set should require source operation-site handoff")
+		t.Fatal("typed registration site set should require source operation-site handoff")
 	}
 
 	narrative := cgroup
-	narrative.RawRequest = "解释进程切换 cgroup 分组时 pid 和 tid 是如何写入文件的。"
+	narrative.Predicates.HasPerMemberTable = false
+	narrative.Intent = IntentExplain
 	if RequiresSourceOperationSiteMemberSetHandoff(narrative) {
-		t.Fatal("ordinary mechanism narrative without a set boundary must not require member_set handoff")
+		t.Fatal("ordinary mechanism narrative without a typed set boundary must not require member_set handoff")
+	}
+
+	untypedSurface := cgroup
+	untypedSurface.SourceInventoryProfile = nil
+	untypedSurface.PredicateAxis = AxisUnknown
+	untypedSurface.AnalyzerHints.Kind = string(ReqMechanism)
+	if RequiresSourceOperationSiteMemberSetHandoff(untypedSurface) {
+		t.Fatal("set boundary without typed operation-site surface must not require member_set handoff")
 	}
 
 	scalar := cgroup
@@ -711,7 +729,6 @@ func TestRequiresSourceOperationSiteMemberSetHandoff_PreciseRawBoundary(t *testi
 	}
 
 	arch := cgroup
-	arch.RawRequest = "这个系统架构有哪些入口点，画图说明模块关系"
 	arch.Intent = IntentExplain
 	arch.Scenario = ScenarioArchitectureExplain
 	arch.Complexity = ComplexityComplex
@@ -1015,6 +1032,31 @@ func TestStructuralRelationScopeCandidates_LegacyEntitiesFallback(t *testing.T) 
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("legacy candidates = %+v, want %+v", got, want)
+		}
+	}
+}
+
+func TestStructuralRelationCoverageScopeCandidates_NoBroadEntitiesFallback(t *testing.T) {
+	rm := RequestModel{
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"Agent", "SubAgent", "RuntimeHelper"},
+		},
+	}
+	if got := StructuralRelationCoverageScopeCandidates(rm); len(got) != 0 {
+		t.Fatalf("coverage candidates must ignore broad entities fallback, got %+v", got)
+	}
+
+	rm.AnalyzerHints.MentionedEntities = []string{"SubAgent"}
+	rm.AnalyzerHints.ExactTargets = []string{"SubAgentRuntime.Run"}
+	rm.AnalyzerHints.PrimaryEntities = []string{"Orchestrator"}
+	got := StructuralRelationCoverageScopeCandidates(rm)
+	want := []string{"SubAgent", "SubAgentRuntime.Run", "Orchestrator"}
+	if len(got) != len(want) {
+		t.Fatalf("coverage candidates = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("coverage candidates = %+v, want %+v", got, want)
 		}
 	}
 }

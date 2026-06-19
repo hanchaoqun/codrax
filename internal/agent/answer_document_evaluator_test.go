@@ -1489,9 +1489,16 @@ func TestRenderAnswerDocAggregateFacts_SourceOperationSiteCitationGuidance(t *te
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				RawRequest:    question,
-				Intent:        types.IntentRootCause,
+				RawRequest: question,
+				Intent:     types.IntentRootCause,
+				Predicates: types.SemanticPredicates{
+					HasPerMemberTable: true,
+				},
 				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleMethod},
+				},
 			},
 		},
 		Mutable: mut,

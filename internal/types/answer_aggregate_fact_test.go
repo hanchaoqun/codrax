@@ -2310,9 +2310,16 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceOperationSitesRemai
 		},
 	}}
 	rm := RequestModel{
-		RawRequest:    "当前代码仓进程切换cgroup分组，其pid和tid是在哪儿写入cgroup分组下面的文件里的，都有哪些写入点？",
-		Intent:        IntentRootCause,
+		RawRequest: "当前代码仓进程切换cgroup分组，其pid和tid是在哪儿写入cgroup分组下面的文件里的，都有哪些写入点？",
+		Intent:     IntentRootCause,
+		Predicates: SemanticPredicates{
+			HasPerMemberTable: true,
+		},
 		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction, AnswerCandidateRoleMethod},
+		},
 	}
 
 	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
@@ -2322,6 +2329,8 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceOperationSitesRemai
 
 	narrative := rm
 	narrative.RawRequest = "解释进程切换 cgroup 分组时 pid 和 tid 是如何写入文件的。"
+	narrative.Predicates.HasPerMemberTable = false
+	narrative.SourceInventoryProfile = nil
 	got = NormalizeAggregateFactRolesForRequest(facts, &narrative)
 	if refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &narrative); len(refs) != 1 {
 		t.Fatalf("root-cause member_set remains available when model explicitly emits it; got %+v", refs)

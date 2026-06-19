@@ -34,9 +34,9 @@ coverage so helper names, branches, or inspected files do not become a fake
 principal enumeration.
 
 The missing shape is narrower: a current-source mechanism/root-cause question
-that explicitly asks for a complete set of operation sites, such as write
-points, call sites, registration points, or entry points. This is still a
-mechanism question, but its visible answer has a principal site set.
+whose analyzer IR explicitly carries both a complete-set boundary and a
+source-operation-site surface. This is still a mechanism question, but its
+visible answer has a principal site set.
 
 ## Red Lines
 
@@ -46,6 +46,10 @@ mechanism question, but its visible answer has a principal site set.
   analyzer entities. The investigating model must still author the
   `member_set`.
 - Do not use noisy ranker scores or repo-map candidate counts as hard gates.
+- Do not inspect `RawRequest` with localized keyword tables to infer this
+  intent. Raw user text may only be used upstream for provenance validation of
+  analyzer-emitted source quotes / mentioned entities, not as a downstream hard
+  router.
 - Do not couple to cgroup, Linux, C, or any specific repository.
 - Do not let constants or adjacent target paths replace citations for the
   actual principal function/call/write site.
@@ -58,14 +62,16 @@ Add one precise request trait:
 
 The helper is intentionally conservative:
 
-- It only fires when the raw request has a set boundary such as "都有哪些",
-  "所有", "list all", "which", or "what are".
-- It also requires an operation-site surface such as "写入点", "调用点",
-  "注册点", "入口点", "write point", "call site", "registration point",
-  or "entry point".
+- It only fires when typed IR has a set boundary: enumerate intent,
+  category/relational/per-member-table predicates, a declared enumeration
+  boundary, a completeness obligation, or typed buckets.
+- It also requires a typed operation-site surface: call/register/configure/
+  condition predicate axis, call-chain/registration/config-mapping requirement
+  kind, or a source-inventory profile whose principal roles are function,
+  method, route, or file.
 - Scalar/count/history-only requests stay out.
-- Architecture narrative questions stay out unless the user also explicitly
-  requested one of these operation-site sets.
+- Architecture narrative questions stay out unless the analyzer emits the
+  typed operation-site shape above.
 
 When active:
 
@@ -86,13 +92,14 @@ answer without changing normal source analysis or runtime observation flows.
 
 ## Tasks
 
-- [ ] Add the request trait and focused tests.
-- [ ] Wire explorer structured member-set handoff to the trait.
-- [ ] Add source-operation-site aggregate handoff teaching to explorer prompt.
-- [ ] Keep source-operation-site `member_set` facts principal in aggregate
+- [x] Add the request trait and focused tests.
+- [x] Remove downstream `RawRequest` keyword routing from the request trait.
+- [x] Wire explorer structured member-set handoff to the trait.
+- [x] Add source-operation-site aggregate handoff teaching to explorer prompt.
+- [x] Keep source-operation-site `member_set` facts principal in aggregate
       projection.
-- [ ] Add finalizer rendering guidance for member citations versus target path
+- [x] Add finalizer rendering guidance for member citations versus target path
       details.
-- [ ] Add focused regression tests for the cgroup-shaped request and negative
+- [x] Add focused regression tests for the cgroup-shaped request and negative
       ordinary-mechanism cases.
 - [ ] Run targeted Go tests and push the batch.

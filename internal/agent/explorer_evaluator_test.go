@@ -1554,7 +1554,12 @@ func TestParseOutput_SourceOperationSiteRequestRequiresMemberSetHandoff(t *testi
 	ctx.Mutable = types.NewMutableState(question)
 	ctx.AnalysisIR.RequestModel.RawRequest = question
 	ctx.AnalysisIR.RequestModel.Intent = types.IntentRootCause
+	ctx.AnalysisIR.RequestModel.Predicates.HasPerMemberTable = true
 	ctx.AnalysisIR.RequestModel.AnalyzerHints = types.AnalyzerHints{Kind: string(types.ReqMechanism)}
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleMethod},
+	}
 	eval.analysisIR = ctx.AnalysisIR
 
 	out, err := eval.ParseOutput(ctx, nil, phase11ToolResults(), nil)

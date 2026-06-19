@@ -383,14 +383,24 @@ func TestTypedRelationQuerySources_PromptAndCoverageFallbacks(t *testing.T) {
 		TypedRelationQuerySources(rm, TypedRelationPurposePromptHint),
 		[]string{"Primary"},
 	)
+	assertStringSlice(t,
+		TypedRelationQuerySources(rm, TypedRelationPurposeCoverageGate),
+		[]string{"Primary"},
+	)
 	rm.AnalyzerHints.PrimaryEntities = nil
 	assertStringSlice(t,
 		TypedRelationQuerySources(rm, TypedRelationPurposePromptHint),
 		[]string{"Primary", "Secondary"},
 	)
+	if got := TypedRelationQuerySources(rm, TypedRelationPurposeCoverageGate); len(got) != 0 {
+		t.Fatalf("coverage gate must not fall back to broad analyzer entities, got %+v", got)
+	}
+
+	rm.AnalyzerHints.MentionedEntities = []string{"Mentioned"}
+	rm.AnalyzerHints.ExactTargets = []string{"Exact"}
 	assertStringSlice(t,
 		TypedRelationQuerySources(rm, TypedRelationPurposeCoverageGate),
-		[]string{"Primary", "Secondary"},
+		[]string{"Mentioned", "Exact"},
 	)
 }
 
