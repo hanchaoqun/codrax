@@ -22,6 +22,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -86,6 +87,7 @@ type Context struct {
 	Graph             *repomap.Graph            // nil when explorer has not populated MutableState yet
 	RepoRoot          string                    // for path canonicalisation; empty is tolerated (no normalisation)
 	ActiveSetPath     func(string) string       // optional multi-repo active-set canonicalizer for bare sub-repo paths
+	CacheStatus       string                    // cache_miss or cache_hit; operational telemetry only
 
 	// MultiGraphOracle is the cross-sub-repo SymbolOracle wired
 	// from BusContext.MultiGraph (P4-cross-sub-repo, 2026-05-08).
@@ -111,6 +113,12 @@ func BuildContext(ctx *types.BusContext) *Context {
 	gc := &Context{}
 	if ctx == nil {
 		return gc
+	}
+	key, turnA, dispatch := buildContextCacheKey(ctx)
+	if cached, ok := ctx.GroundingContextCacheGet(key); ok {
+		if cachedCtx, ok := cached.(*Context); ok && cachedCtx != nil {
+			return cloneContextWithCacheStatus(cachedCtx, "cache_hit")
+		}
 	}
 	// Sources, layered oldest → newest so in-dispatch reads win on
 	// conflicting line numbers (the LLM may have re-read a file
@@ -140,18 +148,14 @@ func BuildContext(ctx *types.BusContext) *Context {
 	//      to see read_file results from earlier iterations of
 	//      the SAME dispatch.
 	var history []types.ToolResult
-	if ctx.Mutable != nil {
-		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil && len(ta.ToolResults) > 0 {
-			history = append(history, ta.ToolResults...)
-		}
+	if turnA != nil && len(turnA.ToolResults) > 0 {
+		history = append(history, turnA.ToolResults...)
 	}
 	if len(ctx.ToolResults) > 0 {
 		history = append(history, ctx.ToolResults...)
 	}
-	if ctx.Mutable != nil {
-		if disp := ctx.Mutable.DispatchToolResults(); len(disp) > 0 {
-			history = append(history, disp...)
-		}
+	if len(dispatch) > 0 {
+		history = append(history, dispatch...)
 	}
 	gc.RepoRoot = ctx.RepoRoot
 	gc.ActiveSetPath = buildActiveSetPathResolver(ctx)
@@ -168,7 +172,76 @@ func BuildContext(ctx *types.BusContext) *Context {
 	// directly without a tool→ground→multigraph→topology→tool
 	// cycle. The oracle is consulted as a fallback inside
 	// looksLikeCodeIdentifier; nil disables the fan-out path.
-	return gc
+	gc.CacheStatus = "cache_miss"
+	ctx.GroundingContextCacheSet(key, gc)
+	return cloneContextWithCacheStatus(gc, gc.CacheStatus)
+}
+
+func cloneContextWithCacheStatus(in *Context, status string) *Context {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.CacheStatus = strings.TrimSpace(status)
+	return &out
+}
+
+func buildContextCacheKey(ctx *types.BusContext) (string, *types.TurnAArtifacts, []types.ToolResult) {
+	if ctx == nil {
+		return "", nil, nil
+	}
+	var turnA *types.TurnAArtifacts
+	var dispatch []types.ToolResult
+	var turnARev, dispatchRev, searchGraphRev uint64
+	var graph any
+	if ctx.Mutable != nil {
+		turnA, dispatch, graph, turnARev, dispatchRev, searchGraphRev = ctx.Mutable.GroundingContextSnapshot()
+	}
+	key := fmt.Sprintf("repo=%s|tool=%s|turnA=%d/%d|dispatch=%d/%d|graph=%d/%s|multi=%s",
+		ctx.RepoRoot,
+		toolResultsCacheSignature(ctx.ToolResults),
+		turnARev,
+		turnAToolResultCount(turnA),
+		dispatchRev,
+		len(dispatch),
+		searchGraphRev,
+		cacheIdentity(graph),
+		cacheIdentity(ctx.MultiGraph),
+	)
+	return key, turnA, dispatch
+}
+
+func cacheIdentity(v any) string {
+	if v == nil {
+		return ""
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+		return fmt.Sprintf("%T:%x", v, rv.Pointer())
+	default:
+		return fmt.Sprintf("%T", v)
+	}
+}
+
+func toolResultsCacheSignature(results []types.ToolResult) string {
+	if len(results) == 0 {
+		return "0"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d", len(results))
+	for i := range results {
+		r := results[i]
+		fmt.Fprintf(&b, "|%s:%t:%d:%s", r.ToolName, r.Success, len(r.Summary), r.RawRef)
+	}
+	return b.String()
+}
+
+func turnAToolResultCount(turnA *types.TurnAArtifacts) int {
+	if turnA == nil {
+		return 0
+	}
+	return len(turnA.ToolResults)
 }
 
 func buildActiveSetPathResolver(ctx *types.BusContext) func(string) string {

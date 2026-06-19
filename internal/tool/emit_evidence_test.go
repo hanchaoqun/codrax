@@ -53,7 +53,7 @@ func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
 	}
 	assertToolRuntimeTimingPhases(t, res.RuntimeTimings,
 		"schema_compat_decode",
-		"ground_context",
+		"ground_context_cache_miss",
 		"per_item_grounding_stabilize",
 		"duplicate_amendment_merge",
 		"summary_repair_render",

@@ -591,7 +591,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	}
 	groundContextStart := time.Now()
 	gc := ground.BuildContext(ctx)
-	recordToolRuntimeTiming(&runtimeTimings, "ground_context", groundContextStart, len(p.Items))
+	recordToolRuntimeTiming(&runtimeTimings, emitEvidenceGroundContextTimingPhase(gc), groundContextStart, len(p.Items))
 	for i, in := range p.Items {
 		if reason, ok := emitEvidenceHistoryMetadataSoftSkipReason(ctx, in, i); ok {
 			softSkippedItems = append(softSkippedItems, reason)
@@ -909,6 +909,20 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		Summary:   summary,
 		Timestamp: now,
 	}, nil
+}
+
+func emitEvidenceGroundContextTimingPhase(gc *ground.Context) string {
+	if gc == nil {
+		return "ground_context"
+	}
+	switch strings.TrimSpace(gc.CacheStatus) {
+	case "cache_hit":
+		return "ground_context_cache_hit"
+	case "cache_miss":
+		return "ground_context_cache_miss"
+	default:
+		return "ground_context"
+	}
 }
 
 func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, []string, bool) {

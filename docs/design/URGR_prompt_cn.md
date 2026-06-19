@@ -459,7 +459,7 @@ type AnswerReasoningGraphSummary struct {
 | P1-B7 Eval / Support Report | delivered | SWE results summary graph coverage metrics、historical audit graph reason grouping、per-instance support table graph columns |
 | P1-Perf-1 Tool Runtime Telemetry | delivered | `BaseAgent.executeTool` 本地工具/MCP 执行边界产出 typed `tool_call_observed` elapsed/status/count/ref event；`ToolResult.RuntimeTimings` 投影 `tool_phase_observed`；`emit_evidence` / `emit_investigation_complete` 子阶段 timing 已覆盖 |
 | P1-Perf-2 Static Schema Cache And Normalize De-dupe | delivered | `emit_evidence` / `emit_investigation_complete` 静态 `Parameters()` cache；response normalize 写入 schema fingerprint；execute-time registry normalize 仅在 fingerprint mismatch / direct caller 时 fallback |
-| P1-Perf-3 Grounding Context Cache | planned | dispatch/version scoped `ground.BuildContext` cache、line-index reuse、cache hit/miss typed telemetry |
+| P1-Perf-3 Grounding Context Cache | delivered | `BusContext` scoped `ground.BuildContext` cache、Mutable TurnA/dispatch/searchGraph revision key、line-index reuse、`ground_context_cache_hit/miss` typed timing telemetry |
 | P1-Perf-4 CompletionPreflightView | planned | `emit_investigation_complete` precheck 一次性 view、gate 共享 typed view、避免重复扫 evidence/aggregate/read history |
 | P2-B8 Graph-Guided Controller | planned | typed graph view 反哺 bounded controller action |
 | P2-B9 Graph-Native Replay Executor | planned | read-only replay/local recompute |
@@ -744,6 +744,14 @@ type AnswerReasoningGraphSummary struct {
 ### P1-Perf-3：Grounding Context Cache
 
 目标：让一次 dispatch / precheck 内重复 grounding 消费同一份 typed line index，而不是多次重建。
+
+当前进展：
+
+- 已完成：`BusContext` 增加 opaque grounding context cache，types 不依赖 ground 包，避免 import cycle。
+- 已完成：`MutableState` 增加 TurnA / dispatch tool results / search graph revision，并提供同锁 snapshot，避免 key/content 不一致。
+- 已完成：`ground.BuildContext` 使用 repo、ctx.ToolResults typed signature、Mutable revisions、search graph identity、multi-repo identity 构造 cache key。
+- 已完成：cache hit 复用 line index / observed line index / graph pointer，不跨 run 全局缓存。
+- 已完成：`emit_evidence` 的 `ground_context` timing 细分为 `ground_context_cache_hit` / `ground_context_cache_miss`。
 
 任务：
 

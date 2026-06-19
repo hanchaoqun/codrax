@@ -202,7 +202,10 @@ type MutableState struct {
 	// appends to this buffer on every successful result, and
 	// ResetDispatchToolResults clears it at loop entry so cross-
 	// dispatch leakage is impossible.
-	dispatchToolResults []ToolResult
+	dispatchToolResults         []ToolResult
+	turnAArtifactsRevision      uint64
+	dispatchToolResultsRevision uint64
+	searchGraphRevision         uint64
 	// traceQueryRuntimeObservationCount persists the precise signal that a
 	// successful trace_query call published hard-grounded runtime-artifact
 	// observations during the current explore/extract cycle. The per-dispatch
@@ -1357,6 +1360,7 @@ func (m *MutableState) SetSearchGraph(g any) {
 	defer m.mu.Unlock()
 	m.searchGraph = g
 	m.scopedSearchGraphs = nil
+	m.searchGraphRevision++
 }
 
 // ScopedSearchGraph returns a run-local graph projection cached under key.
@@ -1972,6 +1976,7 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dispatchToolResults = append(m.dispatchToolResults, r)
+	m.dispatchToolResultsRevision++
 	traceRuntimeObservations := traceQueryRuntimeObservationToolResultCount(r)
 	m.traceQueryRuntimeObservationCount += traceRuntimeObservations
 	if traceRuntimeObservations > 0 {
@@ -2037,6 +2042,7 @@ func (m *MutableState) ResetDispatchToolResults() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dispatchToolResults = nil
+	m.dispatchToolResultsRevision++
 }
 
 // Result returns the finalizer's final answer recorded for this run.
@@ -3792,6 +3798,7 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 		snap.SourceInventoryObservation = SourceInventoryObservationFromAdvisory(snap.SourceInventoryAdvisory)
 	}
 	m.turnAArtifacts = &snap
+	m.turnAArtifactsRevision++
 	// Snapshot changed → invalidate the memoised label-support pool.
 	m.cachedLabelSupport = nil
 	m.cachedLabelSupportSource = nil
@@ -3855,6 +3862,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.turnAArtifacts = nil
+	m.turnAArtifactsRevision++
 	m.exploreForkTurnABaseNotesLen = 0
 	m.exploreForkTurnABaseBoundaryLen = 0
 	m.exploreForkTurnABaseToolLen = 0
@@ -3866,6 +3874,28 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.sourceInventoryObservation = SourceInventoryObservation{}
 	m.cachedLabelSupport = nil
 	m.cachedLabelSupportSource = nil
+}
+
+func (m *MutableState) GroundingContextRevisions() (turnARevision, dispatchRevision, searchGraphRevision uint64) {
+	if m == nil {
+		return 0, 0, 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.turnAArtifactsRevision, m.dispatchToolResultsRevision, m.searchGraphRevision
+}
+
+func (m *MutableState) GroundingContextSnapshot() (turnA *TurnAArtifacts, dispatch []ToolResult, searchGraph any, turnARevision, dispatchRevision, searchGraphRevision uint64) {
+	if m == nil {
+		return nil, nil, nil, 0, 0, 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	turnA = cloneTurnAArtifactsPtr(m.turnAArtifacts)
+	if len(m.dispatchToolResults) > 0 {
+		dispatch = append([]ToolResult(nil), m.dispatchToolResults...)
+	}
+	return turnA, dispatch, m.searchGraph, m.turnAArtifactsRevision, m.dispatchToolResultsRevision, m.searchGraphRevision
 }
 
 func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
@@ -5788,6 +5818,32 @@ type BusContext struct {
 	answerSurfacePlan        *AnswerSurfacePlan
 	answerSemanticView       *AnswerSemanticView
 	answerSupportPlan        *AnswerSupportPlan
+
+	groundingContextCacheMu    sync.Mutex
+	groundingContextCacheKey   string
+	groundingContextCacheValue any
+}
+
+func (ctx *BusContext) GroundingContextCacheGet(key string) (any, bool) {
+	if ctx == nil || key == "" {
+		return nil, false
+	}
+	ctx.groundingContextCacheMu.Lock()
+	defer ctx.groundingContextCacheMu.Unlock()
+	if ctx.groundingContextCacheKey != key || ctx.groundingContextCacheValue == nil {
+		return nil, false
+	}
+	return ctx.groundingContextCacheValue, true
+}
+
+func (ctx *BusContext) GroundingContextCacheSet(key string, value any) {
+	if ctx == nil || key == "" || value == nil {
+		return
+	}
+	ctx.groundingContextCacheMu.Lock()
+	defer ctx.groundingContextCacheMu.Unlock()
+	ctx.groundingContextCacheKey = key
+	ctx.groundingContextCacheValue = value
 }
 
 // AgentContext provides the narrowed view of BusContext for a single agent.

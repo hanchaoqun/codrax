@@ -45,6 +45,73 @@ func itoa(n int) string {
 	return string(buf[i:])
 }
 
+func TestBuildContextCachesWithinSameGroundingVersion(t *testing.T) {
+	ctx := &types.BusContext{
+		RepoRoot: "",
+		Mutable:  types.NewMutableState("q"),
+		ToolResults: []types.ToolResult{
+			buildGutterReadResult("a.go", 10, []string{"func A() {}"}, 1),
+		},
+	}
+	first := BuildContext(ctx)
+	second := BuildContext(ctx)
+	if first == nil || second == nil {
+		t.Fatal("BuildContext returned nil")
+	}
+	if first.CacheStatus != "cache_miss" {
+		t.Fatalf("first BuildContext status=%q, want cache_miss", first.CacheStatus)
+	}
+	if second.CacheStatus != "cache_hit" {
+		t.Fatalf("second BuildContext status=%q, want cache_hit", second.CacheStatus)
+	}
+	if got := first.LineIndex["a.go"][10]; !strings.Contains(got, "func A") {
+		t.Fatalf("cached context missing initial line: %+v", first.LineIndex)
+	}
+}
+
+func TestBuildContextCacheInvalidatesOnDispatchAppend(t *testing.T) {
+	mut := types.NewMutableState("q")
+	ctx := &types.BusContext{
+		RepoRoot: "",
+		Mutable:  mut,
+		ToolResults: []types.ToolResult{
+			buildGutterReadResult("a.go", 10, []string{"func A() {}"}, 1),
+		},
+	}
+	first := BuildContext(ctx)
+	mut.AppendDispatchToolResult(buildGutterReadResult("b.go", 20, []string{"func B() {}"}, 1))
+	second := BuildContext(ctx)
+	if first.CacheStatus != "cache_miss" || second.CacheStatus != "cache_miss" {
+		t.Fatalf("expected dispatch append to miss cache: first=%q second=%q", first.CacheStatus, second.CacheStatus)
+	}
+	if got := second.LineIndex["b.go"][20]; !strings.Contains(got, "func B") {
+		t.Fatalf("new context missing dispatch line: %+v", second.LineIndex)
+	}
+}
+
+func TestBuildContextCacheInvalidatesOnTurnAReplacementWithSameLength(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{
+			buildGutterReadResult("a.go", 10, []string{"func A() {}"}, 1),
+		},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+	first := BuildContext(ctx)
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{
+			buildGutterReadResult("c.go", 30, []string{"func C() {}"}, 1),
+		},
+	})
+	second := BuildContext(ctx)
+	if first.CacheStatus != "cache_miss" || second.CacheStatus != "cache_miss" {
+		t.Fatalf("expected same-length TurnA replacement to miss cache: first=%q second=%q", first.CacheStatus, second.CacheStatus)
+	}
+	if got := second.LineIndex["c.go"][30]; !strings.Contains(got, "func C") {
+		t.Fatalf("new context missing replacement TurnA line: %+v", second.LineIndex)
+	}
+}
+
 // TestGroundItem_Tier1LineText locks the primary positive path:
 // the read_file gutter contains a line where the AnchorSymbol shows
 // up as a whole-word token, so Tier 1 accepts.
