@@ -823,10 +823,17 @@ type RuntimeSettings struct {
 	// run_tests / exec_command invocation may consume across every
 	// process in the supervised tree. Unix: `ulimit -t`, fires
 	// SIGXCPU. Windows: PerJobUserTimeLimit on the JobObject.
-	// Default 600 — distinct from the wall-clock timeout (300s) so a
+	// Default 600 — distinct from verify_wall_timeout_seconds so a
 	// CPU-burner on a multi-core host can't keep all cores at 100%
 	// for the full wall budget. Zero = use code default.
 	VerifyCPULimitSeconds *int `yaml:"verify_cpu_limit_seconds"`
+
+	// VerifyWallTimeoutSeconds sets the default wall-clock timeout for
+	// each run_tests suite execution. A model-supplied
+	// run_tests.timeout_seconds may still narrow or widen a specific
+	// suite. Default 900 (15 minutes); zero or negative values use the
+	// code default so a typo cannot silently disable the safety cap.
+	VerifyWallTimeoutSeconds *int `yaml:"verify_wall_timeout_seconds"`
 
 	// PipelineLintEnabled gates the V5 lint validator family
 	// (Python ruff, Go gofmt). When unset → default true; the

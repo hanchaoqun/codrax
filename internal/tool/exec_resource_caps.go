@@ -14,9 +14,9 @@ import (
 //     gradle, large Go monorepos), tight enough that a 4 GiB host
 //     keeps Codrax + Claude Code + the test process alive together.
 //   - CPU seconds: 600 (10 min). Wall-time is already capped by the
-//     runTests timeout (default 300s). CPU-time cap is the
+//     runTests timeout (default 900s). CPU-time cap is the
 //     belt-and-suspenders that catches genuinely-burning loops on
-//     multi-core hosts where 300s wall could mean 2400s of CPU.
+//     multi-core hosts where 900s wall could mean 7200s of CPU.
 const (
 	defaultVerifyMemLimitBytes uint64 = 2 * 1024 * 1024 * 1024
 	defaultVerifyCPULimitSec   uint64 = 600

@@ -42,6 +42,7 @@ markdown_preview_port: 49152
 data_task_max_repair_rounds: 9
 data_task_max_data_rounds: 18
 write_workflow_engine: controller
+verify_wall_timeout_seconds: 901
 providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -83,6 +84,9 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.WriteWorkflowEngine == nil || *s.WriteWorkflowEngine != "controller" {
 		t.Errorf("WriteWorkflowEngine = %v", s.WriteWorkflowEngine)
+	}
+	if s.VerifyWallTimeoutSeconds == nil || *s.VerifyWallTimeoutSeconds != 901 {
+		t.Errorf("VerifyWallTimeoutSeconds = %v", s.VerifyWallTimeoutSeconds)
 	}
 	// blob_*
 	if s.BlobMaxInlineBytes == nil || *s.BlobMaxInlineBytes != 65536 {

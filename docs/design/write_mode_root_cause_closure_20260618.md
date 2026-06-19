@@ -7825,6 +7825,48 @@ classified these systemic gaps:
    single typed next-action card and auto-resume safe active runs instead of
    requiring users to discover `/workflow` commands.
 
+## 2026-06-19 RC123 Verify Wall Timeout Budget
+
+Gap:
+
+- `run_tests` still had a hard-coded per-suite wall-clock default of 300
+  seconds, while complex customer and SWE-style repositories often need longer
+  bounded local verification. Operators could override a single tool call with
+  `timeout_seconds`, but there was no global typed runtime knob in
+  `codrax.yaml.example`.
+
+Design:
+
+- Keep the safety cap deterministic and typed: add
+  `verify_wall_timeout_seconds` as the process-wide default for `run_tests`.
+- Default to 900 seconds (15 minutes). Non-positive config values reset to the
+  code default; they do not silently disable the cap.
+- Preserve model flexibility without prompt hard-routing: a specific
+  `run_tests(timeout_seconds=...)` call may still use a suite-local budget.
+- Keep CPU and wall limits separate. `verify_cpu_limit_seconds` continues to
+  bound total CPU seconds, while `verify_wall_timeout_seconds` bounds elapsed
+  time.
+- Do not touch read-mode scheduler topology or any log/trace/data/operation
+  entrypoint.
+
+Tasks:
+
+- [x] Add typed runtime config field `verify_wall_timeout_seconds`.
+- [x] Add tool-layer default timeout setter/getter used by `run_tests`.
+- [x] Raise default per-suite wall timeout from 300 to 900 seconds.
+- [x] Document the knob in `codrax.yaml.example`, `docs/user_guide.md`, and
+      `docs/architecture.md`.
+- [x] Run focused config/tool tests and full regression before push.
+
+Acceptance additions:
+
+- Default `run_tests` wall timeout is 900 seconds when no per-call override is
+  supplied.
+- `run_tests(timeout_seconds=N)` still overrides the default for that call.
+- `verify_cpu_limit_seconds` remains a separate CPU-time cap.
+- Config parsing is typed and pointer-based; no prompt/user-keyword/model-prose
+  logic drives timeout selection.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

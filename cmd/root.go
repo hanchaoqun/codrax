@@ -2916,7 +2916,8 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		// Verify resource caps — applied to every run_tests +
 		// exec_command supervised invocation. Either knob unset =
-		// package default (2048 MiB / 600s); see SetVerifyResourceCaps.
+		// package default (2048 MiB / 600 CPU-s / 900 wall-s); see
+		// SetVerifyResourceCaps and SetRunTestsDefaultTimeoutSeconds.
 		// Provenance: 2026-04-26 OOM event (pytest RSS 2.47 GiB on a
 		// 3.7 GiB host); see internal/tool/exec_resource_caps.go.
 		memMB := 0
@@ -2928,6 +2929,11 @@ func initApp(cmd *cobra.Command, args []string) error {
 			cpuSec = *rs.VerifyCPULimitSeconds
 		}
 		tool.SetVerifyResourceCaps(memMB, cpuSec)
+		wallSec := 0
+		if rs.VerifyWallTimeoutSeconds != nil {
+			wallSec = *rs.VerifyWallTimeoutSeconds
+		}
+		tool.SetRunTestsDefaultTimeoutSeconds(wallSec)
 
 		// Gate thresholds → package-global in gate package.
 		var gt gate.Thresholds

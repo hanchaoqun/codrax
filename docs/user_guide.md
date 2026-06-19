@@ -2330,7 +2330,8 @@ GOMEMLIMIT=6GiB codrax --repo /path/to/big-repo --request "..."
 | `worktree_keep_ttl_hours` | 168 | 保留下来的 worktree 在启动时按 mtime 老化清理(0 关闭) |
 | `worktree_keep_max_count` | 20 | 老化后还要按 LRU 配额裁剪(0 关闭) |
 | `verify_mem_limit_mb` | 2048 | 每次 `run_tests` / `exec_command` 的内存硬上限(MiB);0 用 package 默认 |
-| `verify_cpu_limit_seconds` | 600 | 同上,CPU 时间(秒);跟 wall 超时(默认 300)是两回事 |
+| `verify_cpu_limit_seconds` | 600 | 同上,CPU 时间(秒);跟 wall 超时是两回事 |
+| `verify_wall_timeout_seconds` | 900 | 每次 `run_tests` 套件执行的默认墙钟超时(15 分钟);单次工具调用的 `timeout_seconds` 仍可覆盖 |
 
 ### 闲聊 / 本地转换
 

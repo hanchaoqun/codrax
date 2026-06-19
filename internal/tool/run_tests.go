@@ -96,7 +96,7 @@ type runTestsParams struct {
 	Suite string `json:"suite,omitempty"`
 
 	// TimeoutSeconds overrides the default per-suite timeout
-	// (default 300 = 5 minutes). Operators bump for large suites.
+	// (default 900 = 15 minutes). Operators bump for large suites.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 
 	// Runner is an optional typed verifier override. Empty = let the
@@ -214,7 +214,7 @@ func (t *RunTests) Parameters() json.RawMessage {
     },
     "timeout_seconds": {
       "type": "integer",
-      "description": "Per-suite timeout override (default 300)."
+      "description": "Per-suite timeout override (default 900)."
     },
     "runner": {
       "type": "string",
@@ -305,7 +305,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 	}
 
-	timeout := 300 * time.Second
+	timeout := runTestsDefaultTimeout()
 	if p.TimeoutSeconds > 0 {
 		timeout = time.Duration(p.TimeoutSeconds) * time.Second
 	}

@@ -2840,7 +2840,12 @@ mcp_servers:
 <tr>
 <td><code>verify_cpu_limit_seconds</code></td>
 <td>600</td>
-<td>同上,CPU 时间(秒);跟 wall 超时(默认 300)是两回事</td>
+<td>同上,CPU 时间(秒);跟 wall 超时是两回事</td>
+</tr>
+<tr>
+<td><code>verify_wall_timeout_seconds</code></td>
+<td>900</td>
+<td>每次 <code>run_tests</code> 套件执行的默认墙钟超时(15 分钟);单次工具调用的 <code>timeout_seconds</code> 仍可覆盖</td>
 </tr>
 </tbody>
 </table></div>

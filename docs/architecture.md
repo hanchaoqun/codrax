@@ -1651,7 +1651,7 @@ manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排
 
 `run_tests` / `emit_change_plan` 的 dry-build / 静态检查 / patch pre-check 全走 `internal/tool/exec_supervisor.go::SupervisedRun`：
 
-- **Linux**：`cmd.SysProcAttr.Setpgid = true` 创建独立进程组（失控测试 fork 出来的子孙进程能被一并 kill）；启动后挂 prlimit 设内存 (`verify_mem_limit_mb` 默认 2048) + CPU time (`verify_cpu_limit_seconds` 默认 600)
+- **Linux**：`cmd.SysProcAttr.Setpgid = true` 创建独立进程组（失控测试 fork 出来的子孙进程能被一并 kill）；启动后挂 prlimit 设内存 (`verify_mem_limit_mb` 默认 2048) + CPU time (`verify_cpu_limit_seconds` 默认 600)，并用 `verify_wall_timeout_seconds`（默认 900）控制 `run_tests` 的套件级墙钟超时
 - **Windows**：`golang.org/x/sys/windows` 创建 JobObject + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` + `JobMemoryLimit`，等价语义
 - **退出归类**：`SupervisedExitKind ∈ {Normal, Timeout, OOM, CPULimit}`；run_tests parser 把 OOM / CPULimit / Timeout 直接映射到 `ChangeReport.FailureKind`（7 值 enum：tests_failed / build_failure / timeout / oom / cpu_limit / crash / runner_missing）。retry-hint composer 据此分类——OOM 不会被当"测试逻辑挂了"重写一份巨大 plan，而是触发"显存/内存上限"专属 hint
 - **runner_missing 跳 retry + unverified**：`detectRunnerMissing` 在 parser 之前先看：shell exit 127 / `errors.Is(runErr, exec.ErrNotFound)` / 输出含 `<binary>: not found` 等。命中即合成 `makeRunnerMissingReport`，FailureKind=runner_missing + BuildFailed=true + FailureSummary 带 per-runner 安装 hint。调度器见此 FailureKind 不重规划代码、不硬 block 已应用改动,而是把 plan/batch 记为 `unverified(reason=runner_missing)`；重新规划解决不了"工具没装",但交付补丁仍应保留。每个 runner 的安装 hint 由 `runnerInstallHint(runner)` 提供（drift-guard 测试锁定 12 个 runner 全覆盖）
@@ -2609,7 +2609,7 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 | `perf_triage_*` | 性能分诊 | 同 log_triage 结构（默认 64K threshold） |
 | `log_attach_*` / `trace_attach_*` | 接入侧字节上限 | `log_attach_max_bytes`（256 MiB，硬顶 1 GiB）/ `trace_attach_max_bytes`（未设时继承 log_attach） |
 | `analyzer_*` / `repomap_*` / `concrete_values_*` / `diagram_identifier_whitelist` | 结构化分析微调 | mention sibling suffixes / mention count floor / max grep / reconcile strict mode / repomap min_parse_tier / tier warn/alert ratio / config layer extensions / runtime/default method prefixes / diagram identifier whitelist |
-| `verify_*` / `worktree_*` | 写模式资源墙 | `verify_mem_limit_mb`（2048）/ `verify_cpu_limit_seconds`（600）/ `worktree_keep_ttl_hours`（168 = 7 天）/ `worktree_keep_max_count`（20） |
+| `verify_*` / `worktree_*` | 写模式资源墙 | `verify_mem_limit_mb`（2048）/ `verify_cpu_limit_seconds`（600）/ `verify_wall_timeout_seconds`（900）/ `worktree_keep_ttl_hours`（168 = 7 天）/ `worktree_keep_max_count`（20） |
 | `repl_*` | REPL UX | `repl_paste_fold_min_chars`（120） |
 
 ### 14.4 优先级（precedence）

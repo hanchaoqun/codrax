@@ -846,9 +846,18 @@
 # verify_mem_limit_mb: 2048
 
 # verify_cpu_limit_seconds — total CPU seconds across the supervised
-#   process tree (distinct from the 300s wall-clock timeout). Default 600.
-#   受监管进程树的总 CPU 秒数(与 300 秒的墙钟超时不同)。默认 600。
+#   process tree (distinct from verify_wall_timeout_seconds). Default 600.
+#   受监管进程树的总 CPU 秒数(与 verify_wall_timeout_seconds 墙钟超时不同)。默认 600。
 # verify_cpu_limit_seconds: 600
+
+# verify_wall_timeout_seconds — default wall-clock timeout for each
+#   run_tests suite execution. Individual run_tests calls can still pass
+#   timeout_seconds for a narrower or wider suite-specific budget. Default
+#   900 (15 minutes). 0 = code default.
+#   每次 run_tests 套件执行的默认墙钟超时。单次 run_tests 仍可通过
+#   timeout_seconds 设置更窄或更宽的套件级预算。默认 900(15 分钟)。
+#   0 = 使用代码默认值。
+# verify_wall_timeout_seconds: 900
 
 # ---------------------------------------------------------------------------
 # Static checks  ·  静态检查
