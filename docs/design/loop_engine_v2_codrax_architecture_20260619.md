@@ -1261,8 +1261,8 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | L3 | complete | Localization authority consumption | shared `LocalizationAuthority` consumed by read sidecar, write controller, planner/replan, final report | read/write localization tests |
 | L4 | complete | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
 | L5 | pending | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
-| L6 | in_progress | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
-| L7 | pending | Micro-loop execution | deterministic micro-slice splitter, runtime unit apply/observe/checkpoint, stale-plan guard | write E2E and slice tests |
+| L6 | complete | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
+| L7 | in_progress | Micro-loop execution | deterministic runtime-unit authority projection; next batches consume it for apply/observe/checkpoint policy | writeflow runtime-unit tests |
 | L8 | pending | Worker/subagent evidence producers | Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer typed outputs | subagent/worker tests |
 | L9 | pending | Auto Pilot UX | single status card from `LoopStateView`; routine path avoids command burden | REPL/CLI rendering tests |
 | L10 | pending | Commercial hardening | replay CLI/eval artifacts, SWE smoke, multi-language canaries, full regression | `go test ./...`, `make test`, eval smoke |
@@ -1336,10 +1336,12 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 
 ### L7 Task Breakdown
 
-- Split plan slices into runtime units by path, owner, permission class, and impact dependency.
-- Apply one runtime unit at a time.
-- Record patch truth, observation, truth projection, and checkpoint per unit.
-- Preserve verified independent units on failure.
+- [x] Project plan/workflow slices into `RuntimeUnitView` by path, owner anchor, permission class, and impact dependency.
+- [x] Surface active runtime unit and unit ledger from `WorkflowExecutionView` for controller/UX/eval consumers.
+- [x] Record patch truth, patch review, observation, approval, impact, and checkpoint/restore projections per unit.
+- [ ] Make controller transitions consume `RuntimeUnitView` as the first-class apply/observe/checkpoint authority.
+- [ ] Preserve verified independent units on failure through unit-level stale-plan and dependency guards.
+- [ ] Add write E2E coverage for multi-unit edit/run/observe with one failed later unit and preserved earlier unit.
 
 ### L8 Task Breakdown
 
@@ -1380,6 +1382,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | 2026-06-20 | L6 | in_progress | Added write-controller automatic localizer exploration from durable missing navigation coverage: `normalizeControllerTypedStateDecision` now converts user-interrupting or planning actions into bounded `explore_code` when `WorkflowExecutionView` shows missing/partial required repo_map lens coverage while localization still needs owner context. The exploration request preserves typed candidate paths plus `repo_map_navigation_requirement` and `typed_owner_localization_anchor` rows, reducing REPL/CLI interruptions without relying on prompt prose. Focused `orchestrator`/`writeflow` tests passed. Remaining L6 work: read scheduler localizer sidecar trigger and independent impact-navigation worker scheduling. |
 | 2026-06-20 | L6 | in_progress | Added read-scheduler localizer retry through the existing pre-finalize floor, without editing `runReadSchedulerLoop`: `ReadLocalizerFollowup` is derived from typed source-localization review plus repo_map navigation coverage, stamped on `AnswerDocumentV2`, preserved across patch/mutable clones, rendered as a final supplement, and consumed by `checkTier1Floor` to requeue exploration while retry budget remains. The gate reads only typed TurnA artifacts, `AnalysisIR`, repo_map observations, and localization requirements; prompt prose is only a retry hint. Focused `types`/`tool`/`agent`/`orchestrator` tests passed. Remaining L6 work: independent write impact-navigation worker scheduling. |
 | 2026-06-20 | L6 | complete | Added write impact-navigation worker trigger for graph-derived obligations: dependent/dependency/test-surface impact targets can now stay in the typed follow-up queue, set `NeedsCodeExploration=true`, and append `repo_map_navigation_requirement` rows for `edit_impact` and `relation_map` before repair planning. Controller normalization rewrites premature finish/replan into `explore_code` with typed graph-navigation evidence requirements for unverified graph-impact follow-up batches. Passed-verify graph targets remain soft telemetry and non-graph proof obligations such as behavior contracts keep the existing direct proof/probe path. Focused orchestrator tests passed. |
+| 2026-06-20 | L7 | in_progress | Added deterministic `RuntimeUnitView` projection in `writeflow`: active workflow slices now expose unit-level owner anchors, approval/risk authority, impact obligations, actual patch truth, patch review coverage, observation authority, and checkpoint/restore metadata. `WorkflowExecutionView` surfaces the active runtime unit plus unit ledger for controller/UX/eval consumers. This batch is pure projection and does not change apply effects; focused writeflow runtime-unit tests passed. Remaining L7 work: make controller transitions consume the unit view as the first-class apply/observe/checkpoint authority and add multi-unit E2E preservation tests. |
 
 ## Phased Roadmap
 

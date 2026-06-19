@@ -45,6 +45,8 @@ type WorkflowExecutionView struct {
 
 	ActiveSliceID     string                      `json:"active_slice_id,omitempty"`
 	ActiveSliceStatus types.ChangePlanSliceStatus `json:"active_slice_status,omitempty"`
+	ActiveRuntimeUnit *RuntimeUnitView            `json:"active_runtime_unit,omitempty"`
+	RuntimeUnits      []RuntimeUnitView           `json:"runtime_units,omitempty"`
 
 	BatchAttempt BatchAttemptState     `json:"batch_attempt,omitempty"`
 	Approval     ApprovalExecutionView `json:"approval,omitempty"`
@@ -93,6 +95,10 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 	view.BatchStatus = batch.Status
 	view.PlanID = strings.TrimSpace(batch.PlanID)
 	view.ActiveSliceID, view.ActiveSliceStatus = workflowExecutionActiveSlice(batch)
+	view.RuntimeUnits = DeriveRuntimeUnitViews(mode, run, plan, nil)
+	if active, ok := ActiveRuntimeUnitView(mode, run, plan, nil); ok {
+		view.ActiveRuntimeUnit = &active
+	}
 	view.BatchAttempt = DeriveBatchAttemptState(batch)
 	view.ExploreAttempts, view.LatestExploreStatus, view.LatestExploreReason = workflowExecutionExploreAttempts(batch)
 	if review := loopkernel.LocalizationReviewFromWriteWorkflowRun(run, view.BatchID); review != nil {
@@ -174,6 +180,10 @@ func DeriveWorkflowExecutionViewWithReport(mode types.PipelineMode, run types.Wr
 	profile := types.BuildVerificationProofProfile(activePlan, report)
 	ledger := types.BuildVerificationProofLedger(activePlan, report, nil)
 	view.Proof = loopkernel.DeriveProofCoverageAuthorityFromArtifacts(latestAttemptOfKind(batch, "verify"), &profile, &ledger)
+	view.RuntimeUnits = DeriveRuntimeUnitViews(mode, run, plan, report)
+	if active, ok := ActiveRuntimeUnitView(mode, run, plan, report); ok {
+		view.ActiveRuntimeUnit = &active
+	}
 	return view
 }
 
