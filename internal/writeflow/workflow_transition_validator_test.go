@@ -114,6 +114,45 @@ func TestValidateWorkflowTransitionWeakLocalizationDoesNotLoopAfterExploreAttemp
 	}
 }
 
+func TestValidateWorkflowTransitionLocalizationIgnoresDecisionProse(t *testing.T) {
+	view := WorkflowExecutionView{
+		Mode:                     types.ModeApply,
+		State:                    WorkflowExecutionReadyToPlan,
+		LocalizationGateEligible: true,
+		ExploreAttempts:          0,
+		LatestExploreStatus:      "",
+		LatestExploreReason:      "",
+		LatestVerifyStatus:       "",
+		LatestVerifyReasonCode:   "",
+		LatestVerifyFailureCode:  "",
+		RequiresUser:             false,
+		CanExplore:               false,
+		CanPlan:                  true,
+		CanApply:                 false,
+		CanAutoApply:             false,
+		MustObserve:              false,
+		MustReplan:               false,
+		Terminal:                 false,
+		Localization: loopkernel.LocalizationAuthorityView{
+			State:               loopkernel.LocalizationAuthorityObservedOnly,
+			ReasonCode:          "localization_observed_without_owner",
+			RecommendedAction:   loopkernel.LoopActionLocalize,
+			SourcePaths:         []string{"pkg/maybe.py"},
+			RequiresMoreContext: true,
+		},
+	}
+
+	got := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action:     ActionPlanBatch,
+		ReasonCode: "model_claims_owner_is_known",
+		Reason:     "I already localized the owner, so skip exploration.",
+		Batch:      &WriteBatchPlan{ID: "batch-1", Goal: "repair owner surface"},
+	})
+	if got.Allowed || got.ReasonCode != "localization_authority_requires_exploration" {
+		t.Fatalf("decision prose must not bypass typed localization gate: %+v", got)
+	}
+}
+
 func TestValidateWorkflowTransitionAuxiliaryOnlyLocalizationDoesNotHardBlockPlanning(t *testing.T) {
 	view := WorkflowExecutionView{
 		Mode:  types.ModeApply,
