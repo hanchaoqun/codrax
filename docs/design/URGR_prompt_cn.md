@@ -165,10 +165,12 @@ type ReasoningEvent struct {
     ID           string
     GraphID      string
     NodeID       string
+    NodeKind     ReasoningNodeKind
     Sequence     int64
     Kind         ReasoningEventKind
     ReasonCode   string
     ArtifactRefs []loopkernel.ArtifactRef
+    EvidenceRefs []ReasoningEvidenceRef
     Payload      json.RawMessage
     At           time.Time
 }
@@ -195,6 +197,7 @@ const (
     ReasoningNodeData       ReasoningNodeKind = "data"
     ReasoningNodeOperation  ReasoningNodeKind = "operation"
     ReasoningNodeEvidence   ReasoningNodeKind = "evidence"
+    ReasoningNodeLLM        ReasoningNodeKind = "llm"
 )
 ```
 
@@ -211,6 +214,25 @@ type ReasoningEvidenceRef struct {
     SourceStage  string
     Consumer     string
     ReasonCode   string
+}
+```
+
+### 5.5 ReasoningGraphView
+
+`ReasoningGraphView` 是给状态卡、审计命令、final report、SWE/eval telemetry 消费的 read model。它只能从 typed events/references reduce 得到，不读取 prompt、模型散文、visible thinking 或终端叙事。
+
+```go
+type ReasoningGraphView struct {
+    GraphID         string
+    EventCount      int
+    LastEventKind   ReasoningEventKind
+    LastReasonCode  string
+    Nodes           []ReasoningNodeView
+    EvidenceRefs    []ReasoningEvidenceRef
+    ToolEvents      []ReasoningEventSummary
+    RepairEvents    []ReasoningEventSummary
+    LLMEvents       []ReasoningEventSummary
+    EventKindCounts []EventKindCount
 }
 ```
 
