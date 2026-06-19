@@ -7490,6 +7490,44 @@ RC118 probe import diagnostics and carried handoff:
   - `go test ./internal/tool -run 'TestRunTestsVerificationProbeImportErrorIsParserError|TestPythonVerificationProbeImportDiagnosticDetailCapturesImportName|TestVerificationDiagnosticsPreserveProbeAndSuiteSignals' -count=1`
   - `go test ./internal/tool ./internal/types ./internal/writeflow -count=1`
 
+RC118 SWE smoke and manual audit:
+
+- Run:
+  - `eval/results/swebench/lite-smoke-20260619-rc118-probe-import-diagnostics-flask-pytest`
+    on `pallets__flask-4045` and `pytest-dev__pytest-11143`.
+  - `validate_predictions.py` validated two predictions with one empty patch;
+    official SWE-bench harness dry-run/import succeeded.
+- Evidence:
+  - Flask report now preserves probe import detail as typed JSON:
+    `{"exception":"ImportError","import_name":"url_quote","source_module":"werkzeug.urls"}`.
+    This proves the RC118 diagnostic carrier survives into the final
+    `ChangeReport.VerificationDiagnostics`.
+  - Pytest report now preserves package import detail as typed JSON:
+    `{"exception":"ModuleNotFoundError","missing_module":"_pytest._version"}`.
+    The prior audit's coarse "bad rewrite import" impression is now narrower:
+    the probe imported `_pytest.assertion.rewrite`, but the checkout/runtime
+    import path lacked `_pytest._version`.
+- Manual audit:
+  - Pytest exported a coherent source patch for
+    `src/_pytest/assertion/rewrite.py`, changing `is_rewrite_disabled()` to
+    guard non-string docstring values. This is likely functionally aligned with
+    the issue, but local confidence remains blocked by uncovered changed-symbol
+    proof and unavailable probe startup.
+  - Flask ended `empty_patch` with `write_wall_time_empty_patch` /
+    `plan_batch_canceled`. The source checkout at the instance base did not
+    already contain the required guard at `Blueprint.__init__`; a later planner
+    no-change narrative incorrectly claimed it was already present. This is not
+    a timeout-only tuning issue: it is a no-change authority gap.
+- Follow-up gap:
+  - **RC119: no-change plan authority.** A no-change/empty-change plan must be
+    accepted only when deterministic current-source evidence proves the target
+    behavior or source state already exists. The controller/planner cannot rely
+    on model summaries such as "already implemented." Required inputs are typed
+    current bytes, owner anchors, previous applied patch state, and optional
+    passed probes. If no-change is unproven in a write request, the controller
+    should re-open localization/read evidence or block with a typed reason
+    instead of exporting an empty patch.
+
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
 This queue came from the pre-RC104 three-instance smoke. It is not an official
