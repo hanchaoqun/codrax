@@ -171,13 +171,16 @@ func TestSourceLocalizationReviewFromWritePlanContextSupportedAndMissing(t *test
 	if review.Status != SourceLocalizationWeak {
 		t.Fatalf("status = %s, want weak: %+v", review.Status, review)
 	}
-	if strings.Join(review.SupportedPaths, ",") != "pkg/covered/helper.py,pkg/owner.py" {
+	if strings.Join(review.SupportedPaths, ",") != "" {
 		t.Fatalf("supported paths = %+v", review.SupportedPaths)
 	}
-	if strings.Join(review.MissingPaths, ",") != "pkg/caller.py" {
+	if strings.Join(review.MissingPaths, ",") != "pkg/caller.py,pkg/covered/helper.py,pkg/owner.py" {
 		t.Fatalf("missing paths = %+v", review.MissingPaths)
 	}
-	if review.SupportRatio != 2.0/3.0 {
+	if strings.Join(review.OwnerMissingPaths, ",") != "pkg/caller.py,pkg/covered/helper.py,pkg/owner.py" {
+		t.Fatalf("owner missing paths = %+v", review.OwnerMissingPaths)
+	}
+	if review.SupportRatio != 0 {
 		t.Fatalf("support ratio = %v", review.SupportRatio)
 	}
 }
@@ -234,11 +237,17 @@ func TestSourceLocalizationReviewFromWritePlanContextCarriesMatchedPriorAnchors(
 	if review.Status != SourceLocalizationWeak {
 		t.Fatalf("status = %s, want weak because observed.py is not owner-supported: %+v", review.Status, review)
 	}
-	if strings.Join(review.SupportedPaths, ",") != "pkg/owner.py,pkg/scope/helper.py" {
+	if strings.Join(review.SupportedPaths, ",") != "pkg/owner.py" {
 		t.Fatalf("supported paths = %+v", review.SupportedPaths)
 	}
-	if strings.Join(review.MissingPaths, ",") != "pkg/observed.py" {
+	if strings.Join(review.OwnerSupportedPaths, ",") != "pkg/owner.py" {
+		t.Fatalf("owner supported paths = %+v", review.OwnerSupportedPaths)
+	}
+	if strings.Join(review.MissingPaths, ",") != "pkg/observed.py,pkg/scope/helper.py" {
 		t.Fatalf("missing paths = %+v", review.MissingPaths)
+	}
+	if strings.Join(review.OwnerMissingPaths, ",") != "pkg/observed.py,pkg/scope/helper.py" {
+		t.Fatalf("owner missing paths = %+v", review.OwnerMissingPaths)
 	}
 	if !sourceLocalizationTestHasAnchor(review, "pkg/owner.py", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner) {
 		t.Fatalf("owner anchor not carried into plan review: %+v", review.Anchors)
@@ -268,8 +277,28 @@ func TestSourceLocalizationReviewFromWritePlanContextNoPriorIsWeakNotRoutingGrad
 	if strings.Join(review.MissingPaths, ",") != "pkg/new_owner.py" {
 		t.Fatalf("missing paths = %+v", review.MissingPaths)
 	}
+	if strings.Join(review.OwnerMissingPaths, ",") != "pkg/new_owner.py" {
+		t.Fatalf("owner missing paths = %+v", review.OwnerMissingPaths)
+	}
 	if got := WritePlanSourcePathsOutsidePriorContext(nil, plan); len(got) != 0 {
 		t.Fatalf("no-prior review is audit signal only; routing helper returned %+v", got)
+	}
+}
+
+func TestNormalizeSourceLocalizationReviewDowngradesSupportedWithOwnerGaps(t *testing.T) {
+	review := NormalizeSourceLocalizationReview(SourceLocalizationReview{
+		Status:            SourceLocalizationSupported,
+		SourcePaths:       []string{"pkg/bug.py"},
+		SupportedPaths:    []string{"pkg/bug.py"},
+		OwnerMissingPaths: []string{"pkg/bug.py"},
+		ReasonCodes:       []string{"plan_source_path_without_owner_anchor"},
+	})
+
+	if review.Status != SourceLocalizationWeak {
+		t.Fatalf("status = %s, want weak when owner gaps remain: %+v", review.Status, review)
+	}
+	if strings.Join(review.OwnerMissingPaths, ",") != "pkg/bug.py" {
+		t.Fatalf("owner missing paths = %+v", review.OwnerMissingPaths)
 	}
 }
 

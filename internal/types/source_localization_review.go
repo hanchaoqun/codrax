@@ -74,20 +74,22 @@ type SourceLocalizationAnchor struct {
 // production-like code paths; AuxiliaryPaths preserve tests/docs/fixtures as
 // supporting context without letting them satisfy owner-boundary coverage.
 type SourceLocalizationReview struct {
-	Status            SourceLocalizationStatus      `json:"status,omitempty"`
-	Source            string                        `json:"source,omitempty"`
-	PlanID            string                        `json:"plan_id,omitempty"`
-	BatchID           string                        `json:"batch_id,omitempty"`
-	Goal              string                        `json:"goal,omitempty"`
-	ReasonCodes       []string                      `json:"reason_codes,omitempty"`
-	SourcePaths       []string                      `json:"source_paths,omitempty"`
-	PriorContextPaths []string                      `json:"prior_context_paths,omitempty"`
-	SupportedPaths    []string                      `json:"supported_paths,omitempty"`
-	MissingPaths      []string                      `json:"missing_paths,omitempty"`
-	AuxiliaryPaths    []string                      `json:"auxiliary_paths,omitempty"`
-	EvidenceRefs      []WriteExplorationEvidenceRef `json:"evidence_refs,omitempty"`
-	Anchors           []SourceLocalizationAnchor    `json:"anchors,omitempty"`
-	SupportRatio      float64                       `json:"support_ratio,omitempty"`
+	Status              SourceLocalizationStatus      `json:"status,omitempty"`
+	Source              string                        `json:"source,omitempty"`
+	PlanID              string                        `json:"plan_id,omitempty"`
+	BatchID             string                        `json:"batch_id,omitempty"`
+	Goal                string                        `json:"goal,omitempty"`
+	ReasonCodes         []string                      `json:"reason_codes,omitempty"`
+	SourcePaths         []string                      `json:"source_paths,omitempty"`
+	PriorContextPaths   []string                      `json:"prior_context_paths,omitempty"`
+	SupportedPaths      []string                      `json:"supported_paths,omitempty"`
+	MissingPaths        []string                      `json:"missing_paths,omitempty"`
+	OwnerSupportedPaths []string                      `json:"owner_supported_paths,omitempty"`
+	OwnerMissingPaths   []string                      `json:"owner_missing_paths,omitempty"`
+	AuxiliaryPaths      []string                      `json:"auxiliary_paths,omitempty"`
+	EvidenceRefs        []WriteExplorationEvidenceRef `json:"evidence_refs,omitempty"`
+	Anchors             []SourceLocalizationAnchor    `json:"anchors,omitempty"`
+	SupportRatio        float64                       `json:"support_ratio,omitempty"`
 }
 
 func NormalizeSourceLocalizationReview(in SourceLocalizationReview) SourceLocalizationReview {
@@ -99,12 +101,17 @@ func NormalizeSourceLocalizationReview(in SourceLocalizationReview) SourceLocali
 	in.PriorContextPaths = dedupSourceLocalizationPaths(in.PriorContextPaths, sourceLocalizationMaxPaths)
 	in.SupportedPaths = dedupSourceLocalizationPaths(in.SupportedPaths, sourceLocalizationMaxPaths)
 	in.MissingPaths = dedupSourceLocalizationPaths(in.MissingPaths, sourceLocalizationMaxPaths)
+	in.OwnerSupportedPaths = dedupSourceLocalizationPaths(in.OwnerSupportedPaths, sourceLocalizationMaxPaths)
+	in.OwnerMissingPaths = dedupSourceLocalizationPaths(in.OwnerMissingPaths, sourceLocalizationMaxPaths)
 	in.AuxiliaryPaths = dedupSourceLocalizationPaths(in.AuxiliaryPaths, sourceLocalizationMaxPaths)
 	in.ReasonCodes = dedupSourceLocalizationStrings(in.ReasonCodes, sourceLocalizationMaxReasonCodes)
 	in.EvidenceRefs = normalizeSourceLocalizationEvidenceRefs(in.EvidenceRefs)
 	in.Anchors = normalizeSourceLocalizationAnchors(in.Anchors)
-	if len(in.SourcePaths) > 0 && len(in.SupportedPaths) > 0 {
-		in.SupportRatio = float64(len(in.SupportedPaths)) / float64(len(in.SourcePaths))
+	if len(in.OwnerSupportedPaths) == 0 && len(in.SupportedPaths) > 0 && len(in.OwnerMissingPaths) == 0 {
+		in.OwnerSupportedPaths = append([]string(nil), in.SupportedPaths...)
+	}
+	if len(in.SourcePaths) > 0 && len(in.OwnerSupportedPaths) > 0 {
+		in.SupportRatio = float64(len(in.OwnerSupportedPaths)) / float64(len(in.SourcePaths))
 	} else if len(in.SourcePaths) > 0 && in.SupportRatio < 0 {
 		in.SupportRatio = 0
 	}
@@ -122,11 +129,20 @@ func NormalizeSourceLocalizationReview(in SourceLocalizationReview) SourceLocali
 	if in.Status == SourceLocalizationUnknown {
 		in.Status = inferSourceLocalizationStatus(in)
 	}
+	if in.Status == SourceLocalizationSupported && (len(in.MissingPaths) > 0 || len(in.OwnerMissingPaths) > 0) {
+		if len(in.OwnerSupportedPaths) == 0 && len(in.SupportedPaths) == 0 {
+			in.Status = SourceLocalizationMissing
+		} else {
+			in.Status = SourceLocalizationWeak
+		}
+	}
 	if in.Status == SourceLocalizationUnknown &&
 		len(in.ReasonCodes) == 0 &&
 		len(in.SourcePaths) == 0 &&
 		len(in.PriorContextPaths) == 0 &&
 		len(in.AuxiliaryPaths) == 0 &&
+		len(in.OwnerSupportedPaths) == 0 &&
+		len(in.OwnerMissingPaths) == 0 &&
 		len(in.EvidenceRefs) == 0 &&
 		len(in.Anchors) == 0 {
 		return SourceLocalizationReview{}
@@ -136,20 +152,22 @@ func NormalizeSourceLocalizationReview(in SourceLocalizationReview) SourceLocali
 
 func CloneSourceLocalizationReview(in SourceLocalizationReview) SourceLocalizationReview {
 	return NormalizeSourceLocalizationReview(SourceLocalizationReview{
-		Status:            in.Status,
-		Source:            in.Source,
-		PlanID:            in.PlanID,
-		BatchID:           in.BatchID,
-		Goal:              in.Goal,
-		ReasonCodes:       append([]string(nil), in.ReasonCodes...),
-		SourcePaths:       append([]string(nil), in.SourcePaths...),
-		PriorContextPaths: append([]string(nil), in.PriorContextPaths...),
-		SupportedPaths:    append([]string(nil), in.SupportedPaths...),
-		MissingPaths:      append([]string(nil), in.MissingPaths...),
-		AuxiliaryPaths:    append([]string(nil), in.AuxiliaryPaths...),
-		EvidenceRefs:      append([]WriteExplorationEvidenceRef(nil), in.EvidenceRefs...),
-		Anchors:           append([]SourceLocalizationAnchor(nil), in.Anchors...),
-		SupportRatio:      in.SupportRatio,
+		Status:              in.Status,
+		Source:              in.Source,
+		PlanID:              in.PlanID,
+		BatchID:             in.BatchID,
+		Goal:                in.Goal,
+		ReasonCodes:         append([]string(nil), in.ReasonCodes...),
+		SourcePaths:         append([]string(nil), in.SourcePaths...),
+		PriorContextPaths:   append([]string(nil), in.PriorContextPaths...),
+		SupportedPaths:      append([]string(nil), in.SupportedPaths...),
+		MissingPaths:        append([]string(nil), in.MissingPaths...),
+		OwnerSupportedPaths: append([]string(nil), in.OwnerSupportedPaths...),
+		OwnerMissingPaths:   append([]string(nil), in.OwnerMissingPaths...),
+		AuxiliaryPaths:      append([]string(nil), in.AuxiliaryPaths...),
+		EvidenceRefs:        append([]WriteExplorationEvidenceRef(nil), in.EvidenceRefs...),
+		Anchors:             append([]SourceLocalizationAnchor(nil), in.Anchors...),
+		SupportRatio:        in.SupportRatio,
 	})
 }
 
@@ -172,19 +190,21 @@ func MergeSourceLocalizationReviews(prior, current *SourceLocalizationReview) *S
 		return CloneSourceLocalizationReviewPtr(prior)
 	}
 	out := SourceLocalizationReview{
-		Status:            strongerSourceLocalizationStatus(prior.Status, current.Status),
-		Source:            sourceLocalizationFirstNonEmpty(prior.Source, current.Source),
-		PlanID:            sourceLocalizationFirstNonEmpty(current.PlanID, prior.PlanID),
-		BatchID:           sourceLocalizationFirstNonEmpty(current.BatchID, prior.BatchID),
-		Goal:              sourceLocalizationFirstNonEmpty(current.Goal, prior.Goal),
-		ReasonCodes:       append(append([]string(nil), prior.ReasonCodes...), current.ReasonCodes...),
-		SourcePaths:       append(append([]string(nil), prior.SourcePaths...), current.SourcePaths...),
-		PriorContextPaths: append(append([]string(nil), prior.PriorContextPaths...), current.PriorContextPaths...),
-		SupportedPaths:    append(append([]string(nil), prior.SupportedPaths...), current.SupportedPaths...),
-		MissingPaths:      append(append([]string(nil), prior.MissingPaths...), current.MissingPaths...),
-		AuxiliaryPaths:    append(append([]string(nil), prior.AuxiliaryPaths...), current.AuxiliaryPaths...),
-		EvidenceRefs:      append(append([]WriteExplorationEvidenceRef(nil), prior.EvidenceRefs...), current.EvidenceRefs...),
-		Anchors:           append(append([]SourceLocalizationAnchor(nil), prior.Anchors...), current.Anchors...),
+		Status:              strongerSourceLocalizationStatus(prior.Status, current.Status),
+		Source:              sourceLocalizationFirstNonEmpty(prior.Source, current.Source),
+		PlanID:              sourceLocalizationFirstNonEmpty(current.PlanID, prior.PlanID),
+		BatchID:             sourceLocalizationFirstNonEmpty(current.BatchID, prior.BatchID),
+		Goal:                sourceLocalizationFirstNonEmpty(current.Goal, prior.Goal),
+		ReasonCodes:         append(append([]string(nil), prior.ReasonCodes...), current.ReasonCodes...),
+		SourcePaths:         append(append([]string(nil), prior.SourcePaths...), current.SourcePaths...),
+		PriorContextPaths:   append(append([]string(nil), prior.PriorContextPaths...), current.PriorContextPaths...),
+		SupportedPaths:      append(append([]string(nil), prior.SupportedPaths...), current.SupportedPaths...),
+		MissingPaths:        append(append([]string(nil), prior.MissingPaths...), current.MissingPaths...),
+		OwnerSupportedPaths: append(append([]string(nil), prior.OwnerSupportedPaths...), current.OwnerSupportedPaths...),
+		OwnerMissingPaths:   append(append([]string(nil), prior.OwnerMissingPaths...), current.OwnerMissingPaths...),
+		AuxiliaryPaths:      append(append([]string(nil), prior.AuxiliaryPaths...), current.AuxiliaryPaths...),
+		EvidenceRefs:        append(append([]WriteExplorationEvidenceRef(nil), prior.EvidenceRefs...), current.EvidenceRefs...),
+		Anchors:             append(append([]SourceLocalizationAnchor(nil), prior.Anchors...), current.Anchors...),
 	}
 	out = NormalizeSourceLocalizationReview(out)
 	if sourceLocalizationReviewIsEmpty(out) {
@@ -290,6 +310,7 @@ func SourceLocalizationReviewFromWritePlanContext(batchID, goal string, prior []
 	contextPaths := writeContextCoveragePriorPaths(prior)
 	contextAnchors := writeContextCoveragePriorAnchors(prior)
 	planPaths := writeContextCoveragePlanPaths(plan)
+	requirements := LocalizationRequirementsFromWritePlanContext(batchID, "", WriteConsumerPlanner, prior, plan, 0)
 	out := SourceLocalizationReview{
 		Source:            "write_plan_context",
 		PlanID:            strings.TrimSpace(plan.ID),
@@ -306,29 +327,67 @@ func SourceLocalizationReviewFromWritePlanContext(batchID, goal string, prior []
 	if len(contextPaths) == 0 {
 		out.Status = SourceLocalizationWeak
 		out.MissingPaths = append(out.MissingPaths, planPaths...)
+		out.OwnerMissingPaths = append(out.OwnerMissingPaths, planPaths...)
 		out.ReasonCodes = append(out.ReasonCodes, "plan_source_paths_without_prior_context")
 		return NormalizeSourceLocalizationReview(out)
 	}
-	for _, p := range planPaths {
-		if writeContextCoveragePathCoveredByContext(p, contextPaths) {
-			out.SupportedPaths = append(out.SupportedPaths, p)
-			out.Anchors = append(out.Anchors, writeContextCoveragePriorAnchorsForPath(contextAnchors, p)...)
-			continue
+	for _, req := range requirements.Items {
+		switch {
+		case req.Status == LocalizationRequirementSatisfied:
+			out.SupportedPaths = append(out.SupportedPaths, req.Path)
+			out.OwnerSupportedPaths = append(out.OwnerSupportedPaths, req.Path)
+			out.Anchors = append(out.Anchors, sourceLocalizationAnchorsFromOwnerViewItems(req.OwnerAnchors)...)
+		case req.Kind == LocalizationRequirementPriorContext:
+			out.MissingPaths = append(out.MissingPaths, req.Path)
+			out.OwnerMissingPaths = append(out.OwnerMissingPaths, req.Path)
+		case req.Kind == LocalizationRequirementOwnerEvidence:
+			out.MissingPaths = append(out.MissingPaths, req.Path)
+			out.OwnerMissingPaths = append(out.OwnerMissingPaths, req.Path)
+			out.Anchors = append(out.Anchors, writeContextCoveragePriorAnchorsForPath(contextAnchors, req.Path)...)
+		default:
+			out.MissingPaths = append(out.MissingPaths, req.Path)
+			out.OwnerMissingPaths = append(out.OwnerMissingPaths, req.Path)
 		}
-		out.MissingPaths = append(out.MissingPaths, p)
 	}
 	switch {
 	case len(out.MissingPaths) == 0:
 		out.Status = SourceLocalizationSupported
-		out.ReasonCodes = append(out.ReasonCodes, "plan_source_paths_supported_by_prior_context")
-	case len(out.SupportedPaths) == 0:
-		out.Status = SourceLocalizationMissing
-		out.ReasonCodes = append(out.ReasonCodes, "plan_source_paths_missing_prior_context")
+		out.ReasonCodes = append(out.ReasonCodes, "plan_source_paths_owner_supported_by_prior_context")
+	case len(out.OwnerSupportedPaths) == 0:
+		out.Status = SourceLocalizationWeak
+		out.ReasonCodes = append(out.ReasonCodes, "plan_source_paths_missing_owner_context")
 	default:
 		out.Status = SourceLocalizationWeak
-		out.ReasonCodes = append(out.ReasonCodes, "plan_source_paths_partially_outside_prior_context")
+		out.ReasonCodes = append(out.ReasonCodes, "plan_source_paths_partially_owner_supported")
 	}
 	return NormalizeSourceLocalizationReview(out)
+}
+
+func sourceLocalizationAnchorsFromOwnerViewItems(items []OwnerAnchorViewItem) []SourceLocalizationAnchor {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]SourceLocalizationAnchor, 0, len(items))
+	for _, item := range NormalizeOwnerAnchorView(OwnerAnchorView{Items: items}, 0).Items {
+		anchor := SourceLocalizationAnchor{
+			Path:         item.Path,
+			Role:         item.Role,
+			SourceStage:  item.SourceStage,
+			Kind:         item.Kind,
+			Strength:     item.Strength,
+			EvidenceRef:  item.EvidenceRef,
+			Subject:      item.Subject,
+			OwnerSymbol:  item.OwnerSymbol,
+			AnchorSymbol: item.AnchorSymbol,
+			ReasonCode:   item.ReasonCode,
+		}
+		anchor = normalizeSourceLocalizationAnchor(anchor)
+		if anchor.Path == "" {
+			continue
+		}
+		out = append(out, anchor)
+	}
+	return normalizeSourceLocalizationAnchors(out)
 }
 
 func SourceLocalizationReviewHasSignal(review *SourceLocalizationReview) bool {
@@ -415,6 +474,10 @@ func sourceLocalizationAnchorSatisfiesPriorContext(anchor SourceLocalizationAnch
 
 func inferSourceLocalizationStatus(in SourceLocalizationReview) SourceLocalizationStatus {
 	switch {
+	case len(in.OwnerMissingPaths) > 0 && len(in.OwnerSupportedPaths) == 0:
+		return SourceLocalizationWeak
+	case len(in.OwnerMissingPaths) > 0:
+		return SourceLocalizationWeak
 	case len(in.MissingPaths) > 0 && len(in.SupportedPaths) == 0 && len(in.PriorContextPaths) > 0:
 		return SourceLocalizationMissing
 	case len(in.MissingPaths) > 0:
@@ -831,6 +894,8 @@ func sourceLocalizationReviewIsEmpty(in SourceLocalizationReview) bool {
 			len(in.PriorContextPaths) == 0 &&
 			len(in.SupportedPaths) == 0 &&
 			len(in.MissingPaths) == 0 &&
+			len(in.OwnerSupportedPaths) == 0 &&
+			len(in.OwnerMissingPaths) == 0 &&
 			len(in.AuxiliaryPaths) == 0 &&
 			len(in.EvidenceRefs) == 0 &&
 			len(in.Anchors) == 0)

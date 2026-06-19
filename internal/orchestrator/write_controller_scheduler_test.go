@@ -6170,8 +6170,9 @@ func TestAttachPlanContextPackToWorkflowRunPersistsPriorContextCoverage(t *testi
 	}
 
 	got := attachPlanContextPackToWorkflowRun(run, plan)
-	if plan.LocalizationReview == nil || plan.LocalizationReview.Status != types.SourceLocalizationSupported {
-		t.Fatalf("plan should be stamped with supported localization review: %+v", plan.LocalizationReview)
+	if plan.LocalizationReview == nil || plan.LocalizationReview.Status != types.SourceLocalizationWeak ||
+		strings.Join(plan.LocalizationReview.OwnerMissingPaths, ",") != "bug.py" {
+		t.Fatalf("plan should be stamped with weak owner-localization review: %+v", plan.LocalizationReview)
 	}
 	if !workflowRunContextContains(&got, "plan_context_coverage", "covered=1/2") ||
 		!workflowRunContextContains(&got, "plan_context_uncovered_path", "helper.py") {

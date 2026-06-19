@@ -1517,6 +1517,8 @@ def apply_final_report_result_fields(
         result["final_report_localization_reason_codes"] = []
         result["final_report_localization_missing_paths"] = []
         result["final_report_localization_supported_paths"] = []
+        result["final_report_localization_owner_missing_paths"] = []
+        result["final_report_localization_owner_supported_paths"] = []
         result["final_report_plan_id"] = ""
         result["final_report_patch_fingerprint"] = ""
         result["final_report_residual_risk_codes"] = []
@@ -1594,6 +1596,16 @@ def apply_final_report_result_fields(
     result["final_report_localization_supported_paths"] = [
         str(value).strip()
         for value in localization.get("supported_paths") or []
+        if str(value).strip()
+    ]
+    result["final_report_localization_owner_missing_paths"] = [
+        str(value).strip()
+        for value in localization.get("owner_missing_paths") or []
+        if str(value).strip()
+    ]
+    result["final_report_localization_owner_supported_paths"] = [
+        str(value).strip()
+        for value in localization.get("owner_supported_paths") or []
         if str(value).strip()
     ]
     result["final_report_plan_id"] = str(plan.get("id") or "").strip()

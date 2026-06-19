@@ -2,6 +2,7 @@ package types
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -263,6 +264,11 @@ func TestBuildWriteFinalReportProjectsOwnerAnchorGaps(t *testing.T) {
 	if len(report.Plan.OwnerAnchorGaps) != 1 {
 		t.Fatalf("OwnerAnchorGaps=%+v, want one source owner gap", report.Plan.OwnerAnchorGaps)
 	}
+	if report.Plan.Localization == nil ||
+		report.Plan.Localization.Status != SourceLocalizationWeak ||
+		strings.Join(report.Plan.Localization.OwnerMissingPaths, ",") != "pkg/bug.py" {
+		t.Fatalf("Plan.Localization=%+v, want weak owner-authority gap", report.Plan.Localization)
+	}
 	gap := report.Plan.OwnerAnchorGaps[0]
 	if gap.Path != "pkg/bug.py" ||
 		gap.ReasonCode != "plan_source_path_without_owner_anchor" ||
@@ -318,6 +324,31 @@ func TestBuildWriteFinalReportDoesNotProjectOwnerGapWhenEvidenceAnchorExists(t *
 	}
 	if writeFinalReportHasRisk(report, "source_owner_anchor_missing") {
 		t.Fatalf("ResidualRisks=%+v should not include owner-anchor gap", report.ResidualRisks)
+	}
+}
+
+func TestNormalizeWriteFinalReportDowngradesSupportedLocalizationWithOwnerGap(t *testing.T) {
+	report := NormalizeWriteFinalReport(WriteFinalReport{
+		Plan: WriteFinalPlanSummary{
+			Localization: &SourceLocalizationReview{
+				Status:         SourceLocalizationSupported,
+				SourcePaths:    []string{"pkg/bug.py"},
+				SupportedPaths: []string{"pkg/bug.py"},
+			},
+			OwnerAnchorGaps: []WriteFinalOwnerGap{{
+				Path:             "pkg/bug.py",
+				ReasonCode:       "plan_source_path_without_owner_anchor",
+				RequiredEvidence: "typed_owner_localization_anchor",
+				Source:           "prior_context",
+			}},
+		},
+	})
+
+	if report.Plan.Localization == nil || report.Plan.Localization.Status != SourceLocalizationWeak {
+		t.Fatalf("Plan.Localization=%+v, want weak after owner-gap normalization", report.Plan.Localization)
+	}
+	if strings.Join(report.Plan.Localization.OwnerMissingPaths, ",") != "pkg/bug.py" {
+		t.Fatalf("owner missing paths = %+v", report.Plan.Localization.OwnerMissingPaths)
 	}
 }
 

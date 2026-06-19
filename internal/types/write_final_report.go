@@ -241,9 +241,9 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Plan.AppliedPaths = dedupTrimWriteWorkflowRunStrings(in.Plan.AppliedPaths)
 	in.Plan.SourcePaths = dedupTrimWriteWorkflowRunStrings(in.Plan.SourcePaths)
 	in.Plan.TestPaths = dedupTrimWriteWorkflowRunStrings(in.Plan.TestPaths)
-	in.Plan.Localization = CloneSourceLocalizationReviewPtr(in.Plan.Localization)
-	in.Plan.OwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.Plan.OwnerAnchors}, 12).Items
 	in.Plan.OwnerAnchorGaps = normalizeWriteFinalOwnerGaps(in.Plan.OwnerAnchorGaps)
+	in.Plan.Localization = writeFinalPlanLocalizationReview(in.Plan.Localization, in.Plan.OwnerAnchorGaps)
+	in.Plan.OwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.Plan.OwnerAnchors}, 12).Items
 	in.Patch.ChangedFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.ChangedFiles)
 	in.Patch.SourceFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.SourceFiles)
 	in.Patch.TestFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.TestFiles)
@@ -375,9 +375,9 @@ func writeFinalPlanSummary(plan *ChangePlan, prior []WriteContextPack) WriteFina
 		out.ApprovalRiskLevel = strings.TrimSpace(plan.Approval.RiskLevel)
 		out.ApprovalReasonCode = strings.TrimSpace(plan.Approval.ReasonCode)
 	}
-	out.Localization = CloneSourceLocalizationReviewPtr(plan.LocalizationReview)
 	out.OwnerAnchors = OwnerAnchorViewFromChangePlan(plan, 12).Items
 	out.OwnerAnchorGaps = writeFinalOwnerGaps(prior, plan)
+	out.Localization = writeFinalPlanLocalizationReview(plan.LocalizationReview, out.OwnerAnchorGaps)
 	return out
 }
 
@@ -636,6 +636,33 @@ func writeFinalOwnerGaps(prior []WriteContextPack, plan *ChangePlan) []WriteFina
 		})
 	}
 	return normalizeWriteFinalOwnerGaps(out)
+}
+
+func writeFinalPlanLocalizationReview(review *SourceLocalizationReview, gaps []WriteFinalOwnerGap) *SourceLocalizationReview {
+	out := CloneSourceLocalizationReviewPtr(review)
+	gaps = normalizeWriteFinalOwnerGaps(gaps)
+	if len(gaps) == 0 {
+		return out
+	}
+	if out == nil {
+		out = &SourceLocalizationReview{
+			Source:      "write_final_owner_authority",
+			ReasonCodes: []string{"plan_source_path_without_owner_anchor"},
+		}
+	}
+	for _, gap := range gaps {
+		out.SourcePaths = append(out.SourcePaths, gap.Path)
+		out.MissingPaths = append(out.MissingPaths, gap.Path)
+		out.OwnerMissingPaths = append(out.OwnerMissingPaths, gap.Path)
+		if gap.ReasonCode != "" {
+			out.ReasonCodes = append(out.ReasonCodes, gap.ReasonCode)
+		}
+	}
+	normalized := NormalizeSourceLocalizationReview(*out)
+	if len(normalized.OwnerMissingPaths) > 0 && normalized.Status == SourceLocalizationSupported {
+		normalized.Status = SourceLocalizationWeak
+	}
+	return CloneSourceLocalizationReviewPtr(&normalized)
 }
 
 func normalizeWriteFinalOwnerGaps(in []WriteFinalOwnerGap) []WriteFinalOwnerGap {

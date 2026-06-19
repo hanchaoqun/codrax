@@ -484,6 +484,8 @@ class FinalReportProjectionTests(unittest.TestCase):
                             "reason_codes": ["plan_source_paths_without_prior_context"],
                             "missing_paths": ["src/app.py"],
                             "supported_paths": ["src/owner.py"],
+                            "owner_missing_paths": ["src/app.py"],
+                            "owner_supported_paths": ["src/owner.py"],
                         },
                     },
                     "patch": {"diff_fingerprint": "abc123"},
@@ -585,6 +587,8 @@ class FinalReportProjectionTests(unittest.TestCase):
         )
         self.assertEqual(result["final_report_localization_missing_paths"], ["src/app.py"])
         self.assertEqual(result["final_report_localization_supported_paths"], ["src/owner.py"])
+        self.assertEqual(result["final_report_localization_owner_missing_paths"], ["src/app.py"])
+        self.assertEqual(result["final_report_localization_owner_supported_paths"], ["src/owner.py"])
         self.assertEqual(result["final_report_plan_id"], "plan-1")
         self.assertEqual(result["final_report_patch_fingerprint"], "abc123")
         self.assertEqual(
@@ -627,6 +631,8 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_proof_ledger_capability_count"], 0)
         self.assertEqual(result["final_report_localization_status"], "")
         self.assertEqual(result["final_report_localization_missing_paths"], [])
+        self.assertEqual(result["final_report_localization_owner_missing_paths"], [])
+        self.assertEqual(result["final_report_localization_owner_supported_paths"], [])
         self.assertEqual(result["final_report_residual_risk_codes"], [])
         self.assertEqual(result["final_report_handoff_evidence_refs"], [])
         self.assertEqual(result["final_report_plan_owner_anchor_ids"], [])

@@ -8337,18 +8337,204 @@ Design direction:
 
 Tasks:
 
-- [ ] Trace `owner_localization_authority_unresolved_blocked` in controller and
+- [x] Trace `owner_localization_authority_unresolved_blocked` in controller and
       identify every writer of `SourceLocalizationReview` / final report owner
       gap fields.
-- [ ] Add a normalizer that cannot return `supported` when required source
+- [x] Add a normalizer that cannot return `supported` when required source
       owner gaps remain.
-- [ ] Feed structural owner anchors from exploration, plan edits, and read-mode
+- [x] Feed structural owner anchors from exploration, plan edits, and read-mode
       evidence through the same normalized owner-evidence projection before the
       apply gate.
-- [ ] Add read/write regression tests proving supported status and owner gaps
+- [x] Add read/write regression tests proving supported status and owner gaps
       cannot contradict each other.
 - [ ] Re-run `pydata__xarray-4248` and at least one non-Xarray owner-gated SWE
       instance after the fix.
+
+Implementation design:
+
+- Treat `SourceLocalizationReview.Status` as the owner-authority verdict used by
+  controller/final-report/proof consumers. File/range observation remains
+  visible through `PriorContextPaths`, `Anchors`, and context-pack rows, but it
+  cannot make a write plan `supported` unless the corresponding source path is
+  satisfied by typed owner evidence.
+- Extend the review with explicit owner-authority path projections:
+  `owner_supported_paths` and `owner_missing_paths`. These are derived from
+  `LocalizationRequirementsFromWritePlanContext`, which already consumes typed
+  `WriteContextPack` / `OwnerAnchorView` rows and ignores prompt text, user
+  prose, model rationale, terminal narratives, and `<think>`.
+- `SourceLocalizationReviewFromWritePlanContext` becomes the single typed
+  projector for plan localization status:
+  - no source plan paths: `unknown`;
+  - every production path has owner evidence: `supported`;
+  - mixed owner-supported and owner-missing paths: `weak`;
+  - no owner-supported path after prior context or no prior context: `weak`
+    for first-pass audit/retry, with owner-missing paths recorded.
+- `NormalizeSourceLocalizationReview` defensively downgrades any persisted or
+  hand-authored review that claims `supported` while carrying missing source or
+  owner paths.
+- `WriteFinalReport` uses the normalized review and the existing
+  `OwnerAnchorGaps` projection as a consistency backstop, so downstream SWE
+  telemetry cannot show `final_report_localization_status=supported` together
+  with non-empty owner-gap paths.
+- This is not a prompt change and not a keyword classifier. The hard authority
+  path remains typed owner/evidence anchors only.
+
+Implementation:
+
+- `SourceLocalizationReview` now carries `owner_supported_paths` and
+  `owner_missing_paths`.
+- `SourceLocalizationReviewFromWritePlanContext` consumes the existing typed
+  `LocalizationRequirementSet` so `Status=supported` means all production plan
+  paths have typed owner evidence, not merely path/scope context.
+- `NormalizeSourceLocalizationReview` downgrades persisted
+  `supported + missing_paths/owner_missing_paths` records.
+- `WriteFinalReport` applies the same authority normalization against
+  `OwnerAnchorGaps`, closing the historical `supported` plus owner-gap
+  contradiction for old or partially populated plan artifacts.
+- The SWE adapter exports
+  `final_report_localization_owner_missing_paths` and
+  `final_report_localization_owner_supported_paths` from the same typed final
+  report artifact.
+
+Verification:
+
+- Focused tests:
+  `go test ./internal/types -run 'Test(SourceLocalizationReview|BuildWriteFinalReport|NormalizeWriteFinalReport|WriteFinalReport)' -count=1`
+  passed.
+- Related package tests:
+  `go test ./internal/types ./internal/orchestrator ./internal/writeflow ./internal/tool -count=1`
+  passed.
+- Adapter tests:
+  `python3 -m unittest eval.swebench.run_codrax_swebench_test -v` passed.
+- Full regression:
+  `go test ./...`, `make test`, and `git diff --check` passed.
+
+RC128 SWE evidence:
+
+- `pydata__xarray-4248` rerun:
+  `eval/results/swebench/lite-smoke-20260619-rc128-xarray`.
+- Prediction validation:
+  `eval/results/swebench/.venv/bin/python eval/swebench/validate_predictions.py .../predictions.jsonl --require-nonempty-patch`
+  passed with `empty_patch=0`.
+- Official harness dry-run/import accepted the prediction path with
+  `DRY_RUN=1 CHECK_HARNESS_IMPORT=1 ... run_official_harness.sh`.
+- Typed telemetry:
+  - `status=predicted`
+  - `patch_bytes=1937`
+  - `verify_status=passed`
+  - `workflow_status=complete`
+  - `final_report_completion_verdict=verified`
+  - `final_report_localization_status=supported`
+  - `final_report_localization_owner_supported_paths=["xarray/core/formatting.py"]`
+  - `final_report_localization_owner_missing_paths=[]`
+  - `final_report_plan_owner_gap_paths=[]`
+  This proves the prior `supported + owner_gap` contradiction is closed for
+  this instance.
+- Manual patch audit:
+  - The patch shows units in the repr, but renders them after dtype
+    (`float32, in mm`) rather than after the variable/coordinate name
+    (`rainfall, in mm ... float32`) as requested by the issue example.
+  - Local verification passed because the generated probe asserted only unit
+    presence, not placement/format contract.
+  - This is a new proof-contract precision gap, not an RC128 localization
+    regression. It should be handled as RC129 through typed behavior/format
+    obligation extraction and verification, not an Xarray-specific rule.
+- Non-Xarray follow-up:
+  - `pytest-dev__pytest-11143` was launched in
+    `eval/results/swebench/lite-smoke-20260619-rc128-pytest`.
+  - The run failed before prediction export with `status=error`,
+    `prediction_verdict=adapter_error`, and `error="[Errno 32] Broken pipe"`.
+  - The visible Codrax log shows repeated write-preanalysis context rather than
+    a terminal controller workflow artifact. This is tracked separately as an
+    adapter/streaming durability gap; it does not contradict the RC128 Xarray
+    localization-state fix, but it means the non-Xarray post-fix SWE spot
+    remains incomplete.
+
+## 2026-06-19 RC129 Queued: Behavior/Format Contract Placement Authority
+
+Gap:
+
+- `pydata__xarray-4248` after RC128 produced a harness-consumable, locally
+  verified patch, but manual audit found the units were appended after dtype
+  instead of after the displayed variable/coordinate name.
+- The failure source is not patch export, owner localization, or local
+  environment setup. It is under-specified proof: the verifier probe checked
+  presence of `", in mm"` / `", in metres"` anywhere in repr instead of the
+  exact typed output segment relationship.
+
+Design direction:
+
+- Add a typed format/placement obligation lane to `WriteBehaviorContract` /
+  verification proof obligations:
+  - subject surface: rendered output row / repr line / CLI text line;
+  - anchor token: variable or coordinate display name;
+  - required adjacency/order relation: suffix-before-dims, before-dtype,
+    after-label, line-local contains, etc.;
+  - negative scope: absence-only or global contains checks cannot satisfy a
+    placement contract.
+- The analyzer/planner/verifier may render this as soft guidance, but hard
+  confidence comes only from typed probes or project tests that bind line,
+  anchor token, and expected relative placement.
+- This must be language/framework agnostic: Python reprs, JS CLI output, Go
+  stringers, Java `toString`, and UI text snapshots all share the same typed
+  rendered-text obligation shape.
+- Do not parse issue prose at runtime, model summaries, `<think>`, or stdout
+  narratives for routing. The obligation must be emitted as typed contract IR
+  and verified by typed local probes or existing project tests.
+
+Tasks:
+
+- [ ] Extend behavior contract / proof obligation schema with rendered-text
+      placement relation fields.
+- [ ] Teach write-analysis grounding to distinguish global substring presence
+      from line-local anchor placement when examples contain rendered output.
+- [ ] Project placement obligations into `WriteContextPack` and planner limited
+      views as P0/P1 proof requirements.
+- [ ] Update verification probe synthesis and proof ledger so a global contains
+      assertion cannot cover a placement obligation.
+- [ ] Add language-agnostic tests using Python repr, JS CLI output, and Go
+      string output fixtures.
+- [ ] Re-run Xarray plus one non-Python rendered-output issue-derived eval.
+
+## 2026-06-19 RC130 Queued: SWE Adapter Streaming Broken Pipe Durability
+
+Gap:
+
+- `pytest-dev__pytest-11143` post-RC128 non-Xarray spot failed with
+  adapter-level `[Errno 32] Broken pipe` and exported an empty prediction even
+  though Codrax had produced useful analysis logs.
+- The failure did not come from typed workflow state because the adapter did not
+  project a terminal workflow artifact; local acceptance correctly reports
+  `adapter_error`, but the run is not useful for system evaluation.
+
+Design direction:
+
+- Decouple progress streaming from prediction capture. A broken progress pipe
+  should not discard durable `.codrax` artifacts or force an empty prediction
+  if a workflow/plan/final report exists.
+- The adapter should classify pipe/stream failures as typed progress transport
+  failures and then recover from durable plan/workflow/final report artifacts.
+- If no durable terminal artifact exists, the result should remain
+  `adapter_error`, but include a typed stage (`progress_stream`,
+  `codrax_process`, `artifact_recovery`) and enough artifact presence flags for
+  root-cause triage.
+- No routing logic may parse Codrax stdout prose, `<think>`, issue text, or
+  model summaries; recovery must use process exit state and durable artifact
+  files.
+
+Tasks:
+
+- [ ] Reproduce `[Errno 32] Broken pipe` under a small fixture or captured
+      pytest-dev run directory.
+- [ ] Add typed adapter error fields:
+      `adapter_error_stage`, `adapter_error_reason_code`,
+      `adapter_recovered_from_artifacts`, and artifact-presence counters.
+- [ ] Harden progress callback/write paths so broken pipes fail soft and allow
+      artifact recovery.
+- [ ] Add adapter unit tests for broken progress pipe with and without durable
+      final report artifacts.
+- [ ] Re-run `pytest-dev__pytest-11143` after the fix and require non-empty
+      prediction or a typed non-recoverable workflow reason.
 
 ## Acceptance Criteria
 
