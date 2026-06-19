@@ -7418,6 +7418,42 @@ RC117 design and tasks:
     make proof-follow-up probe enrichment more reliable so a passing targeted
     probe can satisfy the required behavior contract without extra user action.
 
+RC117 multi-instance smoke and manual audit:
+
+- Run:
+  - `eval/results/swebench/lite-smoke-20260619-rc117-multi-flask-pytest-sphinx`
+    on `pallets__flask-4045`, `pytest-dev__pytest-11143`, and
+    `sphinx-doc__sphinx-8801`.
+  - `validate_predictions.py --require-nonempty-patch` validates all 3
+    predictions, and official harness dry-run/import succeeds under
+    `eval/results/swebench/.venv/bin/python`.
+- Manual audit:
+  - Flask patch adds a dot-name guard in `src/flask/blueprints.py`, which is
+    consistent with the issue. Local verify failed because importing Flask hit
+    `cannot import name 'url_quote' from werkzeug.urls`, a dependency
+    compatibility problem rather than evidence that the source patch is wrong.
+  - Pytest patch guards `is_rewrite_disabled()` with `isinstance(docstring,
+    str)`, which is consistent with the issue where a numeric first expression
+    is mistaken for a docstring. Local proof failed because the generated
+    verification probe imported a non-existent `rewrite` module, and patch
+    review downgraded coverage.
+  - Sphinx patch tries to attach `ModuleAnalyzer.attr_docs` when creating
+    annotation-only members, but local probe still reports
+    `attr1.docstring should not be None`. This is a real implementation/search
+    failure, not just local environment noise.
+- Follow-up gaps:
+  - Dependency compatibility import errors from local verify/probes need a
+    shared typed unavailable path when they are outside the changed source
+    surface, instead of becoming `tests_failed` and blocking otherwise coherent
+    patches.
+  - Verification probe import paths need better typed grounding from changed
+    source modules; bad probe scaffolding should not be confused with product
+    failure.
+  - Sphinx shows the remaining exploration/localization gap: after a failed
+    behavioral probe, replan should be able to trigger a deeper read-mode style
+    exploration of the implementation semantics instead of repeatedly planning
+    from stale shallow context.
+
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
 This queue came from the pre-RC104 three-instance smoke. It is not an official
