@@ -261,7 +261,7 @@ func TestBuildWriteFinalReportProjectsOwnerAnchorGaps(t *testing.T) {
 	gap := report.Plan.OwnerAnchorGaps[0]
 	if gap.Path != "pkg/bug.py" ||
 		gap.ReasonCode != "plan_source_path_without_owner_anchor" ||
-		gap.RequiredEvidence != "typed_owner_or_supporting_localization_anchor" ||
+		gap.RequiredEvidence != "typed_owner_localization_anchor" ||
 		gap.Source != "prior_context" {
 		t.Fatalf("wrong owner gap row: %+v", gap)
 	}
@@ -291,7 +291,7 @@ func TestBuildWriteFinalReportDoesNotProjectOwnerGapWhenEvidenceAnchorExists(t *
 						Path:        "pkg/bug.py",
 						Role:        SourcePathRoleProduction,
 						Kind:        SourceLocalizationAnchorGroundedEvidence,
-						Strength:    SourceLocalizationAnchorSupporting,
+						Strength:    SourceLocalizationAnchorOwner,
 						EvidenceRef: &ref,
 						OwnerSymbol: "Owner.fix",
 					},

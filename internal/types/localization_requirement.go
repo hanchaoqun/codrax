@@ -7,6 +7,8 @@ import (
 
 const localizationRequirementMaxItems = 64
 
+const localizationRequirementRequiredOwnerEvidence = "typed_owner_localization_anchor"
+
 type LocalizationRequirementStatus string
 
 const (
@@ -101,7 +103,7 @@ func LocalizationRequirementsFromWritePlanContext(batchID, sliceID string, consu
 				BatchID:          batchID,
 				SliceID:          sliceID,
 				ReasonCode:       reason,
-				RequiredEvidence: "typed_owner_or_supporting_localization_anchor",
+				RequiredEvidence: localizationRequirementRequiredOwnerEvidence,
 			})
 		default:
 			items = append(items, LocalizationRequirement{
@@ -115,7 +117,7 @@ func LocalizationRequirementsFromWritePlanContext(batchID, sliceID string, consu
 				BatchID:          batchID,
 				SliceID:          sliceID,
 				ReasonCode:       "plan_source_path_without_owner_anchor",
-				RequiredEvidence: "typed_owner_or_supporting_localization_anchor",
+				RequiredEvidence: localizationRequirementRequiredOwnerEvidence,
 			})
 		}
 	}
@@ -166,7 +168,7 @@ func LocalizationRequirementsFromCandidatePaths(paths []string, ownerView OwnerA
 			BatchID:          batchID,
 			SliceID:          sliceID,
 			ReasonCode:       "candidate_path_without_owner_anchor",
-			RequiredEvidence: "typed_owner_or_supporting_localization_anchor",
+			RequiredEvidence: localizationRequirementRequiredOwnerEvidence,
 		})
 	}
 	return NormalizeLocalizationRequirementSet(LocalizationRequirementSet{
@@ -217,7 +219,7 @@ func LocalizationRequirementsFromSourceLocalizationReview(review SourceLocalizat
 			SourceStage:      sourceLocalizationFirstNonEmpty(review.Source, "source_localization_review"),
 			BatchID:          review.BatchID,
 			ReasonCode:       "read_source_path_without_owner_anchor",
-			RequiredEvidence: "typed_owner_or_supporting_localization_anchor",
+			RequiredEvidence: localizationRequirementRequiredOwnerEvidence,
 		})
 	}
 	return NormalizeLocalizationRequirementSet(LocalizationRequirementSet{
@@ -349,7 +351,7 @@ func normalizeLocalizationRequirement(in LocalizationRequirement) LocalizationRe
 	in.ReasonCode = trimSourceLocalizationText(in.ReasonCode)
 	in.RequiredEvidence = trimSourceLocalizationText(in.RequiredEvidence)
 	if in.RequiredEvidence == "" && in.Status == LocalizationRequirementOpen {
-		in.RequiredEvidence = "typed_owner_or_supporting_localization_anchor"
+		in.RequiredEvidence = localizationRequirementRequiredOwnerEvidence
 	}
 	in.OwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.OwnerAnchors}, 8).Items
 	in.EvidenceRefs = normalizeSourceLocalizationEvidenceRefs(in.EvidenceRefs)
@@ -421,7 +423,7 @@ func localizationRequirementOwnerAnchorsForPath(view OwnerAnchorView, planPath s
 	view = NormalizeOwnerAnchorView(view, 0)
 	var out []OwnerAnchorViewItem
 	for _, item := range view.Items {
-		if !ownerAnchorViewItemIsRepairCandidate(item) {
+		if !ownerAnchorViewItemHasOwnerAuthority(item) {
 			continue
 		}
 		if !writeContextCoveragePathCoveredByContext(planPath, []string{item.Path}) {

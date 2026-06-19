@@ -82,8 +82,48 @@ func TestLocalizationRequirementsFromCandidatePathsRequestsOwnerEvidence(t *test
 	}
 	row := strings.Join(LocalizationRequirementEvidenceRows(got, 8), "\n")
 	if !strings.Contains(row, "reason=candidate_path_without_owner_anchor") ||
-		!strings.Contains(row, "required=typed_owner_or_supporting_localization_anchor") {
+		!strings.Contains(row, "required=typed_owner_localization_anchor") {
 		t.Fatalf("candidate requirement row missing typed fields: %q", row)
+	}
+}
+
+func TestLocalizationRequirementsSupportingAnchorDoesNotSatisfyOwnerEvidence(t *testing.T) {
+	ref := WriteExplorationEvidenceRef{ID: "ev-support", Source: "pkg/support.py", LineStart: 12, OwnerSymbol: "Support.boundary"}
+	prior := []WriteContextPack{{
+		PackID:      "supporting-localization",
+		BatchID:     "batch-1",
+		SourceStage: "explore",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "localization_anchor",
+			Text:        "path=pkg/support.py support=Support.boundary",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+			EvidenceRef: &ref,
+			LocalizationAnchor: &SourceLocalizationAnchor{
+				Path:        "pkg/support.py",
+				Role:        SourcePathRoleProduction,
+				Kind:        SourceLocalizationAnchorGroundedEvidence,
+				Strength:    SourceLocalizationAnchorSupporting,
+				EvidenceRef: &ref,
+				OwnerSymbol: "Support.boundary",
+			},
+		}},
+	}}
+	plan := &ChangePlan{
+		ID:          "plan-1",
+		TargetPaths: []string{"pkg/support.py"},
+		Changes:     []FileChange{{Path: "pkg/support.py", Kind: "patch"}},
+	}
+
+	got := LocalizationRequirementsFromWritePlanContext("batch-1", "slice-1", WriteConsumerPlanner, prior, plan, 0)
+	if got.OpenItems != 1 || strings.Join(got.MissingOwnerAnchorPaths, ",") != "pkg/support.py" {
+		t.Fatalf("supporting anchor should leave owner requirement open: %+v", got)
+	}
+	row := strings.Join(LocalizationRequirementEvidenceRows(got, 8), "\n")
+	if !strings.Contains(row, "reason=plan_source_path_without_owner_anchor") ||
+		!strings.Contains(row, "required=typed_owner_localization_anchor") {
+		t.Fatalf("supporting requirement row missing typed owner target: %q", row)
 	}
 }
 

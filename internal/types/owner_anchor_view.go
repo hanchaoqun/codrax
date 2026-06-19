@@ -440,6 +440,14 @@ func ownerAnchorViewItemIsStrong(item OwnerAnchorViewItem) bool {
 	}
 }
 
+func ownerAnchorViewItemHasOwnerAuthority(item OwnerAnchorViewItem) bool {
+	item = normalizeOwnerAnchorViewItem(item)
+	if item.Path == "" || SourcePathRoleIsAuxiliary(item.Role) || item.Kind == SourceLocalizationAnchorScope {
+		return false
+	}
+	return item.Strength == SourceLocalizationAnchorOwner
+}
+
 func ownerAnchorViewItemIsRepairCandidate(item OwnerAnchorViewItem) bool {
 	item = normalizeOwnerAnchorViewItem(item)
 	if !ownerAnchorViewItemIsStrong(item) || item.Kind == SourceLocalizationAnchorScope {

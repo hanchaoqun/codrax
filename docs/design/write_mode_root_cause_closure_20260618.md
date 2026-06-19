@@ -7867,6 +7867,93 @@ Acceptance additions:
 - Config parsing is typed and pointer-based; no prompt/user-keyword/model-prose
   logic drives timeout selection.
 
+## 2026-06-19 RC124 Shared Owner-Authority Localization
+
+Gap:
+
+- RC122 Sphinx smoke showed `final_report_plan_owner_anchor_ids` and
+  `final_report_handoff_owner_anchor_ids`, but those anchors were mostly
+  broad/supporting evidence around adjacent symbols while the final edit landed
+  in a different owner surface. `final_report_plan_owner_gap_paths=[]` therefore
+  overstated localization quality.
+- Root cause in code: owner-depth checks accepted typed supporting anchors when
+  they carried an `EvidenceRef`, `Subject`, `OwnerSymbol`, or `AnchorSymbol`.
+  That made "useful supporting context" close the same obligation as "the
+  actual production owner has been localized".
+
+Design:
+
+- Split localization semantics into three typed layers:
+  - `prior_context`: the plan path was seen in prior read/write context.
+  - `supporting_anchor`: line/file evidence useful for exploration, repair
+    candidates, and handoff ranking.
+  - `owner_anchor`: a production source anchor with `strength=owner`; only this
+    layer may satisfy owner-localization obligations.
+- Keep supporting anchors in context packs, owner-anchor candidate paths, and
+  soft evidence requirement rows. They remain useful for online convergence.
+- Change hard/repair-state satisfaction to consume only typed anchor fields
+  (`Strength`, `Kind`, `Role`, normalized path), never prompt prose, user
+  keywords, model rationale, or rendered summaries.
+- Keep read mode stable: read final-answer supplements can still show typed
+  localization anchors with their strength, but read/write shared requirement
+  generation must distinguish supporting from owner authority.
+
+Tasks:
+
+- [x] Audit `WritePlanSourcePathsWithoutOwnerAnchor`,
+      `LocalizationRequirementsFrom*`, `OwnerAnchorView`, and read final-answer
+      owner supplement.
+- [x] Add a shared owner-authority predicate for source anchors and owner-view
+      items.
+- [x] Require owner authority to satisfy plan/candidate/read localization
+      requirements and final owner-gap reports.
+- [x] Update required evidence rows to request `typed_owner_localization_anchor`
+      instead of owner-or-supporting anchors.
+- [x] Add regression tests proving supporting anchors remain candidates but do
+      not close owner gaps.
+- [x] Run focused read/write localization tests, full regression, and one
+      Sphinx SWE smoke.
+
+Acceptance additions:
+
+- Supporting anchors continue to rank ahead of fallback paths for exploration
+  and repair candidate generation.
+- Supporting anchors no longer clear `MissingOwnerAnchorPaths`,
+  `WritePlanSourcePathsWithoutOwnerAnchor`, or final owner-gap residual risk.
+- True owner anchors still clear the owner gap.
+- No read scheduler topology or L1 byte identity changes.
+
+RC124 validation:
+
+- Focused tests passed:
+  - `go test ./internal/types -run 'Test.*Owner|Test.*Localization|TestBuildWriteFinalReportProjectsOwnerAnchorGaps|TestBuildWriteFinalReportOmitsOwnerAnchorGapWhenEvidenceExists' -count=1`
+  - `go test ./internal/agent -run 'TestAnswerDocumentEvaluator_ParseOutput_AppendsReadOwnerAnchorSupplement|TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendReadOwnerAnchorSupplementForObservedOnly' -count=1`
+  - `go test ./internal/orchestrator -run 'Test.*Owner.*Localization|Test.*Localization.*Owner|TestAttachPlanContextPackToWorkflowRunStampsSelectedOwnerAnchors' -count=1`
+- Related packages passed:
+  `go test ./internal/types ./internal/agent ./internal/orchestrator -count=1`.
+- Full regression passed: `go test ./...` and `make test`.
+- SWE smoke
+  `eval/results/swebench/lite-smoke-20260619-rc124-owner-authority` on
+  `sphinx-doc__sphinx-8801` exported a harness-consumable non-empty prediction
+  (`patch_bytes=1169`; `validate_predictions.py --require-nonempty-patch`
+  passed). The workflow reached apply/verify/replan and ended
+  `predicted_failed_verify`, which is correct confidence behavior rather than a
+  false pass.
+- The same smoke now surfaces
+  `final_report_residual_risk_codes` containing `source_owner_anchor_missing`
+  and `workflow_nonterminal`, with
+  `final_report_plan_owner_gap_paths=['sphinx/ext/autodoc/importer.py']`.
+  Supporting anchors are still preserved in `final_report_*_owner_anchor_ids`,
+  but they no longer hide the owner gap.
+
+Next system gap exposed by RC124:
+
+- Planner still may choose a supporting/source-adjacent surface after owner
+  exploration. The system now reports that honestly, but the next closure should
+  make controller/planner prefer true owner authority before applying when
+  owner localization remains open, or split into a smaller read-only owner
+  discovery batch instead of continuing with a supporting-only source file.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

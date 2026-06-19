@@ -619,7 +619,7 @@ func writeFinalOwnerGaps(prior []WriteContextPack, plan *ChangePlan) []WriteFina
 		out = append(out, WriteFinalOwnerGap{
 			Path:             path,
 			ReasonCode:       "plan_source_path_without_owner_anchor",
-			RequiredEvidence: "typed_owner_or_supporting_localization_anchor",
+			RequiredEvidence: localizationRequirementRequiredOwnerEvidence,
 			Source:           "prior_context",
 		})
 	}
@@ -641,7 +641,7 @@ func normalizeWriteFinalOwnerGaps(in []WriteFinalOwnerGap) []WriteFinalOwnerGap 
 			gap.ReasonCode = "plan_source_path_without_owner_anchor"
 		}
 		if gap.RequiredEvidence == "" {
-			gap.RequiredEvidence = "typed_owner_or_supporting_localization_anchor"
+			gap.RequiredEvidence = localizationRequirementRequiredOwnerEvidence
 		}
 		if gap.Source == "" {
 			gap.Source = "prior_context"

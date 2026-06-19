@@ -1347,15 +1347,15 @@ func writeContextCoveragePriorOwnerAnchorPaths(packs []WriteContextPack) []strin
 }
 
 func sourceLocalizationAnchorHasOwnerDepth(anchor SourceLocalizationAnchor) bool {
+	return sourceLocalizationAnchorHasOwnerAuthority(anchor)
+}
+
+func sourceLocalizationAnchorHasOwnerAuthority(anchor SourceLocalizationAnchor) bool {
 	anchor = normalizeSourceLocalizationAnchor(anchor)
 	if anchor.Path == "" || SourcePathRoleIsAuxiliary(anchor.Role) || anchor.Kind == SourceLocalizationAnchorScope {
 		return false
 	}
-	return anchor.Strength == SourceLocalizationAnchorOwner ||
-		anchor.EvidenceRef != nil ||
-		anchor.OwnerSymbol != "" ||
-		anchor.Subject != "" ||
-		anchor.AnchorSymbol != ""
+	return anchor.Strength == SourceLocalizationAnchorOwner
 }
 
 func writeContextCoveragePriorAnchorsForPath(anchors []SourceLocalizationAnchor, planPath string) []SourceLocalizationAnchor {

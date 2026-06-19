@@ -506,7 +506,7 @@ func TestWriteContextPackFromPlanContextCoverageReportsScopeOnlyOwnerGap(t *test
 	}
 }
 
-func TestWritePlanSourcePathsWithoutOwnerAnchorSatisfiedByEvidenceAnchor(t *testing.T) {
+func TestWritePlanSourcePathsWithoutOwnerAnchorSatisfiedByOwnerAnchor(t *testing.T) {
 	ref := WriteExplorationEvidenceRef{ID: "ev-owner", Source: "pkg/bug.py", LineStart: 12, OwnerSymbol: "Owner.fix"}
 	prior := []WriteContextPack{{
 		PackID:      "exploration-handoff",
@@ -516,6 +516,45 @@ func TestWritePlanSourcePathsWithoutOwnerAnchorSatisfiedByEvidenceAnchor(t *test
 			Priority:    WriteContextP1,
 			Kind:        "localization_anchor",
 			Text:        "path=pkg/bug.py owner=Owner.fix",
+			SourceStage: "explore",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner, WriteConsumerController},
+			EvidenceRef: &ref,
+			LocalizationAnchor: &SourceLocalizationAnchor{
+				Path:        "pkg/bug.py",
+				Role:        SourcePathRoleProduction,
+				Kind:        SourceLocalizationAnchorGroundedEvidence,
+				Strength:    SourceLocalizationAnchorOwner,
+				EvidenceRef: &ref,
+				OwnerSymbol: "Owner.fix",
+			},
+		}},
+	}}
+	plan := &ChangePlan{
+		ID:          "plan-1",
+		Summary:     "repair bug",
+		TargetPaths: []string{"pkg/bug.py"},
+		Changes:     []FileChange{{Path: "pkg/bug.py", Kind: "modify"}},
+	}
+
+	if got := WritePlanSourcePathsWithoutOwnerAnchor(prior, plan); len(got) != 0 {
+		t.Fatalf("owner evidence should satisfy owner-depth localization, got %+v", got)
+	}
+	pack := WriteContextPackFromPlanContextCoverage("batch-1", "repair", prior, plan)
+	if writeContextViewContains(pack.View(WriteConsumerPlanner, 10), "plan_context_owner_gap_path", "pkg/bug.py") {
+		t.Fatalf("owner-depth gap should not be reported when evidence anchor exists: %+v", pack.Items)
+	}
+}
+
+func TestWritePlanSourcePathsWithoutOwnerAnchorNotSatisfiedBySupportingAnchor(t *testing.T) {
+	ref := WriteExplorationEvidenceRef{ID: "ev-support", Source: "pkg/bug.py", LineStart: 12, OwnerSymbol: "Owner.fix"}
+	prior := []WriteContextPack{{
+		PackID:      "exploration-handoff",
+		BatchID:     "batch-1",
+		SourceStage: "explore",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "localization_anchor",
+			Text:        "path=pkg/bug.py support=Owner.fix",
 			SourceStage: "explore",
 			Consumers:   []WriteContextConsumer{WriteConsumerPlanner, WriteConsumerController},
 			EvidenceRef: &ref,
@@ -536,12 +575,12 @@ func TestWritePlanSourcePathsWithoutOwnerAnchorSatisfiedByEvidenceAnchor(t *test
 		Changes:     []FileChange{{Path: "pkg/bug.py", Kind: "modify"}},
 	}
 
-	if got := WritePlanSourcePathsWithoutOwnerAnchor(prior, plan); len(got) != 0 {
-		t.Fatalf("owner evidence should satisfy owner-depth localization, got %+v", got)
+	if got := WritePlanSourcePathsWithoutOwnerAnchor(prior, plan); strings.Join(got, ",") != "pkg/bug.py" {
+		t.Fatalf("supporting anchor must not satisfy owner-depth localization, got %+v", got)
 	}
 	pack := WriteContextPackFromPlanContextCoverage("batch-1", "repair", prior, plan)
-	if writeContextViewContains(pack.View(WriteConsumerPlanner, 10), "plan_context_owner_gap_path", "pkg/bug.py") {
-		t.Fatalf("owner-depth gap should not be reported when evidence anchor exists: %+v", pack.Items)
+	if !writeContextViewContains(pack.View(WriteConsumerPlanner, 10), "plan_context_owner_gap_path", "pkg/bug.py") {
+		t.Fatalf("supporting-only anchor must report owner-depth gap: %+v", pack.Items)
 	}
 }
 
