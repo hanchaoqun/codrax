@@ -8,9 +8,9 @@ import (
 )
 
 // WorkflowTransitionValidation is the typed result of checking a controller
-// decision against the assembled workflow execution state. It is deliberately
-// advisory until the scheduler wires it in; tests use it to lock down the
-// state-kernel rules before any runtime behavior changes.
+// decision against the assembled workflow execution state. The write controller
+// enforces this before effect execution; tests lock down the state-kernel rules
+// so future loop-kernel adapters can reuse the same typed contract.
 type WorkflowTransitionValidation struct {
 	Allowed           bool           `json:"allowed"`
 	ReasonCode        string         `json:"reason_code,omitempty"`
