@@ -43,6 +43,104 @@ The architecture answer is therefore:
 4. Wrap patch effect, runtime observation, impact, convention, localization, and proof into one truth ledger instead of creating parallel engines.
 5. Replace broad agent freedom with bounded typed actions, role-scoped workers, and effect-level permission.
 
+## 2026-06-20 Project-Fit Regeneration
+
+This section is the refreshed design generated after re-reading `/Users/han/opt/loop_v2.md` and auditing current `main`. The important conclusion is that Codrax should not chase a generic "Claude Code clone". The project already has a controller-first write DAG, typed IR, repo_map navigation facts, context packs, patch/impact/convention/proof artifacts, and a shadow `loopkernel`. The best architecture is therefore an **authority-first online kernel** that promotes the already-typed facts into scheduling authority.
+
+### Loop v2 Requirement To Current Code Mapping
+
+| loop_v2.md requirement | Current Codrax substrate | Remaining architecture gap | Project-fit design decision |
+| --- | --- | --- | --- |
+| `execute -> observe -> repair` loop | `write_controller_scheduler.go`, `WorkflowExecutionView`, runtime-unit projection, verify/replan actions | Some controller decisions still read workflow fragments rather than one replayed state/truth view. | Drive write next-actions from `LoopStateView + WorkflowExecutionView + TruthLedger`, then keep legacy workflow fields as projections. |
+| state machine loop over prompt loop | `ValidateWorkflowTransition`, `loopkernel.ReduceEvents`, typed `WriteWorkflowDecision` | State validation is split between writeflow view, controller normalization, and stage hooks. | Move legal transition checks behind a single kernel validator; controller proposes typed actions only. |
+| structured observation | `ObservationAuthorityView`, `VerificationProofLedger`, `ChangeReport`, typed verifier reasons | Observation/proof/impact/critic are not one online terminal authority. | Introduce `TruthLedger` with runtime-failure precedence and unavailable-as-unverified semantics. |
+| deterministic replay | `LoopEvent`, reducer, atomic event store, shadow write adapter | Replay is not yet authoritative for full write run reconstruction or eval artifacts. | Make append-only loop events the source of audit/replay, with workflow JSON as denormalized compatibility during migration. |
+| bounded action space | controller action enum, plan/apply/verify/replan/split/append, typed plan tools | Worker roles and tool permissions are still partly enforced near individual tools. | Use per-role effect descriptors and shared allow/ask/deny permission decisions for every runtime unit and worker. |
+| execution trace as first-class artifact | workflow progress ledger, slice events, loop event refs, final report | Trace is not yet uniformly attached to predictions/final reports. | Persist event refs and truth refs into final reports and SWE/eval predictions. |
+| context compression and handoff | `WriteContextPack`, owner anchors, P0-P3 context, navigation coverage | Top-N context is available, but lost proof/localization cause is not always the scheduler authority. | Authority views choose whether to localize/prove/repair; prompts receive only the scoped Top-N view. |
+| subagent isolation | `SubAgentRuntime`, scope validation, `SubExplorer` | Evidence-worker set is thin. | Add Localizer/ImpactAnalyzer/PatchCritic/ProofAuditor/FailureAnalyzer as typed evidence producers; mutation remains kernel-owned. |
+
+### Refreshed Architecture Thesis
+
+Codrax Loop Engine 2.0 should be:
+
+1. **Thin model, thick harness**: the model chooses among typed actions; deterministic code validates, gates, executes, observes, and decides terminal states.
+2. **Authority-first**: localization, proof coverage, permission, navigation coverage, and truth verdicts are first-class scheduler inputs, not final-report decorations.
+3. **Online by runtime unit**: write mode should converge one minimal execution unit at a time, preserving verified independent units and repairing only the failed slice.
+4. **Read/write shared where the problem is shared**: owner localization and repo understanding must be shared between read finalization and write planning, because wrong-source patches and evidence-dropping answers have the same root.
+5. **Effect-permission kernel**: safety decisions are made from typed effect descriptors, repo-relative paths, parser results, fingerprints, and role profiles; never from prompt text, user keywords, or model rationale.
+6. **Replayable commercial audit**: every mutation and terminal answer should have enough typed event/truth refs to audit without re-running tools or LLM calls.
+
+### Current Implementation Status After Audit
+
+| Capability | Current status | Commercial-grade gap |
+| --- | --- | --- |
+| Loop event reducer | Implemented as shadow state in `internal/loopkernel`. | Needs to become the authoritative run/replay source for write/eval artifacts. |
+| Localization authority | Consumed by write controller, planner/replan, final report, and read finalization sidecar. | Needs Localizer worker and broader read scheduler authority consumption without touching L1 scheduler byte identity. |
+| Proof authority | Derived from attempts, completion verdicts, proof ledger/profile, impact targets, patch review, and verifier availability. | Needs `TruthLedger` projection so proof, runtime, patch, graph, and convention obligations cannot disagree. |
+| repo_map navigation coverage | Typed coverage exists for read/write artifacts and can trigger write/read localizer retries. | Needs workerized graph navigation for impact/proof obligations and eval replay visibility. |
+| Runtime unit loop | Runtime-unit authority is projected and consumed by apply/observe/checkpoint policy; verified units can be preserved across replan. | Needs deterministic micro-slice splitter and per-unit event/truth persistence as the primary execution object. |
+| Permission/effect kernel | Role/effect profiles, fingerprints, external-dir/git/main-repo/doom-loop decisions exist. | Needs runtime-unit permission events, scoped approval cache, and worker-role envelopes. |
+| Subagents/workers | Runtime exists, default worker set is narrow. | Needs typed evidence workers; no autonomous mutating agents. |
+| UX | Advanced workflow commands and typed next-action views exist. | Needs one routine Auto Pilot status card that hides command burden unless high-risk/blocked. |
+
+### Updated Target Architecture
+
+```mermaid
+flowchart TD
+  R["User request / read-write IR"] --> A["Authority projectors"]
+  A --> L["Localization authority"]
+  A --> N["Navigation coverage"]
+  A --> P["Proof authority"]
+  A --> E["Effect permission authority"]
+  L --> K["Loop state kernel"]
+  N --> K
+  P --> K
+  E --> K
+  K --> C["Controller typed decision"]
+  C --> V["Transition validator"]
+  V --> W["Role-scoped worker or executor"]
+  W --> O["Structured observation"]
+  O --> T["Truth ledger"]
+  T --> EV["Append-only LoopEvent store"]
+  EV --> K
+  K --> S["Auto Pilot status / final report / eval replay"]
+```
+
+### Updated State Machine Contract
+
+The state machine must be interpreted over typed events and authority views:
+
+| State | Entry event/view | Legal next action | Hard authority |
+| --- | --- | --- | --- |
+| `seeded` | run seed + request IR | context/localize/plan | route enum and write enablement |
+| `needs_context` | localization missing, navigation missing, or proof target unresolved | localizer/repo_map/read-only worker | `LocalizationAuthority`, `RepoMapNavigationCoverage` |
+| `planning` | owner-supported or budget-accepted context | plan/replan current unit | plan schema and context pack refs |
+| `permission_check` | effect described | allow/ask/deny | `EffectDescriptor`, risk policy, fingerprint |
+| `pending_approval` | permission ask | approve/reject/resume | approval record + fingerprint |
+| `executing` | permission allow | apply bounded unit | checkpoint + active runtime unit |
+| `observing` | patch effect recorded | run typed verify/observe | observation report and proof targets |
+| `truth_projected` | observation + patch/impact/critic/convention/proof | complete/repair/localize/add proof | `TruthLedger` precedence |
+| `repair_needed` | failed/weak truth | repair same unit or split/follow-up | failed unit evidence + P2 handoff |
+| `complete_unverified` | unavailable local proof accepted | final report | unavailable typed reason |
+| `complete_verified` | proof covered | final report | covered truth ledger |
+| `blocked` | deny/budget/safety conflict | stop | typed reason code |
+
+No transition may be driven by model prose, user-text keywords, prompt hints, rendered logs, or `<think>` content. Those can remain visible to users for transparency, but they are not control signals.
+
+### Updated P0/P1 Task Order
+
+The implementation order that best fits current Codrax is:
+
+1. **Finish effect permission kernel**: emit runtime-unit permission events, add approval fingerprint cache, and extend worker-role effect envelopes as L8 lands.
+2. **TruthLedger v1**: wrap patch truth, runtime observation, impact obligations, convention hints, localization, and proof into one precedence view.
+3. **Deterministic micro-slice splitter**: turn `slice` into minimal runtime units using owner/path/permission/impact coupling.
+4. **Evidence workers**: add Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer as read-only typed artifact producers.
+5. **Replay/eval artifacts**: attach loop event refs and truth refs to final reports and SWE predictions.
+6. **Auto Pilot status card**: render routine state from `LoopStateView`; keep `/workflow` commands for audit only.
+
+This order keeps stable read/log/trace/data/operation/computer paths protected while landing the highest SWE/manual-audit leverage first.
+
 ## Inputs
 
 ### Local Inputs
@@ -1317,7 +1415,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 - [x] Move external-directory, git metadata, main-repo mutation, and doom-loop observations into shared effect permission decisions.
 - [x] Add loop-kernel projection from typed effects into the existing permission authority view.
 - [x] Put the write planner's blocked tool surface behind the shared role/effect profile while preserving existing typed repair codes.
-- [ ] Move verifier default-`run_tests` parameter policy behind the shared effect profile without weakening the current schema restriction.
+- [x] Move verifier default-`run_tests` parameter policy behind the shared effect profile without weakening the current schema restriction.
 - [ ] Emit/persist permission events for runtime-unit effect descriptions, not just final plan approval.
 - [ ] Cache high-risk approvals by effect fingerprint and scope.
 - [ ] Add effect-profile coverage for worker roles as L8 workers land.
@@ -1367,6 +1465,43 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 - Run full Go tests, Make tests, SWE prediction harness smoke, and multi-language canaries.
 - Update docs and examples.
 
+### Remaining Implementation Backlog
+
+The remaining work must land as small batches. Each batch below has a typed artifact, deterministic owner, acceptance gate, and regression scope. Hard routing remains forbidden from reading user-keyword matches, model rationale, prompt text, or rendered progress prose.
+
+| Batch | Priority | Detailed implementation plan | Primary files/modules | Acceptance and tests |
+| --- | --- | --- | --- | --- |
+| L5.1 | P0 | Finish shared `run_tests` effect parameter authority. Convert planner/verifier `run_tests` parameter shapes into `safety.RunTestsEffectDescriptor`, let `DecideEffectPermission` return role-specific allow/deny reason codes, and keep agent repair output as a schema-repair mapping layer only. | `internal/safety/effect.go`, `internal/agent/agent.go`, `internal/safety/effect_test.go`, `internal/agent/agent_tool_context_test.go` | Verifier accepts only `{}`/empty params; verifier explicit selectors deny; planner allows only `dry_run + verification_probe`; focused safety/agent tests pass. |
+| L5.2 | P0 | Persist runtime-unit permission events. For each active runtime unit, emit `effect_described` and `permission_decided` loop events with effect fingerprint, paths, role, risk/action, and reason code. Project those events back into `LoopStateView.Permission` and `/workflow show`. | `internal/loopkernel`, `internal/writeflow/runtime_unit*`, `internal/orchestrator/write_controller*`, REPL workflow renderers | Every mutation-capable unit has an effect and permission event before apply; replay reconstructs permission state; no prompt/prose hard routing; loopkernel/writeflow/repl tests pass. |
+| L5.3 | P0 | Add scoped approval cache. Cache high-risk approvals by effect fingerprint, repo/worktree scope, user decision, and expiration boundary. Reuse only when the new effect descriptor is byte-equivalent after normalization and scope matches. Fingerprint mismatch asks again; critical deny never caches as allow. | `internal/safety`, `internal/types` approval records, write controller approval paths | High-risk duplicate effect asks once; changed path/content/risk asks again; critical still denies; approval resume tests pass. |
+| L8.1 | P1 | Define worker contracts without introducing autonomous mutation. Add typed `WorkerRequest`, `WorkerResult`, role enum reuse, input artifact refs, output artifact refs, budgets, and scope validation. | new `internal/worker` or existing `internal/agent/subagent*`, `internal/types` | Worker schema tests prove outputs are typed artifacts; mutation roles are denied by effect policy; no write effects in read-only workers. |
+| L8.2 | P1 | Implement Localizer worker. It consumes `LocalizationAuthority`, `RepoMapNavigationCoverage`, read/file evidence refs, and candidate paths, then returns `SourceLocalizationReview` with owner anchors and compact evidence refs. | `internal/agent/subagent*`, `internal/types/source_localization_review.go`, write/read adapters | Observed-only or auxiliary-only gaps can produce owner-supported anchors; no user-keyword routing; read/write localization tests pass. |
+| L8.3 | P1 | Implement ImpactAnalyzer, PatchCritic, ProofAuditor, and FailureAnalyzer workers as evidence producers. Reuse existing impact/patch-review/proof/failure projectors; workers coordinate scope and budgets, not new business logic. | `internal/writeflow/impact`, `internal/writeflow/patch_review*`, proof/failure handoff code, worker contracts | Workers return existing typed artifacts; controller consumes artifact refs; mutation remains kernel-owned; focused worker/writeflow tests pass. |
+| L3T.1 | P0 | Add `TruthLedger` v1 schema and projector. Merge patch truth, runtime observation, impact obligations, convention hints, localization, and proof into one precedence view. Runtime failed overrides static; unavailable becomes unverified; actual diff overrides plan claims; convention remains soft. | new `internal/truth` plus schemas in `internal/types`, adapters from `writeflow` artifacts | Truth precedence tests cover failed/weak/unavailable/covered cases; controller and final report can read a single truth view. |
+| L3T.2 | P0 | Wire truth obligations into controller next-action. If truth is failed, repair smallest unit; if weak and budget remains, seek proof; if unavailable, finish unverified or continue without source replan; if localization gap, localize before further edits. | write controller normalization, transition validator, final report | Verify-passed but weak proof no longer silently finishes when actionable proof remains; unavailable pytest/deps do not trigger blind source replan. |
+| L7.1 | P0 | Add deterministic micro-slice splitter beyond current runtime-unit projection. Split by owner path, permission class, impact dependency, and verification coupling. Avoid crossing high-risk and ordinary source edits in one unit. | `internal/writeflow` slice/runtime unit code, plan validation | Multi-file plans become bounded units; unit size caps and dependency preservation tests pass. |
+| L7.2 | P0 | Make runtime unit event/truth persistence authoritative. Workflow batch/slice fields become projections from events for write mode; replay can recover active unit, permission, checkpoint, observation, truth, and terminal state. | `internal/loopkernel`, workflow store, write adapter | Replay idempotence tests pass; restart/resume preserves pending approval and failed-unit state. |
+| L9.1 | P1 | Render one Auto Pilot status card from `LoopStateView` plus `WorkflowExecutionView`. Routine CLI/REPL should say current state, reason, next action, proof status, approval need, and evidence refs. Advanced `/workflow` commands remain but are not needed for the happy path. | REPL/CLI status rendering, docs/user guide | Running/paused/unverified/blocked cards render from typed reason codes; no log/prose parsing; UX tests pass. |
+| L10.1 | P1 | Add replay/eval audit artifacts. Final reports and SWE predictions carry loop event refs, truth refs, patch refs, and proof/localization summaries so correctness can be audited without rerunning LLM/tools. | SWE adapter, final report, loop event store | Predictions remain official-harness consumable; replay command reconstructs state; eval smoke passes. |
+| L10.2 | P1 | Multi-language hardening. Keep Python-specific heuristics out of hard gates; extend proof/verification canaries across JS/TS, Ruby, Java/Kotlin, Go, and config/workflow files using existing typed verification probes and test surface abstraction. | `internal/tool/run_tests*`, proof profile, eval fixtures | Multi-language canaries pass; language-specific failures degrade to typed unavailable where appropriate. |
+
+### Detailed Next-Batch Implementation Rule
+
+Before each batch:
+
+1. Re-read the touched modules and existing tests.
+2. Prefer existing typed artifacts and projectors over new parallel engines.
+3. Add or update the task checkbox and progress ledger before commit.
+4. Run focused tests plus `go test ./...` and `make test` for behavior-affecting code.
+5. Commit and push to `main` with a batch-scoped message.
+
+During each batch:
+
+1. Hard gates consume only typed fields, enums, booleans, fingerprints, repo-relative paths, parser results, structured verifier verdicts, or loop events.
+2. Prompts and hints may describe choices, but cannot become routing inputs.
+3. Handoff must preserve P0/P1/P2/P3 context through artifact refs and Top-N typed views, not raw prose blobs.
+4. REPL/CLI happy path should auto-continue unless typed permission says high-risk ask or terminal blocked.
+
 ### Progress Ledger
 
 | Date | Batch | Status | Evidence |
@@ -1389,7 +1524,8 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | 2026-06-20 | L7 | in_progress | Added deterministic `RuntimeUnitView` projection in `writeflow`: active workflow slices now expose unit-level owner anchors, approval/risk authority, impact obligations, actual patch truth, patch review coverage, observation authority, and checkpoint/restore metadata. `WorkflowExecutionView` surfaces the active runtime unit plus unit ledger for controller/UX/eval consumers. This batch is pure projection and does not change apply effects; focused writeflow runtime-unit tests passed. Remaining L7 work: make controller transitions consume the unit view as the first-class apply/observe/checkpoint authority and add multi-unit E2E preservation tests. |
 | 2026-06-20 | L7 | in_progress | Promoted `RuntimeUnitView` from projection to controller/stage-hook consumption: active apply pending scope, active patch review slice, observe-slice precondition, post-apply pending-verify recovery, and next runnable unit selection now read the shared runtime-unit kernel instead of reimplementing slice traversal. The old next-slice dependency selector was removed from controller code. Focused writeflow/orchestrator tests cover active unit change selection and skipping an unsatisfied dependent unit while preserving an independent runnable unit. Remaining L7 work: stale-plan guard and multi-unit E2E failure-preservation coverage. |
 | 2026-06-20 | L7 | complete | Added precise runtime-unit stale-plan preservation: verified independent units now carry checkpoint/apply/observe/completion evidence across replan only when the next plan has identical edit fingerprints and satisfied dependencies. The controller now passes the prior plan into replan slice initialization and filters failed execution state by the current plan ID, so old failed verify attempts do not reset a newly replanned unit. Active patch review also filters cumulative declared applied paths to the active slice, preventing earlier verified units from blocking the next unit. Focused writeflow/orchestrator E2E coverage proves `a.go,b.go,b.go` apply order for a two-unit repair where the second unit fails, replans, and succeeds without reapplying the first verified unit. |
-| 2026-06-20 | L5 | in_progress | Added the first shared role/effect permission kernel in `internal/safety`: typed `EffectDescriptor`, stable effect fingerprints, built-in per-role profiles for controller/planner/replanner/coder/verifier/localizer/impact analyzer/patch critic/proof auditor/failure analyzer, and deterministic external-directory/git-metadata/main-repo/doom-loop decisions. `loopkernel` can now derive permission authority from effect descriptors, and the write planner's blocked tool surface is driven by the shared profile while keeping existing typed repair codes. Focused `safety`/`loopkernel`/`agent` tests cover planner shell denial, verifier evidence-only policy, read-only worker roles, external-directory ask/deny, mutating doom-loop deny, and fingerprint normalization. Remaining L5 work: verifier parameter-policy migration, runtime-unit permission-event persistence, scoped approval cache, and worker-role effect envelopes as L8 lands. |
+| 2026-06-20 | L5 | in_progress | Added the first shared role/effect permission kernel in `internal/safety`: typed `EffectDescriptor`, stable effect fingerprints, built-in per-role profiles for controller/planner/replanner/coder/verifier/localizer/impact analyzer/patch critic/proof auditor/failure analyzer, and deterministic external-directory/git-metadata/main-repo/doom-loop decisions. `loopkernel` can now derive permission authority from effect descriptors, and the write planner's blocked tool surface is driven by the shared profile while keeping existing typed repair codes. Focused `safety`/`loopkernel`/`agent` tests cover planner shell denial, verifier evidence-only policy, read-only worker roles, external-directory ask/deny, mutating doom-loop deny, and fingerprint normalization. Remaining L5 work at that checkpoint: verifier parameter-policy migration, runtime-unit permission-event persistence, scoped approval cache, and worker-role effect envelopes as L8 lands. |
+| 2026-06-20 | L5 | in_progress | Moved planner/verifier `run_tests` parameter authority behind typed `RunTestsEffectDescriptor`: verifier default `{}` selection is now enforced by shared effect policy, planner dry-run probes are allowed only as typed `dry_run + verification_probe`, and agent repair output only maps effect reason codes to existing schema-repair hints. This preserves the current verifier schema restriction while reducing scattered tool policy logic. Focused `safety` and `agent` tests cover default verifier params, explicit verifier selector denial, planner typed dry-run allow, and missing-probe denial. Remaining L5 work: runtime-unit permission-event persistence, scoped approval cache, and worker-role effect envelopes as L8 lands. |
 
 ## Phased Roadmap
 

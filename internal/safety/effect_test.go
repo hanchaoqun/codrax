@@ -1,6 +1,9 @@
 package safety
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestDecideEffectPermissionPlannerAllowsOnlyTypedDryRunProbe(t *testing.T) {
 	allowed := DecideEffectPermission(EffectDescriptor{
@@ -39,6 +42,61 @@ func TestDecideEffectPermissionVerifierOnlyTypedVerifySurface(t *testing.T) {
 	command := DecideEffectPermission(EffectDescriptor{Role: EffectRoleVerifier, Kind: EffectKindCommand})
 	if command.Action != PermissionDeny {
 		t.Fatalf("verifier command effect should be denied, got %+v", command)
+	}
+}
+
+func TestRunTestsEffectDescriptorVerifierDefaultOnly(t *testing.T) {
+	for name, raw := range map[string]json.RawMessage{
+		"nil":       nil,
+		"empty":     json.RawMessage(``),
+		"null":      json.RawMessage(`null`),
+		"empty_obj": json.RawMessage(`{}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			effect := RunTestsEffectDescriptor(EffectRoleVerifier, raw)
+			if effect.Kind != EffectKindTestSuite || effect.TestMode != EffectTestModeDefault {
+				t.Fatalf("default verifier effect mismatch: %+v", effect)
+			}
+			if decision := DecideEffectPermission(effect); decision.Action != PermissionAllow {
+				t.Fatalf("default verifier run_tests should allow, got %+v", decision)
+			}
+		})
+	}
+	for name, raw := range map[string]json.RawMessage{
+		"explicit_runner": json.RawMessage(`{"runner":"python"}`),
+		"dry_run_probe":   json.RawMessage(`{"dry_run":true,"verification_probe":{"code":"assert True"}}`),
+		"invalid_params":  json.RawMessage(`{"runner":`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			decision := DecideEffectPermission(RunTestsEffectDescriptor(EffectRoleVerifier, raw))
+			if decision.Action != PermissionDeny || decision.ReasonCode != "verifier_run_tests_default_required" {
+				t.Fatalf("non-default verifier run_tests should deny with default-required reason, got %+v", decision)
+			}
+		})
+	}
+}
+
+func TestRunTestsEffectDescriptorPlannerDryRunProbeOnly(t *testing.T) {
+	allowed := DecideEffectPermission(RunTestsEffectDescriptor(
+		EffectRolePlanner,
+		json.RawMessage(`{"dry_run":true,"verification_probe":{"code":"assert True"}}`),
+	))
+	if allowed.Action != PermissionAllow {
+		t.Fatalf("planner typed dry-run probe should allow, got %+v", allowed)
+	}
+	missingProbe := DecideEffectPermission(RunTestsEffectDescriptor(
+		EffectRolePlanner,
+		json.RawMessage(`{"dry_run":true}`),
+	))
+	if missingProbe.Action != PermissionDeny || missingProbe.ReasonCode != "planner_probe_requires_verification_probe" {
+		t.Fatalf("planner dry-run without probe should deny with probe reason, got %+v", missingProbe)
+	}
+	suite := DecideEffectPermission(RunTestsEffectDescriptor(
+		EffectRolePlanner,
+		json.RawMessage(`{"runner":"python"}`),
+	))
+	if suite.Action != PermissionDeny {
+		t.Fatalf("planner explicit suite execution should deny, got %+v", suite)
 	}
 }
 

@@ -3016,7 +3016,8 @@ func validateWriteVerifierToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *
 	if canonical != "run_tests" {
 		return nil
 	}
-	if writeVerifierRunTestsParamsAreDefault(tc.Params) {
+	decision := safety.DecideEffectPermission(safety.RunTestsEffectDescriptor(safety.EffectRoleVerifier, tc.Params))
+	if decision.Action == safety.PermissionAllow {
 		return nil
 	}
 	return &types.ToolResult{
@@ -3028,9 +3029,10 @@ func validateWriteVerifierToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *
 			Code: "write_verifier_run_tests_default_required",
 			Hint: "Re-run run_tests with an empty object: {}. Do not pass runner, framework, suite, working_dir, timeout, or dry_run from the verifier stage.",
 			Metadata: map[string]string{
-				"tool":   canonical,
-				"stage":  string(types.StageVerify),
-				"policy": "write_verifier_default_run_tests_only",
+				"tool":          canonical,
+				"stage":         string(types.StageVerify),
+				"policy":        "write_verifier_default_run_tests_only",
+				"effect_reason": decision.ReasonCode,
 			},
 		},
 	}
@@ -3082,34 +3084,27 @@ func validateWritePlannerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *t
 	if canonical != "run_tests" {
 		return nil
 	}
-	var params struct {
-		DryRun            bool             `json:"dry_run"`
-		VerificationProbe *json.RawMessage `json:"verification_probe"`
-	}
-	if len(tc.Params) > 0 {
-		if err := json.Unmarshal(tc.Params, &params); err != nil {
-			return nil
-		}
-	}
-	if params.DryRun {
-		if params.VerificationProbe == nil {
-			return &types.ToolResult{
-				ToolName:  tc.Name,
-				Summary:   "run_tests rejected: write planner probes must use dry_run=true with a typed verification_probe object. Suite/runner dry-runs execute project tests and belong to the verify stage.",
-				Success:   false,
-				Timestamp: time.Now(),
-				Repair: &types.ToolRepair{
-					Code: "write_planner_run_tests_requires_verification_probe",
-					Hint: "Provide dry_run=true with verification_probe.code for a bounded behavior probe, or emit the ChangePlan from the typed handoff/failure evidence without running tests.",
-					Metadata: map[string]string{
-						"tool":   canonical,
-						"stage":  string(types.StagePlan),
-						"policy": "write_planner_typed_verification_probe_only",
-					},
-				},
-			}
-		}
+	decision := safety.DecideEffectPermission(safety.RunTestsEffectDescriptor(safety.EffectRolePlanner, tc.Params))
+	if decision.Action == safety.PermissionAllow {
 		return nil
+	}
+	if decision.ReasonCode == "planner_probe_requires_verification_probe" {
+		return &types.ToolResult{
+			ToolName:  tc.Name,
+			Summary:   "run_tests rejected: write planner probes must use dry_run=true with a typed verification_probe object. Suite/runner dry-runs execute project tests and belong to the verify stage.",
+			Success:   false,
+			Timestamp: time.Now(),
+			Repair: &types.ToolRepair{
+				Code: "write_planner_run_tests_requires_verification_probe",
+				Hint: "Provide dry_run=true with verification_probe.code for a bounded behavior probe, or emit the ChangePlan from the typed handoff/failure evidence without running tests.",
+				Metadata: map[string]string{
+					"tool":          canonical,
+					"stage":         string(types.StagePlan),
+					"policy":        "write_planner_typed_verification_probe_only",
+					"effect_reason": decision.ReasonCode,
+				},
+			},
+		}
 	}
 	return &types.ToolResult{
 		ToolName:  tc.Name,
@@ -3120,9 +3115,10 @@ func validateWritePlannerToolPolicy(ctx *types.AgentContext, tc llm.ToolCall) *t
 			Code: "write_planner_run_tests_requires_dry_run",
 			Hint: "Re-run run_tests with dry_run=true, or emit the ChangePlan if no probe is needed.",
 			Metadata: map[string]string{
-				"tool":   canonical,
-				"stage":  string(types.StagePlan),
-				"policy": "write_planner_typed_probe_only",
+				"tool":          canonical,
+				"stage":         string(types.StagePlan),
+				"policy":        "write_planner_typed_probe_only",
+				"effect_reason": decision.ReasonCode,
 			},
 		},
 	}

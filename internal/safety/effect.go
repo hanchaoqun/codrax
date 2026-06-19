@@ -51,6 +51,14 @@ const (
 	EffectKindDoomLoop           EffectKind = "doom_loop"
 )
 
+const (
+	EffectTestModeDefault            = "default"
+	EffectTestModeExplicitSelector   = "explicit_selector"
+	EffectTestModeDryRunProbe        = "dry_run_probe"
+	EffectTestModeDryRunMissingProbe = "dry_run_missing_probe"
+	EffectTestModeInvalidParams      = "invalid_params"
+)
+
 // EffectDescriptor is the deterministic permission input for one agent/tool or
 // runtime-unit effect. It is intentionally structural: hard policy must read
 // only these typed fields, never user prose, model rationale, prompt text, or
@@ -179,6 +187,44 @@ func EffectDescriptorForTool(role EffectRole, toolName string) EffectDescriptor 
 	})
 }
 
+// RunTestsEffectDescriptor converts the run_tests parameter shape into a typed
+// effect. Policy consumers must decide from this structural descriptor, not
+// from model prose or rendered tool hints.
+func RunTestsEffectDescriptor(role EffectRole, raw json.RawMessage) EffectDescriptor {
+	effect := EffectDescriptor{
+		Role:   NormalizeEffectRole(role),
+		Kind:   EffectKindTestSuite,
+		Tool:   "run_tests",
+		Source: "run_tests_effect_policy",
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		effect.TestMode = EffectTestModeDefault
+		return NormalizeEffectDescriptor(effect)
+	}
+	var params map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &params); err != nil {
+		effect.TestMode = EffectTestModeInvalidParams
+		return NormalizeEffectDescriptor(effect)
+	}
+	if len(params) == 0 {
+		effect.TestMode = EffectTestModeDefault
+		return NormalizeEffectDescriptor(effect)
+	}
+	if runTestsEffectBool(params["dry_run"]) {
+		effect.Kind = EffectKindDryRunTest
+		effect.DryRun = true
+		if runTestsEffectHasProbe(params["verification_probe"]) {
+			effect.TestMode = EffectTestModeDryRunProbe
+		} else {
+			effect.TestMode = EffectTestModeDryRunMissingProbe
+		}
+		return NormalizeEffectDescriptor(effect)
+	}
+	effect.TestMode = EffectTestModeExplicitSelector
+	return NormalizeEffectDescriptor(effect)
+}
+
 func BuiltinRolePermissionProfile(role EffectRole) RolePermissionProfile {
 	role = NormalizeEffectRole(role)
 	profile := RolePermissionProfile{Role: role, Source: "builtin_role_effect_profile"}
@@ -237,11 +283,20 @@ func DecideEffectPermission(effect EffectDescriptor) PermissionDecision {
 		return AskPermission("effect_policy", "effect_doom_loop", "effect exceeded its repetition limit")
 	}
 	profile := BuiltinRolePermissionProfile(effect.Role)
+	if effect.Role == EffectRoleVerifier && strings.TrimSpace(effect.Tool) == "run_tests" &&
+		(effect.Kind != EffectKindTestSuite || (effect.TestMode != "" && effect.TestMode != EffectTestModeDefault)) {
+		return DenyPermission(profile.Source, "verifier_run_tests_default_required", "verifier run_tests must use the deterministic default selector")
+	}
+	if effect.Kind == EffectKindDryRunTest && (effect.Role == EffectRolePlanner || effect.Role == EffectRoleReplanner) {
+		if !effect.DryRun {
+			return DenyPermission(profile.Source, "planner_probe_requires_dry_run", "planner test probes must be dry-run effects")
+		}
+		if effect.TestMode == EffectTestModeDryRunMissingProbe {
+			return DenyPermission(profile.Source, "planner_probe_requires_verification_probe", "planner dry-run test probes must include verification_probe")
+		}
+	}
 	if kindInEffectList(effect.Kind, profile.DenyKinds) {
 		return DenyPermission(profile.Source, "role_effect_denied", fmt.Sprintf("%s cannot perform %s", effect.Role, effect.Kind))
-	}
-	if effect.Kind == EffectKindDryRunTest && (effect.Role == EffectRolePlanner || effect.Role == EffectRoleReplanner) && !effect.DryRun {
-		return DenyPermission(profile.Source, "planner_probe_requires_dry_run", "planner test probes must be dry-run effects")
 	}
 	if kindInEffectList(effect.Kind, profile.AllowKinds) {
 		return AllowPermission(profile.Source, "role_effect_allowed", fmt.Sprintf("%s may perform %s", effect.Role, effect.Kind))
@@ -293,6 +348,16 @@ func effectKindForTool(toolName string) EffectKind {
 	default:
 		return EffectKindUnknown
 	}
+}
+
+func runTestsEffectBool(raw json.RawMessage) bool {
+	var b bool
+	return json.Unmarshal(raw, &b) == nil && b
+}
+
+func runTestsEffectHasProbe(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed != "" && trimmed != "null"
 }
 
 func normalizeEffectPaths(in []string) []string {
