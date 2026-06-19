@@ -47,6 +47,9 @@ func TestNormalizeToolCallParams_RepairUsesPerAgentConfig(t *testing.T) {
 	if decoded.Offset != 146 || decoded.Limit != 25 {
 		t.Fatalf("offset/limit = %d/%d, want 146/25; raw=%s", decoded.Offset, decoded.Limit, got[0].Params)
 	}
+	if got[0].ParamSchemaFingerprint == "" {
+		t.Fatalf("normalized tool call should carry schema fingerprint")
+	}
 }
 
 func TestNormalizeToolCallParams_RepairsLineOffsetString(t *testing.T) {
@@ -78,6 +81,37 @@ func TestNormalizeToolCallParams_RepairsLineOffsetString(t *testing.T) {
 	}
 	if decoded.LineOffset != 146 || decoded.Limit != 25 {
 		t.Fatalf("line_offset/limit = %d/%d, want 146/25; raw=%s", decoded.LineOffset, decoded.Limit, got[0].Params)
+	}
+}
+
+func TestNormalizeToolCallParams_MarksSchemaCheckedCallWhenUnchanged(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentExplorer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	calls := []llm.ToolCall{{
+		ID:     "call_1",
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/types/enums.go","offset":146,"limit":25}`),
+	}}
+	schemas := []llm.ToolSchema{{
+		Name:       "read_file",
+		Parameters: readFileCompatTestSchema(),
+	}}
+
+	got := base.normalizeToolCallParams(calls, schemas)
+	if string(got[0].Params) != string(calls[0].Params) {
+		t.Fatalf("already normalized params changed: %s", got[0].Params)
+	}
+	if got[0].ParamSchemaFingerprint == "" {
+		t.Fatalf("schema-checked call should carry schema fingerprint")
+	}
+	if calls[0].ParamSchemaFingerprint != "" {
+		t.Fatalf("normalizeToolCallParams mutated caller marker: %+v", calls[0])
 	}
 }
 

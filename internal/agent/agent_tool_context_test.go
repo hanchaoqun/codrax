@@ -951,6 +951,65 @@ func TestExecuteTool_AppliesSchemaAwareParamCompatFromRegistry(t *testing.T) {
 	}
 }
 
+func TestExecuteTool_SkipsDuplicateRegistryNormalizeWhenSchemaChecked(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	capture := &captureParamsTool{}
+	reg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		Tools: reg,
+		ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+			types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+		},
+	}, nil)
+	raw := json.RawMessage(`{"sources":"Explorer","topN":"3","includeCounts":"true"}`)
+	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:                     "compat-json",
+		Name:                   capture.Name(),
+		Params:                 raw,
+		ParamSchemaFingerprint: toolParamSchemaFingerprint(capture.Parameters()),
+	})
+	if res == nil || !res.Success {
+		t.Fatalf("executeTool failed: %+v", res)
+	}
+	if string(capture.got) != string(raw) {
+		t.Fatalf("schema-checked call should skip duplicate normalize, got %s want %s", capture.got, raw)
+	}
+}
+
+func TestExecuteTool_DifferentSchemaFingerprintStillNormalizesFromRegistry(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	capture := &captureParamsTool{}
+	reg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		Tools: reg,
+		ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+			types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+		},
+	}, nil)
+	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:                     "compat-json",
+		Name:                   capture.Name(),
+		Params:                 json.RawMessage(`{"sources":"Explorer","topN":"3","includeCounts":"true"}`),
+		ParamSchemaFingerprint: toolParamSchemaFingerprint(json.RawMessage(`{"type":"object","properties":{}}`)),
+	})
+	if res == nil || !res.Success {
+		t.Fatalf("executeTool failed: %+v", res)
+	}
+	var decoded struct {
+		Sources       []string `json:"sources"`
+		TopN          int      `json:"top_n"`
+		IncludeCounts bool     `json:"include_counts"`
+	}
+	if err := json.Unmarshal(capture.got, &decoded); err != nil {
+		t.Fatalf("tool received invalid normalized params: %v\n%s", err, capture.got)
+	}
+	if strings.Join(decoded.Sources, "|") != "Explorer" || decoded.TopN != 3 || !decoded.IncludeCounts {
+		t.Fatalf("registry schema should still normalize on fingerprint mismatch: %+v raw=%s", decoded, capture.got)
+	}
+}
+
 func TestExecuteTool_NormalizesGrepRuntimeParamsFromRegistry(t *testing.T) {
 	root := t.TempDir()
 	tracePath := filepath.Join(root, "trace.systrace")

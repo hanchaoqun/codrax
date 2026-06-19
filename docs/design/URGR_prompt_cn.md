@@ -458,7 +458,7 @@ type AnswerReasoningGraphSummary struct {
 | P1-B6 Log / Trace / Data / Operation Projection | delivered | ToolResult/MCP typed observations、operation workflow state、data workflow runtime/state/journal projection 已进入 auxiliary graph lane；computer/桌面操作当前复用 operation workflow action/surface/risk 投影 |
 | P1-B7 Eval / Support Report | delivered | SWE results summary graph coverage metrics、historical audit graph reason grouping、per-instance support table graph columns |
 | P1-Perf-1 Tool Runtime Telemetry | delivered | `BaseAgent.executeTool` 本地工具/MCP 执行边界产出 typed `tool_call_observed` elapsed/status/count/ref event；`ToolResult.RuntimeTimings` 投影 `tool_phase_observed`；`emit_evidence` / `emit_investigation_complete` 子阶段 timing 已覆盖 |
-| P1-Perf-2 Static Schema Cache And Normalize De-dupe | in_progress | `emit_evidence` / `emit_investigation_complete` 静态 `Parameters()` cache 已落地并返回 caller-safe clone；schema-aware normalize 单次化、execute-time duplicate normalize guard 待落地 |
+| P1-Perf-2 Static Schema Cache And Normalize De-dupe | delivered | `emit_evidence` / `emit_investigation_complete` 静态 `Parameters()` cache；response normalize 写入 schema fingerprint；execute-time registry normalize 仅在 fingerprint mismatch / direct caller 时 fallback |
 | P1-Perf-3 Grounding Context Cache | planned | dispatch/version scoped `ground.BuildContext` cache、line-index reuse、cache hit/miss typed telemetry |
 | P1-Perf-4 CompletionPreflightView | planned | `emit_investigation_complete` precheck 一次性 view、gate 共享 typed view、避免重复扫 evidence/aggregate/read history |
 | P2-B8 Graph-Guided Controller | planned | typed graph view 反哺 bounded controller action |
@@ -711,8 +711,9 @@ type AnswerReasoningGraphSummary struct {
 - 已完成：`emit_evidence.Parameters()` 缓存 canonical schema bytes，避免每次重新构造大 map 并 marshal。
 - 已完成：`emit_investigation_complete.Parameters()` 缓存 canonical schema bytes，避免每次重新构造大 raw literal。
 - 已完成：缓存返回 caller-safe clone，防止调用方误改污染全局 schema。
-- 待完成：LLM response normalize 与 execute-time registry normalize 的 typed de-dupe。
-- 待完成：dynamic projected schema 明确继续走 per-context path，不进入全局静态缓存。
+- 已完成：LLM response normalize 给 `llm.ToolCall` 写入内部 schema fingerprint marker。
+- 已完成：execute-time registry normalize 仅在 marker 缺失或 fingerprint mismatch 时执行；direct test / legacy caller 无 marker，仍保留 fallback 修复。
+- 已完成：dynamic projected schema 不进全局静态缓存，且 fingerprint mismatch 会保留 execute-time registry fallback。
 
 任务：
 

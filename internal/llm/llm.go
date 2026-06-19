@@ -18,6 +18,13 @@ type ToolCall struct {
 	ID     string          `json:"id"`
 	Name   string          `json:"name"`
 	Params json.RawMessage `json:"input"`
+
+	// ParamSchemaFingerprint is internal execution metadata. Agent response
+	// normalization sets it after checking Params against a concrete tool
+	// schema; execute-time compatibility repair may skip duplicate work only
+	// when the registry schema has the exact same fingerprint. It is never
+	// serialized to providers or tool history.
+	ParamSchemaFingerprint string `json:"-"`
 }
 
 // TokenUsage tracks token consumption.

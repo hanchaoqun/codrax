@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -3619,10 +3620,18 @@ func (b *BaseAgent) normalizeToolCallParamsWithContext(ctx *types.AgentContext, 
 	for i, call := range calls {
 		schema := byName[call.Name]
 		normalized, changed := b.normalizeOneToolCallParams(call, schema, cfg)
+		fingerprint := toolParamSchemaFingerprint(schema)
 		if !changed {
+			if fingerprint != "" && call.ParamSchemaFingerprint != fingerprint {
+				if out == nil {
+					out = append([]llm.ToolCall(nil), calls...)
+				}
+				out[i].ParamSchemaFingerprint = fingerprint
+			}
 			continue
 		}
 		b.observeToolParamsNormalized(ctx, call, call.Params, normalized.Params, "tool_param_schema_normalized")
+		normalized.ParamSchemaFingerprint = fingerprint
 		if out == nil {
 			out = append([]llm.ToolCall(nil), calls...)
 		}
@@ -3670,6 +3679,15 @@ func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.Ra
 	logging.Warning("[tool_param_compat] agent=%s tool=%s params normalized: %s",
 		b.name, call.Name, strings.Join(summaries, "; "))
 	return out, true
+}
+
+func toolParamSchemaFingerprint(schema json.RawMessage) string {
+	trimmed := bytesTrimSpace(schema)
+	if len(trimmed) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(trimmed)
+	return fmt.Sprintf("%x", sum[:])
 }
 
 func repairToolCallParamSyntax(calls []llm.ToolCall) []llm.ToolCall {
@@ -3889,11 +3907,18 @@ func (b *BaseAgent) normalizeToolCallParamsFromRegistry(tc llm.ToolCall) (llm.To
 	if b.deps.Tools != nil {
 		tl, err := b.deps.Tools.Get(tc.Name)
 		if err == nil && tl != nil {
-			return b.normalizeOneToolCallParams(tc, tl.Parameters(), cfg)
+			schema := tl.Parameters()
+			if tc.ParamSchemaFingerprint != "" && tc.ParamSchemaFingerprint == toolParamSchemaFingerprint(schema) {
+				return tc, false
+			}
+			return b.normalizeOneToolCallParams(tc, schema, cfg)
 		}
 	}
 	if b.deps.MCPServers != nil {
 		if schema, ok := b.deps.MCPServers.SchemaForNamespaced(tc.Name); ok {
+			if tc.ParamSchemaFingerprint != "" && tc.ParamSchemaFingerprint == toolParamSchemaFingerprint(schema) {
+				return tc, false
+			}
 			return b.normalizeOneToolCallParams(tc, schema, cfg)
 		}
 	}
