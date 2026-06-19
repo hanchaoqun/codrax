@@ -7822,6 +7822,96 @@ func TestRunControllerPlanBatch_PureProofFollowupAllowsProductionRepairWithFailu
 	}
 }
 
+func TestCompleteInterruptedFollowupIfSourceCompleteCompletesUnverified(t *testing.T) {
+	mu := types.NewMutableState("proof followup stopped after source complete")
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-followup-unverified",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-obligation-repair",
+		Batches: []types.WriteWorkflowBatch{
+			{
+				ID:     "batch-1",
+				Status: types.WriteWorkflowBatchComplete,
+				Completion: &types.WriteWorkflowCompletion{
+					Verdict:    types.WriteWorkflowCompletionVerified,
+					ReasonCode: "tests_passed",
+					Source:     "slice_observe",
+				},
+			},
+			{
+				ID:      "batch-1-obligation-repair",
+				Purpose: "impact_and_verification_proof_followup",
+				Status:  types.WriteWorkflowBatchReadyToPlan,
+			},
+		},
+	}
+	mu.SetWriteWorkflowRun(run)
+	store := &fakeWorkflowRunStore{}
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.writeWorkflowRunStore = store
+
+	if !o.completeInterruptedFollowupIfSourceComplete(run, "plan_batch_followup_unverified", "plan_batch") {
+		t.Fatal("expected interrupted optional follow-up to complete unverified")
+	}
+	if run.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("run status = %s, want complete", run.Status)
+	}
+	active := run.Batches[1]
+	if active.Status != types.WriteWorkflowBatchComplete || active.Completion == nil ||
+		active.Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		active.Completion.ReasonCode != "plan_batch_followup_unverified" {
+		t.Fatalf("active follow-up completion = %+v", active)
+	}
+	if store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("persisted run status = %s, want complete", store.last.Status)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "plan_batch_followup_unverified") {
+		t.Fatalf("progress should record follow-up unverified completion: %+v", run.ProgressLedger)
+	}
+}
+
+func TestCompleteInterruptedFollowupIfSourceCompleteRejectsAppliedFollowup(t *testing.T) {
+	mu := types.NewMutableState("proof followup applied work")
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-followup-applied",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-proof-repair",
+		Batches: []types.WriteWorkflowBatch{
+			{
+				ID:     "batch-1",
+				Status: types.WriteWorkflowBatchComplete,
+				Completion: &types.WriteWorkflowCompletion{
+					Verdict:    types.WriteWorkflowCompletionVerified,
+					ReasonCode: "tests_passed",
+					Source:     "slice_observe",
+				},
+			},
+			{
+				ID:      "batch-1-proof-repair",
+				Purpose: "verification_proof_followup",
+				Status:  types.WriteWorkflowBatchVerifying,
+				Attempts: []types.WriteWorkflowAttempt{{
+					ID:     "attempt-1",
+					Kind:   "apply",
+					Status: "applied",
+					PlanID: "plan-proof",
+				}},
+			},
+		},
+	}
+	mu.SetWriteWorkflowRun(run)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+
+	if o.completeInterruptedFollowupIfSourceComplete(run, "plan_batch_followup_unverified", "plan_batch") {
+		t.Fatal("follow-up with applied work must not be silently completed")
+	}
+	if run.Status != types.WriteWorkflowRunInProgress || run.Batches[1].Status != types.WriteWorkflowBatchVerifying {
+		t.Fatalf("run mutated unexpectedly: %+v", run)
+	}
+}
+
 func TestRunControllerPlanBatch_ProofFollowupRetriesCommentOnlyProductionPatchToProbeOnly(t *testing.T) {
 	mu := types.NewMutableState("proof followup rejects comment-only production patch")
 	run := &types.WriteWorkflowRun{

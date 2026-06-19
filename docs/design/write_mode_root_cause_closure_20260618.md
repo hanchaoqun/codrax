@@ -4326,6 +4326,7 @@ Verification:
 | RC-114 | complete | Verifier worktree path normalization: RC113 smoke showed traceback locations can point at `.codrax/worktrees/<trace>/...`, which made failed-test protection classify the location as a Codrax artifact instead of a repo test. The critic now maps that deterministic worktree prefix back to repo-relative paths before path-role classification. |
 | RC-115 | complete | Protected-test critic hard closure: the typed test-contract critic now retries once with a structured hint, then blocks/fails loud if the next plan still weakens protected regression or failed-verifier assertion lines. This prevents a model from acknowledging `preserve_failed_test_assertion` in prose while still applying the weakened test patch. |
 | RC-116 | complete | Protected-oracle source-only repair lane: RC115 correctly blocks repeated protected-test weakening, but Django smoke showed the workflow then exports an empty patch instead of spending one more bounded attempt on implementation-side alternatives. The scheduler now adds a deterministic second retry lane: after the first protected-test hint is ignored, it forces one source-only/protected-path-forbidden replan before the final block, and preserves inner-loop durable progress when returning to the controller. |
+| RC-117 | complete | Optional follow-up terminal normalization: RC116 Django smoke generated a coherent, source-only, locally verified patch, but a later proof/impact obligation follow-up left the workflow `blocked` and downgraded local acceptance. Interrupted optional follow-up batches now complete as `unverified` when all primary source batches are already complete, the follow-up has no applied work, and there is no typed failure handoff. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -7355,6 +7356,51 @@ RC116 design and tasks:
     exported and locally verified" from "non-blocking proof/impact follow-up
     incomplete" so an optional audit lane does not poison the primary delivery
     workflow state.
+
+RC117 design and tasks:
+
+- Gap:
+  - `batch-1` in RC116 completed with a verified source patch, but
+    `batch-1-obligation-repair` was a follow-up proof/impact lane that stopped
+    before applying work. The durable run became `blocked`, which made the SWE
+    adapter report local audit failure despite exporting the correct source
+    patch.
+  - Existing `completeDispatchInterruptedProofFollowupIfSourceComplete` covers
+    one controller-dispatch deadline shape, but not plan-batch errors where
+    mutable state still contains the latest source ChangePlan.
+- Design:
+  - Add a generic optional follow-up completion helper that consumes only typed
+    workflow state:
+    active batch purpose is `verification_proof_followup`,
+    `impact_and_verification_proof_followup`, or `impact_obligation_followup`;
+    all non-active batches are complete; active follow-up has no failed verify
+    handoff and no applied attempt.
+  - When those conditions hold, mark the active follow-up batch complete with
+    `completion.verdict=unverified`, mark the run complete, and record a
+    progress reason instead of blocking the primary delivery.
+  - Do not complete follow-ups that already applied work or have typed failure
+    evidence; those still require verify/replan/block.
+- Tasks:
+  - Wire the helper into controller dispatch interruption and plan-batch error
+    paths before applied-patch interruption guidance.
+  - Add tests for follow-up completion and for rejecting applied follow-up
+    work.
+  - Run focused orchestrator tests, full `go test ./...`, `make`, then rerun
+    the Django SWE smoke and update adapter evidence.
+- Implementation notes:
+  - Added `activeBatchOptionalFollowupPurpose` for verification proof, impact,
+    and combined proof/impact follow-up purposes.
+  - Added `completeInterruptedFollowupIfSourceComplete`, guarded by active
+    follow-up purpose, non-active batch completion, no active verify-failure
+    handoff, no active failed verify, and no active applied attempt.
+  - Wired the helper before applied-patch interruption guidance in controller
+    dispatch and plan-batch error paths, so stale source ChangePlan state cannot
+    make an optional follow-up poison the main delivery.
+- Verification:
+  - `go test ./internal/orchestrator -run 'TestCompleteInterruptedFollowupIfSourceComplete|TestRunControllerPlanBatch_ProofFollowup|TestRunControllerPlanBatch_PureProofFollowup' -count=1`
+    passes.
+  - `go test ./...` passes.
+  - `make` passes.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

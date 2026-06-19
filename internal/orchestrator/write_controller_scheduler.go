@@ -111,6 +111,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				if o.completeDispatchInterruptedProofFollowupIfSourceComplete(&run, "controller_dispatch_write_deadline_proof_followup_unverified") {
 					return nil
 				}
+				if o.completeInterruptedFollowupIfSourceComplete(&run, "controller_dispatch_followup_unverified", "controller_dispatch") {
+					return nil
+				}
 				if o.publishAppliedPatchInterruptedGuidance(&run, o.busCtx.Mutable.ChangePlan(), err, "controller_dispatch_interrupted_after_applied_patch") {
 					if o.appliedPatchInterruptedShouldBlock(&run, err) {
 						run.Status = types.WriteWorkflowRunBlocked
@@ -302,6 +305,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 			if innerErr != nil {
 				lastInnerErr = innerErr
+				if o.completeInterruptedFollowupIfSourceComplete(&run, "plan_batch_followup_unverified", "plan_batch") {
+					return nil
+				}
 				if o.publishAppliedPatchInterruptedGuidance(&run, plan, lastInnerErr, "plan_batch_interrupted_after_applied_patch") {
 					if o.appliedPatchInterruptedShouldBlock(&run, lastInnerErr) {
 						run.Status = types.WriteWorkflowRunBlocked
@@ -1137,6 +1143,28 @@ func activeBatchProofFollowupPurpose(run *types.WriteWorkflowRun) bool {
 	return false
 }
 
+func activeBatchOptionalFollowupPurpose(run *types.WriteWorkflowRun) bool {
+	if run == nil {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != activeID {
+			continue
+		}
+		switch strings.TrimSpace(batch.Purpose) {
+		case "verification_proof_followup", "impact_and_verification_proof_followup", "impact_obligation_followup":
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
 func plannerProbePassedExistingAppliedWorktree(mu *types.MutableState, priorPlan *types.ChangePlan) bool {
 	if mu == nil {
 		return false
@@ -1688,6 +1716,28 @@ func writeWorkflowActiveBatchHasFailedVerify(run *types.WriteWorkflowRun) bool {
 				continue
 			}
 			return strings.TrimSpace(attempt.Status) == "failed"
+		}
+		return false
+	}
+	return false
+}
+
+func writeWorkflowActiveBatchHasAppliedAttempt(run *types.WriteWorkflowRun) bool {
+	if run == nil {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != activeID {
+			continue
+		}
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) == "apply" && strings.TrimSpace(attempt.Status) == "applied" {
+				return true
+			}
 		}
 		return false
 	}
@@ -7313,6 +7363,55 @@ func (o *Orchestrator) completeDispatchInterruptedProofFollowupIfSourceComplete(
 	updateWorkflowRunBatchCompletion(run, activeID, types.WriteWorkflowCompletionUnverified, reasonCode, "write_deadline")
 	appendControllerProgress(run, activeID, reasonCode,
 		"write-mode wall-clock deadline interrupted a proof-only follow-up after source batches already had typed completion verdicts; finishing with unverified proof caveat instead of blocking")
+	run.Status = types.WriteWorkflowRunComplete
+	writeflow.MarkWorkflowRunCompletionFromBatches(run)
+	o.persistWriteWorkflowRun(run)
+	if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
+		result := "write workflow complete"
+		if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
+			result += " — " + caveat
+		}
+		o.busCtx.Mutable.SetResult(result)
+	}
+	return true
+}
+
+// completeInterruptedFollowupIfSourceComplete handles optional proof/impact
+// follow-up batches that are interrupted before they apply anything while all
+// primary source batches already have typed completion verdicts. In that state
+// blocking the whole workflow would poison a deliverable source patch with an
+// unfinished audit lane, so the follow-up completes as unverified instead. The
+// gate consumes only durable workflow batch purpose, attempts, completion, and
+// verify-failure handoff state.
+func (o *Orchestrator) completeInterruptedFollowupIfSourceComplete(run *types.WriteWorkflowRun, reasonCode, source string) bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return false
+	}
+	if !activeBatchOptionalFollowupPurpose(run) {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" || activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, activeID) {
+		return false
+	}
+	if writeWorkflowActiveBatchHasFailedVerify(run) || writeWorkflowActiveBatchHasAppliedAttempt(run) {
+		return false
+	}
+	if !workflowRunNonActiveBatchesComplete(run) {
+		return false
+	}
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode == "" {
+		reasonCode = "followup_unverified"
+	}
+	source = strings.TrimSpace(source)
+	if source == "" {
+		source = "followup_interrupted"
+	}
+	updateWorkflowRunBatchStatus(run, activeID, types.WriteWorkflowBatchComplete)
+	updateWorkflowRunBatchCompletion(run, activeID, types.WriteWorkflowCompletionUnverified, reasonCode, source)
+	appendControllerProgress(run, activeID, reasonCode,
+		"optional proof/impact follow-up stopped before applying work after primary source batches already completed; finishing with unverified follow-up caveat instead of blocking the delivered patch")
 	run.Status = types.WriteWorkflowRunComplete
 	writeflow.MarkWorkflowRunCompletionFromBatches(run)
 	o.persistWriteWorkflowRun(run)
