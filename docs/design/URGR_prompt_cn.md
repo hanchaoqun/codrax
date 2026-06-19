@@ -462,7 +462,7 @@ type AnswerReasoningGraphSummary struct {
 | P1-Perf-3 Grounding Context Cache | delivered | `BusContext` scoped `ground.BuildContext` cache、Mutable TurnA/dispatch/searchGraph revision key、line-index reuse、`ground_context_cache_hit/miss` typed timing telemetry |
 | P1-Perf-4 CompletionPreflightView | delivered | `emit_investigation_complete` 构建 typed preflight view；precheck/grounding/tier1 gate 共享 evidence、effective aggregate facts、relation facts、generic/tier1 tally |
 | P2-B8 Graph-Guided Controller | delivered | controller enforcement 消费 typed graph audit guidance；missing evidence / repair storm 只推荐 existing `explore_code`，LLM wait 仅 advisory |
-| P2-B9 Graph-Native Replay Executor | planned | read-only replay/local recompute |
+| P2-B9 Graph-Native Replay Executor | delivered | read-only graph replay/local recompute：events/file -> view/audit，node-local filter，budget/cancellation/idempotence tests |
 | P2-B10 收敛重复状态字段 | planned | 内部投影去重、文档和用户指南同步 |
 
 ### P0-B1：Tool / Repair / LLM Wait Observation Graph
@@ -852,12 +852,19 @@ type AnswerReasoningGraphSummary struct {
 
 目标：只做 replay/local recompute，不替换主流程。
 
+当前进展：
+
+- 已完成：新增 `GraphReplayExecutor`，输入内存 events 或 event JSON 文件，输出 recomputed `ReasoningGraphView` 和 `ReasoningGraphAuditSummary`。
+- 已完成：支持 node-local recompute，通过 `NodeID` 过滤后只重跑 reducer/audit，不调用 LLM、工具、MCP 或 worktree。
+- 已完成：`MaxEvents` budget fail-loud，`context.Context` cancellation 生效。
+- 已完成：测试覆盖 read-only replay、文件读取、node-local replay、budget、cancellation、idempotence。
+
 任务：
 
-1. 实现 read-only `GraphReplayExecutor`。
-2. 支持从 graph events 重建 view。
-3. 支持 node-local recompute：只重跑 projector/reducer，不重跑 LLM/tool。
-4. 增加 cancellation、budget、idempotence tests。
+1. 实现 read-only `GraphReplayExecutor`：已完成。
+2. 支持从 graph events 重建 view：已完成。
+3. 支持 node-local recompute：只重跑 projector/reducer，不重跑 LLM/tool：已完成。
+4. 增加 cancellation、budget、idempotence tests：已完成。
 
 验收：
 
