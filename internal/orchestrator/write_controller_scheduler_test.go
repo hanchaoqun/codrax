@@ -6266,6 +6266,114 @@ func TestAttachPlanContextPackToWorkflowRunStampsSelectedOwnerAnchors(t *testing
 	}
 }
 
+func TestBuildPlanEditOwnerContextPackUsesActualDiffHunkLines(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "pkg"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	src := []byte(`def summarize_variable(
+    name,
+    var,
+):
+    units = var.attrs.get("units", "")
+    return units
+`)
+	if err := os.WriteFile(filepath.Join(tmp, "pkg", "formatting.py"), src, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-actual-owner",
+		Summary:     "preserve units in summary",
+		TargetPaths: []string{"pkg/formatting.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			RecordID: "patch-effect:plan-actual-owner:slice-1:abc",
+			Files: []types.PatchEffectFile{{
+				Path: "pkg/formatting.py",
+				Hunks: []types.PatchEffectHunk{{
+					NewStart:         1,
+					NewLines:         6,
+					AddedLineNumbers: []int{5},
+				}},
+			}},
+		},
+	}
+
+	pack := buildPlanEditOwnerContextPack(tmp, "batch-1", "slice-1", plan)
+	var found *types.WriteContextItem
+	for i := range pack.Items {
+		item := &pack.Items[i]
+		if item.LocalizationAnchor != nil &&
+			item.LocalizationAnchor.Path == "pkg/formatting.py" &&
+			item.LocalizationAnchor.OwnerSymbol == "summarize_variable" &&
+			item.LocalizationAnchor.ReasonCode == "actual_diff_structural_owner" {
+			found = item
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("actual diff hunk should stamp summarize_variable owner anchor: %+v", pack.Items)
+	}
+	if found.Priority != types.WriteContextP1 || found.EvidenceRef == nil || found.EvidenceRef.LineStart != 5 {
+		t.Fatalf("owner anchor item should be normalized and evidence-backed, got %+v", *found)
+	}
+}
+
+func TestSyncPlanEditOwnerAnchorsToRunPrefersWorktreeContent(t *testing.T) {
+	mainRoot := t.TempDir()
+	worktreeRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, "pkg"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(worktree): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "pkg", "formatting.py"), []byte(`def summarize_variable(
+    name,
+    var,
+):
+    units = var.attrs.get("units", "")
+    return units
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(worktree): %v", err)
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-worktree-owner",
+		Summary:     "preserve units in summary",
+		TargetPaths: []string{"pkg/formatting.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			RecordID: "patch-effect:plan-worktree-owner:slice-1:abc",
+			Files: []types.PatchEffectFile{{
+				Path:  "pkg/formatting.py",
+				Hunks: []types.PatchEffectHunk{{AddedLineNumbers: []int{5}}},
+			}},
+		},
+	}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-worktree-owner",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			ActiveSliceID: "slice-1",
+			Slices:        []types.WriteWorkflowSlice{{ID: "slice-1"}},
+		}},
+	}
+	mu := types.NewMutableState("preserve units")
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable:      mu,
+		RepoRoot:     mainRoot,
+		MainRepoRoot: mainRoot,
+		WorktreePath: worktreeRoot,
+		Mode:         types.ModeApply,
+	}}
+
+	o.syncPlanEditOwnerAnchorsToRun(run, plan)
+
+	if !workflowRunContextContains(run, "localization_anchor", "owner=summarize_variable") ||
+		!workflowRunContextContains(run, "localization_anchor", "reason=actual_diff_structural_owner") {
+		t.Fatalf("workflow run should carry worktree-backed actual diff owner anchor: %+v", run.ContextPacks)
+	}
+	if got := mu.WriteWorkflowRun(); got == nil || !workflowRunContextContains(got, "localization_anchor", "owner=summarize_variable") {
+		t.Fatalf("mutable run should be updated with owner anchors, got %+v", got)
+	}
+}
+
 func TestAttachPlanContextPackToWorkflowRunPersistsMissingPriorContext(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "run-1",

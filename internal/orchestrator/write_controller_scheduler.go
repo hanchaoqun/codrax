@@ -1507,6 +1507,9 @@ func (o *Orchestrator) syncPlanEditOwnerAnchorsToRun(run *types.WriteWorkflowRun
 		return
 	}
 	repoRoot := strings.TrimSpace(o.busCtx.RepoRoot)
+	if wt := strings.TrimSpace(o.busCtx.WorktreePath); wt != "" {
+		repoRoot = wt
+	}
 	if repoRoot == "" {
 		repoRoot = strings.TrimSpace(o.busCtx.MainRepoRoot)
 	}
@@ -1534,62 +1537,89 @@ func buildPlanEditOwnerContextPack(repoRoot, batchID, sliceID string, plan *type
 		Goal:        strings.TrimSpace(plan.Summary),
 	}
 	seen := map[string]struct{}{}
-	for _, change := range plan.Changes {
-		rel := filepath.ToSlash(strings.TrimSpace(change.Path))
+	contentCache := map[string][]byte{}
+	contentForPath := func(rel string) ([]byte, bool) {
 		if rel == "" || strings.Contains(rel, "..") || filepath.IsAbs(rel) {
-			continue
+			return nil, false
+		}
+		if content, ok := contentCache[rel]; ok {
+			return content, len(content) > 0
 		}
 		content, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
 		if err != nil || len(content) == 0 {
+			return nil, false
+		}
+		contentCache[rel] = content
+		return content, true
+	}
+	appendOwnerItem := func(rel string, line int, reasonCode, summaryPrefix string) {
+		if rel == "" || strings.Contains(rel, "..") || filepath.IsAbs(rel) {
+			return
+		}
+		content, ok := contentForPath(rel)
+		if !ok {
+			return
+		}
+		anchor, ok := sourceowner.FindEnclosingOwner(rel, content, line)
+		if !ok || anchor.OwnerSymbol == "" {
+			return
+		}
+		key := rel + "|" + strconv.Itoa(anchor.Line) + "|" + anchor.OwnerSymbol + "|" + anchor.AnchorSymbol
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		ref := types.WriteExplorationEvidenceRef{
+			ID:           "plan-edit-owner|" + strings.ReplaceAll(key, "|", ":"),
+			Kind:         "plan_edit_owner",
+			Source:       rel,
+			LineStart:    anchor.Line,
+			LineEnd:      anchor.Line,
+			Subject:      rel + ":" + anchor.OwnerSymbol,
+			OwnerSymbol:  anchor.OwnerSymbol,
+			AnchorSymbol: anchor.AnchorSymbol,
+			Summary:      summaryPrefix + " is enclosed by " + anchor.OwnerSymbol,
+		}
+		locAnchor := types.SourceLocalizationAnchor{
+			Path:         rel,
+			Role:         types.ClassifySourcePathRole(rel),
+			SourceStage:  "plan_edit_owner",
+			Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:     types.SourceLocalizationAnchorOwner,
+			EvidenceRef:  &ref,
+			Subject:      ref.Subject,
+			OwnerSymbol:  anchor.OwnerSymbol,
+			AnchorSymbol: anchor.AnchorSymbol,
+			ReasonCode:   reasonCode,
+		}
+		item := types.WriteContextItem{
+			ID:                 "plan_edit_owner|" + strings.ReplaceAll(key, "|", ":"),
+			Priority:           types.WriteContextP1,
+			Kind:               "localization_anchor",
+			Text:               "path=" + rel + " owner=" + anchor.OwnerSymbol + " anchor=" + anchor.AnchorSymbol + " line=" + strconv.Itoa(anchor.Line) + " reason=" + reasonCode,
+			SourceStage:        "plan_edit_owner",
+			SourceID:           strings.TrimSpace(plan.ID),
+			BatchID:            strings.TrimSpace(batchID),
+			SliceID:            strings.TrimSpace(sliceID),
+			Consumers:          []types.WriteContextConsumer{types.WriteConsumerController, types.WriteConsumerPlanner, types.WriteConsumerVerifier},
+			EvidenceRef:        &ref,
+			LocalizationAnchor: &locAnchor,
+		}
+		pack.Items = append(pack.Items, item)
+	}
+	for _, change := range plan.Changes {
+		rel := filepath.ToSlash(strings.TrimSpace(change.Path))
+		content, ok := contentForPath(rel)
+		if !ok {
 			continue
 		}
 		for _, line := range planEditOwnerLineCandidates(change, content) {
-			anchor, ok := sourceowner.FindEnclosingOwner(rel, content, line)
-			if !ok || anchor.OwnerSymbol == "" {
-				continue
-			}
-			key := rel + "|" + strconv.Itoa(anchor.Line) + "|" + anchor.OwnerSymbol + "|" + anchor.AnchorSymbol
-			if _, exists := seen[key]; exists {
-				continue
-			}
-			seen[key] = struct{}{}
-			ref := types.WriteExplorationEvidenceRef{
-				ID:           "plan-edit-owner|" + strings.ReplaceAll(key, "|", ":"),
-				Kind:         "plan_edit_owner",
-				Source:       rel,
-				LineStart:    anchor.Line,
-				LineEnd:      anchor.Line,
-				Subject:      rel + ":" + anchor.OwnerSymbol,
-				OwnerSymbol:  anchor.OwnerSymbol,
-				AnchorSymbol: anchor.AnchorSymbol,
-				Summary:      "plan edit line is enclosed by " + anchor.OwnerSymbol,
-			}
-			locAnchor := types.SourceLocalizationAnchor{
-				Path:         rel,
-				Role:         types.ClassifySourcePathRole(rel),
-				SourceStage:  "plan_edit_owner",
-				Kind:         types.SourceLocalizationAnchorGroundedEvidence,
-				Strength:     types.SourceLocalizationAnchorOwner,
-				EvidenceRef:  &ref,
-				Subject:      ref.Subject,
-				OwnerSymbol:  anchor.OwnerSymbol,
-				AnchorSymbol: anchor.AnchorSymbol,
-				ReasonCode:   "plan_edit_structural_owner",
-			}
-			item := types.WriteContextItem{
-				ID:                 "plan_edit_owner|" + strings.ReplaceAll(key, "|", ":"),
-				Priority:           types.WriteContextP1,
-				Kind:               "localization_anchor",
-				Text:               "path=" + rel + " owner=" + anchor.OwnerSymbol + " anchor=" + anchor.AnchorSymbol + " line=" + strconv.Itoa(anchor.Line) + " reason=plan_edit_structural_owner",
-				SourceStage:        "plan_edit_owner",
-				SourceID:           strings.TrimSpace(plan.ID),
-				BatchID:            strings.TrimSpace(batchID),
-				SliceID:            strings.TrimSpace(sliceID),
-				Consumers:          []types.WriteContextConsumer{types.WriteConsumerController, types.WriteConsumerPlanner, types.WriteConsumerVerifier},
-				EvidenceRef:        &ref,
-				LocalizationAnchor: &locAnchor,
-			}
-			pack.Items = append(pack.Items, item)
+			appendOwnerItem(rel, line, "plan_edit_structural_owner", "plan edit line")
+		}
+	}
+	for rel, lines := range planEditOwnerPatchEffectLineCandidates(plan.PatchEffect) {
+		for _, line := range lines {
+			appendOwnerItem(rel, line, "actual_diff_structural_owner", "actual patch line")
 		}
 	}
 	return types.NormalizeWriteContextPack(pack)
@@ -1621,6 +1651,46 @@ func planEditOwnerLineCandidates(change types.FileChange, content []byte) []int 
 	}
 	for _, line := range unifiedDiffOldStartLines(change.Patch) {
 		add(line)
+	}
+	return out
+}
+
+func planEditOwnerPatchEffectLineCandidates(effect *types.PatchEffectRecord) map[string][]int {
+	out := map[string][]int{}
+	if effect == nil {
+		return out
+	}
+	seen := map[string]map[int]struct{}{}
+	add := func(path string, line int) {
+		path = filepath.ToSlash(strings.TrimSpace(path))
+		if path == "" || line <= 0 {
+			return
+		}
+		if seen[path] == nil {
+			seen[path] = map[int]struct{}{}
+		}
+		if _, ok := seen[path][line]; ok {
+			return
+		}
+		seen[path][line] = struct{}{}
+		out[path] = append(out[path], line)
+	}
+	for _, file := range effect.Files {
+		path := normalizeControllerPath(file.Path)
+		if path == "" {
+			path = normalizeControllerPath(file.OldPath)
+		}
+		if path == "" {
+			continue
+		}
+		for _, hunk := range file.Hunks {
+			for _, line := range hunk.AddedLineNumbers {
+				add(path, line)
+			}
+		}
+	}
+	for path := range out {
+		sort.Ints(out[path])
 	}
 	return out
 }
@@ -2186,6 +2256,9 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 	}
 	activeSlice, _ := types.ActiveChangePlanApplySlice(plan, run)
 	o.attachActivePatchEffectRecord(plan, activeSlice)
+	if run != nil {
+		o.syncPlanEditOwnerAnchorsToRun(run, plan)
+	}
 	conventionGraph := o.conventionGraphForPatchReview(run, plan)
 	review := writeflow.ReviewAppliedPatchSemantic(writeflow.SemanticPatchReviewInput{
 		Plan:              plan,

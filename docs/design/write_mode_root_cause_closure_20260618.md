@@ -8873,10 +8873,12 @@ Tasks:
       user-intent or model-prose routing.
 - [x] Run focused sourceowner/orchestrator owner-gate tests.
 - [x] Run full regression.
-- [ ] Rebuild Codrax and rerun `pydata__xarray-4248` prediction +
+- [x] Rebuild Codrax and rerun `pydata__xarray-4248` prediction +
       validation + official harness dry-run.
-- [ ] Record whether placement contracts/probes are now emitted; if not,
-      keep RC129-C placement extraction as the next open gap.
+- [x] Record whether placement contracts/probes are now emitted; the rerun
+      produced a non-empty prediction and harness-consumable patch, but final
+      source-owner localization remained weak because actual diff hunk lines
+      were not projected back into owner anchors. That follow-up is now RC137.
 
 RC132 focused evidence:
 
@@ -8888,6 +8890,12 @@ RC132 focused evidence:
 - `go test ./...`: pass.
 - `make test`: pass.
 - `git diff --check`: pass.
+- Xarray rerun after RC132/RC133/RC134:
+  `/private/tmp/codrax-swe-rc134-xarray-4248`, prediction export non-empty
+  (`patch_bytes=1565`), `validate_predictions.py --require-nonempty-patch`:
+  pass, official harness dry-run/import: pass. Remaining typed gap:
+  `final_report_source_authority_localization_status=weak` with
+  `owner_missing_paths=["xarray/core/formatting.py"]`.
 
 ## 2026-06-19 RC133 In Progress: Multi-language Verification Probe Failure Attribution
 
@@ -8982,6 +8990,66 @@ RC134 focused evidence:
 
 - `go test ./internal/writeflow -run 'TestAnnotatePatchEffectBrace|TestPatchEffectSourceProviderRegistryCoverage|TestPatchEffectOwnerBoundaryEventsRequireCoverage|TestAnnotatePatchEffectPython' -count=1`: pass.
 - `go test ./internal/writeflow ./internal/types ./internal/orchestrator -run 'Test.*PatchEffect|Test.*PatchReview|TestObservationAuthority|TestRunController' -count=1`: pass.
+- `go test ./...`: pass.
+- `make test`: pass.
+- `git diff --check`: pass.
+
+## 2026-06-19 RC137 In Progress: Actual Diff Owner Anchor Handoff
+
+Gap:
+
+- The Xarray rerun after the multiline owner and cross-language patch-effect
+  fixes produced a non-empty, harness-consumable patch and local verify passed,
+  but final source authority still reported weak localization for
+  `xarray/core/formatting.py`.
+- The remaining failure was not Python owner extraction. The actual patch had
+  hunk line numbers in `PatchEffectRecord`, while the `ChangePlan.Changes`
+  entries lacked line spans / old-text candidates. `plan_edit_owner` therefore
+  had no structural line to convert into a `SourceLocalizationAnchor`.
+- This affects every language family: whenever the model emits a bounded plan
+  without precise line spans, the post-apply diff is the authoritative typed
+  line surface. Ignoring it loses owner evidence for Python, Go, JS/TS,
+  Java/Kotlin, Ruby, and any future sourceowner provider.
+
+Design:
+
+- Keep `PatchEffectRecord` as the actual-diff factual surface and derive
+  post-apply owner anchors from `PatchEffectFile.Hunks[].AddedLineNumbers`.
+- Reuse the shared `sourceowner.FindEnclosingOwner` engine, so read/write owner
+  authority continues to improve by language provider rather than write-mode
+  case patches.
+- Prefer `BusContext.WorktreePath` when stamping owner anchors after apply.
+  The isolated worktree contains the applied patch; reading the main checkout
+  can miss newly added symbols or stale line positions.
+- Sync actual-diff owner anchors into the durable workflow context immediately
+  after `attachActivePatchEffectRecord` and before semantic patch review/final
+  report projection.
+- The hard path remains typed-only: controller/final-report consumers read
+  `PatchEffectRecord`, repo-relative paths, hunk line numbers, and structural
+  owner anchors. No user request keywords, model prose, `<think>`, stdout
+  narrative, or issue text participates in control.
+
+Tasks:
+
+- [x] Add `planEditOwnerPatchEffectLineCandidates` to collect sorted,
+      de-duplicated added-line candidates from actual diff hunks.
+- [x] Refactor `buildPlanEditOwnerContextPack` so plan-line and actual-diff
+      owner anchors share one typed item-construction path.
+- [x] Prefer worktree content when syncing owner anchors for an applied plan.
+- [x] Sync owner anchors immediately after patch-effect capture in
+      `reviewActiveAppliedPatchScope`.
+- [x] Add focused tests proving actual diff hunk lines create owner anchors
+      even when the plan lacks line spans.
+- [x] Add focused tests proving the sync path reads worktree content rather
+      than the main checkout.
+- [x] Run focused owner/controller regression, full regression, and diff check.
+- [ ] Commit/push this batch, then rerun Xarray to verify final-report source
+      authority improves.
+
+RC137 focused evidence:
+
+- `go test ./internal/orchestrator -run 'TestBuildPlanEditOwnerContextPackUsesActualDiffHunkLines|TestSyncPlanEditOwnerAnchorsToRunPrefersWorktreeContent|TestAttachPlanContextPackToWorkflowRunStampsSelectedOwnerAnchors|TestReviewActiveAppliedPatchScope' -count=1`: pass.
+- `go test ./internal/sourceowner ./internal/orchestrator ./internal/types ./internal/writeflow -run 'TestFindEnclosingOwner|Test.*Owner|Test.*Localization|Test.*PatchEffect|Test.*PatchReview|TestObservationAuthority|TestRunController|TestAttachPlanContextPack' -count=1`: pass.
 - `go test ./...`: pass.
 - `make test`: pass.
 - `git diff --check`: pass.
