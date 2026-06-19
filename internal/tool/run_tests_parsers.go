@@ -108,7 +108,7 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 		if !passed {
 			detail = unittestFailureDetail(stdout, name, suite)
 		}
-		if unittestSuiteIsLoaderFailure(suite) {
+		if !passed && unittestSuiteIsLoaderFailure(suite) {
 			loaderFailures++
 		}
 		results = append(results, types.TestResult{
@@ -167,10 +167,12 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 		}
 		report.FailureSummary = fmt.Sprintf("unittest failed — %d passed, %d failed/error of %d total.",
 			passedCount, failed, denom)
-		if len(results) > 0 && loaderFailures == len(results) && passedCount == 0 {
+		if failed > 0 && loaderFailures == failed {
 			report.FailureKind = types.FailureKindParserError
 			report.FailureReasonCode = unittestLoaderImportErrorReasonCode
-			report.FailureSummary = fmt.Sprintf("unittest collection/import failed before executing real test cases — %d loader error(s); local verification is unavailable.", loaderFailures)
+			report.VerificationStatus = types.VerificationStatusUnavailable
+			report.FailureSummary = fmt.Sprintf("unittest collection/import failed for %d loader error(s) after %d passed case(s); local verification is unavailable.",
+				loaderFailures, passedCount)
 		}
 	}
 	return report, nil
@@ -975,6 +977,7 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 	// signal explicitly without invented test fixtures.
 	noTests := p.Summary.Total == 0 && p.Summary.Failed == 0 && p.Summary.Error == 0 &&
 		(p.Exitcode == 0 || p.Exitcode == 2 || p.Exitcode == 4 || p.Exitcode == 5)
+	errorOnlyStartup := p.Summary.Passed == 0 && p.Summary.Failed == 0 && p.Summary.Error > 0
 	passed := p.Exitcode == 0 && p.Summary.Failed == 0 && p.Summary.Error == 0
 	if noTests {
 		passed = true
@@ -991,8 +994,30 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 			"pytest exitcode=%d — %d passed, %d failed, %d error, %d skipped of %d total.",
 			p.Exitcode, p.Summary.Passed, p.Summary.Failed, p.Summary.Error,
 			p.Summary.Skipped, p.Summary.Total)
+		if errorOnlyStartup {
+			report.FailureKind = types.FailureKindParserError
+			report.FailureReasonCode = classifyPytestParserErrorReason(stdout+"\n"+pytestErrorLongrepr(results), nil)
+			report.VerificationStatus = types.VerificationStatusUnavailable
+		}
 	}
 	return report, nil
+}
+
+func pytestErrorLongrepr(results []types.TestResult) string {
+	var b strings.Builder
+	for _, result := range results {
+		if result.Passed || result.FailureDetail == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(result.FailureDetail)
+		if b.Len() > 4000 {
+			break
+		}
+	}
+	return b.String()
 }
 
 func parsePytestTextOutput(stdout, cmdStr string, runErr error) (*types.ChangeReport, error) {

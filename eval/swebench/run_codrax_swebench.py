@@ -87,7 +87,7 @@ PATCH_REVIEW_EFFECT_BLOCKER_CODES = {
     "ruby_nested_key_direct_access_added",
     "typescript_nested_string_key_direct_access_added",
 }
-PATCH_REVIEW_LOCAL_BLOCKER_CODES = PATCH_REVIEW_PROOF_BLOCKER_CODES | PATCH_REVIEW_EFFECT_BLOCKER_CODES
+PATCH_REVIEW_LOCAL_BLOCKER_CODES = PATCH_REVIEW_EFFECT_BLOCKER_CODES
 PATCH_REVIEW_IMPACT_KIND_BY_CODE = {
     "behavior_contract_without_verify_coverage": "behavior_contract",
     "changed_symbol_without_probe_coverage": "changed_symbol",

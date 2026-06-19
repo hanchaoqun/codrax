@@ -7556,6 +7556,133 @@ RC119 wall-time default validation:
     failure. RC119 no-change authority remains worth keeping in the queue, but
     it is no longer the primary explanation for this specific Flask empty patch.
 
+## 2026-06-19 RC121 Proof Coverage And Local Verification Confidence
+
+Status: implemented and smoke-validated; remaining Sphinx empty-patch evidence
+belongs to the upstream localization / plan-materialization queue.
+
+Trigger evidence:
+
+- `django__django-14534` in
+  `eval/results/swebench/lite-smoke-20260619-rc120-django-sympy-sphinx`
+  exported a plausible non-empty source patch, but local verification was
+  unavailable due `unittest_loader_import_error`. The SWE adapter still marked
+  the prediction as `predicted_audit_blocked` because
+  `changed_symbol_without_probe_coverage` was treated as a local hard blocker.
+- `sphinx-doc__sphinx-8801` produced a non-empty source patch and then entered
+  `verify_retry_budget_exhausted`. The typed report showed many pytest
+  `ERROR` rows caused by import/startup dependency gaps such as missing
+  `roman` / `docutils`, with `0 failed` assertions. That is local verifier
+  unavailability, not product-code proof of incorrect functionality.
+- `sympy__sympy-23117` still ended `empty_patch`; this remains a convergence
+  and no-change authority issue, not a proof-confidence classification issue.
+
+System gap:
+
+- Local acceptance had one boolean-like bucket for two different concepts:
+  actual-diff hard risk and proof coverage confidence.
+- `PatchReviewRecord` findings such as
+  `changed_symbol_without_probe_coverage` and
+  `behavior_contract_without_verify_coverage` are proof obligations. They
+  should lower confidence and schedule bounded proof follow-ups, but they are
+  not themselves evidence that the patch is functionally wrong.
+- Pytest JSON reports that contain only collection/import/startup errors and
+  zero failed assertions were being interpreted as failed tests. This could
+  drive replan loops against source code when the local environment was the
+  unavailable component.
+- Unittest reports could also mix real passed cases with `_FailedTest`
+  collection/import errors from missing optional dependencies. Those mixed
+  reports are partial local verifier unavailability, not authoritative product
+  assertion failures, as long as every non-passed case is a loader import
+  error.
+
+Architecture rule:
+
+- Hard blockers remain limited to typed actual-diff/effect risks, structural
+  patch-review errors, build failures, and authoritative failed assertions.
+- Proof coverage gaps become typed confidence telemetry:
+  `prediction_confidence_downgrade_reason`,
+  `plan_patch_review_semantic_unverified_telemetry_codes`, and
+  `uncovered_impact_kind_telemetry`.
+- Verification environment/startup failures become `parser_error` /
+  `verification_status=unavailable` with stable reason codes. They can make a
+  prediction unverified, but must not be treated as failed product tests.
+- Mixed unittest reports with passed cases plus only `_FailedTest` loader
+  import errors also become `unavailable`; real `FAIL` blocks or non-loader
+  `ERROR` blocks remain failed.
+- This keeps the official SWE prediction export harness-consumable while making
+  local dashboards honest about the difference between "functionally proven",
+  "unverified", and "blocked by typed evidence."
+
+Tasks:
+
+- [x] Run RC120 SWE smoke across Django/Sphinx/SymPy and record the typed
+  evidence split between export status, local verify status, and proof profile.
+- [x] Narrow SWE adapter `PATCH_REVIEW_LOCAL_BLOCKER_CODES` to actual
+  effect/diff blockers only.
+- [x] Preserve proof-only coverage findings as confidence telemetry instead of
+  local hard blockers.
+- [x] Classify pytest JSON reports with `0 failed` assertions and only
+  import/collection errors as `parser_error` / `unavailable`.
+- [x] Classify mixed unittest reports with passed cases plus only
+  `_FailedTest` import loader errors as `parser_error` / `unavailable`.
+- [x] Add focused tests for proof-confidence telemetry and pytest error-only
+  startup reports.
+- [x] Re-run a small SWE smoke after the fix to confirm prediction export still
+  works and local confidence fields no longer conflate proof gaps with hard
+  blockers.
+- [ ] Continue the upstream convergence queue for no-change authority and
+  proof-follow-up terminal semantics, owner localization, and plan
+  materialization fallback.
+
+Acceptance additions:
+
+- A patch with only proof coverage gaps may be `predicted_unverified` or
+  `predicted_passed_low_confidence`, but not `predicted_audit_blocked` solely
+  because of `changed_symbol_without_probe_coverage`.
+- Actual-diff/effect blockers such as
+  `python_nested_string_key_direct_access_added` still block local acceptance.
+- Pytest import/startup-only JSON reports normalize to `unavailable`, so the
+  controller and eval adapter do not replan source code from missing local
+  dependencies.
+- Unittest mixed loader import errors normalize to `unavailable` unless there
+  is a real non-loader failed assertion or non-loader error.
+
+RC121 validation:
+
+- Focused regression:
+  - `go test ./internal/tool -run 'TestParseUnittestOutput_(LoaderOnlyIsParserError|MixedPassedAndLoaderErrorsIsParserError|RealTestFailureStaysUnclassified)|TestParsePytestJSONReport_ErrorOnlyImportStartupIsUnavailable' -count=1`
+    passed.
+  - `go test ./internal/tool ./internal/types ./internal/orchestrator -count=1`
+    passed.
+  - `python3 -m unittest eval/swebench/run_codrax_swebench_test.py eval/swebench/summarize_codrax_results_test.py`
+    passed.
+- SWE smoke `eval/results/swebench/lite-smoke-20260619-rc121-proof-confidence`
+  exported non-empty predictions for `django__django-14534` and
+  `sphinx-doc__sphinx-8801`; `validate_predictions.py --require-nonempty-patch`
+  accepted both predictions.
+- `django__django-14534` now reports
+  `prediction_verdict=predicted_unverified`,
+  `prediction_audit_block_reason=""`, `verify_status=unavailable`, and
+  `patch_bytes=420`. The patch is the expected bounded source fix:
+  `BoundWidget.id_for_label` returns `self.data['attrs'].get('id', '')`.
+  Proof gaps remain visible in residual risk / proof status instead of blocking
+  local acceptance.
+- The first Sphinx run in the same smoke confirmed pytest import/startup-only
+  reports now normalize to `verification_status=unavailable` with
+  `pytest_import_startup_error`. A later proof-repair attempt still used the
+  previous binary and classified mixed unittest loader errors as failed,
+  motivating the mixed unittest parser fix in this batch.
+- Follow-up Sphinx smoke
+  `eval/results/swebench/lite-smoke-20260619-rc121-sphinx-mixed-loader`
+  ran with the rebuilt binary but ended `empty_patch` /
+  `workflow_blocked_no_plan` before verification. Logs show the model shifted
+  to `sphinx/ext/autodoc/importer.py` and repeatedly attempted non-applicable
+  edits such as `insert_before_final_brace` for a Python file. That is not a
+  local verification-confidence bug; it is an upstream localization and
+  plan-materialization affordance gap to keep in the RC111 / historical
+  owner-anchor queue.
+
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
 This queue came from the pre-RC104 three-instance smoke. It is not an official

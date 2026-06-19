@@ -149,6 +149,45 @@ FAILED (errors=2)
 	}
 }
 
+func TestParseUnittestOutput_MixedPassedAndLoaderErrorsIsParserError(t *testing.T) {
+	output := `test_ok (tests.test_demo.DemoTest.test_ok) ... ok
+sphinx.builders.latex (unittest.loader._FailedTest.sphinx.builders.latex) ... ERROR
+
+======================================================================
+ERROR: sphinx.builders.latex (unittest.loader._FailedTest.sphinx.builders.latex)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: sphinx.builders.latex
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/unittest/loader.py", line 452, in _find_test_path
+    package = self._get_module_from_name(name)
+ModuleNotFoundError: No module named 'docutils.utils.roman'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+FAILED (errors=1)
+`
+	report, err := parseUnittestOutput(output, fmt.Errorf("exit status 1"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if report.Passed {
+		t.Fatal("mixed loader import errors should not pass")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want %q", report.FailureKind, types.FailureKindParserError)
+	}
+	if report.FailureReasonCode != unittestLoaderImportErrorReasonCode {
+		t.Fatalf("FailureReasonCode = %q, want %q", report.FailureReasonCode, unittestLoaderImportErrorReasonCode)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("NormalizeVerificationStatus() = %q, want %q", got, types.VerificationStatusUnavailable)
+	}
+	if !strings.Contains(report.FailureSummary, "after 1 passed case") {
+		t.Fatalf("FailureSummary should preserve passed-case count, got %q", report.FailureSummary)
+	}
+}
+
 func TestParseUnittestOutput_RealTestFailureStaysUnclassified(t *testing.T) {
 	output := `test_ok (tests.test_demo.DemoTest.test_ok) ... ok
 test_bad (tests.test_demo.DemoTest.test_bad) ... FAIL
@@ -482,6 +521,40 @@ func TestParsePytestJSONReport_WithFailures(t *testing.T) {
 		if r.AssertionID == "test_bad" && !strings.Contains(r.FailureDetail, "expected 1 got 2") {
 			t.Errorf("failing test should carry longrepr; got %q", r.FailureDetail)
 		}
+	}
+}
+
+func TestParsePytestJSONReport_ErrorOnlyImportStartupIsUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	reportPath := filepath.Join(dir, "report.json")
+	payload := `{
+		"exitcode": 1,
+		"summary": {"passed": 0, "failed": 0, "skipped": 0, "error": 2, "total": 2},
+		"tests": [
+			{"nodeid": "tests/test_docs.py", "outcome": "error", "duration": 0.01,
+			 "call": {"longrepr": "ModuleNotFoundError: No module named 'roman'"}},
+			{"nodeid": "tests/test_api.py", "outcome": "error", "duration": 0.01,
+			 "call": {"longrepr": "ImportError while loading conftest 'tests/conftest.py'"}}
+		]
+	}`
+	if err := os.WriteFile(reportPath, []byte(payload), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	report, err := parsePytestJSONReport(reportPath, "ModuleNotFoundError: No module named 'roman'", "pytest")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if report.Passed {
+		t.Fatal("import-startup errors should not pass")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want %q", report.FailureKind, types.FailureKindParserError)
+	}
+	if report.FailureReasonCode != pytestReasonImportStartupError {
+		t.Fatalf("FailureReasonCode = %q, want %q", report.FailureReasonCode, pytestReasonImportStartupError)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("NormalizeVerificationStatus() = %q, want %q", got, types.VerificationStatusUnavailable)
 	}
 }
 

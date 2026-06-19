@@ -575,10 +575,11 @@ class PatchReviewSummaryTests(unittest.TestCase):
         self.assertTrue(summary["hard_block"])
         self.assertEqual(summary["reason_codes"], ["patch_effect_path_outside_plan_scope"])
 
-    def test_semantic_unverified_patch_review_blocks_local_acceptance(self) -> None:
+    def test_proof_unverified_patch_review_lowers_confidence_only(self) -> None:
         summary = adapter.plan_patch_review_summary({
             "patch_review": {
                 "status": "passed",
+                "coverage_summary": {"verdict": "unverified"},
                 "findings": [{
                     "code": "changed_symbol_without_probe_coverage",
                     "severity": "warning",
@@ -589,13 +590,16 @@ class PatchReviewSummaryTests(unittest.TestCase):
             },
         })
 
+        self.assertEqual(summary["block_reason"], "")
+        self.assertEqual(summary["semantic_unverified_codes"], [])
+        self.assertEqual(summary["semantic_unverified_telemetry_codes"], ["changed_symbol_without_probe_coverage"])
+        self.assertEqual(summary["uncovered_impact_kinds"], [])
+        self.assertEqual(summary["uncovered_impact_kind_telemetry"], ["changed_symbol"])
+        self.assertEqual(summary["impact_kind_coverage"][0]["kind"], "changed_symbol")
         self.assertEqual(
-            summary["block_reason"],
+            adapter.patch_review_confidence_downgrade_reason(summary),
             "patch_review_semantic_unverified:changed_symbol_without_probe_coverage",
         )
-        self.assertEqual(summary["semantic_unverified_codes"], ["changed_symbol_without_probe_coverage"])
-        self.assertEqual(summary["uncovered_impact_kinds"], ["changed_symbol"])
-        self.assertEqual(summary["impact_kind_coverage"][0]["kind"], "changed_symbol")
 
     def test_actual_diff_boundary_patch_review_blocks_local_acceptance(self) -> None:
         summary = adapter.plan_patch_review_summary({
@@ -1731,18 +1735,31 @@ class PredictionAuditBlockTests(unittest.TestCase):
         self.assertEqual(confidence, "unknown")
         self.assertTrue(blocks)
 
-    def test_patch_review_blocker_blocks_local_acceptance_proxy(self) -> None:
+    def test_actual_diff_patch_review_blocker_blocks_local_acceptance_proxy(self) -> None:
         verdict, confidence, blocks = adapter.prediction_verdict(
             "diff --git a/pkg/a.py b/pkg/a.py\n",
             "passed",
             "applied",
-            "patch_review_semantic_unverified:changed_symbol_without_probe_coverage",
+            "patch_review_semantic_uncovered:python_nested_string_key_direct_access_added",
             "",
         )
 
         self.assertEqual(verdict, "predicted_audit_blocked")
         self.assertEqual(confidence, "failed")
         self.assertTrue(blocks)
+
+    def test_proof_patch_review_gap_only_lowers_prediction_confidence(self) -> None:
+        verdict, confidence, blocks = adapter.prediction_verdict(
+            "diff --git a/pkg/a.py b/pkg/a.py\n",
+            "passed",
+            "applied",
+            "",
+            "patch_review_semantic_unverified:changed_symbol_without_probe_coverage",
+        )
+
+        self.assertEqual(verdict, "predicted_passed_low_confidence")
+        self.assertEqual(confidence, "unknown")
+        self.assertFalse(blocks)
 
 
 if __name__ == "__main__":
