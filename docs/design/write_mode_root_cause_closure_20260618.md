@@ -9043,13 +9043,87 @@ Tasks:
 - [x] Add focused tests proving the sync path reads worktree content rather
       than the main checkout.
 - [x] Run focused owner/controller regression, full regression, and diff check.
-- [ ] Commit/push this batch, then rerun Xarray to verify final-report source
+- [x] Commit/push this batch, then rerun Xarray to verify final-report source
       authority improves.
 
 RC137 focused evidence:
 
 - `go test ./internal/orchestrator -run 'TestBuildPlanEditOwnerContextPackUsesActualDiffHunkLines|TestSyncPlanEditOwnerAnchorsToRunPrefersWorktreeContent|TestAttachPlanContextPackToWorkflowRunStampsSelectedOwnerAnchors|TestReviewActiveAppliedPatchScope' -count=1`: pass.
 - `go test ./internal/sourceowner ./internal/orchestrator ./internal/types ./internal/writeflow -run 'TestFindEnclosingOwner|Test.*Owner|Test.*Localization|Test.*PatchEffect|Test.*PatchReview|TestObservationAuthority|TestRunController|TestAttachPlanContextPack' -count=1`: pass.
+- `go test ./...`: pass.
+- `make test`: pass.
+- `git diff --check`: pass.
+- Commit/push: `8c147cca orchestrator: stamp actual diff owner anchors`.
+- Xarray rerun after RC137:
+  `/private/tmp/codrax-swe-rc137-xarray-4248`, prediction export non-empty
+  (`patch_bytes=3036`), `validate_predictions.py --require-nonempty-patch`:
+  pass, official harness dry-run/import: pass. Source authority improved:
+  `final_report_source_authority_localization_status=supported`,
+  `final_report_source_authority_localization_owner_missing_paths=[]`, and
+  `final_report_plan_owner_anchor_paths=["xarray/core/formatting.py"]`.
+- Remaining failure is not owner localization: workflow blocked with
+  `verify_retry_budget_exhausted`; verifier reported
+  `AssertionError: Missing rainfall units in repr`, and the replan log showed
+  planner attempting unavailable `read_file` after the verify-failure repair
+  read budget had closed. This follow-up is RC138.
+
+## 2026-06-19 RC138 In Progress: Verify-failure Current Source Snapshot Handoff
+
+Gap:
+
+- After RC137, source-owner authority is supported, but Xarray still failed
+  functional verification.
+- The verify-failure replan path correctly narrowed the tool surface after
+  the repair read/search budget was exhausted. However, the planner still
+  attempted `read_file` because the handoff contained failed patch/test-surface
+  artifacts and failure summaries, but not bounded current worktree source
+  windows around the typed repair geometry.
+- This is not Python-specific. Any language can reach a no-read replan round
+  after failed verification. If the planner lacks exact current bytes around
+  the active patch or build-error line, it either retries unavailable read
+  tools or emits a guessy replacement patch.
+
+Design:
+
+- Extend `VerifyFailureHandoff` with `RepairSourceSnapshot` rows:
+  `path / line_start / line_end / reason_code / owner_symbol /
+  anchor_symbol / snippet`.
+- The orchestrator derives snapshots only from typed geometry:
+  `PatchEffectRecord` added lines, structured build-error locations, typed
+  failure-signal locations, and target-path fallback when no line geometry
+  exists.
+- Snapshot bytes are read from `BusContext.WorktreePath` first so the planner
+  sees the failed applied worktree, not stale main checkout content.
+- Planner renders these snapshots in the authoritative verify-failure handoff
+  section before diff/surface artifact previews. This is soft repair context,
+  not a new hard gate.
+- Tool policy stays strict: when the no-read materialization surface is active,
+  repository-reading tools remain unavailable. The fix gives the model exact
+  bytes before narrowing, instead of reopening broad exploration.
+- No routing uses user keywords, issue text, model rationale, `<think>`, stdout
+  prose, or unavailable-tool names. Control consumes typed tool-surface state
+  and typed geometry only.
+
+Tasks:
+
+- [x] Add `types.RepairSourceSnapshot` to `VerifyFailureHandoff`.
+- [x] Generate bounded current-source windows from PatchEffect added lines,
+      build-error lines, and failure-signal locations.
+- [x] Prefer worktree bytes for snapshots and attach structural owner symbols
+      through shared `sourceowner`.
+- [x] Render repair snapshots in the planner's verify-failure handoff section.
+- [x] Add orchestrator regression for patch-effect line -> current-source
+      snapshot with owner symbol.
+- [x] Add planner regression proving snapshots render into the lead replan
+      prompt.
+- [x] Run focused/full regression and diff check.
+- [ ] Commit/push this batch, then rerun Xarray to see whether no-read replan
+      tool collisions drop and proof quality improves.
+
+RC138 focused evidence:
+
+- `go test ./internal/types ./internal/orchestrator ./internal/agent -run 'TestBuildVerifyFailureHandoff|TestResolveVerifyFailureHandoffArtifactsAttachesRepairSourceSnapshots|TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears|TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt|TestPlanner' -count=1`: pass.
+- `go test ./internal/types ./internal/orchestrator ./internal/agent ./internal/tool ./internal/writeflow -run 'TestBuildVerifyFailureHandoff|TestResolveVerifyFailureHandoffArtifactsAttachesRepairSourceSnapshots|TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears|TestBuildVerifyFailureHandoffSection_LeadsReplanPrompt|TestPlanner|Test.*Verification|TestObservationAuthority|TestRunController' -count=1`: pass.
 - `go test ./...`: pass.
 - `make test`: pass.
 - `git diff --check`: pass.

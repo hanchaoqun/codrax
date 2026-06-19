@@ -7541,7 +7541,196 @@ func (o *Orchestrator) resolveVerifyFailureHandoffArtifacts(h *types.VerifyFailu
 		return nil
 	}
 	types.ResolveVerifyFailureHandoffArtifactPaths(h, o.ensureChangeReportDir())
+	o.attachVerifyFailureRepairSourceSnapshots(h)
 	return h
+}
+
+const (
+	maxVerifyFailureRepairSourceSnapshots = 6
+	verifyFailureRepairSourceWindowRadius = 12
+)
+
+type verifyFailureRepairSourceCandidate struct {
+	path       string
+	line       int
+	reasonCode string
+}
+
+func (o *Orchestrator) attachVerifyFailureRepairSourceSnapshots(h *types.VerifyFailureHandoff) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || h == nil {
+		return
+	}
+	repoRoot := strings.TrimSpace(o.busCtx.WorktreePath)
+	if repoRoot == "" {
+		repoRoot = strings.TrimSpace(o.busCtx.RepoRoot)
+	}
+	if repoRoot == "" {
+		repoRoot = strings.TrimSpace(o.busCtx.MainRepoRoot)
+	}
+	if repoRoot == "" {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	candidates := verifyFailureRepairSourceCandidates(repoRoot, h, plan)
+	if len(candidates) == 0 {
+		return
+	}
+	seen := map[string]struct{}{}
+	for _, cand := range candidates {
+		if len(h.RepairSourceSnapshots) >= maxVerifyFailureRepairSourceSnapshots {
+			break
+		}
+		content, ok := readVerifyFailureRepairSource(repoRoot, cand.path)
+		if !ok {
+			continue
+		}
+		start, end, snippet := verifyFailureRepairSourceWindow(content, cand.line, verifyFailureRepairSourceWindowRadius)
+		if snippet == "" {
+			continue
+		}
+		key := cand.path + "|" + strconv.Itoa(start) + "|" + strconv.Itoa(end)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		snap := types.RepairSourceSnapshot{
+			Path:       cand.path,
+			LineStart:  start,
+			LineEnd:    end,
+			ReasonCode: cand.reasonCode,
+			Snippet:    snippet,
+		}
+		if anchor, ok := sourceowner.FindEnclosingOwner(cand.path, content, cand.line); ok {
+			snap.OwnerSymbol = anchor.OwnerSymbol
+			snap.AnchorSymbol = anchor.AnchorSymbol
+		}
+		h.RepairSourceSnapshots = append(h.RepairSourceSnapshots, snap)
+	}
+}
+
+func verifyFailureRepairSourceCandidates(repoRoot string, h *types.VerifyFailureHandoff, plan *types.ChangePlan) []verifyFailureRepairSourceCandidate {
+	seen := map[string]struct{}{}
+	var out []verifyFailureRepairSourceCandidate
+	add := func(path string, line int, reason string) {
+		path = verifyFailureRepairSourcePath(repoRoot, path)
+		reason = strings.TrimSpace(reason)
+		if path == "" || line <= 0 || reason == "" || !types.HasCodeOrConfigPathSuffix(path) {
+			return
+		}
+		key := path + "|" + strconv.Itoa(line) + "|" + reason
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, verifyFailureRepairSourceCandidate{path: path, line: line, reasonCode: reason})
+	}
+	if plan != nil {
+		for path, lines := range planEditOwnerPatchEffectLineCandidates(plan.PatchEffect) {
+			for _, line := range lines {
+				add(path, line, "patch_effect_added_line")
+			}
+		}
+	}
+	if h != nil {
+		for _, be := range h.BuildErrors {
+			add(be.File, be.Line, "build_error_line")
+		}
+		for _, signal := range h.FailureSignals {
+			if path, line, ok := verifyFailureRepairSignalLocation(signal.Location); ok {
+				add(path, line, "failure_signal_location")
+			}
+		}
+	}
+	if len(out) == 0 && plan != nil {
+		for _, path := range plan.TargetPaths {
+			add(path, 1, "target_path_current_source")
+		}
+	}
+	return out
+}
+
+func verifyFailureRepairSourcePath(repoRoot, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.HasPrefix(raw, "<") {
+		return ""
+	}
+	if filepath.IsAbs(raw) {
+		root := strings.TrimSpace(repoRoot)
+		if root == "" {
+			return ""
+		}
+		rel, err := filepath.Rel(root, raw)
+		if err != nil {
+			return ""
+		}
+		raw = rel
+	}
+	path := normalizeControllerPath(raw)
+	if path == "" || path == "." || verifyFailureRepairSourcePathEscapesRepo(path) || filepath.IsAbs(path) {
+		return ""
+	}
+	return path
+}
+
+func verifyFailureRepairSourcePathEscapesRepo(rel string) bool {
+	clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(rel)))
+	return clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../")
+}
+
+func verifyFailureRepairSignalLocation(location string) (string, int, bool) {
+	location = strings.TrimSpace(location)
+	if location == "" || strings.HasPrefix(location, "<") {
+		return "", 0, false
+	}
+	idx := strings.LastIndex(location, ":")
+	if idx <= 0 || idx >= len(location)-1 {
+		return "", 0, false
+	}
+	line, err := strconv.Atoi(strings.TrimSpace(location[idx+1:]))
+	if err != nil || line <= 0 {
+		return "", 0, false
+	}
+	return strings.TrimSpace(location[:idx]), line, true
+}
+
+func readVerifyFailureRepairSource(repoRoot, rel string) ([]byte, bool) {
+	if rel == "" || verifyFailureRepairSourcePathEscapesRepo(rel) || filepath.IsAbs(rel) {
+		return nil, false
+	}
+	content, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
+	if err != nil || len(content) == 0 {
+		return nil, false
+	}
+	return content, true
+}
+
+func verifyFailureRepairSourceWindow(content []byte, line, radius int) (int, int, string) {
+	lines := strings.Split(string(content), "\n")
+	if len(lines) == 0 {
+		return 0, 0, ""
+	}
+	if line <= 0 {
+		line = 1
+	}
+	if line > len(lines) {
+		line = len(lines)
+	}
+	if radius < 0 {
+		radius = 0
+	}
+	start := line - radius
+	if start < 1 {
+		start = 1
+	}
+	end := line + radius
+	if end > len(lines) {
+		end = len(lines)
+	}
+	var b strings.Builder
+	for i := start; i <= end; i++ {
+		fmt.Fprintf(&b, "%5d| %s\n", i, lines[i-1])
+	}
+	return start, end, strings.TrimRight(b.String(), "\n")
 }
 
 func (o *Orchestrator) persistVerifyFailureSurface(run *types.WriteWorkflowRun, report *types.ChangeReport, stem, planDir string, attempt int) string {

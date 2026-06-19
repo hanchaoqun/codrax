@@ -1987,6 +1987,31 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 	if h.BlobRef != "" {
 		fmt.Fprintf(&b, "- full runner output: %s (page with read_file offset/limit)\n", h.BlobRef)
 	}
+	for _, snap := range h.RepairSourceSnapshots {
+		if strings.TrimSpace(snap.Path) == "" || strings.TrimSpace(snap.Snippet) == "" {
+			continue
+		}
+		loc := snap.Path
+		if snap.LineStart > 0 {
+			if snap.LineEnd > snap.LineStart {
+				loc = fmt.Sprintf("%s:%d-%d", snap.Path, snap.LineStart, snap.LineEnd)
+			} else {
+				loc = fmt.Sprintf("%s:%d", snap.Path, snap.LineStart)
+			}
+		}
+		parts := []string{"loc=" + loc}
+		if snap.ReasonCode != "" {
+			parts = append(parts, "reason_code="+snap.ReasonCode)
+		}
+		if snap.OwnerSymbol != "" {
+			parts = append(parts, "owner="+snap.OwnerSymbol)
+		}
+		if snap.AnchorSymbol != "" {
+			parts = append(parts, "anchor="+snap.AnchorSymbol)
+		}
+		fmt.Fprintf(&b, "- current_source_snapshot: %s\n", strings.Join(parts, " "))
+		fmt.Fprintf(&b, "  bytes:\n%s\n", indentPlannerHandoffPreview(snap.Snippet, "    "))
+	}
 	if h.DiffArtifactRef != "" {
 		fmt.Fprintf(&b, "- previous attempt patch: %s\n", h.DiffArtifactRef)
 		if h.DiffArtifactPath != "" {

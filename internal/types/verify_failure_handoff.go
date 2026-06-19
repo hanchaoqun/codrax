@@ -15,6 +15,20 @@ const (
 	maxHandoffSignals      = 10
 )
 
+// RepairSourceSnapshot is a bounded current-worktree source window attached
+// to a verify-failure replan. It is generated from typed failure/patch
+// geometry such as build-error lines or PatchEffect hunk lines, never from
+// model prose.
+type RepairSourceSnapshot struct {
+	Path         string `json:"path,omitempty"`
+	LineStart    int    `json:"line_start,omitempty"`
+	LineEnd      int    `json:"line_end,omitempty"`
+	ReasonCode   string `json:"reason_code,omitempty"`
+	OwnerSymbol  string `json:"owner_symbol,omitempty"`
+	AnchorSymbol string `json:"anchor_symbol,omitempty"`
+	Snippet      string `json:"snippet,omitempty"`
+}
+
 // VerifyFailureHandoff is the typed carrier that brings a failed post-apply
 // verification to the next planning round. It survives the controller's
 // per-round planning-state reset on purpose: replan must open with the
@@ -83,6 +97,11 @@ type VerifyFailureHandoff struct {
 	// SurfaceArtifactPath is the resolved local path to SurfaceArtifactRef when
 	// the orchestrator knows the artifact directory.
 	SurfaceArtifactPath string `json:"surface_artifact_path,omitempty"`
+
+	// RepairSourceSnapshots are bounded current-worktree source windows around
+	// typed failed/changed geometry. They let a no-read replan round consume
+	// exact current bytes without reopening broad repository exploration.
+	RepairSourceSnapshots []RepairSourceSnapshot `json:"repair_source_snapshots,omitempty"`
 
 	// NextSurfaceCandidateID names the highest-ranked unexecuted test
 	// surface candidate with real test work, when one exists — the typed

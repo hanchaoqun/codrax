@@ -6873,6 +6873,59 @@ func TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears(t *te
 	}
 }
 
+func TestResolveVerifyFailureHandoffArtifactsAttachesRepairSourceSnapshots(t *testing.T) {
+	worktreeRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, "pkg"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	src := []byte(`def summarize_variable(
+    name,
+    var,
+):
+    units = var.attrs.get("units", "")
+    return units
+`)
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "pkg", "formatting.py"), src, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	mu := types.NewMutableState("failed verify repair source")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-source",
+		TargetPaths: []string{"pkg/formatting.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			Files: []types.PatchEffectFile{{
+				Path:  "pkg/formatting.py",
+				Hunks: []types.PatchEffectHunk{{AddedLineNumbers: []int{5}}},
+			}},
+		},
+	})
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			Mutable:      mu,
+			WorktreePath: worktreeRoot,
+			Mode:         types.ModeApply,
+		},
+		reportDir: t.TempDir(),
+	}
+
+	handoff := o.resolveVerifyFailureHandoffArtifacts(&types.VerifyFailureHandoff{
+		PlanID:  "plan-source",
+		BatchID: "batch-1",
+		Attempt: 1,
+	})
+
+	if handoff == nil || len(handoff.RepairSourceSnapshots) != 1 {
+		t.Fatalf("expected one repair source snapshot, got %+v", handoff)
+	}
+	got := handoff.RepairSourceSnapshots[0]
+	if got.Path != "pkg/formatting.py" ||
+		got.ReasonCode != "patch_effect_added_line" ||
+		got.OwnerSymbol != "summarize_variable" ||
+		!strings.Contains(got.Snippet, "units = var.attrs.get") {
+		t.Fatalf("unexpected repair source snapshot: %+v", got)
+	}
+}
+
 func TestRunControllerPlanBatch_NoPlanReplanRoundGetsOneRetry(t *testing.T) {
 	store := &fakeWorkflowRunStore{}
 	mu := types.NewMutableState("no plan retry")
