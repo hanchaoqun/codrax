@@ -41,6 +41,8 @@ type inlineVerificationProbeStatus struct {
 const verificationProbeExceptionOutsideChangedLinesReasonCode = "verification_probe_exception_outside_changed_lines"
 
 var pythonTracebackFrameRE = regexp.MustCompile(`^\s*File "([^"]+)", line ([0-9]+), in .*$`)
+var pythonModuleNotFoundRE = regexp.MustCompile(`(?m)ModuleNotFoundError:\s+No module named ['"]([^'"]+)['"]`)
+var pythonCannotImportNameRE = regexp.MustCompile(`(?m)ImportError:\s+cannot import name ['"]([^'"]+)['"] from ['"]([^'"]+)['"]`)
 
 const pythonVerificationProbeWrapper = `
 import base64
@@ -189,10 +191,12 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		results  []types.TestResult
 		outputs  []string
 		commands []types.ExecutedCommand
+		diags    []types.VerificationDiagnostic
 	)
 	for _, probe := range plan.VerificationProbes {
 		res := runSingleVerificationProbe(ctx, probe, source)
 		results = append(results, res.Report.TestResults...)
+		diags = append(diags, res.Report.VerificationDiagnostics...)
 		if strings.TrimSpace(res.Output) != "" {
 			outputs = append(outputs, res.Output)
 		} else if strings.TrimSpace(res.Report.FailureSummary) != "" && !res.Report.Passed {
@@ -242,13 +246,14 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		}
 	}
 	report := &types.ChangeReport{
-		PlanID:            plan.ID,
-		TestResults:       results,
-		Passed:            passed,
-		FailureKind:       failureKind,
-		FailureReasonCode: failureReasonCode,
-		FailureSummary:    summary,
-		ExecutedCommands:  append([]types.ExecutedCommand(nil), commands...),
+		PlanID:                  plan.ID,
+		TestResults:             results,
+		Passed:                  passed,
+		FailureKind:             failureKind,
+		FailureReasonCode:       failureReasonCode,
+		FailureSummary:          summary,
+		ExecutedCommands:        append([]types.ExecutedCommand(nil), commands...),
+		VerificationDiagnostics: append([]types.VerificationDiagnostic(nil), diags...),
 	}
 	report.EnsureVerificationStatus()
 	report.VerificationConfidence = mergeVerificationConfidenceRecords(
@@ -686,6 +691,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 	}
 	logging.Info("[run_tests] verification_probe id=%s lang=python cwd=%s outcome=%s exit=%d duration=%v",
 		id, rel, outcome, exitCode, duration)
+	commandText := "python -c <verification_probe:" + id + ">"
 	return verificationProbeRunResult{
 		Report: &types.ChangeReport{
 			TestResults: []types.TestResult{{
@@ -696,17 +702,18 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 				Duration:      duration,
 				FailureDetail: detail,
 			}},
-			Passed:            passed,
-			FailureKind:       failureKind,
-			FailureReasonCode: reasonCode,
-			FailureSummary:    detail,
+			Passed:                  passed,
+			FailureKind:             failureKind,
+			FailureReasonCode:       reasonCode,
+			FailureSummary:          detail,
+			VerificationDiagnostics: pythonVerificationProbeImportDiagnostics(probeStatus, output, source, rel, commandText, exitCode),
 		},
 		Output: output,
 		Commands: []types.ExecutedCommand{{
 			Runner:     "verification_probe",
 			Framework:  "python",
 			WorkingDir: rel,
-			Command:    "python -c <verification_probe:" + id + ">",
+			Command:    commandText,
 			ExitCode:   exitCode,
 			DurationMS: duration.Milliseconds(),
 			Source:     source,
@@ -1191,6 +1198,47 @@ func pythonVerificationProbeReasonCode(status pythonVerificationProbeStatus) str
 		}
 		return "verification_probe_unclassified"
 	}
+}
+
+func pythonVerificationProbeImportDiagnostics(status pythonVerificationProbeStatus, output, source, rel, command string, exitCode int) []types.VerificationDiagnostic {
+	if strings.TrimSpace(status.Outcome) != "import_error" {
+		return nil
+	}
+	reasonCode := pythonVerificationProbeReasonCode(status)
+	detail := pythonVerificationProbeImportDiagnosticDetail(status, output)
+	return []types.VerificationDiagnostic{{
+		Source:     strings.TrimSpace(source),
+		Category:   "probe_import_or_environment",
+		Severity:   "warning",
+		ReasonCode: reasonCode,
+		Runner:     "verification_probe",
+		Framework:  "python",
+		WorkingDir: strings.TrimSpace(rel),
+		Command:    strings.TrimSpace(command),
+		Outcome:    "parser_error",
+		ExitCode:   exitCode,
+		Detail:     detail,
+	}}
+}
+
+func pythonVerificationProbeImportDiagnosticDetail(status pythonVerificationProbeStatus, output string) string {
+	payload := map[string]string{
+		"language":    "python",
+		"exception":   strings.TrimSpace(status.Exception),
+		"reason_code": pythonVerificationProbeReasonCode(status),
+	}
+	if match := pythonModuleNotFoundRE.FindStringSubmatch(output); len(match) == 2 {
+		payload["missing_module"] = strings.TrimSpace(match[1])
+	}
+	if match := pythonCannotImportNameRE.FindStringSubmatch(output); len(match) == 3 {
+		payload["import_name"] = strings.TrimSpace(match[1])
+		payload["source_module"] = strings.TrimSpace(match[2])
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return payload["reason_code"]
+	}
+	return string(data)
 }
 
 func pythonVerificationProbeExceptionIsInfrastructure(status pythonVerificationProbeStatus) bool {

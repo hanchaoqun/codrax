@@ -7454,6 +7454,42 @@ RC117 multi-instance smoke and manual audit:
     exploration of the implementation semantics instead of repeatedly planning
     from stale shallow context.
 
+RC118 probe import diagnostics and carried handoff:
+
+- Gap:
+  - RC117 showed two different unavailable-verification shapes that were hard
+    to audit after the fact: a Flask project import compatibility error
+    (`url_quote` missing from `werkzeug.urls`) and a Pytest generated probe
+    importing an invalid short module (`rewrite`). The existing report retained
+    only coarse `verification_probe_module_not_found` /
+    `verification_probe_import_error` reason codes in several aggregate paths.
+  - `run_tests` could run a pre-suite verification probe, mark it unavailable,
+    continue into project runners, and then finalize a project-runner report
+    that kept command rows but lost the richer probe-level
+    `VerificationDiagnostics`. That is a handoff information-loss bug, not a
+    planner prompt problem.
+- Design:
+  - Keep controller authority unchanged: pass/fail/unverified still comes from
+    typed `FailureKind`, `VerificationStatus`, `FailureReasonCode`, and command
+    outcomes. No user-intent keyword or model-prose routing is introduced.
+  - Add a Python verification-probe import diagnostic projector that parses
+    interpreter exception type plus traceback import boundary into compact JSON
+    detail:
+    `missing_module`, or `import_name` + `source_module`.
+  - Carry probe-level `VerificationDiagnostics` through the whole `run_tests`
+    execution context so fallback/project-suite reports preserve prior probe
+    evidence into context packs and verify-failure handoff.
+- Delivered:
+  - `runPlanVerificationProbes` now aggregates child probe diagnostics.
+  - `RunTests.Execute.finishReport` now merges carried diagnostics before
+    command-derived diagnostics, preserving richer detail under the existing
+    diagnostic key.
+  - Added focused regressions for missing-module and `cannot import name from`
+    import-boundary payloads.
+- Verification:
+  - `go test ./internal/tool -run 'TestRunTestsVerificationProbeImportErrorIsParserError|TestPythonVerificationProbeImportDiagnosticDetailCapturesImportName|TestVerificationDiagnosticsPreserveProbeAndSuiteSignals' -count=1`
+  - `go test ./internal/tool ./internal/types ./internal/writeflow -count=1`
+
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
 This queue came from the pre-RC104 three-instance smoke. It is not an official

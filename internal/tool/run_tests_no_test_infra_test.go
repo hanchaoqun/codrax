@@ -1658,6 +1658,40 @@ func TestRunTestsVerificationProbeImportErrorIsParserError(t *testing.T) {
 	if !foundParserErrorCommand {
 		t.Fatalf("executed command evidence should include parser_error probe reason_code, got %+v", report.ExecutedCommands)
 	}
+	foundImportDiagnostic := false
+	for _, diag := range report.VerificationDiagnostics {
+		if diag.Category != "probe_import_or_environment" || diag.ReasonCode != "verification_probe_module_not_found" {
+			continue
+		}
+		var payload map[string]string
+		if err := json.Unmarshal([]byte(diag.Detail), &payload); err != nil {
+			t.Fatalf("diagnostic detail should be JSON, got %q: %v", diag.Detail, err)
+		}
+		if payload["missing_module"] != "definitely_missing_codrax_probe_dependency" {
+			t.Fatalf("diagnostic missing_module = %q, want definitely_missing_codrax_probe_dependency; payload=%+v", payload["missing_module"], payload)
+		}
+		foundImportDiagnostic = true
+	}
+	if !foundImportDiagnostic {
+		t.Fatalf("probe import diagnostic missing: %+v", report.VerificationDiagnostics)
+	}
+}
+
+func TestPythonVerificationProbeImportDiagnosticDetailCapturesImportName(t *testing.T) {
+	detail := pythonVerificationProbeImportDiagnosticDetail(pythonVerificationProbeStatus{
+		Outcome:   "import_error",
+		Exception: "ImportError",
+	}, "Traceback...\nImportError: cannot import name 'url_quote' from 'werkzeug.urls' (/tmp/site-packages/werkzeug/urls.py)")
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(detail), &payload); err != nil {
+		t.Fatalf("diagnostic detail should be JSON, got %q: %v", detail, err)
+	}
+	if payload["reason_code"] != "verification_probe_import_error" {
+		t.Fatalf("reason_code = %q, want verification_probe_import_error; payload=%+v", payload["reason_code"], payload)
+	}
+	if payload["import_name"] != "url_quote" || payload["source_module"] != "werkzeug.urls" {
+		t.Fatalf("import diagnostic did not capture import boundary: %+v", payload)
+	}
 }
 
 func TestRunTestsVerificationProbePythonPackageWorkingDirExecutesAtProjectRoot(t *testing.T) {

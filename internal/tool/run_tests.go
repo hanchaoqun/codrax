@@ -352,6 +352,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	executedKeys := map[string]bool{}
 	surfaceEscalations := 0
 	var executedCmds []types.ExecutedCommand
+	var carriedVerificationDiagnostics []types.VerificationDiagnostic
 
 	// finishReport attaches the typed execution evidence (surface +
 	// command rows + timestamp) to an outgoing ChangeReport before it
@@ -364,6 +365,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		report = scopeBuildFailureReportToChangedLines(ctx, report)
 		report.ExecutedCommands = append([]types.ExecutedCommand(nil), executedCmds...)
+		report.VerificationDiagnostics = mergeVerificationDiagnostics(
+			report.VerificationDiagnostics,
+			carriedVerificationDiagnostics,
+		)
 		report.VerificationDiagnostics = mergeVerificationDiagnostics(
 			report.VerificationDiagnostics,
 			verificationDiagnosticsFromExecutedCommands(report.ExecutedCommands),
@@ -383,6 +388,15 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		report.EnsureVerificationStatus()
 		return report
+	}
+	carryVerificationDiagnostics := func(report *types.ChangeReport) {
+		if report == nil || len(report.VerificationDiagnostics) == 0 {
+			return
+		}
+		carriedVerificationDiagnostics = mergeVerificationDiagnostics(
+			carriedVerificationDiagnostics,
+			report.VerificationDiagnostics,
+		)
 	}
 
 	if dryRunProbe && p.VerificationProbe != nil {
@@ -475,6 +489,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if shouldRunPreSuiteVerificationProbes(ctx, dryRunProbe) {
 		if probe, ok := runPlanVerificationProbes(ctx, "pre_suite_verification_probe"); ok {
 			preSuiteProbe = probe
+			carryVerificationDiagnostics(probe.Report)
 			executedCmds = append(executedCmds, probe.Commands...)
 			if strings.TrimSpace(probe.Output) != "" {
 				combinedOutputs = append(combinedOutputs, probe.Output)
@@ -680,6 +695,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				continue
 			}
 			if probe, ok := runPlanVerificationProbes(ctx, "no_tests_verification_probe"); ok {
+				carryVerificationDiagnostics(probe.Report)
 				executedCmds = append(executedCmds, probe.Commands...)
 				projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
 				combinedOutputs = append(combinedOutputs, probe.Output)
@@ -1020,6 +1036,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				continue
 			}
 			if probe, ok := runPlanVerificationProbes(ctx, "runner_missing_verification_probe"); ok {
+				carryVerificationDiagnostics(probe.Report)
 				executedCmds = append(executedCmds, probe.Commands...)
 				projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
 				combinedOutputs = append(combinedOutputs, probe.Output)
@@ -1127,6 +1144,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				}
 			}
 			if probe, ok := runPlanVerificationProbes(ctx, "parser_error_verification_probe"); ok {
+				carryVerificationDiagnostics(probe.Report)
 				executedCmds = append(executedCmds, probe.Commands...)
 				projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
 				combinedOutputs = append(combinedOutputs, probe.Output)
