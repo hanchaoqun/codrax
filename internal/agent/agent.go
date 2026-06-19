@@ -21,6 +21,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/safety"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/toolparam"
@@ -2933,12 +2934,13 @@ func writePlannerBlocksTool(ctx *types.AgentContext, name string) bool {
 	if !writePlannerDryRunOnly(ctx) {
 		return false
 	}
-	switch types.CanonicalToolName(name) {
-	case "exec_command", "apply_patch", "emit_test_results":
-		return true
-	default:
+	canonical := types.CanonicalToolName(name)
+	if canonical == "run_tests" {
 		return false
 	}
+	return safety.DecideEffectPermission(
+		safety.EffectDescriptorForTool(safety.EffectRolePlanner, canonical),
+	).Action == safety.PermissionDeny
 }
 
 func writePlannerRunTestsParameters(raw json.RawMessage) json.RawMessage {

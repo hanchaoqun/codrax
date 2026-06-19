@@ -1260,7 +1260,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | L2 | complete | Shadow write adapter | emit loop events from current write controller without changing effects; reducer parity with `WriteWorkflowRun` | loopkernel/repl focused tests |
 | L3 | complete | Localization authority consumption | shared `LocalizationAuthority` consumed by read sidecar, write controller, planner/replan, final report | read/write localization tests |
 | L4 | complete | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
-| L5 | pending | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
+| L5 | in_progress | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
 | L6 | complete | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
 | L7 | complete | Micro-loop execution | deterministic runtime-unit authority projection consumed by apply/observe/checkpoint policy, with verified-unit preservation across replan | writeflow/orchestrator runtime-unit tests |
 | L8 | pending | Worker/subagent evidence producers | Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer typed outputs | subagent/worker tests |
@@ -1313,10 +1313,14 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 
 ### L5 Task Breakdown
 
-- Introduce typed `EffectDescriptor` and per-role permission profiles.
-- Move external-directory and doom-loop observations into shared permission events.
-- Ensure planner/replanner cannot use unrestricted shell; verifier uses typed verify/probe tools.
-- Cache high-risk approvals by effect fingerprint and scope.
+- [x] Introduce typed `EffectDescriptor`, stable effect fingerprinting, and built-in per-role permission profiles.
+- [x] Move external-directory, git metadata, main-repo mutation, and doom-loop observations into shared effect permission decisions.
+- [x] Add loop-kernel projection from typed effects into the existing permission authority view.
+- [x] Put the write planner's blocked tool surface behind the shared role/effect profile while preserving existing typed repair codes.
+- [ ] Move verifier default-`run_tests` parameter policy behind the shared effect profile without weakening the current schema restriction.
+- [ ] Emit/persist permission events for runtime-unit effect descriptions, not just final plan approval.
+- [ ] Cache high-risk approvals by effect fingerprint and scope.
+- [ ] Add effect-profile coverage for worker roles as L8 workers land.
 
 ### L6 Task Breakdown
 
@@ -1385,6 +1389,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | 2026-06-20 | L7 | in_progress | Added deterministic `RuntimeUnitView` projection in `writeflow`: active workflow slices now expose unit-level owner anchors, approval/risk authority, impact obligations, actual patch truth, patch review coverage, observation authority, and checkpoint/restore metadata. `WorkflowExecutionView` surfaces the active runtime unit plus unit ledger for controller/UX/eval consumers. This batch is pure projection and does not change apply effects; focused writeflow runtime-unit tests passed. Remaining L7 work: make controller transitions consume the unit view as the first-class apply/observe/checkpoint authority and add multi-unit E2E preservation tests. |
 | 2026-06-20 | L7 | in_progress | Promoted `RuntimeUnitView` from projection to controller/stage-hook consumption: active apply pending scope, active patch review slice, observe-slice precondition, post-apply pending-verify recovery, and next runnable unit selection now read the shared runtime-unit kernel instead of reimplementing slice traversal. The old next-slice dependency selector was removed from controller code. Focused writeflow/orchestrator tests cover active unit change selection and skipping an unsatisfied dependent unit while preserving an independent runnable unit. Remaining L7 work: stale-plan guard and multi-unit E2E failure-preservation coverage. |
 | 2026-06-20 | L7 | complete | Added precise runtime-unit stale-plan preservation: verified independent units now carry checkpoint/apply/observe/completion evidence across replan only when the next plan has identical edit fingerprints and satisfied dependencies. The controller now passes the prior plan into replan slice initialization and filters failed execution state by the current plan ID, so old failed verify attempts do not reset a newly replanned unit. Active patch review also filters cumulative declared applied paths to the active slice, preventing earlier verified units from blocking the next unit. Focused writeflow/orchestrator E2E coverage proves `a.go,b.go,b.go` apply order for a two-unit repair where the second unit fails, replans, and succeeds without reapplying the first verified unit. |
+| 2026-06-20 | L5 | in_progress | Added the first shared role/effect permission kernel in `internal/safety`: typed `EffectDescriptor`, stable effect fingerprints, built-in per-role profiles for controller/planner/replanner/coder/verifier/localizer/impact analyzer/patch critic/proof auditor/failure analyzer, and deterministic external-directory/git-metadata/main-repo/doom-loop decisions. `loopkernel` can now derive permission authority from effect descriptors, and the write planner's blocked tool surface is driven by the shared profile while keeping existing typed repair codes. Focused `safety`/`loopkernel`/`agent` tests cover planner shell denial, verifier evidence-only policy, read-only worker roles, external-directory ask/deny, mutating doom-loop deny, and fingerprint normalization. Remaining L5 work: verifier parameter-policy migration, runtime-unit permission-event persistence, scoped approval cache, and worker-role effect envelopes as L8 lands. |
 
 ## Phased Roadmap
 

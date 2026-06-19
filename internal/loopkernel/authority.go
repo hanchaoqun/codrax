@@ -287,6 +287,14 @@ func DerivePermissionAuthority(source string, decisions ...safety.PermissionDeci
 	}
 }
 
+func DerivePermissionAuthorityFromEffects(source string, effects ...safety.EffectDescriptor) PermissionAuthorityView {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		source = "loopkernel_effects"
+	}
+	return DerivePermissionAuthority(source, safety.FoldEffectPermissions(source, effects...))
+}
+
 func localizationAuthority(state LocalizationAuthorityState, reason string, action LoopRecommendedAction, paths []string) LocalizationAuthorityView {
 	return LocalizationAuthorityView{
 		State:               state,

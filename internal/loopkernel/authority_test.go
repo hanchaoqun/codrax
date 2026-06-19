@@ -193,3 +193,28 @@ func TestDerivePermissionAuthorityDenyWins(t *testing.T) {
 		t.Fatalf("deny should block without user ask: %+v", got)
 	}
 }
+
+func TestDerivePermissionAuthorityFromEffects(t *testing.T) {
+	got := DerivePermissionAuthorityFromEffects("test",
+		safety.EffectDescriptor{Role: safety.EffectRolePlanner, Kind: safety.EffectKindRepoMap},
+		safety.EffectDescriptor{Role: safety.EffectRolePlanner, Kind: safety.EffectKindCommand},
+	)
+	if got.State != PermissionAuthorityDeny || got.RecommendedAction != LoopActionBlock {
+		t.Fatalf("planner command effect should deny through loop authority: %+v", got)
+	}
+	if got.ReasonCode != "role_effect_denied" {
+		t.Fatalf("reason = %q, want role_effect_denied", got.ReasonCode)
+	}
+}
+
+func TestDerivePermissionAuthorityFromEffectsExternalReadAsks(t *testing.T) {
+	got := DerivePermissionAuthorityFromEffects("test",
+		safety.EffectDescriptor{Role: safety.EffectRoleLocalizer, Kind: safety.EffectKindReadRepo, ExternalDirectory: true},
+	)
+	if got.State != PermissionAuthorityAsk || got.RecommendedAction != LoopActionAskApproval || !got.RequiresUser {
+		t.Fatalf("external read effect should ask through loop authority: %+v", got)
+	}
+	if got.ReasonCode != "external_directory_effect" {
+		t.Fatalf("reason = %q, want external_directory_effect", got.ReasonCode)
+	}
+}
