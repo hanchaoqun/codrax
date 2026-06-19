@@ -4321,6 +4321,7 @@ Verification:
 | RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
 | RC-110 | complete | Auditable partial final reports: persist typed final reports for non-terminal workflows once apply/verify evidence exists, add `workflow_nonterminal` residual risk, export final-report owner-gap telemetry in the SWE adapter, and reran the failed Django spot case to confirm failed-verify `in_progress` deliveries no longer fall back to prose/log audit. Focused Go/Python tests, full `go test ./...`, `make`, diff check, prediction validation, and official harness dry-run pass. |
 | RC-111 | in progress | Shared localization owner/evidence pre-plan authority: RC111-A added a shared typed `LocalizationRequirement` projection, write pre-plan/exploration/replan consumption, plan-context persistence, read-source projection tests, and hygiene coverage proving plan narrative/prose does not drive requirements. RC111-B adds a one-shot pre-apply bounded read-only exploration when an open owner-localization requirement remains. Remaining work is runtime read-mode owner-discovery final handoff and vague-symptom measurement. |
+| RC-112 | complete | SWE delivery PatchReview authority: adapter acceptance now scopes actual-diff/effect hard blockers to the typed primary delivery source plan, while proof blockers still use the typed report-plan authority. Stale source-owner PatchReview findings remain explicit non-authoritative telemetry and no longer block or downgrade final delivery when the exported patch comes from a later clean source plan. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -7148,6 +7149,50 @@ RC111-B implementation notes:
   covers the full typed path: scope-only context -> open owner requirement ->
   exploration request with typed row -> owner anchor handoff synced to run ->
   active batch reset for replan.
+
+RC112 implementation notes:
+
+- The post-RC111B Django spot produced a theoretically correct, harness-shaped
+  patch against `django/forms/boundfield.py` and passed typed verify, but the
+  SWE adapter still marked the prediction as audit-blocked because an earlier
+  failed source-owner plan carried
+  `python_nested_string_key_direct_access_added`.
+- The exported patch's typed delivery source was a later plan using
+  `.get("id")` plus fallback; the final plan/report had no PatchReview blocker.
+  Therefore the bug was not PatchEffect detection or model repair quality. It
+  was delivery-level authority aggregation.
+- RC112 adds an `actual_diff_authority_plan_ids` input to delivery
+  PatchReview aggregation. Actual-diff/effect local blockers now hard-block only
+  when they come from the primary source plan that owns the exported patch.
+  Earlier source-owner blockers are retained under
+  `non_authoritative_local_blocker_codes` for audit visibility.
+- Proof-only blockers remain governed by the existing report-plan authority, so
+  a passed typed report can still demote stale proof gaps without weakening real
+  actual-diff safety on the exported patch.
+- This is a generalized typed-source fix: it does not inspect issue text,
+  model prose, summaries, `<think>`, or language-specific user keywords.
+- Verification:
+  - `eval/results/swebench/.venv/bin/python -m unittest eval.swebench.run_codrax_swebench_test -v`
+    passes.
+  - `eval/results/swebench/.venv/bin/python -m unittest eval.swebench.run_codrax_swebench_test eval.swebench.audit_historical_results_test -v`
+    passes.
+  - `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/audit_historical_results.py`
+    passes.
+  - RC112 fresh Django smoke at
+    `eval/results/swebench/lite-smoke-20260619-rc112-delivery-authority-django`
+    exported a 424-byte non-empty prediction, validated with
+    `validate_predictions.py`, and the official SWE-bench harness dry-run
+    accepted the prediction file.
+- RC112 smoke result:
+  - `delivery_primary_source_plan_id` equals the sole
+    `plan_patch_review_actual_diff_authority_plan_ids` entry.
+  - `plan_patch_review_non_authoritative_local_blocker_codes=[]`, confirming
+    the prior stale-source-owner blocker is no longer contaminating delivery
+    authority.
+  - The run still ended `workflow_status=blocked`, `verify_status=failed` with
+    `changed_symbol_without_probe_coverage` and owner-anchor residual risk.
+    This is the remaining localization/proof gap, not a PatchReview authority
+    aggregation bug.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

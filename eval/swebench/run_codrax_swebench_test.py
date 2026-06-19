@@ -799,7 +799,7 @@ class PatchReviewSummaryTests(unittest.TestCase):
             "patch_review_semantic_unverified:dependent_surface_without_verify_coverage",
         )
 
-    def test_delivery_patch_review_keeps_actual_diff_blocker_from_any_owner(self) -> None:
+    def test_delivery_patch_review_keeps_actual_diff_blocker_from_authority_owner(self) -> None:
         risky_source_plan = {
             "id": "plan-old",
             "patch_review": {
@@ -830,6 +830,7 @@ class PatchReviewSummaryTests(unittest.TestCase):
         summary = adapter.delivery_patch_review_summary(
             source_owner_plans=[risky_source_plan, final_report_plan],
             delivery_plan=final_report_plan,
+            actual_diff_authority_plan_ids=["plan-old"],
             report_plan_id="plan-final",
             verify_status="passed",
             delivery_status="coherent",
@@ -840,6 +841,52 @@ class PatchReviewSummaryTests(unittest.TestCase):
             "patch_review_semantic_uncovered:python_nested_string_key_direct_access_added",
         )
         self.assertEqual(summary["semantic_unverified_codes"], ["python_nested_string_key_direct_access_added"])
+
+    def test_delivery_patch_review_demotes_stale_actual_diff_blocker(self) -> None:
+        stale_source_plan = {
+            "id": "plan-stale",
+            "patch_review": {
+                "status": "passed",
+                "coverage_summary": {
+                    "verdict": "unverified",
+                    "block_reason": "patch_review_semantic_uncovered:python_nested_string_key_direct_access_added",
+                    "reason_codes": ["python_nested_string_key_direct_access_added"],
+                },
+                "findings": [{
+                    "code": "python_nested_string_key_direct_access_added",
+                    "severity": "warning",
+                    "category": "semantic_coverage",
+                    "coverage_status": "unverified",
+                    "path": "pkg/widget.py",
+                }],
+            },
+        }
+        delivery_source_plan = {
+            "id": "plan-delivery",
+            "patch_review": {
+                "status": "passed",
+                "coverage_summary": {"verdict": "clean"},
+                "findings": [],
+            },
+        }
+
+        summary = adapter.delivery_patch_review_summary(
+            source_owner_plans=[stale_source_plan, delivery_source_plan],
+            delivery_plan=delivery_source_plan,
+            actual_diff_authority_plan_ids=["plan-delivery"],
+            report_plan_id="plan-delivery",
+            verify_status="passed",
+            delivery_status="coherent",
+        )
+
+        self.assertEqual(summary["block_reason"], "")
+        self.assertEqual(summary["semantic_unverified_codes"], [])
+        self.assertEqual(summary["semantic_unverified_telemetry_codes"], [])
+        self.assertEqual(
+            summary["non_authoritative_local_blocker_codes"],
+            ["python_nested_string_key_direct_access_added"],
+        )
+        self.assertEqual(adapter.patch_review_confidence_downgrade_reason(summary), "")
 
 
 class ContextCoverageTests(unittest.TestCase):

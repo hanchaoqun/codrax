@@ -1970,13 +1970,19 @@ def combine_patch_review_summaries(
     plans: Iterable[dict[str, Any]],
     *,
     proof_blocker_authority_plan_ids: set[str] | None = None,
+    local_blocker_authority_plan_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Merge source-owner patch reviews without reading prose or issue text."""
 
-    authority_ids = (
+    proof_authority_ids = (
         None
         if proof_blocker_authority_plan_ids is None
         else {str(plan_id or "").strip() for plan_id in proof_blocker_authority_plan_ids if str(plan_id or "").strip()}
+    )
+    local_authority_ids = (
+        None
+        if local_blocker_authority_plan_ids is None
+        else {str(plan_id or "").strip() for plan_id in local_blocker_authority_plan_ids if str(plan_id or "").strip()}
     )
     plan_summaries: list[tuple[str, dict[str, Any]]] = []
     for plan in plans:
@@ -1989,11 +1995,13 @@ def combine_patch_review_summaries(
     reason_codes: set[str] = set()
     semantic_unverified: set[str] = set()
     semantic_unverified_telemetry: set[str] = set()
+    non_authoritative_local_blockers: set[str] = set()
     uncovered_impact_kinds: set[str] = set()
     uncovered_impact_kind_telemetry: set[str] = set()
     finding_count = 0
     hard_block = False
     status_values: set[str] = set()
+    authoritative_status_values: set[str] = set()
     coverage_rank = {
         "failed": 5,
         "unverified": 4,
@@ -2003,16 +2011,24 @@ def combine_patch_review_summaries(
         "": 0,
     }
     coverage_verdict = ""
+    authoritative_coverage_verdict = ""
     block_reason = ""
     for plan_id, summary in plan_summaries:
-        proof_authoritative = authority_ids is None or plan_id in authority_ids
-        hard_block = hard_block or bool(summary.get("hard_block"))
+        proof_authoritative = proof_authority_ids is None or plan_id in proof_authority_ids
+        local_authoritative = local_authority_ids is None or plan_id in local_authority_ids
+        plan_authoritative = proof_authoritative or local_authoritative
+        if bool(summary.get("hard_block")) and plan_authoritative:
+            hard_block = True
         status = str(summary.get("status") or "").strip()
         if status:
             status_values.add(status)
+            if plan_authoritative:
+                authoritative_status_values.add(status)
         verdict = str(summary.get("coverage_verdict") or "").strip()
         if coverage_rank.get(verdict, 0) > coverage_rank.get(coverage_verdict, 0):
             coverage_verdict = verdict
+        if plan_authoritative and coverage_rank.get(verdict, 0) > coverage_rank.get(authoritative_coverage_verdict, 0):
+            authoritative_coverage_verdict = verdict
         for code in summary.get("reason_codes") or []:
             code = str(code or "").strip()
             if code:
@@ -2025,6 +2041,8 @@ def combine_patch_review_summaries(
                     semantic_unverified_telemetry.add(code)
                     if kind:
                         uncovered_impact_kind_telemetry.add(kind)
+                elif not local_authoritative and code in PATCH_REVIEW_LOCAL_BLOCKER_CODES:
+                    non_authoritative_local_blockers.add(code)
                 else:
                     semantic_unverified.add(code)
                     if kind:
@@ -2043,6 +2061,12 @@ def combine_patch_review_summaries(
             if not proof_authoritative and reason_code in PATCH_REVIEW_PROOF_BLOCKER_CODES:
                 semantic_unverified_telemetry.add(reason_code)
                 reason = ""
+            elif not local_authoritative:
+                if reason_code:
+                    non_authoritative_local_blockers.add(reason_code)
+                else:
+                    non_authoritative_local_blockers.add(reason)
+                reason = ""
         if reason and not block_reason:
             block_reason = reason
     if not block_reason and semantic_unverified:
@@ -2051,19 +2075,22 @@ def combine_patch_review_summaries(
         block_reason = "patch_review_hard_block"
     uncovered_impact_kind_telemetry -= uncovered_impact_kinds
     status = "passed"
-    if "failed" in status_values:
+    effective_status_values = authoritative_status_values or status_values
+    if "failed" in effective_status_values:
         status = "failed"
-    elif not status_values:
+    elif not effective_status_values:
         status = ""
-    elif len(status_values) == 1:
-        status = next(iter(status_values))
+    elif len(effective_status_values) == 1:
+        status = next(iter(effective_status_values))
+    effective_coverage_verdict = authoritative_coverage_verdict or coverage_verdict
     return {
         "status": status,
         "hard_block": hard_block,
-        "coverage_verdict": coverage_verdict,
+        "coverage_verdict": effective_coverage_verdict,
         "reason_codes": sorted(reason_codes),
         "semantic_unverified_codes": sorted(semantic_unverified),
         "semantic_unverified_telemetry_codes": sorted(semantic_unverified_telemetry),
+        "non_authoritative_local_blocker_codes": sorted(non_authoritative_local_blockers),
         "uncovered_impact_kinds": sorted(
             uncovered_impact_kinds,
             key=lambda item: (PATCH_REVIEW_IMPACT_KIND_RANK.get(item, 999), item),
@@ -2082,16 +2109,17 @@ def delivery_patch_review_summary(
     *,
     source_owner_plans: Iterable[dict[str, Any]],
     delivery_plan: dict[str, Any] | None,
+    actual_diff_authority_plan_ids: Iterable[str] | None = None,
     report_plan_id: str,
     verify_status: str,
     delivery_status: str,
 ) -> dict[str, Any]:
     """Return local-acceptance PatchReview summary for an online delivery.
 
-    Source-owner plans remain authoritative for actual diff/effect blockers. If
-    a coherent delivery has a passed typed report, proof-only blockers from
-    earlier non-report attempts become telemetry because the report plan proves
-    the cumulative worktree.
+    The primary delivery source plan remains authoritative for actual
+    diff/effect blockers. If a coherent delivery has a passed typed report,
+    proof-only blockers from earlier non-report attempts become telemetry
+    because the report plan proves the cumulative worktree.
     """
 
     plans = [row for row in source_owner_plans if isinstance(row, dict) and row]
@@ -2101,9 +2129,17 @@ def delivery_patch_review_summary(
     authority_plan_id = str(report_plan_id or "").strip()
     if str(delivery_status or "").strip() == "coherent" and str(verify_status or "").strip() == "passed" and authority_plan_id:
         proof_authority_ids = {authority_plan_id}
+    local_authority_ids: set[str] | None = None
+    if actual_diff_authority_plan_ids is not None:
+        local_authority_ids = {
+            str(plan_id or "").strip()
+            for plan_id in actual_diff_authority_plan_ids
+            if str(plan_id or "").strip()
+        }
     return combine_patch_review_summaries(
         plans,
         proof_blocker_authority_plan_ids=proof_authority_ids,
+        local_blocker_authority_plan_ids=local_authority_ids,
     )
 
 
@@ -2772,6 +2808,7 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
             "reason_codes": [],
             "semantic_unverified_codes": [],
             "semantic_unverified_telemetry_codes": [],
+            "non_authoritative_local_blocker_codes": [],
             "uncovered_impact_kinds": [],
             "uncovered_impact_kind_telemetry": [],
             "impact_kind_coverage": [],
@@ -2819,6 +2856,7 @@ def plan_patch_review_summary(plan: dict[str, Any] | None) -> dict[str, Any]:
         "reason_codes": sorted(reason_codes),
         "semantic_unverified_codes": sorted(semantic_unverified),
         "semantic_unverified_telemetry_codes": sorted(semantic_unverified_telemetry),
+        "non_authoritative_local_blocker_codes": [],
         "uncovered_impact_kinds": uncovered_impact_kinds,
         "uncovered_impact_kind_telemetry": uncovered_impact_kind_telemetry,
         "impact_kind_coverage": impact_kind_coverage,
@@ -3618,9 +3656,15 @@ def process_instance(
         ):
             patch_review_proof_authority_plan_ids = [str(result.get("delivery_report_plan_id") or "").strip()]
         result["plan_patch_review_proof_authority_plan_ids"] = patch_review_proof_authority_plan_ids
+        patch_review_actual_diff_authority_plan_ids: list[str] = []
+        primary_source_plan_id = str(result.get("delivery_primary_source_plan_id") or "").strip()
+        if primary_source_plan_id:
+            patch_review_actual_diff_authority_plan_ids = [primary_source_plan_id]
+        result["plan_patch_review_actual_diff_authority_plan_ids"] = patch_review_actual_diff_authority_plan_ids
         patch_review_summary = delivery_patch_review_summary(
             source_owner_plans=delivery_source_owner_plans,
             delivery_plan=delivery_plan,
+            actual_diff_authority_plan_ids=patch_review_actual_diff_authority_plan_ids,
             report_plan_id=str(result.get("delivery_report_plan_id") or ""),
             verify_status=str(result.get("verify_status") or ""),
             delivery_status=str(result.get("delivery_candidate_status") or ""),
@@ -3634,6 +3678,9 @@ def process_instance(
         )
         result["plan_patch_review_semantic_unverified_telemetry_codes"] = (
             patch_review_summary.get("semantic_unverified_telemetry_codes") or []
+        )
+        result["plan_patch_review_non_authoritative_local_blocker_codes"] = (
+            patch_review_summary.get("non_authoritative_local_blocker_codes") or []
         )
         result["plan_patch_review_uncovered_impact_kinds"] = (
             patch_review_summary.get("uncovered_impact_kinds") or []
