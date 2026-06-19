@@ -159,3 +159,70 @@ func TestDeriveRuntimeUnitViewsKeepsPatchTruthOnMatchingSliceOnly(t *testing.T) 
 		t.Fatalf("matching slice patch truth missing: %+v", units[1].PatchTruth)
 	}
 }
+
+func TestActiveRuntimeUnitApplyChangesUsesUnitIndexes(t *testing.T) {
+	plan := approvalExecutionPlanForTest(ApprovalActionAutoExecute, "auto")
+	plan.ID = "plan-runtime-apply-changes"
+	plan.Changes = []types.FileChange{
+		{Path: "a.py", Kind: "modify"},
+		{Path: "b.py", Kind: "modify"},
+		{Path: "c.py", Kind: "modify"},
+	}
+	plan.TargetPaths = []string{"a.py", "b.py", "c.py"}
+	plan.Approval.PlanFingerprint = types.PlanFingerprint(plan)
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-runtime-apply",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchApplying,
+			PlanID:        plan.ID,
+			ActiveSliceID: "unit-b",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:            "unit-a",
+				Status:        types.ChangePlanSliceVerified,
+				PlanID:        plan.ID,
+				ChangeIndexes: []int{0},
+			}, {
+				ID:              "unit-b",
+				Status:          types.ChangePlanSliceApplying,
+				PlanID:          plan.ID,
+				ChangeIndexes:   []int{1},
+				DependsOnSlices: []string{"unit-a"},
+			}},
+		}},
+	}
+
+	changes, active := ActiveRuntimeUnitApplyChanges(plan, &run)
+	if !active || len(changes) != 1 || changes[0].Path != "b.py" {
+		t.Fatalf("changes=%+v active=%v, want b.py active", changes, active)
+	}
+	slice, active := ActiveRuntimeUnitApplySlice(plan, &run)
+	if !active || slice.ID != "unit-b" || len(slice.DependsOnSlices) != 1 || slice.DependsOnSlices[0] != "unit-a" {
+		t.Fatalf("slice=%+v active=%v, want unit-b with dependency", slice, active)
+	}
+}
+
+func TestNextRunnableRuntimeUnitIDSkipsUnsatisfiedDependencies(t *testing.T) {
+	units := []RuntimeUnitView{{
+		UnitID: "unit-a",
+		Active: true,
+		Status: types.ChangePlanSliceVerified,
+	}, {
+		UnitID:         "unit-b",
+		Status:         types.ChangePlanSlicePending,
+		DependsOnUnits: []string{"unit-c"},
+	}, {
+		UnitID: "unit-c",
+		Status: types.ChangePlanSlicePending,
+	}}
+
+	if got := NextRunnableRuntimeUnitID(units); got != "unit-c" {
+		t.Fatalf("next runnable = %q, want unit-c", got)
+	}
+	units[2].Status = types.ChangePlanSliceVerified
+	if got := NextRunnableRuntimeUnitID(units); got != "unit-b" {
+		t.Fatalf("next runnable after dependency verified = %q, want unit-b", got)
+	}
+}

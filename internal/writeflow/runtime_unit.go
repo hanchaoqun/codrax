@@ -159,6 +159,97 @@ func ActiveRuntimeUnitView(mode types.PipelineMode, run types.WriteWorkflowRun, 
 	return RuntimeUnitView{}, false
 }
 
+func ActiveRuntimeUnitApplySlice(plan *types.ChangePlan, run *types.WriteWorkflowRun) (types.ChangePlanSlice, bool) {
+	if plan == nil || run == nil {
+		return types.ChangePlanSlice{}, false
+	}
+	unit, ok := ActiveRuntimeUnitView(types.ModeApply, *run, plan, nil)
+	if !ok || strings.TrimSpace(unit.UnitID) == "" || len(unit.ChangeIndexes) == 0 {
+		return types.ChangePlanSlice{}, false
+	}
+	slice := types.ChangePlanSlice{
+		ID:                 strings.TrimSpace(unit.UnitID),
+		Status:             unit.Status,
+		ChangeIndexes:      runtimeUnitValidChangeIndexes(unit.ChangeIndexes, len(plan.Changes)),
+		Paths:              dedupTrimRuntimeUnitStrings(unit.Paths),
+		DependsOnSlices:    dedupTrimRuntimeUnitStrings(unit.DependsOnUnits),
+		ContractRefs:       dedupTrimRuntimeUnitStrings(unit.ContractRefs),
+		ChangedSymbolRefs:  dedupTrimRuntimeUnitStrings(unit.ChangedSymbolRefs),
+		VerificationProbes: dedupTrimRuntimeUnitStrings(unit.VerificationProbes),
+	}
+	if slice.Status == "" {
+		slice.Status = types.ChangePlanSlicePending
+	}
+	if len(slice.ChangeIndexes) == 0 {
+		return types.ChangePlanSlice{}, false
+	}
+	return slice, true
+}
+
+func ActiveRuntimeUnitApplyChanges(plan *types.ChangePlan, run *types.WriteWorkflowRun) ([]types.FileChange, bool) {
+	if plan == nil {
+		return nil, false
+	}
+	unit, ok := ActiveRuntimeUnitApplySlice(plan, run)
+	if !ok {
+		return append([]types.FileChange(nil), plan.Changes...), false
+	}
+	out := make([]types.FileChange, 0, len(unit.ChangeIndexes))
+	for _, idx := range unit.ChangeIndexes {
+		if idx < 0 || idx >= len(plan.Changes) {
+			continue
+		}
+		out = append(out, plan.Changes[idx])
+	}
+	if len(out) == 0 {
+		return append([]types.FileChange(nil), plan.Changes...), false
+	}
+	return out, true
+}
+
+func HasActiveRuntimeUnit(plan *types.ChangePlan, run *types.WriteWorkflowRun) bool {
+	if plan == nil || run == nil {
+		return false
+	}
+	_, ok := ActiveRuntimeUnitView(types.ModeApply, *run, plan, nil)
+	return ok
+}
+
+func NextRunnableRuntimeUnitID(units []RuntimeUnitView) string {
+	if len(units) == 0 {
+		return ""
+	}
+	activeIndex := -1
+	statusByID := make(map[string]types.ChangePlanSliceStatus, len(units))
+	for i, unit := range units {
+		id := strings.TrimSpace(unit.UnitID)
+		statusByID[id] = unit.Status
+		if unit.Active {
+			activeIndex = i
+		}
+	}
+	for i, unit := range units {
+		if activeIndex >= 0 && i <= activeIndex {
+			continue
+		}
+		if runtimeUnitStatusTerminal(unit.Status) {
+			continue
+		}
+		if runtimeUnitDependenciesSatisfied(unit, statusByID) {
+			return strings.TrimSpace(unit.UnitID)
+		}
+	}
+	for _, unit := range units {
+		if runtimeUnitStatusTerminal(unit.Status) {
+			continue
+		}
+		if runtimeUnitDependenciesSatisfied(unit, statusByID) {
+			return strings.TrimSpace(unit.UnitID)
+		}
+	}
+	return ""
+}
+
 func runtimeUnitSourceSlices(batch types.WriteWorkflowBatch, plan *types.ChangePlan) []types.WriteWorkflowSlice {
 	if len(batch.Slices) > 0 {
 		out := make([]types.WriteWorkflowSlice, len(batch.Slices))
@@ -305,6 +396,38 @@ func runtimeUnitPatchEffectPaths(effect *types.PatchEffectRecord) []string {
 		paths = append(paths, file.Path, file.OldPath)
 	}
 	return dedupTrimRuntimeUnitStrings(paths)
+}
+
+func runtimeUnitValidChangeIndexes(indexes []int, changeCount int) []int {
+	seen := map[int]bool{}
+	out := make([]int, 0, len(indexes))
+	for _, idx := range indexes {
+		if idx < 0 || idx >= changeCount || seen[idx] {
+			continue
+		}
+		seen[idx] = true
+		out = append(out, idx)
+	}
+	return out
+}
+
+func runtimeUnitStatusTerminal(status types.ChangePlanSliceStatus) bool {
+	switch status {
+	case types.ChangePlanSliceVerified, types.ChangePlanSliceUnverified, types.ChangePlanSliceFailed, types.ChangePlanSliceBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
+func runtimeUnitDependenciesSatisfied(unit RuntimeUnitView, statusByID map[string]types.ChangePlanSliceStatus) bool {
+	for _, dep := range unit.DependsOnUnits {
+		status := statusByID[strings.TrimSpace(dep)]
+		if status != types.ChangePlanSliceVerified && status != types.ChangePlanSliceUnverified {
+			return false
+		}
+	}
+	return true
 }
 
 func runtimeUnitOwnerAnchorsByPath(plan *types.ChangePlan) map[string][]types.OwnerAnchorViewItem {

@@ -258,7 +258,7 @@ func pendingAppliesForActivePlanScope(mu *types.MutableState, plan *types.Change
 	if mu != nil {
 		run = mu.WriteWorkflowRun()
 	}
-	changes, activeSlice := types.ActiveChangePlanApplyChanges(plan, run)
+	changes, activeSlice := writeflow.ActiveRuntimeUnitApplyChanges(plan, run)
 	pending := make([]types.PendingApply, 0, len(changes))
 	for _, c := range changes {
 		pending = append(pending, types.PendingApply{

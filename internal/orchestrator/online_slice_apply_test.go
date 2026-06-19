@@ -325,6 +325,74 @@ func TestAdvanceWorkflowAfterSuccessfulSliceObserveCompletesBatch(t *testing.T) 
 	}
 }
 
+func TestAdvanceWorkflowAfterSuccessfulSliceObserveUsesRuntimeUnitDependencies(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-runtime-deps",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"a.go", "b.go", "c.go"},
+		Changes: []types.FileChange{
+			{Path: "a.go", Kind: "modify", Rationale: "a"},
+			{Path: "b.go", Kind: "modify", Rationale: "b"},
+			{Path: "c.go", Kind: "modify", Rationale: "c"},
+		},
+		Slices: []types.ChangePlanSlice{
+			{ID: "slice-001", Status: types.ChangePlanSlicePending, ChangeIndexes: []int{0}},
+			{ID: "slice-002", Status: types.ChangePlanSlicePending, ChangeIndexes: []int{1}, DependsOnSlices: []string{"slice-003"}},
+			{ID: "slice-003", Status: types.ChangePlanSlicePending, ChangeIndexes: []int{2}},
+		},
+	}
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-runtime-deps",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchVerifying,
+			PlanID:        plan.ID,
+			ActiveSliceID: "slice-001",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:            "slice-001",
+				Status:        types.ChangePlanSliceVerified,
+				PlanID:        plan.ID,
+				ChangeIndexes: []int{0},
+				Paths:         []string{"a.go"},
+			}, {
+				ID:              "slice-002",
+				Status:          types.ChangePlanSlicePending,
+				PlanID:          plan.ID,
+				ChangeIndexes:   []int{1},
+				Paths:           []string{"b.go"},
+				DependsOnSlices: []string{"slice-003"},
+			}, {
+				ID:            "slice-003",
+				Status:        types.ChangePlanSlicePending,
+				PlanID:        plan.ID,
+				ChangeIndexes: []int{2},
+				Paths:         []string{"c.go"},
+			}},
+		}},
+	}
+	mu := types.NewMutableState("test")
+	mu.SetChangePlan(plan)
+	mu.SetWriteWorkflowRun(&run)
+	o := &Orchestrator{busCtx: &types.BusContext{Mode: types.ModeApply, Mutable: mu}}
+
+	handled := o.advanceWorkflowAfterSuccessfulSliceObserve(&run, writeflow.VerifyAttemptOutcome{
+		Kind:       writeflow.VerifyOutcomeReportPassed,
+		ReasonCode: "tests_passed",
+	})
+	if !handled {
+		t.Fatal("expected runtime-unit transition to select a runnable unit")
+	}
+	if run.Batches[0].ActiveSliceID != "slice-003" {
+		t.Fatalf("active slice = %q, want dependency-free slice-003", run.Batches[0].ActiveSliceID)
+	}
+	pending := mu.WriteClosure().PendingApplies()
+	if len(pending) != 1 || pending[0].Path != "c.go" {
+		t.Fatalf("pending applies = %+v, want only c.go", pending)
+	}
+}
+
 func TestMarkWorkflowRunActiveSliceObservingForRestoredPlan(t *testing.T) {
 	run := onlineSliceRunForTest()
 	run.Batches[0].Slices[1].Status = types.ChangePlanSliceFailed

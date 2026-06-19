@@ -2266,7 +2266,7 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || plan == nil {
 		return types.PatchReviewRecord{}
 	}
-	activeSlice, _ := types.ActiveChangePlanApplySlice(plan, run)
+	activeSlice, _ := writeflow.ActiveRuntimeUnitApplySlice(plan, run)
 	o.attachActivePatchEffectRecord(plan, activeSlice)
 	if run != nil {
 		o.syncPlanEditOwnerAnchorsToRun(run, plan)
@@ -2988,7 +2988,7 @@ func (o *Orchestrator) runControllerObserveSlice(stepsUsed *int) error {
 	}
 	run := o.busCtx.Mutable.WriteWorkflowRun()
 	plan := o.busCtx.Mutable.ChangePlan()
-	if _, active := types.ActiveChangePlanApplySlice(plan, run); !active {
+	if !writeflow.HasActiveRuntimeUnit(plan, run) {
 		return fmt.Errorf("write controller observe_slice requires an active plan slice")
 	}
 	return o.runControllerVerifyBatch(stepsUsed)
@@ -5142,7 +5142,9 @@ func (o *Orchestrator) advanceWorkflowAfterSuccessfulSliceObserve(run *types.Wri
 	if active.Status != types.ChangePlanSliceVerified && active.Status != types.ChangePlanSliceUnverified {
 		return false
 	}
-	if nextID := nextRunnableWorkflowSliceID(batch); nextID != "" {
+	plan := o.busCtx.Mutable.ChangePlan()
+	units := writeflow.DeriveRuntimeUnitViews(o.busCtx.Mode, *run, plan, nil)
+	if nextID := writeflow.NextRunnableRuntimeUnitID(units); nextID != "" {
 		now := time.Now()
 		batch.ActiveSliceID = nextID
 		if next := activeWorkflowSliceForUpdate(batch); next != nil {
@@ -5200,52 +5202,6 @@ func (o *Orchestrator) prepareMutableStateForNextWorkflowSlice(run *types.WriteW
 	pending, _ := pendingAppliesForActivePlanScope(o.busCtx.Mutable, plan, "online_slice")
 	o.busCtx.Mutable.WriteClosure().ReplacePendingApplies(pending)
 	o.persistCurrentChangePlanSnapshot()
-}
-
-func nextRunnableWorkflowSliceID(batch *types.WriteWorkflowBatch) string {
-	if batch == nil || len(batch.Slices) == 0 {
-		return ""
-	}
-	activeID := strings.TrimSpace(batch.ActiveSliceID)
-	activeIndex := -1
-	statusByID := make(map[string]types.ChangePlanSliceStatus, len(batch.Slices))
-	for i, slice := range batch.Slices {
-		id := strings.TrimSpace(slice.ID)
-		statusByID[id] = slice.Status
-		if id == activeID {
-			activeIndex = i
-		}
-	}
-	for i, slice := range batch.Slices {
-		if activeIndex >= 0 && i <= activeIndex {
-			continue
-		}
-		if workflowSliceStatusTerminal(slice.Status) {
-			continue
-		}
-		if workflowSliceDepsSatisfied(slice, statusByID) {
-			return strings.TrimSpace(slice.ID)
-		}
-	}
-	for _, slice := range batch.Slices {
-		if workflowSliceStatusTerminal(slice.Status) {
-			continue
-		}
-		if workflowSliceDepsSatisfied(slice, statusByID) {
-			return strings.TrimSpace(slice.ID)
-		}
-	}
-	return ""
-}
-
-func workflowSliceDepsSatisfied(slice types.WriteWorkflowSlice, statusByID map[string]types.ChangePlanSliceStatus) bool {
-	for _, dep := range slice.DependsOnSlices {
-		status := statusByID[strings.TrimSpace(dep)]
-		if status != types.ChangePlanSliceVerified && status != types.ChangePlanSliceUnverified {
-			return false
-		}
-	}
-	return true
 }
 
 func workflowBatchSliceCompletion(batch *types.WriteWorkflowBatch, outcome writeflow.VerifyAttemptOutcome) (types.WriteWorkflowCompletionVerdict, string) {
@@ -6340,18 +6296,12 @@ func activeBatchAppliedPlanPendingVerify(run *types.WriteWorkflowRun, plan *type
 	if planID == "" {
 		return false
 	}
+	if unit, ok := writeflow.ActiveRuntimeUnitView(types.ModeApply, *run, plan, nil); ok {
+		return unit.Status == types.ChangePlanSliceObserving
+	}
 	for _, batch := range run.Batches {
 		if strings.TrimSpace(batch.ID) != strings.TrimSpace(run.ActiveBatchID) {
 			continue
-		}
-		if len(batch.Slices) > 0 && strings.TrimSpace(batch.ActiveSliceID) != "" {
-			for _, slice := range batch.Slices {
-				if strings.TrimSpace(slice.ID) != strings.TrimSpace(batch.ActiveSliceID) {
-					continue
-				}
-				return slice.Status == types.ChangePlanSliceObserving
-			}
-			return false
 		}
 		lastApply := -1
 		for i, attempt := range batch.Attempts {
