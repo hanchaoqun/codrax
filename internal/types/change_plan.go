@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -228,16 +229,19 @@ type WriteApprovalReason struct {
 // policy, risk, decision source, and whether a human explicitly approved a
 // manual-risk plan.
 type WriteApprovalRecord struct {
-	Policy          string                `json:"policy,omitempty"`
-	RiskLevel       string                `json:"risk_level,omitempty"`
-	Action          string                `json:"action,omitempty"`
-	UserDecision    string                `json:"user_decision,omitempty"`
-	ReasonCode      string                `json:"reason_code,omitempty"`
-	Reason          string                `json:"reason,omitempty"`
-	Reasons         []WriteApprovalReason `json:"reasons,omitempty"`
-	Source          string                `json:"source,omitempty"`
-	PlanFingerprint string                `json:"plan_fingerprint,omitempty"`
-	DecidedAt       *time.Time            `json:"decided_at,omitempty"`
+	Policy            string                `json:"policy,omitempty"`
+	RiskLevel         string                `json:"risk_level,omitempty"`
+	Action            string                `json:"action,omitempty"`
+	UserDecision      string                `json:"user_decision,omitempty"`
+	ReasonCode        string                `json:"reason_code,omitempty"`
+	Reason            string                `json:"reason,omitempty"`
+	Reasons           []WriteApprovalReason `json:"reasons,omitempty"`
+	Source            string                `json:"source,omitempty"`
+	PlanFingerprint   string                `json:"plan_fingerprint,omitempty"`
+	EffectFingerprint string                `json:"effect_fingerprint,omitempty"`
+	EffectScope       []string              `json:"effect_scope,omitempty"`
+	EffectSource      string                `json:"effect_source,omitempty"`
+	DecidedAt         *time.Time            `json:"decided_at,omitempty"`
 
 	// Operator identifies who the decision was recorded for (the main
 	// repo's git identity, falling back to the OS user). Deterministic
@@ -266,10 +270,37 @@ func ApprovalRecordFingerprint(r *WriteApprovalRecord) string {
 	}
 	canonical := strings.Join([]string{
 		r.Policy, r.RiskLevel, r.Action, r.UserDecision, r.ReasonCode,
-		r.Source, r.PlanFingerprint, fmt.Sprintf("%d", decidedUnix), r.Operator,
+		r.Source, r.PlanFingerprint, r.EffectFingerprint,
+		strings.Join(NormalizeApprovalEffectScope(r.EffectScope), ","),
+		r.EffectSource, fmt.Sprintf("%d", decidedUnix), r.Operator,
 	}, "|")
 	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:])
+}
+
+func StampApprovalRecordEffect(record *WriteApprovalRecord, fingerprint string, scope []string, source string) {
+	if record == nil {
+		return
+	}
+	record.EffectFingerprint = strings.TrimSpace(fingerprint)
+	record.EffectScope = NormalizeApprovalEffectScope(scope)
+	record.EffectSource = strings.TrimSpace(source)
+	record.RecordFingerprint = ApprovalRecordFingerprint(record)
+}
+
+func NormalizeApprovalEffectScope(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ApprovalRecordIntegrityOK reports whether the persisted record still

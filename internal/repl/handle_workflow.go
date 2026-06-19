@@ -273,6 +273,21 @@ func (r *REPL) writeWorkflowActivePlan(run *types.WriteWorkflowRun) *types.Chang
 	return plan
 }
 
+func (r *REPL) activeWriteWorkflowRunForPlan(planID string) *types.WriteWorkflowRun {
+	if r == nil || r.writeWorkflowRunStore == nil || strings.TrimSpace(planID) == "" {
+		return nil
+	}
+	run, err := r.writeWorkflowRunStore.FindActiveRun()
+	if err != nil || run == nil {
+		return nil
+	}
+	batch, ok := activeWriteWorkflowBatch(*run)
+	if !ok || strings.TrimSpace(batch.PlanID) != strings.TrimSpace(planID) {
+		return nil
+	}
+	return run
+}
+
 func activeWriteWorkflowBatch(run types.WriteWorkflowRun) (types.WriteWorkflowBatch, bool) {
 	activeID := strings.TrimSpace(run.ActiveBatchID)
 	if activeID == "" && len(run.Batches) > 0 {

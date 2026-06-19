@@ -8377,6 +8377,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		types.PlanFingerprint(plan),
 		worktree.OperatorIdentity(r.repoRoot),
 	)
+	writeflow.BindApprovalRecordEffect(plan.Approval, plan, r.activeWriteWorkflowRunForPlan(plan.ID))
 	if strings.TrimSpace(r.pendingPlanPath) != "" {
 		if err := types.WritePlanToFile(plan, r.pendingPlanPath); err != nil {
 			r.warn("could not persist write approval record for plan %s: %v\n", plan.ID, err)

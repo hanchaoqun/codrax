@@ -309,7 +309,7 @@ func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan, so
 			// reason instead of honoring the record.
 			decision.ReasonCode = "approval_record_integrity_failed"
 			decision.Reason = "the persisted approval record does not match its own fingerprint; re-approve the plan"
-		} else if writeApprovalRecordAllowsManualApply(plan, fingerprint) {
+		} else if writeApprovalRecordAllowsManualApply(plan, fingerprint, o.busCtx.Mutable.WriteWorkflowRun()) {
 			mergeWritePlanContextPack(o, plan)
 			return nil
 		}
@@ -368,15 +368,25 @@ func stampWriteApprovalRecord(o *Orchestrator, plan *types.ChangePlan, assessmen
 		operator = worktree.OperatorIdentity(root)
 	}
 	plan.Approval = writeflow.NewApprovalRecord(assessment, decision, source, userDecision, fingerprint, operator)
+	var run *types.WriteWorkflowRun
+	if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+		run = o.busCtx.Mutable.WriteWorkflowRun()
+	}
+	writeflow.BindApprovalRecordEffect(plan.Approval, plan, run)
 }
 
-func writeApprovalRecordAllowsManualApply(plan *types.ChangePlan, fingerprint string) bool {
+func writeApprovalRecordAllowsManualApply(plan *types.ChangePlan, fingerprint string, run ...*types.WriteWorkflowRun) bool {
 	if plan == nil || plan.Approval == nil || fingerprint == "" {
 		return false
 	}
+	var activeRun *types.WriteWorkflowRun
+	if len(run) > 0 {
+		activeRun = run[0]
+	}
 	return plan.Approval.PlanFingerprint == fingerprint &&
 		plan.Approval.Action == string(writeflow.ApprovalActionManual) &&
-		plan.Approval.UserDecision == "approved"
+		plan.Approval.UserDecision == "approved" &&
+		writeflow.ApprovalRecordEffectMatches(plan.Approval, plan, activeRun)
 }
 
 func persistWriteApprovalRecord(o *Orchestrator, plan *types.ChangePlan) {

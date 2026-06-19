@@ -373,7 +373,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.publishBlockedRunGuidance(&run, "approval_denied")
 				return fmt.Errorf("write workflow blocked: approval denied for plan %s", plan.ID)
 			}
-			if o.busCtx.Mode == types.ModeApply && writePlanNeedsManualApproval(plan) {
+			if o.busCtx.Mode == types.ModeApply && writePlanNeedsManualApproval(plan, &run) {
 				run.Status = types.WriteWorkflowRunInProgress
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPendingApproval)
 				appendControllerProgress(&run, run.ActiveBatchID, string(types.WriteWorkflowBatchPendingApproval), "typed write approval requires operator confirmation")
@@ -673,7 +673,7 @@ func (o *Orchestrator) pendingApprovalResumeMessage(run *types.WriteWorkflowRun)
 		}
 	}
 	if plan != nil && planID != "" && strings.TrimSpace(plan.ID) == planID &&
-		writeApprovalRecordAllowsManualApply(plan, types.PlanFingerprint(plan)) {
+		writeApprovalRecordAllowsManualApply(plan, types.PlanFingerprint(plan), run) {
 		return ""
 	}
 	if plan != nil && strings.TrimSpace(plan.ID) != "" {
@@ -2940,7 +2940,7 @@ func (o *Orchestrator) runControllerApplyPlanTransition(run *types.WriteWorkflow
 	}
 	if innerErr != nil {
 		switch {
-		case writePlanNeedsManualApproval(plan):
+		case writePlanNeedsManualApproval(plan, run):
 			updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchPendingApproval)
 			appendControllerProgress(run, run.ActiveBatchID, string(types.WriteWorkflowBatchPendingApproval), innerErr.Error())
 			o.persistWriteWorkflowRun(run)
@@ -7722,14 +7722,14 @@ func batchIDOrDefault(raw, fallback string) string {
 	return fallback
 }
 
-func writePlanNeedsManualApproval(plan *types.ChangePlan) bool {
+func writePlanNeedsManualApproval(plan *types.ChangePlan, run ...*types.WriteWorkflowRun) bool {
 	if plan == nil || plan.Approval == nil {
 		return false
 	}
 	if plan.Approval.Action != string(writeflow.ApprovalActionManual) {
 		return false
 	}
-	return !writeApprovalRecordAllowsManualApply(plan, types.PlanFingerprint(plan))
+	return !writeApprovalRecordAllowsManualApply(plan, types.PlanFingerprint(plan), run...)
 }
 
 func writePlanDeniedByApproval(plan *types.ChangePlan) bool {

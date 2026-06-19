@@ -27,6 +27,20 @@ func TestApprovalRecordFingerprint_TamperEvidence(t *testing.T) {
 	if plan.ApprovalRecordIntegrityOK() {
 		t.Fatal("edited decided_at must fail integrity")
 	}
+	rec.DecidedAt = &now
+	StampApprovalRecordEffect(rec, "effect-1", []string{"path:b.go", "path:a.go"}, "unit")
+	if !plan.ApprovalRecordIntegrityOK() {
+		t.Fatal("effect-stamped record must verify")
+	}
+	rec.EffectFingerprint = "effect-2"
+	if plan.ApprovalRecordIntegrityOK() {
+		t.Fatal("edited effect_fingerprint must fail integrity")
+	}
+	rec.EffectFingerprint = "effect-1"
+	rec.EffectScope = []string{"path:a.go", "path:c.go"}
+	if plan.ApprovalRecordIntegrityOK() {
+		t.Fatal("edited effect_scope must fail integrity")
+	}
 	// legacy records without a fingerprint stay valid
 	legacy := &ChangePlan{Approval: &WriteApprovalRecord{UserDecision: "approved"}}
 	if !legacy.ApprovalRecordIntegrityOK() {
