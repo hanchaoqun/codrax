@@ -190,6 +190,43 @@ class PredictionConfidenceTests(unittest.TestCase):
 
         self.assertEqual(reason, "verification_probe_changed_source_not_context_covered")
 
+    def test_final_report_verified_proof_ledger_overrides_stale_report_gap(self) -> None:
+        report = probe_only_report()
+        report["verification_confidence"] = [{
+            "category": "probe_contract_refs",
+            "status": "missing",
+            "reason_code": "verification_probe_missing_required_contract_ref",
+            "contract_refs": ["outcome-1"],
+        }]
+
+        reason = adapter.prediction_confidence_downgrade_reason(
+            plan=plan_with_probe(),
+            report=report,
+            verify_status="passed",
+            final_report={"proof_ledger": {"state": "verified"}},
+        )
+
+        self.assertEqual(reason, "")
+
+    def test_final_report_low_confidence_proof_ledger_supplies_reason(self) -> None:
+        reason = adapter.prediction_confidence_downgrade_reason(
+            plan=plan_with_probe(),
+            report=probe_only_report(),
+            verify_status="passed",
+            final_report={
+                "proof_ledger": {
+                    "state": "low_confidence",
+                    "obligations": [{
+                        "kind": "changed_symbol",
+                        "status": "missing",
+                        "reason_code": "verification_probe_missing_changed_symbol_ref",
+                    }],
+                }
+            },
+        )
+
+        self.assertEqual(reason, "verification_probe_missing_changed_symbol_ref")
+
     def test_probe_only_pass_keeps_confidence_when_changed_source_has_context(self) -> None:
         reason = adapter.prediction_confidence_downgrade_reason(
             plan=plan_with_probe(),
@@ -457,6 +494,31 @@ class FinalReportProjectionTests(unittest.TestCase):
                         "reason_codes": ["verification_probe_missing_required_contract_ref"],
                         "confidence_reason_codes": ["verification_probe_missing_required_contract_ref"],
                     },
+                    "proof_ledger": {
+                        "state": "low_confidence",
+                        "profile_status": "weak",
+                        "reason_codes": ["verification_probe_missing_required_contract_ref"],
+                        "coverage_counts": {"missing": 1, "covered": 1},
+                        "obligation_count": 2,
+                        "uncovered_count": 1,
+                        "unavailable_count": 0,
+                        "failed_count": 0,
+                        "capability_count": 1,
+                        "capability_unavailable_count": 0,
+                        "capability_failed_count": 0,
+                        "obligations": [
+                            {
+                                "kind": "behavior_contract",
+                                "status": "missing",
+                                "reason_code": "verification_probe_missing_required_contract_ref",
+                            },
+                            {
+                                "kind": "changed_symbol",
+                                "status": "covered",
+                                "reason_code": "verification_probe_changed_symbol_coupled",
+                            },
+                        ],
+                    },
                     "patch_review": {"verdict": "unverified"},
                     "handoff": {
                         "owner_anchors": [{
@@ -496,6 +558,24 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(
             result["final_report_proof_confidence_reason_codes"],
             ["verification_probe_missing_required_contract_ref"],
+        )
+        self.assertEqual(result["final_report_proof_ledger_state"], "low_confidence")
+        self.assertEqual(result["final_report_proof_ledger_profile_status"], "weak")
+        self.assertEqual(
+            result["final_report_proof_ledger_reason_codes"],
+            ["verification_probe_missing_required_contract_ref"],
+        )
+        self.assertEqual(result["final_report_proof_ledger_coverage_counts"], {"missing": 1, "covered": 1})
+        self.assertEqual(result["final_report_proof_ledger_obligation_count"], 2)
+        self.assertEqual(result["final_report_proof_ledger_uncovered_count"], 1)
+        self.assertEqual(result["final_report_proof_ledger_unavailable_count"], 0)
+        self.assertEqual(result["final_report_proof_ledger_failed_count"], 0)
+        self.assertEqual(result["final_report_proof_ledger_capability_count"], 1)
+        self.assertEqual(result["final_report_proof_ledger_capability_unavailable_count"], 0)
+        self.assertEqual(result["final_report_proof_ledger_capability_failed_count"], 0)
+        self.assertEqual(
+            result["final_report_proof_ledger_obligation_reason_codes"],
+            ["verification_probe_missing_required_contract_ref", "verification_probe_changed_symbol_coupled"],
         )
         self.assertEqual(result["final_report_patch_review_verdict"], "unverified")
         self.assertEqual(result["final_report_localization_status"], "weak")
@@ -541,6 +621,10 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_completion_verdict"], "")
         self.assertEqual(result["final_report_proof_status"], "")
         self.assertEqual(result["final_report_proof_reason_codes"], [])
+        self.assertEqual(result["final_report_proof_ledger_state"], "")
+        self.assertEqual(result["final_report_proof_ledger_reason_codes"], [])
+        self.assertEqual(result["final_report_proof_ledger_obligation_count"], 0)
+        self.assertEqual(result["final_report_proof_ledger_capability_count"], 0)
         self.assertEqual(result["final_report_localization_status"], "")
         self.assertEqual(result["final_report_localization_missing_paths"], [])
         self.assertEqual(result["final_report_residual_risk_codes"], [])

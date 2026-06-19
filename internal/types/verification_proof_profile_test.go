@@ -287,9 +287,81 @@ func TestBuildCumulativeVerificationProofProfilePreservesUnavailablePrimary(t *t
 	}
 }
 
+func TestBuildVerificationProofLedgerProjectsCoverageObligations(t *testing.T) {
+	plan := &ChangePlan{
+		ID: "plan-ledger",
+		PatchReview: &PatchReviewRecord{Findings: []PatchReviewFinding{{
+			Code:           "changed_symbol_without_probe_coverage",
+			Category:       PatchReviewCategorySemanticCoverage,
+			ImpactKind:     PatchReviewImpactKindChangedSymbol,
+			CoverageStatus: PatchReviewCoverageUnverified,
+			Path:           "pkg/widget.py",
+			SubjectSymbol:  "Widget.render",
+		}}},
+		ImpactAnalysis: &ImpactAnalysisResult{VerificationTargets: []ImpactVerificationTarget{{
+			ID:             "target-contract",
+			Kind:           "behavior_contract",
+			Path:           "pkg/widget.py",
+			ContractRef:    "contract-render",
+			CoverageStatus: "unavailable",
+		}}},
+	}
+	report := &ChangeReport{
+		PlanID:             "plan-ledger",
+		VerificationStatus: VerificationStatusPassed,
+		Passed:             true,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:            "verification_probe",
+			Category:          "probe_changed_symbol",
+			Status:            "missing",
+			ReasonCode:        "verification_probe_missing_changed_symbol_ref",
+			ChangedSymbolRefs: []string{"Widget.render"},
+		}, {
+			Source:       "verification_probe",
+			Category:     "probe_contract_refs",
+			Status:       "satisfied",
+			ReasonCode:   "verification_probe_contract_ref_covered",
+			ContractRefs: []string{"contract-render"},
+		}},
+	}
+
+	got := BuildVerificationProofLedger(plan, report, nil)
+
+	if got.State != VerificationProofLedgerLowConfidence {
+		t.Fatalf("ledger state=%q, want low_confidence: %+v", got.State, got)
+	}
+	if got.ObligationCount == 0 || got.UncoveredCount == 0 || got.CoveredCount == 0 || got.UnavailableCount == 0 {
+		t.Fatalf("ledger counts not projected: %+v", got)
+	}
+	if !verificationProofLedgerHasItem(got, "changed_symbol", VerificationProofLedgerItemMissing, "verification_probe_missing_changed_symbol_ref") {
+		t.Fatalf("ledger obligations=%+v missing changed-symbol gap", got.Obligations)
+	}
+	if !verificationProofLedgerHasItem(got, "behavior_contract", VerificationProofLedgerItemCovered, "verification_probe_contract_ref_covered") {
+		t.Fatalf("ledger obligations=%+v missing covered contract", got.Obligations)
+	}
+	if !verificationProofLedgerHasItem(got, "behavior_contract", VerificationProofLedgerItemUnavailable, "unavailable") {
+		t.Fatalf("ledger obligations=%+v missing unavailable impact target", got.Obligations)
+	}
+}
+
 func verificationProofHasReason(profile VerificationProofProfile, code string) bool {
 	for _, reason := range profile.ReasonCodes {
 		if reason == code {
+			return true
+		}
+	}
+	return false
+}
+
+func verificationProofLedgerHasItem(ledger VerificationProofLedger, kind string, status VerificationProofLedgerItemStatus, reason string) bool {
+	for _, item := range ledger.Obligations {
+		if item.Kind == kind && item.Status == status && item.ReasonCode == reason {
 			return true
 		}
 	}

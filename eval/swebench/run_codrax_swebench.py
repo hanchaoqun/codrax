@@ -1500,6 +1500,18 @@ def apply_final_report_result_fields(
         result["final_report_proof_runner_evidence"] = ""
         result["final_report_proof_reason_codes"] = []
         result["final_report_proof_confidence_reason_codes"] = []
+        result["final_report_proof_ledger_state"] = ""
+        result["final_report_proof_ledger_profile_status"] = ""
+        result["final_report_proof_ledger_reason_codes"] = []
+        result["final_report_proof_ledger_coverage_counts"] = {}
+        result["final_report_proof_ledger_obligation_count"] = 0
+        result["final_report_proof_ledger_uncovered_count"] = 0
+        result["final_report_proof_ledger_unavailable_count"] = 0
+        result["final_report_proof_ledger_failed_count"] = 0
+        result["final_report_proof_ledger_capability_count"] = 0
+        result["final_report_proof_ledger_capability_unavailable_count"] = 0
+        result["final_report_proof_ledger_capability_failed_count"] = 0
+        result["final_report_proof_ledger_obligation_reason_codes"] = []
         result["final_report_patch_review_verdict"] = ""
         result["final_report_localization_status"] = ""
         result["final_report_localization_reason_codes"] = []
@@ -1523,6 +1535,7 @@ def apply_final_report_result_fields(
     completion = final_report.get("completion") if isinstance(final_report.get("completion"), dict) else {}
     verification = final_report.get("verification") if isinstance(final_report.get("verification"), dict) else {}
     proof = final_report.get("proof") if isinstance(final_report.get("proof"), dict) else {}
+    proof_ledger = final_report.get("proof_ledger") if isinstance(final_report.get("proof_ledger"), dict) else {}
     patch_review = final_report.get("patch_review") if isinstance(final_report.get("patch_review"), dict) else {}
     plan = final_report.get("plan") if isinstance(final_report.get("plan"), dict) else {}
     patch = final_report.get("patch") if isinstance(final_report.get("patch"), dict) else {}
@@ -1542,6 +1555,29 @@ def apply_final_report_result_fields(
         str(value).strip()
         for value in proof.get("confidence_reason_codes") or []
         if str(value).strip()
+    ]
+    result["final_report_proof_ledger_state"] = str(proof_ledger.get("state") or "").strip()
+    result["final_report_proof_ledger_profile_status"] = str(proof_ledger.get("profile_status") or "").strip()
+    result["final_report_proof_ledger_reason_codes"] = [
+        str(value).strip()
+        for value in proof_ledger.get("reason_codes") or []
+        if str(value).strip()
+    ]
+    coverage_counts = proof_ledger.get("coverage_counts")
+    result["final_report_proof_ledger_coverage_counts"] = (
+        coverage_counts if isinstance(coverage_counts, dict) else {}
+    )
+    result["final_report_proof_ledger_obligation_count"] = int(proof_ledger.get("obligation_count") or 0)
+    result["final_report_proof_ledger_uncovered_count"] = int(proof_ledger.get("uncovered_count") or 0)
+    result["final_report_proof_ledger_unavailable_count"] = int(proof_ledger.get("unavailable_count") or 0)
+    result["final_report_proof_ledger_failed_count"] = int(proof_ledger.get("failed_count") or 0)
+    result["final_report_proof_ledger_capability_count"] = int(proof_ledger.get("capability_count") or 0)
+    result["final_report_proof_ledger_capability_unavailable_count"] = int(proof_ledger.get("capability_unavailable_count") or 0)
+    result["final_report_proof_ledger_capability_failed_count"] = int(proof_ledger.get("capability_failed_count") or 0)
+    result["final_report_proof_ledger_obligation_reason_codes"] = [
+        str(item.get("reason_code") or "").strip()
+        for item in proof_ledger.get("obligations") or []
+        if isinstance(item, dict) and str(item.get("reason_code") or "").strip()
     ]
     result["final_report_patch_review_verdict"] = str(patch_review.get("verdict") or "").strip()
     result["final_report_localization_status"] = str(localization.get("status") or "").strip()
@@ -3081,6 +3117,7 @@ def prediction_confidence_downgrade_reason(
     plan: dict[str, Any] | None,
     report: dict[str, Any] | None,
     verify_status: str,
+    final_report: dict[str, Any] | None = None,
     plan_source_paths: Iterable[str] | None = None,
     plan_context_paths: Iterable[str] | None = None,
     owner_boundary_reason_codes: Iterable[str] | None = None,
@@ -3091,6 +3128,9 @@ def prediction_confidence_downgrade_reason(
     and does not route on user text or model prose.
     """
 
+    ledger_reason = prediction_confidence_downgrade_reason_from_final_report(final_report)
+    if ledger_reason is not None:
+        return ledger_reason
     status = str(verify_status or "").strip()
     if report:
         from_report = prediction_confidence_downgrade_reason_from_report(report)
@@ -3132,6 +3172,36 @@ def prediction_confidence_downgrade_reason(
         if missing_source_context:
             return "verification_probe_changed_source_not_context_covered"
     return ""
+
+
+def prediction_confidence_downgrade_reason_from_final_report(final_report: dict[str, Any] | None) -> str | None:
+    if not isinstance(final_report, dict):
+        return None
+    ledger = final_report.get("proof_ledger")
+    if not isinstance(ledger, dict):
+        return None
+    state = str(ledger.get("state") or "").strip()
+    if not state:
+        return None
+    if state == "verified":
+        return ""
+    reasons = [
+        str(value).strip()
+        for value in ledger.get("reason_codes") or []
+        if str(value).strip()
+    ]
+    if not reasons:
+        for item in ledger.get("obligations") or []:
+            if not isinstance(item, dict):
+                continue
+            reason = str(item.get("reason_code") or "").strip()
+            if reason:
+                reasons.append(reason)
+    if reasons:
+        return reasons[0]
+    if state in {"low_confidence", "unavailable", "failed", "unknown"}:
+        return "verification_proof_" + state
+    return None
 
 
 def prediction_confidence_downgrade_reason_from_report(report: dict[str, Any] | None) -> str:
@@ -3735,6 +3805,7 @@ def process_instance(
             plan=delivery_plan,
             report=report,
             verify_status=str(result.get("verify_status") or ""),
+            final_report=final_report,
             plan_source_paths=delivery_plan_source_paths,
             plan_context_paths=result.get("plan_context_paths") if isinstance(result.get("plan_context_paths"), list) else [],
             owner_boundary_reason_codes=result.get("plan_owner_boundary_reason_codes") if isinstance(result.get("plan_owner_boundary_reason_codes"), list) else [],

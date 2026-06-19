@@ -4328,7 +4328,7 @@ Verification:
 | RC-116 | complete | Protected-oracle source-only repair lane: RC115 correctly blocks repeated protected-test weakening, but Django smoke showed the workflow then exports an empty patch instead of spending one more bounded attempt on implementation-side alternatives. The scheduler now adds a deterministic second retry lane: after the first protected-test hint is ignored, it forces one source-only/protected-path-forbidden replan before the final block, and preserves inner-loop durable progress when returning to the controller. |
 | RC-117 | complete | Optional follow-up terminal normalization: RC116 Django smoke generated a coherent, source-only, locally verified patch, but a later proof/impact obligation follow-up left the workflow `blocked` and downgraded local acceptance. Interrupted optional follow-up batches now complete as `unverified` when all primary source batches are already complete, the follow-up has no applied work, and there is no typed failure handoff. |
 | RC-126 | complete | Plan-edit structural owner anchors: added shared `internal/sourceowner` extraction for Python/Go/Ruby/brace-language owner symbols, projects actual edit-line owner anchors into workflow context before the owner-authority apply gate, and reuses the same structural enrichment in write exploration and read final-answer owner stamping. Focused/related/full regressions, `make test`, and Sphinx SWE smoke pass; the smoke now closes owner gaps but remains unverified due proof/local verification confidence. |
-| RC-127 | planned | Proof coverage / local verification confidence: define and persist a typed proof ledger that separates verified behavior proof, low-confidence coverage, unavailable verifier capacity, and real product failure. The next batch should replace residual-risk aggregation with ledger-derived authority and add bounded proof/environment capability follow-ups without source replan on unavailable infrastructure. |
+| RC-127 | in progress | RC127-A complete: final reports now persist a typed proof ledger, residual risks and SWE confidence telemetry prefer ledger-derived authority, and cumulative proof resolution clears stale missing contract/symbol records without parsing prose. RC127-B remains queued for bounded environment/probe capability follow-ups before terminalizing unavailable proof. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -8122,7 +8122,8 @@ Validation:
 
 ## 2026-06-19 RC127 Proof Coverage / Local Verification Confidence Tracking
 
-Status: planned next batch after RC126.
+Status: RC127-A implemented; remaining proof-environment follow-up stays queued
+as RC127-B.
 
 Trigger evidence:
 
@@ -8147,7 +8148,8 @@ Design direction:
   - executed probe/test selectors;
   - verifier-unavailable reason codes;
   - local environment capability observations.
-- Controller decisions should consume the ledger as typed state:
+- Controller/final-report/SWE result decisions should consume the ledger as
+  typed state:
   - `verified`: authoritative local behavior proof exists;
   - `low_confidence`: some targeted proof exists but coverage is incomplete;
   - `unavailable`: verifier capacity/dependency/environment prevented proof;
@@ -8158,22 +8160,61 @@ Design direction:
 
 Tasks:
 
-- [ ] Define a shared `VerificationProofLedger` projection in `internal/types`
+- [x] Define a shared `VerificationProofLedger` projection in `internal/types`
       from `ChangePlan`, `ChangeReport`, `PatchReviewRecord`, impact
       obligations, and executed commands.
-- [ ] Make write final reports persist the ledger so CLI/REPL/SWE export and
+- [x] Make write final reports persist the ledger so CLI/REPL/SWE export and
       manual audit see the same proof authority.
-- [ ] Replace ad-hoc residual risk and confidence aggregation in the controller
-      with ledger-derived states while preserving the current no-false-pass
-      behavior.
+- [x] Replace final-report residual risk and SWE confidence aggregation with
+      ledger-derived states while preserving the current no-false-pass
+      behavior and old-profile fallback for historical artifacts.
 - [ ] Extend proof-follow-up scheduling so unavailable proof records can request
       bounded environment/probe capability checks before terminalizing, without
       broad source replan.
-- [ ] Add tests proving unavailable local verification stays unverified, real
-      failed assertions remain failed, and targeted proof coverage can upgrade
-      confidence without relying on prose.
+- [x] Add tests proving unavailable local verification stays unverified, real
+      failed assertions remain failed, targeted proof coverage can upgrade
+      confidence, and SWE confidence selection honors the final proof ledger
+      without relying on prose.
 - [ ] Rerun Sphinx plus at least two additional SWE Lite instances and update
       this ledger with proof-state telemetry and manual correctness audit.
+
+Implementation notes:
+
+- `VerificationProofLedger` keeps `state`, `coverage_counts`, typed
+  obligations, and local verifier capability counters. It projects only from typed
+  structs: `ChangePlan`, `ChangeReport`, `PatchReviewRecord`,
+  `ImpactAnalysisResult`, `VerificationConfidenceRecord`, and
+  `ExecutedCommand`.
+- Cumulative proof resolution is shared with `VerificationProofProfile`: a
+  later satisfied contract/symbol record in the same coherent workflow resolves
+  an earlier missing proof obligation without parsing verifier prose.
+- `WriteFinalReport.proof_ledger` is now the durable authority. Residual risks
+  prefer ledger state (`failed`, `unavailable`, `low_confidence`, `verified`)
+  and fall back to the legacy compact proof profile only for old artifacts.
+- The SWE-bench adapter exports `final_report_proof_ledger_*` telemetry and
+  lets `prediction_confidence_downgrade_reason` prefer the final proof ledger,
+  so stale report-level missing refs no longer override a cumulative verified
+  final report.
+
+RC127-A validation:
+
+- `go test ./internal/types -run 'TestBuildVerificationProof|TestBuildWriteFinalReport' -count=1`
+  passed.
+- `go test ./internal/types ./internal/orchestrator ./internal/tool ./internal/writeflow -count=1`
+  passed.
+- `python3 -m unittest eval/swebench/run_codrax_swebench_test.py eval/swebench/summarize_codrax_results_test.py`
+  passed.
+- `go test ./...` and `make test` passed.
+- SWE smoke `eval/results/swebench/lite-smoke-20260619-rc127-proof-ledger-sphinx`
+  on `sphinx-doc__sphinx-8801` exported a non-empty 2496 byte patch and
+  `validate_predictions.py --require-nonempty-patch` accepted the prediction.
+  The result row now includes:
+  - `final_report_proof_ledger_state=failed`
+  - `final_report_proof_ledger_reason_codes=["impact_targets_unverified","tests_failed"]`
+  - `final_report_proof_ledger_coverage_counts={"unavailable":60,"unverified":4}`
+  - `final_report_proof_ledger_obligation_count=64`
+  This confirms the adapter consumes the new ledger rather than reconstructing
+  proof confidence from prose or residual-risk text.
 
 ## Acceptance Criteria
 

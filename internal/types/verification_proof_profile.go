@@ -1,10 +1,12 @@
 package types
 
 import (
+	"sort"
 	"strings"
 )
 
 const verificationProofMaxReasonCodes = 32
+const verificationProofLedgerMaxItems = 64
 
 type VerificationProofStatus string
 
@@ -50,6 +52,70 @@ type VerificationProofProfile struct {
 	ImpactUnverifiedCount  int                             `json:"impact_unverified_count,omitempty"`
 	PatchReviewVerdict     PatchReviewCoverageVerdict      `json:"patch_review_verdict,omitempty"`
 	LocalizationStatus     SourceLocalizationStatus        `json:"localization_status,omitempty"`
+}
+
+type VerificationProofLedgerState string
+
+const (
+	VerificationProofLedgerUnknown       VerificationProofLedgerState = "unknown"
+	VerificationProofLedgerVerified      VerificationProofLedgerState = "verified"
+	VerificationProofLedgerLowConfidence VerificationProofLedgerState = "low_confidence"
+	VerificationProofLedgerUnavailable   VerificationProofLedgerState = "unavailable"
+	VerificationProofLedgerFailed        VerificationProofLedgerState = "failed"
+)
+
+type VerificationProofLedgerItemStatus string
+
+const (
+	VerificationProofLedgerItemUnknown     VerificationProofLedgerItemStatus = "unknown"
+	VerificationProofLedgerItemCovered     VerificationProofLedgerItemStatus = "covered"
+	VerificationProofLedgerItemMissing     VerificationProofLedgerItemStatus = "missing"
+	VerificationProofLedgerItemUnverified  VerificationProofLedgerItemStatus = "unverified"
+	VerificationProofLedgerItemUnavailable VerificationProofLedgerItemStatus = "unavailable"
+	VerificationProofLedgerItemFailed      VerificationProofLedgerItemStatus = "failed"
+	VerificationProofLedgerItemAdvisory    VerificationProofLedgerItemStatus = "advisory"
+)
+
+// VerificationProofLedger is the auditable typed proof ledger behind a final
+// local-verification confidence verdict. It is a projection from existing
+// structured artifacts and never consumes user prose, model rationale, terminal
+// narrative, or prompt text.
+type VerificationProofLedger struct {
+	State                      VerificationProofLedgerState    `json:"state,omitempty"`
+	ProfileStatus              VerificationProofStatus         `json:"profile_status,omitempty"`
+	VerificationStatus         VerificationStatus              `json:"verification_status,omitempty"`
+	RunnerEvidence             VerificationProofRunnerEvidence `json:"runner_evidence,omitempty"`
+	Cumulative                 bool                            `json:"cumulative,omitempty"`
+	ReasonCodes                []string                        `json:"reason_codes,omitempty"`
+	CoverageCounts             map[string]int                  `json:"coverage_counts,omitempty"`
+	ObligationCount            int                             `json:"obligation_count,omitempty"`
+	CoveredCount               int                             `json:"covered_count,omitempty"`
+	UncoveredCount             int                             `json:"uncovered_count,omitempty"`
+	UnavailableCount           int                             `json:"unavailable_count,omitempty"`
+	FailedCount                int                             `json:"failed_count,omitempty"`
+	CapabilityCount            int                             `json:"capability_count,omitempty"`
+	CapabilityUnavailableCount int                             `json:"capability_unavailable_count,omitempty"`
+	CapabilityFailedCount      int                             `json:"capability_failed_count,omitempty"`
+	Obligations                []VerificationProofLedgerItem   `json:"obligations,omitempty"`
+	Capabilities               []VerificationProofLedgerItem   `json:"capabilities,omitempty"`
+}
+
+type VerificationProofLedgerItem struct {
+	ID           string                            `json:"id,omitempty"`
+	Kind         string                            `json:"kind,omitempty"`
+	Status       VerificationProofLedgerItemStatus `json:"status,omitempty"`
+	Source       string                            `json:"source,omitempty"`
+	PlanID       string                            `json:"plan_id,omitempty"`
+	ReportPlanID string                            `json:"report_plan_id,omitempty"`
+	Category     string                            `json:"category,omitempty"`
+	Severity     string                            `json:"severity,omitempty"`
+	ReasonCode   string                            `json:"reason_code,omitempty"`
+	Path         string                            `json:"path,omitempty"`
+	RelatedPath  string                            `json:"related_path,omitempty"`
+	Symbol       string                            `json:"symbol,omitempty"`
+	ContractRef  string                            `json:"contract_ref,omitempty"`
+	EvidenceRef  string                            `json:"evidence_ref,omitempty"`
+	Detail       string                            `json:"detail,omitempty"`
 }
 
 // VerificationProofArtifact is one typed plan/report pair that may contribute
@@ -231,6 +297,276 @@ func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryRep
 	return NormalizeVerificationProofProfile(out)
 }
 
+func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *ChangeReport, artifacts []VerificationProofArtifact) VerificationProofLedger {
+	profile := BuildCumulativeVerificationProofProfile(primaryPlan, primaryReport, artifacts)
+	out := VerificationProofLedger{
+		ProfileStatus:      profile.Status,
+		VerificationStatus: profile.VerificationStatus,
+		RunnerEvidence:     profile.RunnerEvidence,
+		Cumulative:         profile.Cumulative,
+		ReasonCodes:        append([]string(nil), profile.ReasonCodes...),
+		CoverageCounts:     map[string]int{},
+	}
+	unique := verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts)
+	if len(unique) == 0 {
+		out.State = verificationProofLedgerStateFromProfile(profile)
+		return NormalizeVerificationProofLedger(out)
+	}
+	for _, artifact := range unique {
+		out.addVerificationReportLedgerItems(artifact.Report)
+		out.addVerificationConfidenceLedgerItems(artifact.Report)
+		out.addPatchReviewLedgerItems(artifact.Plan)
+		out.addImpactLedgerItems(artifact.Plan)
+	}
+	out.State = verificationProofLedgerStateFromProfile(profile)
+	return NormalizeVerificationProofLedger(out)
+}
+
+func NormalizeVerificationProofLedger(in VerificationProofLedger) VerificationProofLedger {
+	switch in.State {
+	case VerificationProofLedgerVerified,
+		VerificationProofLedgerLowConfidence,
+		VerificationProofLedgerUnavailable,
+		VerificationProofLedgerFailed:
+	default:
+		in.State = VerificationProofLedgerUnknown
+	}
+	in.ProfileStatus = NormalizeVerificationProofProfile(VerificationProofProfile{Status: in.ProfileStatus}).Status
+	in.RunnerEvidence = NormalizeVerificationProofProfile(VerificationProofProfile{RunnerEvidence: in.RunnerEvidence}).RunnerEvidence
+	in.ReasonCodes = dedupTrimWriteWorkflowRunStringsBounded(in.ReasonCodes, verificationProofMaxReasonCodes)
+	in.Obligations = normalizeVerificationProofLedgerItems(in.Obligations, verificationProofLedgerMaxItems)
+	in.Obligations = resolveVerificationProofLedgerObligations(in.Obligations)
+	in.Capabilities = normalizeVerificationProofLedgerItems(in.Capabilities, verificationProofLedgerMaxItems)
+	in.CoverageCounts = map[string]int{}
+	for _, item := range in.Obligations {
+		status := string(item.Status)
+		if status == "" {
+			status = string(VerificationProofLedgerItemUnknown)
+		}
+		in.CoverageCounts[status]++
+	}
+	if len(in.CoverageCounts) == 0 {
+		in.CoverageCounts = nil
+	}
+	in.ObligationCount = len(in.Obligations)
+	in.CapabilityCount = len(in.Capabilities)
+	in.CoveredCount = 0
+	in.UncoveredCount = 0
+	in.UnavailableCount = 0
+	in.FailedCount = 0
+	in.CapabilityUnavailableCount = 0
+	in.CapabilityFailedCount = 0
+	for _, item := range in.Obligations {
+		switch item.Status {
+		case VerificationProofLedgerItemCovered, VerificationProofLedgerItemAdvisory:
+			in.CoveredCount++
+		case VerificationProofLedgerItemUnavailable:
+			in.UnavailableCount++
+			in.UncoveredCount++
+		case VerificationProofLedgerItemFailed:
+			in.FailedCount++
+			in.UncoveredCount++
+		case VerificationProofLedgerItemMissing,
+			VerificationProofLedgerItemUnverified,
+			VerificationProofLedgerItemUnknown:
+			in.UncoveredCount++
+		}
+	}
+	for _, item := range in.Capabilities {
+		switch item.Status {
+		case VerificationProofLedgerItemUnavailable:
+			in.CapabilityUnavailableCount++
+		case VerificationProofLedgerItemFailed:
+			in.CapabilityFailedCount++
+		}
+	}
+	if in.State == VerificationProofLedgerVerified && (in.FailedCount > 0 || in.UnavailableCount > 0 || in.UncoveredCount > 0) {
+		in.State = VerificationProofLedgerLowConfidence
+	}
+	if (in.FailedCount > 0 || in.CapabilityFailedCount > 0) && in.State != VerificationProofLedgerUnavailable {
+		in.State = VerificationProofLedgerFailed
+	}
+	return in
+}
+
+func verificationProofLedgerStateFromProfile(profile VerificationProofProfile) VerificationProofLedgerState {
+	switch NormalizeVerificationProofProfile(profile).Status {
+	case VerificationProofFailed:
+		return VerificationProofLedgerFailed
+	case VerificationProofUnavailable:
+		return VerificationProofLedgerUnavailable
+	case VerificationProofWeak:
+		return VerificationProofLedgerLowConfidence
+	case VerificationProofAdequate, VerificationProofStrong:
+		return VerificationProofLedgerVerified
+	default:
+		return VerificationProofLedgerUnknown
+	}
+}
+
+func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *ChangeReport) {
+	if ledger == nil || report == nil {
+		return
+	}
+	status := report.NormalizeVerificationStatus()
+	itemStatus := VerificationProofLedgerItemUnknown
+	switch status {
+	case VerificationStatusPassed:
+		itemStatus = VerificationProofLedgerItemCovered
+	case VerificationStatusUnavailable:
+		itemStatus = VerificationProofLedgerItemUnavailable
+	case VerificationStatusFailed:
+		itemStatus = VerificationProofLedgerItemFailed
+	}
+	ledger.Capabilities = append(ledger.Capabilities, VerificationProofLedgerItem{
+		ID:           verificationProofLedgerStableID("capability", report.PlanID, string(status), report.FailureReasonCode),
+		Kind:         "local_verification",
+		Status:       itemStatus,
+		Source:       "change_report",
+		ReportPlanID: strings.TrimSpace(report.PlanID),
+		ReasonCode:   firstNonEmptyVerificationProof(report.FailureReasonCode, string(report.FailureKind)),
+		Detail:       strings.TrimSpace(report.FailureSummary),
+	})
+	for _, cmd := range report.ExecutedCommands {
+		class := verificationProofCommandClass(cmd)
+		if class == VerificationProofRunnerNone {
+			continue
+		}
+		cmdStatus := VerificationProofLedgerItemCovered
+		if class == VerificationProofRunnerUnavailable {
+			cmdStatus = VerificationProofLedgerItemUnavailable
+		}
+		if cmd.ExitCode != 0 && class != VerificationProofRunnerUnavailable {
+			cmdStatus = VerificationProofLedgerItemFailed
+		}
+		ledger.Capabilities = append(ledger.Capabilities, VerificationProofLedgerItem{
+			ID:           verificationProofLedgerStableID("command", report.PlanID, cmd.Source, cmd.Suite, cmd.Outcome, cmd.Command),
+			Kind:         "executed_command",
+			Status:       cmdStatus,
+			Source:       firstNonEmptyVerificationProof(cmd.Source, "run_tests"),
+			ReportPlanID: strings.TrimSpace(report.PlanID),
+			Category:     string(class),
+			ReasonCode:   strings.TrimSpace(cmd.Outcome),
+			Path:         strings.TrimSpace(cmd.WorkingDir),
+			RelatedPath:  strings.TrimSpace(cmd.Suite),
+			Detail:       strings.TrimSpace(cmd.Command),
+		})
+	}
+}
+
+func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(report *ChangeReport) {
+	if ledger == nil || report == nil {
+		return
+	}
+	for _, rec := range report.VerificationConfidence {
+		status := verificationProofLedgerStatusFromConfidence(rec.Status)
+		kind := verificationProofLedgerKindFromConfidence(rec.Category)
+		source := firstNonEmptyVerificationProof(rec.Source, "verification_confidence")
+		base := VerificationProofLedgerItem{
+			Kind:         kind,
+			Status:       status,
+			Source:       source,
+			ReportPlanID: strings.TrimSpace(report.PlanID),
+			Category:     strings.TrimSpace(rec.Category),
+			Severity:     strings.TrimSpace(rec.Severity),
+			ReasonCode:   strings.TrimSpace(rec.ReasonCode),
+			Detail:       strings.TrimSpace(rec.Detail),
+		}
+		add := func(item VerificationProofLedgerItem) {
+			if item.ID == "" {
+				item.ID = verificationProofLedgerItemKey(item)
+			}
+			ledger.Obligations = append(ledger.Obligations, item)
+		}
+		switch strings.TrimSpace(rec.Category) {
+		case "probe_contract_refs", "probe_soft_contract_refs":
+			refs := dedupTrimWriteWorkflowRunStrings(rec.ContractRefs)
+			if len(refs) == 0 {
+				add(base)
+				continue
+			}
+			for _, ref := range refs {
+				item := base
+				item.ContractRef = ref
+				add(item)
+			}
+		case "probe_changed_symbol":
+			refs := dedupTrimWriteWorkflowRunStrings(rec.ChangedSymbolRefs)
+			if len(refs) == 0 {
+				add(base)
+				continue
+			}
+			for _, ref := range refs {
+				item := base
+				item.Symbol = ref
+				add(item)
+			}
+		case "probe_execution":
+			base.Kind = "verification_probe_execution"
+			ledger.Capabilities = append(ledger.Capabilities, base)
+		default:
+			add(base)
+		}
+	}
+}
+
+func (ledger *VerificationProofLedger) addPatchReviewLedgerItems(plan *ChangePlan) {
+	if ledger == nil || plan == nil || plan.PatchReview == nil {
+		return
+	}
+	review := NormalizePatchReviewRecord(*plan.PatchReview)
+	for _, finding := range review.Findings {
+		if finding.Category != PatchReviewCategorySemanticCoverage &&
+			finding.CoverageStatus == "" &&
+			!review.HardBlock {
+			continue
+		}
+		kind := firstNonEmptyVerificationProof(patchReviewImpactKindForFinding(finding), string(finding.Category), "patch_review")
+		status := verificationProofLedgerStatusFromPatchCoverage(finding.CoverageStatus)
+		if review.HardBlock && status != VerificationProofLedgerItemCovered {
+			status = VerificationProofLedgerItemFailed
+		}
+		ledger.Obligations = append(ledger.Obligations, VerificationProofLedgerItem{
+			ID:          verificationProofLedgerStableID("patch_review", plan.ID, finding.Code, string(finding.CoverageStatus), finding.Path, finding.SubjectSymbol, finding.EvidenceRef),
+			Kind:        kind,
+			Status:      status,
+			Source:      firstNonEmptyVerificationProof(finding.SourceStage, "patch_review"),
+			PlanID:      strings.TrimSpace(plan.ID),
+			Category:    string(finding.Category),
+			Severity:    string(finding.Severity),
+			ReasonCode:  strings.TrimSpace(finding.Code),
+			Path:        strings.TrimSpace(finding.Path),
+			RelatedPath: strings.TrimSpace(finding.RelatedPath),
+			Symbol:      strings.TrimSpace(finding.SubjectSymbol),
+			EvidenceRef: strings.TrimSpace(finding.EvidenceRef),
+			Detail:      firstNonEmptyVerificationProof(finding.Message, finding.ContextSummary),
+		})
+	}
+}
+
+func (ledger *VerificationProofLedger) addImpactLedgerItems(plan *ChangePlan) {
+	if ledger == nil || plan == nil || plan.ImpactAnalysis == nil {
+		return
+	}
+	analysis := NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
+	for _, target := range analysis.VerificationTargets {
+		ledger.Obligations = append(ledger.Obligations, VerificationProofLedgerItem{
+			ID:          verificationProofLedgerStableID("impact", plan.ID, target.ID, target.Kind, target.CoverageStatus, target.Path, target.RelatedPath, target.Symbol, target.ContractRef),
+			Kind:        firstNonEmptyVerificationProof(target.Kind, "impact_target"),
+			Status:      verificationProofLedgerStatusFromImpactCoverage(target.CoverageStatus),
+			Source:      firstNonEmptyVerificationProof(target.Source, "impact_analysis"),
+			PlanID:      strings.TrimSpace(plan.ID),
+			ReasonCode:  firstNonEmptyVerificationProof(target.CoverageStatus, "coverage_unknown"),
+			Path:        strings.TrimSpace(target.Path),
+			RelatedPath: strings.TrimSpace(target.RelatedPath),
+			Symbol:      strings.TrimSpace(target.Symbol),
+			ContractRef: strings.TrimSpace(target.ContractRef),
+			EvidenceRef: strings.TrimSpace(target.EvidenceRef),
+			Detail:      strings.TrimSpace(target.ProbeID),
+		})
+	}
+}
+
 func NormalizeVerificationProofProfile(in VerificationProofProfile) VerificationProofProfile {
 	switch in.Status {
 	case VerificationProofUnavailable, VerificationProofFailed, VerificationProofWeak, VerificationProofAdequate, VerificationProofStrong:
@@ -279,6 +615,260 @@ func NormalizeVerificationProofProfile(in VerificationProofProfile) Verification
 		in.ImpactUnverifiedCount = 0
 	}
 	return in
+}
+
+func resolveVerificationProofLedgerObligations(in []VerificationProofLedgerItem) []VerificationProofLedgerItem {
+	coveredContracts := map[string]bool{}
+	coveredSymbols := map[string]bool{}
+	for _, item := range in {
+		if item.Status != VerificationProofLedgerItemCovered {
+			continue
+		}
+		if item.Kind == "behavior_contract" && item.ContractRef != "" {
+			coveredContracts[item.ContractRef] = true
+		}
+		if item.Kind == "changed_symbol" && item.Symbol != "" {
+			coveredSymbols[item.Symbol] = true
+		}
+	}
+	out := make([]VerificationProofLedgerItem, 0, len(in))
+	for _, item := range in {
+		if item.Status == VerificationProofLedgerItemMissing {
+			switch item.Kind {
+			case "behavior_contract":
+				if item.ContractRef != "" && coveredContracts[item.ContractRef] {
+					item.Status = VerificationProofLedgerItemCovered
+					if item.Detail == "" {
+						item.Detail = "resolved_by_cumulative_proof"
+					}
+				}
+			case "changed_symbol":
+				if item.Symbol != "" && coveredSymbols[item.Symbol] {
+					item.Status = VerificationProofLedgerItemCovered
+					if item.Detail == "" {
+						item.Detail = "resolved_by_cumulative_proof"
+					}
+				}
+			}
+		}
+		out = append(out, item)
+	}
+	return normalizeVerificationProofLedgerItems(out, verificationProofLedgerMaxItems)
+}
+
+func normalizeVerificationProofLedgerItems(in []VerificationProofLedgerItem, limit int) []VerificationProofLedgerItem {
+	seen := map[string]int{}
+	var out []VerificationProofLedgerItem
+	for _, item := range in {
+		item.ID = strings.TrimSpace(item.ID)
+		item.Kind = strings.TrimSpace(item.Kind)
+		item.Source = strings.TrimSpace(item.Source)
+		item.PlanID = strings.TrimSpace(item.PlanID)
+		item.ReportPlanID = strings.TrimSpace(item.ReportPlanID)
+		item.Category = strings.TrimSpace(item.Category)
+		item.Severity = strings.TrimSpace(item.Severity)
+		item.ReasonCode = strings.TrimSpace(item.ReasonCode)
+		item.Path = strings.TrimSpace(item.Path)
+		item.RelatedPath = strings.TrimSpace(item.RelatedPath)
+		item.Symbol = strings.TrimSpace(item.Symbol)
+		item.ContractRef = strings.TrimSpace(item.ContractRef)
+		item.EvidenceRef = strings.TrimSpace(item.EvidenceRef)
+		item.Detail = strings.TrimSpace(item.Detail)
+		item.Status = normalizeVerificationProofLedgerItemStatus(item.Status)
+		if item.Kind == "" {
+			continue
+		}
+		if item.ID == "" {
+			item.ID = verificationProofLedgerItemKey(item)
+		}
+		if idx, ok := seen[item.ID]; ok {
+			out[idx] = mergeVerificationProofLedgerItem(out[idx], item)
+			continue
+		}
+		seen[item.ID] = len(out)
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if verificationProofLedgerStatusRank(out[i].Status) != verificationProofLedgerStatusRank(out[j].Status) {
+			return verificationProofLedgerStatusRank(out[i].Status) < verificationProofLedgerStatusRank(out[j].Status)
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].ID < out[j].ID
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func mergeVerificationProofLedgerItem(a, b VerificationProofLedgerItem) VerificationProofLedgerItem {
+	if verificationProofLedgerStatusRank(b.Status) < verificationProofLedgerStatusRank(a.Status) {
+		a.Status = b.Status
+	}
+	if a.Source == "" {
+		a.Source = b.Source
+	}
+	if a.PlanID == "" {
+		a.PlanID = b.PlanID
+	}
+	if a.ReportPlanID == "" {
+		a.ReportPlanID = b.ReportPlanID
+	}
+	if a.Category == "" {
+		a.Category = b.Category
+	}
+	if a.Severity == "" {
+		a.Severity = b.Severity
+	}
+	if a.ReasonCode == "" {
+		a.ReasonCode = b.ReasonCode
+	}
+	if a.Path == "" {
+		a.Path = b.Path
+	}
+	if a.RelatedPath == "" {
+		a.RelatedPath = b.RelatedPath
+	}
+	if a.Symbol == "" {
+		a.Symbol = b.Symbol
+	}
+	if a.ContractRef == "" {
+		a.ContractRef = b.ContractRef
+	}
+	if a.EvidenceRef == "" {
+		a.EvidenceRef = b.EvidenceRef
+	}
+	if a.Detail == "" {
+		a.Detail = b.Detail
+	}
+	return a
+}
+
+func normalizeVerificationProofLedgerItemStatus(in VerificationProofLedgerItemStatus) VerificationProofLedgerItemStatus {
+	switch in {
+	case VerificationProofLedgerItemCovered,
+		VerificationProofLedgerItemMissing,
+		VerificationProofLedgerItemUnverified,
+		VerificationProofLedgerItemUnavailable,
+		VerificationProofLedgerItemFailed,
+		VerificationProofLedgerItemAdvisory:
+		return in
+	default:
+		return VerificationProofLedgerItemUnknown
+	}
+}
+
+func verificationProofLedgerStatusRank(status VerificationProofLedgerItemStatus) int {
+	switch normalizeVerificationProofLedgerItemStatus(status) {
+	case VerificationProofLedgerItemFailed:
+		return 0
+	case VerificationProofLedgerItemUnavailable:
+		return 1
+	case VerificationProofLedgerItemMissing:
+		return 2
+	case VerificationProofLedgerItemUnverified:
+		return 3
+	case VerificationProofLedgerItemUnknown:
+		return 4
+	case VerificationProofLedgerItemCovered:
+		return 5
+	case VerificationProofLedgerItemAdvisory:
+		return 6
+	default:
+		return 7
+	}
+}
+
+func verificationProofLedgerStatusFromConfidence(status string) VerificationProofLedgerItemStatus {
+	switch strings.TrimSpace(status) {
+	case "satisfied", "covered", "passed", "verified":
+		return VerificationProofLedgerItemCovered
+	case "missing":
+		return VerificationProofLedgerItemMissing
+	case "unavailable":
+		return VerificationProofLedgerItemUnavailable
+	case "failed", "error":
+		return VerificationProofLedgerItemFailed
+	case "unverified":
+		return VerificationProofLedgerItemUnverified
+	default:
+		return VerificationProofLedgerItemUnknown
+	}
+}
+
+func verificationProofLedgerStatusFromPatchCoverage(status PatchReviewCoverageStatus) VerificationProofLedgerItemStatus {
+	switch status {
+	case PatchReviewCoverageVerified:
+		return VerificationProofLedgerItemCovered
+	case PatchReviewCoverageUnavailable:
+		return VerificationProofLedgerItemUnavailable
+	case PatchReviewCoverageUnverified:
+		return VerificationProofLedgerItemUnverified
+	case PatchReviewCoverageAdvisory:
+		return VerificationProofLedgerItemAdvisory
+	default:
+		return VerificationProofLedgerItemUnknown
+	}
+}
+
+func verificationProofLedgerStatusFromImpactCoverage(status string) VerificationProofLedgerItemStatus {
+	switch strings.TrimSpace(status) {
+	case "verified", "covered", "passed":
+		return VerificationProofLedgerItemCovered
+	case "unavailable":
+		return VerificationProofLedgerItemUnavailable
+	case "unverified":
+		return VerificationProofLedgerItemUnverified
+	case "failed", "error":
+		return VerificationProofLedgerItemFailed
+	case "missing":
+		return VerificationProofLedgerItemMissing
+	default:
+		return VerificationProofLedgerItemUnknown
+	}
+}
+
+func verificationProofLedgerKindFromConfidence(category string) string {
+	switch strings.TrimSpace(category) {
+	case "probe_contract_refs", "probe_soft_contract_refs":
+		return "behavior_contract"
+	case "probe_changed_symbol":
+		return "changed_symbol"
+	case "probe_execution":
+		return "verification_probe_execution"
+	default:
+		return firstNonEmptyVerificationProof(strings.TrimSpace(category), "verification_confidence")
+	}
+}
+
+func verificationProofLedgerItemKey(item VerificationProofLedgerItem) string {
+	return verificationProofLedgerStableID(
+		item.Kind,
+		string(item.Status),
+		item.Source,
+		item.PlanID,
+		item.ReportPlanID,
+		item.Category,
+		item.ReasonCode,
+		item.Path,
+		item.RelatedPath,
+		item.Symbol,
+		item.ContractRef,
+		item.EvidenceRef,
+	)
+}
+
+func verificationProofLedgerStableID(parts ...string) string {
+	trimmed := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			trimmed = append(trimmed, part)
+		}
+	}
+	return strings.Join(trimmed, "\x00")
 }
 
 func verificationProofUniqueArtifacts(primaryPlan *ChangePlan, primaryReport *ChangeReport, artifacts []VerificationProofArtifact) []VerificationProofArtifact {

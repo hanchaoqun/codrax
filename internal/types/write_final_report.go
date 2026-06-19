@@ -32,6 +32,7 @@ type WriteFinalReport struct {
 	Patch         WriteFinalPatchSummary        `json:"patch,omitempty"`
 	Verification  WriteFinalVerificationSummary `json:"verification,omitempty"`
 	Proof         VerificationProofProfile      `json:"proof,omitempty"`
+	ProofLedger   VerificationProofLedger       `json:"proof_ledger,omitempty"`
 	Delivery      WriteFinalDeliverySummary     `json:"delivery,omitempty"`
 	PatchReview   WriteFinalPatchReviewSummary  `json:"patch_review,omitempty"`
 	Impact        WriteFinalImpactSummary       `json:"impact,omitempty"`
@@ -217,6 +218,7 @@ func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
 		out.Verification = writeFinalVerificationSummary(input.Report)
 	}
 	out.Proof = BuildCumulativeVerificationProofProfile(input.Plan, input.Report, input.ProofArtifacts)
+	out.ProofLedger = BuildVerificationProofLedger(input.Plan, input.Report, input.ProofArtifacts)
 	out.Delivery = NormalizeWriteFinalDeliverySummary(input.Delivery)
 	out.ResidualRisks = writeFinalResidualRisks(out)
 	return NormalizeWriteFinalReport(out)
@@ -249,6 +251,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Verification.ConfidenceReasonCodes = dedupTrimWriteWorkflowRunStrings(in.Verification.ConfidenceReasonCodes)
 	in.Verification.NoTestsRunners = dedupTrimWriteWorkflowRunStrings(in.Verification.NoTestsRunners)
 	in.Proof = NormalizeVerificationProofProfile(in.Proof)
+	in.ProofLedger = NormalizeVerificationProofLedger(in.ProofLedger)
 	in.Delivery = NormalizeWriteFinalDeliverySummary(in.Delivery)
 	in.PatchReview.ReasonCodes = dedupTrimWriteWorkflowRunStrings(in.PatchReview.ReasonCodes)
 	in.PatchReview.UnverifiedKinds = dedupTrimWriteWorkflowRunStrings(in.PatchReview.UnverifiedKinds)
@@ -541,13 +544,22 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 	} else if report.Verification.Status == VerificationStatusFailed {
 		add("verification_failed", "change_report", "error", string(report.Verification.FailureKind))
 	}
-	switch report.Proof.Status {
-	case VerificationProofFailed:
-		add("verification_proof_failed", "verification_proof", "error", strings.Join(report.Proof.ReasonCodes, ","))
-	case VerificationProofUnavailable:
-		add("verification_proof_unavailable", "verification_proof", "warning", strings.Join(report.Proof.ReasonCodes, ","))
-	case VerificationProofWeak:
-		add("verification_proof_weak", "verification_proof", "warning", strings.Join(report.Proof.ReasonCodes, ","))
+	switch report.ProofLedger.State {
+	case VerificationProofLedgerFailed:
+		add("verification_proof_failed", "verification_proof_ledger", "error", strings.Join(report.ProofLedger.ReasonCodes, ","))
+	case VerificationProofLedgerUnavailable:
+		add("verification_proof_unavailable", "verification_proof_ledger", "warning", strings.Join(report.ProofLedger.ReasonCodes, ","))
+	case VerificationProofLedgerLowConfidence:
+		add("verification_proof_low_confidence", "verification_proof_ledger", "warning", strings.Join(report.ProofLedger.ReasonCodes, ","))
+	case VerificationProofLedgerUnknown:
+		switch report.Proof.Status {
+		case VerificationProofFailed:
+			add("verification_proof_failed", "verification_proof", "error", strings.Join(report.Proof.ReasonCodes, ","))
+		case VerificationProofUnavailable:
+			add("verification_proof_unavailable", "verification_proof", "warning", strings.Join(report.Proof.ReasonCodes, ","))
+		case VerificationProofWeak:
+			add("verification_proof_weak", "verification_proof", "warning", strings.Join(report.Proof.ReasonCodes, ","))
+		}
 	}
 	if report.PatchReview.HardBlock {
 		add("patch_review_hard_block", "patch_review", "error", report.PatchReview.BlockReason)

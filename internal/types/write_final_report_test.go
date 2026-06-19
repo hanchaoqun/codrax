@@ -178,6 +178,11 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 		!writeFinalProofHasReason(got.Proof, "runner_missing") {
 		t.Fatalf("Proof=%+v, want unavailable runner_missing profile", got.Proof)
 	}
+	if got.ProofLedger.State != VerificationProofLedgerUnavailable ||
+		got.ProofLedger.ProfileStatus != VerificationProofUnavailable ||
+		!writeFinalProofLedgerHasCapability(got.ProofLedger, "local_verification", VerificationProofLedgerItemUnavailable) {
+		t.Fatalf("ProofLedger=%+v, want unavailable ledger with uncovered obligations", got.ProofLedger)
+	}
 	if got.Impact.CoverageCounts["unverified"] != 1 || len(got.Impact.UncoveredTargets) != 1 {
 		t.Fatalf("Impact=%+v, want one unverified target", got.Impact)
 	}
@@ -371,6 +376,9 @@ func TestBuildWriteFinalReportUsesCumulativeProofArtifacts(t *testing.T) {
 	if got.Proof.Status != VerificationProofAdequate || !got.Proof.Cumulative {
 		t.Fatalf("Proof=%+v, want cumulative adequate profile", got.Proof)
 	}
+	if got.ProofLedger.State != VerificationProofLedgerVerified || !got.ProofLedger.Cumulative {
+		t.Fatalf("ProofLedger=%+v, want cumulative verified ledger", got.ProofLedger)
+	}
 	if writeFinalProofHasReason(got.Proof, "verification_probe_missing_soft_contract_ref") {
 		t.Fatalf("Proof reasons=%+v should not retain resolved soft-contract gap", got.Proof.ReasonCodes)
 	}
@@ -394,6 +402,15 @@ func writeFinalReportHasRisk(report WriteFinalReport, code string) bool {
 func writeFinalProofHasReason(profile VerificationProofProfile, code string) bool {
 	for _, reason := range profile.ReasonCodes {
 		if reason == code {
+			return true
+		}
+	}
+	return false
+}
+
+func writeFinalProofLedgerHasCapability(ledger VerificationProofLedger, kind string, status VerificationProofLedgerItemStatus) bool {
+	for _, item := range ledger.Capabilities {
+		if item.Kind == kind && item.Status == status {
 			return true
 		}
 	}
