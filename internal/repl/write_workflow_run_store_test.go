@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -38,6 +39,14 @@ func TestWriteWorkflowRunStoreSaveLoadList(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
 		t.Fatalf("tmp file should not remain after successful save, stat err=%v", err)
+	}
+	eventPath := filepath.Join(store.WorkflowDir(), "events", "wf-1.json")
+	events, err := loopkernel.LoadLoopEventsFromFile(eventPath)
+	if err != nil {
+		t.Fatalf("LoadLoopEventsFromFile: %v", err)
+	}
+	if state := loopkernel.ReduceEvents(events); state.RunID != "wf-1" || state.Status != loopkernel.LoopRunStatusInProgress {
+		t.Fatalf("unexpected loop state projection: %+v", state)
 	}
 	loaded, err := store.Load("wf-1")
 	if err != nil {
@@ -80,6 +89,9 @@ func TestWriteWorkflowRunStoreSaveLoadList(t *testing.T) {
 	}
 	if _, err := os.Stat(contextPath); !os.IsNotExist(err) {
 		t.Fatalf("context artifact dir should be cleared, stat err=%v", err)
+	}
+	if _, err := os.Stat(eventPath); !os.IsNotExist(err) {
+		t.Fatalf("loop event artifact should be cleared, stat err=%v", err)
 	}
 	loaded, err = store.Load("wf-1")
 	if err != nil {

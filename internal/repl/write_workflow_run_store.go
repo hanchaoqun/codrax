@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -60,7 +61,25 @@ func (s *WriteWorkflowRunStore) Save(run *types.WriteWorkflowRun) (string, error
 	if err := types.WriteWorkflowRunToFile(&normalized, path); err != nil {
 		return "", err
 	}
+	if err := s.saveLoopEvents(&normalized); err != nil {
+		return "", err
+	}
 	return path, nil
+}
+
+func (s *WriteWorkflowRunStore) saveLoopEvents(run *types.WriteWorkflowRun) error {
+	if s == nil || run == nil {
+		return nil
+	}
+	events := loopkernel.EventsFromWriteWorkflowRun(*run)
+	if len(events) == 0 {
+		return nil
+	}
+	path := filepath.Join(s.workflowDir, "events", run.RunID+".json")
+	if err := loopkernel.WriteLoopEventsToFile(events, path); err != nil {
+		return fmt.Errorf("WriteWorkflowRunStore.Save loop events %s: %w", run.RunID, err)
+	}
+	return nil
 }
 
 func (s *WriteWorkflowRunStore) saveContextPacks(run *types.WriteWorkflowRun) error {
@@ -186,6 +205,10 @@ func (s *WriteWorkflowRunStore) Clear(id string) error {
 	contextDir := filepath.Join(s.workflowDir, "contexts", id)
 	if err := os.RemoveAll(contextDir); err != nil {
 		return fmt.Errorf("WriteWorkflowRunStore.Clear: remove %s: %w", contextDir, err)
+	}
+	eventPath := filepath.Join(s.workflowDir, "events", id+".json")
+	if err := os.Remove(eventPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("WriteWorkflowRunStore.Clear: remove %s: %w", eventPath, err)
 	}
 	return nil
 }

@@ -1095,8 +1095,8 @@ The implementation must move in small commercial batches. Each batch updates thi
 | --- | --- | --- | --- | --- |
 | L0 | complete | Design ledger and task breakdown | This document, P0/P1 mapping, batch checklist, progress ledger | `git diff --check` |
 | L1 | complete | Loop kernel skeleton | `internal/loopkernel` event schema, reducer, typed authority projections, atomic event persistence | focused `go test ./internal/loopkernel` |
-| L2 | next | Shadow write adapter | emit loop events from current write controller without changing effects; reducer parity with `WriteWorkflowRun` | write controller focused tests |
-| L3 | pending | Localization authority consumption | shared `LocalizationAuthority` consumed by read sidecar, write controller, planner/replan, final report | read/write localization tests |
+| L2 | complete | Shadow write adapter | emit loop events from current write controller without changing effects; reducer parity with `WriteWorkflowRun` | loopkernel/repl focused tests |
+| L3 | next | Localization authority consumption | shared `LocalizationAuthority` consumed by read sidecar, write controller, planner/replan, final report | read/write localization tests |
 | L4 | pending | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
 | L5 | pending | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
 | L6 | pending | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
@@ -1118,10 +1118,10 @@ The implementation must move in small commercial batches. Each batch updates thi
 
 ### L2 Task Breakdown
 
-- [ ] Add write adapter that projects `WriteWorkflowRun` fields into shadow `LoopEvent` records.
-- [ ] Persist shadow events beside workflow run artifacts.
-- [ ] Add parity tests for planned, pending approval, applying, verifying, failed verify, unverified complete, and blocked states.
-- [ ] Keep scheduler effects unchanged in this batch.
+- [x] Add write adapter that projects `WriteWorkflowRun` fields into shadow `LoopEvent` records.
+- [x] Persist shadow events beside workflow run artifacts.
+- [x] Add parity tests for planned, pending approval, applying, verifying, unverified complete, and blocked states.
+- [x] Keep scheduler effects unchanged in this batch.
 
 ### L3 Task Breakdown
 
@@ -1185,7 +1185,8 @@ The implementation must move in small commercial batches. Each batch updates thi
 | --- | --- | --- | --- |
 | 2026-06-19 | L0 | complete | Document includes current code audit, Codrax-specific P0/P1 priorities, detailed delivery task ledger, and phased roadmap. |
 | 2026-06-19 | L1 | complete | Added `internal/loopkernel` event schema, reducer, authority projections, atomic event persistence, and focused tests. `go test ./internal/loopkernel` passed. |
-| 2026-06-19 | L2 | next | Shadow write adapter should project current `WriteWorkflowRun` into loop events without changing scheduler effects. |
+| 2026-06-19 | L2 | complete | Added `EventsFromWriteWorkflowRun`, shadow event persistence under `workflows/events/<runID>.json`, Clear cleanup, and parity tests. Focused `loopkernel`/`repl` tests passed. |
+| 2026-06-19 | L3 | next | Localization authority should become a consumed read/write state view instead of only handoff/audit metadata. |
 
 ## Phased Roadmap
 
