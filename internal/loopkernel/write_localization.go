@@ -14,6 +14,7 @@ func LocalizationReviewFromWriteWorkflowRun(run types.WriteWorkflowRun, batchID 
 		BatchID: batchID,
 		Goal:    run.Goal,
 	}
+	matchedBatch := false
 	ownerSupported := map[string]bool{}
 	sourceSeen := map[string]bool{}
 	addSource := func(path string, role types.SourcePathRole) {
@@ -35,6 +36,7 @@ func LocalizationReviewFromWriteWorkflowRun(run types.WriteWorkflowRun, batchID 
 		if batchID != "" && strings.TrimSpace(batch.ID) != batchID {
 			continue
 		}
+		matchedBatch = true
 		for _, path := range batch.ExpectedPaths {
 			addSource(path, types.ClassifySourcePathRole(path))
 			if p := strings.TrimSpace(path); p != "" {
@@ -84,6 +86,16 @@ func LocalizationReviewFromWriteWorkflowRun(run types.WriteWorkflowRun, batchID 
 	}
 	review = types.NormalizeSourceLocalizationReview(review)
 	if !types.SourceLocalizationReviewHasSignal(&review) {
+		if matchedBatch {
+			missing := types.NormalizeSourceLocalizationReview(types.SourceLocalizationReview{
+				Status:      types.SourceLocalizationMissing,
+				Source:      review.Source,
+				BatchID:     batchID,
+				Goal:        run.Goal,
+				ReasonCodes: []string{"write_workflow_no_localization_signal"},
+			})
+			return &missing
+		}
 		return nil
 	}
 	return &review

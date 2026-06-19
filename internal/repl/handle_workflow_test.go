@@ -218,6 +218,53 @@ func TestWorkflowShowDisplaysLocalizationAuthority(t *testing.T) {
 	}
 }
 
+func TestWorkflowShowDisplaysMissingLocalizationWithoutOwnerPrompt(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-localization-missing",
+		Goal:          "repair without prior source signal",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:                stubRunner{},
+		In:                    strings.NewReader(""),
+		Out:                   out,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+	})
+
+	r.handleWorkflowCmd("/workflow show")
+
+	got := out.String()
+	for _, want := range []string{
+		"Localization authority:",
+		"state=`missing`",
+		"reason=`localization_missing`",
+		"Status: workflow is running; no user action is needed yet.",
+		"Next: wait for the current batch to finish",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("workflow show missing no-signal localization %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Next: continue owner localization") {
+		t.Fatalf("missing no-candidate localization should not render owner-localization prompt:\n%s", got)
+	}
+}
+
 func TestApproveUsesActiveWorkflowBatchPlan(t *testing.T) {
 	runner := &capturingRunner{}
 	planStore := NewPlanStore(t.TempDir())

@@ -410,7 +410,7 @@ func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []str
 	case types.WriteWorkflowNextPlanReady:
 		return writeNextActionCardLines(lang, writeActionPlanReady, "/approve · /reject <reason> · /workflow list")
 	case types.WriteWorkflowNextRunning:
-		if localization.State != "" && localization.RecommendedAction == loopkernel.LoopActionLocalize {
+		if writeWorkflowLocalizationHasCandidatePaths(localization) && localization.RecommendedAction == loopkernel.LoopActionLocalize {
 			if isZh(lang) {
 				return []string{
 					"  状态：workflow 正在推进；暂不需要用户操作。",
@@ -449,6 +449,13 @@ func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []str
 		"  Next: inspect saved workflows or start a new write goal.",
 		"  Advanced: " + advanced,
 	}
+}
+
+func writeWorkflowLocalizationHasCandidatePaths(localization loopkernel.LocalizationAuthorityView) bool {
+	return len(localization.SourcePaths) > 0 ||
+		len(localization.OwnerMissingPaths) > 0 ||
+		len(localization.AuxiliaryPaths) > 0 ||
+		len(localization.OwnerSupportedPaths) > 0
 }
 
 func writeWorkflowLocalizationAuthorityLines(b *strings.Builder, lang string, run types.WriteWorkflowRun, batch types.WriteWorkflowBatch, hasBatch bool) {

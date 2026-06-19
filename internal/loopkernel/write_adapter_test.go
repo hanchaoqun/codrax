@@ -118,6 +118,28 @@ func TestEventsFromWriteWorkflowRunExpectedPathsNeedLocalizer(t *testing.T) {
 	}
 }
 
+func TestEventsFromWriteWorkflowRunNoLocalizationSignalProjectsMissingAuthority(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-no-localization",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	}
+	got := ReduceEvents(EventsFromWriteWorkflowRun(run))
+	if got.Localization.State != LocalizationAuthorityMissing {
+		t.Fatalf("localization = %+v, want missing", got.Localization)
+	}
+	if got.Localization.RecommendedAction != LoopActionLocalize || !got.Localization.RequiresMoreContext {
+		t.Fatalf("missing localization should remain a soft localize recommendation: %+v", got.Localization)
+	}
+	if len(got.Localization.SourcePaths) != 0 || len(got.Localization.OwnerMissingPaths) != 0 {
+		t.Fatalf("no-signal localization must not invent candidate paths: %+v", got.Localization)
+	}
+}
+
 func TestEventsFromWriteWorkflowRunVerifyingUsesActiveSlice(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "wf-verify",

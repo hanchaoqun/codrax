@@ -152,6 +152,21 @@ func TestDeriveWorkflowExecutionViewProjectsLocalizationAuthorityFromExpectedPat
 	}
 }
 
+func TestDeriveWorkflowExecutionViewNoLocalizationSignalIsVisibleButNotGateEligible(t *testing.T) {
+	run := workflowExecutionRunForTest(types.WriteWorkflowBatchReadyToPlan, "")
+
+	view := DeriveWorkflowExecutionView(types.ModeApply, run, nil)
+	if view.Localization.State != loopkernel.LocalizationAuthorityMissing {
+		t.Fatalf("localization = %+v, want missing", view.Localization)
+	}
+	if !view.Localization.RequiresMoreContext || view.Localization.ReasonCode != "localization_missing" {
+		t.Fatalf("missing localization should be visible as soft context need: %+v", view.Localization)
+	}
+	if view.LocalizationGateEligible {
+		t.Fatalf("no-signal localization must not become a hard gate: %+v", view)
+	}
+}
+
 func TestDeriveWorkflowExecutionViewSurfacesExploreAttempts(t *testing.T) {
 	run := workflowExecutionRunForTest(types.WriteWorkflowBatchReadyToPlan, "")
 	run.Batches[0].Attempts = []types.WriteWorkflowAttempt{{

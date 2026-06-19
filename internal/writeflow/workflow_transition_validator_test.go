@@ -175,6 +175,29 @@ func TestValidateWorkflowTransitionAuxiliaryOnlyLocalizationDoesNotHardBlockPlan
 	}
 }
 
+func TestValidateWorkflowTransitionMissingLocalizationWithoutCandidatesDoesNotHardBlockPlanning(t *testing.T) {
+	view := WorkflowExecutionView{
+		Mode:                     types.ModeApply,
+		State:                    WorkflowExecutionReadyToPlan,
+		LocalizationGateEligible: true,
+		CanPlan:                  true,
+		Localization: loopkernel.LocalizationAuthorityView{
+			State:               loopkernel.LocalizationAuthorityMissing,
+			ReasonCode:          "localization_missing",
+			RecommendedAction:   loopkernel.LoopActionLocalize,
+			RequiresMoreContext: true,
+		},
+	}
+
+	got := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionPlanBatch,
+		Batch:  &WriteBatchPlan{ID: "batch-1", Goal: "repair with no prior localization signal"},
+	})
+	if !got.Allowed {
+		t.Fatalf("missing no-candidate localization must not become a hard gate: %+v", got)
+	}
+}
+
 func TestValidateWorkflowTransitionNeedsReplanBlocksStaleApplyVerify(t *testing.T) {
 	view := WorkflowExecutionView{Mode: types.ModeApply, State: WorkflowExecutionNeedsReplan, BatchID: "batch-1"}
 
