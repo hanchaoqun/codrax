@@ -85,8 +85,12 @@ fi
 "${cmd[@]}"
 
 validate_args=("$PREDICTIONS_PATH")
+validate_args+=(--results-jsonl "$RESULTS_PATH")
 if [[ "$SWEBENCH_REQUIRE_NONEMPTY_PATCH" == "1" ]]; then
   validate_args+=(--require-nonempty-patch)
+fi
+if [[ "$SWEBENCH_REQUIRE_FINAL_REPORT_AUDIT" == "1" ]]; then
+  validate_args+=(--require-final-report-audit)
 fi
 "$PYTHON" "$ROOT/eval/swebench/validate_predictions.py" "${validate_args[@]}"
 

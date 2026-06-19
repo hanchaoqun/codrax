@@ -206,6 +206,7 @@ python3 "$ROOT/eval/swebench/run_codrax_swebench.py" \
 
 python3 "$ROOT/eval/swebench/validate_predictions.py" "$PREDICTIONS" \
   --instances-jsonl "$INSTANCES" \
+  --results-jsonl "$RESULTS" \
   --require-nonempty-patch
 
 python3 - "$PREDICTIONS" <<'PY'

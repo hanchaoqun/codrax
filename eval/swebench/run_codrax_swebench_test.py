@@ -489,6 +489,51 @@ class LocalAcceptanceTests(unittest.TestCase):
 
 
 class FinalReportProjectionTests(unittest.TestCase):
+    def test_final_report_language_family_canary_covers_full_matrix(self) -> None:
+        families = [
+            "go",
+            "python",
+            "javascript",
+            "typescript",
+            "java",
+            "kotlin",
+            "rust",
+            "c",
+            "cpp",
+            "cuda",
+            "objective_c",
+            "objective_cpp",
+            "ruby",
+            "swift",
+            "lua",
+            "proto",
+            "arkts",
+            "cangjie",
+            "php",
+            "config_workflow",
+        ]
+        final_report = {
+            "schema_version": 1,
+            "kind": "final_report",
+            "completion": {"verdict": "verified", "reason_code": "tests_passed"},
+            "verification": {"status": "passed", "runner_families": list(reversed(families))},
+            "patch": {"language_families": families},
+            "loop": {
+                "status": "complete",
+                "event_count": 2,
+                "event_refs": ["wf:000001:run_seeded", "wf:000002:run_completed"],
+                "truth": {"state": "covered", "reason_code": "tests_passed"},
+            },
+        }
+
+        result: dict[str, object] = {}
+        adapter.apply_final_report_result_fields(result, final_report, Path("/tmp/plan.final.json"))
+
+        self.assertEqual(result["final_report_patch_language_families"], families)
+        self.assertEqual(result["final_report_verification_runner_families"], list(reversed(families)))
+        self.assertEqual(result["final_report_loop_event_refs"], ["wf:000001:run_seeded", "wf:000002:run_completed"])
+        self.assertEqual(result["final_report_loop_truth_state"], "covered")
+
     def test_plan_localization_review_summary_projects_typed_plan_fields(self) -> None:
         got = adapter.plan_localization_review_summary({
             "localization_review": {

@@ -126,6 +126,8 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `final_report_localization_supported_paths`,
 `final_report_plan_id`,
 `final_report_patch_fingerprint`,
+`final_report_patch_language_families`,
+`final_report_verification_runner_families`,
 `final_report_residual_risk_codes`,
 `final_report_handoff_evidence_refs`,
 `final_report_plan_owner_anchor_ids`,
@@ -138,6 +140,21 @@ pytest or partial dependency setup is not a hard code-failure gate.
 `final_report_handoff_owner_anchor_ids`,
 `final_report_handoff_owner_anchor_paths`,
 `final_report_handoff_owner_symbols`,
+`final_report_loop_status`,
+`final_report_loop_event_count`,
+`final_report_loop_last_event_kind`,
+`final_report_loop_last_reason_code`,
+`final_report_loop_active_unit_id`,
+`final_report_loop_event_refs`,
+`final_report_loop_truth_state`,
+`final_report_loop_truth_reason_code`,
+`final_report_loop_truth_action`,
+`final_report_loop_unit_count`,
+`final_report_loop_unit_truth_states`,
+`final_report_loop_proof_state`,
+`final_report_loop_proof_reason_code`,
+`final_report_loop_localization_state`,
+`final_report_loop_localization_reason_code`,
 `plan_owner_boundary_signals`, `plan_owner_boundary_reason_codes`,
 `plan_patch_review_status`, `plan_patch_review_hard_block`,
 `plan_patch_review_coverage_verdict`,
@@ -220,8 +237,19 @@ delivery report projected from workflow, ChangePlan, ChangeReport, patch-review,
 impact-analysis, and context-pack artifacts. The adapter records the
 `final_report_*` fields when that artifact is present. These fields are audit
 telemetry only: they make delivered status, residual risks, verification
-verdict, patch fingerprint, and handoff evidence refs stable without parsing
-`codrax.out`, model prose, issue text, or visible `<think>` logs.
+verdict, patch fingerprint, loop event refs, truth/proof/localization authority,
+patch language families, verifier runner families, and handoff evidence refs
+stable without parsing `codrax.out`, model prose, issue text, or visible
+`<think>` logs.
+
+`validate_predictions.py` still validates the official harness shape by
+default. Pass `--results-jsonl <path>` to also prove Codrax's auxiliary
+`results.jsonl` covers the same prediction IDs. Pass
+`--require-final-report-audit` with `--results-jsonl` to require final-report
+loop/truth/language telemetry for every prediction. `smoke_lite.sh` wires this
+through `SWEBENCH_REQUIRE_FINAL_REPORT_AUDIT=1`; the default remains relaxed so
+environment-unavailable customer checkouts can still export harness-consumable
+predictions.
 Verification telemetry is deliberately split into a normalized typed verdict and
 raw executor telemetry. `verify_passed=true` means
 `verify_status=passed`: Codrax produced a typed local verifier pass. Treat it

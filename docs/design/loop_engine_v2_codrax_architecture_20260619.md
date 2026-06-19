@@ -1363,7 +1363,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | L7 | complete | Micro-loop execution | deterministic runtime-unit authority projection consumed by apply/observe/checkpoint policy, with verified-unit preservation across replan | writeflow/orchestrator runtime-unit tests |
 | L8 | complete | Worker/subagent evidence producers | Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer typed outputs | subagent/worker tests |
 | L9 | complete | Auto Pilot UX | single status card from `LoopStateView`; routine path avoids command burden | REPL/CLI rendering tests |
-| L10 | in_progress | Commercial hardening | replay/audit CLI, eval artifacts, SWE smoke, multi-language canaries, full regression | `go test ./...`, `make test`, eval smoke |
+| L10 | complete | Commercial hardening | replay/audit CLI, eval artifacts, SWE smoke, multi-language canaries, full regression | `go test ./...`, `make test`, eval smoke |
 
 ### L1 Task Breakdown
 
@@ -1466,8 +1466,8 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 - [x] Add a non-interactive replay/audit CLI for final report and workflow artifacts. It must read existing typed `.final.json` / workflow refs only, perform no LLM/tool execution, and never parse terminal prose.
 - [x] Attach loop event refs/truth refs to eval predictions and final reports.
 - [x] Persist full language-family telemetry for patch and verifier surfaces across all Codrax-supported language families: Go, Python, JavaScript, TypeScript, Java, Kotlin, Rust, C, C++, Ruby, Swift, Lua, Proto, ArkTS, Cangjie, CUDA, Objective-C/Objective-C++, PHP, config/workflow, and unknown fallback.
-- [ ] Add SWE prediction harness smoke plus multi-language final-report canaries for replay/audit visibility.
-- [ ] Run full Go tests, Make tests, SWE prediction harness smoke, and multi-language canaries after the remaining L10 batches.
+- [x] Add SWE prediction harness smoke plus multi-language final-report canaries for replay/audit visibility.
+- [x] Run full Go tests, Make tests, SWE prediction harness smoke, and multi-language canaries after the remaining L10 batches.
 - [x] Update docs and examples for the advanced audit surface without adding routine command burden.
 
 ### Remaining Implementation Backlog
@@ -1490,7 +1490,7 @@ The remaining work must land as small batches. Each batch below has a typed arti
 | L10.1 | P1 | **Delivered 2026-06-20.** Add replay/eval audit artifacts. Final reports and SWE predictions carry loop event refs, truth refs, patch refs, and proof/localization summaries so correctness can be audited without rerunning LLM/tools. Replay remains artifact-first through `.final.json`, workflow event files, and the existing `/workflow show` audit surface instead of adding another routine command. | SWE adapter, final report, loop event store | Predictions remain official-harness consumable; typed replay/audit state reconstructs from durable artifacts; eval projection tests pass. |
 | L10.2 | P1 | **Delivered 2026-06-20.** Multi-language hardening. Keep Python-specific heuristics out of hard gates; persist typed patch/verification language families for the full Codrax language matrix: Go, Python, JS, TS, Java, Kotlin, Rust, C, C++, Ruby, Swift, Lua, Proto, ArkTS, Cangjie, CUDA, Objective-C/Objective-C++, PHP path surfaces, and config/workflow files. | final report schema, SWE adapter telemetry, `internal/tool/run_tests*`, proof profile, eval fixtures | Language-family telemetry is available without parsing logs; full-matrix projection tests pass; language-specific failures degrade to typed unavailable where appropriate. |
 | L10.3 | P1 | **Delivered 2026-06-20.** Add a non-interactive write audit/replay CLI. `--write-audit` loads a final report path or a ChangePlan path with a sibling `.final.json`, then prints compact `final_audit` typed JSON: run/batch status, loop event refs, truth/proof/localization/permission authorities, patch language families, verifier runner families, handoff evidence, residual risks, and artifact refs. This is an advanced audit surface only; routine Auto Pilot remains status-card driven. | `cmd/root.go`, `cmd/write_audit_test.go`, `internal/types/write_final_audit.go`, docs/user guide | Audit output reconstructs from durable artifacts without LLM/tool calls; missing report fails loud; output is derived only from typed fields; CLI validation does not affect read/log/trace/data/operation modes; focused command/types tests, `go test ./...`, and `make test` pass. |
-| L10.4 | P1 | Add eval/canary hardening for the audit path. Reuse SWE adapter predictions and existing final-report artifacts to smoke-test official harness consumability, event/truth ref projection, and language-family visibility. Include multi-language synthetic final reports so hardening does not overfit Python/SWE. | `tools/swe_bench_adapter.py`, eval fixtures, `internal/types` language tests, docs examples | Official `prediction.json` remains harness-consumable; auxiliary `results.jsonl` carries audit refs; multi-language canaries cover Codrax language matrix; no hard routing reads user keywords, model prose, or terminal narrative. |
+| L10.4 | P1 | **Delivered 2026-06-20.** Add eval/canary hardening for the audit path. Reuse SWE adapter predictions and existing final-report artifacts to smoke-test official harness consumability, event/truth ref projection, and language-family visibility. Include multi-language synthetic final reports so hardening does not overfit Python/SWE. | `eval/swebench/validate_predictions.py`, `eval/swebench/run_codrax_swebench_test.py`, `eval/swebench/validate_predictions_test.py`, smoke scripts, docs examples | Official `prediction.json` remains harness-consumable; auxiliary `results.jsonl` carries audit refs; multi-language canaries cover Codrax language matrix; no hard routing reads user keywords, model prose, or terminal narrative; Python eval tests, `eval/swebench/smoke_local.sh`, `go test ./...`, and `make test` pass. |
 
 ### Detailed Next-Batch Implementation Rule
 
@@ -1552,6 +1552,7 @@ roadmap/backlog above plus the latest row per batch.
 | 2026-06-20 | L10.1 | complete | `WriteFinalReport` now persists a compact `loop` audit envelope with event refs, active runtime unit, run-level truth, per-unit truth, proof/localization/permission authority summaries, and event counts projected from typed loop events. The SWE-bench adapter projects these fields into `results.jsonl` as telemetry while leaving official `prediction.json`/`model_patch` unchanged and harness-consumable. User guide documents `<plan>.final.json` as the low-command audit artifact; no extra routine replay command was added because `/workflow show` already reconstructs active workflow state. Focused Go final-report/orchestrator tests and Python adapter final-report projection tests passed. |
 | 2026-06-20 | L10.2 | complete | Added typed `VerificationLanguageFamily` telemetry for the full Codrax language surface instead of Python-specific audit assumptions. Final reports now persist patch `language_families` and verification `runner_families`; the SWE-bench adapter projects both into `results.jsonl` without changing official predictions. The matrix covers Go, Python, JavaScript, TypeScript, Java, Kotlin, Rust, C, C++, Ruby, Swift, Lua, Proto, ArkTS, Cangjie, CUDA, Objective-C/Objective-C++, PHP path surfaces, and config/workflow files. Focused Go and adapter tests cover full-matrix path/runner projection. |
 | 2026-06-20 | L10.3 | complete | Added `--write-audit` as an advanced read-only write-artifact audit lane. It accepts a `.final.json` path or a ChangePlan path whose sibling final report exists, validates artifact `kind`, and prints compact typed `final_audit` JSON from `WriteFinalReport` fields only: run/batch status, artifact refs, loop event refs, truth/proof/localization/permission authority, patch/verifier language families, handoff evidence refs, and residual risks. It returns through an audit-only pre-run before app/provider initialization, log/trace loading, or orchestrator execution, so it never creates a worktree, calls tools, calls LLMs, or parses terminal prose. Focused `cmd`/`types` tests, `go test ./...`, and `make test` passed. |
+| 2026-06-20 | L10.4 | complete | Added SWE eval/canary hardening for audit telemetry. `validate_predictions.py` can now optionally validate a Codrax `results.jsonl` against official predictions and, when requested, require final-report loop/truth/language telemetry for every prediction. `smoke_local.sh` validates results coverage, `smoke_lite.sh` exposes `SWEBENCH_REQUIRE_FINAL_REPORT_AUDIT=1`, and adapter tests include a full language-family final-report canary. Python eval tests, dependency-free SWE local smoke, `go test ./...`, and `make test` passed. |
 
 ## Phased Roadmap
 
@@ -1784,13 +1785,13 @@ Acceptance:
 
 ## Immediate Next Tasks
 
-1. Deliver L10.4 eval/canary hardening:
-   - keep official SWE `prediction.json` untouched and harness-consumable;
-   - assert auxiliary `results.jsonl` carries final-report loop/truth/language telemetry;
-   - add multi-language canaries for every Codrax language family, not just Python;
-   - document how to read audit artifacts without adding routine REPL/CLI command burden.
-2. Run commercial regression:
-   - focused command/types/eval tests for the audit/eval surface;
-   - `go test ./...`;
-   - `make test`;
-   - SWE adapter smoke where the local environment is available, with unavailable dependencies recorded as typed unverified evidence rather than source failure.
+Loop Engine v2 L1-L10 is complete as of 2026-06-20. Future work should start
+from new product/eval evidence rather than the stale pre-L10 backlog. Routine
+maintenance remains:
+
+1. Keep SWE official harness runs separate from local acceptance telemetry.
+2. Keep adding language-family canaries when Codrax expands the supported
+   language matrix.
+3. Preserve the red line that eval/audit hard gates read typed artifacts only,
+   never user keywords, model prose, terminal narrative, or visible `<think>`
+   logs.
