@@ -5031,6 +5031,66 @@ func TestNormalizeControllerTypedStateDecisionChangedSymbolCoverageBecomesProofF
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionProofLedgerPlacementGapBecomesProofFollowup(t *testing.T) {
+	mu := types.NewMutableState("placement proof ledger followup")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-placement-proof",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"pkg/cli.py"},
+	})
+	mu.SetChangeReport(&types.ChangeReport{
+		PlanID: "plan-placement-proof",
+		Passed: true,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_placement_refs",
+			Status:       "missing",
+			ReasonCode:   "verification_probe_missing_required_placement_ref",
+			ContractRefs: []string{"cli-label-placement"},
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-placement-proof-gap",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-placement-proof"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-placement-proof"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil {
+		t.Fatalf("ledger placement proof gap should append proof follow-up batch, got %+v", got)
+	}
+	if got.Batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("batch purpose = %q, want verification_proof_followup: %+v", got.Batch.Purpose, got.Batch)
+	}
+	criteria := strings.Join(got.Batch.SuccessCriteria, "\n")
+	for _, want := range []string{
+		"kind=rendered_text_placement_contract",
+		"contract_ref=cli-label-placement",
+		"verification_probe_required=true",
+		"source=verification_proof_ledger",
+	} {
+		if !strings.Contains(criteria, want) {
+			t.Fatalf("proof criteria missing %q:\n%s", want, criteria)
+		}
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("proof follow-up progress missing: %+v", run.ProgressLedger)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionImpactRepairWithoutPathExploresFirst(t *testing.T) {
 	mu := types.NewMutableState("impact repair needs localization")
 	mu.SetChangePlan(&types.ChangePlan{

@@ -6794,6 +6794,9 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeRe
 	for _, item := range verificationConfidenceRepairQueueItems(plan, report) {
 		add(item)
 	}
+	for _, item := range verificationProofLedgerRepairQueueItems(plan, report) {
+		add(item)
+	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Priority != items[j].Priority {
 			return items[i].Priority < items[j].Priority
@@ -6804,6 +6807,71 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeRe
 		items = items[:limit]
 	}
 	return items
+}
+
+func verificationProofLedgerRepairQueueItems(plan *types.ChangePlan, report *types.ChangeReport) []impactRepairQueueItem {
+	if plan == nil || report == nil {
+		return nil
+	}
+	ledger := types.BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State != types.VerificationProofLedgerLowConfidence &&
+		ledger.State != types.VerificationProofLedgerFailed {
+		return nil
+	}
+	var items []impactRepairQueueItem
+	for _, obligation := range ledger.Obligations {
+		if !verificationProofLedgerObligationNeedsFollowup(obligation.Status) {
+			continue
+		}
+		item := impactRepairQueueItem{
+			ID:             "verification-proof-ledger:" + strings.TrimSpace(obligation.ID),
+			Code:           firstNonEmptyController(obligation.ReasonCode, string(obligation.Status), "verification_proof_uncovered"),
+			Kind:           obligation.Kind,
+			Path:           obligation.Path,
+			RelatedPath:    obligation.RelatedPath,
+			Symbol:         obligation.Symbol,
+			ContractRef:    obligation.ContractRef,
+			CoverageStatus: verificationProofLedgerCoverageStatus(obligation.Status),
+			EvidenceRef:    firstNonEmptyController(obligation.EvidenceRef, strings.Trim(strings.TrimSpace(obligation.Source)+":"+strings.TrimSpace(obligation.Category), ":")),
+			Source:         "verification_proof_ledger",
+			Priority:       impactRepairPriority(obligation.Kind),
+		}
+		if item.Path == "" && item.RelatedPath == "" && len(item.Paths) == 0 {
+			switch item.Kind {
+			case "changed_symbol", "behavior_contract", "rendered_text_placement_contract":
+				if item.Symbol != "" || item.ContractRef != "" {
+					item.Paths = planSourceRepairPaths(plan, 4)
+				}
+			}
+		}
+		if item.Path == "" && item.RelatedPath == "" && len(item.Paths) == 0 &&
+			item.Symbol == "" && item.ContractRef == "" {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func verificationProofLedgerObligationNeedsFollowup(status types.VerificationProofLedgerItemStatus) bool {
+	switch status {
+	case types.VerificationProofLedgerItemMissing,
+		types.VerificationProofLedgerItemUnverified,
+		types.VerificationProofLedgerItemUnavailable,
+		types.VerificationProofLedgerItemUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func verificationProofLedgerCoverageStatus(status types.VerificationProofLedgerItemStatus) string {
+	switch status {
+	case types.VerificationProofLedgerItemUnavailable:
+		return impactCoverageUnavailable
+	default:
+		return impactCoverageUnverified
+	}
 }
 
 func filterPendingImpactRepairQueueItems(run *types.WriteWorkflowRun, items []impactRepairQueueItem) []impactRepairQueueItem {
@@ -7096,7 +7164,7 @@ func impactRepairCoverageNeedsWork(status string) bool {
 func impactRepairQueueItemRequiresFollowup(item impactRepairQueueItem) bool {
 	item = normalizeImpactRepairQueueItem(item)
 	switch item.Kind {
-	case "changed_symbol", "behavior_contract":
+	case "changed_symbol", "behavior_contract", "rendered_text_placement_contract":
 		return true
 	case "semantic_coverage", "effect_followup":
 		return writeflow.PatchReviewEffectUnknownCoverage(item.Code)
@@ -7112,6 +7180,9 @@ func impactRepairQueueItemFromVerificationConfidence(item impactRepairQueueItem)
 func impactRepairQueueItemFromVerificationProof(item impactRepairQueueItem) bool {
 	item = normalizeImpactRepairQueueItem(item)
 	if impactRepairQueueItemFromVerificationConfidence(item) {
+		return true
+	}
+	if item.Source == "verification_proof_ledger" {
 		return true
 	}
 	switch item.Code {
@@ -7141,6 +7212,8 @@ func impactRepairPriority(kind string) int {
 	switch strings.TrimSpace(kind) {
 	case "behavior_contract":
 		return 10
+	case "rendered_text_placement_contract":
+		return 15
 	case "changed_symbol":
 		return 20
 	case "dependent":
