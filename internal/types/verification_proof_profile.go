@@ -432,11 +432,12 @@ func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *
 		if class == VerificationProofRunnerNone {
 			continue
 		}
+		unavailableReasonCode := verificationProofCommandUnavailableReasonCode(cmd, class)
 		cmdStatus := VerificationProofLedgerItemCovered
-		if class == VerificationProofRunnerUnavailable {
+		if unavailableReasonCode != "" {
 			cmdStatus = VerificationProofLedgerItemUnavailable
 		}
-		if cmd.ExitCode != 0 && class != VerificationProofRunnerUnavailable {
+		if executedCommandFailed(cmd) && unavailableReasonCode == "" {
 			cmdStatus = VerificationProofLedgerItemFailed
 		}
 		ledger.Capabilities = append(ledger.Capabilities, VerificationProofLedgerItem{
@@ -446,11 +447,33 @@ func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *
 			Source:       firstNonEmptyVerificationProof(cmd.Source, "run_tests"),
 			ReportPlanID: strings.TrimSpace(report.PlanID),
 			Category:     string(class),
-			ReasonCode:   strings.TrimSpace(cmd.Outcome),
+			ReasonCode:   firstNonEmptyVerificationProof(unavailableReasonCode, cmd.ReasonCode, cmd.Outcome),
 			Path:         strings.TrimSpace(cmd.WorkingDir),
 			RelatedPath:  strings.TrimSpace(cmd.Suite),
 			Detail:       strings.TrimSpace(cmd.Command),
 		})
+	}
+}
+
+func verificationProofCommandUnavailableReasonCode(cmd ExecutedCommand, class VerificationProofRunnerEvidence) string {
+	if code := executedCommandUnavailableReasonCode(cmd); code != "" {
+		return code
+	}
+	outcome := strings.TrimSpace(cmd.Outcome)
+	if class == VerificationProofRunnerUnavailable {
+		return firstNonEmptyVerificationProof(outcome, string(FailureKindParserError))
+	}
+	switch outcome {
+	case string(FailureKindParserError):
+		return string(FailureKindParserError)
+	case string(FailureKindRunnerMissing):
+		return string(FailureKindRunnerMissing)
+	case string(FailureKindNoTests), "synthetic_no_tests", "zero_tests":
+		return string(FailureKindNoTests)
+	case "not_configured":
+		return string(FailureKindRunnerMissing)
+	default:
+		return ""
 	}
 }
 

@@ -350,9 +350,62 @@ func TestBuildVerificationProofLedgerProjectsCoverageObligations(t *testing.T) {
 	}
 }
 
+func TestBuildVerificationProofLedgerTreatsProbeParserErrorCommandAsUnavailable(t *testing.T) {
+	report := &ChangeReport{
+		PlanID:             "plan-probe-unavailable",
+		VerificationStatus: VerificationStatusUnavailable,
+		Passed:             false,
+		FailureKind:        FailureKindParserError,
+		FailureReasonCode:  "verification_probe_module_not_found",
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:     "verification_probe",
+			Framework:  "python",
+			Command:    "python -c <verification_probe:no-crash>",
+			Outcome:    "parser_error",
+			ReasonCode: "verification_probe_module_not_found",
+			ExitCode:   1,
+			Source:     "pre_suite_verification_probe",
+		}, {
+			Runner:    "verification_probe",
+			Framework: "python",
+			Command:   "python -c <verification_probe:bad-fixture>",
+			Outcome:   "parser_error",
+			ExitCode:  1,
+			Source:    "parser_error_verification_probe",
+		}},
+	}
+
+	got := BuildVerificationProofLedger(nil, report, nil)
+
+	if got.State != VerificationProofLedgerUnavailable {
+		t.Fatalf("ledger state=%q, want unavailable: %+v", got.State, got)
+	}
+	if got.CapabilityFailedCount != 0 {
+		t.Fatalf("capability failed count=%d, want 0; capabilities=%+v", got.CapabilityFailedCount, got.Capabilities)
+	}
+	if got.CapabilityUnavailableCount < 3 {
+		t.Fatalf("capability unavailable count=%d, want report + command rows; capabilities=%+v", got.CapabilityUnavailableCount, got.Capabilities)
+	}
+	if !verificationProofLedgerHasCapability(got, "executed_command", VerificationProofLedgerItemUnavailable, "verification_probe_module_not_found") {
+		t.Fatalf("ledger capabilities=%+v missing typed unavailable probe command", got.Capabilities)
+	}
+	if !verificationProofLedgerHasCapability(got, "executed_command", VerificationProofLedgerItemUnavailable, "parser_error") {
+		t.Fatalf("ledger capabilities=%+v missing generic parser_error unavailable command", got.Capabilities)
+	}
+}
+
 func verificationProofHasReason(profile VerificationProofProfile, code string) bool {
 	for _, reason := range profile.ReasonCodes {
 		if reason == code {
+			return true
+		}
+	}
+	return false
+}
+
+func verificationProofLedgerHasCapability(ledger VerificationProofLedger, kind string, status VerificationProofLedgerItemStatus, reason string) bool {
+	for _, item := range ledger.Capabilities {
+		if item.Kind == kind && item.Status == status && item.ReasonCode == reason {
 			return true
 		}
 	}

@@ -8124,7 +8124,8 @@ Validation:
 
 Status: RC127-A implemented; RC127-B1 implemented for probe startup
 dependency boundaries; RC127-B2 implemented for assertion-wrapped probe import
-boundaries; broader proof-environment follow-up remains queued.
+boundaries; RC127-B3 implemented for proof-ledger unavailable command
+capability accounting; broader proof-environment follow-up remains queued.
 
 Trigger evidence:
 
@@ -8176,6 +8177,10 @@ Tasks:
       only when a structured import-boundary traceback is attributable to
       product frames outside the current patch's added-line surface. The same
       import failure on an added patch line remains a product-code failure.
+- [x] Normalize proof-ledger executed-command capability rows through the same
+      typed unavailable reason helper used by `ChangeReport`, so
+      `parser_error`/`runner_missing`/`no_tests` local verifier rows do not
+      inflate `capability_failed_count`.
 - [ ] Extend proof-follow-up scheduling so unavailable proof records can request
       bounded environment/probe capability checks before terminalizing, without
       broad source replan.
@@ -8213,6 +8218,11 @@ Implementation notes:
   added-line patch surface. This handles wrapper probes and subprocess-backed
   pytest probes that convert dependency startup errors into `AssertionError`
   while preserving fail-closed behavior for changed-line product imports.
+- Proof-ledger command capabilities now call the shared unavailable-reason
+  classifier before status projection. This keeps final reports, REPL cards,
+  SWE telemetry, and future controller decisions aligned on the same typed
+  unavailable evidence instead of showing an unavailable final state with
+  misleading failed command counters.
 
 RC127-A validation:
 
@@ -8238,6 +8248,29 @@ RC127-A validation:
   passed.
 - RC127-B2 focused regression:
   `go test ./internal/tool -run 'TestRunTestsVerificationProbe(ImportErrorIsParserError|SystemExitImportBoundaryIsParserError)|TestRunPlanVerificationProbe(AssertionWrappedImportOutsideChangedLinesIsUnavailable|AssertionWrappedImportOnChangedLineRemainsFailure|ExceptionOutsideChangedLinesIsUnavailable|ExceptionOnChangedLineRemainsFailure)|TestPythonVerificationProbe(ImportDiagnosticDetailCapturesImportName|TracebackAttributionUsesPatchEffectAddedLines)' -count=1`
+  passed.
+- RC127-B2 SWE spot:
+  `eval/results/swebench/lite-smoke-20260619-rc127b2-pytest` on
+  `pytest-dev__pytest-11143` exported a non-empty 532 byte patch. The local
+  prediction validator accepted it with `empty_patch=0`, and
+  `DRY_RUN=1 CHECK_HARNESS_IMPORT=1 eval/swebench/run_official_harness.sh`
+  printed the official harness command after importing
+  `swebench.harness.run_evaluation`.
+  - `prediction_verdict=predicted_unverified`
+  - `verify_status=unavailable`
+  - `verify_failure_kind=parser_error`
+  - `verify_failure_reason_code=verification_probe_module_not_found`
+  - `workflow_status=complete`
+  - `delivery_candidate_status=coherent`
+  - `final_report_localization_status=supported`
+  - `final_report_proof_ledger_state=unavailable`
+  Manual audit: the patch changes
+  `AssertionRewriter.is_rewrite_disabled` to return
+  `isinstance(docstring, str) and "PYTEST_DONT_REWRITE" in docstring`, which
+  directly prevents the issue's numeric first-expression `TypeError` while
+  preserving the string opt-out behavior.
+- RC127-B3 focused regression:
+  `go test ./internal/types -run 'TestBuildVerificationProof(LedgerTreatsProbeParserErrorCommandAsUnavailable|LedgerProjectsCoverageObligations|ProfileUnavailable|CumulativeVerificationProofProfilePreservesUnavailablePrimary)' -count=1`
   passed.
 
 ## Acceptance Criteria
