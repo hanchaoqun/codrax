@@ -9237,10 +9237,10 @@ Tasks:
       fidelity/proof-confidence verdict.
 - [x] Add tests ensuring placement contracts only become hard proof obligations
       when `behavior_contracts[].placement` is present.
-- [ ] Audit Python-only patch-effect hard events and either prove why they are
+- [x] Audit Python-only patch-effect hard events and either prove why they are
       parser-precise Python-only or move them behind a provider interface with
       language-specific tests.
-- [ ] Re-run one non-Python rendered-output fixture and one non-Python compile
+- [x] Re-run one non-Python rendered-output fixture and one non-Python compile
       fallback fixture after the audit fields land.
 
 RC139-A implementation:
@@ -9267,6 +9267,32 @@ RC139-A evidence:
 - `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/audit_historical_results.py eval/swebench/run_codrax_swebench_test.py`: pass.
 - `go test ./internal/tool -run 'TestVerificationConfidenceRecords(FromProbeReport|DoNotRequirePlacementWithoutTypedContract|FromProbeReportRecordsSoftContractRefsSeparately)' -count=1`: pass.
 - `git diff --check`: pass.
+
+RC139-B audit conclusion:
+
+- No Python-only patch-effect event is currently allowed to hard-block a batch.
+  `patchReviewEffectHardEventCodes` is pinned to path containment, file read,
+  and structured JSON/YAML/XML parser facts only.
+- Python duplicate declarations, top-level `self`, docstring executable-looking
+  sections, and unreachable-after-added-return are all soft advisories /
+  effect-followup coverage. This is the right commercial posture: these are
+  useful repair hints, but they are still line-shape/regex/indentation
+  heuristics and must not become hard gates.
+- Generalizing those Python heuristics into JS/Ruby/Go/JVM would increase false
+  positives without adding typed parser authority. Future provider expansion is
+  only justified when a language implementation can emit parser-precise source
+  shape facts.
+- Existing provider-backed multi-language patch-effect signals remain active
+  for nested map/key access, production test scaffolding, owner-boundary
+  return wrappers, diagnostic suppression, nested collection branch exclusion,
+  duplicate inserted blocks, and brace-language return-before-existing
+  statements. These stay soft coverage/repair signals unless parser precision
+  is proven.
+
+RC139-B evidence:
+
+- `go test ./internal/writeflow -run 'TestPatchReviewHardEventCodesAreParserPrecise|TestAnnotatePatchEffectPython(TopLevelSelfMethod|DuplicateSymbol|AddedReturnBeforeExistingBody|DocstringSectionExecutable)IsSoftAdvisory|TestAnnotatePatchEffectDuplicateInsertedBlockIsSoftAdvisory' -count=1`: pass.
+- `go test ./internal/tool -run 'Test(SourceCheckProviderRegistry_UniqueAndDispatchCovered|SourceCheckExtensionsForNoTestWork_NodeIncludesTypeScriptOnlyThere|RunTestsEmptyParamsNodeTypeScriptNoTestsCompileFailure|RunGoCompileFallback|RunTestsEmptyParamsGoNoTestsCompileFailure|RunTestsJavaNoTestWorkUsesCompileFallback|RunJavaCompileFallbackFailureCarriesBuildErrors|RunTestsSwiftNoTestWorkUsesBuildFallback)' -count=1`: pass.
 
 ## Acceptance Criteria
 
