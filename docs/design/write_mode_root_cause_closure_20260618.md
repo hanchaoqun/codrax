@@ -7401,6 +7401,22 @@ RC117 design and tasks:
     passes.
   - `go test ./...` passes.
   - `make` passes.
+- SWE smoke:
+  - `eval/results/swebench/lite-smoke-20260619-rc117-followup-terminal-django`
+    on `django__django-14534` exports a non-empty 427 byte source-only patch
+    for `django/forms/boundfield.py`.
+  - The durable workflow now ends with `workflow_status=complete` and latest
+    progress `plan_batch_followup_unverified` instead of `blocked`.
+  - `prediction_blocks_local_acceptance=false`,
+    `prediction_verdict=predicted_passed_low_confidence`,
+    `verify_status=passed`, and the exported patch remains owned by the latest
+    source plan.
+  - The predictions JSONL validates with a non-empty patch and official harness
+    dry-run/import succeeds under `eval/results/swebench/.venv/bin/python`.
+  - Remaining gap: local confidence is still downgraded by
+    `verification_probe_missing_required_contract_ref`. Next follow-up should
+    make proof-follow-up probe enrichment more reliable so a passing targeted
+    probe can satisfy the required behavior contract without extra user action.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
