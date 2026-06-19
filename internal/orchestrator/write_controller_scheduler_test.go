@@ -1146,6 +1146,99 @@ func TestSeedControllerBatchContextPrefersOwnerAnchorsBeforeExpectedPaths(t *tes
 	}
 }
 
+func TestOwnerLocalizationRequirementTriggersBoundedExplorationBeforeApply(t *testing.T) {
+	mu := types.NewMutableState("owner requirement before apply")
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-owner-requirement",
+		Goal:          "repair owner path",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1",
+			Goal:    "repair owner path",
+			Status:  types.WriteWorkflowBatchPlanned,
+			PlanID:  "plan-stale",
+			PlanRef: "plans/plan-stale.json",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-001",
+				Status: types.ChangePlanSlicePending,
+				PlanID: "plan-stale",
+			}},
+		}},
+		ContextPacks: []types.WriteContextPack{{
+			PackID:      "write-analysis",
+			BatchID:     "batch-1",
+			SourceStage: "write_analysis",
+			Items: []types.WriteContextItem{{
+				Priority:    types.WriteContextP1,
+				Kind:        "scope_anchor",
+				Text:        "pkg/bug.py",
+				SourceStage: "write_analysis",
+				Consumers:   []types.WriteContextConsumer{types.WriteConsumerPlanner, types.WriteConsumerController},
+			}},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_depth_replan_requested",
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	explorationCalls := 0
+	o.SetReadExplorationRunner(readExplorationRunnerFunc(func(o *Orchestrator) (int, error) {
+		explorationCalls++
+		req := o.busCtx.Mutable.WriteExplorationRequest()
+		if req == nil || len(req.EvidenceRequirements) == 0 ||
+			!strings.Contains(req.EvidenceRequirements[0], "localization_requirement path=pkg/bug.py") ||
+			!strings.Contains(req.EvidenceRequirements[0], "reason=plan_source_path_without_owner_anchor") {
+			t.Fatalf("exploration request missing typed owner requirement: %+v", req)
+		}
+		pack := testOwnerLocalizationContextPack("batch-1", "pkg/bug.py", "Owner.fix")
+		o.busCtx.Mutable.MergeWriteContextPack(pack)
+		return 2, nil
+	}))
+	plan := &types.ChangePlan{
+		ID:          "plan-owner-gap",
+		Status:      types.PlanStatusPending,
+		Summary:     "repair owner path",
+		TargetPaths: []string{"pkg/bug.py"},
+		Changes:     []types.FileChange{{Path: "pkg/bug.py", Kind: "patch"}},
+	}
+	steps := 0
+	explored, err := o.runOwnerLocalizationRequirementExplorationBeforeApply(run, plan, &steps)
+	if err != nil {
+		t.Fatalf("runOwnerLocalizationRequirementExplorationBeforeApply: %v", err)
+	}
+	if !explored || explorationCalls != 1 || steps != 2 {
+		t.Fatalf("explored=%v calls=%d steps=%d", explored, explorationCalls, steps)
+	}
+	if run.Batches[0].Status != types.WriteWorkflowBatchReadyToPlan ||
+		run.Batches[0].PlanID != "" ||
+		run.Batches[0].PlanRef != "" ||
+		run.Batches[0].Slices[0].PlanID != "" {
+		t.Fatalf("batch should be reset for replan after owner exploration: %+v", run.Batches[0])
+	}
+	if !workflowRunContextContains(run, "localization_anchor", "owner=Owner.fix") {
+		t.Fatalf("owner localization context not synced to run: %+v", run.ContextPacks)
+	}
+	if !writeWorkflowRunHasProgressReasonForBatch(*run, "batch-1", "owner_localization_requirement_explored") {
+		t.Fatalf("progress ledger missing owner localization exploration: %+v", run.ProgressLedger)
+	}
+	if mu.ChangePlan() != nil {
+		t.Fatalf("stale plan should be cleared after pre-apply owner exploration: %+v", mu.ChangePlan())
+	}
+	exploredAgain, err := o.runOwnerLocalizationRequirementExplorationBeforeApply(run, plan, &steps)
+	if err != nil {
+		t.Fatalf("repeat exploration returned error: %v", err)
+	}
+	if exploredAgain || explorationCalls != 1 {
+		t.Fatalf("owner exploration should be one-shot per batch, exploredAgain=%v calls=%d", exploredAgain, explorationCalls)
+	}
+}
+
 func TestPlannerSoftCapForCompletedExplorationAppliesSynthesisFloor(t *testing.T) {
 	cases := []struct {
 		name             string

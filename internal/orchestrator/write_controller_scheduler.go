@@ -332,6 +332,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					return lastInnerErr
 				}
 			}
+			if innerErr == nil && o.busCtx.Mode == types.ModeApply {
+				if explored, exploreErr := o.runOwnerLocalizationRequirementExplorationBeforeApply(&run, plan, stepsUsed); explored {
+					if exploreErr != nil {
+						lastInnerErr = exploreErr
+					}
+					continue
+				}
+			}
 			updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
 			appendControllerProgress(&run, run.ActiveBatchID, "batch_planned", "")
 			o.persistCurrentChangePlanSnapshot()
@@ -952,6 +960,10 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			if !localizationOwnerReplanRetried && !localizationReplanRetried && !offScopeRiskReplanRetried && !testContractReplanRetried {
 				if hint, paths := o.localizationOwnerDepthReplanHint(o.busCtx.Mutable.ChangePlan()); hint != "" {
 					localizationOwnerReplanRetried = true
+					if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+						appendControllerProgress(run, run.ActiveBatchID, "owner_localization_depth_replan_requested", strings.Join(paths, ","))
+						o.busCtx.Mutable.SetWriteWorkflowRun(run)
+					}
 					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
 					if existing != "" {
 						existing += "\n\n"
@@ -1311,6 +1323,130 @@ func (o *Orchestrator) localizationRequirementPriorContextPacks() []types.WriteC
 		prior = append(prior, *pack)
 	}
 	return prior
+}
+
+func (o *Orchestrator) runOwnerLocalizationRequirementExplorationBeforeApply(run *types.WriteWorkflowRun, plan *types.ChangePlan, stepsUsed *int) (bool, error) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || plan == nil || stepsUsed == nil {
+		return false, nil
+	}
+	if changePlanIsNoChangeRequired(plan) || changePlanIsProofProbeOnly(plan) {
+		return false, nil
+	}
+	batchID := strings.TrimSpace(run.ActiveBatchID)
+	if batchID == "" ||
+		!writeWorkflowRunHasProgressReasonForBatch(*run, batchID, "owner_localization_depth_replan_requested") ||
+		writeWorkflowRunHasProgressReasonForBatch(*run, batchID, "owner_localization_requirement_explored") ||
+		writeWorkflowRunHasProgressReasonForBatch(*run, batchID, "owner_localization_requirement_degraded") {
+		return false, nil
+	}
+	requirements := types.LocalizationRequirementsFromWritePlanContext(
+		batchID,
+		activeWorkflowRunSliceID(*run, batchID),
+		types.WriteConsumerPlanner,
+		o.localizationRequirementPriorContextPacks(),
+		plan,
+		0,
+	)
+	rows := types.LocalizationRequirementEvidenceRows(types.LocalizationRequirementSet{Items: localizationRequirementOwnerOpenItems(requirements)}, 8)
+	if len(rows) == 0 {
+		return false, nil
+	}
+	candidatePaths := requirements.CandidatePaths
+	if len(candidatePaths) == 0 {
+		candidatePaths = append([]string(nil), requirements.MissingOwnerAnchorPaths...)
+	}
+	goal := strings.TrimSpace(activeWorkflowBatchGoal(*run, batchID))
+	if goal == "" {
+		goal = strings.TrimSpace(plan.Summary)
+	}
+	req := types.WriteExplorationRequest{
+		BatchID:              batchID,
+		Goal:                 goal,
+		CandidatePaths:       candidatePaths,
+		EvidenceRequirements: rows,
+	}
+	o.busCtx.Mutable.SetWriteExplorationRequest(&req)
+	updateWorkflowRunBatchStatus(run, batchID, types.WriteWorkflowBatchNeedsExploration)
+	clearWorkflowRunActiveBatchPlanRefs(run, batchID)
+	appendControllerProgress(run, batchID, "owner_localization_requirement_explore_requested",
+		"open typed owner-localization requirement requires one bounded read-only exploration before apply")
+	o.persistWriteWorkflowRun(run)
+	runner := o.readExplorationRunner
+	if runner == nil {
+		runner = defaultReadExplorationRunner{}
+	}
+	used, err := runner.Run(o)
+	*stepsUsed += used
+	if err != nil {
+		logging.Warning("[orchestrator] owner-localization requirement exploration degraded: %v", err)
+		updateWorkflowRunBatchExplore(run, batchID, "degraded", err.Error())
+		appendControllerProgress(run, batchID, "owner_localization_requirement_degraded", err.Error())
+	} else {
+		updateWorkflowRunBatchExplore(run, batchID, "complete", "")
+		appendControllerProgress(run, batchID, "owner_localization_requirement_explored", strings.Join(requirements.MissingOwnerAnchorPaths, ","))
+	}
+	updateWorkflowRunBatchStatus(run, batchID, types.WriteWorkflowBatchReadyToPlan)
+	o.syncCurrentWriteContextPackToRun(run)
+	o.persistWriteWorkflowRun(run)
+	o.busCtx.Mutable.ResetChangePlan()
+	o.busCtx.TaskState.LastError = ""
+	return true, err
+}
+
+func localizationRequirementOwnerOpenItems(set types.LocalizationRequirementSet) []types.LocalizationRequirement {
+	set = types.NormalizeLocalizationRequirementSet(set, 0)
+	var out []types.LocalizationRequirement
+	for _, item := range set.Items {
+		if item.Status == types.LocalizationRequirementOpen && item.Kind == types.LocalizationRequirementOwnerEvidence {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func writeWorkflowRunHasProgressReasonForBatch(run types.WriteWorkflowRun, batchID, reasonCode string) bool {
+	batchID = strings.TrimSpace(batchID)
+	reasonCode = strings.TrimSpace(reasonCode)
+	if batchID == "" || reasonCode == "" {
+		return false
+	}
+	for _, event := range run.ProgressLedger {
+		if strings.TrimSpace(event.BatchID) == batchID && strings.TrimSpace(event.ReasonCode) == reasonCode {
+			return true
+		}
+	}
+	return false
+}
+
+func activeWorkflowBatchGoal(run types.WriteWorkflowRun, batchID string) string {
+	batchID = strings.TrimSpace(batchID)
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == batchID {
+			return strings.TrimSpace(batch.Goal)
+		}
+	}
+	return strings.TrimSpace(run.Goal)
+}
+
+func clearWorkflowRunActiveBatchPlanRefs(run *types.WriteWorkflowRun, batchID string) {
+	if run == nil {
+		return
+	}
+	batchID = strings.TrimSpace(batchID)
+	for i := range run.Batches {
+		if strings.TrimSpace(run.Batches[i].ID) != batchID {
+			continue
+		}
+		run.Batches[i].PlanID = ""
+		run.Batches[i].PlanRef = ""
+		run.Batches[i].UpdatedAt = time.Now().UTC()
+		for j := range run.Batches[i].Slices {
+			if strings.TrimSpace(run.Batches[i].Slices[j].PlanID) != "" {
+				run.Batches[i].Slices[j].PlanID = ""
+			}
+		}
+		return
+	}
 }
 
 func (o *Orchestrator) offScopeHighRiskReplanHint(plan *types.ChangePlan) (string, []string) {

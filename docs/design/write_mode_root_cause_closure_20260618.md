@@ -4320,7 +4320,7 @@ Verification:
 | RC-108 | complete | Apply checkpoint owned-path boundary: RC106 smoke showed generated build artifacts can enter the apply commit itself before cumulative review. Apply checkpoint commits now stage only typed plan-owned paths instead of `git add -A`, preventing unowned generated files from becoming PatchEffect hard blockers. Full regressions pass; RC108 smoke produced 3/3 non-empty predictions and no generated-path PatchEffect blocker. |
 | RC-109 | complete | Verification environment/probe unavailable authority: typed unavailable reason-code helpers, report normalization, observation authority, and `run_tests` aggregation now classify dependency/probe unavailable evidence as unverified instead of product-code failure when there is no primary red source failure. Focused/full regressions and RC109 SWE smoke passed. |
 | RC-110 | complete | Auditable partial final reports: persist typed final reports for non-terminal workflows once apply/verify evidence exists, add `workflow_nonterminal` residual risk, export final-report owner-gap telemetry in the SWE adapter, and reran the failed Django spot case to confirm failed-verify `in_progress` deliveries no longer fall back to prose/log audit. Focused Go/Python tests, full `go test ./...`, `make`, diff check, prediction validation, and official harness dry-run pass. |
-| RC-111 | in progress | Shared localization owner/evidence pre-plan authority: RC111-A added a shared typed `LocalizationRequirement` projection, write pre-plan/exploration/replan consumption, plan-context persistence, read-source projection tests, and hygiene coverage proving plan narrative/prose does not drive requirements. Remaining RC111 work is runtime read exploration owner-discovery obligation and SWE/vague-symptom measurement. |
+| RC-111 | in progress | Shared localization owner/evidence pre-plan authority: RC111-A added a shared typed `LocalizationRequirement` projection, write pre-plan/exploration/replan consumption, plan-context persistence, read-source projection tests, and hygiene coverage proving plan narrative/prose does not drive requirements. RC111-B adds a one-shot pre-apply bounded read-only exploration when an open owner-localization requirement remains. Remaining work is runtime read-mode owner-discovery final handoff and vague-symptom measurement. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -7122,6 +7122,32 @@ RC111-A interpretation:
   presence dynamically. The RC111-A audit now states that final reports are
   present for 3/3 instances instead of emitting the old static
   `codrax.out`-only warning.
+
+RC111-B implementation notes:
+
+- Added a controller-owned pre-apply check that consumes
+  `LocalizationRequirementsFromWritePlanContext`. If a ModeApply plan still has
+  an open owner-localization requirement, the workflow runs one bounded
+  read-only exploration before approval/apply and then returns the active batch
+  to `ready_to_plan`.
+- This remains automatic and low-friction: no user approval is introduced for
+  low/medium-risk plans, and this is not a critical/deny gate. The objective is
+  to gather stronger typed owner evidence before editing, not to block routine
+  safe plans.
+- The check is one-shot per batch using typed progress reasons
+  `owner_localization_requirement_explored` /
+  `owner_localization_requirement_degraded`, preventing exploration loops.
+- Existing stability is preserved: a total absence of prior localization
+  context still does not trigger the replan loop, plan-only mode is unchanged,
+  and proof/no-change plans bypass the pre-apply owner exploration.
+- When the exploration fires, stale active-batch `PlanID` / `PlanRef` /
+  slice `PlanID` are cleared so the next controller turn replans against the
+  new handoff rather than treating the rejected plan as ready.
+- Focused test
+  `TestOwnerLocalizationRequirementTriggersBoundedExplorationBeforeApply`
+  covers the full typed path: scope-only context -> open owner requirement ->
+  exploration request with typed row -> owner anchor handoff synced to run ->
+  active batch reset for replan.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
