@@ -4363,7 +4363,7 @@ func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID string, pla
 	}
 	planID := ""
 	if plan != nil {
-		plan.Slices = types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{})
+		plan.Slices = types.NormalizeChangePlanSlices(plan, types.OnlineChangePlanSliceOptions(plan))
 		stampChangePlanImpactObligations(plan, nil)
 		planID = strings.TrimSpace(plan.ID)
 	}
@@ -4413,7 +4413,7 @@ func initializeWorkflowBatchSlicesFromPlan(batch *types.WriteWorkflowBatch, plan
 		}
 		return
 	}
-	plan.Slices = types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{})
+	plan.Slices = types.NormalizeChangePlanSlices(plan, types.OnlineChangePlanSliceOptions(plan))
 	derived := types.WriteWorkflowSlicesFromChangePlan(plan)
 	if len(derived) == 0 {
 		if strings.TrimSpace(priorPlanID) != planID {
@@ -5202,7 +5202,7 @@ func (o *Orchestrator) prepareMutableStateForNextWorkflowSlice(run *types.WriteW
 	if plan == nil {
 		return
 	}
-	plan.Slices = types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{})
+	plan.Slices = types.NormalizeChangePlanSlices(plan, types.OnlineChangePlanSliceOptions(plan))
 	plan.Status = types.PlanStatusPending
 	plan.AppliedAt = nil
 	o.busCtx.Mutable.SetChangePlan(plan)

@@ -141,7 +141,7 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		}
 		return fmt.Errorf("write blocked (multi-repo cross-sub-repo plan): %s", v.Detail)
 	}
-	plan.Slices = types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{})
+	plan.Slices = types.NormalizeChangePlanSlices(plan, types.OnlineChangePlanSliceOptions(plan))
 
 	wc := o.busCtx.Mutable.WriteClosure()
 	pending, activeSlice := pendingAppliesForActivePlanScope(o.busCtx.Mutable, plan, "plan_post_hook")

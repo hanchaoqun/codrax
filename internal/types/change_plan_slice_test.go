@@ -83,6 +83,54 @@ func TestDeriveChangePlanSlicesIsolatesPolicyPath(t *testing.T) {
 	}
 }
 
+func TestDeriveChangePlanSlicesAutoIsolatesOperationalPath(t *testing.T) {
+	plan := &ChangePlan{Changes: []FileChange{
+		{Path: "src/a.py"},
+		{Path: "package.json"},
+		{Path: "src/b.py"},
+	}}
+	got := DeriveChangePlanSlices(plan, ChangePlanSliceOptions{MaxChangesPerSlice: 4})
+	if len(got) != 3 {
+		t.Fatalf("expected automatic operational isolation, got %+v", got)
+	}
+	if !reflect.DeepEqual(got[1].Paths, []string{"package.json"}) {
+		t.Fatalf("operational path should be isolated, got %+v", got[1].Paths)
+	}
+}
+
+func TestOnlineChangePlanSliceOptionsSplitRoleAndOwnerScope(t *testing.T) {
+	plan := &ChangePlan{Changes: []FileChange{
+		{Path: "pkg/api/a.go"},
+		{Path: "pkg/api/b.go"},
+		{Path: "pkg/store/c.go"},
+		{Path: "tests/test_api.py"},
+		{Path: ".github/workflows/ci.yml"},
+		{Path: "pkg/store/d.go", DependsOn: []string{"pkg/store/c.go"}},
+	}}
+	got := DeriveChangePlanSlices(plan, OnlineChangePlanSliceOptions(plan))
+	if len(got) != 5 {
+		t.Fatalf("expected owner/role/operational split, got %+v", got)
+	}
+	if !reflect.DeepEqual(got[0].Paths, []string{"pkg/api/a.go", "pkg/api/b.go"}) {
+		t.Fatalf("same owner production files should stay together: %+v", got[0].Paths)
+	}
+	if !reflect.DeepEqual(got[1].Paths, []string{"pkg/store/c.go"}) {
+		t.Fatalf("different owner scope should split: %+v", got[1].Paths)
+	}
+	if !reflect.DeepEqual(got[2].Paths, []string{"tests/test_api.py"}) {
+		t.Fatalf("test role should split from production: %+v", got[2].Paths)
+	}
+	if !reflect.DeepEqual(got[3].Paths, []string{".github/workflows/ci.yml"}) {
+		t.Fatalf("workflow file should be isolated: %+v", got[3].Paths)
+	}
+	if !reflect.DeepEqual(got[4].DependsOnSlices, []string{"slice-002"}) {
+		t.Fatalf("dependency across owner slices should be preserved: %+v", got[4].DependsOnSlices)
+	}
+	if violations := ValidateChangePlanSlices(plan, got); len(violations) != 0 {
+		t.Fatalf("online slices should validate: %v", violations)
+	}
+}
+
 func TestNormalizeChangePlanSlicesDerivesPathsAndDeps(t *testing.T) {
 	plan := &ChangePlan{
 		Changes: []FileChange{

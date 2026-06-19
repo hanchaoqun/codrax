@@ -2,11 +2,13 @@ package types
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 )
 
 const DefaultChangePlanSliceMaxChanges = 8
+const DefaultOnlineChangePlanSliceMaxChanges = 4
 
 type ChangePlanSliceStatus string
 
@@ -37,8 +39,48 @@ type ChangePlanSlice struct {
 }
 
 type ChangePlanSliceOptions struct {
-	MaxChangesPerSlice int
-	IsolatedPaths      []string
+	MaxChangesPerSlice       int
+	IsolatedPaths            []string
+	SplitOnPathRoleBoundary  bool
+	SplitOnOwnerPathBoundary bool
+}
+
+// OnlineChangePlanSliceOptions returns the commercial write-mode default for
+// deterministic edit/run/observe units. It is a scheduling policy only: safety
+// approval still comes from typed risk/effect gates, while this helper keeps
+// unrelated roles, owner scopes, and sensitive operational surfaces from being
+// batched into one runtime unit.
+func OnlineChangePlanSliceOptions(plan *ChangePlan) ChangePlanSliceOptions {
+	return ChangePlanSliceOptions{
+		MaxChangesPerSlice:       DefaultOnlineChangePlanSliceMaxChanges,
+		IsolatedPaths:            ChangePlanSliceIsolationPaths(plan),
+		SplitOnPathRoleBoundary:  true,
+		SplitOnOwnerPathBoundary: true,
+	}
+}
+
+func ChangePlanSliceIsolationPaths(plan *ChangePlan) []string {
+	if plan == nil || len(plan.Changes) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, change := range plan.Changes {
+		for _, raw := range []string{change.Path, change.NewPath} {
+			p := cleanChangePlanSlicePath(raw)
+			if p == "" || !changePlanSlicePathRequiresIsolation(p) {
+				continue
+			}
+			key := strings.ToLower(p)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func DeriveChangePlanSlices(plan *ChangePlan, opts ChangePlanSliceOptions) []ChangePlanSlice {
@@ -49,21 +91,29 @@ func DeriveChangePlanSlices(plan *ChangePlan, opts ChangePlanSliceOptions) []Cha
 	isolated := changePlanSlicePathSet(opts.IsolatedPaths)
 	var groups [][]int
 	current := make([]int, 0, maxChanges)
+	currentKey := ""
 	flush := func() {
 		if len(current) == 0 {
 			return
 		}
 		groups = append(groups, append([]int(nil), current...))
 		current = current[:0]
+		currentKey = ""
 	}
 	for i, change := range plan.Changes {
 		iso := changePlanSliceChangeIsIsolated(change, isolated)
+		key := changePlanSliceGroupingKey(change, opts)
 		if iso {
+			flush()
+		} else if currentKey != "" && key != "" && currentKey != key {
 			flush()
 		} else if len(current) >= maxChanges {
 			flush()
 		}
 		current = append(current, i)
+		if currentKey == "" {
+			currentKey = key
+		}
 		if iso {
 			flush()
 		}
@@ -403,19 +453,107 @@ func changePlanSlicePathSet(paths []string) map[string]struct{} {
 }
 
 func changePlanSliceChangeIsIsolated(change FileChange, isolated map[string]struct{}) bool {
-	if len(isolated) == 0 {
-		return false
-	}
 	for _, path := range []string{change.Path, change.NewPath} {
-		path = strings.TrimSpace(path)
+		path = cleanChangePlanSlicePath(path)
 		if path == "" {
 			continue
 		}
-		if _, ok := isolated[strings.ToLower(path)]; ok {
+		if len(isolated) > 0 {
+			if _, ok := isolated[strings.ToLower(path)]; ok {
+				return true
+			}
+		}
+		if changePlanSlicePathRequiresIsolation(path) {
 			return true
 		}
 	}
 	return false
+}
+
+func changePlanSliceGroupingKey(change FileChange, opts ChangePlanSliceOptions) string {
+	if !opts.SplitOnPathRoleBoundary && !opts.SplitOnOwnerPathBoundary {
+		return ""
+	}
+	primary := cleanChangePlanSlicePath(firstChangePlanSlicePath(change))
+	if primary == "" {
+		return ""
+	}
+	var parts []string
+	if opts.SplitOnPathRoleBoundary {
+		parts = append(parts, string(ClassifySourcePathRole(primary)))
+	}
+	if opts.SplitOnOwnerPathBoundary {
+		parts = append(parts, changePlanSliceOwnerPathKey(primary))
+	}
+	return strings.Join(parts, "\x00")
+}
+
+func firstChangePlanSlicePath(change FileChange) string {
+	for _, raw := range []string{change.Path, change.NewPath} {
+		if p := cleanChangePlanSlicePath(raw); p != "" {
+			return p
+		}
+	}
+	return ""
+}
+
+func cleanChangePlanSlicePath(raw string) string {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	if raw == "" || raw == "." {
+		return ""
+	}
+	clean := path.Clean(raw)
+	if clean == "." {
+		return ""
+	}
+	return strings.TrimPrefix(clean, "./")
+}
+
+func changePlanSliceOwnerPathKey(rel string) string {
+	rel = cleanChangePlanSlicePath(rel)
+	if rel == "" {
+		return ""
+	}
+	dir := path.Dir(rel)
+	if dir == "." || dir == "/" {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(dir, "/"), "/")
+	if len(parts) <= 2 {
+		return strings.Join(parts, "/")
+	}
+	return strings.Join(parts[:2], "/")
+}
+
+func changePlanSlicePathRequiresIsolation(rel string) bool {
+	rel = strings.ToLower(cleanChangePlanSlicePath(rel))
+	if rel == "" {
+		return false
+	}
+	base := path.Base(rel)
+	if strings.HasPrefix(rel, ".github/workflows/") ||
+		strings.HasPrefix(rel, ".github/actions/") ||
+		strings.HasPrefix(rel, ".githooks/") ||
+		strings.HasPrefix(rel, ".husky/") ||
+		strings.Contains(rel, "/migrations/") ||
+		strings.Contains(rel, "/database/migrations/") {
+		return true
+	}
+	switch base {
+	case "go.mod", "go.sum",
+		"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+		"cargo.toml", "cargo.lock", "pom.xml", "build.gradle", "settings.gradle",
+		"requirements.txt", "pyproject.toml", "poetry.lock", "pipfile", "pipfile.lock",
+		"dockerfile", "docker-compose.yml", "androidmanifest.xml",
+		"codrax.yaml", "providers.yaml":
+		return true
+	}
+	switch path.Ext(base) {
+	case ".pem", ".key", ".p12", ".pfx":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeWorkflowSlicesFromPlanSlices(slices []ChangePlanSlice, planID string) []WriteWorkflowSlice {

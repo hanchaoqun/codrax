@@ -2789,6 +2789,9 @@ func TestRunWriteControllerWorkflow_ReplansOffScopeHighRiskBuildManifest(t *test
 			{Action: writeflow.ActionApplyPlan, ReasonCode: "plan_ready"},
 			{Action: writeflow.ActionVerifyBatch, ReasonCode: "applied"},
 			{Action: writeflow.ActionFinish, ReasonCode: "done"},
+			{Action: writeflow.ActionApplyPlan, ReasonCode: "next_slice_ready"},
+			{Action: writeflow.ActionVerifyBatch, ReasonCode: "next_slice_applied"},
+			{Action: writeflow.ActionFinish, ReasonCode: "done_after_slices"},
 		}, &controllerCalls),
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
