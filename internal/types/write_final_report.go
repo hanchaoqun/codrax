@@ -91,27 +91,29 @@ type WriteFinalOwnerGap struct {
 }
 
 type WriteFinalPatchSummary struct {
-	PatchEffectID    string   `json:"patch_effect_id,omitempty"`
-	DiffFingerprint  string   `json:"diff_fingerprint,omitempty"`
-	DiffBytes        int      `json:"diff_bytes,omitempty"`
-	ChangedFiles     []string `json:"changed_files,omitempty"`
-	SourceFiles      []string `json:"source_files,omitempty"`
-	TestFiles        []string `json:"test_files,omitempty"`
-	EffectEventCodes []string `json:"effect_event_codes,omitempty"`
+	PatchEffectID    string                       `json:"patch_effect_id,omitempty"`
+	DiffFingerprint  string                       `json:"diff_fingerprint,omitempty"`
+	DiffBytes        int                          `json:"diff_bytes,omitempty"`
+	ChangedFiles     []string                     `json:"changed_files,omitempty"`
+	SourceFiles      []string                     `json:"source_files,omitempty"`
+	TestFiles        []string                     `json:"test_files,omitempty"`
+	LanguageFamilies []VerificationLanguageFamily `json:"language_families,omitempty"`
+	EffectEventCodes []string                     `json:"effect_event_codes,omitempty"`
 }
 
 type WriteFinalVerificationSummary struct {
-	ReportID              string             `json:"report_id,omitempty"`
-	Status                VerificationStatus `json:"status,omitempty"`
-	Passed                bool               `json:"passed,omitempty"`
-	FailureKind           FailureKind        `json:"failure_kind,omitempty"`
-	FailureReasonCode     string             `json:"failure_reason_code,omitempty"`
-	TestCount             int                `json:"test_count,omitempty"`
-	PassedCount           int                `json:"passed_count,omitempty"`
-	FailedCount           int                `json:"failed_count,omitempty"`
-	CommandCount          int                `json:"command_count,omitempty"`
-	ConfidenceReasonCodes []string           `json:"confidence_reason_codes,omitempty"`
-	NoTestsRunners        []string           `json:"no_tests_runners,omitempty"`
+	ReportID              string                       `json:"report_id,omitempty"`
+	Status                VerificationStatus           `json:"status,omitempty"`
+	Passed                bool                         `json:"passed,omitempty"`
+	FailureKind           FailureKind                  `json:"failure_kind,omitempty"`
+	FailureReasonCode     string                       `json:"failure_reason_code,omitempty"`
+	TestCount             int                          `json:"test_count,omitempty"`
+	PassedCount           int                          `json:"passed_count,omitempty"`
+	FailedCount           int                          `json:"failed_count,omitempty"`
+	CommandCount          int                          `json:"command_count,omitempty"`
+	RunnerFamilies        []VerificationLanguageFamily `json:"runner_families,omitempty"`
+	ConfidenceReasonCodes []string                     `json:"confidence_reason_codes,omitempty"`
+	NoTestsRunners        []string                     `json:"no_tests_runners,omitempty"`
 }
 
 type WriteFinalDeliverySummary struct {
@@ -300,7 +302,9 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Patch.ChangedFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.ChangedFiles)
 	in.Patch.SourceFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.SourceFiles)
 	in.Patch.TestFiles = dedupTrimWriteWorkflowRunStrings(in.Patch.TestFiles)
+	in.Patch.LanguageFamilies = NormalizeVerificationLanguageFamilies(in.Patch.LanguageFamilies)
 	in.Patch.EffectEventCodes = dedupTrimWriteWorkflowRunStrings(in.Patch.EffectEventCodes)
+	in.Verification.RunnerFamilies = NormalizeVerificationLanguageFamilies(in.Verification.RunnerFamilies)
 	in.Verification.ConfidenceReasonCodes = dedupTrimWriteWorkflowRunStrings(in.Verification.ConfidenceReasonCodes)
 	in.Verification.NoTestsRunners = dedupTrimWriteWorkflowRunStrings(in.Verification.NoTestsRunners)
 	in.Proof = NormalizeVerificationProofProfile(in.Proof)
@@ -457,6 +461,8 @@ func writeFinalPatchSummary(effect *PatchEffectRecord) WriteFinalPatchSummary {
 			} else {
 				out.SourceFiles = append(out.SourceFiles, path)
 			}
+			out.LanguageFamilies = append(out.LanguageFamilies, VerificationLanguageFamiliesFromPath(path)...)
+			out.LanguageFamilies = append(out.LanguageFamilies, VerificationLanguageFamiliesFromRunner(file.Language, "")...)
 		}
 		for _, event := range file.Events {
 			if code := strings.TrimSpace(event.Code); code != "" {
@@ -491,6 +497,7 @@ func writeFinalVerificationSummary(report *ChangeReport) WriteFinalVerificationS
 		PassedCount:       passed,
 		FailedCount:       failed,
 		CommandCount:      len(report.ExecutedCommands),
+		RunnerFamilies:    VerificationLanguageFamiliesFromReport(report),
 		NoTestsRunners:    append([]string(nil), report.NoTestsRunners...),
 	}
 	for _, rec := range report.VerificationConfidence {

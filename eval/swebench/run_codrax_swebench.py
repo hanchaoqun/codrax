@@ -1578,6 +1578,8 @@ def apply_final_report_result_fields(
         result["final_report_localization_owner_supported_paths"] = []
         result["final_report_plan_id"] = ""
         result["final_report_patch_fingerprint"] = ""
+        result["final_report_patch_language_families"] = []
+        result["final_report_verification_runner_families"] = []
         result["final_report_residual_risk_codes"] = []
         result["final_report_handoff_evidence_refs"] = []
         result["final_report_plan_owner_anchor_ids"] = []
@@ -1704,6 +1706,16 @@ def apply_final_report_result_fields(
     ]
     result["final_report_plan_id"] = str(plan.get("id") or "").strip()
     result["final_report_patch_fingerprint"] = str(patch.get("diff_fingerprint") or "").strip()
+    result["final_report_patch_language_families"] = [
+        str(value).strip()
+        for value in patch.get("language_families") or []
+        if str(value).strip()
+    ]
+    result["final_report_verification_runner_families"] = [
+        str(value).strip()
+        for value in verification.get("runner_families") or []
+        if str(value).strip()
+    ]
     result["final_report_residual_risk_codes"] = final_report_list_values(final_report, "residual_risks")
     plan_owner = final_report_owner_anchor_summary(final_report, "plan", "owner_anchors")
     handoff_owner = final_report_owner_anchor_summary(final_report, "handoff", "owner_anchors")

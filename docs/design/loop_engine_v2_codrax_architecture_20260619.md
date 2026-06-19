@@ -1486,7 +1486,7 @@ The remaining work must land as small batches. Each batch below has a typed arti
 | L7.2 | P0 | **Delivered 2026-06-20.** Make runtime unit event/truth persistence authoritative. Workflow batch/slice fields become projections from events for write mode; replay can recover active unit, permission, checkpoint, observation, truth, and terminal state. | `internal/loopkernel`, workflow store, write adapter | Replay idempotence tests pass; restart/resume preserves pending approval and failed-unit state. |
 | L9.1 | P1 | **Delivered 2026-06-20.** Render one Auto Pilot status card from `LoopStateView` plus `WorkflowExecutionView`. Routine CLI/REPL now says current state, reason, next action, proof/truth status, approval need, and evidence refs from typed loop events. Advanced `/workflow` commands remain for audit/recovery, not the happy path. | REPL/CLI status rendering, docs/user guide | Running/paused/unverified/blocked cards render from typed reason codes; no log/prose parsing; UX tests pass. |
 | L10.1 | P1 | **Delivered 2026-06-20.** Add replay/eval audit artifacts. Final reports and SWE predictions carry loop event refs, truth refs, patch refs, and proof/localization summaries so correctness can be audited without rerunning LLM/tools. Replay remains artifact-first through `.final.json`, workflow event files, and the existing `/workflow show` audit surface instead of adding another routine command. | SWE adapter, final report, loop event store | Predictions remain official-harness consumable; typed replay/audit state reconstructs from durable artifacts; eval projection tests pass. |
-| L10.2 | P1 | Multi-language hardening. Keep Python-specific heuristics out of hard gates; extend proof/verification canaries across JS/TS, Ruby, Java/Kotlin, Go, and config/workflow files using existing typed verification probes and test surface abstraction. | `internal/tool/run_tests*`, proof profile, eval fixtures | Multi-language canaries pass; language-specific failures degrade to typed unavailable where appropriate. |
+| L10.2 | P1 | Multi-language hardening. Keep Python-specific heuristics out of hard gates; persist typed patch/verification language families for the full Codrax language matrix: Go, Python, JS, TS, Java, Kotlin, Rust, C, C++, Ruby, Swift, Lua, Proto, ArkTS, Cangjie, CUDA, Objective-C/Objective-C++, PHP path surfaces, and config/workflow files. | final report schema, SWE adapter telemetry, `internal/tool/run_tests*`, proof profile, eval fixtures | Language-family telemetry is available without parsing logs; full-matrix canaries pass; language-specific failures degrade to typed unavailable where appropriate. |
 
 ### Detailed Next-Batch Implementation Rule
 
@@ -1541,6 +1541,7 @@ During each batch:
 | 2026-06-20 | L7.2 | complete | Promoted write workflow event replay from active-slice shadowing to per-runtime-unit persistence. `EventsFromWriteWorkflowRun` now emits unit/effect/permission/checkpoint/apply/observe/proof/truth events for every workflow slice, moves the active slice last for active-unit replay, and keeps no-slice batch fallback behavior. `LoopStateView` and each `RuntimeUnitView` now carry typed `TruthLedger`, so replay/eval can distinguish prior covered units from active observing or failed repair-needed units. Focused loopkernel/repl/orchestrator/types/writeflow tests passed. |
 | 2026-06-20 | L9.1 | complete | REPL routine status cards now consume `LoopStateView` truth/proof state instead of only workflow batch status. `/workflow show` renders `Truth authority` with typed signal paths/evidence refs, running next-action cards explain automatic repair/proof/unverified continuation from typed reason codes, and the active startup banner surfaces only the active runtime-unit truth so prior verified slices do not masquerade as current proof. CLI blocked/paused guidance now includes the same typed Truth/Proof authority line via loop event replay. Focused REPL/orchestrator status tests passed. |
 | 2026-06-20 | L10.1 | complete | `WriteFinalReport` now persists a compact `loop` audit envelope with event refs, active runtime unit, run-level truth, per-unit truth, proof/localization/permission authority summaries, and event counts projected from typed loop events. The SWE-bench adapter projects these fields into `results.jsonl` as telemetry while leaving official `prediction.json`/`model_patch` unchanged and harness-consumable. User guide documents `<plan>.final.json` as the low-command audit artifact; no extra routine replay command was added because `/workflow show` already reconstructs active workflow state. Focused Go final-report/orchestrator tests and Python adapter final-report projection tests passed. |
+| 2026-06-20 | L10.2 | complete | Added typed `VerificationLanguageFamily` telemetry for the full Codrax language surface instead of Python-specific audit assumptions. Final reports now persist patch `language_families` and verification `runner_families`; the SWE-bench adapter projects both into `results.jsonl` without changing official predictions. The matrix covers Go, Python, JavaScript, TypeScript, Java, Kotlin, Rust, C, C++, Ruby, Swift, Lua, Proto, ArkTS, Cangjie, CUDA, Objective-C/Objective-C++, PHP path surfaces, and config/workflow files. Focused Go and adapter tests cover full-matrix path/runner projection. |
 
 ## Phased Roadmap
 
@@ -1693,13 +1694,10 @@ Tasks:
 2. Make `/workflow` commands advanced/audit, not routine flow.
 3. Add replay CLI/audit command.
 4. Extend SWE-bench/eval artifacts with loop event refs and truth ledger refs.
-5. Add multi-language canaries:
-   - Python;
-   - JavaScript/TypeScript;
-   - Ruby;
-   - Java/Kotlin;
-   - Go;
-   - config/workflow files.
+5. Add full language-matrix canaries:
+   - Go, Python, JavaScript, TypeScript, Java, Kotlin, Rust, C, C++, Ruby, Swift, Lua, Proto, ArkTS, Cangjie;
+   - source-extension remaps Codrax already treats as code surfaces: CUDA (`.cu/.cuh`) and Objective-C / Objective-C++ (`.m/.mm`);
+   - path-classified PHP surfaces and config/workflow files.
 6. Run full regression:
    - `go test ./...`
    - `make test`

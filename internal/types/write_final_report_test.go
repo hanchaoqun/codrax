@@ -166,8 +166,14 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 	if got.Patch.PatchEffectID == "" || len(got.Patch.EffectEventCodes) != 1 {
 		t.Fatalf("Patch=%+v, want patch effect projection", got.Patch)
 	}
+	if !verificationLanguageFamilyContains(got.Patch.LanguageFamilies, VerificationLanguagePython) {
+		t.Fatalf("Patch.LanguageFamilies=%+v, want python", got.Patch.LanguageFamilies)
+	}
 	if got.Verification.Status != VerificationStatusUnavailable || got.Verification.FailureKind != FailureKindRunnerMissing {
 		t.Fatalf("Verification=%+v, want unavailable runner_missing", got.Verification)
+	}
+	if !verificationLanguageFamilyContains(got.Verification.RunnerFamilies, VerificationLanguagePython) {
+		t.Fatalf("Verification.RunnerFamilies=%+v, want python", got.Verification.RunnerFamilies)
 	}
 	if got.PatchReview.Verdict != PatchReviewCoverageVerdictUnverified ||
 		len(got.PatchReview.UnverifiedKinds) != 1 ||

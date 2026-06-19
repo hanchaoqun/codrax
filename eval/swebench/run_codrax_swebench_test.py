@@ -546,7 +546,10 @@ class FinalReportProjectionTests(unittest.TestCase):
                             "owner_supported_paths": ["src/owner.py"],
                         },
                     },
-                    "patch": {"diff_fingerprint": "abc123"},
+                    "patch": {
+                        "diff_fingerprint": "abc123",
+                        "language_families": ["python", "arkts", "cangjie", "cpp"],
+                    },
                     "source_authority": {
                         "plan_id": "plan-source",
                         "source_paths": ["src/app.py"],
@@ -576,7 +579,10 @@ class FinalReportProjectionTests(unittest.TestCase):
                             "owner_supported_paths": ["src/app.py"],
                         },
                     },
-                    "verification": {"status": "unavailable"},
+                    "verification": {
+                        "status": "unavailable",
+                        "runner_families": ["python", "javascript", "typescript", "c", "cpp"],
+                    },
                     "proof": {
                         "status": "weak",
                         "runner_evidence": "verification_probe",
@@ -706,6 +712,14 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_plan_id"], "plan-1")
         self.assertEqual(result["final_report_patch_fingerprint"], "abc123")
         self.assertEqual(
+            result["final_report_patch_language_families"],
+            ["python", "arkts", "cangjie", "cpp"],
+        )
+        self.assertEqual(
+            result["final_report_verification_runner_families"],
+            ["python", "javascript", "typescript", "c", "cpp"],
+        )
+        self.assertEqual(
             result["final_report_residual_risk_codes"],
             ["verification_unavailable", "patch_review_semantic_unverified"],
         )
@@ -787,6 +801,8 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_localization_missing_paths"], [])
         self.assertEqual(result["final_report_localization_owner_missing_paths"], [])
         self.assertEqual(result["final_report_localization_owner_supported_paths"], [])
+        self.assertEqual(result["final_report_patch_language_families"], [])
+        self.assertEqual(result["final_report_verification_runner_families"], [])
         self.assertEqual(result["final_report_residual_risk_codes"], [])
         self.assertEqual(result["final_report_handoff_evidence_refs"], [])
         self.assertEqual(result["final_report_plan_owner_anchor_ids"], [])
