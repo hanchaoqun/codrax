@@ -54,6 +54,17 @@ func ValidateWorkflowTransition(view WorkflowExecutionView, decision WriteWorkfl
 }
 
 func validateLocalizationAuthorityTransition(view WorkflowExecutionView, action WorkflowAction) WorkflowTransitionValidation {
+	if workflowTransitionNeedsNavigationCoverage(view) {
+		switch action {
+		case ActionExploreCode, ActionAskUser, ActionBlock:
+			return WorkflowTransitionValidation{Allowed: true}
+		case ActionPlanBatch, ActionAppendBatch, ActionSplitBatch, ActionReplanBatch, ActionFinish:
+			return workflowTransitionDenied("navigation_coverage_requires_exploration",
+				"typed repo_map navigation coverage is missing required lens coverage while localization still needs source-owner context", ActionExploreCode)
+		default:
+			return WorkflowTransitionValidation{Allowed: true}
+		}
+	}
 	if !workflowTransitionNeedsOwnerLocalization(view) {
 		return WorkflowTransitionValidation{Allowed: true}
 	}
@@ -73,6 +84,26 @@ func workflowTransitionNeedsOwnerLocalization(view WorkflowExecutionView) bool {
 		return false
 	}
 	if len(view.Localization.SourcePaths) == 0 && len(view.Localization.OwnerMissingPaths) == 0 {
+		return false
+	}
+	switch view.State {
+	case WorkflowExecutionReadyToPlan, WorkflowExecutionNeedsReplan:
+		return true
+	default:
+		return false
+	}
+}
+
+func workflowTransitionNeedsNavigationCoverage(view WorkflowExecutionView) bool {
+	if !view.Localization.RequiresMoreContext || view.ExploreAttempts > 0 {
+		return false
+	}
+	if len(view.Navigation.MissingRoutes) == 0 {
+		return false
+	}
+	switch view.Navigation.State {
+	case types.RepoMapNavigationCoverageMissing, types.RepoMapNavigationCoveragePartial:
+	default:
 		return false
 	}
 	switch view.State {

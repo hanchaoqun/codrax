@@ -661,6 +661,13 @@ func TestWriteContextPackFromRepoMapNavigationCoverageProjectsP1State(t *testing
 	if view.Items[0].EvidenceRef == nil || view.Items[0].EvidenceRef.ID != "blob://repo-map-task" {
 		t.Fatalf("navigation coverage should carry evidence ref: %+v", view.Items[0])
 	}
+	if view.Items[0].NavigationCoverage == nil || view.Items[0].NavigationCoverage.State != RepoMapNavigationCoveragePartial {
+		t.Fatalf("navigation coverage should be stored as typed context, not only text: %+v", view.Items[0])
+	}
+	got := RepoMapNavigationCoverageFromWriteContextPacks([]WriteContextPack{pack}, WriteConsumerController, "batch-1", "")
+	if got.State != RepoMapNavigationCoveragePartial || len(got.MissingRoutes) != 1 || got.MissingRoutes[0] != RepoMapNavigationRouteRelationMap {
+		t.Fatalf("typed navigation coverage not recoverable from context pack: %+v", got)
+	}
 }
 
 func TestWriteContextPackFromPlanContextCoverageNormalizesSymbolAnchorsToFiles(t *testing.T) {

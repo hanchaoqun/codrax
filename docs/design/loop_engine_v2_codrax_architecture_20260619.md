@@ -1324,8 +1324,10 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 - [x] Publish typed repo_map navigation-route observations for successful tool calls.
 - [x] Derive covered/missing route state from typed policy steps and typed observations.
 - [x] Project navigation coverage into write context pack as P1 controller/planner/verifier context.
-- Compile required lenses from typed analysis/question structure and localization gaps.
-- Trigger localizer/impact navigation when required coverage is missing.
+- [x] Persist navigation coverage as typed `WriteContextItem.NavigationCoverage` and surface it on `WorkflowExecutionView`.
+- [x] Route write controller transitions to bounded `explore_code` when typed navigation coverage is partial/missing while localization still needs owner context.
+- [ ] Compile additional required lenses from localization gaps beyond the current typed analysis policy.
+- [ ] Trigger read scheduler localizer and write impact-navigation workers when required coverage is missing.
 - Keep repo_map as navigation fact, never semantic citation.
 
 ### L7 Task Breakdown
@@ -1368,6 +1370,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | 2026-06-19 | L4 | in_progress | `/workflow show` now renders proof authority in both Chinese and English branches and uses the unverified status card for completed workflows whose typed completion verdict is `unverified`. Focused REPL status-card tests passed. Remaining work: full proof authority synthesis from ledger/profile and weak-proof next-action routing. |
 | 2026-06-19 | L4 | complete | Added `DeriveProofCoverageAuthorityFromArtifacts`, `MergeProofCoverageAuthority`, and `DeriveWorkflowExecutionViewWithReport` so controller state combines latest verify attempt with full proof profile/ledger from typed reports, impact targets, patch review, and verification confidence. The change deliberately keeps proof follow-up routing in the existing actionable-ref queue instead of broad hard-gating every weak proof, preserving stable low-friction write paths. Focused `loopkernel`/`writeflow` tests cover passed-but-weak, failed-ledger override, unavailable preservation, and planner-probe ignored. |
 | 2026-06-19 | L6 | in_progress | Added typed repo_map navigation-route observations, `RepoMapNavigationCoverage` coverage derivation, source_inventory/relation_map ToolResult side-channel coverage, and write context-pack projection as P1 controller/planner/verifier context. This batch intentionally stops before read scheduler/localizer hard routing: coverage is now observable and durable, while automatic localizer scheduling remains the next L6 step. Focused `types`/`tool/repomap`/`orchestrator` tests passed. |
+| 2026-06-19 | L6 | in_progress | Promoted navigation coverage from prompt context into controller state: `WriteContextItem` now persists typed `NavigationCoverage`, `WorkflowExecutionView` surfaces the active batch coverage, and transition validation converts premature plan/replan/finish decisions into bounded `explore_code` when required repo_map routes are missing while localization still needs owner context. Recovery exploration requests carry typed `repo_map_navigation_requirement` rows alongside owner-localization requirements. Focused `types`/`writeflow`/`orchestrator` tests passed. Remaining L6 work: read scheduler localizer consumption and impact-navigation worker triggers. |
 
 ## Phased Roadmap
 

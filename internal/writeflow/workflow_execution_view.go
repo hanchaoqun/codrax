@@ -52,6 +52,7 @@ type WorkflowExecutionView struct {
 
 	Localization             loopkernel.LocalizationAuthorityView  `json:"localization,omitempty"`
 	LocalizationGateEligible bool                                  `json:"localization_gate_eligible,omitempty"`
+	Navigation               types.RepoMapNavigationCoverage       `json:"navigation,omitempty"`
 	ExploreAttempts          int                                   `json:"explore_attempts,omitempty"`
 	LatestExploreStatus      string                                `json:"latest_explore_status,omitempty"`
 	LatestExploreReason      string                                `json:"latest_explore_reason,omitempty"`
@@ -98,6 +99,7 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 		view.Localization = loopkernel.DeriveLocalizationAuthority(review)
 		view.LocalizationGateEligible = workflowExecutionLocalizationGateEligible(*review)
 	}
+	view.Navigation = types.RepoMapNavigationCoverageFromWriteContextPacks(run.ContextPacks, types.WriteConsumerController, view.BatchID, view.ActiveSliceID)
 	if latestVerify := latestAttemptOfKind(batch, "verify"); latestVerify != nil {
 		view.LatestVerifyStatus = strings.TrimSpace(latestVerify.Status)
 		view.LatestVerifyReasonCode = strings.TrimSpace(latestVerify.ReasonCode)

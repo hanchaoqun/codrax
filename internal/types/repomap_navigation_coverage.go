@@ -26,6 +26,68 @@ type RepoMapNavigationCoverage struct {
 	EvidenceRefs   []string                       `json:"evidence_refs,omitempty"`
 }
 
+func NormalizeRepoMapNavigationCoverage(in RepoMapNavigationCoverage) RepoMapNavigationCoverage {
+	in.RequiredRoutes = normalizeRepoMapNavigationRoutes(in.RequiredRoutes)
+	in.ObservedRoutes = normalizeRepoMapNavigationRoutes(in.ObservedRoutes)
+	in.CoveredRoutes = normalizeRepoMapNavigationRoutes(in.CoveredRoutes)
+	in.MissingRoutes = normalizeRepoMapNavigationRoutes(in.MissingRoutes)
+	in.EvidenceRefs = normalizeRepoMapNavigationCoverageStrings(in.EvidenceRefs, 16)
+	in.ReasonCode = strings.TrimSpace(in.ReasonCode)
+	if in.State == "" {
+		switch {
+		case len(in.RequiredRoutes) == 0:
+			in.State = RepoMapNavigationCoverageNotRequired
+			if in.ReasonCode == "" {
+				in.ReasonCode = "repo_map_navigation_not_required"
+			}
+		case len(in.MissingRoutes) == 0:
+			in.State = RepoMapNavigationCoverageCovered
+			if in.ReasonCode == "" {
+				in.ReasonCode = "repo_map_navigation_covered"
+			}
+		case len(in.CoveredRoutes) > 0:
+			in.State = RepoMapNavigationCoveragePartial
+			if in.ReasonCode == "" {
+				in.ReasonCode = "repo_map_navigation_partial"
+			}
+		default:
+			in.State = RepoMapNavigationCoverageMissing
+			if in.ReasonCode == "" {
+				in.ReasonCode = "repo_map_navigation_missing"
+			}
+		}
+	}
+	return in
+}
+
+func MergeRepoMapNavigationCoverage(values ...RepoMapNavigationCoverage) RepoMapNavigationCoverage {
+	var required []RepoMapNavigationRoute
+	var observed []RepoMapNavigationRoute
+	var evidenceRefs []string
+	for _, value := range values {
+		value = NormalizeRepoMapNavigationCoverage(value)
+		required = append(required, value.RequiredRoutes...)
+		observed = append(observed, value.ObservedRoutes...)
+		evidenceRefs = append(evidenceRefs, value.EvidenceRefs...)
+	}
+	coverage := RepoMapNavigationCoverage{
+		RequiredRoutes: normalizeRepoMapNavigationRoutes(required),
+		ObservedRoutes: normalizeRepoMapNavigationRoutes(observed),
+		EvidenceRefs:   normalizeRepoMapNavigationCoverageStrings(evidenceRefs, 16),
+	}
+	if len(coverage.RequiredRoutes) == 0 {
+		return NormalizeRepoMapNavigationCoverage(coverage)
+	}
+	for _, route := range coverage.RequiredRoutes {
+		if repoMapNavigationRouteCovered(route, coverage.ObservedRoutes) {
+			coverage.CoveredRoutes = append(coverage.CoveredRoutes, route)
+			continue
+		}
+		coverage.MissingRoutes = append(coverage.MissingRoutes, route)
+	}
+	return NormalizeRepoMapNavigationCoverage(coverage)
+}
+
 func NormalizeRepoMapNavigationRoute(raw string) RepoMapNavigationRoute {
 	route := strings.ToLower(strings.TrimSpace(raw))
 	route = strings.ReplaceAll(route, "-", "_")
@@ -97,7 +159,7 @@ func RepoMapNavigationCoverageFromObservations(policy RepoMapNavigationPolicy, r
 	if len(required) == 0 {
 		coverage.State = RepoMapNavigationCoverageNotRequired
 		coverage.ReasonCode = "repo_map_navigation_not_required"
-		return coverage
+		return NormalizeRepoMapNavigationCoverage(coverage)
 	}
 	for _, route := range required {
 		if repoMapNavigationRouteCovered(route, observed) {
@@ -117,7 +179,7 @@ func RepoMapNavigationCoverageFromObservations(policy RepoMapNavigationPolicy, r
 		coverage.State = RepoMapNavigationCoverageMissing
 		coverage.ReasonCode = "repo_map_navigation_missing"
 	}
-	return coverage
+	return NormalizeRepoMapNavigationCoverage(coverage)
 }
 
 func RepoMapNavigationRouteFromObservation(record ObservationRecord) (RepoMapNavigationRoute, bool) {
@@ -141,6 +203,20 @@ func repoMapNavigationRequiredRoutes(policy RepoMapNavigationPolicy) []RepoMapNa
 	var out []RepoMapNavigationRoute
 	for _, step := range policy.Steps {
 		route := NormalizeRepoMapNavigationRoute(string(step.Route))
+		if !route.Valid() || seen[route] {
+			continue
+		}
+		seen[route] = true
+		out = append(out, route)
+	}
+	return out
+}
+
+func normalizeRepoMapNavigationRoutes(in []RepoMapNavigationRoute) []RepoMapNavigationRoute {
+	seen := map[RepoMapNavigationRoute]bool{}
+	var out []RepoMapNavigationRoute
+	for _, route := range in {
+		route = NormalizeRepoMapNavigationRoute(string(route))
 		if !route.Valid() || seen[route] {
 			continue
 		}
@@ -215,4 +291,24 @@ func repoMapNavigationRouteRank(route RepoMapNavigationRoute) int {
 	default:
 		return 100
 	}
+}
+
+func normalizeRepoMapNavigationCoverageStrings(values []string, limit int) []string {
+	if limit <= 0 {
+		limit = len(values)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }

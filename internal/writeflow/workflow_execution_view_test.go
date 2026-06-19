@@ -288,6 +288,29 @@ func TestDeriveWorkflowExecutionViewNoLocalizationSignalIsVisibleButNotGateEligi
 	}
 }
 
+func TestDeriveWorkflowExecutionViewSurfacesNavigationCoverageFromContextPack(t *testing.T) {
+	run := workflowExecutionRunForTest(types.WriteWorkflowBatchReadyToPlan, "")
+	run.ContextPacks = []types.WriteContextPack{
+		types.WriteContextPackFromRepoMapNavigationCoverage("batch-1", "repair", types.RepoMapNavigationCoverage{
+			State:          types.RepoMapNavigationCoveragePartial,
+			ReasonCode:     "repo_map_navigation_partial",
+			RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap, types.RepoMapNavigationRouteRelationMap},
+			CoveredRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap},
+			MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+			ObservedRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap},
+			EvidenceRefs:   []string{"blob://repo-map-task"},
+		}),
+	}
+
+	view := DeriveWorkflowExecutionView(types.ModeApply, run, nil)
+	if view.Navigation.State != types.RepoMapNavigationCoveragePartial {
+		t.Fatalf("navigation coverage not surfaced: %+v", view.Navigation)
+	}
+	if len(view.Navigation.MissingRoutes) != 1 || view.Navigation.MissingRoutes[0] != types.RepoMapNavigationRouteRelationMap {
+		t.Fatalf("missing route not preserved: %+v", view.Navigation)
+	}
+}
+
 func TestDeriveWorkflowExecutionViewSurfacesExploreAttempts(t *testing.T) {
 	run := workflowExecutionRunForTest(types.WriteWorkflowBatchReadyToPlan, "")
 	run.Batches[0].Attempts = []types.WriteWorkflowAttempt{{

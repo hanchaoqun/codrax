@@ -5729,7 +5729,7 @@ func controllerDecisionFromWorkflowTransitionValidation(view writeflow.WorkflowE
 				BatchID:              batchID,
 				Goal:                 workflowTransitionBatchGoal(view, run, batchID),
 				CandidatePaths:       workflowTransitionLocalizationCandidatePaths(view),
-				EvidenceRequirements: workflowTransitionLocalizationEvidenceRequirements(view),
+				EvidenceRequirements: workflowTransitionEvidenceRequirements(view),
 			},
 		}
 	case writeflow.ActionApplyPlan:
@@ -5799,6 +5799,30 @@ func workflowTransitionLocalizationEvidenceRequirements(view writeflow.WorkflowE
 			break
 		}
 	}
+	return dedupTrimControllerStrings(rows)
+}
+
+func workflowTransitionNavigationEvidenceRequirements(view writeflow.WorkflowExecutionView) []string {
+	if len(view.Navigation.MissingRoutes) == 0 {
+		return nil
+	}
+	var rows []string
+	for _, route := range view.Navigation.MissingRoutes {
+		if !route.Valid() {
+			continue
+		}
+		rows = append(rows, fmt.Sprintf("repo_map_navigation_requirement route=%s state=%s reason=%s required=typed_navigation_coverage source=workflow_transition",
+			route, view.Navigation.State, view.Navigation.ReasonCode))
+		if len(rows) >= 8 {
+			break
+		}
+	}
+	return dedupTrimControllerStrings(rows)
+}
+
+func workflowTransitionEvidenceRequirements(view writeflow.WorkflowExecutionView) []string {
+	rows := workflowTransitionLocalizationEvidenceRequirements(view)
+	rows = append(rows, workflowTransitionNavigationEvidenceRequirements(view)...)
 	return dedupTrimControllerStrings(rows)
 }
 

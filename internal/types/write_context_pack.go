@@ -51,6 +51,7 @@ type WriteContextItem struct {
 	SourceID           string                       `json:"source_id,omitempty"`
 	EvidenceRef        *WriteExplorationEvidenceRef `json:"evidence_ref,omitempty"`
 	LocalizationAnchor *SourceLocalizationAnchor    `json:"localization_anchor,omitempty"`
+	NavigationCoverage *RepoMapNavigationCoverage   `json:"navigation_coverage,omitempty"`
 	Consumers          []WriteContextConsumer       `json:"consumers,omitempty"`
 	Stale              bool                         `json:"stale,omitempty"`
 	StaleReason        string                       `json:"stale_reason,omitempty"`
@@ -98,7 +99,7 @@ func NormalizeWriteContextPack(in WriteContextPack) WriteContextPack {
 		}
 		item = normalizeWriteContextItemScopeExpiry(item)
 		item.Fingerprint = writeContextItemFingerprint(item)
-		if item.Text == "" && item.EvidenceRef == nil {
+		if item.Text == "" && item.EvidenceRef == nil && item.LocalizationAnchor == nil && item.NavigationCoverage == nil {
 			continue
 		}
 		key := writeContextItemKey(item)
@@ -945,7 +946,7 @@ func WriteContextPackFromPlannerToolResults(batchID, goal string, results []Tool
 }
 
 func WriteContextPackFromRepoMapNavigationCoverage(batchID, goal string, coverage RepoMapNavigationCoverage) WriteContextPack {
-	coverage = normalizeRepoMapNavigationCoverage(coverage)
+	coverage = NormalizeRepoMapNavigationCoverage(coverage)
 	if coverage.State == "" || coverage.State == RepoMapNavigationCoverageNotRequired {
 		return WriteContextPack{}
 	}
@@ -966,6 +967,8 @@ func WriteContextPackFromRepoMapNavigationCoverage(batchID, goal string, coverag
 	item := &pack.Items[0]
 	item.SourceID = trimWriteContextText(coverage.ReasonCode)
 	item.ID = writeContextStableID("repo_map_navigation_coverage", string(coverage.State), strings.Join(repoMapNavigationRoutesToStrings(coverage.MissingRoutes), ","), strings.Join(repoMapNavigationRoutesToStrings(coverage.CoveredRoutes), ","))
+	coverageCopy := coverage
+	item.NavigationCoverage = &coverageCopy
 	if ref := firstNonEmptyString(coverage.EvidenceRefs...); ref != "" {
 		item.EvidenceRef = &WriteExplorationEvidenceRef{
 			ID:      ref,
@@ -976,6 +979,24 @@ func WriteContextPackFromRepoMapNavigationCoverage(batchID, goal string, coverag
 		}
 	}
 	return NormalizeWriteContextPack(pack)
+}
+
+func RepoMapNavigationCoverageFromWriteContextPacks(packs []WriteContextPack, consumer WriteContextConsumer, batchID, sliceID string) RepoMapNavigationCoverage {
+	var values []RepoMapNavigationCoverage
+	for _, pack := range packs {
+		pack = NormalizeWriteContextPack(pack)
+		view := pack.ViewForScope(consumer, 0, batchID, sliceID)
+		for _, item := range view.Items {
+			if item.NavigationCoverage == nil {
+				continue
+			}
+			values = append(values, *item.NavigationCoverage)
+		}
+	}
+	if len(values) == 0 {
+		return RepoMapNavigationCoverage{}
+	}
+	return MergeRepoMapNavigationCoverage(values...)
 }
 
 func writePlannerObservationLocalizationAnchor(result ToolResult, obs ObservationRecord) (SourceLocalizationAnchor, WriteExplorationEvidenceRef, WriteContextPriority, bool) {
@@ -1042,45 +1063,6 @@ func writePlannerObservationLocalizationAnchor(result ToolResult, obs Observatio
 		return SourceLocalizationAnchor{}, WriteExplorationEvidenceRef{}, "", false
 	}
 	return anchor, normalizeWriteExplorationEvidenceRef(ref), priority, true
-}
-
-func normalizeRepoMapNavigationCoverage(in RepoMapNavigationCoverage) RepoMapNavigationCoverage {
-	in.RequiredRoutes = normalizeRepoMapNavigationRoutes(in.RequiredRoutes)
-	in.ObservedRoutes = normalizeRepoMapNavigationRoutes(in.ObservedRoutes)
-	in.CoveredRoutes = normalizeRepoMapNavigationRoutes(in.CoveredRoutes)
-	in.MissingRoutes = normalizeRepoMapNavigationRoutes(in.MissingRoutes)
-	in.EvidenceRefs = trimWriteContextStrings(in.EvidenceRefs, 16)
-	if in.State == "" {
-		switch {
-		case len(in.RequiredRoutes) == 0:
-			in.State = RepoMapNavigationCoverageNotRequired
-			in.ReasonCode = firstNonEmptyString(in.ReasonCode, "repo_map_navigation_not_required")
-		case len(in.MissingRoutes) == 0:
-			in.State = RepoMapNavigationCoverageCovered
-			in.ReasonCode = firstNonEmptyString(in.ReasonCode, "repo_map_navigation_covered")
-		case len(in.CoveredRoutes) > 0:
-			in.State = RepoMapNavigationCoveragePartial
-			in.ReasonCode = firstNonEmptyString(in.ReasonCode, "repo_map_navigation_partial")
-		default:
-			in.State = RepoMapNavigationCoverageMissing
-			in.ReasonCode = firstNonEmptyString(in.ReasonCode, "repo_map_navigation_missing")
-		}
-	}
-	return in
-}
-
-func normalizeRepoMapNavigationRoutes(in []RepoMapNavigationRoute) []RepoMapNavigationRoute {
-	seen := map[RepoMapNavigationRoute]bool{}
-	var out []RepoMapNavigationRoute
-	for _, route := range in {
-		route = NormalizeRepoMapNavigationRoute(string(route))
-		if !route.Valid() || seen[route] {
-			continue
-		}
-		seen[route] = true
-		out = append(out, route)
-	}
-	return out
 }
 
 func renderRepoMapNavigationCoverageContext(coverage RepoMapNavigationCoverage) string {
@@ -1606,6 +1588,14 @@ func normalizeWriteContextItem(in WriteContextItem) WriteContextItem {
 			in.LocalizationAnchor = &anchor
 		}
 	}
+	if in.NavigationCoverage != nil {
+		coverage := NormalizeRepoMapNavigationCoverage(*in.NavigationCoverage)
+		if coverage.State == "" || (coverage.State == RepoMapNavigationCoverageNotRequired && len(coverage.RequiredRoutes) == 0 && len(coverage.ObservedRoutes) == 0) {
+			in.NavigationCoverage = nil
+		} else {
+			in.NavigationCoverage = &coverage
+		}
+	}
 	in.Consumers = normalizeWriteContextConsumers(in.Consumers)
 	if in.Priority != WriteContextP0 {
 		if in.ExpiresWithBatchID == "" {
@@ -1656,6 +1646,15 @@ func cloneWriteContextItems(in []WriteContextItem) []WriteContextItem {
 				anchor.EvidenceRef = &ref
 			}
 			out[i].LocalizationAnchor = &anchor
+		}
+		if item.NavigationCoverage != nil {
+			coverage := *item.NavigationCoverage
+			coverage.RequiredRoutes = append([]RepoMapNavigationRoute(nil), coverage.RequiredRoutes...)
+			coverage.ObservedRoutes = append([]RepoMapNavigationRoute(nil), coverage.ObservedRoutes...)
+			coverage.CoveredRoutes = append([]RepoMapNavigationRoute(nil), coverage.CoveredRoutes...)
+			coverage.MissingRoutes = append([]RepoMapNavigationRoute(nil), coverage.MissingRoutes...)
+			coverage.EvidenceRefs = append([]string(nil), coverage.EvidenceRefs...)
+			out[i].NavigationCoverage = &coverage
 		}
 	}
 	return out
@@ -1790,6 +1789,13 @@ func mergeWriteContextDuplicateItem(existing, incoming WriteContextItem) WriteCo
 		anchor := mergeSourceLocalizationAnchor(*out.LocalizationAnchor, *incoming.LocalizationAnchor)
 		out.LocalizationAnchor = &anchor
 	}
+	if out.NavigationCoverage == nil && incoming.NavigationCoverage != nil {
+		coverage := NormalizeRepoMapNavigationCoverage(*incoming.NavigationCoverage)
+		out.NavigationCoverage = &coverage
+	} else if out.NavigationCoverage != nil && incoming.NavigationCoverage != nil {
+		coverage := MergeRepoMapNavigationCoverage(*out.NavigationCoverage, *incoming.NavigationCoverage)
+		out.NavigationCoverage = &coverage
+	}
 	out.Stale = existing.Stale && incoming.Stale
 	if len(existing.Consumers) == 0 || len(incoming.Consumers) == 0 {
 		out.Consumers = nil
@@ -1812,6 +1818,11 @@ func writeContextItemKey(item WriteContextItem) string {
 	if item.LocalizationAnchor != nil {
 		a := normalizeSourceLocalizationAnchor(*item.LocalizationAnchor)
 		anchor = strings.Join([]string{a.Path, string(a.Role), string(a.Kind), string(a.Strength), a.Subject, a.OwnerSymbol, a.AnchorSymbol}, ":")
+	}
+	navigation := ""
+	if item.NavigationCoverage != nil {
+		c := NormalizeRepoMapNavigationCoverage(*item.NavigationCoverage)
+		navigation = strings.Join(append(repoMapNavigationRoutesToStrings(c.RequiredRoutes), repoMapNavigationRoutesToStrings(c.ObservedRoutes)...), ":")
 	}
 	// Items anchored to a typed evidence location dedupe on the fact, not
 	// its wording: retries re-project the same file:line finding with
@@ -1836,6 +1847,7 @@ func writeContextItemKey(item WriteContextItem) string {
 		item.SourceID,
 		ref,
 		anchor,
+		navigation,
 	}, "\x00")
 }
 
@@ -2062,6 +2074,10 @@ func writeContextItemCostUnits(item WriteContextItem) int {
 		n += len([]rune(item.EvidenceRef.Subject))
 		n += len([]rune(item.EvidenceRef.Summary)) / 2
 	}
+	if item.NavigationCoverage != nil {
+		n += len(repoMapNavigationRoutesToStrings(item.NavigationCoverage.RequiredRoutes)) * 12
+		n += len(repoMapNavigationRoutesToStrings(item.NavigationCoverage.MissingRoutes)) * 12
+	}
 	if n <= 0 {
 		return 1
 	}
@@ -2084,26 +2100,6 @@ func trimWriteContextText(raw string) string {
 		return string(runes[:writeContextPackTextLen]) + "..."
 	}
 	return raw
-}
-
-func trimWriteContextStrings(values []string, limit int) []string {
-	if limit <= 0 {
-		limit = len(values)
-	}
-	seen := map[string]bool{}
-	var out []string
-	for _, value := range values {
-		value = trimWriteContextText(value)
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		out = append(out, value)
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out
 }
 
 func compactWriteContextValue(raw string, limit int) string {

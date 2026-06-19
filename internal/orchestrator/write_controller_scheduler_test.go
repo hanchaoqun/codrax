@@ -3677,6 +3677,66 @@ func TestEnforceControllerWorkflowTransitionWeakLocalizationPlansExplore(t *test
 	}
 }
 
+func TestEnforceControllerWorkflowTransitionMissingNavigationCoveragePlansExplore(t *testing.T) {
+	mu := types.NewMutableState("missing navigation coverage transition")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	navigationPack := types.WriteContextPackFromRepoMapNavigationCoverage("batch-1", "repair owner surface", types.RepoMapNavigationCoverage{
+		State:          types.RepoMapNavigationCoveragePartial,
+		ReasonCode:     "repo_map_navigation_partial",
+		RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap, types.RepoMapNavigationRouteRelationMap},
+		CoveredRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap},
+		MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+		ObservedRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap},
+		EvidenceRefs:   []string{"blob://repo-map-task"},
+	})
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-navigation",
+		Goal:          "repair owner surface",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair owner surface",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ContextPacks: []types.WriteContextPack{{
+			BatchID: "batch-1",
+			Items: []types.WriteContextItem{{
+				Priority: types.WriteContextP1,
+				Kind:     "localization_anchor",
+				Text:     "pkg/maybe.py",
+				LocalizationAnchor: &types.SourceLocalizationAnchor{
+					Path:     "pkg/maybe.py",
+					Role:     types.SourcePathRoleProduction,
+					Kind:     types.SourceLocalizationAnchorReadFile,
+					Strength: types.SourceLocalizationAnchorObserved,
+				},
+			}},
+		}, navigationPack},
+	}
+
+	got := o.enforceControllerWorkflowTransition(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionPlanBatch,
+		Reason:     "The model says relation_map is not needed.",
+		ReasonCode: "controller_planned_too_early",
+		Batch: &writeflow.WriteBatchPlan{
+			ID:     "batch-1",
+			Goal:   "repair owner surface",
+			Status: writeflow.BatchReadyForChangePlan,
+		},
+	}, run)
+	if got.Action != writeflow.ActionExploreCode || got.ReasonCode != "navigation_coverage_requires_exploration" {
+		t.Fatalf("missing typed navigation coverage should become explore_code, got %+v", got)
+	}
+	requirements := strings.Join(got.ExplorationRequest.EvidenceRequirements, "\n")
+	if !strings.Contains(requirements, "repo_map_navigation_requirement route=relation_map") {
+		t.Fatalf("evidence requirements missing navigation route demand: %+v", got.ExplorationRequest.EvidenceRequirements)
+	}
+	if !strings.Contains(requirements, "typed_owner_localization_anchor") {
+		t.Fatalf("navigation recovery should preserve owner localization demand: %+v", got.ExplorationRequest.EvidenceRequirements)
+	}
+}
+
 func TestReviewActiveAppliedPatchScopePersistsHardBlock(t *testing.T) {
 	mu := types.NewMutableState("patch review")
 	plan := &types.ChangePlan{

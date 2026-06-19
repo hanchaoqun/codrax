@@ -91,6 +91,65 @@ func TestValidateWorkflowTransitionWeakLocalizationRequiresFirstExplore(t *testi
 	}
 }
 
+func TestValidateWorkflowTransitionMissingNavigationCoverageRequiresExplore(t *testing.T) {
+	view := WorkflowExecutionView{
+		Mode:  types.ModeApply,
+		State: WorkflowExecutionReadyToPlan,
+		Localization: loopkernel.LocalizationAuthorityView{
+			State:               loopkernel.LocalizationAuthorityObservedOnly,
+			ReasonCode:          "localization_observed_without_owner",
+			RecommendedAction:   loopkernel.LoopActionLocalize,
+			SourcePaths:         []string{"pkg/maybe.py"},
+			RequiresMoreContext: true,
+		},
+		Navigation: types.RepoMapNavigationCoverage{
+			State:          types.RepoMapNavigationCoveragePartial,
+			ReasonCode:     "repo_map_navigation_partial",
+			RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap, types.RepoMapNavigationRouteRelationMap},
+			CoveredRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap},
+			MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+		},
+	}
+
+	denied := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionPlanBatch,
+		Reason: "The relation graph is probably unnecessary.",
+		Batch:  &WriteBatchPlan{ID: "batch-1", Goal: "repair owner surface"},
+	})
+	if denied.Allowed || denied.ReasonCode != "navigation_coverage_requires_exploration" || denied.RecommendedAction != ActionExploreCode {
+		t.Fatalf("missing typed navigation coverage should request explore_code before planning: %+v", denied)
+	}
+}
+
+func TestValidateWorkflowTransitionCoveredNavigationDoesNotHardBlockPlanning(t *testing.T) {
+	view := WorkflowExecutionView{
+		Mode:  types.ModeApply,
+		State: WorkflowExecutionReadyToPlan,
+		Localization: loopkernel.LocalizationAuthorityView{
+			State:               loopkernel.LocalizationAuthorityObservedOnly,
+			ReasonCode:          "localization_observed_without_owner",
+			RecommendedAction:   loopkernel.LoopActionLocalize,
+			SourcePaths:         []string{"pkg/maybe.py"},
+			RequiresMoreContext: true,
+		},
+		Navigation: types.RepoMapNavigationCoverage{
+			State:          types.RepoMapNavigationCoverageCovered,
+			ReasonCode:     "repo_map_navigation_covered",
+			RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+			CoveredRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+			ObservedRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+		},
+	}
+
+	got := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionPlanBatch,
+		Batch:  &WriteBatchPlan{ID: "batch-1", Goal: "repair owner surface"},
+	})
+	if !got.Allowed {
+		t.Fatalf("covered navigation should not hard-block planning by itself: %+v", got)
+	}
+}
+
 func TestValidateWorkflowTransitionWeakLocalizationDoesNotLoopAfterExploreAttempt(t *testing.T) {
 	view := WorkflowExecutionView{
 		Mode:                     types.ModeApply,
