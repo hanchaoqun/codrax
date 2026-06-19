@@ -15,6 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/sourceowner"
 	truthledger "github.com/hanchaoqun/codrax/internal/truth"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -5833,7 +5834,8 @@ func (o *Orchestrator) enforceControllerWorkflowTransition(decision writeflow.Wr
 		return decision
 	}
 	view := writeflow.DeriveWorkflowExecutionViewWithReport(o.busCtx.Mode, *run, o.busCtx.Mutable.ChangePlan(), o.busCtx.Mutable.ChangeReport())
-	validation := writeflow.ValidateWorkflowTransition(view, decision)
+	graphAudit := reasoninggraph.AuditSummaryFromEvents(reasoninggraph.EventsFromWriteWorkflowRun(*run), "write_controller", 32)
+	validation := writeflow.ValidateWorkflowTransitionWithGraph(view, decision, graphAudit)
 	if validation.Allowed {
 		return decision
 	}

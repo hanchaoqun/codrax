@@ -4163,6 +4163,46 @@ func TestEnforceControllerWorkflowTransitionMissingNavigationCoveragePlansExplor
 	}
 }
 
+func TestEnforceControllerWorkflowTransitionGraphRepairStormPlansExplore(t *testing.T) {
+	mu := types.NewMutableState("graph repair storm transition")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-graph-repair-storm",
+		Goal:          "repair failed surface",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair failed surface",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			Slices: []types.WriteWorkflowSlice{
+				{ID: "slice-1", Status: types.ChangePlanSliceFailed, Completion: &types.WriteWorkflowCompletion{ReasonCode: "tests_failed"}},
+				{ID: "slice-2", Status: types.ChangePlanSliceFailed, Completion: &types.WriteWorkflowCompletion{ReasonCode: "tests_failed"}},
+				{ID: "slice-3", Status: types.ChangePlanSliceFailed, Completion: &types.WriteWorkflowCompletion{ReasonCode: "tests_failed"}},
+			},
+		}},
+	}
+
+	got := o.enforceControllerWorkflowTransition(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionReplanBatch,
+		ReasonCode: "controller_requested_replan",
+		Batch: &writeflow.WriteBatchPlan{
+			ID:     "batch-1",
+			Goal:   "repair failed surface",
+			Status: writeflow.BatchReadyForChangePlan,
+		},
+	}, run)
+	if got.Action != writeflow.ActionExploreCode || got.ReasonCode != "graph_repair_storm_requires_exploration" {
+		t.Fatalf("graph repair storm should become bounded explore_code, got %+v", got)
+	}
+	if got.ExplorationRequest == nil || got.ExplorationRequest.BatchID != "batch-1" {
+		t.Fatalf("explore recovery should carry active batch request, got %+v", got.ExplorationRequest)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "workflow_transition_rejected") {
+		t.Fatalf("transition rejection progress missing: %+v", run.ProgressLedger)
+	}
+}
+
 func TestReviewActiveAppliedPatchScopePersistsHardBlock(t *testing.T) {
 	mu := types.NewMutableState("patch review")
 	plan := &types.ChangePlan{

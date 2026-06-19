@@ -461,7 +461,7 @@ type AnswerReasoningGraphSummary struct {
 | P1-Perf-2 Static Schema Cache And Normalize De-dupe | delivered | `emit_evidence` / `emit_investigation_complete` 静态 `Parameters()` cache；response normalize 写入 schema fingerprint；execute-time registry normalize 仅在 fingerprint mismatch / direct caller 时 fallback |
 | P1-Perf-3 Grounding Context Cache | delivered | `BusContext` scoped `ground.BuildContext` cache、Mutable TurnA/dispatch/searchGraph revision key、line-index reuse、`ground_context_cache_hit/miss` typed timing telemetry |
 | P1-Perf-4 CompletionPreflightView | delivered | `emit_investigation_complete` 构建 typed preflight view；precheck/grounding/tier1 gate 共享 evidence、effective aggregate facts、relation facts、generic/tier1 tally |
-| P2-B8 Graph-Guided Controller | planned | typed graph view 反哺 bounded controller action |
+| P2-B8 Graph-Guided Controller | delivered | controller enforcement 消费 typed graph audit guidance；missing evidence / repair storm 只推荐 existing `explore_code`，LLM wait 仅 advisory |
 | P2-B9 Graph-Native Replay Executor | planned | read-only replay/local recompute |
 | P2-B10 收敛重复状态字段 | planned | 内部投影去重、文档和用户指南同步 |
 
@@ -822,16 +822,25 @@ type AnswerReasoningGraphSummary struct {
 
 目标：让 graph view 反哺调度，但仅限 typed、低风险、可回滚决策。
 
+当前进展：
+
+- 已完成：新增 `WorkflowGraphGuidanceView`，只从 `ReasoningGraphAuditSummary` 的 typed lane/gap 计数派生状态，不读取用户关键词、模型 prose、prompt 文本或 visible thinking。
+- 已完成：`ValidateWorkflowTransitionWithGraph` 在原有 state-machine validation 通过后追加 graph guidance；普通 `ValidateWorkflowTransition` 语义不变。
+- 已完成：repair storm 达到阈值且当前 batch 尚未做 bounded explore 时，plan/replan/append/split/finish 会被改为 existing `explore_code`；已有 explore attempt 后不再循环。
+- 已完成：missing graph evidence gap 在 ready/replan 状态推荐 existing `explore_code`；LLM wait/retry 事件只作为 advisory，不阻塞 routine path。
+- 已完成：write controller enforcement 从当前 durable run 投影 reasoning graph audit 后调用 `ValidateWorkflowTransitionWithGraph`，不新增 LLM/tool/worktree 行为。
+- 已完成：测试覆盖 graph missing evidence -> explore、repair storm -> bounded explore、一次 explore 后不循环、LLM wait advisory、orchestrator 消费 graph guidance。
+
 任务：
 
-1. controller 消费 graph view 中的 missing P0/P1 evidence。
-2. tool/repair storm 触发 bounded cooldown 或 narrower prompt surface。
-3. LLM wait/timeout 触发 provider retry telemetry 和 status card。
-4. proof/localization weak 时复用现有 controller action，不新增自由路由。
+1. controller 消费 graph view 中的 missing P0/P1 evidence：已通过 graph audit `Missing` gap -> existing `explore_code` 完成。
+2. tool/repair storm 触发 bounded cooldown 或 narrower prompt surface：已通过 repair lane count -> one bounded `explore_code` 完成；不直接 block 用户 routine path。
+3. LLM wait/timeout 触发 provider retry telemetry 和 status card：已作为 graph guidance advisory 保留；后续状态卡可直接渲染，不参与硬路由。
+4. proof/localization weak 时复用现有 controller action，不新增自由路由：已有 workflow transition validator 的 localization/navigation typed gate 继续生效；graph guidance 只叠加 existing action。
 5. 增加 tests：
-   - graph missing evidence -> existing explore action
-   - repair storm -> bounded retry stop
-   - no user keyword/prose routing
+   - graph missing evidence -> existing explore action：已完成。
+   - repair storm -> bounded retry stop：已完成为 bounded explore，不直接用户打断。
+   - no user keyword/prose routing：已完成为 typed audit-only 输入；既有 localization prose bypass 测试继续覆盖。
 
 验收：
 
