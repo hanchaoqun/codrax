@@ -95,6 +95,7 @@ func TestEmitInvestigationComplete_AbsenceWithoutEvidenceAccepted(t *testing.T) 
 	}
 	assertToolRuntimeTimingPhases(t, res.RuntimeTimings,
 		"strict_decode",
+		"completion_preflight_view",
 		"aggregate_normalization",
 		"decorator_member_validation",
 		"grounding_citation_floors",
@@ -103,6 +104,52 @@ func TestEmitInvestigationComplete_AbsenceWithoutEvidenceAccepted(t *testing.T) 
 	)
 	if mut.AbsenceJustification() == "" {
 		t.Errorf("absence must be stored on acceptance")
+	}
+}
+
+func TestCompletionPreflightViewCopiesEvidenceFactsAndTallies(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "a.go",
+			LineStart:       10,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceRelationship,
+			Source:          "b.go",
+			LineStart:       20,
+			GroundingStatus: types.GroundingRecovered,
+		},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "members",
+		Value:   "1",
+		Members: []string{"A"},
+	}}
+
+	view := buildCompletionPreflightView(bus, "resolved", "", evidence, facts, nil)
+	evidence[0].Source = "mutated.go"
+	facts[0].Value = "99"
+
+	if got := view.Evidence[0].Source; got != "a.go" {
+		t.Fatalf("preflight view must snapshot evidence, got %q", got)
+	}
+	if got := view.EffectiveAggregateFacts[0].Value; got != "1" {
+		t.Fatalf("preflight view must snapshot aggregate facts, got %q", got)
+	}
+	if got := view.StructuredRelationAuthorityFacts[0].Value; got != "1" {
+		t.Fatalf("relation authority facts must default to effective facts, got %q", got)
+	}
+	if !view.GenericEvidenceTally.hasAny() {
+		t.Fatalf("generic tally should see grounded/recovered evidence: %+v", view.GenericEvidenceTally)
+	}
+	if view.Tier1EvidenceTally.total != 2 || view.Tier1EvidenceTally.tier1 != 1 || view.Tier1EvidenceTally.recovered != 1 {
+		t.Fatalf("tier1 tally mismatch: %+v", view.Tier1EvidenceTally)
 	}
 }
 

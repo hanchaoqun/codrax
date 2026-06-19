@@ -1324,8 +1324,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
-	effectiveAggregateFacts := effectiveCompletionAggregateFactsForValidation(ctx, aggregateFacts, evidenceSnapshot)
-	structuredRelationAuthorityFacts := cloneCompletionAggregateFacts(effectiveAggregateFacts)
+	preflightStart := time.Now()
+	preflight := buildCompletionPreflightView(ctx, resultKind, justification, evidenceSnapshot, aggregateFacts, nil)
+	effectiveAggregateFacts := preflight.EffectiveAggregateFacts
+	structuredRelationAuthorityFacts := preflight.StructuredRelationAuthorityFacts
+	recordToolRuntimeTiming(&runtimeTimings, "completion_preflight_view", preflightStart, len(preflight.Evidence))
 	if resultKind == "absence" {
 		var notes []string
 		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(ctx, effectiveAggregateFacts, "absence handoff", false)
@@ -1335,6 +1338,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(ctx, effectiveAggregateFacts, "optional aggregate handoff", true)
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	}
+	preflight = preflight.WithAggregateFacts(effectiveAggregateFacts, structuredRelationAuthorityFacts)
 	publishSourceInventoryAdvisory(ctx, effectiveAggregateFacts, evidenceSnapshot)
 	recordToolRuntimeTiming(&runtimeTimings, "aggregate_normalization", aggregateStart, len(effectiveAggregateFacts))
 
@@ -1582,7 +1586,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			}
 		}
 		policy := CurrentGroundingPolicy()
-		if msg, ok := groundingGateRejectWithEvidence(ctx, policy.GroundingFloor, evidenceSnapshot); !ok {
+		if msg, ok := groundingGateRejectWithPreflight(ctx, policy.GroundingFloor, preflight); !ok {
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Summary:   msg,
@@ -1590,7 +1594,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
-		if msg, ok := tier1GateRejectWithEvidence(ctx, policy.Tier1Floor, resultKind, justification, evidenceSnapshot); !ok {
+		if msg, ok := tier1GateRejectWithPreflight(ctx, policy.Tier1Floor, preflight); !ok {
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Summary:   msg,
@@ -1626,7 +1630,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
-		if evidence := evidenceSnapshot; hasGroundedOrRecovered(evidence) && !allowsContextualEvidenceForAbsence(ctx, reason, justification, evidence) {
+		if evidence := preflight.Evidence; preflight.GenericEvidenceTally.hasAny() && !allowsContextualEvidenceForAbsence(ctx, reason, justification, evidence) {
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: "emit_investigation_complete rejected: absence_justification is reserved for honest-zero answers " +
@@ -1815,8 +1819,8 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// flip investigationComplete). The explorer's ShouldStop sees
 	// the flag still false and continues the loop.
 	preCompleteStart := time.Now()
-	if downgrade := preCompleteContractCheckWithEvidence(ctx, justification, evidenceSnapshot, effectiveAggregateFacts, structuredRelationAuthorityFacts); downgrade != "" {
-		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(evidenceSnapshot))
+	if downgrade := preCompleteContractCheckWithPreflight(ctx, justification, preflight); downgrade != "" {
+		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(preflight.Evidence))
 		if ctx != nil && ctx.Mutable != nil {
 			closure := ctx.Mutable.EvidenceClosure()
 			closure.BumpPreCompleteDowngrades(1)
@@ -1850,7 +1854,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
-	recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(evidenceSnapshot))
+	recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(preflight.Evidence))
 
 	stateWriteStart := time.Now()
 	reason = normalizeLogSourceDriftCompletionReason(ctx, reason)
@@ -2042,18 +2046,25 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 }
 
 func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification string, evidence []types.EvidenceItem, aggregateFactsOpt ...[]types.AnswerAggregateFact) string {
-	if ctx == nil || ctx.Mutable == nil {
-		return ""
-	}
 	var aggregateFacts []types.AnswerAggregateFact
 	if len(aggregateFactsOpt) > 0 {
 		aggregateFacts = aggregateFactsOpt[0]
 	}
-	aggregateFacts = effectiveCompletionAggregateFactsForValidation(ctx, aggregateFacts, evidence)
-	structuredRelationAuthorityFacts := aggregateFacts
+	var structuredRelationAuthorityFacts []types.AnswerAggregateFact
 	if len(aggregateFactsOpt) > 1 {
-		structuredRelationAuthorityFacts = effectiveCompletionAggregateFactsForValidation(ctx, aggregateFactsOpt[1], evidence)
+		structuredRelationAuthorityFacts = aggregateFactsOpt[1]
 	}
+	view := buildCompletionPreflightView(ctx, "", justification, evidence, aggregateFacts, structuredRelationAuthorityFacts)
+	return preCompleteContractCheckWithPreflight(ctx, justification, view)
+}
+
+func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification string, view completionPreflightView) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	evidence := view.Evidence
+	aggregateFacts := view.EffectiveAggregateFacts
+	structuredRelationAuthorityFacts := view.StructuredRelationAuthorityFacts
 	// Honor agent_investigation_complete_policy=override. The DAG
 	// scheduler will skip all criteria when this policy is set, so
 	// running the pre-complete gates would contradict operator
@@ -8270,6 +8281,101 @@ type evidenceTally struct {
 	recoveredItems  []types.EvidenceItem
 }
 
+// completionPreflightView is the typed, per-attempt snapshot shared by
+// emit_investigation_complete's terminal gates. It intentionally carries
+// only structured artifacts already accepted by earlier decode/normalize
+// layers; hard gates must not inspect model prose to decide routing.
+type completionPreflightView struct {
+	Evidence                         []types.EvidenceItem
+	EffectiveAggregateFacts          []types.AnswerAggregateFact
+	StructuredRelationAuthorityFacts []types.AnswerAggregateFact
+	GenericEvidenceTally             evidenceTally
+	Tier1EvidenceTally               evidenceTally
+}
+
+func buildCompletionPreflightView(
+	ctx *types.BusContext,
+	resultKind string,
+	justification string,
+	evidence []types.EvidenceItem,
+	aggregateFacts []types.AnswerAggregateFact,
+	structuredRelationAuthorityFacts []types.AnswerAggregateFact,
+) completionPreflightView {
+	effective := effectiveCompletionAggregateFactsForValidation(ctx, aggregateFacts, evidence)
+	relationFacts := effective
+	if structuredRelationAuthorityFacts != nil {
+		relationFacts = effectiveCompletionAggregateFactsForValidation(ctx, structuredRelationAuthorityFacts, evidence)
+	}
+	return buildCompletionPreflightViewFromEffective(ctx, resultKind, justification, evidence, effective, relationFacts)
+}
+
+func buildCompletionPreflightViewFromEffective(
+	ctx *types.BusContext,
+	resultKind string,
+	justification string,
+	evidence []types.EvidenceItem,
+	effectiveAggregateFacts []types.AnswerAggregateFact,
+	structuredRelationAuthorityFacts []types.AnswerAggregateFact,
+) completionPreflightView {
+	evidence = cloneCompletionEvidence(evidence)
+	effectiveAggregateFacts = cloneCompletionAggregateFacts(effectiveAggregateFacts)
+	if structuredRelationAuthorityFacts == nil {
+		structuredRelationAuthorityFacts = effectiveAggregateFacts
+	}
+	structuredRelationAuthorityFacts = cloneCompletionAggregateFacts(structuredRelationAuthorityFacts)
+	return completionPreflightView{
+		Evidence:                         evidence,
+		EffectiveAggregateFacts:          effectiveAggregateFacts,
+		StructuredRelationAuthorityFacts: structuredRelationAuthorityFacts,
+		GenericEvidenceTally:             completionGenericEvidenceTally(evidence),
+		Tier1EvidenceTally:               completionTier1EvidenceTally(ctx, resultKind, justification, evidence),
+	}
+}
+
+func (v completionPreflightView) WithAggregateFacts(
+	effectiveAggregateFacts []types.AnswerAggregateFact,
+	structuredRelationAuthorityFacts []types.AnswerAggregateFact,
+) completionPreflightView {
+	v.EffectiveAggregateFacts = cloneCompletionAggregateFacts(effectiveAggregateFacts)
+	if structuredRelationAuthorityFacts == nil {
+		structuredRelationAuthorityFacts = v.EffectiveAggregateFacts
+	}
+	v.StructuredRelationAuthorityFacts = cloneCompletionAggregateFacts(structuredRelationAuthorityFacts)
+	return v
+}
+
+func cloneCompletionEvidence(in []types.EvidenceItem) []types.EvidenceItem {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.EvidenceItem, len(in))
+	copy(out, in)
+	return out
+}
+
+func completionGenericEvidenceTally(evidence []types.EvidenceItem) evidenceTally {
+	return tallyEvidence(evidence, nil, types.ScenarioGeneric, false, nil, types.RequestModel{})
+}
+
+func completionTier1EvidenceTally(ctx *types.BusContext, resultKind string, justification string, evidence []types.EvidenceItem) evidenceTally {
+	contract := exactResolutionContractForCompletion(ctx)
+	scenario := types.ScenarioGeneric
+	if ctx != nil && ctx.AnalysisIR != nil {
+		scenario = ctx.AnalysisIR.RequestModel.Scenario
+	}
+	stableAbsent := resultKind == "absence" && strings.TrimSpace(justification) != ""
+	var mutable *types.MutableState
+	if ctx != nil {
+		mutable = ctx.Mutable
+	}
+	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, mutable)
+	rm := types.RequestModel{}
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = ctx.AnalysisIR.RequestModel
+	}
+	return tallyEvidence(evidence, contract, scenario, stableAbsent, requiredFiles, rm)
+}
+
 // tallyEvidence classifies each item in the evidence buffer and
 // returns the populated tally. Single source of truth for how the
 // pipeline counts grounding outcomes.
@@ -8561,16 +8667,22 @@ func groundingGateReject(ctx *types.BusContext, floor float64) (string, bool) {
 }
 
 func groundingGateRejectWithEvidence(ctx *types.BusContext, floor float64, evidence []types.EvidenceItem) (string, bool) {
+	view := buildCompletionPreflightViewFromEffective(ctx, "", "", evidence, nil, nil)
+	return groundingGateRejectWithPreflight(ctx, floor, view)
+}
+
+func groundingGateRejectWithPreflight(ctx *types.BusContext, floor float64, view completionPreflightView) (string, bool) {
 	if floor <= 0 {
 		return "", true
 	}
+	evidence := view.Evidence
 	if len(evidence) == 0 {
 		// No emit_evidence calls at all — tool-only investigation is
 		// still legitimate (exec_command one-shot, grep-only answer
 		// for simple list questions). Accept.
 		return "", true
 	}
-	t := tallyEvidence(evidence, nil, types.ScenarioGeneric, false, nil, types.RequestModel{})
+	t := view.GenericEvidenceTally
 	if t.total == 0 {
 		return "", true
 	}
@@ -8628,24 +8740,19 @@ func tier1GateReject(ctx *types.BusContext, floor float64, resultKind, justifica
 }
 
 func tier1GateRejectWithEvidence(ctx *types.BusContext, floor float64, resultKind, justification string, evidence []types.EvidenceItem) (string, bool) {
+	view := buildCompletionPreflightViewFromEffective(ctx, resultKind, justification, evidence, nil, nil)
+	return tier1GateRejectWithPreflight(ctx, floor, view)
+}
+
+func tier1GateRejectWithPreflight(ctx *types.BusContext, floor float64, view completionPreflightView) (string, bool) {
 	if floor <= 0 {
 		return "", true
 	}
+	evidence := view.Evidence
 	if len(evidence) == 0 {
 		return "", true
 	}
-	contract := exactResolutionContractForCompletion(ctx)
-	scenario := types.ScenarioGeneric
-	if ctx != nil && ctx.AnalysisIR != nil {
-		scenario = ctx.AnalysisIR.RequestModel.Scenario
-	}
-	stableAbsent := resultKind == "absence" && strings.TrimSpace(justification) != ""
-	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, ctx.Mutable)
-	rm := types.RequestModel{}
-	if ctx != nil && ctx.AnalysisIR != nil {
-		rm = ctx.AnalysisIR.RequestModel
-	}
-	t := tallyEvidence(evidence, contract, scenario, stableAbsent, requiredFiles, rm)
+	t := view.Tier1EvidenceTally
 	if t.total == 0 {
 		return "", true
 	}
@@ -8700,7 +8807,7 @@ func tier1GateRejectWithEvidence(ctx *types.BusContext, floor float64, resultKin
 // at least one item whose grounder verdict is grounded or recovered.
 // Drives the absence-vs-grounded contradiction gate in Execute.
 func hasGroundedOrRecovered(items []types.EvidenceItem) bool {
-	return tallyEvidence(items, nil, types.ScenarioGeneric, false, nil, types.RequestModel{}).hasAny()
+	return completionGenericEvidenceTally(items).hasAny()
 }
 
 func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justification string, evidence []types.EvidenceItem) bool {

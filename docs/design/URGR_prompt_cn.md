@@ -460,7 +460,7 @@ type AnswerReasoningGraphSummary struct {
 | P1-Perf-1 Tool Runtime Telemetry | delivered | `BaseAgent.executeTool` 本地工具/MCP 执行边界产出 typed `tool_call_observed` elapsed/status/count/ref event；`ToolResult.RuntimeTimings` 投影 `tool_phase_observed`；`emit_evidence` / `emit_investigation_complete` 子阶段 timing 已覆盖 |
 | P1-Perf-2 Static Schema Cache And Normalize De-dupe | delivered | `emit_evidence` / `emit_investigation_complete` 静态 `Parameters()` cache；response normalize 写入 schema fingerprint；execute-time registry normalize 仅在 fingerprint mismatch / direct caller 时 fallback |
 | P1-Perf-3 Grounding Context Cache | delivered | `BusContext` scoped `ground.BuildContext` cache、Mutable TurnA/dispatch/searchGraph revision key、line-index reuse、`ground_context_cache_hit/miss` typed timing telemetry |
-| P1-Perf-4 CompletionPreflightView | planned | `emit_investigation_complete` precheck 一次性 view、gate 共享 typed view、避免重复扫 evidence/aggregate/read history |
+| P1-Perf-4 CompletionPreflightView | delivered | `emit_investigation_complete` 构建 typed preflight view；precheck/grounding/tier1 gate 共享 evidence、effective aggregate facts、relation facts、generic/tier1 tally |
 | P2-B8 Graph-Guided Controller | planned | typed graph view 反哺 bounded controller action |
 | P2-B9 Graph-Native Replay Executor | planned | read-only replay/local recompute |
 | P2-B10 收敛重复状态字段 | planned | 内部投影去重、文档和用户指南同步 |
@@ -781,14 +781,23 @@ type AnswerReasoningGraphSummary struct {
 
 目标：把 `emit_investigation_complete` 的终局检查从“多个 gate 各自扫描状态”收敛成“一次构建 typed preflight view，各 gate 只消费 view”。
 
+当前进展：
+
+- 已完成：新增内部 `completionPreflightView`，包含 evidence snapshot、effective aggregate facts、structured relation authority facts、generic evidence tally、tier1 evidence tally。
+- 已完成：主 `emit_investigation_complete` 执行路径先构建 preflight view，再让 grounding floor、tier1 floor、pre-complete gate chain 消费同一份 typed view。
+- 已完成：`preCompleteContractCheckWithEvidence` 保留兼容入口，但内部改为构建 view 后调用 `preCompleteContractCheckWithPreflight`，避免主路径重复执行 aggregate enrichment/reconcile。
+- 已完成：新增 `completion_preflight_view` runtime timing phase，便于审计 completion 慢调用是否卡在 view 构建还是后续 gate。
+- 已完成：view snapshot/tally 单测覆盖 evidence/facts defensive copy、relation facts 默认、generic/tier1 tally。
+- 设计边界：closure 的 pending-read refresh、drain、repair queue 仍由 stateful gate 在执行时读取最新 Mutable 状态；它们不是静态 view 字段，避免把会变动的队列提前冻结导致语义偏移。
+
 任务：
 
 1. 新增 `CompletionPreflightView`：
    - evidence snapshot
    - effective aggregate facts
    - structured relation authority facts
-   - read set / pending reads
-   - grounding policy verdicts
+   - read set / pending reads（保持 stateful gate 现场读取，不提前冻结）
+   - grounding policy verdicts（由 shared generic/tier1 tally 驱动）
    - citation floor tally
    - principal member-set coverage
    - proof obligation summary
