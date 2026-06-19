@@ -636,6 +636,14 @@ func TestWriteContextPackFromPlannerToolResultsProjectsReadFileObservation(t *te
 	}); len(got) != 0 {
 		t.Fatalf("observed read_file-only context should not be treated as path-covered owner gap input; got %+v", got)
 	}
+	review := SourceLocalizationReviewFromWriteContextPacks([]WriteContextPack{pack}, WriteConsumerPlanner, "batch-1", "")
+	if review.Status != SourceLocalizationObserved || strings.Join(review.SourcePaths, ",") != "pkg/bug.py" {
+		t.Fatalf("planner read_file context should project observed source localization: %+v", review)
+	}
+	policy := RepoMapNavigationPolicyWithLocalizationReview(RepoMapNavigationPolicy{}, &review)
+	if !policy.HasRoute(RepoMapNavigationRouteFileMap) || !policy.HasRoute(RepoMapNavigationRouteRelationMap) {
+		t.Fatalf("planner observed-only localization should add typed navigation gap lenses: %+v", policy.Steps)
+	}
 }
 
 func TestWriteContextPackFromRepoMapNavigationCoverageProjectsP1State(t *testing.T) {

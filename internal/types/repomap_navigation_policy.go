@@ -35,6 +35,7 @@ const (
 	RepoMapNavigationPurposeChangeImpact    RepoMapNavigationPurpose = "change_impact"
 	RepoMapNavigationPurposeExternalCurrent RepoMapNavigationPurpose = "external_current_source"
 	RepoMapNavigationPurposeScalarLookup    RepoMapNavigationPurpose = "scalar_lookup"
+	RepoMapNavigationPurposeLocalizationGap RepoMapNavigationPurpose = "localization_gap"
 )
 
 // RepoMapNavigationStep is one soft navigation recommendation. It is compiled
@@ -282,6 +283,45 @@ func CompileRepoMapNavigationPolicy(rm RequestModel, contract *AnswerContract, l
 	}
 
 	return p
+}
+
+// RepoMapNavigationPolicyWithLocalizationReview adds repo_map lenses required
+// by typed source-localization gaps observed after initial analysis. It reads
+// SourceLocalizationReview/LocalizationRequirementSet only; user prose, model
+// rationale, and rendered summaries never participate.
+func RepoMapNavigationPolicyWithLocalizationReview(policy RepoMapNavigationPolicy, review *SourceLocalizationReview) RepoMapNavigationPolicy {
+	if review == nil {
+		return policy
+	}
+	requirements := LocalizationRequirementsFromSourceLocalizationReview(*review, 0)
+	if requirements.OpenItems == 0 || len(requirements.MissingOwnerAnchorPaths) == 0 {
+		return policy
+	}
+	add := func(step RepoMapNavigationStep) {
+		if step.Route == "" {
+			return
+		}
+		for _, existing := range policy.Steps {
+			if existing.Route == step.Route && existing.Purpose == step.Purpose {
+				return
+			}
+		}
+		policy.Steps = append(policy.Steps, step)
+	}
+	add(RepoMapNavigationStep{
+		Route:   RepoMapNavigationRouteFileMap,
+		Purpose: RepoMapNavigationPurposeLocalizationGap,
+		When:    "for typed source-localization gaps where a production path was observed but no owner anchor has been established",
+		Params:  []string{"path", "top_n"},
+	})
+	add(RepoMapNavigationStep{
+		Route:     RepoMapNavigationRouteRelationMap,
+		Purpose:   RepoMapNavigationPurposeLocalizationGap,
+		When:      "for typed owner-localization gaps around observed production paths; use it to find nearby callers, implementers, registrations, or ownership edges before planning",
+		Params:    []string{"sources", "scope", "scopes", "relation_kinds", "query"},
+		FollowUps: []RepoMapNavigationRoute{RepoMapNavigationRouteFileMap},
+	})
+	return policy
 }
 
 // repoMapNavigationCallPathStep is the shared call_path soft route. It is

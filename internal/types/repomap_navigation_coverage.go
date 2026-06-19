@@ -153,6 +153,7 @@ func RepoMapNavigationCoverageFromReadArtifacts(ir *AnalysisIR, lanes ExploreLan
 		return RepoMapNavigationCoverage{}
 	}
 	policy := CompileRepoMapNavigationPolicy(ir.RequestModel, &ir.AnswerContract, lanes)
+	policy = RepoMapNavigationPolicyWithLocalizationReview(policy, SourceLocalizationReviewFromTurnAArtifacts(turnA))
 	return RepoMapNavigationCoverageFromToolResults(policy, turnA.ToolResults)
 }
 

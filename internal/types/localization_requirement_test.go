@@ -149,6 +149,24 @@ func TestLocalizationRequirementsFromSourceLocalizationReviewReportsReadOwnerDis
 	}
 }
 
+func TestLocalizationRequirementsFromSourceLocalizationReviewUsesOwnerMissingPaths(t *testing.T) {
+	review := NormalizeSourceLocalizationReview(SourceLocalizationReview{
+		Status:            SourceLocalizationWeak,
+		OwnerMissingPaths: []string{"pkg/bug.py"},
+		ReasonCodes:       []string{"plan_source_path_without_owner_anchor"},
+	})
+
+	got := LocalizationRequirementsFromSourceLocalizationReview(review, 0)
+	if got.OpenItems != 1 || strings.Join(got.MissingOwnerAnchorPaths, ",") != "pkg/bug.py" {
+		t.Fatalf("owner-missing-only review should produce open owner requirement: %+v", got)
+	}
+	row := strings.Join(LocalizationRequirementEvidenceRows(got, 8), "\n")
+	if !strings.Contains(row, "path=pkg/bug.py") ||
+		!strings.Contains(row, "required=typed_owner_localization_anchor") {
+		t.Fatalf("owner-missing requirement row incomplete: %q", row)
+	}
+}
+
 func TestLocalizationRequirementsIgnorePlanNarrativeText(t *testing.T) {
 	prior := []WriteContextPack{{
 		PackID:      "write-analysis",

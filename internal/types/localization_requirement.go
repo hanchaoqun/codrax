@@ -182,6 +182,8 @@ func LocalizationRequirementsFromSourceLocalizationReview(review SourceLocalizat
 	ownerView := OwnerAnchorViewFromSourceLocalizationReview(review, 0)
 	var paths []string
 	paths = append(paths, review.SourcePaths...)
+	paths = append(paths, review.OwnerMissingPaths...)
+	paths = append(paths, review.MissingPaths...)
 	if len(paths) == 0 {
 		for _, anchor := range review.Anchors {
 			if p := writeContextCoveragePath(anchor.Path); p != "" && !writeContextCoveragePathIsTest(p) {

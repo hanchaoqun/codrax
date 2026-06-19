@@ -319,7 +319,7 @@ func TestSyncPlannerObservationContextPackPersistsReadFileLocalization(t *testin
 			Summary:         "read_file observed current source bytes",
 		}},
 	})
-	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}}
 
 	o.syncPlannerObservationContextPack(&writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair"})
 
@@ -331,6 +331,10 @@ func TestSyncPlannerObservationContextPackPersistsReadFileLocalization(t *testin
 		!workflowRunContextContains(got, "localization_anchor", "kind=read_file") ||
 		!workflowRunContextContains(got, "localization_anchor", "strength=observed") {
 		t.Fatalf("planner observation context not persisted: %+v", got.ContextPacks)
+	}
+	if !workflowRunContextContains(got, "repo_map_navigation_coverage", "state=missing") ||
+		!workflowRunContextContains(got, "repo_map_navigation_coverage", "missing=file_map,relation_map") {
+		t.Fatalf("planner observation navigation coverage gap not persisted: %+v", got.ContextPacks)
 	}
 }
 

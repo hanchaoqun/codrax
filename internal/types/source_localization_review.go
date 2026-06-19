@@ -303,6 +303,78 @@ func SourceLocalizationReviewFromTurnA(readFiles []string, evidence []EvidenceIt
 	return NormalizeSourceLocalizationReview(out)
 }
 
+func SourceLocalizationReviewFromTurnAArtifacts(turnA *TurnAArtifacts) *SourceLocalizationReview {
+	if turnA == nil {
+		return nil
+	}
+	out := CloneSourceLocalizationReviewPtr(turnA.SourceLocalization)
+	if len(turnA.ReadFiles) == 0 && len(turnA.EvidenceItems) == 0 {
+		return out
+	}
+	derived := SourceLocalizationReviewFromTurnA(turnA.ReadFiles, turnA.EvidenceItems)
+	return MergeSourceLocalizationReviews(out, &derived)
+}
+
+func SourceLocalizationReviewFromWriteContextPacks(packs []WriteContextPack, consumer WriteContextConsumer, batchID, sliceID string) SourceLocalizationReview {
+	if len(packs) == 0 {
+		return SourceLocalizationReview{}
+	}
+	out := SourceLocalizationReview{
+		Source:  "write_context_pack",
+		BatchID: trimSourceLocalizationText(batchID),
+	}
+	addPath := func(raw string) {
+		p := sourceLocalizationPath(raw)
+		if p == "" {
+			return
+		}
+		role := ClassifySourcePathRole(p)
+		if SourcePathRoleIsAuxiliary(role) {
+			out.AuxiliaryPaths = append(out.AuxiliaryPaths, p)
+			return
+		}
+		out.SourcePaths = append(out.SourcePaths, p)
+	}
+	addAnchor := func(anchor SourceLocalizationAnchor) {
+		anchor = normalizeSourceLocalizationAnchor(anchor)
+		if anchor.Path == "" {
+			return
+		}
+		out.Anchors = append(out.Anchors, anchor)
+		addPath(anchor.Path)
+		if sourceLocalizationAnchorSatisfiesPriorContext(anchor) {
+			out.SupportedPaths = append(out.SupportedPaths, anchor.Path)
+			out.OwnerSupportedPaths = append(out.OwnerSupportedPaths, anchor.Path)
+		}
+		if anchor.EvidenceRef != nil {
+			out.EvidenceRefs = append(out.EvidenceRefs, *anchor.EvidenceRef)
+		}
+	}
+	for _, pack := range packs {
+		pack = NormalizeWriteContextPack(pack)
+		view := pack.ViewForScope(consumer, 0, batchID, sliceID)
+		for _, item := range view.Items {
+			if item.LocalizationAnchor != nil {
+				addAnchor(*item.LocalizationAnchor)
+			}
+			if item.EvidenceRef != nil {
+				out.EvidenceRefs = append(out.EvidenceRefs, *item.EvidenceRef)
+			}
+		}
+	}
+	if len(out.SourcePaths) > 0 {
+		out.Status = SourceLocalizationObserved
+		out.ReasonCodes = append(out.ReasonCodes, "write_context_source_observed")
+		if len(out.OwnerSupportedPaths) > 0 {
+			out.ReasonCodes = append(out.ReasonCodes, "write_context_owner_anchor_observed")
+		}
+	} else if len(out.AuxiliaryPaths) > 0 || len(out.EvidenceRefs) > 0 {
+		out.Status = SourceLocalizationWeak
+		out.ReasonCodes = append(out.ReasonCodes, "write_context_auxiliary_only")
+	}
+	return NormalizeSourceLocalizationReview(out)
+}
+
 func SourceLocalizationReviewFromWritePlanContext(batchID, goal string, prior []WriteContextPack, plan *ChangePlan) SourceLocalizationReview {
 	if plan == nil {
 		return SourceLocalizationReview{}

@@ -1254,6 +1254,8 @@ func (o *Orchestrator) syncPlannerObservationContextPack(batch *writeflow.WriteB
 			&o.busCtx.AnalysisIR.AnswerContract,
 			o.busCtx.ExploreLanePlan,
 		)
+		review := types.SourceLocalizationReviewFromWriteContextPacks([]types.WriteContextPack{pack}, types.WriteConsumerPlanner, batchID, "")
+		policy = types.RepoMapNavigationPolicyWithLocalizationReview(policy, &review)
 		coverage := types.RepoMapNavigationCoverageFromToolResults(policy, results)
 		coveragePack := types.WriteContextPackFromRepoMapNavigationCoverage(batchID, goal, coverage)
 		pack = types.MergeWriteContextPacks(batchID, goal, pack, coveragePack)

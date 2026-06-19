@@ -100,6 +100,42 @@ func TestCompileRepoMapNavigationPolicy_NonCallChainRelationShapeSkipsCallPath(t
 	}
 }
 
+func TestRepoMapNavigationPolicyWithLocalizationReviewAddsOwnerGapLenses(t *testing.T) {
+	review := SourceLocalizationReviewFromTurnA([]string{"pkg/bug.py"}, nil)
+	got := RepoMapNavigationPolicyWithLocalizationReview(RepoMapNavigationPolicy{}, &review)
+	if !got.HasRoute(RepoMapNavigationRouteFileMap) {
+		t.Fatalf("observed source path without owner anchor should require file_map lens: %+v", got.Steps)
+	}
+	if !got.HasRoute(RepoMapNavigationRouteRelationMap) {
+		t.Fatalf("observed source path without owner anchor should require relation_map lens: %+v", got.Steps)
+	}
+	rendered := got.RenderMarkdownHint("", "")
+	if !strings.Contains(rendered, "typed owner-localization gaps") {
+		t.Fatalf("rendered localization-gap hint missing typed source:\n%s", rendered)
+	}
+}
+
+func TestRepoMapNavigationPolicyWithLocalizationReviewSkipsSatisfiedOwner(t *testing.T) {
+	review := NormalizeSourceLocalizationReview(SourceLocalizationReview{
+		Source:              "test",
+		Status:              SourceLocalizationSupported,
+		SourcePaths:         []string{"pkg/owner.py"},
+		SupportedPaths:      []string{"pkg/owner.py"},
+		OwnerSupportedPaths: []string{"pkg/owner.py"},
+		Anchors: []SourceLocalizationAnchor{{
+			Path:        "pkg/owner.py",
+			Role:        SourcePathRoleProduction,
+			Kind:        SourceLocalizationAnchorGroundedEvidence,
+			Strength:    SourceLocalizationAnchorOwner,
+			OwnerSymbol: "Owner.Handle",
+		}},
+	})
+	got := RepoMapNavigationPolicyWithLocalizationReview(RepoMapNavigationPolicy{}, &review)
+	if got.HasRoute(RepoMapNavigationRouteFileMap) || got.HasRoute(RepoMapNavigationRouteRelationMap) {
+		t.Fatalf("owner-supported localization should not add gap lenses: %+v", got.Steps)
+	}
+}
+
 func TestCompileRepoMapNavigationPolicy_ArchitectureDiagramProducesSemanticGraph(t *testing.T) {
 	rm := RequestModel{
 		Intent:      IntentExplain,
@@ -275,6 +311,25 @@ func TestCompileRepoMapNavigationPolicy_FallsBackWhenOnlyBroadTermsExist(t *test
 	if !containsRepoMapPolicyTerm(got.QueryTerms, "scheduler") ||
 		!containsRepoMapPolicyTerm(got.QueryTerms, "runtime") {
 		t.Fatalf("policy should keep broad terms as a fallback when no exact code surfaces exist, got %+v", got.QueryTerms)
+	}
+}
+
+func TestRepoMapNavigationCoverageFromReadArtifactsAddsLocalizationGapRoutes(t *testing.T) {
+	got := RepoMapNavigationCoverageFromReadArtifacts(&AnalysisIR{}, ExploreLanePlan{}, &TurnAArtifacts{
+		ReadFiles: []string{"pkg/bug.py"},
+	})
+	if got.State != RepoMapNavigationCoverageMissing {
+		t.Fatalf("coverage state = %s, want missing for observed-only localization: %+v", got.State, got)
+	}
+	if !containsRepoMapRoute(got.RequiredRoutes, RepoMapNavigationRouteFileMap) {
+		t.Fatalf("localization gap should require file_map route: %+v", got)
+	}
+	if !containsRepoMapRoute(got.RequiredRoutes, RepoMapNavigationRouteRelationMap) {
+		t.Fatalf("localization gap should require relation_map route: %+v", got)
+	}
+	if !containsRepoMapRoute(got.MissingRoutes, RepoMapNavigationRouteFileMap) ||
+		!containsRepoMapRoute(got.MissingRoutes, RepoMapNavigationRouteRelationMap) {
+		t.Fatalf("required localization gap routes should be missing before repo_map observations: %+v", got)
 	}
 }
 
