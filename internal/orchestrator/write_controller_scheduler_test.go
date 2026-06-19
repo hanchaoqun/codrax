@@ -3622,6 +3622,61 @@ func TestEnforceControllerWorkflowTransitionBlocksModePlanApply(t *testing.T) {
 	}
 }
 
+func TestEnforceControllerWorkflowTransitionWeakLocalizationPlansExplore(t *testing.T) {
+	mu := types.NewMutableState("weak localization transition")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-localize",
+		Goal:          "repair owner surface",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair owner surface",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ContextPacks: []types.WriteContextPack{{
+			BatchID: "batch-1",
+			Items: []types.WriteContextItem{{
+				Priority: types.WriteContextP1,
+				Kind:     "localization_anchor",
+				Text:     "pkg/maybe.py",
+				LocalizationAnchor: &types.SourceLocalizationAnchor{
+					Path:     "pkg/maybe.py",
+					Role:     types.SourcePathRoleProduction,
+					Kind:     types.SourceLocalizationAnchorReadFile,
+					Strength: types.SourceLocalizationAnchorObserved,
+				},
+			}},
+		}},
+	}
+
+	got := o.enforceControllerWorkflowTransition(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionPlanBatch,
+		ReasonCode: "controller_planned_too_early",
+		Batch: &writeflow.WriteBatchPlan{
+			ID:     "batch-1",
+			Goal:   "repair owner surface",
+			Status: writeflow.BatchReadyForChangePlan,
+		},
+	}, run)
+	if got.Action != writeflow.ActionExploreCode || got.ReasonCode != "localization_authority_requires_exploration" {
+		t.Fatalf("weak localization should become explore_code, got %+v", got)
+	}
+	if got.ExplorationRequest == nil || got.ExplorationRequest.BatchID != "batch-1" {
+		t.Fatalf("explore recovery should carry batch request, got %+v", got.ExplorationRequest)
+	}
+	if !containsString(got.ExplorationRequest.CandidatePaths, "pkg/maybe.py") {
+		t.Fatalf("candidate paths missing expected path: %+v", got.ExplorationRequest.CandidatePaths)
+	}
+	if !strings.Contains(strings.Join(got.ExplorationRequest.EvidenceRequirements, "\n"), "typed_owner_localization_anchor") {
+		t.Fatalf("evidence requirements missing owner localization demand: %+v", got.ExplorationRequest.EvidenceRequirements)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "workflow_transition_rejected") {
+		t.Fatalf("transition rejection progress missing: %+v", run.ProgressLedger)
+	}
+}
+
 func TestReviewActiveAppliedPatchScopePersistsHardBlock(t *testing.T) {
 	mu := types.NewMutableState("patch review")
 	plan := &types.ChangePlan{

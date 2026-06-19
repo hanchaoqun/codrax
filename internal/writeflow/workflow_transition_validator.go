@@ -30,6 +30,9 @@ func ValidateWorkflowTransition(view WorkflowExecutionView, decision WriteWorkfl
 		return workflowTransitionDenied("action_not_allowed_in_mode",
 			fmt.Sprintf("action %s is not allowed in mode %s", decision.Action, view.Mode), "")
 	}
+	if localization := validateLocalizationAuthorityTransition(view, decision.Action); !localization.Allowed {
+		return localization
+	}
 	switch view.State {
 	case WorkflowExecutionApplyReady:
 		return validateApplyReadyTransition(decision.Action)
@@ -47,6 +50,36 @@ func ValidateWorkflowTransition(view WorkflowExecutionView, decision WriteWorkfl
 		return validateBlockedTransition(decision.Action)
 	default:
 		return WorkflowTransitionValidation{Allowed: true}
+	}
+}
+
+func validateLocalizationAuthorityTransition(view WorkflowExecutionView, action WorkflowAction) WorkflowTransitionValidation {
+	if !workflowTransitionNeedsOwnerLocalization(view) {
+		return WorkflowTransitionValidation{Allowed: true}
+	}
+	switch action {
+	case ActionExploreCode, ActionAskUser, ActionBlock:
+		return WorkflowTransitionValidation{Allowed: true}
+	case ActionPlanBatch, ActionAppendBatch, ActionSplitBatch, ActionReplanBatch, ActionFinish:
+		return workflowTransitionDenied("localization_authority_requires_exploration",
+			"typed localization authority requires bounded owner localization before planning or finishing this batch", ActionExploreCode)
+	default:
+		return WorkflowTransitionValidation{Allowed: true}
+	}
+}
+
+func workflowTransitionNeedsOwnerLocalization(view WorkflowExecutionView) bool {
+	if !view.LocalizationGateEligible || !view.Localization.RequiresMoreContext || view.ExploreAttempts > 0 {
+		return false
+	}
+	if len(view.Localization.SourcePaths) == 0 && len(view.Localization.OwnerMissingPaths) == 0 {
+		return false
+	}
+	switch view.State {
+	case WorkflowExecutionReadyToPlan, WorkflowExecutionNeedsReplan:
+		return true
+	default:
+		return false
 	}
 }
 

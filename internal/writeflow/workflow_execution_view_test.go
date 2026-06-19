@@ -3,6 +3,7 @@ package writeflow
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -129,6 +130,39 @@ func TestDeriveWorkflowExecutionViewSurfacesActiveSlice(t *testing.T) {
 	view := DeriveWorkflowExecutionView(types.ModeApply, run, plan)
 	if view.ActiveSliceID != "slice-2" || view.ActiveSliceStatus != types.ChangePlanSliceObserving {
 		t.Fatalf("active slice not surfaced: %+v", view)
+	}
+}
+
+func TestDeriveWorkflowExecutionViewProjectsLocalizationAuthorityFromExpectedPaths(t *testing.T) {
+	run := workflowExecutionRunForTest(types.WriteWorkflowBatchReadyToPlan, "")
+	run.Batches[0].ExpectedPaths = []string{"pkg/maybe.py"}
+
+	view := DeriveWorkflowExecutionView(types.ModeApply, run, nil)
+	if view.Localization.State != loopkernel.LocalizationAuthorityObservedOnly {
+		t.Fatalf("localization = %+v, want observed_only", view.Localization)
+	}
+	if !view.Localization.RequiresMoreContext || view.Localization.ReasonCode != "localization_observed_without_owner" {
+		t.Fatalf("localization should require owner context: %+v", view.Localization)
+	}
+	if view.LocalizationGateEligible {
+		t.Fatalf("batch expected paths alone should not be a hard localization gate: %+v", view)
+	}
+	if len(view.Localization.SourcePaths) != 1 || view.Localization.SourcePaths[0] != "pkg/maybe.py" {
+		t.Fatalf("source paths not projected from expected paths: %+v", view.Localization.SourcePaths)
+	}
+}
+
+func TestDeriveWorkflowExecutionViewSurfacesExploreAttempts(t *testing.T) {
+	run := workflowExecutionRunForTest(types.WriteWorkflowBatchReadyToPlan, "")
+	run.Batches[0].Attempts = []types.WriteWorkflowAttempt{{
+		Kind:       "explore",
+		Status:     "complete",
+		ReasonCode: "exploration_complete",
+	}}
+
+	view := DeriveWorkflowExecutionView(types.ModeApply, run, nil)
+	if view.ExploreAttempts != 1 || view.LatestExploreStatus != "complete" || view.LatestExploreReason != "exploration_complete" {
+		t.Fatalf("explore attempts not surfaced: %+v", view)
 	}
 }
 

@@ -5709,6 +5709,19 @@ func controllerDecisionFromWorkflowTransitionValidation(view writeflow.WorkflowE
 	reasonCode := firstNonEmptyController(validation.ReasonCode, "workflow_transition_rejected")
 	reason := firstNonEmptyController(validation.Reason, "controller decision rejected by typed workflow state")
 	switch validation.RecommendedAction {
+	case writeflow.ActionExploreCode:
+		batchID := firstNonEmptyController(view.BatchID, controllerDecisionBatchID(prior, run), "batch-1")
+		return writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionExploreCode,
+			ReasonCode: reasonCode,
+			Reason:     reason,
+			ExplorationRequest: &types.WriteExplorationRequest{
+				BatchID:              batchID,
+				Goal:                 workflowTransitionBatchGoal(view, run, batchID),
+				CandidatePaths:       workflowTransitionLocalizationCandidatePaths(view),
+				EvidenceRequirements: workflowTransitionLocalizationEvidenceRequirements(view),
+			},
+		}
 	case writeflow.ActionApplyPlan:
 		return writeflow.WriteWorkflowDecision{
 			Action:     writeflow.ActionApplyPlan,
@@ -5754,6 +5767,29 @@ func controllerDecisionFromWorkflowTransitionValidation(view writeflow.WorkflowE
 			Reason:     reason,
 		}
 	}
+}
+
+func workflowTransitionLocalizationCandidatePaths(view writeflow.WorkflowExecutionView) []string {
+	var paths []string
+	paths = append(paths, view.Localization.OwnerMissingPaths...)
+	paths = append(paths, view.Localization.SourcePaths...)
+	paths = append(paths, view.Localization.AuxiliaryPaths...)
+	return dedupTrimControllerStrings(paths)
+}
+
+func workflowTransitionLocalizationEvidenceRequirements(view writeflow.WorkflowExecutionView) []string {
+	var rows []string
+	if view.Localization.ReasonCode != "" || view.Localization.State != "" {
+		rows = append(rows, fmt.Sprintf("localization_authority state=%s reason=%s required=typed_owner_localization_anchor",
+			view.Localization.State, view.Localization.ReasonCode))
+	}
+	for _, path := range workflowTransitionLocalizationCandidatePaths(view) {
+		rows = append(rows, "localization_requirement path="+path+" kind=owner_evidence required=typed_owner_localization_anchor source=workflow_transition")
+		if len(rows) >= 8 {
+			break
+		}
+	}
+	return dedupTrimControllerStrings(rows)
 }
 
 func workflowTransitionAskUserDecision(view writeflow.WorkflowExecutionView, reasonCode, reason string) writeflow.WriteWorkflowDecision {

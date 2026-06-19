@@ -3,6 +3,7 @@ package writeflow
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -54,6 +55,84 @@ func TestValidateWorkflowTransitionObserveRequiredBlocksPlanning(t *testing.T) {
 	})
 	if denied.Allowed || denied.ReasonCode != "post_apply_observe_required" || denied.RecommendedAction != ActionVerifyBatch {
 		t.Fatalf("planning should be blocked until observation: %+v", denied)
+	}
+}
+
+func TestValidateWorkflowTransitionWeakLocalizationRequiresFirstExplore(t *testing.T) {
+	view := WorkflowExecutionView{
+		Mode:                     types.ModeApply,
+		State:                    WorkflowExecutionReadyToPlan,
+		LocalizationGateEligible: true,
+		Localization: loopkernel.LocalizationAuthorityView{
+			State:               loopkernel.LocalizationAuthorityObservedOnly,
+			ReasonCode:          "localization_observed_without_owner",
+			RecommendedAction:   loopkernel.LoopActionLocalize,
+			SourcePaths:         []string{"pkg/maybe.py"},
+			RequiresMoreContext: true,
+		},
+	}
+
+	denied := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionPlanBatch,
+		Batch:  &WriteBatchPlan{ID: "batch-1", Goal: "repair owner surface"},
+	})
+	if denied.Allowed || denied.ReasonCode != "localization_authority_requires_exploration" || denied.RecommendedAction != ActionExploreCode {
+		t.Fatalf("weak localization should request explore_code before planning: %+v", denied)
+	}
+	allowed := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionExploreCode,
+		ExplorationRequest: &types.WriteExplorationRequest{
+			BatchID: "batch-1",
+			Goal:    "repair owner surface",
+		},
+	})
+	if !allowed.Allowed {
+		t.Fatalf("explore_code should be allowed for weak localization: %+v", allowed)
+	}
+}
+
+func TestValidateWorkflowTransitionWeakLocalizationDoesNotLoopAfterExploreAttempt(t *testing.T) {
+	view := WorkflowExecutionView{
+		Mode:                     types.ModeApply,
+		State:                    WorkflowExecutionReadyToPlan,
+		LocalizationGateEligible: true,
+		ExploreAttempts:          1,
+		Localization: loopkernel.LocalizationAuthorityView{
+			State:               loopkernel.LocalizationAuthorityObservedOnly,
+			ReasonCode:          "localization_observed_without_owner",
+			RecommendedAction:   loopkernel.LoopActionLocalize,
+			RequiresMoreContext: true,
+		},
+	}
+
+	got := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionPlanBatch,
+		Batch:  &WriteBatchPlan{ID: "batch-1", Goal: "repair owner surface"},
+	})
+	if !got.Allowed {
+		t.Fatalf("planner should be allowed after a bounded explore attempt: %+v", got)
+	}
+}
+
+func TestValidateWorkflowTransitionAuxiliaryOnlyLocalizationDoesNotHardBlockPlanning(t *testing.T) {
+	view := WorkflowExecutionView{
+		Mode:  types.ModeApply,
+		State: WorkflowExecutionReadyToPlan,
+		Localization: loopkernel.LocalizationAuthorityView{
+			State:               loopkernel.LocalizationAuthorityAuxiliaryOnly,
+			ReasonCode:          "localization_auxiliary_only",
+			RecommendedAction:   loopkernel.LoopActionLocalize,
+			AuxiliaryPaths:      []string{"tests/test_bug.py"},
+			RequiresMoreContext: true,
+		},
+	}
+
+	got := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionPlanBatch,
+		Batch:  &WriteBatchPlan{ID: "batch-1", Goal: "repair from regression symptom"},
+	})
+	if !got.Allowed {
+		t.Fatalf("auxiliary-only localization should remain advisory for planning: %+v", got)
 	}
 }
 

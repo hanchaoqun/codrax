@@ -31,6 +31,24 @@ func LocalizationReviewFromWriteWorkflowRun(run types.WriteWorkflowRun, batchID 
 		review.SourcePaths = append(review.SourcePaths, path)
 		sourceSeen[path] = true
 	}
+	for _, batch := range run.Batches {
+		if batchID != "" && strings.TrimSpace(batch.ID) != batchID {
+			continue
+		}
+		for _, path := range batch.ExpectedPaths {
+			addSource(path, types.ClassifySourcePathRole(path))
+			if p := strings.TrimSpace(path); p != "" {
+				review.Anchors = append(review.Anchors, types.SourceLocalizationAnchor{
+					Path:        p,
+					Role:        types.ClassifySourcePathRole(p),
+					SourceStage: "write_workflow_batch",
+					Kind:        types.SourceLocalizationAnchorScope,
+					Strength:    types.SourceLocalizationAnchorSupporting,
+					ReasonCode:  "batch_expected_path_requires_owner_localization",
+				})
+			}
+		}
+	}
 	for _, pack := range run.ContextPacks {
 		pack = types.NormalizeWriteContextPack(pack)
 		if batchID != "" && pack.BatchID != "" && pack.BatchID != batchID {

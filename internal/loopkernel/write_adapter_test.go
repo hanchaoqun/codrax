@@ -95,6 +95,29 @@ func TestEventsFromWriteWorkflowRunObservedLocalizationNeedsLocalizer(t *testing
 	}
 }
 
+func TestEventsFromWriteWorkflowRunExpectedPathsNeedLocalizer(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-expected-path",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchReadyToPlan,
+			ExpectedPaths: []string{"pkg/maybe.py"},
+		}},
+	}
+	got := ReduceEvents(EventsFromWriteWorkflowRun(run))
+	if got.Localization.State != LocalizationAuthorityObservedOnly {
+		t.Fatalf("localization = %+v, want observed_only", got.Localization)
+	}
+	if got.Localization.RecommendedAction != LoopActionLocalize || !got.Localization.RequiresMoreContext {
+		t.Fatalf("expected paths should request owner localization: %+v", got.Localization)
+	}
+	if len(got.Localization.SourcePaths) != 1 || got.Localization.SourcePaths[0] != "pkg/maybe.py" {
+		t.Fatalf("expected path not projected as source path: %+v", got.Localization.SourcePaths)
+	}
+}
+
 func TestEventsFromWriteWorkflowRunVerifyingUsesActiveSlice(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "wf-verify",

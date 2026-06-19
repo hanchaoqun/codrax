@@ -3,6 +3,7 @@ package writeflow
 import (
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -49,10 +50,15 @@ type WorkflowExecutionView struct {
 	Approval     ApprovalExecutionView `json:"approval,omitempty"`
 	Budget       types.WriteWorkflowBudget
 
-	LatestVerifyStatus      string                   `json:"latest_verify_status,omitempty"`
-	LatestVerifyReasonCode  string                   `json:"latest_verify_reason_code,omitempty"`
-	LatestVerifyFailureCode string                   `json:"latest_verify_failure_code,omitempty"`
-	Observation             ObservationAuthorityView `json:"observation,omitempty"`
+	Localization             loopkernel.LocalizationAuthorityView `json:"localization,omitempty"`
+	LocalizationGateEligible bool                                 `json:"localization_gate_eligible,omitempty"`
+	ExploreAttempts          int                                  `json:"explore_attempts,omitempty"`
+	LatestExploreStatus      string                               `json:"latest_explore_status,omitempty"`
+	LatestExploreReason      string                               `json:"latest_explore_reason,omitempty"`
+	LatestVerifyStatus       string                               `json:"latest_verify_status,omitempty"`
+	LatestVerifyReasonCode   string                               `json:"latest_verify_reason_code,omitempty"`
+	LatestVerifyFailureCode  string                               `json:"latest_verify_failure_code,omitempty"`
+	Observation              ObservationAuthorityView             `json:"observation,omitempty"`
 
 	RequiresUser bool `json:"requires_user,omitempty"`
 	CanExplore   bool `json:"can_explore,omitempty"`
@@ -86,6 +92,11 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 	view.PlanID = strings.TrimSpace(batch.PlanID)
 	view.ActiveSliceID, view.ActiveSliceStatus = workflowExecutionActiveSlice(batch)
 	view.BatchAttempt = DeriveBatchAttemptState(batch)
+	view.ExploreAttempts, view.LatestExploreStatus, view.LatestExploreReason = workflowExecutionExploreAttempts(batch)
+	if review := loopkernel.LocalizationReviewFromWriteWorkflowRun(run, view.BatchID); review != nil {
+		view.Localization = loopkernel.DeriveLocalizationAuthority(review)
+		view.LocalizationGateEligible = workflowExecutionLocalizationGateEligible(*review)
+	}
 	if latestVerify := latestAttemptOfKind(batch, "verify"); latestVerify != nil {
 		view.LatestVerifyStatus = strings.TrimSpace(latestVerify.Status)
 		view.LatestVerifyReasonCode = strings.TrimSpace(latestVerify.ReasonCode)
@@ -210,6 +221,38 @@ func workflowExecutionActiveSlice(batch types.WriteWorkflowBatch) (string, types
 		}
 	}
 	return "", ""
+}
+
+func workflowExecutionExploreAttempts(batch types.WriteWorkflowBatch) (int, string, string) {
+	count := 0
+	latestStatus := ""
+	latestReason := ""
+	for _, attempt := range batch.Attempts {
+		if strings.TrimSpace(attempt.Kind) != "explore" {
+			continue
+		}
+		count++
+		latestStatus = strings.TrimSpace(attempt.Status)
+		latestReason = strings.TrimSpace(attempt.ReasonCode)
+	}
+	return count, latestStatus, latestReason
+}
+
+func workflowExecutionLocalizationGateEligible(review types.SourceLocalizationReview) bool {
+	review = types.NormalizeSourceLocalizationReview(review)
+	for _, anchor := range review.Anchors {
+		if types.SourcePathRoleIsAuxiliary(anchor.Role) {
+			continue
+		}
+		switch anchor.Kind {
+		case types.SourceLocalizationAnchorReadFile,
+			types.SourceLocalizationAnchorGroundedEvidence,
+			types.SourceLocalizationAnchorRecoveredEvidence,
+			types.SourceLocalizationAnchorEvidence:
+			return true
+		}
+	}
+	return false
 }
 
 func workflowExecutionSliceTerminal(status types.ChangePlanSliceStatus) bool {
