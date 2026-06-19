@@ -329,10 +329,12 @@ func (a *oauthPollingAuthenticator) Invalidate() {
 }
 
 func (a *oauthPollingAuthenticator) getToken(ctx context.Context) (cachedOAuthToken, error) {
-	if a.tokenValid(a.token, time.Now()) {
-		return a.token, nil
-	}
-
+	// a.token is a multi-word struct mutated under a.mu by this function
+	// and Invalidate(). There is no unlocked fast path: an unsynchronized
+	// read could observe a torn token (a fresh AccessToken paired with a
+	// stale ExpiresAt/Fingerprint). The lock is held only briefly in the
+	// common valid-token case, which is negligible next to the LLM round
+	// trip this token authorizes.
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := time.Now()

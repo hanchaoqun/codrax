@@ -8,12 +8,59 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// TestOAuthPollingGetTokenConcurrentReadIsRaceFree exercises getToken's
+// valid-token fast path concurrently with a writer that rewrites the
+// token under a.mu (as Invalidate and the authorize slow path do). Before
+// the fix, getToken read the multi-word a.token struct WITHOUT the lock,
+// racing the writer; `go test -race` flags it. The writer always stores a
+// valid token so readers stay on the fast path (hermetic — no network).
+func TestOAuthPollingGetTokenConcurrentReadIsRaceFree(t *testing.T) {
+	a := &oauthPollingAuthenticator{fingerprint: "fp"}
+	valid := cachedOAuthToken{AccessToken: "tok", Fingerprint: "fp"} // zero ExpiresAt => valid
+	a.token = valid
+
+	stop := make(chan struct{})
+	var writer sync.WaitGroup
+	writer.Add(1)
+	go func() {
+		defer writer.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				a.mu.Lock()
+				a.token = cachedOAuthToken{AccessToken: "tok", Fingerprint: "fp"}
+				a.mu.Unlock()
+			}
+		}
+	}()
+
+	var readers sync.WaitGroup
+	for g := 0; g < 4; g++ {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			for i := 0; i < 2000; i++ {
+				if _, err := a.getToken(context.Background()); err != nil {
+					t.Errorf("getToken: %v", err)
+					return
+				}
+			}
+		}()
+	}
+	readers.Wait()
+	close(stop)
+	writer.Wait()
+}
 
 func TestFlexibleInt_UnmarshalStringAndNumber(t *testing.T) {
 	for _, raw := range []string{`"259199"`, `259199`} {
