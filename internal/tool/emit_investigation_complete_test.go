@@ -2639,6 +2639,143 @@ func TestEmitInvestigationComplete_AllowsExhaustiveEnumerationMemberSet(t *testi
 	}
 }
 
+func TestEmitInvestigationComplete_AutoFillsBareMemberSupportFromUniqueReadLine(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("Which subagent is registered by default?")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "subexplorer-name",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       32,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Name",
+		Subject:         "Name",
+		Snippet:         "func (s *SubExplorer) Name() string {",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/agent/sub_explorer.go: showing lines 32-34]\n" +
+			"   32 │ func (s *SubExplorer) Name() string {\n" +
+			"   33 │ \treturn \"explorer\"\n" +
+			"   34 │ }\n",
+	})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "default subagent names",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"default subagent registry resolves to the explorer subagent",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"default subagent names",
+			"value":"1",
+			"unit":"subagents",
+			"role":"principal_answer",
+			"members":["explorer"],
+			"support_refs":["Name: internal/agent/sub_explorer.go:32"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unique read_file member line should auto-fill support: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || len(facts[0].SupportRefs) < 2 {
+		t.Fatalf("expected enriched support refs, got %+v; summary: %s", facts, res.Summary)
+	}
+	found := false
+	for _, ref := range facts[0].SupportRefs {
+		if ref == "Member @ internal/agent/sub_explorer.go:33" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("auto-filled read_file support ref missing: %+v", facts[0].SupportRefs)
+	}
+}
+
+func TestEmitInvestigationComplete_DoesNotAutoFillBareMemberSupportFromAmbiguousReadLines(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("Which subagent is registered by default?")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "subexplorer-name",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       32,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Name",
+		Subject:         "Name",
+		Snippet:         "func (s *SubExplorer) Name() string {",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/agent/sub_explorer.go: showing lines 33-35]\n" +
+			"   33 │ \treturn \"explorer\"\n" +
+			"   34 │ \tname := \"explorer\"\n" +
+			"   35 │ \t_ = name\n",
+	})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "default subagent names",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"default subagent registry resolves to the explorer subagent",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"default subagent names",
+			"value":"1",
+			"unit":"subagents",
+			"role":"principal_answer",
+			"members":["explorer"],
+			"support_refs":["Name: internal/agent/sub_explorer.go:32"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ambiguous support should be a soft downgrade, not hard failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "typed evidence") {
+		t.Fatalf("summary should ask for typed support after ambiguous read lines, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("ambiguous support must not close investigation")
+	}
+}
+
 func TestEmitInvestigationComplete_AllowsExhaustiveRuntimeArtifactMemberSet(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

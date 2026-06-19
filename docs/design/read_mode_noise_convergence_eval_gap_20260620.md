@@ -45,6 +45,7 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C7 | P1 | Large read-mode evals can run without a watchdog. | `eval/run.sh` read-mode paths do not consistently wrap Codrax with the shared timeout helper. | Add eval-level wall-time controls for read mode, with configurable defaults and typed timeout summaries. |
 | RNE-C8 | P1 | Mixed log/current-source tasks can re-explore after enough evidence exists. | Runtime observation proof and source-localization proof are not unified into a single coverage ledger. | Observation proof coverage should become an online state: runtime symptom, source owner, impact path, and verification caveats are independently tracked. |
 | RNE-C9 | P1 | Cross-language call-chain cases still over-read. | Repo-map navigation facts and read-range obligations are not used as a strict enough exploration budget for C/C++, ArkTS, Cangjie, Java/Kotlin, JS/TS, Ruby, Go, config, and workflow files. | Language-neutral localization and impact views set read budgets and proof obligations, with language adapters providing typed parse/edge facts where available. |
+| RNE-C10 | P0 | Post-complete localization repair can still leak into extraction. | A retry directive / localization supplement can mention a forced `read_file` after exploration already accepted closure. The extractor cannot run read tools, so it burns an unavailable-tool round and may broaden reasoning from stale repair text. | Stage handoff must project localization repair debt into extractor-safe obligations: verdict/caveat/status only. Any real need for more `read_file` must route back to exploration before StageExtract. |
 
 ## Architecture Direction
 
@@ -124,12 +125,14 @@ roles from many raw trace rows.
 | --- | --- | --- | --- |
 | Batch A | delivered | Record this eval/gap/design ledger. | All P0/P1 gaps above are tracked with testable acceptance criteria. |
 | Batch B | delivered | Implement first-class empty `member_set` support. | `value="0", members=[]` validates, satisfies exhaustive handoff when principal and backed by `negative_search` / `negative_observation`, and does not create bogus answer rows. Unit tests cover the no-hit path; the ArkTS representative rerun confirms the change does not break positive ArkTS enumeration. |
-| Batch C | planned | Strengthen relation support resolution and relation retry deltas. | One-member relation answers with line-backed method/literal evidence do not re-loop on missing support refs. Duplicate support rows stay advisory. |
+| Batch C1 | delivered | Strengthen relation/member-set support resolution. | One-member answers with a citable owner line and a unique read-file value line can receive deterministic `Member @ file:line` support without another model retry; ambiguous multi-line matches still downgrade. |
+| Batch C2 | planned | Add relation retry delta handling. | Duplicate support rows stay advisory, and repeated identical relation support downgrades stop broadening after one bounded repair turn. |
 | Batch D | planned | Add typed relevance budget for chain/concrete/support evidence. | Architecture inventory and C++ call-chain cases render bounded Top-N prompt sections while preserving full refs in audit artifacts. |
 | Batch E | planned | Add downgrade fingerprint / low-delta guard. | Identical pre-complete rejection without new typed input stops after one bounded repair turn. |
 | Batch F | planned | Add trace causal path projection. | Trace eval preserves intermediate path-role facets in final answer with fewer trace_query calls. |
 | Batch G | planned | Add read eval watchdog. | Read-mode eval paths use a configurable timeout and emit typed timeout summaries. |
-| Batch H | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
+| Batch H | planned | Quarantine post-complete localization repair for extractor. | Extractor receives non-executable localization status/caveat fields and does not attempt `read_file` / `repo_map` after accepted closure. |
+| Batch I | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
 
 ## Test Matrix
 
@@ -164,3 +167,15 @@ roles from many raw trace rows.
   empty-set branch, so the no-hit branch is covered by focused unit tests. The
   eval still took 215s, 18 `read_file` calls, 19 explorer iterations, and ~48k
   estimated context tokens, so Batch D/E remain P0 for commercial smoothness.
+- 2026-06-20 Batch C1 delivered: member-set support enrichment now auto-fills
+  a generic `Member @ file:line` support ref from a unique matching `read_file`
+  line for non-relation bare members. This targets the common owner/value split
+  where the citable function definition line is already present but the answer
+  member is returned or assigned on the next line. Ambiguous multi-match
+  read-file surfaces still require an explicit model-authored support ref.
+- 2026-06-20 Batch C1 verification: `qf_relation_subagent_registry` rerun
+  passed instead of running away, but still took 247s with 14 `read_file` calls,
+  24 explorer iterations, 13 midloop injections, 45 concrete values, and ~58k
+  estimated context tokens. The log also showed extractor-stage unavailable
+  `read_file` attempts from post-complete localization repair text, now tracked
+  as RNE-C10 / Batch H.

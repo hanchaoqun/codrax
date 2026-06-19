@@ -4391,6 +4391,11 @@ func aggregateMemberReadFileSupportRef(member string, support aggregateMemberSup
 	if ref, ok := aggregateDecoratedMemberReadFileSupportRef(member, support); ok {
 		return ref, true
 	}
+	if _, _, isRelation := types.AnswerAggregateMemberRelationParts(member); !isRelation {
+		if ref, ok := aggregateBareMemberReadFileSupportRef(member, support); ok {
+			return ref, true
+		}
+	}
 	left, _, ok := types.AnswerAggregateMemberRelationParts(member)
 	if !ok || strings.TrimSpace(left) == "" {
 		return "", false
@@ -4413,6 +4418,30 @@ func aggregateMemberReadFileSupportRef(member string, support aggregateMemberSup
 		return "Member @ " + loc, true
 	}
 	return "", false
+}
+
+func aggregateBareMemberReadFileSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {
+	labels := aggregateMemberDisplayCandidates(member)
+	if len(labels) == 0 {
+		return "", false
+	}
+	var matches []string
+	seen := map[string]bool{}
+	for _, line := range support.readFileLines {
+		if !aggregateToolLineSupportsLabels(line.Text, labels) {
+			continue
+		}
+		loc := aggregateSupportLocationKey(line.File, line.Line)
+		if loc == "" || seen[loc] {
+			continue
+		}
+		seen[loc] = true
+		matches = append(matches, loc)
+	}
+	if len(matches) != 1 {
+		return "", false
+	}
+	return "Member @ " + matches[0], true
 }
 
 func aggregateDecoratedMemberReadFileSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {
