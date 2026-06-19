@@ -9233,15 +9233,40 @@ Tasks:
 - [x] Reclassify RC138 Xarray manual audit as functional pass with optional
       output-fidelity caveat.
 - [x] Record cross-language coverage status for recent Python-motivated fixes.
-- [ ] Add stable eval/audit fields that separate functional manual verdict from
+- [x] Add stable eval/audit fields that separate functional manual verdict from
       fidelity/proof-confidence verdict.
-- [ ] Add tests ensuring placement contracts only become hard proof obligations
+- [x] Add tests ensuring placement contracts only become hard proof obligations
       when `behavior_contracts[].placement` is present.
 - [ ] Audit Python-only patch-effect hard events and either prove why they are
       parser-precise Python-only or move them behind a provider interface with
       language-specific tests.
 - [ ] Re-run one non-Python rendered-output fixture and one non-Python compile
       fallback fixture after the audit fields land.
+
+RC139-A implementation:
+
+- `eval/swebench/run_codrax_swebench.py` now accepts
+  `manual_audit_functional_verdict` / `functional_verdict` separately from
+  `manual_audit_fidelity_verdict` / `fidelity_verdict`.
+- Legacy `manual_audit_verdict` / `verdict` remains accepted and maps to the
+  functional verdict for existing audit files.
+- `local_acceptance_verdict` consumes only the functional verdict. Fidelity
+  verdicts and free-form notes are exported as telemetry and never drive pass /
+  fail logic.
+- `eval/swebench/audit_historical_results.py` carries the split manual audit
+  fields into post-hoc JSONL output.
+- `eval/swebench/README.md` documents the split audit schema and the principle
+  that example fidelity is separate from functional correctness.
+- `internal/tool` has a non-Python JavaScript probe regression proving that a
+  global output behavior contract without `placement{}` does not create a
+  hard rendered-placement obligation.
+
+RC139-A evidence:
+
+- `python3 -m unittest eval.swebench.run_codrax_swebench_test -v`: pass.
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/audit_historical_results.py eval/swebench/run_codrax_swebench_test.py`: pass.
+- `go test ./internal/tool -run 'TestVerificationConfidenceRecords(FromProbeReport|DoNotRequirePlacementWithoutTypedContract|FromProbeReportRecordsSoftContractRefsSeparately)' -count=1`: pass.
+- `git diff --check`: pass.
 
 ## Acceptance Criteria
 

@@ -2523,6 +2523,50 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 	}
 }
 
+func TestVerificationConfidenceRecordsDoNotRequirePlacementWithoutTypedContract(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan-confidence-global-output",
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpContains,
+			Expected: "repr shows units",
+			Required: true,
+			Source:   "write_analyzer",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "probe",
+			Language:          "javascript",
+			Code:              "if (!String('repr shows units').includes('units')) throw new Error('missing')",
+			ContractRefs:      []string{"outcome-1"},
+			ChangedSymbolRefs: []string{"Widget.render"},
+		}},
+	}
+	report := &types.ChangeReport{
+		Passed: true,
+		TestResults: []types.TestResult{{
+			AssertionID: "probe",
+			Suite:       "verification_probe/javascript",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:    "verification_probe",
+			Framework: "javascript",
+			Source:    "pre_suite_verification_probe",
+			Outcome:   "executed",
+		}},
+	}
+
+	records := verificationConfidenceRecordsFromReport(plan, report)
+	if verificationConfidenceContains(records, "probe_placement_refs", "missing", "verification_probe_missing_required_placement_ref") {
+		t.Fatalf("global output contract without placement{} must not create placement obligation: %+v", records)
+	}
+	if !verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
+		t.Fatalf("global output contract should still be covered by contract_refs: %+v", records)
+	}
+}
+
 func TestRunPlanVerificationProbesAttachesConfidenceToProbeReport(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

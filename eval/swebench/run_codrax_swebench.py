@@ -3096,6 +3096,11 @@ def patch_review_summary_has_signal(summary: dict[str, Any]) -> bool:
 MANUAL_AUDIT_VERDICTS = {"pass", "fail", "unknown"}
 
 
+def normalize_manual_audit_verdict(value: Any) -> str:
+    verdict = str(value or "").strip().lower()
+    return verdict if verdict in MANUAL_AUDIT_VERDICTS else ""
+
+
 def normalize_manual_audit_record(row: dict[str, Any]) -> dict[str, str]:
     """Normalize an optional human audit row into typed telemetry.
 
@@ -3104,12 +3109,33 @@ def normalize_manual_audit_record(row: dict[str, Any]) -> dict[str, str]:
     """
 
     instance_id = str(row.get("instance_id") or "").strip()
-    verdict = str(row.get("manual_audit_verdict") or row.get("verdict") or "").strip().lower()
-    if verdict not in MANUAL_AUDIT_VERDICTS:
-        verdict = ""
+    functional_verdict = normalize_manual_audit_verdict(
+        row.get("manual_audit_functional_verdict")
+        or row.get("functional_verdict")
+        or row.get("manual_audit_verdict")
+        or row.get("verdict")
+    )
+    fidelity_verdict = normalize_manual_audit_verdict(
+        row.get("manual_audit_fidelity_verdict") or row.get("fidelity_verdict")
+    )
+    verdict = normalize_manual_audit_verdict(row.get("manual_audit_verdict") or row.get("verdict"))
+    if not verdict:
+        verdict = functional_verdict
     return {
         "instance_id": instance_id,
         "verdict": verdict,
+        "functional_verdict": functional_verdict,
+        "functional_reason_code": str(
+            row.get("manual_audit_functional_reason_code")
+            or row.get("functional_reason_code")
+            or row.get("manual_audit_reason_code")
+            or row.get("reason_code")
+            or ""
+        ).strip(),
+        "fidelity_verdict": fidelity_verdict,
+        "fidelity_reason_code": str(
+            row.get("manual_audit_fidelity_reason_code") or row.get("fidelity_reason_code") or ""
+        ).strip(),
         "reason_code": str(row.get("manual_audit_reason_code") or row.get("reason_code") or "").strip(),
         "source": str(row.get("manual_audit_source") or row.get("source") or "").strip(),
         "notes": str(row.get("manual_audit_notes") or row.get("notes") or "").strip(),
@@ -3125,7 +3151,9 @@ def load_manual_audits(path: Path | None) -> dict[str, dict[str, str]]:
             continue
         record = normalize_manual_audit_record(row)
         instance_id = record["instance_id"]
-        if not instance_id or not record["verdict"]:
+        if not instance_id or not (
+            record["verdict"] or record["functional_verdict"] or record["fidelity_verdict"]
+        ):
             continue
         out[instance_id] = record
     return out
@@ -3975,6 +4003,10 @@ def process_instance(
         result["prediction_blocks_local_acceptance"] = blocks_local_acceptance
         manual_audit = (manual_audits or {}).get(instance_id, {})
         result["manual_audit_verdict"] = str(manual_audit.get("verdict") or "")
+        result["manual_audit_functional_verdict"] = str(manual_audit.get("functional_verdict") or "")
+        result["manual_audit_functional_reason_code"] = str(manual_audit.get("functional_reason_code") or "")
+        result["manual_audit_fidelity_verdict"] = str(manual_audit.get("fidelity_verdict") or "")
+        result["manual_audit_fidelity_reason_code"] = str(manual_audit.get("fidelity_reason_code") or "")
         result["manual_audit_reason_code"] = str(manual_audit.get("reason_code") or "")
         result["manual_audit_source"] = str(manual_audit.get("source") or "")
         result["manual_audit_notes"] = str(manual_audit.get("notes") or "")
@@ -3982,7 +4014,9 @@ def process_instance(
             verify_status=str(result.get("verify_status") or ""),
             prediction_blocks_local_acceptance=bool(blocks_local_acceptance),
             confidence_downgrade_reason=confidence_downgrade_reason,
-            manual_audit_verdict=str(result.get("manual_audit_verdict") or ""),
+            manual_audit_verdict=str(
+                result.get("manual_audit_functional_verdict") or result.get("manual_audit_verdict") or ""
+            ),
         )
         result["local_acceptance_verdict"] = local_verdict
         result["local_acceptance_source"] = local_source

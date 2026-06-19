@@ -240,18 +240,24 @@ eval/results/swebench/.venv/bin/python eval/swebench/run_codrax_swebench.py \
   --workdir eval/results/swebench/custom-run
 ```
 
-Each manual audit row should contain `instance_id` plus `verdict` or
-`manual_audit_verdict` with one of `pass`, `fail`, or `unknown`; optional
-`reason_code`, `source`, and `notes` are copied as audit telemetry. The adapter
-then emits `manual_audit_*` fields and `local_acceptance_verdict/source`.
+Each manual audit row should contain `instance_id` plus either
+`functional_verdict` / `manual_audit_functional_verdict` or the legacy
+`verdict` / `manual_audit_verdict`, with one of `pass`, `fail`, or `unknown`.
+Optional `fidelity_verdict` / `manual_audit_fidelity_verdict` records example
+layout, UX polish, or proof-fidelity notes separately; it never drives
+`local_acceptance_verdict`. Optional `reason_code`, `source`, and `notes` are
+copied as audit telemetry. The adapter then emits both legacy
+`manual_audit_*` fields and the split
+`manual_audit_functional_*` / `manual_audit_fidelity_*` fields.
 `local_acceptance_verdict=pass` means either typed local verification passed
 with no confidence downgrade, or local verification was unavailable/unknown/low
-confidence and an explicit manual audit passed. True failed local verification,
-local audit blockers, and typed manual audit `fail` rows stay `fail`;
-free-form manual notes never drive logic. This combined local acceptance proxy
-is useful for triage dashboards, but it is still not the official SWE-bench
-score. Only the official harness `resolved/total` result should be called pass
-rate.
+confidence and an explicit functional manual audit passed. True failed local
+verification, local audit blockers, and typed functional manual audit `fail`
+rows stay `fail`; fidelity verdicts and free-form manual notes never drive
+logic. This keeps "the real issue is fixed" separate from "the output exactly
+matches an illustrative example." This combined local acceptance proxy is useful
+for triage dashboards, but it is still not the official SWE-bench score. Only
+the official harness `resolved/total` result should be called pass rate.
 When no `--manual-audit-jsonl` is supplied, `manual_audit_verdict` is empty for
 every row. Dashboards should label that as "no typed manual audit recorded",
 not as a human-audit pass or fail rate; no manual correctness conclusion exists

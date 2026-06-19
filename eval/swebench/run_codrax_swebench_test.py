@@ -426,8 +426,66 @@ class LocalAcceptanceTests(unittest.TestCase):
             got = adapter.load_manual_audits(path)
 
         self.assertEqual(got["proj__repo-1"]["verdict"], "pass")
+        self.assertEqual(got["proj__repo-1"]["functional_verdict"], "pass")
         self.assertEqual(got["proj__repo-1"]["reason_code"], "manual_patch_review")
         self.assertEqual(got["proj__repo-1"]["notes"], "free-form note is audit-only")
+
+    def test_manual_audit_separates_functional_and_fidelity_verdicts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manual.jsonl"
+            path.write_text(
+                json.dumps({
+                    "instance_id": "proj__repo-1",
+                    "functional_verdict": "pass",
+                    "functional_reason_code": "issue_resolved",
+                    "fidelity_verdict": "fail",
+                    "fidelity_reason_code": "example_layout_differs",
+                    "notes": "layout note remains audit-only",
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            got = adapter.load_manual_audits(path)
+
+        record = got["proj__repo-1"]
+        self.assertEqual(record["verdict"], "pass")
+        self.assertEqual(record["functional_verdict"], "pass")
+        self.assertEqual(record["functional_reason_code"], "issue_resolved")
+        self.assertEqual(record["fidelity_verdict"], "fail")
+        self.assertEqual(record["fidelity_reason_code"], "example_layout_differs")
+        verdict, source = adapter.local_acceptance_verdict(
+            verify_status="passed",
+            prediction_blocks_local_acceptance=False,
+            confidence_downgrade_reason="impact_targets_unverified",
+            manual_audit_verdict=record["functional_verdict"],
+        )
+        self.assertEqual((verdict, source), ("pass", "manual_audit"))
+
+    def test_manual_audit_fidelity_only_does_not_drive_acceptance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manual.jsonl"
+            path.write_text(
+                json.dumps({
+                    "instance_id": "proj__repo-1",
+                    "fidelity_verdict": "fail",
+                    "fidelity_reason_code": "example_layout_differs",
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            got = adapter.load_manual_audits(path)
+
+        record = got["proj__repo-1"]
+        self.assertEqual(record["verdict"], "")
+        self.assertEqual(record["functional_verdict"], "")
+        self.assertEqual(record["fidelity_verdict"], "fail")
+        verdict, source = adapter.local_acceptance_verdict(
+            verify_status="passed",
+            prediction_blocks_local_acceptance=False,
+            confidence_downgrade_reason="impact_targets_unverified",
+            manual_audit_verdict=record["functional_verdict"],
+        )
+        self.assertEqual((verdict, source), ("unknown", ""))
 
 
 class FinalReportProjectionTests(unittest.TestCase):
