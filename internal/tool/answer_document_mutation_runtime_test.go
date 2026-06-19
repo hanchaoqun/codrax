@@ -2,6 +2,8 @@ package tool
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +95,54 @@ func TestApplyAndPersistMutation_StampsReadOwnerAnchorsFromTurnA(t *testing.T) {
 	}
 	if got.ReadOwnerAnchors[0].EvidenceRef == nil || got.ReadOwnerAnchors[0].EvidenceRef.ID != "ev-owner" {
 		t.Fatalf("stamped anchor lost evidence ref: %+v", got.ReadOwnerAnchors[0])
+	}
+}
+
+func TestApplyAndPersistMutation_StampsStructuralReadOwnerAnchorsFromLineEvidence(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	src := []byte(`class Documenter:
+    def filter_members(self):
+        has_doc = bool(doc)
+`)
+	if err := os.WriteFile(filepath.Join(repo, "pkg", "owner.py"), src, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	bus := newBusForMutationTest()
+	bus.RepoRoot = repo
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		SourceLocalization: &types.SourceLocalizationReview{
+			Source:      "read_turn_a",
+			SourcePaths: []string{"pkg/owner.py"},
+			EvidenceRefs: []types.WriteExplorationEvidenceRef{{
+				ID:        "ev-line",
+				Kind:      "relationship",
+				Source:    "pkg/owner.py",
+				LineStart: 3,
+			}},
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks:        []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "answer"}},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.ReadOwnerAnchors) != 1 {
+		t.Fatalf("read owner anchors not stamped from structural evidence: %+v", got)
+	}
+	if got.ReadOwnerAnchors[0].OwnerSymbol != "Documenter.filter_members" ||
+		got.ReadOwnerAnchors[0].Strength != types.SourceLocalizationAnchorOwner {
+		t.Fatalf("wrong structural owner anchor: %+v", got.ReadOwnerAnchors[0])
 	}
 }
 

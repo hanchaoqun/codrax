@@ -1436,6 +1436,76 @@ func TestOwnerLocalizationAuthorityGateAllowsTypedOwnerAnchor(t *testing.T) {
 	}
 }
 
+func TestOwnerLocalizationAuthorityGateAllowsPlanEditStructuralOwner(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	source := `class Documenter:
+    def filter_members(self):
+        doc = getdoc(member)
+        has_doc = bool(doc)
+        return has_doc
+`
+	if err := os.WriteFile(filepath.Join(repo, "pkg", "owner.py"), []byte(source), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("owner structural satisfied")
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-owner-authority-structural",
+		Goal:          "repair owner path",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair owner path",
+			Status: types.WriteWorkflowBatchPlanned,
+			Slices: []types.WriteWorkflowSlice{{ID: "slice-001", Status: types.ChangePlanSlicePending}},
+		}},
+		ContextPacks: []types.WriteContextPack{
+			testSupportingLocalizationContextPack("batch-1", "pkg/owner.py", "Nearby.helper"),
+		},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_depth_replan_requested",
+		}, {
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_requirement_explored",
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-structural-owner",
+		Status:      types.PlanStatusPending,
+		Summary:     "repair owner path",
+		TargetPaths: []string{"pkg/owner.py"},
+		Changes: []types.FileChange{{
+			Path: "pkg/owner.py",
+			Kind: "patch",
+			Edits: []types.StructuredEdit{{
+				Kind:      "insert_before",
+				StartLine: 4,
+				Content:   "        doc = 'x'\n",
+				OldText:   "        has_doc = bool(doc)",
+			}},
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetWriteWorkflowRun(run)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: repo, AnalysisIR: &types.AnalysisIR{}}}
+	steps := 0
+
+	outcome, handled, err := o.runOwnerLocalizationAuthorityGateBeforeApply(run, plan, &steps)
+	if err != nil || handled || outcome != "" {
+		t.Fatalf("plan edit structural owner should pass gate, outcome=%q handled=%v err=%v", outcome, handled, err)
+	}
+	if !workflowRunContextContains(run, "localization_anchor", "owner=Documenter.filter_members") {
+		t.Fatalf("structural owner anchor not synced to run: %+v", run.ContextPacks)
+	}
+	if mu.ChangePlan() == nil {
+		t.Fatalf("satisfied structural owner should not reset plan")
+	}
+}
+
 func TestPlannerSoftCapForCompletedExplorationAppliesSynthesisFloor(t *testing.T) {
 	cases := []struct {
 		name             string

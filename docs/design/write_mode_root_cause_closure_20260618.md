@@ -4327,6 +4327,8 @@ Verification:
 | RC-115 | complete | Protected-test critic hard closure: the typed test-contract critic now retries once with a structured hint, then blocks/fails loud if the next plan still weakens protected regression or failed-verifier assertion lines. This prevents a model from acknowledging `preserve_failed_test_assertion` in prose while still applying the weakened test patch. |
 | RC-116 | complete | Protected-oracle source-only repair lane: RC115 correctly blocks repeated protected-test weakening, but Django smoke showed the workflow then exports an empty patch instead of spending one more bounded attempt on implementation-side alternatives. The scheduler now adds a deterministic second retry lane: after the first protected-test hint is ignored, it forces one source-only/protected-path-forbidden replan before the final block, and preserves inner-loop durable progress when returning to the controller. |
 | RC-117 | complete | Optional follow-up terminal normalization: RC116 Django smoke generated a coherent, source-only, locally verified patch, but a later proof/impact obligation follow-up left the workflow `blocked` and downgraded local acceptance. Interrupted optional follow-up batches now complete as `unverified` when all primary source batches are already complete, the follow-up has no applied work, and there is no typed failure handoff. |
+| RC-126 | complete | Plan-edit structural owner anchors: added shared `internal/sourceowner` extraction for Python/Go/Ruby/brace-language owner symbols, projects actual edit-line owner anchors into workflow context before the owner-authority apply gate, and reuses the same structural enrichment in write exploration and read final-answer owner stamping. Focused/related/full regressions, `make test`, and Sphinx SWE smoke pass; the smoke now closes owner gaps but remains unverified due proof/local verification confidence. |
+| RC-127 | planned | Proof coverage / local verification confidence: define and persist a typed proof ledger that separates verified behavior proof, low-confidence coverage, unavailable verifier capacity, and real product failure. The next batch should replace residual-risk aggregation with ledger-derived authority and add bounded proof/environment capability follow-ups without source replan on unavailable infrastructure. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -8035,6 +8037,143 @@ Next system gap exposed by RC125:
   symbol ownership (repomap / AST / line-backed enclosing symbol) and feed that
   into context packs before planning, again without keyword routing or model
   prose parsing.
+
+## 2026-06-19 RC126 Plan-Edit Structural Owner Anchors
+
+Gap:
+
+- RC125 safely blocked Sphinx before applying because prior context had only
+  supporting anchors for `sphinx/ext/autodoc/__init__.py`. The blocked plan,
+  however, used a structured edit at line 731, which is inside the real
+  structural owner `Documenter.filter_members`. The system lacked a typed way to
+  derive owner authority from the actual planned edit line.
+
+Design:
+
+- Add a small shared `internal/sourceowner` extractor:
+  - Input: repo-relative path, source bytes, 1-based edit line.
+  - Output: enclosing owner symbol + anchor symbol.
+  - Initial structural backends: Python, Go, Ruby, and common brace languages
+    (JS/TS/Java/Kotlin/Swift/C-like class/function/method shapes).
+- Before pre-apply owner-authority requirements are evaluated, project the
+  actual ChangePlan edit locations into a `plan_edit_owner-*` context pack:
+  - structured edits use `start_line` / EOF / final-brace line.
+  - unified diffs use old hunk start lines from `@@ -N,... +... @@`.
+  - generated anchors are typed
+    `kind=grounded_evidence`, `strength=owner`,
+    `reason=plan_edit_structural_owner`.
+- The hard gate still consumes only typed context packs and localization
+  requirement structs. The extractor does not inspect user text, issue prose,
+  model rationale, or rendered prompt summaries.
+- Supporting anchors remain supporting; plan-edit structural owner authority is
+  tied to the actual edit line, not any arbitrary symbol in the same file.
+
+Tasks:
+
+- [x] Add `internal/sourceowner` with focused Python/Go/brace-language tests.
+- [x] Add plan edit line extraction for structured edits and unified diff hunks.
+- [x] Sync plan-edit structural owner anchors into workflow context before
+      owner-authority apply gate evaluation.
+- [x] Enrich write exploration handoff with structural owner anchors derived
+      from read/evidence line spans.
+- [x] Enrich read-mode final answer owner-anchor stamping with the same
+      structural owner extractor.
+- [x] Add regression proving a supporting-only prior context passes the gate
+      when the actual structured edit line has a structural owner.
+- [x] Add regression proving read final answers can receive structural owner
+      anchors from line-backed TurnA evidence.
+- [x] Run related package tests, full regression, and Sphinx SWE smoke.
+
+Acceptance additions:
+
+- A plan edit inside `Documenter.filter_members` can produce a typed owner
+  anchor for `Documenter.filter_members` without relying on model prose.
+- A same-file supporting anchor outside the edit owner does not become owner
+  authority by itself.
+- The mechanism is language-general enough to cover common non-Python projects
+  and can later be swapped to a repomap AST backend.
+- Read and write consume the same structural owner extraction path, so
+  exploration/localization improvements do not live only in write mode.
+
+Validation:
+
+- Focused regressions:
+  - `go test ./internal/sourceowner ./internal/tool ./internal/orchestrator -run 'TestFindEnclosingOwner|TestEnrichSourceLocalizationReview|TestApplyAndPersistMutation_StampsStructuralReadOwnerAnchorsFromLineEvidence|TestOwnerLocalizationAuthorityGateAllowsPlanEditStructuralOwner' -count=1`
+    passed.
+  - `go test ./internal/sourceowner ./internal/tool ./internal/orchestrator ./internal/types ./internal/agent -count=1`
+    passed.
+- Full regression:
+  - `go test ./...` passed.
+  - `make test` passed.
+- SWE smoke:
+  - `eval/results/swebench/lite-smoke-20260619-rc126-structural-owner` on
+    `sphinx-doc__sphinx-8801` exported a non-empty 1331 byte prediction patch.
+  - `validate_predictions.py --require-nonempty-patch` accepted the prediction
+    JSONL.
+  - The workflow reached `complete` with `final_report_plan_owner_gap_paths=[]`,
+    proving the structural edit owner anchor closed the owner-authority gap
+    without relying on supporting anchors or prose.
+  - The row remains `prediction_verdict=predicted_unverified`,
+    `verify_status=unavailable`, and residual risks include
+    `verification_unavailable`, `impact_unavailable`,
+    `verification_proof_unavailable`, and `unverified`. This is the next
+    system gap: proof coverage and local verification confidence remain
+    separate from owner localization and need their own typed closure path.
+
+## 2026-06-19 RC127 Proof Coverage / Local Verification Confidence Tracking
+
+Status: planned next batch after RC126.
+
+Trigger evidence:
+
+- RC126 Sphinx proves owner localization can now close correctly, but the final
+  prediction is still unverified because local verification/proof coverage is
+  unavailable rather than failed.
+- The current typed report already separates residual risks, but the workflow
+  still terminalizes with a coarse unverified caveat once proof follow-up has no
+  code-failure evidence. That is safer than false pass, yet it does not produce
+  a strong enough proof ledger for commercial acceptance or later human audit.
+
+Design direction:
+
+- Treat local verification confidence as a first-class typed artifact, not a
+  byproduct of `ChangeReport.Status`.
+- Keep the existing rule: unavailable local infrastructure must not hard-block
+  official prediction export and must not drive source replan as if tests
+  failed.
+- Add a deterministic proof-coverage ledger over:
+  - changed owner symbols and actual diff surfaces;
+  - hard and soft behavior contract refs;
+  - executed probe/test selectors;
+  - verifier-unavailable reason codes;
+  - local environment capability observations.
+- Controller decisions should consume the ledger as typed state:
+  - `verified`: authoritative local behavior proof exists;
+  - `low_confidence`: some targeted proof exists but coverage is incomplete;
+  - `unavailable`: verifier capacity/dependency/environment prevented proof;
+  - `failed`: authoritative product assertion/build failure exists.
+- Planner/verifier prompts may render the ledger as guidance, but hard routing
+  remains based only on typed records. No user keyword matching and no model
+  prose/rationale parsing.
+
+Tasks:
+
+- [ ] Define a shared `VerificationProofLedger` projection in `internal/types`
+      from `ChangePlan`, `ChangeReport`, `PatchReviewRecord`, impact
+      obligations, and executed commands.
+- [ ] Make write final reports persist the ledger so CLI/REPL/SWE export and
+      manual audit see the same proof authority.
+- [ ] Replace ad-hoc residual risk and confidence aggregation in the controller
+      with ledger-derived states while preserving the current no-false-pass
+      behavior.
+- [ ] Extend proof-follow-up scheduling so unavailable proof records can request
+      bounded environment/probe capability checks before terminalizing, without
+      broad source replan.
+- [ ] Add tests proving unavailable local verification stays unverified, real
+      failed assertions remain failed, and targeted proof coverage can upgrade
+      confidence without relying on prose.
+- [ ] Rerun Sphinx plus at least two additional SWE Lite instances and update
+      this ledger with proof-state telemetry and manual correctness audit.
 
 ## Acceptance Criteria
 

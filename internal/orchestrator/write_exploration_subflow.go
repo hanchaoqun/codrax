@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/sourceowner"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
 	writeconvention "github.com/hanchaoqun/codrax/internal/writeflow/convention"
@@ -187,6 +188,7 @@ func (o *Orchestrator) writeExplorationProjectionArtifacts() (types.TurnAArtifac
 	}
 	out.EvidenceItems = mergeWriteExplorationProjectionEvidence(out.EvidenceItems, o.busCtx.EvidenceItems, o.busCtx.Mutable.EmittedEvidence())
 	sourceLocalization := types.SourceLocalizationReviewFromTurnA(out.ReadFiles, out.EvidenceItems)
+	sourceLocalization = sourceowner.EnrichSourceLocalizationReview(o.busCtx.RepoRoot, sourceLocalization, "write_exploration_structural_owner")
 	out.SourceLocalization = types.MergeSourceLocalizationReviews(out.SourceLocalization, &sourceLocalization)
 	if len(out.ReadFiles) == 0 &&
 		len(out.EvidenceItems) == 0 &&

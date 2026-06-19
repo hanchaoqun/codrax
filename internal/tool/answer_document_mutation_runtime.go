@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/sourceowner"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -193,6 +194,14 @@ func stampReadOwnerAnchorsFromTurnA(ctx *types.BusContext, doc *types.AnswerDocu
 	if review == nil {
 		doc.ReadOwnerAnchors = nil
 		return 0
+	}
+	repoRoot := strings.TrimSpace(ctx.RepoRoot)
+	if repoRoot == "" {
+		repoRoot = strings.TrimSpace(ctx.MainRepoRoot)
+	}
+	if repoRoot != "" {
+		enriched := sourceowner.EnrichSourceLocalizationReview(repoRoot, *review, "read_final_structural_owner")
+		review = &enriched
 	}
 	view := types.OwnerAnchorViewFromSourceLocalizationReview(*review, 0)
 	items := make([]types.OwnerAnchorViewItem, 0, minInt(len(view.Items), 12))

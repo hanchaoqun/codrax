@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/sourceowner"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
@@ -1459,6 +1461,7 @@ func (o *Orchestrator) runOwnerLocalizationAuthorityGateBeforeApply(run *types.W
 			return writeControllerApplyTransitionRetry, true, err
 		}
 	}
+	o.syncPlanEditOwnerAnchorsToRun(run, plan)
 	requirements := types.LocalizationRequirementsFromWritePlanContext(
 		batchID,
 		activeWorkflowRunSliceID(*run, batchID),
@@ -1497,6 +1500,163 @@ func (o *Orchestrator) runOwnerLocalizationAuthorityGateBeforeApply(run *types.W
 	o.persistWriteWorkflowRun(run)
 	o.publishBlockedRunGuidance(run, "owner_localization_authority_unresolved")
 	return writeControllerApplyTransitionTerminal, true, fmt.Errorf("write workflow blocked: source owner localization unresolved for %s", strings.Join(requirements.MissingOwnerAnchorPaths, ", "))
+}
+
+func (o *Orchestrator) syncPlanEditOwnerAnchorsToRun(run *types.WriteWorkflowRun, plan *types.ChangePlan) {
+	if o == nil || o.busCtx == nil || run == nil || plan == nil {
+		return
+	}
+	repoRoot := strings.TrimSpace(o.busCtx.RepoRoot)
+	if repoRoot == "" {
+		repoRoot = strings.TrimSpace(o.busCtx.MainRepoRoot)
+	}
+	if repoRoot == "" {
+		return
+	}
+	pack := buildPlanEditOwnerContextPack(repoRoot, strings.TrimSpace(run.ActiveBatchID), activeWorkflowRunSliceID(*run, run.ActiveBatchID), plan)
+	if len(pack.Items) == 0 {
+		return
+	}
+	*run = upsertWorkflowRunContextPack(*run, pack)
+	if o.busCtx.Mutable != nil {
+		o.busCtx.Mutable.SetWriteWorkflowRun(run)
+	}
+}
+
+func buildPlanEditOwnerContextPack(repoRoot, batchID, sliceID string, plan *types.ChangePlan) types.WriteContextPack {
+	if plan == nil || strings.TrimSpace(repoRoot) == "" {
+		return types.WriteContextPack{}
+	}
+	pack := types.WriteContextPack{
+		PackID:      "plan-edit-owner-" + strings.TrimSpace(plan.ID),
+		BatchID:     strings.TrimSpace(batchID),
+		SourceStage: "plan_edit_owner",
+		Goal:        strings.TrimSpace(plan.Summary),
+	}
+	seen := map[string]struct{}{}
+	for _, change := range plan.Changes {
+		rel := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if rel == "" || strings.Contains(rel, "..") || filepath.IsAbs(rel) {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
+		if err != nil || len(content) == 0 {
+			continue
+		}
+		for _, line := range planEditOwnerLineCandidates(change, content) {
+			anchor, ok := sourceowner.FindEnclosingOwner(rel, content, line)
+			if !ok || anchor.OwnerSymbol == "" {
+				continue
+			}
+			key := rel + "|" + strconv.Itoa(anchor.Line) + "|" + anchor.OwnerSymbol + "|" + anchor.AnchorSymbol
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			ref := types.WriteExplorationEvidenceRef{
+				ID:           "plan-edit-owner|" + strings.ReplaceAll(key, "|", ":"),
+				Kind:         "plan_edit_owner",
+				Source:       rel,
+				LineStart:    anchor.Line,
+				LineEnd:      anchor.Line,
+				Subject:      rel + ":" + anchor.OwnerSymbol,
+				OwnerSymbol:  anchor.OwnerSymbol,
+				AnchorSymbol: anchor.AnchorSymbol,
+				Summary:      "plan edit line is enclosed by " + anchor.OwnerSymbol,
+			}
+			locAnchor := types.SourceLocalizationAnchor{
+				Path:         rel,
+				Role:         types.ClassifySourcePathRole(rel),
+				SourceStage:  "plan_edit_owner",
+				Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+				Strength:     types.SourceLocalizationAnchorOwner,
+				EvidenceRef:  &ref,
+				Subject:      ref.Subject,
+				OwnerSymbol:  anchor.OwnerSymbol,
+				AnchorSymbol: anchor.AnchorSymbol,
+				ReasonCode:   "plan_edit_structural_owner",
+			}
+			item := types.WriteContextItem{
+				ID:                 "plan_edit_owner|" + strings.ReplaceAll(key, "|", ":"),
+				Priority:           types.WriteContextP1,
+				Kind:               "localization_anchor",
+				Text:               "path=" + rel + " owner=" + anchor.OwnerSymbol + " anchor=" + anchor.AnchorSymbol + " line=" + strconv.Itoa(anchor.Line) + " reason=plan_edit_structural_owner",
+				SourceStage:        "plan_edit_owner",
+				SourceID:           strings.TrimSpace(plan.ID),
+				BatchID:            strings.TrimSpace(batchID),
+				SliceID:            strings.TrimSpace(sliceID),
+				Consumers:          []types.WriteContextConsumer{types.WriteConsumerController, types.WriteConsumerPlanner, types.WriteConsumerVerifier},
+				EvidenceRef:        &ref,
+				LocalizationAnchor: &locAnchor,
+			}
+			pack.Items = append(pack.Items, item)
+		}
+	}
+	return types.NormalizeWriteContextPack(pack)
+}
+
+func planEditOwnerLineCandidates(change types.FileChange, content []byte) []int {
+	seen := map[int]struct{}{}
+	var out []int
+	add := func(line int) {
+		if line <= 0 {
+			return
+		}
+		if _, ok := seen[line]; ok {
+			return
+		}
+		seen[line] = struct{}{}
+		out = append(out, line)
+	}
+	totalLines := len(strings.Split(string(content), "\n"))
+	for _, edit := range change.Edits {
+		switch strings.TrimSpace(edit.Kind) {
+		case "insert_at_eof":
+			add(totalLines)
+		case "insert_before_final_brace":
+			add(lastStandaloneBraceLine(content))
+		default:
+			add(edit.StartLine)
+		}
+	}
+	for _, line := range unifiedDiffOldStartLines(change.Patch) {
+		add(line)
+	}
+	return out
+}
+
+func unifiedDiffOldStartLines(patch string) []int {
+	var out []int
+	for _, line := range strings.Split(patch, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "@@") {
+			continue
+		}
+		start := strings.Index(line, "-")
+		if start < 0 {
+			continue
+		}
+		rest := line[start+1:]
+		end := strings.IndexAny(rest, " ,")
+		if end < 0 {
+			continue
+		}
+		n, err := strconv.Atoi(rest[:end])
+		if err == nil && n > 0 {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func lastStandaloneBraceLine(content []byte) int {
+	lines := strings.Split(string(content), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) == "}" {
+			return i + 1
+		}
+	}
+	return len(lines)
 }
 
 func renderOwnerLocalizationAuthorityGateHint(rows, paths []string) string {
