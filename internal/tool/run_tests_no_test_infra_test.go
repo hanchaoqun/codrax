@@ -1748,6 +1748,151 @@ func TestRunTestsVerificationProbeSystemExitImportBoundaryIsParserError(t *testi
 	}
 }
 
+func TestRunPlanVerificationProbeAssertionWrappedImportOutsideChangedLinesIsUnavailable(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	source := strings.Join([]string{
+		"VALUE = 1",
+		"",
+		"def changed():",
+		"    return 'patched'",
+		"",
+		"def explode():",
+		"    import definitely_missing_codrax_probe_dependency",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte(source), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe assertion-wrapped import outside patch")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-assertion-import-outside-patch",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			Files: []types.PatchEffectFile{{
+				Path: "widget.py",
+				Hunks: []types.PatchEffectHunk{{
+					NewStart:         3,
+					NewLines:         2,
+					AddedLineNumbers: []int{4},
+				}},
+			}},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "assertion_wrapped_missing_dependency",
+			Language: "python",
+			Code: strings.Join([]string{
+				"import traceback",
+				"import widget",
+				"try:",
+				"    widget.explode()",
+				"except ModuleNotFoundError:",
+				"    traceback.print_exc()",
+				"    raise AssertionError('probe dependency unavailable')",
+				"",
+			}, "\n"),
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	probe, ok := runPlanVerificationProbes(ctx, "pre_suite_verification_probe")
+	if !ok || probe == nil || probe.Report == nil {
+		t.Fatal("expected verification probe report")
+	}
+	report := probe.Report
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode != "verification_probe_module_not_found" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_module_not_found; report=%+v", report.FailureReasonCode, report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusUnavailable {
+		t.Fatalf("VerificationStatus = %q, want unavailable", got)
+	}
+	if len(report.TestResults) != 1 || !strings.Contains(report.TestResults[0].FailureDetail, "structured outcome: assertion_failed") {
+		t.Fatalf("failure detail should preserve structured assertion_failed outcome, got %+v", report.TestResults)
+	}
+	if !verificationDiagnosticsContain(verificationDiagnosticsFromExecutedCommands(report.ExecutedCommands), "probe_import_or_environment", "verification_probe_module_not_found") {
+		t.Fatalf("probe import diagnostic missing from commands: %+v", report.ExecutedCommands)
+	}
+}
+
+func TestRunPlanVerificationProbeAssertionWrappedImportOnChangedLineRemainsFailure(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	source := strings.Join([]string{
+		"VALUE = 1",
+		"",
+		"def changed():",
+		"    import definitely_missing_codrax_probe_dependency",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte(source), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe assertion-wrapped import on patch")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-assertion-import-on-patch",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		PatchEffect: &types.PatchEffectRecord{
+			Files: []types.PatchEffectFile{{
+				Path: "widget.py",
+				Hunks: []types.PatchEffectHunk{{
+					NewStart:         3,
+					NewLines:         2,
+					AddedLineNumbers: []int{4},
+				}},
+			}},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "changed_line_missing_dependency",
+			Language: "python",
+			Code: strings.Join([]string{
+				"import traceback",
+				"import widget",
+				"try:",
+				"    widget.changed()",
+				"except ModuleNotFoundError:",
+				"    traceback.print_exc()",
+				"    raise AssertionError('changed code dependency missing')",
+				"",
+			}, "\n"),
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	probe, ok := runPlanVerificationProbes(ctx, "pre_suite_verification_probe")
+	if !ok || probe == nil || probe.Report == nil {
+		t.Fatal("expected verification probe report")
+	}
+	report := probe.Report
+	if report.FailureKind != types.FailureKindTestsFailed {
+		t.Fatalf("FailureKind = %q, want tests_failed; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode == "verification_probe_module_not_found" {
+		t.Fatalf("changed-line import failure must not be downgraded to unavailable; report=%+v", report)
+	}
+	if got := report.NormalizeVerificationStatus(); got != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed", got)
+	}
+}
+
 func TestPythonVerificationProbeImportDiagnosticDetailCapturesImportName(t *testing.T) {
 	detail := pythonVerificationProbeImportDiagnosticDetail(pythonVerificationProbeStatus{
 		Outcome:   "import_error",

@@ -626,7 +626,13 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 			passed = passed && probeStatus.ExitCode == 0
 		case "assertion_failed":
 			passed = false
-			failureKind = types.FailureKindTestsFailed
+			if assertionImportReason := pythonVerificationProbeAssertionImportReason(ctx, output); assertionImportReason != "" {
+				outcome = "parser_error"
+				failureKind = types.FailureKindParserError
+				reasonCode = assertionImportReason
+			} else {
+				failureKind = types.FailureKindTestsFailed
+			}
 		case "system_exit":
 			passed = false
 			if systemExitImportReason := pythonVerificationProbeSystemExitImportReason(output); systemExitImportReason != "" {
@@ -1219,9 +1225,24 @@ func pythonVerificationProbeSystemExitImportReason(output string) string {
 	return ""
 }
 
+func pythonVerificationProbeAssertionImportReason(ctx *types.BusContext, output string) string {
+	reason := pythonVerificationProbeSystemExitImportReason(output)
+	if reason == "" {
+		return ""
+	}
+	if !pythonVerificationProbeExceptionOutsideChangedLines(ctx, output) {
+		return ""
+	}
+	return reason
+}
+
 func pythonVerificationProbeImportDiagnostics(status pythonVerificationProbeStatus, output, source, rel, command string, exitCode int) []types.VerificationDiagnostic {
 	reasonCode := pythonVerificationProbeReasonCode(status)
-	if strings.TrimSpace(status.Outcome) != "import_error" {
+	switch strings.TrimSpace(status.Outcome) {
+	case "import_error":
+	case "assertion_failed":
+		reasonCode = pythonVerificationProbeSystemExitImportReason(output)
+	default:
 		reasonCode = pythonVerificationProbeSystemExitImportReason(output)
 	}
 	if reasonCode == "" {

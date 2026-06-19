@@ -7856,8 +7856,8 @@ Tasks:
 - [x] Add typed runtime config field `verify_wall_timeout_seconds`.
 - [x] Add tool-layer default timeout setter/getter used by `run_tests`.
 - [x] Raise default per-suite wall timeout from 300 to 900 seconds.
-- [x] Document the knob in `codrax.yaml.example`, `docs/user_guide.md`, and
-      `docs/architecture.md`.
+- [x] Document the knob in `codrax.yaml.example`, `docs/user_guide.md`,
+      `docs/user_guide.html`, and `docs/architecture.md`.
 - [x] Run focused config/tool tests and full regression before push.
 
 Acceptance additions:
@@ -8123,7 +8123,8 @@ Validation:
 ## 2026-06-19 RC127 Proof Coverage / Local Verification Confidence Tracking
 
 Status: RC127-A implemented; RC127-B1 implemented for probe startup
-dependency boundaries; broader proof-environment follow-up remains queued.
+dependency boundaries; RC127-B2 implemented for assertion-wrapped probe import
+boundaries; broader proof-environment follow-up remains queued.
 
 Trigger evidence:
 
@@ -8171,6 +8172,10 @@ Tasks:
 - [x] Classify Python verification-probe `system_exit` rows with structured
       import-boundary tracebacks as unavailable parser errors, so missing
       optional dependencies do not drive source replan as product failures.
+- [x] Classify Python verification-probe `assertion_failed` rows as unavailable
+      only when a structured import-boundary traceback is attributable to
+      product frames outside the current patch's added-line surface. The same
+      import failure on an added patch line remains a product-code failure.
 - [ ] Extend proof-follow-up scheduling so unavailable proof records can request
       bounded environment/probe capability checks before terminalizing, without
       broad source replan.
@@ -8203,6 +8208,11 @@ Implementation notes:
   `verification_probe_module_not_found` /
   `verification_probe_import_error`. Plain `SystemExit` without an import
   boundary remains a product/probe failure.
+- Python verification probes now also recognize assertion-wrapped
+  import-boundary tracebacks when the traceback is outside the precise
+  added-line patch surface. This handles wrapper probes and subprocess-backed
+  pytest probes that convert dependency startup errors into `AssertionError`
+  while preserving fail-closed behavior for changed-line product imports.
 
 RC127-A validation:
 
@@ -8225,6 +8235,9 @@ RC127-A validation:
   proof confidence from prose or residual-risk text.
 - RC127-B1 focused regression:
   `go test ./internal/tool -run 'TestRunTestsVerificationProbe(ImportErrorIsParserError|SystemExitImportBoundaryIsParserError)|TestPythonVerificationProbeImportDiagnosticDetailCapturesImportName' -count=1`
+  passed.
+- RC127-B2 focused regression:
+  `go test ./internal/tool -run 'TestRunTestsVerificationProbe(ImportErrorIsParserError|SystemExitImportBoundaryIsParserError)|TestRunPlanVerificationProbe(AssertionWrappedImportOutsideChangedLinesIsUnavailable|AssertionWrappedImportOnChangedLineRemainsFailure|ExceptionOutsideChangedLinesIsUnavailable|ExceptionOnChangedLineRemainsFailure)|TestPythonVerificationProbe(ImportDiagnosticDetailCapturesImportName|TracebackAttributionUsesPatchEffectAddedLines)' -count=1`
   passed.
 
 ## Acceptance Criteria
