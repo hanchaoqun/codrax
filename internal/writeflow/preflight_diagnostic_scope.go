@@ -45,6 +45,24 @@ func FilterPreflightDiagnosticsToChangedLines(plan *types.ChangePlan, path, newC
 	return out
 }
 
+// ChangedLinesForPlanPath returns the set of post-change line numbers a
+// ChangePlan introduces for path, and whether that set is precise enough
+// to scope a hard gate against.
+//
+// Precedence for patch-shaped changes: the ACTUAL APPLIED GEOMETRY in
+// plan.PatchEffect (captured from the real applied commit, AFTER `git
+// apply --recount` / patch(1) fuzz relocate hunks by content) is
+// authoritative. The LLM-authored unified-diff @@ headers in change.Patch
+// are only a fallback used when no captured geometry matches the path
+// (e.g. plan-only contexts before apply, or apply-failed paths). Trusting
+// the @@ headers when the hunk was relocated lets a genuine compiler /
+// NameError on the moved line fall outside the changed set, where the
+// build-downgrade and static-name gates silently treat it as pre-existing.
+//
+// create/modify (full-content) changes keep their conservative whole-file
+// scope: they carry no @@ headers (no relocation bug) and narrowing them
+// to a minimal applied diff would move a hard gate's scope in the
+// fail-OPEN direction for errors in untouched regions of a rewritten file.
 func ChangedLinesForPlanPath(plan *types.ChangePlan, path, newContent string) (map[int]struct{}, bool) {
 	lines := map[int]struct{}{}
 	if plan == nil {
@@ -62,6 +80,12 @@ func ChangedLinesForPlanPath(plan *types.ChangePlan, path, newContent string) (m
 		case "create", "modify":
 			addLineRange(lines, 1, countTextLines(firstNonEmptyPreflight(change.NewContent, newContent)))
 		case "patch", "":
+			if applied, ok := ChangedLinesFromAppliedGeometry(plan, change.Path); ok {
+				for ln := range applied {
+					lines[ln] = struct{}{}
+				}
+				continue
+			}
 			if strings.TrimSpace(change.Patch) != "" {
 				addPatchAddedLines(lines, change.Path, change.Patch)
 				continue
@@ -82,6 +106,47 @@ func ChangedLinesForPlanPath(plan *types.ChangePlan, path, newContent string) (m
 		return lines, false
 	}
 	return lines, precise
+}
+
+// ChangedLinesFromAppliedGeometry returns the post-change line set for
+// path derived from plan.PatchEffect — the typed view of the diff that was
+// ACTUALLY applied to the worktree (post-recount/post-fuzz). The bool
+// reports whether a PatchEffect file matched path; when false the caller
+// must fall back to the header/edit-derived geometry. A matched deleted
+// file yields an empty (but matched) set, since a delete introduces no
+// post-change line. The line set is always precise when matched, because
+// it comes from the real applied git diff rather than model arithmetic.
+func ChangedLinesFromAppliedGeometry(plan *types.ChangePlan, path string) (map[int]struct{}, bool) {
+	if plan == nil || plan.PatchEffect == nil {
+		return nil, false
+	}
+	normPath := normalizePreflightPath(path)
+	if normPath == "" {
+		return nil, false
+	}
+	lines := map[int]struct{}{}
+	matched := false
+	for _, file := range plan.PatchEffect.Files {
+		if normalizePreflightPath(file.Path) != normPath &&
+			normalizePreflightPath(file.OldPath) != normPath {
+			continue
+		}
+		matched = true
+		if strings.TrimSpace(file.Status) == "deleted" {
+			continue
+		}
+		for _, hunk := range file.Hunks {
+			for _, line := range hunk.AddedLineNumbers {
+				if line > 0 {
+					lines[line] = struct{}{}
+				}
+			}
+		}
+	}
+	if !matched {
+		return nil, false
+	}
+	return lines, true
 }
 
 func addPatchAddedLines(lines map[int]struct{}, path, diff string) {
