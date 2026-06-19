@@ -1358,10 +1358,10 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | L2 | complete | Shadow write adapter | emit loop events from current write controller without changing effects; reducer parity with `WriteWorkflowRun` | loopkernel/repl focused tests |
 | L3 | complete | Localization authority consumption | shared `LocalizationAuthority` consumed by read sidecar, write controller, planner/replan, final report | read/write localization tests |
 | L4 | complete | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
-| L5 | in_progress | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
+| L5 | complete | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
 | L6 | complete | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
 | L7 | complete | Micro-loop execution | deterministic runtime-unit authority projection consumed by apply/observe/checkpoint policy, with verified-unit preservation across replan | writeflow/orchestrator runtime-unit tests |
-| L8 | pending | Worker/subagent evidence producers | Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer typed outputs | subagent/worker tests |
+| L8 | complete | Worker/subagent evidence producers | Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer typed outputs | subagent/worker tests |
 | L9 | pending | Auto Pilot UX | single status card from `LoopStateView`; routine path avoids command burden | REPL/CLI rendering tests |
 | L10 | pending | Commercial hardening | replay CLI/eval artifacts, SWE smoke, multi-language canaries, full regression | `go test ./...`, `make test`, eval smoke |
 
@@ -1452,8 +1452,8 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 - [x] Keep mutation kernel-owned through shared effect-profile validation.
 - [x] Add worker budgets, scope validation, and contract tests.
 - [x] Add concrete deterministic Localizer producer with read/write input adapters.
-- [ ] Register concrete ImpactAnalyzer / PatchCritic / ProofAuditor / FailureAnalyzer producers.
-- [ ] Add worker reduction tests once concrete producers land.
+- [x] Add concrete ImpactAnalyzer / PatchCritic / ProofAuditor / FailureAnalyzer typed artifact producers.
+- [x] Add focused worker reduction/normalization tests for each producer.
 
 ### L9 Task Breakdown
 
@@ -1534,6 +1534,7 @@ During each batch:
 | 2026-06-20 | L5 | complete | Finished the worker-role effect envelope by adding typed evidence-worker contracts that project every read-only worker request into `safety.EffectDescriptor` and fold through the shared allow/ask/deny policy. L5 now has one permission kernel for planner/verifier/coder/runtime units/approvals/workers. |
 | 2026-06-20 | L8.1 | complete | Added `internal/worker` typed `Request`/`Result` contracts, role-kind mapping, budgets, repo-relative scope normalization, input/output artifact refs, compact evidence refs, and validation. Completed worker results must carry typed artifact/evidence refs; blocked/failed results need typed reason codes; worker mutation requests are denied by the same safety policy; external-directory scope becomes a typed permission event instead of prompt prose. Focused `worker`/`safety` tests passed. |
 | 2026-06-20 | L8.2 | complete | Added deterministic Localizer worker projection in `internal/worker`: read adapters consume `AnalysisIR`/TurnA localization/navigation artifacts; write adapters consume durable workflow context packs and `LocalizationAuthority`; output includes normalized `SourceLocalizationReview`, `LocalizationAuthority`, localization requirements, typed artifact refs, and compact evidence refs. Tests cover owner-supported promotion, observed-only open gaps, partial owner coverage, repo_map evidence preservation, and read/write adapter consumption without prompt/prose routing. |
+| 2026-06-20 | L8.3 | complete | Added deterministic typed producers for ImpactAnalyzer, PatchCritic, ProofAuditor, and FailureAnalyzer. Each producer reuses existing artifacts (`ImpactAnalysisResult`, actual `PatchReviewRecord`, `VerificationProofProfile`/`VerificationProofLedger`, `VerifyFailureHandoff`) and emits normalized worker request/result refs plus compact evidence refs. Focused tests prove worker outputs validate, artifact refs survive, failure paths use structured build-error paths, and no new prompt/prose routing is introduced. |
 
 ## Phased Roadmap
 
