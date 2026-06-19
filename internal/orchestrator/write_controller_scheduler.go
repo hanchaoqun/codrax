@@ -1338,8 +1338,8 @@ func (o *Orchestrator) localizationOwnerDepthReplanHint(plan *types.ChangePlan) 
 	}
 	var b strings.Builder
 	b.WriteString("## Typed owner localization depth critique\n\n")
-	b.WriteString("The previous ChangePlan edited source paths that were covered only by broad path context. Replan this same batch once with owner/evidence localization where possible; a broad scope path is not owner proof.\n\n")
-	b.WriteString("Source paths missing owner/evidence anchors:\n")
+	b.WriteString("The previous ChangePlan edited source paths that were covered only by broad/supporting context. Replan this same batch once with typed owner localization where possible; a broad scope path or supporting evidence is not owner proof.\n\n")
+	b.WriteString("Source paths missing typed owner localization anchors:\n")
 	for _, p := range missing {
 		fmt.Fprintf(&b, "- %s\n", p)
 	}
@@ -1355,7 +1355,7 @@ func (o *Orchestrator) localizationOwnerDepthReplanHint(plan *types.ChangePlan) 
 			fmt.Fprintf(&b, "- %s\n", p)
 		}
 	}
-	b.WriteString("\nIf the path remains correct, preserve the patch and add exact current-repo read/repomap evidence for the enclosing owner symbol before re-emitting the bounded ChangePlan. If owner evidence points elsewhere, move or split the fix accordingly. This is advisory localization depth, not an apply-risk denial.")
+	b.WriteString("\nIf the path remains correct, preserve the patch and add exact current-repo read/repomap evidence for the enclosing owner symbol before re-emitting the bounded ChangePlan. If owner evidence points elsewhere, move or split the fix accordingly. If this remains unresolved after bounded owner exploration, apply pauses before mutating the worktree.")
 	return strings.TrimSpace(b.String()), missing
 }
 
@@ -1439,6 +1439,82 @@ func (o *Orchestrator) runOwnerLocalizationRequirementExplorationBeforeApply(run
 	o.busCtx.Mutable.ResetChangePlan()
 	o.busCtx.TaskState.LastError = ""
 	return true, err
+}
+
+func (o *Orchestrator) runOwnerLocalizationAuthorityGateBeforeApply(run *types.WriteWorkflowRun, plan *types.ChangePlan, stepsUsed *int) (writeControllerApplyTransitionOutcome, bool, error) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || plan == nil || stepsUsed == nil {
+		return "", false, nil
+	}
+	if changePlanIsNoChangeRequired(plan) || changePlanIsProofProbeOnly(plan) {
+		return "", false, nil
+	}
+	batchID := strings.TrimSpace(run.ActiveBatchID)
+	if batchID == "" || !writeWorkflowRunHasProgressReasonForBatch(*run, batchID, "owner_localization_depth_replan_requested") {
+		return "", false, nil
+	}
+	if !writeWorkflowRunHasProgressReasonForBatch(*run, batchID, "owner_localization_requirement_explored") &&
+		!writeWorkflowRunHasProgressReasonForBatch(*run, batchID, "owner_localization_requirement_degraded") {
+		explored, err := o.runOwnerLocalizationRequirementExplorationBeforeApply(run, plan, stepsUsed)
+		if explored {
+			return writeControllerApplyTransitionRetry, true, err
+		}
+	}
+	requirements := types.LocalizationRequirementsFromWritePlanContext(
+		batchID,
+		activeWorkflowRunSliceID(*run, batchID),
+		types.WriteConsumerPlanner,
+		o.localizationRequirementPriorContextPacks(),
+		plan,
+		0,
+	)
+	openOwnerItems := localizationRequirementOwnerOpenItems(requirements)
+	if len(openOwnerItems) == 0 {
+		return "", false, nil
+	}
+	rows := types.LocalizationRequirementEvidenceRows(types.LocalizationRequirementSet{Items: openOwnerItems}, 8)
+	if len(rows) == 0 {
+		return "", false, nil
+	}
+	if !writeWorkflowRunHasProgressReasonForBatch(*run, batchID, "owner_localization_authority_replan_requested") {
+		existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
+		if existing != "" {
+			existing += "\n\n"
+		}
+		o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + renderOwnerLocalizationAuthorityGateHint(rows, requirements.MissingOwnerAnchorPaths)))
+		updateWorkflowRunBatchStatus(run, batchID, types.WriteWorkflowBatchReadyToPlan)
+		clearWorkflowRunActiveBatchPlanRefs(run, batchID)
+		appendControllerProgress(run, batchID, "owner_localization_authority_replan_requested",
+			strings.Join(requirements.MissingOwnerAnchorPaths, ","))
+		o.persistWriteWorkflowRun(run)
+		o.busCtx.Mutable.ResetChangePlan()
+		o.busCtx.TaskState.LastError = ""
+		return writeControllerApplyTransitionRetry, true, nil
+	}
+	run.Status = types.WriteWorkflowRunBlocked
+	updateWorkflowRunBatchStatus(run, batchID, types.WriteWorkflowBatchBlocked)
+	appendControllerProgress(run, batchID, "owner_localization_authority_unresolved_blocked",
+		strings.Join(requirements.MissingOwnerAnchorPaths, ","))
+	o.persistWriteWorkflowRun(run)
+	o.publishBlockedRunGuidance(run, "owner_localization_authority_unresolved")
+	return writeControllerApplyTransitionTerminal, true, fmt.Errorf("write workflow blocked: source owner localization unresolved for %s", strings.Join(requirements.MissingOwnerAnchorPaths, ", "))
+}
+
+func renderOwnerLocalizationAuthorityGateHint(rows, paths []string) string {
+	var b strings.Builder
+	b.WriteString("## Typed owner localization authority gate\n\n")
+	b.WriteString("The current ChangePlan still has open owner-localization requirements after bounded owner exploration. Replan this batch before apply. Supporting evidence can guide exploration, but only typed production anchors with strength=owner satisfy this gate.\n\n")
+	if len(paths) > 0 {
+		b.WriteString("Source paths still missing typed owner authority:\n")
+		for _, p := range paths {
+			fmt.Fprintf(&b, "- %s\n", p)
+		}
+	}
+	b.WriteString("\nOpen typed requirements:\n")
+	for _, row := range rows {
+		fmt.Fprintf(&b, "- %s\n", row)
+	}
+	b.WriteString("\nMove the patch to an owner-backed source path, split a smaller owner-discovery batch, or emit a no-change sentinel only if the typed evidence proves no source edit is required.")
+	return strings.TrimSpace(b.String())
 }
 
 func localizationRequirementOwnerOpenItems(set types.LocalizationRequirementSet) []types.LocalizationRequirement {
@@ -2569,6 +2645,9 @@ func (o *Orchestrator) runControllerApplyPlanTransition(run *types.WriteWorkflow
 		return writeControllerApplyTransitionTerminal, fmt.Errorf("write controller apply transition missing context")
 	}
 	if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+		if outcome, handled, gateErr := o.runOwnerLocalizationAuthorityGateBeforeApply(run, plan, stepsUsed); handled {
+			return outcome, gateErr
+		}
 		markWorkflowRunActiveSliceApplying(run, run.ActiveBatchID, plan, reasonCode)
 		o.persistWriteWorkflowRun(run)
 	}

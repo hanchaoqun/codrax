@@ -7954,6 +7954,88 @@ Next system gap exposed by RC124:
   owner localization remains open, or split into a smaller read-only owner
   discovery batch instead of continuing with a supporting-only source file.
 
+## 2026-06-19 RC125 Owner-Authority Apply Gate
+
+Gap:
+
+- RC124 fixed owner-gap observability, but apply could still proceed after the
+  one bounded owner exploration if the replan again selected a supporting-only
+  source surface. In the Sphinx smoke this produced a non-empty prediction while
+  final report honestly said `source_owner_anchor_missing`.
+
+Design:
+
+- Add a deterministic pre-apply owner-authority gate that runs before any
+  worktree mutation in `runControllerApplyPlanTransition`.
+- Scope the gate narrowly:
+  - It only activates for batches that already entered the typed owner-depth
+    repair path (`owner_localization_depth_replan_requested`).
+  - It skips no-change/proof-probe-only plans.
+  - It consumes only `LocalizationRequirementsFromWritePlanContext` and workflow
+    progress reason codes; no user keywords, issue prose, model summaries, or
+    rendered logs participate.
+- Behavior:
+  - If owner exploration has not happened yet, run the existing bounded
+    read-only owner exploration and return to planning.
+  - If owner exploration happened but open owner requirements remain, request
+    one explicit owner-authority replan with typed
+    `required=typed_owner_localization_anchor` rows.
+  - If the same batch again reaches apply with unresolved owner authority, fail
+    loud as `owner_localization_authority_unresolved_blocked` instead of
+    mutating the worktree with a known wrong-surface risk.
+- Supporting anchors remain useful as repair candidates and handoff evidence,
+  but cannot satisfy the gate.
+
+Tasks:
+
+- [x] Add `runOwnerLocalizationAuthorityGateBeforeApply`.
+- [x] Wire the gate before `markWorkflowRunActiveSliceApplying`, covering both
+      controller `apply_plan` and budget auto-apply.
+- [x] Add typed planning hint rows for the one post-exploration authority
+      replan.
+- [x] Add focused tests for supporting-only replan, repeated unresolved block,
+      and true owner-anchor allow.
+- [x] Run related package tests, full regression, and SWE smoke.
+
+Acceptance additions:
+
+- A supporting-only path cannot be applied after owner exploration without at
+  least one explicit owner-authority replan.
+- Repeated unresolved owner authority blocks before worktree mutation and leaves
+  a durable reason code.
+- True owner anchors pass without extra user approval.
+- The gate is typed-state driven and does not parse prompt prose or model
+  rationale.
+
+RC125 validation:
+
+- Focused gate test passed:
+  `go test ./internal/orchestrator -run 'TestOwnerLocalization(RequirementTriggersBoundedExplorationBeforeApply|AuthorityGate)' -count=1`.
+- Related packages passed:
+  `go test ./internal/orchestrator -count=1` and
+  `go test ./internal/types ./internal/agent ./internal/orchestrator -count=1`.
+- Full regression passed: `go test ./...`.
+- SWE smoke
+  `eval/results/swebench/lite-smoke-20260619-rc125-owner-authority-gate` on
+  `sphinx-doc__sphinx-8801` exported a harness-consumable prediction JSONL
+  (`validate_predictions.py` passed). It intentionally emitted an empty patch
+  because the workflow blocked before mutation with
+  `workflow_latest_progress_reason_code=owner_localization_authority_unresolved_blocked`.
+  This is a safer outcome than RC124's non-empty supporting-surface patch.
+- The same smoke reports `final_report_plan_owner_gap_paths=['sphinx/ext/autodoc/__init__.py']`
+  and residual risks `impact_unverified` + `source_owner_anchor_missing`; no
+  false functional pass was claimed.
+
+Next system gap exposed by RC125:
+
+- Owner discovery itself is still too weak: the controller can now refuse to
+  apply supporting-only surfaces, but it cannot always turn symptom/supporting
+  evidence into a true production owner anchor. The next closure should enhance
+  read/write shared localization to derive owner authority from structural
+  symbol ownership (repomap / AST / line-backed enclosing symbol) and feed that
+  into context packs before planning, again without keyword routing or model
+  prose parsing.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

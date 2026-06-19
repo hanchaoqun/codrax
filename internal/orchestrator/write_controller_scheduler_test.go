@@ -64,6 +64,36 @@ func testOwnerLocalizationContextPack(batchID, sourcePath, owner string) types.W
 	})
 }
 
+func testSupportingLocalizationContextPack(batchID, sourcePath, owner string) types.WriteContextPack {
+	ref := types.WriteExplorationEvidenceRef{
+		ID:          "ev-support-" + strings.ReplaceAll(strings.TrimSpace(sourcePath), "/", "-"),
+		Source:      sourcePath,
+		LineStart:   1,
+		OwnerSymbol: owner,
+	}
+	return types.NormalizeWriteContextPack(types.WriteContextPack{
+		PackID:      "test-supporting-localization",
+		BatchID:     batchID,
+		SourceStage: "explore",
+		Items: []types.WriteContextItem{{
+			Priority:    types.WriteContextP1,
+			Kind:        "localization_anchor",
+			Text:        "path=" + sourcePath + " support=" + owner,
+			SourceStage: "explore",
+			Consumers:   []types.WriteContextConsumer{types.WriteConsumerController, types.WriteConsumerPlanner},
+			EvidenceRef: &ref,
+			LocalizationAnchor: &types.SourceLocalizationAnchor{
+				Path:        sourcePath,
+				Role:        types.SourcePathRoleProduction,
+				Kind:        types.SourceLocalizationAnchorGroundedEvidence,
+				Strength:    types.SourceLocalizationAnchorSupporting,
+				EvidenceRef: &ref,
+				OwnerSymbol: owner,
+			},
+		}},
+	})
+}
+
 func (s *fakeWorkflowRunStore) FindActiveRun() (*types.WriteWorkflowRun, error) {
 	if s.active == nil {
 		return nil, nil
@@ -1236,6 +1266,173 @@ func TestOwnerLocalizationRequirementTriggersBoundedExplorationBeforeApply(t *te
 	}
 	if exploredAgain || explorationCalls != 1 {
 		t.Fatalf("owner exploration should be one-shot per batch, exploredAgain=%v calls=%d", exploredAgain, explorationCalls)
+	}
+}
+
+func TestOwnerLocalizationAuthorityGateRequestsReplanAfterSupportingOnlyExploration(t *testing.T) {
+	mu := types.NewMutableState("owner authority gate")
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-owner-authority",
+		Goal:          "repair owner path",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:      "batch-1",
+			Goal:    "repair owner path",
+			Status:  types.WriteWorkflowBatchPlanned,
+			PlanID:  "plan-supporting",
+			PlanRef: "plans/plan-supporting.json",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-001",
+				Status: types.ChangePlanSlicePending,
+				PlanID: "plan-supporting",
+			}},
+		}},
+		ContextPacks: []types.WriteContextPack{
+			testSupportingLocalizationContextPack("batch-1", "pkg/bug.py", "Owner.fix"),
+		},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_depth_replan_requested",
+		}, {
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_requirement_explored",
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-supporting",
+		Status:      types.PlanStatusPending,
+		Summary:     "repair owner path",
+		TargetPaths: []string{"pkg/bug.py"},
+		Changes:     []types.FileChange{{Path: "pkg/bug.py", Kind: "patch"}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetWriteWorkflowRun(run)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}}
+	steps := 0
+
+	outcome, handled, err := o.runOwnerLocalizationAuthorityGateBeforeApply(run, plan, &steps)
+	if err != nil {
+		t.Fatalf("authority gate returned error on first unresolved pass: %v", err)
+	}
+	if !handled || outcome != writeControllerApplyTransitionRetry {
+		t.Fatalf("authority gate outcome=(%q,%v), want retry handled", outcome, handled)
+	}
+	if run.Status != types.WriteWorkflowRunInProgress || run.Batches[0].Status != types.WriteWorkflowBatchReadyToPlan {
+		t.Fatalf("run should remain resumable ready_to_plan: %+v", run.Batches[0])
+	}
+	if run.Batches[0].PlanID != "" || run.Batches[0].PlanRef != "" || run.Batches[0].Slices[0].PlanID != "" {
+		t.Fatalf("stale plan refs should be cleared before owner-authority replan: %+v", run.Batches[0])
+	}
+	if !writeWorkflowRunHasProgressReasonForBatch(*run, "batch-1", "owner_localization_authority_replan_requested") {
+		t.Fatalf("progress missing authority replan request: %+v", run.ProgressLedger)
+	}
+	if mu.ChangePlan() != nil {
+		t.Fatalf("current plan should be reset before replan: %+v", mu.ChangePlan())
+	}
+	hint := mu.PlanningHint()
+	if !strings.Contains(hint, "Typed owner localization authority gate") ||
+		!strings.Contains(hint, "required=typed_owner_localization_anchor") ||
+		!strings.Contains(hint, "pkg/bug.py") {
+		t.Fatalf("planning hint missing typed owner requirement:\n%s", hint)
+	}
+}
+
+func TestOwnerLocalizationAuthorityGateBlocksRepeatedSupportingOnlyApply(t *testing.T) {
+	mu := types.NewMutableState("owner authority repeated")
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-owner-authority-block",
+		Goal:          "repair owner path",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair owner path",
+			Status: types.WriteWorkflowBatchPlanned,
+			Slices: []types.WriteWorkflowSlice{{ID: "slice-001", Status: types.ChangePlanSlicePending}},
+		}},
+		ContextPacks: []types.WriteContextPack{
+			testSupportingLocalizationContextPack("batch-1", "pkg/bug.py", "Owner.fix"),
+		},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_depth_replan_requested",
+		}, {
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_requirement_explored",
+		}, {
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_authority_replan_requested",
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-supporting-2",
+		Status:      types.PlanStatusPending,
+		Summary:     "repair owner path",
+		TargetPaths: []string{"pkg/bug.py"},
+		Changes:     []types.FileChange{{Path: "pkg/bug.py", Kind: "patch"}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetWriteWorkflowRun(run)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}}
+	steps := 0
+
+	outcome, handled, err := o.runOwnerLocalizationAuthorityGateBeforeApply(run, plan, &steps)
+	if err == nil || !strings.Contains(err.Error(), "source owner localization unresolved") {
+		t.Fatalf("expected owner authority block error, got %v", err)
+	}
+	if !handled || outcome != writeControllerApplyTransitionTerminal {
+		t.Fatalf("authority gate outcome=(%q,%v), want terminal handled", outcome, handled)
+	}
+	if run.Status != types.WriteWorkflowRunBlocked || run.Batches[0].Status != types.WriteWorkflowBatchBlocked {
+		t.Fatalf("run should be blocked after repeated unresolved owner authority: %+v", run)
+	}
+	if !writeWorkflowRunHasProgressReasonForBatch(*run, "batch-1", "owner_localization_authority_unresolved_blocked") {
+		t.Fatalf("progress missing unresolved block: %+v", run.ProgressLedger)
+	}
+}
+
+func TestOwnerLocalizationAuthorityGateAllowsTypedOwnerAnchor(t *testing.T) {
+	mu := types.NewMutableState("owner authority satisfied")
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-owner-authority-allow",
+		Goal:          "repair owner path",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair owner path",
+			Status: types.WriteWorkflowBatchPlanned,
+		}},
+		ContextPacks: []types.WriteContextPack{
+			testOwnerLocalizationContextPack("batch-1", "pkg/bug.py", "Owner.fix"),
+		},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_depth_replan_requested",
+		}, {
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_requirement_explored",
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-owner",
+		Status:      types.PlanStatusPending,
+		Summary:     "repair owner path",
+		TargetPaths: []string{"pkg/bug.py"},
+		Changes:     []types.FileChange{{Path: "pkg/bug.py", Kind: "patch"}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetWriteWorkflowRun(run)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}}
+	steps := 0
+
+	outcome, handled, err := o.runOwnerLocalizationAuthorityGateBeforeApply(run, plan, &steps)
+	if err != nil || handled || outcome != "" {
+		t.Fatalf("typed owner anchor should pass gate, outcome=%q handled=%v err=%v", outcome, handled, err)
+	}
+	if mu.ChangePlan() == nil {
+		t.Fatalf("satisfied owner authority should not reset plan")
 	}
 }
 
