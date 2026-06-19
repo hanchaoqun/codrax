@@ -2913,6 +2913,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 		out.ReadNavigationCoverage = &coverage
 	}
 	out.ReadLocalizerFollowup = CloneReadLocalizerFollowupPtr(in.ReadLocalizerFollowup)
+	out.ReadReasoningGraph = CloneAnswerReasoningGraphSummaryPtr(in.ReadReasoningGraph)
 	return out
 }
 

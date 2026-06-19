@@ -207,6 +207,87 @@ func TestApplyAndPersistMutation_StampsReadLocalizerFollowupFromTypedAuthorities
 	}
 }
 
+func TestApplyAndPersistMutation_StampsReadReasoningGraphSummary(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.TraceID = "trace-read-summary"
+	bus.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{Intent: types.IntentTrace},
+		EvidencePlan: types.EvidencePlan{
+			RequiredFiles: []string{"pkg/handler.py"},
+		},
+		TaskGraph: types.TaskGraph{Nodes: []types.TaskNode{{ID: "n1", Type: types.NodeEvidence}}},
+	}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"pkg/handler.py"},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev-handler",
+			Kind:            types.EvidenceMechanism,
+			Scope:           types.ScopeLine,
+			Source:          "pkg/handler.py",
+			LineStart:       12,
+			Subject:         "Handler",
+			Predicate:       "dispatches",
+			Object:          "SubAgent",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+		SourceLocalization: &types.SourceLocalizationReview{
+			Status:              types.SourceLocalizationSupported,
+			SourcePaths:         []string{"pkg/handler.py"},
+			SupportedPaths:      []string{"pkg/handler.py"},
+			OwnerSupportedPaths: []string{"pkg/handler.py"},
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:         "pkg/handler.py",
+				Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+				Strength:     types.SourceLocalizationAnchorOwner,
+				OwnerSymbol:  "Handler",
+				AnchorSymbol: "Handler.dispatch",
+			}},
+		},
+		ToolResults: []types.ToolResult{{
+			ToolName: "repo_map",
+			Success:  true,
+			RawRef:   "blob://repo-map-task",
+			Observations: []types.ObservationRecord{{
+				ID:        "repo_map:task#navigation:task_map",
+				Origin:    types.AnswerEvidenceOriginCrossRepoIndex,
+				Producer:  "repo_map",
+				SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceCrossRepoIndex, RawRef: "blob://repo-map-task"},
+				Predicate: types.RepoMapNavigationObservationPredicate,
+				Object:    string(types.RepoMapNavigationRouteTaskMap),
+			}},
+		}},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "answer"},
+		},
+		Citations: []types.Citation{{File: "pkg/handler.py", Line: 12}},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || got.ReadReasoningGraph == nil {
+		t.Fatalf("read reasoning graph not stamped: %+v", got)
+	}
+	graph := got.ReadReasoningGraph
+	if graph.GraphID != "trace-read-summary" ||
+		graph.EventCount == 0 ||
+		graph.ReadEventCount == 0 ||
+		graph.EvidenceRefCount == 0 ||
+		graph.AnswerBlockCount != 1 ||
+		graph.CitationCount != 1 ||
+		len(graph.EventRefs) == 0 {
+		t.Fatalf("unexpected read reasoning graph summary: %+v", graph)
+	}
+}
+
 func testRepoMapRoutePresent(routes []types.RepoMapNavigationRoute, want types.RepoMapNavigationRoute) bool {
 	for _, route := range routes {
 		if route == want {

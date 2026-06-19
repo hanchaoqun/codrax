@@ -275,6 +275,7 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 		out.ReadNavigationCoverage = &coverage
 	}
 	out.ReadLocalizerFollowup = CloneReadLocalizerFollowupPtr(prev.ReadLocalizerFollowup)
+	out.ReadReasoningGraph = CloneAnswerReasoningGraphSummaryPtr(prev.ReadReasoningGraph)
 
 	// Block merge:
 	//

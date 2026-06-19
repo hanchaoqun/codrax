@@ -66,6 +66,12 @@ const (
 	ReasoningEventAuthorityProjected         ReasoningEventKind = "authority_projected"
 	ReasoningEventPatchEffectProjected       ReasoningEventKind = "patch_effect_projected"
 	ReasoningEventRepairRequested            ReasoningEventKind = "repair_requested"
+	ReasoningEventReadAnalysisProjected      ReasoningEventKind = "read_analysis_projected"
+	ReasoningEventReadEvidenceProjected      ReasoningEventKind = "read_evidence_projected"
+	ReasoningEventReadAggregateProjected     ReasoningEventKind = "read_aggregate_projected"
+	ReasoningEventReadLocalizationProjected  ReasoningEventKind = "read_localization_projected"
+	ReasoningEventReadNavigationProjected    ReasoningEventKind = "read_navigation_projected"
+	ReasoningEventReadAnswerProjected        ReasoningEventKind = "read_answer_projected"
 )
 
 type ReasoningGraph struct {
@@ -202,6 +208,7 @@ type ReasoningGraphView struct {
 	RepairEvents    []ReasoningEventSummary `json:"repair_events,omitempty"`
 	LLMEvents       []ReasoningEventSummary `json:"llm_events,omitempty"`
 	WorkflowEvents  []ReasoningEventSummary `json:"workflow_events,omitempty"`
+	ReadEvents      []ReasoningEventSummary `json:"read_events,omitempty"`
 	EventKindCounts []EventKindCount        `json:"event_kind_counts,omitempty"`
 }
 
@@ -350,6 +357,20 @@ func IsWorkflowObservationKind(kind ReasoningEventKind) bool {
 		ReasoningEventWorkflowEventProjected,
 		ReasoningEventAuthorityProjected,
 		ReasoningEventPatchEffectProjected:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsReadObservationKind(kind ReasoningEventKind) bool {
+	switch kind {
+	case ReasoningEventReadAnalysisProjected,
+		ReasoningEventReadEvidenceProjected,
+		ReasoningEventReadAggregateProjected,
+		ReasoningEventReadLocalizationProjected,
+		ReasoningEventReadNavigationProjected,
+		ReasoningEventReadAnswerProjected:
 		return true
 	default:
 		return false

@@ -316,6 +316,7 @@ type WriteFinalReasoningGraphSummary struct {
 
 要记录：
 
+- accepted answer `read_reasoning_graph` summary refs
 - analyzer IR
 - TaskGraph / EvidencePlan
 - repo_map navigation coverage
@@ -331,6 +332,28 @@ type WriteFinalReasoningGraphSummary struct {
 - 解决读模式探索信息到最终答案丢失。
 - 支持最终答案质量审计。
 - 支持 reviewer 判断“答案缺证据”还是“证据存在但 finalizer 没消费”。
+
+`AnswerDocumentV2` 的 accepted artifact 携带 compact `read_reasoning_graph` summary：
+
+```go
+type AnswerReasoningGraphSummary struct {
+    GraphID          string
+    EventCount       int
+    LastEventKind    string
+    LastReasonCode   string
+    EventRefs        []string
+    ReadEventCount   int
+    ToolEventCount   int
+    RepairEventCount int
+    LLMEventCount    int
+    NodeCount        int
+    EvidenceRefCount int
+    AnswerBlockCount int
+    CitationCount    int
+}
+```
+
+该字段只由 runtime 从 typed artifacts 投影，不进入 `emit_answer_document` 的模型输入 schema，不从最终答案散文、模型 rationale 或 visible thinking 中推断。
 
 ### 6.4 Graph Audit CLI / Status Card
 

@@ -117,6 +117,33 @@ type AnswerDocumentV2 struct {
 	// navigation evidence is still needed; it is stamped by the runtime and
 	// never parsed from model-authored text.
 	ReadLocalizerFollowup *ReadLocalizerFollowup `json:"read_localizer_followup,omitempty"`
+
+	// ReadReasoningGraph is the compact typed evidence-ledger header for this
+	// accepted read-mode answer. It is projected from AnalysisIR, TurnA
+	// artifacts, source-localization/navigation authorities, aggregate facts,
+	// and the accepted answer document. It is internal runtime metadata, not an
+	// LLM-facing emit_answer_document schema field.
+	ReadReasoningGraph *AnswerReasoningGraphSummary `json:"read_reasoning_graph,omitempty"`
+}
+
+// AnswerReasoningGraphSummary is the compact read-mode evidence-ledger header
+// attached to accepted AnswerDocumentV2 artifacts. Full graph events live in
+// the reasoninggraph projection layer; answer docs carry only stable refs and
+// counts for audit/status/eval consumers.
+type AnswerReasoningGraphSummary struct {
+	GraphID          string   `json:"graph_id,omitempty"`
+	EventCount       int      `json:"event_count,omitempty"`
+	LastEventKind    string   `json:"last_event_kind,omitempty"`
+	LastReasonCode   string   `json:"last_reason_code,omitempty"`
+	EventRefs        []string `json:"event_refs,omitempty"`
+	ReadEventCount   int      `json:"read_event_count,omitempty"`
+	ToolEventCount   int      `json:"tool_event_count,omitempty"`
+	RepairEventCount int      `json:"repair_event_count,omitempty"`
+	LLMEventCount    int      `json:"llm_event_count,omitempty"`
+	NodeCount        int      `json:"node_count,omitempty"`
+	EvidenceRefCount int      `json:"evidence_ref_count,omitempty"`
+	AnswerBlockCount int      `json:"answer_block_count,omitempty"`
+	CitationCount    int      `json:"citation_count,omitempty"`
 }
 
 // AnswerMissingRequestedRole is a typed answer-level disclosure that

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/sourceowner"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -161,6 +162,9 @@ func persistMergedAnswerDocument(
 	if stampReadLocalizerFollowup(ctx, merged) {
 		logging.Info("[%s] stamped read localizer follow-up from typed localization/navigation state", toolName)
 	}
+	if stampReadReasoningGraph(ctx, merged) {
+		logging.Info("[%s] stamped read reasoning graph summary from typed read artifacts", toolName)
+	}
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
@@ -255,6 +259,19 @@ func stampReadLocalizerFollowup(ctx *types.BusContext, doc *types.AnswerDocument
 		return false
 	}
 	doc.ReadLocalizerFollowup = followup
+	return true
+}
+
+func stampReadReasoningGraph(ctx *types.BusContext, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || doc == nil {
+		return false
+	}
+	summary := reasoninggraph.AnswerReasoningGraphSummaryFromReadAnswerDocument(ctx, doc)
+	if summary == nil {
+		doc.ReadReasoningGraph = nil
+		return false
+	}
+	doc.ReadReasoningGraph = summary
 	return true
 }
 

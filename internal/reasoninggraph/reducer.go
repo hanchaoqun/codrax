@@ -41,6 +41,8 @@ func ReduceEvents(events []ReasoningEvent) ReasoningGraphView {
 			view.LLMEvents = append(view.LLMEvents, summary)
 		case IsWorkflowObservationKind(event.Kind):
 			view.WorkflowEvents = append(view.WorkflowEvents, summary)
+		case IsReadObservationKind(event.Kind):
+			view.ReadEvents = append(view.ReadEvents, summary)
 		}
 	}
 	view.Nodes = sortedNodeViews(nodes)
@@ -58,6 +60,8 @@ func nodeKindForEvent(kind ReasoningEventKind) ReasoningNodeKind {
 	case IsLLMObservationKind(kind):
 		return ReasoningNodeLLM
 	case IsWorkflowObservationKind(kind):
+		return ReasoningNodeEvidence
+	case IsReadObservationKind(kind):
 		return ReasoningNodeEvidence
 	default:
 		return ""
