@@ -4324,6 +4324,7 @@ Verification:
 | RC-112 | complete | SWE delivery PatchReview authority: adapter acceptance now scopes actual-diff/effect hard blockers to the typed primary delivery source plan, while proof blockers still use the typed report-plan authority. Stale source-owner PatchReview findings remain explicit non-authoritative telemetry and no longer block or downgrade final delivery when the exported patch comes from a later clean source plan. |
 | RC-113 | complete | Failed-test assertion preservation: verifier failure handoff now promotes the failed test's typed file:line assertion into a temporary replan-only protected test contract. Replans may still fix production code or add tests, but deleting/replacing the exact failed assertion line triggers the existing bounded test-contract critique instead of silently weakening the local regression oracle. Python traceback `File "...", line N` locations now feed the shared failure-signal parser. |
 | RC-114 | complete | Verifier worktree path normalization: RC113 smoke showed traceback locations can point at `.codrax/worktrees/<trace>/...`, which made failed-test protection classify the location as a Codrax artifact instead of a repo test. The critic now maps that deterministic worktree prefix back to repo-relative paths before path-role classification. |
+| RC-115 | complete | Protected-test critic hard closure: the typed test-contract critic now retries once with a structured hint, then blocks/fails loud if the next plan still weakens protected regression or failed-verifier assertion lines. This prevents a model from acknowledging `preserve_failed_test_assertion` in prose while still applying the weakened test patch. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -7251,6 +7252,28 @@ RC114 implementation notes:
   - `go test ./internal/orchestrator -run 'TestTestContractReplanHint' -count=1`
     passes, including a regression where a Python traceback points inside
     `.codrax/worktrees/trace-123/tests/test_widget.py`.
+
+RC115 implementation notes:
+
+- RC114 smoke confirmed the worktree-path mapping reached the model: the
+  planner saw `preserve_failed_test_assertion` and the protected assertion text.
+  However, the controller still accepted a second plan that changed
+  `self.assertEqual(..., 'id_name_0')` to `self.assertIsNone(...)`.
+- Root cause: `testContractReplanHint` was a one-shot soft retry. After the
+  retry was consumed, the scheduler no longer rechecked the same typed
+  violation before apply.
+- RC115 makes the contract deterministic:
+  - first violation: append the existing typed critique and retry planning
+    once;
+  - repeated violation: return a scheduler error before approval/apply, so the
+    workflow becomes blocked/fail-loud instead of applying a weakened local
+    oracle.
+- This is deliberately scoped to typed protected-test evidence. It does not
+  parse model prose about whether a test is "wrong", and it does not forbid
+  adding new tests or editing unprotected test lines.
+- Verification:
+  - `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(ReplansProtectedRegressionTestWeakening|BlocksPersistentProtectedRegressionTestWeakening)|TestTestContractReplanHint' -count=1`
+    passes.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

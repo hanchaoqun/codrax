@@ -918,8 +918,8 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 			return errors.New("write controller replan emitted no-change sentinel without a typed passing planner probe on an applied prior plan")
 		}
 		if err == nil && o.busCtx.Mutable.ChangePlan() != nil {
-			if !testContractReplanRetried {
-				if hint, paths := o.testContractReplanHint(o.busCtx.Mutable.ChangePlan()); hint != "" {
+			if hint, paths := o.testContractReplanHint(o.busCtx.Mutable.ChangePlan()); hint != "" {
+				if !testContractReplanRetried {
 					testContractReplanRetried = true
 					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
 					if existing != "" {
@@ -930,6 +930,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 					logging.Warning("[orchestrator] controller plan weakened protected regression test contract; retrying bounded planning once paths=%s", strings.Join(paths, ","))
 					continue
 				}
+				return fmt.Errorf("write controller plan weakened protected regression test contract after retry: %s", strings.Join(paths, ","))
 			}
 			if !offScopeRiskReplanRetried {
 				if hint, paths := o.offScopeHighRiskReplanHint(o.busCtx.Mutable.ChangePlan()); hint != "" {

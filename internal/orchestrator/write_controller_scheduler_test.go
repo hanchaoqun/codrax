@@ -2296,6 +2296,60 @@ func TestRunWriteControllerWorkflow_ReplansProtectedRegressionTestWeakening(t *t
 	}
 }
 
+func TestRunWriteControllerWorkflow_BlocksPersistentProtectedRegressionTestWeakening(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	root := t.TempDir()
+	writeTestFile(t, root, "tests/test_tokenizer.py", "def test_newline():\n    assert tok.tokenize(\"#include <set>\\n\\n\\n\\n\\n\") == [300]\n")
+	mu := types.NewMutableState("preserve odd newline regression")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix tokenizer fallback"},
+			Risk: types.WriteRiskProfile{Overall: types.RiskBandLow},
+			Constraints: []types.WriteConstraint{{
+				Kind:   "preserve_regression_test",
+				Target: "tests/test_tokenizer.py",
+			}},
+		},
+	})
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, []writeflow.WriteWorkflowDecision{
+			{Action: writeflow.ActionPlanBatch, Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "fix tokenizer fallback"}},
+		}, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: root, MainRepoRoot: root, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	planCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		if stage == types.StagePlan {
+			planCalls++
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:      fmt.Sprintf("plan-weakens-test-%d", planCalls),
+				Status:  types.PlanStatusPending,
+				Summary: "keeps weakening regression input",
+				Changes: []types.FileChange{{
+					Path:  "tests/test_tokenizer.py",
+					Kind:  "patch",
+					Patch: "--- a/tests/test_tokenizer.py\n+++ b/tests/test_tokenizer.py\n@@ -1,2 +1,2 @@\n def test_newline():\n-    assert tok.tokenize(\"#include <set>\\n\\n\\n\\n\\n\") == [300]\n+    assert tok.tokenize(\"#include <set>\\n\\n\\n\\n\") == [300]\n",
+				}},
+				TargetPaths: []string{"tests/test_tokenizer.py"},
+			})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil || !strings.Contains(err.Error(), "weakened protected regression test contract after retry") {
+		t.Fatalf("expected persistent protected-test weakening to block, got %v", err)
+	}
+	if planCalls != 2 {
+		t.Fatalf("plan calls = %d, want 2", planCalls)
+	}
+}
+
 func TestTestContractReplanHintProtectsFailedVerifyAssertion(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "tests/forms_tests/tests/test_forms.py", strings.Join([]string{
