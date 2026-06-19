@@ -8766,6 +8766,129 @@ RC131 SWE evidence:
     startup/import environment, so the adapter correctly reports
     `predicted_unverified` rather than authoritative local pass.
 
+## 2026-06-19 Cross-language Audit Of Recent Python-triggered Fixes
+
+Scope:
+
+- Reviewed recent commits since 2026-06-16 that were triggered by
+  SWE/Python/Pytest samples, plus the current core code paths that consume
+  those signals: `sourceowner`, `run_tests`, `test_surface`,
+  `run_tests_verification_probe`, `patch_effect`, and the SWE adapter.
+- Classification rule: Python-only logic is acceptable only in
+  Python-specific adapters or language providers. Core read/write hard gates
+  must either consume a shared typed provider abstraction or record an explicit
+  coverage gap for other supported language families.
+
+Audit ledger:
+
+| Priority | Area | Finding | Status / action |
+| --- | --- | --- | --- |
+| P0 | Read/write structural owner localization | The Xarray failure was Python-triggered, but the class of bug is multiline declaration owner extraction. It affects read-mode owner-anchor supplements and write-mode apply authority. Go/Ruby already had coverage for common multiline headers; brace languages could degrade `Class.method` to class-only owner. | RC132 fixes this in shared `sourceowner` and adds Python/Go/Ruby/brace-language regressions. |
+| P0 | Verification probe failure attribution | Python probes have richer import/startup diagnostics and traceback-to-changed-line attribution (`verification_probe_exception_outside_changed_lines`). JS/Ruby/Go/Java probes use the shared runtime matrix but do not yet have equivalent provider-level stack-frame attribution or import-detail diagnostics. | Record as RC133 candidate: add a typed `ProbeFailureClassifier` provider interface for JS/Ruby/Go/Java/Python so local verification confidence is not Python-biased. |
+| P1 | No-test/source-check verification | The original Python static preflight has already been generalized into `sourceCheckProviderRegistry` for Python, Node JS/TS, Ruby, Go, Java/Kotlin, and Swift. | Closed for these families. Remaining gap: supported languages without providers (for example Rust/C/C++/ArkTS/Cangjie) should be evaluated before claiming full multi-language source-check coverage. |
+| P1 | Patch-effect semantic shape review | Several Python-triggered shape checks were generalized through `patchEffectSourceProviders` across JS/TS, Ruby, JVM, and Go. However Python still has extra hard owner/body-shape events: top-level `self/cls`, executable-looking docstring insertion, duplicate declaration, and unreachable body after added return. | Record as RC134 candidate: move language-specific hard shape rules behind provider capabilities and add analogous JS/TS/Ruby/Go/JVM regressions where structural parsing is reliable. |
+| P1 | Test-surface fallback UX | Python has a synthetic stdlib `unittest` candidate so missing pytest does not dead-end verification. Other ecosystems use typed detectors/source-check fallbacks, but Node built-in `node --test`, Ruby stdlib minitest, and Cargo/Gradle/Maven equivalent fallback semantics are not yet audited as a unified provider policy. | Record as RC135 candidate: add a typed test-surface fallback policy matrix; keep missing toolchains as `unverified`, not hard source failures. |
+| P2 | SWE-bench environment preparation | `eval/swebench` Python env prep, pyproject parsing, and pytest installation are intentionally Python-specific because SWE-bench Lite is Python-centric. | Keep scoped to the eval adapter. If a future non-Python benchmark adapter is added, introduce an eval-environment provider interface rather than leaking Python env logic into core write mode. |
+| P2 | Framework selector normalizers | Django selector fixes are Python-framework-specific. Core impact selector code already covers Node, Java/Kotlin, Rust, and Swift paths in provider-style selectors. | No immediate core change; keep future framework-specific selector normalization in typed provider tables. |
+
+Design constraints for the follow-up queue:
+
+- Do not route on user intent keywords or model prose. The audit and future
+  gates consume path extensions, typed runner/probe language enums, structured
+  command outcomes, parser/build outputs, and persisted context artifacts.
+- Preserve read/write sharing where the signal is about localization,
+  evidence, or source structure. Do not implement a write-only owner/localizer.
+- Evaluation adapters may stay benchmark-specific, but they must not redefine
+  core pass/fail authority.
+- Missing non-Python toolchains should lower confidence or mark verification
+  unavailable; they should not block delivery as a hard source-code failure.
+
+Queued batches:
+
+- RC132: finish multiline owner extraction across Python, Go, Ruby, and
+  brace-language families.
+- RC133: design and implement provider-level verification probe failure
+  classification beyond Python.
+- RC134: audit and providerize remaining Python-only hard patch-effect shape
+  events.
+- RC135: audit test-surface fallback provider policy for non-Python ecosystems
+  and reduce manual runner selection.
+- RC136: extend no-test/source-check provider coverage where the repo already
+  supports the language and the toolchain has a deterministic low-cost check.
+
+## 2026-06-19 RC132 In Progress: Multi-language Multiline Owner Extraction For Apply Authority
+
+Gap:
+
+- RC129-C Xarray rerun at `/private/tmp/codrax-swe-rc129c-xarray-4248`
+  ended `status=empty_patch`, `workflow_status=blocked`, and
+  `workflow_latest_progress_reason_code=owner_localization_authority_unresolved_blocked`.
+- The plan contained a valid production patch for
+  `xarray/core/formatting.py:summarize_variable`, but `plan_edit_owner`
+  produced owner anchors only for the test file. The source owner anchor was
+  absent, so the pre-apply owner authority gate correctly refused to mutate the
+  worktree.
+- Root cause: `sourceowner.findPythonOwner` popped the active function owner on
+  a multiline Python function signature's closing `):` line because the
+  continuation line returned to the same indentation as the `def`.
+- But the system gap is broader than Python: any read/write shared
+  line-backed localization pipeline that loses the enclosing owner for
+  multiline declarations can either drop final-answer evidence in read mode or
+  make write mode block before apply.
+- Multilanguage audit found that Go and Ruby already resolve common multiline
+  function/method headers through their existing declaration regexes, while
+  JS/TS/Java/Kotlin-style brace-language class methods with multiline
+  parameter lists degraded to class-only owners.
+
+Design:
+
+- Keep the strict owner authority gate. It should not silently apply
+  supporting-only source patches.
+- Fix the shared `sourceowner` engine, not write mode locally, so read-mode
+  answer owner supplements and write-mode exploration/controller apply gates
+  consume the same structural owner authority.
+- Python multiline `def` / `class` headers remain active until the header is
+  closed, then the first body line can still resolve to the enclosing owner.
+- Brace-language method detection uses structural class-member depth and
+  multiline method-head recognition, so class methods with split parameter
+  lists resolve to `Class.method` instead of class-only owners.
+- Preserve the typed-only hard path: the gate still consumes
+  `SourceLocalizationAnchor{strength=owner}` from structural owner extraction
+  and context packs; it does not parse issue text, model prose, stdout, or
+  `<think>`.
+- This is language-family scoped and system-level: Python, Go, Ruby, and
+  JS/TS/Java/Kotlin-style projects now have regression coverage for multiline
+  owner extraction before read/write consumers assign authority.
+
+Tasks:
+
+- [x] Reproduce the Xarray empty-patch spot and record typed artifacts.
+- [x] Add multiline Python header handling to `sourceowner.FindEnclosingOwner`.
+- [x] Add unit tests for multiline top-level functions and class methods.
+- [x] Audit non-Python owner extraction paths for the same multiline
+      declaration class of bug.
+- [x] Add Go multiline function/method, Ruby multiline method, and
+      brace-language multiline function/method regression coverage.
+- [x] Generalize brace-language class method owner extraction without adding
+      user-intent or model-prose routing.
+- [x] Run focused sourceowner/orchestrator owner-gate tests.
+- [x] Run full regression.
+- [ ] Rebuild Codrax and rerun `pydata__xarray-4248` prediction +
+      validation + official harness dry-run.
+- [ ] Record whether placement contracts/probes are now emitted; if not,
+      keep RC129-C placement extraction as the next open gap.
+
+RC132 focused evidence:
+
+- `go test ./internal/sourceowner -count=1`: pass.
+- `go test ./internal/orchestrator -run 'TestOwnerLocalization|TestRunController|TestSeedWriteWorkflowRun' -count=1`: pass.
+- `go test ./internal/sourceowner ./internal/tool ./internal/orchestrator -run 'TestFindEnclosingOwner|TestEnrichSourceLocalizationReview|TestApplyAndPersistMutation_Stamps.*Owner|TestAnswerDocumentEvaluator_ParseOutput_.*Owner|TestOwnerLocalization|TestRunController|TestSeedWriteWorkflowRun' -count=1`: pass.
+- `go test ./internal/writeflow -run 'TestPatchEffectSourceProviderRegistryCoverage|TestAnnotatePatchEffectNestedCollectionBranchExclusionWarnsAcrossProviders' -count=1`: pass.
+- `go test ./internal/tool -run 'TestSourceCheckProviderRegistry|TestSourceCheckExtensions|Test.*VerificationProbe' -count=1`: pass.
+- `go test ./...`: pass.
+- `make test`: pass.
+- `git diff --check`: pass.
+
 ## Acceptance Criteria
 
 - SWE local acceptance no longer counts a patch as pass when typed

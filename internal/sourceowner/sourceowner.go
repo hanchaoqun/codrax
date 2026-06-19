@@ -17,16 +17,17 @@ type Anchor struct {
 }
 
 var (
-	pythonClassRE    = regexp.MustCompile(`^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
-	pythonFuncRE     = regexp.MustCompile(`^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	goMethodRE       = regexp.MustCompile(`^\s*func\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?\*?([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	goFuncRE         = regexp.MustCompile(`^\s*func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	braceClassRE     = regexp.MustCompile(`^\s*(?:export\s+)?(?:abstract\s+|final\s+|sealed\s+|open\s+|public\s+|private\s+|protected\s+|internal\s+|static\s+)*class\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
-	braceFunctionRE  = regexp.MustCompile(`^\s*(?:export\s+|public\s+|private\s+|protected\s+|internal\s+|static\s+|async\s+|final\s+|open\s+|override\s+|suspend\s+)*fun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	braceFunctionRE2 = regexp.MustCompile(`^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	braceMethodRE    = regexp.MustCompile(`^\s*(?:public\s+|private\s+|protected\s+|static\s+|async\s+|final\s+|override\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:[:A-Za-z0-9_<>,.? \t]*)?\{?\s*$`)
-	rubyClassRE      = regexp.MustCompile(`^\s*class\s+([A-Za-z_][A-Za-z0-9_:]*)\b`)
-	rubyDefRE        = regexp.MustCompile(`^\s*def\s+(?:self\.)?([A-Za-z_][A-Za-z0-9_?!]*)\b`)
+	pythonClassRE     = regexp.MustCompile(`^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	pythonFuncRE      = regexp.MustCompile(`^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	goMethodRE        = regexp.MustCompile(`^\s*func\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?\*?([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	goFuncRE          = regexp.MustCompile(`^\s*func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	braceClassRE      = regexp.MustCompile(`^\s*(?:export\s+)?(?:abstract\s+|final\s+|sealed\s+|open\s+|public\s+|private\s+|protected\s+|internal\s+|static\s+)*class\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	braceFunctionRE   = regexp.MustCompile(`^\s*(?:export\s+|public\s+|private\s+|protected\s+|internal\s+|static\s+|async\s+|final\s+|open\s+|override\s+|suspend\s+)*fun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	braceFunctionRE2  = regexp.MustCompile(`^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	braceMethodRE     = regexp.MustCompile(`^\s*(?:public\s+|private\s+|protected\s+|static\s+|async\s+|final\s+|override\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:[:A-Za-z0-9_<>,.? \t]*)?\{?\s*$`)
+	braceMethodHeadRE = regexp.MustCompile(`^\s*(?:public\s+|private\s+|protected\s+|static\s+|async\s+|final\s+|override\s+|open\s+|sealed\s+|internal\s+|abstract\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	rubyClassRE       = regexp.MustCompile(`^\s*class\s+([A-Za-z_][A-Za-z0-9_:]*)\b`)
+	rubyDefRE         = regexp.MustCompile(`^\s*def\s+(?:self\.)?([A-Za-z_][A-Za-z0-9_?!]*)\b`)
 )
 
 // FindEnclosingOwner returns the nearest structural owner around a 1-based
@@ -117,6 +118,8 @@ func findPythonOwner(path string, lines []string, line int) (Anchor, bool) {
 		line   int
 	}
 	var stack []frame
+	pendingHeaderBalance := 0
+	pendingHeader := false
 	for i := 0; i < line && i < len(lines); i++ {
 		raw := lines[i]
 		trimmed := strings.TrimSpace(raw)
@@ -124,15 +127,31 @@ func findPythonOwner(path string, lines []string, line int) (Anchor, bool) {
 			continue
 		}
 		indent := leadingWhitespaceWidth(raw)
+		if pendingHeader {
+			pendingHeaderBalance += pythonBracketDelta(raw)
+			if pendingHeaderBalance <= 0 && strings.HasSuffix(trimmed, ":") {
+				pendingHeader = false
+				pendingHeaderBalance = 0
+			}
+			continue
+		}
 		for len(stack) > 0 && indent <= stack[len(stack)-1].indent {
 			stack = stack[:len(stack)-1]
 		}
 		if m := pythonClassRE.FindStringSubmatch(raw); len(m) == 2 {
 			stack = append(stack, frame{indent: indent, name: m[1], kind: "class", line: i + 1})
+			if delta := pythonBracketDelta(raw); delta > 0 || !strings.HasSuffix(trimmed, ":") {
+				pendingHeader = true
+				pendingHeaderBalance = delta
+			}
 			continue
 		}
 		if m := pythonFuncRE.FindStringSubmatch(raw); len(m) == 2 {
 			stack = append(stack, frame{indent: indent, name: m[1], kind: "function", line: i + 1})
+			if delta := pythonBracketDelta(raw); delta > 0 || !strings.HasSuffix(trimmed, ":") {
+				pendingHeader = true
+				pendingHeaderBalance = delta
+			}
 		}
 	}
 	if len(stack) == 0 {
@@ -145,6 +164,19 @@ func findPythonOwner(path string, lines []string, line int) (Anchor, bool) {
 		anchor = f.name
 	}
 	return Anchor{Path: filepath.ToSlash(path), Line: line, OwnerSymbol: strings.Join(parts, "."), AnchorSymbol: anchor}, true
+}
+
+func pythonBracketDelta(s string) int {
+	delta := 0
+	for _, r := range s {
+		switch r {
+		case '(', '[', '{':
+			delta++
+		case ')', ']', '}':
+			delta--
+		}
+	}
+	return delta
 }
 
 func findGoOwner(path string, lines []string, line int) (Anchor, bool) {
@@ -187,33 +219,56 @@ func findRubyOwner(path string, lines []string, line int) (Anchor, bool) {
 
 func findBraceOwner(path string, lines []string, line int) (Anchor, bool) {
 	var className string
+	classDepth := -1
 	var owner string
 	var anchor string
+	depth := 0
 	for i := 0; i < line && i < len(lines); i++ {
-		raw := strings.TrimSpace(lines[i])
+		rawLine := lines[i]
+		raw := strings.TrimSpace(rawLine)
+		depthBefore := depth
+		updateDepth := func() {
+			depth += braceDelta(rawLine)
+			if depth < 0 {
+				depth = 0
+			}
+		}
 		if raw == "" || strings.HasPrefix(raw, "//") || strings.HasPrefix(raw, "*") {
+			updateDepth()
 			continue
 		}
 		if m := braceClassRE.FindStringSubmatch(raw); len(m) == 2 {
 			className = m[1]
+			classDepth = depthBefore + 1
 			owner = className
 			anchor = className
+			updateDepth()
 			continue
 		}
 		if m := braceFunctionRE.FindStringSubmatch(raw); len(m) == 2 {
 			owner, anchor = qualifyOwner(className, m[1]), m[1]
+			updateDepth()
 			continue
 		}
 		if m := braceFunctionRE2.FindStringSubmatch(raw); len(m) == 2 {
 			owner, anchor = qualifyOwner(className, m[1]), m[1]
+			updateDepth()
 			continue
 		}
 		if strings.Contains(raw, "(") && !strings.HasPrefix(raw, "if ") && !strings.HasPrefix(raw, "for ") &&
 			!strings.HasPrefix(raw, "while ") && !strings.HasPrefix(raw, "switch ") {
 			if m := braceMethodRE.FindStringSubmatch(raw); len(m) == 2 {
 				owner, anchor = qualifyOwner(className, m[1]), m[1]
+				updateDepth()
+				continue
+			}
+			if className != "" && depthBefore == classDepth {
+				if m := braceMethodHeadRE.FindStringSubmatch(raw); len(m) == 2 {
+					owner, anchor = qualifyOwner(className, m[1]), m[1]
+				}
 			}
 		}
+		updateDepth()
 	}
 	if owner == "" {
 		return Anchor{}, false
@@ -226,6 +281,19 @@ func qualifyOwner(className, member string) string {
 		return member
 	}
 	return className + "." + member
+}
+
+func braceDelta(s string) int {
+	delta := 0
+	for _, r := range s {
+		switch r {
+		case '{':
+			delta++
+		case '}':
+			delta--
+		}
+	}
+	return delta
 }
 
 func leadingWhitespaceWidth(s string) int {
