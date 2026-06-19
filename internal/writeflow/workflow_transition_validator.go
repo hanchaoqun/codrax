@@ -94,6 +94,10 @@ func workflowTransitionNeedsOwnerLocalization(view WorkflowExecutionView) bool {
 	}
 }
 
+func WorkflowTransitionNeedsNavigationCoverage(view WorkflowExecutionView) bool {
+	return workflowTransitionNeedsNavigationCoverage(view)
+}
+
 func workflowTransitionNeedsNavigationCoverage(view WorkflowExecutionView) bool {
 	if !view.Localization.RequiresMoreContext || view.ExploreAttempts > 0 {
 		return false

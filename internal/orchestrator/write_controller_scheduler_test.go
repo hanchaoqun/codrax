@@ -6053,6 +6053,75 @@ func TestNormalizeControllerTypedStateDecisionPlanBatchNeedsExplorationRoutesExp
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionMissingNavigationCoverageAutoExplores(t *testing.T) {
+	mu := types.NewMutableState("missing navigation coverage")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	localizationPack := types.NormalizeWriteContextPack(types.WriteContextPack{
+		PackID:      "observed-localization",
+		BatchID:     "batch-1",
+		SourceStage: "planner_observation",
+		Items: []types.WriteContextItem{{
+			Priority:    types.WriteContextP1,
+			Kind:        "localization_anchor",
+			Text:        "path=pkg/bug.py kind=read_file strength=observed",
+			SourceStage: "planner_observation",
+			Consumers:   []types.WriteContextConsumer{types.WriteConsumerController, types.WriteConsumerPlanner},
+			LocalizationAnchor: &types.SourceLocalizationAnchor{
+				Path:        "pkg/bug.py",
+				Role:        types.SourcePathRoleProduction,
+				Kind:        types.SourceLocalizationAnchorReadFile,
+				Strength:    types.SourceLocalizationAnchorObserved,
+				ReasonCode:  "planner_read_file_observed",
+				SourceStage: "planner_observation",
+			},
+		}},
+	})
+	navigationPack := types.WriteContextPackFromRepoMapNavigationCoverage("batch-1", "repair owner surface", types.RepoMapNavigationCoverage{
+		State:          types.RepoMapNavigationCoverageMissing,
+		ReasonCode:     "repo_map_navigation_missing",
+		RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteFileMap, types.RepoMapNavigationRouteRelationMap},
+		MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteFileMap, types.RepoMapNavigationRouteRelationMap},
+	})
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-navigation-auto-explore",
+		Goal:          "repair owner surface",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair owner surface",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+		ContextPacks: []types.WriteContextPack{localizationPack, navigationPack},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionAskUser,
+		ReasonCode: "need_user_hint",
+		QuestionsForUser: []string{
+			"Which file should I inspect next?",
+		},
+	}, run)
+	if got.Action != writeflow.ActionExploreCode || got.ReasonCode != "navigation_coverage_auto_explore" {
+		t.Fatalf("missing typed navigation coverage should auto-explore before asking user, got %+v", got)
+	}
+	if got.ExplorationRequest == nil || got.ExplorationRequest.BatchID != "batch-1" {
+		t.Fatalf("auto exploration request missing active batch: %+v", got.ExplorationRequest)
+	}
+	if !containsString(got.ExplorationRequest.CandidatePaths, "pkg/bug.py") {
+		t.Fatalf("auto exploration should preserve typed localization candidate path: %+v", got.ExplorationRequest.CandidatePaths)
+	}
+	requirements := strings.Join(got.ExplorationRequest.EvidenceRequirements, "\n")
+	if !strings.Contains(requirements, "repo_map_navigation_requirement route=file_map") ||
+		!strings.Contains(requirements, "repo_map_navigation_requirement route=relation_map") ||
+		!strings.Contains(requirements, "typed_owner_localization_anchor") {
+		t.Fatalf("auto exploration requirements should carry navigation and owner obligations: %+v", got.ExplorationRequest.EvidenceRequirements)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "navigation_coverage_auto_explore_requested") {
+		t.Fatalf("auto exploration progress missing: %+v", run.ProgressLedger)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionPlanBatchAfterExplorationAttemptAllowed(t *testing.T) {
 	mu := types.NewMutableState("needs exploration already attempted")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}

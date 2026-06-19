@@ -5552,6 +5552,13 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		}
 		return decision
 	}
+	if controllerActionCanAutoExploreNavigationGap(decision.Action) {
+		if explore, ok := o.controllerNavigationCoverageExploreDecision(run); ok {
+			appendControllerProgress(run, firstNonEmptyController(explore.ExplorationRequest.BatchID, batchID), "navigation_coverage_auto_explore_requested",
+				"typed repo_map navigation coverage is missing required lens coverage; running bounded read-only exploration before planning")
+			return explore
+		}
+	}
 	if batch, ok := activeBatchNeedsReplan(run); ok && controllerActionReusesStalePlanAfterFailedVerify(decision.Action) {
 		appendControllerProgress(run, batchID, "needs_replan_stale_action_overridden",
 			fmt.Sprintf("controller action %s suppressed because the active batch has a failed post-apply verify attempt; a new bounded plan is required before applying or verifying again", decision.Action))
@@ -5684,6 +5691,37 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		}
 	}
 	return decision
+}
+
+func (o *Orchestrator) controllerNavigationCoverageExploreDecision(run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	view := writeflow.DeriveWorkflowExecutionViewWithReport(o.busCtx.Mode, *run, o.busCtx.Mutable.ChangePlan(), o.busCtx.Mutable.ChangeReport())
+	if !writeflow.WorkflowTransitionNeedsNavigationCoverage(view) {
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	batchID := firstNonEmptyController(view.BatchID, run.ActiveBatchID, "batch-1")
+	return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionExploreCode,
+		ReasonCode: "navigation_coverage_auto_explore",
+		Reason:     "typed repo_map navigation coverage is missing required lens coverage while localization still needs source-owner context",
+		ExplorationRequest: &types.WriteExplorationRequest{
+			BatchID:              batchID,
+			Goal:                 workflowTransitionBatchGoal(view, run, batchID),
+			CandidatePaths:       workflowTransitionLocalizationCandidatePaths(view),
+			EvidenceRequirements: workflowTransitionEvidenceRequirements(view),
+		},
+	}), true
+}
+
+func controllerActionCanAutoExploreNavigationGap(action writeflow.WorkflowAction) bool {
+	switch action {
+	case writeflow.ActionExploreCode, writeflow.ActionBlock:
+		return false
+	default:
+		return true
+	}
 }
 
 func (o *Orchestrator) enforceControllerWorkflowTransition(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) writeflow.WriteWorkflowDecision {
