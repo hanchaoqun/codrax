@@ -2313,6 +2313,7 @@ func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.Wr
 		return true
 	}
 	items := selectImpactRepairQueueItems(plan, report, 0)
+	items = filterPassedVerifyGraphTelemetryItems(run, run.ActiveBatchID, items)
 	if len(items) == 0 {
 		return false
 	}
@@ -2320,15 +2321,18 @@ func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.Wr
 		items = items[:4]
 	}
 	purpose := repairFollowupPurposeForItems(items)
+	expectedPaths := impactRepairExpectedPaths(items)
+	criteria := impactRepairSuccessCriteria(items)
+	criteria = append(criteria, impactRepairNavigationSuccessCriteria(items)...)
 	batch := writeflow.WriteBatchPlan{
 		ID:                   nextRepairBatchID(run, run.ActiveBatchID, "cumulative-review"),
 		Goal:                 impactRepairFollowupGoal(items),
 		Purpose:              purpose,
 		Status:               writeflow.BatchReadyForChangePlan,
-		NeedsCodeExploration: len(impactRepairExpectedPaths(items)) == 0,
-		ExploreTargets:       impactRepairExpectedPaths(items),
-		ExpectedPaths:        impactRepairExpectedPaths(items),
-		SuccessCriteria:      impactRepairSuccessCriteria(items),
+		NeedsCodeExploration: len(expectedPaths) == 0 || impactRepairNeedsGraphNavigation(items),
+		ExploreTargets:       expectedPaths,
+		ExpectedPaths:        expectedPaths,
+		SuccessCriteria:      criteria,
 	}
 	oldBatchID := strings.TrimSpace(run.ActiveBatchID)
 	appendControllerProgress(run, oldBatchID, "cumulative_actual_diff_review_followup_requested",
@@ -6803,6 +6807,7 @@ func proofFollowupChangedSymbolRefsFromCriteria(criteria []string) []string {
 
 func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatchID string, plan *types.ChangePlan, report *types.ChangeReport) *writeflow.WriteBatchPlan {
 	items := selectImpactRepairQueueItems(plan, report, 0)
+	items = filterPassedVerifyGraphTelemetryItems(run, activeBatchID, items)
 	items = filterPendingImpactRepairQueueItems(run, items)
 	if len(items) == 0 {
 		return nil
@@ -6814,12 +6819,13 @@ func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatc
 	id := nextRepairBatchID(run, activeBatchID, repairFollowupBatchIDSuffix(purpose))
 	expectedPaths := impactRepairExpectedPaths(items)
 	criteria := impactRepairSuccessCriteria(items)
+	criteria = append(criteria, impactRepairNavigationSuccessCriteria(items)...)
 	batch := writeflow.WriteBatchPlan{
 		ID:                   id,
 		Goal:                 impactRepairFollowupGoal(items),
 		Purpose:              purpose,
 		Status:               writeflow.BatchReadyForChangePlan,
-		NeedsCodeExploration: len(expectedPaths) == 0,
+		NeedsCodeExploration: len(expectedPaths) == 0 || impactRepairNeedsGraphNavigation(items),
 		ExploreTargets:       expectedPaths,
 		ExpectedPaths:        expectedPaths,
 		SuccessCriteria:      criteria,
@@ -6881,6 +6887,43 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeRe
 		items = items[:limit]
 	}
 	return items
+}
+
+func filterPassedVerifyGraphTelemetryItems(run *types.WriteWorkflowRun, activeBatchID string, items []impactRepairQueueItem) []impactRepairQueueItem {
+	if len(items) == 0 || activeBatchLatestVerifyStatus(run, activeBatchID) != "passed" {
+		return items
+	}
+	out := make([]impactRepairQueueItem, 0, len(items))
+	for _, item := range items {
+		if impactRepairQueueItemRequiresGraphNavigation(item) && !impactRepairQueueItemFromVerificationProof(item) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func activeBatchLatestVerifyStatus(run *types.WriteWorkflowRun, activeBatchID string) string {
+	if run == nil {
+		return ""
+	}
+	activeBatchID = strings.TrimSpace(activeBatchID)
+	if activeBatchID == "" {
+		activeBatchID = strings.TrimSpace(run.ActiveBatchID)
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != activeBatchID {
+			continue
+		}
+		for i := len(batch.Attempts) - 1; i >= 0; i-- {
+			attempt := batch.Attempts[i]
+			if strings.TrimSpace(attempt.Kind) == "verify" {
+				return strings.TrimSpace(attempt.Status)
+			}
+		}
+		return ""
+	}
+	return ""
 }
 
 func verificationProofLedgerRepairQueueItems(plan *types.ChangePlan, report *types.ChangeReport) []impactRepairQueueItem {
@@ -7240,6 +7283,8 @@ func impactRepairQueueItemRequiresFollowup(item impactRepairQueueItem) bool {
 	switch item.Kind {
 	case "changed_symbol", "behavior_contract", "rendered_text_placement_contract":
 		return true
+	case "dependent", "dependency", "test_surface":
+		return true
 	case "semantic_coverage", "effect_followup":
 		return writeflow.PatchReviewEffectUnknownCoverage(item.Code)
 	default:
@@ -7361,6 +7406,75 @@ func impactRepairSuccessCriteria(items []impactRepairQueueItem) []string {
 		criteria = append(criteria, strings.Join(parts, " "))
 	}
 	return criteria
+}
+
+func impactRepairNeedsGraphNavigation(items []impactRepairQueueItem) bool {
+	return len(impactRepairNavigationRoutes(items)) > 0
+}
+
+func impactRepairQueueItemRequiresGraphNavigation(item impactRepairQueueItem) bool {
+	return len(impactRepairNavigationRoutes([]impactRepairQueueItem{item})) > 0
+}
+
+func impactRepairNavigationRoutes(items []impactRepairQueueItem) []types.RepoMapNavigationRoute {
+	seen := map[types.RepoMapNavigationRoute]bool{}
+	var routes []types.RepoMapNavigationRoute
+	add := func(route types.RepoMapNavigationRoute) {
+		route = types.NormalizeRepoMapNavigationRoute(string(route))
+		if !route.Valid() || seen[route] {
+			return
+		}
+		seen[route] = true
+		routes = append(routes, route)
+	}
+	for _, item := range items {
+		item = normalizeImpactRepairQueueItem(item)
+		switch item.Kind {
+		case "dependent", "dependency", "test_surface":
+			add(types.RepoMapNavigationRouteEditImpact)
+			add(types.RepoMapNavigationRouteRelationMap)
+		}
+	}
+	return routes
+}
+
+func impactRepairNavigationSuccessCriteria(items []impactRepairQueueItem) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	var rows []string
+	seen := map[string]bool{}
+	for _, item := range items {
+		item = normalizeImpactRepairQueueItem(item)
+		routes := impactRepairNavigationRoutes([]impactRepairQueueItem{item})
+		for _, route := range routes {
+			parts := []string{
+				"repo_map_navigation_requirement",
+				"route=" + string(route),
+				"kind=" + item.Kind,
+				"required=typed_impact_navigation_coverage",
+			}
+			if item.Path != "" {
+				parts = append(parts, "path="+item.Path)
+			}
+			if item.RelatedPath != "" {
+				parts = append(parts, "related_path="+item.RelatedPath)
+			}
+			if item.Source != "" {
+				parts = append(parts, "source="+item.Source)
+			}
+			row := strings.Join(parts, " ")
+			if seen[row] {
+				continue
+			}
+			seen[row] = true
+			rows = append(rows, row)
+			if len(rows) >= 8 {
+				return rows
+			}
+		}
+	}
+	return rows
 }
 
 func impactRepairFollowupGoal(items []impactRepairQueueItem) string {

@@ -64,6 +64,141 @@ func testOwnerLocalizationContextPack(batchID, sourcePath, owner string) types.W
 	})
 }
 
+func TestImpactObligationRepairFollowupBatchGraphTargetNeedsNavigationExploration(t *testing.T) {
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-graph",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID: "plan-graph",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "dependent",
+				Path:           "pkg/axis.py",
+				RelatedPath:    "pkg/caller.py",
+				CoverageStatus: "unverified",
+				Source:         "impact_engine",
+			}},
+		},
+	}
+
+	batch := impactObligationRepairFollowupBatch(run, "batch-1", plan, nil)
+	if batch == nil {
+		t.Fatal("expected graph impact follow-up batch")
+	}
+	if !batch.NeedsCodeExploration {
+		t.Fatalf("graph impact follow-up should require read-only navigation exploration: %+v", batch)
+	}
+	if !containsString(batch.ExpectedPaths, "pkg/axis.py") ||
+		!containsString(batch.ExpectedPaths, "pkg/caller.py") {
+		t.Fatalf("expected subject and related paths in follow-up scope: %+v", batch.ExpectedPaths)
+	}
+	criteria := strings.Join(batch.SuccessCriteria, "\n")
+	for _, want := range []string{
+		"impact_obligation=",
+		"kind=dependent",
+		"repo_map_navigation_requirement route=edit_impact",
+		"repo_map_navigation_requirement route=relation_map",
+		"required=typed_impact_navigation_coverage",
+	} {
+		if !strings.Contains(criteria, want) {
+			t.Fatalf("success criteria missing %q:\n%s", want, criteria)
+		}
+	}
+}
+
+func TestImpactObligationRepairFollowupBatchContractDoesNotForceGraphExploration(t *testing.T) {
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-contract",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID: "plan-contract",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "behavior_contract",
+				Path:           "pkg/axis.py",
+				ContractRef:    "contract-1",
+				CoverageStatus: "unverified",
+				Source:         "impact_engine",
+			}},
+		},
+	}
+
+	batch := impactObligationRepairFollowupBatch(run, "batch-1", plan, nil)
+	if batch == nil {
+		t.Fatal("expected behavior-contract follow-up batch")
+	}
+	if batch.NeedsCodeExploration {
+		t.Fatalf("non-graph proof follow-up with concrete path should not force graph exploration: %+v", batch)
+	}
+	if strings.Contains(strings.Join(batch.SuccessCriteria, "\n"), "repo_map_navigation_requirement") {
+		t.Fatalf("behavior-contract criteria should not contain graph navigation rows: %+v", batch.SuccessCriteria)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionUnverifiedImpactGraphFollowupExploresBeforeFinish(t *testing.T) {
+	mu := types.NewMutableState("fix graph impact")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID: "plan-graph",
+		ImpactAnalysis: &types.ImpactAnalysisResult{
+			VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind:           "dependent",
+				Path:           "pkg/axis.py",
+				RelatedPath:    "pkg/caller.py",
+				CoverageStatus: "unverified",
+				Source:         "impact_engine",
+			}},
+		},
+	})
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-graph",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "unverified",
+				ReasonCode: "no_tests",
+			}},
+		}},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mode:    types.ModeApply,
+		Mutable: mu,
+	}}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "controller_done",
+	}, run)
+	if got.Action != writeflow.ActionExploreCode || got.ExplorationRequest == nil {
+		t.Fatalf("finish should be rewritten to graph-navigation exploration, got %+v", got)
+	}
+	if got.ReasonCode != "impact_obligation_followup_explore" {
+		t.Fatalf("reason_code = %q, want impact_obligation_followup_explore", got.ReasonCode)
+	}
+	if got.ExplorationRequest.BatchID == "" ||
+		!strings.Contains(got.ExplorationRequest.BatchID, "impact-repair") {
+		t.Fatalf("unexpected exploration batch id: %+v", got.ExplorationRequest)
+	}
+	requirements := strings.Join(got.ExplorationRequest.EvidenceRequirements, "\n")
+	if !strings.Contains(requirements, "repo_map_navigation_requirement route=edit_impact") ||
+		!strings.Contains(requirements, "required=typed_impact_navigation_coverage") {
+		t.Fatalf("exploration request missing typed graph-navigation requirements:\n%s", requirements)
+	}
+}
+
 func testSupportingLocalizationContextPack(batchID, sourcePath, owner string) types.WriteContextPack {
 	ref := types.WriteExplorationEvidenceRef{
 		ID:          "ev-support-" + strings.ReplaceAll(strings.TrimSpace(sourcePath), "/", "-"),
