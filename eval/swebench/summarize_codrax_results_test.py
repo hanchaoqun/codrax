@@ -211,6 +211,70 @@ class CodraxResultsSummaryTests(unittest.TestCase):
             "tests_failed",
         )
 
+    def test_summarizes_reasoning_graph_coverage_and_gaps(self) -> None:
+        rows = [
+            {
+                "instance_id": "repo__graph-1",
+                "status": "predicted",
+                "patch_bytes": 100,
+                "prediction_verdict": "predicted_unverified",
+                "prediction_local_confidence": "unknown",
+                "prediction_blocks_local_acceptance": True,
+                "prediction_confidence_downgrade_reason": "owner_anchor_missing",
+                "prediction_audit_block_reason": "",
+                "verify_status": "passed",
+                "workflow_status": "complete",
+                "final_report_present": True,
+                "final_report_completion_verdict": "unverified",
+                "final_report_reasoning_graph_event_count": 8,
+                "final_report_reasoning_graph_repair_event_count": 2,
+                "final_report_reasoning_graph_llm_event_count": 1,
+                "final_report_reasoning_graph_last_reason_code": "proof_coverage_weak",
+                "final_report_reasoning_graph_event_refs": ["rg:1"],
+                "final_report_plan_owner_gap_paths": ["src/app.py"],
+                "final_report_proof_ledger_uncovered_count": 1,
+                "final_report_proof_ledger_reason_codes": ["owner_anchor_missing"],
+                "local_acceptance_verdict": "fail",
+                "local_acceptance_source": "local_audit_block",
+                "manual_audit_verdict": "",
+            },
+            {
+                "instance_id": "repo__graph-2",
+                "status": "predicted",
+                "patch_bytes": 120,
+                "prediction_verdict": "predicted_passed",
+                "prediction_local_confidence": "high",
+                "prediction_blocks_local_acceptance": False,
+                "prediction_confidence_downgrade_reason": "",
+                "prediction_audit_block_reason": "",
+                "verify_status": "passed",
+                "workflow_status": "complete",
+                "final_report_present": True,
+                "final_report_completion_verdict": "verified",
+                "final_report_reasoning_graph_event_count": 4,
+                "final_report_reasoning_graph_repair_event_count": 0,
+                "final_report_reasoning_graph_llm_event_count": 0,
+                "final_report_reasoning_graph_last_reason_code": "tests_passed",
+                "local_acceptance_verdict": "pass",
+                "local_acceptance_source": "local_verify",
+                "manual_audit_verdict": "",
+            },
+        ]
+
+        summary = summary_mod.summarize_results(rows)
+
+        self.assertEqual(summary["graph_present_instances"], 2)
+        self.assertEqual(summary["graph_event_count_total"], 12)
+        self.assertEqual(summary["graph_repair_event_count_total"], 2)
+        self.assertEqual(summary["graph_llm_event_count_total"], 1)
+        self.assertEqual(summary["graph_missing_p0_evidence_total"], 2)
+        self.assertEqual(summary["graph_missing_p0_evidence_instances"], 1)
+        self.assertEqual(summary["result_cause_category_counts"]["graph_evidence_gap"], 1)
+        self.assertEqual(summary["result_cause_family_counts"]["reasoning_graph"], 1)
+        self.assertEqual(summary["graph_unverified_reason_code_counts"]["owner_anchor_missing"], 1)
+        self.assertEqual(summary["graph_unverified_reason_code_counts"]["proof_coverage_weak"], 1)
+        self.assertEqual(summary["top_graph_unverified_reason_codes"][0]["count"], 1)
+
     def test_reports_missing_core_fields_for_old_schema_rows(self) -> None:
         rows = [{
             "instance_id": "repo__old-1",

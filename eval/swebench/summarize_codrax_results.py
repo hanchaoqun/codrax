@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,8 @@ RESULT_CAUSE_FAMILIES = {
     "proof_coverage_gap": "verification_proof",
     "impact_telemetry_low_confidence": "impact_analysis",
     "actual_diff_or_patch_review_gap": "patch_semantics_or_localization",
+    "graph_evidence_gap": "reasoning_graph",
+    "graph_missing": "reasoning_graph",
     "workflow_state_gap": "workflow_state",
     "adapter_or_runtime_error": "adapter_runtime",
     "low_confidence_unclassified": "unknown",
@@ -188,6 +191,15 @@ def bool_value(row: dict[str, Any], key: str) -> bool:
     if isinstance(value, str):
         return value.strip().lower() == "true"
     return False
+
+
+def list_values(row: dict[str, Any], key: str) -> list[str]:
+    value = row.get(key)
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [token for token in (normalize_reason_token(part) for part in value.split(",")) if token]
+    return []
 
 
 def rate(num: int, den: int) -> float | None:
@@ -308,6 +320,81 @@ def first_matching_reason(row: dict[str, Any], allowed: set[str]) -> str:
     return ""
 
 
+def row_graph_present(row: dict[str, Any]) -> bool:
+    if bool_value(row, "graph_present"):
+        return True
+    return (
+        int_value(row, "final_report_reasoning_graph_event_count") > 0
+        or len(list_values(row, "final_report_reasoning_graph_event_refs")) > 0
+    )
+
+
+def row_graph_event_count(row: dict[str, Any]) -> int:
+    return int_value(row, "final_report_reasoning_graph_event_count")
+
+
+def row_graph_repair_event_count(row: dict[str, Any]) -> int:
+    return int_value(row, "final_report_reasoning_graph_repair_event_count")
+
+
+def row_graph_missing_p0_evidence_count(row: dict[str, Any]) -> int:
+    return (
+        len(list_values(row, "final_report_plan_owner_gap_paths"))
+        + len(list_values(row, "final_report_localization_owner_missing_paths"))
+        + len(list_values(row, "final_report_source_authority_owner_gap_paths"))
+        + len(list_values(row, "final_report_source_authority_localization_owner_missing_paths"))
+        + int_value(row, "final_report_proof_ledger_uncovered_count")
+        + int_value(row, "final_report_proof_ledger_unavailable_count")
+        + int_value(row, "graph_missing_p0_evidence_count")
+    )
+
+
+def row_graph_unverified_reason_codes(row: dict[str, Any]) -> list[str]:
+    if (
+        is_high_confidence_local_verify_pass(row)
+        and row_graph_missing_p0_evidence_count(row) == 0
+        and text(row, "final_report_completion_verdict") in {"", "verified"}
+    ):
+        return []
+    keys = (
+        "final_report_proof_reason_codes",
+        "final_report_proof_confidence_reason_codes",
+        "final_report_proof_ledger_reason_codes",
+        "final_report_proof_ledger_obligation_reason_codes",
+        "final_report_localization_reason_codes",
+        "final_report_plan_owner_gap_reason_codes",
+        "final_report_source_authority_localization_reason_codes",
+        "final_report_source_authority_owner_gap_reason_codes",
+        "final_report_residual_risk_codes",
+        "graph_unverified_reason_codes",
+    )
+    seen: set[str] = set()
+    out: list[str] = []
+    for key in keys:
+        for value in list_values(row, key):
+            if value and value not in seen:
+                seen.add(value)
+                out.append(value)
+    for key in (
+        "prediction_confidence_downgrade_reason",
+        "prediction_audit_block_reason",
+        "verify_failure_reason_code",
+        "final_report_reasoning_graph_last_reason_code",
+    ):
+        value = normalize_reason_token(text(row, key))
+        if value and value not in seen:
+            seen.add(value)
+            out.append(value)
+    return out
+
+
+def graph_reason_code_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        counts.update(row_graph_unverified_reason_codes(row))
+    return dict(sorted(counts.items()))
+
+
 def first_reason_with_prefix(row: dict[str, Any], prefix: str) -> str:
     for value in row_reason_values(row):
         value = str(value or "").strip()
@@ -338,6 +425,11 @@ def cause_reason_for_row(row: dict[str, Any], category: str) -> str:
         return first_matching_reason(row, IMPACT_TELEMETRY_REASON_CODES) or first_row_reason(row)
     if category == "actual_diff_or_patch_review_gap":
         return first_reason_with_prefix(row, "patch_review_semantic_uncovered:") or first_row_reason(row)
+    if category == "graph_evidence_gap":
+        reasons = row_graph_unverified_reason_codes(row)
+        return reasons[0] if reasons else "graph_missing_p0_evidence"
+    if category == "graph_missing":
+        return "reasoning_graph_missing"
     if category == "probe_or_contract_authoring_gap":
         return first_matching_reason(row, PROBE_AUTHORING_REASON_CODES) or first_row_reason(row)
     if category == "verify_environment_unavailable":
@@ -390,6 +482,10 @@ def classify_result_cause(row: dict[str, Any]) -> str:
         return "impact_telemetry_low_confidence"
     if any(value.startswith("patch_review_semantic_uncovered:") for value in row_reason_values(row)):
         return "actual_diff_or_patch_review_gap"
+    if row_graph_missing_p0_evidence_count(row) > 0:
+        return "graph_evidence_gap"
+    if bool_value(row, "final_report_present") and not row_graph_present(row):
+        return "graph_missing"
     if reasons & PROBE_AUTHORING_REASON_CODES:
         return "probe_or_contract_authoring_gap"
     if verify_status == "unavailable" or reasons & VERIFY_ENVIRONMENT_REASON_CODES:
@@ -412,6 +508,11 @@ def result_cause_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "reason": cause_reason_for_row(row, category),
             "verify_status": text(row, "verify_status"),
             "prediction_verdict": text(row, "prediction_verdict"),
+            "graph_present": row_graph_present(row),
+            "graph_event_count": row_graph_event_count(row),
+            "graph_last_reason_code": text(row, "final_report_reasoning_graph_last_reason_code"),
+            "graph_missing_p0_evidence_count": row_graph_missing_p0_evidence_count(row),
+            "graph_unverified_reason_codes": row_graph_unverified_reason_codes(row),
         }
         if text(row, "__source_path"):
             item["source_path"] = text(row, "__source_path")
@@ -504,6 +605,13 @@ def summarize_results(
     manual_recorded = sum(1 for row in rows if is_manual_audit_recorded(row))
     local_blocked = sum(1 for row in rows if bool_value(row, "prediction_blocks_local_acceptance"))
     final_report_present = sum(1 for row in rows if bool_value(row, "final_report_present"))
+    graph_present = sum(1 for row in rows if row_graph_present(row))
+    graph_event_count_total = sum(row_graph_event_count(row) for row in rows)
+    graph_repair_event_count_total = sum(row_graph_repair_event_count(row) for row in rows)
+    graph_llm_event_count_total = sum(int_value(row, "final_report_reasoning_graph_llm_event_count") for row in rows)
+    graph_missing_p0_evidence_total = sum(row_graph_missing_p0_evidence_count(row) for row in rows)
+    graph_missing_p0_evidence_instances = sum(1 for row in rows if row_graph_missing_p0_evidence_count(row) > 0)
+    graph_reason_counts = graph_reason_code_counts(rows)
     causes = result_cause_rows(rows)
     current_core_complete = sum(1 for row in rows if not missing_core_fields(row))
     local_acceptance_evaluable = sum(1 for row in rows if "local_acceptance_verdict" in row)
@@ -535,6 +643,13 @@ def summarize_results(
         "typed_manual_audit_unknown_instances": manual_unknown,
         "local_audit_blocked_instances": local_blocked,
         "final_report_present_instances": final_report_present,
+        "graph_present_instances": graph_present,
+        "graph_missing_instances": total - graph_present,
+        "graph_event_count_total": graph_event_count_total,
+        "graph_repair_event_count_total": graph_repair_event_count_total,
+        "graph_llm_event_count_total": graph_llm_event_count_total,
+        "graph_missing_p0_evidence_total": graph_missing_p0_evidence_total,
+        "graph_missing_p0_evidence_instances": graph_missing_p0_evidence_instances,
         "local_acceptance_evaluable_instances": local_acceptance_evaluable,
         "typed_manual_audit_evaluable_instances": manual_audit_evaluable,
         "current_core_complete_rate": rate(current_core_complete, total),
@@ -547,6 +662,7 @@ def summarize_results(
         "typed_manual_audit_recorded_rate": rate(manual_recorded, total),
         "typed_manual_audit_recorded_rate_evaluable": rate(manual_recorded, manual_audit_evaluable),
         "final_report_present_rate": rate(final_report_present, total),
+        "graph_present_rate": rate(graph_present, total),
         "current_core_complete_percent": percent(rate(current_core_complete, total)),
         "non_empty_patch_percent": percent(rate(non_empty_patch, total)),
         "high_confidence_local_verify_pass_percent": percent(rate(high_conf_local_verify, total)),
@@ -557,6 +673,7 @@ def summarize_results(
         "typed_manual_audit_recorded_percent": percent(rate(manual_recorded, total)),
         "typed_manual_audit_recorded_percent_evaluable": percent(rate(manual_recorded, manual_audit_evaluable)),
         "final_report_present_percent": percent(rate(final_report_present, total)),
+        "graph_present_percent": percent(rate(graph_present, total)),
         "prediction_verdict_counts": count_by(rows, "prediction_verdict"),
         "prediction_local_confidence_counts": count_by(rows, "prediction_local_confidence"),
         "verify_status_counts": count_by(rows, "verify_status"),
@@ -566,6 +683,9 @@ def summarize_results(
         "manual_audit_verdict_counts": count_by(rows, "manual_audit_verdict"),
         "final_report_present_counts": count_by(rows, "final_report_present"),
         "final_report_completion_verdict_counts": count_by(rows, "final_report_completion_verdict"),
+        "graph_last_reason_code_counts": count_by(rows, "final_report_reasoning_graph_last_reason_code"),
+        "graph_unverified_reason_code_counts": graph_reason_counts,
+        "top_graph_unverified_reason_codes": top_counts(graph_reason_counts),
         "top_confidence_downgrade_reasons": top_counts(count_by(rows, "prediction_confidence_downgrade_reason")),
         "top_audit_block_reasons": top_counts(count_by(rows, "prediction_audit_block_reason")),
         "result_cause_category_counts": count_cause_field(causes, "category"),
@@ -597,6 +717,9 @@ def format_summary(summary: dict[str, Any]) -> str:
         f"({pct_text(summary.get('low_confidence_verify_pass_percent'))}) "
         f"final_report={summary.get('final_report_present_instances', 0)}/{total} "
         f"({pct_text(summary.get('final_report_present_percent'))}) "
+        f"graph={summary.get('graph_present_instances', 0)}/{total} "
+        f"({pct_text(summary.get('graph_present_percent'))}) "
+        f"graph_missing_p0={summary.get('graph_missing_p0_evidence_total', 0)} "
         f"manual_audit_recorded={summary['typed_manual_audit_recorded_instances']}/{total} "
         f"({pct_text(summary.get('typed_manual_audit_recorded_percent'))})"
     )

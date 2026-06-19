@@ -439,7 +439,7 @@ type AnswerReasoningGraphSummary struct {
 | P0-B4 Graph Audit / Status Card | delivered | `ReasoningGraphAuditSummary`、`--write-audit.graph_audit`、`/workflow show` graph reason card |
 | P1-B5 Worker / SubAgent Projection | delivered | worker Request/Result projection、subagent Request/Result projection、optional SubAgentRuntime observer、worker/subagent graph lanes |
 | P1-B6 Log / Trace / Data / Operation Projection | delivered | ToolResult/MCP typed observations、operation workflow state、data workflow runtime/state/journal projection 已进入 auxiliary graph lane；computer/桌面操作当前复用 operation workflow action/surface/risk 投影 |
-| P1-B7 Eval / Support Report | planned | graph coverage metrics、support report、historical audit grouping |
+| P1-B7 Eval / Support Report | delivered | SWE results summary graph coverage metrics、historical audit graph reason grouping、per-instance support table graph columns |
 | P2-B8 Graph-Guided Controller | planned | typed graph view 反哺 bounded controller action |
 | P2-B9 Graph-Native Replay Executor | planned | read-only replay/local recompute |
 | P2-B10 收敛重复状态字段 | planned | 内部投影去重、文档和用户指南同步 |
@@ -608,16 +608,22 @@ type AnswerReasoningGraphSummary struct {
 
 任务：
 
-1. summarize scripts 增加 graph coverage metrics。
-2. historical audit 增加 graph reason grouping。
+1. summarize scripts 增加 graph coverage metrics：
+   - `graph_present_instances`
+   - `graph_event_count_total`
+   - `graph_repair_event_count_total`
+   - `graph_llm_event_count_total`
+   - `graph_missing_p0_evidence_total`
+   - `graph_unverified_reason_code_counts`
+2. historical audit 增加 graph reason grouping，并在 per-instance support table 展示 graph event count / last reason。
 3. results 中记录：
-   - graph_present
-   - graph_event_count
-   - graph_repair_event_count
-   - graph_missing_p0_evidence_count
-   - graph_last_reason_code
-   - graph_unverified_reason_codes
-4. 增加 eval tests。
+   - `graph_present`
+   - `graph_event_count`
+   - `graph_repair_event_count`
+   - `graph_missing_p0_evidence_count`
+   - `graph_last_reason_code`
+   - `graph_unverified_reason_codes`
+4. 增加 eval tests，覆盖 summary JSON、historical audit row、markdown support report。
 
 验收：
 

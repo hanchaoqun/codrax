@@ -341,6 +341,8 @@ def audit_rows(rows: list[dict[str, Any]], oracle_rows: dict[str, dict[str, Any]
         codrax_out_path = instance_dir / "codrax.out"
         final_report_path = resolve_final_report_path(row, instance_dir)
         final_report = load_json_object(final_report_path) if final_report_path else {}
+        reasoning_graph = final_report.get("reasoning_graph") if isinstance(final_report.get("reasoning_graph"), dict) else {}
+        proof_ledger = final_report.get("proof_ledger") if isinstance(final_report.get("proof_ledger"), dict) else {}
         model_patch = load_prediction_patch(instance_dir)
         model_summary = diff_summary(model_patch)
         oracle_row = oracle_rows.get(instance_id, {})
@@ -392,6 +394,37 @@ def audit_rows(rows: list[dict[str, Any]], oracle_rows: dict[str, dict[str, Any]
                 for risk in (final_report.get("residual_risks") or [])
                 if isinstance(risk, dict) and str(risk.get("code") or "").strip()
             ],
+            "final_report_proof_ledger_uncovered_count": int(
+                proof_ledger.get("uncovered_count") or int_value(row, "final_report_proof_ledger_uncovered_count")
+            ),
+            "final_report_proof_ledger_unavailable_count": int(
+                proof_ledger.get("unavailable_count") or int_value(row, "final_report_proof_ledger_unavailable_count")
+            ),
+            "final_report_proof_ledger_reason_codes": [
+                str(value).strip()
+                for value in (proof_ledger.get("reason_codes") or row.get("final_report_proof_ledger_reason_codes") or [])
+                if str(value).strip()
+            ],
+            "final_report_proof_ledger_obligation_reason_codes": [
+                str(value).strip()
+                for value in (
+                    proof_ledger.get("obligation_reason_codes")
+                    or row.get("final_report_proof_ledger_obligation_reason_codes")
+                    or []
+                )
+                if str(value).strip()
+            ],
+            "final_report_reasoning_graph_event_count": int(reasoning_graph.get("event_count") or int_value(row, "final_report_reasoning_graph_event_count")),
+            "final_report_reasoning_graph_repair_event_count": int(reasoning_graph.get("repair_event_count") or int_value(row, "final_report_reasoning_graph_repair_event_count")),
+            "final_report_reasoning_graph_llm_event_count": int(reasoning_graph.get("llm_event_count") or int_value(row, "final_report_reasoning_graph_llm_event_count")),
+            "final_report_reasoning_graph_last_reason_code": str(
+                reasoning_graph.get("last_reason_code") or text(row, "final_report_reasoning_graph_last_reason_code")
+            ).strip(),
+            "final_report_reasoning_graph_event_refs": [
+                str(value).strip()
+                for value in (reasoning_graph.get("event_refs") or row.get("final_report_reasoning_graph_event_refs") or [])
+                if str(value).strip()
+            ],
             "codrax_out_bytes": codrax_out_path.stat().st_size if codrax_out_path.exists() else 0,
             "codrax_out_tail": tail_text(codrax_out_path),
             "instance_dir": str(instance_dir),
@@ -399,6 +432,11 @@ def audit_rows(rows: list[dict[str, Any]], oracle_rows: dict[str, dict[str, Any]
             "source_results_jsonl": text(row, "__source_path"),
             "source_results_line": int_value(row, "__source_line"),
         }
+        item["graph_present"] = codrax_results.row_graph_present(item)
+        item["graph_event_count"] = codrax_results.row_graph_event_count(item)
+        item["graph_repair_event_count"] = codrax_results.row_graph_repair_event_count(item)
+        item["graph_missing_p0_evidence_count"] = codrax_results.row_graph_missing_p0_evidence_count(item)
+        item["graph_unverified_reason_codes"] = codrax_results.row_graph_unverified_reason_codes(item)
         out.append(item)
     return out
 
@@ -483,6 +521,8 @@ def render_markdown(rows: list[dict[str, Any]], summary: dict[str, Any], *, data
         "- Final answer quality cannot be audited from old result rows alone. Future SWE runs should persist a typed final-answer artifact with patch intent, touched contracts, observed failures, and residual risk."
     )
     final_report_count = sum(1 for row in rows if row.get("final_report_present") or row.get("final_report_path"))
+    graph_present_count = sum(1 for row in rows if row.get("graph_present"))
+    graph_missing_p0_total = sum(int(row.get("graph_missing_p0_evidence_count") or 0) for row in rows)
     codrax_out_count = sum(1 for row in rows if row.get("codrax_output_path") or row.get("codrax_out_path"))
     if final_report_count:
         lines.append(
@@ -494,6 +534,20 @@ def render_markdown(rows: list[dict[str, Any]], summary: dict[str, Any], *, data
             "- No audited instance has a typed final-answer/report artifact. "
             "Production eval should not rely on free-form terminal logs as the answer contract."
         )
+    if graph_present_count:
+        lines.append(
+            f"- Reasoning graph telemetry is present for {graph_present_count}/{total} audited instance(s); "
+            f"typed P0 evidence gaps total {graph_missing_p0_total}."
+        )
+        reason_counts = Counter(
+            reason
+            for row in rows
+            for reason in (row.get("graph_unverified_reason_codes") or [])
+            if str(reason or "").strip()
+        )
+        if reason_counts:
+            rendered = ", ".join(f"`{md_escape(reason)}`={count}" for reason, count in reason_counts.most_common(6))
+            lines.append(f"- Top graph unverified reason codes: {rendered}.")
     if codrax_out_count:
         lines.append(
             f"- Free-form `codrax.out` logs are present for {codrax_out_count}/{total} audited instance(s); "
@@ -502,8 +556,8 @@ def render_markdown(rows: list[dict[str, Any]], summary: dict[str, Any], *, data
     lines.append("")
     lines.append("## Per-Instance Audit")
     lines.append("")
-    lines.append("| instance | repo | verdict | reason | model source | oracle source | overlap | token | verify |")
-    lines.append("| --- | --- | --- | --- | --- | --- | ---: | ---: | --- |")
+    lines.append("| instance | repo | verdict | reason | model source | oracle source | overlap | token | verify | graph | graph reason |")
+    lines.append("| --- | --- | --- | --- | --- | --- | ---: | ---: | --- | ---: | --- |")
     for row in sorted(rows, key=lambda item: str(item.get("instance_id") or "")):
         lines.append(
             "| "
@@ -518,6 +572,8 @@ def render_markdown(rows: list[dict[str, Any]], summary: dict[str, Any], *, data
                     str(row.get("source_overlap_ratio")),
                     str(row.get("token_jaccard")),
                     f"`{md_escape(row.get('verify_status'))}`",
+                    str(row.get("graph_event_count") or 0),
+                    f"`{md_escape(row.get('final_report_reasoning_graph_last_reason_code'))}`",
                 ]
             )
             + " |"

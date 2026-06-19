@@ -125,6 +125,17 @@ diff --git a/tests/test_mod.py b/tests/test_mod.py
                     {
                         "kind": "final_report",
                         "completion": {"verdict": "unverified"},
+                        "reasoning_graph": {
+                            "event_count": 6,
+                            "repair_event_count": 2,
+                            "llm_event_count": 1,
+                            "last_reason_code": "proof_coverage_weak",
+                            "event_refs": ["rg:000001"],
+                        },
+                        "proof_ledger": {
+                            "uncovered_count": 1,
+                            "reason_codes": ["proof_missing"],
+                        },
                         "residual_risks": [{"code": "verification_unavailable"}],
                     }
                 ),
@@ -155,6 +166,18 @@ diff --git a/tests/test_mod.py b/tests/test_mod.py
         self.assertEqual(rows[0]["final_report_path"], str(final_path))
         self.assertEqual(rows[0]["final_report_completion_verdict"], "unverified")
         self.assertEqual(rows[0]["final_report_residual_risk_codes"], ["verification_unavailable"])
+        self.assertTrue(rows[0]["graph_present"])
+        self.assertEqual(rows[0]["graph_event_count"], 6)
+        self.assertEqual(rows[0]["graph_repair_event_count"], 2)
+        self.assertEqual(rows[0]["final_report_reasoning_graph_last_reason_code"], "proof_coverage_weak")
+        self.assertEqual(rows[0]["graph_missing_p0_evidence_count"], 1)
+        self.assertEqual(
+            rows[0]["graph_unverified_reason_codes"],
+            ["proof_missing", "verification_unavailable", "proof_coverage_weak"],
+        )
+        rendered = audit.render_markdown(rows, {"input_row_count": 1}, dataset_name="SWE-bench/SWE-bench_Lite", split="test")
+        self.assertIn("Reasoning graph telemetry is present for 1/1", rendered)
+        self.assertIn("proof_coverage_weak", rendered)
 
 
 if __name__ == "__main__":
