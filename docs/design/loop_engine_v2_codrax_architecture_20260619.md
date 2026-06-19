@@ -1262,7 +1262,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | L4 | complete | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
 | L5 | pending | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
 | L6 | complete | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
-| L7 | in_progress | Micro-loop execution | deterministic runtime-unit authority projection; next batches consume it for apply/observe/checkpoint policy | writeflow runtime-unit tests |
+| L7 | complete | Micro-loop execution | deterministic runtime-unit authority projection consumed by apply/observe/checkpoint policy, with verified-unit preservation across replan | writeflow/orchestrator runtime-unit tests |
 | L8 | pending | Worker/subagent evidence producers | Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer typed outputs | subagent/worker tests |
 | L9 | pending | Auto Pilot UX | single status card from `LoopStateView`; routine path avoids command burden | REPL/CLI rendering tests |
 | L10 | pending | Commercial hardening | replay CLI/eval artifacts, SWE smoke, multi-language canaries, full regression | `go test ./...`, `make test`, eval smoke |
@@ -1340,8 +1340,8 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 - [x] Surface active runtime unit and unit ledger from `WorkflowExecutionView` for controller/UX/eval consumers.
 - [x] Record patch truth, patch review, observation, approval, impact, and checkpoint/restore projections per unit.
 - [x] Make controller transitions consume `RuntimeUnitView` as the first-class apply/observe/checkpoint authority for apply scope, observe preconditions, post-apply recovery, and next-unit selection.
-- [ ] Preserve verified independent units on failure through unit-level stale-plan and dependency guards.
-- [ ] Add write E2E coverage for multi-unit edit/run/observe with one failed later unit and preserved earlier unit.
+- [x] Preserve verified independent units on failure through unit-level stale-plan and dependency guards.
+- [x] Add write E2E coverage for multi-unit edit/run/observe with one failed later unit and preserved earlier unit.
 
 ### L8 Task Breakdown
 
@@ -1384,6 +1384,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | 2026-06-20 | L6 | complete | Added write impact-navigation worker trigger for graph-derived obligations: dependent/dependency/test-surface impact targets can now stay in the typed follow-up queue, set `NeedsCodeExploration=true`, and append `repo_map_navigation_requirement` rows for `edit_impact` and `relation_map` before repair planning. Controller normalization rewrites premature finish/replan into `explore_code` with typed graph-navigation evidence requirements for unverified graph-impact follow-up batches. Passed-verify graph targets remain soft telemetry and non-graph proof obligations such as behavior contracts keep the existing direct proof/probe path. Focused orchestrator tests passed. |
 | 2026-06-20 | L7 | in_progress | Added deterministic `RuntimeUnitView` projection in `writeflow`: active workflow slices now expose unit-level owner anchors, approval/risk authority, impact obligations, actual patch truth, patch review coverage, observation authority, and checkpoint/restore metadata. `WorkflowExecutionView` surfaces the active runtime unit plus unit ledger for controller/UX/eval consumers. This batch is pure projection and does not change apply effects; focused writeflow runtime-unit tests passed. Remaining L7 work: make controller transitions consume the unit view as the first-class apply/observe/checkpoint authority and add multi-unit E2E preservation tests. |
 | 2026-06-20 | L7 | in_progress | Promoted `RuntimeUnitView` from projection to controller/stage-hook consumption: active apply pending scope, active patch review slice, observe-slice precondition, post-apply pending-verify recovery, and next runnable unit selection now read the shared runtime-unit kernel instead of reimplementing slice traversal. The old next-slice dependency selector was removed from controller code. Focused writeflow/orchestrator tests cover active unit change selection and skipping an unsatisfied dependent unit while preserving an independent runnable unit. Remaining L7 work: stale-plan guard and multi-unit E2E failure-preservation coverage. |
+| 2026-06-20 | L7 | complete | Added precise runtime-unit stale-plan preservation: verified independent units now carry checkpoint/apply/observe/completion evidence across replan only when the next plan has identical edit fingerprints and satisfied dependencies. The controller now passes the prior plan into replan slice initialization and filters failed execution state by the current plan ID, so old failed verify attempts do not reset a newly replanned unit. Active patch review also filters cumulative declared applied paths to the active slice, preventing earlier verified units from blocking the next unit. Focused writeflow/orchestrator E2E coverage proves `a.go,b.go,b.go` apply order for a two-unit repair where the second unit fails, replans, and succeeds without reapplying the first verified unit. |
 
 ## Phased Roadmap
 

@@ -25,7 +25,7 @@ func TestReviewAppliedPatchScopePassesActiveSliceScope(t *testing.T) {
 	}
 }
 
-func TestReviewAppliedPatchScopeBlocksOutsideActiveSlice(t *testing.T) {
+func TestReviewAppliedPatchScopeIgnoresCumulativeDeclaredPathOutsideActiveSlice(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID:           "plan-1",
 		Status:       types.PlanStatusAppliedPendingVerify,
@@ -36,11 +36,11 @@ func TestReviewAppliedPatchScopeBlocksOutsideActiveSlice(t *testing.T) {
 		ID:    "slice-1",
 		Paths: []string{"a.py"},
 	})
-	if !review.HardBlock || review.Status != "failed" {
-		t.Fatalf("outside-slice patch should hard block, got %+v", review)
+	if review.HardBlock || review.Status != "passed" {
+		t.Fatalf("cumulative declared path outside active slice should not hard block without patch effect, got %+v", review)
 	}
-	if len(review.Findings) != 1 || review.Findings[0].Code != "applied_path_outside_active_slice" {
-		t.Fatalf("unexpected findings: %+v", review.Findings)
+	if len(review.AppliedPaths) != 0 {
+		t.Fatalf("declared applied paths should be filtered to active slice, got %+v", review.AppliedPaths)
 	}
 }
 

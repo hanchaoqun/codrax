@@ -234,7 +234,7 @@ func TestInitializeWorkflowBatchSlicesFromPlanResetsPriorPlanState(t *testing.T)
 		}},
 	}
 	plan := onlineSlicePlanForTest("plan-new")
-	initializeWorkflowBatchSlicesFromPlan(&batch, plan, "plan-old")
+	initializeWorkflowBatchSlicesFromPlan(&batch, plan, "plan-old", nil)
 	if batch.ActiveSliceID != "slice-001" {
 		t.Fatalf("active slice = %q, want slice-001", batch.ActiveSliceID)
 	}

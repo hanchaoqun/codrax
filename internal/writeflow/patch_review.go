@@ -122,7 +122,7 @@ func ReviewAppliedPatchSemantic(in SemanticPatchReviewInput) types.PatchReviewRe
 	record.SliceID = strings.TrimSpace(in.ActiveSlice.ID)
 	record.TargetPaths = normalizePatchReviewPaths(plan.TargetPaths)
 	record.AllowedPaths = patchReviewAllowedPaths(plan, in.ActiveSlice)
-	declaredAppliedPaths := patchReviewAppliedPaths(plan)
+	declaredAppliedPaths := patchReviewAppliedPaths(plan, in.ActiveSlice)
 	effectPaths := patchReviewEffectPaths(plan.PatchEffect)
 	record.AppliedPaths = normalizePatchReviewPaths(append(declaredAppliedPaths, effectPaths...))
 	if plan.PatchEffect != nil {
@@ -226,18 +226,50 @@ func patchReviewAllowedPaths(plan *types.ChangePlan, activeSlice types.ChangePla
 	return normalizePatchReviewPaths(plan.TargetPaths)
 }
 
-func patchReviewAppliedPaths(plan *types.ChangePlan) []string {
+func patchReviewAppliedPaths(plan *types.ChangePlan, activeSlice types.ChangePlanSlice) []string {
 	if plan == nil {
 		return nil
 	}
-	out := normalizePatchReviewPaths(plan.AppliedPaths)
-	for _, change := range plan.Changes {
+	activeIndexes := patchReviewActiveSliceIndexes(activeSlice, len(plan.Changes))
+	allowedSet := map[string]bool{}
+	if len(activeIndexes) > 0 || len(activeSlice.Paths) > 0 {
+		for _, path := range patchReviewAllowedPaths(plan, activeSlice) {
+			allowedSet[path] = true
+		}
+	}
+	var out []string
+	for _, path := range normalizePatchReviewPaths(plan.AppliedPaths) {
+		if len(allowedSet) > 0 && !allowedSet[path] {
+			continue
+		}
+		out = append(out, path)
+	}
+	for i, change := range plan.Changes {
+		if len(activeIndexes) > 0 && !activeIndexes[i] {
+			continue
+		}
+		if len(activeIndexes) == 0 && len(allowedSet) > 0 &&
+			!allowedSet[strings.TrimSpace(change.Path)] &&
+			!allowedSet[strings.TrimSpace(change.NewPath)] {
+			continue
+		}
 		if change.Apply == nil || strings.TrimSpace(change.Apply.Status) != "applied" {
 			continue
 		}
 		out = append(out, change.Path, change.NewPath)
 	}
 	return normalizePatchReviewPaths(out)
+}
+
+func patchReviewActiveSliceIndexes(activeSlice types.ChangePlanSlice, changeCount int) map[int]bool {
+	out := map[int]bool{}
+	for _, idx := range activeSlice.ChangeIndexes {
+		if idx < 0 || idx >= changeCount {
+			continue
+		}
+		out[idx] = true
+	}
+	return out
 }
 
 func patchReviewEffectEventFindings(effect *types.PatchEffectRecord) []types.PatchReviewFinding {

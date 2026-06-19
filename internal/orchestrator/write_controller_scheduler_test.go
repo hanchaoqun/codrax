@@ -578,6 +578,258 @@ func TestUpdateWorkflowRunBatchPlanStampsImpactObligations(t *testing.T) {
 	t.Fatalf("missing dependency impact obligation: %+v", plan.ImpactObligations.Obligations)
 }
 
+func TestUpdateWorkflowRunBatchPlanPreservesVerifiedRuntimeUnitAcrossReplan(t *testing.T) {
+	priorPlan := &types.ChangePlan{
+		ID:          "plan-prior",
+		Summary:     "prior plan",
+		TargetPaths: []string{"a.go", "b.go"},
+		Changes: []types.FileChange{{
+			Path:       "a.go",
+			Kind:       "modify",
+			NewContent: "package main\nconst A = 1\n",
+		}, {
+			Path:       "b.go",
+			Kind:       "modify",
+			NewContent: "package main\nconst B = 1\n",
+		}},
+		Slices: []types.ChangePlanSlice{
+			{ID: "slice-001", ChangeIndexes: []int{0}},
+			{ID: "slice-002", ChangeIndexes: []int{1}},
+		},
+	}
+	nextPlan := &types.ChangePlan{
+		ID:          "plan-next",
+		Summary:     "repair failed unit",
+		TargetPaths: []string{"a.go", "b.go"},
+		Changes: []types.FileChange{{
+			Path:       "a.go",
+			Kind:       "modify",
+			NewContent: "package main\nconst A = 1\n",
+		}, {
+			Path:       "b.go",
+			Kind:       "modify",
+			NewContent: "package main\nconst B = 2\n",
+		}},
+		Slices: []types.ChangePlanSlice{
+			{ID: "slice-001", ChangeIndexes: []int{0}},
+			{ID: "slice-002", ChangeIndexes: []int{1}},
+		},
+	}
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-replan-preserve",
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchReadyToPlan,
+			PlanID:        priorPlan.ID,
+			ActiveSliceID: "slice-002",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:            "slice-001",
+				Status:        types.ChangePlanSliceVerified,
+				PlanID:        priorPlan.ID,
+				ChangeIndexes: []int{0},
+				Paths:         []string{"a.go"},
+				ApplyRef:      "refs/codrax/applied/plan-prior",
+				Checkpoint:    &types.WriteWorkflowCheckpoint{Ref: "refs/codrax/applied/plan-prior", CommitSHA: "abc"},
+				Completion:    &types.WriteWorkflowCompletion{Verdict: types.WriteWorkflowCompletionVerified, ReasonCode: "tests_passed"},
+			}, {
+				ID:            "slice-002",
+				Status:        types.ChangePlanSliceFailed,
+				PlanID:        priorPlan.ID,
+				ChangeIndexes: []int{1},
+				Paths:         []string{"b.go"},
+			}},
+		}},
+	}
+
+	updateWorkflowRunBatchPlan(run, "batch-1", nextPlan, priorPlan)
+	batch := run.Batches[0]
+	if batch.PlanID != nextPlan.ID || batch.ActiveSliceID != "slice-002" {
+		t.Fatalf("batch identity/active slice wrong after replan: %+v", batch)
+	}
+	if len(batch.Slices) != 2 {
+		t.Fatalf("slices=%+v, want two", batch.Slices)
+	}
+	if batch.Slices[0].Status != types.ChangePlanSliceVerified ||
+		batch.Slices[0].PlanID != nextPlan.ID ||
+		batch.Slices[0].ApplyRef != "refs/codrax/applied/plan-prior" ||
+		batch.Slices[0].Checkpoint == nil || batch.Slices[0].Checkpoint.CommitSHA != "abc" {
+		t.Fatalf("verified independent unit not preserved: %+v", batch.Slices[0])
+	}
+	if batch.Slices[1].Status != types.ChangePlanSlicePending || batch.Slices[1].ApplyRef != "" || batch.Slices[1].Checkpoint != nil {
+		t.Fatalf("changed failed unit should be pending for re-apply: %+v", batch.Slices[1])
+	}
+}
+
+func TestRunWriteControllerWorkflow_MultiUnitReplanPreservesVerifiedUnit(t *testing.T) {
+	store := &fakeWorkflowRunStore{}
+	mu := types.NewMutableState("multi-unit preserve verified")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{Task: types.WriteTask{Summary: "repair two units"}}})
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionPlanBatch, ReasonCode: "initial", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair two units"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "apply_unit_1"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "verify_unit_1"},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "apply_unit_2"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "verify_unit_2"},
+		{Action: writeflow.ActionReplanBatch, ReasonCode: "repair_unit_2", Batch: &writeflow.WriteBatchPlan{ID: "batch-1", Goal: "repair failed unit"}},
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "apply_unit_2_repair"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "verify_unit_2_repair"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelToken = NewCancelToken()
+	o.writeWorkflowRunStore = store
+	o.SetWriteRetryBudget(2)
+
+	initialPlan := &types.ChangePlan{
+		ID:          "plan-multi-initial",
+		Status:      types.PlanStatusPending,
+		Summary:     "initial multi-unit repair",
+		TargetPaths: []string{"a.go", "b.go"},
+		Changes: []types.FileChange{{
+			Path:       "a.go",
+			Kind:       "modify",
+			NewContent: "package main\nconst A = 1\n",
+		}, {
+			Path:       "b.go",
+			Kind:       "modify",
+			NewContent: "package main\nconst B = 1\n",
+		}},
+		Slices: []types.ChangePlanSlice{
+			{ID: "slice-001", ChangeIndexes: []int{0}},
+			{ID: "slice-002", ChangeIndexes: []int{1}},
+		},
+	}
+	replan := &types.ChangePlan{
+		ID:          "plan-multi-repair",
+		Status:      types.PlanStatusPending,
+		Summary:     "repair second unit only",
+		TargetPaths: []string{"a.go", "b.go"},
+		Changes: []types.FileChange{{
+			Path:       "a.go",
+			Kind:       "modify",
+			NewContent: "package main\nconst A = 1\n",
+		}, {
+			Path:       "b.go",
+			Kind:       "modify",
+			NewContent: "package main\nconst B = 2\n",
+		}},
+		Slices: []types.ChangePlanSlice{
+			{ID: "slice-001", ChangeIndexes: []int{0}},
+			{ID: "slice-002", ChangeIndexes: []int{1}},
+		},
+	}
+	planCalls := 0
+	verifyCalls := 0
+	var appliedPaths []string
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		*stepsUsed++
+		switch stage {
+		case types.StagePlan:
+			planCalls++
+			if planCalls == 1 {
+				mu.SetChangePlan(initialPlan)
+			} else {
+				mu.SetChangePlan(replan)
+			}
+			return &agent.StageOutput{}, nil
+		case types.StageApply:
+			plan := mu.ChangePlan()
+			if plan == nil {
+				t.Fatal("apply stage needs active plan")
+			}
+			changes, active := writeflow.ActiveRuntimeUnitApplyChanges(plan, mu.WriteWorkflowRun())
+			if !active || len(changes) != 1 {
+				t.Fatalf("apply should receive exactly one active runtime unit, active=%v changes=%+v", active, changes)
+			}
+			path := changes[0].Path
+			appliedPaths = append(appliedPaths, path)
+			for i := range plan.Changes {
+				if plan.Changes[i].Path == path {
+					plan.Changes[i].Apply = &types.FileChangeApplyRecord{Status: "applied"}
+				}
+			}
+			mu.WriteClosure().Reset()
+			mu.WriteClosure().MarkApplied(path)
+			mu.SetChangePlan(plan)
+			return &agent.StageOutput{}, nil
+		case types.StageVerify:
+			verifyCalls++
+			plan := mu.ChangePlan()
+			if plan == nil {
+				t.Fatal("verify stage needs active plan")
+			}
+			unit, ok := writeflow.ActiveRuntimeUnitView(types.ModeApply, *mu.WriteWorkflowRun(), plan, nil)
+			if !ok {
+				t.Fatal("verify stage needs active runtime unit")
+			}
+			passed := true
+			if unit.UnitID == "slice-002" && verifyCalls == 2 {
+				passed = false
+			}
+			verifyPath := unit.UnitID
+			if len(unit.Paths) > 0 {
+				verifyPath = unit.Paths[0]
+			}
+			report := &types.ChangeReport{
+				PlanID:             plan.ID,
+				Channel:            types.ChangeReportChannelPostApplyVerify,
+				Passed:             passed,
+				VerificationStatus: types.VerificationStatusPassed,
+				TestResults: []types.TestResult{{
+					Kind:        types.TestResultKindUnit,
+					AssertionID: "unit_" + unit.UnitID,
+					Suite:       verifyPath,
+					Passed:      passed,
+				}},
+				ExecutedCommands: []types.ExecutedCommand{{
+					Runner:   "go",
+					Command:  "go test ./...",
+					Suite:    verifyPath,
+					Outcome:  "executed",
+					ExitCode: 0,
+					Source:   "unit_test",
+				}},
+			}
+			if !passed {
+				report.FailureKind = types.FailureKindTestsFailed
+				report.FailureSummary = "second unit still fails"
+			}
+			mu.SetChangeReport(report)
+			return &agent.StageOutput{}, nil
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		return &agent.StageOutput{}, nil
+	}
+
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("runWriteControllerWorkflow: %v", err)
+	}
+	if planCalls != 2 || verifyCalls != 3 {
+		t.Fatalf("planCalls=%d verifyCalls=%d, want 2/3", planCalls, verifyCalls)
+	}
+	if got := strings.Join(appliedPaths, ","); got != "a.go,b.go,b.go" {
+		t.Fatalf("applied path sequence = %s, want a.go,b.go,b.go; verified unit should not be re-applied after replan", got)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("workflow should complete, got %+v", store.last)
+	}
+	batch := store.last.Batches[0]
+	if len(batch.Slices) != 2 ||
+		batch.Slices[0].Status != types.ChangePlanSliceVerified ||
+		batch.Slices[0].PlanID != replan.ID ||
+		batch.Slices[1].Status != types.ChangePlanSliceVerified {
+		t.Fatalf("final runtime units should preserve first unit and verify repaired second unit: %+v", batch.Slices)
+	}
+}
+
 type readExplorationRunnerFunc func(*Orchestrator) (int, error)
 
 func (f readExplorationRunnerFunc) Run(o *Orchestrator) (int, error) {
@@ -3934,7 +4186,7 @@ func TestReviewActiveAppliedPatchScopePersistsHardBlock(t *testing.T) {
 	if got == nil || got.PatchReview == nil || !got.PatchReview.HardBlock {
 		t.Fatalf("patch review should be persisted on active plan, got %+v", got)
 	}
-	if reason := patchReviewHardBlockReason(review); reason != "applied_path_outside_active_slice:b.py" {
+	if reason := patchReviewHardBlockReason(review); reason != "patch_effect_path_outside_active_slice:b.py" {
 		t.Fatalf("hard-block reason = %q", reason)
 	}
 	markWorkflowRunActiveSlicePatchReviewBlocked(run, "batch-1", got, patchReviewHardBlockReason(review))
@@ -6378,7 +6630,17 @@ func scriptedController(t *testing.T, decisions []writeflow.WriteWorkflowDecisio
 	t.Helper()
 	return func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 		if *calls >= len(decisions) {
-			t.Fatalf("unexpected extra controller call %d", *calls+1)
+			run := ctx.Mutable.WriteWorkflowRun()
+			plan := ctx.Mutable.ChangePlan()
+			runStatus, activeBatchID, planID := "", "", ""
+			if run != nil {
+				runStatus = string(run.Status)
+				activeBatchID = run.ActiveBatchID
+			}
+			if plan != nil {
+				planID = plan.ID
+			}
+			t.Fatalf("unexpected extra controller call %d; run_status=%s active_batch=%s plan_id=%s", *calls+1, runStatus, activeBatchID, planID)
 		}
 		decision := writeflow.NormalizeWriteWorkflowDecision(decisions[*calls])
 		raw, err := json.Marshal(decision)

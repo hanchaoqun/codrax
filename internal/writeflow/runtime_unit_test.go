@@ -226,3 +226,101 @@ func TestNextRunnableRuntimeUnitIDSkipsUnsatisfiedDependencies(t *testing.T) {
 		t.Fatalf("next runnable after dependency verified = %q, want unit-b", got)
 	}
 }
+
+func TestPreserveVerifiedRuntimeUnitsCarriesOnlyIdenticalIndependentUnits(t *testing.T) {
+	priorPlan := &types.ChangePlan{
+		ID: "plan-prior",
+		Changes: []types.FileChange{{
+			Path:       "a.py",
+			Kind:       "modify",
+			NewContent: "a = 1\n",
+			Rationale:  "old rationale",
+			Apply:      &types.FileChangeApplyRecord{Status: "applied"},
+		}, {
+			Path:       "b.py",
+			Kind:       "modify",
+			NewContent: "b = 1\n",
+		}},
+		Slices: []types.ChangePlanSlice{
+			{ID: "slice-a", ChangeIndexes: []int{0}},
+			{ID: "slice-b", ChangeIndexes: []int{1}},
+		},
+	}
+	nextPlan := &types.ChangePlan{
+		ID: "plan-next",
+		Changes: []types.FileChange{{
+			Path:       "a.py",
+			Kind:       "modify",
+			NewContent: "a = 1\n",
+			Rationale:  "new rationale does not change edit bytes",
+		}, {
+			Path:       "b.py",
+			Kind:       "modify",
+			NewContent: "b = 2\n",
+		}},
+		Slices: []types.ChangePlanSlice{
+			{ID: "next-a", ChangeIndexes: []int{0}},
+			{ID: "next-b", ChangeIndexes: []int{1}},
+		},
+	}
+	existing := []types.WriteWorkflowSlice{{
+		ID:            "slice-a",
+		Status:        types.ChangePlanSliceVerified,
+		PlanID:        priorPlan.ID,
+		ChangeIndexes: []int{0},
+		Paths:         []string{"a.py"},
+		ApplyRef:      "refs/codrax/applied/plan-prior",
+		Checkpoint:    &types.WriteWorkflowCheckpoint{Ref: "refs/codrax/applied/plan-prior", CommitSHA: "abc"},
+		Completion:    &types.WriteWorkflowCompletion{Verdict: types.WriteWorkflowCompletionVerified, ReasonCode: "tests_passed"},
+		Attempts:      []types.WriteWorkflowAttempt{{Kind: "observe", Status: "passed", ReasonCode: "tests_passed"}},
+	}, {
+		ID:            "slice-b",
+		Status:        types.ChangePlanSliceFailed,
+		PlanID:        priorPlan.ID,
+		ChangeIndexes: []int{1},
+		Paths:         []string{"b.py"},
+	}}
+	derived := types.WriteWorkflowSlicesFromChangePlan(nextPlan)
+
+	got := PreserveVerifiedRuntimeUnits(existing, priorPlan, nextPlan, derived)
+	if len(got) != 2 {
+		t.Fatalf("preserved slices = %+v, want two", got)
+	}
+	if got[0].Status != types.ChangePlanSliceVerified || got[0].ApplyRef != "refs/codrax/applied/plan-prior" ||
+		got[0].Checkpoint == nil || got[0].Checkpoint.CommitSHA != "abc" ||
+		got[0].Completion == nil || got[0].Completion.Verdict != types.WriteWorkflowCompletionVerified {
+		t.Fatalf("identical verified unit was not preserved: %+v", got[0])
+	}
+	if got[0].ID != "next-a" || got[0].PlanID != "plan-next" {
+		t.Fatalf("preservation should keep next-plan unit identity while carrying prior evidence: %+v", got[0])
+	}
+	if got[1].Status != types.ChangePlanSlicePending || got[1].ApplyRef != "" || got[1].Checkpoint != nil {
+		t.Fatalf("changed failed unit must not be preserved: %+v", got[1])
+	}
+}
+
+func TestPreserveVerifiedRuntimeUnitsRejectsChangedSamePathUnit(t *testing.T) {
+	priorPlan := &types.ChangePlan{
+		ID:      "plan-prior",
+		Changes: []types.FileChange{{Path: "a.py", Kind: "modify", NewContent: "a = 1\n"}},
+		Slices:  []types.ChangePlanSlice{{ID: "slice-a", ChangeIndexes: []int{0}}},
+	}
+	nextPlan := &types.ChangePlan{
+		ID:      "plan-next",
+		Changes: []types.FileChange{{Path: "a.py", Kind: "modify", NewContent: "a = 2\n"}},
+		Slices:  []types.ChangePlanSlice{{ID: "slice-a", ChangeIndexes: []int{0}}},
+	}
+	existing := []types.WriteWorkflowSlice{{
+		ID:            "slice-a",
+		Status:        types.ChangePlanSliceVerified,
+		PlanID:        priorPlan.ID,
+		ChangeIndexes: []int{0},
+		Paths:         []string{"a.py"},
+		ApplyRef:      "refs/codrax/applied/plan-prior",
+	}}
+
+	got := PreserveVerifiedRuntimeUnits(existing, priorPlan, nextPlan, types.WriteWorkflowSlicesFromChangePlan(nextPlan))
+	if len(got) != 1 || got[0].Status != types.ChangePlanSlicePending || got[0].ApplyRef != "" {
+		t.Fatalf("changed same-path unit must remain pending, got %+v", got)
+	}
+}

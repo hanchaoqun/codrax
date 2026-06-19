@@ -1,6 +1,9 @@
 package writeflow
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -248,6 +251,53 @@ func NextRunnableRuntimeUnitID(units []RuntimeUnitView) string {
 		}
 	}
 	return ""
+}
+
+func PreserveVerifiedRuntimeUnits(existing []types.WriteWorkflowSlice, priorPlan, nextPlan *types.ChangePlan, derived []types.WriteWorkflowSlice) []types.WriteWorkflowSlice {
+	if len(existing) == 0 || priorPlan == nil || nextPlan == nil || len(derived) == 0 {
+		return cloneRuntimeWorkflowSlices(derived)
+	}
+	priorFingerprints := runtimeUnitSliceFingerprints(priorPlan)
+	nextFingerprints := runtimeUnitSliceFingerprints(nextPlan)
+	nextCounts := map[string]int{}
+	for _, fp := range nextFingerprints {
+		if fp != "" {
+			nextCounts[fp]++
+		}
+	}
+	priorStatusByID := map[string]types.ChangePlanSliceStatus{}
+	preservedByFingerprint := map[string]types.WriteWorkflowSlice{}
+	for _, prior := range existing {
+		id := strings.TrimSpace(prior.ID)
+		if id == "" {
+			continue
+		}
+		priorStatusByID[id] = prior.Status
+	}
+	for _, prior := range existing {
+		id := strings.TrimSpace(prior.ID)
+		if id == "" || prior.Status != types.ChangePlanSliceVerified {
+			continue
+		}
+		if !runtimeUnitPriorDependenciesPreserved(prior, priorStatusByID) {
+			continue
+		}
+		fp := priorFingerprints[id]
+		if fp == "" || nextCounts[fp] != 1 {
+			continue
+		}
+		preservedByFingerprint[fp] = prior
+	}
+	out := cloneRuntimeWorkflowSlices(derived)
+	for i := range out {
+		fp := nextFingerprints[strings.TrimSpace(out[i].ID)]
+		prior, ok := preservedByFingerprint[fp]
+		if !ok {
+			continue
+		}
+		mergeRuntimeUnitPreservation(&out[i], prior)
+	}
+	return out
 }
 
 func runtimeUnitSourceSlices(batch types.WriteWorkflowBatch, plan *types.ChangePlan) []types.WriteWorkflowSlice {
@@ -523,6 +573,127 @@ func cloneRuntimeUnitCompletion(in *types.WriteWorkflowCompletion) *types.WriteW
 	}
 	out := *in
 	return &out
+}
+
+func cloneRuntimeWorkflowSlices(in []types.WriteWorkflowSlice) []types.WriteWorkflowSlice {
+	out := make([]types.WriteWorkflowSlice, len(in))
+	for i, slice := range in {
+		out[i] = cloneRuntimeWorkflowSlice(slice)
+	}
+	return out
+}
+
+func cloneRuntimeWorkflowSlice(in types.WriteWorkflowSlice) types.WriteWorkflowSlice {
+	out := in
+	out.ChangeIndexes = append([]int(nil), in.ChangeIndexes...)
+	out.Paths = append([]string(nil), in.Paths...)
+	out.DependsOnSlices = append([]string(nil), in.DependsOnSlices...)
+	out.ContextPackIDs = append([]string(nil), in.ContextPackIDs...)
+	out.Attempts = append([]types.WriteWorkflowAttempt(nil), in.Attempts...)
+	if in.Checkpoint != nil {
+		cp := *in.Checkpoint
+		out.Checkpoint = &cp
+	}
+	if in.Restore != nil {
+		restore := *in.Restore
+		out.Restore = &restore
+	}
+	out.Completion = cloneRuntimeUnitCompletion(in.Completion)
+	return out
+}
+
+func mergeRuntimeUnitPreservation(next *types.WriteWorkflowSlice, prior types.WriteWorkflowSlice) {
+	if next == nil {
+		return
+	}
+	id := strings.TrimSpace(next.ID)
+	planID := strings.TrimSpace(next.PlanID)
+	changeIndexes := append([]int(nil), next.ChangeIndexes...)
+	paths := append([]string(nil), next.Paths...)
+	deps := append([]string(nil), next.DependsOnSlices...)
+	created := next.CreatedAt
+	updated := next.UpdatedAt
+	*next = cloneRuntimeWorkflowSlice(prior)
+	next.ID = id
+	next.PlanID = planID
+	next.ChangeIndexes = changeIndexes
+	next.Paths = paths
+	next.DependsOnSlices = deps
+	if next.CreatedAt.IsZero() {
+		next.CreatedAt = created
+	}
+	if !updated.IsZero() {
+		next.UpdatedAt = updated
+	}
+}
+
+func runtimeUnitPriorDependenciesPreserved(slice types.WriteWorkflowSlice, statusByID map[string]types.ChangePlanSliceStatus) bool {
+	for _, dep := range slice.DependsOnSlices {
+		switch statusByID[strings.TrimSpace(dep)] {
+		case types.ChangePlanSliceVerified, types.ChangePlanSliceUnverified:
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func runtimeUnitSliceFingerprints(plan *types.ChangePlan) map[string]string {
+	out := map[string]string{}
+	if plan == nil {
+		return out
+	}
+	for _, slice := range types.NormalizeChangePlanSlices(plan, types.ChangePlanSliceOptions{}) {
+		id := strings.TrimSpace(slice.ID)
+		if id == "" {
+			continue
+		}
+		out[id] = runtimeUnitSliceFingerprint(plan, slice)
+	}
+	return out
+}
+
+func runtimeUnitSliceFingerprint(plan *types.ChangePlan, slice types.ChangePlanSlice) string {
+	if plan == nil || len(slice.ChangeIndexes) == 0 {
+		return ""
+	}
+	payload := struct {
+		Changes []runtimeUnitChangeFingerprintPayload `json:"changes"`
+	}{
+		Changes: make([]runtimeUnitChangeFingerprintPayload, 0, len(slice.ChangeIndexes)),
+	}
+	for _, idx := range runtimeUnitValidChangeIndexes(slice.ChangeIndexes, len(plan.Changes)) {
+		change := plan.Changes[idx]
+		payload.Changes = append(payload.Changes, runtimeUnitChangeFingerprintPayload{
+			Path:       strings.TrimSpace(change.Path),
+			Kind:       strings.TrimSpace(change.Kind),
+			NewContent: change.NewContent,
+			Patch:      change.Patch,
+			Edits:      append([]types.StructuredEdit(nil), change.Edits...),
+			NewPath:    strings.TrimSpace(change.NewPath),
+			DependsOn:  dedupTrimRuntimeUnitStrings(change.DependsOn),
+		})
+	}
+	if len(payload.Changes) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", sum[:])
+}
+
+type runtimeUnitChangeFingerprintPayload struct {
+	Path       string                 `json:"path,omitempty"`
+	Kind       string                 `json:"kind,omitempty"`
+	NewContent string                 `json:"new_content,omitempty"`
+	Patch      string                 `json:"patch,omitempty"`
+	Edits      []types.StructuredEdit `json:"edits,omitempty"`
+	NewPath    string                 `json:"new_path,omitempty"`
+	DependsOn  []string               `json:"depends_on,omitempty"`
 }
 
 func firstNonEmptyRuntimeUnit(values ...string) string {
