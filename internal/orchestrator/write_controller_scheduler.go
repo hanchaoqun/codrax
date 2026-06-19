@@ -3651,15 +3651,25 @@ func (o *Orchestrator) persistWriteFinalReportIfAuditable(run *types.WriteWorkfl
 	if report != nil {
 		reportPath = filepath.Join(planDir, stem+".report.json")
 	}
+	delivery := o.writeFinalReportDeliverySummary(run, plan, report)
+	primarySourcePlan := plan
+	if delivery.PrimarySourcePlanID != "" && (primarySourcePlan == nil || strings.TrimSpace(primarySourcePlan.ID) != delivery.PrimarySourcePlanID) {
+		if loaded, err := o.loadWriteFinalReportChangePlan(delivery.PrimarySourcePlanID); err == nil && loaded != nil {
+			primarySourcePlan = loaded
+		} else {
+			primarySourcePlan = nil
+		}
+	}
 	final := types.BuildWriteFinalReport(types.WriteFinalReportInput{
-		Run:            run,
-		Plan:           plan,
-		Report:         report,
-		ProofArtifacts: o.writeFinalReportProofArtifacts(run, plan, report),
-		Delivery:       o.writeFinalReportDeliverySummary(run, plan, report),
-		PlanPath:       planPath,
-		ReportPath:     reportPath,
-		WorkflowPath:   workflowPath,
+		Run:               run,
+		Plan:              plan,
+		PrimarySourcePlan: primarySourcePlan,
+		Report:            report,
+		ProofArtifacts:    o.writeFinalReportProofArtifacts(run, plan, report),
+		Delivery:          delivery,
+		PlanPath:          planPath,
+		ReportPath:        reportPath,
+		WorkflowPath:      workflowPath,
 	})
 	finalPath := filepath.Join(planDir, stem+".final.json")
 	if err := types.WriteFinalReportToFile(&final, finalPath); err != nil {

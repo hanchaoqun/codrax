@@ -640,6 +640,22 @@ func TestPersistWriteWorkflowRunFinalReportPreservesRestoredSourceOwnerForTestOn
 		Status:       types.PlanStatusVerifyFailed,
 		TargetPaths:  []string{"pkg/fix.py", "tests/test_fix.py"},
 		AppliedPaths: []string{"pkg/fix.py", "tests/test_fix.py"},
+		LocalizationReview: &types.SourceLocalizationReview{
+			Status:              types.SourceLocalizationSupported,
+			Source:              "write_plan_context",
+			PlanID:              "plan-source",
+			SourcePaths:         []string{"pkg/fix.py"},
+			SupportedPaths:      []string{"pkg/fix.py"},
+			OwnerSupportedPaths: []string{"pkg/fix.py"},
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:         "pkg/fix.py",
+				Role:         types.SourcePathRoleProduction,
+				Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+				Strength:     types.SourceLocalizationAnchorOwner,
+				OwnerSymbol:  "Fixer",
+				AnchorSymbol: "Fixer.apply",
+			}},
+		},
 		Changes: []types.FileChange{
 			{Path: "pkg/fix.py", Kind: "patch"},
 			{Path: "tests/test_fix.py", Kind: "patch"},
@@ -714,6 +730,15 @@ func TestPersistWriteWorkflowRunFinalReportPreservesRestoredSourceOwnerForTestOn
 	if !writeControllerFinalStringSliceContains(final.Delivery.SourceOwnerPlanIDs, "plan-source") ||
 		!writeControllerFinalStringSliceContains(final.Delivery.SourcePaths, "pkg/fix.py") {
 		t.Fatalf("delivery source owner/path missing: %+v", final.Delivery)
+	}
+	if final.SourceAuthority.PlanID != "plan-source" ||
+		!writeControllerFinalStringSliceContains(final.SourceAuthority.SourcePaths, "pkg/fix.py") {
+		t.Fatalf("source authority should project restored source plan, got %+v", final.SourceAuthority)
+	}
+	if final.SourceAuthority.Localization == nil ||
+		final.SourceAuthority.Localization.Status != types.SourceLocalizationSupported ||
+		!writeControllerFinalStringSliceContains(final.SourceAuthority.Localization.OwnerSupportedPaths, "pkg/fix.py") {
+		t.Fatalf("source authority localization should remain source-plan supported, got %+v", final.SourceAuthority.Localization)
 	}
 }
 

@@ -8600,7 +8600,7 @@ Follow-up observation:
   gap so audit dashboards do not lose primary source localization after
   proof-only follow-up batches.
 
-## 2026-06-19 RC131 Queued: Final Report Primary Source Localization Projection
+## 2026-06-19 RC131 Complete: Final Report Primary Source Localization Projection
 
 Gap:
 
@@ -8612,31 +8612,83 @@ Gap:
   It can make dashboards under-report localization quality after successful
   online convergence.
 
-Design direction:
+Design:
 
 - Final delivery reports should project two typed plan authorities:
   - `final_plan`: the literal latest terminal plan/batch;
   - `primary_source_plan`: the plan that owns exported source changes.
-- Source-localization status, owner anchors, owner gaps, patch effect, and
-  actual-diff authority should default to `primary_source_plan` when exported
-  source paths exist, while verification/proof status can still come from the
-  terminal/report plan.
+- `WriteFinalReport.plan` remains the terminal plan for recovery/audit
+  fidelity. A new sibling `WriteFinalReport.source_authority` projects the
+  primary source plan id, source paths, localization review, owner anchors, and
+  owner-anchor gaps.
+- Verification/proof status continues to come from the terminal/report plan.
+  Source-localization audit dashboards should read `source_authority` when
+  exported source paths exist, instead of silently treating a proof-only final
+  plan as the source owner.
 - This must consume existing typed delivery candidate fields and plan artifacts;
   no stdout, model prose, issue text, or `<think>` parsing.
 
-Tasks:
+Implementation:
 
-- [ ] Extend `WriteFinalDeliverySummary` / final report input to carry primary
-      source plan localization and owner-anchor refs.
-- [ ] Normalize final report so source localization fields come from primary
-      source plan when source patches are exported.
-- [ ] Keep proof-only final plans visible as terminal plan metadata without
-      overwriting source-owner audit fields.
-- [ ] Update SWE adapter fields to expose both final-plan and primary-source
-      localization status.
-- [ ] Add regression using a source plan followed by proof-only repair.
-- [ ] Re-run RC130b Pytest after the fix and require
-      `primary_source_localization_status=supported` with owner gaps empty.
+- `WriteFinalReportInput` now accepts `PrimarySourcePlan`.
+- `BuildWriteFinalReport` fills `source_authority` from that plan while leaving
+  `plan` as the terminal plan.
+- `persistWriteFinalReportIfAuditable` computes typed delivery once, loads
+  `delivery.primary_source_plan_id` from durable plan artifacts when necessary,
+  and passes it into final report construction.
+- The source-authority path projector reads typed plan fields
+  (`target_paths`, `applied_paths`, `changes.path`, `changes.new_path`) and
+  filters auxiliary/test roles through `ClassifySourcePathRole`; it does not
+  parse model prose or terminal logs.
+- The SWE adapter now exports `final_report_source_authority_*` fields for
+  source-authority plan id, source paths, localization status/reasons, owner
+  supported/missing paths, owner anchors, and owner gaps.
+
+Verification:
+
+- Focused Go tests passed:
+  `go test ./internal/types -run 'Test(BuildWriteFinalReport|WriteFinalReport)' -count=1`
+  and
+  `go test ./internal/orchestrator -run 'TestPersistWriteWorkflowRunFinalReport|TestPersistWriteWorkflowRunTerminalAggregatesCompletedBatchProofReports' -count=1`.
+- Adapter final-report projection tests passed:
+  `python3 -m unittest eval.swebench.run_codrax_swebench_test.FinalReportProjectionTests -v`.
+- Regression coverage includes a terminal test/proof plan plus a restored
+  source-owning plan, and asserts `source_authority.plan_id=plan-source` with
+  supported owner localization.
+
+RC131 SWE evidence:
+
+- `pytest-dev__pytest-11143` rerun:
+  `eval/results/swebench/lite-smoke-20260619-rc131-pytest`.
+- Prediction validation passed:
+  `eval/results/swebench/.venv/bin/python eval/swebench/validate_predictions.py .../predictions.jsonl --require-nonempty-patch`
+  reported `validated 1 prediction(s); empty_patch=0`.
+- Official harness dry-run/import accepted the prediction path with
+  `DRY_RUN=1 CHECK_HARNESS_IMPORT=1 ... run_official_harness.sh`.
+- Typed telemetry:
+  - `status=predicted`
+  - `patch_bytes=630`
+  - `prediction_verdict=predicted_unverified`
+  - `verify_status=unavailable`
+  - `verify_failure_reason_code=pytest_import_startup_error`
+  - `workflow_status=complete`
+  - `final_report_localization_status=unknown`
+  - `final_report_source_authority_plan_id=plan-1781869951023384000-76683`
+  - `final_report_source_authority_source_paths=["src/_pytest/assertion/rewrite.py"]`
+  - `final_report_source_authority_localization_status=supported`
+  - `final_report_source_authority_localization_owner_supported_paths=["src/_pytest/assertion/rewrite.py"]`
+  - `final_report_source_authority_localization_owner_missing_paths=[]`
+  - `final_report_source_authority_owner_gap_paths=[]`
+  - `codrax_progress_transport_failed=false`
+- Manual patch audit:
+  - The patch changes `is_rewrite_disabled` to accept `object` and guards the
+    membership check with `isinstance(docstring, str)`.
+  - This directly addresses the issue shape where Python's AST docstring value
+    can be non-string while preserving the existing marker behavior for string
+    docstrings.
+  - Local project verification is still unavailable because of the repository
+    startup/import environment, so the adapter correctly reports
+    `predicted_unverified` rather than authoritative local pass.
 
 ## Acceptance Criteria
 

@@ -21,23 +21,24 @@ type WriteFinalReport struct {
 	Kind          WriteOutputKind `json:"kind"`
 	GeneratedAt   time.Time       `json:"generated_at,omitempty"`
 
-	RunID         string                        `json:"run_id,omitempty"`
-	RunStatus     WriteWorkflowRunStatus        `json:"run_status,omitempty"`
-	Goal          string                        `json:"goal,omitempty"`
-	Completion    *WriteWorkflowCompletion      `json:"completion,omitempty"`
-	ActiveBatchID string                        `json:"active_batch_id,omitempty"`
-	Batches       []WriteFinalBatchSummary      `json:"batches,omitempty"`
-	Artifacts     WriteFinalArtifactRefs        `json:"artifacts,omitempty"`
-	Plan          WriteFinalPlanSummary         `json:"plan,omitempty"`
-	Patch         WriteFinalPatchSummary        `json:"patch,omitempty"`
-	Verification  WriteFinalVerificationSummary `json:"verification,omitempty"`
-	Proof         VerificationProofProfile      `json:"proof,omitempty"`
-	ProofLedger   VerificationProofLedger       `json:"proof_ledger,omitempty"`
-	Delivery      WriteFinalDeliverySummary     `json:"delivery,omitempty"`
-	PatchReview   WriteFinalPatchReviewSummary  `json:"patch_review,omitempty"`
-	Impact        WriteFinalImpactSummary       `json:"impact,omitempty"`
-	Handoff       WriteFinalHandoffSummary      `json:"handoff,omitempty"`
-	ResidualRisks []WriteFinalResidualRisk      `json:"residual_risks,omitempty"`
+	RunID           string                           `json:"run_id,omitempty"`
+	RunStatus       WriteWorkflowRunStatus           `json:"run_status,omitempty"`
+	Goal            string                           `json:"goal,omitempty"`
+	Completion      *WriteWorkflowCompletion         `json:"completion,omitempty"`
+	ActiveBatchID   string                           `json:"active_batch_id,omitempty"`
+	Batches         []WriteFinalBatchSummary         `json:"batches,omitempty"`
+	Artifacts       WriteFinalArtifactRefs           `json:"artifacts,omitempty"`
+	Plan            WriteFinalPlanSummary            `json:"plan,omitempty"`
+	Patch           WriteFinalPatchSummary           `json:"patch,omitempty"`
+	Verification    WriteFinalVerificationSummary    `json:"verification,omitempty"`
+	Proof           VerificationProofProfile         `json:"proof,omitempty"`
+	ProofLedger     VerificationProofLedger          `json:"proof_ledger,omitempty"`
+	Delivery        WriteFinalDeliverySummary        `json:"delivery,omitempty"`
+	SourceAuthority WriteFinalSourceAuthoritySummary `json:"source_authority,omitempty"`
+	PatchReview     WriteFinalPatchReviewSummary     `json:"patch_review,omitempty"`
+	Impact          WriteFinalImpactSummary          `json:"impact,omitempty"`
+	Handoff         WriteFinalHandoffSummary         `json:"handoff,omitempty"`
+	ResidualRisks   []WriteFinalResidualRisk         `json:"residual_risks,omitempty"`
 }
 
 type WriteFinalArtifactRefs struct {
@@ -126,6 +127,14 @@ type WriteFinalDeliverySummary struct {
 	FinalPlanValidationOnly bool     `json:"final_plan_validation_only,omitempty"`
 }
 
+type WriteFinalSourceAuthoritySummary struct {
+	PlanID          string                    `json:"plan_id,omitempty"`
+	SourcePaths     []string                  `json:"source_paths,omitempty"`
+	Localization    *SourceLocalizationReview `json:"localization,omitempty"`
+	OwnerAnchors    []OwnerAnchorViewItem     `json:"owner_anchors,omitempty"`
+	OwnerAnchorGaps []WriteFinalOwnerGap      `json:"owner_anchor_gaps,omitempty"`
+}
+
 type WriteFinalPatchReviewSummary struct {
 	Status          string                     `json:"status,omitempty"`
 	Verdict         PatchReviewCoverageVerdict `json:"verdict,omitempty"`
@@ -167,15 +176,16 @@ type WriteFinalResidualRisk struct {
 }
 
 type WriteFinalReportInput struct {
-	Run            *WriteWorkflowRun
-	Plan           *ChangePlan
-	Report         *ChangeReport
-	ProofArtifacts []VerificationProofArtifact
-	Delivery       WriteFinalDeliverySummary
-	PlanPath       string
-	ReportPath     string
-	WorkflowPath   string
-	GeneratedAt    time.Time
+	Run               *WriteWorkflowRun
+	Plan              *ChangePlan
+	PrimarySourcePlan *ChangePlan
+	Report            *ChangeReport
+	ProofArtifacts    []VerificationProofArtifact
+	Delivery          WriteFinalDeliverySummary
+	PlanPath          string
+	ReportPath        string
+	WorkflowPath      string
+	GeneratedAt       time.Time
 }
 
 func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
@@ -217,9 +227,15 @@ func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
 	if input.Report != nil {
 		out.Verification = writeFinalVerificationSummary(input.Report)
 	}
+	out.Delivery = NormalizeWriteFinalDeliverySummary(input.Delivery)
+	if input.PrimarySourcePlan != nil {
+		out.SourceAuthority = writeFinalSourceAuthoritySummary(input.PrimarySourcePlan, runContextPacks)
+	} else if input.Plan != nil && out.Delivery.PrimarySourcePlanID != "" &&
+		strings.TrimSpace(input.Plan.ID) == out.Delivery.PrimarySourcePlanID {
+		out.SourceAuthority = writeFinalSourceAuthoritySummary(input.Plan, runContextPacks)
+	}
 	out.Proof = BuildCumulativeVerificationProofProfile(input.Plan, input.Report, input.ProofArtifacts)
 	out.ProofLedger = BuildVerificationProofLedger(input.Plan, input.Report, input.ProofArtifacts)
-	out.Delivery = NormalizeWriteFinalDeliverySummary(input.Delivery)
 	out.ResidualRisks = writeFinalResidualRisks(out)
 	return NormalizeWriteFinalReport(out)
 }
@@ -253,6 +269,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Proof = NormalizeVerificationProofProfile(in.Proof)
 	in.ProofLedger = NormalizeVerificationProofLedger(in.ProofLedger)
 	in.Delivery = NormalizeWriteFinalDeliverySummary(in.Delivery)
+	in.SourceAuthority = normalizeWriteFinalSourceAuthoritySummary(in.SourceAuthority)
 	in.PatchReview.ReasonCodes = dedupTrimWriteWorkflowRunStrings(in.PatchReview.ReasonCodes)
 	in.PatchReview.UnverifiedKinds = dedupTrimWriteWorkflowRunStrings(in.PatchReview.UnverifiedKinds)
 	in.Impact.UncoveredTargets = writeFinalBoundedImpactTargets(in.Impact.UncoveredTargets, 12)
@@ -493,6 +510,67 @@ func writeFinalImpactSummary(analysis *ImpactAnalysisResult) WriteFinalImpactSum
 		out.CoverageCounts = nil
 	}
 	return out
+}
+
+func writeFinalSourceAuthoritySummary(plan *ChangePlan, prior []WriteContextPack) WriteFinalSourceAuthoritySummary {
+	if plan == nil {
+		return WriteFinalSourceAuthoritySummary{}
+	}
+	out := WriteFinalSourceAuthoritySummary{
+		PlanID:          strings.TrimSpace(plan.ID),
+		Localization:    writeFinalPlanLocalizationReview(plan.LocalizationReview, writeFinalOwnerGaps(prior, plan)),
+		OwnerAnchors:    OwnerAnchorViewFromChangePlan(plan, 12).Items,
+		OwnerAnchorGaps: writeFinalOwnerGaps(prior, plan),
+	}
+	for _, path := range writeFinalSourceAuthorityPlanPaths(plan) {
+		if path == "" || SourcePathRoleIsAuxiliary(ClassifySourcePathRole(path)) {
+			continue
+		}
+		out.SourcePaths = append(out.SourcePaths, path)
+	}
+	return normalizeWriteFinalSourceAuthoritySummary(out)
+}
+
+func writeFinalSourceAuthorityPlanPaths(plan *ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	var out []string
+	add := func(raw string) {
+		path := strings.TrimSpace(filepath.ToSlash(raw))
+		path = strings.TrimPrefix(path, "./")
+		if path == "" {
+			return
+		}
+		out = append(out, path)
+	}
+	for _, path := range plan.TargetPaths {
+		add(path)
+	}
+	for _, path := range plan.AppliedPaths {
+		add(path)
+	}
+	for _, change := range plan.Changes {
+		add(change.Path)
+		add(change.NewPath)
+	}
+	return dedupTrimWriteWorkflowRunStrings(out)
+}
+
+func normalizeWriteFinalSourceAuthoritySummary(in WriteFinalSourceAuthoritySummary) WriteFinalSourceAuthoritySummary {
+	in.PlanID = strings.TrimSpace(in.PlanID)
+	in.SourcePaths = dedupTrimWriteWorkflowRunStrings(in.SourcePaths)
+	in.OwnerAnchorGaps = normalizeWriteFinalOwnerGaps(in.OwnerAnchorGaps)
+	in.Localization = writeFinalPlanLocalizationReview(in.Localization, in.OwnerAnchorGaps)
+	in.OwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.OwnerAnchors}, 12).Items
+	if in.PlanID == "" &&
+		len(in.SourcePaths) == 0 &&
+		in.Localization == nil &&
+		len(in.OwnerAnchors) == 0 &&
+		len(in.OwnerAnchorGaps) == 0 {
+		return WriteFinalSourceAuthoritySummary{}
+	}
+	return in
 }
 
 func writeFinalHandoffSummary(packs []WriteContextPack, limit int) WriteFinalHandoffSummary {

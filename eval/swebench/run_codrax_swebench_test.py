@@ -489,6 +489,35 @@ class FinalReportProjectionTests(unittest.TestCase):
                         },
                     },
                     "patch": {"diff_fingerprint": "abc123"},
+                    "source_authority": {
+                        "plan_id": "plan-source",
+                        "source_paths": ["src/app.py"],
+                        "owner_anchors": [{
+                            "id": "anchor-source",
+                            "path": "src/app.py",
+                            "owner_symbol": "SourceOwner",
+                            "anchor_symbol": "SourceOwner.fix",
+                            "evidence_ref": {
+                                "id": "ev-source",
+                                "source": "src/app.py",
+                                "owner_symbol": "SourceOwner",
+                            },
+                        }],
+                        "owner_anchor_gaps": [{
+                            "path": "src/edge.py",
+                            "reason_code": "plan_source_path_without_owner_anchor",
+                            "required_evidence": "typed_owner_or_supporting_localization_anchor",
+                            "source": "source_authority",
+                        }],
+                        "localization": {
+                            "status": "supported",
+                            "reason_codes": ["all_source_paths_owner_supported"],
+                            "missing_paths": [],
+                            "supported_paths": ["src/app.py"],
+                            "owner_missing_paths": [],
+                            "owner_supported_paths": ["src/app.py"],
+                        },
+                    },
                     "verification": {"status": "unavailable"},
                     "proof": {
                         "status": "weak",
@@ -612,6 +641,28 @@ class FinalReportProjectionTests(unittest.TestCase):
             ["typed_owner_or_supporting_localization_anchor"],
         )
         self.assertEqual(result["final_report_plan_owner_gap_sources"], ["prior_context"])
+        self.assertEqual(result["final_report_source_authority_plan_id"], "plan-source")
+        self.assertEqual(result["final_report_source_authority_source_paths"], ["src/app.py"])
+        self.assertEqual(result["final_report_source_authority_localization_status"], "supported")
+        self.assertEqual(
+            result["final_report_source_authority_localization_reason_codes"],
+            ["all_source_paths_owner_supported"],
+        )
+        self.assertEqual(result["final_report_source_authority_localization_supported_paths"], ["src/app.py"])
+        self.assertEqual(result["final_report_source_authority_localization_owner_supported_paths"], ["src/app.py"])
+        self.assertEqual(result["final_report_source_authority_owner_anchor_ids"], ["anchor-source", "ev-source"])
+        self.assertEqual(result["final_report_source_authority_owner_anchor_paths"], ["src/app.py"])
+        self.assertEqual(result["final_report_source_authority_owner_symbols"], ["SourceOwner"])
+        self.assertEqual(result["final_report_source_authority_owner_gap_paths"], ["src/edge.py"])
+        self.assertEqual(
+            result["final_report_source_authority_owner_gap_reason_codes"],
+            ["plan_source_path_without_owner_anchor"],
+        )
+        self.assertEqual(
+            result["final_report_source_authority_owner_gap_required_evidence"],
+            ["typed_owner_or_supporting_localization_anchor"],
+        )
+        self.assertEqual(result["final_report_source_authority_owner_gap_sources"], ["source_authority"])
         self.assertEqual(result["final_report_handoff_owner_anchor_ids"], ["anchor-handoff"])
         self.assertEqual(result["final_report_handoff_owner_anchor_paths"], ["src/handoff_owner.py"])
         self.assertEqual(result["final_report_handoff_owner_symbols"], ["HandoffOwner"])
@@ -638,6 +689,12 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_plan_owner_anchor_ids"], [])
         self.assertEqual(result["final_report_plan_owner_gap_paths"], [])
         self.assertEqual(result["final_report_plan_owner_gap_reason_codes"], [])
+        self.assertEqual(result["final_report_source_authority_plan_id"], "")
+        self.assertEqual(result["final_report_source_authority_source_paths"], [])
+        self.assertEqual(result["final_report_source_authority_localization_status"], "")
+        self.assertEqual(result["final_report_source_authority_localization_owner_supported_paths"], [])
+        self.assertEqual(result["final_report_source_authority_owner_anchor_ids"], [])
+        self.assertEqual(result["final_report_source_authority_owner_gap_paths"], [])
         self.assertEqual(result["final_report_handoff_owner_anchor_ids"], [])
 
 

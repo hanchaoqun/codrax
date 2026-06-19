@@ -1587,6 +1587,21 @@ def apply_final_report_result_fields(
         result["final_report_plan_owner_gap_reason_codes"] = []
         result["final_report_plan_owner_gap_required_evidence"] = []
         result["final_report_plan_owner_gap_sources"] = []
+        result["final_report_source_authority_plan_id"] = ""
+        result["final_report_source_authority_source_paths"] = []
+        result["final_report_source_authority_localization_status"] = ""
+        result["final_report_source_authority_localization_reason_codes"] = []
+        result["final_report_source_authority_localization_missing_paths"] = []
+        result["final_report_source_authority_localization_supported_paths"] = []
+        result["final_report_source_authority_localization_owner_missing_paths"] = []
+        result["final_report_source_authority_localization_owner_supported_paths"] = []
+        result["final_report_source_authority_owner_anchor_ids"] = []
+        result["final_report_source_authority_owner_anchor_paths"] = []
+        result["final_report_source_authority_owner_symbols"] = []
+        result["final_report_source_authority_owner_gap_paths"] = []
+        result["final_report_source_authority_owner_gap_reason_codes"] = []
+        result["final_report_source_authority_owner_gap_required_evidence"] = []
+        result["final_report_source_authority_owner_gap_sources"] = []
         result["final_report_handoff_owner_anchor_ids"] = []
         result["final_report_handoff_owner_anchor_paths"] = []
         result["final_report_handoff_owner_symbols"] = []
@@ -1599,7 +1614,13 @@ def apply_final_report_result_fields(
     plan = final_report.get("plan") if isinstance(final_report.get("plan"), dict) else {}
     patch = final_report.get("patch") if isinstance(final_report.get("patch"), dict) else {}
     handoff = final_report.get("handoff") if isinstance(final_report.get("handoff"), dict) else {}
+    source_authority = final_report.get("source_authority") if isinstance(final_report.get("source_authority"), dict) else {}
     localization = plan.get("localization") if isinstance(plan.get("localization"), dict) else {}
+    source_authority_localization = (
+        source_authority.get("localization")
+        if isinstance(source_authority.get("localization"), dict)
+        else {}
+    )
     result["final_report_completion_verdict"] = str(completion.get("verdict") or "").strip()
     result["final_report_completion_reason_code"] = str(completion.get("reason_code") or "").strip()
     result["final_report_verification_status"] = str(verification.get("status") or "").strip()
@@ -1678,6 +1699,47 @@ def apply_final_report_result_fields(
     result["final_report_plan_owner_gap_reason_codes"] = plan_owner_gaps["reason_codes"]
     result["final_report_plan_owner_gap_required_evidence"] = plan_owner_gaps["required_evidence"]
     result["final_report_plan_owner_gap_sources"] = plan_owner_gaps["sources"]
+    result["final_report_source_authority_plan_id"] = str(source_authority.get("plan_id") or "").strip()
+    result["final_report_source_authority_source_paths"] = [
+        str(value).strip()
+        for value in source_authority.get("source_paths") or []
+        if str(value).strip()
+    ]
+    result["final_report_source_authority_localization_status"] = str(source_authority_localization.get("status") or "").strip()
+    result["final_report_source_authority_localization_reason_codes"] = [
+        str(value).strip()
+        for value in source_authority_localization.get("reason_codes") or []
+        if str(value).strip()
+    ]
+    result["final_report_source_authority_localization_missing_paths"] = [
+        str(value).strip()
+        for value in source_authority_localization.get("missing_paths") or []
+        if str(value).strip()
+    ]
+    result["final_report_source_authority_localization_supported_paths"] = [
+        str(value).strip()
+        for value in source_authority_localization.get("supported_paths") or []
+        if str(value).strip()
+    ]
+    result["final_report_source_authority_localization_owner_missing_paths"] = [
+        str(value).strip()
+        for value in source_authority_localization.get("owner_missing_paths") or []
+        if str(value).strip()
+    ]
+    result["final_report_source_authority_localization_owner_supported_paths"] = [
+        str(value).strip()
+        for value in source_authority_localization.get("owner_supported_paths") or []
+        if str(value).strip()
+    ]
+    source_authority_owner = final_report_owner_anchor_summary(final_report, "source_authority", "owner_anchors")
+    result["final_report_source_authority_owner_anchor_ids"] = source_authority_owner["ids"]
+    result["final_report_source_authority_owner_anchor_paths"] = source_authority_owner["paths"]
+    result["final_report_source_authority_owner_symbols"] = source_authority_owner["owners"]
+    source_authority_owner_gaps = final_report_owner_gap_summary(final_report, "source_authority", "owner_anchor_gaps")
+    result["final_report_source_authority_owner_gap_paths"] = source_authority_owner_gaps["paths"]
+    result["final_report_source_authority_owner_gap_reason_codes"] = source_authority_owner_gaps["reason_codes"]
+    result["final_report_source_authority_owner_gap_required_evidence"] = source_authority_owner_gaps["required_evidence"]
+    result["final_report_source_authority_owner_gap_sources"] = source_authority_owner_gaps["sources"]
     result["final_report_handoff_owner_anchor_ids"] = handoff_owner["ids"]
     result["final_report_handoff_owner_anchor_paths"] = handoff_owner["paths"]
     result["final_report_handoff_owner_symbols"] = handoff_owner["owners"]

@@ -233,6 +233,89 @@ func TestWriteFinalReportToFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildWriteFinalReportProjectsPrimarySourceAuthoritySeparatelyFromTerminalPlan(t *testing.T) {
+	terminalPlan := &ChangePlan{
+		ID:           "plan-proof",
+		Status:       PlanStatusApplied,
+		TargetPaths:  []string{"tests/test_bug.py"},
+		AppliedPaths: []string{"tests/test_bug.py"},
+		Changes: []FileChange{{
+			Path: "tests/test_bug.py",
+			Kind: "patch",
+		}},
+	}
+	sourcePlan := &ChangePlan{
+		ID:           "plan-source",
+		Status:       PlanStatusVerifyFailed,
+		TargetPaths:  []string{"pkg/bug.py", "tests/test_bug.py"},
+		AppliedPaths: []string{"pkg/bug.py", "tests/test_bug.py"},
+		Changes: []FileChange{{
+			Path: "pkg/bug.py",
+			Kind: "patch",
+		}, {
+			Path: "tests/test_bug.py",
+			Kind: "patch",
+		}},
+		LocalizationReview: &SourceLocalizationReview{
+			Status:              SourceLocalizationSupported,
+			Source:              "write_plan_context",
+			PlanID:              "plan-source",
+			SourcePaths:         []string{"pkg/bug.py"},
+			SupportedPaths:      []string{"pkg/bug.py"},
+			OwnerSupportedPaths: []string{"pkg/bug.py"},
+			Anchors: []SourceLocalizationAnchor{{
+				Path:         "pkg/bug.py",
+				Role:         SourcePathRoleProduction,
+				Kind:         SourceLocalizationAnchorGroundedEvidence,
+				Strength:     SourceLocalizationAnchorOwner,
+				OwnerSymbol:  "BugOwner",
+				AnchorSymbol: "BugOwner.fix",
+			}},
+		},
+	}
+
+	got := BuildWriteFinalReport(WriteFinalReportInput{
+		Run: &WriteWorkflowRun{
+			RunID:  "run-primary-source",
+			Status: WriteWorkflowRunComplete,
+		},
+		Plan:              terminalPlan,
+		PrimarySourcePlan: sourcePlan,
+		Report: &ChangeReport{
+			PlanID:             "plan-proof",
+			Passed:             true,
+			VerificationStatus: VerificationStatusPassed,
+		},
+		Delivery: WriteFinalDeliverySummary{
+			Status:              "coherent",
+			Relation:            "source_plan_with_later_test_followup",
+			FinalPlanID:         "plan-proof",
+			ReportPlanID:        "plan-proof",
+			PrimarySourcePlanID: "plan-source",
+			SourceOwnerPlanIDs:  []string{"plan-source"},
+			SourcePaths:         []string{"pkg/bug.py"},
+			TestPaths:           []string{"tests/test_bug.py"},
+			FinalPlanTestOnly:   true,
+		},
+	})
+
+	if got.Plan.ID != "plan-proof" || len(got.Plan.SourcePaths) != 0 {
+		t.Fatalf("terminal plan summary = %+v, want test-only proof plan", got.Plan)
+	}
+	if got.SourceAuthority.PlanID != "plan-source" ||
+		strings.Join(got.SourceAuthority.SourcePaths, ",") != "pkg/bug.py" {
+		t.Fatalf("SourceAuthority=%+v, want primary source plan path", got.SourceAuthority)
+	}
+	if got.SourceAuthority.Localization == nil ||
+		got.SourceAuthority.Localization.Status != SourceLocalizationSupported ||
+		strings.Join(got.SourceAuthority.Localization.OwnerSupportedPaths, ",") != "pkg/bug.py" {
+		t.Fatalf("SourceAuthority.Localization=%+v, want supported owner localization", got.SourceAuthority.Localization)
+	}
+	if len(got.SourceAuthority.OwnerAnchors) == 0 || got.SourceAuthority.OwnerAnchors[0].OwnerSymbol != "BugOwner" {
+		t.Fatalf("SourceAuthority.OwnerAnchors=%+v, want source owner anchor", got.SourceAuthority.OwnerAnchors)
+	}
+}
+
 func TestBuildWriteFinalReportProjectsOwnerAnchorGaps(t *testing.T) {
 	report := BuildWriteFinalReport(WriteFinalReportInput{
 		Run: &WriteWorkflowRun{
