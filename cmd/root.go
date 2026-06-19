@@ -504,6 +504,13 @@ type appContext struct {
 	planGroupStore        *repl.PlanGroupStore
 	writeWorkflowRunStore *repl.WriteWorkflowRunStore
 	operationPendingStore *repl.OperationPendingStore
+
+	// planDir is the resolved codrax.yaml write_plan_dir override
+	// (absolute; empty when unset). It is the directory plan/workflow
+	// artifacts are written to, shared by single-shot writePlanFile and
+	// the REPL stores via resolvePlanDirRoot. Empty falls back to
+	// <runtime-anchor>/plans.
+	planDir string
 }
 
 var app appContext
@@ -1446,19 +1453,45 @@ func oneLineForLog(s string) string {
 // JSON format is compact-with-indent for readability — operators
 // inspecting a plan by hand see structured output, not a single line.
 // Day 6 REPL PlanStore will reuse this helper for sticky-plan persistence.
+// resolveConfiguredPlanDir maps the codrax.yaml write_plan_dir value to an
+// absolute directory: empty → "" (caller uses the default), absolute →
+// verbatim, relative → under the runtime anchor. Pure + unit-testable;
+// initApp stores the result on app.planDir.
+func resolveConfiguredPlanDir(writePlanDir, runtimeAnchor string) string {
+	dir := strings.TrimSpace(writePlanDir)
+	if dir == "" {
+		return ""
+	}
+	if filepath.IsAbs(dir) {
+		return dir
+	}
+	return filepath.Join(runtimeAnchor, dir)
+}
+
+// resolvePlanDirRoot returns the directory plan artifacts are written to:
+// the codrax.yaml write_plan_dir override (app.planDir) when set,
+// otherwise <runtime-anchor>/plans. Single source of truth for both the
+// single-shot writePlanFile path and the REPL stores.
+func resolvePlanDirRoot(runtimeAnchor string) string {
+	if dir := strings.TrimSpace(app.planDir); dir != "" {
+		return dir
+	}
+	return filepath.Join(runtimeAnchor, "plans")
+}
+
 func writePlanFile(plan *types.ChangePlan) (string, error) {
 	if plan == nil {
 		return "", fmt.Errorf("writePlanFile: nil plan")
 	}
 	targetPath := strings.TrimSpace(flagPlanOut)
 	if targetPath == "" {
-		// Default: <runtime-anchor>/plans/<id>.json. The
+		// Default: <write_plan_dir or runtime-anchor/plans>/<id>.json. The
 		// runtime-anchor was already absolutised at initApp entry.
 		runtimeAnchor := runtimeAnchorDir
 		if abs, err := filepath.Abs(runtimeAnchor); err == nil {
 			runtimeAnchor = abs
 		}
-		targetPath = filepath.Join(runtimeAnchor, "plans", plan.ID+".json")
+		targetPath = filepath.Join(resolvePlanDirRoot(runtimeAnchor), plan.ID+".json")
 	}
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return "", fmt.Errorf("mkdir %s: %w", filepath.Dir(targetPath), err)
@@ -1484,7 +1517,7 @@ func newRuntimeStores(runtimeAnchor string) runtimeStores {
 	if strings.TrimSpace(runtimeAnchor) == "" {
 		runtimeAnchor = runtimeAnchorDir
 	}
-	planDir := filepath.Join(runtimeAnchor, "plans")
+	planDir := resolvePlanDirRoot(runtimeAnchor)
 	return runtimeStores{
 		PlanStore:             repl.NewPlanStore(planDir),
 		PlanGroupStore:        repl.NewPlanGroupStore(planDir),
@@ -1789,6 +1822,17 @@ func initApp(cmd *cobra.Command, args []string) error {
 				disabled := false
 				rs.WriteEnabled = &disabled
 			}
+		}
+		// write_plan_dir: where plan/workflow JSON artifacts are written.
+		// Resolve once here (absolute verbatim, relative under the runtime
+		// anchor) so writePlanFile and the REPL stores honour the override
+		// instead of always landing in .codrax/plans/.
+		if rs.WritePlanDir != nil {
+			anchor := runtimeAnchorDir
+			if abs, err := filepath.Abs(anchor); err == nil {
+				anchor = abs
+			}
+			app.planDir = resolveConfiguredPlanDir(*rs.WritePlanDir, anchor)
 		}
 		// log_triage_source_prefix mirrors the --log-source-prefix CLI
 		// flag for users who prefer persistent config. The CLI flag
