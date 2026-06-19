@@ -10,6 +10,35 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// TestPatchReviewHardEventCodesAreParserPrecise pins the hard-block set
+// to exactly the parser/IO/path-confirmed codes. The project red line is
+// "precise signals for hard gates, noisy signals for soft guidance": a
+// regex or single-line source-shape heuristic must NEVER hard-block a
+// batch (it false-rejects idiomatic-but-fine patches and burns the write
+// retry budget to Blocked). This guard fails loudly if a future code is
+// added to patchReviewEffectHardEventCodes, forcing the author to either
+// prove it is parser-precise or route it through the soft advisory lane.
+func TestPatchReviewHardEventCodesAreParserPrecise(t *testing.T) {
+	want := map[string]bool{
+		"patch_effect_path_outside_worktree": true,
+		"structured_file_missing":            true,
+		"structured_file_parse_error":        true,
+	}
+	if len(patchReviewEffectHardEventCodes) != len(want) {
+		t.Fatalf("hard event code set changed: got %v, want exactly %v — a hard gate must read a parser/IO/path-confirmed fact, not a regex/heuristic; demote noisy codes to patchReviewEffectSoftEventCodes", patchReviewEffectHardEventCodes, want)
+	}
+	for code := range want {
+		if !patchReviewEffectHardEventCodes[code] {
+			t.Errorf("expected parser-precise hard code %q missing from hard set", code)
+		}
+	}
+	for code := range patchReviewEffectHardEventCodes {
+		if !want[code] {
+			t.Errorf("non-parser-precise code %q must not hard-block (precise-signals red line); demote it to the soft advisory lane", code)
+		}
+	}
+}
+
 func TestPatchEffectRecordFromUnifiedDiffParsesCommitPatch(t *testing.T) {
 	diff := `commit abc123
 Author: Codrax <codrax@example.invalid>
@@ -130,7 +159,7 @@ func TestAnnotatePatchEffectStructuredFileParsesInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestAnnotatePatchEffectPythonTopLevelSelfMethodHardBlocks(t *testing.T) {
+func TestAnnotatePatchEffectPythonTopLevelSelfMethodIsSoftAdvisory(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
 		t.Fatal(err)
@@ -164,12 +193,18 @@ func TestAnnotatePatchEffectPythonTopLevelSelfMethodHardBlocks(t *testing.T) {
 		TargetPaths: []string{"pkg/axis.py"},
 		PatchEffect: &record,
 	}, types.ChangePlanSlice{})
-	if !review.HardBlock || !patchReviewHasFinding(review, "python_top_level_self_method") {
-		t.Fatalf("python top-level self method should hard block review: %+v", review)
+	if review.HardBlock {
+		t.Fatalf("python top-level self method is a regex heuristic and must NOT hard block (precise-signals red line): %+v", review)
+	}
+	finding := patchReviewFindingByCode(review, "python_top_level_self_method")
+	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
+		t.Fatalf("python top-level self method should be a soft semantic-coverage advisory: %+v", finding)
 	}
 }
 
-func TestAnnotatePatchEffectPythonDuplicateSymbolHardBlocks(t *testing.T) {
+func TestAnnotatePatchEffectPythonDuplicateSymbolIsSoftAdvisory(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "sympy/tensor/array"), 0o755); err != nil {
 		t.Fatal(err)
@@ -204,12 +239,18 @@ func TestAnnotatePatchEffectPythonDuplicateSymbolHardBlocks(t *testing.T) {
 		TargetPaths: []string{"sympy/tensor/array/ndim_array.py"},
 		PatchEffect: &record,
 	}, types.ChangePlanSlice{})
-	if !review.HardBlock || !patchReviewHasFinding(review, "python_duplicate_symbol_added") {
-		t.Fatalf("python duplicate symbol should hard block review: %+v", review)
+	if review.HardBlock {
+		t.Fatalf("python duplicate symbol is a decorator-blind regex heuristic and must NOT hard block (precise-signals red line; @property/@setter/@overload pairs are legitimate): %+v", review)
+	}
+	finding := patchReviewFindingByCode(review, "python_duplicate_symbol_added")
+	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
+		t.Fatalf("python duplicate symbol should be a soft semantic-coverage advisory: %+v", finding)
 	}
 }
 
-func TestAnnotatePatchEffectPythonAddedReturnBeforeExistingBodyHardBlocks(t *testing.T) {
+func TestAnnotatePatchEffectPythonAddedReturnBeforeExistingBodyIsSoftAdvisory(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
 		t.Fatal(err)
@@ -251,8 +292,14 @@ func TestAnnotatePatchEffectPythonAddedReturnBeforeExistingBodyHardBlocks(t *tes
 		TargetPaths: []string{"pkg/field.py"},
 		PatchEffect: &record,
 	}, types.ChangePlanSlice{})
-	if !review.HardBlock || !patchReviewHasFinding(review, "python_unreachable_body_after_added_return") {
-		t.Fatalf("unreachable body after added return should hard block review: %+v", review)
+	if review.HardBlock {
+		t.Fatalf("unreachable body after added return is an indentation heuristic and must NOT hard block (precise-signals red line): %+v", review)
+	}
+	finding := patchReviewFindingByCode(review, "python_unreachable_body_after_added_return")
+	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
+		t.Fatalf("unreachable body after added return should be a soft semantic-coverage advisory: %+v", finding)
 	}
 }
 
@@ -289,7 +336,7 @@ func TestAnnotatePatchEffectPythonNestedReturnDoesNotMarkFollowingFunctionBodyUn
 	}
 }
 
-func TestAnnotatePatchEffectPythonDocstringSectionExecutableHardBlocks(t *testing.T) {
+func TestAnnotatePatchEffectPythonDocstringSectionExecutableIsSoftAdvisory(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "sympy/ntheory"), 0o755); err != nil {
 		t.Fatal(err)
@@ -341,8 +388,14 @@ func TestAnnotatePatchEffectPythonDocstringSectionExecutableHardBlocks(t *testin
 		TargetPaths: []string{"sympy/ntheory/residue_ntheory.py"},
 		PatchEffect: &record,
 	}, types.ChangePlanSlice{})
-	if !review.HardBlock || !patchReviewHasFinding(review, "python_docstring_section_executable_added") {
-		t.Fatalf("docstring executable section should hard block review: %+v", review)
+	if review.HardBlock {
+		t.Fatalf("docstring executable section is a line-shape heuristic and must NOT hard block (precise-signals red line): %+v", review)
+	}
+	finding := patchReviewFindingByCode(review, "python_docstring_section_executable_added")
+	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
+		t.Fatalf("docstring executable section should be a soft semantic-coverage advisory: %+v", finding)
 	}
 }
 
@@ -386,7 +439,7 @@ func TestAnnotatePatchEffectPythonDocstringCodeExampleDoesNotHardBlock(t *testin
 	}
 }
 
-func TestAnnotatePatchEffectDuplicateInsertedBlockHardBlocks(t *testing.T) {
+func TestAnnotatePatchEffectDuplicateInsertedBlockIsSoftAdvisory(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "sympy/ntheory"), 0o755); err != nil {
 		t.Fatal(err)
@@ -442,8 +495,14 @@ func TestAnnotatePatchEffectDuplicateInsertedBlockHardBlocks(t *testing.T) {
 		TargetPaths: []string{"sympy/ntheory/residue_ntheory.py"},
 		PatchEffect: &record,
 	}, types.ChangePlanSlice{})
-	if !review.HardBlock || !patchReviewHasFinding(review, "duplicate_inserted_block_added") {
-		t.Fatalf("duplicate inserted block should hard block review: %+v", review)
+	if review.HardBlock {
+		t.Fatalf("duplicate inserted block is an exact-text heuristic and must NOT hard block (precise-signals red line; repeated case arms / builder chains are legitimate): %+v", review)
+	}
+	finding := patchReviewFindingByCode(review, "duplicate_inserted_block_added")
+	if finding.Category != types.PatchReviewCategorySemanticCoverage ||
+		finding.CoverageStatus != types.PatchReviewCoverageUnknown ||
+		finding.ImpactKind != types.PatchReviewImpactKindEffectFollowup {
+		t.Fatalf("duplicate inserted block should be a soft semantic-coverage advisory: %+v", finding)
 	}
 }
 

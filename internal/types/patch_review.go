@@ -378,7 +378,15 @@ func patchReviewImpactKindForFinding(finding PatchReviewFinding) string {
 		"production_test_scaffold_added",
 		"python_nested_string_key_direct_access_added",
 		"ruby_nested_key_direct_access_added",
-		"typescript_nested_string_key_direct_access_added":
+		"typescript_nested_string_key_direct_access_added",
+		// Demoted-from-hard structural heuristics (now soft advisories)
+		// roll up as effect-followup so the repair queue still surfaces
+		// them for the LLM to confirm intent without hard-blocking.
+		"duplicate_inserted_block_added",
+		"python_docstring_section_executable_added",
+		"python_duplicate_symbol_added",
+		"python_top_level_self_method",
+		"python_unreachable_body_after_added_return":
 		return PatchReviewImpactKindEffectFollowup
 	default:
 		return ""

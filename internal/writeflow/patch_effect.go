@@ -608,7 +608,7 @@ func annotatePatchEffectPythonOwnerShape(file *types.PatchEffectFile, lines []st
 		if pythonTopLevelSelfMethodDefRE.MatchString(line) {
 			file.Events = append(file.Events, types.PatchEffectEvent{
 				Code:        "python_top_level_self_method",
-				Severity:    "error",
+				Severity:    "warning",
 				Path:        file.Path,
 				Message:     "added top-level Python function uses self/cls as its first parameter; this usually means a class method was de-indented out of its owner class",
 				EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
@@ -643,7 +643,7 @@ func appendPatchEffectPythonDocstringSectionExecutableEvent(file *types.PatchEff
 		}
 		file.Events = append(file.Events, types.PatchEffectEvent{
 			Code:        "python_docstring_section_executable_added",
-			Severity:    "error",
+			Severity:    "warning",
 			Path:        file.Path,
 			Message:     "added executable-looking Python statement inside a docstring section header region; move behavior changes into executable source code",
 			EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
@@ -768,7 +768,7 @@ func appendPatchEffectPythonUnreachableAfterAddedReturn(file *types.PatchEffectF
 		if nextIndent >= bodyIndent {
 			file.Events = append(file.Events, types.PatchEffectEvent{
 				Code:        "python_unreachable_body_after_added_return",
-				Severity:    "error",
+				Severity:    "warning",
 				Path:        file.Path,
 				Message:     "added Python function-body return leaves later statements in the same function unreachable; remove the stale body or place the return under a narrower guard",
 				EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
@@ -902,7 +902,7 @@ func appendPatchEffectDuplicateInsertedBlockEvent(file *types.PatchEffectFile, h
 			}
 			file.Events = append(file.Events, types.PatchEffectEvent{
 				Code:        "duplicate_inserted_block_added",
-				Severity:    "error",
+				Severity:    "warning",
 				Path:        file.Path,
 				Message:     fmt.Sprintf("added adjacent duplicate code block of %d nonblank lines; remove the repeated block or prove the duplication is intentional", size),
 				EvidenceRef: evidence,
@@ -976,7 +976,7 @@ func annotatePatchEffectPythonDuplicateDeclarations(file *types.PatchEffectFile,
 		reported[decl.Key] = true
 		file.Events = append(file.Events, types.PatchEffectEvent{
 			Code:        "python_duplicate_symbol_added",
-			Severity:    "error",
+			Severity:    "warning",
 			Path:        file.Path,
 			Message:     fmt.Sprintf("added Python %s %q duplicates another declaration in owner scope %q", decl.Kind, decl.Name, decl.Owner),
 			EvidenceRef: fmt.Sprintf("%s:%d", file.Path, decl.Line),

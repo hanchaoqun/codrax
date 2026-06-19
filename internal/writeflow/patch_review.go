@@ -10,15 +10,20 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// patchReviewEffectHardEventCodes are the ONLY effect codes allowed to
+// hard-block a batch (forced replan / Blocked). Per the project red line
+// ("precise signals for hard gates, noisy signals for soft guidance")
+// every member MUST be a parser/IO/path-confirmed FACT, never a regex or
+// single-line source-shape heuristic — a noisy signal driving a hard
+// block false-rejects idiomatic-but-fine patches (e.g. @property/@setter
+// pairs, @overload stubs, module-level functions whose first arg is
+// named self). Regex/heuristic structural codes are SOFT advisories
+// instead (see patchReviewEffectSoftEventCodes). TestPatchReviewHard...
+// ParserPrecise pins this set so a future code cannot silently rejoin it.
 var patchReviewEffectHardEventCodes = map[string]bool{
-	"duplicate_inserted_block_added":             true,
-	"patch_effect_path_outside_worktree":         true,
-	"python_docstring_section_executable_added":  true,
-	"python_duplicate_symbol_added":              true,
-	"python_top_level_self_method":               true,
-	"python_unreachable_body_after_added_return": true,
-	"structured_file_missing":                    true,
-	"structured_file_parse_error":                true,
+	"patch_effect_path_outside_worktree": true, // filesystem path-containment (IO/path fact)
+	"structured_file_missing":            true, // real os.ReadFile error (IO fact)
+	"structured_file_parse_error":        true, // real json/yaml/xml parser error (parser fact)
 }
 
 var patchReviewEffectSoftEventCodes = map[string]bool{
@@ -40,6 +45,15 @@ var patchReviewEffectSoftEventCodes = map[string]bool{
 	"python_nested_string_key_direct_access_added":     true,
 	"ruby_nested_key_direct_access_added":              true,
 	"typescript_nested_string_key_direct_access_added": true,
+	// Demoted from hard to soft: these are regex / single-line
+	// source-shape heuristics, not parser-confirmed facts, so they may
+	// only advise (they still surface to the LLM as effect-followup
+	// repair guidance via the unknown-coverage map below).
+	"duplicate_inserted_block_added":             true,
+	"python_docstring_section_executable_added":  true,
+	"python_duplicate_symbol_added":              true,
+	"python_top_level_self_method":               true,
+	"python_unreachable_body_after_added_return": true,
 }
 
 var patchReviewEffectUnknownCoverageEventCodes = map[string]bool{
@@ -58,6 +72,14 @@ var patchReviewEffectUnknownCoverageEventCodes = map[string]bool{
 	"python_nested_string_key_direct_access_added":     true,
 	"ruby_nested_key_direct_access_added":              true,
 	"typescript_nested_string_key_direct_access_added": true,
+	// Demoted-to-soft structural heuristics carry Unknown coverage so the
+	// repair queue still raises an effect-followup for the LLM to confirm
+	// the change is intentional, without hard-blocking the batch.
+	"duplicate_inserted_block_added":             true,
+	"python_docstring_section_executable_added":  true,
+	"python_duplicate_symbol_added":              true,
+	"python_top_level_self_method":               true,
+	"python_unreachable_body_after_added_return": true,
 }
 
 const patchReviewMaxSemanticFindings = 32
