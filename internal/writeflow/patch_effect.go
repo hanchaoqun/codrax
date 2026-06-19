@@ -49,6 +49,7 @@ var (
 	rubyTestScaffoldDeclarationRE       = regexp.MustCompile(`^\s*(?:class\s+[A-Za-z_:][A-Za-z0-9_:]*(?:Test|Tests)\b|def\s+test_[A-Za-z0-9_!?=]*\b)`)
 	sourceReturnStatementRE             = regexp.MustCompile(`^\s*return\s+(.+?)\s*;?\s*$`)
 	sourceConditionalGuardLineRE        = regexp.MustCompile(`^\s*(?:if|elif|else\s+if|unless)\b`)
+	braceReturnStatementRE              = regexp.MustCompile(`^\s*return\b.*;?\s*$`)
 	pythonDiagnosticCallRE              = regexp.MustCompile(`\b(?:warnings\.)?(?:warn|warning)\s*\(`)
 	jsDiagnosticCallRE                  = regexp.MustCompile(`\b(?:console|logger|log)\.(?:warn|warning|error)\s*\(`)
 	jvmDiagnosticCallRE                 = regexp.MustCompile(`\b(?:logger|log)\.(?:warn|warning|error)\s*\(`)
@@ -140,6 +141,7 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			ExclusionAction:  jsBranchExclusionActionRE,
 			ValidationSignal: sourceValidationSignalRE,
 		},
+		AnnotateHunk: annotatePatchEffectBraceReturnShape,
 	},
 	{
 		Kind:       "typescript",
@@ -165,6 +167,7 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			ExclusionAction:  jsBranchExclusionActionRE,
 			ValidationSignal: sourceValidationSignalRE,
 		},
+		AnnotateHunk: annotatePatchEffectBraceReturnShape,
 	},
 	{
 		Kind:       "ruby",
@@ -215,6 +218,7 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			ExclusionAction:  jvmBranchExclusionActionRE,
 			ValidationSignal: sourceValidationSignalRE,
 		},
+		AnnotateHunk: annotatePatchEffectBraceReturnShape,
 	},
 	{
 		Kind:       "kotlin",
@@ -240,6 +244,7 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			ExclusionAction:  jvmBranchExclusionActionRE,
 			ValidationSignal: sourceValidationSignalRE,
 		},
+		AnnotateHunk: annotatePatchEffectBraceReturnShape,
 	},
 	{
 		Kind:       "go",
@@ -262,6 +267,7 @@ var patchEffectSourceProviders = []patchEffectSourceProvider{
 			ExclusionAction:  goBranchExclusionActionRE,
 			ValidationSignal: sourceValidationSignalRE,
 		},
+		AnnotateHunk: annotatePatchEffectBraceReturnShape,
 	},
 }
 
@@ -770,6 +776,62 @@ func appendPatchEffectPythonUnreachableAfterAddedReturn(file *types.PatchEffectF
 			return
 		}
 	}
+}
+
+func annotatePatchEffectBraceReturnShape(file *types.PatchEffectFile, lines []string, hunk types.PatchEffectHunk) {
+	for _, lineNo := range hunk.AddedLineNumbers {
+		appendPatchEffectBraceReturnBeforeExistingStatementEvent(file, lines, lineNo)
+	}
+}
+
+func appendPatchEffectBraceReturnBeforeExistingStatementEvent(file *types.PatchEffectFile, lines []string, lineNo int) {
+	if file == nil || lineNo <= 0 || lineNo > len(lines) {
+		return
+	}
+	line := lines[lineNo-1]
+	if !braceReturnStatementRE.MatchString(line) {
+		return
+	}
+	lineDepth := patchEffectBraceDepthBefore(lines, lineNo-1)
+	if lineDepth <= 0 {
+		return
+	}
+	for idx := lineNo; idx < len(lines); idx++ {
+		next := strings.TrimSpace(lines[idx])
+		if next == "" || strings.HasPrefix(next, "//") || strings.HasPrefix(next, "/*") || strings.HasPrefix(next, "*") {
+			continue
+		}
+		nextDepth := patchEffectBraceDepthBefore(lines, idx)
+		if nextDepth < lineDepth || strings.HasPrefix(next, "}") {
+			return
+		}
+		file.Events = append(file.Events, types.PatchEffectEvent{
+			Code:        "brace_return_before_existing_statement_added",
+			Severity:    "warning",
+			Path:        file.Path,
+			Message:     "added return in a brace-delimited block leaves later statements in the same block; verify the control-flow change or remove stale code",
+			EvidenceRef: fmt.Sprintf("%s:%d", file.Path, lineNo),
+		})
+		return
+	}
+}
+
+func patchEffectBraceDepthBefore(lines []string, lineIndex int) int {
+	depth := 0
+	for i := 0; i < lineIndex && i < len(lines); i++ {
+		for _, r := range lines[i] {
+			switch r {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth < 0 {
+					depth = 0
+				}
+			}
+		}
+	}
+	return depth
 }
 
 func pythonPatchEffectFunctionBodyIndent(lines []string, lineNo, lineIndent int) (int, int, bool) {

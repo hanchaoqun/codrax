@@ -22,6 +22,7 @@ var patchReviewEffectHardEventCodes = map[string]bool{
 }
 
 var patchReviewEffectSoftEventCodes = map[string]bool{
+	"brace_return_before_existing_statement_added":     true,
 	"caller_return_shape_adapter_added":                true,
 	"control_flow_guard_touched":                       true,
 	"call_site_touched":                                true,
@@ -42,6 +43,7 @@ var patchReviewEffectSoftEventCodes = map[string]bool{
 }
 
 var patchReviewEffectUnknownCoverageEventCodes = map[string]bool{
+	"brace_return_before_existing_statement_added":     true,
 	"caller_return_shape_adapter_added":                true,
 	"diagnostic_signal_conditionally_suppressed":       true,
 	"external_private_state_sync_workaround":           true,

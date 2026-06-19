@@ -8786,7 +8786,7 @@ Audit ledger:
 | P0 | Read/write structural owner localization | The Xarray failure was Python-triggered, but the class of bug is multiline declaration owner extraction. It affects read-mode owner-anchor supplements and write-mode apply authority. Go/Ruby already had coverage for common multiline headers; brace languages could degrade `Class.method` to class-only owner. | RC132 fixes this in shared `sourceowner` and adds Python/Go/Ruby/brace-language regressions. |
 | P0 | Verification probe failure attribution | Python probes have richer import/startup diagnostics and traceback-to-changed-line attribution (`verification_probe_exception_outside_changed_lines`). JS/Ruby/Go/Java probes use the shared runtime matrix but do not yet have equivalent provider-level stack-frame attribution or import-detail diagnostics. | RC133 starts the provider-level closure: JS/Ruby/Go now get precise stack-frame changed-line attribution, inline probes emit structured diagnostics, and Java remains conservative when stack frames lack repo paths. |
 | P1 | No-test/source-check verification | The original Python static preflight has already been generalized into `sourceCheckProviderRegistry` for Python, Node JS/TS, Ruby, Go, Java/Kotlin, and Swift. | Closed for these families. Remaining gap: supported languages without providers (for example Rust/C/C++/ArkTS/Cangjie) should be evaluated before claiming full multi-language source-check coverage. |
-| P1 | Patch-effect semantic shape review | Several Python-triggered shape checks were generalized through `patchEffectSourceProviders` across JS/TS, Ruby, JVM, and Go. However Python still has extra hard owner/body-shape events: top-level `self/cls`, executable-looking docstring insertion, duplicate declaration, and unreachable body after added return. | Record as RC134 candidate: move language-specific hard shape rules behind provider capabilities and add analogous JS/TS/Ruby/Go/JVM regressions where structural parsing is reliable. |
+| P1 | Patch-effect semantic shape review | Several Python-triggered shape checks were generalized through `patchEffectSourceProviders` across JS/TS, Ruby, JVM, and Go. However Python still has extra hard owner/body-shape events: top-level `self/cls`, executable-looking docstring insertion, duplicate declaration, and unreachable body after added return. | RC134 adds a cross-language brace return-before-existing-statement provider signal as soft/unknown coverage; Python-only hard rules remain hard only where indentation/docstring signals are precise. |
 | P1 | Test-surface fallback UX | Python has a synthetic stdlib `unittest` candidate so missing pytest does not dead-end verification. Other ecosystems use typed detectors/source-check fallbacks, but Node built-in `node --test`, Ruby stdlib minitest, and Cargo/Gradle/Maven equivalent fallback semantics are not yet audited as a unified provider policy. | Record as RC135 candidate: add a typed test-surface fallback policy matrix; keep missing toolchains as `unverified`, not hard source failures. |
 | P2 | SWE-bench environment preparation | `eval/swebench` Python env prep, pyproject parsing, and pytest installation are intentionally Python-specific because SWE-bench Lite is Python-centric. | Keep scoped to the eval adapter. If a future non-Python benchmark adapter is added, introduce an eval-environment provider interface rather than leaking Python env logic into core write mode. |
 | P2 | Framework selector normalizers | Django selector fixes are Python-framework-specific. Core impact selector code already covers Node, Java/Kotlin, Rust, and Swift paths in provider-style selectors. | No immediate core change; keep future framework-specific selector normalization in typed provider tables. |
@@ -8940,6 +8940,48 @@ RC133 focused evidence:
 
 - `go test ./internal/tool -run 'TestInlineVerificationProbe|TestPythonVerificationProbeTracebackAttribution|TestRunPlanVerificationProbeExceptionOutsideChangedLinesIsUnavailable|TestVerificationDiagnosticsPreserveProbeAndSuiteSignals|Test.*VerificationProbe' -count=1`: pass.
 - `go test ./internal/tool ./internal/writeflow ./internal/types -run 'Test.*VerificationProbe|TestObservationAuthority|TestVerificationConfidence|TestChangePlanScore|TestWriteFinalReport|TestInlineVerificationProbe' -count=1`: pass.
+- `go test ./...`: pass.
+- `make test`: pass.
+- `git diff --check`: pass.
+
+## 2026-06-19 RC134 In Progress: Patch-effect Shape Review Language Boundary
+
+Gap:
+
+- Recent hard patch-effect fixes were Python-triggered. Some were already
+  generalized through `patchEffectSourceProviders`, but the remaining Python
+  hard events could be misread as "only Python receives patch-shape scrutiny".
+- Directly copying Python hard blockers to JS/TS/JVM/Go would be unsafe: the
+  current patch-effect layer does not own AST parsers for every language, so a
+  brace-depth line scanner is not precise enough for a hard gate.
+- There is still a real cross-language shape signal: adding `return` before
+  existing statements in the same brace-delimited block is suspicious and
+  should create typed proof/coverage pressure instead of being invisible.
+
+Design:
+
+- Preserve the red line: Python indentation/docstring hard blockers stay hard
+  because they consume precise language-local structure. Brace-language
+  return-before-statement is emitted as `severity=warning` and
+  semantic-coverage `unknown`, not as a hard block.
+- Reuse the existing provider hook (`AnnotateHunk`) so JS/TS/Java/Kotlin/Go
+  get the same typed event without adding prompt rules or user-keyword logic.
+- Guard returns at the end of an `if` block do not emit the event; the signal
+  only fires when the next non-comment line remains in the same brace block.
+
+Tasks:
+
+- [x] Add `brace_return_before_existing_statement_added` to JS/TS/Java/Kotlin/Go
+      provider hunk annotation.
+- [x] Classify the event as soft semantic-coverage unknown in PatchReview.
+- [x] Add cross-provider regressions for JS, TS, Java, and Go.
+- [x] Add a negative regression for guard-return block endings.
+- [x] Run related/full regression and push.
+
+RC134 focused evidence:
+
+- `go test ./internal/writeflow -run 'TestAnnotatePatchEffectBrace|TestPatchEffectSourceProviderRegistryCoverage|TestPatchEffectOwnerBoundaryEventsRequireCoverage|TestAnnotatePatchEffectPython' -count=1`: pass.
+- `go test ./internal/writeflow ./internal/types ./internal/orchestrator -run 'Test.*PatchEffect|Test.*PatchReview|TestObservationAuthority|TestRunController' -count=1`: pass.
 - `go test ./...`: pass.
 - `make test`: pass.
 - `git diff --check`: pass.

@@ -1042,6 +1042,189 @@ func TestAnnotatePatchEffectMultiLanguageLineShapeWarnings(t *testing.T) {
 	}
 }
 
+func TestAnnotatePatchEffectBraceReturnBeforeExistingStatementWarnsAcrossProviders(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		text string
+		diff string
+	}{
+		{
+			name: "javascript",
+			path: "src/render.js",
+			text: strings.Join([]string{
+				"function render(value) {",
+				"  return value;",
+				"  compute(value);",
+				"}",
+				"",
+			}, "\n"),
+			diff: strings.Join([]string{
+				"diff --git a/src/render.js b/src/render.js",
+				"--- a/src/render.js",
+				"+++ b/src/render.js",
+				"@@ -1,3 +1,4 @@",
+				" function render(value) {",
+				"+  return value;",
+				"   compute(value);",
+				" }",
+				"",
+			}, "\n"),
+		},
+		{
+			name: "typescript",
+			path: "src/render.ts",
+			text: strings.Join([]string{
+				"export function render(value: string) {",
+				"  return value;",
+				"  compute(value);",
+				"}",
+				"",
+			}, "\n"),
+			diff: strings.Join([]string{
+				"diff --git a/src/render.ts b/src/render.ts",
+				"--- a/src/render.ts",
+				"+++ b/src/render.ts",
+				"@@ -1,3 +1,4 @@",
+				" export function render(value: string) {",
+				"+  return value;",
+				"   compute(value);",
+				" }",
+				"",
+			}, "\n"),
+		},
+		{
+			name: "java",
+			path: "src/main/java/Widget.java",
+			text: strings.Join([]string{
+				"class Widget {",
+				"  String render(String value) {",
+				"    return value;",
+				"    compute(value);",
+				"  }",
+				"}",
+				"",
+			}, "\n"),
+			diff: strings.Join([]string{
+				"diff --git a/src/main/java/Widget.java b/src/main/java/Widget.java",
+				"--- a/src/main/java/Widget.java",
+				"+++ b/src/main/java/Widget.java",
+				"@@ -1,5 +1,6 @@",
+				" class Widget {",
+				"   String render(String value) {",
+				"+    return value;",
+				"     compute(value);",
+				"   }",
+				" }",
+				"",
+			}, "\n"),
+		},
+		{
+			name: "go",
+			path: "pkg/render.go",
+			text: strings.Join([]string{
+				"package p",
+				"",
+				"func Render(value string) string {",
+				"  return value",
+				"  compute(value)",
+				"}",
+				"",
+			}, "\n"),
+			diff: strings.Join([]string{
+				"diff --git a/pkg/render.go b/pkg/render.go",
+				"--- a/pkg/render.go",
+				"+++ b/pkg/render.go",
+				"@@ -1,5 +1,6 @@",
+				" package p",
+				" ",
+				" func Render(value string) string {",
+				"+  return value",
+				"   compute(value)",
+				" }",
+				"",
+			}, "\n"),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			abs := filepath.Join(root, filepath.FromSlash(tc.path))
+			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(abs, []byte(tc.text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", tc.diff)
+			AnnotatePatchEffectStructuredFileParses(&record, root)
+			file := findPatchEffectFile(record, tc.path)
+			if file == nil {
+				t.Fatalf("patch effect file missing: %+v", record.Files)
+			}
+			if !patchEffectHasEvent(*file, "brace_return_before_existing_statement_added") {
+				t.Fatalf("brace return event missing: %+v", file.Events)
+			}
+			review := ReviewAppliedPatchScope(&types.ChangePlan{
+				ID:          "plan-1",
+				Status:      types.PlanStatusAppliedPendingVerify,
+				TargetPaths: []string{tc.path},
+				PatchEffect: &record,
+			}, types.ChangePlanSlice{})
+			if review.HardBlock {
+				t.Fatalf("brace return signal is soft coverage, not a hard block: %+v", review)
+			}
+			finding := patchReviewFindingByCode(review, "brace_return_before_existing_statement_added")
+			if finding.Category != types.PatchReviewCategorySemanticCoverage || finding.CoverageStatus != types.PatchReviewCoverageUnknown {
+				t.Fatalf("brace return finding should be semantic coverage unknown: %+v", finding)
+			}
+		})
+	}
+}
+
+func TestAnnotatePatchEffectBraceGuardReturnDoesNotWarn(t *testing.T) {
+	root := t.TempDir()
+	path := "src/render.js"
+	text := strings.Join([]string{
+		"function render(value) {",
+		"  if (!value) {",
+		"    return value;",
+		"  }",
+		"  compute(value);",
+		"}",
+		"",
+	}, "\n")
+	abs := filepath.Join(root, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := strings.Join([]string{
+		"diff --git a/src/render.js b/src/render.js",
+		"--- a/src/render.js",
+		"+++ b/src/render.js",
+		"@@ -1,5 +1,6 @@",
+		" function render(value) {",
+		"   if (!value) {",
+		"+    return value;",
+		"   }",
+		"   compute(value);",
+		" }",
+		"",
+	}, "\n")
+	record := PatchEffectRecordFromUnifiedDiff("plan-1", "slice-1", "applied_commit", "HEAD^", "abc123", diff)
+	AnnotatePatchEffectStructuredFileParses(&record, root)
+	file := findPatchEffectFile(record, path)
+	if file == nil {
+		t.Fatalf("patch effect file missing: %+v", record.Files)
+	}
+	if patchEffectHasEvent(*file, "brace_return_before_existing_statement_added") {
+		t.Fatalf("guard return at block end should not emit brace return event: %+v", file.Events)
+	}
+}
+
 func TestPatchEffectSourceProviderRegistryCoverage(t *testing.T) {
 	wantKinds := map[string]string{
 		"pkg/widget.py":              "python",
@@ -1114,6 +1297,7 @@ func TestPatchEffectSourceProviderRegistryCoverage(t *testing.T) {
 
 func TestPatchEffectOwnerBoundaryEventsRequireCoverage(t *testing.T) {
 	for _, code := range []string{
+		"brace_return_before_existing_statement_added",
 		"caller_return_shape_adapter_added",
 		"diagnostic_signal_conditionally_suppressed",
 		"external_private_state_sync_workaround",
