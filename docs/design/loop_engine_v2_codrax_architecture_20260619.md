@@ -1418,7 +1418,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 - [x] Move verifier default-`run_tests` parameter policy behind the shared effect profile without weakening the current schema restriction.
 - [x] Emit/persist permission events for runtime-unit effect descriptions, not just final plan approval.
 - [x] Cache high-risk approvals by effect fingerprint and scope.
-- [ ] Add effect-profile coverage for worker roles as L8 workers land.
+- [x] Add effect-profile coverage for worker roles as L8 workers land.
 
 ### L6 Task Breakdown
 
@@ -1447,10 +1447,12 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 
 ### L8 Task Breakdown
 
-- Register scoped read-only evidence workers.
-- Return typed artifacts and compact refs only.
-- Keep mutation kernel-owned.
-- Add worker budgets, scope validation, and reduction tests.
+- [x] Define scoped read-only evidence worker contracts.
+- [x] Return typed artifact refs and compact evidence refs only.
+- [x] Keep mutation kernel-owned through shared effect-profile validation.
+- [x] Add worker budgets, scope validation, and contract tests.
+- [ ] Register concrete Localizer / ImpactAnalyzer / PatchCritic / ProofAuditor / FailureAnalyzer producers.
+- [ ] Add worker reduction tests once concrete producers land.
 
 ### L9 Task Breakdown
 
@@ -1528,6 +1530,8 @@ During each batch:
 | 2026-06-20 | L5 | in_progress | Moved planner/verifier `run_tests` parameter authority behind typed `RunTestsEffectDescriptor`: verifier default `{}` selection is now enforced by shared effect policy, planner dry-run probes are allowed only as typed `dry_run + verification_probe`, and agent repair output only maps effect reason codes to existing schema-repair hints. This preserves the current verifier schema restriction while reducing scattered tool policy logic. Focused `safety` and `agent` tests cover default verifier params, explicit verifier selector denial, planner typed dry-run allow, and missing-probe denial. Remaining L5 work: runtime-unit permission-event persistence, scoped approval cache, and worker-role effect envelopes as L8 lands. |
 | 2026-06-20 | L5 | in_progress | Added runtime-unit effect and permission event persistence through the existing workflow event store: `EventsFromWriteWorkflowRun` now emits typed `EffectEventPayload` with normalized `EffectDescriptor` and stable fingerprint for planned/applying/verifying units, followed by effect-derived permission authority. Pending approval still appends a stronger ask event, so replay preserves approval pauses. `safety.NormalizeEffectDescriptor` now detects `../` path escapes as external-directory effects. Focused `loopkernel` and `safety` tests cover ordinary allow, external path deny, and permission replay. Remaining L5 work: scoped approval cache and worker-role effect envelopes as L8 lands. |
 | 2026-06-20 | L5 | in_progress | Added scoped approval reuse: `WriteApprovalRecord` now carries `effect_fingerprint`, normalized `effect_scope`, and `effect_source`, all included in the record tamper hash. `writeflow.ApprovalEffectBinding` derives effect/scope from the active runtime unit or plan paths, and both REPL `/approve` and apply-pre approval records stamp the same fields. Manual approval reuse now requires matching plan fingerprint, effect fingerprint, and effect scope; changed plan/path/unit requires re-approval. Focused `types`/`writeflow`/`orchestrator`/`repl` tests passed. Remaining L5 work: worker-role effect envelopes as L8 lands. |
+| 2026-06-20 | L5 | complete | Finished the worker-role effect envelope by adding typed evidence-worker contracts that project every read-only worker request into `safety.EffectDescriptor` and fold through the shared allow/ask/deny policy. L5 now has one permission kernel for planner/verifier/coder/runtime units/approvals/workers. |
+| 2026-06-20 | L8.1 | complete | Added `internal/worker` typed `Request`/`Result` contracts, role-kind mapping, budgets, repo-relative scope normalization, input/output artifact refs, compact evidence refs, and validation. Completed worker results must carry typed artifact/evidence refs; blocked/failed results need typed reason codes; worker mutation requests are denied by the same safety policy; external-directory scope becomes a typed permission event instead of prompt prose. Focused `worker`/`safety` tests passed. |
 
 ## Phased Roadmap
 
