@@ -996,10 +996,22 @@ func TestPersistWriteWorkflowRunTerminalWritesFinalReport(t *testing.T) {
 			Source:     "verify_attempt",
 		},
 		Batches: []types.WriteWorkflowBatch{{
-			ID:        "batch-1",
-			Status:    types.WriteWorkflowBatchComplete,
-			PlanID:    "plan-final",
-			VerifyRef: "plan-final.report.json",
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchComplete,
+			PlanID:        "plan-final",
+			VerifyRef:     "plan-final.report.json",
+			ActiveSliceID: "slice-1",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:        "slice-1",
+				Status:    types.ChangePlanSliceVerified,
+				Paths:     []string{"src/app.py"},
+				VerifyRef: "plan-final.report.json",
+				Completion: &types.WriteWorkflowCompletion{
+					Verdict:    types.WriteWorkflowCompletionVerified,
+					ReasonCode: "tests_passed",
+					Source:     "verify_attempt",
+				},
+			}},
 			Completion: &types.WriteWorkflowCompletion{
 				Verdict:    types.WriteWorkflowCompletionVerified,
 				ReasonCode: "tests_passed",
@@ -1021,6 +1033,17 @@ func TestPersistWriteWorkflowRunTerminalWritesFinalReport(t *testing.T) {
 	}
 	if final.Completion == nil || final.Completion.Verdict != types.WriteWorkflowCompletionVerified {
 		t.Fatalf("final completion = %+v, want verified", final.Completion)
+	}
+	if final.Loop == nil || final.Loop.EventCount == 0 || len(final.Loop.EventRefs) == 0 {
+		t.Fatalf("final loop summary missing event refs: %+v", final.Loop)
+	}
+	if final.Loop.ActiveUnitID != "slice-1" || final.Loop.Truth.State != types.TruthLedgerCovered {
+		t.Fatalf("final loop authority = %+v, want active slice covered truth", final.Loop)
+	}
+	if len(final.Loop.RuntimeUnits) != 1 ||
+		final.Loop.RuntimeUnits[0].UnitID != "slice-1" ||
+		final.Loop.RuntimeUnits[0].Truth.State != types.TruthLedgerCovered {
+		t.Fatalf("final loop runtime units = %+v, want covered slice unit", final.Loop.RuntimeUnits)
 	}
 }
 

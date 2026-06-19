@@ -621,6 +621,33 @@ class FinalReportProjectionTests(unittest.TestCase):
                             {"fingerprint": "fp-2"},
                         ]
                     },
+                    "loop": {
+                        "status": "complete",
+                        "event_count": 8,
+                        "last_event_kind": "run_completed",
+                        "last_reason_code": "tests_passed",
+                        "active_unit_id": "slice-1",
+                        "event_refs": ["wf-1:000001:run_seeded", "wf-1:000008:run_completed"],
+                        "truth": {
+                            "state": "covered",
+                            "reason_code": "tests_passed",
+                            "recommended_action": "continue",
+                        },
+                        "runtime_units": [{
+                            "unit_id": "slice-1",
+                            "status": "complete",
+                            "truth": {"state": "covered", "reason_code": "tests_passed"},
+                        }],
+                        "proof": {
+                            "state": "covered",
+                            "reason_code": "tests_passed",
+                            "recommended_action": "continue",
+                        },
+                        "localization": {
+                            "state": "owner_supported",
+                            "reason_code": "localization_owner_supported",
+                        },
+                    },
                     "residual_risks": [
                         {"code": "verification_unavailable"},
                         {"code": "patch_review_semantic_unverified"},
@@ -724,6 +751,24 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_handoff_owner_anchor_ids"], ["anchor-handoff"])
         self.assertEqual(result["final_report_handoff_owner_anchor_paths"], ["src/handoff_owner.py"])
         self.assertEqual(result["final_report_handoff_owner_symbols"], ["HandoffOwner"])
+        self.assertEqual(result["final_report_loop_status"], "complete")
+        self.assertEqual(result["final_report_loop_event_count"], 8)
+        self.assertEqual(result["final_report_loop_last_event_kind"], "run_completed")
+        self.assertEqual(result["final_report_loop_last_reason_code"], "tests_passed")
+        self.assertEqual(result["final_report_loop_active_unit_id"], "slice-1")
+        self.assertEqual(
+            result["final_report_loop_event_refs"],
+            ["wf-1:000001:run_seeded", "wf-1:000008:run_completed"],
+        )
+        self.assertEqual(result["final_report_loop_truth_state"], "covered")
+        self.assertEqual(result["final_report_loop_truth_reason_code"], "tests_passed")
+        self.assertEqual(result["final_report_loop_truth_action"], "continue")
+        self.assertEqual(result["final_report_loop_unit_count"], 1)
+        self.assertEqual(result["final_report_loop_unit_truth_states"], ["covered"])
+        self.assertEqual(result["final_report_loop_proof_state"], "covered")
+        self.assertEqual(result["final_report_loop_proof_reason_code"], "tests_passed")
+        self.assertEqual(result["final_report_loop_localization_state"], "owner_supported")
+        self.assertEqual(result["final_report_loop_localization_reason_code"], "localization_owner_supported")
 
     def test_missing_final_report_fields_are_explicitly_empty(self) -> None:
         result: dict[str, object] = {}
@@ -754,6 +799,12 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_source_authority_owner_anchor_ids"], [])
         self.assertEqual(result["final_report_source_authority_owner_gap_paths"], [])
         self.assertEqual(result["final_report_handoff_owner_anchor_ids"], [])
+        self.assertEqual(result["final_report_loop_status"], "")
+        self.assertEqual(result["final_report_loop_event_count"], 0)
+        self.assertEqual(result["final_report_loop_event_refs"], [])
+        self.assertEqual(result["final_report_loop_truth_state"], "")
+        self.assertEqual(result["final_report_loop_unit_count"], 0)
+        self.assertEqual(result["final_report_loop_unit_truth_states"], [])
 
 
 class PatchReviewSummaryTests(unittest.TestCase):

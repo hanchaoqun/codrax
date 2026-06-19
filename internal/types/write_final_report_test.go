@@ -221,6 +221,27 @@ func TestWriteFinalReportToFileRoundTrip(t *testing.T) {
 			Passed: true,
 		},
 	})
+	report.Loop = &WriteFinalLoopSummary{
+		RunID:          "run-1",
+		Status:         "complete",
+		ActiveUnitID:   "slice-1",
+		EventCount:     3,
+		LastEventKind:  "run_completed",
+		LastReasonCode: "tests_passed",
+		EventRefs:      []string{" event-1 ", "event-1", "event-2"},
+		RuntimeUnits: []WriteFinalRuntimeUnitSummary{{
+			UnitID: "slice-1",
+			Status: "complete",
+			Truth: TruthLedger{
+				State:      TruthLedgerCovered,
+				ReasonCode: "tests_passed",
+			},
+		}},
+		Truth: TruthLedger{
+			State:      TruthLedgerCovered,
+			ReasonCode: "tests_passed",
+		},
+	}
 	if err := WriteFinalReportToFile(&report, path); err != nil {
 		t.Fatalf("WriteFinalReportToFile: %v", err)
 	}
@@ -230,6 +251,12 @@ func TestWriteFinalReportToFileRoundTrip(t *testing.T) {
 	}
 	if got.RunID != "run-1" || got.Plan.ID != "plan-1" || got.Verification.Status != VerificationStatusPassed {
 		t.Fatalf("round trip=%+v", got)
+	}
+	if got.Loop == nil || got.Loop.EventCount != 3 || strings.Join(got.Loop.EventRefs, ",") != "event-1,event-2" {
+		t.Fatalf("Loop summary round trip=%+v", got.Loop)
+	}
+	if len(got.Loop.RuntimeUnits) != 1 || got.Loop.RuntimeUnits[0].Truth.State != TruthLedgerCovered {
+		t.Fatalf("Loop runtime units=%+v, want covered unit truth", got.Loop.RuntimeUnits)
 	}
 }
 

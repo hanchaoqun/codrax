@@ -1605,6 +1605,21 @@ def apply_final_report_result_fields(
         result["final_report_handoff_owner_anchor_ids"] = []
         result["final_report_handoff_owner_anchor_paths"] = []
         result["final_report_handoff_owner_symbols"] = []
+        result["final_report_loop_status"] = ""
+        result["final_report_loop_event_count"] = 0
+        result["final_report_loop_last_event_kind"] = ""
+        result["final_report_loop_last_reason_code"] = ""
+        result["final_report_loop_active_unit_id"] = ""
+        result["final_report_loop_event_refs"] = []
+        result["final_report_loop_truth_state"] = ""
+        result["final_report_loop_truth_reason_code"] = ""
+        result["final_report_loop_truth_action"] = ""
+        result["final_report_loop_unit_count"] = 0
+        result["final_report_loop_unit_truth_states"] = []
+        result["final_report_loop_proof_state"] = ""
+        result["final_report_loop_proof_reason_code"] = ""
+        result["final_report_loop_localization_state"] = ""
+        result["final_report_loop_localization_reason_code"] = ""
         return
     completion = final_report.get("completion") if isinstance(final_report.get("completion"), dict) else {}
     verification = final_report.get("verification") if isinstance(final_report.get("verification"), dict) else {}
@@ -1615,6 +1630,7 @@ def apply_final_report_result_fields(
     patch = final_report.get("patch") if isinstance(final_report.get("patch"), dict) else {}
     handoff = final_report.get("handoff") if isinstance(final_report.get("handoff"), dict) else {}
     source_authority = final_report.get("source_authority") if isinstance(final_report.get("source_authority"), dict) else {}
+    loop = final_report.get("loop") if isinstance(final_report.get("loop"), dict) else {}
     localization = plan.get("localization") if isinstance(plan.get("localization"), dict) else {}
     source_authority_localization = (
         source_authority.get("localization")
@@ -1752,6 +1768,33 @@ def apply_final_report_result_fields(
             if text and text not in refs:
                 refs.append(text)
     result["final_report_handoff_evidence_refs"] = refs
+    loop_truth = loop.get("truth") if isinstance(loop.get("truth"), dict) else {}
+    loop_proof = loop.get("proof") if isinstance(loop.get("proof"), dict) else {}
+    loop_localization = loop.get("localization") if isinstance(loop.get("localization"), dict) else {}
+    loop_units = [item for item in loop.get("runtime_units") or [] if isinstance(item, dict)]
+    result["final_report_loop_status"] = str(loop.get("status") or "").strip()
+    result["final_report_loop_event_count"] = int(loop.get("event_count") or 0)
+    result["final_report_loop_last_event_kind"] = str(loop.get("last_event_kind") or "").strip()
+    result["final_report_loop_last_reason_code"] = str(loop.get("last_reason_code") or "").strip()
+    result["final_report_loop_active_unit_id"] = str(loop.get("active_unit_id") or "").strip()
+    result["final_report_loop_event_refs"] = [
+        str(value).strip()
+        for value in loop.get("event_refs") or []
+        if str(value).strip()
+    ]
+    result["final_report_loop_truth_state"] = str(loop_truth.get("state") or "").strip()
+    result["final_report_loop_truth_reason_code"] = str(loop_truth.get("reason_code") or "").strip()
+    result["final_report_loop_truth_action"] = str(loop_truth.get("recommended_action") or "").strip()
+    result["final_report_loop_unit_count"] = len(loop_units)
+    result["final_report_loop_unit_truth_states"] = [
+        str((item.get("truth") or {}).get("state") or "").strip()
+        for item in loop_units
+        if isinstance(item.get("truth"), dict) and str((item.get("truth") or {}).get("state") or "").strip()
+    ]
+    result["final_report_loop_proof_state"] = str(loop_proof.get("state") or "").strip()
+    result["final_report_loop_proof_reason_code"] = str(loop_proof.get("reason_code") or "").strip()
+    result["final_report_loop_localization_state"] = str(loop_localization.get("state") or "").strip()
+    result["final_report_loop_localization_reason_code"] = str(loop_localization.get("reason_code") or "").strip()
 
 
 def plan_change_paths(plan: dict[str, Any]) -> list[str]:

@@ -3761,6 +3761,7 @@ func (o *Orchestrator) persistWriteFinalReportIfAuditable(run *types.WriteWorkfl
 		ReportPath:        reportPath,
 		WorkflowPath:      workflowPath,
 	})
+	final.Loop = writeFinalLoopSummaryFromRun(run)
 	finalPath := filepath.Join(planDir, stem+".final.json")
 	if err := types.WriteFinalReportToFile(&final, finalPath); err != nil {
 		logging.Warning("[orchestrator] write final report persist failed: %v", err)

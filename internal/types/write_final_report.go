@@ -38,6 +38,7 @@ type WriteFinalReport struct {
 	PatchReview     WriteFinalPatchReviewSummary     `json:"patch_review,omitempty"`
 	Impact          WriteFinalImpactSummary          `json:"impact,omitempty"`
 	Handoff         WriteFinalHandoffSummary         `json:"handoff,omitempty"`
+	Loop            *WriteFinalLoopSummary           `json:"loop,omitempty"`
 	ResidualRisks   []WriteFinalResidualRisk         `json:"residual_risks,omitempty"`
 }
 
@@ -168,6 +169,42 @@ type WriteFinalHandoffItem struct {
 	Fingerprint string               `json:"fingerprint,omitempty"`
 }
 
+// WriteFinalLoopSummary is the compact replay/audit envelope for the online
+// write loop. It is projected from typed loop events by the orchestrator, not
+// inferred from terminal logs or model prose.
+type WriteFinalLoopSummary struct {
+	RunID          string                         `json:"run_id,omitempty"`
+	Status         string                         `json:"status,omitempty"`
+	ActiveUnitID   string                         `json:"active_unit_id,omitempty"`
+	EventCount     int                            `json:"event_count,omitempty"`
+	LastEventKind  string                         `json:"last_event_kind,omitempty"`
+	LastReasonCode string                         `json:"last_reason_code,omitempty"`
+	EventRefs      []string                       `json:"event_refs,omitempty"`
+	RuntimeUnits   []WriteFinalRuntimeUnitSummary `json:"runtime_units,omitempty"`
+	Truth          TruthLedger                    `json:"truth,omitempty"`
+	Proof          WriteFinalAuthoritySummary     `json:"proof,omitempty"`
+	Localization   WriteFinalAuthoritySummary     `json:"localization,omitempty"`
+	Permission     WriteFinalAuthoritySummary     `json:"permission,omitempty"`
+}
+
+type WriteFinalRuntimeUnitSummary struct {
+	UnitID     string      `json:"unit_id,omitempty"`
+	Status     string      `json:"status,omitempty"`
+	ReasonCode string      `json:"reason_code,omitempty"`
+	Truth      TruthLedger `json:"truth,omitempty"`
+}
+
+type WriteFinalAuthoritySummary struct {
+	State               string   `json:"state,omitempty"`
+	ReasonCode          string   `json:"reason_code,omitempty"`
+	RecommendedAction   string   `json:"recommended_action,omitempty"`
+	Source              string   `json:"source,omitempty"`
+	RequiresUser        bool     `json:"requires_user,omitempty"`
+	SourcePaths         []string `json:"source_paths,omitempty"`
+	OwnerSupportedPaths []string `json:"owner_supported_paths,omitempty"`
+	OwnerMissingPaths   []string `json:"owner_missing_paths,omitempty"`
+}
+
 type WriteFinalResidualRisk struct {
 	Code     string `json:"code"`
 	Source   string `json:"source,omitempty"`
@@ -274,6 +311,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.PatchReview.UnverifiedKinds = dedupTrimWriteWorkflowRunStrings(in.PatchReview.UnverifiedKinds)
 	in.Impact.UncoveredTargets = writeFinalBoundedImpactTargets(in.Impact.UncoveredTargets, 12)
 	in.Handoff.OwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.Handoff.OwnerAnchors}, 12).Items
+	in.Loop = normalizeWriteFinalLoopSummaryPtr(in.Loop)
 	in.ResidualRisks = writeFinalNormalizeRisks(in.ResidualRisks)
 	return in
 }
@@ -595,6 +633,89 @@ func writeFinalHandoffSummary(packs []WriteContextPack, limit int) WriteFinalHan
 		})
 	}
 	return out
+}
+
+func normalizeWriteFinalLoopSummaryPtr(in *WriteFinalLoopSummary) *WriteFinalLoopSummary {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.RunID = strings.TrimSpace(out.RunID)
+	out.Status = strings.TrimSpace(out.Status)
+	out.ActiveUnitID = strings.TrimSpace(out.ActiveUnitID)
+	out.LastEventKind = strings.TrimSpace(out.LastEventKind)
+	out.LastReasonCode = strings.TrimSpace(out.LastReasonCode)
+	out.EventRefs = dedupTrimWriteWorkflowRunStrings(out.EventRefs)
+	out.RuntimeUnits = normalizeWriteFinalRuntimeUnits(out.RuntimeUnits)
+	out.Truth = normalizeWriteFinalTruthLedger(out.Truth)
+	out.Proof = normalizeWriteFinalAuthoritySummary(out.Proof)
+	out.Localization = normalizeWriteFinalAuthoritySummary(out.Localization)
+	out.Permission = normalizeWriteFinalAuthoritySummary(out.Permission)
+	if out.RunID == "" &&
+		out.Status == "" &&
+		out.ActiveUnitID == "" &&
+		out.EventCount == 0 &&
+		out.LastEventKind == "" &&
+		out.LastReasonCode == "" &&
+		len(out.EventRefs) == 0 &&
+		len(out.RuntimeUnits) == 0 &&
+		out.Truth.State == "" &&
+		out.Proof.State == "" &&
+		out.Localization.State == "" &&
+		out.Permission.State == "" {
+		return nil
+	}
+	return &out
+}
+
+func normalizeWriteFinalRuntimeUnits(in []WriteFinalRuntimeUnitSummary) []WriteFinalRuntimeUnitSummary {
+	out := make([]WriteFinalRuntimeUnitSummary, 0, len(in))
+	seen := map[string]bool{}
+	for _, unit := range in {
+		unit.UnitID = strings.TrimSpace(unit.UnitID)
+		unit.Status = strings.TrimSpace(unit.Status)
+		unit.ReasonCode = strings.TrimSpace(unit.ReasonCode)
+		unit.Truth = normalizeWriteFinalTruthLedger(unit.Truth)
+		if unit.UnitID == "" && unit.Status == "" && unit.ReasonCode == "" && unit.Truth.State == "" {
+			continue
+		}
+		key := unit.UnitID + "|" + unit.Status + "|" + unit.ReasonCode + "|" + string(unit.Truth.State) + "|" + unit.Truth.ReasonCode
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, unit)
+	}
+	return out
+}
+
+func normalizeWriteFinalTruthLedger(in TruthLedger) TruthLedger {
+	out := NormalizeTruthLedger(in)
+	if out.State == TruthLedgerUnknown {
+		return TruthLedger{}
+	}
+	return out
+}
+
+func normalizeWriteFinalAuthoritySummary(in WriteFinalAuthoritySummary) WriteFinalAuthoritySummary {
+	in.State = strings.TrimSpace(in.State)
+	in.ReasonCode = strings.TrimSpace(in.ReasonCode)
+	in.RecommendedAction = strings.TrimSpace(in.RecommendedAction)
+	in.Source = strings.TrimSpace(in.Source)
+	in.SourcePaths = dedupTrimWriteWorkflowRunStrings(in.SourcePaths)
+	in.OwnerSupportedPaths = dedupTrimWriteWorkflowRunStrings(in.OwnerSupportedPaths)
+	in.OwnerMissingPaths = dedupTrimWriteWorkflowRunStrings(in.OwnerMissingPaths)
+	if in.State == "" &&
+		in.ReasonCode == "" &&
+		in.RecommendedAction == "" &&
+		in.Source == "" &&
+		!in.RequiresUser &&
+		len(in.SourcePaths) == 0 &&
+		len(in.OwnerSupportedPaths) == 0 &&
+		len(in.OwnerMissingPaths) == 0 {
+		return WriteFinalAuthoritySummary{}
+	}
+	return in
 }
 
 func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
