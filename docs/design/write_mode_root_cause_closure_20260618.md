@@ -8347,7 +8347,7 @@ Tasks:
       apply gate.
 - [x] Add read/write regression tests proving supported status and owner gaps
       cannot contradict each other.
-- [ ] Re-run `pydata__xarray-4248` and at least one non-Xarray owner-gated SWE
+- [x] Re-run `pydata__xarray-4248` and at least one non-Xarray owner-gated SWE
       instance after the fix.
 
 Implementation design:
@@ -8449,6 +8449,12 @@ RC128 SWE evidence:
     adapter/streaming durability gap; it does not contradict the RC128 Xarray
     localization-state fix, but it means the non-Xarray post-fix SWE spot
     remains incomplete.
+  - After RC130, the same instance was rerun in
+    `eval/results/swebench/lite-smoke-20260619-rc130-pytest` and produced a
+    harness-consumable non-empty patch. Typed owner telemetry stayed consistent:
+    `final_report_localization_status=supported`,
+    `final_report_localization_owner_missing_paths=[]`, and
+    `final_report_plan_owner_gap_paths=[]`.
 
 ## 2026-06-19 RC129 Queued: Behavior/Format Contract Placement Authority
 
@@ -8496,7 +8502,7 @@ Tasks:
       string output fixtures.
 - [ ] Re-run Xarray plus one non-Python rendered-output issue-derived eval.
 
-## 2026-06-19 RC130 Queued: SWE Adapter Streaming Broken Pipe Durability
+## 2026-06-19 RC130 Complete: SWE Adapter Streaming Broken Pipe Durability
 
 Gap:
 
@@ -8524,17 +8530,113 @@ Design direction:
 
 Tasks:
 
-- [ ] Reproduce `[Errno 32] Broken pipe` under a small fixture or captured
+- [x] Reproduce `[Errno 32] Broken pipe` under a small fixture or captured
       pytest-dev run directory.
-- [ ] Add typed adapter error fields:
+- [x] Add typed adapter error fields:
       `adapter_error_stage`, `adapter_error_reason_code`,
       `adapter_recovered_from_artifacts`, and artifact-presence counters.
-- [ ] Harden progress callback/write paths so broken pipes fail soft and allow
+- [x] Harden progress callback/write paths so broken pipes fail soft and allow
       artifact recovery.
-- [ ] Add adapter unit tests for broken progress pipe with and without durable
+- [x] Add adapter unit tests for broken progress pipe with and without durable
       final report artifacts.
-- [ ] Re-run `pytest-dev__pytest-11143` after the fix and require non-empty
+- [x] Re-run `pytest-dev__pytest-11143` after the fix and require non-empty
       prediction or a typed non-recoverable workflow reason.
+
+Implementation:
+
+- `CommandResult` now carries `progress_transport_failed` and
+  `progress_transport_reason_code`.
+- `run_cmd_streaming_to_file` catches `BrokenPipeError` / `errno.EPIPE` while
+  writing progress heartbeats to stderr, records
+  `progress_stream_broken_pipe`, disables further progress writes, and lets the
+  Codrax child process continue so durable artifacts can still be consumed.
+- `process_instance` exports `codrax_progress_transport_failed`,
+  `codrax_progress_transport_reason_code`, `adapter_error_stage`, and
+  `adapter_error_reason_code`.
+- The hard recovery path still reads only process state and durable artifacts;
+  it does not parse stdout prose, issue text, model rationale, or `<think>`.
+
+Verification:
+
+- `python3 -m py_compile eval/swebench/run_codrax_swebench.py eval/swebench/run_codrax_swebench_test.py`
+  passed.
+- Focused adapter tests:
+  `python3 -m unittest eval.swebench.run_codrax_swebench_test.ProgressHeartbeatTests -v`
+  passed.
+- Full adapter tests:
+  `python3 -m unittest eval.swebench.run_codrax_swebench_test -v` passed.
+- SWE spot:
+  `pytest-dev__pytest-11143` in
+  `eval/results/swebench/lite-smoke-20260619-rc130b-pytest` exported a 630 byte
+  patch. Prediction validation with `--require-nonempty-patch` passed and the
+  official harness dry-run/import accepted the predictions path.
+  - `status=predicted`
+  - `prediction_verdict=predicted_unverified`
+  - `verify_status=unavailable`
+  - `verify_failure_reason_code=verification_probe_module_not_found`
+  - `workflow_status=complete`
+  - `codrax_progress_transport_failed=false`
+  - `adapter_recovered_from_artifacts=false`
+  - `adapter_artifact_plan_count=6`
+  - `adapter_artifact_report_count=4`
+  - `adapter_artifact_final_report_count=4`
+  - `adapter_artifact_workflow_count=1`
+  - `final_report_localization_owner_missing_paths=[]`
+- Manual patch audit: the patch changes
+  `AssertionRewriter.is_rewrite_disabled(docstring: object)` to guard the
+  membership check with `isinstance(docstring, str)`, which directly prevents
+  the numeric first expression `TypeError` while preserving the string marker
+  behavior.
+
+Follow-up observation:
+
+- The RC130b final report had `final_report_localization_status=unknown` while
+  the exported patch was correctly owned and owner gaps were empty. This appears
+  to come from the proof-repair final plan becoming the final-report projection
+  authority, while the delivery/export path still correctly binds the source
+  patch to the primary source plan.
+- This does not block RC130 because prediction export and local confidence stay
+  conservative, but it should be fixed as a final-report authority projection
+  gap so audit dashboards do not lose primary source localization after
+  proof-only follow-up batches.
+
+## 2026-06-19 RC131 Queued: Final Report Primary Source Localization Projection
+
+Gap:
+
+- A workflow can complete with a source-owning primary plan plus later
+  proof-repair/no-source batches. The exported patch is bound to the primary
+  source plan, but `WriteFinalReport.plan.localization` may reflect the latest
+  proof-only/follow-up plan and become `unknown`.
+- This is a handoff/final-report projection gap, not a patch correctness issue.
+  It can make dashboards under-report localization quality after successful
+  online convergence.
+
+Design direction:
+
+- Final delivery reports should project two typed plan authorities:
+  - `final_plan`: the literal latest terminal plan/batch;
+  - `primary_source_plan`: the plan that owns exported source changes.
+- Source-localization status, owner anchors, owner gaps, patch effect, and
+  actual-diff authority should default to `primary_source_plan` when exported
+  source paths exist, while verification/proof status can still come from the
+  terminal/report plan.
+- This must consume existing typed delivery candidate fields and plan artifacts;
+  no stdout, model prose, issue text, or `<think>` parsing.
+
+Tasks:
+
+- [ ] Extend `WriteFinalDeliverySummary` / final report input to carry primary
+      source plan localization and owner-anchor refs.
+- [ ] Normalize final report so source localization fields come from primary
+      source plan when source patches are exported.
+- [ ] Keep proof-only final plans visible as terminal plan metadata without
+      overwriting source-owner audit fields.
+- [ ] Update SWE adapter fields to expose both final-plan and primary-source
+      localization status.
+- [ ] Add regression using a source plan followed by proof-only repair.
+- [ ] Re-run RC130b Pytest after the fix and require
+      `primary_source_localization_status=supported` with owner gaps empty.
 
 ## Acceptance Criteria
 

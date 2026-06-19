@@ -1749,6 +1749,65 @@ class ProgressHeartbeatTests(unittest.TestCase):
         self.assertIn("reason=progress_callback_unavailable", line)
         self.assertNotIn("RuntimeError", line)
 
+    def test_streaming_progress_broken_pipe_does_not_abort_command(self) -> None:
+        class BrokenPipeStderr(io.StringIO):
+            def write(self, text: str) -> int:  # noqa: D401 - test double.
+                raise BrokenPipeError()
+
+            def flush(self) -> None:
+                return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(sys, "stderr", BrokenPipeStderr()):
+                result = adapter.run_cmd_streaming_to_file(
+                    [sys.executable, "-c", "import time; time.sleep(1.2); print('done')"],
+                    output_path=Path(tmp) / "out.txt",
+                    timeout=5,
+                    progress_interval=1,
+                    progress_fn=lambda elapsed: f"progress elapsed={elapsed}s",
+                )
+
+            output = (Path(tmp) / "out.txt").read_text(encoding="utf-8")
+
+        self.assertEqual(result.code, 0)
+        self.assertEqual(output.strip(), "done")
+        self.assertTrue(result.progress_transport_failed)
+        self.assertEqual(result.progress_transport_reason_code, "progress_stream_broken_pipe")
+
+    def test_adapter_error_reason_code_classifies_broken_pipe(self) -> None:
+        self.assertEqual(
+            adapter.adapter_error_reason_code(BrokenPipeError()),
+            "progress_stream_broken_pipe",
+        )
+        self.assertEqual(
+            adapter.adapter_error_reason_code(RuntimeError("boom")),
+            "adapter_exception",
+        )
+
+    def test_adapter_artifact_presence_counts_durable_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            inst = root / "inst"
+            plans = repo / ".codrax" / "plans"
+            workflows = plans / "workflows"
+            workflows.mkdir(parents=True)
+            inst.mkdir()
+            (plans / "plan-1.json").write_text("{}", encoding="utf-8")
+            (plans / "plan-1.report.json").write_text("{}", encoding="utf-8")
+            (plans / "plan-1.final.json").write_text("{}", encoding="utf-8")
+            (workflows / "wf-1.json").write_text("{}", encoding="utf-8")
+            (inst / "result.json").write_text("{}", encoding="utf-8")
+
+            got = adapter.adapter_artifact_presence(repo, inst)
+
+        self.assertEqual(got["adapter_artifact_plan_count"], 1)
+        self.assertEqual(got["adapter_artifact_report_count"], 1)
+        self.assertEqual(got["adapter_artifact_final_report_count"], 1)
+        self.assertEqual(got["adapter_artifact_workflow_count"], 1)
+        self.assertEqual(got["adapter_artifact_result_count"], 1)
+        self.assertEqual(got["adapter_artifact_prediction_count"], 0)
+
 
 class RunCodraxCommandTests(unittest.TestCase):
     def test_run_codrax_forwards_providers_path(self) -> None:

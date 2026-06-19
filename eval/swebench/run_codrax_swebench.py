@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import ast
 import configparser
+import errno
 import hashlib
 import json
 import os
@@ -120,6 +121,8 @@ class CommandResult:
     code: int
     output: str
     timed_out: bool = False
+    progress_transport_failed: bool = False
+    progress_transport_reason_code: str = ""
 
 
 def safe_id(raw: str) -> str:
@@ -214,6 +217,8 @@ def run_cmd_streaming_to_file(
     started = time.monotonic()
     next_progress = started + max(progress_interval, 0) if progress_interval > 0 else float("inf")
     timed_out = False
+    progress_transport_failed = False
+    progress_transport_reason_code = ""
     try:
         while proc.poll() is None:
             now = time.monotonic()
@@ -234,7 +239,15 @@ def run_cmd_streaming_to_file(
                             "workflow=unavailable reason=progress_callback_unavailable"
                         )
                     if line:
-                        print(line, file=sys.stderr, flush=True)
+                        try:
+                            print(line, file=sys.stderr, flush=True)
+                        except OSError as exc:
+                            progress_transport_failed = True
+                            progress_transport_reason_code = adapter_error_reason_code(exc)
+                            if not progress_transport_reason_code:
+                                progress_transport_reason_code = "progress_stream_unavailable"
+                            next_progress = float("inf")
+                            continue
                 next_progress = now + progress_interval
             time.sleep(0.25)
         if timed_out:
@@ -250,7 +263,51 @@ def run_cmd_streaming_to_file(
         thread.join(timeout=5)
     with chunks_lock:
         output = "".join(chunks)
-    return CommandResult(proc.returncode or 0, output, timed_out)
+    return CommandResult(
+        proc.returncode or 0,
+        output,
+        timed_out,
+        progress_transport_failed=progress_transport_failed,
+        progress_transport_reason_code=progress_transport_reason_code,
+    )
+
+
+def adapter_error_reason_code(exc: BaseException) -> str:
+    if isinstance(exc, BrokenPipeError):
+        return "progress_stream_broken_pipe"
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) == errno.EPIPE:
+        return "progress_stream_broken_pipe"
+    return "adapter_exception"
+
+
+def adapter_artifact_presence(repo_dir: Path, inst_dir: Path) -> dict[str, int]:
+    plans_dir = repo_dir / ".codrax" / "plans"
+    workflows_dir = plans_dir / "workflows"
+    plan_count = 0
+    report_count = 0
+    final_count = 0
+    workflow_count = 0
+    if plans_dir.is_dir():
+        for path in plans_dir.glob("*.json"):
+            name = path.name
+            if name.endswith(".report.json"):
+                report_count += 1
+            elif name.endswith(".final.json"):
+                final_count += 1
+            else:
+                plan_count += 1
+    if workflows_dir.is_dir():
+        workflow_count = sum(1 for _ in workflows_dir.glob("*.json"))
+    result_count = 1 if (inst_dir / "result.json").is_file() else 0
+    prediction_count = 1 if (inst_dir / "prediction.json").is_file() else 0
+    return {
+        "adapter_artifact_plan_count": plan_count,
+        "adapter_artifact_report_count": report_count,
+        "adapter_artifact_final_report_count": final_count,
+        "adapter_artifact_workflow_count": workflow_count,
+        "adapter_artifact_result_count": result_count,
+        "adapter_artifact_prediction_count": prediction_count,
+    }
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -3522,6 +3579,8 @@ def process_instance(
         codrax = run_codrax(instance, repo_dir, inst_dir, args, env_updates)
         result["codrax_exit_code"] = codrax.code
         result["codrax_timed_out"] = codrax.timed_out
+        result["codrax_progress_transport_failed"] = bool(codrax.progress_transport_failed)
+        result["codrax_progress_transport_reason_code"] = str(codrax.progress_transport_reason_code or "")
         plan_path = find_latest_change_plan(repo_dir / ".codrax", inst_dir)
         result["plan_path"] = str(plan_path) if plan_path else ""
         plan = load_plan(plan_path)
@@ -3839,6 +3898,16 @@ def process_instance(
             audit_block_reason,
             confidence_downgrade_reason,
         )
+        artifact_presence = adapter_artifact_presence(repo_dir, inst_dir)
+        result.update(artifact_presence)
+        result["adapter_recovered_from_artifacts"] = bool(
+            codrax.progress_transport_failed
+            and (
+                artifact_presence["adapter_artifact_plan_count"] > 0
+                or artifact_presence["adapter_artifact_workflow_count"] > 0
+                or artifact_presence["adapter_artifact_final_report_count"] > 0
+            )
+        )
         result["prediction_verdict"] = verdict
         result["prediction_local_confidence"] = confidence
         result["prediction_blocks_local_acceptance"] = blocks_local_acceptance
@@ -3863,6 +3932,10 @@ def process_instance(
         result["prediction_blocks_local_acceptance"] = True
         result["local_acceptance_verdict"] = "fail"
         result["local_acceptance_source"] = "adapter_error"
+        result["adapter_error_stage"] = "process_instance"
+        result["adapter_error_reason_code"] = adapter_error_reason_code(exc)
+        result.update(adapter_artifact_presence(repo_dir, inst_dir))
+        result["adapter_recovered_from_artifacts"] = False
         result["error"] = str(exc)
     (inst_dir / "prediction.json").write_text(json.dumps(prediction, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     (inst_dir / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
