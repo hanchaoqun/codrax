@@ -374,6 +374,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 		writeWorkflowApprovalLines(&b, lang, batch, hasBatch, plan)
 		writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowLocalizationAuthorityLines(&b, lang, run, batch, hasBatch)
+		writeWorkflowProofAuthorityLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowProgressLines(&b, lang, run)
 		for _, line := range writeWorkflowNextActionLines(lang, run) {
 			b.WriteString("\n" + line)
@@ -405,7 +406,7 @@ func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []str
 	case types.WriteWorkflowNextNeedsApproval:
 		return writeNextActionCardLines(lang, writeActionNeedsApproval, "/approve · /reject <reason> · /workflow list")
 	case types.WriteWorkflowNextComplete:
-		return writeNextActionCardLines(lang, writeActionApplied, "/merge · /verify · /workflow list")
+		return writeWorkflowCompleteNextActionLines(lang, view)
 	case types.WriteWorkflowNextBlocked:
 		return writeNextActionCardLines(lang, writeActionVerifyFailed, "/workflow show · /reject <reason> · /workflow list")
 	case types.WriteWorkflowNextPlanReady:
@@ -449,6 +450,17 @@ func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []str
 		"  Status: no active batch.",
 		"  Next: inspect saved workflows or start a new write goal.",
 		"  Advanced: " + advanced,
+	}
+}
+
+func writeWorkflowCompleteNextActionLines(lang string, view types.WriteWorkflowNextActionView) []string {
+	switch view.CompletionVerdict {
+	case types.WriteWorkflowCompletionUnverified:
+		return writeNextActionCardLines(lang, writeActionUnverified, "/verify · /merge --skip-verify · /workflow list")
+	case types.WriteWorkflowCompletionAcceptedFailed:
+		return writeNextActionCardLines(lang, writeActionVerifyFailed, "/workflow show · /merge --include-failed · /workflow list")
+	default:
+		return writeNextActionCardLines(lang, writeActionApplied, "/merge · /verify · /workflow list")
 	}
 }
 

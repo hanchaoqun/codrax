@@ -313,6 +313,95 @@ func TestWorkflowShowDisplaysProofAuthority(t *testing.T) {
 	}
 }
 
+func TestWorkflowShowDisplaysProofAuthorityInChineseBranch(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-proof-zh",
+		Goal:          "repair with proof state",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchVerifying,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "unverified",
+				ReasonCode: "runner_missing",
+			}},
+		}},
+	}
+
+	got := writeWorkflowRunMarkdown("zh", run, nil)
+
+	for _, want := range []string{
+		"Proof authority:",
+		"state=`unavailable`",
+		"reason=`runner_missing`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("zh workflow markdown missing proof authority %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestWorkflowShowUnverifiedCompletionUsesUnverifiedStatusCard(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-unverified-complete",
+		Goal:          "repair with unavailable local proof",
+		Status:        types.WriteWorkflowRunComplete,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict:    types.WriteWorkflowCompletionUnverified,
+				ReasonCode: "runner_missing",
+			},
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "unverified",
+				ReasonCode: "runner_missing",
+			}},
+		}},
+		Completion: &types.WriteWorkflowCompletion{
+			Verdict:    types.WriteWorkflowCompletionUnverified,
+			ReasonCode: "runner_missing",
+		},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:                stubRunner{},
+		In:                    strings.NewReader(""),
+		Out:                   out,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+	})
+
+	r.handleWorkflowCmd("/workflow show wf-unverified-complete")
+
+	got := out.String()
+	for _, want := range []string{
+		"Proof authority:",
+		"state=`unavailable`",
+		"Status: applied without local verification",
+		"/merge --skip-verify",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("workflow show missing unverified completion status %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Status: applied and verified") {
+		t.Fatalf("unverified workflow must not render verified status card:\n%s", got)
+	}
+}
+
 func TestApproveUsesActiveWorkflowBatchPlan(t *testing.T) {
 	runner := &capturingRunner{}
 	planStore := NewPlanStore(t.TempDir())
