@@ -181,6 +181,21 @@ func TestBuildAgentContext_RetryHintScopedToOwningStage(t *testing.T) {
 	if explorer.RetryHint != "DAG-scheduled investigation window" {
 		t.Fatalf("explorer should receive its own retry hint, got %q", explorer.RetryHint)
 	}
+
+	bus.TaskState.Stage = types.StageExtract
+	bus.TaskState.RetryHintStage = types.StageExplore
+	bus.TaskState.RetryHint = "Forced Read List: read internal/agent/agent.go before completing"
+	extractor := BuildAgentContext(bus, types.AgentExtractor, types.StageExtract)
+	if extractor.RetryHint != "" {
+		t.Fatalf("extractor must not inherit explore-owned retry hint, got %q", extractor.RetryHint)
+	}
+
+	bus.TaskState.RetryHintStage = types.StageExtract
+	bus.TaskState.RetryHint = "Re-emit the hypothesis verdict from existing Turn A evidence"
+	extractor = BuildAgentContext(bus, types.AgentExtractor, types.StageExtract)
+	if extractor.RetryHint != "Re-emit the hypothesis verdict from existing Turn A evidence" {
+		t.Fatalf("extractor should receive extractor-owned retry hint, got %q", extractor.RetryHint)
+	}
 }
 
 // TestBuildPromptContext_AttachedLogSection_Rendered verifies the

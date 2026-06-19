@@ -46,6 +46,7 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C8 | P1 | Mixed log/current-source tasks can re-explore after enough evidence exists. | Runtime observation proof and source-localization proof are not unified into a single coverage ledger. | Observation proof coverage should become an online state: runtime symptom, source owner, impact path, and verification caveats are independently tracked. |
 | RNE-C9 | P1 | Cross-language call-chain cases still over-read. | Repo-map navigation facts and read-range obligations are not used as a strict enough exploration budget for C/C++, ArkTS, Cangjie, Java/Kotlin, JS/TS, Ruby, Go, config, and workflow files. | Language-neutral localization and impact views set read budgets and proof obligations, with language adapters providing typed parse/edge facts where available. |
 | RNE-C10 | P0 | Post-complete localization repair can still leak into extraction. | A retry directive / localization supplement can mention a forced `read_file` after exploration already accepted closure. The extractor cannot run read tools, so it burns an unavailable-tool round and may broaden reasoning from stale repair text. | Stage handoff must project localization repair debt into extractor-safe obligations: verdict/caveat/status only. Any real need for more `read_file` must route back to exploration before StageExtract. |
+| RNE-C11 | P0 | Final system supplements can contradict a solved principal answer. | Localization/navigation supplements are rendered even after the principal member set, citations, and repo_map coverage are accepted. The final answer can simultaneously pass eval and display "localization needed" / low-proof caveats that are stale or support-only. | Final report supplements need a typed relevance gate: principal-answer proof status first, support-only localization debt collapsed or hidden, and residual caveats shown only when they are blocking or materially affect the user's answer. |
 
 ## Architecture Direction
 
@@ -132,7 +133,8 @@ roles from many raw trace rows.
 | Batch F | planned | Add trace causal path projection. | Trace eval preserves intermediate path-role facets in final answer with fewer trace_query calls. |
 | Batch G | planned | Add read eval watchdog. | Read-mode eval paths use a configurable timeout and emit typed timeout summaries. |
 | Batch H | planned | Quarantine post-complete localization repair for extractor. | Extractor receives non-executable localization status/caveat fields and does not attempt `read_file` / `repo_map` after accepted closure. |
-| Batch I | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
+| Batch I | planned | Gate final system supplements by principal-answer relevance. | A passing scalar/member-set answer does not show stale "localization needed" or generic low-proof caveats unless typed proof debt is principal/blocking. |
+| Batch J | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
 
 ## Test Matrix
 
@@ -179,3 +181,11 @@ roles from many raw trace rows.
   estimated context tokens. The log also showed extractor-stage unavailable
   `read_file` attempts from post-complete localization repair text, now tracked
   as RNE-C10 / Batch H.
+- 2026-06-20 Batch H delivered: retry hints now carry a typed owner stage.
+  Explore-owned forced-read/window hints no longer render in the extractor
+  prompt after the pipeline moves forward; extractor-owned retry hints still
+  work. `qf_relation_subagent_registry` rerun passed with
+  `unavailable_tool_attempts=0` and answer-contract violations=0. The run still
+  took 187s with 12 reads, 19 explorer iterations, 8 midloop injections, 42
+  concrete values, and ~52k estimated context tokens. It also showed stale
+  final system supplements, now tracked as RNE-C11 / Batch I.

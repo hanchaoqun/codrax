@@ -287,6 +287,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	}
 	workerBus.TaskState.Stage = stage
 	workerBus.TaskState.RetryHint = hint
+	workerBus.TaskState.RetryHintStage = stage
 	workerBus.TaskState.LastError = ""
 	agentCtx := ctxbuilder.BuildAgentContext(workerBus, agentName, stage)
 	agentCtx.ParallelGroupID = parallelGroupID

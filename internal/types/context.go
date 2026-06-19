@@ -28,6 +28,13 @@ type TaskState struct {
 	// most prominent user section.
 	RetryHint string `json:"retry_hint,omitempty"`
 
+	// RetryHintStage records which pipeline stage owns RetryHint. It lets
+	// prompt construction enforce capability-scoped handoff: an exploration
+	// forced-read hint must not be rendered as an extractor instruction after
+	// the pipeline has moved forward. Empty preserves legacy Stage-based
+	// scoping for older tests and serialized state.
+	RetryHintStage PipelineStage `json:"retry_hint_stage,omitempty"`
+
 	// SoftAnalyzerError carries the analyzer-stage exhaustion error
 	// when the orchestrator falls back to buildDegradedSemanticIR.
 	// Distinct from LastError because LastError is consumed by the

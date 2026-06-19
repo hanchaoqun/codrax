@@ -228,6 +228,9 @@ func retryHintForAgentContext(bus *types.BusContext, stage types.PipelineStage) 
 	case types.StageAnalyze, types.StageWriteAnalyze:
 		return ""
 	}
+	if bus.TaskState.RetryHintStage != "" && bus.TaskState.RetryHintStage != stage {
+		return ""
+	}
 	if bus.TaskState.Stage != "" && bus.TaskState.Stage != stage {
 		return ""
 	}

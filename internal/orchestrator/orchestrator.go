@@ -4943,7 +4943,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				return stepsUsed
 			}
 			if len(window) == 0 {
-				o.applyWindowHint("")
+				o.applyWindowHint("", "")
 				continue
 			}
 			if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(pendingValidationTargets, pendingViolation, pendingStageRetry) {
@@ -5043,9 +5043,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			pendingStageRetry = ""
 			pendingValidationTargets = nil
 			if len(parallelWindows) > 0 {
-				o.applyWindowHint("")
+				o.applyWindowHint("", "")
 			} else {
-				o.applyWindowHint(hint)
+				o.applyWindowHint(types.StageExplore, hint)
 			}
 			for _, n := range window {
 				state.markRunning(n.ID)
@@ -6885,8 +6885,13 @@ func formatStageHealthSnapshot(snapshot map[string]types.StageStats) string {
 // FIRST)" section. This is the only state field the DAG scheduler
 // modifies on BusContext outside the standard PipelineStage / Stage
 // fields. Empty hint clears the slot.
-func (o *Orchestrator) applyWindowHint(hint string) {
+func (o *Orchestrator) applyWindowHint(owner types.PipelineStage, hint string) {
 	o.busCtx.TaskState.RetryHint = hint
+	if strings.TrimSpace(hint) == "" {
+		o.busCtx.TaskState.RetryHintStage = ""
+	} else {
+		o.busCtx.TaskState.RetryHintStage = owner
+	}
 	const hintKey = "orchestrator.dag-window"
 	if hint == "" {
 		logging.Debug("[orchestrator] window hint cleared key=%q", hintKey)
@@ -8482,6 +8487,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// the start of the NEXT window via applyWindowHint.
 	if output.RetryHint != "" {
 		o.busCtx.TaskState.RetryHint = output.RetryHint
+		o.busCtx.TaskState.RetryHintStage = o.busCtx.TaskState.Stage
 		// Surface a soft, localized retry cue so the user sees the
 		// pipeline is still working — NOT a verbatim dump of the
 		// LLM-directed RetryHint body, which leaks internal
