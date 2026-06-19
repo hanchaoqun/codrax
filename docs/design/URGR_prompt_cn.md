@@ -232,6 +232,7 @@ type ReasoningGraphView struct {
     ToolEvents      []ReasoningEventSummary
     RepairEvents    []ReasoningEventSummary
     LLMEvents       []ReasoningEventSummary
+    WorkflowEvents  []ReasoningEventSummary
     EventKindCounts []EventKindCount
 }
 ```
@@ -276,6 +277,7 @@ type Observer interface {
 
 要记录：
 
+- reasoning graph summary refs
 - workflow run / batch / slice refs
 - loop event refs
 - plan/apply/verify artifact refs
@@ -290,6 +292,25 @@ type Observer interface {
 
 - SWE-bench predictions 保持官方 shape，同时 results 能复盘。
 - 企业 eval 可以区分“没改”“改了但未验证”“验证环境不可用”“补丁弱证据”“补丁可能正确但 proof 不足”。
+
+`WriteFinalReport` 只携带 compact `reasoning_graph` summary：
+
+```go
+type WriteFinalReasoningGraphSummary struct {
+    GraphID            string
+    EventCount         int
+    LastEventKind      string
+    LastReasonCode     string
+    EventRefs          []string
+    WorkflowEventCount int
+    ToolEventCount     int
+    RepairEventCount   int
+    LLMEventCount      int
+    NodeCount          int
+}
+```
+
+完整 graph events 存在 run-scoped artifact store 中，final report / audit / eval 只消费 summary 与 refs，避免 final report 膨胀为弱类型日志容器。
 
 ### 6.3 Read Evidence Graph Shadow
 

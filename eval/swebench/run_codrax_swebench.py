@@ -1622,6 +1622,15 @@ def apply_final_report_result_fields(
         result["final_report_loop_proof_reason_code"] = ""
         result["final_report_loop_localization_state"] = ""
         result["final_report_loop_localization_reason_code"] = ""
+        result["final_report_reasoning_graph_event_count"] = 0
+        result["final_report_reasoning_graph_last_event_kind"] = ""
+        result["final_report_reasoning_graph_last_reason_code"] = ""
+        result["final_report_reasoning_graph_event_refs"] = []
+        result["final_report_reasoning_graph_workflow_event_count"] = 0
+        result["final_report_reasoning_graph_tool_event_count"] = 0
+        result["final_report_reasoning_graph_repair_event_count"] = 0
+        result["final_report_reasoning_graph_llm_event_count"] = 0
+        result["final_report_reasoning_graph_node_count"] = 0
         return
     completion = final_report.get("completion") if isinstance(final_report.get("completion"), dict) else {}
     verification = final_report.get("verification") if isinstance(final_report.get("verification"), dict) else {}
@@ -1633,6 +1642,11 @@ def apply_final_report_result_fields(
     handoff = final_report.get("handoff") if isinstance(final_report.get("handoff"), dict) else {}
     source_authority = final_report.get("source_authority") if isinstance(final_report.get("source_authority"), dict) else {}
     loop = final_report.get("loop") if isinstance(final_report.get("loop"), dict) else {}
+    reasoning_graph = (
+        final_report.get("reasoning_graph")
+        if isinstance(final_report.get("reasoning_graph"), dict)
+        else {}
+    )
     localization = plan.get("localization") if isinstance(plan.get("localization"), dict) else {}
     source_authority_localization = (
         source_authority.get("localization")
@@ -1807,6 +1821,19 @@ def apply_final_report_result_fields(
     result["final_report_loop_proof_reason_code"] = str(loop_proof.get("reason_code") or "").strip()
     result["final_report_loop_localization_state"] = str(loop_localization.get("state") or "").strip()
     result["final_report_loop_localization_reason_code"] = str(loop_localization.get("reason_code") or "").strip()
+    result["final_report_reasoning_graph_event_count"] = int(reasoning_graph.get("event_count") or 0)
+    result["final_report_reasoning_graph_last_event_kind"] = str(reasoning_graph.get("last_event_kind") or "").strip()
+    result["final_report_reasoning_graph_last_reason_code"] = str(reasoning_graph.get("last_reason_code") or "").strip()
+    result["final_report_reasoning_graph_event_refs"] = [
+        str(value).strip()
+        for value in reasoning_graph.get("event_refs") or []
+        if str(value).strip()
+    ]
+    result["final_report_reasoning_graph_workflow_event_count"] = int(reasoning_graph.get("workflow_event_count") or 0)
+    result["final_report_reasoning_graph_tool_event_count"] = int(reasoning_graph.get("tool_event_count") or 0)
+    result["final_report_reasoning_graph_repair_event_count"] = int(reasoning_graph.get("repair_event_count") or 0)
+    result["final_report_reasoning_graph_llm_event_count"] = int(reasoning_graph.get("llm_event_count") or 0)
+    result["final_report_reasoning_graph_node_count"] = int(reasoning_graph.get("node_count") or 0)
 
 
 def plan_change_paths(plan: dict[str, Any]) -> list[str]:

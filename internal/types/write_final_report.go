@@ -39,6 +39,7 @@ type WriteFinalReport struct {
 	Impact          WriteFinalImpactSummary          `json:"impact,omitempty"`
 	Handoff         WriteFinalHandoffSummary         `json:"handoff,omitempty"`
 	Loop            *WriteFinalLoopSummary           `json:"loop,omitempty"`
+	ReasoningGraph  *WriteFinalReasoningGraphSummary `json:"reasoning_graph,omitempty"`
 	ResidualRisks   []WriteFinalResidualRisk         `json:"residual_risks,omitempty"`
 }
 
@@ -207,6 +208,22 @@ type WriteFinalAuthoritySummary struct {
 	OwnerMissingPaths   []string `json:"owner_missing_paths,omitempty"`
 }
 
+// WriteFinalReasoningGraphSummary is a compact typed evidence-ledger header.
+// Full graph events are stored separately; final reports carry only stable refs
+// and lane counts for support, eval, and offline audit consumers.
+type WriteFinalReasoningGraphSummary struct {
+	GraphID            string   `json:"graph_id,omitempty"`
+	EventCount         int      `json:"event_count,omitempty"`
+	LastEventKind      string   `json:"last_event_kind,omitempty"`
+	LastReasonCode     string   `json:"last_reason_code,omitempty"`
+	EventRefs          []string `json:"event_refs,omitempty"`
+	WorkflowEventCount int      `json:"workflow_event_count,omitempty"`
+	ToolEventCount     int      `json:"tool_event_count,omitempty"`
+	RepairEventCount   int      `json:"repair_event_count,omitempty"`
+	LLMEventCount      int      `json:"llm_event_count,omitempty"`
+	NodeCount          int      `json:"node_count,omitempty"`
+}
+
 type WriteFinalResidualRisk struct {
 	Code     string `json:"code"`
 	Source   string `json:"source,omitempty"`
@@ -225,6 +242,7 @@ type WriteFinalReportInput struct {
 	ReportPath        string
 	WorkflowPath      string
 	GeneratedAt       time.Time
+	ReasoningGraph    *WriteFinalReasoningGraphSummary
 }
 
 func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
@@ -275,6 +293,7 @@ func BuildWriteFinalReport(input WriteFinalReportInput) WriteFinalReport {
 	}
 	out.Proof = BuildCumulativeVerificationProofProfile(input.Plan, input.Report, input.ProofArtifacts)
 	out.ProofLedger = BuildVerificationProofLedger(input.Plan, input.Report, input.ProofArtifacts)
+	out.ReasoningGraph = normalizeWriteFinalReasoningGraphSummaryPtr(input.ReasoningGraph)
 	out.ResidualRisks = writeFinalResidualRisks(out)
 	return NormalizeWriteFinalReport(out)
 }
@@ -316,6 +335,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Impact.UncoveredTargets = writeFinalBoundedImpactTargets(in.Impact.UncoveredTargets, 12)
 	in.Handoff.OwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.Handoff.OwnerAnchors}, 12).Items
 	in.Loop = normalizeWriteFinalLoopSummaryPtr(in.Loop)
+	in.ReasoningGraph = normalizeWriteFinalReasoningGraphSummaryPtr(in.ReasoningGraph)
 	in.ResidualRisks = writeFinalNormalizeRisks(in.ResidualRisks)
 	return in
 }
@@ -723,6 +743,48 @@ func normalizeWriteFinalAuthoritySummary(in WriteFinalAuthoritySummary) WriteFin
 		return WriteFinalAuthoritySummary{}
 	}
 	return in
+}
+
+func normalizeWriteFinalReasoningGraphSummaryPtr(in *WriteFinalReasoningGraphSummary) *WriteFinalReasoningGraphSummary {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.GraphID = strings.TrimSpace(out.GraphID)
+	out.LastEventKind = strings.TrimSpace(out.LastEventKind)
+	out.LastReasonCode = strings.TrimSpace(out.LastReasonCode)
+	out.EventRefs = dedupTrimWriteWorkflowRunStrings(out.EventRefs)
+	if out.EventCount < 0 {
+		out.EventCount = 0
+	}
+	if out.WorkflowEventCount < 0 {
+		out.WorkflowEventCount = 0
+	}
+	if out.ToolEventCount < 0 {
+		out.ToolEventCount = 0
+	}
+	if out.RepairEventCount < 0 {
+		out.RepairEventCount = 0
+	}
+	if out.LLMEventCount < 0 {
+		out.LLMEventCount = 0
+	}
+	if out.NodeCount < 0 {
+		out.NodeCount = 0
+	}
+	if out.GraphID == "" &&
+		out.EventCount == 0 &&
+		out.LastEventKind == "" &&
+		out.LastReasonCode == "" &&
+		len(out.EventRefs) == 0 &&
+		out.WorkflowEventCount == 0 &&
+		out.ToolEventCount == 0 &&
+		out.RepairEventCount == 0 &&
+		out.LLMEventCount == 0 &&
+		out.NodeCount == 0 {
+		return nil
+	}
+	return &out
 }
 
 func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {

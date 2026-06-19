@@ -1045,6 +1045,14 @@ func TestPersistWriteWorkflowRunTerminalWritesFinalReport(t *testing.T) {
 		final.Loop.RuntimeUnits[0].Truth.State != types.TruthLedgerCovered {
 		t.Fatalf("final loop runtime units = %+v, want covered slice unit", final.Loop.RuntimeUnits)
 	}
+	if final.ReasoningGraph == nil ||
+		final.ReasoningGraph.GraphID != "wf-final" ||
+		final.ReasoningGraph.EventCount == 0 ||
+		len(final.ReasoningGraph.EventRefs) == 0 ||
+		final.ReasoningGraph.WorkflowEventCount == 0 ||
+		final.ReasoningGraph.NodeCount == 0 {
+		t.Fatalf("final reasoning graph summary missing workflow telemetry: %+v", final.ReasoningGraph)
+	}
 }
 
 func TestPersistWriteWorkflowRunFinalReportPreservesRestoredSourceOwnerForTestOnlyReplan(t *testing.T) {

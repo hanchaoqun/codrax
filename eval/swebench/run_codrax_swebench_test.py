@@ -524,6 +524,17 @@ class FinalReportProjectionTests(unittest.TestCase):
                 "event_refs": ["wf:000001:run_seeded", "wf:000002:run_completed"],
                 "truth": {"state": "covered", "reason_code": "tests_passed"},
             },
+            "reasoning_graph": {
+                "event_count": 4,
+                "last_event_kind": "authority_projected",
+                "last_reason_code": "tests_passed",
+                "event_refs": ["wf:000001:run_seeded", "wf:000004:authority_projected"],
+                "workflow_event_count": 4,
+                "tool_event_count": 1,
+                "repair_event_count": 2,
+                "llm_event_count": 3,
+                "node_count": 2,
+            },
         }
 
         result: dict[str, object] = {}
@@ -533,6 +544,17 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_verification_runner_families"], list(reversed(families)))
         self.assertEqual(result["final_report_loop_event_refs"], ["wf:000001:run_seeded", "wf:000002:run_completed"])
         self.assertEqual(result["final_report_loop_truth_state"], "covered")
+        self.assertEqual(result["final_report_reasoning_graph_event_count"], 4)
+        self.assertEqual(result["final_report_reasoning_graph_last_event_kind"], "authority_projected")
+        self.assertEqual(
+            result["final_report_reasoning_graph_event_refs"],
+            ["wf:000001:run_seeded", "wf:000004:authority_projected"],
+        )
+        self.assertEqual(result["final_report_reasoning_graph_workflow_event_count"], 4)
+        self.assertEqual(result["final_report_reasoning_graph_tool_event_count"], 1)
+        self.assertEqual(result["final_report_reasoning_graph_repair_event_count"], 2)
+        self.assertEqual(result["final_report_reasoning_graph_llm_event_count"], 3)
+        self.assertEqual(result["final_report_reasoning_graph_node_count"], 2)
 
     def test_plan_localization_review_summary_projects_typed_plan_fields(self) -> None:
         got = adapter.plan_localization_review_summary({
@@ -866,6 +888,14 @@ class FinalReportProjectionTests(unittest.TestCase):
         self.assertEqual(result["final_report_loop_truth_state"], "")
         self.assertEqual(result["final_report_loop_unit_count"], 0)
         self.assertEqual(result["final_report_loop_unit_truth_states"], [])
+        self.assertEqual(result["final_report_reasoning_graph_event_count"], 0)
+        self.assertEqual(result["final_report_reasoning_graph_last_event_kind"], "")
+        self.assertEqual(result["final_report_reasoning_graph_event_refs"], [])
+        self.assertEqual(result["final_report_reasoning_graph_workflow_event_count"], 0)
+        self.assertEqual(result["final_report_reasoning_graph_tool_event_count"], 0)
+        self.assertEqual(result["final_report_reasoning_graph_repair_event_count"], 0)
+        self.assertEqual(result["final_report_reasoning_graph_llm_event_count"], 0)
+        self.assertEqual(result["final_report_reasoning_graph_node_count"], 0)
 
 
 class PatchReviewSummaryTests(unittest.TestCase):

@@ -62,6 +62,10 @@ const (
 	ReasoningEventLLMRequestWaiting          ReasoningEventKind = "llm_request_waiting"
 	ReasoningEventLLMRequestRetried          ReasoningEventKind = "llm_request_retried"
 	ReasoningEventLLMRequestTimeout          ReasoningEventKind = "llm_request_timeout"
+	ReasoningEventWorkflowEventProjected     ReasoningEventKind = "workflow_event_projected"
+	ReasoningEventAuthorityProjected         ReasoningEventKind = "authority_projected"
+	ReasoningEventPatchEffectProjected       ReasoningEventKind = "patch_effect_projected"
+	ReasoningEventRepairRequested            ReasoningEventKind = "repair_requested"
 )
 
 type ReasoningGraph struct {
@@ -197,6 +201,7 @@ type ReasoningGraphView struct {
 	ToolEvents      []ReasoningEventSummary `json:"tool_events,omitempty"`
 	RepairEvents    []ReasoningEventSummary `json:"repair_events,omitempty"`
 	LLMEvents       []ReasoningEventSummary `json:"llm_events,omitempty"`
+	WorkflowEvents  []ReasoningEventSummary `json:"workflow_events,omitempty"`
 	EventKindCounts []EventKindCount        `json:"event_kind_counts,omitempty"`
 }
 
@@ -320,7 +325,8 @@ func IsRepairObservationKind(kind ReasoningEventKind) bool {
 	case ReasoningEventStructuredPayloadRecovered,
 		ReasoningEventSchemaRejected,
 		ReasoningEventRepairPackEmitted,
-		ReasoningEventFallbackRouted:
+		ReasoningEventFallbackRouted,
+		ReasoningEventRepairRequested:
 		return true
 	default:
 		return false
@@ -332,6 +338,18 @@ func IsLLMObservationKind(kind ReasoningEventKind) bool {
 	case ReasoningEventLLMRequestWaiting,
 		ReasoningEventLLMRequestRetried,
 		ReasoningEventLLMRequestTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsWorkflowObservationKind(kind ReasoningEventKind) bool {
+	switch kind {
+	case ReasoningEventGraphSeeded,
+		ReasoningEventWorkflowEventProjected,
+		ReasoningEventAuthorityProjected,
+		ReasoningEventPatchEffectProjected:
 		return true
 	default:
 		return false

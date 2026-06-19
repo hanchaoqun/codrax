@@ -61,6 +61,9 @@ func TestRunWriteAuditCLIOutputsTypedAuditJSON(t *testing.T) {
 	if got.Loop == nil || got.Loop.Truth.State != types.TruthLedgerCovered || len(got.Loop.EventRefs) != 1 {
 		t.Fatalf("audit loop = %+v", got.Loop)
 	}
+	if got.ReasoningGraph == nil || got.ReasoningGraph.EventCount != 2 || len(got.ReasoningGraph.EventRefs) != 2 {
+		t.Fatalf("audit reasoning graph = %+v", got.ReasoningGraph)
+	}
 	if len(got.Patch.LanguageFamilies) != 1 || got.Patch.LanguageFamilies[0] != types.VerificationLanguagePython {
 		t.Fatalf("audit languages = %+v", got.Patch.LanguageFamilies)
 	}
@@ -129,6 +132,15 @@ func writeAuditTestFinalReport(t *testing.T, path, runID, planID string) {
 				State:      types.TruthLedgerCovered,
 				ReasonCode: "tests_passed",
 			},
+		},
+		ReasoningGraph: &types.WriteFinalReasoningGraphSummary{
+			GraphID:            runID,
+			EventCount:         2,
+			LastEventKind:      "authority_projected",
+			LastReasonCode:     "tests_passed",
+			EventRefs:          []string{"graph-event-1", "graph-event-2"},
+			WorkflowEventCount: 2,
+			NodeCount:          1,
 		},
 	})
 	if err := types.WriteFinalReportToFile(&report, path); err != nil {

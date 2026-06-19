@@ -34,6 +34,7 @@ type WriteFinalAuditSummary struct {
 	Impact          WriteFinalImpactSummary          `json:"impact,omitempty"`
 	Handoff         WriteFinalHandoffSummary         `json:"handoff,omitempty"`
 	Loop            *WriteFinalLoopSummary           `json:"loop,omitempty"`
+	ReasoningGraph  *WriteFinalReasoningGraphSummary `json:"reasoning_graph,omitempty"`
 	ResidualRisks   []WriteFinalResidualRisk         `json:"residual_risks,omitempty"`
 }
 
@@ -77,6 +78,11 @@ func BuildWriteFinalAuditSummary(report WriteFinalReport, sourcePath string) Wri
 		loop.EventRefs = append([]string(nil), normalized.Loop.EventRefs...)
 		loop.RuntimeUnits = append([]WriteFinalRuntimeUnitSummary(nil), normalized.Loop.RuntimeUnits...)
 		out.Loop = &loop
+	}
+	if normalized.ReasoningGraph != nil {
+		graph := *normalized.ReasoningGraph
+		graph.EventRefs = append([]string(nil), normalized.ReasoningGraph.EventRefs...)
+		out.ReasoningGraph = &graph
 	}
 	if out.Artifacts.ReportPath == "" {
 		out.Artifacts.ReportPath = reportPath

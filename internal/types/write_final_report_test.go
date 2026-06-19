@@ -143,6 +143,18 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 		ReportPath:   "/tmp/plan-1.report.json",
 		WorkflowPath: "/tmp/workflows/run-1.json",
 		GeneratedAt:  now,
+		ReasoningGraph: &WriteFinalReasoningGraphSummary{
+			GraphID:            " run-1 ",
+			EventCount:         5,
+			LastEventKind:      " authority_projected ",
+			LastReasonCode:     " tests_passed ",
+			EventRefs:          []string{" event-1 ", "event-1", "event-2"},
+			WorkflowEventCount: 4,
+			ToolEventCount:     1,
+			RepairEventCount:   2,
+			LLMEventCount:      3,
+			NodeCount:          2,
+		},
 	})
 
 	if got.Kind != WriteOutputFinalReport || got.SchemaVersion != WriteFinalReportSchemaVersion {
@@ -199,6 +211,13 @@ func TestBuildWriteFinalReportProjectsTypedArtifacts(t *testing.T) {
 	if len(got.Handoff.OwnerAnchors) != 1 || got.Handoff.OwnerAnchors[0].OwnerSymbol != "Owner" {
 		t.Fatalf("Handoff.OwnerAnchors=%+v, want typed owner anchor", got.Handoff.OwnerAnchors)
 	}
+	if got.ReasoningGraph == nil ||
+		got.ReasoningGraph.GraphID != "run-1" ||
+		got.ReasoningGraph.EventCount != 5 ||
+		strings.Join(got.ReasoningGraph.EventRefs, ",") != "event-1,event-2" ||
+		got.ReasoningGraph.WorkflowEventCount != 4 {
+		t.Fatalf("ReasoningGraph=%+v, want normalized graph summary", got.ReasoningGraph)
+	}
 	if len(got.ResidualRisks) == 0 {
 		t.Fatalf("ResidualRisks empty, want unverified risks")
 	}
@@ -248,6 +267,15 @@ func TestWriteFinalReportToFileRoundTrip(t *testing.T) {
 			ReasonCode: "tests_passed",
 		},
 	}
+	report.ReasoningGraph = &WriteFinalReasoningGraphSummary{
+		GraphID:            "run-1",
+		EventCount:         4,
+		LastEventKind:      "workflow_event_projected",
+		LastReasonCode:     "run_completed",
+		EventRefs:          []string{" graph-event-1 ", "graph-event-1", "graph-event-2"},
+		WorkflowEventCount: 4,
+		NodeCount:          2,
+	}
 	if err := WriteFinalReportToFile(&report, path); err != nil {
 		t.Fatalf("WriteFinalReportToFile: %v", err)
 	}
@@ -263,6 +291,11 @@ func TestWriteFinalReportToFileRoundTrip(t *testing.T) {
 	}
 	if len(got.Loop.RuntimeUnits) != 1 || got.Loop.RuntimeUnits[0].Truth.State != TruthLedgerCovered {
 		t.Fatalf("Loop runtime units=%+v, want covered unit truth", got.Loop.RuntimeUnits)
+	}
+	if got.ReasoningGraph == nil ||
+		got.ReasoningGraph.EventCount != 4 ||
+		strings.Join(got.ReasoningGraph.EventRefs, ",") != "graph-event-1,graph-event-2" {
+		t.Fatalf("ReasoningGraph round trip=%+v", got.ReasoningGraph)
 	}
 }
 
@@ -601,6 +634,15 @@ func TestBuildWriteFinalAuditSummaryProjectsTypedReplayFields(t *testing.T) {
 				ReasonCode: "low_risk",
 			},
 		},
+		ReasoningGraph: &WriteFinalReasoningGraphSummary{
+			GraphID:            "run-audit",
+			EventCount:         3,
+			LastEventKind:      "authority_projected",
+			LastReasonCode:     "tests_passed",
+			EventRefs:          []string{"graph-event-1", "graph-event-2"},
+			WorkflowEventCount: 3,
+			NodeCount:          2,
+		},
 		ResidualRisks: []WriteFinalResidualRisk{{
 			Code:     "local_verify_only",
 			Severity: "info",
@@ -619,6 +661,11 @@ func TestBuildWriteFinalAuditSummaryProjectsTypedReplayFields(t *testing.T) {
 	}
 	if got.Loop == nil || got.Loop.Truth.State != TruthLedgerCovered || strings.Join(got.Loop.EventRefs, ",") != "event-1,event-2" {
 		t.Fatalf("audit loop = %+v", got.Loop)
+	}
+	if got.ReasoningGraph == nil ||
+		got.ReasoningGraph.EventCount != 3 ||
+		strings.Join(got.ReasoningGraph.EventRefs, ",") != "graph-event-1,graph-event-2" {
+		t.Fatalf("audit reasoning graph = %+v", got.ReasoningGraph)
 	}
 	if len(got.Patch.LanguageFamilies) != 1 || got.Patch.LanguageFamilies[0] != VerificationLanguagePython {
 		t.Fatalf("audit patch languages = %+v", got.Patch.LanguageFamilies)
