@@ -2,13 +2,38 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
+	toolpkg "github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+type observedRuntimeTool struct {
+	toolpkg.ReadOnly
+	toolpkg.NonEvidenceTool
+	name   string
+	result types.ToolResult
+	err    error
+}
+
+func (t *observedRuntimeTool) Name() string { return t.name }
+func (t *observedRuntimeTool) Description() string {
+	return "test tool for runtime observation"
+}
+func (t *observedRuntimeTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
+}
+func (t *observedRuntimeTool) Execute(_ *types.BusContext, _ json.RawMessage) (types.ToolResult, error) {
+	result := t.result
+	if result.ToolName == "" {
+		result.ToolName = t.name
+	}
+	return result, t.err
+}
 
 func TestReasoningObserverCapturesToolParamNormalization(t *testing.T) {
 	collector := reasoninggraph.NewEventCollector("graph-agent")
@@ -74,6 +99,103 @@ func TestReasoningObserverCapturesMalformedToolParamReject(t *testing.T) {
 	}
 	if view.ToolEvents[0].ViolationKind != "malformed_json" {
 		t.Fatalf("violation kind = %q", view.ToolEvents[0].ViolationKind)
+	}
+	if view.ToolEvents[0].Kind == reasoninggraph.ReasoningEventToolCallObserved {
+		t.Fatalf("malformed params must not be reported as executed: %+v", view.ToolEvents[0])
+	}
+}
+
+func TestReasoningObserverCapturesLocalToolObservedSuccess(t *testing.T) {
+	collector := reasoninggraph.NewEventCollector("graph-agent")
+	reg := toolpkg.NewRegistry()
+	reg.Register(&observedRuntimeTool{
+		name: "observed_success",
+		result: types.ToolResult{
+			ToolName: "observed_success",
+			RawRef:   "blob://tool/raw-success",
+			Observations: []types.ObservationRecord{{
+				ID:       "obs-1",
+				Producer: "observed_success",
+			}},
+			Success:   true,
+			Timestamp: time.Now(),
+		},
+	})
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		Tools:             reg,
+		ReasoningObserver: collector,
+	}, nil)
+	ctx := &types.AgentContext{AgentName: types.AgentExplorer, Stage: types.StageExplore}
+
+	res, _ := base.executeTool(ctx, llm.ToolCall{
+		ID:     "call-observed-success",
+		Name:   "observed_success",
+		Params: json.RawMessage(`{}`),
+	})
+	if res == nil || !res.Success {
+		t.Fatalf("expected successful ToolResult, got %+v", res)
+	}
+
+	view := collector.View()
+	if len(view.ToolEvents) != 1 {
+		t.Fatalf("tool events=%+v", view.ToolEvents)
+	}
+	ev := view.ToolEvents[0]
+	if ev.Kind != reasoninggraph.ReasoningEventToolCallObserved ||
+		ev.ReasonCode != "tool_call_ok" ||
+		ev.ActionStatus != "success" ||
+		ev.ToolName != "observed_success" ||
+		ev.Agent != string(types.AgentExplorer) ||
+		ev.Stage != string(types.StageExplore) ||
+		ev.ToolResultCount != 1 ||
+		ev.FactCount != 1 ||
+		ev.OutputRefCount != 1 ||
+		ev.PayloadRef != "blob://tool/raw-success" ||
+		ev.ElapsedMillis < 0 {
+		t.Fatalf("unexpected observed success event: %+v", ev)
+	}
+}
+
+func TestReasoningObserverCapturesLocalToolObservedFailure(t *testing.T) {
+	collector := reasoninggraph.NewEventCollector("graph-agent")
+	reg := toolpkg.NewRegistry()
+	reg.Register(&observedRuntimeTool{
+		name: "observed_failure",
+		result: types.ToolResult{
+			ToolName:  "observed_failure",
+			Success:   false,
+			Timestamp: time.Now(),
+		},
+		err: errors.New("boom"),
+	})
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		Tools:             reg,
+		ReasoningObserver: collector,
+	}, nil)
+	ctx := &types.AgentContext{AgentName: types.AgentExplorer, Stage: types.StageExplore}
+
+	res, _ := base.executeTool(ctx, llm.ToolCall{
+		ID:     "call-observed-failure",
+		Name:   "observed_failure",
+		Params: json.RawMessage(`{}`),
+	})
+	if res == nil || res.Success {
+		t.Fatalf("expected failed ToolResult, got %+v", res)
+	}
+
+	view := collector.View()
+	if len(view.ToolEvents) != 1 {
+		t.Fatalf("tool events=%+v", view.ToolEvents)
+	}
+	ev := view.ToolEvents[0]
+	if ev.Kind != reasoninggraph.ReasoningEventToolCallObserved ||
+		ev.ReasonCode != "tool_call_failed" ||
+		ev.ActionStatus != "failure" ||
+		ev.ViolationKind != "tool_execution_error" ||
+		ev.ToolName != "observed_failure" ||
+		ev.ToolResultCount != 1 ||
+		ev.ElapsedMillis < 0 {
+		t.Fatalf("unexpected observed failure event: %+v", ev)
 	}
 }
 

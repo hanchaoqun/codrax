@@ -4211,6 +4211,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 			// BusContext fields stay zero-valued, so tools cannot
 			// mutate stage-output state.
 			busCtx := b.buildToolBusContext(ctx)
+			toolStart := time.Now()
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)
 			if execErr != nil {
 				logging.Error("tool %s execution error: %v", tc.Name, execErr)
@@ -4257,21 +4258,25 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 				ctx.Mutable.RefundToolCall(types.CanonicalToolName(tc.Name))
 				logging.Debug("[sourcemix] refunded read_file budget for path miss: %s", result.Summary)
 			}
+			b.observeToolCallObserved(ctx, tc, time.Since(toolStart), &result, nil, execErr)
 			return &result, nil
 		}
 	}
 
 	// Try MCP servers
 	if mcpToolsAllowedForAgent(b.name, ctx) && b.deps.MCPServers != nil && tc.Name == mcpReadResourceToolName {
+		toolStart := time.Now()
 		resp, err := b.executeMCPReadResource(ctx, tc)
 		if err != nil {
 			logging.Error("mcp read resource error: %v", err)
 		}
+		b.observeToolCallObserved(ctx, tc, time.Since(toolStart), nil, resp, err)
 		return nil, resp
 	}
 
 	if mcpToolsAllowedForAgent(b.name, ctx) && b.deps.MCPServers != nil {
 		if server, rawToolName, ok := b.deps.MCPServers.ResolveNamespaced(tc.Name); ok {
+			toolStart := time.Now()
 			resp, err := server.CallTool(rawToolName, tc.Params)
 			if err != nil {
 				logging.Error("mcp %s.%s error: %v", server.Name(), rawToolName, err)
@@ -4284,6 +4289,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 					resp.PayloadRef = ref
 				}
 			}
+			b.observeToolCallObserved(ctx, tc, time.Since(toolStart), nil, &resp, err)
 			return nil, &resp
 		}
 	}

@@ -68,6 +68,56 @@ func (b *BaseAgent) observeToolRejected(ctx *types.AgentContext, call llm.ToolCa
 	})
 }
 
+func (b *BaseAgent) observeToolCallObserved(ctx *types.AgentContext, call llm.ToolCall, elapsed time.Duration, result *types.ToolResult, resp *types.MCPResponse, execErr error) {
+	payload := reasoninggraph.ObservationPayload{
+		ToolName:      call.Name,
+		ElapsedMillis: elapsed.Milliseconds(),
+	}
+	if result != nil {
+		payload.ToolResultCount = 1
+		payload.FactCount += len(result.Observations)
+		if strings.TrimSpace(result.RawRef) != "" {
+			payload.OutputRefCount++
+			payload.PayloadRef = strings.TrimSpace(result.RawRef)
+		}
+	}
+	if resp != nil {
+		payload.MCPResponseCount = 1
+		payload.FactCount += len(resp.Observations)
+		payload.ResourceURI = strings.TrimSpace(resp.ResourceURI)
+		for _, ref := range []string{resp.PayloadRef, resp.RawRef, resp.RowSetRef, resp.PageRef} {
+			if strings.TrimSpace(ref) == "" {
+				continue
+			}
+			payload.OutputRefCount++
+			if payload.PayloadRef == "" {
+				payload.PayloadRef = strings.TrimSpace(ref)
+			}
+		}
+	}
+	reasonCode := "tool_call_ok"
+	payload.ActionStatus = "success"
+	if violationKind := observedToolFailureKind(result, resp, execErr); violationKind != "" {
+		reasonCode = "tool_call_failed"
+		payload.ActionStatus = "failure"
+		payload.ViolationKind = violationKind
+	}
+	b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventToolCallObserved, reasonCode, reasoninggraph.ReasoningNodeTool, payload)
+}
+
+func observedToolFailureKind(result *types.ToolResult, resp *types.MCPResponse, execErr error) string {
+	if execErr != nil {
+		return "tool_execution_error"
+	}
+	if result != nil && !result.Success {
+		return "tool_result_failed"
+	}
+	if resp != nil && !resp.Success {
+		return "mcp_response_failed"
+	}
+	return ""
+}
+
 func (b *BaseAgent) observeSchemaRejected(ctx *types.AgentContext, call llm.ToolCall, reasonCode, violationKind string) {
 	b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventSchemaRejected, reasonCode, reasoninggraph.ReasoningNodeRepair, reasoninggraph.ObservationPayload{
 		ToolName:      call.Name,
