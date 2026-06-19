@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
@@ -83,6 +84,9 @@ func (o *Orchestrator) publishBlockedRunGuidance(run *types.WriteWorkflowRun, re
 		b.WriteString("- " + hint + "\n")
 	}
 	if line := writeWorkflowGuidanceNextActionLine(zh, nextView); line != "" {
+		b.WriteString("- " + line + "\n")
+	}
+	if line := writeWorkflowGuidanceAuthorityLine(zh, *run, nextView); line != "" {
 		b.WriteString("- " + line + "\n")
 	}
 	reportDir := strings.TrimSpace(o.reportDir)
@@ -183,6 +187,52 @@ func writeWorkflowGuidanceNextActionLine(zh bool, view types.WriteWorkflowNextAc
 			return "下一步:查看下方证据和 durable refs;调整目标后重新启动 Auto Pilot,或取回已应用 ref。"
 		}
 		return "Next: inspect the evidence and durable refs below; restart Auto Pilot with a narrower goal or recover the applied ref."
+	}
+	return ""
+}
+
+func writeWorkflowGuidanceAuthorityLine(zh bool, run types.WriteWorkflowRun, view types.WriteWorkflowNextActionView) string {
+	loopState := loopkernel.ReduceEvents(loopkernel.EventsFromWriteWorkflowRun(run))
+	truth := writeWorkflowGuidanceTruth(loopState, view)
+	if truth.State != "" && truth.State != types.TruthLedgerUnknown {
+		if zh {
+			return fmt.Sprintf("Truth authority: state=`%s` reason=`%s` action=`%s`。", truth.State, firstGuidanceString(truth.ReasonCode, "none"), firstGuidanceString(string(truth.RecommendedAction), "none"))
+		}
+		return fmt.Sprintf("Truth authority: state=`%s` reason=`%s` action=`%s`.", truth.State, firstGuidanceString(truth.ReasonCode, "none"), firstGuidanceString(string(truth.RecommendedAction), "none"))
+	}
+	if loopState.Proof.State == "" {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf("Proof authority: state=`%s` reason=`%s` action=`%s`。", loopState.Proof.State, firstGuidanceString(loopState.Proof.ReasonCode, "none"), firstGuidanceString(string(loopState.Proof.RecommendedAction), "none"))
+	}
+	return fmt.Sprintf("Proof authority: state=`%s` reason=`%s` action=`%s`.", loopState.Proof.State, firstGuidanceString(loopState.Proof.ReasonCode, "none"), firstGuidanceString(string(loopState.Proof.RecommendedAction), "none"))
+}
+
+func writeWorkflowGuidanceTruth(loopState loopkernel.LoopStateView, view types.WriteWorkflowNextActionView) types.TruthLedger {
+	if strings.TrimSpace(loopState.ActiveUnitID) != "" {
+		for _, unit := range loopState.Units {
+			if unit.UnitID != loopState.ActiveUnitID {
+				continue
+			}
+			truth := types.NormalizeTruthLedger(unit.Truth)
+			if truth.State != types.TruthLedgerUnknown {
+				return truth
+			}
+			break
+		}
+	}
+	if view.State == types.WriteWorkflowNextRunning {
+		return types.TruthLedger{}
+	}
+	return types.NormalizeTruthLedger(loopState.Truth)
+}
+
+func firstGuidanceString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
 	}
 	return ""
 }

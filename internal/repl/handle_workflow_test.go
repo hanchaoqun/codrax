@@ -313,6 +313,74 @@ func TestWorkflowShowDisplaysProofAuthority(t *testing.T) {
 	}
 }
 
+func TestWorkflowShowDisplaysTruthAuthority(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-truth-authority",
+		Goal:          "repair failed runtime unit",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchVerifying,
+			ActiveSliceID: "slice-failed",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-ok",
+				Status: types.ChangePlanSliceVerified,
+				Completion: &types.WriteWorkflowCompletion{
+					Verdict:    types.WriteWorkflowCompletionVerified,
+					ReasonCode: "tests_passed",
+				},
+			}, {
+				ID:        "slice-failed",
+				Status:    types.ChangePlanSliceFailed,
+				Paths:     []string{"src/parser.js"},
+				VerifyRef: "reports/slice-failed.json",
+				Attempts: []types.WriteWorkflowAttempt{{
+					Kind:        "verify",
+					Status:      "failed",
+					ReasonCode:  "tests_failed",
+					ArtifactRef: "reports/slice-failed.json",
+				}},
+			}},
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:                stubRunner{},
+		In:                    strings.NewReader(""),
+		Out:                   out,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+	})
+
+	r.handleWorkflowCmd("/workflow show")
+
+	got := out.String()
+	for _, want := range []string{
+		"Truth authority:",
+		"state=`failed`",
+		"reason=`tests_failed`",
+		"action=`repair`",
+		"signal `proof_coverage`",
+		"requires_action=true",
+		"src/parser.js",
+		"reports/slice-failed.json",
+		"Status: workflow is repairing automatically",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("workflow show missing truth authority %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestWorkflowShowDisplaysProofAuthorityInChineseBranch(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "wf-proof-zh",
@@ -846,6 +914,52 @@ func TestActiveWriteWorkflowBannerLineUsesTypedNextAction(t *testing.T) {
 		if strings.Contains(got, blocked) {
 			t.Fatalf("running workflow banner must not suggest %q: %q", blocked, got)
 		}
+	}
+}
+
+func TestActiveWriteWorkflowBannerLineSurfacesActiveTruth(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-banner-truth",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-truth",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-truth",
+			Status:        types.WriteWorkflowBatchVerifying,
+			ActiveSliceID: "slice-failed",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-ok",
+				Status: types.ChangePlanSliceVerified,
+			}, {
+				ID:        "slice-failed",
+				Status:    types.ChangePlanSliceFailed,
+				Paths:     []string{"src/parser.js"},
+				VerifyRef: "reports/slice-failed.json",
+				Attempts: []types.WriteWorkflowAttempt{{
+					Kind:       "verify",
+					Status:     "failed",
+					ReasonCode: "tests_failed",
+				}},
+			}},
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	r := &REPL{
+		language:              "en",
+		writeWorkflowRunStore: workflowStore,
+	}
+
+	got := r.activeWriteWorkflowBannerLine()
+
+	for _, want := range []string{"wf-banner-truth", "running automatically", "truth=failed", "reason=tests_failed", "action=repair"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("running workflow banner missing active truth %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "needs approval") {
+		t.Fatalf("truth repair banner should not ask for approval: %q", got)
 	}
 }
 

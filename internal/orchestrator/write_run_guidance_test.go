@@ -33,10 +33,49 @@ func TestPublishBlockedRunGuidance_SurfacesArtifactsAndVerbs(t *testing.T) {
 			"git cherry-pick",
 			"/workflow show wf-guid-1",
 			"pipeline_write_retry_budget",
+			"Proof authority: state=`failed` reason=`tests_failed` action=`repair`",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("%s: guidance missing %q:\n%s", lang, want, got)
 			}
+		}
+	}
+}
+
+func TestPublishBlockedRunGuidance_SurfacesSliceTruthAuthority(t *testing.T) {
+	mu := types.NewMutableState("truth")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Language: "en"}}
+	o.publishBlockedRunGuidance(&types.WriteWorkflowRun{
+		RunID:         "wf-truth",
+		Status:        types.WriteWorkflowRunBlocked,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchBlocked,
+			ActiveSliceID: "slice-failed",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-ok",
+				Status: types.ChangePlanSliceVerified,
+			}, {
+				ID:     "slice-failed",
+				Status: types.ChangePlanSliceFailed,
+				Attempts: []types.WriteWorkflowAttempt{{
+					Kind:       "verify",
+					Status:     "failed",
+					ReasonCode: "tests_failed",
+				}},
+			}},
+		}},
+	}, "verify_retry_budget_exhausted")
+
+	got := mu.Result()
+	for _, want := range []string{
+		"Workflow stopped",
+		"Truth authority: state=`failed` reason=`tests_failed` action=`repair`",
+		"/workflow show wf-truth",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("slice truth guidance missing %q:\n%s", want, got)
 		}
 	}
 }

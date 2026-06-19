@@ -390,6 +390,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 		writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowLocalizationAuthorityLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowProofAuthorityLines(&b, lang, run, batch, hasBatch)
+		writeWorkflowTruthAuthorityLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowProgressLines(&b, lang, run)
 		for _, line := range writeWorkflowNextActionLines(lang, run) {
 			b.WriteString("\n" + line)
@@ -406,6 +407,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 	writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowLocalizationAuthorityLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowProofAuthorityLines(&b, lang, run, batch, hasBatch)
+	writeWorkflowTruthAuthorityLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowProgressLines(&b, lang, run)
 	for _, line := range writeWorkflowNextActionLines(lang, run) {
 		b.WriteString("\n" + line)
@@ -417,6 +419,9 @@ func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []str
 	advanced := "/workflow list"
 	view := types.DeriveWriteWorkflowNextActionView(run)
 	localization := writeWorkflowLocalizationAuthority(run)
+	loopState := writeWorkflowLoopState(run)
+	truth := loopState.Truth
+	proof := loopState.Proof
 	switch view.State {
 	case types.WriteWorkflowNextNeedsApproval:
 		return writeNextActionCardLines(lang, writeActionNeedsApproval, "/approve · /reject <reason> · /workflow list")
@@ -438,6 +443,48 @@ func writeWorkflowNextActionLines(lang string, run types.WriteWorkflowRun) []str
 			return []string{
 				"  Status: workflow is running; no user action is needed yet.",
 				fmt.Sprintf("  Next: continue owner localization; localization_authority=`%s` reason=`%s`.", localization.State, localization.ReasonCode),
+				"  Advanced: " + advanced,
+			}
+		}
+		if truth.Failed {
+			if isZh(lang) {
+				return []string{
+					"  状态：workflow 正在自动修复；暂不需要用户操作。",
+					fmt.Sprintf("  下一步：按 truth_authority 修复当前 runtime unit；state=`%s` reason=`%s` action=`%s`。", truth.State, firstNonEmptyString(truth.ReasonCode, "truth_failed"), truth.RecommendedAction),
+					"  高级入口：" + advanced,
+				}
+			}
+			return []string{
+				"  Status: workflow is repairing automatically; no user action is needed yet.",
+				fmt.Sprintf("  Next: repair the current runtime unit from truth_authority; state=`%s` reason=`%s` action=`%s`.", truth.State, firstNonEmptyString(truth.ReasonCode, "truth_failed"), truth.RecommendedAction),
+				"  Advanced: " + advanced,
+			}
+		}
+		if truth.Weak || proof.State == loopkernel.ProofCoverageWeak || proof.State == loopkernel.ProofCoverageMissing {
+			if isZh(lang) {
+				return []string{
+					"  状态：workflow 正在补足证明；暂不需要用户操作。",
+					fmt.Sprintf("  下一步：继续 typed verify/proof 收敛；proof_authority=`%s` reason=`%s`。", firstNonEmptyString(string(proof.State), string(truth.State)), firstNonEmptyString(proof.ReasonCode, truth.ReasonCode, "proof_weak")),
+					"  高级入口：" + advanced,
+				}
+			}
+			return []string{
+				"  Status: workflow is strengthening proof; no user action is needed yet.",
+				fmt.Sprintf("  Next: continue typed verify/proof convergence; proof_authority=`%s` reason=`%s`.", firstNonEmptyString(string(proof.State), string(truth.State)), firstNonEmptyString(proof.ReasonCode, truth.ReasonCode, "proof_weak")),
+				"  Advanced: " + advanced,
+			}
+		}
+		if truth.Unverified || proof.State == loopkernel.ProofCoverageUnavailable {
+			if isZh(lang) {
+				return []string{
+					"  状态：workflow 正在推进；本地证明不可用不会作为源码失败处理。",
+					fmt.Sprintf("  下一步：保留 unverified 证明状态并继续可执行的收敛动作；reason=`%s`。", firstNonEmptyString(truth.ReasonCode, proof.ReasonCode, "proof_unavailable")),
+					"  高级入口：" + advanced,
+				}
+			}
+			return []string{
+				"  Status: workflow is running; unavailable local proof is not treated as a source failure.",
+				fmt.Sprintf("  Next: preserve the unverified proof state and continue actionable convergence; reason=`%s`.", firstNonEmptyString(truth.ReasonCode, proof.ReasonCode, "proof_unavailable")),
 				"  Advanced: " + advanced,
 			}
 		}
@@ -561,7 +608,57 @@ func writeWorkflowProofAuthorityLines(b *strings.Builder, lang string, run types
 }
 
 func writeWorkflowProofAuthority(run types.WriteWorkflowRun) loopkernel.ProofCoverageAuthorityView {
-	return loopkernel.ReduceEvents(loopkernel.EventsFromWriteWorkflowRun(run)).Proof
+	return writeWorkflowLoopState(run).Proof
+}
+
+func writeWorkflowTruthAuthorityLines(b *strings.Builder, lang string, run types.WriteWorkflowRun, batch types.WriteWorkflowBatch, hasBatch bool) {
+	if !hasBatch {
+		return
+	}
+	authority := writeWorkflowTruthAuthority(run)
+	if authority.State == "" || authority.State == types.TruthLedgerUnknown {
+		return
+	}
+	if isZh(lang) {
+		b.WriteString("\nTruth authority:\n")
+	} else {
+		b.WriteString("\nTruth authority:\n")
+	}
+	fmt.Fprintf(b, "- state=`%s` reason=`%s` action=`%s`",
+		authority.State,
+		firstNonEmptyString(authority.ReasonCode, "none"),
+		firstNonEmptyString(string(authority.RecommendedAction), "none"))
+	if authority.CompletionVerdict != "" {
+		fmt.Fprintf(b, " verdict=`%s`", authority.CompletionVerdict)
+	}
+	b.WriteString("\n")
+	for i, signal := range authority.Signals {
+		if i >= 3 {
+			fmt.Fprintf(b, "- signals: ...(+%d)\n", len(authority.Signals)-i)
+			break
+		}
+		fmt.Fprintf(b, "- signal `%s` state=`%s` reason=`%s` action=`%s` requires_action=%t",
+			firstNonEmptyString(string(signal.Kind), "unknown"),
+			firstNonEmptyString(string(signal.State), "unknown"),
+			firstNonEmptyString(signal.ReasonCode, "none"),
+			firstNonEmptyString(string(signal.RecommendedAction), "none"),
+			signal.RequiresAction)
+		if len(signal.Paths) > 0 {
+			fmt.Fprintf(b, " paths=%s", writeWorkflowPathList(signal.Paths, 3))
+		}
+		if len(signal.EvidenceRefs) > 0 {
+			fmt.Fprintf(b, " evidence=%s", writeWorkflowPathList(signal.EvidenceRefs, 3))
+		}
+		b.WriteString("\n")
+	}
+}
+
+func writeWorkflowTruthAuthority(run types.WriteWorkflowRun) types.TruthLedger {
+	return writeWorkflowLoopState(run).Truth
+}
+
+func writeWorkflowLoopState(run types.WriteWorkflowRun) loopkernel.LoopStateView {
+	return loopkernel.ReduceEvents(loopkernel.EventsFromWriteWorkflowRun(run))
 }
 
 func writeWorkflowPathList(paths []string, limit int) string {
@@ -826,36 +923,72 @@ func writeWorkflowBannerLine(lang string, run types.WriteWorkflowRun, view types
 	batchID := firstNonEmptyString(strings.TrimSpace(view.BatchID), strings.TrimSpace(run.ActiveBatchID), "none")
 	planID := firstNonEmptyString(strings.TrimSpace(view.PlanID), "none")
 	slice := writeWorkflowBannerSlice(view)
+	authority := writeWorkflowBannerAuthoritySuffix(lang, run, view)
 	if isZh(lang) {
 		switch view.State {
 		case types.WriteWorkflowNextNeedsApproval:
-			return fmt.Sprintf("write workflow `%s` 需要审批 · batch `%s`%s plan `%s`; fingerprint/diff 可在 /workflow show 审计", runID, batchID, slice, planID)
+			return fmt.Sprintf("write workflow `%s` 需要审批 · batch `%s`%s plan `%s`; fingerprint/diff 可在 /workflow show 审计%s", runID, batchID, slice, planID, authority)
 		case types.WriteWorkflowNextRunning:
-			return fmt.Sprintf("write workflow `%s` 正在自动推进 · batch `%s`%s; 暂不需要用户操作", runID, batchID, slice)
+			return fmt.Sprintf("write workflow `%s` 正在自动推进 · batch `%s`%s; 暂不需要用户操作%s", runID, batchID, slice, authority)
 		case types.WriteWorkflowNextPlanReady:
-			return fmt.Sprintf("write workflow `%s` 的计划已生成%s · plan `%s`; 可审阅后再决定是否执行", runID, slice, planID)
+			return fmt.Sprintf("write workflow `%s` 的计划已生成%s · plan `%s`; 可审阅后再决定是否执行%s", runID, slice, planID, authority)
 		case types.WriteWorkflowNextComplete:
-			return fmt.Sprintf("write workflow `%s` 已验证完成 · 准备发布时显式 /merge", runID)
+			return fmt.Sprintf("write workflow `%s` 已验证完成 · 准备发布时显式 /merge%s", runID, authority)
 		case types.WriteWorkflowNextBlocked:
-			return fmt.Sprintf("write workflow `%s` 已阻塞%s · /workflow show 可查看 reason/evidence", runID, slice)
+			return fmt.Sprintf("write workflow `%s` 已阻塞%s · /workflow show 可查看 reason/evidence%s", runID, slice, authority)
 		default:
-			return fmt.Sprintf("write workflow `%s` 已保存 · /workflow show 可查看当前状态", runID)
+			return fmt.Sprintf("write workflow `%s` 已保存 · /workflow show 可查看当前状态%s", runID, authority)
 		}
 	}
 	switch view.State {
 	case types.WriteWorkflowNextNeedsApproval:
-		return fmt.Sprintf("write workflow `%s` needs approval · batch `%s`%s plan `%s`; /workflow show audits fingerprint/diff", runID, batchID, slice, planID)
+		return fmt.Sprintf("write workflow `%s` needs approval · batch `%s`%s plan `%s`; /workflow show audits fingerprint/diff%s", runID, batchID, slice, planID, authority)
 	case types.WriteWorkflowNextRunning:
-		return fmt.Sprintf("write workflow `%s` is running automatically · batch `%s`%s; no user action needed", runID, batchID, slice)
+		return fmt.Sprintf("write workflow `%s` is running automatically · batch `%s`%s; no user action needed%s", runID, batchID, slice, authority)
 	case types.WriteWorkflowNextPlanReady:
-		return fmt.Sprintf("write workflow `%s` plan is ready%s · plan `%s`; review before applying", runID, slice, planID)
+		return fmt.Sprintf("write workflow `%s` plan is ready%s · plan `%s`; review before applying%s", runID, slice, planID, authority)
 	case types.WriteWorkflowNextComplete:
-		return fmt.Sprintf("write workflow `%s` is verified complete · merge explicitly when ready", runID)
+		return fmt.Sprintf("write workflow `%s` is verified complete · merge explicitly when ready%s", runID, authority)
 	case types.WriteWorkflowNextBlocked:
-		return fmt.Sprintf("write workflow `%s` is blocked%s · /workflow show can inspect reason/evidence", runID, slice)
+		return fmt.Sprintf("write workflow `%s` is blocked%s · /workflow show can inspect reason/evidence%s", runID, slice, authority)
 	default:
-		return fmt.Sprintf("write workflow `%s` is saved · /workflow show can inspect current state", runID)
+		return fmt.Sprintf("write workflow `%s` is saved · /workflow show can inspect current state%s", runID, authority)
 	}
+}
+
+func writeWorkflowBannerAuthoritySuffix(lang string, run types.WriteWorkflowRun, view types.WriteWorkflowNextActionView) string {
+	loopState := writeWorkflowLoopState(run)
+	truth := writeWorkflowBannerTruth(loopState, view)
+	if truth.State == "" || truth.State == types.TruthLedgerUnknown {
+		return ""
+	}
+	part := fmt.Sprintf("truth=%s reason=%s", truth.State, firstNonEmptyString(truth.ReasonCode, "none"))
+	if truth.RecommendedAction != "" {
+		part += fmt.Sprintf(" action=%s", truth.RecommendedAction)
+	}
+	if isZh(lang) {
+		return "；" + part
+	}
+	return "; " + part
+}
+
+func writeWorkflowBannerTruth(loopState loopkernel.LoopStateView, view types.WriteWorkflowNextActionView) types.TruthLedger {
+	if strings.TrimSpace(loopState.ActiveUnitID) != "" {
+		for _, unit := range loopState.Units {
+			if unit.UnitID != loopState.ActiveUnitID {
+				continue
+			}
+			truth := types.NormalizeTruthLedger(unit.Truth)
+			if truth.State != types.TruthLedgerUnknown {
+				return truth
+			}
+			break
+		}
+	}
+	if view.State == types.WriteWorkflowNextRunning {
+		return types.TruthLedger{}
+	}
+	return types.NormalizeTruthLedger(loopState.Truth)
 }
 
 func writeWorkflowBannerSlice(view types.WriteWorkflowNextActionView) string {
