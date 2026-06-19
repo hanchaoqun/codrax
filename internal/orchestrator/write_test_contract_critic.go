@@ -363,6 +363,24 @@ func renderTestContractReplanHint(findings []writeTestContractFinding) string {
 	return strings.TrimSpace(b.String())
 }
 
+func renderProtectedTestSourceOnlyRepairHint(paths []string) string {
+	paths = append([]string(nil), paths...)
+	sort.Strings(paths)
+	var b strings.Builder
+	b.WriteString("## Typed protected-oracle repair lane\n\n")
+	b.WriteString("The last retry still changed a protected failed/regression test line. Treat these protected test rows as the current local oracle for this batch and search for an implementation-side repair instead of editing them.\n\n")
+	b.WriteString("Forbidden protected test paths for this bounded repair attempt:\n")
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "- %s\n", path)
+	}
+	b.WriteString("\nEmit a ChangePlan that leaves those paths unchanged and changes production/source code or adds independent coverage only when useful. If no production-side repair can satisfy the protected oracle from typed evidence, block instead of changing the protected test.")
+	return strings.TrimSpace(b.String())
+}
+
 func uniqueFindingPaths(findings []writeTestContractFinding) []string {
 	seen := map[string]bool{}
 	var out []string

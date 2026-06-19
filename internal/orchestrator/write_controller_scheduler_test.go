@@ -2325,6 +2325,14 @@ func TestRunWriteControllerWorkflow_BlocksPersistentProtectedRegressionTestWeake
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage == types.StagePlan {
 			planCalls++
+			if planCalls == 3 {
+				hint := mu.PlanningHint()
+				if !strings.Contains(hint, "Typed protected-oracle repair lane") ||
+					!strings.Contains(hint, "tests/test_tokenizer.py") ||
+					!strings.Contains(hint, "implementation-side repair") {
+					t.Fatalf("source-only repair hint missing typed protected path, got:\n%s", hint)
+				}
+			}
 			mu.SetChangePlan(&types.ChangePlan{
 				ID:      fmt.Sprintf("plan-weakens-test-%d", planCalls),
 				Status:  types.PlanStatusPending,
@@ -2345,8 +2353,11 @@ func TestRunWriteControllerWorkflow_BlocksPersistentProtectedRegressionTestWeake
 	if err == nil || !strings.Contains(err.Error(), "weakened protected regression test contract after retry") {
 		t.Fatalf("expected persistent protected-test weakening to block, got %v", err)
 	}
-	if planCalls != 2 {
-		t.Fatalf("plan calls = %d, want 2", planCalls)
+	if planCalls != 3 {
+		t.Fatalf("plan calls = %d, want 3", planCalls)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "protected_test_source_only_replan_requested") {
+		t.Fatalf("workflow should record source-only repair lane request: %+v", store.last.ProgressLedger)
 	}
 }
 

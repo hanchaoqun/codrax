@@ -274,6 +274,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				}
 			}
 			innerErr := o.runControllerPlanBatch(decision.Batch, stepsUsed)
+			if current := o.busCtx.Mutable.WriteWorkflowRun(); current != nil && strings.TrimSpace(current.RunID) == strings.TrimSpace(run.RunID) {
+				run = *current
+			}
 			plan := o.busCtx.Mutable.ChangePlan()
 			if innerErr == nil && replanFromFailedVerify && replanReusedFailedPlan(priorPlanFingerprint, plan) {
 				innerErr = fmt.Errorf("write controller replan reused the failed ChangePlan fingerprint without producing a replacement plan")
@@ -874,6 +877,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	localizationReplanRetried := false
 	localizationOwnerReplanRetried := false
 	testContractReplanRetried := false
+	testContractSourceOnlyReplanRetried := false
 	proofProbeReplanRetried := false
 	proofSourceEditReplanRetried := false
 	proofNonExecutableReplanRetried := false
@@ -928,6 +932,21 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + hint))
 					o.busCtx.TaskState.LastError = ""
 					logging.Warning("[orchestrator] controller plan weakened protected regression test contract; retrying bounded planning once paths=%s", strings.Join(paths, ","))
+					continue
+				}
+				if !testContractSourceOnlyReplanRetried {
+					testContractSourceOnlyReplanRetried = true
+					if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+						appendControllerProgress(run, run.ActiveBatchID, "protected_test_source_only_replan_requested", strings.Join(paths, ","))
+						o.busCtx.Mutable.SetWriteWorkflowRun(run)
+					}
+					existing := strings.TrimSpace(o.busCtx.Mutable.PlanningHint())
+					if existing != "" {
+						existing += "\n\n"
+					}
+					o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(existing + renderProtectedTestSourceOnlyRepairHint(paths)))
+					o.busCtx.TaskState.LastError = ""
+					logging.Warning("[orchestrator] controller plan still weakened protected regression test contract; forcing one source-only repair attempt paths=%s", strings.Join(paths, ","))
 					continue
 				}
 				return fmt.Errorf("write controller plan weakened protected regression test contract after retry: %s", strings.Join(paths, ","))

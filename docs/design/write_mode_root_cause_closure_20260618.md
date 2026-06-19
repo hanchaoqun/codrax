@@ -4325,6 +4325,7 @@ Verification:
 | RC-113 | complete | Failed-test assertion preservation: verifier failure handoff now promotes the failed test's typed file:line assertion into a temporary replan-only protected test contract. Replans may still fix production code or add tests, but deleting/replacing the exact failed assertion line triggers the existing bounded test-contract critique instead of silently weakening the local regression oracle. Python traceback `File "...", line N` locations now feed the shared failure-signal parser. |
 | RC-114 | complete | Verifier worktree path normalization: RC113 smoke showed traceback locations can point at `.codrax/worktrees/<trace>/...`, which made failed-test protection classify the location as a Codrax artifact instead of a repo test. The critic now maps that deterministic worktree prefix back to repo-relative paths before path-role classification. |
 | RC-115 | complete | Protected-test critic hard closure: the typed test-contract critic now retries once with a structured hint, then blocks/fails loud if the next plan still weakens protected regression or failed-verifier assertion lines. This prevents a model from acknowledging `preserve_failed_test_assertion` in prose while still applying the weakened test patch. |
+| RC-116 | complete | Protected-oracle source-only repair lane: RC115 correctly blocks repeated protected-test weakening, but Django smoke showed the workflow then exports an empty patch instead of spending one more bounded attempt on implementation-side alternatives. The scheduler now adds a deterministic second retry lane: after the first protected-test hint is ignored, it forces one source-only/protected-path-forbidden replan before the final block, and preserves inner-loop durable progress when returning to the controller. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -7292,6 +7293,49 @@ RC115 implementation notes:
     preserving failed oracle" from "candidate claims the oracle is wrong" and
     to require an alternate implementation search before any blocked outcome is
     considered terminal.
+
+RC116 design and tasks:
+
+- Gap:
+  - RC115 converts unsafe test weakening into a fail-loud blocked workflow.
+    That is correct for safety, but it leaves automation rough: when a bounded
+    replan keeps editing a protected failed/regression test, the controller
+    should still offer one deterministic implementation-side repair lane before
+    giving up.
+  - The lane must not parse model prose such as "the test is wrong". It should
+    consume only the same typed protected-test findings already produced from
+    `WriteConstraint` and `VerifyFailureHandoff` diff analysis.
+- Design:
+  - First protected-test violation: existing typed critique and retry.
+  - Second protected-test violation: append a typed
+    `protected-oracle repair lane` hint naming the protected paths, record
+    `protected_test_source_only_replan_requested`, and retry once.
+  - Third protected-test violation: block/fail-loud before approval/apply.
+  - The hard gate remains the structural diff critic; the new hint is soft
+    guidance only. Protected paths are still rejected if the model emits them.
+- Tasks:
+  - Add a source-only retry flag in `runControllerPlanBatch`.
+  - Add a typed hint renderer fed by protected test paths, not prose.
+  - Extend scheduler tests so persistent test weakening gets three attempts,
+    records progress, and blocks only after the source-only lane is ignored.
+  - Re-run focused orchestrator tests, full `go test ./...`, `make`, then a
+    Django SWE smoke to see whether the extra repair lane yields a
+    source-only candidate or a clear final block.
+- Implementation notes:
+  - `runControllerPlanBatch` now retries once with the original typed critique,
+    then once more with a `Typed protected-oracle repair lane` hint that names
+    forbidden protected test paths and asks for implementation-side repair.
+  - The same structural diff critic is re-run on each emitted ChangePlan. If
+    the model still changes protected lines after the source-only lane, the
+    scheduler blocks before approval/apply.
+  - The outer controller now refreshes its local workflow run from mutable
+    state after the inner planner loop returns, so progress appended by inner
+    repair lanes is not lost when the outer layer records a block.
+- Verification:
+  - `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(ReplansProtectedRegressionTestWeakening|BlocksPersistentProtectedRegressionTestWeakening)|TestTestContractReplanHint' -count=1`
+    passes.
+  - `go test ./...` passes.
+  - `make` passes.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
