@@ -153,6 +153,54 @@ func DeriveProofCoverageAuthority(profile *types.VerificationProofProfile, ledge
 	return proofAuthority(view, ProofCoverageMissing, "proof_missing", LoopActionVerify)
 }
 
+func DeriveProofCoverageAuthorityFromCompletion(completion *types.WriteWorkflowCompletion) ProofCoverageAuthorityView {
+	if completion == nil {
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageMissing, "proof_missing", LoopActionVerify)
+	}
+	reason := strings.TrimSpace(completion.ReasonCode)
+	switch completion.Verdict {
+	case types.WriteWorkflowCompletionVerified:
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageCovered, firstProofReason(reason, "proof_covered"), LoopActionContinue)
+	case types.WriteWorkflowCompletionUnverified:
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageUnavailable, firstProofReason(reason, "proof_unavailable"), LoopActionContinue)
+	case types.WriteWorkflowCompletionAcceptedFailed:
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageFailed, firstProofReason(reason, "proof_failed"), LoopActionRepair)
+	default:
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageMissing, "proof_missing", LoopActionVerify)
+	}
+}
+
+func DeriveProofCoverageAuthorityFromAttempt(attempt *types.WriteWorkflowAttempt) ProofCoverageAuthorityView {
+	if attempt == nil {
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageMissing, "proof_missing", LoopActionVerify)
+	}
+	status := strings.TrimSpace(attempt.Status)
+	reason := firstProofReason(attempt.ReasonCode, status)
+	failureReason := strings.TrimSpace(attempt.FailureReasonCode)
+	switch status {
+	case "passed":
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageCovered, firstProofReason(reason, "tests_passed"), LoopActionContinue)
+	case "unverified":
+		if types.FailureReasonCodeIndicatesCodeFailure(reason) ||
+			types.FailureReasonCodeIndicatesCodeFailure(failureReason) {
+			return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageFailed, firstProofReason(reason, failureReason, "proof_failed"), LoopActionRepair)
+		}
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageUnavailable, firstProofReason(reason, failureReason, "proof_unavailable"), LoopActionContinue)
+	case "failed":
+		if types.FailureReasonCodeIndicatesVerificationUnavailable(reason) ||
+			types.FailureReasonCodeIndicatesVerificationUnavailable(failureReason) {
+			return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageUnavailable, firstProofReason(reason, failureReason, "proof_unavailable"), LoopActionContinue)
+		}
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageFailed, firstProofReason(reason, failureReason, "proof_failed"), LoopActionRepair)
+	case "skipped":
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageUnavailable, firstProofReason(reason, "skip_verify"), LoopActionContinue)
+	case "", "infra_error", "missing_report":
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageMissing, firstProofReason(reason, "proof_missing"), LoopActionVerify)
+	default:
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageMissing, "unknown_verify_attempt_status", LoopActionVerify)
+	}
+}
+
 func DerivePermissionAuthority(source string, decisions ...safety.PermissionDecision) PermissionAuthorityView {
 	source = strings.TrimSpace(source)
 	if source == "" {
@@ -210,4 +258,13 @@ func proofAuthority(view ProofCoverageAuthorityView, state ProofCoverageAuthorit
 	view.RequiresProof = action == LoopActionVerify || action == LoopActionAddProof
 	view.AllowsUnverified = state == ProofCoverageUnavailable
 	return view
+}
+
+func firstProofReason(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

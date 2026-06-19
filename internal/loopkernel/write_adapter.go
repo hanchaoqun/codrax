@@ -40,6 +40,9 @@ func EventsFromWriteWorkflowRun(run types.WriteWorkflowRun) []LoopEvent {
 			authority := DeriveLocalizationAuthority(review)
 			add(LoopEventLocalizationProjected, unitID, authority.ReasonCode, authority)
 		}
+		if proof, ok := proofAuthorityFromWriteWorkflowBatch(batch); ok {
+			add(LoopEventProofProjected, unitID, proof.ReasonCode, proof)
+		}
 		addWriteWorkflowBatchEvents(add, batch, unitID)
 	}
 	switch run.Status {
@@ -76,7 +79,8 @@ func addWriteWorkflowBatchEvents(add func(LoopEventKind, string, string, any), b
 		add(LoopEventObserveStarted, unitID, "batch_verifying", nil)
 	case types.WriteWorkflowBatchComplete:
 		add(LoopEventObserveCompleted, unitID, writeWorkflowCompletionReason(batch.Completion, "batch_complete"), nil)
-		add(LoopEventProofProjected, unitID, writeWorkflowCompletionReason(batch.Completion, "batch_complete"), proofAuthorityFromWriteCompletion(batch.Completion))
+		authority := DeriveProofCoverageAuthorityFromCompletion(batch.Completion)
+		add(LoopEventProofProjected, unitID, authority.ReasonCode, authority)
 		add(LoopEventUnitCompleted, unitID, writeWorkflowCompletionReason(batch.Completion, "batch_complete"), nil)
 	case types.WriteWorkflowBatchBlocked:
 		add(LoopEventUnitBlocked, unitID, "batch_blocked", nil)
@@ -128,20 +132,29 @@ func writeWorkflowSliceTerminal(status types.ChangePlanSliceStatus) bool {
 	}
 }
 
-func proofAuthorityFromWriteCompletion(completion *types.WriteWorkflowCompletion) ProofCoverageAuthorityView {
-	if completion == nil {
-		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageMissing, "proof_missing", LoopActionVerify)
+func proofAuthorityFromWriteWorkflowBatch(batch types.WriteWorkflowBatch) (ProofCoverageAuthorityView, bool) {
+	if latest := latestWriteWorkflowAttemptOfKind(batch.Attempts, "verify"); latest != nil {
+		return DeriveProofCoverageAuthorityFromAttempt(latest), true
 	}
-	switch completion.Verdict {
-	case types.WriteWorkflowCompletionVerified:
-		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageCovered, writeWorkflowCompletionReason(completion, "proof_covered"), LoopActionContinue)
-	case types.WriteWorkflowCompletionUnverified:
-		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageUnavailable, writeWorkflowCompletionReason(completion, "proof_unavailable"), LoopActionContinue)
-	case types.WriteWorkflowCompletionAcceptedFailed:
-		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageFailed, writeWorkflowCompletionReason(completion, "proof_failed"), LoopActionRepair)
+	switch batch.Status {
+	case types.WriteWorkflowBatchVerifying:
+		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageMissing, "proof_missing", LoopActionVerify), true
 	default:
-		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageMissing, "proof_missing", LoopActionVerify)
+		return ProofCoverageAuthorityView{}, false
 	}
+}
+
+func latestWriteWorkflowAttemptOfKind(attempts []types.WriteWorkflowAttempt, kind string) *types.WriteWorkflowAttempt {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return nil
+	}
+	for i := len(attempts) - 1; i >= 0; i-- {
+		if strings.TrimSpace(attempts[i].Kind) == kind {
+			return &attempts[i]
+		}
+	}
+	return nil
 }
 
 func writeWorkflowCompletionReason(completion *types.WriteWorkflowCompletion, fallback string) string {

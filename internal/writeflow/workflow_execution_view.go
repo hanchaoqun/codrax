@@ -50,15 +50,16 @@ type WorkflowExecutionView struct {
 	Approval     ApprovalExecutionView `json:"approval,omitempty"`
 	Budget       types.WriteWorkflowBudget
 
-	Localization             loopkernel.LocalizationAuthorityView `json:"localization,omitempty"`
-	LocalizationGateEligible bool                                 `json:"localization_gate_eligible,omitempty"`
-	ExploreAttempts          int                                  `json:"explore_attempts,omitempty"`
-	LatestExploreStatus      string                               `json:"latest_explore_status,omitempty"`
-	LatestExploreReason      string                               `json:"latest_explore_reason,omitempty"`
-	LatestVerifyStatus       string                               `json:"latest_verify_status,omitempty"`
-	LatestVerifyReasonCode   string                               `json:"latest_verify_reason_code,omitempty"`
-	LatestVerifyFailureCode  string                               `json:"latest_verify_failure_code,omitempty"`
-	Observation              ObservationAuthorityView             `json:"observation,omitempty"`
+	Localization             loopkernel.LocalizationAuthorityView  `json:"localization,omitempty"`
+	LocalizationGateEligible bool                                  `json:"localization_gate_eligible,omitempty"`
+	ExploreAttempts          int                                   `json:"explore_attempts,omitempty"`
+	LatestExploreStatus      string                                `json:"latest_explore_status,omitempty"`
+	LatestExploreReason      string                                `json:"latest_explore_reason,omitempty"`
+	LatestVerifyStatus       string                                `json:"latest_verify_status,omitempty"`
+	LatestVerifyReasonCode   string                                `json:"latest_verify_reason_code,omitempty"`
+	LatestVerifyFailureCode  string                                `json:"latest_verify_failure_code,omitempty"`
+	Observation              ObservationAuthorityView              `json:"observation,omitempty"`
+	Proof                    loopkernel.ProofCoverageAuthorityView `json:"proof,omitempty"`
 
 	RequiresUser bool `json:"requires_user,omitempty"`
 	CanExplore   bool `json:"can_explore,omitempty"`
@@ -102,6 +103,9 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 		view.LatestVerifyReasonCode = strings.TrimSpace(latestVerify.ReasonCode)
 		view.LatestVerifyFailureCode = strings.TrimSpace(latestVerify.FailureReasonCode)
 		view.Observation = DeriveObservationAuthorityFromAttempt(latestVerify)
+		view.Proof = loopkernel.DeriveProofCoverageAuthorityFromAttempt(latestVerify)
+	} else if batch.Status == types.WriteWorkflowBatchVerifying {
+		view.Proof = loopkernel.DeriveProofCoverageAuthorityFromAttempt(nil)
 	}
 	activePlan := workflowExecutionActivePlan(batch, plan)
 	if activePlan != nil {

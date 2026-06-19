@@ -389,6 +389,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 	writeWorkflowApprovalLines(&b, lang, batch, hasBatch, plan)
 	writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowLocalizationAuthorityLines(&b, lang, run, batch, hasBatch)
+	writeWorkflowProofAuthorityLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowProgressLines(&b, lang, run)
 	for _, line := range writeWorkflowNextActionLines(lang, run) {
 		b.WriteString("\n" + line)
@@ -501,6 +502,39 @@ func writeWorkflowLocalizationAuthorityForBatch(run types.WriteWorkflowRun, batc
 		return loopkernel.LocalizationAuthorityView{}
 	}
 	return loopkernel.DeriveLocalizationAuthority(review)
+}
+
+func writeWorkflowProofAuthorityLines(b *strings.Builder, lang string, run types.WriteWorkflowRun, batch types.WriteWorkflowBatch, hasBatch bool) {
+	if !hasBatch {
+		return
+	}
+	authority := writeWorkflowProofAuthority(run)
+	if authority.State == "" {
+		return
+	}
+	if isZh(lang) {
+		b.WriteString("\nProof authority:\n")
+	} else {
+		b.WriteString("\nProof authority:\n")
+	}
+	fmt.Fprintf(b, "- state=`%s` reason=`%s` action=`%s`",
+		authority.State,
+		firstNonEmptyString(authority.ReasonCode, "none"),
+		firstNonEmptyString(string(authority.RecommendedAction), "none"))
+	if authority.ProfileStatus != "" {
+		fmt.Fprintf(b, " profile=`%s`", authority.ProfileStatus)
+	}
+	if authority.LedgerState != "" {
+		fmt.Fprintf(b, " ledger=`%s`", authority.LedgerState)
+	}
+	if authority.RunnerEvidence != "" {
+		fmt.Fprintf(b, " runner=`%s`", authority.RunnerEvidence)
+	}
+	b.WriteString("\n")
+}
+
+func writeWorkflowProofAuthority(run types.WriteWorkflowRun) loopkernel.ProofCoverageAuthorityView {
+	return loopkernel.ReduceEvents(loopkernel.EventsFromWriteWorkflowRun(run)).Proof
 }
 
 func writeWorkflowPathList(paths []string, limit int) string {

@@ -1097,7 +1097,7 @@ The implementation must move in small commercial batches. Each batch updates thi
 | L1 | complete | Loop kernel skeleton | `internal/loopkernel` event schema, reducer, typed authority projections, atomic event persistence | focused `go test ./internal/loopkernel` |
 | L2 | complete | Shadow write adapter | emit loop events from current write controller without changing effects; reducer parity with `WriteWorkflowRun` | loopkernel/repl focused tests |
 | L3 | complete | Localization authority consumption | shared `LocalizationAuthority` consumed by read sidecar, write controller, planner/replan, final report | read/write localization tests |
-| L4 | pending | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
+| L4 | in_progress | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
 | L5 | pending | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
 | L6 | pending | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
 | L7 | pending | Micro-loop execution | deterministic micro-slice splitter, runtime unit apply/observe/checkpoint, stale-plan guard | write E2E and slice tests |
@@ -1138,10 +1138,14 @@ The implementation must move in small commercial batches. Each batch updates thi
 
 ### L4 Task Breakdown
 
-- Derive proof authority from observation authority, verification proof ledger, impact targets, and patch review.
-- Teach controller next-action to prefer proof-seeking or repair actions when budget remains.
-- Preserve unavailable runner/dependency states as `unverified`.
-- Add tests for passed-but-weak, unavailable, failed, and missing proof states.
+- [x] Add shared typed reason-code classification for code-failure vs verifier-unavailable states so proof/observation consumers do not duplicate string logic.
+- [x] Derive `ProofCoverageAuthority` from durable write verify attempts and completion verdicts, in addition to existing proof profile/ledger projections.
+- [x] Persist/project active proof authority into loop events and `WorkflowExecutionView`.
+- [x] Render proof authority in `/workflow show` from typed loop state, including unavailable local verification without implying code repair.
+- [ ] Derive proof authority from full verification proof ledger, impact targets, and patch review inside controller state.
+- [ ] Teach controller next-action to prefer proof-seeking or repair actions when budget remains.
+- [ ] Preserve unavailable runner/dependency states as `unverified` through finish/report/status cards.
+- [ ] Add tests for passed-but-weak, unavailable, failed, and missing proof states across controller decisions.
 
 ### L5 Task Breakdown
 
@@ -1192,6 +1196,7 @@ The implementation must move in small commercial batches. Each batch updates thi
 | 2026-06-19 | L1 | complete | Added `internal/loopkernel` event schema, reducer, authority projections, atomic event persistence, and focused tests. `go test ./internal/loopkernel` passed. |
 | 2026-06-19 | L2 | complete | Added `EventsFromWriteWorkflowRun`, shadow event persistence under `workflows/events/<runID>.json`, Clear cleanup, and parity tests. Focused `loopkernel`/`repl` tests passed. |
 | 2026-06-19 | L3 | complete | Shadow loop events now include `LocalizationAuthority` projected from typed `WriteContextPack.LocalizationAnchor` evidence. `/workflow show` and the running next-action card render typed localization state/reason/action. `WorkflowExecutionView` consumes localization authority, projects batch `ExpectedPaths` as advisory context, and transition validation redirects the first weak production-source ready-to-plan/replan action to `explore_code` only when read/evidence anchors make the gate eligible. Read mode now persists `ReadSourceLocalization` on `AnswerDocumentV2` and renders typed localization-status supplements, including observed-only status without owner-proof inflation. Existing planner/replan context-pack owner views and `WriteFinalReport.SourceAuthority` cover owner-supported Top-N consumption; added hygiene coverage proving model prose cannot bypass the typed localization gate. No-signal active batches now project typed `missing` authority for audit, while auxiliary-only/missing-without-candidates stay advisory and do not hard-block planning. Focused `loopkernel`/`writeflow`/`orchestrator`/`agent`/`tool`/`types`/`repl` tests passed. |
+| 2026-06-19 | L4 | in_progress | Added shared typed verifier reason classification, `ProofCoverageAuthority` projection from durable verify attempts/completion verdicts, loop-event projection for active proof state, `WorkflowExecutionView.Proof`, and `/workflow show` proof authority rendering. Focused `types`/`loopkernel`/`writeflow`/`repl` tests passed. Remaining work: full ledger/profile/impact/patch-review controller policy and weak-proof next-action routing. |
 
 ## Phased Roadmap
 

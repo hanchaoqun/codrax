@@ -80,6 +80,54 @@ func TestDeriveProofCoverageAuthorityUnavailableIsNotRepair(t *testing.T) {
 	}
 }
 
+func TestDeriveProofCoverageAuthorityFromAttemptClassifiesTypedVerifierStates(t *testing.T) {
+	cases := []struct {
+		name       string
+		attempt    *types.WriteWorkflowAttempt
+		wantState  ProofCoverageAuthorityState
+		wantAction LoopRecommendedAction
+	}{
+		{
+			name:       "passed",
+			attempt:    &types.WriteWorkflowAttempt{Kind: "verify", Status: "passed", ReasonCode: "tests_passed"},
+			wantState:  ProofCoverageCovered,
+			wantAction: LoopActionContinue,
+		},
+		{
+			name:       "unavailable",
+			attempt:    &types.WriteWorkflowAttempt{Kind: "verify", Status: "unverified", ReasonCode: "runner_missing"},
+			wantState:  ProofCoverageUnavailable,
+			wantAction: LoopActionContinue,
+		},
+		{
+			name:       "unverified code failure",
+			attempt:    &types.WriteWorkflowAttempt{Kind: "verify", Status: "unverified", ReasonCode: "tests_failed"},
+			wantState:  ProofCoverageFailed,
+			wantAction: LoopActionRepair,
+		},
+		{
+			name:       "failed unavailable",
+			attempt:    &types.WriteWorkflowAttempt{Kind: "verify", Status: "failed", ReasonCode: "parser_error"},
+			wantState:  ProofCoverageUnavailable,
+			wantAction: LoopActionContinue,
+		},
+		{
+			name:       "missing",
+			attempt:    nil,
+			wantState:  ProofCoverageMissing,
+			wantAction: LoopActionVerify,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := DeriveProofCoverageAuthorityFromAttempt(tc.attempt)
+			if got.State != tc.wantState || got.RecommendedAction != tc.wantAction {
+				t.Fatalf("proof authority = %+v, want state=%s action=%s", got, tc.wantState, tc.wantAction)
+			}
+		})
+	}
+}
+
 func TestDerivePermissionAuthorityDenyWins(t *testing.T) {
 	got := DerivePermissionAuthority("test",
 		safety.AllowPermission("allow", "safe", "safe"),

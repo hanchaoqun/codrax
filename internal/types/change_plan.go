@@ -1102,6 +1102,41 @@ func FailureReasonCodeIndicatesVerificationUnavailable(raw string) bool {
 	return seen
 }
 
+// FailureReasonCodeIndicatesCodeFailure returns true when every typed reason
+// code describes a code/build/test failure rather than verifier availability.
+// It is intentionally enum based: callers must not feed user prose or model
+// rationale into hard workflow gates.
+func FailureReasonCodeIndicatesCodeFailure(raw string) bool {
+	parts := strings.Split(raw, ",")
+	seen := false
+	for _, part := range parts {
+		code := strings.TrimSpace(part)
+		if code == "" {
+			continue
+		}
+		seen = true
+		switch code {
+		case string(FailureKindTestsFailed),
+			string(FailureKindBuildFailure),
+			string(FailureKindTimeout),
+			string(FailureKindOOM),
+			string(FailureKindCPULimit),
+			string(FailureKindCrash),
+			"build_failed",
+			"verify_error",
+			"verification_probe_exception",
+			"verification_probe_expected_stdout_missing",
+			"verification_probe_name_error",
+			"verification_probe_runtime_exception",
+			"verification_probe_timeout":
+			continue
+		default:
+			return false
+		}
+	}
+	return seen
+}
+
 // VerificationUnavailableReasonCode returns the first typed reason proving the
 // local verifier, probe, or project runner was unavailable. It inspects only
 // schema fields emitted by Codrax tools, never model prose or human summaries.

@@ -239,22 +239,5 @@ func observationReasonIsUnavailable(reason string) bool {
 }
 
 func observationReasonIsCodeFailure(reason string) bool {
-	switch strings.TrimSpace(reason) {
-	case string(types.FailureKindTestsFailed),
-		string(types.FailureKindBuildFailure),
-		string(types.FailureKindTimeout),
-		string(types.FailureKindOOM),
-		string(types.FailureKindCPULimit),
-		string(types.FailureKindCrash),
-		"build_failed",
-		"verify_error",
-		"verification_probe_exception",
-		"verification_probe_expected_stdout_missing",
-		"verification_probe_name_error",
-		"verification_probe_runtime_exception",
-		"verification_probe_timeout":
-		return true
-	default:
-		return false
-	}
+	return types.FailureReasonCodeIndicatesCodeFailure(reason)
 }

@@ -168,6 +168,30 @@ func TestEventsFromWriteWorkflowRunVerifyingUsesActiveSlice(t *testing.T) {
 	}
 }
 
+func TestEventsFromWriteWorkflowRunActiveVerifyAttemptProjectsProofAuthority(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-proof-attempt",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchVerifying,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "unverified",
+				ReasonCode: "runner_missing",
+			}},
+		}},
+	}
+	got := ReduceEvents(EventsFromWriteWorkflowRun(run))
+	if got.Proof.State != ProofCoverageUnavailable {
+		t.Fatalf("proof = %+v, want unavailable", got.Proof)
+	}
+	if got.Proof.RecommendedAction == LoopActionRepair {
+		t.Fatalf("unavailable proof must not request repair: %+v", got.Proof)
+	}
+}
+
 func TestEventsFromWriteWorkflowRunCompleteProjectsProof(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "wf-complete",

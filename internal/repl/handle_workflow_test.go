@@ -265,6 +265,54 @@ func TestWorkflowShowDisplaysMissingLocalizationWithoutOwnerPrompt(t *testing.T)
 	}
 }
 
+func TestWorkflowShowDisplaysProofAuthority(t *testing.T) {
+	planStore := NewPlanStore(t.TempDir())
+	workflowStore := NewWriteWorkflowRunStore(planStore.PlanDir())
+	if _, err := workflowStore.Save(&types.WriteWorkflowRun{
+		RunID:         "wf-proof-authority",
+		Goal:          "repair with unavailable local proof",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchVerifying,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "unverified",
+				ReasonCode: "runner_missing",
+			}},
+		}},
+	}); err != nil {
+		t.Fatalf("Save workflow: %v", err)
+	}
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:                stubRunner{},
+		In:                    strings.NewReader(""),
+		Out:                   out,
+		RepoRoot:              "/tmp/repo",
+		Branch:                "main",
+		Render:                renderNothing,
+		PlanStore:             planStore,
+		WriteWorkflowRunStore: workflowStore,
+		Language:              "en",
+	})
+
+	r.handleWorkflowCmd("/workflow show")
+
+	got := out.String()
+	for _, want := range []string{
+		"Proof authority:",
+		"state=`unavailable`",
+		"reason=`runner_missing`",
+		"action=`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("workflow show missing proof authority %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestApproveUsesActiveWorkflowBatchPlan(t *testing.T) {
 	runner := &capturingRunner{}
 	planStore := NewPlanStore(t.TempDir())

@@ -102,6 +102,28 @@ func TestDeriveWorkflowExecutionViewFailedVerifyNeedsReplan(t *testing.T) {
 	if view.LatestVerifyStatus != "failed" || view.LatestVerifyFailureCode != "assertion_failed" {
 		t.Fatalf("latest verify not surfaced: %+v", view)
 	}
+	if view.Proof.State != loopkernel.ProofCoverageFailed || view.Proof.RecommendedAction != loopkernel.LoopActionRepair {
+		t.Fatalf("proof authority not surfaced from failed verify: %+v", view.Proof)
+	}
+}
+
+func TestDeriveWorkflowExecutionViewUnverifiedVerifySurfacesUnavailableProof(t *testing.T) {
+	plan := approvalExecutionPlanForTest(ApprovalActionAutoExecute, "auto")
+	run := workflowExecutionRunForTest(types.WriteWorkflowBatchComplete, plan.ID)
+	run.Batches[0].Attempts = append(run.Batches[0].Attempts, types.WriteWorkflowAttempt{
+		Kind:       "verify",
+		Status:     "unverified",
+		ReasonCode: "runner_missing",
+		PlanID:     plan.ID,
+	})
+
+	view := DeriveWorkflowExecutionView(types.ModeApply, run, plan)
+	if view.Proof.State != loopkernel.ProofCoverageUnavailable {
+		t.Fatalf("proof = %+v, want unavailable", view.Proof)
+	}
+	if view.Proof.RecommendedAction == loopkernel.LoopActionRepair {
+		t.Fatalf("unavailable proof should not request repair: %+v", view.Proof)
+	}
 }
 
 func TestDeriveWorkflowExecutionViewModePlanDoesNotExposeApplyReady(t *testing.T) {
