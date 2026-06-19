@@ -1,10 +1,63 @@
 package repomap
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	ctypes "github.com/hanchaoqun/codrax/internal/types"
 )
+
+// TestRepoMapScanProgressConcurrentAccessIsRaceFree drives the
+// parse-heartbeat path (activeFile) concurrently with the results
+// consumer (parsed), exactly as a real large-repo scan does: one
+// heartbeat goroutine per parse worker calls activeFile() on a timer
+// while the single consumer calls parsed(). Before the per-struct mutex
+// these touched lastEmit/lastDone with no synchronization; `go test
+// -race` would flag it. The notifier only counts events so the test
+// itself is not the racing party.
+func TestRepoMapScanProgressConcurrentAccessIsRaceFree(t *testing.T) {
+	var emitted int64
+	SetScanNotifier(func(ctypes.RepoMapScanEvent) {
+		atomic.AddInt64(&emitted, 1)
+	})
+	defer SetScanNotifier(nil)
+
+	progress := newRepoMapScanProgress("/repo", ctypes.RepoMapScanFull, 1000, 0)
+	progress.startScan(1000)
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					progress.activeFile("src/file.go")
+				}
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// done climbs in steps above the parse-phase throttle delta (1000)
+		// with a total far larger than done, so each parsed() call passes
+		// the throttle and WRITES lastEmit/lastDone — the same lastEmit the
+		// activeFile heartbeats read concurrently. That same-field write vs
+		// read is exactly the data race the mutex now serializes.
+		for i := 1; i <= 5000; i++ {
+			progress.parsed(i*2000, 100_000_000)
+		}
+		close(stop)
+	}()
+	wg.Wait()
+	_ = atomic.LoadInt64(&emitted)
+}
 
 func TestRepoMapScanProgressThrottlesChangeScanEvents(t *testing.T) {
 	var events []ctypes.RepoMapScanEvent

@@ -34,6 +34,16 @@ func notifyRepoMapScan(ev ctypes.RepoMapScanEvent) {
 }
 
 type repoMapScanProgress struct {
+	// mu guards every mutable field below. The per-worker parse-heartbeat
+	// goroutines call activeFile() concurrently with the single results
+	// consumer calling parsed()/filesScanned()/etc., so all field access
+	// must be serialized. The throttle/snapshot work is cheap and the
+	// installed scan notifier is contractually non-blocking and does not
+	// re-enter these methods, so holding mu across the notify call is
+	// safe (notifyRepoMapScan acquires a different lock and releases it
+	// before invoking the callback — no lock-order cycle).
+	mu sync.Mutex
+
 	repoRoot string
 	mode     ctypes.RepoMapScanMode
 
@@ -82,6 +92,8 @@ func (p *repoMapScanProgress) startPhase(phase ctypes.RepoMapScanPhase, parseabl
 	if p == nil {
 		return
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.parseableFiles = parseableFiles
 	p.phase = phase
 	p.started = true
@@ -91,7 +103,12 @@ func (p *repoMapScanProgress) startPhase(phase ctypes.RepoMapScanPhase, parseabl
 }
 
 func (p *repoMapScanProgress) parsed(done, total int) {
-	if p == nil || !p.started {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started {
 		return
 	}
 	if total > 0 {
@@ -117,7 +134,12 @@ func (p *repoMapScanProgress) parsed(done, total int) {
 }
 
 func (p *repoMapScanProgress) filesScanned(done, parseable int, current string) {
-	if p == nil || !p.started || p.phase != ctypes.RepoMapScanPhaseFileScan {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started || p.phase != ctypes.RepoMapScanPhaseFileScan {
 		return
 	}
 	if done > p.totalFiles {
@@ -140,7 +162,12 @@ func (p *repoMapScanProgress) filesScanned(done, parseable int, current string) 
 }
 
 func (p *repoMapScanProgress) cacheLoaded(recordsLoaded, recordsTotal, chunksLoaded, chunksTotal int, current string) {
-	if p == nil || !p.started || p.phase != ctypes.RepoMapScanPhaseCacheLoad {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started || p.phase != ctypes.RepoMapScanPhaseCacheLoad {
 		return
 	}
 	if recordsTotal > 0 {
@@ -169,7 +196,12 @@ func (p *repoMapScanProgress) cacheLoaded(recordsLoaded, recordsTotal, chunksLoa
 }
 
 func (p *repoMapScanProgress) viewRendered(step string, done, total int) {
-	if p == nil || !p.started || p.phase != ctypes.RepoMapScanPhaseViewRender {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started || p.phase != ctypes.RepoMapScanPhaseViewRender {
 		return
 	}
 	if done < 0 {
@@ -191,7 +223,12 @@ func (p *repoMapScanProgress) viewRendered(step string, done, total int) {
 }
 
 func (p *repoMapScanProgress) activeFile(path string) {
-	if p == nil || !p.started || path == "" {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started || path == "" {
 		return
 	}
 	now := time.Now()
@@ -209,7 +246,12 @@ func (p *repoMapScanProgress) activeFile(path string) {
 // interval the other per-file emitters use so a fast build stays quiet
 // and a slow one ticks visibly instead of freezing on "parsed N/N".
 func (p *repoMapScanProgress) buildGraphRelations(done, total int) {
-	if p == nil || !p.started || p.phase != ctypes.RepoMapScanPhaseBuildGraph {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started || p.phase != ctypes.RepoMapScanPhaseBuildGraph {
 		return
 	}
 	now := time.Now()
@@ -228,7 +270,12 @@ func (p *repoMapScanProgress) buildGraphRelations(done, total int) {
 }
 
 func (p *repoMapScanProgress) setPhase(phase ctypes.RepoMapScanPhase) {
-	if p == nil || !p.started || phase == "" {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started || phase == "" {
 		return
 	}
 	p.phase = phase
@@ -240,7 +287,12 @@ func (p *repoMapScanProgress) setPhase(phase ctypes.RepoMapScanPhase) {
 }
 
 func (p *repoMapScanProgress) cacheWriteFile(path string, written, total int64) {
-	if p == nil || !p.started || p.phase != ctypes.RepoMapScanPhaseCacheWrite {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started || p.phase != ctypes.RepoMapScanPhaseCacheWrite {
 		return
 	}
 	now := time.Now()
@@ -265,7 +317,12 @@ func (p *repoMapScanProgress) cacheWriteFile(path string, written, total int64) 
 }
 
 func (p *repoMapScanProgress) finish(ok bool, err error) {
-	if p == nil || !p.started {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started {
 		return
 	}
 	errText := ""
