@@ -1141,6 +1141,63 @@ func TestArchitectureNarrativeExplanation_TypedBoundary(t *testing.T) {
 	}
 }
 
+func TestArchitectureInventoryShape_TypedBoundary(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentEnumerate,
+		Scenario: ScenarioArchitectureExplain,
+		Predicates: SemanticPredicates{
+			IsScalarAnswer:        true,
+			IsCountQuestion:       true,
+			IsCategoryEnumeration: true,
+			IsRelationalLookup:    true,
+			HasPerMemberTable:     true,
+		},
+		PredicateAxis: AxisCall,
+	}
+	if !IsArchitectureInventoryShape(rm) {
+		t.Fatal("architecture count/list/role/relation hybrid should enter the compact inventory lane")
+	}
+
+	scalar := rm
+	scalar.Predicates.IsCountQuestion = false
+	if IsArchitectureInventoryShape(scalar) {
+		t.Fatal("non-count scalar architecture lookup must not enter the inventory lane")
+	}
+
+	fieldValue := rm
+	fieldValue.Predicates.IsScalarAnswer = false
+	fieldValue.Predicates.IsCountQuestion = false
+	fieldValue.FieldValueProfile = &FieldValueLookupProfile{
+		IsFieldValueLookup: true,
+		Target:             "Foo.Bar",
+		Field:              "Bar",
+		Literal:            "false",
+	}
+	if IsArchitectureInventoryShape(fieldValue) {
+		t.Fatal("field-value lookup needs literal proof, not compact architecture inventory")
+	}
+
+	narrative := RequestModel{
+		Intent:     IntentExplain,
+		Scenario:   ScenarioArchitectureExplain,
+		Complexity: ComplexityComplex,
+		SubTopics: []SubTopic{
+			{Summary: "control loop"},
+			{Summary: "handoff"},
+		},
+		Predicates:  SemanticPredicates{IsCrossComponent: true},
+		DiagramHint: &DiagramHint{Kind: DiagramArchitecture},
+	}
+	if !IsArchitectureInventoryShape(narrative) {
+		t.Fatal("multi-subtopic architecture decomposition should have a compact inventory projection")
+	}
+
+	narrative.Predicates.IsDiagnosticQuestion = true
+	if IsArchitectureInventoryShape(narrative) {
+		t.Fatal("diagnostic architecture questions stay in diagnostic evidence lanes")
+	}
+}
+
 func TestIsSingleTopicMechanismExplanation_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentExplain,

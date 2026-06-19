@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -101,6 +102,61 @@ func TestExplorerMergeEmittedEvidenceDeltaOnlyAddsNewRows(t *testing.T) {
 	}
 	if eval.mergedEmittedEvidenceLen != 2 {
 		t.Fatalf("merged emitted cursor = %d, want 2", eval.mergedEmittedEvidenceLen)
+	}
+}
+
+func TestConcreteValueEvidenceHandoffCompactsArchitectureInventory(t *testing.T) {
+	eval := &explorerEvaluator{
+		userQuestion: "agent inventory roles and relationships",
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Scenario: types.ScenarioArchitectureExplain,
+			Predicates: types.SemanticPredicates{
+				IsScalarAnswer:        true,
+				IsCountQuestion:       true,
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+				HasPerMemberTable:     true,
+			},
+			PredicateAxis: types.AxisCall,
+		}},
+	}
+	items := make([]types.EvidenceItem, 0, concreteValueEvidenceExportArchitectureInventoryLimit+30)
+	for i := 0; i < concreteValueEvidenceExportArchitectureInventoryLimit+30; i++ {
+		item := types.EvidenceItem{
+			Kind:       types.EvidenceConcrete,
+			Producer:   "concrete_values",
+			Subject:    "AgentSubject" + string(rune('A'+(i%26))) + "_" + strconv.Itoa(i),
+			Predicate:  "returns",
+			Object:     "agent_value_" + strconv.Itoa(i),
+			Source:     "internal/agent/agent.go",
+			LineStart:  i + 1,
+			LineEnd:    i + 1,
+			Confidence: 0.95,
+		}
+		item.ID = types.StableEvidenceID(item)
+		items = append(items, item)
+	}
+
+	got := eval.compactConcreteValueEvidenceForHandoff(items, map[string]bool{"internal/agent/agent.go": true}, nil)
+	if len(got) != concreteValueEvidenceExportArchitectureInventoryLimit {
+		t.Fatalf("compacted evidence len = %d, want %d", len(got), concreteValueEvidenceExportArchitectureInventoryLimit)
+	}
+}
+
+func TestConcreteValueEvidenceHandoffKeepsScalarLiteralBudgetWider(t *testing.T) {
+	eval := &explorerEvaluator{
+		userQuestion: "what value does Foo return",
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentReturnValue,
+			Predicates: types.SemanticPredicates{
+				IsScalarAnswer: true,
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectReturnValue},
+		}},
+	}
+	if got := eval.concreteValueEvidenceExportLimit(); got != concreteValueEvidenceExportScalarLiteralLimit {
+		t.Fatalf("scalar literal export limit = %d, want %d", got, concreteValueEvidenceExportScalarLiteralLimit)
 	}
 }
 

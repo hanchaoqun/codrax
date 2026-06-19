@@ -12495,6 +12495,81 @@ type concreteValuesResult struct {
 	chainAnchors []chainAnchorInfo
 }
 
+const (
+	concreteValueEvidenceExportSimpleLimit                = 80
+	concreteValueEvidenceExportDefaultLimit               = 128
+	concreteValueEvidenceExportRelationLimit              = 160
+	concreteValueEvidenceExportComplexLimit               = 192
+	concreteValueEvidenceExportScalarLiteralLimit         = 240
+	concreteValueEvidenceExportArchitectureInventoryLimit = 96
+)
+
+// concreteValueEvidenceExportLimit returns the handoff/export budget for
+// deterministic concrete-value evidence. The scanner may still build a larger
+// local table for the current explorer turn, but downstream stages should not
+// inherit the whole candidate universe when the request shape only needs a
+// compact architecture inventory or relationship ledger.
+func (e *explorerEvaluator) concreteValueEvidenceExportLimit() int {
+	limit := concreteValueEvidenceExportDefaultLimit
+	if e == nil {
+		return limit
+	}
+	switch e.complexity {
+	case types.ComplexitySimple:
+		limit = concreteValueEvidenceExportSimpleLimit
+	case types.ComplexityComplex:
+		limit = concreteValueEvidenceExportComplexLimit
+	}
+	if e.analysisIR == nil {
+		return limit
+	}
+	rm := e.analysisIR.RequestModel
+	switch {
+	case types.IsArchitectureInventoryShape(rm):
+		return concreteValueEvidenceExportArchitectureInventoryLimit
+	case rm.Predicates.IsScalarAnswer ||
+		types.IsScalarSourceLiteralLookup(rm) ||
+		rm.Predicates.IsCountQuestion ||
+		(rm.FieldValueProfile != nil && rm.FieldValueProfile.Active()):
+		return concreteValueEvidenceExportScalarLiteralLimit
+	case rm.Predicates.IsRelationalLookup ||
+		rm.PredicateAxis == types.AxisCall ||
+		rm.PredicateAxis == types.AxisRegister ||
+		rm.PredicateAxis == types.AxisImplement:
+		if limit < concreteValueEvidenceExportRelationLimit {
+			return concreteValueEvidenceExportRelationLimit
+		}
+	}
+	return limit
+}
+
+func (e *explorerEvaluator) compactConcreteValueEvidenceForHandoff(items []types.EvidenceItem, readSet map[string]bool, graph *repomap.Graph) []types.EvidenceItem {
+	limit := e.concreteValueEvidenceExportLimit()
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	var expected types.AnswerSubject
+	var axis types.PredicateAxis
+	var question string
+	if e != nil {
+		expected = e.answerSubject
+		axis = e.predicateAxis
+		question = e.userQuestion
+	}
+	ranked := rankEvidenceByRelevanceWithSubject(question, items, readSet, expected, graph, axis)
+	if len(ranked) <= limit {
+		return ranked
+	}
+	out := append([]types.EvidenceItem(nil), ranked[:limit]...)
+	architectureInventory := false
+	if e != nil && e.analysisIR != nil {
+		architectureInventory = types.IsArchitectureInventoryShape(e.analysisIR.RequestModel)
+	}
+	logging.Info("[explorer] concrete values: compacted handoff evidence %d → %d (limit=%d architecture_inventory=%v)",
+		len(items), len(out), limit, architectureInventory)
+	return out
+}
+
 // chainAnchorInfo records which source files a Resolution Chain or
 // dataflow_path EvidenceItem rests on. Used by the chain promotion
 // helper to enforce CGEC invariant I1 (every file:line surfaced in a
@@ -14125,6 +14200,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	// representation when available because it carries explicit
 	// receiver qualifiers and Source/LineStart locators.
 	cvEvidence = dedupeResolutionChains(cvEvidence)
+	cvEvidence = e.compactConcreteValueEvidenceForHandoff(cvEvidence, readSet, graph)
 
 	return concreteValuesResult{markdown: b.String(), evidence: cvEvidence, chainAnchors: chainAnchors}
 }

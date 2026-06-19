@@ -731,6 +731,51 @@ func IsArchitectureNarrativeExplanation(rm RequestModel) bool {
 		rm.Complexity == ComplexityComplex
 }
 
+// IsArchitectureInventoryShape reports whether an architecture_explain request
+// asks for a bounded inventory/decomposition surface: principal members,
+// per-member roles, counts, or relationship edges.
+//
+// This differs from IsArchitectureNarrativeExplanation. Narrative questions
+// need broad explanatory context, while inventory questions need a compact
+// entity/edge ledger. The signal is typed-only: it consumes analyzer scenario,
+// intent, predicates, source-inventory profile, diagram/subtopic structure, and
+// predicate axis. It must not inspect RawRequest or model prose, so it remains
+// language-neutral across Go, C/C++, ArkTS, Cangjie, Java/Kotlin, JS/TS,
+// Python, Rust, Ruby, Swift, Lua, Proto, and mixed-language repositories.
+func IsArchitectureInventoryShape(rm RequestModel) bool {
+	if rm.Scenario != ScenarioArchitectureExplain {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer && !rm.Predicates.IsCountQuestion {
+		return false
+	}
+	if rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
+		return false
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return false
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return true
+	}
+	if rm.Intent == IntentEnumerate ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.HasPerMemberTable {
+		return true
+	}
+	if rm.Predicates.IsRelationalLookup {
+		return true
+	}
+	return len(rm.SubTopics) > 1 &&
+		(rm.Predicates.IsCrossComponent || rm.DiagramHint != nil)
+}
+
 // IsSingleTopicMechanismExplanation reports whether the request asks
 // for one mechanism / condition / registration explanation rather than
 // an answer-member set, scalar lookup, or architecture decomposition.

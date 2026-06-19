@@ -25,6 +25,8 @@ The symptom is not a single prompt failure. It is a convergence boundary issue a
 | RAI-C3 | P0 | Architecture inventory lacks a compact typed inventory projection. | Evidence is carried as many raw `EvidenceItem` rows, while count/list/role/relationship obligations need a smaller entity-centric coverage view. | Introduce a read-mode inventory coverage projection: principal entities, role summaries, relationship edges, support refs, exclusions, unknowns, and coverage counters. Downstream stages consume Top-N typed views, not raw evidence floods. |
 | RAI-C4 | P1 | Context preparation cost scales with raw evidence volume. | Prompt sections and finalizer context can traverse evidence, aggregate facts, relation rows, and read history repeatedly after exploration has already closed. | Context builders should consume cached preflight/projection views and compact repeated evidence into entity/edge ledgers before rendering. |
 | RAI-C5 | P1 | Generic entity fallback can leak into hard consumers. | Analyzer warns about generic terms like `Agent`, but when provenance lanes are sparse, hard relation consumers can still use broad `Entities` fallback. | Hard relation gates prefer mentioned/exact/primary typed lanes and ignore generic fallback unless an exact carrier proves it is the requested source. |
+| RAI-C6 | P1 | Programmatic concrete-value evidence can flood handoff even when markdown preview is capped. | `buildConcreteValuesSection` capped the visible markdown table, but still exported uncapped `allRelevantForEvidence` and chain evidence into `structuredEvidence`, increasing finalizer/context assembly cost. | Keep concrete-value scanning local, but export a typed, ranked, bounded evidence view; architecture inventory receives a tighter compact ledger, scalar/count/literal lanes keep a wider budget. |
+| RAI-C7 | P2 | Some older source-operation-site routing still relies on RawRequest phrase checks. | `RequiresSourceOperationSiteMemberSetHandoff` covers schema gaps by checking precise user-surface phrases. It is narrow, but it is still a hard routing surface outside the ideal typed analyzer contract. | Move this intent into analyzer-emitted typed fields in a later batch; keep current behavior until replacement tests exist. |
 
 ## Design Principles
 
@@ -40,8 +42,8 @@ The symptom is not a single prompt failure. It is a convergence boundary issue a
 | --- | --- | --- | --- |
 | Batch A | delivered | Document this gap and fix typed relation selector pollution. | `AxisCall` / `AxisRegister` relation shapes do not add `implements` compatibility coverage; true `AxisImplement` coverage still catches omitted grounded implementers. |
 | Batch B | planned | Add relation principal/support role guard to pre-complete diagnostics. | Repeated support-only relation rows produce advisory handoff, not hard missing-member loops. |
-| Batch C | planned | Add architecture inventory coverage projection. | One inventory question can hand off principal entity rows, role summaries, relationship edges, and evidence refs without rendering every raw evidence item. |
-| Batch D | planned | Compact context rendering for closed inventory investigations. | Finalizer/extractor prompts consume projected Top-N entity/edge views and keep raw evidence available by ref, reducing "整理上下文中" stalls. |
+| Batch C | delivered | Add architecture inventory shape trait and compact concrete-value handoff export. | One inventory question carries a bounded, ranked programmatic evidence view instead of every concrete-value candidate. |
+| Batch D | planned | Add full architecture inventory coverage projection. | Finalizer/extractor prompts consume entity/edge views and keep raw evidence available by ref, reducing "整理上下文中" stalls beyond concrete-value evidence. |
 | Batch E | planned | Quarantine generic entity fallback for hard relation gates. | Generic analyzer entities cannot seed hard relation coverage unless also present in mentioned/exact/primary lanes or exact provider facts. |
 | Batch F | planned | Add eval coverage. | Architecture inventory, scalar role lookup, relation member-set, and implementer enumeration cases pass without repeated identical downgrades or evidence explosion. |
 
@@ -52,8 +54,10 @@ The symptom is not a single prompt failure. It is a convergence boundary issue a
 - `AxisImplement + grounded implementers`: omitted grounded implementer still downgrades completion.
 - Support-only relation rows: accepted as advisory context and do not force principal member-set expansion.
 - Architecture inventory smoke: evidence count remains bounded by projection; final answer preserves count, roles, and relation edges.
+- Concrete-value export budget: architecture inventory questions compact programmatic evidence to the architecture inventory budget; scalar/count/literal questions keep a wider literal-proof budget.
 - Prompt hygiene: no new keyword matching of user/model prose; no prompt-only route becomes a hard gate.
 
 ## Progress Ledger
 
 - 2026-06-20 Batch A delivered: typed relation selector compatibility is now prompt/coverage-safe for precise non-implement relation axes. Added selector and pre-complete regression tests covering call-axis relation questions polluted by implementer support rows.
+- 2026-06-20 Batch C delivered: added `IsArchitectureInventoryShape` and compacted concrete-values handoff evidence by typed request shape. This reduces context assembly pressure while preserving local concrete-value scanning and wider scalar/count literal budgets.
