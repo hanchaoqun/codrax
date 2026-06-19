@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -67,8 +68,14 @@ func (t *EmitInvestigationComplete) Description() string {
 		"answer writing, plus a confidence level (high or medium)."
 }
 
+var (
+	emitInvestigationCompleteParametersOnce   sync.Once
+	emitInvestigationCompleteParametersCached json.RawMessage
+)
+
 func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
-	return json.RawMessage(`{
+	emitInvestigationCompleteParametersOnce.Do(func() {
+		emitInvestigationCompleteParametersCached = json.RawMessage(`{
 		"type": "object",
 		"properties": {
 			"reason": {
@@ -197,9 +204,11 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 				"type": "boolean",
 				"description": "OPTIONAL. Set true only to explicitly retract a previously declared principal_span_waiver after new investigation shows intermediate evidence DOES exist and can be emitted. Do not set this together with principal_span_waiver."
 			}
-		},
-		"required": ["reason", "confidence", "result_kind"]
-	}`)
+			},
+			"required": ["reason", "confidence", "result_kind"]
+		}`)
+	})
+	return cloneJSONRawMessage(emitInvestigationCompleteParametersCached)
 }
 
 type emitInvestigationCompleteWaiverPayload struct {

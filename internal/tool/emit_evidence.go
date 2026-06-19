@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -278,7 +279,19 @@ func (t *EmitEvidence) Description() string {
 		"unknown fields are REJECTED — the tool will not silently coerce."
 }
 
+var (
+	emitEvidenceParametersOnce   sync.Once
+	emitEvidenceParametersCached json.RawMessage
+)
+
 func emitEvidenceParametersSchema() json.RawMessage {
+	emitEvidenceParametersOnce.Do(func() {
+		emitEvidenceParametersCached = buildEmitEvidenceParametersSchema()
+	})
+	return cloneJSONRawMessage(emitEvidenceParametersCached)
+}
+
+func buildEmitEvidenceParametersSchema() json.RawMessage {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
