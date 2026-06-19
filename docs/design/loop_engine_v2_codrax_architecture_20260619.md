@@ -1451,7 +1451,8 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 - [x] Return typed artifact refs and compact evidence refs only.
 - [x] Keep mutation kernel-owned through shared effect-profile validation.
 - [x] Add worker budgets, scope validation, and contract tests.
-- [ ] Register concrete Localizer / ImpactAnalyzer / PatchCritic / ProofAuditor / FailureAnalyzer producers.
+- [x] Add concrete deterministic Localizer producer with read/write input adapters.
+- [ ] Register concrete ImpactAnalyzer / PatchCritic / ProofAuditor / FailureAnalyzer producers.
 - [ ] Add worker reduction tests once concrete producers land.
 
 ### L9 Task Breakdown
@@ -1532,6 +1533,7 @@ During each batch:
 | 2026-06-20 | L5 | in_progress | Added scoped approval reuse: `WriteApprovalRecord` now carries `effect_fingerprint`, normalized `effect_scope`, and `effect_source`, all included in the record tamper hash. `writeflow.ApprovalEffectBinding` derives effect/scope from the active runtime unit or plan paths, and both REPL `/approve` and apply-pre approval records stamp the same fields. Manual approval reuse now requires matching plan fingerprint, effect fingerprint, and effect scope; changed plan/path/unit requires re-approval. Focused `types`/`writeflow`/`orchestrator`/`repl` tests passed. Remaining L5 work: worker-role effect envelopes as L8 lands. |
 | 2026-06-20 | L5 | complete | Finished the worker-role effect envelope by adding typed evidence-worker contracts that project every read-only worker request into `safety.EffectDescriptor` and fold through the shared allow/ask/deny policy. L5 now has one permission kernel for planner/verifier/coder/runtime units/approvals/workers. |
 | 2026-06-20 | L8.1 | complete | Added `internal/worker` typed `Request`/`Result` contracts, role-kind mapping, budgets, repo-relative scope normalization, input/output artifact refs, compact evidence refs, and validation. Completed worker results must carry typed artifact/evidence refs; blocked/failed results need typed reason codes; worker mutation requests are denied by the same safety policy; external-directory scope becomes a typed permission event instead of prompt prose. Focused `worker`/`safety` tests passed. |
+| 2026-06-20 | L8.2 | complete | Added deterministic Localizer worker projection in `internal/worker`: read adapters consume `AnalysisIR`/TurnA localization/navigation artifacts; write adapters consume durable workflow context packs and `LocalizationAuthority`; output includes normalized `SourceLocalizationReview`, `LocalizationAuthority`, localization requirements, typed artifact refs, and compact evidence refs. Tests cover owner-supported promotion, observed-only open gaps, partial owner coverage, repo_map evidence preservation, and read/write adapter consumption without prompt/prose routing. |
 
 ## Phased Roadmap
 
