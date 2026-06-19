@@ -8122,8 +8122,8 @@ Validation:
 
 ## 2026-06-19 RC127 Proof Coverage / Local Verification Confidence Tracking
 
-Status: RC127-A implemented; remaining proof-environment follow-up stays queued
-as RC127-B.
+Status: RC127-A implemented; RC127-B1 implemented for probe startup
+dependency boundaries; broader proof-environment follow-up remains queued.
 
 Trigger evidence:
 
@@ -8168,6 +8168,9 @@ Tasks:
 - [x] Replace final-report residual risk and SWE confidence aggregation with
       ledger-derived states while preserving the current no-false-pass
       behavior and old-profile fallback for historical artifacts.
+- [x] Classify Python verification-probe `system_exit` rows with structured
+      import-boundary tracebacks as unavailable parser errors, so missing
+      optional dependencies do not drive source replan as product failures.
 - [ ] Extend proof-follow-up scheduling so unavailable proof records can request
       bounded environment/probe capability checks before terminalizing, without
       broad source replan.
@@ -8195,6 +8198,11 @@ Implementation notes:
   lets `prediction_confidence_downgrade_reason` prefer the final proof ledger,
   so stale report-level missing refs no longer override a cumulative verified
   final report.
+- Python verification probes now recognize `system_exit` plus a structured
+  `ModuleNotFoundError` / `ImportError` traceback as
+  `verification_probe_module_not_found` /
+  `verification_probe_import_error`. Plain `SystemExit` without an import
+  boundary remains a product/probe failure.
 
 RC127-A validation:
 
@@ -8215,6 +8223,9 @@ RC127-A validation:
   - `final_report_proof_ledger_obligation_count=64`
   This confirms the adapter consumes the new ledger rather than reconstructing
   proof confidence from prose or residual-risk text.
+- RC127-B1 focused regression:
+  `go test ./internal/tool -run 'TestRunTestsVerificationProbe(ImportErrorIsParserError|SystemExitImportBoundaryIsParserError)|TestPythonVerificationProbeImportDiagnosticDetailCapturesImportName' -count=1`
+  passed.
 
 ## Acceptance Criteria
 

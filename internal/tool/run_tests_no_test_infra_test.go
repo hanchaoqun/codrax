@@ -1677,11 +1677,82 @@ func TestRunTestsVerificationProbeImportErrorIsParserError(t *testing.T) {
 	}
 }
 
+func TestRunTestsVerificationProbeSystemExitImportBoundaryIsParserError(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("probe system-exit import boundary")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-system-exit-import",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "missing_dependency_after_probe_catch",
+			Language: "python",
+			Code: strings.Join([]string{
+				"import sys",
+				"import traceback",
+				"try:",
+				"    import definitely_missing_codrax_probe_dependency",
+				"except ModuleNotFoundError:",
+				"    traceback.print_exc()",
+				"    sys.exit(1)",
+				"",
+			}, "\n"),
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "python",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("system-exit import-boundary verification_probe must not pass run_tests, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	if report.FailureKind != types.FailureKindParserError {
+		t.Fatalf("FailureKind = %q, want parser_error; report=%+v", report.FailureKind, report)
+	}
+	if report.FailureReasonCode != "verification_probe_module_not_found" {
+		t.Fatalf("FailureReasonCode = %q, want verification_probe_module_not_found; report=%+v", report.FailureReasonCode, report)
+	}
+	if len(report.TestResults) != 1 || !strings.Contains(report.TestResults[0].FailureDetail, "structured outcome: system_exit") {
+		t.Fatalf("failure detail should preserve structured system_exit outcome, got %+v", report.TestResults)
+	}
+	foundParserErrorCommand := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.ReasonCode == "verification_probe_module_not_found" {
+			foundParserErrorCommand = true
+		}
+	}
+	if !foundParserErrorCommand {
+		t.Fatalf("executed command evidence should include parser_error probe reason_code, got %+v", report.ExecutedCommands)
+	}
+	if got := pythonVerificationProbeSystemExitImportReason("Traceback...\nSystemExit: 1"); got != "" {
+		t.Fatalf("plain system_exit must not be classified as import unavailable, got %q", got)
+	}
+}
+
 func TestPythonVerificationProbeImportDiagnosticDetailCapturesImportName(t *testing.T) {
 	detail := pythonVerificationProbeImportDiagnosticDetail(pythonVerificationProbeStatus{
 		Outcome:   "import_error",
 		Exception: "ImportError",
-	}, "Traceback...\nImportError: cannot import name 'url_quote' from 'werkzeug.urls' (/tmp/site-packages/werkzeug/urls.py)")
+	}, "Traceback...\nImportError: cannot import name 'url_quote' from 'werkzeug.urls' (/tmp/site-packages/werkzeug/urls.py)", "verification_probe_import_error")
 	var payload map[string]string
 	if err := json.Unmarshal([]byte(detail), &payload); err != nil {
 		t.Fatalf("diagnostic detail should be JSON, got %q: %v", detail, err)

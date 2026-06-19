@@ -624,9 +624,18 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		switch probeStatus.Outcome {
 		case "passed":
 			passed = passed && probeStatus.ExitCode == 0
-		case "assertion_failed", "system_exit":
+		case "assertion_failed":
 			passed = false
 			failureKind = types.FailureKindTestsFailed
+		case "system_exit":
+			passed = false
+			if systemExitImportReason := pythonVerificationProbeSystemExitImportReason(output); systemExitImportReason != "" {
+				outcome = "parser_error"
+				failureKind = types.FailureKindParserError
+				reasonCode = systemExitImportReason
+			} else {
+				failureKind = types.FailureKindTestsFailed
+			}
 		case "import_error", "syntax_error":
 			passed = false
 			outcome = "parser_error"
@@ -1200,12 +1209,25 @@ func pythonVerificationProbeReasonCode(status pythonVerificationProbeStatus) str
 	}
 }
 
+func pythonVerificationProbeSystemExitImportReason(output string) string {
+	if pythonModuleNotFoundRE.MatchString(output) {
+		return "verification_probe_module_not_found"
+	}
+	if pythonCannotImportNameRE.MatchString(output) || strings.Contains(output, "ImportError:") {
+		return "verification_probe_import_error"
+	}
+	return ""
+}
+
 func pythonVerificationProbeImportDiagnostics(status pythonVerificationProbeStatus, output, source, rel, command string, exitCode int) []types.VerificationDiagnostic {
+	reasonCode := pythonVerificationProbeReasonCode(status)
 	if strings.TrimSpace(status.Outcome) != "import_error" {
+		reasonCode = pythonVerificationProbeSystemExitImportReason(output)
+	}
+	if reasonCode == "" {
 		return nil
 	}
-	reasonCode := pythonVerificationProbeReasonCode(status)
-	detail := pythonVerificationProbeImportDiagnosticDetail(status, output)
+	detail := pythonVerificationProbeImportDiagnosticDetail(status, output, reasonCode)
 	return []types.VerificationDiagnostic{{
 		Source:     strings.TrimSpace(source),
 		Category:   "probe_import_or_environment",
@@ -1221,11 +1243,11 @@ func pythonVerificationProbeImportDiagnostics(status pythonVerificationProbeStat
 	}}
 }
 
-func pythonVerificationProbeImportDiagnosticDetail(status pythonVerificationProbeStatus, output string) string {
+func pythonVerificationProbeImportDiagnosticDetail(status pythonVerificationProbeStatus, output, reasonCode string) string {
 	payload := map[string]string{
 		"language":    "python",
 		"exception":   strings.TrimSpace(status.Exception),
-		"reason_code": pythonVerificationProbeReasonCode(status),
+		"reason_code": strings.TrimSpace(reasonCode),
 	}
 	if match := pythonModuleNotFoundRE.FindStringSubmatch(output); len(match) == 2 {
 		payload["missing_module"] = strings.TrimSpace(match[1])
