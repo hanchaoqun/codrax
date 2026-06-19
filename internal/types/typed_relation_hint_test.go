@@ -119,6 +119,37 @@ func TestBuildTypedRelationQuery_SelectsCallRelationFromRequirementKind(t *testi
 	assertStringSlice(t, q.Sources, []string{"appendTypedRelationKinds"})
 }
 
+func TestBuildTypedRelationQuery_NonImplementRelationAxesDoNotSelectImplementCompatibility(t *testing.T) {
+	base := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsRelationalLookup:    true,
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{PrimaryEntities: []string{"SubAgent"}},
+	}
+	for _, tt := range []struct {
+		name string
+		axis PredicateAxis
+		want TypedRelationKind
+	}{
+		{name: "call", axis: AxisCall, want: TypedRelationCalledBy},
+		{name: "register", axis: AxisRegister, want: TypedRelationRegisters},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rm := base
+			rm.PredicateAxis = tt.axis
+			q := BuildTypedRelationQuery(rm, TypedRelationPurposeCoverageGate, 0)
+			assertTypedRelationKinds(t, q.Kinds, tt.want)
+			for _, kind := range q.Kinds {
+				if kind == TypedRelationImplements {
+					t.Fatalf("non-implement relation axis must not add implementer compatibility coverage: %+v", q.Kinds)
+				}
+			}
+		})
+	}
+}
+
 func TestBuildTypedRelationQuery_SelectsConfigRelationFromRequirementKindPromptOnly(t *testing.T) {
 	rm := RequestModel{
 		AnalyzerHints: AnalyzerHints{

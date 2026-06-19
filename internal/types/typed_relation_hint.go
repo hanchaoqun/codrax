@@ -274,13 +274,14 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 		add(TypedRelationImplements, TypedRelationExtends)
 	}
 
-	if rm.Predicates.IsCategoryEnumeration ||
-		rm.Predicates.IsRelationalLookup ||
-		rm.Predicates.IsCountQuestion {
-		// Compatibility lane: the only exact provider shipped today is
-		// interface/trait/protocol implementer membership. Keeping this in
-		// the central selector prevents call sites from reintroducing their
-		// own "if enumeration then implements" branches.
+	if relationCompatibilityAllowsImplementers(rm, purpose) {
+		// Compatibility lane: the only exact prompt provider shipped today for
+		// otherwise-unspecified relation sets is interface/trait/protocol
+		// implementer membership. Keep this prompt-only and disabled when a
+		// precise non-implement relation family is already present; otherwise a
+		// call/register/config lookup can be polluted by broad "implements X"
+		// support rows and hard gates may ask the model to promote helper
+		// surfaces into the principal member_set.
 		add(TypedRelationImplements)
 		if rm.AnswerSubject.Kind == SubjectInterface {
 			add(TypedRelationExtends)
@@ -301,6 +302,22 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 	}
 
 	return out
+}
+
+func relationCompatibilityAllowsImplementers(rm RequestModel, purpose TypedRelationPurpose) bool {
+	if !(rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCountQuestion) {
+		return false
+	}
+	if rm.PredicateAxis != AxisUnknown && rm.PredicateAxis != AxisDefine && rm.PredicateAxis != AxisImplement {
+		return false
+	}
+	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case ReqCallChain, ReqRegistration, ReqConfigMapping:
+		return false
+	}
+	return true
 }
 
 func changeImpactRequestsReferenceRelation(rm RequestModel) bool {

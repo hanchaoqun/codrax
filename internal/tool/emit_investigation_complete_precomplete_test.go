@@ -411,6 +411,45 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RelationGraphOnlyImplementer
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_CallRelationDoesNotForceImplementerSupportRows(t *testing.T) {
+	bus := relationMemberSetTestBus(t)
+	bus.AnalysisIR.RequestModel.PredicateAxis = types.AxisCall
+	bus.AnalysisIR.RequestModel.AnalyzerHints.PrimaryEntities = []string{"Agent"}
+	bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Agent", "SubAgent", "ProposeSubAgents"}
+	bus.Mutable.SetSearchGraph(relationMemberSetNamedGraph(t, "Agent",
+		relationMemberSetGraphSymbol{name: "ProposeSubAgents", file: "internal/tool/propose_sub_agents.go", line: 18},
+	))
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{
+		relationMemberSetEvidence("ProposeSubAgents", "internal/tool/propose_sub_agents.go", 18),
+		relationMemberSetEvidence("ExplorerAgent", "internal/agent/explorer.go", 18522),
+	})
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "ExplorerAgent is the verified caller; implementer rows are support context.",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "agents that can call subagents",
+			"value":        "1",
+			"members":      []string{"ExplorerAgent"},
+			"support_refs": []string{"ExplorerAgent @ internal/agent/explorer.go:18522"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "omits grounded typed relation evidence") ||
+		strings.Contains(res.Summary, "ProposeSubAgents") {
+		t.Fatalf("call relation coverage must not force implementer support rows into principal member_set: %s", res.Summary)
+	}
+	if !bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete when the call-axis principal member_set is present")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_RelationGroundedAuxiliaryImplementerRespectsProductionScope(t *testing.T) {
 	bus := relationMemberSetTestBus(t)
 	bus.AnalysisIR.RequestModel.PredicateAxis = types.AxisImplement
@@ -482,8 +521,13 @@ type relationMemberSetGraphSymbol struct {
 
 func relationMemberSetGraph(t *testing.T, impls ...relationMemberSetGraphSymbol) *repotypes.Graph {
 	t.Helper()
+	return relationMemberSetNamedGraph(t, "Looper", impls...)
+}
+
+func relationMemberSetNamedGraph(t *testing.T, iface string, impls ...relationMemberSetGraphSymbol) *repotypes.Graph {
+	t.Helper()
 	ifaceFile := &repotypes.FileInfo{RelPath: "iface.go", Language: "go"}
-	ifaceSym := repotypes.Symbol{Name: "Looper", Kind: "interface", File: "iface.go", Line: 7}
+	ifaceSym := repotypes.Symbol{Name: iface, Kind: "interface", File: "iface.go", Line: 7}
 	ifaceSym.ID = repotypes.DeriveSymbolID(ifaceFile, &ifaceSym)
 	ifaceFile.Symbols = []repotypes.Symbol{ifaceSym}
 
