@@ -476,10 +476,23 @@ def render_markdown(rows: list[dict[str, Any]], summary: dict[str, Any], *, data
     lines.append(
         "- Final answer quality cannot be audited from old result rows alone. Future SWE runs should persist a typed final-answer artifact with patch intent, touched contracts, observed failures, and residual risk."
     )
-    lines.append(
-        "- All audited instances have `codrax.out`, but none has a typed final-answer/report artifact. "
-        "This audit stores log tails in JSONL for human spot checks; production eval should not rely on free-form terminal logs as the answer contract."
-    )
+    final_report_count = sum(1 for row in rows if row.get("final_report_present") or row.get("final_report_path"))
+    codrax_out_count = sum(1 for row in rows if row.get("codrax_output_path") or row.get("codrax_out_path"))
+    if final_report_count:
+        lines.append(
+            f"- Typed final-report artifacts are present for {final_report_count}/{total} audited instance(s). "
+            "Prefer these structured artifacts over terminal logs for delivery audit and residual-risk analysis."
+        )
+    else:
+        lines.append(
+            "- No audited instance has a typed final-answer/report artifact. "
+            "Production eval should not rely on free-form terminal logs as the answer contract."
+        )
+    if codrax_out_count:
+        lines.append(
+            f"- Free-form `codrax.out` logs are present for {codrax_out_count}/{total} audited instance(s); "
+            "they remain human-debug context only and must not drive product pass/fail logic."
+        )
     lines.append("")
     lines.append("## Per-Instance Audit")
     lines.append("")

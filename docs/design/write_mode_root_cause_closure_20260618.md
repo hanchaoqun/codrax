@@ -7052,9 +7052,10 @@ RC111 task list:
   evidence is missing.
 - [x] Add hygiene tests proving no user-intent keywords, model prose,
   `<think>`, stdout narrative, or final-summary text drive localization gates.
-- [ ] Rerun the existing SWE spot set plus at least one vague symptom-style
-  issue to compare owner-gap telemetry, patch surface, prediction export, and
-  official harness dry-run consumption.
+- [x] Rerun the existing SWE spot set to compare owner-gap telemetry, patch
+  surface, prediction export, and official harness dry-run consumption.
+- [ ] Rerun at least one vague symptom-style issue to test end-to-end
+  exploration-triggered localization before repair.
 - [ ] Update this ledger with measured before/after signals and push the batch
   as a separate commit after RC110 lands.
 
@@ -7081,6 +7082,46 @@ RC111-A implementation notes:
 - Hygiene test `TestLocalizationRequirementsIgnorePlanNarrativeText` verifies
   that changing `ChangePlan.Summary` does not alter requirements; the new layer
   reads typed path/context/anchor fields only.
+
+RC111-A SWE spot evidence:
+
+- Command: `eval/swebench/run_codrax_swebench.py` over
+  `django__django-14534`, `pytest-dev__pytest-5227`, and
+  `sympy__sympy-23117` with `--prepare-python-env` and
+  `--isolate-git-history`, workdir
+  `eval/results/swebench/lite-smoke-20260619-rc111a-localization-requirements-3`.
+- Prediction schema validation passed: 3 predictions, 0 empty patches.
+- Official harness dry-run command construction passed for all 3 predictions.
+- Oracle-assisted audit artifact:
+  `docs/design/swebench_rc111a_localization_audit_20260619.md` /
+  `.jsonl`; theoretical audit pass 0/3, fail 3/3, with all failures caused by
+  typed verify failure.
+- Per-instance typed result:
+
+| instance | patch bytes | workflow | verdict | owner-gap telemetry |
+| --- | ---: | --- | --- | --- |
+| `django__django-14534` | 416 | `in_progress` | `predicted_failed_verify` | `django/forms/boundfield.py`, `plan_source_path_without_owner_anchor` |
+| `pytest-dev__pytest-5227` | 512 | `blocked` | `predicted_failed_verify` | `src/_pytest/logging.py`, `plan_source_path_without_owner_anchor` |
+| `sympy__sympy-23117` | 496 | `blocked` | `predicted_failed_verify` | `sympy/tensor/array/ndim_array.py`, `plan_source_path_without_owner_anchor` |
+
+RC111-A interpretation:
+
+- The new typed requirement layer made missing owner anchors visible and
+  harness-consumable, but it still remains a soft planning/exploration signal.
+  Plans can still proceed to apply with `source_owner_anchor_missing` and fail
+  verify. RC111-B should decide when an open owner-localization requirement
+  must trigger another bounded read/explore cycle before apply, while preserving
+  the existing stable behavior that total absence of prior localization context
+  does not create an infinite replan loop.
+- This is a system gap, not a case-specific bug: the failed patches touch the
+  expected source files but do not satisfy the behavioral proof. The next repair
+  should join typed owner requirements with verify-failure obligations and
+  patch-review/impact signals so replan targets the failing owner slice instead
+  of merely carrying a post-hoc residual risk.
+- The audit generator was also corrected to report typed final-report artifact
+  presence dynamically. The RC111-A audit now states that final reports are
+  present for 3/3 instances instead of emitting the old static
+  `codrax.out`-only warning.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
