@@ -231,8 +231,15 @@ func TestEventsFromWriteWorkflowRunVerifyingUsesActiveSlice(t *testing.T) {
 	if got.ActiveUnitID != "slice-2" {
 		t.Fatalf("active unit = %q, want slice-2", got.ActiveUnitID)
 	}
-	if len(got.Units) != 1 || got.Units[0].Status != RuntimeUnitObserving {
-		t.Fatalf("unit view = %+v, want observing", got.Units)
+	if len(got.Units) != 2 {
+		t.Fatalf("unit views = %+v, want two runtime units", got.Units)
+	}
+	if got.Units[0].UnitID != "slice-1" || got.Units[0].Status != RuntimeUnitComplete ||
+		got.Units[0].Truth.State != types.TruthLedgerCovered {
+		t.Fatalf("completed prior slice should replay with covered truth: %+v", got.Units[0])
+	}
+	if got.Units[1].UnitID != "slice-2" || got.Units[1].Status != RuntimeUnitObserving {
+		t.Fatalf("active slice should be observing: %+v", got.Units[1])
 	}
 }
 
@@ -257,6 +264,50 @@ func TestEventsFromWriteWorkflowRunActiveVerifyAttemptProjectsProofAuthority(t *
 	}
 	if got.Proof.RecommendedAction == LoopActionRepair {
 		t.Fatalf("unavailable proof must not request repair: %+v", got.Proof)
+	}
+}
+
+func TestEventsFromWriteWorkflowRunFailedSliceProjectsTruthAndRepair(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-failed-slice",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1",
+			Status:        types.WriteWorkflowBatchReadyToPlan,
+			PlanID:        "plan-1",
+			ActiveSliceID: "slice-2",
+			Slices: []types.WriteWorkflowSlice{{
+				ID:     "slice-1",
+				Status: types.ChangePlanSliceVerified,
+				Completion: &types.WriteWorkflowCompletion{
+					Verdict:    types.WriteWorkflowCompletionVerified,
+					ReasonCode: "unit_1_passed",
+				},
+			}, {
+				ID:        "slice-2",
+				Status:    types.ChangePlanSliceFailed,
+				VerifyRef: "report-2",
+			}},
+		}},
+	}
+	got := ReduceEvents(EventsFromWriteWorkflowRun(run))
+	if got.ActiveUnitID != "slice-2" {
+		t.Fatalf("active unit = %q, want slice-2", got.ActiveUnitID)
+	}
+	var failed RuntimeUnitView
+	for _, unit := range got.Units {
+		if unit.UnitID == "slice-2" {
+			failed = unit
+			break
+		}
+	}
+	if failed.Status != RuntimeUnitRepair || failed.Truth.State != types.TruthLedgerFailed ||
+		failed.Truth.RecommendedAction != types.TruthActionRepair {
+		t.Fatalf("failed slice should replay as repair-needed failed truth: %+v", failed)
+	}
+	if got.Truth.State != types.TruthLedgerFailed {
+		t.Fatalf("loop truth should carry latest failed slice truth: %+v", got.Truth)
 	}
 }
 

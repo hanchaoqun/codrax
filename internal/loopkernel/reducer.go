@@ -1,6 +1,10 @@
 package loopkernel
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
 
 func ReduceEvents(events []LoopEvent) LoopStateView {
 	events = NormalizeLoopEvents(events)
@@ -74,6 +78,15 @@ func applyUnitEvent(view *LoopStateView, units map[string]RuntimeUnitView, event
 	case LoopEventObserveStarted, LoopEventObserveCompleted, LoopEventProofProjected, LoopEventTruthProjected:
 		unit.Status = RuntimeUnitObserving
 		view.ActiveUnitID = event.UnitID
+		if event.Kind == LoopEventTruthProjected && len(event.Payload) > 0 {
+			var ledger types.TruthLedger
+			if json.Unmarshal(event.Payload, &ledger) == nil {
+				ledger = types.NormalizeTruthLedger(ledger)
+				if ledger.State != types.TruthLedgerUnknown {
+					unit.Truth = ledger
+				}
+			}
+		}
 	case LoopEventRepairRequested:
 		unit.Status = RuntimeUnitRepair
 		view.ActiveUnitID = event.UnitID
@@ -109,6 +122,14 @@ func applyAuthorityEvent(view *LoopStateView, event LoopEvent) {
 		var authority PermissionAuthorityView
 		if json.Unmarshal(event.Payload, &authority) == nil && authority.State != "" {
 			view.Permission = authority
+		}
+	case LoopEventTruthProjected:
+		var ledger types.TruthLedger
+		if json.Unmarshal(event.Payload, &ledger) == nil {
+			ledger = types.NormalizeTruthLedger(ledger)
+			if ledger.State != types.TruthLedgerUnknown {
+				view.Truth = ledger
+			}
 		}
 	}
 }

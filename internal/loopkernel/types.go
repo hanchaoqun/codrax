@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/safety"
+	codraxtypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 type LoopRunStatus string
@@ -103,10 +104,11 @@ type LoopEvent struct {
 }
 
 type RuntimeUnitView struct {
-	UnitID     string            `json:"unit_id,omitempty"`
-	Status     RuntimeUnitStatus `json:"status,omitempty"`
-	ReasonCode string            `json:"reason_code,omitempty"`
-	UpdatedAt  time.Time         `json:"updated_at,omitempty"`
+	UnitID     string                  `json:"unit_id,omitempty"`
+	Status     RuntimeUnitStatus       `json:"status,omitempty"`
+	ReasonCode string                  `json:"reason_code,omitempty"`
+	Truth      codraxtypes.TruthLedger `json:"truth,omitempty"`
+	UpdatedAt  time.Time               `json:"updated_at,omitempty"`
 }
 
 type EffectEventPayload struct {
@@ -124,6 +126,7 @@ type LoopStateView struct {
 	Localization   LocalizationAuthorityView  `json:"localization,omitempty"`
 	Proof          ProofCoverageAuthorityView `json:"proof,omitempty"`
 	Permission     PermissionAuthorityView    `json:"permission,omitempty"`
+	Truth          codraxtypes.TruthLedger    `json:"truth,omitempty"`
 	EventCount     int                        `json:"event_count,omitempty"`
 }
 
