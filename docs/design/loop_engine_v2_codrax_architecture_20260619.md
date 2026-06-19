@@ -1362,8 +1362,8 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | L6 | complete | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
 | L7 | complete | Micro-loop execution | deterministic runtime-unit authority projection consumed by apply/observe/checkpoint policy, with verified-unit preservation across replan | writeflow/orchestrator runtime-unit tests |
 | L8 | complete | Worker/subagent evidence producers | Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer typed outputs | subagent/worker tests |
-| L9 | pending | Auto Pilot UX | single status card from `LoopStateView`; routine path avoids command burden | REPL/CLI rendering tests |
-| L10 | pending | Commercial hardening | replay CLI/eval artifacts, SWE smoke, multi-language canaries, full regression | `go test ./...`, `make test`, eval smoke |
+| L9 | complete | Auto Pilot UX | single status card from `LoopStateView`; routine path avoids command burden | REPL/CLI rendering tests |
+| L10 | in_progress | Commercial hardening | replay/audit CLI, eval artifacts, SWE smoke, multi-language canaries, full regression | `go test ./...`, `make test`, eval smoke |
 
 ### L1 Task Breakdown
 
@@ -1457,16 +1457,18 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 
 ### L9 Task Breakdown
 
-- Render one Auto Pilot state card from `LoopStateView`.
-- Hide advanced commands from routine path while keeping them available for audit.
-- Explain next action and pause reasons from typed reason codes.
+- [x] Render one Auto Pilot state card from `LoopStateView`.
+- [x] Hide advanced commands from routine path while keeping them available for audit.
+- [x] Explain next action and pause reasons from typed reason codes.
 
 ### L10 Task Breakdown
 
-- Add replay/audit command.
-- Attach loop event refs/truth refs to eval predictions and final reports.
-- Run full Go tests, Make tests, SWE prediction harness smoke, and multi-language canaries.
-- Update docs and examples.
+- [ ] Add a non-interactive replay/audit CLI for final report and workflow artifacts. It must read existing typed `.final.json` / workflow refs only, perform no LLM/tool execution, and never parse terminal prose.
+- [x] Attach loop event refs/truth refs to eval predictions and final reports.
+- [x] Persist full language-family telemetry for patch and verifier surfaces across all Codrax-supported language families: Go, Python, JavaScript, TypeScript, Java, Kotlin, Rust, C, C++, Ruby, Swift, Lua, Proto, ArkTS, Cangjie, CUDA, Objective-C/Objective-C++, PHP, config/workflow, and unknown fallback.
+- [ ] Add SWE prediction harness smoke plus multi-language final-report canaries for replay/audit visibility.
+- [ ] Run full Go tests, Make tests, SWE prediction harness smoke, and multi-language canaries after the remaining L10 batches.
+- [ ] Update docs and examples for the advanced audit surface without adding routine command burden.
 
 ### Remaining Implementation Backlog
 
@@ -1486,7 +1488,9 @@ The remaining work must land as small batches. Each batch below has a typed arti
 | L7.2 | P0 | **Delivered 2026-06-20.** Make runtime unit event/truth persistence authoritative. Workflow batch/slice fields become projections from events for write mode; replay can recover active unit, permission, checkpoint, observation, truth, and terminal state. | `internal/loopkernel`, workflow store, write adapter | Replay idempotence tests pass; restart/resume preserves pending approval and failed-unit state. |
 | L9.1 | P1 | **Delivered 2026-06-20.** Render one Auto Pilot status card from `LoopStateView` plus `WorkflowExecutionView`. Routine CLI/REPL now says current state, reason, next action, proof/truth status, approval need, and evidence refs from typed loop events. Advanced `/workflow` commands remain for audit/recovery, not the happy path. | REPL/CLI status rendering, docs/user guide | Running/paused/unverified/blocked cards render from typed reason codes; no log/prose parsing; UX tests pass. |
 | L10.1 | P1 | **Delivered 2026-06-20.** Add replay/eval audit artifacts. Final reports and SWE predictions carry loop event refs, truth refs, patch refs, and proof/localization summaries so correctness can be audited without rerunning LLM/tools. Replay remains artifact-first through `.final.json`, workflow event files, and the existing `/workflow show` audit surface instead of adding another routine command. | SWE adapter, final report, loop event store | Predictions remain official-harness consumable; typed replay/audit state reconstructs from durable artifacts; eval projection tests pass. |
-| L10.2 | P1 | Multi-language hardening. Keep Python-specific heuristics out of hard gates; persist typed patch/verification language families for the full Codrax language matrix: Go, Python, JS, TS, Java, Kotlin, Rust, C, C++, Ruby, Swift, Lua, Proto, ArkTS, Cangjie, CUDA, Objective-C/Objective-C++, PHP path surfaces, and config/workflow files. | final report schema, SWE adapter telemetry, `internal/tool/run_tests*`, proof profile, eval fixtures | Language-family telemetry is available without parsing logs; full-matrix canaries pass; language-specific failures degrade to typed unavailable where appropriate. |
+| L10.2 | P1 | **Delivered 2026-06-20.** Multi-language hardening. Keep Python-specific heuristics out of hard gates; persist typed patch/verification language families for the full Codrax language matrix: Go, Python, JS, TS, Java, Kotlin, Rust, C, C++, Ruby, Swift, Lua, Proto, ArkTS, Cangjie, CUDA, Objective-C/Objective-C++, PHP path surfaces, and config/workflow files. | final report schema, SWE adapter telemetry, `internal/tool/run_tests*`, proof profile, eval fixtures | Language-family telemetry is available without parsing logs; full-matrix projection tests pass; language-specific failures degrade to typed unavailable where appropriate. |
+| L10.3 | P1 | Add a non-interactive write audit/replay CLI. The command loads a final report path or a plan path with a sibling `.final.json`, then prints a compact typed audit view: run/batch status, loop event refs, truth/proof/localization/permission authorities, patch language families, verifier runner families, residual risks, and artifact refs. This is an advanced audit surface only; routine Auto Pilot remains status-card driven. | `cmd/root.go`, `cmd/*audit*_test.go`, `internal/types/write_final_report.go` helpers if needed, docs/user guide | Audit output reconstructs from durable artifacts without LLM/tool calls; missing report fails loud; output is derived only from typed fields; CLI validation does not affect read/log/trace/data/operation modes; focused command/types tests pass. |
+| L10.4 | P1 | Add eval/canary hardening for the audit path. Reuse SWE adapter predictions and existing final-report artifacts to smoke-test official harness consumability, event/truth ref projection, and language-family visibility. Include multi-language synthetic final reports so hardening does not overfit Python/SWE. | `tools/swe_bench_adapter.py`, eval fixtures, `internal/types` language tests, docs examples | Official `prediction.json` remains harness-consumable; auxiliary `results.jsonl` carries audit refs; multi-language canaries cover Codrax language matrix; no hard routing reads user keywords, model prose, or terminal narrative. |
 
 ### Detailed Next-Batch Implementation Rule
 
@@ -1774,24 +1778,19 @@ Acceptance:
 
 ## Immediate Next Tasks
 
-1. Complete L4 proof authority:
-   - synthesize `ProofCoverageAuthority` from full proof ledger/profile, impact targets, patch review, and latest observation;
-   - expose the synthesized proof state in controller transition validation and status rendering;
-   - route weak-but-passed proof to proof-seeking append/replan actions while budget remains;
-   - keep verifier-unavailable states as `unverified`, not source-code failure.
-2. Land shared localization authority v2:
-   - create a read/write authority pack with owner anchors, source roles, repo_map navigation coverage, and evidence refs;
-   - add a localizer worker/subagent that only returns typed owner evidence;
-   - let read validation feedback and write controller consume the same owner-localization state.
-3. Introduce `TruthLedger` v1:
-   - wrap existing patch effect, observation, impact, convention, localization, and proof artifacts;
-   - enforce precedence rules in one projector;
-   - feed truth obligations into controller next-action, final reports, and eval artifacts.
-4. Build effect-level permission kernel:
-   - add `EffectDescriptor`;
-   - define role profiles for controller/localizer/planner/executor/verifier/proof-auditor;
-   - unify external-directory, doom-loop, high-risk, and critical-deny events.
-5. Start runtime micro-unit execution only after the above authorities are stable:
-   - split slices deterministically by owner/path/permission/impact coupling;
-   - checkpoint, apply, observe, and truth-project one unit at a time;
-   - preserve completed independent units when a later unit fails.
+1. Deliver L10.3 write audit/replay CLI:
+   - accept a final report path or a ChangePlan path with a sibling `.final.json`;
+   - load only typed durable artifacts;
+   - print run/batch status, artifact refs, loop event refs, truth/proof/localization/permission authority, patch language families, verifier runner families, handoff evidence refs, and residual risk codes;
+   - fail loud on missing or invalid artifacts;
+   - add command-level tests proving the audit path performs no LLM/tool execution and does not parse progress prose.
+2. Deliver L10.4 eval/canary hardening:
+   - keep official SWE `prediction.json` untouched and harness-consumable;
+   - assert auxiliary `results.jsonl` carries final-report loop/truth/language telemetry;
+   - add multi-language canaries for every Codrax language family, not just Python;
+   - document how to read audit artifacts without adding routine REPL/CLI command burden.
+3. Run commercial regression:
+   - focused command/types/eval tests for the new audit surface;
+   - `go test ./...`;
+   - `make test`;
+   - SWE adapter smoke where the local environment is available, with unavailable dependencies recorded as typed unverified evidence rather than source failure.
