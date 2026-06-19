@@ -2338,6 +2338,41 @@ func TestTestContractReplanHintProtectsFailedVerifyAssertion(t *testing.T) {
 	}
 }
 
+func TestTestContractReplanHintMapsCodraxWorktreeFailurePath(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "tests/test_widget.py", "def test_widget():\n    assert widget.value == 42\n")
+	mu := types.NewMutableState("repair failed verify from worktree path")
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-prev",
+		BatchID: "batch-1",
+		FailingTests: []types.TestResult{{
+			AssertionID:   "test_widget",
+			Suite:         "tests/test_widget.py::test_widget",
+			Passed:        false,
+			FailureDetail: fmt.Sprintf("Traceback (most recent call last):\n  File %q, line 2, in test_widget\n    assert widget.value == 42\nAssertionError: expected 42, got 7\n", filepath.Join(root, ".codrax/worktrees/trace-123/tests/test_widget.py")),
+		}},
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: root, MainRepoRoot: root}
+	plan := &types.ChangePlan{
+		ID: "plan-weakens-worktree-test",
+		Changes: []types.FileChange{{
+			Path:  "tests/test_widget.py",
+			Kind:  "patch",
+			Patch: "--- a/tests/test_widget.py\n+++ b/tests/test_widget.py\n@@ -1,2 +1,2 @@\n def test_widget():\n-    assert widget.value == 42\n+    assert widget.value is None\n",
+		}},
+		TargetPaths: []string{"tests/test_widget.py"},
+	}
+
+	hint, paths := o.testContractReplanHint(plan)
+	if !strings.Contains(hint, "preserve_failed_test_assertion") || !strings.Contains(hint, "assert widget.value == 42") {
+		t.Fatalf("worktree failure path should map back to repo-relative test path, hint:\n%s", hint)
+	}
+	if len(paths) != 1 || paths[0] != "tests/test_widget.py" {
+		t.Fatalf("paths = %v", paths)
+	}
+}
+
 func TestTestContractReplanHintFailedVerifyAssertionIgnoresSourceOnlyPlan(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "tests/test_widget.py", "def test_widget():\n    assert widget.value == 42\n")

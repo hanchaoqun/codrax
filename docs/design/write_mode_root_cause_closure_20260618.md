@@ -4323,6 +4323,7 @@ Verification:
 | RC-111 | in progress | Shared localization owner/evidence pre-plan authority: RC111-A added a shared typed `LocalizationRequirement` projection, write pre-plan/exploration/replan consumption, plan-context persistence, read-source projection tests, and hygiene coverage proving plan narrative/prose does not drive requirements. RC111-B adds a one-shot pre-apply bounded read-only exploration when an open owner-localization requirement remains. Remaining work is runtime read-mode owner-discovery final handoff and vague-symptom measurement. |
 | RC-112 | complete | SWE delivery PatchReview authority: adapter acceptance now scopes actual-diff/effect hard blockers to the typed primary delivery source plan, while proof blockers still use the typed report-plan authority. Stale source-owner PatchReview findings remain explicit non-authoritative telemetry and no longer block or downgrade final delivery when the exported patch comes from a later clean source plan. |
 | RC-113 | complete | Failed-test assertion preservation: verifier failure handoff now promotes the failed test's typed file:line assertion into a temporary replan-only protected test contract. Replans may still fix production code or add tests, but deleting/replacing the exact failed assertion line triggers the existing bounded test-contract critique instead of silently weakening the local regression oracle. Python traceback `File "...", line N` locations now feed the shared failure-signal parser. |
+| RC-114 | complete | Verifier worktree path normalization: RC113 smoke showed traceback locations can point at `.codrax/worktrees/<trace>/...`, which made failed-test protection classify the location as a Codrax artifact instead of a repo test. The critic now maps that deterministic worktree prefix back to repo-relative paths before path-role classification. |
 
 ## 2026-06-18 RC-74 Plan Path-State Pre-Apply Gate
 
@@ -7226,6 +7227,30 @@ RC113 implementation notes:
     passes.
   - `go test ./internal/orchestrator -run 'Test(TestContractReplanHint|RunWriteControllerWorkflow_ReplansProtectedRegressionTestWeakening)' -count=1`
     passes.
+
+RC114 implementation notes:
+
+- RC113 fresh Django smoke at
+  `eval/results/swebench/lite-smoke-20260619-rc113-failed-test-preservation-django`
+  proved the first half of the fix was necessary but insufficient:
+  - the first failed test traceback location was
+    `.codrax/worktrees/<trace>/tests/forms_tests/tests/test_forms.py`;
+  - failed-test assertion preservation did not trigger because the critic
+    treated the relpath as a Codrax worktree artifact rather than
+    `tests/forms_tests/tests/test_forms.py`;
+  - the second plan again changed the existing assertion from expecting
+    `'id_name_0'` to expecting `None`.
+- RC114 fixes the path authority layer, not the Django case:
+  - after resolving an absolute failure path under `RepoRoot`, deterministic
+    `.codrax/worktrees/<id>/` prefixes are stripped before calling
+    `normalizeWorkflowScopePath` and `ClassifySourcePathRole`;
+  - the same mapping is applied to already-relative failure locations;
+  - arbitrary paths are still rejected by the existing repo-boundary and
+    normalize checks.
+- Verification:
+  - `go test ./internal/orchestrator -run 'TestTestContractReplanHint' -count=1`
+    passes, including a regression where a Python traceback points inside
+    `.codrax/worktrees/trace-123/tests/test_widget.py`.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 

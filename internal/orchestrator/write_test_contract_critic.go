@@ -181,13 +181,29 @@ func failureSignalRepoLocation(repoRoot, location string) (string, int, bool) {
 		if rel == "." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
 			return "", 0, false
 		}
-		rawPath = rel
+		rawPath = stripCodraxWorktreePathPrefix(rel)
 	}
+	rawPath = stripCodraxWorktreePathPrefix(rawPath)
 	path, ok := normalizeWorkflowScopePath(filepath.ToSlash(rawPath))
 	if !ok {
 		return "", 0, false
 	}
 	return path, line, true
+}
+
+func stripCodraxWorktreePathPrefix(path string) string {
+	slash := filepath.ToSlash(strings.TrimSpace(path))
+	parts := strings.Split(slash, "/")
+	for i := 0; i+2 < len(parts); i++ {
+		if parts[i] != ".codrax" || parts[i+1] != "worktrees" || strings.TrimSpace(parts[i+2]) == "" {
+			continue
+		}
+		if i+3 >= len(parts) {
+			return slash
+		}
+		return strings.Join(parts[i+3:], "/")
+	}
+	return slash
 }
 
 func parsePositiveInt(raw string) (int, bool) {
