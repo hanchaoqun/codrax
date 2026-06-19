@@ -153,21 +153,25 @@ type ObservationInput struct {
 }
 
 type ReasoningEventSummary struct {
-	EventID       string             `json:"event_id,omitempty"`
-	NodeID        string             `json:"node_id,omitempty"`
-	Kind          ReasoningEventKind `json:"kind,omitempty"`
-	ReasonCode    string             `json:"reason_code,omitempty"`
-	ToolName      string             `json:"tool_name,omitempty"`
-	Agent         string             `json:"agent,omitempty"`
-	Stage         string             `json:"stage,omitempty"`
-	Model         string             `json:"model,omitempty"`
-	Attempt       int                `json:"attempt,omitempty"`
-	MaxAttempts   int                `json:"max_attempts,omitempty"`
-	ElapsedMillis int64              `json:"elapsed_millis,omitempty"`
-	RepairCode    string             `json:"repair_code,omitempty"`
-	ViolationKind string             `json:"violation_kind,omitempty"`
-	RepairLocus   string             `json:"repair_locus,omitempty"`
-	At            time.Time          `json:"at,omitempty"`
+	EventID           string             `json:"event_id,omitempty"`
+	NodeID            string             `json:"node_id,omitempty"`
+	Kind              ReasoningEventKind `json:"kind,omitempty"`
+	ReasonCode        string             `json:"reason_code,omitempty"`
+	ToolName          string             `json:"tool_name,omitempty"`
+	Agent             string             `json:"agent,omitempty"`
+	Stage             string             `json:"stage,omitempty"`
+	Model             string             `json:"model,omitempty"`
+	Attempt           int                `json:"attempt,omitempty"`
+	MaxAttempts       int                `json:"max_attempts,omitempty"`
+	ElapsedMillis     int64              `json:"elapsed_millis,omitempty"`
+	RepairCode        string             `json:"repair_code,omitempty"`
+	ViolationKind     string             `json:"violation_kind,omitempty"`
+	RepairLocus       string             `json:"repair_locus,omitempty"`
+	FallbackTarget    string             `json:"fallback_target,omitempty"`
+	OriginalByteLen   int                `json:"original_byte_len,omitempty"`
+	NormalizedByteLen int                `json:"normalized_byte_len,omitempty"`
+	Message           string             `json:"message,omitempty"`
+	At                time.Time          `json:"at,omitempty"`
 }
 
 type ReasoningNodeView struct {

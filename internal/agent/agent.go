@@ -20,6 +20,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
+	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/safety"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -214,6 +215,12 @@ type Dependencies struct {
 	// the adapter knows bytes from the provider, while the agent owns the
 	// exact tool schema catalog for the current dispatch.
 	ToolParamCompatByAgent map[types.AgentName]types.ToolParamCompatConfig
+
+	// ReasoningObserver is an optional append-only projection sink for typed
+	// tool/repair/LLM observation events. It is deliberately side-effect-only:
+	// BaseAgent never reads graph state to decide prompts, routing, approval,
+	// or tool execution.
+	ReasoningObserver reasoninggraph.Observer
 }
 
 // BaseAgent provides the common ReAct loop implementation.
@@ -2103,6 +2110,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		stage := ctx.Stage
 		agentName := b.name
 		onRetry := func(attempt int, delay time.Duration, reason string) {
+			b.observeLLMRequestRetried(ctx, attempt, delay, reason)
 			if emit == nil {
 				return
 			}
@@ -2120,6 +2128,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			})
 		}
 		onFallback := func(from, to, reason string) {
+			b.observeLLMFallbackRouted(ctx, from, to, reason)
 			if emit == nil {
 				return
 			}
@@ -2206,7 +2215,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			return output, err
 		}
 
-		resp.ToolCalls = b.normalizeToolCallParams(resp.ToolCalls, effectiveTools)
+		resp.ToolCalls = b.normalizeToolCallParamsWithContext(ctx, resp.ToolCalls, effectiveTools)
 
 		// DIAGNOSTIC — dump assistant response (debug only).
 		logging.Debug("[diag %s] iter=%d ASSISTANT content_len=%d tool_calls=%d",
@@ -2521,6 +2530,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					var r *types.ToolResult
 					var m *types.MCPResponse
 					if !toolCallAvailableInCurrentSurface(call, effectiveToolNames) {
+						b.observeToolRejected(ctx, call, "tool_not_available_in_surface", "tool_unavailable")
 						r = unavailableToolResult(ctx, call, effectiveToolNames)
 					} else {
 						r, m = b.executeTool(ctx, call, effectiveToolNames)
@@ -2535,6 +2545,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				er := execResults[idx]
 				toolOK := false
 				if er.result != nil {
+					b.observeToolRepairPackEmitted(ctx, er.result)
 					toolOK = er.result.Success
 					allToolResults = append(allToolResults, *er.result)
 					lastToolResultPtr = &allToolResults[len(allToolResults)-1]
@@ -2599,6 +2610,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				var result *types.ToolResult
 				var mcpResp *types.MCPResponse
 				if !toolCallAvailableInCurrentSurface(tc, effectiveToolNames) {
+					b.observeToolRejected(ctx, tc, "tool_not_available_in_surface", "tool_unavailable")
 					result = unavailableToolResult(ctx, tc, effectiveToolNames)
 				} else {
 					result, mcpResp = b.executeTool(ctx, tc, effectiveToolNames)
@@ -2606,6 +2618,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 				toolOK := false
 				if result != nil {
+					b.observeToolRepairPackEmitted(ctx, result)
 					toolOK = result.Success
 					allToolResults = append(allToolResults, *result)
 					lastToolResultPtr = &allToolResults[len(allToolResults)-1]
@@ -3567,10 +3580,20 @@ func sameStringSlice(a, b []string) bool {
 }
 
 func (b *BaseAgent) normalizeToolCallParams(calls []llm.ToolCall, schemas []llm.ToolSchema) []llm.ToolCall {
+	return b.normalizeToolCallParamsWithContext(nil, calls, schemas)
+}
+
+func (b *BaseAgent) normalizeToolCallParamsWithContext(ctx *types.AgentContext, calls []llm.ToolCall, schemas []llm.ToolSchema) []llm.ToolCall {
 	if len(calls) == 0 {
 		return calls
 	}
+	beforeSyntaxRepair := calls
 	calls = repairToolCallParamSyntax(calls)
+	for i := range calls {
+		if i < len(beforeSyntaxRepair) && string(calls[i].Params) != string(beforeSyntaxRepair[i].Params) {
+			b.observeToolParamsRecovered(ctx, beforeSyntaxRepair[i], beforeSyntaxRepair[i].Params, calls[i].Params)
+		}
+	}
 	if len(schemas) == 0 || b == nil || b.deps == nil {
 		return calls
 	}
@@ -3599,6 +3622,7 @@ func (b *BaseAgent) normalizeToolCallParams(calls []llm.ToolCall, schemas []llm.
 		if !changed {
 			continue
 		}
+		b.observeToolParamsNormalized(ctx, call, call.Params, normalized.Params, "tool_param_schema_normalized")
 		if out == nil {
 			out = append([]llm.ToolCall(nil), calls...)
 		}
@@ -4037,10 +4061,12 @@ func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, t
 			case <-done:
 				return
 			case <-timer.C:
+				elapsed := time.Since(start)
 				logging.Warning("[diag %s] iter=%d phase=llm_request stage=%s still running elapsed=%s model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
-					agentName, iter, stage, time.Since(start).Round(time.Second),
+					agentName, iter, stage, elapsed.Round(time.Second),
 					telemetry.ModelID, telemetry.ContextTokensEstimate, telemetry.ContextWindowTokens,
 					telemetry.MessageCount, telemetry.ToolCount)
+				b.observeLLMRequestWaiting(ctx, iter, telemetry, elapsed)
 				timer.Reset(agentLLMRequestSlowEvery)
 			}
 		}
@@ -4069,16 +4095,22 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 	// before being substituted.
 	if repaired, ok := repairToolParamsJSON(tc.Params); ok {
 		logging.Warning("[agent] tool %q params auto-repaired (LLM-corrupted JSON: structural repair)", tc.Name)
+		b.observeToolParamsRecovered(ctx, tc, tc.Params, repaired)
 		tc.Params = repaired
 	}
 	if !toolCallParamsValidForHistory(tc.Params) {
+		kind := toolParamsMalformedJSONKind(tc.Params, "malformed JSON")
+		b.observeSchemaRejected(ctx, tc, "tool_params_schema_rejected", kind)
+		b.observeToolRejected(ctx, tc, "tool_params_schema_rejected", kind)
 		return malformedToolParamsResult(tc), nil
 	}
 	if normalized, ok := b.normalizeToolCallParamsFromRegistry(tc); ok {
+		b.observeToolParamsNormalized(ctx, tc, tc.Params, normalized.Params, "tool_param_schema_normalized")
 		tc = normalized
 	}
 	prescanGrepNormalized := false
 	if normalized, ok := b.normalizeAnalyzerPrescanGrepCompat(ctx, tc); ok {
+		b.observeToolParamsNormalized(ctx, tc, tc.Params, normalized.Params, "analyzer_prescan_files_only")
 		tc = normalized
 		prescanGrepNormalized = true
 	}
@@ -4097,30 +4129,39 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 	// summaries would flood the seen-blob with irrelevant code
 	// snippets and mask true hit ratios).
 	if violation := validateAnalyzerToolBoundary(ctx, tc); violation != nil {
+		b.observeToolRejected(ctx, tc, "analyzer_tool_boundary", "stage_tool_policy")
 		return violation, nil
 	}
 	if violation := validateAnalyzerPrescanToolCall(ctx, tc); violation != nil {
+		b.observeToolRejected(ctx, tc, "analyzer_prescan_tool_policy", "stage_tool_policy")
 		return violation, nil
 	}
 	if violation := validateExplorerToolBoundary(ctx, b.eval, tc); violation != nil {
+		b.observeToolRejected(ctx, tc, "explorer_tool_boundary", "stage_tool_policy")
 		return violation, nil
 	}
 	if violation := validateExplorerTraceQueryFirstToolCall(ctx, tc, traceQueryFirstSurfaceAllowsTraceQuery(currentToolSurface)); violation != nil {
+		b.observeToolRejected(ctx, tc, "explorer_trace_query_first_tool_policy", "stage_tool_policy")
 		return violation, nil
 	}
 	if violation := validateExternalObservationOnlyToolCall(ctx, tc); violation != nil {
+		b.observeToolRejected(ctx, tc, "external_observation_only_tool_policy", "stage_tool_policy")
 		return violation, nil
 	}
 	if violation := validateWriteAnalyzerToolPolicy(ctx, tc); violation != nil {
+		b.observeToolRejected(ctx, tc, "write_analyzer_tool_policy", "stage_tool_policy")
 		return violation, nil
 	}
 	if violation := validateWriteExplorationReadOnlyToolCall(ctx, tc); violation != nil {
+		b.observeToolRejected(ctx, tc, "write_exploration_read_only_tool_policy", "stage_tool_policy")
 		return violation, nil
 	}
 	if violation := validateWritePlannerToolPolicy(ctx, tc); violation != nil {
+		b.observeToolRejected(ctx, tc, "write_planner_tool_policy", "stage_tool_policy")
 		return violation, nil
 	}
 	if violation := validateWriteVerifierToolPolicy(ctx, tc); violation != nil {
+		b.observeToolRejected(ctx, tc, "write_verifier_tool_policy", "stage_tool_policy")
 		return violation, nil
 	}
 
@@ -4138,6 +4179,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 				"explore budget exhausted for tool %q: per-tool or overall cap reached. "+
 					"Use a different tool or stop the investigation.", tc.Name)
 			logging.Warning("[sourcemix] %s", msg)
+			b.observeToolRejected(ctx, tc, "explore_budget_exhausted", "budget_exhausted")
 			return &types.ToolResult{
 				ToolName:  tc.Name,
 				Summary:   msg,
@@ -4247,6 +4289,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 	}
 
 	logging.Warning("tool not found: %s", tc.Name)
+	b.observeToolRejected(ctx, tc, "tool_not_found", "tool_unavailable")
 	return unknownToolResult(ctx, tc), nil
 }
 

@@ -236,6 +236,18 @@ type ReasoningGraphView struct {
 }
 ```
 
+### 5.6 ReasoningObserver
+
+`ReasoningObserver` 是各模式共用的旁路投影接口。agent/tool/repair/LLM 边界只追加 typed event，不同步读取 graph state，不改变当前工具结果、prompt、approval、调度或模型输出。
+
+```go
+type Observer interface {
+    ObserveReasoningEvent(event ReasoningEvent)
+}
+```
+
+生产主流程可以选择 no-op、内存 collector、atomic artifact store 或后续 run-scoped store；控制流只允许消费 reducer 产出的 typed view，不能从 observer 的原始 payload、日志散文或 prompt 文本做硬路由。
+
 ## 6. 高价值能力
 
 ### 6.1 Tool / JSON / Repair Observation Graph
