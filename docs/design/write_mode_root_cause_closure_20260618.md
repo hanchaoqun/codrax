@@ -7683,6 +7683,103 @@ RC121 validation:
   plan-materialization affordance gap to keep in the RC111 / historical
   owner-anchor queue.
 
+## 2026-06-19 RC122 Plan Materialization Repair-State Closure
+
+Status: implemented and smoke-validated.
+
+Trigger evidence:
+
+- Follow-up Sphinx smoke
+  `eval/results/swebench/lite-smoke-20260619-rc121-sphinx-mixed-loader`
+  ended `empty_patch` with `workflow_blocked_no_plan`.
+- Logs show the planner first drifted to
+  `sphinx/ext/autodoc/importer.py`, then repeatedly tried to materialize a
+  partial multi-file plan with invalid or stale edits:
+  `insert_before_final_brace` on a Python file, stale `old_text`, and raw patch
+  hunks that did not apply.
+- The final planner parse reported:
+  "the change plan was outlined and every file body provided, but the plan was
+  never finalized", even though the authoritative typed cause was the latest
+  `emit_plan_change` validator rejection and its `PLAN_REPAIR_PACK`.
+
+System gap:
+
+- `PartialChangePlan` state can legitimately have all non-delete body slots
+  filled after a finalize-time validator rejection because the partial plan is
+  retained for one-file repair. Treating that state as an internal mismatch
+  hides the real typed rejection from the controller, REPL, eval adapter, and
+  later repair turns.
+- Planner missing-body accounting considered only `patch` strings, not
+  `edits[]`, so an edits-only patch slot could be misclassified as unfilled in
+  diagnostics.
+- Tool descriptions made `insert_before_final_brace` globally visible; the
+  hard builder already rejects it for Python files without a final standalone
+  brace, but the soft affordance text should be precise so the model spends
+  fewer turns on unsupported edit kinds.
+
+Architecture rule:
+
+- Hard materialization state reads only typed tool results,
+  `PartialChangePlan`, `ChangePlan`, and validator repair metadata. It must not
+  inspect model rationale or natural-language problem text.
+- If every body slot is filled and no `ChangePlan` exists, the planner must
+  first check the latest failed structured emit tool result. A failed
+  `emit_change_plan` / `emit_plan_skeleton` / `emit_plan_change` is the
+  authoritative explanation; only the absence of such a rejection is an
+  internal promotion mismatch.
+- `patch` and `edits[]` are equivalent body sources for patch slots.
+- Prompt/schema text can reduce model confusion but remains soft guidance; the
+  structured edit builder remains the hard gate.
+
+Tasks:
+
+- [x] Add planner parse-output logic that surfaces the latest typed structured
+  emit rejection even when the partial plan has all bodies filled.
+- [x] Treat edits-only patch slots as filled in `plannerMissingBodies`.
+- [x] Tighten structured-edit tool descriptions so
+  `insert_before_final_brace` is described as brace-language-only and not a
+  Python edit kind.
+- [x] Add focused tests for complete partial plan + latest
+  `emit_plan_change` rejection and edits-only body accounting.
+- [x] Run focused planner tests and related package regression.
+- [x] Re-run at least one Sphinx or similarly complex SWE-bench Lite instance
+  after this batch; if it still empty-patches, classify the remaining failure
+  under owner localization / edit planning rather than materialization-state
+  reporting.
+- [ ] Continue the read/write shared owner-localization queue so the planner is
+  less likely to choose the wrong source owner file before materialization.
+
+Acceptance additions:
+
+- A finalize-time `emit_plan_change` rejection after all bodies are present
+  surfaces the validator summary / repair pack instead of "never finalized".
+- `plannerMissingBodies` does not mark an edits-only `kind=patch` change as
+  missing.
+- Python files are still hard-rejected if the model uses
+  `insert_before_final_brace` without a final standalone brace, but the schema
+  no longer describes that kind as a reasonable Python option.
+
+RC122 validation:
+
+- Focused regression:
+  - `go test ./internal/agent -run 'TestPlannerParseOutput_PartialPlan(AllBodiesFilled|CompleteReportsLatestEmitRejection|ReportsMissingBodies)|TestPlannerMissingBodies_Helper' -count=1`
+    passed.
+  - `go test ./internal/agent ./internal/tool ./internal/skill ./internal/orchestrator -count=1`
+    passed.
+- SWE smoke
+  `eval/results/swebench/lite-smoke-20260619-rc122-sphinx-plan-materialization`
+  ran `sphinx-doc__sphinx-8801` with the rebuilt binary. The previous
+  `empty_patch` / `workflow_blocked_no_plan` symptom did not reproduce:
+  result is `status=predicted`, `patch_bytes=688`,
+  `workflow_status=complete`, `workflow_latest_progress_reason_code=accept_unverified_followup_without_failure_evidence`,
+  and `prediction_verdict=predicted_unverified`.
+- `validate_predictions.py --require-nonempty-patch` accepted the RC122 Sphinx
+  prediction JSONL.
+- Remaining confidence downgrade is typed local verifier unavailability:
+  `unittest_loader_import_error,verification_probe_top_level_exception,make_python_module_missing,make_target_missing`.
+  That belongs to the proof/probe and local environment queue, not the plan
+  materialization-state gap.
+
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
 This queue came from the pre-RC104 three-instance smoke. It is not an official

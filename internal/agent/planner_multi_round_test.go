@@ -127,6 +127,40 @@ func TestPlannerParseOutput_PartialPlanAllBodiesFilled(t *testing.T) {
 	}
 }
 
+func TestPlannerParseOutput_PartialPlanCompleteReportsLatestEmitRejection(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	partial := &types.ChangePlan{
+		ID: "plan-partial-rejected",
+		Changes: []types.FileChange{
+			{
+				Path:  "main.go",
+				Kind:  "patch",
+				Edits: []types.StructuredEdit{{Kind: "replace", StartLine: 1, Content: "package main\n"}},
+			},
+		},
+	}
+	e.mu.SetPartialChangePlan(partial)
+	ctx := &types.AgentContext{Mutable: e.mu}
+
+	out, err := e.ParseOutput(ctx, nil, []types.ToolResult{{
+		ToolName: emitPlanChangeToolName,
+		Success:  false,
+		Summary:  "emit_plan_change rejected during finalize: structured edit builder: old_text mismatch",
+	}}, nil)
+	if err == nil {
+		t.Fatal("ParseOutput should error when latest complete partial plan was rejected")
+	}
+	if out == nil {
+		t.Fatal("ParseOutput must return a non-nil StageOutput even on error")
+	}
+	if !strings.Contains(out.Error, "old_text mismatch") {
+		t.Fatalf("error should preserve latest validator rejection, got %q", out.Error)
+	}
+	if strings.Contains(out.Error, "never finalized") {
+		t.Fatalf("validator rejection must not be misreported as internal mismatch: %q", out.Error)
+	}
+}
+
 // TestPlannerMissingBodies_Helper — direct unit test for the
 // helper used by ParseOutput, so the internal contract is locked:
 // only kinds that need a body (create/modify/patch with empty
@@ -134,11 +168,12 @@ func TestPlannerParseOutput_PartialPlanAllBodiesFilled(t *testing.T) {
 func TestPlannerMissingBodies_Helper(t *testing.T) {
 	plan := &types.ChangePlan{
 		Changes: []types.FileChange{
-			{Path: "a.go", Kind: "create"},                          // missing
-			{Path: "b.go", Kind: "modify", NewContent: "x"},         // filled
-			{Path: "c.go", Kind: "patch"},                           // missing
-			{Path: "d.go", Kind: "patch", Patch: "@@ -1 +1 @@"},     // filled
-			{Path: "e.go", Kind: "delete"},                          // body-trivial
+			{Path: "a.go", Kind: "create"},                                                  // missing
+			{Path: "b.go", Kind: "modify", NewContent: "x"},                                 // filled
+			{Path: "c.go", Kind: "patch"},                                                   // missing
+			{Path: "d.go", Kind: "patch", Patch: "@@ -1 +1 @@"},                             // filled
+			{Path: "e.go", Kind: "patch", Edits: []types.StructuredEdit{{Kind: "replace"}}}, // filled
+			{Path: "f.go", Kind: "delete"},                                                  // body-trivial
 		},
 	}
 	missing := plannerMissingBodies(plan)
@@ -151,8 +186,8 @@ func TestPlannerMissingBodies_Helper(t *testing.T) {
 			t.Errorf("missing[%d]=%q want %q; full=%v", i, missing[i], p, missing)
 		}
 	}
-	// Non-delete slot count: a, b, c, d (4); e is delete-trivial.
-	if got := plannerNonDeleteSlotCount(plan); got != 4 {
-		t.Errorf("plannerNonDeleteSlotCount = %d; want 4", got)
+	// Non-delete slot count: a, b, c, d, e (5); f is delete-trivial.
+	if got := plannerNonDeleteSlotCount(plan); got != 5 {
+		t.Errorf("plannerNonDeleteSlotCount = %d; want 5", got)
 	}
 }

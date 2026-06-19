@@ -1340,6 +1340,20 @@ func plannerToolResultsContainFailedStructuredEmit(results []types.ToolResult) b
 	return false
 }
 
+func plannerLastStructuredEmitRejection(results []types.ToolResult) (types.ToolResult, bool) {
+	for i := len(results) - 1; i >= 0; i-- {
+		result := results[i]
+		if result.Success {
+			continue
+		}
+		switch strings.TrimSpace(result.ToolName) {
+		case emitChangePlanToolName, emitPlanSkeletonToolName, emitPlanChangeToolName:
+			return result, true
+		}
+	}
+	return types.ToolResult{}, false
+}
+
 func plannerToolResultsContainSuccessfulStructuredEmit(results []types.ToolResult) bool {
 	for _, result := range results {
 		if !result.Success {
@@ -1699,11 +1713,21 @@ func (e *plannerEvaluator) ParseOutput(
 			missing := plannerMissingBodies(partial)
 			total := plannerNonDeleteSlotCount(partial)
 			if len(missing) == 0 {
-				// Outline + every body present yet ChangePlan slot
-				// stayed empty. Internal mismatch — log details, give
-				// the user a short non-jargon line.
-				logging.Warning("[planner] partial plan id=%s has every body filled but promotion to ChangePlan never fired (internal state mismatch)", partial.ID)
-				reason = "the change plan was outlined and every file body provided, but the plan was never finalized (please retry)"
+				if tr, ok := plannerLastStructuredEmitRejection(toolResults); ok {
+					// A finalize-time validator can reject after every body
+					// slot is filled. The partial plan is retained for a
+					// one-file repair, so surface the validator's typed
+					// rejection instead of misclassifying this as an internal
+					// promotion mismatch.
+					logging.Warning("[planner] structured emit rejected after complete partial plan: tool=%s summary=%s", tr.ToolName, tr.Summary)
+					reason = "the proposed change plan was rejected: " + tr.Summary
+				} else {
+					// Outline + every body present yet ChangePlan slot
+					// stayed empty. Internal mismatch — log details, give
+					// the user a short non-jargon line.
+					logging.Warning("[planner] partial plan id=%s has every body filled but promotion to ChangePlan never fired (internal state mismatch)", partial.ID)
+					reason = "the change plan was outlined and every file body provided, but the plan was never finalized (please retry)"
+				}
 			} else {
 				preview := missing
 				if len(preview) > 5 {
@@ -1775,7 +1799,7 @@ func plannerMissingBodies(partial *types.ChangePlan) []string {
 				missing = append(missing, c.Path)
 			}
 		case "patch":
-			if strings.TrimSpace(c.Patch) == "" {
+			if strings.TrimSpace(c.Patch) == "" && len(c.Edits) == 0 {
 				missing = append(missing, c.Path)
 			}
 		}

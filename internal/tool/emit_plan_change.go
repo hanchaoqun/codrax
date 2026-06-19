@@ -68,7 +68,7 @@ func (t *EmitPlanChange) Parameters() json.RawMessage {
 	          "kind": {"type": "string", "enum": ["replace", "delete", "insert_before", "insert_after", "insert_at_eof", "insert_before_final_brace"]},
 	          "start_line": {"type": "integer", "minimum": 1, "description": "Required for replace/delete and for line-addressed insert_before/insert_after. Ignored for insert_at_eof and insert_before_final_brace."},
 	          "end_line": {"type": "integer", "minimum": 1},
-	          "content": {"type": "string", "description": "Replacement or insertion bytes. For Python, insert_at_eof is safe for top-level unindented additions and for appending a class member when the current file's final top-level statement is that class; other indentation-sensitive edits must use line-anchored insert_before/insert_after or full modify."},
+	          "content": {"type": "string", "description": "Replacement or insertion bytes. insert_before_final_brace is only for brace-language files with a final standalone closing brace; do not use it for Python. For Python, use line-anchored insert_before/insert_after for indentation-sensitive additions, or full modify when the edit spans an indented block. insert_at_eof is safe only for top-level unindented Python additions and the specific EOF class-member case accepted by the tool."},
 	          "old_text": {"type": "string"}
 	        },
 	        "required": ["kind"]
