@@ -7336,6 +7336,25 @@ RC116 design and tasks:
     passes.
   - `go test ./...` passes.
   - `make` passes.
+- SWE smoke:
+  - `eval/results/swebench/lite-smoke-20260619-rc116-protected-oracle-source-lane-django`
+    on `django__django-14534` exports a non-empty 500 byte source-only patch
+    for `django/forms/boundfield.py`.
+  - The exported patch now preserves the failed protected test behavior while
+    using the typed source-side alternative:
+    `id_ = self.data['attrs'].get('id')` followed by fallback to the old
+    `id_%s_%s` value when no id exists.
+  - Local verification passed with 10 typed test rows, and the prediction file
+    passed `validate_predictions.py --require-nonempty-patch`.
+  - Official harness dry-run/import succeeded with
+    `PYTHON=eval/results/swebench/.venv/bin/python DRY_RUN=1 CHECK_HARNESS_IMPORT=1`.
+  - Remaining gap: the latest source patch is coherent and verified, but a
+    later obligation-followup batch left `workflow_status=blocked` and
+    `prediction_verdict=predicted_audit_blocked` because patch-review proof
+    coverage remained weak. Next batch should split "delivery candidate
+    exported and locally verified" from "non-blocking proof/impact follow-up
+    incomplete" so an optional audit lane does not poison the primary delivery
+    workflow state.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
