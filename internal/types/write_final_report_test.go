@@ -667,6 +667,14 @@ func TestBuildWriteFinalAuditSummaryProjectsTypedReplayFields(t *testing.T) {
 		strings.Join(got.ReasoningGraph.EventRefs, ",") != "graph-event-1,graph-event-2" {
 		t.Fatalf("audit reasoning graph = %+v", got.ReasoningGraph)
 	}
+	if got.GraphAudit == nil ||
+		got.GraphAudit.Source != "write_final_report_summary" ||
+		got.GraphAudit.Status != ReasoningGraphAuditPartial ||
+		got.GraphAudit.LastReasonCode != "tests_passed" ||
+		len(got.GraphAudit.Lanes) != 1 ||
+		got.GraphAudit.Lanes[0].Name != "workflow" {
+		t.Fatalf("audit graph view = %+v", got.GraphAudit)
+	}
 	if len(got.Patch.LanguageFamilies) != 1 || got.Patch.LanguageFamilies[0] != VerificationLanguagePython {
 		t.Fatalf("audit patch languages = %+v", got.Patch.LanguageFamilies)
 	}

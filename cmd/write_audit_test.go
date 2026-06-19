@@ -64,6 +64,14 @@ func TestRunWriteAuditCLIOutputsTypedAuditJSON(t *testing.T) {
 	if got.ReasoningGraph == nil || got.ReasoningGraph.EventCount != 2 || len(got.ReasoningGraph.EventRefs) != 2 {
 		t.Fatalf("audit reasoning graph = %+v", got.ReasoningGraph)
 	}
+	if got.GraphAudit == nil ||
+		got.GraphAudit.Source != "write_final_report_summary" ||
+		got.GraphAudit.Status != types.ReasoningGraphAuditPartial ||
+		got.GraphAudit.EventCount != 2 ||
+		len(got.GraphAudit.Lanes) != 1 ||
+		got.GraphAudit.Lanes[0].Name != "workflow" {
+		t.Fatalf("audit graph audit = %+v", got.GraphAudit)
+	}
 	if len(got.Patch.LanguageFamilies) != 1 || got.Patch.LanguageFamilies[0] != types.VerificationLanguagePython {
 		t.Fatalf("audit languages = %+v", got.Patch.LanguageFamilies)
 	}

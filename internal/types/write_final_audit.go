@@ -35,6 +35,7 @@ type WriteFinalAuditSummary struct {
 	Handoff         WriteFinalHandoffSummary         `json:"handoff,omitempty"`
 	Loop            *WriteFinalLoopSummary           `json:"loop,omitempty"`
 	ReasoningGraph  *WriteFinalReasoningGraphSummary `json:"reasoning_graph,omitempty"`
+	GraphAudit      *ReasoningGraphAuditSummary      `json:"graph_audit,omitempty"`
 	ResidualRisks   []WriteFinalResidualRisk         `json:"residual_risks,omitempty"`
 }
 
@@ -83,6 +84,7 @@ func BuildWriteFinalAuditSummary(report WriteFinalReport, sourcePath string) Wri
 		graph := *normalized.ReasoningGraph
 		graph.EventRefs = append([]string(nil), normalized.ReasoningGraph.EventRefs...)
 		out.ReasoningGraph = &graph
+		out.GraphAudit = ReasoningGraphAuditFromWriteSummary(normalized.ReasoningGraph)
 	}
 	if out.Artifacts.ReportPath == "" {
 		out.Artifacts.ReportPath = reportPath

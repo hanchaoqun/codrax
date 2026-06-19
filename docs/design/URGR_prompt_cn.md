@@ -233,6 +233,7 @@ type ReasoningGraphView struct {
     RepairEvents    []ReasoningEventSummary
     LLMEvents       []ReasoningEventSummary
     WorkflowEvents  []ReasoningEventSummary
+    ReadEvents      []ReasoningEventSummary
     EventKindCounts []EventKindCount
 }
 ```
@@ -248,6 +249,36 @@ type Observer interface {
 ```
 
 生产主流程可以选择 no-op、内存 collector、atomic artifact store 或后续 run-scoped store；控制流只允许消费 reducer 产出的 typed view，不能从 observer 的原始 payload、日志散文或 prompt 文本做硬路由。
+
+### 5.7 ReasoningGraphAuditSummary
+
+`ReasoningGraphAuditSummary` 是 graph view 给用户状态卡、support audit、eval report 的紧凑投影视图。它可以来自完整 graph events，也可以来自 final answer / final report 中的 compact graph summary；当只有 summary refs 没有完整 events 时必须标记为 partial，不能补写虚假的 repair / LLM / evidence 细节。
+
+```go
+type ReasoningGraphAuditSummary struct {
+    Source           string
+    Status           string // observed | partial | missing
+    ReasonCode       string
+    GraphID          string
+    EventCount       int
+    NodeCount        int
+    EvidenceRefCount int
+    LastEventKind    string
+    LastReasonCode   string
+    EventRefs        []string
+    Lanes            []ReasoningGraphAuditLane
+    RecentEvents     []ReasoningGraphAuditEvent
+    RepairEvents     []ReasoningGraphAuditEvent
+    LLMEvents        []ReasoningGraphAuditEvent
+    Missing          []ReasoningGraphAuditGap
+}
+```
+
+硬约束：
+
+- audit summary 只读 typed graph event、typed final summary 或 typed answer summary。
+- 不从 prompt、用户意图关键词、模型散文、visible thinking、terminal narrative 恢复事件。
+- routine 用户路径只消费状态卡摘要；完整 audit 是高级排障能力。
 
 ## 6. 高价值能力
 
@@ -480,20 +511,22 @@ type AnswerReasoningGraphSummary struct {
 
 任务：
 
-1. 扩展高级 audit：`--write-audit` 或 `--graph-audit <artifact>`。
-2. 支持读取 final answer、write final report、workflow run、results.jsonl。
-3. 输出 compact JSON / markdown：
+1. 定义 `ReasoningGraphAuditSummary`，作为状态卡、support audit、eval report 的统一消费视图。
+2. 扩展现有高级 audit：`--write-audit` 输出 `graph_audit`，并标明 observed / partial / missing。
+3. `/workflow show` 自动展示 graph-derived reason summary，不要求 routine 用户输入新命令。
+4. 输出 compact JSON / markdown：
    - current node
    - last reason code
    - repair events
    - evidence refs by priority
    - proof/truth/localization/permission status
    - missing handoff evidence
-4. Auto Pilot 状态卡增加 graph-derived reason summary。
-5. 增加 tests：
+5. 后续泛化高级入口可扩展为 `--graph-audit <artifact>`，读取 final answer、write final report、workflow run、results.jsonl；该入口必须复用同一个 audit summary，不新增第二套 schema。
+6. 增加 tests：
    - audit 不调用 LLM/tool
    - missing artifact fail-loud
    - status card reason from typed graph event
+   - summary-only artifact 标记为 partial，不伪造完整 repair/LLM event
 
 验收：
 

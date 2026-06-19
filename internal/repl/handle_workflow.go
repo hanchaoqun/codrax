@@ -8,6 +8,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/loopkernel"
+	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -391,6 +392,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 		writeWorkflowLocalizationAuthorityLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowProofAuthorityLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowTruthAuthorityLines(&b, lang, run, batch, hasBatch)
+		writeWorkflowReasoningGraphLines(&b, lang, run)
 		writeWorkflowProgressLines(&b, lang, run)
 		for _, line := range writeWorkflowNextActionLines(lang, run) {
 			b.WriteString("\n" + line)
@@ -408,6 +410,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 	writeWorkflowLocalizationAuthorityLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowProofAuthorityLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowTruthAuthorityLines(&b, lang, run, batch, hasBatch)
+	writeWorkflowReasoningGraphLines(&b, lang, run)
 	writeWorkflowProgressLines(&b, lang, run)
 	for _, line := range writeWorkflowNextActionLines(lang, run) {
 		b.WriteString("\n" + line)
@@ -655,6 +658,96 @@ func writeWorkflowTruthAuthorityLines(b *strings.Builder, lang string, run types
 
 func writeWorkflowTruthAuthority(run types.WriteWorkflowRun) types.TruthLedger {
 	return writeWorkflowLoopState(run).Truth
+}
+
+func writeWorkflowReasoningGraphLines(b *strings.Builder, lang string, run types.WriteWorkflowRun) {
+	audit := writeWorkflowReasoningGraphAudit(run)
+	if audit == nil {
+		return
+	}
+	if isZh(lang) {
+		b.WriteString("\nReasoning graph:\n")
+	} else {
+		b.WriteString("\nReasoning graph:\n")
+	}
+	fmt.Fprintf(b, "- status=`%s` reason=`%s` events=%d nodes=%d",
+		firstNonEmptyString(audit.Status, "unknown"),
+		firstNonEmptyString(audit.ReasonCode, "none"),
+		audit.EventCount,
+		audit.NodeCount)
+	if audit.LastEventKind != "" {
+		fmt.Fprintf(b, " last=`%s`", audit.LastEventKind)
+	}
+	if audit.LastReasonCode != "" {
+		fmt.Fprintf(b, " last_reason=`%s`", audit.LastReasonCode)
+	}
+	b.WriteString("\n")
+	if lanes := writeWorkflowReasoningGraphLaneList(audit.Lanes); lanes != "" {
+		fmt.Fprintf(b, "- lanes=%s\n", lanes)
+	}
+	if recent := writeWorkflowReasoningGraphEventList(audit.RecentEvents, 3); recent != "" {
+		fmt.Fprintf(b, "- recent=%s\n", recent)
+	}
+	if repairs := writeWorkflowReasoningGraphEventList(audit.RepairEvents, 3); repairs != "" {
+		fmt.Fprintf(b, "- repairs=%s\n", repairs)
+	}
+	if waits := writeWorkflowReasoningGraphEventList(audit.LLMEvents, 3); waits != "" {
+		fmt.Fprintf(b, "- llm=%s\n", waits)
+	}
+	for i, gap := range audit.Missing {
+		if i >= 3 {
+			fmt.Fprintf(b, "- missing: ...(+%d)\n", len(audit.Missing)-i)
+			break
+		}
+		fmt.Fprintf(b, "- missing `%s` severity=`%s`\n",
+			firstNonEmptyString(gap.Code, "unknown"),
+			firstNonEmptyString(gap.Severity, "unknown"))
+	}
+}
+
+func writeWorkflowReasoningGraphAudit(run types.WriteWorkflowRun) *types.ReasoningGraphAuditSummary {
+	return reasoninggraph.AuditSummaryFromEvents(
+		reasoninggraph.EventsFromWriteWorkflowRun(run),
+		"write_workflow_run",
+		3,
+	)
+}
+
+func writeWorkflowReasoningGraphLaneList(lanes []types.ReasoningGraphAuditLane) string {
+	if len(lanes) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(lanes))
+	for _, lane := range lanes {
+		if strings.TrimSpace(lane.Name) == "" || lane.Count <= 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s:%d", lane.Name, lane.Count))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func writeWorkflowReasoningGraphEventList(events []types.ReasoningGraphAuditEvent, limit int) string {
+	if limit <= 0 || limit > len(events) {
+		limit = len(events)
+	}
+	if limit == 0 {
+		return ""
+	}
+	parts := make([]string, 0, limit)
+	for _, event := range events[:limit] {
+		label := firstNonEmptyString(event.Kind, event.EventID, "event")
+		reason := firstNonEmptyString(event.ReasonCode, event.RepairCode, "none")
+		if event.ToolName != "" {
+			parts = append(parts, fmt.Sprintf("`%s:%s:%s`", label, event.ToolName, reason))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("`%s:%s`", label, reason))
+	}
+	if len(events) > limit {
+		parts = append(parts, fmt.Sprintf("...(+%d)", len(events)-limit))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func writeWorkflowLoopState(run types.WriteWorkflowRun) loopkernel.LoopStateView {
