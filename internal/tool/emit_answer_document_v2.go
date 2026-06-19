@@ -87,7 +87,12 @@ type emitAnswerBlockItemV2 struct {
 	Text          string   `json:"text,omitempty"`
 	Cells         []string `json:"cells,omitempty"`
 	CandidateRole string   `json:"candidate_role,omitempty"`
-	CitationRef   FlexInt  `json:"citation_ref,omitempty"`
+	// CitationRef is a pointer so an ABSENT/null citation_ref (the item
+	// is uncited → types.CitationRefUnset) is distinguishable from an
+	// explicit citation_ref:0 (a valid zero-based index into the first
+	// pooled citation). A value FlexInt here collapsed both to 0, which
+	// glued citations[0] onto items the LLM left intentionally uncited.
+	CitationRef *FlexInt `json:"citation_ref,omitempty"`
 }
 
 type emitAnswerDiagramV2 struct {

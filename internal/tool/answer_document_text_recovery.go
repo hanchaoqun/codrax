@@ -436,7 +436,7 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 			Text:          item.Text,
 			Cells:         cells,
 			CandidateRole: candidateRole,
-			CitationRef:   int(item.CitationRef),
+			CitationRef:   citationRefFromWire(item.CitationRef),
 		})
 	}
 	if block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != "" {

@@ -1,12 +1,59 @@
 package tool
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// flexIntPtr builds the optional wire citation_ref pointer for tests.
+func flexIntPtr(v int) *FlexInt {
+	f := FlexInt(v)
+	return &f
+}
+
+// An ABSENT or null citation_ref means the item is uncited and MUST
+// decode to types.CitationRefUnset (-1), not index 0. Regression for
+// the false-grounding bug where an omitted citation_ref collapsed to 0
+// and glued citations[0] onto an intentionally-uncited item. Driven
+// through the real JSON -> wire-struct -> typed decode so the
+// omitempty+pointer behaviour is exercised end to end.
+func TestNormalizeEmitAnswerBlock_CitationRefAbsentIsUnset(t *testing.T) {
+	cases := []struct {
+		name    string
+		itemRaw string
+		want    int
+	}{
+		{"absent", `{"id":"i1","label":"L"}`, types.CitationRefUnset},
+		{"null", `{"id":"i1","label":"L","citation_ref":null}`, types.CitationRefUnset},
+		{"explicit_zero", `{"id":"i1","label":"L","citation_ref":0}`, 0},
+		{"explicit_one", `{"id":"i1","label":"L","citation_ref":1}`, 1},
+		{"string_zero", `{"id":"i1","label":"L","citation_ref":"0"}`, 0},
+		{"explicit_unset", `{"id":"i1","label":"L","citation_ref":-1}`, types.CitationRefUnset},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := `{"id":"b1","kind":"ordered_list","items":[` + tc.itemRaw + `]}`
+			var wire emitAnswerBlockV2
+			if err := json.Unmarshal([]byte(raw), &wire); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			blk, err := NormalizeEmitAnswerBlock(wire, "blocks[0]")
+			if err != nil {
+				t.Fatalf("normalize: %v", err)
+			}
+			if len(blk.Items) != 1 {
+				t.Fatalf("want 1 item, got %d", len(blk.Items))
+			}
+			if blk.Items[0].CitationRef != tc.want {
+				t.Errorf("citation_ref: got %d, want %d", blk.Items[0].CitationRef, tc.want)
+			}
+		})
+	}
+}
 
 // G2 (post_v2_runtime_gap_remediation, 2026-05-04). NormalizeEmitAnswerBlock
 // is the single-source converter from emitAnswerBlockV2 to
@@ -28,7 +75,7 @@ func TestNormalizeEmitAnswerBlock_HappyPathFullProjection(t *testing.T) {
 		Title: "Title",
 		Text:  "body text",
 		Items: []emitAnswerBlockItemV2{
-			{ID: "i1", Label: "L", Text: "T", CandidateRole: string(types.AnswerCandidateRoleVariable), CitationRef: 3},
+			{ID: "i1", Label: "L", Text: "T", CandidateRole: string(types.AnswerCandidateRoleVariable), CitationRef: flexIntPtr(3)},
 		},
 		ClaimUses: []types.RenderedClaimUse{
 			{ClaimForm: types.ClaimDefinitionFact, FacetID: "f1"},
@@ -417,7 +464,7 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		Text:    "body text",
 		Columns: []string{"维度", "结论"},
 		Items: []emitAnswerBlockItemV2{
-			{ID: "i1", Label: "L", Text: "T", Cells: []string{"C1", "C2"}, CandidateRole: string(types.AnswerCandidateRoleFunction), CitationRef: 3},
+			{ID: "i1", Label: "L", Text: "T", Cells: []string{"C1", "C2"}, CandidateRole: string(types.AnswerCandidateRoleFunction), CitationRef: flexIntPtr(3)},
 		},
 		Diagram: &emitAnswerDiagramV2{
 			Kind: string(types.DiagramFlow), Body: "flowchart LR\n  A --> B",

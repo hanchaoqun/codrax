@@ -128,7 +128,7 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 				Text:          it.Text,
 				Cells:         normalizeTableStringSlice(it.Cells),
 				CandidateRole: candidateRole,
-				CitationRef:   int(it.CitationRef),
+				CitationRef:   citationRefFromWire(it.CitationRef),
 			})
 		}
 	}
@@ -156,6 +156,20 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
 	return blk, nil
+}
+
+// citationRefFromWire converts the optional wire citation_ref pointer
+// into the typed item index. A nil pointer means the field was absent
+// or null in the LLM JSON — i.e. the item is uncited — and maps to
+// types.CitationRefUnset (-1), NOT to index 0. An explicit value
+// (including a deliberate 0, the first pooled citation) is preserved.
+// This is the single decode contract both NormalizeEmitAnswerBlock and
+// the text-recovery path share.
+func citationRefFromWire(p *FlexInt) int {
+	if p == nil {
+		return types.CitationRefUnset
+	}
+	return int(*p)
 }
 
 func normalizeTableStringSlice(in []string) []string {
