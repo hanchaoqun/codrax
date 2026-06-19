@@ -7274,6 +7274,24 @@ RC115 implementation notes:
 - Verification:
   - `go test ./internal/orchestrator -run 'TestRunWriteControllerWorkflow_(ReplansProtectedRegressionTestWeakening|BlocksPersistentProtectedRegressionTestWeakening)|TestTestContractReplanHint' -count=1`
     passes.
+  - `go test ./internal/orchestrator ./internal/types -count=1` passes.
+  - `go test ./...` passes.
+  - `make` passes.
+- SWE smoke:
+  - `eval/results/swebench/lite-smoke-20260619-rc115-protected-test-hard-gate-django`
+    on `django__django-14534` now ends with `workflow_status=blocked`,
+    `prediction_verdict=empty_patch`, and
+    `workflow_latest_progress_reason_code=plan_batch_failed_blocked`.
+  - The latest progress message is
+    `planner did not produce a ChangePlan after bounded retries: write controller plan weakened protected regression test contract after retry: tests/forms_tests/tests/test_forms.py`.
+  - This proves the controller no longer exports or applies a second plan that
+    rewrites the protected failed assertion after one structured retry.
+  - It does not prove the Django task is solved. The first source patch still
+    failed local verification, so the next gap is upstream repair arbitration:
+    the system needs a typed way to distinguish "repair implementation while
+    preserving failed oracle" from "candidate claims the oracle is wrong" and
+    to require an alternate implementation search before any blocked outcome is
+    considered terminal.
 
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
