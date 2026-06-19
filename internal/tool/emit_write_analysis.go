@@ -409,15 +409,15 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 								"surface": map[string]any{
 									"type":        "string",
 									"enum":        []string{"repr", "stdout_line", "cli_line", "stringer", "ui_text", "snapshot_text"},
-									"description": "Rendered text surface. Use this only for line-local rendered output placement obligations.",
+									"description": "Rendered text surface for a line-local placement obligation. Required when placement{} is present.",
 								},
 								"anchor": map[string]any{
 									"type":        "string",
-									"description": "Line-local token that identifies the semantic row/label, such as a variable name, CLI field label, String() receiver label, or UI label.",
+									"description": "Line-local token that identifies the semantic row/label on the rendered surface. Required when placement{} is present.",
 								},
 								"expected": map[string]any{
 									"type":        "string",
-									"description": "Text that must appear in the specified relation to the anchor/delimiter. Defaults to behavior_contract.expected when omitted.",
+									"description": "Text that must appear in the specified relation to the anchor/delimiter. Defaults to behavior_contract.expected when omitted, but the final normalized contract must have a non-empty expected text.",
 								},
 								"relation": map[string]any{
 									"type":        "string",
@@ -426,14 +426,14 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 								},
 								"delimiter": map[string]any{
 									"type":        "string",
-									"description": "Optional boundary token, such as dtype, dims, newline, separator, prompt marker, or another label.",
+									"description": "Boundary token required for suffix_before_delimiter, prefix_after_delimiter, and between_anchor_and_delimiter; optional for other relations.",
 								},
 								"evidence_ref": map[string]any{
 									"type":        "string",
 									"description": "Optional source such as issue example, file:line, or attached runtime artifact supporting the placement relation.",
 								},
 							},
-							"description": "Typed rendered-output placement obligation. Emit only when grounded evidence requires relative placement on a rendered text line; do not infer from keywords.",
+							"description": "Typed rendered-output placement obligation. Emit only when grounded evidence requires relative placement on a rendered text line; do not infer from keywords. Required fields for a usable placement contract are surface, anchor, expected, relation, plus delimiter for boundary relations.",
 						},
 						"comparator": map[string]any{
 							"type": "object",
@@ -473,7 +473,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 					},
 					"required": []string{"id", "kind", "expected"},
 				},
-				"description": "Optional typed observables the plan/probes should satisfy or preserve. Prefer these when the request names exception type, output path/layout, status code, command result, stdout text, or a concrete invariant. Separate observed pre-fix failures from expected fixed behavior with polarity=observed vs polarity=expected/forbidden. For bugs that should stop raising, use operator=not_raises with polarity=expected; use operator=raises only when the fixed behavior is supposed to raise. When evidence includes a known working or contrasting reference surface, attach it as comparator so probes can verify the relationship instead of only proving no-crash. Do not infer from keywords; emit only facts grounded in the request or light repo inspection.",
+				"description": "Optional typed observables the plan/probes should satisfy or preserve. Prefer these when the request names exception type, output path/layout, status code, command result, stdout text, rendered text placement, or a concrete invariant. Separate observed pre-fix failures from expected fixed behavior with polarity=observed vs polarity=expected/forbidden. For bugs that should stop raising, use operator=not_raises with polarity=expected; use operator=raises only when the fixed behavior is supposed to raise. When evidence includes a known working or contrasting reference surface, attach it as comparator so probes can verify the relationship instead of only proving no-crash. When evidence includes relative placement inside rendered text, attach placement{} so later probes can bind placement_refs[]. Do not infer from keywords; emit only facts grounded in the request or light repo inspection.",
 			},
 			"phase_proposal": map[string]any{
 				"type": "object",

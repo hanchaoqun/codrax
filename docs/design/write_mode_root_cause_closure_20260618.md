@@ -8456,7 +8456,7 @@ RC128 SWE evidence:
     `final_report_localization_owner_missing_paths=[]`, and
     `final_report_plan_owner_gap_paths=[]`.
 
-## 2026-06-19 RC129-A Complete / RC129-B-C Queued: Behavior/Format Contract Placement Authority
+## 2026-06-19 RC129-A-B Complete / RC129-C Queued: Behavior/Format Contract Placement Authority
 
 Gap:
 
@@ -8500,9 +8500,9 @@ Tasks:
       coverage.
 - [x] RC129-A: Add language-agnostic unit tests using Python repr-like, JS CLI
       text, and Go string output contract fixtures at the typed artifact layer.
-- [ ] RC129-B: Teach write-analysis grounding to distinguish global substring presence
+- [x] RC129-B: Teach write-analysis grounding to distinguish global substring presence
       from line-local anchor placement when examples contain rendered output.
-- [ ] RC129-B: Add prompt hygiene tests proving placement logic is typed-field
+- [x] RC129-B: Add prompt hygiene tests proving placement logic is typed-field
       based and no user-intent/model-prose keyword route is introduced.
 - [ ] RC129-C: Re-run Xarray plus one non-Python rendered-output issue-derived
       eval and require placement coverage telemetry to distinguish global
@@ -8543,6 +8543,40 @@ RC129-A evidence:
 - `git diff --check`: pass.
 - `go test ./...`: pass.
 - `make test`: pass.
+
+RC129-B design:
+
+- Write-analysis skill now has a rendered-text placement contract checklist:
+  model-visible guidance names the typed shape (`surface`, `anchor`,
+  `expected`, `relation`, `delimiter`, `placement_refs[]`) and tells the model
+  to encode relative rendered-output placement as `behavior_contracts[].placement`
+  rather than only a global contains contract.
+- `emit_write_analysis` schema descriptions now say placement contracts require
+  a complete typed object and must be grounded by request/evidence, with
+  boundary relations requiring a delimiter.
+- `writeAnalysisIRQualityRejection` now rejects placement contracts whose typed
+  fields are incomplete or whose anchor/expected pair is neither present in
+  `raw_request` nor backed by `placement.evidence_ref` / contract
+  `evidence_ref`. This is a structural typed check; it does not parse user
+  intent keywords, model rationale, stdout narrative, or `<think>`.
+- Final-attempt repair drops invalid placement contracts and softens the
+  operator to `satisfies`, preventing a half-formed placement obligation from
+  degenerating into a false global contains hard proof.
+- Planner guidance now tells bounded probes to bind `placement_refs[]` when a
+  referenced contract carries placement context; ordinary `contract_refs[]`
+  remains insufficient for line-local placement coverage.
+
+RC129-B evidence:
+
+- Focused tests:
+  - `go test ./internal/orchestrator -run 'TestWriteAnalysisIRQuality|TestRunWriteAnalyzePhase' -count=1`
+  - `go test ./internal/skill -run 'TestWriteAnalysisSkillRenderedPlacementGuidanceIsTyped|TestChangePlanSkill_BatchLocalPlanningWorkflow' -count=1`
+  - `go test ./internal/tool -run 'TestEmitWriteAnalysis' -count=1`
+- Wider regression:
+  - `git diff --check`: pass.
+  - `go test ./internal/orchestrator ./internal/skill ./internal/tool ./internal/types ./internal/agent -count=1`: pass.
+  - `go test ./...`: pass.
+  - `make test`: pass.
 
 ## 2026-06-19 RC130 Complete: SWE Adapter Streaming Broken Pipe Durability
 

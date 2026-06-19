@@ -91,6 +91,41 @@ func TestWriteControllerSkillIsTypedDecisionOnly(t *testing.T) {
 	}
 }
 
+func TestWriteAnalysisSkillRenderedPlacementGuidanceIsTyped(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("write-analysis-skill")
+	if err != nil {
+		t.Fatalf("Get(write-analysis-skill) returned error: %v", err)
+	}
+	corpus := strings.ToLower(sk.Goal + "\n" + sk.OutputFormat + "\n" + allWorkflowBodies(sk) + "\n" + allProhibitionBodies(sk))
+	for _, want := range []string{
+		"rendered-text placement contracts",
+		"behavior_contracts[].placement",
+		"surface",
+		"anchor",
+		"expected text",
+		"relation",
+		"delimiter",
+		"placement_refs[]",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("write-analysis placement guidance missing %q:\n%s", want, corpus)
+		}
+	}
+	for _, banned := range []string{
+		"if the request says",
+		"if the user says",
+		"summary contains",
+		"rationale contains",
+		"parse prose",
+	} {
+		if strings.Contains(corpus, banned) {
+			t.Fatalf("write-analysis skill contains prose-routing smell %q:\n%s", banned, corpus)
+		}
+	}
+}
+
 // TestExploreSkillR6_NoInternalGateJargon — 2026-05-10 audit. The
 // EVIDENCE_FLOOR_WAIVER skill prompt described the waiver's effect
 // using internal pipeline gate names ("forced-read and citation-

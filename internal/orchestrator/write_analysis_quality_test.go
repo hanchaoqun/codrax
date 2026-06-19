@@ -135,6 +135,86 @@ func TestWriteAnalysisIRQualityRejectionAcceptsGroundedNotRaisesPayload(t *testi
 	}
 }
 
+func TestWriteAnalysisIRQualityRejectionAcceptsGroundedRenderedTextPlacement(t *testing.T) {
+	ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		RawRequest: "Rendered line should show rainfall, in mm before float32",
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "repr-unit-placement",
+			Kind:     types.WriteBehaviorStdout,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Subject:  "DataArray repr line",
+			Operator: types.WriteBehaviorOpContains,
+			Expected: ", in mm",
+			Placement: &types.WriteRenderedTextPlacement{
+				Surface:   types.WriteRenderedTextSurfaceRepr,
+				Anchor:    "rainfall",
+				Expected:  ", in mm",
+				Relation:  types.WriteRenderedTextBetweenAnchorAndDelimiter,
+				Delimiter: "float32",
+			},
+			Required: true,
+		}},
+	}}
+	if got := writeAnalysisIRQualityRejection(ir); got != "" {
+		t.Fatalf("grounded rendered-text placement should pass, got %q", got)
+	}
+}
+
+func TestWriteAnalysisIRQualityRejectionRejectsIncompleteRenderedTextPlacement(t *testing.T) {
+	ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		RawRequest: "Rendered line should show rainfall, in mm before float32",
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "repr-unit-placement",
+			Kind:     types.WriteBehaviorStdout,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Subject:  "DataArray repr line",
+			Operator: types.WriteBehaviorOpContains,
+			Expected: ", in mm",
+			Placement: &types.WriteRenderedTextPlacement{
+				Surface:  types.WriteRenderedTextSurfaceRepr,
+				Expected: ", in mm",
+				Relation: types.WriteRenderedTextBetweenAnchorAndDelimiter,
+			},
+			Required: true,
+		}},
+	}}
+	got := writeAnalysisIRQualityRejection(ir)
+	if !strings.Contains(got, "placement.anchor") || !strings.Contains(got, "placement.delimiter") {
+		t.Fatalf("expected missing placement field rejection, got %q", got)
+	}
+}
+
+func TestWriteAnalysisIRQualityRejectionRejectsUngroundedRenderedTextPlacement(t *testing.T) {
+	ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		RawRequest: "Rendered line should show the units before the dtype",
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "repr-unit-placement",
+			Kind:     types.WriteBehaviorStdout,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Subject:  "DataArray repr line",
+			Operator: types.WriteBehaviorOpContains,
+			Expected: ", in mm",
+			Placement: &types.WriteRenderedTextPlacement{
+				Surface:   types.WriteRenderedTextSurfaceRepr,
+				Anchor:    "rainfall",
+				Expected:  ", in mm",
+				Relation:  types.WriteRenderedTextBetweenAnchorAndDelimiter,
+				Delimiter: "float32",
+			},
+			Required: true,
+		}},
+	}}
+	got := writeAnalysisIRQualityRejection(ir)
+	if !strings.Contains(got, "rendered-text placement") || !strings.Contains(got, "not both present") {
+		t.Fatalf("expected ungrounded placement rejection, got %q", got)
+	}
+
+	ir.Request.BehaviorContracts[0].Placement.EvidenceRef = "file:xarray/core/formatting.py:42"
+	if got := writeAnalysisIRQualityRejection(ir); got != "" {
+		t.Fatalf("placement evidence_ref should ground the typed placement, got %q", got)
+	}
+}
+
 func TestRepairWriteAnalysisIRQualitySoftensOnlyUngroundedExactContracts(t *testing.T) {
 	ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{
 		RawRequest:       "Desired output contains rainfall, in mm (time, y, x) float32 ... and Array([]) raises ValueError",
@@ -188,6 +268,45 @@ func TestRepairWriteAnalysisIRQualitySoftensOnlyUngroundedExactContracts(t *test
 	}
 	if ir.Request.BehaviorContracts[1].Operator != types.WriteBehaviorOpNotRaises {
 		t.Fatalf("repair should not mutate original IR, got %+v", ir.Request.BehaviorContracts[1])
+	}
+}
+
+func TestRepairWriteAnalysisIRQualitySoftensInvalidPlacementContract(t *testing.T) {
+	ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		RawRequest: "Rendered line should show rainfall, in mm before float32",
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "repr-unit-placement",
+			Kind:     types.WriteBehaviorStdout,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Subject:  "DataArray repr line",
+			Operator: types.WriteBehaviorOpContains,
+			Expected: ", in mm",
+			Placement: &types.WriteRenderedTextPlacement{
+				Surface:  types.WriteRenderedTextSurfaceRepr,
+				Expected: ", in mm",
+				Relation: types.WriteRenderedTextBetweenAnchorAndDelimiter,
+			},
+			Required: true,
+		}},
+	}}
+
+	repaired, repairs := repairWriteAnalysisIRQuality(ir)
+
+	if len(repairs) != 1 || !strings.Contains(repairs[0], "dropped invalid placement") {
+		t.Fatalf("expected invalid placement repair, got %+v", repairs)
+	}
+	got := repaired.Request.BehaviorContracts[0]
+	if got.Placement != nil {
+		t.Fatalf("invalid placement should be removed from repaired IR: %+v", got.Placement)
+	}
+	if got.Operator != types.WriteBehaviorOpSatisfies {
+		t.Fatalf("invalid placement contract should soften instead of becoming global contains, got %+v", got)
+	}
+	if !strings.Contains(got.Source, "quality_repaired:dropped_invalid_placement") {
+		t.Fatalf("softened placement contract should be source-tagged, got %+v", got)
+	}
+	if ir.Request.BehaviorContracts[0].Placement == nil {
+		t.Fatalf("repair should not mutate original placement")
 	}
 }
 
