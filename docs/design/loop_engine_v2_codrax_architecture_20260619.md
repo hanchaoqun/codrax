@@ -2,9 +2,16 @@
 
 Date: 2026-06-19
 
-Status: design ledger, based on `/Users/han/opt/loop_v2.md`, current `main` code audit, and public agent-system practice.
+Status: project-fit regenerated design ledger, based on `/Users/han/opt/loop_v2.md`, current `main` code audit, SWE/manual-audit gaps, and public agent-system practice.
 
 Audience: Codrax engineering team.
+
+Revision scope:
+
+- This document supersedes the first generic Loop Engine v2 sketch in this file.
+- It keeps the parts already proven in `main`: controller-first write mode, typed artifacts, `loopkernel` shadow state, localization/proof authority projections, patch/impact/convention/verification ledgers, and read-mode Analyzer-v3 stability.
+- It narrows the next architecture target to the highest-leverage Codrax gaps: shared localization authority, online proof coverage, unified truth ledger, role-scoped permission/effect kernel, evidence-producing workers, typed repo_map navigation coverage, and one Auto Pilot status surface.
+- It deliberately avoids fitting individual SWE cases. All hard logic described here consumes typed artifacts only, never user keywords, model rationale, prompt prose, or terminal narrative.
 
 ## Executive Summary
 
@@ -17,7 +24,7 @@ Codrax already has many of the right ingredients for a commercial coding agent:
 
 The remaining gap is not "add another prompt" or "patch one SWE case". The system still lacks a single execution kernel that makes the agent loop itself deterministic, replayable, and observable at the minimal execution unit.
 
-This document proposes **Loop Engine 2.0**:
+This project-fit revision proposes **Loop Engine 2.0 as a Codrax state kernel**, not a replacement product:
 
 - a shared state-machine kernel above write/read workflows;
 - append-only loop events with deterministic reducers;
@@ -27,6 +34,14 @@ This document proposes **Loop Engine 2.0**:
 - effect-based permission gates that reduce user interruptions while preserving hard safety.
 
 The design intentionally reuses existing Codrax types where possible. It does not preserve legacy write-mode semantics, because write mode has no customer compatibility requirement, but it must preserve read/log/trace/data/operation/computer stability and all documented red lines.
+
+The architecture answer is therefore:
+
+1. Keep `runReadSchedulerLoop` stable and add read authority sidecars first.
+2. Keep write mode controller-first, but move the source of truth from batch fields plus mutable bus state toward append-only loop events plus reducers.
+3. Promote localization and proof from report/audit fields into scheduling authorities.
+4. Wrap patch effect, runtime observation, impact, convention, localization, and proof into one truth ledger instead of creating parallel engines.
+5. Replace broad agent freedom with bounded typed actions, role-scoped workers, and effect-level permission.
 
 ## Inputs
 
@@ -54,6 +69,91 @@ The borrowed ideas are architectural, not surface-copying:
 - append-oriented session storage;
 - subagent isolation with constrained tool permissions;
 - structured observations instead of free-form narrative as authority.
+
+## Project-Fit Code Audit Map
+
+This table is the current `main` baseline. It is the main reason this design should land as an integration architecture rather than a rewrite.
+
+| Capability | Current code substrate | Current maturity | Project-fit next step |
+| --- | --- | --- | --- |
+| Read scheduler | `internal/orchestrator/orchestrator.go::runReadSchedulerLoop`, `internal/orchestrator/scheduler.go` | Stable Analyzer-v3 DAG with validation-feedback requeue. Protected by L1 byte-preservation. | Add sidecar authority projection and validation-feedback hooks only after tests prove no scheduler regression. |
+| Write controller | `internal/orchestrator/write_controller_scheduler.go` | Canonical controller-first workflow with typed `WriteWorkflowDecision`, transition validation, durable run resume, apply/verify/replan/append. | Consume a richer `LoopStateView` and `TruthLedger` for next-action selection, instead of reading scattered plan/report fields. |
+| Workflow state | `internal/types/write_workflow_run.go`, `WriteWorkflowRun`, batches, slices, attempts, progress ledger | Durable enough to resume, but state is denormalized across run JSON, mutable bus state, plans, reports, and worktree artifacts. | Make append-only `LoopEvent` the replay source, then project legacy run fields during migration. |
+| Loop substrate | `internal/loopkernel/types.go`, `reducer.go`, `write_adapter.go`, `authority.go` | Shadow event schema, reducer, localization/proof/permission projections already exist. | Promote from shadow projection to scheduler/controller state input; add truth/effect/replay stores. |
+| Transition authority | `internal/writeflow/workflow_execution_view.go`, `workflow_transition_validator.go` | Enforced before controller effects; already blocks stale apply/verify and weak localization in typed cases. | Move validation under or behind the loop kernel and expand from batch state to runtime-unit state. |
+| Localization | `SourceLocalizationReviewFromTurnA`, `SourceLocalizationReviewFromWritePlanContext`, `loopkernel.DeriveLocalizationAuthority`, final-answer owner anchors | Shared artifact exists and some write/read surfaces consume it, but it is not yet the universal read/write scheduling authority. | Add a read/write `LocalizationAuthority` owner-anchor gate and localizer worker that narrows observed-only or auxiliary-only surfaces. |
+| Proof coverage | `ObservationAuthorityView`, `VerificationProofProfile`, `VerificationProofLedger`, `ProofCoverageAuthority`, `WriteFinalReport.ProofLedger` | Available as typed artifacts and partially projected into controller/status; weak proof follow-up is only partially routed. | Derive proof authority from full ledger/profile/impact/patch-review and make low coverage an online next-action signal. |
+| Patch truth | `PatchEffectRecordFromUnifiedDiff`, `PatchEffectRecord`, applied-patch scope review | Actual diff truth exists and is used by impact/critic/report. | Make patch truth a mandatory event for every runtime unit and have it override plan claims. |
+| Impact analysis | `internal/writeflow/impact`, `ImpactAnalysisResult`, impact obligations and verification targets | Real graph-backed engine exists for changed surfaces, edges, and targets. | Put impact obligations into `TruthLedger` and controller proof/repair queue as first-class obligations. |
+| Patch critic | `internal/writeflow/patch_review.go`, `PatchReviewRecord` | Reviews actual diff, impact, scope, convention, semantic coverage. | Treat critic findings as truth/proof obligations, not just report decoration. |
+| Convention graph | `internal/types/convention_graph.go`, `internal/writeflow/convention` | Learns and persists local pattern hints; correctly advisory. | Feed Top-N convention hints into planner/critic as P3 soft guidance and never hard-gate on convention alone. |
+| repo_map navigation | `RepoMapNavigationPolicy`, repo_map lenses, tool advisories | Good typed soft guidance, but still mostly model-chosen. | Add `NavigationCoverage` authority and scheduler/localizer actions when required lenses are missing. |
+| Subagents | `SubAgentRuntime`, `RegisterDefaultSubAgents`, `SubExplorer` | Runtime/scoping/reduction exist; role set is thin. | Add role-scoped evidence workers: Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer. |
+| Permission/risk | `internal/safety/permission.go`, `write_policy.go`, `risk.go`, operation approval ideas | allow/ask/deny lattice and structured policy exist. | Add effect descriptors and per-role tool/effect profiles; record permission events in loop ledger. |
+| UX/status | `/workflow show`, `WriteWorkflowNextActionView`, REPL status cards | Advanced commands work; routine path still exposes too much workflow vocabulary. | One Auto Pilot status card from `LoopStateView`, only interrupting for high-risk ask or blocked states. |
+| Eval/audit | SWE adapter, final report, event projections | Predictions and reports exist, but manual correctness audit shows localization/proof gaps. | Attach loop/truth refs to predictions and make correctness review replayable without re-running LLM/tools. |
+
+## Project-Fit Architecture Decisions
+
+### ADR-1: State kernel over prompt loop
+
+Codrax should not ask the model to remember when to explore, verify, repair, or finish. The controller can propose typed actions, but legality and terminal state must come from reducers and transition validators.
+
+Why:
+
+- `runReadSchedulerLoop` and `ValidateWorkflowTransition` already prove Codrax can encode workflow control deterministically.
+- SWE/manual-audit failures mostly came from wrong localization or weak proof, not from missing prose instructions.
+- A state kernel lets REPL, CLI, eval, and final reports consume the same state.
+
+### ADR-2: Sidecar first for read mode
+
+Read mode remains stable. The first read-mode upgrade is a `ReadAuthorityPack` sidecar derived from existing TurnA artifacts, repo_map navigation coverage, log/trace anchors, and final-answer evidence. It should feed validation feedback and final answer rendering, but only after it is tested outside the scheduler loop.
+
+Why:
+
+- L1 says read scheduler stability matters.
+- Existing `runReadSchedulerLoop` already supports selective requeue; the missing piece is better typed evidence about what to requeue.
+- Sidecar projection avoids destabilizing log/trace/data and answer finalization paths.
+
+### ADR-3: Write mode may be restructured, but not by adding another batch layer
+
+Write mode has no customer compatibility constraint, so it can move from batch/slice to runtime units. The migration should still reuse `WriteWorkflowRun` as the durable envelope until event replay is authoritative.
+
+Why:
+
+- Current write controller already does dynamic DAG and typed actions.
+- The remaining risk is blast radius: too many changes before observation.
+- Runtime units give Claude-Code-like "edit, observe, repair" without surrendering control to a prompt loop.
+
+### ADR-4: One truth ledger, many truth producers
+
+Patch effect, runtime verify, impact, convention, localization, and proof should not become separate competing engines. They should be producers into `TruthLedger`, with explicit precedence.
+
+Why:
+
+- Codrax already has the typed producers.
+- A unified ledger is what lets controller, final report, SWE audit, and user status agree.
+- It avoids case-by-case routing from patch critic, impact, or proof modules.
+
+### ADR-5: Per-role permission via effect descriptors
+
+Permissions should be decided over typed effects, not free-form commands or model intent. Role profiles constrain what actions are even possible, and effect descriptors decide allow/ask/deny.
+
+Why:
+
+- OpenCode-style allow/ask/deny maps cleanly to Codrax `safety.PermissionDecision`.
+- Approval fatigue drops when low/medium worktree-contained effects auto-run.
+- High/critical handling stays deterministic and auditable.
+
+### ADR-6: Subagents are evidence producers, not autonomous writers
+
+Use `SubAgentRuntime` for isolated read-only evidence workers. Mutation remains kernel-owned.
+
+Why:
+
+- The existing runtime already solves scope validation and parallel reduction.
+- Autonomous writers would fragment approval, replay, and handoff.
+- Evidence workers solve the real gaps: localization, impact, proof, failure analysis.
 
 ## Current Codrax Audit
 
@@ -482,6 +582,29 @@ No hard gate may consume:
 - progress prose;
 - terminal narrative;
 - prompt text.
+
+### Tool Schema And Prompt Hygiene
+
+The loop kernel should make model tool calls easier by narrowing schemas and repairing shape errors centrally. It should not move correctness into prompt folklore.
+
+Current substrate:
+
+- `WriteWorkflowDecisionSchema` and `ValidateWriteWorkflowDecision` already define schema-normalized controller actions.
+- `toolparam.Normalize` and agent tool-parameter compatibility tests already repair common JSON shape issues from schemas.
+- Answer finalization already has structured emit/patch repair paths for `emit_answer_document`.
+
+Target:
+
+- Every new loop/controller/worker tool owns a Go type, JSON schema, normalizer, validator, and focused schema-repair test.
+- New prompts describe how to choose among typed actions, but hard routing reads only normalized tool payloads.
+- Unsupported or deprecated action aliases are rejected by validator tests, not silently interpreted.
+- Planner/replanner/verifier/localizer hints must mention typed artifacts by name and scope, avoiding vague "think harder" instructions.
+- Hygiene tests must assert that runtime hard routing does not inspect:
+  - raw user request text;
+  - model `reason`, `summary`, `rationale`, or `<think>` content;
+  - rendered prompt/hint strings.
+
+This keeps user-visible thinking/progress transparent while preserving the system red line: transparency can be rendered, but it cannot become control flow.
 
 ### High-Level Diagram
 
@@ -1091,6 +1214,35 @@ Responsibilities:
 
 The implementation must move in small commercial batches. Each batch updates this ledger before commit/push.
 
+### Regenerated Project-Fit Delivery Roadmap
+
+The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.md` and auditing current `main`. It supersedes a generic phase order. Earlier completed batches remain valid history, but new implementation should follow this order because it fixes the root gaps observed in SWE/manual audits first.
+
+| Order | Priority | Batch | Why this comes now | Concrete deliverable |
+| --- | --- | --- | --- | --- |
+| 1 | P0 | Proof authority completion | Current code can report proof, but weak/local-unavailable proof is not yet consistently a controller state. | Full proof authority synthesis from `ObservationAuthorityView`, `VerificationProofLedger`, `VerificationProofProfile`, impact targets, and patch review; weak proof routes to proof-seeking next action when budget remains. |
+| 2 | P0 | Shared localization authority v2 | Wrong-source patches and read final-answer evidence loss have the same root: owner localization is not yet a scheduling authority everywhere. | Read/write shared `LocalizationAuthority` with owner anchors, localizer worker, repo_map/read fallback, and final answer/report consumption. |
+| 3 | P0 | Truth ledger v1 | Patch/observe/impact/critic/convention/proof exist but controller still assembles meaning from scattered artifacts. | `TruthLedger` schema and projector wrapping existing artifacts, with runtime-failure precedence and unavailable-as-unverified semantics. |
+| 4 | P0 | Effect permission kernel | Existing allow/ask/deny policy is strong but not yet role/effect-native. | `EffectDescriptor`, per-role permission profiles, approval fingerprint reuse, external-directory and doom-loop events. |
+| 5 | P0 | Runtime micro-unit loop | Batch/slice units are still too large for online convergence. | Deterministic micro-slice splitter, unit checkpoint, unit apply, unit observe, unit truth projection, failure containment. |
+| 6 | P1 | repo_map navigation coverage | repo_map usage is still mostly prompt-guided. | `NavigationCoverage` authority from typed IR/lenses and scheduler/localizer triggers for missing required coverage. |
+| 7 | P1 | Evidence workers | Subagent runtime exists but evidence roles are thin. | Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer workers with typed artifacts only. |
+| 8 | P1 | Auto Pilot status | Routine UX still exposes too many commands. | One status card from `LoopStateView`, advanced commands kept for audit. |
+| 9 | P1 | Replay/eval hardening | SWE/manual audit needs replayable correctness evidence. | Event/truth refs in predictions/final reports, replay CLI, multi-language canaries, full regression. |
+
+### Root-Gap To Module Mapping
+
+| Observed gap | System fix | Primary modules | Tests |
+| --- | --- | --- | --- |
+| Non-empty SWE patches on wrong source surface | Owner localization authority before planning/apply/replan | `types.SourceLocalizationReview`, `loopkernel`, `writeflow`, read authority sidecar, localizer worker | read role-subject, write plan localization, SWE localization canaries |
+| Verify passed but proof too narrow | Online proof coverage and truth obligations | `types.VerificationProofLedger`, `loopkernel`, `writeflow`, controller proof queue | passed-but-weak, unavailable, failed, missing proof |
+| Final answer drops exploration richness | Persisted priority authority/context projection into finalizer | `AnswerDocumentV2`, `WriteContextPack`, read authority pack | final-answer handoff retention |
+| repo_map not chosen when needed | Navigation coverage state and localizer trigger | `RepoMapNavigationPolicy`, repo_map lenses, read/write scheduler sidecars | navigation missing-lens tests |
+| Planner/verifier tool freedom too broad | Role-scoped permission/effect kernel | `internal/safety`, `writeflow`, tool registries | planner no unrestricted shell, verifier typed probes |
+| Patch critic/impact/convention not decisive enough | Truth ledger obligations with precedence | `writeflow/patch_review`, `writeflow/impact`, `writeflow/convention`, `truth` | critic/impact obligation routing |
+| Too many routine commands | Auto Pilot status from one state view | `loopkernel`, REPL/CLI status renderers | paused/running/unverified/blocked cards |
+| Eval audit hard to reproduce | Replayable event/truth artifacts | `loopkernel/store`, final reports, SWE adapter | replay idempotence, prediction artifact refs |
+
 | Batch | Status | Scope | Deliverables | Verification |
 | --- | --- | --- | --- | --- |
 | L0 | complete | Design ledger and task breakdown | This document, P0/P1 mapping, batch checklist, progress ledger | `git diff --check` |
@@ -1436,11 +1588,24 @@ Acceptance:
 
 ## Immediate Next Tasks
 
-1. Implement Phase 0 hygiene:
-   - land this doc;
-   - update stale comments around transition validator enforcement;
-   - add a small architecture map test/doc fragment linking existing artifacts to Loop Engine roles.
-2. Implement Phase 1 shadow event ledger.
-3. Add reducer parity tests against current write workflow states.
-4. Add LoopStateView status-card renderer for REPL/CLI.
-5. Start Phase 2 micro-unit splitter only after replay parity is green.
+1. Complete L4 proof authority:
+   - synthesize `ProofCoverageAuthority` from full proof ledger/profile, impact targets, patch review, and latest observation;
+   - expose the synthesized proof state in controller transition validation and status rendering;
+   - route weak-but-passed proof to proof-seeking append/replan actions while budget remains;
+   - keep verifier-unavailable states as `unverified`, not source-code failure.
+2. Land shared localization authority v2:
+   - create a read/write authority pack with owner anchors, source roles, repo_map navigation coverage, and evidence refs;
+   - add a localizer worker/subagent that only returns typed owner evidence;
+   - let read validation feedback and write controller consume the same owner-localization state.
+3. Introduce `TruthLedger` v1:
+   - wrap existing patch effect, observation, impact, convention, localization, and proof artifacts;
+   - enforce precedence rules in one projector;
+   - feed truth obligations into controller next-action, final reports, and eval artifacts.
+4. Build effect-level permission kernel:
+   - add `EffectDescriptor`;
+   - define role profiles for controller/localizer/planner/executor/verifier/proof-auditor;
+   - unify external-directory, doom-loop, high-risk, and critical-deny events.
+5. Start runtime micro-unit execution only after the above authorities are stable:
+   - split slices deterministically by owner/path/permission/impact coupling;
+   - checkpoint, apply, observe, and truth-project one unit at a time;
+   - preserve completed independent units when a later unit fails.
