@@ -535,6 +535,103 @@ func TestWriteOutputKindIncludesFinalReport(t *testing.T) {
 	if !IsValidWriteOutputKind(WriteOutputFinalReport) {
 		t.Fatal("WriteOutputFinalReport must be declared")
 	}
+	if !IsValidWriteOutputKind(WriteOutputFinalAudit) {
+		t.Fatal("WriteOutputFinalAudit must be declared")
+	}
+}
+
+func TestBuildWriteFinalAuditSummaryProjectsTypedReplayFields(t *testing.T) {
+	report := NormalizeWriteFinalReport(WriteFinalReport{
+		Kind:      WriteOutputFinalReport,
+		RunID:     "run-audit",
+		RunStatus: WriteWorkflowRunComplete,
+		Completion: &WriteWorkflowCompletion{
+			Verdict:    WriteWorkflowCompletionVerified,
+			ReasonCode: "tests_passed",
+		},
+		ActiveBatchID: "batch-1",
+		Batches: []WriteFinalBatchSummary{{
+			ID:     "batch-1",
+			Status: WriteWorkflowBatchComplete,
+			PlanID: "plan-audit",
+		}},
+		Artifacts: WriteFinalArtifactRefs{
+			PlanPath:     "/tmp/plan-audit.json",
+			WorkflowPath: "/tmp/workflows/run-audit.json",
+		},
+		Patch: WriteFinalPatchSummary{
+			ChangedFiles:     []string{"pkg/fix.py"},
+			LanguageFamilies: []VerificationLanguageFamily{VerificationLanguagePython},
+		},
+		Verification: WriteFinalVerificationSummary{
+			Status:         VerificationStatusPassed,
+			Passed:         true,
+			RunnerFamilies: []VerificationLanguageFamily{VerificationLanguagePython},
+		},
+		Handoff: WriteFinalHandoffSummary{
+			TopItems: []WriteFinalHandoffItem{{
+				Priority:    WriteContextP1,
+				Kind:        "owner_anchor",
+				EvidenceRef: "file.py:12",
+			}},
+		},
+		Loop: &WriteFinalLoopSummary{
+			RunID:          "run-audit",
+			Status:         "complete",
+			ActiveUnitID:   "slice-1",
+			EventCount:     2,
+			LastEventKind:  "truth_projected",
+			LastReasonCode: "tests_passed",
+			EventRefs:      []string{"event-1", "event-2"},
+			Truth: TruthLedger{
+				State:      TruthLedgerCovered,
+				ReasonCode: "tests_passed",
+			},
+			Proof: WriteFinalAuthoritySummary{
+				State:      "covered",
+				ReasonCode: "proof_covered",
+			},
+			Localization: WriteFinalAuthoritySummary{
+				State:       "supported",
+				ReasonCode:  "owner_anchor_supported",
+				SourcePaths: []string{"pkg/fix.py"},
+			},
+			Permission: WriteFinalAuthoritySummary{
+				State:      "allow",
+				ReasonCode: "low_risk",
+			},
+		},
+		ResidualRisks: []WriteFinalResidualRisk{{
+			Code:     "local_verify_only",
+			Severity: "info",
+		}},
+	})
+
+	got := BuildWriteFinalAuditSummary(report, "/tmp/plan-audit.final.json")
+	if got.Kind != WriteOutputFinalAudit || got.SchemaVersion != WriteFinalAuditSchemaVersion {
+		t.Fatalf("audit identity = kind %q schema %d", got.Kind, got.SchemaVersion)
+	}
+	if got.RunID != "run-audit" || got.BatchCount != 1 || got.Completion == nil || got.Completion.Verdict != WriteWorkflowCompletionVerified {
+		t.Fatalf("audit run summary = %+v", got)
+	}
+	if got.Artifacts.ReportPath != "/tmp/plan-audit.final.json" || got.ReportPath != "/tmp/plan-audit.final.json" {
+		t.Fatalf("audit report path = %+v artifacts=%+v", got.ReportPath, got.Artifacts)
+	}
+	if got.Loop == nil || got.Loop.Truth.State != TruthLedgerCovered || strings.Join(got.Loop.EventRefs, ",") != "event-1,event-2" {
+		t.Fatalf("audit loop = %+v", got.Loop)
+	}
+	if len(got.Patch.LanguageFamilies) != 1 || got.Patch.LanguageFamilies[0] != VerificationLanguagePython {
+		t.Fatalf("audit patch languages = %+v", got.Patch.LanguageFamilies)
+	}
+	if len(got.Verification.RunnerFamilies) != 1 || got.Verification.RunnerFamilies[0] != VerificationLanguagePython {
+		t.Fatalf("audit runner languages = %+v", got.Verification.RunnerFamilies)
+	}
+	if len(got.Handoff.TopItems) != 1 || got.Handoff.TopItems[0].EvidenceRef != "file.py:12" {
+		t.Fatalf("audit handoff = %+v", got.Handoff)
+	}
+	if len(got.ResidualRisks) != 1 || got.ResidualRisks[0].Code != "local_verify_only" {
+		t.Fatalf("audit risks = %+v", got.ResidualRisks)
+	}
 }
 
 func writeFinalReportHasRisk(report WriteFinalReport, code string) bool {

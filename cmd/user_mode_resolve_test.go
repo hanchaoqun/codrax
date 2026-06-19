@@ -138,6 +138,73 @@ func TestResolveUserMode_WritePhaseVerifyAllowsActiveWorkflow(t *testing.T) {
 	}
 }
 
+func TestResolveUserMode_WriteAuditIsReadOnlyArtifactLane(t *testing.T) {
+	mode, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+		YamlEnabled: boolPtr(true),
+		CLIFlagMode: "write",
+		WriteAudit:  "/tmp/plan.final.json",
+	})
+	if err != nil {
+		t.Fatalf("write audit should not error: %v", err)
+	}
+	if mode != repl.UserModeWrite || phase != types.ModeAudit {
+		t.Fatalf("resolved mode=%q phase=%q, want write/audit", mode, phase)
+	}
+
+	mode, phase, err = resolveUserModeAndWritePhase(modeResolutionInputs{
+		YamlEnabled:         boolPtr(true),
+		CLIFlagMode:         "write",
+		CLIWritePhase:       "audit",
+		CLIWritePhasePassed: true,
+		WriteAudit:          "/tmp/plan.final.json",
+	})
+	if err != nil {
+		t.Fatalf("explicit write audit phase should not error: %v", err)
+	}
+	if mode != repl.UserModeWrite || phase != types.ModeAudit {
+		t.Fatalf("resolved mode=%q phase=%q, want write/audit", mode, phase)
+	}
+}
+
+func TestResolveUserMode_WriteAuditRejectsExecutionInputs(t *testing.T) {
+	for name, in := range map[string]modeResolutionInputs{
+		"request": {
+			YamlEnabled: boolPtr(true),
+			CLIFlagMode: "write",
+			WriteAudit:  "/tmp/plan.final.json",
+			HasRequest:  true,
+		},
+		"plan-file": {
+			YamlEnabled: boolPtr(true),
+			CLIFlagMode: "write",
+			WriteAudit:  "/tmp/plan.final.json",
+			PlanFile:    "/tmp/plan.json",
+		},
+		"plan-out": {
+			YamlEnabled: boolPtr(true),
+			CLIFlagMode: "write",
+			WriteAudit:  "/tmp/plan.final.json",
+			PlanOut:     "/tmp/new-plan.json",
+		},
+		"apply-phase": {
+			YamlEnabled:         boolPtr(true),
+			CLIFlagMode:         "write",
+			WriteAudit:          "/tmp/plan.final.json",
+			CLIWritePhase:       "apply",
+			CLIWritePhasePassed: true,
+		},
+		"outside-write": {
+			CLIFlagMode: "code",
+			WriteAudit:  "/tmp/plan.final.json",
+		},
+	} {
+		_, _, err := resolveUserModeAndWritePhase(in)
+		if err == nil || !strings.Contains(err.Error(), "--write-audit") {
+			t.Fatalf("%s: expected --write-audit validation error, got %v", name, err)
+		}
+	}
+}
+
 func TestResolveUserMode_WritePhaseOnlyValidWithWriteMode(t *testing.T) {
 	_, _, err := resolveUserModeAndWritePhase(modeResolutionInputs{
 		CLIFlagMode:         "data",

@@ -2,7 +2,7 @@ package types
 
 // PipelineMode classifies a single Orchestrator.Run() invocation into
 // read-only analysis vs one of the write-phase modes (plan / apply /
-// verify). The zero value is ModeRead so every legacy caller that
+// verify / audit). The zero value is ModeRead so every legacy caller that
 // never touches PipelineMode gets the historical read-only behavior
 // — this is load-bearing for the L1 red line (pre-B0 behavior
 // byte-identical under --mode=read and when flag is omitted).
@@ -13,7 +13,7 @@ package types
 // (tool-vs-mode gating lives in skill.ToolSuggestions, populated by
 // the chosen agent/skill triple for the current Stage).
 //
-// The four values are mutually exclusive:
+// The values are mutually exclusive:
 //
 //   - ModeRead: analyze → explore → extract → finalize. No worktree
 //     is created, no write-phase stages run. Default.
@@ -33,6 +33,10 @@ package types
 //   - ModeVerify: verifies an active workflow batch, a saved run,
 //     or an imported --plan-file seed through the same durable
 //     controller path.
+//
+//   - ModeAudit: loads existing typed write artifacts and prints an
+//     offline replay/audit summary. It does not enter the orchestrator,
+//     create a worktree, call tools, or call LLMs.
 //
 // PipelineMode is a string type so yaml serialization, REPL /mode
 // commands, and log messages all share a single canonical form.
@@ -55,16 +59,19 @@ const (
 	// ModeVerify asks the write controller to verify an active batch,
 	// saved workflow run, or imported --plan-file seed.
 	ModeVerify PipelineMode = "verify"
+
+	// ModeAudit is an advanced read-only write-artifact audit lane.
+	ModeAudit PipelineMode = "audit"
 )
 
-// IsValid returns true when m is one of the four defined modes
+// IsValid returns true when m is one of the defined modes
 // (including ModeRead, the zero value). The empty string is
 // tolerated as ModeRead so pre-B0 tests and callers that never set
 // the field continue to work — the orchestrator normalizes "" to
 // ModeRead at Run() entry.
 func (m PipelineMode) IsValid() bool {
 	switch m {
-	case "", ModeRead, ModePlan, ModeApply, ModeVerify:
+	case "", ModeRead, ModePlan, ModeApply, ModeVerify, ModeAudit:
 		return true
 	}
 	return false
@@ -92,7 +99,7 @@ func (m PipelineMode) IsWrite() bool {
 // Normalize coerces an empty string to ModeRead and passes every
 // other value through unchanged. Used at the single Orchestrator
 // entry point to establish the invariant that BusContext.Mode is
-// always one of the four named constants (never "") from Run()
+// always one of the named constants (never "") from Run()
 // onward — downstream code can switch on exact equality.
 func (m PipelineMode) Normalize() PipelineMode {
 	if m == "" {

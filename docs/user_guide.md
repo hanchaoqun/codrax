@@ -1879,9 +1879,9 @@ write_enabled: false
 
 ## 4.2 完整流程
 
-写模式主入口是 **Auto Pilot**:用户描述目标后,系统自动探索、拆批、生成 bounded plan、在隔离 worktree 中应用、跑验证、失败后按 typed 证据小批量 replan。`plan/apply/verify` 仍是内部阶段和 CLI 高级 lane,但不是日常 REPL 主路径。
+写模式主入口是 **Auto Pilot**:用户描述目标后,系统自动探索、拆批、生成 bounded plan、在隔离 worktree 中应用、跑验证、失败后按 typed 证据小批量 replan。`plan/apply/verify/audit` 仍是内部阶段和 CLI 高级 lane,但不是日常 REPL 主路径。
 
-controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 `.codrax/plans/workflows/`。`write_analyzer` 只是 bounded task classifier,不会继承重型探索的 20 轮预算;真正的问题定位由 controller 的 `explore_code` 节点按需触发。探索如果超时/取消但已经产生 typed `emit_evidence` 或 read-set 进展,controller 会把这些结构化证据投影为写模式 handoff,在 ledger 中保留 `degraded` 记录,并继续让当前 batch 进入 bounded planning;不会用模型散文或日志文本做硬路由。探索完成后的 planner 会保留按任务复杂度计算出的 soft budget,避免现象型 bug 在读完证据后被过早截断;如果一轮 planning 没有落 `ChangePlan` 但产生了成功的只读工具结果,controller 会给一次额外 bounded re-dispatch。结构化 `emit_change_plan` validation rejection 也会把最新工具拒绝原因带入下一轮,最多两次修正机会,但 schema、路径和 old-text byte-match 硬门不放松。verify 失败后的 replan 如果用最新 typed `planner_probe` 证明当前已应用 worktree 已满足失败点,planner 可以发内部 `no_change_required` 哨兵;controller 会恢复前一个已应用 plan 并回到 post-apply verify,普通空 `changes[]` 仍然被拒绝。replan 后的 verify 会从 typed `VerifyFailureHandoff` 继承上一轮唯一 runner/cwd 谱系,并优先继承唯一失败 suite;如果失败用例分散但上一轮命令本身有真实 suite selector,则继承命令级 selector,避免一个小修复退化成全仓重跑。多个不同执行谱系、没有真实 selector、或显式 suite 时不会擅自收窄。`ModePlan` 可探索并生成当前批次计划但不写入;`ModeApply` 端到端执行 plan/apply/verify 并按 allow/ask/deny 策略处理审批;`ModeVerify` 验证已有 workflow run、active batch 或导入的 plan seed。`--plan-file` 也会导入为单 batch workflow seed,不会绕过最终 risk/approval gate。安全可继续的 active run 会在下一次写模式自动续跑;REPL 启动 banner 和状态卡会主动显示当前 batch、审批需求、handoff 摘要和剩余预算。`/workflow show/list` 是审计入口,`/workflow resume` 仅用于手动选择某个保存 run 作为恢复对象,`/workflow clear` 清理 run 元数据和 context artifacts。没有显式 plan id 时,`/approve` / `/reject` 会优先绑定 active batch 的 `PlanID`。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。
+controller 每次只推进一个 bounded batch,必要时先跑只读探索并把优先级 handoff context 持久化到 `.codrax/plans/workflows/`。`write_analyzer` 只是 bounded task classifier,不会继承重型探索的 20 轮预算;真正的问题定位由 controller 的 `explore_code` 节点按需触发。探索如果超时/取消但已经产生 typed `emit_evidence` 或 read-set 进展,controller 会把这些结构化证据投影为写模式 handoff,在 ledger 中保留 `degraded` 记录,并继续让当前 batch 进入 bounded planning;不会用模型散文或日志文本做硬路由。探索完成后的 planner 会保留按任务复杂度计算出的 soft budget,避免现象型 bug 在读完证据后被过早截断;如果一轮 planning 没有落 `ChangePlan` 但产生了成功的只读工具结果,controller 会给一次额外 bounded re-dispatch。结构化 `emit_change_plan` validation rejection 也会把最新工具拒绝原因带入下一轮,最多两次修正机会,但 schema、路径和 old-text byte-match 硬门不放松。verify 失败后的 replan 如果用最新 typed `planner_probe` 证明当前已应用 worktree 已满足失败点,planner 可以发内部 `no_change_required` 哨兵;controller 会恢复前一个已应用 plan 并回到 post-apply verify,普通空 `changes[]` 仍然被拒绝。replan 后的 verify 会从 typed `VerifyFailureHandoff` 继承上一轮唯一 runner/cwd 谱系,并优先继承唯一失败 suite;如果失败用例分散但上一轮命令本身有真实 suite selector,则继承命令级 selector,避免一个小修复退化成全仓重跑。多个不同执行谱系、没有真实 selector、或显式 suite 时不会擅自收窄。`ModePlan` 可探索并生成当前批次计划但不写入;`ModeApply` 端到端执行 plan/apply/verify 并按 allow/ask/deny 策略处理审批;`ModeVerify` 验证已有 workflow run、active batch 或导入的 plan seed;`ModeAudit` 只加载已有 typed final report / workflow artifact 并输出审计 JSON,不进入 orchestrator、worktree、工具或模型调用。`--plan-file` 也会导入为单 batch workflow seed,不会绕过最终 risk/approval gate。安全可继续的 active run 会在下一次写模式自动续跑;REPL 启动 banner 和状态卡会主动显示当前 batch、审批需求、handoff 摘要和剩余预算。`/workflow show/list` 是审计入口,`/workflow resume` 仅用于手动选择某个保存 run 作为恢复对象,`/workflow clear` 清理 run 元数据和 context artifacts。没有显式 plan id 时,`/approve` / `/reject` 会优先绑定 active batch 的 `PlanID`。人工拒绝只标记当前 batch,不会把整个 workflow 直接污染为终态。
 
 REPL 实际流程:
 
@@ -2824,14 +2824,18 @@ codrax --mode=write --write-phase=apply --plan-file=/tmp/plan.json
 
 # 写模式:重跑 verify
 codrax --mode=write --write-phase=verify --plan-file=/tmp/plan.json
+
+# 写模式:高级离线审计,读取 final report 或 saved plan 的 sibling .final.json,输出 typed audit JSON
+codrax --mode=write --write-audit .codrax/plans/plan-abc123.final.json
+codrax --mode=write --write-audit .codrax/plans/plan-abc123.json
 ```
 
 CLI 单次模式输出:
 
 - **stderr**: 进度 / spinner / 调试信息
 - **stdout**: 最终答案纯文本(mermaid / markdown 都按源码输出,方便重定向到文件 / 转给其他工具)
-- **写模式 `.codrax/plans/`**: 单次 CLI 和 REPL 使用同一套 durable store;Auto Pilot 的 ChangePlan、workflow DAG、approval 状态和 context pack 会写到 `.codrax/plans/` / `.codrax/plans/workflows/`,用于 `/workflow show`、恢复和 SWE-bench adapter 审计遥测。终态写任务还会生成 `<plan>.final.json`,其中 `loop` 字段保存 typed event refs、active runtime unit、truth/proof/localization/permission authority 摘要,`patch.language_families` / `verification.runner_families` 记录补丁涉及语言族和本地验证 runner 覆盖语言族,方便审计补丁质量而不需要解析终端日志。
-- **`.codrax/output/<时间戳>-<pid>.md` + `.html`**: 每次 read 模式问答的最终答案落盘留底,Markdown 文件分两段 `# 问题` / `# 回答`,内容是模型原文的轻度排版版本;同名 HTML 由系统从 Markdown 派生,自包含 CSS 与 Mermaid 浏览器运行时,可直接用浏览器打开查看图表/表格/代码块。REPL 多轮对话每轮一组。默认按 Markdown 保留最近 10 份,旧 `.md` 及同名 `.html` 按 mtime 自动删。失败的中间重试不会写盘 — 只留用户实际看到的最后一版。写模式 plan / apply / verify **不生成**这种文件。开关 `output_dump_enabled`、份数 `output_max_files` 见 5.2 节。
+- **写模式 `.codrax/plans/`**: 单次 CLI 和 REPL 使用同一套 durable store;Auto Pilot 的 ChangePlan、workflow DAG、approval 状态和 context pack 会写到 `.codrax/plans/` / `.codrax/plans/workflows/`,用于 `/workflow show`、恢复和 SWE-bench adapter 审计遥测。终态写任务还会生成 `<plan>.final.json`,其中 `loop` 字段保存 typed event refs、active runtime unit、truth/proof/localization/permission authority 摘要,`patch.language_families` / `verification.runner_families` 记录补丁涉及语言族和本地验证 runner 覆盖语言族,方便审计补丁质量而不需要解析终端日志。高级 CLI `codrax --mode=write --write-audit <final-or-plan-path>` 会从这些 typed artifacts 输出 `final_audit` JSON;它不运行工具、不调用模型、不解析终端散文。
+- **`.codrax/output/<时间戳>-<pid>.md` + `.html`**: 每次 read 模式问答的最终答案落盘留底,Markdown 文件分两段 `# 问题` / `# 回答`,内容是模型原文的轻度排版版本;同名 HTML 由系统从 Markdown 派生,自包含 CSS 与 Mermaid 浏览器运行时,可直接用浏览器打开查看图表/表格/代码块。REPL 多轮对话每轮一组。默认按 Markdown 保留最近 10 份,旧 `.md` 及同名 `.html` 按 mtime 自动删。失败的中间重试不会写盘 — 只留用户实际看到的最后一版。写模式 plan / apply / verify / audit **不生成**这种文件。开关 `output_dump_enabled`、份数 `output_max_files` 见 5.2 节。
 - **REPL 浏览器预览**: 当 `markdown_preview_server: auto|on` 且 output dump 成功时,REPL 会在答案下方显示一个带随机 token 的本地 URL。预览服务只服务当前进程登记过的 `.md` 文件,默认监听 `0.0.0.0:0`(系统随机端口),可通过 `markdown_preview_host` / `markdown_preview_port` 固定。页面内嵌固定版本 Mermaid JS,适合查看终端里容易变形的 Mermaid、表格和长代码块。
 
 ---

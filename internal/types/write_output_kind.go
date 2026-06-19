@@ -19,6 +19,11 @@ const (
 	// write workflow. It summarizes typed plan/report/workflow/handoff state;
 	// it is not a scheduler authority and never parses final-answer prose.
 	WriteOutputFinalReport WriteOutputKind = "final_report"
+
+	// WriteOutputFinalAudit is a compact, replay-friendly view projected from a
+	// WriteOutputFinalReport. It is an offline audit artifact and never drives
+	// scheduler decisions.
+	WriteOutputFinalAudit WriteOutputKind = "final_audit"
 )
 
 // AllWriteOutputKinds returns every declared WriteOutputKind in a
@@ -30,6 +35,7 @@ func AllWriteOutputKinds() []WriteOutputKind {
 		WriteOutputChangePlan,
 		WriteOutputChangeReport,
 		WriteOutputFinalReport,
+		WriteOutputFinalAudit,
 	}
 }
 

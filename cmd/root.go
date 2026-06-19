@@ -211,11 +211,15 @@ var (
 	//   --plan-file   — optional apply/verify seed plan. Imported as
 	//                   a single-batch write workflow and passed
 	//                   through the same risk/approval gates.
+	//   --write-audit — advanced read-only audit of a saved final
+	//                   report or saved-plan sibling final report. It
+	//                   does not enter the orchestrator.
 	flagMode       string
 	flagWritePhase string
 	flagAutoApply  bool
 	flagPlanOut    string
 	flagPlanFile   string
+	flagWriteAudit string
 	flagDataResume string
 	// flagAutoInitRepo authorizes the orchestrator to run `git init`
 	// + an empty initial commit when the target repo is bare or has
@@ -525,7 +529,7 @@ pipeline (analyze → explore → extract → finalize).
 When invoked with a request, runs the pipeline once and exits.
 When invoked with no arguments, enters interactive REPL mode.`,
 	Args:              cobra.MaximumNArgs(1),
-	PersistentPreRunE: initApp,
+	PersistentPreRunE: rootPreRun,
 	RunE:              rootRun,
 	SilenceUsage:      true,
 	SilenceErrors:     true,
@@ -533,6 +537,36 @@ When invoked with no arguments, enters interactive REPL mode.`,
 	// matches the dedicated `codrax version` subcommand so the two
 	// surfaces are interchangeable.
 	Version: fmt.Sprintf("%s (built %s)", version, buildTime),
+}
+
+func rootPreRun(cmd *cobra.Command, args []string) error {
+	if strings.TrimSpace(flagWriteAudit) != "" {
+		return initWriteAuditOnly(cmd, args)
+	}
+	return initApp(cmd, args)
+}
+
+func initWriteAuditOnly(cmd *cobra.Command, args []string) error {
+	_, phase, err := resolveUserModeAndWritePhase(modeResolutionInputs{
+		CLIFlagMode:         flagMode,
+		CLIWritePhase:       flagWritePhase,
+		CLIWritePhasePassed: cmd.Flags().Changed("write-phase"),
+		HasRequest:          strings.TrimSpace(flagRequest) != "" || len(args) > 0,
+		PlanFile:            flagPlanFile,
+		PlanOut:             flagPlanOut,
+		WriteAudit:          flagWriteAudit,
+		DataResume:          flagDataResume,
+	})
+	if err != nil {
+		return err
+	}
+	if phase != types.ModeAudit {
+		return fmt.Errorf("--write-audit must resolve to audit phase, got %q", phase)
+	}
+	if abs, err := filepath.Abs(flagWriteAudit); err == nil {
+		flagWriteAudit = abs
+	}
+	return nil
 }
 
 func init() {
@@ -589,10 +623,11 @@ func init() {
 	// `/mode data` / `--mode operation` can bypass the classifier
 	// without colliding with internal plan/apply/verify phases.
 	f.StringVar(&flagMode, "mode", "auto", "task mode: auto|code|operation|data|write")
-	f.StringVar(&flagWritePhase, "write-phase", "apply", "write mode phase: apply|plan|verify (only valid with --mode=write; default Auto Pilot apply)")
+	f.StringVar(&flagWritePhase, "write-phase", "apply", "write mode phase: apply|plan|verify|audit (only valid with --mode=write; default Auto Pilot apply)")
 	f.BoolVar(&flagAutoApply, "auto-apply", false, "compatibility flag for older scripts; typed allow/ask/deny policy controls write approval")
 	f.StringVar(&flagPlanOut, "plan-out", "", "plan-mode: path to write the generated ChangePlan JSON (default: .codrax/plans/<id>.json)")
 	f.StringVar(&flagPlanFile, "plan-file", "", "apply/verify-mode: optional path to an existing ChangePlan JSON seed")
+	f.StringVar(&flagWriteAudit, "write-audit", "", "advanced audit: load a write final-report JSON path, or a ChangePlan path with a sibling .final.json, and print typed audit JSON without running tools or LLMs")
 	f.StringVar(&flagDataResume, "data-resume", "", "data mode: opt-in resume from a prior .codrax/data-audit/*-checkpoint-*.json workflow checkpoint")
 	f.BoolVar(&flagAutoInitRepo, "auto-init-repo", false, "authorize codrax to run `git init` + empty initial commit when the target dir is bare (yaml: write_auto_init_repo)")
 	f.BoolVar(&flagScaffold, "allow-scaffold", false, "authorize the planner to invent files for a 0-source-file target dir (from-scratch project creation; yaml: write_scaffold_enabled). Required IN ADDITION TO --auto-init-repo for empty-dir runs.")
@@ -714,6 +749,9 @@ func rootRun(cmd *cobra.Command, args []string) error {
 	if app.mcpRegistry != nil {
 		defer app.mcpRegistry.Close()
 	}
+	if strings.TrimSpace(flagWriteAudit) != "" {
+		return runWriteAuditCLI(flagWriteAudit, cmd.OutOrStdout())
+	}
 
 	// Resolve request: --request flag or positional arg.
 	request := flagRequest
@@ -773,6 +811,153 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		return runREPL(cmd)
 	}
 	return runSingleShot(cmd, request)
+}
+
+func runWriteAuditCLI(path string, out io.Writer) error {
+	summary, err := loadWriteAuditSummary(path)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(summary)
+}
+
+func loadWriteAuditSummary(path string) (*types.WriteFinalAuditSummary, error) {
+	finalPath, err := resolveWriteAuditFinalReportPath(path)
+	if err != nil {
+		return nil, err
+	}
+	report, err := types.LoadWriteFinalReportFromFile(finalPath)
+	if err != nil {
+		return nil, err
+	}
+	summary := types.BuildWriteFinalAuditSummary(*report, finalPath)
+	return &summary, nil
+}
+
+func resolveWriteAuditFinalReportPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("--write-audit requires a final report path or a ChangePlan path")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve --write-audit path %q: %w", path, err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("stat --write-audit path %s: %w", abs, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("--write-audit path must be a file, got directory %s", abs)
+	}
+
+	if kind, err := writeAuditOutputKind(abs); err == nil {
+		switch kind {
+		case types.WriteOutputFinalReport:
+			return abs, nil
+		case types.WriteOutputChangePlan, "":
+			// Fall through to ChangePlan sibling lookup.
+		default:
+			return "", fmt.Errorf("--write-audit path %s has unsupported write artifact kind %q", abs, kind)
+		}
+	} else {
+		return "", err
+	}
+
+	plan, err := types.LoadChangePlanFromFile(abs)
+	if err != nil {
+		return "", fmt.Errorf("--write-audit path %s is not a final report and cannot be loaded as a ChangePlan: %w", abs, err)
+	}
+	candidates := writeAuditFinalReportCandidates(abs, plan)
+	for _, candidate := range candidates {
+		if !writeAuditFileExists(candidate) {
+			continue
+		}
+		kind, err := writeAuditOutputKind(candidate)
+		if err != nil {
+			return "", err
+		}
+		if kind != types.WriteOutputFinalReport {
+			return "", fmt.Errorf("write audit candidate %s has kind %q, want %q", candidate, kind, types.WriteOutputFinalReport)
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf("write final report not found for %s; looked for: %s", abs, strings.Join(candidates, ", "))
+}
+
+func writeAuditOutputKind(path string) (types.WriteOutputKind, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var probe struct {
+		Kind types.WriteOutputKind `json:"kind"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return "", fmt.Errorf("parse write artifact kind %s: %w", path, err)
+	}
+	return probe.Kind, nil
+}
+
+func writeAuditFinalReportCandidates(planPath string, plan *types.ChangePlan) []string {
+	dir := filepath.Dir(planPath)
+	var out []string
+	if base := strings.TrimSuffix(filepath.Base(planPath), filepath.Ext(planPath)); base != "" {
+		out = append(out, filepath.Join(dir, base+".final.json"))
+	}
+	if plan != nil {
+		if stem := writeAuditArtifactFileStem(plan.ID); stem != "" {
+			out = append(out, filepath.Join(dir, stem+".final.json"))
+		}
+	}
+	return dedupeTrimStrings(out)
+}
+
+func writeAuditArtifactFileStem(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return strings.Trim(b.String(), ".")
+}
+
+func writeAuditFileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func dedupeTrimStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out
 }
 
 // loadAttachedLog returns the merged --log / --log-text payload
@@ -1017,6 +1202,9 @@ type modeResolutionInputs struct {
 	// --write-phase, it selects ModePlan because the user asked for a
 	// plan artifact instead of Auto Pilot execution.
 	PlanOut string
+	// WriteAudit is --write-audit. It is an advanced read-only artifact
+	// projection lane and must not enter the orchestrator.
+	WriteAudit string
 	// DataResume is --data-resume. It is only meaningful for explicit
 	// --mode=data single-shot recovery.
 	DataResume string
@@ -1064,10 +1252,28 @@ func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types
 		if strings.TrimSpace(in.PlanFile) != "" {
 			return "", "", fmt.Errorf("--plan-file is only valid with --mode=write --write-phase=apply|verify")
 		}
+		if strings.TrimSpace(in.WriteAudit) != "" {
+			return "", "", fmt.Errorf("--write-audit is only valid with --mode=write")
+		}
 		return userMode, types.ModeRead, nil
 	}
 
 	phaseText := strings.ToLower(strings.TrimSpace(in.CLIWritePhase))
+	if strings.TrimSpace(in.WriteAudit) != "" {
+		if in.HasRequest {
+			return "", "", fmt.Errorf("--write-audit is an artifact audit lane and cannot be combined with --request or positional request")
+		}
+		if in.CLIWritePhasePassed && phaseText != string(types.ModeAudit) {
+			return "", "", fmt.Errorf("--write-audit cannot be combined with --write-phase=%s; use --write-phase=audit or omit --write-phase", phaseText)
+		}
+		if strings.TrimSpace(in.PlanOut) != "" {
+			return "", "", fmt.Errorf("--write-audit cannot be combined with --plan-out")
+		}
+		if strings.TrimSpace(in.PlanFile) != "" {
+			return "", "", fmt.Errorf("--write-audit cannot be combined with --plan-file; pass the artifact path directly to --write-audit")
+		}
+		phaseText = string(types.ModeAudit)
+	}
 	if !in.CLIWritePhasePassed && strings.TrimSpace(in.PlanOut) != "" {
 		phaseText = string(types.ModePlan)
 	}
@@ -1075,14 +1281,17 @@ func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types
 	if phase == "" || phase == types.ModeRead {
 		phase = types.ModeApply
 	}
-	if phase != types.ModePlan && phase != types.ModeApply && phase != types.ModeVerify {
-		return "", "", fmt.Errorf("unknown write phase %q (must be one of: plan, apply, verify)", string(phase))
+	if phase != types.ModePlan && phase != types.ModeApply && phase != types.ModeVerify && phase != types.ModeAudit {
+		return "", "", fmt.Errorf("unknown write phase %q (must be one of: plan, apply, verify, audit)", string(phase))
 	}
 	if strings.TrimSpace(in.PlanOut) != "" && phase != types.ModePlan {
 		return "", "", fmt.Errorf("--plan-out is only valid with --mode=write --write-phase=plan")
 	}
 	if strings.TrimSpace(in.PlanFile) != "" && phase == types.ModePlan {
 		return "", "", fmt.Errorf("--plan-file is only valid with --mode=write --write-phase=apply|verify")
+	}
+	if strings.TrimSpace(in.PlanFile) != "" && phase == types.ModeAudit {
+		return "", "", fmt.Errorf("--plan-file is only valid with --mode=write --write-phase=apply|verify; use --write-audit <path> for artifact audit")
 	}
 	if !yamlEnabled {
 		return "", "", fmt.Errorf("write mode disabled by configuration: codrax.yaml sets write_enabled: false (the kill switch); remove it or set true to use --mode=write")
@@ -3888,6 +4097,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 		AutoApply:           flagAutoApply,
 		PlanFile:            flagPlanFile,
 		PlanOut:             flagPlanOut,
+		WriteAudit:          flagWriteAudit,
 		DataResume:          flagDataResume,
 	}
 	if rs != nil {
@@ -3946,6 +4156,11 @@ func initApp(cmd *cobra.Command, args []string) error {
 	if flagPlanOut != "" {
 		if abs, err := filepath.Abs(flagPlanOut); err == nil {
 			flagPlanOut = abs
+		}
+	}
+	if flagWriteAudit != "" {
+		if abs, err := filepath.Abs(flagWriteAudit); err == nil {
+			flagWriteAudit = abs
 		}
 	}
 	orch.SetMode(effectiveMode)
