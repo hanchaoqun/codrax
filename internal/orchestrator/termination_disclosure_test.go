@@ -39,6 +39,78 @@ func TestAppendSystemCaveats_NoDegradationNoCaveat(t *testing.T) {
 	}
 }
 
+func TestAppendSystemCaveats_SuppressesDegradedTerminationForGroundedPrincipalAnswer(t *testing.T) {
+	mu := types.NewMutableState("grounded")
+	mu.MarkTerminationFloorDegraded("ratio 10% < 50%")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "owner",
+				Label:       "SubAgentRuntime.Run",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{
+			File: "internal/agent/subagent_runtime.go",
+			Line: 218,
+		}},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Status:              types.SourceLocalizationSupported,
+			SourcePaths:         []string{"internal/agent/subagent_runtime.go"},
+			SupportedPaths:      []string{"internal/agent/subagent_runtime.go"},
+			OwnerSupportedPaths: []string{"internal/agent/subagent_runtime.go"},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Language: "zh"}}
+	got := o.appendSystemCaveatsToAnswer("answer body")
+	if strings.Contains(got, "低于配置的最低标准") {
+		t.Fatalf("grounded principal answer should suppress generic degraded caveat, got %q", got)
+	}
+	if got != "answer body" {
+		t.Fatalf("unexpected answer surface: %q", got)
+	}
+}
+
+func TestAppendSystemCaveats_KeepsDegradedTerminationForObservedOnlyAnswer(t *testing.T) {
+	mu := types.NewMutableState("observed")
+	mu.MarkTerminationFloorDegraded("ratio 10% < 50%")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "observed",
+				Label:       "Observed",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{
+			File: "pkg/observed.py",
+			Line: 12,
+		}},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Status:      types.SourceLocalizationObserved,
+			SourcePaths: []string{"pkg/observed.py"},
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:     "pkg/observed.py",
+				Kind:     types.SourceLocalizationAnchorReadFile,
+				Strength: types.SourceLocalizationAnchorObserved,
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Language: "zh"}}
+	got := o.appendSystemCaveatsToAnswer("answer body")
+	if !strings.Contains(got, "低于配置的最低标准") {
+		t.Fatalf("observed-only localization should keep degraded caveat, got %q", got)
+	}
+}
+
 func TestAppendSystemCaveats_PreStageDegradationVisible(t *testing.T) {
 	mu := types.NewMutableState("prestage")
 	mu.AddPreStageDegradation(types.PreStageDegradation{Stage: types.StageLogTriage, Kind: types.PreStageDegradationEmitRejected, Summary: "structured rows rejected"})

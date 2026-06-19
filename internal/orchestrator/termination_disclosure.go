@@ -21,10 +21,29 @@ func degradedTerminationSystemCaveat(o *Orchestrator) string {
 	if tp == nil || !tp.FloorDegraded {
 		return ""
 	}
+	if suppressDegradedTerminationDisclosure(o.busCtx.Mutable.AnswerDocumentV2()) {
+		return ""
+	}
 	if isChineseLang(o.busCtx.Language) {
 		return "本回答生成时,已核实证据的比例低于配置的最低标准,且无法继续补充验证。结论可能不完整,请谨慎采信;可补充更具体的文件或方向后重试。"
 	}
 	return "This answer was produced with a verified-evidence ratio below the configured floor, and no further verification lane was available. Treat the conclusions with caution; re-running with more specific files or directions may improve grounding."
+}
+
+func suppressDegradedTerminationDisclosure(doc *types.AnswerDocumentV2) bool {
+	view := types.AnswerDocumentPrincipalEvidenceView(doc)
+	if !view.HasGroundedPrincipalEvidence() {
+		return false
+	}
+	if types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
+		review := types.NormalizeSourceLocalizationReview(*doc.ReadSourceLocalization)
+		return (review.Status == types.SourceLocalizationSupported ||
+			len(review.OwnerSupportedPaths) > 0) &&
+			len(review.OwnerMissingPaths) == 0 &&
+			len(review.MissingPaths) == 0
+	}
+	anchors := types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: doc.ReadOwnerAnchors}, 0)
+	return anchors.HasStrong
 }
 
 // preStageDegradationSystemCaveat tells the user their attached

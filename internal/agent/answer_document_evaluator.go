@@ -10136,6 +10136,9 @@ func renderReadLocalizationAuthoritySupplement(_ *types.AgentContext, doc *types
 	if doc == nil || !types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
 		return ""
 	}
+	if answerDocPrincipalSourceSurfaceResolved(doc) {
+		return ""
+	}
 	authority := loopkernel.DeriveLocalizationAuthority(doc.ReadSourceLocalization)
 	if authority.State == "" {
 		return ""
@@ -10182,6 +10185,9 @@ func readLocalizationAuthorityPathList(paths []string, limit int) string {
 
 func renderReadNavigationCoverageSupplement(_ *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	if doc == nil || doc.ReadNavigationCoverage == nil {
+		return ""
+	}
+	if answerDocPrincipalSourceSurfaceResolved(doc) {
 		return ""
 	}
 	coverage := types.NormalizeRepoMapNavigationCoverage(*doc.ReadNavigationCoverage)
@@ -10243,6 +10249,9 @@ func readNavigationCoverageRouteList(routes []types.RepoMapNavigationRoute, limi
 
 func renderReadLocalizerFollowupSupplement(_ *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	if doc == nil || doc.ReadLocalizerFollowup == nil {
+		return ""
+	}
+	if answerDocPrincipalSourceSurfaceResolved(doc) {
 		return ""
 	}
 	followup := types.NormalizeReadLocalizerFollowup(*doc.ReadLocalizerFollowup)
@@ -10317,6 +10326,9 @@ type readOwnerAnchorSupplementRow struct {
 }
 
 func renderReadOwnerAnchorSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+	if answerDocPrincipalSourceSurfaceResolved(doc) {
+		return ""
+	}
 	rows := readOwnerAnchorSupplementRows(ctx, doc)
 	if len(rows) == 0 {
 		return ""
@@ -10342,6 +10354,19 @@ func renderReadOwnerAnchorSupplement(ctx *types.AgentContext, doc *types.AnswerD
 			row.Strength)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func answerDocPrincipalSourceSurfaceResolved(doc *types.AnswerDocumentV2) bool {
+	view := types.AnswerDocumentPrincipalEvidenceView(doc)
+	if !view.HasGroundedPrincipalEvidence() {
+		return false
+	}
+	if types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
+		authority := loopkernel.DeriveLocalizationAuthority(doc.ReadSourceLocalization)
+		return authority.State == loopkernel.LocalizationAuthorityOwnerSupported
+	}
+	anchors := types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: doc.ReadOwnerAnchors}, 0)
+	return anchors.HasStrong
 }
 
 func readOwnerAnchorSupplementRows(_ *types.AgentContext, doc *types.AnswerDocumentV2) []readOwnerAnchorSupplementRow {

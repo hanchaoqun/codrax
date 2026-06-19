@@ -6803,6 +6803,90 @@ func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendReadOwnerAnchorSupplem
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_SuppressesResolvedReadLastMileSupplements(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "runtime",
+				Label:       "SubAgentRuntime.Run",
+				Text:        "Orchestrator 调用 SubAgentRuntime.Run 调度 SubAgent。",
+				CitationRef: 0,
+			}},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+		}},
+		Citations: []types.Citation{{
+			File:  "internal/agent/subagent_runtime.go",
+			Line:  218,
+			Quote: "Run is the single entry point for the Orchestrator",
+		}},
+		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
+			Path:         "internal/agent/subagent_runtime.go",
+			Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:     types.SourceLocalizationAnchorOwner,
+			OwnerSymbol:  "SubAgentRuntime.Run",
+			AnchorSymbol: "Run",
+			EvidenceRef: &types.WriteExplorationEvidenceRef{
+				ID:        "ev-owner",
+				Source:    "internal/agent/subagent_runtime.go",
+				LineStart: 218,
+			},
+		}},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Source:              "read_turn_a",
+			Status:              types.SourceLocalizationSupported,
+			SourcePaths:         []string{"internal/agent/subagent_runtime.go"},
+			SupportedPaths:      []string{"internal/agent/subagent_runtime.go"},
+			OwnerSupportedPaths: []string{"internal/agent/subagent_runtime.go"},
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:         "internal/agent/subagent_runtime.go",
+				Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+				Strength:     types.SourceLocalizationAnchorOwner,
+				OwnerSymbol:  "SubAgentRuntime.Run",
+				AnchorSymbol: "Run",
+			}},
+		},
+		ReadNavigationCoverage: &types.RepoMapNavigationCoverage{
+			State:          types.RepoMapNavigationCoveragePartial,
+			ReasonCode:     "repo_map_navigation_partial",
+			RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap, types.RepoMapNavigationRouteRelationMap},
+			CoveredRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteTaskMap},
+			MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+			EvidenceRefs:   []string{"blob://repo-map-task"},
+		},
+		ReadLocalizerFollowup: &types.ReadLocalizerFollowup{
+			State:                types.ReadLocalizerFollowupNeeded,
+			ReasonCode:           "read_localizer_navigation_missing",
+			CandidatePaths:       []string{"internal/agent/subagent_runtime.go"},
+			MissingRoutes:        []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+			EvidenceRequirements: []string{"repo_map_navigation_requirement route=relation_map required=repo_map_navigation_route"},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if !strings.Contains(out.FinalAnswer, "SubAgentRuntime.Run") {
+		t.Fatalf("principal answer lost:\n%s", out.FinalAnswer)
+	}
+	for _, banned := range []string{
+		"系统补充：源码定位状态",
+		"系统补充：repo_map 导航覆盖",
+		"系统补充：读模式定位补充请求",
+		"系统补充：源码定位锚点核对",
+	} {
+		if strings.Contains(out.FinalAnswer, banned) {
+			t.Fatalf("resolved principal answer should not append %q:\n%s", banned, out.FinalAnswer)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendRequestedDimensionWhenQuoteEqualsLabel(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

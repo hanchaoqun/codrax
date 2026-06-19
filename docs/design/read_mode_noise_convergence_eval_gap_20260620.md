@@ -47,6 +47,7 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C9 | P1 | Cross-language call-chain cases still over-read. | Repo-map navigation facts and read-range obligations are not used as a strict enough exploration budget for C/C++, ArkTS, Cangjie, Java/Kotlin, JS/TS, Ruby, Go, config, and workflow files. | Language-neutral localization and impact views set read budgets and proof obligations, with language adapters providing typed parse/edge facts where available. |
 | RNE-C10 | P0 | Post-complete localization repair can still leak into extraction. | A retry directive / localization supplement can mention a forced `read_file` after exploration already accepted closure. The extractor cannot run read tools, so it burns an unavailable-tool round and may broaden reasoning from stale repair text. | Stage handoff must project localization repair debt into extractor-safe obligations: verdict/caveat/status only. Any real need for more `read_file` must route back to exploration before StageExtract. |
 | RNE-C11 | P0 | Final system supplements can contradict a solved principal answer. | Localization/navigation supplements are rendered even after the principal member set, citations, and repo_map coverage are accepted. The final answer can simultaneously pass eval and display "localization needed" / low-proof caveats that are stale or support-only. | Final report supplements need a typed relevance gate: principal-answer proof status first, support-only localization debt collapsed or hidden, and residual caveats shown only when they are blocking or materially affect the user's answer. |
+| RNE-C12 | P0 | Tool/preflight/context assembly latency can dominate successful read runs. | Large evidence ledgers and repeated completion prechecks can make `emit_evidence`, `emit_investigation_complete`, and "organizing context" slow even when the next decision is already known. Static tool schemas, grounding views, completion preflight state, and evidence scans are rebuilt in multiple places. | Add timing telemetry and shared typed preflight/cache layers: static tool parameters cached, schema normalization marked once, grounding context cached by dispatch/version, and completion gates consume one `CompletionPreflightView` instead of rescanning evidence repeatedly. |
 
 ## Architecture Direction
 
@@ -132,8 +133,9 @@ roles from many raw trace rows.
 | Batch E | planned | Add downgrade fingerprint / low-delta guard. | Identical pre-complete rejection without new typed input stops after one bounded repair turn. |
 | Batch F | planned | Add trace causal path projection. | Trace eval preserves intermediate path-role facets in final answer with fewer trace_query calls. |
 | Batch G | planned | Add read eval watchdog. | Read-mode eval paths use a configurable timeout and emit typed timeout summaries. |
-| Batch H | planned | Quarantine post-complete localization repair for extractor. | Extractor receives non-executable localization status/caveat fields and does not attempt `read_file` / `repo_map` after accepted closure. |
-| Batch I | planned | Gate final system supplements by principal-answer relevance. | A passing scalar/member-set answer does not show stale "localization needed" or generic low-proof caveats unless typed proof debt is principal/blocking. |
+| Batch H | delivered | Quarantine post-complete localization repair for extractor. | Extractor receives non-executable localization status/caveat fields and does not attempt `read_file` / `repo_map` after accepted closure. |
+| Batch I | delivered | Gate final system supplements by principal-answer relevance. | A passing scalar/member-set answer does not show stale "localization needed" or generic low-proof caveats unless typed proof debt is principal/blocking. |
+| Batch K | planned | Add tool/preflight/context assembly telemetry and caches. | `emit_evidence`, `emit_investigation_complete`, schema normalization, grounding view, and completion preflight expose sub-stage timings and reuse dispatch/version-scoped typed views. |
 | Batch J | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
 
 ## Test Matrix
@@ -146,6 +148,13 @@ roles from many raw trace rows.
 - Unit: relation support resolver accepts deterministic evidence/location
   matches and rejects unsupported members.
 - Unit: repeated downgrade fingerprints are stable and delta-aware.
+- Unit: final system supplements are suppressed when principal citations and
+  owner-supported localization already prove the main answer, but still render
+  for observed-only or missing-owner answers.
+- Unit: degraded termination caveats are suppressed only for grounded principal
+  answers with supported localization and remain visible for observed-only
+  localization.
+- Unit: tool/preflight timing and cache keys are dispatch/version scoped.
 - Eval: `arkts_repomap` no longer loops on empty set shape.
 - Eval: `qf_relation_subagent_registry` converges without repeated identical
   relation support downgrade.
@@ -189,3 +198,28 @@ roles from many raw trace rows.
   took 187s with 12 reads, 19 explorer iterations, 8 midloop injections, 42
   concrete values, and ~52k estimated context tokens. It also showed stale
   final system supplements, now tracked as RNE-C11 / Batch I.
+- 2026-06-20 Batch I delivered: final-answer last-mile supplements now pass
+  through a typed principal-source-surface gate. When the user-visible
+  principal answer already has valid citation refs and owner-supported
+  localization, read-mode localization status, repo_map coverage, localizer
+  follow-up, owner-anchor tables, and degraded-termination floor caveats no
+  longer append to the user surface. Observed-only or missing-owner answers
+  still preserve the relevant warnings. This fixes the stale "localization
+  needed" / generic low-proof noise without hiding incomplete proof debt.
+- 2026-06-20 Batch I verification: `qf_relation_subagent_registry` rerun
+  passed under `eval/results/qf_relation_subagent_registry-20260620-073640`.
+  The final answer no longer renders user-facing localization/navigation/
+  localizer/degraded-floor supplements after the cited principal answer. The
+  run still took 192s with 7 reads, 6 `repo_map` calls, 16 explorer iterations,
+  8 midloop injections, 40 concrete values, 32 answer-chain lines, and ~55k
+  estimated context tokens. It also still performed repeated
+  "verification not stable enough" repair rounds driven by a support-only
+  `Resolution Chain anchor line is outside the fetched slices` directive. That
+  residual confirms RNE-C1/RNE-C4/RNE-C6 remain open and should be handled by
+  typed relevance budgets plus low-delta convergence guards rather than more
+  final-render suppression.
+- 2026-06-20 non-noise gap refresh: tool/preflight/context assembly latency is
+  now tracked as RNE-C12 / Batch K. Noise remains the highest-priority user
+  pain, but the commercial plan continues to cover convergence, relation
+  support, trace projection, eval watchdogs, mixed runtime/source proof, and
+  tool latency.
