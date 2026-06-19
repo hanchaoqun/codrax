@@ -1249,7 +1249,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | L1 | complete | Loop kernel skeleton | `internal/loopkernel` event schema, reducer, typed authority projections, atomic event persistence | focused `go test ./internal/loopkernel` |
 | L2 | complete | Shadow write adapter | emit loop events from current write controller without changing effects; reducer parity with `WriteWorkflowRun` | loopkernel/repl focused tests |
 | L3 | complete | Localization authority consumption | shared `LocalizationAuthority` consumed by read sidecar, write controller, planner/replan, final report | read/write localization tests |
-| L4 | in_progress | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
+| L4 | complete | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
 | L5 | pending | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
 | L6 | pending | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
 | L7 | pending | Micro-loop execution | deterministic micro-slice splitter, runtime unit apply/observe/checkpoint, stale-plan guard | write E2E and slice tests |
@@ -1296,10 +1296,10 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 - [x] Render proof authority in `/workflow show` from typed loop state, including unavailable local verification without implying code repair.
 - [x] Feed `VerificationProofLedger` uncovered obligations with typed path/symbol/contract refs into the existing controller proof/impact follow-up queue so new proof obligation kinds can trigger bounded proof batches without new dispatch machinery.
 - [x] Render completed unverified workflows with the unverified status card and explicit verify/skip-verify guidance instead of the verified/applied card.
-- [ ] Derive proof authority from full verification proof ledger, impact targets, and patch review inside controller state.
-- [ ] Teach controller next-action to prefer proof-seeking or repair actions when budget remains.
-- [ ] Preserve unavailable runner/dependency states as `unverified` through finish/report/status cards.
-- [ ] Add tests for passed-but-weak, unavailable, failed, and missing proof states across controller decisions.
+- [x] Derive proof authority from full verification proof ledger, impact targets, patch review, verification confidence, and latest verify attempt inside controller state.
+- [x] Preserve existing controller proof/impact follow-up routing while feeding it stronger proof authority; weak proof with actionable typed refs remains routed through the bounded follow-up queue.
+- [x] Preserve unavailable runner/dependency states as `unverified` through proof authority synthesis instead of turning weak obligations into source repair.
+- [x] Add tests for passed-but-weak, unavailable, failed, missing, planner-probe ignored, and budget-exhausted proof states across authority/view/transition decisions.
 
 ### L5 Task Breakdown
 
@@ -1353,6 +1353,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | 2026-06-19 | L4 | in_progress | Added shared typed verifier reason classification, `ProofCoverageAuthority` projection from durable verify attempts/completion verdicts, loop-event projection for active proof state, `WorkflowExecutionView.Proof`, and `/workflow show` proof authority rendering. Focused `types`/`loopkernel`/`writeflow`/`repl` tests passed. Remaining work: full ledger/profile/impact/patch-review controller policy and weak-proof next-action routing. |
 | 2026-06-19 | L4 | in_progress | Added `VerificationProofLedger` obligation projection into the existing controller proof/impact follow-up queue, including ledger-only proof kinds such as rendered-text placement contracts. The projection requires typed path/symbol/contract refs, so proof records without actionable refs remain telemetry instead of spawning blind batches. Focused orchestrator proof-follow-up tests passed. Remaining work: full proof authority synthesis from ledger/profile and status-card finish policy hardening. |
 | 2026-06-19 | L4 | in_progress | `/workflow show` now renders proof authority in both Chinese and English branches and uses the unverified status card for completed workflows whose typed completion verdict is `unverified`. Focused REPL status-card tests passed. Remaining work: full proof authority synthesis from ledger/profile and weak-proof next-action routing. |
+| 2026-06-19 | L4 | complete | Added `DeriveProofCoverageAuthorityFromArtifacts`, `MergeProofCoverageAuthority`, and `DeriveWorkflowExecutionViewWithReport` so controller state combines latest verify attempt with full proof profile/ledger from typed reports, impact targets, patch review, and verification confidence. The change deliberately keeps proof follow-up routing in the existing actionable-ref queue instead of broad hard-gating every weak proof, preserving stable low-friction write paths. Focused `loopkernel`/`writeflow` tests cover passed-but-weak, failed-ledger override, unavailable preservation, and planner-probe ignored. |
 
 ## Phased Roadmap
 

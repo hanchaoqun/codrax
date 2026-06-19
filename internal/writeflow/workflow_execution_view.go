@@ -155,6 +155,26 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 	return view
 }
 
+func DeriveWorkflowExecutionViewWithReport(mode types.PipelineMode, run types.WriteWorkflowRun, plan *types.ChangePlan, report *types.ChangeReport) WorkflowExecutionView {
+	view := DeriveWorkflowExecutionView(mode, run, plan)
+	if report == nil || !workflowExecutionReportChannelAuthoritative(report) {
+		return view
+	}
+	run = types.NormalizeWriteWorkflowRun(run)
+	batch, ok := workflowExecutionActiveBatch(run)
+	if !ok || !workflowExecutionReportMatchesBatch(batch, report) {
+		return view
+	}
+	activePlan := workflowExecutionActivePlan(batch, plan)
+	if !workflowExecutionReportMatchesPlan(activePlan, report) {
+		return view
+	}
+	profile := types.BuildVerificationProofProfile(activePlan, report)
+	ledger := types.BuildVerificationProofLedger(activePlan, report, nil)
+	view.Proof = loopkernel.DeriveProofCoverageAuthorityFromArtifacts(latestAttemptOfKind(batch, "verify"), &profile, &ledger)
+	return view
+}
+
 func applyApprovalExecutionToView(view *WorkflowExecutionView, activePlan *types.ChangePlan) {
 	if view == nil {
 		return
@@ -195,6 +215,39 @@ func workflowExecutionActivePlan(batch types.WriteWorkflowBatch, plan *types.Cha
 		return nil
 	}
 	return plan
+}
+
+func workflowExecutionReportChannelAuthoritative(report *types.ChangeReport) bool {
+	if report == nil {
+		return false
+	}
+	switch report.Channel {
+	case "", types.ChangeReportChannelPostApplyVerify:
+		return true
+	default:
+		return false
+	}
+}
+
+func workflowExecutionReportMatchesBatch(batch types.WriteWorkflowBatch, report *types.ChangeReport) bool {
+	if report == nil {
+		return false
+	}
+	reportPlanID := strings.TrimSpace(report.PlanID)
+	batchPlanID := strings.TrimSpace(batch.PlanID)
+	return reportPlanID == "" || batchPlanID == "" || reportPlanID == batchPlanID
+}
+
+func workflowExecutionReportMatchesPlan(plan *types.ChangePlan, report *types.ChangeReport) bool {
+	if report == nil {
+		return false
+	}
+	if plan == nil {
+		return true
+	}
+	reportPlanID := strings.TrimSpace(report.PlanID)
+	planID := strings.TrimSpace(plan.ID)
+	return reportPlanID == "" || planID == "" || reportPlanID == planID
 }
 
 func workflowExecutionActiveBatch(run types.WriteWorkflowRun) (types.WriteWorkflowBatch, bool) {

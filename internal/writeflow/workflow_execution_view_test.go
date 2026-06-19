@@ -126,6 +126,105 @@ func TestDeriveWorkflowExecutionViewUnverifiedVerifySurfacesUnavailableProof(t *
 	}
 }
 
+func TestDeriveWorkflowExecutionViewWithReportDowngradesPassedAttemptWhenProofWeak(t *testing.T) {
+	plan := approvalExecutionPlanForTest(ApprovalActionAutoExecute, "auto")
+	plan.TargetPaths = []string{"pkg/owner.py"}
+	run := workflowExecutionRunForTest(types.WriteWorkflowBatchComplete, plan.ID)
+	run.Batches[0].Attempts = append(run.Batches[0].Attempts, types.WriteWorkflowAttempt{
+		Kind:       "verify",
+		Status:     "passed",
+		ReasonCode: "tests_passed",
+		PlanID:     plan.ID,
+	})
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "proof_auditor",
+			Category:     "probe_contract_refs",
+			Status:       "missing",
+			ReasonCode:   "verification_probe_missing_contract_ref",
+			ContractRefs: []string{"contract:render-format"},
+		}},
+	}
+
+	view := DeriveWorkflowExecutionViewWithReport(types.ModeApply, run, plan, report)
+	if view.Proof.State != loopkernel.ProofCoverageWeak {
+		t.Fatalf("proof = %+v, want weak", view.Proof)
+	}
+	if view.Proof.RecommendedAction != loopkernel.LoopActionAddProof || !view.Proof.RequiresProof {
+		t.Fatalf("weak proof should request proof follow-up: %+v", view.Proof)
+	}
+	if view.Proof.LedgerState != types.VerificationProofLedgerLowConfidence ||
+		view.Proof.ProfileStatus != types.VerificationProofWeak {
+		t.Fatalf("ledger/profile state not surfaced: %+v", view.Proof)
+	}
+}
+
+func TestDeriveWorkflowExecutionViewWithReportIgnoresPlannerProbeForTerminalProof(t *testing.T) {
+	plan := approvalExecutionPlanForTest(ApprovalActionAutoExecute, "auto")
+	run := workflowExecutionRunForTest(types.WriteWorkflowBatchComplete, plan.ID)
+	run.Batches[0].Attempts = append(run.Batches[0].Attempts, types.WriteWorkflowAttempt{
+		Kind:       "verify",
+		Status:     "passed",
+		ReasonCode: "tests_passed",
+		PlanID:     plan.ID,
+	})
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPlannerProbe,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "planner_probe",
+			Category:     "probe_contract_refs",
+			Status:       "missing",
+			ReasonCode:   "planner_probe_missing_contract_ref",
+			ContractRefs: []string{"contract:preview"},
+		}},
+	}
+
+	view := DeriveWorkflowExecutionViewWithReport(types.ModeApply, run, plan, report)
+	if view.Proof.State != loopkernel.ProofCoverageCovered {
+		t.Fatalf("planner probe report must not downgrade terminal proof: %+v", view.Proof)
+	}
+}
+
+func TestDeriveWorkflowExecutionViewWithReportPreservesUnavailableVerifier(t *testing.T) {
+	plan := approvalExecutionPlanForTest(ApprovalActionAutoExecute, "auto")
+	run := workflowExecutionRunForTest(types.WriteWorkflowBatchComplete, plan.ID)
+	run.Batches[0].Attempts = append(run.Batches[0].Attempts, types.WriteWorkflowAttempt{
+		Kind:       "verify",
+		Status:     "unverified",
+		ReasonCode: "runner_missing",
+		PlanID:     plan.ID,
+	})
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             false,
+		VerificationStatus: types.VerificationStatusUnavailable,
+		FailureKind:        types.FailureKindRunnerMissing,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "proof_auditor",
+			Category:     "probe_contract_refs",
+			Status:       "missing",
+			ReasonCode:   "verification_probe_missing_contract_ref",
+			ContractRefs: []string{"contract:render-format"},
+		}},
+	}
+
+	view := DeriveWorkflowExecutionViewWithReport(types.ModeApply, run, plan, report)
+	if view.Proof.State != loopkernel.ProofCoverageUnavailable {
+		t.Fatalf("unavailable verifier should remain unavailable proof: %+v", view.Proof)
+	}
+	if view.Proof.RecommendedAction == loopkernel.LoopActionRepair || !view.Proof.AllowsUnverified {
+		t.Fatalf("unavailable proof should not force repair: %+v", view.Proof)
+	}
+}
+
 func TestDeriveWorkflowExecutionViewModePlanDoesNotExposeApplyReady(t *testing.T) {
 	plan := approvalExecutionPlanForTest(ApprovalActionAutoExecute, "auto")
 	run := workflowExecutionRunForTest(types.WriteWorkflowBatchPlanned, plan.ID)

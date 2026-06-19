@@ -128,6 +128,58 @@ func TestDeriveProofCoverageAuthorityFromAttemptClassifiesTypedVerifierStates(t 
 	}
 }
 
+func TestDeriveProofCoverageAuthorityFromArtifactsDowngradesPassedWeakLedger(t *testing.T) {
+	got := DeriveProofCoverageAuthorityFromArtifacts(
+		&types.WriteWorkflowAttempt{Kind: "verify", Status: "passed", ReasonCode: "tests_passed"},
+		nil,
+		&types.VerificationProofLedger{
+			State:          types.VerificationProofLedgerLowConfidence,
+			ProfileStatus:  types.VerificationProofWeak,
+			RunnerEvidence: types.VerificationProofRunnerProject,
+			ReasonCodes:    []string{"impact_targets_unverified"},
+		},
+	)
+	if got.State != ProofCoverageWeak || got.RecommendedAction != LoopActionAddProof || !got.RequiresProof {
+		t.Fatalf("passed attempt with weak ledger should require proof follow-up: %+v", got)
+	}
+	if got.ReasonCode != "proof_weak" {
+		t.Fatalf("reason = %q, want proof_weak", got.ReasonCode)
+	}
+}
+
+func TestDeriveProofCoverageAuthorityFromArtifactsUnavailableWinsOverWeakLedger(t *testing.T) {
+	got := DeriveProofCoverageAuthorityFromArtifacts(
+		&types.WriteWorkflowAttempt{Kind: "verify", Status: "unverified", ReasonCode: "runner_missing"},
+		nil,
+		&types.VerificationProofLedger{
+			State:         types.VerificationProofLedgerLowConfidence,
+			ProfileStatus: types.VerificationProofWeak,
+			ReasonCodes:   []string{"impact_targets_unverified"},
+		},
+	)
+	if got.State != ProofCoverageUnavailable || got.RecommendedAction == LoopActionRepair || !got.AllowsUnverified {
+		t.Fatalf("unavailable runner should remain unverified, not repair: %+v", got)
+	}
+}
+
+func TestDeriveProofCoverageAuthorityFromArtifactsFailedLedgerOverridesPassedAttempt(t *testing.T) {
+	got := DeriveProofCoverageAuthorityFromArtifacts(
+		&types.WriteWorkflowAttempt{Kind: "verify", Status: "passed", ReasonCode: "tests_passed"},
+		nil,
+		&types.VerificationProofLedger{
+			State:         types.VerificationProofLedgerFailed,
+			ProfileStatus: types.VerificationProofFailed,
+			ReasonCodes:   []string{"patch_review_hard_block"},
+		},
+	)
+	if got.State != ProofCoverageFailed || got.RecommendedAction != LoopActionRepair {
+		t.Fatalf("failed ledger should override passed attempt: %+v", got)
+	}
+	if got.ReasonCode != "proof_failed" {
+		t.Fatalf("reason = %q, want proof_failed", got.ReasonCode)
+	}
+}
+
 func TestDerivePermissionAuthorityDenyWins(t *testing.T) {
 	got := DerivePermissionAuthority("test",
 		safety.AllowPermission("allow", "safe", "safe"),

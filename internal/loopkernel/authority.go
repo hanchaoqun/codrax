@@ -153,6 +153,52 @@ func DeriveProofCoverageAuthority(profile *types.VerificationProofProfile, ledge
 	return proofAuthority(view, ProofCoverageMissing, "proof_missing", LoopActionVerify)
 }
 
+func DeriveProofCoverageAuthorityFromArtifacts(attempt *types.WriteWorkflowAttempt, profile *types.VerificationProofProfile, ledger *types.VerificationProofLedger) ProofCoverageAuthorityView {
+	hasArtifactAuthority := profile != nil || ledger != nil
+	if attempt == nil {
+		if hasArtifactAuthority {
+			return DeriveProofCoverageAuthority(profile, ledger)
+		}
+		return DeriveProofCoverageAuthorityFromAttempt(nil)
+	}
+	attemptView := DeriveProofCoverageAuthorityFromAttempt(attempt)
+	if !hasArtifactAuthority {
+		return attemptView
+	}
+	artifactView := DeriveProofCoverageAuthority(profile, ledger)
+	return MergeProofCoverageAuthority(attemptView, artifactView)
+}
+
+func MergeProofCoverageAuthority(primary, secondary ProofCoverageAuthorityView) ProofCoverageAuthorityView {
+	primary = normalizeProofCoverageAuthorityView(primary)
+	secondary = normalizeProofCoverageAuthorityView(secondary)
+	if primary.State == "" {
+		return secondary
+	}
+	if secondary.State == "" {
+		return primary
+	}
+	merged := mergeProofAuthorityMetadata(primary, secondary)
+	switch {
+	case primary.State == ProofCoverageFailed:
+		return proofAuthority(merged, ProofCoverageFailed, firstProofReason(primary.ReasonCode, secondary.ReasonCode, "proof_failed"), LoopActionRepair)
+	case secondary.State == ProofCoverageFailed:
+		return proofAuthority(merged, ProofCoverageFailed, firstProofReason(secondary.ReasonCode, primary.ReasonCode, "proof_failed"), LoopActionRepair)
+	case primary.State == ProofCoverageUnavailable:
+		return proofAuthority(merged, ProofCoverageUnavailable, firstProofReason(primary.ReasonCode, secondary.ReasonCode, "proof_unavailable"), LoopActionContinue)
+	case secondary.State == ProofCoverageUnavailable:
+		return proofAuthority(merged, ProofCoverageUnavailable, firstProofReason(secondary.ReasonCode, primary.ReasonCode, "proof_unavailable"), LoopActionContinue)
+	case primary.State == ProofCoverageWeak || secondary.State == ProofCoverageWeak:
+		return proofAuthority(merged, ProofCoverageWeak, firstProofReason(secondary.ReasonCode, primary.ReasonCode, "proof_weak"), LoopActionAddProof)
+	case primary.State == ProofCoverageMissing:
+		return secondary
+	case secondary.State == ProofCoverageMissing:
+		return primary
+	default:
+		return proofAuthority(merged, ProofCoverageCovered, firstProofReason(primary.ReasonCode, secondary.ReasonCode, "proof_covered"), LoopActionContinue)
+	}
+}
+
 func DeriveProofCoverageAuthorityFromCompletion(completion *types.WriteWorkflowCompletion) ProofCoverageAuthorityView {
 	if completion == nil {
 		return proofAuthority(ProofCoverageAuthorityView{}, ProofCoverageMissing, "proof_missing", LoopActionVerify)
@@ -258,6 +304,41 @@ func proofAuthority(view ProofCoverageAuthorityView, state ProofCoverageAuthorit
 	view.RequiresProof = action == LoopActionVerify || action == LoopActionAddProof
 	view.AllowsUnverified = state == ProofCoverageUnavailable
 	return view
+}
+
+func normalizeProofCoverageAuthorityView(view ProofCoverageAuthorityView) ProofCoverageAuthorityView {
+	switch view.State {
+	case ProofCoverageMissing, ProofCoverageCovered, ProofCoverageWeak, ProofCoverageUnavailable, ProofCoverageFailed:
+	default:
+		view.State = ""
+	}
+	if view.RecommendedAction == "" && view.State != "" {
+		switch view.State {
+		case ProofCoverageMissing:
+			view.RecommendedAction = LoopActionVerify
+		case ProofCoverageWeak:
+			view.RecommendedAction = LoopActionAddProof
+		case ProofCoverageUnavailable, ProofCoverageCovered:
+			view.RecommendedAction = LoopActionContinue
+		case ProofCoverageFailed:
+			view.RecommendedAction = LoopActionRepair
+		}
+	}
+	return view
+}
+
+func mergeProofAuthorityMetadata(primary, secondary ProofCoverageAuthorityView) ProofCoverageAuthorityView {
+	out := primary
+	if out.ProfileStatus == "" {
+		out.ProfileStatus = secondary.ProfileStatus
+	}
+	if out.LedgerState == "" {
+		out.LedgerState = secondary.LedgerState
+	}
+	if out.RunnerEvidence == "" {
+		out.RunnerEvidence = secondary.RunnerEvidence
+	}
+	return out
 }
 
 func firstProofReason(values ...string) string {

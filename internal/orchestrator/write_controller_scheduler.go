@@ -5679,7 +5679,7 @@ func (o *Orchestrator) enforceControllerWorkflowTransition(decision writeflow.Wr
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
 		return decision
 	}
-	view := writeflow.DeriveWorkflowExecutionView(o.busCtx.Mode, *run, o.busCtx.Mutable.ChangePlan())
+	view := writeflow.DeriveWorkflowExecutionViewWithReport(o.busCtx.Mode, *run, o.busCtx.Mutable.ChangePlan(), o.busCtx.Mutable.ChangeReport())
 	validation := writeflow.ValidateWorkflowTransition(view, decision)
 	if validation.Allowed {
 		return decision
