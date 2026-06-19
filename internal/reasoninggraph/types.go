@@ -144,6 +144,7 @@ type ReasoningEvent struct {
 
 type ObservationPayload struct {
 	ToolName          string `json:"tool_name,omitempty"`
+	ToolPhase         string `json:"tool_phase,omitempty"`
 	Agent             string `json:"agent,omitempty"`
 	Stage             string `json:"stage,omitempty"`
 	Model             string `json:"model,omitempty"`
@@ -216,6 +217,7 @@ type ReasoningEventSummary struct {
 	Kind              ReasoningEventKind `json:"kind,omitempty"`
 	ReasonCode        string             `json:"reason_code,omitempty"`
 	ToolName          string             `json:"tool_name,omitempty"`
+	ToolPhase         string             `json:"tool_phase,omitempty"`
 	Agent             string             `json:"agent,omitempty"`
 	Stage             string             `json:"stage,omitempty"`
 	Model             string             `json:"model,omitempty"`
@@ -502,6 +504,7 @@ func IsAuxiliaryObservationKind(kind ReasoningEventKind) bool {
 
 func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	in.ToolName = strings.TrimSpace(in.ToolName)
+	in.ToolPhase = strings.TrimSpace(in.ToolPhase)
 	in.Agent = strings.TrimSpace(in.Agent)
 	in.Stage = strings.TrimSpace(in.Stage)
 	in.Model = strings.TrimSpace(in.Model)

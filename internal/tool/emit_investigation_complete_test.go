@@ -93,6 +93,14 @@ func TestEmitInvestigationComplete_AbsenceWithoutEvidenceAccepted(t *testing.T) 
 	if !res.Success {
 		t.Fatalf("honest-zero absence must be accepted: %s", res.Summary)
 	}
+	assertToolRuntimeTimingPhases(t, res.RuntimeTimings,
+		"strict_decode",
+		"aggregate_normalization",
+		"decorator_member_validation",
+		"grounding_citation_floors",
+		"pre_complete_gate_chain",
+		"completion_state_write",
+	)
 	if mut.AbsenceJustification() == "" {
 		t.Errorf("absence must be stored on acceptance")
 	}

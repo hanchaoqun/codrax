@@ -103,6 +103,44 @@ func (b *BaseAgent) observeToolCallObserved(ctx *types.AgentContext, call llm.To
 		payload.ViolationKind = violationKind
 	}
 	b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventToolCallObserved, reasonCode, reasoninggraph.ReasoningNodeTool, payload)
+	if result != nil {
+		b.observeToolRuntimeTimings(ctx, call, result.RuntimeTimings)
+	}
+}
+
+func (b *BaseAgent) observeToolRuntimeTimings(ctx *types.AgentContext, call llm.ToolCall, timings []types.ToolRuntimeTiming) {
+	for _, timing := range timings {
+		phase := strings.TrimSpace(timing.Phase)
+		if phase == "" {
+			continue
+		}
+		status := strings.TrimSpace(timing.Status)
+		if status == "" {
+			status = "success"
+		}
+		elapsed := timing.ElapsedMillis
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		count := timing.Count
+		if count < 0 {
+			count = 0
+		}
+		reasonCode := "tool_phase_observed"
+		violationKind := ""
+		if status != "success" {
+			reasonCode = "tool_phase_failed"
+			violationKind = "tool_phase_failed"
+		}
+		b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventToolCallObserved, reasonCode, reasoninggraph.ReasoningNodeTool, reasoninggraph.ObservationPayload{
+			ToolName:      call.Name,
+			ToolPhase:     phase,
+			ElapsedMillis: elapsed,
+			ActionStatus:  status,
+			ResultCount:   count,
+			ViolationKind: violationKind,
+		})
+	}
 }
 
 func observedToolFailureKind(result *types.ToolResult, resp *types.MCPResponse, execErr error) string {

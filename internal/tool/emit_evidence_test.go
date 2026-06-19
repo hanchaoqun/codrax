@@ -51,6 +51,13 @@ func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("expected success, got: %s", res.Summary)
 	}
+	assertToolRuntimeTimingPhases(t, res.RuntimeTimings,
+		"schema_compat_decode",
+		"ground_context",
+		"per_item_grounding_stabilize",
+		"duplicate_amendment_merge",
+		"summary_repair_render",
+	)
 	got := ctx.Mutable.EmittedEvidence()
 	if len(got) != 2 {
 		t.Fatalf("want 2 items in buffer, got %d", len(got))

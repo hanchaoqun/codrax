@@ -5215,6 +5215,13 @@ type ToolRepair struct {
 	Metadata map[string]string  `json:"metadata,omitempty"`
 }
 
+type ToolRuntimeTiming struct {
+	Phase         string `json:"phase,omitempty"`
+	ElapsedMillis int64  `json:"elapsed_millis,omitempty"`
+	Status        string `json:"status,omitempty"`
+	Count         int    `json:"count,omitempty"`
+}
+
 type ToolResult struct {
 	ToolName string      `json:"tool_name"`
 	Summary  string      `json:"summary"`
@@ -5234,6 +5241,12 @@ type ToolResult struct {
 	// current-source citations. Empty for tools without a typed product — the
 	// ledger's summary re-parse path remains the fallback for those results.
 	Observations []ObservationRecord `json:"observations,omitempty"`
+
+	// RuntimeTimings are optional typed tool-internal phase timings. They are
+	// operational telemetry only: agent/reasoninggraph projection may surface
+	// them for supportability, but answer and planning hard gates must not
+	// interpret them as semantic evidence about the repository.
+	RuntimeTimings []ToolRuntimeTiming `json:"runtime_timings,omitempty"`
 
 	Success   bool      `json:"success"`
 	Timestamp time.Time `json:"timestamp"`

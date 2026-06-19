@@ -102,6 +102,7 @@ func auditEventsFromSummaries(events []ReasoningEventSummary) []types.ReasoningG
 			Kind:              string(event.Kind),
 			ReasonCode:        event.ReasonCode,
 			ToolName:          event.ToolName,
+			ToolPhase:         event.ToolPhase,
 			Agent:             event.Agent,
 			Stage:             event.Stage,
 			Model:             event.Model,

@@ -45,6 +45,7 @@ type ReasoningGraphAuditEvent struct {
 	Kind              string `json:"kind,omitempty"`
 	ReasonCode        string `json:"reason_code,omitempty"`
 	ToolName          string `json:"tool_name,omitempty"`
+	ToolPhase         string `json:"tool_phase,omitempty"`
 	Agent             string `json:"agent,omitempty"`
 	Stage             string `json:"stage,omitempty"`
 	Model             string `json:"model,omitempty"`
@@ -231,6 +232,7 @@ func normalizeReasoningGraphAuditEvents(in []ReasoningGraphAuditEvent) []Reasoni
 		event.Kind = strings.TrimSpace(event.Kind)
 		event.ReasonCode = strings.TrimSpace(event.ReasonCode)
 		event.ToolName = strings.TrimSpace(event.ToolName)
+		event.ToolPhase = strings.TrimSpace(event.ToolPhase)
 		event.Agent = strings.TrimSpace(event.Agent)
 		event.Stage = strings.TrimSpace(event.Stage)
 		event.Model = strings.TrimSpace(event.Model)

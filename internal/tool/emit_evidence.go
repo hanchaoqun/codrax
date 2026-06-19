@@ -498,8 +498,12 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
 	return json.RawMessage(schema)
 }
 
-func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {
 	now := time.Now()
+	runtimeTimings := make([]types.ToolRuntimeTiming, 0, 5)
+	defer func() {
+		attachToolRuntimeTimings(&result, runtimeTimings)
+	}()
 	if ctx == nil || ctx.Mutable == nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -514,6 +518,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// 'evidence' instead of 'items', or 'note' instead of 'summary')
 	// fails loudly at parse time rather than silently producing a
 	// well-formed-looking item the parser quietly drops fields from.
+	decodeStart := time.Now()
 	params = applyStructuredPayloadCompatWithLegacyStringFieldRepair(t.Name(), params, t.Parameters())
 	if repaired, paths, ok := repairEmitEvidenceKnownCompatFields(params); ok {
 		logging.Warning("[emit_evidence] local-model compatibility fields normalized before strict decode: %s", strings.Join(paths, ", "))
@@ -523,8 +528,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	dec.DisallowUnknownFields()
 	var p emitEvidenceParams
 	if err := dec.Decode(&p); err != nil {
+		recordToolRuntimeTiming(&runtimeTimings, "schema_compat_decode", decodeStart, 0)
 		return failStrictDecode(t.Name(), now, err, emitEvidenceMisplacedHints, params)
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "schema_compat_decode", decodeStart, len(p.Items))
 	if len(p.Items) == 0 {
 		return failEmit(t.Name(), now, "items is empty; emit at least one evidence object per call")
 	}
@@ -569,7 +576,9 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	} else {
 		ground.SetCrossRepoOracle(nil)
 	}
+	groundContextStart := time.Now()
 	gc := ground.BuildContext(ctx)
+	recordToolRuntimeTiming(&runtimeTimings, "ground_context", groundContextStart, len(p.Items))
 	for i, in := range p.Items {
 		if reason, ok := emitEvidenceHistoryMetadataSoftSkipReason(ctx, in, i); ok {
 			softSkippedItems = append(softSkippedItems, reason)
@@ -669,6 +678,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	reports := make([]ground.Report, len(built))
 	surfaceTermDrops := make([]string, 0)
 	surfaceAlignmentRejects := make([]string, 0)
+	groundingStart := time.Now()
 	for i := range built {
 		// Per-scope dispatch: ScopeLine routes to the existing tier
 		// cascade; schema-level scopes (File / Crossfile / Negative)
@@ -736,6 +746,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			surfaceAlignmentRejects = append(surfaceAlignmentRejects, err.Error())
 		}
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "per_item_grounding_stabilize", groundingStart, len(built))
 	if len(surfaceAlignmentRejects) > 0 {
 		return failEmit(t.Name(), now,
 			"evidence surface alignment failed:\n%s",
@@ -788,6 +799,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Debug("[emit_evidence] Plan 2 v2 auto-paired %d role-description mechanism evidence items", len(autoPaired))
 	}
 
+	mergeStart := time.Now()
 	priorEvidence := ctx.Mutable.EmittedEvidence()
 	var duplicateItems []types.EvidenceItem
 	built, reports, duplicateItems = filterNoopDuplicateEmitEvidence(priorEvidence, built, reports)
@@ -795,7 +807,9 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if len(built) > 0 {
 		ctx.Mutable.AppendEvidence(built)
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "duplicate_amendment_merge", mergeStart, len(built)+len(duplicateItems)+len(amendedItems))
 
+	summaryStart := time.Now()
 	surfaceReview := buildEmitEvidenceSurfaceTermReview(built, gc)
 	allEvidence := ctx.Mutable.EmittedEvidence()
 	summary := ""
@@ -874,6 +888,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if len(built) == 0 && len(duplicateItems) > 0 {
 		repair = emitEvidenceDuplicateNoopRepair(len(duplicateItems))
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "summary_repair_render", summaryStart, len(built)+len(duplicateItems))
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Repair:    repair,

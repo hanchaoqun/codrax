@@ -199,6 +199,54 @@ func TestReasoningObserverCapturesLocalToolObservedFailure(t *testing.T) {
 	}
 }
 
+func TestReasoningObserverProjectsToolRuntimeTimings(t *testing.T) {
+	collector := reasoninggraph.NewEventCollector("graph-agent")
+	reg := toolpkg.NewRegistry()
+	reg.Register(&observedRuntimeTool{
+		name: "observed_phases",
+		result: types.ToolResult{
+			ToolName: "observed_phases",
+			Success:  true,
+			RuntimeTimings: []types.ToolRuntimeTiming{{
+				Phase:         "ground_context",
+				ElapsedMillis: 12,
+				Status:        "success",
+				Count:         3,
+			}},
+			Timestamp: time.Now(),
+		},
+	})
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		Tools:             reg,
+		ReasoningObserver: collector,
+	}, nil)
+	ctx := &types.AgentContext{AgentName: types.AgentExplorer, Stage: types.StageExplore}
+
+	res, _ := base.executeTool(ctx, llm.ToolCall{
+		ID:     "call-observed-phases",
+		Name:   "observed_phases",
+		Params: json.RawMessage(`{}`),
+	})
+	if res == nil || !res.Success {
+		t.Fatalf("expected successful ToolResult, got %+v", res)
+	}
+
+	view := collector.View()
+	if len(view.ToolEvents) != 2 {
+		t.Fatalf("tool events=%+v", view.ToolEvents)
+	}
+	phase := view.ToolEvents[1]
+	if phase.Kind != reasoninggraph.ReasoningEventToolCallObserved ||
+		phase.ReasonCode != "tool_phase_observed" ||
+		phase.ToolName != "observed_phases" ||
+		phase.ToolPhase != "ground_context" ||
+		phase.ElapsedMillis != 12 ||
+		phase.ActionStatus != "success" ||
+		phase.ResultCount != 3 {
+		t.Fatalf("unexpected phase event: %+v", phase)
+	}
+}
+
 func TestReasoningObserverCapturesRepairPackAndLLMEvents(t *testing.T) {
 	collector := reasoninggraph.NewEventCollector("graph-agent")
 	base := &BaseAgent{

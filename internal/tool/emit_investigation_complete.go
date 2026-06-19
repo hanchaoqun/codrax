@@ -1214,7 +1214,11 @@ func decodeEmitInvestigationCompleteParamsStrict(name string, params json.RawMes
 	return p, nil, nil
 }
 
-func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {
+	runtimeTimings := make([]types.ToolRuntimeTiming, 0, 6)
+	defer func() {
+		attachToolRuntimeTimings(&result, runtimeTimings)
+	}()
 	if ctx == nil || ctx.Mutable == nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1224,10 +1228,13 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 
+	decodeStart := time.Now()
 	p, decodeFailure, err := decodeEmitInvestigationCompleteParamsStrict(t.Name(), params, t.Parameters())
 	if err != nil {
+		recordToolRuntimeTiming(&runtimeTimings, "strict_decode", decodeStart, 0)
 		return *decodeFailure, err
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "strict_decode", decodeStart, 1)
 
 	conf := strings.ToLower(strings.TrimSpace(p.Confidence))
 	if conf != "high" && conf != "medium" {
@@ -1264,6 +1271,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	aggregateStart := time.Now()
 	evidenceSnapshot := ctx.Mutable.EmittedEvidence()
 	aggregateFacts, softAggregateNotes, err := normalizeCompletionAggregateFacts(ctx, resultKind, p.AggregateFacts)
 	if err != nil {
@@ -1319,6 +1327,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	}
 	publishSourceInventoryAdvisory(ctx, effectiveAggregateFacts, evidenceSnapshot)
+	recordToolRuntimeTiming(&runtimeTimings, "aggregate_normalization", aggregateStart, len(effectiveAggregateFacts))
 
 	// Reject the emit when a member_set carries members led by a code
 	// identifier but never publishes per-member grounding. Without
@@ -1332,6 +1341,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// match anchor endpoints, so reaching this branch means the model
 	// emitted code-shape members whose evidence does not name them
 	// verbatim — repair belongs at the explorer turn, not in finalize.
+	memberValidationStart := time.Now()
 	if err := validateAggregateMemberSetSupportRefs(ctx, effectiveAggregateFacts); err != nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1340,6 +1350,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "decorator_member_validation", memberValidationStart, len(effectiveAggregateFacts))
 
 	// Strict-decode + store evidence_floor_waiver (typed escape).
 	// The full pre-check chain below (forced-read, citation floor)
@@ -1540,6 +1551,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// these floors, then pass through the dedicated absence validation
 	// below; otherwise absent targets can be rejected for having no
 	// positive evidence to cite.
+	groundingFloorStart := time.Now()
 	if justification == "" {
 		contract := answerExactResolutionContract(ctx)
 		evidence := evidenceSnapshot
@@ -1578,6 +1590,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			}, nil
 		}
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "grounding_citation_floors", groundingFloorStart, len(evidenceSnapshot))
 
 	// Declarative absence claim. Stored on Mutable so the orchestrator
 	// can waive citation-floor gates for honest-zero answers. The
@@ -1792,7 +1805,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// (Success=true so the LLM sees the explanation but does NOT
 	// flip investigationComplete). The explorer's ShouldStop sees
 	// the flag still false and continues the loop.
+	preCompleteStart := time.Now()
 	if downgrade := preCompleteContractCheckWithEvidence(ctx, justification, evidenceSnapshot, effectiveAggregateFacts, structuredRelationAuthorityFacts); downgrade != "" {
+		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(evidenceSnapshot))
 		if ctx != nil && ctx.Mutable != nil {
 			closure := ctx.Mutable.EvidenceClosure()
 			closure.BumpPreCompleteDowngrades(1)
@@ -1826,7 +1841,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(evidenceSnapshot))
 
+	stateWriteStart := time.Now()
 	reason = normalizeLogSourceDriftCompletionReason(ctx, reason)
 	ctx.Mutable.SetInvestigationAggregateFacts(effectiveAggregateFacts)
 	ctx.Mutable.SetInvestigationComplete(reason)
@@ -1853,6 +1870,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	if ignoredEvidenceWaiver != "" {
 		summary += " | " + ignoredEvidenceWaiver
 	}
+	recordToolRuntimeTiming(&runtimeTimings, "completion_state_write", stateWriteStart, len(effectiveAggregateFacts))
 
 	return types.ToolResult{
 		ToolName:  t.Name(),

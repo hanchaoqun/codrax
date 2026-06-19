@@ -457,7 +457,7 @@ type AnswerReasoningGraphSummary struct {
 | P1-B5 Worker / SubAgent Projection | delivered | worker Request/Result projection、subagent Request/Result projection、optional SubAgentRuntime observer、worker/subagent graph lanes |
 | P1-B6 Log / Trace / Data / Operation Projection | delivered | ToolResult/MCP typed observations、operation workflow state、data workflow runtime/state/journal projection 已进入 auxiliary graph lane；computer/桌面操作当前复用 operation workflow action/surface/risk 投影 |
 | P1-B7 Eval / Support Report | delivered | SWE results summary graph coverage metrics、historical audit graph reason grouping、per-instance support table graph columns |
-| P1-Perf-1 Tool Runtime Telemetry | in_progress | `BaseAgent.executeTool` 本地工具/MCP 执行边界已产出 typed `tool_call_observed` elapsed/status/count/ref event；`emit_evidence` / `emit_investigation_complete` 子阶段 timing 待落地 |
+| P1-Perf-1 Tool Runtime Telemetry | delivered | `BaseAgent.executeTool` 本地工具/MCP 执行边界产出 typed `tool_call_observed` elapsed/status/count/ref event；`ToolResult.RuntimeTimings` 投影 `tool_phase_observed`；`emit_evidence` / `emit_investigation_complete` 子阶段 timing 已覆盖 |
 | P1-Perf-2 Static Schema Cache And Normalize De-dupe | planned | 静态 `Parameters()` cache、schema-aware normalize 单次化、execute-time duplicate normalize guard |
 | P1-Perf-3 Grounding Context Cache | planned | dispatch/version scoped `ground.BuildContext` cache、line-index reuse、cache hit/miss typed telemetry |
 | P1-Perf-4 CompletionPreflightView | planned | `emit_investigation_complete` precheck 一次性 view、gate 共享 typed view、避免重复扫 evidence/aggregate/read history |
@@ -661,7 +661,9 @@ type AnswerReasoningGraphSummary struct {
 - 已完成：`BaseAgent.executeTool` 真实执行边界记录 `tool_call_observed`，覆盖本地工具、MCP resource、MCP tool。
 - 已完成：event 只消费 typed fields：tool name、agent/stage、elapsed、success/failure、ToolResult/MCPResponse count、typed observation count、raw/payload ref count。
 - 已完成：schema/policy/budget 等未执行拒绝路径仍只记录 `tool_call_rejected` / schema repair event，不伪造成 observed。
-- 待完成：`emit_evidence` / `emit_investigation_complete` 内部子阶段 timing。
+- 已完成：新增 `ToolResult.RuntimeTimings` carrier，工具内部只写 typed phase timing，agent 统一投影到 reasoning graph。
+- 已完成：`emit_evidence` 覆盖 schema/compat decode、ground context、per-item grounding/stabilize、duplicate/amendment merge、summary/repair render。
+- 已完成：`emit_investigation_complete` 覆盖 strict decode、aggregate normalization、decorator/member validation、grounding/citation floors、pre-complete gate chain、completion state write。
 
 任务：
 

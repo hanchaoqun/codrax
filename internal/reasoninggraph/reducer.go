@@ -88,6 +88,7 @@ func eventSummary(event ReasoningEvent) ReasoningEventSummary {
 		Kind:              event.Kind,
 		ReasonCode:        event.ReasonCode,
 		ToolName:          payload.ToolName,
+		ToolPhase:         payload.ToolPhase,
 		Agent:             payload.Agent,
 		Stage:             payload.Stage,
 		Model:             payload.Model,
