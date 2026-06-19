@@ -578,6 +578,7 @@ type VerificationProbe struct {
 	TimeoutSeconds         int      `json:"timeout_seconds,omitempty"`
 	ExpectedStdout         []string `json:"expected_stdout,omitempty"`
 	ContractRefs           []string `json:"contract_refs,omitempty"`
+	PlacementRefs          []string `json:"placement_refs,omitempty"`
 	ChangedSymbolRefs      []string `json:"changed_symbol_refs,omitempty"`
 	ExpectsBaselineFailure bool     `json:"expects_baseline_failure,omitempty"`
 }

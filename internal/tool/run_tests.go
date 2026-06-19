@@ -246,6 +246,7 @@ func (t *RunTests) Parameters() json.RawMessage {
         "timeout_seconds": {"type": "integer", "description": "Probe timeout in seconds, capped by the executor."},
         "expected_stdout": {"type": "array", "items": {"type": "string"}, "description": "Optional stdout fragments that must be present for the probe to pass."},
         "contract_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional behavior contract ids covered by this probe."},
+        "placement_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional behavior contract ids whose rendered-text placement relation this probe directly verifies. Use only when the contract has placement{} and the probe checks line-local anchor/expected relation."},
         "changed_symbol_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional symbols exercised by this probe."}
       },
       "required": ["code"]
@@ -2637,8 +2638,10 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 	}
 	if plan != nil && reportPassedOnlyByVerificationProbes(report) {
 		required := types.HardRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
+		placementRequired := types.PlacementRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
 		softRequired := softRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
 		covered := map[string]struct{}{}
+		placementCovered := map[string]struct{}{}
 		changed := map[string]struct{}{}
 		baselineExpected := false
 		for _, probe := range plan.VerificationProbes {
@@ -2646,6 +2649,12 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 				ref = strings.TrimSpace(ref)
 				if ref != "" {
 					covered[ref] = struct{}{}
+				}
+			}
+			for _, ref := range probe.PlacementRefs {
+				ref = strings.TrimSpace(ref)
+				if ref != "" {
+					placementCovered[ref] = struct{}{}
 				}
 			}
 			for _, ref := range probe.ChangedSymbolRefs {
@@ -2702,6 +2711,32 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					ReasonCode:        "verification_probe_changed_symbol_coupled",
 					ChangedSymbolRefs: changedRefs,
 					Detail:            "passed verification probes named changed symbols",
+				})
+			}
+		}
+		if len(placementRequired) > 0 {
+			matched := intersectStringSets(placementRequired, placementCovered)
+			missing := sortedStringSet(subtractStringSet(placementRequired, placementCovered))
+			if len(missing) > 0 {
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:       "verification_probe",
+					Category:     "probe_placement_refs",
+					Status:       "missing",
+					Severity:     "warning",
+					ReasonCode:   "verification_probe_missing_required_placement_ref",
+					ContractRefs: missing,
+					Detail:       "passed verification probes did not bind every required rendered-text placement contract",
+				})
+			}
+			if len(matched) > 0 {
+				out = append(out, types.VerificationConfidenceRecord{
+					Source:       "verification_probe",
+					Category:     "probe_placement_refs",
+					Status:       "satisfied",
+					Severity:     "info",
+					ReasonCode:   "verification_probe_placement_ref_covered",
+					ContractRefs: matched,
+					Detail:       "passed verification probes bound rendered-text placement contracts",
 				})
 			}
 		}

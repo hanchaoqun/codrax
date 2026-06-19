@@ -8456,7 +8456,7 @@ RC128 SWE evidence:
     `final_report_localization_owner_missing_paths=[]`, and
     `final_report_plan_owner_gap_paths=[]`.
 
-## 2026-06-19 RC129 Queued: Behavior/Format Contract Placement Authority
+## 2026-06-19 RC129-A Complete / RC129-B-C Queued: Behavior/Format Contract Placement Authority
 
 Gap:
 
@@ -8490,17 +8490,59 @@ Design direction:
 
 Tasks:
 
-- [ ] Extend behavior contract / proof obligation schema with rendered-text
+- [x] RC129-A: Extend behavior contract / proof obligation schema with rendered-text
       placement relation fields.
-- [ ] Teach write-analysis grounding to distinguish global substring presence
+- [x] RC129-A: Project placement obligations into `WriteContextPack`, planner,
+      controller, and verifier limited views as typed proof requirements.
+- [x] RC129-A: Update verification-probe confidence and proof ledger so a
+      probe that merely references `contract_refs[]` does not satisfy a
+      placement contract unless it also declares matching typed placement
+      coverage.
+- [x] RC129-A: Add language-agnostic unit tests using Python repr-like, JS CLI
+      text, and Go string output contract fixtures at the typed artifact layer.
+- [ ] RC129-B: Teach write-analysis grounding to distinguish global substring presence
       from line-local anchor placement when examples contain rendered output.
-- [ ] Project placement obligations into `WriteContextPack` and planner limited
-      views as P0/P1 proof requirements.
-- [ ] Update verification probe synthesis and proof ledger so a global contains
-      assertion cannot cover a placement obligation.
-- [ ] Add language-agnostic tests using Python repr, JS CLI output, and Go
-      string output fixtures.
-- [ ] Re-run Xarray plus one non-Python rendered-output issue-derived eval.
+- [ ] RC129-B: Add prompt hygiene tests proving placement logic is typed-field
+      based and no user-intent/model-prose keyword route is introduced.
+- [ ] RC129-C: Re-run Xarray plus one non-Python rendered-output issue-derived
+      eval and require placement coverage telemetry to distinguish global
+      contains from line-local anchor placement.
+
+RC129-A design:
+
+- Add `WriteRenderedTextPlacement` under `WriteBehaviorContract`; add
+  `VerificationProbe.placement_refs[]` as the typed coverage link.
+  - `surface`: rendered output surface such as `repr`, `stdout_line`,
+    `cli_line`, `stringer`, `ui_text`, or `snapshot_text`.
+  - `anchor`: line-local token that identifies the semantic row/label.
+  - `expected`: required inserted/adjacent text.
+  - `relation`: closed enum such as `after_anchor`, `before_anchor`,
+    `suffix_before_delimiter`, `prefix_after_delimiter`,
+    `between_anchor_and_delimiter`, `same_line_contains`,
+    `line_local_not_contains`.
+  - `delimiter`: optional boundary token such as dtype, dims, newline,
+    separator, or prompt marker.
+- Normalization and schema validation are deterministic and enum-based. The
+  system must not infer placement contracts by scanning user prose, issue text,
+  model rationale, stdout narrative, or `<think>`.
+- `verification_probes[].placement_refs[]` must reference the contract IDs whose
+  placement relation the probe actually checks. A probe may still carry
+  `contract_refs[]` for ordinary contains/equality contracts, but placement
+  contracts require `placement_refs[]` to count as covered.
+- Proof ledger adds a distinct obligation kind
+  `rendered_text_placement_contract`, with reason codes:
+  - `verification_probe_missing_required_placement_ref`
+  - `verification_probe_placement_ref_covered`
+- This remains language agnostic: Python repr, JavaScript CLI output, Go
+  `String()` text, Java `toString`, and UI snapshot text all share the same
+  contract shape. Runtime semantics live in the authored probe code/project
+  tests; Codrax only audits typed coverage of the proof obligation.
+
+RC129-A evidence:
+
+- `git diff --check`: pass.
+- `go test ./...`: pass.
+- `make test`: pass.
 
 ## 2026-06-19 RC130 Complete: SWE Adapter Streaming Broken Pipe Durability
 

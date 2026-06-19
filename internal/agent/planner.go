@@ -327,6 +327,23 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 			if c.Expected != "" {
 				fmt.Fprintf(&b, " expected=%s", c.Expected)
 			}
+			if c.Placement != nil {
+				if c.Placement.Surface != "" {
+					fmt.Fprintf(&b, " placement_surface=%s", c.Placement.Surface)
+				}
+				if c.Placement.Anchor != "" {
+					fmt.Fprintf(&b, " placement_anchor=%s", c.Placement.Anchor)
+				}
+				if c.Placement.Expected != "" {
+					fmt.Fprintf(&b, " placement_expected=%s", c.Placement.Expected)
+				}
+				if c.Placement.Relation != "" {
+					fmt.Fprintf(&b, " placement_relation=%s", c.Placement.Relation)
+				}
+				if c.Placement.Delimiter != "" {
+					fmt.Fprintf(&b, " placement_delimiter=%s", c.Placement.Delimiter)
+				}
+			}
 			if c.Required {
 				if types.IsHardRequiredWriteBehaviorContract(c) {
 					b.WriteString(" hard_required=true")

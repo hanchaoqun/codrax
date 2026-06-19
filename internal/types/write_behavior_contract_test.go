@@ -62,6 +62,48 @@ func TestNormalizeWriteBehaviorContracts_PreservesComparatorBaseline(t *testing.
 	}
 }
 
+func TestNormalizeWriteBehaviorContracts_PreservesRenderedTextPlacement(t *testing.T) {
+	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
+		ID:       "units-placement",
+		Kind:     WriteBehaviorStdout,
+		Polarity: WriteBehaviorPolarityExpected,
+		Subject:  "DataArray repr line",
+		Operator: WriteBehaviorOpContains,
+		Expected: ", in mm",
+		Placement: &WriteRenderedTextPlacement{
+			Surface:     WriteRenderedTextSurface(" REPR "),
+			Anchor:      "rainfall",
+			Relation:    WriteRenderedTextRelation(" BETWEEN_ANCHOR_AND_DELIMITER "),
+			Delimiter:   "float32",
+			EvidenceRef: "issue:repr-example",
+		},
+		Required: true,
+		Source:   "write_analyzer",
+	}}, nil)
+	if len(got) != 1 {
+		t.Fatalf("contracts len = %d, want 1: %+v", len(got), got)
+	}
+	p := got[0].Placement
+	if p == nil {
+		t.Fatalf("placement missing: %+v", got[0])
+	}
+	if p.Surface != WriteRenderedTextSurfaceRepr ||
+		p.Anchor != "rainfall" ||
+		p.Expected != ", in mm" ||
+		p.Relation != WriteRenderedTextBetweenAnchorAndDelimiter ||
+		p.Delimiter != "float32" ||
+		p.EvidenceRef != "issue:repr-example" {
+		t.Fatalf("placement normalized incorrectly: %+v", p)
+	}
+	if !IsHardRequiredWriteBehaviorContract(got[0]) || !IsPlacementRequiredWriteBehaviorContract(got[0]) {
+		t.Fatalf("placement contract should be hard placement-required: %+v", got[0])
+	}
+	ids := PlacementRequiredWriteBehaviorContractIDs(got)
+	if _, ok := ids["units-placement"]; !ok {
+		t.Fatalf("placement ids missing contract: %+v", ids)
+	}
+}
+
 func TestNormalizeWriteBehaviorContracts_DefaultsExpectedAndForbiddenToRequired(t *testing.T) {
 	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{
 		{

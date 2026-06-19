@@ -2188,6 +2188,26 @@ func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 	if c.Expected != "" {
 		parts = append(parts, "expected="+c.Expected)
 	}
+	if c.Placement != nil {
+		if c.Placement.Surface != "" {
+			parts = append(parts, "placement_surface="+string(c.Placement.Surface))
+		}
+		if c.Placement.Anchor != "" {
+			parts = append(parts, "placement_anchor="+c.Placement.Anchor)
+		}
+		if c.Placement.Expected != "" {
+			parts = append(parts, "placement_expected="+c.Placement.Expected)
+		}
+		if c.Placement.Relation != "" {
+			parts = append(parts, "placement_relation="+string(c.Placement.Relation))
+		}
+		if c.Placement.Delimiter != "" {
+			parts = append(parts, "placement_delimiter="+c.Placement.Delimiter)
+		}
+		if c.Placement.EvidenceRef != "" {
+			parts = append(parts, "placement_evidence_ref="+c.Placement.EvidenceRef)
+		}
+	}
 	if c.Comparator != nil {
 		if c.Comparator.Relation != "" {
 			parts = append(parts, "comparator_relation="+string(c.Comparator.Relation))

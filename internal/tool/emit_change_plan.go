@@ -212,6 +212,11 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
                   "items": {"type": "string"},
                   "description": "Optional behavior_contract ids from the task framing that this probe directly verifies."
                 },
+                "placement_refs": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Optional behavior_contract ids whose rendered-text placement relation this probe directly verifies. Use only when the referenced contract has placement{} and the probe checks line-local anchor/expected relation, not only global substring presence."
+                },
                 "changed_symbol_refs": {
                   "type": "array",
                   "items": {"type": "string"},
@@ -255,6 +260,11 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
             "type": "array",
             "items": {"type": "string"},
             "description": "Optional behavior_contract ids from the task framing that this probe directly verifies."
+          },
+          "placement_refs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional behavior_contract ids whose rendered-text placement relation this probe directly verifies. Use only when the referenced contract has placement{} and the probe checks line-local anchor/expected relation, not only global substring presence."
           },
           "changed_symbol_refs": {
             "type": "array",

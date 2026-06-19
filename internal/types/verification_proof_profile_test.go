@@ -254,6 +254,54 @@ func TestBuildCumulativeVerificationProofProfileKeepsUnresolvedProbeContract(t *
 	}
 }
 
+func TestBuildCumulativeVerificationProofProfileResolvesRenderedTextPlacement(t *testing.T) {
+	primaryReport := &ChangeReport{
+		PlanID:             "plan-proof",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/python",
+			Outcome: "executed",
+			Source:  "python_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_placement_refs",
+			Status:       "missing",
+			ReasonCode:   "verification_probe_missing_required_placement_ref",
+			ContractRefs: []string{"repr-unit-placement"},
+		}},
+	}
+	goStringerReport := &ChangeReport{
+		PlanID:             "plan-source",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/go",
+			Outcome: "executed",
+			Source:  "go_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_placement_refs",
+			Status:       "satisfied",
+			ReasonCode:   "verification_probe_placement_ref_covered",
+			ContractRefs: []string{"repr-unit-placement"},
+		}},
+	}
+
+	got := BuildCumulativeVerificationProofProfile(nil, primaryReport, []VerificationProofArtifact{{Report: goStringerReport}})
+
+	if got.Status != VerificationProofAdequate {
+		t.Fatalf("profile=%+v, want adequate after cumulative placement coverage", got)
+	}
+	if verificationProofHasReason(got, "verification_probe_missing_required_placement_ref") {
+		t.Fatalf("resolved placement gap should be removed: %+v", got.ReasonCodes)
+	}
+}
+
 func TestBuildCumulativeVerificationProofProfilePreservesUnavailablePrimary(t *testing.T) {
 	primaryReport := &ChangeReport{
 		PlanID:             "plan-proof",
@@ -347,6 +395,45 @@ func TestBuildVerificationProofLedgerProjectsCoverageObligations(t *testing.T) {
 	}
 	if !verificationProofLedgerHasItem(got, "behavior_contract", VerificationProofLedgerItemUnavailable, "unavailable") {
 		t.Fatalf("ledger obligations=%+v missing unavailable impact target", got.Obligations)
+	}
+}
+
+func TestBuildVerificationProofLedgerProjectsRenderedTextPlacementObligations(t *testing.T) {
+	report := &ChangeReport{
+		PlanID:             "plan-placement-ledger",
+		VerificationStatus: VerificationStatusPassed,
+		Passed:             true,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner:  "verification_probe",
+			Suite:   "verification_probe/javascript",
+			Outcome: "executed",
+			Source:  "javascript_verification_probe",
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_placement_refs",
+			Status:       "missing",
+			ReasonCode:   "verification_probe_missing_required_placement_ref",
+			ContractRefs: []string{"cli-label-placement"},
+		}, {
+			Source:       "verification_probe",
+			Category:     "probe_placement_refs",
+			Status:       "satisfied",
+			ReasonCode:   "verification_probe_placement_ref_covered",
+			ContractRefs: []string{"stringer-label-placement"},
+		}},
+	}
+
+	got := BuildVerificationProofLedger(nil, report, nil)
+
+	if got.State != VerificationProofLedgerLowConfidence {
+		t.Fatalf("ledger state=%q, want low_confidence: %+v", got.State, got)
+	}
+	if !verificationProofLedgerHasItem(got, "rendered_text_placement_contract", VerificationProofLedgerItemMissing, "verification_probe_missing_required_placement_ref") {
+		t.Fatalf("ledger obligations=%+v missing placement gap", got.Obligations)
+	}
+	if !verificationProofLedgerHasItem(got, "rendered_text_placement_contract", VerificationProofLedgerItemCovered, "verification_probe_placement_ref_covered") {
+		t.Fatalf("ledger obligations=%+v missing covered placement", got.Obligations)
 	}
 }
 

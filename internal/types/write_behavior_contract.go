@@ -10,16 +10,31 @@ import (
 // emit_write_analysis; downstream validators only check IDs/enums/coverage
 // relationships and never infer contract semantics from prose.
 type WriteBehaviorContract struct {
-	ID          string                    `json:"id"`
-	Kind        WriteBehaviorContractKind `json:"kind"`
-	Polarity    WriteBehaviorPolarity     `json:"polarity,omitempty"`
-	Subject     string                    `json:"subject,omitempty"`
-	Operator    WriteBehaviorOperator     `json:"operator,omitempty"`
+	ID          string                      `json:"id"`
+	Kind        WriteBehaviorContractKind   `json:"kind"`
+	Polarity    WriteBehaviorPolarity       `json:"polarity,omitempty"`
+	Subject     string                      `json:"subject,omitempty"`
+	Operator    WriteBehaviorOperator       `json:"operator,omitempty"`
+	Expected    string                      `json:"expected,omitempty"`
+	Placement   *WriteRenderedTextPlacement `json:"placement,omitempty"`
+	Comparator  *WriteBehaviorComparator    `json:"comparator,omitempty"`
+	EvidenceRef string                      `json:"evidence_ref,omitempty"`
+	Required    bool                        `json:"required,omitempty"`
+	Source      string                      `json:"source,omitempty"`
+}
+
+// WriteRenderedTextPlacement describes a line-local rendered-output placement
+// obligation. It is a typed contract surface shared by Python reprs, JS CLI
+// lines, Go String() output, Java toString(), and UI snapshots. System hard
+// gates read this struct only; they must not infer placement from issue prose,
+// model rationale, terminal narratives, or prompt text.
+type WriteRenderedTextPlacement struct {
+	Surface     WriteRenderedTextSurface  `json:"surface,omitempty"`
+	Anchor      string                    `json:"anchor,omitempty"`
 	Expected    string                    `json:"expected,omitempty"`
-	Comparator  *WriteBehaviorComparator  `json:"comparator,omitempty"`
+	Relation    WriteRenderedTextRelation `json:"relation,omitempty"`
+	Delimiter   string                    `json:"delimiter,omitempty"`
 	EvidenceRef string                    `json:"evidence_ref,omitempty"`
-	Required    bool                      `json:"required,omitempty"`
-	Source      string                    `json:"source,omitempty"`
 }
 
 // WriteBehaviorComparator ties an expected behavior contract to a grounded
@@ -79,6 +94,29 @@ const (
 	WriteBehaviorComparatorRegressionBaseline WriteBehaviorComparatorRelation = "regression_baseline"
 )
 
+type WriteRenderedTextSurface string
+
+const (
+	WriteRenderedTextSurfaceRepr         WriteRenderedTextSurface = "repr"
+	WriteRenderedTextSurfaceStdoutLine   WriteRenderedTextSurface = "stdout_line"
+	WriteRenderedTextSurfaceCLILine      WriteRenderedTextSurface = "cli_line"
+	WriteRenderedTextSurfaceStringer     WriteRenderedTextSurface = "stringer"
+	WriteRenderedTextSurfaceUIText       WriteRenderedTextSurface = "ui_text"
+	WriteRenderedTextSurfaceSnapshotText WriteRenderedTextSurface = "snapshot_text"
+)
+
+type WriteRenderedTextRelation string
+
+const (
+	WriteRenderedTextAfterAnchor               WriteRenderedTextRelation = "after_anchor"
+	WriteRenderedTextBeforeAnchor              WriteRenderedTextRelation = "before_anchor"
+	WriteRenderedTextSuffixBeforeDelimiter     WriteRenderedTextRelation = "suffix_before_delimiter"
+	WriteRenderedTextPrefixAfterDelimiter      WriteRenderedTextRelation = "prefix_after_delimiter"
+	WriteRenderedTextBetweenAnchorAndDelimiter WriteRenderedTextRelation = "between_anchor_and_delimiter"
+	WriteRenderedTextSameLineContains          WriteRenderedTextRelation = "same_line_contains"
+	WriteRenderedTextLineLocalNotContains      WriteRenderedTextRelation = "line_local_not_contains"
+)
+
 func IsKnownWriteBehaviorContractKind(v string) bool {
 	switch WriteBehaviorContractKind(v) {
 	case WriteBehaviorObservable, WriteBehaviorException, WriteBehaviorOutputPath,
@@ -121,6 +159,35 @@ func IsKnownWriteBehaviorComparatorRelation(v string) bool {
 	}
 }
 
+func IsKnownWriteRenderedTextSurface(v string) bool {
+	switch WriteRenderedTextSurface(v) {
+	case WriteRenderedTextSurfaceRepr,
+		WriteRenderedTextSurfaceStdoutLine,
+		WriteRenderedTextSurfaceCLILine,
+		WriteRenderedTextSurfaceStringer,
+		WriteRenderedTextSurfaceUIText,
+		WriteRenderedTextSurfaceSnapshotText:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsKnownWriteRenderedTextRelation(v string) bool {
+	switch WriteRenderedTextRelation(v) {
+	case WriteRenderedTextAfterAnchor,
+		WriteRenderedTextBeforeAnchor,
+		WriteRenderedTextSuffixBeforeDelimiter,
+		WriteRenderedTextPrefixAfterDelimiter,
+		WriteRenderedTextBetweenAnchorAndDelimiter,
+		WriteRenderedTextSameLineContains,
+		WriteRenderedTextLineLocalNotContains:
+		return true
+	default:
+		return false
+	}
+}
+
 // NormalizeWriteBehaviorContracts validates and normalizes analyzer-emitted
 // contract atoms. When no structured atoms are emitted but expected_outcomes
 // exist, it creates generic observable atoms that preserve the outcome text
@@ -153,13 +220,17 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		}
 		c.Subject = strings.TrimSpace(c.Subject)
 		c.Expected = strings.TrimSpace(c.Expected)
+		c.Placement = NormalizeWriteRenderedTextPlacement(c.Placement, c.Expected)
+		if c.Expected == "" && c.Placement != nil {
+			c.Expected = c.Placement.Expected
+		}
 		c.Comparator = normalizeWriteBehaviorComparator(c.Comparator, c.Operator)
 		c.EvidenceRef = strings.TrimSpace(c.EvidenceRef)
 		c.Source = strings.TrimSpace(c.Source)
 		if c.Source == "" {
 			c.Source = "write_analyzer"
 		}
-		if c.Expected == "" && c.Subject == "" {
+		if c.Expected == "" && c.Subject == "" && c.Placement == nil {
 			continue
 		}
 		if _, ok := seen[c.ID]; ok {
@@ -199,6 +270,32 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		out = out[:maxContracts]
 	}
 	return out
+}
+
+func NormalizeWriteRenderedTextPlacement(in *WriteRenderedTextPlacement, fallbackExpected string) *WriteRenderedTextPlacement {
+	if in == nil {
+		return nil
+	}
+	p := *in
+	p.Surface = WriteRenderedTextSurface(strings.ToLower(strings.TrimSpace(string(p.Surface))))
+	if !IsKnownWriteRenderedTextSurface(string(p.Surface)) {
+		p.Surface = ""
+	}
+	p.Anchor = strings.TrimSpace(p.Anchor)
+	p.Expected = strings.TrimSpace(p.Expected)
+	if p.Expected == "" {
+		p.Expected = strings.TrimSpace(fallbackExpected)
+	}
+	p.Relation = WriteRenderedTextRelation(strings.ToLower(strings.TrimSpace(string(p.Relation))))
+	if !IsKnownWriteRenderedTextRelation(string(p.Relation)) {
+		p.Relation = ""
+	}
+	p.Delimiter = strings.TrimSpace(p.Delimiter)
+	p.EvidenceRef = strings.TrimSpace(p.EvidenceRef)
+	if p.Anchor == "" && p.Expected == "" && p.Relation == "" && p.Delimiter == "" && p.EvidenceRef == "" && p.Surface == "" {
+		return nil
+	}
+	return &p
 }
 
 func normalizeWriteBehaviorComparator(in *WriteBehaviorComparator, fallbackOperator WriteBehaviorOperator) *WriteBehaviorComparator {
@@ -274,6 +371,9 @@ func IsHardRequiredWriteBehaviorContract(c WriteBehaviorContract) bool {
 	if strings.TrimSpace(c.Source) == "expected_outcome_fallback" {
 		return false
 	}
+	if c.Placement != nil {
+		return true
+	}
 	switch c.Operator {
 	case WriteBehaviorOpEquals, WriteBehaviorOpNotEquals,
 		WriteBehaviorOpContains, WriteBehaviorOpNotContains,
@@ -284,6 +384,13 @@ func IsHardRequiredWriteBehaviorContract(c WriteBehaviorContract) bool {
 	default:
 		return false
 	}
+}
+
+func IsPlacementRequiredWriteBehaviorContract(c WriteBehaviorContract) bool {
+	if !IsHardRequiredWriteBehaviorContract(c) {
+		return false
+	}
+	return c.Placement != nil
 }
 
 func HardRequiredWriteBehaviorContractIDs(contracts []WriteBehaviorContract) map[string]struct{} {
@@ -301,6 +408,16 @@ func WriteBehaviorContractIDs(contracts []WriteBehaviorContract) map[string]stru
 	for _, c := range contracts {
 		if id := strings.TrimSpace(c.ID); id != "" {
 			ids[id] = struct{}{}
+		}
+	}
+	return ids
+}
+
+func PlacementRequiredWriteBehaviorContractIDs(contracts []WriteBehaviorContract) map[string]struct{} {
+	ids := make(map[string]struct{}, len(contracts))
+	for _, c := range contracts {
+		if IsPlacementRequiredWriteBehaviorContract(c) {
+			ids[strings.TrimSpace(c.ID)] = struct{}{}
 		}
 	}
 	return ids

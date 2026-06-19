@@ -1561,6 +1561,9 @@ func renderVerificationProbeOutput(probes []types.VerificationProbe, outputs []s
 		if len(probe.ContractRefs) > 0 {
 			fmt.Fprintf(&b, "contract_refs=%q\n", probe.ContractRefs)
 		}
+		if len(probe.PlacementRefs) > 0 {
+			fmt.Fprintf(&b, "placement_refs=%q\n", probe.PlacementRefs)
+		}
 		if len(probe.ChangedSymbolRefs) > 0 {
 			fmt.Fprintf(&b, "changed_symbol_refs=%q\n", probe.ChangedSymbolRefs)
 		}

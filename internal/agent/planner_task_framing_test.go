@@ -40,6 +40,13 @@ func TestPlannerTaskFraming_RendersIRFields(t *testing.T) {
 				Operator: types.WriteBehaviorOpNotExists,
 				Subject:  "--quiet command output",
 				Expected: "INFO",
+				Placement: &types.WriteRenderedTextPlacement{
+					Surface:   types.WriteRenderedTextSurfaceStdoutLine,
+					Anchor:    "--quiet",
+					Expected:  "INFO",
+					Relation:  types.WriteRenderedTextLineLocalNotContains,
+					Delimiter: "\n",
+				},
 				Required: true,
 				Source:   "write_analyzer",
 			}},
@@ -62,6 +69,9 @@ func TestPlannerTaskFraming_RendersIRFields(t *testing.T) {
 		"id=quiet-stdout",
 		"kind=stdout",
 		"operator=not_exists",
+		"placement_surface=stdout_line",
+		"placement_anchor=--quiet",
+		"placement_relation=line_local_not_contains",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered task framing missing %q; got:\n%s", want, got)

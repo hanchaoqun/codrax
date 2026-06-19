@@ -502,7 +502,7 @@ func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(repo
 			ledger.Obligations = append(ledger.Obligations, item)
 		}
 		switch strings.TrimSpace(rec.Category) {
-		case "probe_contract_refs", "probe_soft_contract_refs":
+		case "probe_contract_refs", "probe_soft_contract_refs", "probe_placement_refs":
 			refs := dedupTrimWriteWorkflowRunStrings(rec.ContractRefs)
 			if len(refs) == 0 {
 				add(base)
@@ -857,6 +857,8 @@ func verificationProofLedgerKindFromConfidence(category string) string {
 	switch strings.TrimSpace(category) {
 	case "probe_contract_refs", "probe_soft_contract_refs":
 		return "behavior_contract"
+	case "probe_placement_refs":
+		return "rendered_text_placement_contract"
 	case "probe_changed_symbol":
 		return "changed_symbol"
 	case "probe_execution":
@@ -983,6 +985,7 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 	var missing []missingRecord
 	hardCovered := map[string]bool{}
 	softCovered := map[string]bool{}
+	placementCovered := map[string]bool{}
 	changedCovered := false
 	for _, rec := range records {
 		status := strings.TrimSpace(rec.Status)
@@ -1003,6 +1006,12 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 						softCovered[ref] = true
 					}
 				}
+			case "probe_placement_refs":
+				for _, ref := range rec.ContractRefs {
+					if ref = strings.TrimSpace(ref); ref != "" {
+						placementCovered[ref] = true
+					}
+				}
 			case "probe_changed_symbol":
 				for _, ref := range rec.ChangedSymbolRefs {
 					if strings.TrimSpace(ref) != "" {
@@ -1016,7 +1025,7 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 				continue
 			}
 			switch category {
-			case "probe_contract_refs", "probe_soft_contract_refs":
+			case "probe_contract_refs", "probe_soft_contract_refs", "probe_placement_refs":
 				missing = append(missing, missingRecord{code: code, category: category, refs: append([]string(nil), rec.ContractRefs...)})
 			case "probe_changed_symbol":
 				missing = append(missing, missingRecord{code: code, category: category, refs: append([]string(nil), rec.ChangedSymbolRefs...)})
@@ -1034,6 +1043,10 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 			}
 		case "probe_soft_contract_refs":
 			if !allVerificationProofRefsCovered(miss.refs, softCovered) {
+				unresolved[miss.code] = true
+			}
+		case "probe_placement_refs":
+			if !allVerificationProofRefsCovered(miss.refs, placementCovered) {
 				unresolved[miss.code] = true
 			}
 		case "probe_changed_symbol":
@@ -1082,6 +1095,7 @@ func allVerificationProofRefsCovered(refs []string, covered map[string]bool) boo
 func verificationProofReasonCanBeResolvedByConfidence(code string) bool {
 	switch strings.TrimSpace(code) {
 	case "verification_probe_missing_required_contract_ref",
+		"verification_probe_missing_required_placement_ref",
 		"verification_probe_missing_soft_contract_ref",
 		"verification_probe_missing_changed_symbol_ref":
 		return true

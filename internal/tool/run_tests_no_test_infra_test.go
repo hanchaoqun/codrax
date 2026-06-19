@@ -2360,6 +2360,13 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 			Polarity: types.WriteBehaviorPolarityExpected,
 			Operator: types.WriteBehaviorOpEquals,
 			Expected: "repr shows units",
+			Placement: &types.WriteRenderedTextPlacement{
+				Surface:   types.WriteRenderedTextSurfaceRepr,
+				Anchor:    "rainfall",
+				Expected:  ", in mm",
+				Relation:  types.WriteRenderedTextBetweenAnchorAndDelimiter,
+				Delimiter: "float32",
+			},
 			Required: true,
 			Source:   "write_analyzer",
 		}},
@@ -2394,6 +2401,9 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 	if !verificationConfidenceContains(records, "probe_changed_symbol", "missing", "verification_probe_missing_changed_symbol_ref") {
 		t.Fatalf("missing changed-symbol confidence record absent: %+v", records)
 	}
+	if !verificationConfidenceContains(records, "probe_placement_refs", "missing", "verification_probe_missing_required_placement_ref") {
+		t.Fatalf("missing placement-ref confidence record absent: %+v", records)
+	}
 
 	plan.VerificationProbes[0].ContractRefs = []string{"outcome-1"}
 	plan.VerificationProbes[0].ChangedSymbolRefs = []string{"widget.repr"}
@@ -2407,12 +2417,25 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 	if !verificationConfidenceContains(records, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") {
 		t.Fatalf("changed symbol coupling should emit satisfied record: %+v", records)
 	}
+	if !verificationConfidenceContains(records, "probe_placement_refs", "missing", "verification_probe_missing_required_placement_ref") {
+		t.Fatalf("global contract ref must not satisfy placement coverage: %+v", records)
+	}
+
+	plan.VerificationProbes[0].PlacementRefs = []string{"outcome-1"}
+	records = verificationConfidenceRecordsFromReport(plan, report)
+	if verificationConfidenceContains(records, "probe_placement_refs", "missing", "verification_probe_missing_required_placement_ref") {
+		t.Fatalf("placement refs should clear missing placement downgrade: %+v", records)
+	}
+	if !verificationConfidenceContains(records, "probe_placement_refs", "satisfied", "verification_probe_placement_ref_covered") {
+		t.Fatalf("placement refs should emit satisfied placement evidence: %+v", records)
+	}
 
 	report.TestResults[0].Suite = "verification_probe/javascript"
 	report.ExecutedCommands[0].Framework = "javascript"
 	records = verificationConfidenceRecordsFromReport(plan, report)
 	if !verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") ||
-		!verificationConfidenceContains(records, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") {
+		!verificationConfidenceContains(records, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") ||
+		!verificationConfidenceContains(records, "probe_placement_refs", "satisfied", "verification_probe_placement_ref_covered") {
 		t.Fatalf("non-Python verification probes should carry confidence records: %+v", records)
 	}
 }

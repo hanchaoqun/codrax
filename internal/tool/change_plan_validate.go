@@ -2402,6 +2402,10 @@ func normalizeVerificationProbesWithOptions(in []types.VerificationProbe, requir
 		if rej != "" {
 			return nil, rej
 		}
+		placementRefs, rej := normalizeProbeStringRefs(probe.PlacementRefs, maxExpectedFragments, fmt.Sprintf("verification_probes[%d].placement_refs", i))
+		if rej != "" {
+			return nil, rej
+		}
 		changedSymbolRefs, rej := normalizeProbeStringRefs(probe.ChangedSymbolRefs, maxExpectedFragments, fmt.Sprintf("verification_probes[%d].changed_symbol_refs", i))
 		if rej != "" {
 			return nil, rej
@@ -2414,6 +2418,7 @@ func normalizeVerificationProbesWithOptions(in []types.VerificationProbe, requir
 			TimeoutSeconds:         timeout,
 			ExpectedStdout:         expected,
 			ContractRefs:           contractRefs,
+			PlacementRefs:          placementRefs,
 			ChangedSymbolRefs:      changedSymbolRefs,
 			ExpectsBaselineFailure: probe.ExpectsBaselineFailure,
 		})
@@ -2457,10 +2462,19 @@ func validateVerificationProbeContractRefs(ctx *types.BusContext, probes []types
 		return ""
 	}
 	ids := types.WriteBehaviorContractIDs(contracts)
+	placementIDs := types.PlacementRequiredWriteBehaviorContractIDs(contracts)
 	for i, probe := range probes {
 		for _, ref := range probe.ContractRefs {
 			if _, ok := ids[ref]; !ok {
 				return fmt.Sprintf("verification_probes[%d].contract_refs contains unknown behavior_contract id %q; use one of %s", i, ref, formatStringSet(ids))
+			}
+		}
+		for _, ref := range probe.PlacementRefs {
+			if _, ok := ids[ref]; !ok {
+				return fmt.Sprintf("verification_probes[%d].placement_refs contains unknown behavior_contract id %q; use one of %s", i, ref, formatStringSet(ids))
+			}
+			if _, ok := placementIDs[ref]; !ok {
+				return fmt.Sprintf("verification_probes[%d].placement_refs contains behavior_contract id %q without placement{}; use one of %s", i, ref, formatStringSet(placementIDs))
 			}
 		}
 	}

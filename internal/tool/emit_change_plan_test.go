@@ -443,6 +443,13 @@ func TestEmitChangePlan_PersistsBehaviorContractsAndProbeRefs(t *testing.T) {
 				Operator: types.WriteBehaviorOpEquals,
 				Subject:  "widget.VALUE",
 				Expected: "42",
+				Placement: &types.WriteRenderedTextPlacement{
+					Surface:   types.WriteRenderedTextSurfaceStdoutLine,
+					Anchor:    "widget",
+					Expected:  "42",
+					Relation:  types.WriteRenderedTextAfterAnchor,
+					Delimiter: "\n",
+				},
 				Required: true,
 				Source:   "write_analyzer",
 			}},
@@ -455,7 +462,7 @@ func TestEmitChangePlan_PersistsBehaviorContractsAndProbeRefs(t *testing.T) {
 			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
 		],
 		"verification_probes": [
-			{"id": "value_contract", "language": "python", "code": "import widget\nassert widget.VALUE == 42\n", "contract_refs": ["widget-value"], "changed_symbol_refs": ["widget.VALUE"], "expects_baseline_failure": true}
+			{"id": "value_contract", "language": "python", "code": "import widget\nassert widget.VALUE == 42\n", "contract_refs": ["widget-value"], "placement_refs": ["widget-value"], "changed_symbol_refs": ["widget.VALUE"], "expects_baseline_failure": true}
 		]
 	}`)
 
@@ -480,8 +487,47 @@ func TestEmitChangePlan_PersistsBehaviorContractsAndProbeRefs(t *testing.T) {
 	if len(probe.ContractRefs) != 1 || probe.ContractRefs[0] != "widget-value" {
 		t.Fatalf("contract refs not preserved: %+v", probe)
 	}
+	if len(probe.PlacementRefs) != 1 || probe.PlacementRefs[0] != "widget-value" {
+		t.Fatalf("placement refs not preserved: %+v", probe)
+	}
 	if len(probe.ChangedSymbolRefs) != 1 || probe.ChangedSymbolRefs[0] != "widget.VALUE" || !probe.ExpectsBaselineFailure {
 		t.Fatalf("changed-symbol/baseline metadata not preserved: %+v", probe)
+	}
+}
+
+func TestEmitChangePlan_RejectsPlacementRefWithoutPlacementContract(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "fix widget value"},
+			BehaviorContracts: []types.WriteBehaviorContract{{
+				ID:       "widget-value",
+				Kind:     types.WriteBehaviorObservable,
+				Operator: types.WriteBehaviorOpEquals,
+				Expected: "42",
+				Required: true,
+				Source:   "write_analyzer",
+			}},
+		},
+	})
+	params := json.RawMessage(`{
+		"request": "fix widget value",
+		"summary": "Modify widget.py and attach a bounded probe.",
+		"changes": [
+			{"path": "widget.py", "kind": "modify", "new_content": "VALUE = 42\n", "rationale": "set the corrected value"}
+		],
+		"verification_probes": [
+			{"id": "value_contract", "language": "python", "code": "import widget\nassert widget.VALUE == 42\n", "contract_refs": ["widget-value"], "placement_refs": ["widget-value"], "changed_symbol_refs": ["widget.VALUE"]}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "without placement{}") {
+		t.Fatalf("expected placement ref rejection, got success=%v summary=%q", res.Success, res.Summary)
 	}
 }
 

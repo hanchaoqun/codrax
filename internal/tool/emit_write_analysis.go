@@ -289,6 +289,16 @@ func validateWriteBehaviorContractEnums(contracts []types.WriteBehaviorContract)
 				return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].comparator.relation=%q is unsupported; use one of same_as, consistent_with, contrasts_with, regression_baseline", i, c.Comparator.Relation)
 			}
 		}
+		if c.Placement != nil {
+			surface := strings.ToLower(strings.TrimSpace(string(c.Placement.Surface)))
+			if surface != "" && !types.IsKnownWriteRenderedTextSurface(surface) {
+				return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].placement.surface=%q is unsupported; use one of repr, stdout_line, cli_line, stringer, ui_text, snapshot_text", i, c.Placement.Surface)
+			}
+			relation := strings.ToLower(strings.TrimSpace(string(c.Placement.Relation)))
+			if relation != "" && !types.IsKnownWriteRenderedTextRelation(relation) {
+				return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].placement.relation=%q is unsupported; use one of after_anchor, before_anchor, suffix_before_delimiter, prefix_after_delimiter, between_anchor_and_delimiter, same_line_contains, line_local_not_contains", i, c.Placement.Relation)
+			}
+		}
 		polarity := strings.ToLower(strings.TrimSpace(string(c.Polarity)))
 		if polarity != "" && !types.IsKnownWriteBehaviorPolarity(polarity) {
 			return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].polarity=%q is unsupported; use expected, forbidden, or observed", i, c.Polarity)
@@ -392,6 +402,38 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 						"expected": map[string]any{
 							"type":        "string",
 							"description": "Exact observable value for exact operators, or concise soft behavior text for operator=satisfies. Text under operator=satisfies is not a hard exact-value target.",
+						},
+						"placement": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"surface": map[string]any{
+									"type":        "string",
+									"enum":        []string{"repr", "stdout_line", "cli_line", "stringer", "ui_text", "snapshot_text"},
+									"description": "Rendered text surface. Use this only for line-local rendered output placement obligations.",
+								},
+								"anchor": map[string]any{
+									"type":        "string",
+									"description": "Line-local token that identifies the semantic row/label, such as a variable name, CLI field label, String() receiver label, or UI label.",
+								},
+								"expected": map[string]any{
+									"type":        "string",
+									"description": "Text that must appear in the specified relation to the anchor/delimiter. Defaults to behavior_contract.expected when omitted.",
+								},
+								"relation": map[string]any{
+									"type":        "string",
+									"enum":        []string{"after_anchor", "before_anchor", "suffix_before_delimiter", "prefix_after_delimiter", "between_anchor_and_delimiter", "same_line_contains", "line_local_not_contains"},
+									"description": "Required line-local relation. A global contains check is not sufficient for this contract.",
+								},
+								"delimiter": map[string]any{
+									"type":        "string",
+									"description": "Optional boundary token, such as dtype, dims, newline, separator, prompt marker, or another label.",
+								},
+								"evidence_ref": map[string]any{
+									"type":        "string",
+									"description": "Optional source such as issue example, file:line, or attached runtime artifact supporting the placement relation.",
+								},
+							},
+							"description": "Typed rendered-output placement obligation. Emit only when grounded evidence requires relative placement on a rendered text line; do not infer from keywords.",
 						},
 						"comparator": map[string]any{
 							"type": "object",

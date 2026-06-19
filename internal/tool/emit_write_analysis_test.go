@@ -122,6 +122,61 @@ func TestEmitWriteAnalysis_PreservesExplicitBehaviorContracts(t *testing.T) {
 	}
 }
 
+func TestEmitWriteAnalysis_PreservesRenderedTextPlacementContract(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "units should render next to each variable label",
+		"task": {"kind": "bugfix", "scope": "micro", "summary": "fix repr unit placement"},
+		"risk": {"affects_public_api": true, "changes_persistence": false, "changes_build_system": false, "overall": "medium"},
+		"behavior_contracts": [
+			{"id": "repr-unit-placement", "kind": "stdout", "polarity": "expected", "subject": "DataArray repr line", "operator": "contains", "expected": ", in mm", "placement": {"surface": "repr", "anchor": "rainfall", "expected": ", in mm", "relation": "between_anchor_and_delimiter", "delimiter": "float32", "evidence_ref": "issue:repr-example"}, "required": true}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected Success=true, got: %s", res.Summary)
+	}
+	contracts := bus.Mutable.WriteAnalysisIR().Request.BehaviorContracts
+	if len(contracts) != 1 {
+		t.Fatalf("contracts len = %d, want 1: %+v", len(contracts), contracts)
+	}
+	got := contracts[0]
+	if got.Placement == nil ||
+		got.Placement.Surface != types.WriteRenderedTextSurfaceRepr ||
+		got.Placement.Anchor != "rainfall" ||
+		got.Placement.Relation != types.WriteRenderedTextBetweenAnchorAndDelimiter ||
+		got.Placement.Delimiter != "float32" {
+		t.Fatalf("placement contract drifted: %+v", got)
+	}
+	if !types.IsPlacementRequiredWriteBehaviorContract(got) {
+		t.Fatalf("placement contract should be hard placement-required: %+v", got)
+	}
+}
+
+func TestEmitWriteAnalysis_RejectsUnsupportedPlacementEnums(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "bad placement enum",
+		"task": {"kind": "bugfix", "scope": "micro", "summary": "bad placement enum"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"},
+		"behavior_contracts": [
+			{"id": "bad-placement", "kind": "stdout", "operator": "contains", "expected": "value", "placement": {"surface": "stdout_line", "anchor": "name", "relation": "near_keyword"}}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "placement.relation") {
+		t.Fatalf("expected placement enum rejection, got success=%v summary=%q", res.Success, res.Summary)
+	}
+}
+
 func TestEmitWriteAnalysis_DefaultsExpectedContractsToRequired(t *testing.T) {
 	tool := &EmitWriteAnalysis{}
 	bus := newTestBusForWriteAnalysis()

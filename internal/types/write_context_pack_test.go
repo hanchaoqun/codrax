@@ -37,6 +37,22 @@ func TestWriteContextPackFromWriteAnalysisIRPreservesP0Constraints(t *testing.T)
 				},
 				Required: true,
 				Source:   "write_analyzer",
+			}, {
+				ID:       "repr-unit-placement",
+				Kind:     WriteBehaviorStdout,
+				Polarity: WriteBehaviorPolarityExpected,
+				Operator: WriteBehaviorOpContains,
+				Subject:  "DataArray repr line",
+				Expected: ", in mm",
+				Placement: &WriteRenderedTextPlacement{
+					Surface:   WriteRenderedTextSurfaceRepr,
+					Anchor:    "rainfall",
+					Expected:  ", in mm",
+					Relation:  WriteRenderedTextBetweenAnchorAndDelimiter,
+					Delimiter: "float32",
+				},
+				Required: true,
+				Source:   "write_analyzer",
 			}},
 		},
 		RepoFacts: WriteRepoFacts{TestRunner: "go"},
@@ -66,6 +82,10 @@ func TestWriteContextPackFromWriteAnalysisIRPreservesP0Constraints(t *testing.T)
 	}
 	if !writeContextViewContains(view, "behavior_contract", "comparator_relation=regression_baseline") {
 		t.Fatalf("behavior contract comparator relation missing from view: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "behavior_contract", "placement_relation=between_anchor_and_delimiter") ||
+		!writeContextViewContains(view, "behavior_contract", "placement_anchor=rainfall") {
+		t.Fatalf("placement contract fields missing from view: %+v", view.Items)
 	}
 }
 
