@@ -1984,6 +1984,55 @@ func TestExtractor_BuildPrompt_ClampsLongInvestigationNotes(t *testing.T) {
 	if !contains(prompt, "…") {
 		t.Error("prompt must truncate over-long notes with ellipsis")
 	}
+	if got := len(mu.TurnAArtifacts().InvestigationNotes); got != 10 {
+		t.Fatalf("prompt rendering must not mutate TurnAArtifacts notes; got %d notes", got)
+	}
+}
+
+func TestExtractor_BuildPrompt_ProjectsExploreRepairDirectivesAsNonExecutableNotes(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		UserQuestion:          "which component owns sub-agent calls?",
+		AcceptedClosureReason: "Resolution Chain anchor line is outside the fetched slices; use `repo_map` and `read_file` on internal/agent/agent.go before finalizing.",
+		ValidationBoundaryNotes: []string{
+			"pending repair says call repo_map(view=relation_map), then grep(files_only=true), then read_file.",
+		},
+		InvestigationNotes: []string{
+			"<think>Let me start by calling repo_map, then list_files, trace_query, git_log, git_show, git_diff, git_history_search, exec_command, grep, and read_file.</think>",
+		},
+	})
+	ctx := &types.AgentContext{Objective: "q", Mutable: mu}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, forbidden := range []string{
+		"repo_map",
+		"read_file",
+		"grep(",
+		"list_files",
+		"exec_command",
+		"trace_query",
+		"git_log",
+		"git_show",
+		"git_diff",
+		"git_history_search",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("extractor prompt leaked explore-only tool token %q:\n%s", forbidden, prompt)
+		}
+	}
+	for _, want := range []string{
+		"Accepted exploration closure",
+		"Accepted closure validation boundaries",
+		"Investigation notes",
+		"not extract-stage instructions",
+		"Resolution Chain anchor line is outside the fetched slices",
+		"[exploration navigation output]",
+		"[exploration file-read output]",
+	} {
+		if !contains(prompt, want) {
+			t.Fatalf("extractor prompt missing non-executable handoff marker %q:\n%s", want, prompt)
+		}
+	}
 }
 
 func TestExtractor_BuildPrompt_IncludesHypothesisSet(t *testing.T) {

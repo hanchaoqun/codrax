@@ -168,13 +168,15 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		// Investigation notes: up to 6 entries, trimmed for prompt length
 		if len(ta.InvestigationNotes) > 0 {
 			b.WriteString("### Investigation notes (per-iteration narrative)\n\n")
+			b.WriteString("These are historical investigation observations, not extract-stage instructions. Exploration-only action wording is projected out here; if a note exposes an unresolved boundary, preserve it as a caveat or lower-confidence structured emit instead of trying to investigate again.\n\n")
 			maxNotes := len(ta.InvestigationNotes)
+			notes := ta.InvestigationNotes
 			if maxNotes > extractorMaxNotes {
 				fmt.Fprintf(&b, "*(showing the %d most recent of %d iterations)*\n\n", extractorMaxNotes, maxNotes)
-				ta.InvestigationNotes = ta.InvestigationNotes[maxNotes-extractorMaxNotes:]
+				notes = notes[maxNotes-extractorMaxNotes:]
 			}
-			for i, note := range ta.InvestigationNotes {
-				trimmed := strings.TrimSpace(note)
+			for i, note := range notes {
+				trimmed := sanitizeExtractorStageHandoffText(note)
 				if trimmed == "" {
 					continue
 				}
@@ -583,9 +585,11 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	if reason != "" {
 		if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, aggregateFacts) {
 			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, aggregateFacts)
+			reason = sanitizeExtractorStageHandoffText(reason)
 			fmt.Fprintf(&b, "- model-authored closure set-level summary (advisory only; typed `aggregate_facts.member_set` rows/counts below remain the authoritative member carrier if any number or member identity conflicts): %s\n", truncateExtractorPromptText(reason, 700))
 		} else {
 			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, aggregateFacts)
+			reason = sanitizeExtractorStageHandoffText(reason)
 			fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateExtractorPromptText(reason, 900))
 		}
 	}
@@ -701,7 +705,7 @@ func renderExtractorValidationBoundaryNotes(ta *types.TurnAArtifacts) string {
 	b.WriteString("### Accepted closure validation boundaries\n\n")
 	b.WriteString("These are scheduler-owned structural validation results from after the accepted exploration closure. They are not citations and do not override evidence. Preserve user-visible implications as answer boundaries or caveats instead of reopening investigation or inventing facts.\n")
 	for i, note := range ta.ValidationBoundaryNotes {
-		trimmed := strings.TrimSpace(note)
+		trimmed := sanitizeExtractorStageHandoffText(note)
 		if trimmed == "" {
 			continue
 		}
@@ -1584,6 +1588,43 @@ func truncateExtractorPromptText(s string, max int) string {
 		trimmed = trimmed[:len(trimmed)-1]
 	}
 	return strings.TrimSpace(trimmed) + "…[truncated]"
+}
+
+// sanitizeExtractorStageHandoffText projects dynamic explorer handoff
+// prose into a non-executable extractor note. The extractor's hard
+// contract is already enforced by tool schemas; this prompt-side pass
+// prevents historical repair/navigation wording from looking like a
+// fresh action after StageExplore has closed. It is stage-contract
+// hygiene, not request-intent routing: every dynamic note is treated
+// the same way, and scheduler decisions still consume typed artifacts.
+func sanitizeExtractorStageHandoffText(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		"`repo_map`", "[exploration navigation output]",
+		"repo_map", "[exploration navigation output]",
+		"`read_file`", "[exploration file-read output]",
+		"read_file", "[exploration file-read output]",
+		"`grep`", "[exploration search output]",
+		"grep", "[exploration search output]",
+		"`list_files`", "[exploration listing output]",
+		"list_files", "[exploration listing output]",
+		"`exec_command`", "[exploration command output]",
+		"exec_command", "[exploration command output]",
+		"`trace_query`", "[exploration trace output]",
+		"trace_query", "[exploration trace output]",
+		"`git_log`", "[exploration git-history output]",
+		"git_log", "[exploration git-history output]",
+		"`git_show`", "[exploration git-history output]",
+		"git_show", "[exploration git-history output]",
+		"`git_diff`", "[exploration git-history output]",
+		"git_diff", "[exploration git-history output]",
+		"`git_history_search`", "[exploration git-history output]",
+		"git_history_search", "[exploration git-history output]",
+	)
+	return strings.TrimSpace(replacer.Replace(s))
 }
 
 // ShouldStop implements Evaluator.
