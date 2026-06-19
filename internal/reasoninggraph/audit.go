@@ -32,15 +32,17 @@ func AuditSummaryFromView(view ReasoningGraphView, source string, limit int) *ty
 			{Name: "read", Count: len(view.ReadEvents)},
 			{Name: "worker", Count: len(view.WorkerEvents)},
 			{Name: "subagent", Count: len(view.SubAgentEvents)},
+			{Name: "auxiliary", Count: len(view.AuxiliaryEvents)},
 			{Name: "tool", Count: len(view.ToolEvents)},
 			{Name: "repair", Count: len(view.RepairEvents)},
 			{Name: "llm", Count: len(view.LLMEvents)},
 		},
-		RecentEvents:   auditEventsFromSummaries(recentReasoningEvents(view, limit)),
-		RepairEvents:   auditEventsFromSummaries(limitReasoningEventSummaries(view.RepairEvents, limit)),
-		LLMEvents:      auditEventsFromSummaries(limitReasoningEventSummaries(view.LLMEvents, limit)),
-		WorkerEvents:   auditEventsFromSummaries(limitReasoningEventSummaries(view.WorkerEvents, limit)),
-		SubAgentEvents: auditEventsFromSummaries(limitReasoningEventSummaries(view.SubAgentEvents, limit)),
+		RecentEvents:    auditEventsFromSummaries(recentReasoningEvents(view, limit)),
+		RepairEvents:    auditEventsFromSummaries(limitReasoningEventSummaries(view.RepairEvents, limit)),
+		LLMEvents:       auditEventsFromSummaries(limitReasoningEventSummaries(view.LLMEvents, limit)),
+		WorkerEvents:    auditEventsFromSummaries(limitReasoningEventSummaries(view.WorkerEvents, limit)),
+		SubAgentEvents:  auditEventsFromSummaries(limitReasoningEventSummaries(view.SubAgentEvents, limit)),
+		AuxiliaryEvents: auditEventsFromSummaries(limitReasoningEventSummaries(view.AuxiliaryEvents, limit)),
 	}
 	if out.Source == "" {
 		out.Source = "reasoning_graph_view"
@@ -57,11 +59,12 @@ func AuditSummaryFromView(view ReasoningGraphView, source string, limit int) *ty
 
 func recentReasoningEvents(view ReasoningGraphView, limit int) []ReasoningEventSummary {
 	all := make([]ReasoningEventSummary, 0,
-		len(view.WorkflowEvents)+len(view.ReadEvents)+len(view.WorkerEvents)+len(view.SubAgentEvents)+len(view.ToolEvents)+len(view.RepairEvents)+len(view.LLMEvents))
+		len(view.WorkflowEvents)+len(view.ReadEvents)+len(view.WorkerEvents)+len(view.SubAgentEvents)+len(view.AuxiliaryEvents)+len(view.ToolEvents)+len(view.RepairEvents)+len(view.LLMEvents))
 	all = append(all, view.WorkflowEvents...)
 	all = append(all, view.ReadEvents...)
 	all = append(all, view.WorkerEvents...)
 	all = append(all, view.SubAgentEvents...)
+	all = append(all, view.AuxiliaryEvents...)
 	all = append(all, view.ToolEvents...)
 	all = append(all, view.RepairEvents...)
 	all = append(all, view.LLMEvents...)
@@ -122,6 +125,12 @@ func auditEventsFromSummaries(events []ReasoningEventSummary) []types.ReasoningG
 			FactCount:        event.FactCount,
 			FlowFindingCount: event.FlowFindingCount,
 			MCPResponseCount: event.MCPResponseCount,
+			ExternalOrigin:   event.ExternalOrigin,
+			SourceKind:       event.SourceKind,
+			Producer:         event.Producer,
+			ResourceURI:      event.ResourceURI,
+			PayloadRef:       event.PayloadRef,
+			ObservationID:    event.ObservationID,
 		})
 	}
 	return out

@@ -47,6 +47,8 @@ func ReduceEvents(events []ReasoningEvent) ReasoningGraphView {
 			view.WorkerEvents = append(view.WorkerEvents, summary)
 		case IsSubAgentObservationKind(event.Kind):
 			view.SubAgentEvents = append(view.SubAgentEvents, summary)
+		case IsAuxiliaryObservationKind(event.Kind):
+			view.AuxiliaryEvents = append(view.AuxiliaryEvents, summary)
 		}
 	}
 	view.Nodes = sortedNodeViews(nodes)
@@ -71,6 +73,8 @@ func nodeKindForEvent(kind ReasoningEventKind) ReasoningNodeKind {
 		return ReasoningNodeWorker
 	case IsSubAgentObservationKind(kind):
 		return ReasoningNodeSubAgent
+	case IsAuxiliaryObservationKind(kind):
+		return ReasoningNodeEvidence
 	default:
 		return ""
 	}
@@ -111,6 +115,12 @@ func eventSummary(event ReasoningEvent) ReasoningEventSummary {
 		FactCount:         payload.FactCount,
 		FlowFindingCount:  payload.FlowFindingCount,
 		MCPResponseCount:  payload.MCPResponseCount,
+		ExternalOrigin:    payload.ExternalOrigin,
+		SourceKind:        payload.SourceKind,
+		Producer:          payload.Producer,
+		ResourceURI:       payload.ResourceURI,
+		PayloadRef:        payload.PayloadRef,
+		ObservationID:     payload.ObservationID,
 		At:                event.At,
 	}
 }

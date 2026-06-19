@@ -236,6 +236,7 @@ type ReasoningGraphView struct {
     ReadEvents      []ReasoningEventSummary
     WorkerEvents    []ReasoningEventSummary
     SubAgentEvents  []ReasoningEventSummary
+    AuxiliaryEvents []ReasoningEventSummary
     EventKindCounts []EventKindCount
 }
 ```
@@ -274,6 +275,7 @@ type ReasoningGraphAuditSummary struct {
     LLMEvents        []ReasoningGraphAuditEvent
     WorkerEvents     []ReasoningGraphAuditEvent
     SubAgentEvents   []ReasoningGraphAuditEvent
+    AuxiliaryEvents  []ReasoningGraphAuditEvent
     Missing          []ReasoningGraphAuditGap
 }
 ```
@@ -436,7 +438,7 @@ type AnswerReasoningGraphSummary struct {
 | P0-B3 Read Evidence Graph Shadow | delivered | accepted answer `read_reasoning_graph` summary、read typed evidence projection、不改 read scheduler |
 | P0-B4 Graph Audit / Status Card | delivered | `ReasoningGraphAuditSummary`、`--write-audit.graph_audit`、`/workflow show` graph reason card |
 | P1-B5 Worker / SubAgent Projection | delivered | worker Request/Result projection、subagent Request/Result projection、optional SubAgentRuntime observer、worker/subagent graph lanes |
-| P1-B6 Log / Trace / Data / Operation Projection | next | 外部/辅助模式 typed artifacts 进入 graph evidence |
+| P1-B6 Log / Trace / Data / Operation Projection | in progress | ToolResult typed observations、MCP typed observations 已进入 auxiliary graph lane；data/operation workflow state 待后续切片 |
 | P1-B7 Eval / Support Report | planned | graph coverage metrics、support report、historical audit grouping |
 | P2-B8 Graph-Guided Controller | planned | typed graph view 反哺 bounded controller action |
 | P2-B9 Graph-Native Replay Executor | planned | read-only replay/local recompute |
@@ -579,19 +581,22 @@ type AnswerReasoningGraphSummary struct {
 
 任务：
 
-1. log triage / perf triage / htrace / atrace typed artifacts 投影为 graph evidence node。
-2. data / operation / computer workflow state 投影为 graph node。
-3. MCP typed resource observations 投影为 external evidence node。
-4. 标记 external evidence trust boundary。
-5. 增加 tests：
+1. ToolResult typed observations 投影为 auxiliary evidence node，覆盖 trace_query / runtime artifact 等已产出 `ObservationRecord` 的工具。
+2. MCP typed resource observations 投影为 auxiliary evidence node，标记 external resource boundary。
+3. log triage / perf triage / htrace / atrace typed artifacts 投影为 graph evidence node。
+4. data / operation / computer workflow state 投影为 graph node。
+5. 标记 external evidence trust boundary。
+6. 增加 tests：
    - trace/log 用户路径不变
    - external evidence 不直接成为 semantic citation
    - operation graph projection 不改变 operation execution
+   - typed ToolResult/MCP observation projection 不解析 Summary/RawExcerpt
 
 验收：
 
 - log/trace/data/operation/computer 稳定路径不回归。
 - graph audit 可说明 final answer/write decision 使用了哪些附加输入。
+- auxiliary graph payload 只包含 origin/source_ref/span/artifact refs/evidence refs/counts，不携带外部材料散文。
 
 ### P1-B7：Eval / Support Report
 

@@ -76,6 +76,8 @@ const (
 	ReasoningEventWorkerCompleted            ReasoningEventKind = "worker_completed"
 	ReasoningEventSubAgentRequested          ReasoningEventKind = "subagent_requested"
 	ReasoningEventSubAgentCompleted          ReasoningEventKind = "subagent_completed"
+	ReasoningEventAuxiliaryEvidenceProjected ReasoningEventKind = "auxiliary_evidence_projected"
+	ReasoningEventMCPObservationProjected    ReasoningEventKind = "mcp_observation_projected"
 )
 
 type ReasoningGraph struct {
@@ -165,6 +167,12 @@ type ObservationPayload struct {
 	FactCount         int    `json:"fact_count,omitempty"`
 	FlowFindingCount  int    `json:"flow_finding_count,omitempty"`
 	MCPResponseCount  int    `json:"mcp_response_count,omitempty"`
+	ExternalOrigin    string `json:"external_origin,omitempty"`
+	SourceKind        string `json:"source_kind,omitempty"`
+	Producer          string `json:"producer,omitempty"`
+	ResourceURI       string `json:"resource_uri,omitempty"`
+	PayloadRef        string `json:"payload_ref,omitempty"`
+	ObservationID     string `json:"observation_id,omitempty"`
 }
 
 type ObservationInput struct {
@@ -213,6 +221,12 @@ type ReasoningEventSummary struct {
 	FactCount         int                `json:"fact_count,omitempty"`
 	FlowFindingCount  int                `json:"flow_finding_count,omitempty"`
 	MCPResponseCount  int                `json:"mcp_response_count,omitempty"`
+	ExternalOrigin    string             `json:"external_origin,omitempty"`
+	SourceKind        string             `json:"source_kind,omitempty"`
+	Producer          string             `json:"producer,omitempty"`
+	ResourceURI       string             `json:"resource_uri,omitempty"`
+	PayloadRef        string             `json:"payload_ref,omitempty"`
+	ObservationID     string             `json:"observation_id,omitempty"`
 	At                time.Time          `json:"at,omitempty"`
 }
 
@@ -243,6 +257,7 @@ type ReasoningGraphView struct {
 	ReadEvents      []ReasoningEventSummary `json:"read_events,omitempty"`
 	WorkerEvents    []ReasoningEventSummary `json:"worker_events,omitempty"`
 	SubAgentEvents  []ReasoningEventSummary `json:"subagent_events,omitempty"`
+	AuxiliaryEvents []ReasoningEventSummary `json:"auxiliary_events,omitempty"`
 	EventKindCounts []EventKindCount        `json:"event_kind_counts,omitempty"`
 }
 
@@ -431,6 +446,16 @@ func IsSubAgentObservationKind(kind ReasoningEventKind) bool {
 	}
 }
 
+func IsAuxiliaryObservationKind(kind ReasoningEventKind) bool {
+	switch kind {
+	case ReasoningEventAuxiliaryEvidenceProjected,
+		ReasoningEventMCPObservationProjected:
+		return true
+	default:
+		return false
+	}
+}
+
 func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	in.ToolName = strings.TrimSpace(in.ToolName)
 	in.Agent = strings.TrimSpace(in.Agent)
@@ -449,6 +474,12 @@ func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	in.SubAgentName = strings.TrimSpace(in.SubAgentName)
 	in.PermissionAction = strings.TrimSpace(in.PermissionAction)
 	in.PermissionReason = strings.TrimSpace(in.PermissionReason)
+	in.ExternalOrigin = strings.TrimSpace(in.ExternalOrigin)
+	in.SourceKind = strings.TrimSpace(in.SourceKind)
+	in.Producer = strings.TrimSpace(in.Producer)
+	in.ResourceURI = strings.TrimSpace(in.ResourceURI)
+	in.PayloadRef = strings.TrimSpace(in.PayloadRef)
+	in.ObservationID = strings.TrimSpace(in.ObservationID)
 	if in.Attempt < 0 {
 		in.Attempt = 0
 	}

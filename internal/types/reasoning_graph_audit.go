@@ -30,6 +30,7 @@ type ReasoningGraphAuditSummary struct {
 	LLMEvents        []ReasoningGraphAuditEvent `json:"llm_events,omitempty"`
 	WorkerEvents     []ReasoningGraphAuditEvent `json:"worker_events,omitempty"`
 	SubAgentEvents   []ReasoningGraphAuditEvent `json:"subagent_events,omitempty"`
+	AuxiliaryEvents  []ReasoningGraphAuditEvent `json:"auxiliary_events,omitempty"`
 	Missing          []ReasoningGraphAuditGap   `json:"missing,omitempty"`
 }
 
@@ -67,6 +68,12 @@ type ReasoningGraphAuditEvent struct {
 	FactCount        int    `json:"fact_count,omitempty"`
 	FlowFindingCount int    `json:"flow_finding_count,omitempty"`
 	MCPResponseCount int    `json:"mcp_response_count,omitempty"`
+	ExternalOrigin   string `json:"external_origin,omitempty"`
+	SourceKind       string `json:"source_kind,omitempty"`
+	Producer         string `json:"producer,omitempty"`
+	ResourceURI      string `json:"resource_uri,omitempty"`
+	PayloadRef       string `json:"payload_ref,omitempty"`
+	ObservationID    string `json:"observation_id,omitempty"`
 }
 
 type ReasoningGraphAuditGap struct {
@@ -149,6 +156,7 @@ func NormalizeReasoningGraphAuditSummary(in ReasoningGraphAuditSummary) Reasonin
 	in.LLMEvents = normalizeReasoningGraphAuditEvents(in.LLMEvents)
 	in.WorkerEvents = normalizeReasoningGraphAuditEvents(in.WorkerEvents)
 	in.SubAgentEvents = normalizeReasoningGraphAuditEvents(in.SubAgentEvents)
+	in.AuxiliaryEvents = normalizeReasoningGraphAuditEvents(in.AuxiliaryEvents)
 	in.Missing = normalizeReasoningGraphAuditGaps(in.Missing)
 	if in.EventCount < 0 {
 		in.EventCount = 0
@@ -252,6 +260,12 @@ func normalizeReasoningGraphAuditEvents(in []ReasoningGraphAuditEvent) []Reasoni
 		if event.MCPResponseCount < 0 {
 			event.MCPResponseCount = 0
 		}
+		event.ExternalOrigin = strings.TrimSpace(event.ExternalOrigin)
+		event.SourceKind = strings.TrimSpace(event.SourceKind)
+		event.Producer = strings.TrimSpace(event.Producer)
+		event.ResourceURI = strings.TrimSpace(event.ResourceURI)
+		event.PayloadRef = strings.TrimSpace(event.PayloadRef)
+		event.ObservationID = strings.TrimSpace(event.ObservationID)
 		if event.EventID == "" && event.Kind == "" && event.ReasonCode == "" {
 			continue
 		}
@@ -302,5 +316,6 @@ func reasoningGraphAuditSummaryEmpty(in ReasoningGraphAuditSummary) bool {
 		len(in.LLMEvents) == 0 &&
 		len(in.WorkerEvents) == 0 &&
 		len(in.SubAgentEvents) == 0 &&
+		len(in.AuxiliaryEvents) == 0 &&
 		len(in.Missing) == 0
 }
