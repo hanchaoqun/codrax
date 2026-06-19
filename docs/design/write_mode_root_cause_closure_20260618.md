@@ -7528,6 +7528,34 @@ RC118 SWE smoke and manual audit:
     should re-open localization/read evidence or block with a typed reason
     instead of exporting an empty patch.
 
+RC119 wall-time default validation:
+
+- Change:
+  - Runtime default `pipeline_write_max_seconds` was raised from 600 to 900
+    seconds (15 minutes), while preserving the existing configurable
+    `codrax.yaml` key and the 1800-second hard cap.
+  - `codrax.yaml.example` now documents `pipeline_write_max_seconds: 900`.
+- Regression:
+  - Re-ran `pallets__flask-4045` as
+    `eval/results/swebench/lite-smoke-20260619-rc119-walltime900-flask`.
+  - The same instance that previously ended `empty_patch` at 600 seconds now
+    completed in 480 seconds with a 483-byte source patch:
+    `src/flask/blueprints.py` raises `ValueError` when `Blueprint.__init__`
+    receives a name containing `.`.
+  - `validate_predictions.py --require-nonempty-patch` passed, and official
+    SWE-bench harness dry-run/import succeeded.
+- Manual audit:
+  - The patch is functionally aligned with the issue "Raise error when
+    blueprint name contains a dot."
+  - Local confidence remains downgraded because verification is unavailable
+    (`pytest_import_startup_error`) and patch-review coverage is still
+    uncovered (`changed_symbol_without_probe_coverage`). This is a proof
+    confidence gap, not an export/harness-consumption gap.
+- Updated conclusion:
+  - The RC118 Flask empty patch was primarily a wall-time convergence-window
+    failure. RC119 no-change authority remains worth keeping in the queue, but
+    it is no longer the primary explanation for this specific Flask empty patch.
+
 ## 2026-06-19 Historical RC-103+ Follow-up Queue
 
 This queue came from the pre-RC104 three-instance smoke. It is not an official
