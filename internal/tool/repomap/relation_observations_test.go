@@ -120,8 +120,8 @@ func TestRepoMapRelationMapExecuteAttachesTypedObservations(t *testing.T) {
 		}
 	}
 
-	if len(res.Observations) != 2 {
-		t.Fatalf("expected 2 typed relation observations, got %d: %+v", len(res.Observations), res.Observations)
+	if len(res.Observations) != 3 {
+		t.Fatalf("expected 1 navigation + 2 typed relation observations, got %d: %+v", len(res.Observations), res.Observations)
 	}
 	wantPolicy := types.AnswerClaimBindingGroundingPolicy(
 		types.AnswerEvidenceOriginCrossRepoIndex, types.AnswerAggregateRoleSupportingCoverage)
@@ -167,6 +167,13 @@ func TestRepoMapRelationMapExecuteAttachesTypedObservations(t *testing.T) {
 	for _, record := range res.Observations {
 		byPredicate[record.Predicate] = record
 	}
+	nav, ok := byPredicate[types.RepoMapNavigationObservationPredicate]
+	if !ok {
+		t.Fatalf("navigation coverage row missing: %+v", res.Observations)
+	}
+	if nav.Object != string(types.RepoMapNavigationRouteRelationMap) {
+		t.Fatalf("navigation coverage row route drifted: %+v", nav)
+	}
 	call, ok := byPredicate["call"]
 	if !ok {
 		t.Fatalf("call row missing: %+v", res.Observations)
@@ -211,14 +218,18 @@ func TestRepoMapRelationMapExecuteAttachesTypedObservations(t *testing.T) {
 	}
 }
 
-// TestRepoMapNonRelationViewsAttachNoTypedObservations pins default
-// stability: every view other than relation_map keeps an empty typed
-// side-channel (and therefore a byte-identical ToolResult shape).
-func TestRepoMapNonRelationViewsAttachNoTypedObservations(t *testing.T) {
+// TestRepoMapNonRelationViewsAttachNavigationObservation pins the shared
+// navigation coverage side-channel: non-relation views publish only the lens
+// coverage row, not relation facts or source-citation rows.
+func TestRepoMapNonRelationViewsAttachNavigationObservation(t *testing.T) {
 	for _, view := range []string{"overview", "file_map", "task_map"} {
 		res := executeRelationObservationFixture(t, view)
-		if len(res.Observations) != 0 {
-			t.Fatalf("view %s attached typed observations: %+v", view, res.Observations)
+		if len(res.Observations) != 1 {
+			t.Fatalf("view %s should attach exactly one navigation observation: %+v", view, res.Observations)
+		}
+		route, ok := types.RepoMapNavigationRouteFromObservation(res.Observations[0])
+		if !ok || string(route) != view {
+			t.Fatalf("view %s navigation observation drifted: route=%q ok=%t row=%+v", view, route, ok, res.Observations[0])
 		}
 	}
 }

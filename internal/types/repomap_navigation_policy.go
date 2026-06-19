@@ -12,6 +12,7 @@ import (
 type RepoMapNavigationRoute string
 
 const (
+	RepoMapNavigationRouteOverview        RepoMapNavigationRoute = "overview"
 	RepoMapNavigationRouteTaskMap         RepoMapNavigationRoute = "task_map"
 	RepoMapNavigationRouteFileMap         RepoMapNavigationRoute = "file_map"
 	RepoMapNavigationRouteSourceInventory RepoMapNavigationRoute = "source_inventory"

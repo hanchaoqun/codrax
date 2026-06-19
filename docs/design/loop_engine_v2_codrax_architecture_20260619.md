@@ -515,14 +515,24 @@ Target:
 Promote navigation coverage into typed observable state:
 
 ```go
-type NavigationCoverage struct {
-    RequiredLenses []RepoMapLens
-    CoveredLenses  []RepoMapLens
-    MissingLenses  []RepoMapLens
-    Source         string
-    ReasonCodes    []string
+type RepoMapNavigationCoverage struct {
+    State          RepoMapNavigationCoverageState
+    ReasonCode     string
+    RequiredRoutes []RepoMapNavigationRoute
+    ObservedRoutes []RepoMapNavigationRoute
+    CoveredRoutes  []RepoMapNavigationRoute
+    MissingRoutes  []RepoMapNavigationRoute
+    EvidenceRefs   []string
 }
 ```
+
+Current landing:
+
+- `repo_map` successful tool results publish typed `repo_map_navigation_route` observations for all views.
+- `relation_map` still publishes its graph edge typed rows next to the navigation route row.
+- `source_inventory` keeps current-source candidate facts in the existing mutable inventory observation, while ToolResult observations stay in the cross-repo navigation lane and cannot become current-source citations.
+- `RepoMapNavigationCoverageFromToolResults` derives covered/missing route state from policy enum steps and typed tool observations only.
+- write planner observation sync projects coverage into `WriteContextPack` as P1 context for controller/planner/verifier consumption.
 
 Scheduler/controller use:
 
@@ -1251,7 +1261,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | L3 | complete | Localization authority consumption | shared `LocalizationAuthority` consumed by read sidecar, write controller, planner/replan, final report | read/write localization tests |
 | L4 | complete | Proof coverage online state | `ProofCoverageAuthority` enters controller next-action; weak proof seeks proof while budget remains; unavailable stays unverified | proof/observation/controller tests |
 | L5 | pending | Role-scoped permission kernel | per-role tool/effect permission profiles; external directory and doom-loop events unified | safety/writeflow/tool tests |
-| L6 | pending | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
+| L6 | in_progress | Typed navigation workflow | repo_map navigation coverage from IR and graph lenses; localizer scheduling on missing coverage | repo_map/read scheduler tests |
 | L7 | pending | Micro-loop execution | deterministic micro-slice splitter, runtime unit apply/observe/checkpoint, stale-plan guard | write E2E and slice tests |
 | L8 | pending | Worker/subagent evidence producers | Localizer, ImpactAnalyzer, PatchCritic, ProofAuditor, FailureAnalyzer typed outputs | subagent/worker tests |
 | L9 | pending | Auto Pilot UX | single status card from `LoopStateView`; routine path avoids command burden | REPL/CLI rendering tests |
@@ -1310,7 +1320,10 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 
 ### L6 Task Breakdown
 
-- Add `NavigationCoverage` over repo_map lenses.
+- [x] Add `RepoMapNavigationCoverage` over repo_map routes.
+- [x] Publish typed repo_map navigation-route observations for successful tool calls.
+- [x] Derive covered/missing route state from typed policy steps and typed observations.
+- [x] Project navigation coverage into write context pack as P1 controller/planner/verifier context.
 - Compile required lenses from typed analysis/question structure and localization gaps.
 - Trigger localizer/impact navigation when required coverage is missing.
 - Keep repo_map as navigation fact, never semantic citation.
@@ -1354,6 +1367,7 @@ The table below is the active roadmap after re-reading `/Users/han/opt/loop_v2.m
 | 2026-06-19 | L4 | in_progress | Added `VerificationProofLedger` obligation projection into the existing controller proof/impact follow-up queue, including ledger-only proof kinds such as rendered-text placement contracts. The projection requires typed path/symbol/contract refs, so proof records without actionable refs remain telemetry instead of spawning blind batches. Focused orchestrator proof-follow-up tests passed. Remaining work: full proof authority synthesis from ledger/profile and status-card finish policy hardening. |
 | 2026-06-19 | L4 | in_progress | `/workflow show` now renders proof authority in both Chinese and English branches and uses the unverified status card for completed workflows whose typed completion verdict is `unverified`. Focused REPL status-card tests passed. Remaining work: full proof authority synthesis from ledger/profile and weak-proof next-action routing. |
 | 2026-06-19 | L4 | complete | Added `DeriveProofCoverageAuthorityFromArtifacts`, `MergeProofCoverageAuthority`, and `DeriveWorkflowExecutionViewWithReport` so controller state combines latest verify attempt with full proof profile/ledger from typed reports, impact targets, patch review, and verification confidence. The change deliberately keeps proof follow-up routing in the existing actionable-ref queue instead of broad hard-gating every weak proof, preserving stable low-friction write paths. Focused `loopkernel`/`writeflow` tests cover passed-but-weak, failed-ledger override, unavailable preservation, and planner-probe ignored. |
+| 2026-06-19 | L6 | in_progress | Added typed repo_map navigation-route observations, `RepoMapNavigationCoverage` coverage derivation, source_inventory/relation_map ToolResult side-channel coverage, and write context-pack projection as P1 controller/planner/verifier context. This batch intentionally stops before read scheduler/localizer hard routing: coverage is now observable and durable, while automatic localizer scheduling remains the next L6 step. Focused `types`/`tool/repomap`/`orchestrator` tests passed. |
 
 ## Phased Roadmap
 

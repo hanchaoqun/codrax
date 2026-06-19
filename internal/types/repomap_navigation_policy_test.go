@@ -278,7 +278,79 @@ func TestCompileRepoMapNavigationPolicy_FallsBackWhenOnlyBroadTermsExist(t *test
 	}
 }
 
+func TestRepoMapNavigationCoverageFromToolResultsReportsMissingAndCoveredRoutes(t *testing.T) {
+	policy := RepoMapNavigationPolicy{Steps: []RepoMapNavigationStep{
+		{Route: RepoMapNavigationRouteTaskMap, Purpose: RepoMapNavigationPurposeOrientation},
+		{Route: RepoMapNavigationRouteRelationMap, Purpose: RepoMapNavigationPurposeRelation},
+	}}
+	results := []ToolResult{{
+		ToolName: "repo_map",
+		Success:  true,
+		RawRef:   "blob://repo-map-task",
+		Observations: []ObservationRecord{{
+			ID:        "repo_map:task#navigation:task_map",
+			Origin:    AnswerEvidenceOriginCrossRepoIndex,
+			Producer:  "repo_map",
+			SourceRef: ObservationSourceRef{Kind: ObservationSourceCrossRepoIndex, RawRef: "blob://repo-map-task"},
+			Predicate: RepoMapNavigationObservationPredicate,
+			Object:    string(RepoMapNavigationRouteTaskMap),
+		}},
+	}}
+
+	got := RepoMapNavigationCoverageFromToolResults(policy, results)
+	if got.State != RepoMapNavigationCoveragePartial {
+		t.Fatalf("coverage state = %s, want partial: %+v", got.State, got)
+	}
+	if !containsRepoMapRoute(got.CoveredRoutes, RepoMapNavigationRouteTaskMap) {
+		t.Fatalf("task_map should be covered: %+v", got)
+	}
+	if !containsRepoMapRoute(got.MissingRoutes, RepoMapNavigationRouteRelationMap) {
+		t.Fatalf("relation_map should be missing: %+v", got)
+	}
+	if len(got.EvidenceRefs) == 0 || got.EvidenceRefs[0] != "blob://repo-map-task" {
+		t.Fatalf("coverage should preserve typed evidence refs: %+v", got.EvidenceRefs)
+	}
+
+	results[0].Observations = append(results[0].Observations, ObservationRecord{
+		ID:        "repo_map:relation#navigation:relation_map",
+		Origin:    AnswerEvidenceOriginCrossRepoIndex,
+		Producer:  "repo_map",
+		SourceRef: ObservationSourceRef{Kind: ObservationSourceCrossRepoIndex, RawRef: "blob://repo-map-relation"},
+		Predicate: RepoMapNavigationObservationPredicate,
+		Object:    string(RepoMapNavigationRouteRelationMap),
+	})
+	got = RepoMapNavigationCoverageFromToolResults(policy, results)
+	if got.State != RepoMapNavigationCoverageCovered || len(got.MissingRoutes) != 0 {
+		t.Fatalf("coverage should be covered after both routes: %+v", got)
+	}
+}
+
+func TestRepoMapNavigationCoverageTreatsImplementersAsInventoryAlternative(t *testing.T) {
+	policy := RepoMapNavigationPolicy{Steps: []RepoMapNavigationStep{
+		{Route: RepoMapNavigationRouteSourceInventory, Purpose: RepoMapNavigationPurposeInventory},
+	}}
+	got := RepoMapNavigationCoverageFromObservations(policy, []ObservationRecord{{
+		ID:        "repo_map:impl#navigation:implementers",
+		Origin:    AnswerEvidenceOriginCrossRepoIndex,
+		Producer:  "repo_map",
+		Predicate: RepoMapNavigationObservationPredicate,
+		Object:    string(RepoMapNavigationRouteImplementers),
+	}})
+	if got.State != RepoMapNavigationCoverageCovered {
+		t.Fatalf("implementers should cover the source_inventory first-hop route: %+v", got)
+	}
+}
+
 func containsRepoMapPolicyTerm(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsRepoMapRoute(values []RepoMapNavigationRoute, want RepoMapNavigationRoute) bool {
 	for _, value := range values {
 		if value == want {
 			return true

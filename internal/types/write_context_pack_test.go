@@ -638,6 +638,31 @@ func TestWriteContextPackFromPlannerToolResultsProjectsReadFileObservation(t *te
 	}
 }
 
+func TestWriteContextPackFromRepoMapNavigationCoverageProjectsP1State(t *testing.T) {
+	coverage := RepoMapNavigationCoverage{
+		State:          RepoMapNavigationCoveragePartial,
+		ReasonCode:     "repo_map_navigation_partial",
+		RequiredRoutes: []RepoMapNavigationRoute{RepoMapNavigationRouteTaskMap, RepoMapNavigationRouteRelationMap},
+		CoveredRoutes:  []RepoMapNavigationRoute{RepoMapNavigationRouteTaskMap},
+		MissingRoutes:  []RepoMapNavigationRoute{RepoMapNavigationRouteRelationMap},
+		ObservedRoutes: []RepoMapNavigationRoute{RepoMapNavigationRouteOverview, RepoMapNavigationRouteTaskMap},
+		EvidenceRefs:   []string{"blob://repo-map-task"},
+	}
+	pack := WriteContextPackFromRepoMapNavigationCoverage("batch-1", "repair", coverage)
+	view := pack.View(WriteConsumerPlanner, 10)
+	if !writeContextViewContains(view, "repo_map_navigation_coverage", "state=partial") ||
+		!writeContextViewContains(view, "repo_map_navigation_coverage", "missing=relation_map") ||
+		!writeContextViewContains(view, "repo_map_navigation_coverage", "covered=task_map") {
+		t.Fatalf("navigation coverage context missing typed state: %+v", view.Items)
+	}
+	if view.Items[0].Priority != WriteContextP1 {
+		t.Fatalf("navigation coverage should be P1, got %+v", view.Items[0])
+	}
+	if view.Items[0].EvidenceRef == nil || view.Items[0].EvidenceRef.ID != "blob://repo-map-task" {
+		t.Fatalf("navigation coverage should carry evidence ref: %+v", view.Items[0])
+	}
+}
+
 func TestWriteContextPackFromPlanContextCoverageNormalizesSymbolAnchorsToFiles(t *testing.T) {
 	prior := []WriteContextPack{{
 		PackID:      "exploration-handoff",

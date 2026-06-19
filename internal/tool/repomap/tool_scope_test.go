@@ -378,6 +378,19 @@ func TestRepoMapSourceInventoryViewGroupsBroadSymbolRolesByScope(t *testing.T) {
 	if !obs.IsActive() || len(obs.Sets) != 1 || obs.Sets[0].Count != 3 {
 		t.Fatalf("source inventory should preserve duplicate names at distinct locations: %+v", obs)
 	}
+	routeFound := false
+	for _, record := range res.Observations {
+		route, ok := types.RepoMapNavigationRouteFromObservation(record)
+		if ok && route == types.RepoMapNavigationRouteSourceInventory {
+			routeFound = true
+		}
+		if record.Origin == types.AnswerEvidenceOriginCurrentSource {
+			t.Fatalf("source_inventory ToolResult observations must stay out of current-source citation lane: %+v", record)
+		}
+	}
+	if !routeFound {
+		t.Fatalf("source_inventory should publish typed navigation coverage observation: %+v", res.Observations)
+	}
 }
 
 func TestRepoMapSourceInventoryViewGroupsBroadSingleScopeByChild(t *testing.T) {

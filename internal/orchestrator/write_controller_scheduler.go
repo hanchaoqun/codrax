@@ -1248,6 +1248,16 @@ func (o *Orchestrator) syncPlannerObservationContextPack(batch *writeflow.WriteB
 		}
 	}
 	pack := types.WriteContextPackFromPlannerToolResults(batchID, goal, results)
+	if o.busCtx.AnalysisIR != nil {
+		policy := types.CompileRepoMapNavigationPolicy(
+			o.busCtx.AnalysisIR.RequestModel,
+			&o.busCtx.AnalysisIR.AnswerContract,
+			o.busCtx.ExploreLanePlan,
+		)
+		coverage := types.RepoMapNavigationCoverageFromToolResults(policy, results)
+		coveragePack := types.WriteContextPackFromRepoMapNavigationCoverage(batchID, goal, coverage)
+		pack = types.MergeWriteContextPacks(batchID, goal, pack, coveragePack)
+	}
 	if len(pack.Items) == 0 {
 		return
 	}

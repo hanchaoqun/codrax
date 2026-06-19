@@ -347,12 +347,14 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		output = appendRepoMapBudgetHint(graph, p.View, p.TopN, output)
 		output = prependRepoMapIndexStatusBanner(graph, output)
 		summary, ref := tool.StoreBlob(ctx, t.Name(), output)
+		now := time.Now()
 		return ctypes.ToolResult{
-			ToolName:  t.Name(),
-			Success:   true,
-			Summary:   summary,
-			RawRef:    ref,
-			Timestamp: time.Now(),
+			ToolName:     t.Name(),
+			Success:      true,
+			Summary:      summary,
+			RawRef:       ref,
+			Observations: repoMapNavigationTypedObservation(p.View, ref, output, now),
+			Timestamp:    now,
 		}, nil
 	}
 
@@ -402,12 +404,14 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 
 	summary, ref := tool.StoreBlob(ctx, t.Name(), output)
 	now := time.Now()
+	observations := repoMapNavigationTypedObservation(p.View, ref, output, now)
+	observations = append(observations, relationMapTypedObservations(relationRows, ref, output, now)...)
 	return ctypes.ToolResult{
 		ToolName:     t.Name(),
 		Success:      true,
 		Summary:      summary,
 		RawRef:       ref,
-		Observations: relationMapTypedObservations(relationRows, ref, output, now),
+		Observations: observations,
 		Timestamp:    now,
 	}, nil
 }
