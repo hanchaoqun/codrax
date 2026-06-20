@@ -295,6 +295,12 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if p.View == "source_inventory" {
+		if query, source := repoMapSourceInventoryDefaultQuery(ctx, p.Query); query != p.Query {
+			p.Query = query
+			paramAdvisories = append(paramAdvisories, "query: unset -> "+source)
+		}
+	}
 
 	// Build, load, or reuse the graph. The scope check above runs
 	// before cache selection and file discovery, so refused paths never
@@ -859,16 +865,44 @@ func sourceInventoryShouldProjectAuxiliary(ctx *ctypes.BusContext, p repoMapPara
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	if tool.SourceInventoryHasExplicitAuxiliaryExclusion(rm) {
+		return false
+	}
 	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
-		if rm.SourceScopeProfile == nil || !rm.SourceScopeProfile.AllowsAuxiliaryPrincipal() {
-			return false
-		}
 		return true
 	}
 	if rm.SourceScopeProfile != nil && rm.SourceScopeProfile.AllowsAuxiliaryPrincipal() {
 		return true
 	}
 	return ctypes.IsTypedSourceEnumerationShape(rm)
+}
+
+func repoMapSourceInventoryDefaultQuery(ctx *ctypes.BusContext, raw string) (string, string) {
+	if strings.TrimSpace(raw) != "" || ctx == nil || ctx.AnalysisIR == nil {
+		return raw, ""
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	if profile == nil || !profile.Active() {
+		return raw, ""
+	}
+	parts := make([]string, 0, len(profile.SourceQuotes))
+	seen := map[string]bool{}
+	for _, quote := range profile.SourceQuotes {
+		quote = strings.TrimSpace(quote)
+		if quote == "" || seen[quote] {
+			continue
+		}
+		seen[quote] = true
+		parts = append(parts, quote)
+	}
+	if len(parts) == 0 {
+		policy := ctypes.CompileRepoMapNavigationPolicy(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
+		if query := strings.TrimSpace(strings.Join(policy.QueryTerms, " ")); query != "" {
+			return query, "navigation_policy.query_terms"
+		}
+		return raw, ""
+	}
+	return strings.Join(parts, " "), "source_inventory_profile.source_quotes"
 }
 
 func sourceInventoryScopesContainRoot(scopes []string) bool {
@@ -924,7 +958,7 @@ func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, sc
 			}
 			return nil
 		}
-		if seen[rel] || !sourceInventoryAuxiliaryProjectionInScopes(rel, scopes) || sourceInventoryAuxiliarySourceClass(rel) == "" {
+		if seen[rel] || !sourceInventoryAuxiliaryProjectionInScopes(rel, scopes) || !sourceInventoryAuxiliaryPathHasSourceClass(rel) {
 			return nil
 		}
 		info, statErr := d.Info()
@@ -988,33 +1022,8 @@ func sourceInventoryAuxiliaryProjectionInScopes(rel string, scopes []string) boo
 	return false
 }
 
-func sourceInventoryAuxiliarySourceClass(rel string) string {
-	parts := sourceInventoryAuxiliaryPathParts(rel)
-	for _, part := range parts {
-		switch part {
-		case "testdata", "__tests__", "tests", "test":
-			return "test"
-		case "fixtures", "fixture":
-			return "fixture"
-		case "examples", "example":
-			return "example"
-		case "corpus", "corpora":
-			return "corpus"
-		}
-	}
-	return ""
-}
-
 func sourceInventoryAuxiliaryPathHasSourceClass(rel string) bool {
-	return sourceInventoryAuxiliarySourceClass(rel) != ""
-}
-
-func sourceInventoryAuxiliaryPathParts(rel string) []string {
-	rel = strings.Trim(strings.ToLower(strings.ReplaceAll(rel, `\`, `/`)), "/")
-	if rel == "" {
-		return nil
-	}
-	return strings.Split(rel, "/")
+	return ctypes.SourcePathRoleIsAuxiliary(ctypes.ClassifySourcePathRole(rel))
 }
 
 func repoMapSourceInventoryApplyBudgetGuard(p *repoMapParams, fileCount int) []string {

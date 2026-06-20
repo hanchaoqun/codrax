@@ -640,6 +640,37 @@ func TestRenderExtractorSourceInventoryAdvisory_RendersObservationOnlyRows(t *te
 	}
 }
 
+func TestRenderExtractorSourceInventoryAdvisory_RendersSourceClasses(t *testing.T) {
+	out := renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
+		SourceInventoryObservation: types.SourceInventoryObservation{
+			Active:       true,
+			AdvisoryOnly: true,
+			Complete:     true,
+			Scopes:       []string{"source_inventory"},
+			Provenance:   []string{"repo_lens:source_class_universe"},
+			SourceClasses: []types.SourceInventorySourceClassCount{{
+				Role:     types.SourcePathRoleThirdParty,
+				Count:    2,
+				Complete: true,
+			}, {
+				Role:     types.SourcePathRoleProduction,
+				Count:    5,
+				Complete: true,
+			}},
+		},
+	})
+	for _, want := range []string{
+		"repo-lens observation invariants",
+		"source_classes: production:5, thirdparty:2",
+		"not absence proof",
+		"include auxiliary before absence closure",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("source-class advisory missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // -----------------------------------------------------------------------------
 // ParseOutput quality-floor branches
 // -----------------------------------------------------------------------------
@@ -1680,6 +1711,41 @@ func TestParseOutput_PartialSourceInventoryMemberSetBlocksCompletePromotion(t *t
 	if strings.Contains(out.RetryHint, "fewer than 2 distinct evidence tool types") ||
 		strings.Contains(out.RetryHint, "Read more of the discovered files") {
 		t.Fatalf("candidate universe gap should beat generic retry hints, got %q", out.RetryHint)
+	}
+}
+
+func TestParseOutput_TurnAHandoffPreservesSourceInventoryObservation(t *testing.T) {
+	eval := phase11Eval("List ArkTS source inventory")
+	ctx := parseOutputCtx(string(types.ReqEnumeration), "list_of_symbols")
+	ctx.Mutable = types.NewMutableState("List ArkTS source inventory")
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentEnumerate
+	ctx.AnalysisIR.RequestModel.Predicates = types.SemanticPredicates{IsCategoryEnumeration: true}
+	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"."},
+		Provenance:   []string{"repo_lens:source_class_universe"},
+		Lens:         []string{"source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    2,
+			Complete: true,
+		}},
+	})
+
+	if _, err := eval.ParseOutput(ctx, nil, phase11ToolResults(), nil); err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	turnA := ctx.Mutable.TurnAArtifacts()
+	if turnA == nil {
+		t.Fatal("expected TurnAArtifacts handoff")
+	}
+	if !turnA.SourceInventoryObservation.IsActive() || len(turnA.SourceInventoryObservation.SourceClasses) != 1 {
+		t.Fatalf("source inventory observation lost in TurnA handoff: %+v", turnA.SourceInventoryObservation)
+	}
+	if got := turnA.SourceInventoryObservation.SourceClasses[0]; got.Role != types.SourcePathRoleThirdParty || got.Count != 2 {
+		t.Fatalf("source class universe changed in handoff: %+v", turnA.SourceInventoryObservation.SourceClasses)
 	}
 }
 

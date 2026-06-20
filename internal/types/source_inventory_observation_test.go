@@ -98,6 +98,47 @@ func TestSourceInventoryObservation_CloneAndMergePreservesCountInvariant(t *test
 	}
 }
 
+func TestSourceInventoryObservation_ClassUniverseCanBeActiveWithoutMemberRows(t *testing.T) {
+	classOnly := SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Lens:         []string{"source_class_universe"},
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:     SourcePathRoleThirdParty,
+			Count:    2,
+			Complete: true,
+		}},
+	}
+	got := CloneSourceInventoryObservation(classOnly)
+	if !got.IsActive() || len(got.Sets) != 0 || len(got.SourceClasses) != 1 {
+		t.Fatalf("class universe observation should stay active without member rows: %+v", got)
+	}
+
+	withMembers := SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{{
+				Name: "Run",
+				Key:  "Run",
+				Role: AnswerCandidateRoleFunction,
+				File: "src/run.py",
+			}},
+		}},
+	}
+	merged := MergeSourceInventoryObservation(classOnly, withMembers)
+	if !merged.IsActive() || len(merged.Sets) != 1 || len(merged.SourceClasses) != 1 {
+		t.Fatalf("merge should preserve member rows and source classes: %+v", merged)
+	}
+	if merged.SourceClasses[0].Role != SourcePathRoleThirdParty || merged.SourceClasses[0].Count != 2 {
+		t.Fatalf("source classes not preserved: %+v", merged.SourceClasses)
+	}
+}
+
 func TestMutableState_SourceInventoryAdvisoryMaintainsObservation(t *testing.T) {
 	mut := NewMutableState("source inventory")
 	mut.SetSourceInventoryAdvisory(SourceInventoryAdvisory{

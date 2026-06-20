@@ -20,6 +20,9 @@ const (
 	SourcePathRoleExample       SourcePathRole = "example"
 	SourcePathRoleDocumentation SourcePathRole = "documentation"
 	SourcePathRolePromptSupport SourcePathRole = "prompt_support"
+	SourcePathRoleThirdParty    SourcePathRole = "thirdparty"
+	SourcePathRoleVendor        SourcePathRole = "vendor"
+	SourcePathRoleGenerated     SourcePathRole = "generated"
 )
 
 // LooksLikePromptSupportPath reports whether a repo-relative path
@@ -74,7 +77,20 @@ func ClassifySourcePathRole(relPath string) SourcePathRole {
 	if LooksLikeTestFilePath(normalized) {
 		return SourcePathRoleTest
 	}
+	if looksLikeGeneratedPath(lower) {
+		return SourcePathRoleGenerated
+	}
 	switch {
+	case strings.Contains(lower, "/thirdparty/"),
+		strings.HasPrefix(lower, "thirdparty/"),
+		strings.Contains(lower, "/third_party/"),
+		strings.HasPrefix(lower, "third_party/"),
+		strings.Contains(lower, "/third-party/"),
+		strings.HasPrefix(lower, "third-party/"):
+		return SourcePathRoleThirdParty
+	case strings.Contains(lower, "/vendor/"),
+		strings.HasPrefix(lower, "vendor/"):
+		return SourcePathRoleVendor
 	case strings.Contains(lower, "/testdata/"),
 		strings.HasPrefix(lower, "testdata/"),
 		strings.Contains(lower, "/tests/"),
@@ -125,7 +141,33 @@ func SourcePathRoleIsAuxiliary(role SourcePathRole) bool {
 		SourcePathRoleFixture,
 		SourcePathRoleExample,
 		SourcePathRoleDocumentation,
-		SourcePathRolePromptSupport:
+		SourcePathRolePromptSupport,
+		SourcePathRoleThirdParty,
+		SourcePathRoleVendor,
+		SourcePathRoleGenerated:
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeGeneratedPath(lower string) bool {
+	if lower == "" {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(lower))
+	switch {
+	case strings.Contains(lower, "/generated/"),
+		strings.HasPrefix(lower, "generated/"),
+		strings.Contains(lower, "/gen/"),
+		strings.HasPrefix(lower, "gen/"),
+		strings.Contains(lower, "/autogen/"),
+		strings.HasPrefix(lower, "autogen/"),
+		strings.Contains(base, ".generated."),
+		strings.HasPrefix(base, "generated_"),
+		strings.HasSuffix(base, "_generated.go"),
+		strings.HasSuffix(base, ".pb.go"),
+		strings.HasSuffix(base, ".g.dart"):
 		return true
 	default:
 		return false

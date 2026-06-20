@@ -3614,22 +3614,9 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			p.Path = gate.ResolvedPath
 		}
 	}
-
-	recursiveStr := ""
-	if p.Recursive {
-		recursiveStr = "true"
+	if !p.IncludeAuxiliary && listFilesShouldAutoIncludeAuxiliary(ctx, p) {
+		p.IncludeAuxiliary = true
 	}
-	includeAuxiliaryStr := ""
-	if p.IncludeAuxiliary {
-		includeAuxiliaryStr = "true"
-	}
-	banner := kvBanner("list_files",
-		"path", p.Path,
-		"recursive", recursiveStr,
-		"include", p.Include,
-		"file_type", p.FileType,
-		"include_auxiliary", includeAuxiliaryStr,
-	)
 
 	// Resolve "." / relative paths against ctx.RepoRoot. The LLM walks
 	// the repo by saying `list_files(path=".")`, which without resolution
@@ -3642,9 +3629,62 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	if displayPath == "" {
 		displayPath = "."
 	}
-	dirFilter := NewSearchDirFilter(ctx.RepoRoot, fsPath)
 
+	files, err := listFilesCollect(ctx, fsPath, displayPath, p)
+	if err != nil {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: listFilesBanner(p) + err.Error(), Timestamp: time.Now()}, nil
+	}
+	if len(files) == 0 && listFilesShouldFallbackRecursive(ctx, p) {
+		p.Recursive = true
+		files, err = listFilesCollect(ctx, fsPath, displayPath, p)
+		if err != nil {
+			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: listFilesBanner(p) + err.Error(), Timestamp: time.Now()}, nil
+		}
+	}
+	if len(files) == 0 && !p.IncludeAuxiliary && listFilesShouldFallbackIncludeAuxiliary(ctx, p) {
+		p.IncludeAuxiliary = true
+		files, err = listFilesCollect(ctx, fsPath, displayPath, p)
+		if err != nil {
+			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: listFilesBanner(p) + err.Error(), Timestamp: time.Now()}, nil
+		}
+	}
+
+	banner := listFilesBanner(p)
+	summary, ref := StoreBlob(ctx, t.Name(), banner+strings.Join(files, "\n"))
+	return types.ToolResult{
+		ToolName:  t.Name(),
+		Success:   true,
+		Summary:   summary,
+		RawRef:    ref,
+		Timestamp: time.Now(),
+	}, nil
+}
+
+func listFilesBanner(p listFilesParams) string {
+	recursiveStr := ""
+	if p.Recursive {
+		recursiveStr = "true"
+	}
+	includeAuxiliaryStr := ""
+	if p.IncludeAuxiliary {
+		includeAuxiliaryStr = "true"
+	}
+	return kvBanner("list_files",
+		"path", p.Path,
+		"recursive", recursiveStr,
+		"include", p.Include,
+		"file_type", p.FileType,
+		"include_auxiliary", includeAuxiliaryStr,
+	)
+}
+
+func listFilesCollect(ctx *types.BusContext, fsPath, displayPath string, p listFilesParams) ([]string, error) {
 	var files []string
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	dirFilter := NewSearchDirFilter(repoRoot, fsPath)
 	filter := listFilesFilter{
 		ctx:              ctx,
 		dirFilter:        dirFilter,
@@ -3694,12 +3734,12 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			return nil
 		})
 		if err != nil {
-			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + fmt.Sprintf("walk failed: %v", err), Timestamp: time.Now()}, nil
+			return nil, fmt.Errorf("walk failed: %v", err)
 		}
 	} else {
 		entries, err := os.ReadDir(fsPath)
 		if err != nil {
-			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + fmt.Sprintf("readdir failed: %v", err), Timestamp: time.Now()}, nil
+			return nil, fmt.Errorf("readdir failed: %v", err)
 		}
 		for _, e := range entries {
 			// Apply the SAME noise-dir filter to non-recursive listing.
@@ -3729,15 +3769,60 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			files = append(files, filepath.Join(displayPath, e.Name()))
 		}
 	}
+	return files, nil
+}
 
-	summary, ref := StoreBlob(ctx, t.Name(), banner+strings.Join(files, "\n"))
-	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   summary,
-		RawRef:    ref,
-		Timestamp: time.Now(),
-	}, nil
+func listFilesShouldAutoIncludeAuxiliary(ctx *types.BusContext, p listFilesParams) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || !p.Recursive {
+		return false
+	}
+	if strings.TrimSpace(p.Include) == "" && strings.TrimSpace(p.FileType) == "" {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if SourceInventoryHasExplicitAuxiliaryExclusion(rm) {
+		return false
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return true
+	}
+	if rm.SourceScopeProfile != nil && rm.SourceScopeProfile.AllowsAuxiliaryPrincipal() {
+		return true
+	}
+	return types.IsTypedSourceEnumerationShape(rm)
+}
+
+func listFilesShouldFallbackRecursive(ctx *types.BusContext, p listFilesParams) bool {
+	if p.Recursive {
+		return false
+	}
+	if strings.TrimSpace(p.Include) == "" && strings.TrimSpace(p.FileType) == "" {
+		return false
+	}
+	pathValue := strings.TrimSpace(p.Path)
+	if pathValue == "" || pathValue == "." || pathValue == "./" {
+		return true
+	}
+	if ctx != nil && ctx.RepoRoot != "" {
+		if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, resolveToolPath(ctx, p.Path)); ok {
+			rel = strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")
+			return rel == "" || rel == "."
+		}
+	}
+	return false
+}
+
+func listFilesShouldFallbackIncludeAuxiliary(ctx *types.BusContext, p listFilesParams) bool {
+	if !p.Recursive {
+		return false
+	}
+	if strings.TrimSpace(p.Include) == "" && strings.TrimSpace(p.FileType) == "" {
+		return false
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && SourceInventoryHasExplicitAuxiliaryExclusion(ctx.AnalysisIR.RequestModel) {
+		return false
+	}
+	return true
 }
 
 type listFilesFilter struct {

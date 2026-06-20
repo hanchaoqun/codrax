@@ -3617,7 +3617,8 @@ func exhaustiveEnumerationHasOriginSpecificOnlyMemberSet(ctx *types.BusContext, 
 }
 
 func sourceInventoryLensExecutionDowngrade(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) string {
-	if sourceInventoryLensExecutionPrincipalHandoffComplete(ctx, aggregateFacts) {
+	if SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts) ||
+		sourceInventoryLensExecutionPathHandoffComplete(ctx, aggregateFacts) {
 		return ""
 	}
 	gap := SourceInventoryLensExecutionGapForContext(ctx)
@@ -3678,6 +3679,30 @@ func sourceInventoryLensExecutionPrincipalHandoffComplete(ctx *types.BusContext,
 		return true
 	}
 	return false
+}
+
+func sourceInventoryLensExecutionPathHandoffComplete(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+	if !sourceInventoryLensExecutionPrincipalHandoffComplete(ctx, facts) {
+		return false
+	}
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil {
+		return false
+	}
+	roles := ctx.AnalysisIR.RequestModel.SourceInventoryProfile.PrincipalTargetRoles()
+	if len(roles) == 0 {
+		return false
+	}
+	for _, role := range roles {
+		switch role {
+		case types.AnswerCandidateRolePackage,
+			types.AnswerCandidateRoleFile,
+			types.AnswerCandidateRoleConfigFile:
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func sourceInventoryLensExecutionRoleLabels(roles []types.AnswerCandidateRole) []string {

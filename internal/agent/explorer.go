@@ -12288,6 +12288,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			AcceptedResultKind:               strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),
 			AcceptedAggregateFacts:           stableAggregateFacts,
 			SourceInventoryAdvisory:          ctx.Mutable.SourceInventoryAdvisory(),
+			SourceInventoryObservation:       ctx.Mutable.SourceInventoryObservation(),
 			RuntimeObservationOnlyCompletion: runtimeObservationOnlyCompletion,
 			EvidenceItems:                    handoffEvidence,
 			FlowFindings:                     rankedFindings,

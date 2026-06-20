@@ -22,13 +22,26 @@ const (
 // for the model, and does not replace source-text citations for implementation
 // behavior claims.
 type SourceInventoryObservation struct {
-	Active       bool                            `json:"active"`
-	AdvisoryOnly bool                            `json:"advisory_only,omitempty"`
-	Complete     bool                            `json:"complete,omitempty"`
-	Scopes       []string                        `json:"scopes,omitempty"`
-	Provenance   []string                        `json:"provenance,omitempty"`
-	Lens         []string                        `json:"lens,omitempty"`
-	Sets         []SourceInventoryObservationSet `json:"sets,omitempty"`
+	Active        bool                              `json:"active"`
+	AdvisoryOnly  bool                              `json:"advisory_only,omitempty"`
+	Complete      bool                              `json:"complete,omitempty"`
+	Scopes        []string                          `json:"scopes,omitempty"`
+	Provenance    []string                          `json:"provenance,omitempty"`
+	Lens          []string                          `json:"lens,omitempty"`
+	SourceClasses []SourceInventorySourceClassCount `json:"source_classes,omitempty"`
+	Sets          []SourceInventoryObservationSet   `json:"sets,omitempty"`
+}
+
+// SourceInventorySourceClassCount is the source-class universe matrix attached
+// to source-inventory observations. It is computed from repo path roles, not
+// model prose, so absence gates can tell whether a zero result covered only
+// production sources or also repo-owned auxiliary classes such as fixtures,
+// generated files, vendored code, and third-party corpora.
+type SourceInventorySourceClassCount struct {
+	Role       SourcePathRole `json:"role,omitempty"`
+	Count      int            `json:"count,omitempty"`
+	Complete   bool           `json:"complete,omitempty"`
+	Provenance []string       `json:"provenance,omitempty"`
 }
 
 // SourceInventoryLensQuery is the model/tool-facing query surface for an
@@ -56,7 +69,7 @@ type SourceInventoryLensQuery struct {
 }
 
 func (o SourceInventoryObservation) IsActive() bool {
-	return o.Active && len(o.Sets) > 0
+	return o.Active && (len(o.Sets) > 0 || len(o.SourceClasses) > 0)
 }
 
 // SourceInventoryObservationSet is one role-bounded member set. Count is a
@@ -203,6 +216,7 @@ func CloneSourceInventoryObservation(in SourceInventoryObservation) SourceInvent
 	out.Scopes = append([]string(nil), in.Scopes...)
 	out.Provenance = append([]string(nil), in.Provenance...)
 	out.Lens = append([]string(nil), in.Lens...)
+	out.SourceClasses = cloneSourceInventorySourceClassCounts(in.SourceClasses)
 	if in.Sets != nil {
 		out.Sets = make([]SourceInventoryObservationSet, len(in.Sets))
 		for i, set := range in.Sets {
@@ -228,6 +242,7 @@ func MergeSourceInventoryObservation(prior, current SourceInventoryObservation) 
 	merged.Scopes = mergeSourceInventoryAdvisoryStrings(merged.Scopes, current.Scopes)
 	merged.Provenance = mergeSourceInventoryAdvisoryStrings(merged.Provenance, current.Provenance)
 	merged.Lens = mergeSourceInventoryAdvisoryStrings(merged.Lens, current.Lens)
+	merged.SourceClasses = mergeSourceInventorySourceClassCounts(merged.SourceClasses, current.SourceClasses)
 	byRole := make(map[AnswerCandidateRole]int, len(merged.Sets))
 	for i := range merged.Sets {
 		byRole[merged.Sets[i].Role] = i
@@ -252,7 +267,8 @@ func MergeSourceInventoryObservation(prior, current SourceInventoryObservation) 
 }
 
 func normalizeSourceInventoryObservation(in SourceInventoryObservation) SourceInventoryObservation {
-	if len(in.Sets) == 0 {
+	in.SourceClasses = normalizeSourceInventorySourceClassCounts(in.SourceClasses)
+	if len(in.Sets) == 0 && len(in.SourceClasses) == 0 {
 		return SourceInventoryObservation{}
 	}
 	in.Active = true
@@ -260,6 +276,63 @@ func normalizeSourceInventoryObservation(in SourceInventoryObservation) SourceIn
 		in.Sets[i].Count = len(in.Sets[i].Members)
 	}
 	return in
+}
+
+func cloneSourceInventorySourceClassCounts(in []SourceInventorySourceClassCount) []SourceInventorySourceClassCount {
+	if in == nil {
+		return nil
+	}
+	out := make([]SourceInventorySourceClassCount, len(in))
+	for i, item := range in {
+		out[i] = item
+		out[i].Provenance = append([]string(nil), item.Provenance...)
+	}
+	return out
+}
+
+func mergeSourceInventorySourceClassCounts(existing, incoming []SourceInventorySourceClassCount) []SourceInventorySourceClassCount {
+	if len(existing) == 0 {
+		return cloneSourceInventorySourceClassCounts(incoming)
+	}
+	out := cloneSourceInventorySourceClassCounts(existing)
+	byRole := make(map[SourcePathRole]int, len(out)+len(incoming))
+	for i, item := range out {
+		if item.Role != SourcePathRoleUnknown {
+			byRole[item.Role] = i
+		}
+	}
+	for _, item := range incoming {
+		if item.Role == SourcePathRoleUnknown {
+			continue
+		}
+		if idx, ok := byRole[item.Role]; ok {
+			if item.Count > out[idx].Count {
+				out[idx].Count = item.Count
+			}
+			out[idx].Complete = out[idx].Complete && item.Complete
+			out[idx].Provenance = mergeSourceInventoryAdvisoryStrings(out[idx].Provenance, item.Provenance)
+			continue
+		}
+		byRole[item.Role] = len(out)
+		cloned := item
+		cloned.Provenance = append([]string(nil), item.Provenance...)
+		out = append(out, cloned)
+	}
+	return normalizeSourceInventorySourceClassCounts(out)
+}
+
+func normalizeSourceInventorySourceClassCounts(in []SourceInventorySourceClassCount) []SourceInventorySourceClassCount {
+	if len(in) == 0 {
+		return nil
+	}
+	out := in[:0]
+	for _, item := range in {
+		if item.Role == SourcePathRoleUnknown || item.Count <= 0 {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func cloneSourceInventoryObservationMembers(in []SourceInventoryObservationMember) []SourceInventoryObservationMember {

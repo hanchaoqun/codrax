@@ -792,6 +792,10 @@ func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
 		} else {
 			b.WriteString("none\n")
 		}
+		if sourceClasses := renderExtractorSourceInventorySourceClasses(observation.SourceClasses); sourceClasses != "" {
+			fmt.Fprintf(&b, "- source_classes: %s\n", sourceClasses)
+			b.WriteString("- A no-row source_inventory/list_files result is not absence proof while source_classes shows in-scope repo-owned source classes; narrow the lens or include auxiliary before absence closure.\n")
+		}
 	}
 	if guide := renderExtractorSourceInventoryCascadeGuide(observation, scopes); guide != "" {
 		b.WriteString("\n")
@@ -804,6 +808,74 @@ func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderExtractorSourceInventorySourceClasses(classes []types.SourceInventorySourceClassCount) string {
+	if len(classes) == 0 {
+		return ""
+	}
+	byRole := make(map[types.SourcePathRole]types.SourceInventorySourceClassCount, len(classes))
+	var unknown []types.SourceInventorySourceClassCount
+	for _, class := range classes {
+		if class.Count <= 0 {
+			continue
+		}
+		if class.Role == "" || class.Role == types.SourcePathRoleUnknown {
+			unknown = append(unknown, class)
+			continue
+		}
+		current, exists := byRole[class.Role]
+		if !exists || class.Count > current.Count || (class.Complete && !current.Complete) {
+			byRole[class.Role] = class
+		}
+	}
+	order := []types.SourcePathRole{
+		types.SourcePathRoleProduction,
+		types.SourcePathRoleTest,
+		types.SourcePathRoleFixture,
+		types.SourcePathRoleExample,
+		types.SourcePathRoleDocumentation,
+		types.SourcePathRolePromptSupport,
+		types.SourcePathRoleThirdParty,
+		types.SourcePathRoleVendor,
+		types.SourcePathRoleGenerated,
+	}
+	parts := make([]string, 0, len(byRole)+len(unknown))
+	for _, role := range order {
+		class, ok := byRole[role]
+		if !ok {
+			continue
+		}
+		parts = append(parts, renderExtractorSourceInventorySourceClass(class))
+		delete(byRole, role)
+	}
+	rest := make([]string, 0, len(byRole))
+	for role := range byRole {
+		rest = append(rest, string(role))
+	}
+	sort.Strings(rest)
+	for _, role := range rest {
+		parts = append(parts, renderExtractorSourceInventorySourceClass(byRole[types.SourcePathRole(role)]))
+	}
+	for _, class := range unknown {
+		parts = append(parts, renderExtractorSourceInventorySourceClass(class))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", ")
+}
+
+func renderExtractorSourceInventorySourceClass(class types.SourceInventorySourceClassCount) string {
+	role := strings.TrimSpace(string(class.Role))
+	if role == "" {
+		role = "unknown"
+	}
+	suffix := ""
+	if !class.Complete {
+		suffix = "+"
+	}
+	return fmt.Sprintf("%s:%d%s", role, class.Count, suffix)
 }
 
 func renderExtractorSourceInventoryCascadeGuide(observation types.SourceInventoryObservation, scopes []string) string {

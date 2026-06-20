@@ -175,6 +175,56 @@ func TestSourceInventoryLensQueryScopes_PathRelativeScopedRoot(t *testing.T) {
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_PublishesSourceClassUniverseWithoutCandidates(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "src/main.py", "def run():\n    pass\n")
+	writeTestFile(t, root, "internal/thirdparty/tree-sitter-arkts/corpus/sources/entry.ets", "@Entry\n@Component\nstruct Index { build() {} }\n")
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/main.py",
+		Language: repotypes.LangPython,
+		Package:  "src",
+	}})
+	ctx := sourceInventoryTestContext(root, graph, ".", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		SourceQuotes:      []string{"@Entry", "@Component"},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.90,
+	})
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+		Query:         "@Entry @Component",
+	})
+	if !obs.IsActive() || len(obs.Sets) != 0 {
+		t.Fatalf("class-only source inventory observation should be active without candidates: %+v", obs)
+	}
+	counts := map[types.SourcePathRole]int{}
+	for _, class := range obs.SourceClasses {
+		counts[class.Role] = class.Count
+	}
+	if counts[types.SourcePathRoleThirdParty] != 1 || counts[types.SourcePathRoleProduction] != 1 {
+		t.Fatalf("source class universe should include repo-owned thirdparty and production files: counts=%+v obs=%+v", counts, obs)
+	}
+	rendered := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+	})
+	for _, want := range []string{"source_classes:", "thirdparty:1", "No candidate member rows matched"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered class universe missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterialization(t *testing.T) {
 	files := make([]*repotypes.FileInfo, 0, sourceInventoryCandidateBudgetFileThreshold+100)
 	for i := 0; i < sourceInventoryCandidateBudgetFileThreshold+100; i++ {
@@ -862,6 +912,31 @@ func TestSourceInventorySourceScope_TypedQueryRootScopeIncludesAuxiliarySources(
 	}
 }
 
+func TestSourceInventorySourceScope_ProductionInventoryWithoutExplicitExclusionIncludesAuxiliarySources(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("source inventory"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				SourceQuotes:      []string{"decorated components"},
+				Confidence:        0.9,
+			},
+		}},
+	}
+	if !sourceInventorySourceInRequestedScope(ctx, "fixtures/arkts/entry.ets") {
+		t.Fatal("production source scope without explicit auxiliary exclusion should not hard-filter repo-owned auxiliary sources in source_inventory")
+	}
+}
+
 func TestSourceInventorySourceScope_ExplicitProductionInventoryStillFiltersAuxiliarySources(t *testing.T) {
 	ctx := &types.BusContext{
 		Mutable: types.NewMutableState("source inventory"),
@@ -873,6 +948,15 @@ func TestSourceInventorySourceScope_ExplicitProductionInventoryStillFiltersAuxil
 			SourceScopeProfile: &types.SourceScopeProfile{
 				RequestedScope: types.SourceScopeProduction,
 				Confidence:     0.9,
+			},
+			AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+				IsExclusionRequested: true,
+				ExcludedCandidateRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFixture,
+					types.AnswerCandidateRoleExample,
+				},
+				SourceQuotes: []string{"fixture", "example"},
+				Confidence:   0.9,
 			},
 			SourceInventoryProfile: &types.SourceInventoryProfile{
 				IsSourceInventory: true,

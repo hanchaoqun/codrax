@@ -1,11 +1,13 @@
 package tool
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -38,6 +40,8 @@ type sourceInventoryCandidateSet struct {
 	complete   bool
 	truncated  bool
 }
+
+const sourceInventorySourceClassUniverseMaxFiles = 200000
 
 type sourceInventoryCandidateBudget struct {
 	maxPerRole     int
@@ -278,6 +282,12 @@ func sourceInventoryAdvisorySnapshotQuery(ctx *types.BusContext) string {
 		return ""
 	}
 	if profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile; profile != nil && profile.Active() {
+		if query := strings.Join(trimStringSlice(profile.SourceQuotes), " "); strings.TrimSpace(query) != "" {
+			return query
+		}
+		if profile.Confidence > 0 && profile.Confidence < 0.70 {
+			return sourceInventoryAdvisoryQueryFromRequest(ctx)
+		}
 		return ""
 	}
 	return sourceInventoryAdvisoryQueryFromRequest(ctx)
@@ -425,6 +435,22 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 	advisoryProvenance := append([]string{"repo_lens:tool_query"}, query.Provenance...)
 	advisory := buildSourceInventoryAdvisoryForLens(ctx, query, true, advisoryProvenance)
 	if !advisory.IsActive() {
+		classOnly := sourceInventoryObservationWithSourceClassUniverse(ctx, types.SourceInventoryObservation{
+			Active:       true,
+			AdvisoryOnly: true,
+			Complete:     true,
+			Scopes:       sourceInventorySourceClassUniverseScopes(query),
+			Provenance:   advisoryProvenance,
+			Lens:         []string{"source_class_universe", "count"},
+		}, query)
+		if classOnly.IsActive() {
+			current := ctx.Mutable.SourceInventoryObservation()
+			if current.IsActive() {
+				classOnly = types.MergeSourceInventoryObservation(current, classOnly)
+			}
+			ctx.Mutable.SetSourceInventoryObservation(classOnly)
+			return classOnly
+		}
 		return types.SourceInventoryObservation{}
 	}
 	if current := ctx.Mutable.SourceInventoryAdvisory(); current.IsActive() {
@@ -437,7 +463,9 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 	// visible repo_map result makes a narrow lens look like a broad union and
 	// can mislead the model into treating navigation hints as the answer set.
 	renderObservation := types.SourceInventoryObservationFromAdvisory(advisory)
+	renderObservation = sourceInventoryObservationWithSourceClassUniverse(ctx, renderObservation, query)
 	if exact := sourceInventoryObservationFromLensDirectChildren(ctx, query); exact.IsActive() {
+		exact = sourceInventoryObservationWithSourceClassUniverse(ctx, exact, query)
 		current := ctx.Mutable.SourceInventoryObservation()
 		if current.IsActive() {
 			exact = types.MergeSourceInventoryObservation(current, exact)
@@ -448,6 +476,210 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 		return renderObservation
 	}
 	return ctx.Mutable.SourceInventoryObservation()
+}
+
+func sourceInventoryObservationWithSourceClassUniverse(ctx *types.BusContext, observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) types.SourceInventoryObservation {
+	sourceClasses := sourceInventorySourceClassUniverseForLens(ctx, query)
+	if len(sourceClasses) == 0 {
+		return observation
+	}
+	if len(observation.Scopes) == 0 {
+		observation.Scopes = sourceInventorySourceClassUniverseScopes(query)
+	}
+	observation.SourceClasses = sourceClasses
+	observation.Lens = sourceInventoryAdvisoryAppendProvenance(observation.Lens, "source_class_universe", "count")
+	observation.Provenance = sourceInventoryAdvisoryAppendProvenance(observation.Provenance, "source_class_universe:repo_tracked")
+	observation.Complete = observation.Complete && sourceInventorySourceClassUniverseComplete(sourceClasses)
+	return types.CloneSourceInventoryObservation(observation)
+}
+
+func sourceInventorySourceClassUniverseForLens(ctx *types.BusContext, query types.SourceInventoryLensQuery) []types.SourceInventorySourceClassCount {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return nil
+	}
+	scopes := sourceInventorySourceClassUniverseScopes(query)
+	files, complete := sourceInventoryTrackedRepoFiles(ctx.RepoRoot)
+	if len(files) == 0 {
+		return nil
+	}
+	counts := map[types.SourcePathRole]int{}
+	for _, rel := range files {
+		rel = strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")
+		if rel == "" || !sourceInventoryFileInScopes(rel, scopes) {
+			continue
+		}
+		lang := repotypes.DetectLanguage(rel)
+		if lang == "" || !repotypes.IsSupportedReadLanguage(lang) {
+			continue
+		}
+		role := types.ClassifySourcePathRole(rel)
+		if role == types.SourcePathRoleUnknown {
+			continue
+		}
+		counts[role]++
+	}
+	if len(counts) == 0 {
+		return nil
+	}
+	order := []types.SourcePathRole{
+		types.SourcePathRoleProduction,
+		types.SourcePathRoleTest,
+		types.SourcePathRoleFixture,
+		types.SourcePathRoleExample,
+		types.SourcePathRoleDocumentation,
+		types.SourcePathRolePromptSupport,
+		types.SourcePathRoleThirdParty,
+		types.SourcePathRoleVendor,
+		types.SourcePathRoleGenerated,
+	}
+	var out []types.SourceInventorySourceClassCount
+	for _, role := range order {
+		if count := counts[role]; count > 0 {
+			out = append(out, types.SourceInventorySourceClassCount{
+				Role:       role,
+				Count:      count,
+				Complete:   complete,
+				Provenance: []string{"source_class_universe:git_tracked_or_filesystem"},
+			})
+		}
+		delete(counts, role)
+	}
+	for role, count := range counts {
+		if count <= 0 {
+			continue
+		}
+		out = append(out, types.SourceInventorySourceClassCount{
+			Role:       role,
+			Count:      count,
+			Complete:   complete,
+			Provenance: []string{"source_class_universe:git_tracked_or_filesystem"},
+		})
+	}
+	return out
+}
+
+func sourceInventorySourceClassUniverseScopes(query types.SourceInventoryLensQuery) []string {
+	scopes := sourceInventoryLensDirectChildScopes(query)
+	if len(scopes) == 0 {
+		scopes = append([]string(nil), query.Scopes...)
+	}
+	if len(scopes) == 0 {
+		scopes = []string{"."}
+	}
+	return dedupStringsPreserveOrder(scopes)
+}
+
+func sourceInventorySourceClassUniverseComplete(classes []types.SourceInventorySourceClassCount) bool {
+	if len(classes) == 0 {
+		return false
+	}
+	for _, class := range classes {
+		if !class.Complete {
+			return false
+		}
+	}
+	return true
+}
+
+func sourceInventoryTrackedRepoFiles(repoRoot string) ([]string, bool) {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return nil, false
+	}
+	if files, ok := sourceInventoryGitTrackedFiles(repoRoot); ok {
+		return sourceInventoryLimitSourceClassFiles(files)
+	}
+	files, complete := sourceInventoryFilesystemFiles(repoRoot)
+	return sourceInventoryLimitSourceClassFilesWithCompleteness(files, complete)
+}
+
+func sourceInventoryGitTrackedFiles(repoRoot string) ([]string, bool) {
+	cmd, cancel := NewGitCommand(nil, "ls-files", "-z", "--")
+	defer cancel()
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return nil, false
+	}
+	parts := bytes.Split(out, []byte{0})
+	files := make([]string, 0, len(parts))
+	for _, part := range parts {
+		rel := strings.Trim(strings.ReplaceAll(string(part), `\`, `/`), "/")
+		if rel == "" {
+			continue
+		}
+		files = append(files, rel)
+	}
+	return files, len(files) > 0
+}
+
+func sourceInventoryFilesystemFiles(repoRoot string) ([]string, bool) {
+	var files []string
+	complete := true
+	err := filepath.WalkDir(repoRoot, func(abs string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		name := strings.TrimSpace(d.Name())
+		if name == "" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if abs == repoRoot {
+			return nil
+		}
+		rel, relErr := filepath.Rel(repoRoot, abs)
+		if relErr != nil {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel = strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")
+		if rel == "" {
+			return nil
+		}
+		if d.IsDir() {
+			if sourceInventorySourceClassUniverseSkipDir(name) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		files = append(files, rel)
+		if len(files) >= sourceInventorySourceClassUniverseMaxFiles {
+			complete = false
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		complete = false
+	}
+	return files, complete
+}
+
+func sourceInventorySourceClassUniverseSkipDir(base string) bool {
+	switch strings.ToLower(strings.TrimSpace(base)) {
+	case ".git", ".hg", ".svn", ".codrax", "node_modules", ".tox", ".venv", "venv",
+		".mypy_cache", ".pytest_cache", ".idea", ".vscode", ".vs", ".gradle", ".cargo",
+		".next", ".nuxt", ".turbo", ".pnpm-store":
+		return true
+	default:
+		return false
+	}
+}
+
+func sourceInventoryLimitSourceClassFiles(files []string) ([]string, bool) {
+	return sourceInventoryLimitSourceClassFilesWithCompleteness(files, true)
+}
+
+func sourceInventoryLimitSourceClassFilesWithCompleteness(files []string, complete bool) ([]string, bool) {
+	if len(files) <= sourceInventorySourceClassUniverseMaxFiles {
+		return files, complete
+	}
+	return files[:sourceInventorySourceClassUniverseMaxFiles], false
 }
 
 func sourceInventoryObservationFromLensDirectChildren(ctx *types.BusContext, query types.SourceInventoryLensQuery) types.SourceInventoryObservation {
@@ -1528,6 +1760,9 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 	if len(observation.Lens) > 0 {
 		fmt.Fprintf(&b, "- lens: `%s`\n", strings.Join(observation.Lens, "`, `"))
 	}
+	if sourceClasses := renderSourceInventorySourceClassCounts(observation.SourceClasses); sourceClasses != "" {
+		fmt.Fprintf(&b, "- source_classes: %s\n", sourceClasses)
+	}
 	if roles := sourceInventoryLensQueryAttributeRoles(query); len(roles) > 0 {
 		labels := make([]string, 0, len(roles))
 		for _, role := range roles {
@@ -1546,6 +1781,10 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 		fmt.Fprintf(&b, "- page_offset: %d\n", offset)
 	}
 	b.WriteByte('\n')
+	if len(observation.Sets) == 0 {
+		b.WriteString("No candidate member rows matched this source_inventory lens. Do not treat this as repository-wide absence unless the typed source-class universe above covers the requested source classes and the final answer carries a bounded negative citation.\n")
+		return strings.TrimSpace(b.String())
+	}
 	if cascadeView != "" {
 		b.WriteString(cascadeView)
 		b.WriteString("\n\n")
@@ -2343,6 +2582,58 @@ func renderSourceInventoryLanguageCounts(counts map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%s:%d", lang, counts[lang]))
 	}
 	return strings.Join(parts, ",")
+}
+
+func renderSourceInventorySourceClassCounts(classes []types.SourceInventorySourceClassCount) string {
+	if len(classes) == 0 {
+		return ""
+	}
+	order := []types.SourcePathRole{
+		types.SourcePathRoleProduction,
+		types.SourcePathRoleTest,
+		types.SourcePathRoleFixture,
+		types.SourcePathRoleExample,
+		types.SourcePathRoleDocumentation,
+		types.SourcePathRolePromptSupport,
+		types.SourcePathRoleThirdParty,
+		types.SourcePathRoleVendor,
+		types.SourcePathRoleGenerated,
+	}
+	byRole := make(map[types.SourcePathRole]types.SourceInventorySourceClassCount, len(classes))
+	for _, class := range classes {
+		if class.Role == types.SourcePathRoleUnknown || class.Count <= 0 {
+			continue
+		}
+		byRole[class.Role] = class
+	}
+	var parts []string
+	for _, role := range order {
+		class, ok := byRole[role]
+		if !ok {
+			continue
+		}
+		delete(byRole, role)
+		parts = append(parts, renderSourceInventorySourceClassCount(class))
+	}
+	if len(byRole) > 0 {
+		var rest []string
+		for role := range byRole {
+			rest = append(rest, string(role))
+		}
+		sort.Strings(rest)
+		for _, role := range rest {
+			parts = append(parts, renderSourceInventorySourceClassCount(byRole[types.SourcePathRole(role)]))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func renderSourceInventorySourceClassCount(class types.SourceInventorySourceClassCount) string {
+	item := fmt.Sprintf("%s:%d", class.Role, class.Count)
+	if !class.Complete {
+		item += "(partial)"
+	}
+	return item
 }
 
 func sourceInventoryLensQueryOffset(query types.SourceInventoryLensQuery) int {
@@ -3798,6 +4089,31 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 	return set
 }
 
+// SourceInventoryHasExplicitAuxiliaryExclusion reports whether the analyzer
+// preserved a user-stated exclusion of repo-owned auxiliary source classes.
+// This is a typed policy check: it consumes only AnswerExclusionPolicy enums
+// that already passed source_quote validation, never raw request prose or model
+// rationale. A production SourceScopeProfile without this exclusion is treated
+// as a ranking preference for source-inventory lenses, not as an absence-proof
+// hard filter over fixture/corpus/example surfaces.
+func SourceInventoryHasExplicitAuxiliaryExclusion(rm types.RequestModel) bool {
+	policy := rm.AnswerExclusionPolicy
+	if policy == nil || !policy.Active() {
+		return false
+	}
+	for _, role := range policy.ExcludedCandidateRoles {
+		switch role {
+		case types.AnswerCandidateRoleTest,
+			types.AnswerCandidateRoleDocumentation,
+			types.AnswerCandidateRoleExample,
+			types.AnswerCandidateRoleFixture,
+			types.AnswerCandidateRoleGenerated:
+			return true
+		}
+	}
+	return false
+}
+
 func sourceInventoryFilterCandidateSetByQuery(set sourceInventoryCandidateSet, rawQuery string) sourceInventoryCandidateSet {
 	filter := sourceInventoryBuildQueryFilter(rawQuery)
 	if !filter.Active() || len(set.candidates) == 0 {
@@ -4369,7 +4685,11 @@ func (filter sourceInventoryScopeFilter) SourceInRequestedScope(source string) b
 	if filter.ctx == nil || filter.ctx.AnalysisIR == nil {
 		return true
 	}
+	rm := filter.ctx.AnalysisIR.RequestModel
 	if filter.repositoryWideTypedQueryLane {
+		return true
+	}
+	if filter.sourceInventoryProfileActive && !SourceInventoryHasExplicitAuxiliaryExclusion(rm) {
 		return true
 	}
 	if filter.sourceScopeProfileRequested {

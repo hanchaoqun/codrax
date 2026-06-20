@@ -525,6 +525,7 @@ func TestListFiles_FileTypeFiltersPathNames(t *testing.T) {
 func TestListFiles_FileTypeCanIncludeRepoOwnedAuxiliary(t *testing.T) {
 	repo := t.TempDir()
 	paths := []string{
+		"entry/src/main/ets/pages/Index.ets",
 		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
 		"node_modules/pkg/noise.ets",
 	}
@@ -544,8 +545,11 @@ func TestListFiles_FileTypeCanIncludeRepoOwnedAuxiliary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute without aux: %v", err)
 	}
+	if !strings.Contains(withoutAux.Summary, "entry/src/main/ets/pages/Index.ets") {
+		t.Fatalf("default listing should keep primary production matches:\n%s", withoutAux.Summary)
+	}
 	if strings.Contains(withoutAux.Summary, "01_entry_component_minimal.ets") {
-		t.Fatalf("default listing must keep auxiliary corpus filtered:\n%s", withoutAux.Summary)
+		t.Fatalf("default listing must keep auxiliary corpus filtered when primary matches exist:\n%s", withoutAux.Summary)
 	}
 
 	withAux, err := tool.Execute(bus, json.RawMessage(`{"path":".","recursive":true,"file_type":"arkts","include_auxiliary":true}`))
@@ -560,6 +564,169 @@ func TestListFiles_FileTypeCanIncludeRepoOwnedAuxiliary(t *testing.T) {
 	}
 	if !strings.Contains(withAux.Summary, "include_auxiliary=true") {
 		t.Fatalf("banner should preserve auxiliary-scope provenance:\n%s", withAux.Summary)
+	}
+}
+
+func TestListFiles_FileTypeFallsBackToAuxiliaryWhenPrimaryEmpty(t *testing.T) {
+	repo := t.TempDir()
+	for _, pathValue := range []string{
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		"node_modules/pkg/noise.ets",
+	} {
+		full := filepath.Join(repo, filepath.FromSlash(pathValue))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", pathValue, err)
+		}
+		if err := os.WriteFile(full, []byte("@Entry\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", pathValue, err)
+		}
+	}
+
+	result, err := (&ListFiles{}).Execute(&types.BusContext{RepoRoot: repo}, json.RawMessage(`{"path":".","recursive":true,"file_type":"arkts"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets") {
+		t.Fatalf("empty primary source scan should fall back to repo-owned auxiliary sources:\n%s", result.Summary)
+	}
+	if strings.Contains(result.Summary, "node_modules/pkg/noise.ets") {
+		t.Fatalf("auxiliary fallback must not reopen dependency/cache trees:\n%s", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "include_auxiliary=true") {
+		t.Fatalf("banner should expose deterministic fallback provenance:\n%s", result.Summary)
+	}
+}
+
+func TestListFiles_IncludeGlobFallsBackToRecursiveAuxiliaryWhenRootEmpty(t *testing.T) {
+	repo := t.TempDir()
+	pathValue := "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"
+	full := filepath.Join(repo, filepath.FromSlash(pathValue))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir auxiliary source: %v", err)
+	}
+	if err := os.WriteFile(full, []byte("@Entry\n"), 0o644); err != nil {
+		t.Fatalf("write auxiliary source: %v", err)
+	}
+
+	result, err := (&ListFiles{}).Execute(&types.BusContext{RepoRoot: repo}, json.RawMessage(`{"path":".","include":"*.ets"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	if !strings.Contains(result.Summary, pathValue) {
+		t.Fatalf("root targeted glob with no direct matches should fall back to recursive auxiliary scan:\n%s", result.Summary)
+	}
+	for _, want := range []string{"recursive=true", "include_auxiliary=true", "include=*.ets"} {
+		if !strings.Contains(result.Summary, want) {
+			t.Fatalf("fallback banner missing %q:\n%s", want, result.Summary)
+		}
+	}
+}
+
+func TestListFiles_FileTypeAutoIncludesAuxiliaryForTypedSourceInventory(t *testing.T) {
+	repo := t.TempDir()
+	paths := []string{
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		"node_modules/pkg/noise.ets",
+		".codrax/output/noise.ets",
+	}
+	for _, pathValue := range paths {
+		full := filepath.Join(repo, filepath.FromSlash(pathValue))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", pathValue, err)
+		}
+		if err := os.WriteFile(full, []byte("@Entry\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", pathValue, err)
+		}
+	}
+
+	bus := &types.BusContext{
+		RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				SourceQuotes:      []string{"ArkTS sources"},
+				Confidence:        0.9,
+			},
+		}},
+	}
+
+	result, err := (&ListFiles{}).Execute(bus, json.RawMessage(`{"path":".","recursive":true,"file_type":"arkts"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets") {
+		t.Fatalf("typed source inventory should auto-include repo-owned auxiliary sources:\n%s", result.Summary)
+	}
+	for _, noise := range []string{"node_modules/pkg/noise.ets", ".codrax/output/noise.ets"} {
+		if strings.Contains(result.Summary, noise) {
+			t.Fatalf("auto auxiliary inclusion must not reopen dependency/cache noise %q:\n%s", noise, result.Summary)
+		}
+	}
+	if !strings.Contains(result.Summary, "include_auxiliary=true") {
+		t.Fatalf("banner should expose deterministic auto-inclusion provenance:\n%s", result.Summary)
+	}
+}
+
+func TestListFiles_FileTypeDoesNotAutoIncludeAuxiliaryWithExplicitExclusion(t *testing.T) {
+	repo := t.TempDir()
+	pathValue := "internal/thirdparty/tree-sitter-arkts/corpus/sources/entry_component.ets"
+	full := filepath.Join(repo, filepath.FromSlash(pathValue))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir auxiliary source: %v", err)
+	}
+	if err := os.WriteFile(full, []byte("@Entry\n"), 0o644); err != nil {
+		t.Fatalf("write auxiliary source: %v", err)
+	}
+
+	bus := &types.BusContext{
+		RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				Confidence:        0.9,
+			},
+			AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+				IsExclusionRequested: true,
+				ExcludedCandidateRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFixture,
+				},
+				SourceQuotes: []string{"supporting corpus"},
+				Confidence:   0.9,
+			},
+		}},
+	}
+
+	result, err := (&ListFiles{}).Execute(bus, json.RawMessage(`{"path":".","recursive":true,"file_type":"arkts"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	if strings.Contains(result.Summary, pathValue) {
+		t.Fatalf("explicit typed auxiliary exclusion should keep fixture out of default listing:\n%s", result.Summary)
+	}
+	if strings.Contains(result.Summary, "include_auxiliary=true") {
+		t.Fatalf("banner must not claim auto auxiliary inclusion when explicit exclusion blocks it:\n%s", result.Summary)
 	}
 }
 

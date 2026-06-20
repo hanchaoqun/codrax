@@ -1358,6 +1358,75 @@ func TestPublishSourceInventoryAdvisoryFromTypedRequest_QuerySynthesizesProfileA
 	}
 }
 
+func TestPublishSourceInventoryAdvisoryFromTypedRequest_LowConfidenceProfileUsesQueryRootScope(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			Language: "arkts",
+			Symbols: []repotypes.Symbol{{
+				Name: "Index", Kind: "component", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", Line: 7, Exported: true, Doc: "@Entry @Component",
+			}},
+		},
+		{
+			RelPath:  "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+			Language: "arkts",
+			Symbols: []repotypes.Symbol{{
+				Name: "GlobalCard", Kind: "builder", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 26, Exported: true, Doc: "@Builder",
+			}},
+		},
+	})
+	mut := types.NewMutableState("low-confidence source inventory profile")
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				Keywords: []string{"@Entry", "@Builder", "ArkTS"},
+				Entities: []string{"@Entry", "@Builder", "ArkTS"},
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFunction,
+					types.AnswerCandidateRoleMethod,
+					types.AnswerCandidateRoleType,
+				},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				Confidence: 0.45,
+			},
+		}},
+	}
+
+	if !PublishSourceInventoryAdvisoryFromTypedRequest(ctx) {
+		t.Fatal("expected low-confidence inventory profile to use typed query root scope")
+	}
+	advisory := ctx.Mutable.SourceInventoryAdvisory()
+	for _, want := range []string{
+		"source_inventory_profile:low_confidence",
+		"request_traits:query_root_scope",
+		"pre_explore_typed_request",
+	} {
+		if !containsString(advisory.Provenance, want) {
+			t.Fatalf("provenance = %#v, want %s", advisory.Provenance, want)
+		}
+	}
+	gotByRole := map[types.AnswerCandidateRole][]string{}
+	for _, set := range advisory.Sets {
+		gotByRole[set.Role] = advisoryMemberNames(set.Candidates)
+	}
+	if !reflect.DeepEqual(gotByRole[types.AnswerCandidateRoleType], []string{"Index"}) ||
+		!reflect.DeepEqual(gotByRole[types.AnswerCandidateRoleFunction], []string{"GlobalCard"}) {
+		t.Fatalf("low-confidence query-root advisory did not preserve ArkTS candidates: roles=%+v advisory=%+v", gotByRole, advisory)
+	}
+}
+
 func TestPublishSourceInventoryAdvisory_PackageCandidatesCarryCrossLanguageCallableAttributes(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{
 		{

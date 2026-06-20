@@ -1629,6 +1629,93 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryRequiresLensE
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryMemberSetDoesNotBypassLensExecution(t *testing.T) {
+	mut := types.NewMutableState("列出仓库里的 ArkTS 入口和 Builder 片段")
+	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"."},
+		Provenance:   []string{"source_inventory_profile", "repomap_graph", "pre_explore_typed_request"},
+		Sets: []types.SourceInventoryAdvisorySet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Candidates: []types.SourceInventoryAdvisoryCandidate{{
+				Member:     "GlobalCard",
+				Key:        "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets::GlobalCard",
+				SupportRef: "GlobalCard: internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:26",
+				Role:       types.AnswerCandidateRoleFunction,
+				File:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+				Line:       26,
+				Language:   "arkts",
+			}},
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleFunction,
+						types.AnswerCandidateRoleType,
+					},
+					RequestedFields: []types.SourceInventoryRequestedField{
+						types.SourceInventoryFieldName,
+						types.SourceInventoryFieldLocation,
+					},
+					Confidence: 0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "the decorator inventory was inspected from grep and parser files",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "ArkTS decorator matches",
+			"value":   "2",
+			"role":    "principal_answer",
+			"members": []string{"internal/tool/repomap/index/extract_arkts.go", "internal/tool/repomap/types/lang.go"},
+			"support_refs": []string{
+				"internal/tool/repomap/index/extract_arkts.go:96",
+				"internal/tool/repomap/types/lang.go:46",
+			},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, want := range []string{
+		"source-inventory lens has not run",
+		"`repo_map(view=\"source_inventory\")`",
+		"roles=[function, type]",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("source-inventory lens downgrade should override premature member_set; missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("principal member_set must not close a typed source-inventory lane before source_inventory lens execution")
+	}
+	if facts := mut.StableInvestigationAggregateFacts(); len(facts) != 0 {
+		t.Fatalf("downgraded premature member_set must not become stable handoff facts, got %+v", facts)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryExactUniverseRejectsPartialMemberSet(t *testing.T) {
 	mut := types.NewMutableState("list all source scopes")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{

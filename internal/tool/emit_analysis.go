@@ -1455,6 +1455,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(&rm); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
 
@@ -1464,6 +1468,33 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel) string {
+	if rm == nil || rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return ""
+	}
+	if !types.IsTypedSourceEnumerationShape(*rm) {
+		return ""
+	}
+	if types.SourceInventoryProfileConflictsWithRelationFlow(*rm) {
+		return ""
+	}
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		return ""
+	}
+	rm.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       sourceInventoryDefaultQueryEnumerationRoles(),
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+			types.SourceInventoryFieldSummary,
+		},
+		Confidence: 0.45,
+		Rationale:  "synthesized from typed source-enumeration request shape",
+	}
+	return "synthesized source_inventory_profile from typed source-enumeration request shape"
 }
 
 func recordExactTargetPrescanFindings(ctx *types.BusContext, rm types.RequestModel, seenBlob string) {

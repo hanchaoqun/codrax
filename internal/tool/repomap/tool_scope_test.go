@@ -789,6 +789,8 @@ func TestRepoMapSourceInventoryRootTypedLaneProjectsAuxiliaryCorpus(t *testing.T
 	}
 	for _, want := range []string{
 		"repo_lens:auxiliary_projection",
+		"source_classes:",
+		"thirdparty:2",
 		"`Index`",
 		"@ internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
 		"`GlobalCard`",
@@ -803,6 +805,83 @@ func TestRepoMapSourceInventoryRootTypedLaneProjectsAuxiliaryCorpus(t *testing.T
 	}
 	if graph, _ := mut.SearchGraph().(*Graph); graph == nil || graph.FileIndex["internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"] != nil {
 		t.Fatalf("source_inventory auxiliary projection should restore the default graph after the tool call: %+v", graph)
+	}
+}
+
+func TestRepoMapSourceInventoryUsesProfileQuotesForRootAuxiliaryProjection(t *testing.T) {
+	repo := t.TempDir()
+	for rel, body := range map[string]string{
+		"internal/app/main.go": "package app\nfunc Run() {}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets": "@Entry\n@Component\nstruct Index {\n  build() {\n    Text('hi')\n  }\n}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets":       "@Builder\nfunction GlobalCard() {\n  Text('card')\n}\nfunction PlainHelper() {}\n",
+	} {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory profile quotes")
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFunction,
+					types.AnswerCandidateRoleMethod,
+				},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				SourceQuotes: []string{"@Entry 标记的 ArkTS 页面入口", "@Builder 复用片段"},
+				Confidence:   0.95,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": ".",
+		"roles": ["function", "method"],
+		"include_counts": true,
+		"include_attributes": false
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"query: unset -> source_inventory_profile.source_quotes",
+		"repo_lens:auxiliary_projection",
+		"source_classes:",
+		"thirdparty:2",
+		"`Index`",
+		"@ internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		"`GlobalCard`",
+		"@ internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("profile-quote source_inventory missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "PlainHelper") {
+		t.Fatalf("profile-quote source_inventory leaked unrelated helper:\n%s", res.Summary)
 	}
 }
 
@@ -832,6 +911,15 @@ func TestRepoMapSourceInventoryExplicitProductionScopeDoesNotProjectAuxiliaryCor
 			SourceScopeProfile: &types.SourceScopeProfile{
 				RequestedScope: types.SourceScopeProduction,
 				Confidence:     0.9,
+			},
+			AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+				IsExclusionRequested: true,
+				ExcludedCandidateRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFixture,
+					types.AnswerCandidateRoleExample,
+				},
+				SourceQuotes: []string{"fixture", "example"},
+				Confidence:   0.9,
 			},
 			SourceInventoryProfile: &types.SourceInventoryProfile{
 				IsSourceInventory: true,
