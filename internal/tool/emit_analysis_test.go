@@ -2,6 +2,8 @@ package tool
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -4102,6 +4104,113 @@ func TestEmitAnalysis_Execute_PersistsSourceInventoryProfile(t *testing.T) {
 		rm.SourceInventoryProfile.TypeUnderlying != types.SourceInventoryTypeUnderlyingString ||
 		!rm.SourceInventoryProfile.RequiresConstSet {
 		t.Fatalf("SourceInventoryProfile wrong: %+v", rm.SourceInventoryProfile)
+	}
+}
+
+func TestEmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	repo := t.TempDir()
+	for _, rel := range []string{
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_functions.ets",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(repo, rel)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, rel), []byte("@Entry\n@Component\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mu := types.NewMutableState("列出 ArkTS corpus 里的页面入口和 builder。")
+	mu.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: "[grep: 5 matching files]\n[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
+			"[prescan production matches]\n" +
+			"no non-auxiliary matches found\n" +
+			"[prescan auxiliary matches - not production proof]\n" +
+			"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets\n" +
+			"internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets\n" +
+			"internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets\n" +
+			"internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets\n" +
+			"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_functions.ets\n",
+	})
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["ArkTS", "Entry", "Builder", "corpus"],
+		"entities": ["ArkTS corpus", "@Entry", "@Builder"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.94,
+		"complexity_confidence": 0.76,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false, "has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"source_scope_profile": {
+			"requested_scope": "all",
+			"source_quotes": ["corpus"],
+			"confidence": 0.9,
+			"rationale": "the request asks about corpus files"
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["function"],
+			"requested_fields": ["name", "location"],
+			"source_quotes": ["页面入口和 builder"],
+			"confidence": 0.95,
+			"rationale": "current request asks for a source inventory"
+		}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mu,
+	}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel missing")
+	}
+	if got := len(rm.AnalyzerHints.RequiredFileHints); got != 5 {
+		t.Fatalf("projected required file hints=%d, want 5: %+v", got, rm.AnalyzerHints.RequiredFileHints)
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if hint.Confidence < 0.8 {
+			t.Fatalf("projected hint should be hard-coverage confidence, got %+v", hint)
+		}
+		if !strings.HasSuffix(hint.Path, ".ets") || !strings.Contains(hint.Path, "tree-sitter-arkts/corpus/sources/") {
+			t.Fatalf("unexpected projected path: %+v", hint)
+		}
+	}
+	if !types.RequiredFileHintCurrentSourceCoverageApplies(*rm) {
+		t.Fatalf("projected source inventory hints should activate required-file coverage: %+v", rm.AnalyzerHints.RequiredFileHints)
 	}
 }
 

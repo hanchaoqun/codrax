@@ -370,6 +370,7 @@ func (o *Orchestrator) seedRequiredFileHintForcedReadsBeforeExplore() int {
 	if closure == nil {
 		return 0
 	}
+	maxQueued := types.RequiredFileHintCoverageMaxForRequest(rm)
 	queued := 0
 	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
 		if hint.Confidence < 0.8 {
@@ -392,7 +393,7 @@ func (o *Orchestrator) seedRequiredFileHintForcedReadsBeforeExplore() int {
 		})
 		queued++
 		logging.Info("[CGEC] pre-dispatch required_file_hint_unread: queued forced-read file=%s", file)
-		if queued >= types.RequiredFileHintCoverageMax {
+		if queued >= maxQueued {
 			break
 		}
 	}

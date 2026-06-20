@@ -1347,3 +1347,38 @@ roles from many raw trace rows.
   open coverage. The fix must consume structured tool outputs, repo-relative
   path validation, typed request traits, and source-scope policy; it must not
   parse user wording or model prose.
+- 2026-06-20 Batch U9q delivered the first RNE-C65 coverage-authority slice.
+  `emit_analysis` now projects deterministic analyzer prescan file candidates
+  into high-confidence `RequiredFileHints` for typed source-inventory /
+  exhaustive source-enumeration lanes when the model omits `required_files`.
+  The projection reads only successful tool results (`grep(files_only=true)` and
+  bounded `list_files` shapes), repo-relative path resolution, file existence,
+  `SourceScopeProfile`, `SourcePathRole`, and code/config suffix policy. It
+  does not inspect raw user prose or model rationale. Required-file coverage
+  now has a request-aware cap: ordinary current-source lanes keep the existing
+  cap of 4, while source-inventory lanes use a bounded cap of 6. The
+  pre-dispatch forced-read seeder, required-file completion gate, and Phase1
+  unread filter all consume the same typed policy. Phase1 still suppresses
+  broad graph-adjacency noise after a read focus, but no longer drops
+  `RequiredFiles` / high-confidence `RequiredFileHints` as "non-mandatory"
+  signals. Focused validation passed:
+  `go test ./internal/types -run
+  'TestRequiredFileHintCoverage|TestAnalyzerHints_RequiredFileHints|TestRequiredFileHint_JSONRoundtrip|TestRequiredFileHint_OmitemptyRationale'`,
+  `go test ./internal/tool -run
+  'TestEmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage|TestEmitAnalysis_Execute_PersistsSourceInventoryProfile'`,
+  and `go test ./internal/orchestrator -run
+  'TestSeedRequiredFileHintForcedReadsBeforeExplore_SourceInventoryUsesInventoryCap|TestRunForcedReads_PreDispatchRequiredFilesUseSharedCoverageCap'`.
+  Focused ArkTS eval
+  `eval/convergence_audit_summary_20260620_goal_batch_arkts_after_required_prescan_projection.md`
+  passed. Manual audit of
+  `eval/results/arkts_repomap-20260620-202239` confirms the final answer lists
+  4 `@Entry` page-entry structs (`Index`, `ParentComponent`, `StyledPage`,
+  `ListPage`) and 2 `@Builder` fragments (`defaultHeader`, `GlobalCard`) with
+  `.ets` file paths and line citations. This live run did not exercise the new
+  projection fallback because the model itself emitted `required_files`; the
+  unit test covers the missing-`required_files` branch. The eval still validates
+  the shared downstream coverage path: `required_file_hints` kept 6 high
+  confidence files and the final report no longer collapsed to a single partial
+  member. Remaining RNE-C65 follow-up: extend the projection with a typed
+  observation carrier if future logs show useful prescan candidates hidden
+  behind blob-only raw refs.

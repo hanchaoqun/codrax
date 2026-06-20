@@ -13,19 +13,68 @@ import (
 // gate so both layers enforce the same typed contract.
 const RequiredFileHintCoverageMax = 4
 
+// SourceInventoryRequiredFileHintCoverageMax is the bounded source-inventory
+// variant of RequiredFileHintCoverageMax. Inventory/enumeration tasks often
+// need a handful of peer files to avoid false completeness, but the cap must
+// remain low enough that routine read tasks are not flooded with pre-reads.
+const SourceInventoryRequiredFileHintCoverageMax = 6
+
 // RequiredFileHintCurrentSourceCoverageApplies reports whether high-confidence
 // analyzer RequiredFileHints are hard current-source obligations for this
 // request. The signal is typed-only: runtime/history requests that also ask for
 // current-code verification must cover the hinted files; observation-only
 // runtime artifacts must not be polluted with repository reads.
 func RequiredFileHintCurrentSourceCoverageApplies(rm RequestModel) bool {
-	if len(rm.AnalyzerHints.RequiredFileHints) == 0 || rm.HasObservationOnlyRuntimeArtifact() {
+	if len(rm.AnalyzerHints.RequiredFileHints) == 0 ||
+		rm.HasObservationOnlyRuntimeArtifact() ||
+		(rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()) {
 		return false
 	}
 	if rm.HasExternalOnlyRuntimeArtifact() && rm.HasRuntimeArtifactCurrentVerificationAnchor() {
 		return true
 	}
+	if RequiredFileHintSourceInventoryCoverageApplies(rm) {
+		return true
+	}
 	return IsHistoryBackedCurrentCodeExplanation(rm)
+}
+
+// RequiredFileHintCoverageMaxForRequest returns the shared forced-read cap for
+// a request's required-file lane. Callers must use this instead of open-coding a
+// cap so pre-dispatch and completion gates stay aligned.
+func RequiredFileHintCoverageMaxForRequest(rm RequestModel) int {
+	if SourceInventoryRequiredFileCoverageShape(rm) {
+		return SourceInventoryRequiredFileHintCoverageMax
+	}
+	return RequiredFileHintCoverageMax
+}
+
+// RequiredFileHintSourceInventoryCoverageApplies reports whether required-file
+// hints are completeness-bearing for a typed source inventory / exhaustive
+// source enumeration lane. It consumes only RequestModel schema fields. No raw
+// request text, model rationale, or final-answer prose can activate it.
+func RequiredFileHintSourceInventoryCoverageApplies(rm RequestModel) bool {
+	if len(rm.AnalyzerHints.RequiredFileHints) == 0 || rm.HasObservationOnlyRuntimeArtifact() {
+		return false
+	}
+	return SourceInventoryRequiredFileCoverageShape(rm)
+}
+
+// SourceInventoryRequiredFileCoverageShape reports whether a request has the
+// typed shape where prescan-discovered files may become bounded required-file
+// coverage obligations. It intentionally ignores whether hints already exist
+// so analyzer normalization can project deterministic prescan paths into the
+// hint lane before downstream gates evaluate it.
+func SourceInventoryRequiredFileCoverageShape(rm RequestModel) bool {
+	if rm.HasObservationOnlyRuntimeArtifact() ||
+		(rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()) {
+		return false
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return true
+	}
+	return IsTypedSourceEnumerationShape(rm) &&
+		(rm.CompletenessObligation.IsActive() || rm.EnumerationBoundary != nil || HasPrincipalCategoryEnumerationMemberLane(rm))
 }
 
 // CanonicalRequiredFileHintPath collapses required_file hint paths to the same

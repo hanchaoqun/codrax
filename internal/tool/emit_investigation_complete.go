@@ -6989,6 +6989,9 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 	if runtimeArtifactGroundingBypassAllowed(ctx) {
 		return false
 	}
+	if types.RequiredFileHintSourceInventoryCoverageApplies(ctx.AnalysisIR.RequestModel) {
+		return true
+	}
 	return ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision().RequiresCurrentSource()
 }
 
@@ -7184,6 +7187,7 @@ func raiseRequiredFileHintPendingReads(ctx *types.BusContext, closure *types.Evi
 	if !types.RequiredFileHintCurrentSourceCoverageApplies(ctx.AnalysisIR.RequestModel) {
 		return
 	}
+	maxUnread := types.RequiredFileHintCoverageMaxForRequest(ctx.AnalysisIR.RequestModel)
 	var unread []string
 	for _, hint := range ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints {
 		if hint.Confidence < 0.8 {
@@ -7199,7 +7203,7 @@ func raiseRequiredFileHintPendingReads(ctx *types.BusContext, closure *types.Evi
 			continue
 		}
 		unread = append(unread, canon)
-		if len(unread) >= types.RequiredFileHintCoverageMax {
+		if len(unread) >= maxUnread {
 			break
 		}
 	}
@@ -7720,7 +7724,7 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	if len(ranking) == 0 {
 		return
 	}
-	if !requiresCrossFileCoverage(kind, countPrimaryAnchorFiles(ranking)) {
+	if !sourceInventoryPhase1CoverageApplies(ctx) && !requiresCrossFileCoverage(kind, countPrimaryAnchorFiles(ranking)) {
 		return
 	}
 	topK := limits.Phase1UnreadTopK
@@ -7805,10 +7809,11 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 }
 
 type phase1UnreadFilter struct {
-	enabled   bool
-	repoRoot  string
-	graph     *repotypes.Graph
-	readFiles []string
+	enabled         bool
+	repoRoot        string
+	graph           *repotypes.Graph
+	readFiles       []string
+	requiredFileSet map[string]bool
 }
 
 func newPhase1UnreadFilter(ctx *types.BusContext, closure *types.EvidenceClosure) phase1UnreadFilter {
@@ -7817,6 +7822,7 @@ func newPhase1UnreadFilter(ctx *types.BusContext, closure *types.EvidenceClosure
 		return out
 	}
 	out.repoRoot = ctx.RepoRoot
+	out.requiredFileSet = phase1UnreadRequiredFileSet(ctx)
 	if g, ok := ctx.Mutable.SearchGraph().(*repotypes.Graph); ok && g != nil && len(g.FileIndex) > 0 {
 		out.graph = g
 	}
@@ -7843,7 +7849,38 @@ func (f phase1UnreadFilter) hasMandatoryReadSignal(ranked types.Phase1RankedFile
 	if file == "" {
 		return false
 	}
+	if f.requiredFileSet != nil && f.requiredFileSet[file] {
+		return true
+	}
 	return ranked.ExactEntityRank > 0
+}
+
+func phase1UnreadRequiredFileSet(ctx *types.BusContext) map[string]bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	add := func(set map[string]bool, raw string) map[string]bool {
+		canon := phase1UnreadCanonPath(raw, ctx.RepoRoot)
+		if canon == "" {
+			return set
+		}
+		if set == nil {
+			set = make(map[string]bool)
+		}
+		set[canon] = true
+		return set
+	}
+	var set map[string]bool
+	for _, file := range ctx.AnalysisIR.EvidencePlan.RequiredFiles {
+		set = add(set, file)
+	}
+	for _, hint := range ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints {
+		if hint.Confidence < 0.8 {
+			continue
+		}
+		set = add(set, hint.Path)
+	}
+	return set
 }
 
 func phase1UnreadCanonPath(path, repoRoot string) string {
@@ -8937,6 +8974,17 @@ func requiresCrossFileCoverage(k types.RequirementKind, primaryAnchors int) bool
 		return primaryAnchors >= 2
 	}
 	return false
+}
+
+func sourceInventoryPhase1CoverageApplies(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return true
+	}
+	return types.HasBoundedSourceEnumerationScope(rm, ctx.AnalysisIR.EvidencePlan.RequiredFiles, ctx.RepoRoot)
 }
 
 func historyBackedCurrentCodeSkipsGenericForcedReadGates(ctx *types.BusContext) bool {

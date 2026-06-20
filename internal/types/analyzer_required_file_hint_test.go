@@ -77,3 +77,68 @@ func TestAnalyzerHints_RequiredFileHints_Populated(t *testing.T) {
 		t.Errorf("hint 0 mismatch: %+v", out.RequiredFileHints[0])
 	}
 }
+
+func TestRequiredFileHintCoverage_SourceInventoryUsesInventoryCap(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqEnumeration),
+			RequiredFileHints: []RequiredFileHint{{
+				Path:       "src/a.ets",
+				Confidence: 0.9,
+			}},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		},
+	}
+
+	if !SourceInventoryRequiredFileCoverageShape(rm) {
+		t.Fatal("source inventory request should have required-file coverage shape")
+	}
+	if !RequiredFileHintSourceInventoryCoverageApplies(rm) {
+		t.Fatal("source inventory required-file hints should be hard coverage obligations")
+	}
+	if got := RequiredFileHintCoverageMaxForRequest(rm); got != SourceInventoryRequiredFileHintCoverageMax {
+		t.Fatalf("coverage cap=%d, want source inventory cap %d", got, SourceInventoryRequiredFileHintCoverageMax)
+	}
+}
+
+func TestRequiredFileHintCoverage_ObservationOnlyRuntimeSkipsInventoryShape(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqEnumeration),
+			RequiredFileHints: []RequiredFileHint{{
+				Path:       "src/a.go",
+				Confidence: 0.9,
+			}},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		},
+		LogTriage: &LogBundle{
+			Observations: []LogObservation{{Kind: "timeout", Subject: "external runtime"}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:      []string{"do not inspect source"},
+		},
+	}
+
+	if SourceInventoryRequiredFileCoverageShape(rm) {
+		t.Fatal("observation-only runtime artifact must not activate source inventory required-file coverage")
+	}
+	if RequiredFileHintCurrentSourceCoverageApplies(rm) {
+		t.Fatal("observation-only runtime artifact must not force current-source required reads")
+	}
+}

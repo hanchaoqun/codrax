@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -626,6 +627,45 @@ func TestRunForcedReads_PreDispatchRequiredFilesUseSharedCoverageCap(t *testing.
 	}
 	if pending := closure.PendingReads(); len(pending) != 0 {
 		t.Fatalf("pre-dispatch required-file reads should drain in one pass, got %+v", pending)
+	}
+}
+
+func TestSeedRequiredFileHintForcedReadsBeforeExplore_SourceInventoryUsesInventoryCap(t *testing.T) {
+	o := newTestOrch(t)
+	var hints []types.RequiredFileHint
+	for i := 0; i < types.SourceInventoryRequiredFileHintCoverageMax+2; i++ {
+		rel := fmt.Sprintf("src/file_%02d.ets", i)
+		if err := os.MkdirAll(filepath.Join(o.busCtx.RepoRoot, "src"), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(o.busCtx.RepoRoot, rel), []byte("@Entry\n"), 0o644); err != nil {
+			t.Fatalf("write fixture %d: %v", i, err)
+		}
+		hints = append(hints, types.RequiredFileHint{
+			Path:       rel,
+			Confidence: 0.9,
+		})
+	}
+	o.busCtx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:              string(types.ReqEnumeration),
+			RequiredFileHints: hints,
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		},
+	}}
+
+	if got := o.seedRequiredFileHintForcedReadsBeforeExplore(); got != types.SourceInventoryRequiredFileHintCoverageMax {
+		t.Fatalf("queued=%d, want source inventory cap %d", got, types.SourceInventoryRequiredFileHintCoverageMax)
+	}
+	if pending := o.busCtx.Mutable.EvidenceClosure().PendingReads(); len(pending) != types.SourceInventoryRequiredFileHintCoverageMax {
+		t.Fatalf("pending=%d, want source inventory cap %d: %+v", len(pending), types.SourceInventoryRequiredFileHintCoverageMax, pending)
 	}
 }
 

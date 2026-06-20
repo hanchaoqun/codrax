@@ -1488,6 +1488,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, &val); added > 0 {
+		logging.Warning("[emit_analysis] projected %d required_file hint(s) from deterministic analyzer prescan", added)
+	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
 
@@ -4208,6 +4211,113 @@ func validateAndBuildRequiredFileHintsWithContext(ctx *types.BusContext, in []em
 		return nil
 	}
 	return out
+}
+
+func projectAnalyzerPrescanRequiredFileHints(ctx *types.BusContext, rm *types.RequestModel, val *analysisValidationResult) int {
+	if ctx == nil || ctx.Mutable == nil || rm == nil || !types.SourceInventoryRequiredFileCoverageShape(*rm) {
+		return 0
+	}
+	maxProjected := types.RequiredFileHintCoverageMaxForRequest(*rm)
+	if maxProjected <= 0 {
+		return 0
+	}
+	seen := make(map[string]bool, len(rm.AnalyzerHints.RequiredFileHints))
+	highConfidence := 0
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		key := canonicalRequiredFilePathForRepo(hint.Path, ctx.RepoRoot)
+		if key == "" {
+			continue
+		}
+		seen[key] = true
+		if hint.Confidence >= 0.8 {
+			highConfidence++
+		}
+	}
+	if highConfidence >= maxProjected || len(rm.AnalyzerHints.RequiredFileHints) >= requiredFileHintsMax {
+		return 0
+	}
+	candidates := analyzerPrescanRequiredFileCandidates(ctx, *rm, maxProjected*2)
+	added := 0
+	for _, candidate := range candidates {
+		if highConfidence >= maxProjected || len(rm.AnalyzerHints.RequiredFileHints) >= requiredFileHintsMax {
+			break
+		}
+		canon, ok := analyzerPrescanRequiredFileCandidate(ctx, *rm, candidate)
+		if !ok || seen[canon] {
+			continue
+		}
+		seen[canon] = true
+		highConfidence++
+		added++
+		rm.AnalyzerHints.RequiredFileHints = append(rm.AnalyzerHints.RequiredFileHints, types.RequiredFileHint{
+			Path:       canon,
+			Confidence: 0.82,
+			Rationale:  "deterministic analyzer prescan candidate for typed source-inventory coverage",
+		})
+	}
+	if added > 0 && val != nil {
+		val.Warnings = append(val.Warnings,
+			fmt.Sprintf("required_files: projected %d deterministic prescan candidate(s) for source-inventory coverage", added))
+	}
+	return added
+}
+
+func analyzerPrescanRequiredFileCandidates(ctx *types.BusContext, rm types.RequestModel, limit int) []string {
+	if ctx == nil || ctx.Mutable == nil || limit <= 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	add := func(raw string) {
+		raw = strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+		if raw == "" || strings.HasPrefix(raw, "[") || seen[raw] {
+			return
+		}
+		seen[raw] = true
+		out = append(out, raw)
+	}
+	for _, result := range ctx.Mutable.DispatchToolResults() {
+		if !result.Success {
+			continue
+		}
+		switch types.CanonicalToolName(result.ToolName) {
+		case "grep":
+			if completionBannerField(result.Summary, "grep params", "files_only") != "true" {
+				continue
+			}
+			for _, line := range strings.Split(result.Summary, "\n") {
+				if path, ok := grepOutputLinePath(line, true); ok {
+					add(path)
+				}
+			}
+		case "list_files":
+			if !completionToolResultIsRecursivePathDiscoveryList(result) &&
+				!(rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active()) {
+				continue
+			}
+			for _, line := range strings.Split(result.Summary, "\n") {
+				if path, ok := grepOutputLinePath(line, true); ok {
+					add(path)
+				}
+			}
+		}
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func analyzerPrescanRequiredFileCandidate(ctx *types.BusContext, rm types.RequestModel, raw string) (string, bool) {
+	canon, _, ok := resolveRequiredFileHintPath(ctx, raw)
+	if !ok || canon == "" || !types.HasCodeOrConfigPathSuffix(canon) {
+		return "", false
+	}
+	profile := emitAnalysisEffectiveInventoryScopeProfile(rm.SourceScopeProfile)
+	if !emitAnalysisPrincipalSourcePathAllowed(ctx, canon, profile) {
+		return "", false
+	}
+	return canon, true
 }
 
 func resolveRequiredFileHintPath(ctx *types.BusContext, raw string) (string, bool, bool) {
