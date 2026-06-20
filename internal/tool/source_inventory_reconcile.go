@@ -36,7 +36,20 @@ type sourceInventoryCandidateSet struct {
 	role       types.AnswerCandidateRole
 	candidates []sourceInventoryCandidate
 	complete   bool
+	truncated  bool
 }
+
+type sourceInventoryCandidateBudget struct {
+	maxPerRole int
+}
+
+const (
+	sourceInventoryCandidateBudgetFileThreshold = 500
+	sourceInventoryCandidateBudgetDefaultTopN   = 60
+	sourceInventoryCandidateBudgetMultiplier    = 4
+	sourceInventoryCandidateBudgetMinPerRole    = 64
+	sourceInventoryCandidateBudgetMaxPerRole    = 512
+)
 
 type sourceInventoryPackageBucket struct {
 	dir       string
@@ -1504,6 +1517,9 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 	if sourceInventoryStringSliceContains(observation.Provenance, "repo_lens:attributes_deferred_broad_scope") {
 		b.WriteString("- row-local attributes were deferred because this source_inventory lens is broad; choose a narrower `scope` or selected member, then rerun with `attribute_roles` and `include_attributes=true` for details.\n")
 	}
+	if sourceInventoryStringSliceContains(observation.Provenance, "repo_lens:candidate_budget_truncated") {
+		b.WriteString("- candidate materialization was budget-truncated; treat visible rows as a bounded navigation sample and rerun with narrower `scope`, `roles`, or `query` before claiming exhaustive coverage.\n")
+	}
 	if len(observation.Lens) > 0 {
 		fmt.Fprintf(&b, "- lens: `%s`\n", strings.Join(observation.Lens, "`, `"))
 	}
@@ -1588,7 +1604,12 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 		if end > total {
 			end = total
 		}
-		fmt.Fprintf(&b, "---\nshowing rows [%d,%d) of %d member rows in this tool result; the structured observation stored in run state preserves the full set.\n", offset, end, total)
+		fmt.Fprintf(&b, "---\nshowing rows [%d,%d) of %d visible member rows in this tool result", offset, end, total)
+		if sourceInventoryStringSliceContains(observation.Provenance, "repo_lens:candidate_budget_truncated") {
+			b.WriteString("; the structured observation is budget-truncated, so rerun a narrower source_inventory lens before exhaustive claims.\n")
+		} else {
+			b.WriteString("; the structured observation stored in run state preserves the full set.\n")
+		}
 		if end < total {
 			fmt.Fprintf(&b, "next_cursor=%d\n", end)
 		}
@@ -2482,9 +2503,13 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 		includeAttributes = false
 		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:attributes_deferred_broad_scope")
 	}
-	sets := sourceInventoryCandidateSets(ctx, graph, scopes, profile, attributeRoles, explicitAttributeRoles, includeAttributes, query.Query)
+	candidateBudget := sourceInventoryCandidateBudgetForLens(query, forceAdvisoryOnly, graph)
+	sets := sourceInventoryCandidateSets(ctx, graph, scopes, profile, attributeRoles, explicitAttributeRoles, includeAttributes, query.Query, candidateBudget)
 	if len(sets) == 0 {
 		return types.SourceInventoryAdvisory{}
+	}
+	if sourceInventoryCandidateSetsTruncated(sets) {
+		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:candidate_budget_truncated")
 	}
 	roles := sourceInventoryRoleOrder(profile, sets)
 	advisory := types.SourceInventoryAdvisory{
@@ -2996,7 +3021,7 @@ func reconcileCompletionAggregateFactsWithSourceInventory(ctx *types.BusContext,
 	if len(scopes) == 0 {
 		return facts
 	}
-	sets := sourceInventoryCandidateSets(ctx, graph, scopes, profile, nil, false, false, "")
+	sets := sourceInventoryCandidateSets(ctx, graph, scopes, profile, nil, false, false, "", sourceInventoryCandidateBudget{})
 	if len(sets) == 0 {
 		return facts
 	}
@@ -3201,9 +3226,60 @@ func sourceInventoryAppendProvenance(current string) string {
 	return current + ", " + marker
 }
 
-func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, includeAttributes bool, rawQuery string) map[types.AnswerCandidateRole]sourceInventoryCandidateSet {
+func sourceInventoryCandidateBudgetForLens(query types.SourceInventoryLensQuery, forceAdvisoryOnly bool, graph *repotypes.Graph) sourceInventoryCandidateBudget {
+	if !forceAdvisoryOnly || graph == nil || len(graph.FileIndex) < sourceInventoryCandidateBudgetFileThreshold {
+		return sourceInventoryCandidateBudget{}
+	}
+	topN := query.TopN
+	if topN <= 0 {
+		topN = sourceInventoryCandidateBudgetDefaultTopN
+		if tiered := repotypes.DefaultTopN("source_inventory", repotypes.RepoSizeTier(len(graph.FileIndex))); tiered > 0 {
+			topN = tiered
+		}
+	}
+	limit := topN * sourceInventoryCandidateBudgetMultiplier
+	if limit < sourceInventoryCandidateBudgetMinPerRole {
+		limit = sourceInventoryCandidateBudgetMinPerRole
+	}
+	if limit > sourceInventoryCandidateBudgetMaxPerRole {
+		limit = sourceInventoryCandidateBudgetMaxPerRole
+	}
+	return sourceInventoryCandidateBudget{maxPerRole: limit}
+}
+
+func (budget sourceInventoryCandidateBudget) enabled() bool {
+	return budget.maxPerRole > 0
+}
+
+func sourceInventoryAppendBudgetedCandidate(set *sourceInventoryCandidateSet, candidate sourceInventoryCandidate, filter sourceInventoryQueryFilter, budget sourceInventoryCandidateBudget) bool {
+	if set == nil {
+		return false
+	}
+	if candidate.key == "" || (filter.Active() && !sourceInventoryCandidateMatchesQuery(candidate, filter)) {
+		return false
+	}
+	if budget.enabled() && len(set.candidates) >= budget.maxPerRole {
+		set.complete = false
+		set.truncated = true
+		return true
+	}
+	set.candidates = append(set.candidates, candidate)
+	return false
+}
+
+func sourceInventoryCandidateSetsTruncated(sets map[types.AnswerCandidateRole]sourceInventoryCandidateSet) bool {
+	for _, set := range sets {
+		if set.truncated {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, includeAttributes bool, rawQuery string, budget sourceInventoryCandidateBudget) map[types.AnswerCandidateRole]sourceInventoryCandidateSet {
 	out := map[types.AnswerCandidateRole]sourceInventoryCandidateSet{}
 	scopeFilter := newSourceInventoryScopeFilter(ctx)
+	queryFilter := sourceInventoryBuildQueryFilter(rawQuery)
 	var symbolIndex *sourceInventoryGraphSymbolIndex
 	getSymbolIndex := func() *sourceInventoryGraphSymbolIndex {
 		if symbolIndex == nil {
@@ -3218,27 +3294,26 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 			if includeAttributes && explicitAttributeRoles {
 				attributeIndex = getSymbolIndex()
 			}
-			out[role] = sourceInventoryFileCandidates(ctx, graph, attributeIndex, scopeFilter, scopes, profile, attributeRoles, explicitAttributeRoles)
+			out[role] = sourceInventoryFileCandidates(ctx, graph, attributeIndex, scopeFilter, scopes, profile, attributeRoles, explicitAttributeRoles, queryFilter, budget)
 		case role == types.AnswerCandidateRoleConfigFile:
 			var attributeIndex *sourceInventoryGraphSymbolIndex
 			if includeAttributes && explicitAttributeRoles {
 				attributeIndex = getSymbolIndex()
 			}
-			out[role] = sourceInventoryConfigFileCandidates(ctx, graph, attributeIndex, scopeFilter, scopes, profile, attributeRoles, explicitAttributeRoles)
+			out[role] = sourceInventoryConfigFileCandidates(ctx, graph, attributeIndex, scopeFilter, scopes, profile, attributeRoles, explicitAttributeRoles, queryFilter, budget)
 		case role == types.AnswerCandidateRolePackage:
 			var attributeIndex *sourceInventoryGraphSymbolIndex
 			if includeAttributes {
 				attributeIndex = getSymbolIndex()
 			}
-			out[role] = sourceInventoryPackageCandidates(ctx, graph, attributeIndex, scopeFilter, scopes, profile, attributeRoles, explicitAttributeRoles)
+			out[role] = sourceInventoryPackageCandidates(ctx, graph, attributeIndex, scopeFilter, scopes, profile, attributeRoles, explicitAttributeRoles, queryFilter, budget)
 		case role == types.AnswerCandidateRoleType &&
 			profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
 			profile.RequiresConstSet:
 			out[role] = sourceInventoryGoStringEnumCandidates(ctx, graph, scopes, profile)
 		default:
-			out[role] = sourceInventoryGraphCandidates(ctx, graph, getSymbolIndex(), scopeFilter, scopes, profile, role)
+			out[role] = sourceInventoryGraphCandidates(ctx, graph, getSymbolIndex(), scopeFilter, scopes, profile, role, queryFilter, budget)
 		}
-		out[role] = sourceInventoryFilterCandidateSetByQuery(out[role], rawQuery)
 		if len(out[role].candidates) == 0 {
 			delete(out, role)
 		}
@@ -3267,7 +3342,7 @@ func sourceInventoryShouldDeferAttributesForBroadToolLens(graph *repotypes.Graph
 	return false
 }
 
-func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) sourceInventoryCandidateSet {
+func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, queryFilter sourceInventoryQueryFilter, budget sourceInventoryCandidateBudget) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleFile, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil {
 		return set
@@ -3282,7 +3357,7 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph
 			continue
 		}
 		seen[file] = true
-		set.candidates = append(set.candidates, sourceInventoryCandidate{
+		candidate := sourceInventoryCandidate{
 			member:     file,
 			key:        file,
 			supportRef: file,
@@ -3292,13 +3367,16 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph
 			file:       file,
 			language:   strings.TrimSpace(fi.Language),
 			attributes: sourceInventoryFileAttributes(ctx, symbolIndex, scopeFilter, file, attributeRoles, explicitAttributeRoles),
-		})
+		}
+		if sourceInventoryAppendBudgetedCandidate(&set, candidate, queryFilter, budget) {
+			break
+		}
 	}
 	sourceInventorySortCandidates(set.candidates)
 	return set
 }
 
-func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) sourceInventoryCandidateSet {
+func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, queryFilter sourceInventoryQueryFilter, budget sourceInventoryCandidateBudget) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleConfigFile, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil {
 		return set
@@ -3313,7 +3391,7 @@ func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes
 			continue
 		}
 		seen[file] = true
-		set.candidates = append(set.candidates, sourceInventoryCandidate{
+		candidate := sourceInventoryCandidate{
 			member:     file,
 			key:        file,
 			supportRef: file,
@@ -3323,13 +3401,16 @@ func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes
 			file:       file,
 			language:   strings.TrimSpace(fi.Language),
 			attributes: sourceInventoryFileAttributes(ctx, symbolIndex, scopeFilter, file, attributeRoles, explicitAttributeRoles),
-		})
+		}
+		if sourceInventoryAppendBudgetedCandidate(&set, candidate, queryFilter, budget) {
+			break
+		}
 	}
 	sourceInventorySortCandidates(set.candidates)
 	return set
 }
 
-func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) sourceInventoryCandidateSet {
+func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, queryFilter sourceInventoryQueryFilter, budget sourceInventoryCandidateBudget) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRolePackage, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil {
 		return set
@@ -3373,7 +3454,7 @@ func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Gr
 		if member == "" || key == "" {
 			continue
 		}
-		set.candidates = append(set.candidates, sourceInventoryCandidate{
+		candidate := sourceInventoryCandidate{
 			member:     member,
 			key:        key,
 			supportRef: key,
@@ -3383,7 +3464,10 @@ func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Gr
 			file:       key,
 			language:   sourceInventoryDominantMapKey(bucket.languages),
 			attributes: sourceInventoryPackageBucketAttributes(ctx, symbolIndex, scopeFilter, key, attributeRoles, explicitAttributeRoles),
-		})
+		}
+		if sourceInventoryAppendBudgetedCandidate(&set, candidate, queryFilter, budget) {
+			break
+		}
 	}
 	sourceInventorySortCandidates(set.candidates)
 	return set
@@ -3619,7 +3703,7 @@ func sourceInventoryConfigFileCandidateNote(fi *repotypes.FileInfo) string {
 	return strings.Join(parts, ", ")
 }
 
-func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, role types.AnswerCandidateRole) sourceInventoryCandidateSet {
+func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, role types.AnswerCandidateRole, queryFilter sourceInventoryQueryFilter, budget sourceInventoryCandidateBudget) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: role, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil || symbolIndex == nil {
 		return set
@@ -3645,9 +3729,17 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 			continue
 		}
 		candidate := sourceInventoryCandidateForSymbol(sym, role, graph)
-		key := sourceInventoryCandidateDedupeKey(candidate)
-		if candidate.key == "" || key == "" || seen[key] {
+		if candidate.key == "" || (queryFilter.Active() && !sourceInventoryCandidateMatchesQuery(candidate, queryFilter)) {
 			continue
+		}
+		key := sourceInventoryCandidateDedupeKey(candidate)
+		if key == "" || seen[key] {
+			continue
+		}
+		if budget.enabled() && len(set.candidates) >= budget.maxPerRole {
+			set.complete = false
+			set.truncated = true
+			break
 		}
 		seen[key] = true
 		set.candidates = append(set.candidates, candidate)

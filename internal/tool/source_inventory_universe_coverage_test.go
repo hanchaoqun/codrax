@@ -175,6 +175,64 @@ func TestSourceInventoryLensQueryScopes_PathRelativeScopedRoot(t *testing.T) {
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterialization(t *testing.T) {
+	files := make([]*repotypes.FileInfo, 0, sourceInventoryCandidateBudgetFileThreshold+100)
+	for i := 0; i < sourceInventoryCandidateBudgetFileThreshold+100; i++ {
+		rel := "src/pkg" + strconv.Itoa(i) + "/file" + strconv.Itoa(i) + ".ts"
+		files = append(files, &repotypes.FileInfo{
+			RelPath:  rel,
+			Language: "typescript",
+			Package:  "pkg" + strconv.Itoa(i),
+			Symbols: []repotypes.Symbol{{
+				Name:     "run" + strconv.Itoa(i),
+				Kind:     "function",
+				File:     rel,
+				Line:     10,
+				Exported: true,
+			}},
+		})
+	}
+	graph := testGraphWithFiles(files)
+	ctx := sourceInventoryTestContext("", graph, ".", nil)
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+		TopN:          50,
+	})
+	if !obs.IsActive() || len(obs.Sets) != 1 {
+		t.Fatalf("broad source_inventory should still return a bounded active observation: %+v", obs)
+	}
+	wantLimit := 50 * sourceInventoryCandidateBudgetMultiplier
+	if obs.Sets[0].Count != wantLimit || len(obs.Sets[0].Members) != wantLimit {
+		t.Fatalf("broad lens should materialize exactly the per-role budget %d, got %+v", wantLimit, obs.Sets[0])
+	}
+	if obs.Complete || obs.Sets[0].Complete {
+		t.Fatalf("budget-truncated observation must not be marked complete: %+v", obs)
+	}
+	if !sourceInventoryStringSliceContains(obs.Provenance, "repo_lens:candidate_budget_truncated") {
+		t.Fatalf("budget-truncated observation should carry typed provenance: %+v", obs.Provenance)
+	}
+	rendered := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+		TopN:          10,
+	})
+	for _, want := range []string{
+		"candidate materialization was budget-truncated",
+		"bounded navigation sample",
+		"rerun a narrower source_inventory lens before exhaustive claims",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered budgeted lens missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestSourceInventoryLensQueryScopes_PathRelativeAliasMatrix(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{
 		{RelPath: "aggregator/aggregator.go", Language: "go", Package: "aggregator"},
