@@ -431,3 +431,38 @@ func TestFormatObservationSpan_CoversExternalCoordinates(t *testing.T) {
 		}
 	}
 }
+
+// Gap 3 (handoff fidelity): the compact prompt projection is the single typed
+// surface that replaces raw evidence floods, so a value-bearing record's literal
+// MUST survive projection — losing it would silently drop the answer-bearing
+// scalar/measurement/config literal a question asked for. This locks the
+// invariant so a future projection change cannot regress literal fidelity.
+func TestProjectObservationPromptRecords_LiteralValueSurvives(t *testing.T) {
+	records := []ObservationRecord{
+		{
+			ID:              "aggregate:0#current_source",
+			Origin:          AnswerEvidenceOriginCurrentSource,
+			Producer:        "emit_investigation_complete",
+			Role:            AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: ClaimGroundingHard,
+			SourceRef:       ObservationSourceRef{Kind: ObservationSourceCurrentSource, Path: "internal/config/runtime.go"},
+			Span:            ObservationSpan{LineStart: 100},
+			Subject:         "DefaultMaxSteps",
+			Value:           "50",
+			Unit:            "steps",
+			Summary:         "default max steps",
+		},
+		// A few incidental support records that must not crowd the literal out.
+		{ID: "s1", Origin: AnswerEvidenceOriginCurrentSource, Role: AnswerAggregateRoleSupportingCoverage, Summary: "incidental read a"},
+		{ID: "s2", Origin: AnswerEvidenceOriginCurrentSource, Role: AnswerAggregateRoleSupportingCoverage, Summary: "incidental read b"},
+	}
+	// Even under a tight budget the principal literal-bearing record must be kept
+	// and carry its Value.
+	got := ProjectObservationPromptRecords(records, nil, nil, DefaultObservationPromptProjectionOptions(1))
+	if len(got) != 1 {
+		t.Fatalf("tight budget must keep the highest-priority record, got %d", len(got))
+	}
+	if !strings.Contains(got[0].Value, "50") {
+		t.Fatalf("literal value must survive projection (handoff fidelity), got Value=%q in %+v", got[0].Value, got[0])
+	}
+}
