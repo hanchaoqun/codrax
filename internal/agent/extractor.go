@@ -164,6 +164,9 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		if advisory := renderExtractorSourceInventoryAdvisory(ta); advisory != "" {
 			b.WriteString(advisory)
 		}
+		if handoff := renderTypedToolHandoffCarriers("### Typed repair and evidence handoff", ta.HandoffCarriers); handoff != "" {
+			b.WriteString(handoff)
+		}
 
 		// Investigation notes: up to 6 entries, trimmed for prompt length
 		if len(ta.InvestigationNotes) > 0 {

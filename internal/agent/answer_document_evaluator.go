@@ -510,6 +510,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "typed_tool_handoff", func() string {
+		return renderAnswerDocToolHandoffCarriers(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "investigation_narrative_handoff", func() string {
 		return renderAnswerDocInvestigationNarrativeHandoff(ctx)
 	}) {
@@ -3888,6 +3893,17 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderAnswerDocToolHandoffCarriers(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	ta := ctx.Mutable.TurnAArtifacts()
+	if ta == nil || len(ta.HandoffCarriers) == 0 {
+		return ""
+	}
+	return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", ta.HandoffCarriers)
 }
 
 func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
