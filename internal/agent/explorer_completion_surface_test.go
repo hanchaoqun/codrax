@@ -71,3 +71,37 @@ func TestExplorerFilterToolSchemasCompletionOnlyAllowsTypedRepairTools(t *testin
 		}
 	}
 }
+
+func TestExplorerFilterToolSchemasNoEmitEscalationAllowsTypedRepairTools(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:  types.RepairStructuredHandoff,
+		Tools: []string{"repo_map"},
+		Stage: string(types.StageExplore),
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+	schemas := []llm.ToolSchema{
+		{Name: "grep"}, {Name: "read_file"}, {Name: "repo_map"},
+		{Name: "emit_evidence"}, {Name: "emit_investigation_complete"},
+	}
+	eval := &explorerEvaluator{
+		midLoopNoEmitPushSent:  true,
+		midLoopNoEmitEscalated: true,
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	names := map[string]bool{}
+	for _, schema := range got {
+		names[schema.Name] = true
+	}
+	for _, want := range []string{"repo_map", "emit_evidence", "emit_investigation_complete"} {
+		if !names[want] {
+			t.Fatalf("no-emit repair surface missing %q: %+v", want, got)
+		}
+	}
+	for _, blocked := range []string{"grep", "read_file"} {
+		if names[blocked] {
+			t.Fatalf("no-emit repair surface should not reopen broad tool %q: %+v", blocked, got)
+		}
+	}
+}

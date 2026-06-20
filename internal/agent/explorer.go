@@ -5461,10 +5461,13 @@ func (e *explorerEvaluator) postRestrictedToolSurfaceSignal(obs LoopObservation)
 		obs.LastToolResult.Repair.Code != explorerRestrictedToolSurfaceCode {
 		return LoopSignal{}
 	}
-	allowed := e.restrictedToolSurface()
-	allowedNames := sortedToolNames(allowed)
-	if len(allowedNames) == 0 && obs.ToolSurfaceKnown {
+	allowedNames := sortedToolNames(nil)
+	if obs.ToolSurfaceKnown {
 		allowedNames = sortedToolNames(obs.AvailableToolNames)
+	}
+	if len(allowedNames) == 0 {
+		allowed := e.restrictedToolSurface(nil)
+		allowedNames = sortedToolNames(allowed)
 	}
 	allowedText := "the tools currently shown to you"
 	if len(allowedNames) > 0 {
@@ -6651,7 +6654,7 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	if e.investigationComplete {
 		return schemas
 	}
-	allowed := e.restrictedToolSurface()
+	allowed := e.restrictedToolSurface(ctx)
 	if len(allowed) == 0 {
 		return schemas
 	}
@@ -6667,7 +6670,7 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	return out
 }
 
-func (e *explorerEvaluator) restrictedToolSurface() map[string]bool {
+func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[string]bool {
 	if e == nil {
 		return nil
 	}
@@ -6681,13 +6684,42 @@ func (e *explorerEvaluator) restrictedToolSurface() map[string]bool {
 		if e.originSpecificObservationLaneActive() {
 			return nil
 		}
-		return completionProgressToolNames
+		return mergeRestrictedToolSurfaceWithActiveRepairs(completionProgressToolNames, ctx)
 	}
 	return nil
 }
 
 func (e *explorerEvaluator) materializationOnlyToolSurfaceActive() bool {
-	return len(e.restrictedToolSurface()) > 0
+	return len(e.restrictedToolSurface(nil)) > 0
+}
+
+func mergeRestrictedToolSurfaceWithActiveRepairs(base map[string]bool, ctx *types.AgentContext) map[string]bool {
+	if len(base) == 0 || ctx == nil || ctx.Mutable == nil {
+		return base
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return base
+	}
+	repairs := closure.ActiveRepairs()
+	if len(repairs) == 0 {
+		return base
+	}
+	out := make(map[string]bool, len(base)+len(repairs))
+	for name, ok := range base {
+		if ok {
+			out[name] = true
+		}
+	}
+	for _, repair := range repairs {
+		for _, name := range types.RepairDirectiveRequiredTools(repair) {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				out[name] = true
+			}
+		}
+	}
+	return out
 }
 
 func hasSuccessfulTool(results []types.ToolResult, toolName string) bool {

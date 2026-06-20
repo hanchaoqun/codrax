@@ -5004,7 +5004,7 @@ func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc ll
 	if !ok || explorerEval == nil || explorerEval.investigationComplete {
 		return nil
 	}
-	allowed := explorerEval.restrictedToolSurface()
+	allowed := explorerEval.restrictedToolSurface(ctx)
 	if len(allowed) == 0 || allowed[tc.Name] {
 		return nil
 	}

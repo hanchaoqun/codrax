@@ -4144,6 +4144,27 @@ func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T)
 	}
 }
 
+func TestExplorer_RuntimeBoundary_AllowsTypedRepairToolDuringNoEmitEscalation(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:  types.RepairStructuredHandoff,
+		Tools: []string{"repo_map"},
+		Stage: string(types.StageExplore),
+	})
+	eval := &explorerEvaluator{
+		midLoopNoEmitPushSent:  true,
+		midLoopNoEmitEscalated: true,
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"view":"source_inventory"}`)}); got != nil {
+		t.Fatalf("typed repair tool repo_map should remain allowed, got %+v", got)
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"x"}`)}); got == nil || got.Success {
+		t.Fatalf("unrelated broad grep should remain blocked, got %+v", got)
+	}
+}
+
 func TestExplorer_RuntimeBoundary_OriginSpecificReadWithoutEmitDoesNotRestrictNavigation(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopNoEmitPushSent:  true,
