@@ -249,7 +249,7 @@ Commercial hardening before declaring complete:
 | Batch | Status | Evidence |
 | --- | --- | --- |
 | D0 Delivery Ledger | completed | This document added on 2026-06-21; current-state audit and batch ledger recorded. |
-| M0a Write DAG install retirement | not_started | Legacy install and scheduler still present. |
+| M0a Write DAG install retirement | completed | Production write mode no longer installs `BuildWriteTaskGraph` or emits legacy write TaskGraph rows; `TestMode_WriteControllerDoesNotInstallLegacyWriteTaskGraph` pins controller-first behavior. |
 | M0b Legacy write scheduler deletion | not_started | Legacy tests still target removed-in-future scheduler. |
 | M0c TaskNode slot guard | not_started | Slots still documented as unused. |
 | M1a ToolInvocation production wiring | not_started | Observer exists but production replay identity incomplete. |

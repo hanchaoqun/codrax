@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
@@ -249,6 +250,47 @@ func TestMode_VerifyReachesStub(t *testing.T) {
 	result := busCtx.Mutable.Result()
 	if !strings.Contains(result, "B0 skeleton") && !strings.Contains(result, "verify") {
 		t.Errorf("verify mode Result should describe stub state; got %q", result)
+	}
+}
+
+func TestMode_WriteControllerDoesNotInstallLegacyWriteTaskGraph(t *testing.T) {
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	controllerCalls := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentWriteController: scriptedController(t, []writeflow.WriteWorkflowDecision{
+			{Action: writeflow.ActionBlock, ReasonCode: "test_stop"},
+		}, &controllerCalls),
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetMode(types.ModeApply)
+	o.SetAutoInitRepo(true)
+	o.SetScaffoldEnabled(true)
+	var events []render.Event
+	o.SetEmitter(func(ev render.Event) { events = append(events, ev) })
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("seed sentinel file: %v", err)
+	}
+	busCtx, err := o.Run("stop write workflow", repoRoot, "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if controllerCalls != 1 {
+		t.Fatalf("controller calls = %d, want 1", controllerCalls)
+	}
+	if busCtx.AnalysisIR == nil {
+		t.Fatal("AnalysisIR should remain available as write classifier context")
+	}
+	if IsWriteGraph(busCtx.AnalysisIR.TaskGraph) {
+		t.Fatalf("write mode must not install legacy plan/apply/verify TaskGraph: %+v", busCtx.AnalysisIR.TaskGraph.Nodes)
+	}
+	for _, ev := range events {
+		if ev.Kind == render.EventAnalysisReady {
+			t.Fatalf("write controller mode must not emit analyzer TaskGraph rows via EventAnalysisReady: %+v", ev.TaskNodes)
+		}
 	}
 }
 

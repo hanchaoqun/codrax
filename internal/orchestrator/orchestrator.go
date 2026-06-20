@@ -2215,20 +2215,16 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 	// Phase 1: analyze. Fail-loud: when analyze exhausts its retry
 	// budget the whole Run terminates without entering phase 2.
-	// On success, emit EventAnalysisReady so the renderer can switch
-	// from stage-dispatch rows to the analyzer's actual task / sub-
-	// task breakdown.
+	// On success, read mode emits EventAnalysisReady so the renderer can switch
+	// from stage-dispatch rows to the analyzer's actual task / sub-task
+	// breakdown. Write mode deliberately does not project analyzer TaskGraph
+	// rows: the analyzer is only a classifier there and the controller workflow
+	// is the execution authority.
 	//
-	// IMPORTANT — write modes defer EventAnalysisReady. The analyzer
-	// runs in write mode purely as a classifier; the TaskGraph it
-	// produces is irrelevant because BuildWriteTaskGraph replaces it
-	// in the next block (line ~1011). Firing EventAnalysisReady here
-	// would tell the dock to populate evidence/validate/finalize rows
-	// from the read graph, then write_scheduler would emit
-	// EventTaskNodeStart for plan/apply/verify nodes that the dock
-	// never created — findNodeRow returns nil and the dock sits on
-	// "等待派发" forever (customer-reported on a fresh
-	// "用 python 写一个俄罗斯方块" plan-mode request).
+	// IMPORTANT — do not resurrect the legacy write TaskGraph projection here.
+	// The controller emits typed workflow guidance/status from
+	// WriteWorkflowRun; installing a fake plan/apply/verify TaskGraph only
+	// creates a second, misleading execution surface.
 	if used, err := o.runAnalyzePhase(); err != nil {
 		if llm.IsStreamLevelRetryable(err) {
 			logging.Error("[orchestrator] analyze phase failed on transient model transport after retry budget: %v", err)
@@ -2293,30 +2289,25 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		}
 	}
 
-	// Phase 2: unified scheduler. Read mode walks the analyzer's
-	// emitted TaskGraph; write modes substitute a fixed
-	// plan→apply→verify graph from BuildWriteTaskGraph. Both share
-	// runTaskGraph (which dispatches to runReadSchedulerLoop or
-	// runWriteSchedulerLoop based on graph shape).
+	// Phase 2: read mode walks the analyzer-emitted TaskGraph. Write modes use
+	// the controller-first workflow and must not substitute the legacy fixed
+	// plan/apply/verify graph into AnalysisIR.
 	//
-	// L1 red line: the ModeRead branch leaves AnalysisIR.TaskGraph
-	// untouched — runTaskGraph reads exactly what the analyzer
-	// emitted, identical to pre-T4 behaviour.
+	// L1 red line: the ModeRead branch leaves AnalysisIR.TaskGraph untouched —
+	// runTaskGraph reads exactly what the analyzer emitted.
 	switch o.busCtx.Mode {
 	case types.ModeRead:
 		// Existing analyzer-emitted TaskGraph stays in place.
 	case types.ModePlan, types.ModeApply, types.ModeVerify:
-		// Substitute the linear write TaskGraph. The analyzer still
-		// ran above as a classifier (its IR is on AnalysisIR but its
-		// TaskGraph is replaced here). RetryBudget on the write graph
-		// drives the verify→plan cycle in runWriteSchedulerLoop.
+		// The analyzer still runs above as a classifier. Keep its IR available
+		// for write_analyzer/planner context, but do not rewrite its TaskGraph
+		// into the retired write DAG.
 		//
-		// Defensive nil check: runAnalyzePhase fails-loud + early-
-		// returns on a nil IR, but a misbehaving analyzer mock could
-		// return a clean StageOutput WITHOUT populating the IR.
-		// Surface that fail-loud here rather than panic-derefing.
+		// Defensive nil check: runAnalyzePhase fails-loud + early-returns on a
+		// nil IR, but a misbehaving analyzer mock could return a clean
+		// StageOutput WITHOUT populating the IR. Surface that fail-loud here.
 		if o.busCtx.AnalysisIR == nil {
-			o.busCtx.TaskState.LastError = "write mode: analyzer returned no AnalysisIR — cannot build write TaskGraph"
+			o.busCtx.TaskState.LastError = "write mode: analyzer returned no AnalysisIR — cannot seed controller workflow"
 			break
 		}
 		// Phase 1.5: write_analyzer dispatch. Produces WriteAnalysisIR
@@ -2330,8 +2321,6 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		} else {
 			stepsUsed += used
 		}
-		writeGraph := BuildWriteTaskGraph(o.busCtx.Mode, o.planPath, o.writeRetryBudget)
-		o.busCtx.AnalysisIR.TaskGraph = writeGraph
 		// Per-Run reset: best-known-good plan/report slot tracks
 		// retry-loop state that is per-task; clear it so a previous
 		// task's high-water mark cannot leak into this Run.
@@ -2353,11 +2342,6 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 				logging.Info("[orchestrator] best-plan restored from disk (plan=%s) — retry resumes from prior high-water mark", bp.ID)
 			}
 		}
-		// Now that the write graph is installed, emit
-		// EventAnalysisReady so the dock populates plan/apply/verify
-		// node rows. The corresponding read-mode emission was
-		// deliberately suppressed in phase 1 above.
-		o.emitAnalysisReady()
 	default:
 		logging.Error("[orchestrator] unknown pipeline mode %q", o.busCtx.Mode)
 		o.busCtx.TaskState.LastError = fmt.Sprintf("unknown pipeline mode %q", o.busCtx.Mode)
