@@ -123,6 +123,7 @@ func TestEvidenceClosureReset_AllFieldsCleared(t *testing.T) {
 	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize"})
 	c.IncrementStageRetry("finalize")
 	c.MarkPhase1UnreadFired()
+	c.SetNodeExecStatus("node-1", NodeExecDone)
 
 	c.Reset()
 
@@ -163,6 +164,39 @@ func TestEvidenceClosureReset_AllFieldsCleared(t *testing.T) {
 	}
 	if c.Phase1UnreadFired() {
 		t.Error("phase1UnreadFired latch not cleared")
+	}
+	if got := c.NodeExecStatuses(); len(got) != 0 {
+		t.Errorf("nodeExecStatus not cleared: %+v", got)
+	}
+}
+
+func TestEvidenceClosureNodeExecStatusCloneMergeAndNormalize(t *testing.T) {
+	parent := NewEvidenceClosure("")
+	parent.SetNodeExecStatus("n1", NodeExecRunning)
+	parent.SetNodeExecStatus("n2", NodeExecStatus("bogus"))
+	if got := parent.NodeExecStatus("n2"); got != NodeExecPending {
+		t.Fatalf("invalid status normalized to %q, want pending", got)
+	}
+
+	clone := parent.Clone()
+	clone.SetNodeExecStatus("n1", NodeExecDone)
+	clone.SetNodeExecStatus("n3", NodeExecRequeued)
+
+	if got := parent.NodeExecStatus("n1"); got != NodeExecRunning {
+		t.Fatalf("clone mutated parent: %q", got)
+	}
+	parent.MergeFrom(clone)
+	if got := parent.NodeExecStatus("n1"); got != NodeExecDone {
+		t.Fatalf("merged n1 = %q, want done", got)
+	}
+	if got := parent.NodeExecStatus("n3"); got != NodeExecRequeued {
+		t.Fatalf("merged n3 = %q, want requeued", got)
+	}
+
+	snap := parent.NodeExecStatuses()
+	snap["n1"] = NodeExecFailed
+	if got := parent.NodeExecStatus("n1"); got != NodeExecDone {
+		t.Fatalf("NodeExecStatuses leaked internal map: %q", got)
 	}
 }
 

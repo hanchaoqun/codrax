@@ -4725,6 +4725,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	o.busCtx.AnswerSymbolCompleteness = types.CompletenessUnknown
 
 	state := newGraphState(ir.TaskGraph)
+	state.attachEvidenceClosure(o.busCtx.Mutable.EvidenceClosure())
 	resolveSurface := termSurfaceLookup(ir)
 
 	// Install the ExploreBudget derived from the analyzer's

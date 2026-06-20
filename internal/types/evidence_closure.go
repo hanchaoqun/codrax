@@ -170,6 +170,13 @@ type EvidenceClosure struct {
 	// hint render time so each directive fires exactly once.
 	repairs []RepairDirective
 
+	// nodeExecStatus is the M1b shadow execution ledger for IR TaskNode
+	// status. During the transition graphState remains the scheduler
+	// authority, but every mutation is mirrored here through typed accessors
+	// so read/write loopkernel consumers can later stop depending on
+	// orchestrator-private maps.
+	nodeExecStatus map[string]NodeExecStatus
+
 	// stats accumulates CGEC enforcer fire counters across the
 	// current task. Each enforcer increments its own field
 	// (chain promotion → ChainsDemoted, findings_validator →
@@ -403,6 +410,7 @@ func NewEvidenceClosure(repoRoot string) *EvidenceClosure {
 		scannedSet:     make(map[string]bool),
 		citedRefs:      make(map[string][]int),
 		subjectMatches: make(map[string]float64),
+		nodeExecStatus: make(map[string]NodeExecStatus),
 	}
 }
 
@@ -428,6 +436,7 @@ func (c *EvidenceClosure) Clone() *EvidenceClosure {
 	out.subjectMatches = cloneFloatMap(c.subjectMatches)
 	out.fingerprints = append([]ClosureFingerprint(nil), c.fingerprints...)
 	out.repairs = cloneRepairDirectives(c.repairs)
+	out.nodeExecStatus = cloneNodeExecStatusMap(c.nodeExecStatus)
 	out.stats = cloneClosureStats(c.stats)
 	out.symbolEmitRejections = c.symbolEmitRejections
 	out.violations = cloneViolations(c.violations)
@@ -537,6 +546,16 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 		if !duplicate {
 			c.repairs = append(c.repairs, r)
 		}
+	}
+	if c.nodeExecStatus == nil {
+		c.nodeExecStatus = make(map[string]NodeExecStatus)
+	}
+	for id, status := range snap.nodeExecStatus {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		c.nodeExecStatus[id] = NormalizeNodeExecStatus(status)
 	}
 	c.stats = addClosureStats(c.stats, snap.stats)
 	if base := clampMergeBaseLen(snap.mergeBaseSymbolEmitRejections, snap.symbolEmitRejections); base > 0 {
@@ -2343,6 +2362,44 @@ func (c *EvidenceClosure) ConsumeRepairs() []RepairDirective {
 	return MergeRepairs(out)
 }
 
+func (c *EvidenceClosure) SetNodeExecStatus(nodeID string, status NodeExecStatus) {
+	if c == nil {
+		return
+	}
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.nodeExecStatus == nil {
+		c.nodeExecStatus = make(map[string]NodeExecStatus)
+	}
+	c.nodeExecStatus[nodeID] = NormalizeNodeExecStatus(status)
+}
+
+func (c *EvidenceClosure) NodeExecStatus(nodeID string) NodeExecStatus {
+	if c == nil {
+		return NodeExecPending
+	}
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return NodeExecPending
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return NormalizeNodeExecStatus(c.nodeExecStatus[nodeID])
+}
+
+func (c *EvidenceClosure) NodeExecStatuses() map[string]NodeExecStatus {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return cloneNodeExecStatusMap(c.nodeExecStatus)
+}
+
 // Reset wipes the closure back to NewEvidenceClosure() state. Called
 // by MutableState.ResetEvidenceClosure at task entry.
 //
@@ -2373,6 +2430,7 @@ func (c *EvidenceClosure) Reset() {
 	c.subjectMatches = make(map[string]float64)
 	c.fingerprints = nil
 	c.repairs = nil
+	c.nodeExecStatus = make(map[string]NodeExecStatus)
 	c.violations = nil
 	c.stats = ClosureStats{}
 	c.phase1UnreadFired = false
@@ -2566,6 +2624,21 @@ func cloneFloatMap(in map[string]float64) map[string]float64 {
 	out := make(map[string]float64, len(in))
 	for k, v := range in {
 		out[k] = v
+	}
+	return out
+}
+
+func cloneNodeExecStatusMap(in map[string]NodeExecStatus) map[string]NodeExecStatus {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]NodeExecStatus, len(in))
+	for k, v := range in {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		out[k] = NormalizeNodeExecStatus(v)
 	}
 	return out
 }

@@ -253,7 +253,7 @@ Commercial hardening before declaring complete:
 | M0b Legacy write scheduler deletion | completed | Removed `write_scheduler.go`, `write_graph.go`, and stale scheduler tests; retained shared retry helpers in `write_retry_helpers.go`; updated controller/read tests and architecture docs. |
 | M0c TaskNode slot guard | completed | Added `TestTaskNodeExecSlotsHaveNoRuntimeConsumersToday`; TaskNode artifact slots remain serialized/compiler/gate-only until Phase 2 artifact contracts wire or delete them. |
 | M1a ToolInvocation production wiring | completed | Added typed `invocation_id` / `params_ref` / `result_ref` through ReasoningGraph payload, reducer, replay, and audit views; production `cmd/root.go` now installs a shared observer into agent deps and orchestrator/subagent runtime; `FindToolInvocation` locates replayed calls. Verified with `go test ./cmd`, `go test ./internal/agent`, `go test ./internal/orchestrator`, `go test ./internal/reasoninggraph ./internal/types`. |
-| M1b EvidenceClosure node status | not_started | `graphState` still owns node status. |
+| M1b EvidenceClosure node status | completed | Added typed `NodeExecStatus` and EvidenceClosure accessors/clone/merge/reset coverage; `graphState` status mutations now dual-write through `setStatus` into the run closure while preserving scheduler map semantics. Verified with `go test ./internal/types` and `go test ./internal/orchestrator`. |
 | M1c IngestRound shadow reducer | not_started | Legacy recompute still scattered. |
 | M1d ProgressDelta authority | not_started | Downgrade/replan signals still scattered. |
 | M1e SourceClassUniverse projection | not_started | Source inventory universe exists; EvidenceClosure/loopkernel projection pending. |

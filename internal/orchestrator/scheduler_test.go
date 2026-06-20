@@ -54,6 +54,28 @@ func TestGraphState_ReadyWindow_MergedInitial(t *testing.T) {
 	}
 }
 
+func TestGraphState_NodeExecStatusShadow(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	closure := types.NewEvidenceClosure("")
+	s.attachEvidenceClosure(closure)
+
+	if got := closure.NodeExecStatus("n1"); got != types.NodeExecPending {
+		t.Fatalf("initial shadow status = %q, want pending", got)
+	}
+	s.markRunning("n1")
+	if s.status["n1"] != nodeRunning || closure.NodeExecStatus("n1") != types.NodeExecRunning {
+		t.Fatalf("running status mismatch: graph=%q shadow=%q", s.status["n1"], closure.NodeExecStatus("n1"))
+	}
+	s.markDone("n1")
+	if s.status["n1"] != nodeDone || closure.NodeExecStatus("n1") != types.NodeExecDone {
+		t.Fatalf("done status mismatch: graph=%q shadow=%q", s.status["n1"], closure.NodeExecStatus("n1"))
+	}
+	s.requeue("n1")
+	if s.status["n1"] != nodeRequeued || closure.NodeExecStatus("n1") != types.NodeExecRequeued {
+		t.Fatalf("requeued status mismatch: graph=%q shadow=%q", s.status["n1"], closure.NodeExecStatus("n1"))
+	}
+}
+
 func TestGraphState_ReadyWindowContextCancelled(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	ctx, cancel := context.WithCancel(context.Background())

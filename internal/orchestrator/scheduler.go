@@ -47,6 +47,7 @@ const (
 type graphState struct {
 	graph     types.TaskGraph
 	status    map[string]nodeStatus
+	closure   *types.EvidenceClosure
 	retryUsed int
 
 	// transientRetryUsed counts retries triggered by transient
@@ -162,9 +163,22 @@ func newGraphState(g types.TaskGraph) *graphState {
 		status: make(map[string]nodeStatus, len(g.Nodes)),
 	}
 	for _, n := range g.Nodes {
-		s.status[n.ID] = nodePending
+		s.setStatus(n.ID, nodePending)
 	}
 	return s
+}
+
+func (s *graphState) attachEvidenceClosure(closure *types.EvidenceClosure) {
+	if s == nil {
+		return
+	}
+	s.closure = closure
+	if closure == nil {
+		return
+	}
+	for id, status := range s.status {
+		closure.SetNodeExecStatus(id, nodeStatusToExecStatus(status))
+	}
 }
 
 // readyExplorerWindow collects every non-finalize, non-counterfactual
@@ -224,11 +238,43 @@ func declOrder(g types.TaskGraph, id string) int {
 // markRunning / markDone / markFailed / requeue are state transitions on the
 // per-node status map.
 func (s *graphState) markRunning(id string) {
-	s.status[id] = nodeRunning
+	s.setStatus(id, nodeRunning)
 }
-func (s *graphState) markDone(id string)   { s.status[id] = nodeDone }
-func (s *graphState) markFailed(id string) { s.status[id] = nodeFailed }
-func (s *graphState) requeue(id string)    { s.status[id] = nodeRequeued }
+func (s *graphState) markDone(id string)   { s.setStatus(id, nodeDone) }
+func (s *graphState) markFailed(id string) { s.setStatus(id, nodeFailed) }
+func (s *graphState) requeue(id string)    { s.setStatus(id, nodeRequeued) }
+
+func (s *graphState) setStatus(id string, status nodeStatus) {
+	if s == nil {
+		return
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	if s.status == nil {
+		s.status = make(map[string]nodeStatus)
+	}
+	s.status[id] = status
+	if s.closure != nil {
+		s.closure.SetNodeExecStatus(id, nodeStatusToExecStatus(status))
+	}
+}
+
+func nodeStatusToExecStatus(status nodeStatus) types.NodeExecStatus {
+	switch status {
+	case nodeRunning:
+		return types.NodeExecRunning
+	case nodeDone:
+		return types.NodeExecDone
+	case nodeFailed:
+		return types.NodeExecFailed
+	case nodeRequeued:
+		return types.NodeExecRequeued
+	default:
+		return types.NodeExecPending
+	}
+}
 
 // retryBudgetExhausted reports whether the cumulative cross-window
 // retry count has hit ExecutionPolicy.RetryBudget.
@@ -501,11 +547,11 @@ func (s *graphState) requeueValidationTargets(validateID string) []string {
 			continue
 		}
 		if s.status[e.To] == nodeDone {
-			s.status[e.To] = nodeRequeued
+			s.setStatus(e.To, nodeRequeued)
 			out = append(out, e.To)
 		}
 	}
-	s.status[validateID] = nodeRequeued
+	s.setStatus(validateID, nodeRequeued)
 	return out
 }
 
@@ -521,7 +567,7 @@ func (s *graphState) forceCloseExploreWindow() {
 			continue
 		}
 		if s.status[n.ID] != nodeDone {
-			s.status[n.ID] = nodeDone
+			s.setStatus(n.ID, nodeDone)
 		}
 	}
 }
@@ -552,7 +598,7 @@ func (s *graphState) requeueToStage(target types.PipelineStage, writing bool) []
 		// re-emits the answer document.
 		if n.Type == types.NodeFinalize {
 			if s.status[n.ID] == nodeDone {
-				s.status[n.ID] = nodeRequeued
+				s.setStatus(n.ID, nodeRequeued)
 				requeued = append(requeued, n.ID)
 			}
 			continue
@@ -569,7 +615,7 @@ func (s *graphState) requeueToStage(target types.PipelineStage, writing bool) []
 			continue
 		}
 		if s.status[n.ID] == nodeDone {
-			s.status[n.ID] = nodeRequeued
+			s.setStatus(n.ID, nodeRequeued)
 			requeued = append(requeued, n.ID)
 		}
 	}
