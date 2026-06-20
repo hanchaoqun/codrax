@@ -51,6 +51,11 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C13 | P0 | Accepted-closure advisory debt is not consumed consistently across scheduler surfaces. | `chain_promotion.*` pending reads can be advisory for auto-complete but still appear in retry hints or forced-read drains if the cleanup happens after hint rendering. This creates the visible pattern "investigation complete → verification not stable → same support-chain read again". | A single typed `RepairDebtClass` policy must feed auto-complete, fact-retry suppression, retry-hint rendering, forced-read drains, and audit checkpoints. Accepted closure may keep principal blockers, but advisory debt is cleared before any model-facing retry hint. |
 | RNE-C14 | P1 | User-facing retry notices can remain stale after auto-complete. | The renderer may already have emitted "verification not stable enough" before the scheduler recognizes that accepted closure supersedes a retry carry-over. The system state is correct, but the REPL progress card looks like a real retry. | Status-card events should be driven by typed next-action decisions after stale retry carry-over suppression, so auto-completed advisory retries render as "accepted; skipping support-only retry" instead of another unstable-verification cue. |
 | RNE-C15 | P1 | Final contract telemetry still has schema-level noise after eval pass. | A run can report eval `answer_contract_violations=0` while the internal CGEC summary records non-blocking answer-document field violations such as candidate role annotation drift. | Final contract telemetry should distinguish blocking user-answer defects, repaired/non-blocking schema drift, and audit-only annotation gaps with typed severity, then feed the same status card and reasoning graph. |
+| RNE-C16 | P0 | Mixed runtime-artifact plus current-code requests can collapse to observation-only. | Analyzer can emit typed `requested_answer_dimensions.role=current_key_code` and `source_scope_profile`, while `CurrentSourceLaneDecision` only treats `current_source_mode=allow` or explicit current-source profile as hard current-source anchors. Explorer then receives `Runtime Artifact Only Start`, accepts `external_only_log`, and finalizer discovers the missing current-code dimension too late. | Source-lane authority consumes typed required `current_key_code` dimensions paired with valid source scope, not prose. Observation-only remains valid for pure runtime metric dimensions; explicit `exclude` still wins; `external_only_*` waiver cannot close a required current-source lane. |
+| RNE-C17 | P0 | Missing repo_map lens debt can requeue after grounded current-source evidence exists. | After source anchors and evidence are accepted, pre-finalize localization can still treat a missing `file_map` lens as principal and repeatedly show "verification not stable enough". This is support/navigation debt, not necessarily answer-blocking proof debt. | Navigation debt must be classified by consumer and principal coverage. If current-source evidence/read coverage satisfies the active lane, missing lens debt is advisory or at most one bounded repair; it must not keep requeueing identical source-localizer work. |
+| RNE-C18 | P1 | Requested-dimension role drift causes avoidable finalizer patch rounds. | The visible answer may already cover the user's dimension label, but coverage hints can report a role-shaped miss such as `日志线索 (diff_clue)`. This happens when origin/dimension role projection overfits a role enum rather than the typed source quote/label coverage. | Dimension coverage should consume normalized dimension ids, labels, source quotes, and block evidence origins together. Role aliases are soft display metadata; missing-dimension hints must not depend on a misleading role name alone. |
+| RNE-C19 | P1 | Runtime-artifact language guesses can pollute repository reasoning. | Log triage may emit `meta.lang=python` for a generic runtime log even when the repository is Go. That artifact-language guess can become noise for downstream source localization and audit language summaries. | Separate artifact format/language from repository/source language. Runtime triage language is advisory artifact metadata only; source-language decisions come from repo_map/file paths/typed source inventory. |
+| RNE-C20 | P1 | Parallel exploration siblings can duplicate a solved current-source lane. | The mixed runtime/source eval passed only after 24 reads, 4 repo_map calls, 56 explorer iterations, 18 midloop injections, and context pruning. Several sibling routes collected overlapping finalizer/LLM timeout evidence. | Add a shared proof-coverage ledger across siblings. Once one route satisfies runtime observation + current-source owner + mechanism coverage, sibling routes consume the ledger, skip duplicate reads, and converge through a compact handoff. |
 
 ## Architecture Direction
 
@@ -142,6 +147,11 @@ roles from many raw trace rows.
 | Batch K | planned | Add tool/preflight/context assembly telemetry and caches. | `emit_evidence`, `emit_investigation_complete`, schema normalization, grounding view, and completion preflight expose sub-stage timings and reuse dispatch/version-scoped typed views. |
 | Batch L | planned | Align user-facing retry/status notices with typed next-action state. | Accepted closure that skips support-only retry debt shows a clear auto-complete/skip notice, not a stale "verification not stable enough" retry cue. |
 | Batch M | planned | Split final contract telemetry by typed severity. | Eval pass/fail, user-answer blocking defects, repaired schema drift, and audit-only annotation gaps are reported separately and consumable by URGR/reasoning graph. |
+| Batch N | delivered | Fix mixed runtime/source lane authority. | `current_key_code` requested dimensions plus typed source scope require source coverage before closure; pure runtime metric dimensions stay source-optional; the representative mixed log/current-code eval passes with real source reads and citations. |
+| Batch O | planned | Demote stale repo_map navigation debt after principal source coverage. | Missing lens debt no longer requeues after current-source proof is satisfied unless it is tied to an unresolved principal owner/path obligation. |
+| Batch P | planned | Normalize requested-dimension coverage by typed ids/labels/origins. | Finalizer does not patch solely because a role enum label drifted; it patches only when the typed requested dimension is absent from visible answer content. |
+| Batch Q | planned | Split runtime-artifact language metadata from repo/source language. | Log/trace artifact language guesses cannot drive source-language summaries, source localization, or hard gates. |
+| Batch R | planned | Share proof coverage across exploration siblings. | Mixed runtime/source cases converge with bounded duplicate reads and smaller context while preserving source citations. |
 | Batch J | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
 
 ## Test Matrix
@@ -161,10 +171,20 @@ roles from many raw trace rows.
   answers with supported localization and remain visible for observed-only
   localization.
 - Unit: tool/preflight timing and cache keys are dispatch/version scoped.
+- Unit: a required `current_key_code` dimension plus typed source scope requires
+  the current-source lane for external observations.
+- Unit: pure runtime metric dimensions remain source-optional under default
+  external-observation policy.
+- Unit: explicit `exclude` still overrides source-scope drift and preserves
+  observation-only behavior.
+- Unit: `external_only_log` / `external_only_trace` waiver is ignored when the
+  typed current-source lane is required and no current-source coverage exists.
 - Eval: `arkts_repomap` no longer loops on empty set shape.
 - Eval: `qf_relation_subagent_registry` converges without repeated identical
   relation support downgrade.
 - Eval: `trace_query_wakeup_causal_io_chain` preserves intermediate path roles.
+- Eval: `read_combo_log_current_code_dimensions` reads current-source anchors
+  and cites repo lines instead of answering observation-only.
 - Eval: architecture inventory and C++ call-chain cases stay bounded in reads,
   context tokens, and explorer iterations.
 
@@ -259,3 +279,28 @@ roles from many raw trace rows.
   Batch D/K remain high-priority. Internal CGEC still records a non-blocking
   answer-document annotation violation even when eval answer-contract metrics
   are zero, now tracked as RNE-C15 / Batch M.
+- 2026-06-20 representative six-case refresh:
+  `eval/convergence_audit_summary_20260620_batch1.md` passed 5/6 cases and
+  isolated `read_combo_log_current_code_dimensions` as a true mixed
+  runtime/source lane failure. The failure had `read_file=0` and `repo_map=0`;
+  analyzer emitted typed requested dimensions and source scope, but source-lane
+  authority still collapsed the turn into observation-only. This is now tracked
+  as RNE-C16 / Batch N.
+- 2026-06-20 Batch N delivered: `RequestModel.CurrentSourceLaneDecision` now
+  treats required `current_key_code` answer dimensions plus a valid typed source
+  scope as a current-source requirement for external observations. The change
+  consumes only typed analyzer fields and structured policy, not user keywords,
+  model rationale, or visible thinking. Pure runtime metric dimensions still
+  remain source-optional under default external-observation policy, and explicit
+  source exclusion still wins.
+- 2026-06-20 Batch N verification: focused `internal/types`, `internal/agent`,
+  and `internal/tool` tests passed, and full `go test ./...` passed after the
+  source-scope refinement. The representative
+  `read_combo_log_current_code_dimensions` rerun passed under
+  `eval/results/read_combo_log_current_code_dimensions-20260620-083333` with
+  actual current-source work (`read_file=24`, `repo_map=4`) and source citations
+  in the final answer. Residual cost remains high (`explorer_iters=56`,
+  `midloop_inject=18`, `max_context_tokens_est=73423`, finalizer 2 rounds), so
+  stale navigation debt, requested-dimension coverage drift, runtime language
+  metadata hygiene, and sibling proof sharing are tracked as RNE-C17 through
+  RNE-C20 for the next batches.

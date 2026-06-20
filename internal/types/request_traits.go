@@ -1151,6 +1151,15 @@ func (rm RequestModel) HasObservationOnlyRuntimeArtifact() bool {
 		rm.ExternalObservationPolicy.ExcludesCurrentSource()
 }
 
+// ExternalObservationAllowsCurrentSource reports whether the analyzer emitted
+// an explicit typed mixed-lane request. This is stronger than the default
+// posture: default means current source is permitted when useful, while allow
+// means downstream must not collapse the turn into runtime-observation-only.
+func (rm RequestModel) ExternalObservationAllowsCurrentSource() bool {
+	return rm.ExternalObservationPolicy != nil &&
+		rm.ExternalObservationPolicy.CurrentSourceMode == ExternalObservationCurrentSourceAllow
+}
+
 // HasRuntimeArtifactWithoutRequiredCurrentSource reports that runtime artifact
 // observations are answer-grade and current-checkout source evidence is not a
 // hard requirement for this request. This is the shared precise signal for
@@ -1177,6 +1186,46 @@ func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceCont
 	}
 	withTrace := rm.withAttachedTraceRuntimeArtifact()
 	return withTrace.HasRuntimeArtifactWithoutRequiredCurrentSource()
+}
+
+// HasRuntimeArtifactObservationOnlySurface is the narrower source-optional
+// runtime shape that may render observation-only start/completion guidance.
+// Explicit current_source_mode=allow keeps a mixed lane available even when
+// current-source evidence is not otherwise hard-required.
+func (rm RequestModel) HasRuntimeArtifactObservationOnlySurface() bool {
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSource() &&
+		!rm.ExternalObservationAllowsCurrentSource()
+}
+
+func (rm RequestModel) HasRuntimeArtifactObservationOnlySurfaceInTraceContext(attachedTrace bool) bool {
+	if rm.HasRuntimeArtifactObservationOnlySurface() {
+		return true
+	}
+	if !attachedTrace {
+		return false
+	}
+	withTrace := rm.withAttachedTraceRuntimeArtifact()
+	return withTrace.HasRuntimeArtifactObservationOnlySurface()
+}
+
+// HasRuntimeArtifactSourceOptionalMixedSurface is the counterpart of
+// HasRuntimeArtifactObservationOnlySurface: runtime observations may answer the
+// artifact lane, but the analyzer explicitly kept current-source analysis in
+// scope, so prompts and closure gates must not say "leave source out".
+func (rm RequestModel) HasRuntimeArtifactSourceOptionalMixedSurface() bool {
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSource() &&
+		rm.ExternalObservationAllowsCurrentSource()
+}
+
+func (rm RequestModel) HasRuntimeArtifactSourceOptionalMixedSurfaceInTraceContext(attachedTrace bool) bool {
+	if rm.HasRuntimeArtifactSourceOptionalMixedSurface() {
+		return true
+	}
+	if !attachedTrace {
+		return false
+	}
+	withTrace := rm.withAttachedTraceRuntimeArtifact()
+	return withTrace.HasRuntimeArtifactSourceOptionalMixedSurface()
 }
 
 func (rm RequestModel) withAttachedTraceRuntimeArtifact() RequestModel {
@@ -1211,15 +1260,18 @@ func (rm RequestModel) HasTypedCurrentSourceScopeRequest() bool {
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return false
 	}
-	if rm.ExternalObservationPolicy == nil ||
-		rm.ExternalObservationPolicy.CurrentSourceMode != ExternalObservationCurrentSourceAllow {
-		return false
-	}
 	if rm.SourceScopeProfile == nil {
 		return false
 	}
 	scope := rm.SourceScopeProfile.RequestedScope
-	return scope != "" && scope != SourceScopeUnknown && scope.IsValid()
+	if scope == "" || scope == SourceScopeUnknown || !scope.IsValid() {
+		return false
+	}
+	if rm.ExternalObservationPolicy != nil &&
+		rm.ExternalObservationPolicy.CurrentSourceMode == ExternalObservationCurrentSourceAllow {
+		return true
+	}
+	return rm.hasRequiredCurrentKeyCodeDimension()
 }
 
 // CurrentSourceLaneDecision is the typed, non-prose decision used by hard
@@ -1248,6 +1300,10 @@ func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
 		return CurrentSourceLaneRequired
 	}
 	if rm.HasTypedCurrentSourceScopeRequest() {
+		return CurrentSourceLaneRequired
+	}
+	if (rm.HasExternalOnlyRuntimeArtifact() || rm.HasExternalObservationArtifactReference()) &&
+		rm.ExternalObservationAllowsCurrentSource() {
 		return CurrentSourceLaneRequired
 	}
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
@@ -1311,6 +1367,18 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 			if rm.dimensionHasCurrentSourceAnchor(dim) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func (rm RequestModel) hasRequiredCurrentKeyCodeDimension() bool {
+	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return false
+	}
+	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+		if dim.Required && dim.Role == RequestedAnswerDimensionCurrentKeyCode {
+			return true
 		}
 	}
 	return false

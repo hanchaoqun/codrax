@@ -343,7 +343,7 @@ func TestAnalyzerPrompt_RuntimeSourceOptionalSkipsRepoOverview(t *testing.T) {
 		"Runtime Artifact Source-Optional Classification Shortcut",
 		"current checkout/source evidence is not required",
 		"Do not run repo pre-scan just to classify trace/log literals",
-		"Keep current-source analysis allowed by default",
+		"Keep current-source analysis at the default posture",
 		"call `emit_analysis` now",
 	} {
 		if !strings.Contains(got, want) {
@@ -408,7 +408,7 @@ func TestAnalyzerPrompt_ExternalObservationTurnHintSkipsRepoOverview(t *testing.
 		"external observation evidence",
 		"Do not run repo pre-scan merely to classify",
 		"artifact_citation_mode=\"external_only\"",
-		"Keep current-source analysis allowed by default",
+		"Keep current-source analysis at the default posture",
 		"do not set `current_source_mode=exclude`",
 		"normal mixed external-observation plus current-source lane",
 	} {

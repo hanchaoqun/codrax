@@ -4547,7 +4547,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SourceOptionalTraceSkip
 					IsDimensionedAnswer: true,
 					Dimensions: []types.RequestedAnswerDimension{{
 						Label:    "dominant_state",
-						Role:     types.RequestedAnswerDimensionCurrentKeyCode,
+						Role:     types.RequestedAnswerDimensionStageWorkflow,
 						Required: true,
 						Index:    1,
 					}},

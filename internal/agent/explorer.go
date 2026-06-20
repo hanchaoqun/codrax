@@ -699,12 +699,17 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildRuntimeObservationOnlyStartInstruction(ctx))
 	}
 
-	if runtimeArtifactWithoutRequiredSourceForExplorer(ctx) {
+	if runtimeArtifactObservationOnlySurfaceForExplorer(ctx) {
 		e.phase = 1
 		if explorerHasTraceQueryRuntimeTraceCarrier(ctx) {
 			return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
 		}
 		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildRuntimeObservationOnlyStartInstruction(ctx))
+	}
+
+	if runtimeArtifactSourceOptionalMixedSurfaceForExplorer(ctx) {
+		e.phase = 1
+		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExternalObservationFirstStartInstruction(ctx))
 	}
 
 	if externalObservationFirstSourceOptionalForExplorer(ctx) {
@@ -12211,7 +12216,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		stopParseSection = startExplorerParseSectionWatchdog(ctx, "turn_a_handoff")
 		handoffEvidence := buildTurnAHandoffEvidence(ctx, questionKind, rankedEvidence, answerChains)
 		stableAggregateFacts := ctx.Mutable.StableInvestigationAggregateFacts()
-		runtimeObservationOnlyCompletion := (runtimeArtifactWithoutRequiredSourceForExplorer(ctx) ||
+		runtimeObservationOnlyCompletion := (runtimeArtifactObservationOnlySurfaceForExplorer(ctx) ||
 			originSpecificObservationWithoutRequiredSourceForExplorer(ctx, stableAggregateFacts)) &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()) != "" &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != ""

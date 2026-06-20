@@ -6,8 +6,10 @@ import (
 )
 
 // RequestedAnswerDimensionRole is a language-neutral role for a visible answer
-// dimension the user explicitly asked to see. It is presentation metadata, not
-// an evidence origin and not a hard validation target.
+// dimension the user explicitly asked to see. Most roles are presentation
+// metadata. A required current_key_code role can participate in source-lane
+// decisions only when paired with typed source-scope and external-observation
+// policy state; labels or rationale text are never inspected for hard routing.
 type RequestedAnswerDimensionRole string
 
 const (

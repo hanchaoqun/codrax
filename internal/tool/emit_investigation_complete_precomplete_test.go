@@ -3676,6 +3676,12 @@ func TestNarrativePrincipalMemberSetCompletesBoundary(t *testing.T) {
 
 func TestEmitInvestigationComplete_PreCompleteCheck_WaiverBypassesMultiTopicAnchors(t *testing.T) {
 	mut := types.NewMutableState("test")
+	logBundle := &types.LogBundle{Observations: []types.LogObservation{{
+		Kind:       types.LogObservationRuntimeEvent,
+		Summary:    "attached runtime artifact names an external service",
+		Confidence: 0.95,
+	}}}
+	mut.SetLogTriage(logBundle)
 	mut.EvidenceClosure().SetReadSet(map[string]bool{
 		"attached-log": true,
 	})
@@ -3694,6 +3700,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_WaiverBypassesMultiTopicAnch
 		RepoRoot: t.TempDir(),
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
+				LogTriage: logBundle,
 				SubTopics: []types.SubTopic{
 					{Summary: "top-level exception", Entities: []string{"RuntimeError"}},
 					{Summary: "missing external service", Entities: []string{"ExternalService"}},

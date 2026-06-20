@@ -200,6 +200,20 @@ func runtimeArtifactWithoutRequiredSourceForExplorer(ctx *types.AgentContext) bo
 	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource()
 }
 
+func runtimeArtifactObservationOnlySurfaceForExplorer(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactObservationOnlySurface()
+}
+
+func runtimeArtifactSourceOptionalMixedSurfaceForExplorer(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactSourceOptionalMixedSurface()
+}
+
 func explorerHasTraceQueryRuntimeTraceCarrier(ctx *types.AgentContext) bool {
 	if ctx == nil {
 		return false

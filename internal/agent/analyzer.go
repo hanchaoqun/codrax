@@ -200,7 +200,7 @@ func renderAnalyzerRuntimeSourceOptionalShortcut() string {
 		"The typed request model already carries a runtime artifact lane and current checkout/source evidence is not required. " +
 		"Do not run repo pre-scan just to classify trace/log literals, thread labels, timestamps, wakeup chains, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
 		"Classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now. " +
-		"Keep current-source analysis allowed by default in the emitted model unless the typed external_observation_policy explicitly excludes it; when it does, emit diagnostic_profile.current_risk/current_version_check/historical_regression=false because current-checkout verification is out of scope. Later exploration may use focused source tools only if a current-source question remains unresolved or would materially change the answer.\n\n"
+		"Keep current-source analysis at the default posture unless the typed external_observation_policy explicitly excludes it or the current request asks for a mixed current-source explanation. Use current_source_mode=allow only for that explicit mixed-lane case; otherwise default keeps source exploration permitted without making it a required lane. When exclude is valid, emit diagnostic_profile.current_risk/current_version_check/historical_regression=false because current-checkout verification is out of scope. Later exploration may use focused source tools only if a current-source question remains unresolved or would materially change the answer.\n\n"
 }
 
 func externalObservationFirstTurnHintForAnalyzer(ctx *types.AgentContext) bool {
@@ -225,7 +225,8 @@ func renderAnalyzerExternalObservationFirstShortcut(hint types.TurnRouteHint) st
 	b.WriteString("Treat MCP resources, connector rows, runtime artifacts, and other external observation line coordinates as external observation evidence, not current-source file:line citations. ")
 	b.WriteString("Do not run repo pre-scan merely to classify an external artifact URI, MCP resource, connector row, or external observation line number. ")
 	b.WriteString("Call `emit_analysis` now from the user's wording and the typed turn source; set `external_observation_policy.artifact_citation_mode=\"external_only\"` when artifact or MCP line refs are present. ")
-	b.WriteString("Keep current-source analysis allowed by default: do not set `current_source_mode=exclude` unless the user or typed policy explicitly excludes source analysis. ")
+	b.WriteString("Keep current-source analysis at the default posture: do not set `current_source_mode=exclude` unless the user or typed policy explicitly excludes source analysis. ")
+	b.WriteString("Use `current_source_mode=allow` only when the request explicitly asks for a mixed current-source explanation; otherwise default keeps focused source exploration permitted without making it a required lane. ")
 	b.WriteString("If the user also asks to compare with current code, or if later exploration finds a precise source bridge, continue through the normal mixed external-observation plus current-source lane.\n\n")
 	return b.String()
 }

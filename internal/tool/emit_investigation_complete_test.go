@@ -1038,6 +1038,61 @@ func TestEmitInvestigationComplete_RuntimeNegativeObservationCompat(t *testing.T
 	}
 }
 
+func TestEmitInvestigationComplete_ExplicitAllowRejectsExternalOnlyWaiverWithoutCurrentSource(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioRootCause,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			LogTriage: &types.LogBundle{Observations: []types.LogObservation{{
+				Kind:       types.LogObservationRuntimeEvent,
+				Summary:    "finalizer attempt failed after LLM stream timeout",
+				Confidence: 0.95,
+			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceAllow,
+				Confidence:           0.95,
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"runtime log explains the observed timeout and finalizer retry",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_log",
+			"rationale":"the log lines are external observations"
+		},
+		"aggregate_facts":[{
+			"kind":"behavior_outcome",
+			"label":"runtime outcome",
+			"value":"finalizer retry after stream timeout",
+			"role":"principal_answer",
+			"dimensions":[{"name":"origin","value":"runtime_artifact"}]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("mixed-lane downgrade should be soft, got hard failure: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("explicit allow mixed lane must not close through an external-only waiver without current-source evidence")
+	}
+	if !strings.Contains(res.Summary, "current-source") {
+		t.Fatalf("summary should point the model at the missing current-source lane, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_NormalizesNegativeObservationAliasPayload(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
@@ -2789,7 +2844,7 @@ func TestEmitInvestigationComplete_AllowsExhaustiveRuntimeArtifactMemberSet(t *t
 	}
 	ir.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
 		ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
-		CurrentSourceMode:    types.ExternalObservationCurrentSourceAllow,
+		CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
 		Confidence:           0.9,
 	}
 	bus := &types.BusContext{
@@ -2857,7 +2912,7 @@ func TestEmitInvestigationComplete_DoesNotBypassMixedOriginExhaustiveMemberSet(t
 	}
 	ir.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
 		ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
-		CurrentSourceMode:    types.ExternalObservationCurrentSourceAllow,
+		CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
 		Confidence:           0.9,
 	}
 	bus := &types.BusContext{
@@ -2915,7 +2970,7 @@ func TestEmitInvestigationComplete_OriginSpecificMemberSetHintAvoidsRepoEvidence
 	}
 	ir.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
 		ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
-		CurrentSourceMode:    types.ExternalObservationCurrentSourceAllow,
+		CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
 		Confidence:           0.9,
 	}
 	bus := &types.BusContext{

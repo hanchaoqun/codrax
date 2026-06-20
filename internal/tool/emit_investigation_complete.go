@@ -1421,6 +1421,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s for pure VCS history; carry git findings through reason/aggregate_facts, not runtime-artifact waiver", typedReason)
 			logging.Warning("[emit_investigation_complete] %s rationale=%q",
 				ignoredEvidenceWaiver, truncateForLog(waiverRationale, 200))
+		} else if !runtimeArtifactGroundingBypassAllowed(ctx) {
+			ctx.Mutable.SetEvidenceFloorWaiver(nil)
+			ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s because the typed current-source lane is required; preserve runtime observations, then collect current-source evidence before closing", typedReason)
+			logging.Warning("[emit_investigation_complete] %s rationale=%q",
+				ignoredEvidenceWaiver, truncateForLog(waiverRationale, 200))
 		} else {
 			ctx.Mutable.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
 				Reason:    typedReason,
@@ -1819,6 +1824,18 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// flip investigationComplete). The explorer's ShouldStop sees
 	// the flag still false and continues the loop.
 	preCompleteStart := time.Now()
+	if downgrade := currentSourceLaneCoverageDowngrade(ctx, preflight); downgrade != "" {
+		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_current_source_lane", preCompleteStart, len(preflight.Evidence))
+		if ctx != nil && ctx.Mutable != nil {
+			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+		}
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   downgrade,
+			Success:   true,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	if downgrade := preCompleteContractCheckWithPreflight(ctx, justification, preflight); downgrade != "" {
 		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(preflight.Evidence))
 		if ctx != nil && ctx.Mutable != nil {
@@ -2677,6 +2694,9 @@ func repoGroundingBypassLabel(ctx *types.BusContext) (string, bool) {
 		return "", false
 	}
 	if w := ctx.Mutable.EvidenceFloorWaiver(); w.IsActive() {
+		if !runtimeArtifactGroundingBypassAllowed(ctx) {
+			return "", false
+		}
 		return fmt.Sprintf("evidence_floor_waiver=%s", w.Reason), true
 	}
 	if bundle := ctx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
@@ -2790,6 +2810,7 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 		return true
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
 	if ctx.Mutable != nil {
 		if rm.LogTriage == nil {
 			rm.LogTriage = ctx.Mutable.LogTriage()
@@ -2797,8 +2818,11 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 		if rm.PerfTrace == nil {
 			rm.PerfTrace = ctx.Mutable.PerfTrace()
 		}
+		if ctx.Mutable.PerfTrace() != nil {
+			attachedTrace = true
+		}
 	}
-	return rm.HasRuntimeArtifactWithoutRequiredCurrentSource()
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
 }
 
 func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
@@ -6422,6 +6446,126 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 		return true
 	}
 	return ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision().RequiresCurrentSource()
+}
+
+func currentSourceLaneCoverageDowngrade(ctx *types.BusContext, preflight completionPreflightView) string {
+	if ctx == nil || ctx.AnalysisIR == nil || !currentSourceForcedReadGatesApply(ctx) {
+		return ""
+	}
+	if !currentSourceLaneRuntimeArtifactCarrier(ctx) {
+		return ""
+	}
+	if currentSourceLaneHasCoverage(ctx, preflight) {
+		return ""
+	}
+	if currentSourceLaneHasSpecificSourceSeed(ctx) {
+		return ""
+	}
+	if ctx.Mutable != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:      types.RepairExpandSearch,
+			Keywords:  dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.ExactTargets...), append(rm.AnalyzerHints.Entities, rm.AnalyzerHints.Keywords...)...)),
+			Rationale: "typed current-source lane is required but no current-source evidence or read coverage exists; locate and read the implementation owner before completion",
+			Origin:    "pre_complete.current_source_lane_coverage",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — typed current-source lane is required but no current-source evidence/read coverage exists.\n\n")
+	b.WriteString("The runtime/external observation lane can be preserved as context, but it cannot close this investigation by itself. ")
+	b.WriteString("Run a focused source localization step (`repo_map`, files-only search, or `read_file` on a bounded owner path), then emit grounded current-source evidence before retrying `emit_investigation_complete`.\n")
+	return b.String()
+}
+
+func currentSourceLaneRuntimeArtifactCarrier(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.HasExternalOnlyRuntimeArtifact() || rm.HasRuntimeArtifactPathReference() {
+		return true
+	}
+	if ctx.Mutable != nil {
+		if bundle := ctx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
+			return true
+		}
+		if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
+			return true
+		}
+	}
+	return false
+}
+
+func currentSourceLaneHasSpecificSourceSeed(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	for _, hint := range ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints {
+		if currentSourceCoveragePath(hint.Path) {
+			return true
+		}
+	}
+	if ctx.Mutable != nil {
+		for _, ranked := range ctx.Mutable.Phase1Ranking() {
+			if ranked.ExactEntityRank <= 0 {
+				continue
+			}
+			if currentSourceCoveragePath(ranked.Path) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func currentSourceLaneHasCoverage(ctx *types.BusContext, preflight completionPreflightView) bool {
+	for _, ev := range preflight.Evidence {
+		if currentSourceCoverageEvidenceItem(ev) {
+			return true
+		}
+	}
+	if ctx == nil {
+		return false
+	}
+	for _, ev := range ctx.EvidenceItems {
+		if currentSourceCoverageEvidenceItem(ev) {
+			return true
+		}
+	}
+	if ctx.Mutable != nil {
+		for _, p := range ctx.Mutable.EvidenceClosure().CanonicalReadFiles() {
+			if currentSourceCoveragePath(p) {
+				return true
+			}
+		}
+		if turnA := ctx.Mutable.TurnAArtifacts(); turnA != nil {
+			for _, p := range turnA.ReadFiles {
+				if currentSourceCoveragePath(p) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func currentSourceCoverageEvidenceItem(ev types.EvidenceItem) bool {
+	if ev.Origin == types.ClaimOriginLog ||
+		ev.Origin == types.ClaimOriginPerf {
+		return false
+	}
+	return currentSourceCoveragePath(ev.Source)
+}
+
+func currentSourceCoveragePath(raw string) bool {
+	path := strings.TrimSpace(filepath.ToSlash(raw))
+	if path == "" || types.LooksLikeRuntimeArtifactPath(path) {
+		return false
+	}
+	if !types.HasCodeOrConfigPathSuffix(path) {
+		return false
+	}
+	return true
 }
 
 func forcedReadSeedIsRuntimeArtifact(path string) bool {

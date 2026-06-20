@@ -819,7 +819,7 @@ func traceQueryFirstRuntimeRequestModel() types.RequestModel {
 		PerfTrace: perf,
 		ExternalObservationPolicy: &types.ExternalObservationPolicy{
 			ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
-			CurrentSourceMode:    types.ExternalObservationCurrentSourceAllow,
+			CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
 			Confidence:           0.9,
 		},
 	}

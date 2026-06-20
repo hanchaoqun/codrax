@@ -358,6 +358,43 @@ func TestCurrentSourceLaneDecision_RuntimeArtifactDefaultOptional(t *testing.T) 
 	}
 }
 
+func TestCurrentSourceLaneDecision_ExplicitAllowRequiresMixedCurrentSourceLane(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		LogTriage: &LogBundle{
+			Observations: []LogObservation{{
+				Kind:       LogObservationRuntimeEvent,
+				Summary:    "finalizer attempt failed after a stream timeout",
+				Confidence: 0.95,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceAllow,
+			Confidence:           0.95,
+		},
+	}
+	if !rm.HasExternalOnlyRuntimeArtifact() {
+		t.Fatal("fixture should be an external runtime artifact")
+	}
+	if !rm.ExternalObservationAllowsCurrentSource() {
+		t.Fatal("fixture should expose explicit mixed-lane allow policy")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("explicit allow should require the mixed current-source lane, got %s", got)
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("explicit allow must not collapse into runtime-artifact-only completion")
+	}
+	if rm.HasRuntimeArtifactObservationOnlySurface() {
+		t.Fatal("explicit allow must not render observation-only start guidance")
+	}
+}
+
 func TestHasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,
@@ -444,7 +481,7 @@ func TestCurrentSourceLaneDecision_ExternalArtifactSourceScopeRequiresSource(t *
 	}
 }
 
-func TestCurrentSourceLaneDecision_DefaultExternalArtifactSourceScopeStaysOptional(t *testing.T) {
+func TestCurrentSourceLaneDecision_DefaultExternalArtifactCurrentKeyCodeRequiresSource(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,
 		Scenario: ScenarioPerformanceBottleneck,
@@ -480,14 +517,61 @@ func TestCurrentSourceLaneDecision_DefaultExternalArtifactSourceScopeStaysOption
 			Confidence: 0.9,
 		},
 	}
+	if !rm.HasTypedCurrentSourceScopeRequest() {
+		t.Fatal("required current_key_code dimension plus typed source scope should request current-source evidence")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("required current_key_code dimension should require current source, got %s", got)
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("required current_key_code dimension must not be treated as source-optional")
+	}
+}
+
+func TestCurrentSourceLaneDecision_DefaultExternalArtifactMetricDimensionStaysOptional(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:      "state_churn",
+				Subject:   "app-20",
+				Summary:   "runtime trace state_churn metrics",
+				LineStart: 3,
+				LineEnd:   23,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeProduction,
+			Confidence:     0.8,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:    "dominant_state",
+				Role:     RequestedAnswerDimensionStageWorkflow,
+				Required: true,
+				Index:    1,
+			}},
+			Confidence: 0.9,
+		},
+	}
 	if rm.HasTypedCurrentSourceScopeRequest() {
-		t.Fatal("default external artifact source scope should remain optional")
+		t.Fatal("runtime metric dimensions should not hard-require current source under default source mode")
 	}
 	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
-		t.Fatalf("default external artifact source scope should keep source optional, got %s", got)
+		t.Fatalf("runtime metric dimensions should keep source optional, got %s", got)
 	}
 	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
-		t.Fatal("default external artifact source scope should not hard-require current source")
+		t.Fatal("runtime metric dimensions should stay source-optional")
 	}
 }
 

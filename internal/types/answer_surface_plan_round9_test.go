@@ -76,7 +76,7 @@ func TestBuildAnswerSurfacePlan_ExternalTraceExactTargetsDoNotForceCurrentStatus
 				IsDimensionedAnswer: true,
 				Dimensions: []RequestedAnswerDimension{{
 					Label:    "dominant_state",
-					Role:     RequestedAnswerDimensionCurrentKeyCode,
+					Role:     RequestedAnswerDimensionStageWorkflow,
 					Required: true,
 					Index:    1,
 				}},

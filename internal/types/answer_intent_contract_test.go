@@ -266,7 +266,7 @@ func TestCompileAnswerIntentContract_TraceArtifactSourceScopeKeepsCurrentSource(
 	}
 }
 
-func TestCompileAnswerIntentContract_DefaultTraceArtifactSourceScopeStaysRuntimeOnly(t *testing.T) {
+func TestCompileAnswerIntentContract_DefaultTraceArtifactCurrentKeyCodeRequiresSource(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,
 		Scenario: ScenarioPerformanceBottleneck,
@@ -306,11 +306,59 @@ func TestCompileAnswerIntentContract_DefaultTraceArtifactSourceScopeStaysRuntime
 	}
 	got := CompileAnswerIntentContract(rm, nil)
 	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputDiagnostic},
+	)
+	if !rm.RequiresCurrentSourceForExternalObservation(nil) {
+		t.Fatal("required current_key_code dimension plus typed source scope should require current-source evidence")
+	}
+}
+
+func TestCompileAnswerIntentContract_DefaultTraceArtifactMetricDimensionStaysRuntimeOnly(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{IsDiagnostic: true},
+		PerfTrace: &PerfBundle{
+			Observations: []PerfObservation{{
+				Kind:       "state_churn",
+				Subject:    "app-20",
+				Summary:    "runtime trace span is fragmented",
+				LineStart:  3,
+				LineEnd:    23,
+				DurationMs: 8,
+			}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    ExternalObservationCurrentSourceDefault,
+			Confidence:           0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeProduction,
+			Confidence:     0.8,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:    "dominant_state",
+				Role:     RequestedAnswerDimensionStageWorkflow,
+				Required: true,
+				Index:    1,
+			}},
+			Confidence: 0.8,
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
 		[]AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact},
 		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputDiagnostic},
 	)
 	if rm.RequiresCurrentSourceForExternalObservation(nil) {
-		t.Fatal("default external trace source scope and metric dimensions should not require current-source evidence")
+		t.Fatal("runtime metric dimension should not require current-source evidence")
 	}
 }
 
