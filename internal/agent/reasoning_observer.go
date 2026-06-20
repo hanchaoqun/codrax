@@ -165,16 +165,48 @@ func (b *BaseAgent) observeSchemaRejected(ctx *types.AgentContext, call llm.Tool
 }
 
 func (b *BaseAgent) observeToolRepairPackEmitted(ctx *types.AgentContext, result *types.ToolResult) {
-	if result == nil || result.Repair == nil || strings.TrimSpace(result.Repair.Code) == "" {
+	if result == nil {
+		return
+	}
+	if result.Repair != nil && strings.TrimSpace(result.Repair.Code) != "" {
+		payload := reasoninggraph.ObservationPayload{
+			ToolName:    result.ToolName,
+			RepairCode:  result.Repair.Code,
+			RepairLocus: "tool_result",
+			Message:     strings.Join(result.Repair.Fields, ","),
+		}
+		b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventRepairPackEmitted, result.Repair.Code, reasoninggraph.ReasoningNodeRepair, payload)
+	}
+	if result.Handoff != nil {
+		b.observeToolHandoffCarrierProjected(ctx, result)
+	}
+}
+
+func (b *BaseAgent) observeToolHandoffCarrierProjected(ctx *types.AgentContext, result *types.ToolResult) {
+	if result == nil || result.Handoff == nil {
+		return
+	}
+	carrier := types.NormalizeToolHandoffCarrier(*result.Handoff)
+	if carrier.Empty() {
 		return
 	}
 	payload := reasoninggraph.ObservationPayload{
-		ToolName:    result.ToolName,
-		RepairCode:  result.Repair.Code,
-		RepairLocus: "tool_result",
-		Message:     strings.Join(result.Repair.Fields, ","),
+		ToolName:            result.ToolName,
+		RepairCode:          carrier.RepairCode,
+		RepairReasonCode:    carrier.ReasonCode,
+		RepairLocus:         "tool_handoff_carrier",
+		EvidenceRefCount:    len(carrier.AcceptedEvidence),
+		FactCount:           len(carrier.ObservationRefs),
+		JSONFieldPaths:      toolHandoffJSONFieldPaths(carrier),
+		EnumFieldPaths:      toolHandoffEnumFieldPaths(carrier),
+		AcceptedEvidenceIDs: toolHandoffAcceptedEvidenceIDs(carrier),
+		ObservationIDs:      toolHandoffObservationIDs(carrier),
 	}
-	b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventRepairPackEmitted, result.Repair.Code, reasoninggraph.ReasoningNodeRepair, payload)
+	if payload.RepairCode == "" && carrier.Repair != nil {
+		payload.RepairCode = carrier.Repair.Code
+	}
+	reason := firstNonEmptyString(carrier.ReasonCode, carrier.RepairCode, "tool_handoff_projected")
+	b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventToolHandoffProjected, reason, reasoninggraph.ReasoningNodeRepair, payload)
 }
 
 func (b *BaseAgent) observeLLMRequestWaiting(ctx *types.AgentContext, iter int, telemetry llm.RequestTelemetry, elapsed time.Duration) {
@@ -183,6 +215,44 @@ func (b *BaseAgent) observeLLMRequestWaiting(ctx *types.AgentContext, iter int, 
 		Attempt:       iter + 1,
 		ElapsedMillis: elapsed.Milliseconds(),
 	})
+}
+
+func toolHandoffJSONFieldPaths(carrier types.ToolHandoffCarrier) []string {
+	if carrier.SupportedJSON == nil {
+		return nil
+	}
+	return append([]string(nil), carrier.SupportedJSON.FailingFieldPaths...)
+}
+
+func toolHandoffEnumFieldPaths(carrier types.ToolHandoffCarrier) []string {
+	if carrier.SupportedJSON == nil || len(carrier.SupportedJSON.AcceptedEnums) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(carrier.SupportedJSON.AcceptedEnums))
+	for key := range carrier.SupportedJSON.AcceptedEnums {
+		out = append(out, key)
+	}
+	return out
+}
+
+func toolHandoffAcceptedEvidenceIDs(carrier types.ToolHandoffCarrier) []string {
+	out := make([]string, 0, len(carrier.AcceptedEvidence))
+	for _, ref := range carrier.AcceptedEvidence {
+		if ref.ID != "" {
+			out = append(out, ref.ID)
+		}
+	}
+	return out
+}
+
+func toolHandoffObservationIDs(carrier types.ToolHandoffCarrier) []string {
+	out := make([]string, 0, len(carrier.ObservationRefs))
+	for _, ref := range carrier.ObservationRefs {
+		if ref.ID != "" {
+			out = append(out, ref.ID)
+		}
+	}
+	return out
 }
 
 func (b *BaseAgent) observeLLMRequestRetried(ctx *types.AgentContext, attempt int, delay time.Duration, reason string) {

@@ -290,3 +290,68 @@ func TestReasoningObserverCapturesRepairPackAndLLMEvents(t *testing.T) {
 		t.Fatalf("fallback event=%+v", view.RepairEvents[1])
 	}
 }
+
+func TestObserveToolHandoffCarrierProjected(t *testing.T) {
+	collector := reasoninggraph.NewEventCollector("test")
+	base := &BaseAgent{
+		name: types.AgentExplorer,
+		deps: &Dependencies{ReasoningObserver: collector},
+	}
+	result := &types.ToolResult{
+		ToolName: "emit_change_plan",
+		Success:  false,
+		Handoff: &types.ToolHandoffCarrier{
+			Version:    types.ToolHandoffCarrierVersion,
+			ToolName:   "emit_change_plan",
+			ReasonCode: "invalid_enum",
+			RepairCode: types.PlanRepairToolCode,
+			SupportedJSON: &types.ToolJSONSurfaceDescriptor{
+				ToolName:          "emit_change_plan",
+				ReasonCode:        "invalid_enum",
+				FailingFieldPaths: []string{"$.changes[0].edits[0].kind"},
+				AcceptedEnums: map[string][]string{
+					"$.changes[].edits[].kind": {"replace"},
+				},
+			},
+			AcceptedEvidence: []types.AcceptedEvidenceRef{{ID: "ev-1"}},
+			ObservationRefs:  []types.ToolObservationRef{{ID: "obs-1"}},
+		},
+	}
+
+	base.observeToolRepairPackEmitted(&types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+	}, result)
+
+	events := collector.Events()
+	if len(events) != 1 {
+		t.Fatalf("events = %+v, want one handoff projection", events)
+	}
+	event := events[0]
+	if event.Kind != reasoninggraph.ReasoningEventToolHandoffProjected {
+		t.Fatalf("event kind = %s", event.Kind)
+	}
+	payload := reasoninggraphPayload(t, event)
+	if payload.RepairReasonCode != "invalid_enum" ||
+		payload.RepairCode != types.PlanRepairToolCode ||
+		payload.EvidenceRefCount != 1 ||
+		payload.FactCount != 1 ||
+		len(payload.JSONFieldPaths) != 1 ||
+		len(payload.EnumFieldPaths) != 1 ||
+		len(payload.AcceptedEvidenceIDs) != 1 ||
+		len(payload.ObservationIDs) != 1 {
+		t.Fatalf("payload mismatch: %+v", payload)
+	}
+}
+
+func reasoninggraphPayload(t *testing.T, event reasoninggraph.ReasoningEvent) reasoninggraph.ObservationPayload {
+	t.Helper()
+	payload := reasoninggraph.ObservationPayload{}
+	if len(event.Payload) == 0 {
+		t.Fatal("missing event payload")
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatalf("payload unmarshal: %v", err)
+	}
+	return payload
+}
