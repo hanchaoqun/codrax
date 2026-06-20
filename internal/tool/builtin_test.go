@@ -473,6 +473,121 @@ func TestListFiles(t *testing.T) {
 	})
 }
 
+func TestListFiles_FileTypeFiltersPathNames(t *testing.T) {
+	repo := t.TempDir()
+	for pathValue, content := range map[string]string{
+		"entry/src/main/ets/pages/Index.ets": "@Entry\n@Component\nstruct Index {}\n",
+		"entry/src/main/ets/pages/helper.ts": "export const helper = 1\n",
+		"README.md":                          "# docs\n",
+	} {
+		full := filepath.Join(repo, filepath.FromSlash(pathValue))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", pathValue, err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", pathValue, err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "fake.ets", "nested"), 0o755); err != nil {
+		t.Fatalf("mkdir fake .ets dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "fake.ets", "nested", "not_arkts.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write fake nested file: %v", err)
+	}
+
+	result, err := (&ListFiles{}).Execute(&types.BusContext{RepoRoot: repo}, json.RawMessage(`{"path":".","recursive":true,"file_type":"arkts"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "entry/src/main/ets/pages/Index.ets") {
+		t.Fatalf("ArkTS file missing from filtered listing:\n%s", result.Summary)
+	}
+	for _, noise := range []string{"helper.ts", "README.md"} {
+		if strings.Contains(result.Summary, noise) {
+			t.Fatalf("file_type filter leaked %q:\n%s", noise, result.Summary)
+		}
+	}
+	for _, line := range strings.Split(result.Summary, "\n") {
+		line = strings.TrimSpace(line)
+		switch line {
+		case ".", "entry", "entry/src", "entry/src/main", "entry/src/main/ets", "entry/src/main/ets/pages", "fake.ets", "fake.ets/nested":
+			t.Fatalf("file_type path discovery must not output directory row %q:\n%s", line, result.Summary)
+		}
+	}
+	if !strings.Contains(result.Summary, "file_type=arkts") {
+		t.Fatalf("banner should preserve file_type provenance:\n%s", result.Summary)
+	}
+}
+
+func TestListFiles_FileTypeCanIncludeRepoOwnedAuxiliary(t *testing.T) {
+	repo := t.TempDir()
+	paths := []string{
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		"node_modules/pkg/noise.ets",
+	}
+	for _, pathValue := range paths {
+		full := filepath.Join(repo, filepath.FromSlash(pathValue))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", pathValue, err)
+		}
+		if err := os.WriteFile(full, []byte("@Entry\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", pathValue, err)
+		}
+	}
+
+	tool := &ListFiles{}
+	bus := &types.BusContext{RepoRoot: repo}
+	withoutAux, err := tool.Execute(bus, json.RawMessage(`{"path":".","recursive":true,"file_type":"arkts"}`))
+	if err != nil {
+		t.Fatalf("Execute without aux: %v", err)
+	}
+	if strings.Contains(withoutAux.Summary, "01_entry_component_minimal.ets") {
+		t.Fatalf("default listing must keep auxiliary corpus filtered:\n%s", withoutAux.Summary)
+	}
+
+	withAux, err := tool.Execute(bus, json.RawMessage(`{"path":".","recursive":true,"file_type":"arkts","include_auxiliary":true}`))
+	if err != nil {
+		t.Fatalf("Execute with aux: %v", err)
+	}
+	if !strings.Contains(withAux.Summary, "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets") {
+		t.Fatalf("include_auxiliary listing should surface repo-owned corpus files:\n%s", withAux.Summary)
+	}
+	if strings.Contains(withAux.Summary, "node_modules/pkg/noise.ets") {
+		t.Fatalf("include_auxiliary must not reopen dependency/cache trees:\n%s", withAux.Summary)
+	}
+	if !strings.Contains(withAux.Summary, "include_auxiliary=true") {
+		t.Fatalf("banner should preserve auxiliary-scope provenance:\n%s", withAux.Summary)
+	}
+}
+
+func TestGrepNoMatchPathDiscoveryAdvisory(t *testing.T) {
+	got := grepNoMatchBody(&types.BusContext{}, grepToolParams{
+		Pattern:   "Missing",
+		Include:   "*.ets",
+		FilesOnly: true,
+	})
+	if !strings.Contains(got, "path_discovery_advisory=") ||
+		!strings.Contains(got, "list_files") ||
+		!strings.Contains(got, "include/file_type") {
+		t.Fatalf("grep include no-match should steer path discovery to list_files:\n%s", got)
+	}
+}
+
+func TestExecCommandFindDiscoveryAdvisory(t *testing.T) {
+	got := execCommandFileDiscoveryAdvisory(`find . -name "*.ets" | head`)
+	if !strings.Contains(got, "list_files") ||
+		!strings.Contains(got, "file_type") ||
+		!strings.Contains(got, "include_auxiliary") {
+		t.Fatalf("find discovery advisory should steer to typed list_files, got:\n%s", got)
+	}
+	if noise := execCommandFileDiscoveryAdvisory(`grep -R needle .`); noise != "" {
+		t.Fatalf("non-find command should not get file discovery advisory: %q", noise)
+	}
+}
+
 func TestExecCommand(t *testing.T) {
 	t.Run("echo hello", func(t *testing.T) {
 		tool := &ExecCommand{}

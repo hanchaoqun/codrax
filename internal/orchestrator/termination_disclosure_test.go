@@ -75,6 +75,48 @@ func TestAppendSystemCaveats_SuppressesDegradedTerminationForGroundedPrincipalAn
 	}
 }
 
+func TestAppendSystemCaveats_SuppressesDegradedTerminationForGroundedEnumerationSection(t *testing.T) {
+	mu := types.NewMutableState("grounded enum")
+	mu.MarkTerminationFloorDegraded("ratio 10% < 50%")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "entries",
+			Kind:        types.BlockSection,
+			Title:       "@Entry 页面入口",
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "index",
+				Label:       "Index",
+				CitationRef: 0,
+			}, {
+				ID:          "list",
+				Label:       "ListPage",
+				CitationRef: 1,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", Line: 7},
+			{File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets", Line: 32},
+		},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Status:      types.SourceLocalizationObserved,
+			SourcePaths: []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"},
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:     "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+				Kind:     types.SourceLocalizationAnchorReadFile,
+				Strength: types.SourceLocalizationAnchorObserved,
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Language: "zh"}}
+	got := o.appendSystemCaveatsToAnswer("answer body")
+	if strings.Contains(got, "低于配置的最低标准") {
+		t.Fatalf("grounded enumeration answer should suppress generic degraded caveat, got %q", got)
+	}
+}
+
 func TestAppendSystemCaveats_KeepsDegradedTerminationForObservedOnlyAnswer(t *testing.T) {
 	mu := types.NewMutableState("observed")
 	mu.MarkTerminationFloorDegraded("ratio 10% < 50%")

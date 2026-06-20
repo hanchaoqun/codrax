@@ -1379,6 +1379,14 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if msg := completionPathDiscoveryAbsenceProofReject(ctx, resultKind, aggregateFacts); msg != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   msg,
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	// has_per_member_table completion obligation (2026-06-12
 	// sequence-table forensics): the analyzer-declared typed shape
 	// makes the bounded member set part of the answer, so a resolved
@@ -1685,6 +1693,15 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "grounding_citation_floors", groundingFloorStart, len(evidenceSnapshot))
+
+	if msg := completionPathDiscoveryAbsenceProofReject(ctx, resultKind, effectiveAggregateFacts); msg != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   msg,
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Declarative absence claim. Stored on Mutable so the orchestrator
 	// can waive citation-floor gates for honest-zero answers. The
@@ -3960,6 +3977,195 @@ func exactEmptyMemberSetHasTypedNoHitSupport(fact types.AnswerAggregateFact, fac
 		}
 	}
 	return false
+}
+
+func completionPathDiscoveryAbsenceProofReject(ctx *types.BusContext, resultKind string, facts []types.AnswerAggregateFact) string {
+	if !completionNeedsPathDiscoveryAbsenceProof(ctx, resultKind, facts) {
+		return ""
+	}
+	results := completionPathDiscoveryToolResults(ctx)
+	if !completionToolResultsHavePathFilteredGrepNoMatch(results) {
+		return ""
+	}
+	if sourceInventoryToolResultsHaveSourceInventoryLens(results) {
+		return ""
+	}
+	hasRecursiveDiscovery := false
+	hasAuxiliaryDiscovery := false
+	for _, result := range results {
+		if !completionToolResultIsRecursivePathDiscoveryList(result) {
+			continue
+		}
+		hasRecursiveDiscovery = true
+		if completionBannerField(result.Summary, "list_files", "include_auxiliary") == "true" {
+			hasAuxiliaryDiscovery = true
+		}
+	}
+	if !hasRecursiveDiscovery {
+		return "emit_investigation_complete rejected: repo-wide file-family absence is not proven by content grep or a non-recursive directory listing. Run `list_files` with path=\".\", recursive=true, and include/file_type matching the searched file family, or run `repo_map` with view=\"source_inventory\" when this is a typed source-inventory lane; then retry with aggregate_facts based on that typed universe."
+	}
+	if completionRepoHasAuxiliaryInventoryDirs(ctx) && !hasAuxiliaryDiscovery {
+		return "emit_investigation_complete rejected: the repository contains repo-owned auxiliary/corpus trees, so this file-family absence proof must include them explicitly. Re-run `list_files` with path=\".\", recursive=true, matching include/file_type, and include_auxiliary=true, or run `repo_map` with view=\"source_inventory\" if the typed source-inventory lens is authoritative for this lane."
+	}
+	return ""
+}
+
+func completionNeedsPathDiscoveryAbsenceProof(ctx *types.BusContext, resultKind string, facts []types.AnswerAggregateFact) bool {
+	if !completionTypedInventoryLikeRequest(ctx) {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(resultKind), "absence") {
+		return true
+	}
+	for _, fact := range facts {
+		switch fact.Kind {
+		case types.AnswerAggregateNegativeSearch:
+			if strings.TrimSpace(fact.Value) == "0" {
+				return true
+			}
+		case types.AnswerAggregateMemberSet:
+			if types.AnswerAggregateFactIsExactEmptyMemberSet(fact) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func completionTypedInventoryLikeRequest(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return true
+	}
+	if types.IsTypedSourceEnumerationShape(rm) {
+		return true
+	}
+	if rm.Predicates.HasPerMemberTable {
+		return true
+	}
+	if rm.CompletenessObligation != nil && rm.CompletenessObligation.IsActive() &&
+		rm.Intent == types.IntentEnumerate &&
+		!rm.Predicates.IsScalarAnswer &&
+		!rm.Predicates.IsCountQuestion &&
+		!rm.Predicates.IsHistoryLookup &&
+		!rm.Predicates.IsDiagnosticQuestion {
+		return true
+	}
+	return false
+}
+
+func completionPathDiscoveryToolResults(ctx *types.BusContext) []types.ToolResult {
+	if ctx == nil {
+		return nil
+	}
+	var out []types.ToolResult
+	if ctx.Mutable != nil {
+		out = append(out, ctx.Mutable.DispatchToolResults()...)
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			out = append(out, ta.ToolResults...)
+		}
+	}
+	out = append(out, ctx.ToolResults...)
+	return out
+}
+
+func completionToolResultsHavePathFilteredGrepNoMatch(results []types.ToolResult) bool {
+	for _, result := range results {
+		if !result.Success || types.CanonicalToolName(result.ToolName) != "grep" {
+			continue
+		}
+		if !strings.Contains(result.Summary, "path_discovery_advisory=") {
+			continue
+		}
+		if completionBannerField(result.Summary, "grep params", "include") == "" &&
+			completionBannerField(result.Summary, "grep params", "file_type") == "" {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func completionToolResultIsRecursivePathDiscoveryList(result types.ToolResult) bool {
+	if !result.Success || types.CanonicalToolName(result.ToolName) != "list_files" {
+		return false
+	}
+	if completionBannerField(result.Summary, "list_files", "recursive") != "true" {
+		return false
+	}
+	return completionBannerField(result.Summary, "list_files", "include") != "" ||
+		completionBannerField(result.Summary, "list_files", "file_type") != ""
+}
+
+func completionBannerField(summary, bannerName, key string) string {
+	prefix := "[" + bannerName + ":"
+	for _, line := range strings.Split(summary, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "]") {
+			continue
+		}
+		body := strings.TrimSuffix(strings.TrimPrefix(line, prefix), "]")
+		for _, field := range strings.Fields(body) {
+			k, value, ok := strings.Cut(field, "=")
+			if ok && k == key {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return ""
+}
+
+func completionRepoHasAuxiliaryInventoryDirs(ctx *types.BusContext) bool {
+	root := completionRepoRoot(ctx)
+	if root == "" {
+		return false
+	}
+	count := 0
+	found := false
+	_ = filepath.WalkDir(root, func(pathValue string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() || found {
+			return nil
+		}
+		count++
+		if count > 5000 {
+			return filepath.SkipDir
+		}
+		name := d.Name()
+		if pathValue != root && listFilesAuxiliaryDirNameAllowed(name) {
+			found = true
+			return filepath.SkipDir
+		}
+		if pathValue == root {
+			return nil
+		}
+		if IsWindowsReservedDevicePath(name) {
+			return filepath.SkipDir
+		}
+		if listFilesAuxiliaryDirNameAllowed(name) {
+			return nil
+		}
+		if IsExcludedDirName(name) {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	return found
+}
+
+func completionRepoRoot(ctx *types.BusContext) string {
+	if ctx == nil {
+		return ""
+	}
+	if strings.TrimSpace(ctx.RepoRoot) != "" {
+		return ctx.RepoRoot
+	}
+	if ctx.Mutable != nil {
+		return ctx.Mutable.RepoRoot()
+	}
+	return ""
 }
 
 func aggregateMemberSetCanRelyOnOriginSpecificProvenance(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {

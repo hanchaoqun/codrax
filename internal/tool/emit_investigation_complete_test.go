@@ -3,6 +3,8 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -3554,7 +3556,28 @@ func TestEmitInvestigationComplete_AcceptsExactEmptyMemberSetWithNegativeSearch(
 	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
 	tool := &EmitInvestigationComplete{}
 
-	params := json.RawMessage(`{
+	res, err := tool.Execute(bus, exactEmptyArkTSAggregateCompletionParams())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("empty member_set with typed negative support should pass: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "exhaustive member-set handoff is missing") ||
+		strings.Contains(res.Summary, "empty member_set without typed zero-result support") {
+		t.Fatalf("empty supported member_set should not downgrade: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 2 || !types.AnswerAggregateFactIsExactEmptyMemberSet(facts[1]) {
+		t.Fatalf("stored aggregate facts = %+v, want negative_search plus exact empty member_set", facts)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored after exact empty member_set")
+	}
+}
+
+func exactEmptyArkTSAggregateCompletionParams() json.RawMessage {
+	return json.RawMessage(`{
 		"reason":"the bounded repository search found no ArkTS entry components",
 		"confidence":"high",
 		"result_kind":"resolved",
@@ -3581,23 +3604,155 @@ func TestEmitInvestigationComplete_AcceptsExactEmptyMemberSetWithNegativeSearch(
 			}
 		]
 	}`)
-	res, err := tool.Execute(bus, params)
+}
+
+func TestEmitInvestigationComplete_RejectsPathFamilyAbsenceAfterPathFilteredGrepOnly(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all ArkTS entry components")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: "[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
+			"no matches found\n" +
+			"path_discovery_advisory=grep searches file contents, not file names.\n",
+	})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all ArkTS entry components",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir, RepoRoot: t.TempDir()}
+	tool := &EmitInvestigationComplete{}
+
+	res, err := tool.Execute(bus, exactEmptyArkTSAggregateCompletionParams())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("path-filtered grep-only empty proof should be rejected")
+	}
+	if !strings.Contains(res.Summary, "repo-wide file-family absence is not proven") ||
+		!strings.Contains(res.Summary, "list_files") {
+		t.Fatalf("summary should steer to typed path discovery, got: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_AcceptsPathFamilyAbsenceAfterRecursiveListFiles(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all ArkTS entry components")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: "[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
+			"no matches found\n" +
+			"path_discovery_advisory=grep searches file contents, not file names.\n",
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary:  "[list_files: path=. recursive=true include=*.ets]\n",
+	})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all ArkTS entry components",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir, RepoRoot: t.TempDir()}
+	tool := &EmitInvestigationComplete{}
+
+	res, err := tool.Execute(bus, exactEmptyArkTSAggregateCompletionParams())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("empty member_set with typed negative support should pass: %s", res.Summary)
+		t.Fatalf("recursive path-family discovery should satisfy empty proof: %s", res.Summary)
 	}
-	if strings.Contains(res.Summary, "exhaustive member-set handoff is missing") ||
-		strings.Contains(res.Summary, "empty member_set without typed zero-result support") {
-		t.Fatalf("empty supported member_set should not downgrade: %s", res.Summary)
+}
+
+func TestEmitInvestigationComplete_RequiresAuxiliaryPathDiscoveryWhenRepoHasAuxiliaryTrees(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "internal", "thirdparty", "corpus"), 0o755); err != nil {
+		t.Fatalf("mkdir auxiliary corpus: %v", err)
 	}
-	facts := mut.StableInvestigationAggregateFacts()
-	if len(facts) != 2 || !types.AnswerAggregateFactIsExactEmptyMemberSet(facts[1]) {
-		t.Fatalf("stored aggregate facts = %+v, want negative_search plus exact empty member_set", facts)
+	mut := types.NewMutableState("List all ArkTS entry components")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: "[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
+			"no matches found\n" +
+			"path_discovery_advisory=grep searches file contents, not file names.\n",
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary:  "[list_files: path=. recursive=true include=*.ets]\n",
+	})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all ArkTS entry components",
 	}
-	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
-		t.Fatalf("completion should be stored after exact empty member_set")
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir, RepoRoot: repo}
+	tool := &EmitInvestigationComplete{}
+
+	res, err := tool.Execute(bus, exactEmptyArkTSAggregateCompletionParams())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("auxiliary tree should require include_auxiliary=true")
+	}
+	if !strings.Contains(res.Summary, "include_auxiliary=true") {
+		t.Fatalf("summary should request auxiliary discovery, got: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_AcceptsAuxiliaryPathDiscoveryWhenRepoHasAuxiliaryTrees(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "internal", "thirdparty", "corpus"), 0o755); err != nil {
+		t.Fatalf("mkdir auxiliary corpus: %v", err)
+	}
+	mut := types.NewMutableState("List all ArkTS entry components")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: "[grep params: pattern=@Entry|@Builder path=. include=*.ets files_only=true]\n" +
+			"no matches found\n" +
+			"path_discovery_advisory=grep searches file contents, not file names.\n",
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary:  "[list_files: path=. recursive=true include=*.ets include_auxiliary=true]\n",
+	})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all ArkTS entry components",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir, RepoRoot: repo}
+	tool := &EmitInvestigationComplete{}
+
+	res, err := tool.Execute(bus, exactEmptyArkTSAggregateCompletionParams())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("auxiliary-aware recursive path discovery should satisfy empty proof: %s", res.Summary)
 	}
 }
 

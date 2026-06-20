@@ -298,6 +298,45 @@ func TestComputeExhaustiveMemberCoverage_SetEquality(t *testing.T) {
 	})
 }
 
+func TestComputeExhaustiveMemberCoverage_SectionItemsArePrincipalMembers(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "ArkTS 页面入口",
+		Value:   "2",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Index", "ListPage"},
+	}
+	doc := &AnswerDocumentV2{
+		Blocks: []AnswerBlock{{
+			ID:          "entries",
+			Kind:        BlockSection,
+			Title:       "ArkTS 页面入口",
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				ID:          "index",
+				Label:       "Index",
+				CitationRef: 0,
+			}, {
+				ID:          "list",
+				Label:       "ListPage",
+				CitationRef: 1,
+			}},
+		}},
+		Citations: []Citation{
+			{File: "01_entry_component_minimal.ets", Line: 7},
+			{File: "05_foreach_lazyforeach.ets", Line: 32},
+		},
+	}
+	cov := ComputeExhaustiveMemberCoverage(doc, fact)
+	if cov.HasFailures() {
+		t.Fatalf("section items should satisfy exhaustive member coverage: %+v", cov)
+	}
+	if cov.PrincipalItemCount != 2 || cov.MemberCount != 2 {
+		t.Fatalf("unexpected coverage counts: %+v", cov)
+	}
+}
+
 func TestFormatExhaustiveMissingMembersHint_BoundedDisplay(t *testing.T) {
 	t.Run("short list shows all", func(t *testing.T) {
 		got := FormatExhaustiveMissingMembersHint([]string{"a", "b", "c"}, 6)

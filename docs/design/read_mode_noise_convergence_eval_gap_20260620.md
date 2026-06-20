@@ -21,12 +21,12 @@ summaries remain soft context only.
 
 | Class | Priority | Why it matters | Representative gaps |
 | --- | --- | --- | --- |
-| Noise and convergence debt | P0 | Causes repeated post-complete retries, stale "verification not stable" status, high token use, and unnecessary model turns. | RNE-C1, RNE-C4, RNE-C6, RNE-C13, RNE-C14 |
-| Typed localization and proof coverage | P0 | Determines whether read and write tasks investigate the right owner, prove the active lane, and avoid answering or patching from the wrong source surface. | RNE-C8, RNE-C16, RNE-C17, RNE-C20, RNE-C21, RNE-C23, RNE-C32, RNE-C36 |
-| Handoff and final-answer fidelity | P0 | Preserves rich exploration evidence into extractor/finalizer/report consumers without exposing executable repair instructions to the wrong stage. | RNE-C5, RNE-C10, RNE-C11, RNE-C22, RNE-C26 |
+| Noise and convergence debt | P0 | Causes repeated post-complete retries, stale "verification not stable" status, high token use, and unnecessary model turns. | RNE-C1, RNE-C4, RNE-C6, RNE-C13, RNE-C14, RNE-C40, RNE-C50 |
+| Typed localization and proof coverage | P0 | Determines whether read and write tasks investigate the right owner, prove the active lane, and avoid answering or patching from the wrong source surface. | RNE-C8, RNE-C16, RNE-C17, RNE-C20, RNE-C21, RNE-C23, RNE-C32, RNE-C36, RNE-C41, RNE-C44, RNE-C45 |
+| Handoff and final-answer fidelity | P0 | Preserves rich exploration evidence into extractor/finalizer/report consumers without exposing executable repair instructions to the wrong stage. | RNE-C5, RNE-C10, RNE-C11, RNE-C22, RNE-C26, RNE-C40 |
 | Prompt/tool-surface hygiene | P0 | Prevents hard-ish scheduling, authority prompts, or tool decisions from being driven by raw user words, model prose, visible thinking, or unavailable-tool directives. | RNE-C27, RNE-C30, RNE-C31 |
-| Performance and observability | P0/P1 | Makes slow tool execution, schema repair loops, context assembly, and eval timeouts diagnosable and bounded. | RNE-C7, RNE-C12, RNE-C15, RNE-C24, RNE-C39 |
-| Cross-language source inventory | P1 | Avoids Python-only or Go-only fixes by making supported-language scope, parser fallback, and absence proof language-neutral. | RNE-C9, RNE-C19, RNE-C23, RNE-C32, RNE-C33, RNE-C37, RNE-C38 |
+| Performance and observability | P0/P1 | Makes slow tool execution, schema repair loops, context assembly, and eval timeouts diagnosable and bounded. | RNE-C7, RNE-C12, RNE-C15, RNE-C24, RNE-C39, RNE-C42, RNE-C43, RNE-C47, RNE-C48, RNE-C49, RNE-C50 |
+| Cross-language source inventory | P1 | Avoids Python-only or Go-only fixes by making supported-language scope, parser fallback, and absence proof language-neutral. | RNE-C9, RNE-C19, RNE-C23, RNE-C32, RNE-C33, RNE-C37, RNE-C38, RNE-C44, RNE-C46, RNE-C49, RNE-C50 |
 
 ## Eval Batch Summary
 
@@ -66,6 +66,18 @@ passed with `read_file=5`, `repo_map=1`, `investigation_complete_calls=1`,
 and current-source citations. It still took 242s with about 66k context tokens
 and one `answer_richness_facet_coverage` contract warning, so the lane fix is
 not a performance/noise fix by itself.
+
+Six-case U4/U5 refresh:
+`eval/results/readmode_rep_batch_u4_u5_20260620_summary.md` passed all six
+representative cases after source-inventory slate prioritization. Manual audit
+still found commercial gaps: `arkts_repomap` answered correctly but appended
+duplicate system member supplements, source-localization/repo_map/localizer
+audit tables, and a generic degraded-floor caveat; `trace_query` remained
+source-tool free but still had one unavailable-tool attempt and multiple
+completion retries; `read_combo_log_current_code_dimensions` and
+`qf_architecture` passed but used high context/iteration budgets and contract
+repair loops. These observations are tracked below as RNE-C40 through RNE-C43
+and are not limited to "noise" fixes.
 
 ## Gap Ledger
 
@@ -110,6 +122,17 @@ not a performance/noise fix by itself.
 | RNE-C37 | P0 | Repository-wide typed source-inventory queries can be narrowed by default production scope. | Analyzer can emit `source_scope_profile=production` as a default even when the source-inventory lane is a repository-wide typed query. Fixture, corpus, testdata, vendored, generated, and example source files can then disappear before the inventory authority sees them. | Repository-wide typed query/root-scope inventory lanes search all source classes by default; explicit production-only inventory remains production-filtered. The rule is driven by typed inventory provenance and source-scope fields, not language names or user keywords. |
 | RNE-C38 | P1 | Analyzer pre-scan/listing priors can conflict with later source-inventory authority. | Early grep/list_files or pre-scan summaries can tell the model "no matching source" before the typed inventory lane has run, especially for non-Go language surfaces inside corpus/fixture directories. That stale prior increases model noise and can bias absence answers. | Source-inventory-shaped requests get either an early bounded inventory observation before broad pre-scan summaries are rendered, or the pre-scan result is marked advisory/low-priority until the typed inventory obligation is satisfied. |
 | RNE-C39 | P0/P1 | `emit_investigation_complete` aggregate normalization remains slow on large ledgers. | Latest logs showed `emit_investigation_complete` taking about 15s with `aggregate_normalization` as the slowest phase. The tool may already know the next typed decision, but repeated scans over evidence, aggregate facts, read history, and grounding views still dominate "organizing context" / completion checks. | Finish Batch K2: one `CompletionPreflightView` per dispatch/version, cached aggregate normalization inputs, shared source-inventory/localization proof projections, and timing rows that feed status cards without becoming semantic gates. |
+| RNE-C40 | P0 | Section-based principal enumerations are misread as uncovered and get duplicate system补表. | The renderer supports `section` blocks with `items[]` and citations, but the principal enumeration compiler and exhaustive member coverage only treated table/ordered/bullet blocks as row carriers. The finalizer naturally used two sections for `@Entry` and `@Builder`; the system then appended duplicate "系统按已验证证据补充成员" blocks after the correct answer. | Treat `section` items as a first-class structured enumeration carrier wherever item surfaces are rendered: row compiler, coverage invariants, principal-evidence view, supplement suppression, and tests. System supplements are append-only audit aids only when they add non-overlapping members. |
+| RNE-C41 | P0 | Source-inventory/member-set answers can be fully line-grounded without owner anchors, but last-mile source-localizer supplements still fire. | Owner-supported localization is the right requirement for owner/role lookup answers, but exhaustive source inventory answers can be proved by per-member definition citations. Requiring owner anchors for every fixture/corpus member turns a solved inventory answer into "observed_only" noise. | Add a typed `grounded_principal_enumeration` authority signal. If every visible principal enumeration item has a valid citation and enumeration facet, suppress generic source-localization, repo_map, localizer-followup, and degraded-floor user caveats; retain full typed artifacts for audit. Ordinary observed-only non-enumeration answers still keep warnings. |
+| RNE-C42 | P1 | Eval telemetry does not distinguish explicit tool calls from system-compiled authority. | `arkts_repomap` had source-inventory authority active but reported `source_lens=0` because metrics count only model `repo_map(view=source_inventory)` calls. This obscures whether a lane was closed by explicit model exploration, a system observation, or a gate. | Extend eval/status telemetry with explicit lens calls, system-compiled source-inventory observations, active inventory obligations, satisfied gates, and blocked/advisory state. This is a reporting/observability fix, not a new hard gate. |
+| RNE-C43 | P1 | Broad architecture and mixed runtime/source runs still pass with high iteration/context budgets. | Latest PASS runs still showed `read_combo` at 334s/82k context/25 explorer iterations and `qf_architecture` at 273s/29 explorer iterations/contract warnings. Correctness improved, but routine user experience remains too expensive for commercial smoothness. | Continue Batch D/K2/R with typed relevance budgets, shared proof coverage across siblings, compact architecture inventory projections, and cached completion preflight. These fixes must reduce turns and context without hiding evidence. |
+| RNE-C44 | P0 | Repo-wide file-family absence can be falsely accepted from content grep. | `grep include=*.ext` searches file contents under the current search filter; an empty result proves zero matching contents in searched files, not that matching paths or source-family files do not exist. Non-recursive top-level `list_files` has the same proof gap for nested language surfaces. | File-family absence needs a typed path-discovery universe: recursive `list_files` with `include` or `file_type`, or a typed `repo_map(view="source_inventory")` lens. Completion rejects negative_search / empty member_set closure when a path-filtered grep no-hit is the only proof. |
+| RNE-C45 | P0 | Soft path-discovery advisories can be ignored before closure. | Tool output correctly advises that grep is not path discovery, but the model may still call `emit_investigation_complete` with `negative_search` or an exact empty set. Prompt guidance alone is insufficient for hard absence proof. | Completion preflight escalates the typed tool-result advisory into a narrow hard proof obligation. The gate consumes only tool banners, aggregate fact kinds, and typed request shape, never user words or model prose. |
+| RNE-C46 | P1 | Repo-owned auxiliary/corpus directories are excluded unless scope is explicit. | Default search/list filters skip large auxiliary trees to control noise. That is correct for routine production questions, but false absence proof for repository-wide inventory or fixture/corpus evals unless the universe explicitly includes those repo-owned auxiliary surfaces. | `list_files` supports `include_auxiliary=true` for repo-owned auxiliary/corpus surfaces while retaining dependency/cache exclusions. Completion requires that flag when such trees exist and the proof claims repo-wide file-family absence after a production-only/no-hit scan. |
+| RNE-C47 | P0 | `repo_map(view="source_inventory", roles=["file"], scope=".")` can enter a high-CPU runaway. | `source_inventory` is a semantic member/count lens, but the schema allowed `file` as the sole primary role. The model used it as file-family discovery after a completion refusal, causing a root-scope source_inventory pass to spin at high CPU instead of failing fast. | Tool-boundary preflight rejects sole-primary `file` role before graph load/index work and directs the model to `list_files(recursive=true, include/file_type=...)`. `file` remains allowed only for bounded file-local attribute expansion or alongside semantic roles such as `config_file`. Broad root source-inventory calls also receive deterministic budget normalization before lens execution: default `top_n` is bounded and default row-local attributes are disabled unless explicit `attribute_roles` are present. |
+| RNE-C48 | P0 | `source_inventory` candidate construction still needs an internal execution budget. | Boundary normalization prevents the observed runaway class, but the lens engine can still traverse large symbol graphs to build candidate sets before render-time paging. That is acceptable for normal repositories but should not be the only guard for very large or adversarial scopes. | Add a source-inventory execution kernel with per-role candidate budgets, progress checkpoints, cancellation/time budget, and resumable pagination before full candidate/attribute materialization. It must consume typed role/scope/top_n/query parameters and graph indexes only, not user prose or model explanations. |
+| RNE-C49 | P0 | Filtered `list_files` path discovery can emit directory noise as if it were matches. | Recursive `list_files(include=.../file_type=...)` used directory traversal rows as output rows. For file-family discovery this makes a precise `.ets` query look like a generic directory listing, causing the model to discard a valid path-discovery tool and fall back to slow shell `find`/grep. | When include/file_type filters are present, directories are traversal-only and never output as result rows. Only matching files appear in the returned universe; unfiltered list_files keeps its directory-listing behavior. |
+| RNE-C50 | P0 | Empty source-inventory answers can loop between `absence`, `resolved`, `member_set`, and unavailable tool surfaces. | A task can gather contextual grounded evidence that proves why the requested member set is empty. The completion gate then rejects `absence` because evidence exists, but also downgrades `resolved` until an executable source-inventory lens/empty `member_set` handoff is present. In retry-only tool surfaces, the model may be asked to run `repo_map` when only `emit_*` tools are available, producing low-delta loops. | Model-authored empty `member_set` plus typed zero-result support should close the lane without semantic contradiction from supporting evidence. Retry directives must be executable in the current tool surface; if a missing lens is mandatory, the scheduler routes back to exploration before emitting an `emit_*`-only retry. |
 
 ## Architecture Direction
 
@@ -217,6 +240,15 @@ roles from many raw trace rows.
 | Batch U3 | planned | Cap support/audit rows around principal source-inventory slates. | Finalizer/extractor render accepted principal member sets first and keep parser/helper/support rows out of principal answer candidates unless a typed role transition promotes them. |
 | Batch U4 | partial | Promote localization/source-inventory observations into principal exploration slates. | Delivered: explorer fresh-start prompts now render the typed source-inventory slate before breadth scan, parser/helper reads, grep/list guidance, and suggested search terms. Remaining: move the same priority into the shared observation-ledger ranking and answer-side soft absence advisory. |
 | Batch U5 | partial | De-prioritize pre-scan noise until typed inventory obligations run. | Delivered: when a source-inventory slate is active, analyzer search terms render as secondary grep fallbacks and generic no-hit searches are explicitly advisory until the typed slate is reconciled. Remaining: make pre-scan/list no-hit status cards and eval telemetry carry the same advisory-vs-authority split. |
+| Batch U6 | delivered | Align final-answer coverage gates with section-based source-inventory enumerations. | `section` items now participate in principal enumeration row coverage, exhaustive member coverage, grounded principal-enumeration evidence, last-mile source supplement suppression, and degraded-floor disclosure suppression. Ordinary observed-only non-enumeration answers still keep warnings. |
+| Batch U7a | delivered | Add language-neutral file-family path discovery. | `list_files` now accepts `include`, `file_type`, and `include_auxiliary` so source-family/path discovery does not depend on shell `find` or content grep; grep/exec results emit typed advisories when they are being used as path discovery substitutes. Default filters still skip dependency/cache noise. |
+| Batch U7b | delivered | Add typed file-family absence-proof gate. | `emit_investigation_complete` rejects negative_search / exact empty member-set closure for typed inventory/enumeration lanes when the only zero proof is path-filtered content grep or non-recursive listing. Recursive `list_files` with matching include/file_type or `repo_map(view="source_inventory")` satisfies the proof; repo-owned auxiliary trees require explicit `include_auxiliary=true`. |
+| Batch U7c | delivered | Add source_inventory sole-file role fast refusal. | `repo_map(view="source_inventory")` rejects `roles=["file"]` as the only primary role before graph load/index work, preventing root-scope high-CPU runs. File path discovery uses `list_files`; file-local attribute expansion and `config_file` inventories remain supported. |
+| Batch U7d | delivered | Add broad-root source_inventory budget normalization and early completion refusal. | Large root-scope source_inventory calls receive a bounded default `top_n` and default attribute expansion is disabled unless row-local `attribute_roles` are explicit. File-family absence refusal runs before expensive completion preflight/source-inventory advisory work when the typed proof gap is already known. |
+| Batch U7e | planned | Add source_inventory internal execution budgets. | Candidate construction observes per-role candidate limits, progress checkpoints, cancellation/time budget, and resumable pagination before materializing very large candidate/attribute sets. |
+| Batch U7f | delivered | Make filtered list_files output file-only. | With `include` or `file_type`, recursive `list_files` traverses directories but only emits matching files, so file-family discovery cannot be confused with generic directory inventory. Unfiltered listing behavior remains unchanged. |
+| Batch U7g | planned | Add executable empty-set completion recovery. | Empty member-set lanes close from `member_set(value="0", members=[])` plus typed zero-result support even when supporting evidence exists, and mandatory missing-lens retries route back to exploration instead of entering `emit_*`-only loops. |
+| Batch U7 | planned | Add source-inventory/status telemetry split. | Eval and REPL status cards distinguish explicit source-inventory lens calls, system-compiled source-inventory authority, active obligations, satisfied gates, blocked gates, and advisory pre-scan no-hit state. |
 | Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
 | Batch V2 | planned | Complete aggregate negative-fact repair hints. | Invalid no-hit payloads receive one precise typed repair hint or deterministic normalization before retry; the model does not bounce between `negative_search`, `negative_observation`, `scalar_value`, and empty `member_set` schemas. |
 | Batch W | delivered | Add lazy repo-index warmup for runtime-artifact-only read turns. | Runtime trace/log answers with no typed current-source obligation do not print or pay repo-index warmup unless a later typed source route actually opens. |
@@ -304,10 +336,38 @@ roles from many raw trace rows.
   matching files inside a required source-scope class.
 - Unit: source-inventory-shaped turns mark pre-scan no-hit/list summaries as
   advisory until the typed inventory obligation is satisfied.
+- Unit: file-family absence closure rejects path-filtered grep-only no-hit
+  proof, accepts recursive `list_files` with matching include/file_type, and
+  requires `include_auxiliary=true` when repo-owned auxiliary/corpus trees are
+  part of the repository universe.
+- Unit: `repo_map(view="source_inventory", roles=["file"])` refuses before
+  graph/index work when `file` is the only primary role, while bounded
+  file-local attribute expansion and `config_file` inventories still work.
+- Unit: large root-scope `source_inventory` calls normalize broad defaults
+  before lens execution by setting a bounded `top_n` and disabling default
+  row-local attributes unless explicit `attribute_roles` are present.
+- Unit: recursive `list_files` with `include` or `file_type` outputs matching
+  files only; directory rows, including directories whose names match the glob,
+  are traversal-only and do not appear as results.
+- Unit: empty source-inventory completion accepts a principal
+  `member_set(value="0", members=[])` when paired with typed zero-result
+  support and does not reject solely because contextual supporting evidence was
+  emitted.
+- Scheduler: if a completion downgrade requires a tool unavailable in the
+  current retry surface, the scheduler routes back to the owning exploration
+  surface instead of asking the model to satisfy an impossible instruction.
 - Unit: source-inventory fresh-start explorer prompts render the principal
   typed slate before breadth scan / grep / parser-helper exploration guidance.
 - Unit: analyzer search terms become secondary grep fallbacks when a principal
   source-inventory slate is active.
+- Unit: `section` blocks with structured `items[]` participate in principal
+  enumeration row coverage and exhaustive member coverage, not just
+  table/ordered/bullet blocks.
+- Unit: a grounded principal enumeration section suppresses duplicate
+  system member supplements, source-localization/repo_map/localizer user
+  supplements, and the generic degraded-floor disclosure.
+- Unit: ordinary observed-only non-enumeration answers still show degraded
+  termination / localization warnings when owner proof is missing.
 - Unit: negative search / negative observation / exact empty member-set facts
   are canonicalized without requiring model prose repair loops.
 - Unit: runtime/log/trace negative observations can represent a missing event
@@ -696,3 +756,79 @@ roles from many raw trace rows.
   analyzer keywords exist but no repo search result is available. Remaining
   U4/U5 work: put this priority into shared `ObservationLedger` ranking,
   status cards, eval telemetry, and answer-side soft absence advisories.
+- 2026-06-20 U4/U5 six-case representative refresh passed all six cases, but
+  manual audit exposed new commercial gaps beyond noise: correct source
+  inventory answers still showed duplicate system member supplements and stale
+  localization/degraded-floor warnings; source-inventory telemetry under-counts
+  system-compiled authority; broad architecture and mixed runtime/source cases
+  still consume too many turns/tokens; trace answers can still show retry/tool
+  surface residue. These are recorded as RNE-C40 through RNE-C43.
+- 2026-06-20 Batch U6 delivered: final-answer coverage gates now treat
+  `section` items as structured enumeration carriers. The same typed
+  `grounded_principal_enumeration` view suppresses duplicate system补表,
+  read-localization/repo_map/localizer supplements, and the generic
+  degraded-floor disclosure when every visible principal enumeration item has
+  a valid citation. Non-enumeration observed-only answers keep the existing
+  warning behavior. Focused tests cover principal evidence, exhaustive member
+  coverage, row compiler suppression, last-mile read supplements, and
+  termination disclosure.
+- 2026-06-20 Batch U7a/U7b delivered: source-family discovery is now exposed
+  through `list_files(include=..., file_type=..., include_auxiliary=...)`,
+  with grep/exec soft advisories when a content search or shell `find` is
+  being used as path discovery. `emit_investigation_complete` now has a typed
+  file-family absence-proof gate: for typed source-inventory/enumeration
+  closures, a path-filtered grep no-hit cannot by itself close
+  `negative_search` or exact empty `member_set`; the model must run recursive
+  `list_files` with matching include/file_type or the executable
+  source-inventory lens. If repo-owned auxiliary/corpus trees exist, the proof
+  must explicitly opt into `include_auxiliary=true`. The implementation reads
+  only tool-result banners, aggregate fact enums, typed request fields, and
+  repository directory metadata; it does not parse user intent keywords,
+  model rationale, visible thinking, or rendered summaries as hard logic.
+  Focused tests passed for the new empty-proof gate, list_files filters, grep
+  advisory, exec advisory, U6 enumeration coverage, last-mile supplement
+  suppression, and degraded-floor disclosure suppression.
+- 2026-06-20 Batch U7c delivered: the ArkTS eval rerun exposed a severe
+  tool-boundary bug after the new absence-proof gate correctly rejected a
+  grep-only no-hit closure. The model retried with
+  `repo_map(view="source_inventory", roles=["file"], scope=".")`, which is
+  semantically a file-path discovery request and drove high CPU for over
+  thirteen minutes. `repo_map` now rejects sole-primary `file` role before
+  graph load/index work and points to `list_files` for file-family discovery.
+  The guard consumes only typed tool parameters; it does not inspect user
+  prose, model rationale, visible thinking, or rendered summaries. Focused
+  tests verify fast refusal and preserve existing bounded `file` +
+  `attribute_roles` and `config_file` inventory behavior.
+- 2026-06-20 Batch U7d delivered: the same bug also required an algorithm-side
+  guard, not just model-call correction. Large root-scope source_inventory
+  calls now get deterministic parameter-budget normalization before lens
+  execution: unset `top_n` is bounded and default row-local attributes are
+  disabled unless explicit `attribute_roles` are present. The
+  file-family absence-proof gate also runs before expensive completion
+  preflight/source-inventory advisory work when typed tool results already
+  prove the closure is invalid. Focused tests cover the budget guard and the
+  existing path-family closure matrix. RNE-C48 remains open for deeper
+  candidate-construction cancellation, progress checkpoints, and resumable
+  per-role pagination inside the source_inventory engine itself.
+- 2026-06-20 ArkTS U7d representative eval refresh:
+  `eval/results/arkts_repomap-20260620-131827` failed after 362s with
+  `missing:@Component` / `missing_section:01_entry_component_minimal.ets`, but
+  it validated the immediate runaway fix: the model retried
+  `repo_map(view="source_inventory", roles=["file"])` and the tool refused it
+  before graph/index work instead of entering the prior high-CPU state. The run
+  exposed two follow-up gaps. First, `list_files(recursive=true, include=*.ets)`
+  rendered directory traversal rows, so the model misread the result as a
+  generic directory listing and fell back to slow shell `find`; Batch U7f fixes
+  that output semantics. Second, empty source-inventory closure looped through
+  `absence`/`resolved`/`member_set` repairs and even emitted a missing
+  `repo_map` instruction while the retry surface only exposed `emit_*` tools;
+  Batch U7g tracks the scheduler/completion fix. The run also confirms that
+  auxiliary ArkTS corpus surfaces such as
+  `internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets`
+  still need stronger typed scope preservation through source-inventory
+  handoff.
+- 2026-06-20 Batch U7f delivered: filtered `list_files` now outputs only
+  matching files when `include` or `file_type` is present. Directories remain
+  traversal state and are omitted from the result even if their names match the
+  glob. The focused test adds a fake `*.ets` directory to pin that behavior and
+  keeps unfiltered list_files behavior unchanged.

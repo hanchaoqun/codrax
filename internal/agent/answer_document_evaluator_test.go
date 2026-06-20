@@ -6915,6 +6915,76 @@ func TestAnswerDocumentEvaluator_ParseOutput_SuppressesResolvedReadLastMileSuppl
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_SuppressesReadSupplementsForGroundedEnumerationSection(t *testing.T) {
+	mu := types.NewMutableState("grounded source inventory")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "entries",
+			Kind:        types.BlockSection,
+			Title:       "@Entry 页面入口",
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "index",
+				Label:       "Index",
+				Text:        "页面入口组件。",
+				CitationRef: 0,
+			}, {
+				ID:          "list",
+				Label:       "ListPage",
+				Text:        "列表页面入口组件。",
+				CitationRef: 1,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", Line: 7},
+			{File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets", Line: 32},
+		},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Source:      "read_turn_a",
+			Status:      types.SourceLocalizationObserved,
+			SourcePaths: []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"},
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:     "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+				Kind:     types.SourceLocalizationAnchorReadFile,
+				Strength: types.SourceLocalizationAnchorObserved,
+			}},
+		},
+		ReadNavigationCoverage: &types.RepoMapNavigationCoverage{
+			State:          types.RepoMapNavigationCoverageMissing,
+			ReasonCode:     "repo_map_navigation_missing",
+			RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteSourceInventory},
+			MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteSourceInventory},
+		},
+		ReadLocalizerFollowup: &types.ReadLocalizerFollowup{
+			State:          types.ReadLocalizerFollowupNeeded,
+			ReasonCode:     "read_localizer_owner_and_navigation_missing",
+			CandidatePaths: []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"},
+			MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteSourceInventory},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if !strings.Contains(out.FinalAnswer, "Index") || !strings.Contains(out.FinalAnswer, "ListPage") {
+		t.Fatalf("principal enumeration answer lost:\n%s", out.FinalAnswer)
+	}
+	for _, banned := range []string{
+		"系统补充：源码定位状态",
+		"系统补充：repo_map 导航覆盖",
+		"系统补充：读模式定位补充请求",
+		"系统补充：源码定位锚点核对",
+	} {
+		if strings.Contains(out.FinalAnswer, banned) {
+			t.Fatalf("grounded principal enumeration should not append %q:\n%s", banned, out.FinalAnswer)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendRequestedDimensionWhenQuoteEqualsLabel(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

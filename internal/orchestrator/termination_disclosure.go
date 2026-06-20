@@ -35,6 +35,9 @@ func suppressDegradedTerminationDisclosure(doc *types.AnswerDocumentV2) bool {
 	if !view.HasGroundedPrincipalEvidence() {
 		return false
 	}
+	if view.HasGroundedPrincipalEnumerationEvidence() {
+		return true
+	}
 	if types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
 		review := types.NormalizeSourceLocalizationReview(*doc.ReadSourceLocalization)
 		return (review.Status == types.SourceLocalizationSupported ||

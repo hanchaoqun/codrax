@@ -581,7 +581,8 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 
 	switch supRes.ExitKind {
 	case SupervisedExitTimeout:
-		preview, ref := StoreBlob(ctx, t.Name()+"-timeout", output)
+		payload := output + execCommandFileDiscoveryAdvisory(command)
+		preview, ref := StoreBlob(ctx, t.Name()+"-timeout", payload)
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -612,7 +613,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	}
 
 	if err != nil {
-		payload := output + execCommandSearchShapeAdvisory(command, output, err)
+		payload := output + execCommandSearchShapeAdvisory(command, output, err) + execCommandFileDiscoveryAdvisory(command)
 		preview, ref := StoreBlob(ctx, t.Name()+"-fail", payload)
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -627,6 +628,9 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	if advisory := execCommandSearchShapeAdvisory(command, output, nil); advisory != "" {
 		payload += advisory
 	}
+	if advisory := execCommandFileDiscoveryAdvisory(command); advisory != "" {
+		payload += advisory
+	}
 	summary, ref := StoreBlob(ctx, t.Name(), payload)
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -635,6 +639,24 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func execCommandFileDiscoveryAdvisory(command string) string {
+	if !execCommandLooksLikeFindDiscovery(command) {
+		return ""
+	}
+	return "[exec_command advisory: broad file discovery through `find` can be slow or over-broad inside repository worktrees. Prefer `list_files` with `recursive=true` and typed `include`/`file_type` filters for repo-local path discovery; use `include_auxiliary=true` only when the typed answer scope includes all/auxiliary repo-owned corpus material or a production-only scan was empty.]\n"
+}
+
+func execCommandLooksLikeFindDiscovery(command string) bool {
+	for _, segment := range shellCommandSegments(command) {
+		for _, token := range shellWordsForOrigin(segment) {
+			if path.Base(strings.ToLower(token)) == "find" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func execCommandPayloadWithTypedOrigins(banner, command, output string) string {
@@ -2061,7 +2083,17 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 	if advisory := grepFixedStringRegexAdvisory(params); advisory != "" {
 		body += "\n" + strings.TrimRight(advisory, "\n") + "\n"
 	}
+	if advisory := grepPathDiscoveryAdvisory(params); advisory != "" {
+		body += "\n" + advisory
+	}
 	return body
+}
+
+func grepPathDiscoveryAdvisory(params grepToolParams) string {
+	if strings.TrimSpace(params.Include) == "" && strings.TrimSpace(params.FileType) == "" {
+		return ""
+	}
+	return "path_discovery_advisory=grep searches file contents, not file names. If the goal is file-path/glob discovery, call list_files with recursive=true plus include/file_type; add include_auxiliary=true only when the typed scope includes all/auxiliary repo-owned corpus material or a production-only scan was empty.\n"
 }
 
 func grepFixedStringRegexAdvisory(params grepToolParams) string {
@@ -3532,21 +3564,27 @@ type ListFiles struct {
 }
 
 type listFilesParams struct {
-	Path      string `json:"path"`
-	Recursive bool   `json:"recursive,omitempty"`
+	Path             string `json:"path"`
+	Recursive        bool   `json:"recursive,omitempty"`
+	Include          string `json:"include,omitempty"`
+	FileType         string `json:"file_type,omitempty"`
+	IncludeAuxiliary bool   `json:"include_auxiliary,omitempty"`
 }
 
 func (t *ListFiles) Name() string { return "list_files" }
 func (t *ListFiles) Description() string {
-	return "List files in a directory. Use this for navigation and discovery only. Do NOT use the result to count files, filter by extension, or sort — for any of those, run a shell pipeline through exec_command (e.g. `find . -name '*.go' | wc -l`) and trust its output."
+	return "List files in a directory. Use this for navigation and discovery only. Use include or file_type for file-path/glob discovery (for example file_type=\"arkts\" for *.ets, \"cangjie\" for *.cj, \"cpp\" for C++). Use include_auxiliary=true only when the typed scope is all/auxiliary or a production scan was empty and repo-owned auxiliary/corpus trees need to be inspected. Do NOT count or sort by eye; for exact numeric counts, use a deterministic command or the tool-reported exact list size."
 }
 
 func (t *ListFiles) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "path":      {"type": "string",  "description": "Directory path to list"},
-    "recursive": {"type": "boolean", "description": "List recursively (default false)"}
+    "path":              {"type": "string",  "description": "Directory path to list"},
+    "recursive":         {"type": "boolean", "description": "List recursively (default false)"},
+    "include":           {"type": "string",  "description": "Optional file glob filter, e.g. *.go or */Index.ets. Filters path names, unlike grep which searches file contents."},
+    "file_type":         {"type": "string",  "description": "Optional language/file type filter: go, py, js, ts, java, kotlin, arkts, cangjie, rust, ruby, c, cpp, yaml, json, toml, markdown, config, etc. Reuses the same cross-language glob mapping as grep."},
+    "include_auxiliary": {"type": "boolean", "description": "If true, re-include repo-owned auxiliary/corpus trees that broad navigation normally hides, while still keeping dependency/cache/VCS noise filtered. Use only when the typed answer scope includes auxiliary/all material or a production-only scan returned empty."}
   },
   "required": ["path"]
 }`)
@@ -3581,9 +3619,16 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	if p.Recursive {
 		recursiveStr = "true"
 	}
+	includeAuxiliaryStr := ""
+	if p.IncludeAuxiliary {
+		includeAuxiliaryStr = "true"
+	}
 	banner := kvBanner("list_files",
 		"path", p.Path,
 		"recursive", recursiveStr,
+		"include", p.Include,
+		"file_type", p.FileType,
+		"include_auxiliary", includeAuxiliaryStr,
 	)
 
 	// Resolve "." / relative paths against ctx.RepoRoot. The LLM walks
@@ -3600,6 +3645,12 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	dirFilter := NewSearchDirFilter(ctx.RepoRoot, fsPath)
 
 	var files []string
+	filter := listFilesFilter{
+		ctx:              ctx,
+		dirFilter:        dirFilter,
+		includeAuxiliary: p.IncludeAuxiliary,
+		globs:            listFilesGlobs(p.Include, p.FileType),
+	}
 
 	if p.Recursive {
 		err := filepath.WalkDir(fsPath, func(path string, d fs.DirEntry, err error) error {
@@ -3615,11 +3666,7 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			// build/__pycache__/.codrax which then leaked into LLM
 			// view of the repo.
 			if d.IsDir() && path != fsPath {
-				if ctx != nil && ctx.RepoRoot != "" {
-					if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, path); ok && dirFilter.ExcludesRepoRelativePath(rel) {
-						return filepath.SkipDir
-					}
-				} else if IsExcludedDirName(d.Name()) {
+				if filter.shouldSkipDir(path, d.Name()) {
 					return filepath.SkipDir
 				}
 				if IsWindowsReservedDevicePath(d.Name()) {
@@ -3629,8 +3676,17 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			if !d.IsDir() && IsWindowsReservedDevicePath(d.Name()) {
 				return nil
 			}
+			if !d.IsDir() && !filter.matchesPath(path) {
+				return nil
+			}
+			if d.IsDir() && len(filter.globs) > 0 {
+				return nil
+			}
 			rel, relErr := filepath.Rel(fsPath, path)
 			if relErr != nil || rel == "." {
+				if len(filter.globs) > 0 && !d.IsDir() {
+					return nil
+				}
 				files = append(files, displayPath)
 			} else {
 				files = append(files, filepath.Join(displayPath, rel))
@@ -3655,17 +3711,19 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			// codrax's own state dir as project content. Symmetric
 			// filtering with the recursive path is the load-bearing
 			// fix; the central set drives both.
+			entryPath := filepath.Join(fsPath, e.Name())
 			if e.IsDir() {
-				if ctx != nil && ctx.RepoRoot != "" {
-					entryPath := filepath.Join(fsPath, e.Name())
-					if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, entryPath); ok && dirFilter.ExcludesRepoRelativePath(rel) {
-						continue
-					}
-				} else if IsExcludedDirName(e.Name()) {
+				if filter.shouldSkipDir(entryPath, e.Name()) {
 					continue
 				}
 			}
 			if IsWindowsReservedDevicePath(e.Name()) {
+				continue
+			}
+			if !e.IsDir() && !filter.matchesPath(entryPath) {
+				continue
+			}
+			if e.IsDir() && len(filter.globs) > 0 {
 				continue
 			}
 			files = append(files, filepath.Join(displayPath, e.Name()))
@@ -3680,6 +3738,118 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+type listFilesFilter struct {
+	ctx              *types.BusContext
+	dirFilter        SearchDirFilter
+	includeAuxiliary bool
+	globs            []string
+}
+
+func listFilesGlobs(include, fileType string) []string {
+	var out []string
+	for _, raw := range splitListFilesIncludeGlobs(include) {
+		out = append(out, raw)
+	}
+	if strings.TrimSpace(fileType) != "" {
+		for _, raw := range fileTypeToGlobs(fileType) {
+			raw = strings.TrimSpace(raw)
+			if raw != "" {
+				out = append(out, raw)
+			}
+		}
+	}
+	return dedupStrings(out)
+}
+
+func splitListFilesIncludeGlobs(include string) []string {
+	var out []string
+	for _, raw := range strings.FieldsFunc(include, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\t'
+	}) {
+		raw = strings.TrimSpace(raw)
+		if raw != "" {
+			out = append(out, raw)
+		}
+	}
+	return out
+}
+
+func (f listFilesFilter) shouldSkipDir(pathValue, baseName string) bool {
+	if IsWindowsReservedDevicePath(baseName) {
+		return true
+	}
+	if f.ctx != nil && f.ctx.RepoRoot != "" {
+		if rel, ok := repoRelativePathWithinRoot(f.ctx.RepoRoot, pathValue); ok {
+			if f.includeAuxiliary && listFilesAuxiliaryDirAllowed(rel) {
+				return false
+			}
+			return f.dirFilter.ExcludesRepoRelativePath(rel)
+		}
+	}
+	if f.includeAuxiliary && listFilesAuxiliaryDirNameAllowed(baseName) {
+		return false
+	}
+	return IsExcludedDirName(baseName)
+}
+
+func (f listFilesFilter) matchesPath(pathValue string) bool {
+	if len(f.globs) == 0 {
+		return true
+	}
+	display := strings.ReplaceAll(pathValue, `\`, `/`)
+	base := path.Base(display)
+	if f.ctx != nil && f.ctx.RepoRoot != "" {
+		if rel, ok := repoRelativePathWithinRoot(f.ctx.RepoRoot, pathValue); ok {
+			display = rel
+			base = path.Base(rel)
+		}
+	}
+	for _, glob := range f.globs {
+		if listFilesGlobMatches(glob, base, display) {
+			return true
+		}
+	}
+	return false
+}
+
+func listFilesGlobMatches(glob, base, rel string) bool {
+	glob = strings.TrimSpace(strings.ReplaceAll(glob, `\`, `/`))
+	if glob == "" {
+		return false
+	}
+	if matched, err := path.Match(glob, base); err == nil && matched {
+		return true
+	}
+	if strings.Contains(glob, "/") {
+		if matched, err := path.Match(glob, rel); err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
+func listFilesAuxiliaryDirAllowed(rel string) bool {
+	rel = strings.Trim(strings.ToLower(strings.ReplaceAll(rel, `\`, `/`)), "/")
+	if rel == "" {
+		return false
+	}
+	for _, part := range strings.Split(rel, "/") {
+		if listFilesAuxiliaryDirNameAllowed(part) {
+			return true
+		}
+	}
+	return false
+}
+
+func listFilesAuxiliaryDirNameAllowed(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "thirdparty", "third_party", "third-party":
+		return true
+	default:
+		return false
+	}
 }
 
 // ---------------------------------------------------------------------------

@@ -208,6 +208,74 @@ func TestRepoMapSourceInventoryViewWorksBeforeAnalysisIREmission(t *testing.T) {
 	}
 }
 
+func TestRepoMapSourceInventoryRejectsSoleFileRoleBeforeIndexWork(t *testing.T) {
+	repo := t.TempDir()
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  types.NewMutableState("path family discovery"),
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": ".",
+		"roles": ["file"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("sole file role should be rejected before index work: %+v", res)
+	}
+	for _, want := range []string{
+		"roles=[\"file\"]",
+		"path-discovery request",
+		"list_files",
+		"file_type",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("source_inventory file-role refusal missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if ctx.Mutable.SearchGraph() != nil {
+		t.Fatalf("sole file-role refusal must not build or attach a search graph")
+	}
+}
+
+func TestRepoMapSourceInventoryBroadRootBudgetGuard(t *testing.T) {
+	p := repoMapParams{
+		Path:  ".",
+		View:  "source_inventory",
+		Scope: ".",
+		Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+	}
+
+	advisories := repoMapSourceInventoryApplyBudgetGuard(&p, 1200)
+	if len(advisories) != 2 {
+		t.Fatalf("expected top_n and include_attributes advisories, got %#v", advisories)
+	}
+	if p.TopN != sourceInventoryBroadRootDefaultTopN {
+		t.Fatalf("expected broad-root top_n default %d, got %d", sourceInventoryBroadRootDefaultTopN, p.TopN)
+	}
+	if p.IncludeAttributes == nil || *p.IncludeAttributes {
+		t.Fatalf("expected broad-root default include_attributes to be disabled: %#v", p.IncludeAttributes)
+	}
+
+	narrow := repoMapParams{
+		Path:  ".",
+		View:  "source_inventory",
+		Scope: "src/pkg",
+		Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+	}
+	if advisories := repoMapSourceInventoryApplyBudgetGuard(&narrow, 1200); len(advisories) != 0 {
+		t.Fatalf("narrow source_inventory should not be normalized: %#v", advisories)
+	}
+	if narrow.TopN != 0 || narrow.IncludeAttributes != nil {
+		t.Fatalf("narrow source_inventory params should stay untouched: %#v", narrow)
+	}
+}
+
 func TestRepoMapSourceInventoryViewAttributeRolesAttachFileLocalCandidates(t *testing.T) {
 	repo := t.TempDir()
 	mut := types.NewMutableState("source inventory attributes")

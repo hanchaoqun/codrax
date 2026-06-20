@@ -144,6 +144,102 @@ func TestNormalizePrincipalEnumerationRowBlocks_ParentheticalCategoryCarrierSupp
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_SectionItemsSuppressSystemSupplement(t *testing.T) {
+	mu := types.NewMutableState("列出 ArkTS 页面入口和 Builder 片段")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("index", "Index", "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", 7, "Index 是被 @Entry 标记的页面入口。"),
+		enumEvidence("list", "ListPage", "internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets", 32, "ListPage 是被 @Entry 标记的页面入口。"),
+		enumEvidence("header", "defaultHeader", "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", 8, "defaultHeader 是 @Builder 方法复用片段。"),
+		enumEvidence("card", "GlobalCard", "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", 26, "GlobalCard 是 @Builder 函数复用片段。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:        types.AnswerAggregateMemberSet,
+			Label:       "@Entry 标记的 ArkTS 页面入口",
+			Value:       "2",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"Index", "ListPage"},
+			SupportRefs: []string{"Index @ internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:7", "ListPage @ internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets:32"},
+		},
+		{
+			Kind:        types.AnswerAggregateMemberSet,
+			Label:       "@Builder 复用片段",
+			Value:       "2",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"defaultHeader", "GlobalCard"},
+			SupportRefs: []string{"defaultHeader @ internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:8", "GlobalCard @ internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:26"},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "summary",
+				Kind: types.BlockSummary,
+				Text: "仓库中包含 2 个 @Entry 页面入口和 2 个 @Builder 复用片段。",
+			},
+			{
+				ID:    "entry",
+				Kind:  types.BlockSection,
+				Title: "@Entry 标记的 ArkTS 页面入口",
+				Items: []types.AnswerBlockItem{
+					{ID: "index", Label: "Index", Text: "页面入口组件。", CitationRef: 0},
+					{ID: "list", Label: "ListPage", Text: "列表页面入口组件。", CitationRef: 1},
+				},
+			},
+			{
+				ID:    "builder",
+				Kind:  types.BlockSection,
+				Title: "@Builder 复用片段",
+				Items: []types.AnswerBlockItem{
+					{ID: "header", Label: "defaultHeader", Text: "方法级复用片段。", CitationRef: 2},
+					{ID: "card", Label: "GlobalCard", Text: "函数级复用片段。", CitationRef: 3},
+				},
+			},
+		},
+		Citations: []types.Citation{
+			{File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", Line: 7},
+			{File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets", Line: 32},
+			{File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 8},
+			{File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 26},
+		},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected deterministic annotation/citation normalization")
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(visible, "系统按已验证证据补充成员") {
+		t.Fatalf("section item enum carrier should suppress duplicate system supplement:\n%s", visible)
+	}
+	for _, blockID := range []string{"entry", "builder"} {
+		var found bool
+		for _, block := range doc.Blocks {
+			if block.ID != blockID {
+				continue
+			}
+			found = true
+			if block.SurfaceRole != types.SurfacePrincipal ||
+				!testStringSliceContains(block.FacetIDs, string(types.FacetEnumerationItem)) {
+				t.Fatalf("section carrier %s should be annotated as principal enumeration: %+v", blockID, block)
+			}
+		}
+		if !found {
+			t.Fatalf("section carrier %s missing after normalization: %+v", blockID, doc.Blocks)
+		}
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_RedlineDoesNotSynthesizeSummaryForAuthoredCarriers(t *testing.T) {
 	mu := types.NewMutableState("列出公开函数")
 	mu.AppendEvidence([]types.EvidenceItem{

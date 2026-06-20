@@ -6,11 +6,15 @@ package types
 // pool entries, and claim_use records; it never inspects user prose or
 // model-authored rationale text.
 type AnswerPrincipalEvidenceView struct {
-	PrincipalBlocks  int `json:"principal_blocks,omitempty"`
-	PrincipalItems   int `json:"principal_items,omitempty"`
-	ValidCitations   int `json:"valid_citations,omitempty"`
-	ClaimUses        int `json:"claim_uses,omitempty"`
-	InvalidCitations int `json:"invalid_citations,omitempty"`
+	PrincipalBlocks                      int `json:"principal_blocks,omitempty"`
+	PrincipalItems                       int `json:"principal_items,omitempty"`
+	ValidCitations                       int `json:"valid_citations,omitempty"`
+	ClaimUses                            int `json:"claim_uses,omitempty"`
+	InvalidCitations                     int `json:"invalid_citations,omitempty"`
+	PrincipalEnumerationBlocks           int `json:"principal_enumeration_blocks,omitempty"`
+	PrincipalEnumerationItems            int `json:"principal_enumeration_items,omitempty"`
+	PrincipalEnumerationValidCitations   int `json:"principal_enumeration_valid_citations,omitempty"`
+	PrincipalEnumerationInvalidCitations int `json:"principal_enumeration_invalid_citations,omitempty"`
 }
 
 // HasPrincipalSurface reports whether the document contains at least one
@@ -25,6 +29,18 @@ func (v AnswerPrincipalEvidenceView) HasPrincipalSurface() bool {
 // concrete evidence anchor.
 func (v AnswerPrincipalEvidenceView) HasGroundedPrincipalEvidence() bool {
 	return v.HasPrincipalSurface() && v.ValidCitations > 0
+}
+
+// HasGroundedPrincipalEnumerationEvidence reports whether the visible
+// principal enumeration surface is fully backed by valid citations. This is a
+// typed presentation signal, not a prose scan: callers use it to avoid adding
+// generic source-localization or degraded-floor caveats after an exhaustive
+// member answer already carries per-item source anchors.
+func (v AnswerPrincipalEvidenceView) HasGroundedPrincipalEnumerationEvidence() bool {
+	return v.PrincipalEnumerationBlocks > 0 &&
+		v.PrincipalEnumerationItems > 0 &&
+		v.PrincipalEnumerationValidCitations == v.PrincipalEnumerationItems &&
+		v.PrincipalEnumerationInvalidCitations == 0
 }
 
 // AnswerDocumentPrincipalEvidenceView computes the typed principal-evidence
@@ -42,22 +58,64 @@ func AnswerDocumentPrincipalEvidenceView(doc *AnswerDocumentV2) AnswerPrincipalE
 		}
 		out.PrincipalBlocks++
 		out.ClaimUses += len(block.ClaimUses)
+		enumBlock := answerPrincipalBlockCarriesEnumeration(block)
+		if enumBlock {
+			out.PrincipalEnumerationBlocks++
+		}
 		for _, item := range block.Items {
 			out.PrincipalItems++
+			enumItem := enumBlock &&
+				answerPrincipalBlockKindRendersItems(block.Kind) &&
+				AnswerBlockItemVisibleSurface(item) != ""
+			if enumItem {
+				out.PrincipalEnumerationItems++
+			}
 			if item.CitationRef < 0 {
 				continue
 			}
 			if item.CitationRef >= len(doc.Citations) {
 				out.InvalidCitations++
+				if enumItem {
+					out.PrincipalEnumerationInvalidCitations++
+				}
 				continue
 			}
 			citation := doc.Citations[item.CitationRef]
 			if citation.File == "" || citation.Line <= 0 {
 				out.InvalidCitations++
+				if enumItem {
+					out.PrincipalEnumerationInvalidCitations++
+				}
 				continue
 			}
 			out.ValidCitations++
+			if enumItem {
+				out.PrincipalEnumerationValidCitations++
+			}
 		}
 	}
 	return out
+}
+
+func answerPrincipalBlockCarriesEnumeration(block AnswerBlock) bool {
+	for _, facet := range block.FacetIDs {
+		if facet == string(FacetEnumerationItem) {
+			return true
+		}
+	}
+	for _, claim := range block.ClaimUses {
+		if claim.FacetID == string(FacetEnumerationItem) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerPrincipalBlockKindRendersItems(kind AnswerBlockKind) bool {
+	switch kind {
+	case BlockSection, BlockOrderedList, BlockBulletList, BlockTable:
+		return true
+	default:
+		return false
+	}
 }

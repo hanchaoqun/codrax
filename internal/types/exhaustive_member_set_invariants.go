@@ -257,7 +257,7 @@ func exhaustiveItemMemberSurfaces(item AnswerBlockItem) []string {
 
 func exhaustiveBlockCarriesPrincipalMembers(block AnswerBlock) bool {
 	switch block.Kind {
-	case BlockOrderedList, BlockBulletList, BlockTable:
+	case BlockSection, BlockOrderedList, BlockBulletList, BlockTable:
 	default:
 		return false
 	}

@@ -55,3 +55,67 @@ func TestAnswerDocumentPrincipalEvidenceViewRejectsSupportingOnlyCitations(t *te
 		t.Fatalf("supporting-only citations must not satisfy principal evidence: %+v", got)
 	}
 }
+
+func TestAnswerDocumentPrincipalEvidenceViewCountsSectionEnumerationItems(t *testing.T) {
+	doc := &AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []AnswerBlock{{
+			ID:          "entries",
+			Kind:        BlockSection,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				ID:          "index",
+				Label:       "Index",
+				Text:        "ArkTS page entry",
+				CitationRef: 0,
+			}, {
+				ID:          "list",
+				Label:       "ListPage",
+				Text:        "ArkTS page entry",
+				CitationRef: 1,
+			}},
+		}},
+		Citations: []Citation{
+			{File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", Line: 7},
+			{File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets", Line: 32},
+		},
+	}
+	got := AnswerDocumentPrincipalEvidenceView(doc)
+	if !got.HasGroundedPrincipalEvidence() {
+		t.Fatalf("section item citations should satisfy principal evidence: %+v", got)
+	}
+	if !got.HasGroundedPrincipalEnumerationEvidence() {
+		t.Fatalf("section enumeration items should satisfy grounded enumeration evidence: %+v", got)
+	}
+	if got.PrincipalEnumerationBlocks != 1 || got.PrincipalEnumerationItems != 2 ||
+		got.PrincipalEnumerationValidCitations != 2 || got.PrincipalEnumerationInvalidCitations != 0 {
+		t.Fatalf("unexpected enumeration evidence view: %+v", got)
+	}
+}
+
+func TestAnswerDocumentPrincipalEvidenceViewRequiresAllEnumerationItemCitations(t *testing.T) {
+	doc := &AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []AnswerBlock{{
+			ID:          "entries",
+			Kind:        BlockSection,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				ID:          "index",
+				Label:       "Index",
+				CitationRef: 0,
+			}, {
+				ID:          "list",
+				Label:       "ListPage",
+				CitationRef: -1,
+			}},
+		}},
+		Citations: []Citation{{File: "entry.ets", Line: 7}},
+	}
+	got := AnswerDocumentPrincipalEvidenceView(doc)
+	if got.HasGroundedPrincipalEnumerationEvidence() {
+		t.Fatalf("partial enumeration citations must not satisfy grounded enumeration evidence: %+v", got)
+	}
+}

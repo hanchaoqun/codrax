@@ -10482,6 +10482,9 @@ func answerDocPrincipalSourceSurfaceResolved(doc *types.AnswerDocumentV2) bool {
 	if !view.HasGroundedPrincipalEvidence() {
 		return false
 	}
+	if view.HasGroundedPrincipalEnumerationEvidence() {
+		return true
+	}
 	if types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
 		authority := loopkernel.DeriveLocalizationAuthority(doc.ReadSourceLocalization)
 		return authority.State == loopkernel.LocalizationAuthorityOwnerSupported

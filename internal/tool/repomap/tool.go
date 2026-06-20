@@ -129,7 +129,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
         "x-codrax-enum-style-alias": true
       },
       "x-codrax-split-string-array": true,
-      "description": "For source_inventory view: candidate roles to list. Omit to use the current typed request roles."
+      "description": "For source_inventory view: semantic candidate roles to list. Do not use file as the only primary role; file-path or file-family discovery belongs to list_files with recursive=true plus include/file_type filters. Use file only with attribute_roles for bounded file-local member expansion, or alongside semantic roles such as config_file when the file itself is a typed source-inventory member. Omit to use the current typed request roles."
     },
     "attribute_roles": {
       "type": "array",
@@ -188,6 +188,16 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	// are gated here, before any filesystem or index work.)
 	if !repoMapViewSupported(p.View) {
 		return repoMapUnknownViewRejection(t.Name(), p.View), nil
+	}
+	if p.View == "source_inventory" {
+		if summary, ok := repoMapSourceInventoryParamPreflight(p); !ok {
+			return ctypes.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   summary,
+				Timestamp: time.Now(),
+			}, nil
+		}
 	}
 
 	// L1 negative-knowledge gate (R3 second-axis enforcement):
@@ -308,6 +318,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		if ctx != nil && ctx.Mutable != nil && graph != nil {
 			ctx.Mutable.SetSearchGraph(graph)
 		}
+		budgetAdvisories := repoMapSourceInventoryApplyBudgetGuard(&p, len(graph.FileIndex))
 		includeAttributes := true
 		if p.IncludeAttributes != nil {
 			includeAttributes = *p.IncludeAttributes
@@ -343,6 +354,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			RepoFileCount:     len(graph.FileIndex),
 		})
 		output = prependRepoMapSourceInventoryFitAdvisory(ctx, p.Query, output)
+		output = prependRepoMapBudgetGuardAdvisory(output, budgetAdvisories)
 		output = prependRepoMapParameterAdvisory(output, paramAdvisories)
 		output = appendRepoMapBudgetHint(graph, p.View, p.TopN, output)
 		output = prependRepoMapIndexStatusBanner(graph, output)
@@ -766,6 +778,80 @@ func repoMapViewSupported(view string) bool {
 		}
 	}
 	return false
+}
+
+func repoMapSourceInventoryParamPreflight(p repoMapParams) (string, bool) {
+	if len(p.Roles) != 1 || p.Roles[0] != ctypes.AnswerCandidateRoleFile || len(p.AttributeRoles) > 0 {
+		return "", true
+	}
+	return "repo_map refused: source_inventory with roles=[\"file\"] as the only primary role is a path-discovery request, not a semantic source-inventory lens. Use `list_files` with recursive=true plus include/file_type filters for file-path or file-family discovery; use source_inventory with semantic roles such as function, method, type, constant, variable, field, package, config_file, config_key, route, import_path, or literal_value when you need a member/count checklist.", false
+}
+
+const (
+	sourceInventoryBroadRootBudgetFileThreshold = 500
+	sourceInventoryBroadRootDefaultTopN         = 50
+)
+
+func repoMapSourceInventoryApplyBudgetGuard(p *repoMapParams, fileCount int) []string {
+	if p == nil || fileCount < sourceInventoryBroadRootBudgetFileThreshold || !repoMapSourceInventoryBroadRootScope(*p) {
+		return nil
+	}
+	var advisories []string
+	if p.TopN <= 0 {
+		p.TopN = sourceInventoryBroadRootDefaultTopN
+		advisories = append(advisories, fmt.Sprintf("top_n: unset -> %d for broad root source_inventory over %d indexed files", p.TopN, fileCount))
+	}
+	includeAttributes := p.IncludeAttributes == nil || *p.IncludeAttributes
+	if includeAttributes && len(p.AttributeRoles) == 0 {
+		v := false
+		p.IncludeAttributes = &v
+		advisories = append(advisories, "include_attributes: true/default -> false for broad root source_inventory without explicit attribute_roles")
+	}
+	return advisories
+}
+
+func repoMapSourceInventoryBroadRootScope(p repoMapParams) bool {
+	if !repoMapParamPathIsRoot(p.Path) {
+		return false
+	}
+	if strings.TrimSpace(p.Scope) != "" {
+		return repoMapParamPathIsRoot(p.Scope)
+	}
+	if len(p.Scopes) == 0 {
+		return true
+	}
+	for _, scope := range p.Scopes {
+		if repoMapParamPathIsRoot(scope) {
+			return true
+		}
+	}
+	return false
+}
+
+func repoMapParamPathIsRoot(raw string) bool {
+	trimmed := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	trimmed = strings.Trim(trimmed, "/")
+	return trimmed == "" || trimmed == "."
+}
+
+func prependRepoMapBudgetGuardAdvisory(output string, advisories []string) string {
+	if len(advisories) == 0 {
+		return output
+	}
+	var b strings.Builder
+	b.WriteString("## Source Inventory Budget Guard\n\n")
+	b.WriteString("The source_inventory request targets the repository root on a large indexed graph, so repo_map normalized broad defaults before running the lens. Use explicit narrower `scope` / `scopes` or row-local `attribute_roles` when wider detail is required.\n")
+	for _, advisory := range advisories {
+		if strings.TrimSpace(advisory) == "" {
+			continue
+		}
+		b.WriteString("- ")
+		b.WriteString(advisory)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(output)
+	return b.String()
 }
 
 // repoMapUnknownViewRejection is the typed refusal for a view value
