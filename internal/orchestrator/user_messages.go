@@ -339,6 +339,13 @@ func softInvestigationReadyMessage(lang string) string {
 	return "› Investigation done — preparing the answer"
 }
 
+func softAdvisoryDebtSkippedMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "› 已跳过非关键补读，继续作答"
+	}
+	return "› Skipping non-blocking follow-up reads and continuing"
+}
+
 func softProceedWithCollectedEvidenceMessage(lang string) string {
 	if preferZhMessage(lang) {
 		return "› 已保留收集到的证据，继续作答"

@@ -252,6 +252,11 @@ type Orchestrator struct {
 	// and wipes it.
 	nextPhaseHint string
 
+	// advisoryDebtNoticeEmitted suppresses duplicate user-facing notices when
+	// accepted investigation closure lets the scheduler skip support-only retry
+	// or pending-read debt. The underlying skip decisions remain fully logged.
+	advisoryDebtNoticeEmitted bool
+
 	// failureTaxonomyStore is the per-repo learned-pitfall
 	// cache (stage 3). The reflector emits patterns alongside
 	// observations; stage_hooks.clearForReplan persists them
@@ -1687,6 +1692,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// the read-mode path.
 	o.phaseContextPrefix = ""
 	o.nextPhaseHint = ""
+	o.advisoryDebtNoticeEmitted = false
 	o.continuationClassification = nil
 	presentationDirective := strings.TrimSpace(o.presentationDirective)
 	o.presentationDirective = ""
@@ -4986,6 +4992,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					pendingValidationTargets = nil
 					pendingViolation = ""
 					pendingStageRetry = ""
+					o.emitAcceptedClosureAdvisoryDebtSkippedNotice()
 				}
 			}
 			if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(pendingValidationTargets, pendingViolation, pendingStageRetry) {
@@ -5043,6 +5050,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				if o.acceptedClosureAllowsAdvisoryDebt() {
 					if cleared := closure.ClearPendingReadsByDebtClass(types.RepairDebtAdvisory); cleared > 0 {
 						logging.Info("[orchestrator] accepted closure dropped %d advisory pending read(s) before retry-hint render", cleared)
+						o.emitAcceptedClosureAdvisoryDebtSkippedNotice()
 					}
 				}
 				pendingRepairs = closure.ConsumeRepairs()
@@ -7451,6 +7459,20 @@ func (o *Orchestrator) acceptedClosureAllowsAdvisoryDebt() bool {
 	}
 	mut := o.busCtx.Mutable
 	return mut.IsInvestigationComplete() || strings.TrimSpace(mut.StableInvestigationCompleteReason()) != ""
+}
+
+func (o *Orchestrator) emitAcceptedClosureAdvisoryDebtSkippedNotice() {
+	if o == nil || o.busCtx == nil || o.advisoryDebtNoticeEmitted {
+		return
+	}
+	o.advisoryDebtNoticeEmitted = true
+	o.emit(render.Event{
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeInvestigationReady,
+		Reasoning:  softAdvisoryDebtSkippedMessage(o.busCtx.Language),
+	})
 }
 
 func (o *Orchestrator) sourceInventoryClosureMakesSubjectRebindAdvisory(r types.RepairDirective) bool {

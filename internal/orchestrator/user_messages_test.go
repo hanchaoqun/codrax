@@ -76,6 +76,17 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 				t.Errorf("en: investigation-ready must be English, got %q", got)
 			}
 
+			got = softAdvisoryDebtSkippedMessage(c.lang)
+			if strings.HasPrefix(got, "›") == false {
+				t.Errorf("advisory-debt-skipped must start with the › progress symbol, got %q", got)
+			}
+			if c.zh && !strings.Contains(got, "跳过") {
+				t.Errorf("zh: advisory-debt-skipped must be Chinese, got %q", got)
+			}
+			if !c.zh && !strings.Contains(got, "Skipping") {
+				t.Errorf("en: advisory-debt-skipped must be English, got %q", got)
+			}
+
 			got = softAnswerCheckRetryMessage(c.lang)
 			if strings.HasPrefix(got, "⟳") == false {
 				t.Errorf("answer-check must start with the ⟳ soft symbol, got %q", got)
@@ -179,6 +190,8 @@ func TestSoftMessages_NoInternalJargon(t *testing.T) {
 		softRetryHintMessage("zh"),
 		softInvestigationReadyMessage("en"),
 		softInvestigationReadyMessage("zh"),
+		softAdvisoryDebtSkippedMessage("en"),
+		softAdvisoryDebtSkippedMessage("zh"),
 		softAnswerCheckRetryMessage("en"),
 		softAnswerCheckRetryMessage("zh"),
 		softFinalizingMessage("en"),

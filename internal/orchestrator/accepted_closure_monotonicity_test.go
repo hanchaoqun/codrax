@@ -5,6 +5,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -217,5 +218,35 @@ func TestAcceptedClosureSuppressesAdvisoryFactRetry(t *testing.T) {
 	}
 	if state.retryUsed != 0 {
 		t.Fatalf("suppressed fact retry must not consume retry budget, got %d", state.retryUsed)
+	}
+}
+
+func TestEmitAcceptedClosureAdvisoryDebtSkippedNotice_OnceAndNotRetry(t *testing.T) {
+	var events []render.Event
+	o := &Orchestrator{
+		busCtx: &types.BusContext{Language: "zh"},
+		emit: func(ev render.Event) {
+			events = append(events, ev)
+		},
+	}
+
+	o.emitAcceptedClosureAdvisoryDebtSkippedNotice()
+	o.emitAcceptedClosureAdvisoryDebtSkippedNotice()
+
+	if len(events) != 1 {
+		t.Fatalf("advisory debt skip notice should emit once, got %d event(s)", len(events))
+	}
+	got := events[0]
+	if got.Kind != render.EventOrchestratorNotice {
+		t.Fatalf("event kind = %v, want EventOrchestratorNotice", got.Kind)
+	}
+	if got.NoticeKind != render.NoticeInvestigationReady {
+		t.Fatalf("notice kind = %v, want NoticeInvestigationReady", got.NoticeKind)
+	}
+	if got.NoticeKind == render.NoticeRetry {
+		t.Fatal("advisory skip must not be rendered as a retry notice")
+	}
+	if got.Reasoning != softAdvisoryDebtSkippedMessage("zh") {
+		t.Fatalf("reasoning = %q, want %q", got.Reasoning, softAdvisoryDebtSkippedMessage("zh"))
 	}
 }

@@ -171,7 +171,7 @@ roles from many raw trace rows.
 | Batch H2 | delivered | Project stage-owned retry directives through current tool surface. | Extractor/finalizer retry directives cannot carry unavailable exploration-tool action plans into the prompt; explorer/analyzer hints that reference tools available in their own stage stay intact. |
 | Batch I | delivered | Gate final system supplements by principal-answer relevance. | A passing scalar/member-set answer does not show stale "localization needed" or generic low-proof caveats unless typed proof debt is principal/blocking. |
 | Batch K | planned | Add tool/preflight/context assembly telemetry and caches. | `emit_evidence`, `emit_investigation_complete`, schema normalization, grounding view, and completion preflight expose sub-stage timings and reuse dispatch/version-scoped typed views. |
-| Batch L | planned | Align user-facing retry/status notices with typed next-action state. | Accepted closure that skips support-only retry debt shows a clear auto-complete/skip notice, not a stale "verification not stable enough" retry cue. |
+| Batch L | delivered | Align user-facing retry/status notices with typed next-action state. | Accepted closure that skips support-only retry debt emits one progress-class skip notice from the typed advisory-debt decision, not another retry cue. |
 | Batch M | planned | Split final contract telemetry by typed severity. | Eval pass/fail, user-answer blocking defects, repaired schema drift, and audit-only annotation gaps are reported separately and consumable by URGR/reasoning graph. |
 | Batch N | delivered | Fix mixed runtime/source lane authority. | `current_key_code` requested dimensions plus typed source scope require source coverage before closure; pure runtime metric dimensions stay source-optional; the representative mixed log/current-code eval passes with real source reads and citations. |
 | Batch O | delivered | Demote stale repo_map navigation debt after principal source coverage. | Missing lens debt no longer requeues after current-source proof is satisfied unless it is tied to an unresolved principal owner/path obligation. |
@@ -257,6 +257,8 @@ roles from many raw trace rows.
 - Unit: observation-only finalizer contracts hide source-specific citation,
   member-set, repo_map, and absence-search rules unless the active answer
   surface includes a current-source lane.
+- Unit: accepted-closure advisory retry/pending-read skips emit at most one
+  progress-class user notice and never render as a retry notice.
 - Hygiene: hard gates and scheduler decisions do not read `RawRequest`,
   user-word substrings, model rationale, visible thinking, or rendered summary
   text directly; any legitimate raw text extraction must enter through typed
@@ -531,3 +533,9 @@ roles from many raw trace rows.
   preserved for coverage. This closes a hard-ish scheduling path from
   model/template natural language without using user-intent keywords, model
   rationale, visible thinking, or rendered summaries as logic.
+- 2026-06-20 Batch L delivered: accepted-closure advisory debt skip decisions
+  now emit at most one progress-class user notice (`NoticeInvestigationReady`)
+  instead of leaving users with only a stale retry impression. The emit sites
+  are the typed scheduler decisions that clear stale retry carry-over or
+  advisory pending reads; they do not inspect user prose, model prose, visible
+  thinking, or retry text.
