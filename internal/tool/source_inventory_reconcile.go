@@ -40,15 +40,19 @@ type sourceInventoryCandidateSet struct {
 }
 
 type sourceInventoryCandidateBudget struct {
-	maxPerRole int
+	maxPerRole     int
+	maxScanPerRole int
 }
 
 const (
-	sourceInventoryCandidateBudgetFileThreshold = 500
-	sourceInventoryCandidateBudgetDefaultTopN   = 60
-	sourceInventoryCandidateBudgetMultiplier    = 4
-	sourceInventoryCandidateBudgetMinPerRole    = 64
-	sourceInventoryCandidateBudgetMaxPerRole    = 512
+	sourceInventoryCandidateBudgetFileThreshold  = 500
+	sourceInventoryCandidateBudgetDefaultTopN    = 60
+	sourceInventoryCandidateBudgetMultiplier     = 4
+	sourceInventoryCandidateScanBudgetMultiplier = 16
+	sourceInventoryCandidateBudgetMinPerRole     = 64
+	sourceInventoryCandidateBudgetMaxPerRole     = 512
+	sourceInventoryCandidateScanBudgetMinPerRole = 512
+	sourceInventoryCandidateScanBudgetMaxPerRole = 4096
 )
 
 type sourceInventoryPackageBucket struct {
@@ -2521,7 +2525,7 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 	}
 	for _, role := range roles {
 		set := sets[role]
-		if len(set.candidates) == 0 {
+		if len(set.candidates) == 0 && !set.truncated {
 			continue
 		}
 		if !set.complete {
@@ -3244,11 +3248,34 @@ func sourceInventoryCandidateBudgetForLens(query types.SourceInventoryLensQuery,
 	if limit > sourceInventoryCandidateBudgetMaxPerRole {
 		limit = sourceInventoryCandidateBudgetMaxPerRole
 	}
-	return sourceInventoryCandidateBudget{maxPerRole: limit}
+	scanLimit := limit * sourceInventoryCandidateScanBudgetMultiplier
+	if scanLimit < sourceInventoryCandidateScanBudgetMinPerRole {
+		scanLimit = sourceInventoryCandidateScanBudgetMinPerRole
+	}
+	if scanLimit > sourceInventoryCandidateScanBudgetMaxPerRole {
+		scanLimit = sourceInventoryCandidateScanBudgetMaxPerRole
+	}
+	return sourceInventoryCandidateBudget{maxPerRole: limit, maxScanPerRole: scanLimit}
 }
 
 func (budget sourceInventoryCandidateBudget) enabled() bool {
 	return budget.maxPerRole > 0
+}
+
+func (budget sourceInventoryCandidateBudget) scanEnabled() bool {
+	return budget.maxScanPerRole > 0
+}
+
+func sourceInventoryCandidateBudgetScanExceeded(scanned int, budget sourceInventoryCandidateBudget) bool {
+	return budget.scanEnabled() && scanned >= budget.maxScanPerRole
+}
+
+func sourceInventoryMarkCandidateBudgetTruncated(set *sourceInventoryCandidateSet) {
+	if set == nil {
+		return
+	}
+	set.complete = false
+	set.truncated = true
 }
 
 func sourceInventoryAppendBudgetedCandidate(set *sourceInventoryCandidateSet, candidate sourceInventoryCandidate, filter sourceInventoryQueryFilter, budget sourceInventoryCandidateBudget) bool {
@@ -3259,8 +3286,7 @@ func sourceInventoryAppendBudgetedCandidate(set *sourceInventoryCandidateSet, ca
 		return false
 	}
 	if budget.enabled() && len(set.candidates) >= budget.maxPerRole {
-		set.complete = false
-		set.truncated = true
+		sourceInventoryMarkCandidateBudgetTruncated(set)
 		return true
 	}
 	set.candidates = append(set.candidates, candidate)
@@ -3314,7 +3340,7 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 		default:
 			out[role] = sourceInventoryGraphCandidates(ctx, graph, getSymbolIndex(), scopeFilter, scopes, profile, role, queryFilter, budget)
 		}
-		if len(out[role].candidates) == 0 {
+		if len(out[role].candidates) == 0 && !out[role].truncated {
 			delete(out, role)
 		}
 	}
@@ -3348,6 +3374,7 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph
 		return set
 	}
 	seen := map[string]bool{}
+	scanned := 0
 	for _, fi := range sourceInventoryScopedGraphFiles(graph, scopes, "") {
 		if fi == nil || strings.TrimSpace(fi.RelPath) == "" || (strings.TrimSpace(fi.Language) == "" && !fi.IsSpecial) {
 			continue
@@ -3356,6 +3383,11 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph
 		if file == "" || seen[file] || !scopeFilter.SourceInRequestedScope(file) {
 			continue
 		}
+		if sourceInventoryCandidateBudgetScanExceeded(scanned, budget) {
+			sourceInventoryMarkCandidateBudgetTruncated(&set)
+			break
+		}
+		scanned++
 		seen[file] = true
 		candidate := sourceInventoryCandidate{
 			member:     file,
@@ -3382,6 +3414,7 @@ func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes
 		return set
 	}
 	seen := map[string]bool{}
+	scanned := 0
 	for _, fi := range sourceInventoryScopedGraphFiles(graph, scopes, "") {
 		if fi == nil || !fi.IsSpecial || strings.TrimSpace(fi.RelPath) == "" {
 			continue
@@ -3390,6 +3423,11 @@ func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes
 		if file == "" || seen[file] || !scopeFilter.SourceInRequestedScope(file) {
 			continue
 		}
+		if sourceInventoryCandidateBudgetScanExceeded(scanned, budget) {
+			sourceInventoryMarkCandidateBudgetTruncated(&set)
+			break
+		}
+		scanned++
 		seen[file] = true
 		candidate := sourceInventoryCandidate{
 			member:     file,
@@ -3416,6 +3454,7 @@ func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Gr
 		return set
 	}
 	buckets := map[string]*sourceInventoryPackageBucket{}
+	scanned := 0
 	for _, fi := range sourceInventoryScopedGraphFiles(graph, scopes, "") {
 		if fi == nil || fi.IsSpecial || strings.TrimSpace(fi.RelPath) == "" || strings.TrimSpace(fi.Language) == "" {
 			continue
@@ -3423,6 +3462,11 @@ func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Gr
 		if !scopeFilter.SourceInRequestedScope(fi.RelPath) {
 			continue
 		}
+		if sourceInventoryCandidateBudgetScanExceeded(scanned, budget) {
+			sourceInventoryMarkCandidateBudgetTruncated(&set)
+			break
+		}
+		scanned++
 		dir := strings.Trim(path.Dir(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
 		if dir == "." || dir == "" {
 			dir = strings.Trim(strings.TrimSpace(fi.Package), "/")
@@ -3717,10 +3761,16 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 		}
 	}
 	seen := map[string]bool{}
+	scanned := 0
 	for _, sym := range symbolIndex.all {
 		if sym == nil || !sourceInventoryFileInScopes(sym.File, scopes) || !scopeFilter.SourceInRequestedScope(sym.File) {
 			continue
 		}
+		if sourceInventoryCandidateBudgetScanExceeded(scanned, budget) {
+			sourceInventoryMarkCandidateBudgetTruncated(&set)
+			break
+		}
+		scanned++
 		candidateRole, ok := aggregateAnswerCandidateRoleForSymbol(sym)
 		if !ok || candidateRole != role || answerDocumentSymbolMatchesExcludedRole(sym, excludedRoles) {
 			continue
@@ -3737,8 +3787,7 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 			continue
 		}
 		if budget.enabled() && len(set.candidates) >= budget.maxPerRole {
-			set.complete = false
-			set.truncated = true
+			sourceInventoryMarkCandidateBudgetTruncated(&set)
 			break
 		}
 		seen[key] = true

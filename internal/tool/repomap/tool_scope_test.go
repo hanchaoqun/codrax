@@ -245,6 +245,38 @@ func TestRepoMapSourceInventoryRejectsSoleFileRoleBeforeIndexWork(t *testing.T) 
 	}
 }
 
+func TestRepoMapSourceInventoryRejectsBroadRootFileRoleWithAttributesBeforeIndexWork(t *testing.T) {
+	repo := t.TempDir()
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  types.NewMutableState("broad file attribute discovery"),
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": ".",
+		"roles": ["file"],
+		"attribute_roles": ["function"],
+		"include_attributes": true,
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("broad root file role with attributes should be rejected before index work: %+v", res)
+	}
+	for _, want := range []string{"roles=[\"file\"]", "path-discovery request", "list_files", "file_type"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("source_inventory broad file-role refusal missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if ctx.Mutable.SearchGraph() != nil {
+		t.Fatalf("broad root file-role refusal must not build or attach a search graph")
+	}
+}
+
 func TestRepoMapSourceInventoryBroadRootBudgetGuard(t *testing.T) {
 	p := repoMapParams{
 		Path:  ".",

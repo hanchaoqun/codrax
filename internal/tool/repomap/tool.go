@@ -781,7 +781,10 @@ func repoMapViewSupported(view string) bool {
 }
 
 func repoMapSourceInventoryParamPreflight(p repoMapParams) (string, bool) {
-	if len(p.Roles) != 1 || p.Roles[0] != ctypes.AnswerCandidateRoleFile || len(p.AttributeRoles) > 0 {
+	if len(p.Roles) != 1 || p.Roles[0] != ctypes.AnswerCandidateRoleFile {
+		return "", true
+	}
+	if len(p.AttributeRoles) > 0 && !repoMapSourceInventoryBroadRootScope(p) {
 		return "", true
 	}
 	return "repo_map refused: source_inventory with roles=[\"file\"] as the only primary role is a path-discovery request, not a semantic source-inventory lens. Use `list_files` with recursive=true plus include/file_type filters for file-path or file-family discovery; use source_inventory with semantic roles such as function, method, type, constant, variable, field, package, config_file, config_key, route, import_path, or literal_value when you need a member/count checklist.", false

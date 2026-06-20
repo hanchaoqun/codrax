@@ -233,6 +233,64 @@ func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterial
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_BudgetsBroadNoMatchScan(t *testing.T) {
+	files := make([]*repotypes.FileInfo, 0, sourceInventoryCandidateScanBudgetMaxPerRole+100)
+	for i := 0; i < sourceInventoryCandidateScanBudgetMaxPerRole+100; i++ {
+		rel := "src/pkg" + strconv.Itoa(i) + "/file" + strconv.Itoa(i) + ".ts"
+		files = append(files, &repotypes.FileInfo{
+			RelPath:  rel,
+			Language: "typescript",
+			Package:  "pkg" + strconv.Itoa(i),
+			Symbols: []repotypes.Symbol{{
+				Name:     "run" + strconv.Itoa(i),
+				Kind:     "function",
+				File:     rel,
+				Line:     10,
+				Exported: true,
+			}},
+		})
+	}
+	graph := testGraphWithFiles(files)
+	ctx := sourceInventoryTestContext("", graph, ".", nil)
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+		TopN:          10,
+		Query:         "definitely_absent_symbol",
+	})
+	if !obs.IsActive() || len(obs.Sets) != 1 {
+		t.Fatalf("broad no-match scan should preserve an active incomplete observation: %+v", obs)
+	}
+	if obs.Complete || obs.Sets[0].Complete {
+		t.Fatalf("broad no-match scan must be incomplete, got %+v", obs)
+	}
+	if obs.Sets[0].Count != 0 || len(obs.Sets[0].Members) != 0 {
+		t.Fatalf("no-match scan should not invent members, got %+v", obs.Sets[0])
+	}
+	if !sourceInventoryStringSliceContains(obs.Provenance, "repo_lens:candidate_budget_truncated") {
+		t.Fatalf("scan-budgeted observation should carry typed truncation provenance: %+v", obs.Provenance)
+	}
+	rendered := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+		TopN:          10,
+	})
+	for _, want := range []string{
+		"candidate materialization was budget-truncated",
+		"bounded navigation sample",
+		"before claiming exhaustive coverage",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered scan-budgeted lens missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestSourceInventoryLensQueryScopes_PathRelativeAliasMatrix(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{
 		{RelPath: "aggregator/aggregator.go", Language: "go", Package: "aggregator"},

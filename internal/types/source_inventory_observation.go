@@ -119,6 +119,12 @@ func SourceInventoryObservationFromAdvisory(advisory SourceInventoryAdvisory) So
 	}
 	for _, set := range advisory.Sets {
 		if len(set.Candidates) == 0 {
+			if !set.Complete {
+				out.Sets = append(out.Sets, SourceInventoryObservationSet{
+					Role:     set.Role,
+					Complete: false,
+				})
+			}
 			continue
 		}
 		obsSet := SourceInventoryObservationSet{
