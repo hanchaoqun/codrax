@@ -198,6 +198,50 @@ func TestBuildAgentContext_RetryHintScopedToOwningStage(t *testing.T) {
 	}
 }
 
+func TestBuildPromptContext_RetryHintProjectsUnavailableToolsForExtractor(t *testing.T) {
+	ac := &types.AgentContext{
+		Stage:     types.StageExtract,
+		RetryHint: "Resolution Chain anchor line is outside the fetched slices; call repo_map, grep(files_only=true), and read_file on internal/agent/agent.go.",
+	}
+	pc := BuildPromptContext(ac, &skill.Config{
+		Name:            "extract-skill",
+		ToolSuggestions: []string{"emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict"},
+	})
+	sec := findSectionTitle(pc, SectionRetryDirective)
+	if sec == nil {
+		t.Fatal("missing retry directive section")
+	}
+	for _, forbidden := range []string{"repo_map", "read_file", "grep("} {
+		if strings.Contains(sec.Content, forbidden) {
+			t.Fatalf("extractor retry directive leaked unavailable tool %q:\n%s", forbidden, sec.Content)
+		}
+	}
+	for _, want := range []string{"unavailable in this extraction stage", "`emit_answer_symbol`", "accepted investigation snapshot"} {
+		if !strings.Contains(sec.Content, want) {
+			t.Fatalf("projected retry directive missing %q:\n%s", want, sec.Content)
+		}
+	}
+}
+
+func TestBuildPromptContext_RetryHintKeepsAvailableExplorerTools(t *testing.T) {
+	const hint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
+	ac := &types.AgentContext{
+		Stage:     types.StageExplore,
+		RetryHint: hint,
+	}
+	pc := BuildPromptContext(ac, &skill.Config{
+		Name:            "explore-skill",
+		ToolSuggestions: []string{"grep", "read_file", "repo_map", "emit_evidence", "emit_investigation_complete"},
+	})
+	sec := findSectionTitle(pc, SectionRetryDirective)
+	if sec == nil {
+		t.Fatal("missing retry directive section")
+	}
+	if sec.Content != hint {
+		t.Fatalf("available explorer tool hint should stay unchanged:\n got: %q\nwant: %q", sec.Content, hint)
+	}
+}
+
 // TestBuildPromptContext_AttachedLogSection_Rendered verifies the
 // session-19 eval-FAIL fix: when AttachedLog is non-empty, the user
 // prompt MUST include an "Attached Runtime Log" section containing the

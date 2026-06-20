@@ -65,6 +65,7 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C27 | P0 | Legacy `RawRequest` lexical fallbacks can still influence hard-ish gates. | A quick audit found scattered helpers such as trace flavor/platform hints and coherence entity mention checks reading raw user text directly. Some uses are legitimate explicit-overrides, but their current shape is not centralized and can drift into keyword-driven routing. | Add a `RequestSignalAuthority` / typed provenance layer: raw text may be used only for path/artifact tokenization, exact quoted provenance, or analyzer-emitted typed profiles. Hard gates consume those typed profiles, never ad hoc RawRequest substring checks. |
 | RNE-C28 | P0 | Runtime negative observations still use a source-shaped schema path. | The Batch W trace rerun had enough `trace_query` evidence but one `emit_investigation_complete` attempt was rejected because `aggregate_facts[6]` used `negative_observation` for a missing IO layer detail without a dimension target/query/pattern/predicate. The retry completed, but the rejection added another explorer loop. | Split negative fact authority by origin. Runtime/log/trace negative observations have typed runtime dimension carriers such as `missing_signal`, `missing_event`, and `missing_field`; repo no-hit, artifact no-hit, and trace missing-field facts canonicalize through one repair layer before the model sees a retry. Batch V1 delivers the runtime carrier path; Batch V2 keeps the broader repair-hint layer. |
 | RNE-C29 | P1 | Observation-only finalizer prompts and contract checks still carry broad source-rule noise. | The Batch W trace rerun no longer indexed or read source, but the finalizer prompt still included many source citation / repo_map / member-set / absence-contract instructions. The first emit was accepted only after deterministic observed-artifact carrier repairs and a second contract check. | Add observation-only answer-surface specialization: finalizer receives a compact runtime-artifact contract, source-specific rules are hidden unless a current-source lane is active, and deterministic carrier repair remains as fallback rather than the normal path. |
+| RNE-C30 | P0 | Stage-owned retry directives can bypass stage tool-surface projection. | Previous fixes scoped explore-owned retry hints away from extraction, but a retry hint whose owner is already `StageExtract` can still carry stale exploration actions from a downstream validator or repair directive. `BuildPromptContext` rendered `ac.RetryHint` verbatim before the extractor/finalizer-specific handoff sanitizer ran, so the model could see "use repo_map/read_file" in a stage where those tools are unavailable. | All model-facing retry directives pass through a capability-surface projector keyed by current `ToolSuggestions`. If a directive mentions unavailable known tools, the original prose is replaced with a stage-safe structured emit/caveat instruction; original text remains in logs/state for audit. This is prompt hygiene only, not user-intent or model-prose hard routing. |
 
 ## Architecture Direction
 
@@ -152,6 +153,7 @@ roles from many raw trace rows.
 | Batch F | planned | Add broader trace causal path-role projection. | Trace eval preserves source/sink/intermediate/exclusion path roles in final answer with fewer trace_query calls. Batch T covers the principal root-cause carrier; this batch remains for richer path-role facets. |
 | Batch G | planned | Add read eval watchdog. | Read-mode eval paths use a configurable timeout and emit typed timeout summaries. |
 | Batch H | delivered | Quarantine post-complete localization repair for extractor. | Extractor receives non-executable localization status/caveat fields and does not attempt `read_file` / `repo_map` after accepted closure. |
+| Batch H2 | delivered | Project stage-owned retry directives through current tool surface. | Extractor/finalizer retry directives cannot carry unavailable exploration-tool action plans into the prompt; explorer/analyzer hints that reference tools available in their own stage stay intact. |
 | Batch I | delivered | Gate final system supplements by principal-answer relevance. | A passing scalar/member-set answer does not show stale "localization needed" or generic low-proof caveats unless typed proof debt is principal/blocking. |
 | Batch K | planned | Add tool/preflight/context assembly telemetry and caches. | `emit_evidence`, `emit_investigation_complete`, schema normalization, grounding view, and completion preflight expose sub-stage timings and reuse dispatch/version-scoped typed views. |
 | Batch L | planned | Align user-facing retry/status notices with typed next-action state. | Accepted closure that skips support-only retry debt shows a clear auto-complete/skip notice, not a stale "verification not stable enough" retry cue. |
@@ -475,3 +477,23 @@ roles from many raw trace rows.
   `analyzer_iters=1`, `explorer_iters=2`, `midloop=0`, `finalizer_iters=1`,
   and no flags. Log audit found no `negative_observation` target/schema
   rejection, no source tool calls, and no user-visible repo-index progress.
+- 2026-06-20 Batch H2 delivered: `BuildPromptContext` now projects every
+  model-facing Retry Directive through the current skill `ToolSuggestions`
+  before rendering. If a stage-owned retry hint mentions known tools that are
+  not exposed in the current stage, the prompt receives a stage-safe instruction
+  to use only available structured emit/render tools and preserve missing proof
+  as uncertainty or caveat. Explorer hints that mention available explorer tools
+  remain byte-for-byte unchanged. This closes the residual "investigation
+  complete -> extraction tries unavailable repo/read tools" prompt path without
+  treating user intent, model rationale, visible thinking, or free-form retry
+  prose as hard control flow.
+- 2026-06-20 Batch H2 verification: focused `internal/context`,
+  `internal/types`, and `internal/agent` tests passed, full `go test ./...`
+  passed, and `qf_relation_subagent_registry` reran successfully in
+  `eval/convergence_audit_summary_20260620_qf_relation_after_batch_h2.md`.
+  The extraction stage made exactly one structured
+  `emit_hypothesis_verdict` call and log audit found no unavailable
+  `repo_map` / `read_file` tool attempt in extraction. The rerun still reports
+  a non-blocking `contract_warning` from finalizer-side
+  `answer_prose_density` and `block_kind_vs_lane_allowed`; that residual is
+  tracked by RNE-C15 / RNE-C29 rather than by the stage retry projection batch.

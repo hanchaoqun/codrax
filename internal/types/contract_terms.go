@@ -2,6 +2,7 @@ package types
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -31,6 +32,19 @@ var knownContractToolNames = map[string]bool{
 	"recall_memory":               true,
 	"repo_map":                    true,
 	"run_tests":                   true,
+}
+
+// KnownContractToolNames returns the stable tool-name vocabulary used by
+// contract and prompt-hygiene layers. The returned slice is sorted and detached
+// from the backing map so callers can safely iterate without depending on map
+// order.
+func KnownContractToolNames() []string {
+	out := make([]string, 0, len(knownContractToolNames))
+	for name := range knownContractToolNames {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // InferContractTermKind classifies analyzer-pinned must_include terms

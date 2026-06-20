@@ -332,6 +332,79 @@ func skillToolSet(sk *skill.Config) map[string]bool {
 	return out
 }
 
+// retryHintForPromptToolSurface projects the model-facing Retry Directive
+// through the current stage's typed tool surface before rendering it. This is
+// prompt hygiene only: scheduler decisions still come from typed artifacts, and
+// the original retry hint stays available in debug logs / task state. The
+// projection prevents an extract/finalize retry from inheriting an exploration
+// action plan after those tools are no longer callable.
+func retryHintForPromptToolSurface(ac *types.AgentContext, sk *skill.Config) string {
+	if ac == nil {
+		return ""
+	}
+	hint := strings.TrimSpace(ac.RetryHint)
+	if hint == "" {
+		return ""
+	}
+	available := skillToolSet(sk)
+	if len(mentionedUnavailablePromptTools(hint, available)) == 0 {
+		return hint
+	}
+	return renderCapabilityProjectedRetryHint(ac, available)
+}
+
+func mentionedUnavailablePromptTools(text string, available map[string]bool) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	var out []string
+	for _, name := range types.KnownContractToolNames() {
+		if available[name] {
+			continue
+		}
+		if promptTextMentionsToolName(text, name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func promptTextMentionsToolName(text, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	re := regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(name) + `([^A-Za-z0-9_]|$)`)
+	return re.FindStringIndex(text) != nil
+}
+
+func renderCapabilityProjectedRetryHint(ac *types.AgentContext, available map[string]bool) string {
+	var tools []string
+	for name := range available {
+		if strings.TrimSpace(name) != "" {
+			tools = append(tools, name)
+		}
+	}
+	sort.Strings(tools)
+	toolText := "the tools currently shown to you"
+	if len(tools) > 0 {
+		quoted := make([]string, 0, len(tools))
+		for _, name := range tools {
+			quoted = append(quoted, "`"+name+"`")
+		}
+		toolText = strings.Join(quoted, ", ")
+	}
+	switch ac.Stage {
+	case types.StageExtract:
+		return "A prior retry directive asked for exploration-only actions that are unavailable in this extraction stage. Do not reopen investigation here. Use only " + toolText + " to convert the accepted investigation snapshot into structured output; if the snapshot lacks proof for a claim, emit a lower-confidence or inconclusive structured result instead of asking for more repository reads."
+	case types.StageFinalize:
+		return "A prior retry directive asked for exploration-only actions that are unavailable in this answer-writing stage. Do not reopen investigation here. Use only " + toolText + " to render the accepted structured evidence; if a requested detail is not supported by the snapshot, state the boundary rather than inventing or requesting more reads."
+	default:
+		return "A prior retry directive mentioned tools that are unavailable in this stage. Continue with only " + toolText + "; preserve any unresolved boundary as structured uncertainty instead of retrying unavailable tools."
+	}
+}
+
 // isExtractorSkill reports whether the dispatch is Turn B (extractor).
 // Used by BuildPromptContext to skip sections that carry zero signal
 // for the extractor: raw tool-result dumps (Known Facts) it cannot
@@ -525,7 +598,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	if ac.RetryHint != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionRetryDirective,
-			Content: ac.RetryHint,
+			Content: retryHintForPromptToolSurface(ac, sk),
 		})
 	}
 
