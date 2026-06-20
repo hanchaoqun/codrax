@@ -834,19 +834,12 @@ func (o *Orchestrator) detectStallAndAct() bool {
 }
 
 // lastNFingerprintsEqual reports whether the last n entries of hist
-// are all pairwise equal. Returns false when len(hist) < n. Helper
-// shared by the soft + hard threshold checks so the comparison
-// logic stays uniform.
+// are all pairwise equal. Returns false when len(hist) < n. It delegates
+// to the shared types.ConvergenceWindow tail-equality primitive so the
+// read-loop stall detector and any future low-delta convergence boundary
+// use one no-progress implementation (ClosureFingerprint is comparable).
 func lastNFingerprintsEqual(hist []types.ClosureFingerprint, n int) bool {
-	if n < 2 || len(hist) < n {
-		return false
-	}
-	for i := len(hist) - n; i < len(hist)-1; i++ {
-		if !fingerprintsEqual(hist[i], hist[i+1]) {
-			return false
-		}
-	}
-	return true
+	return types.StalledAtTail(hist, n)
 }
 
 // appendUniqueString appends s to slice when it is not already present.
@@ -937,15 +930,6 @@ func trimChainTerminal(s string) string {
 		s = s[:len(s)-1]
 	}
 	return s
-}
-
-// fingerprintsEqual compares two ClosureFingerprint values across
-// all four dimensions.
-func fingerprintsEqual(a, b types.ClosureFingerprint) bool {
-	return a.ReadSetHash == b.ReadSetHash &&
-		a.EvidenceHash == b.EvidenceHash &&
-		a.ChainTermSet == b.ChainTermSet &&
-		a.CitedRefsHash == b.CitedRefsHash
 }
 
 // hashCitedRefs computes a stable hash over the (file, line) pairs
