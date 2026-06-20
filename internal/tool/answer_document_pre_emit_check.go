@@ -2601,6 +2601,267 @@ func appendHiddenPrincipalSupportMemberItem(doc *types.AnswerDocumentV2, ob type
 	return false
 }
 
+type principalSupportSurfaceTermRow struct {
+	label       string
+	terms       []string
+	location    string
+	citationRef int
+}
+
+func normalizePrincipalSupportSurfaceTermSupplement(doc *types.AnswerDocumentV2, supportPlan *types.AnswerSupportPlan, ctx *types.BusContext) int {
+	if doc == nil || supportPlan == nil || ctx == nil {
+		return 0
+	}
+	evidence := modelSurfaceTermEvidence(ctx)
+	if len(evidence) == 0 {
+		return 0
+	}
+	visibleSurface := preEmitVisibleAnswerSurface(doc)
+	if strings.TrimSpace(visibleSurface) == "" {
+		return 0
+	}
+	rows := principalSupportSurfaceTermRows(doc, supportPlan, evidence, visibleSurface)
+	if len(rows) == 0 {
+		return 0
+	}
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] principal support surface-term supplement skipped: document already at the %d-block cap", maxBlocksPerDoc)
+		return 0
+	}
+	zh := principalEnumerationPrefersZH(ctx)
+	block := types.AnswerBlock{
+		ID:          nextPrincipalSupportSurfaceTermBlockID(doc),
+		Kind:        types.BlockTable,
+		Title:       principalSupportSurfaceTermTitle(zh, len(rows)),
+		Text:        principalSupportSurfaceTermText(zh),
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		Columns:     principalSupportSurfaceTermColumns(zh),
+		Items:       make([]types.AnswerBlockItem, 0, len(rows)),
+	}
+	for i, row := range rows {
+		block.Items = append(block.Items, types.AnswerBlockItem{
+			ID:          principalSupportSurfaceTermItemID(block.ID, i, row.label),
+			Label:       row.label,
+			Cells:       []string{row.label, strings.Join(row.terms, ", "), row.location},
+			CitationRef: row.citationRef,
+		})
+	}
+	doc.Blocks = append(doc.Blocks, block)
+	return len(rows)
+}
+
+func principalSupportSurfaceTermRows(
+	doc *types.AnswerDocumentV2,
+	supportPlan *types.AnswerSupportPlan,
+	evidence []types.EvidenceItem,
+	visibleSurface string,
+) []principalSupportSurfaceTermRow {
+	obligations := types.PrincipalSupportMemberObligations(supportPlan)
+	if len(obligations) == 0 {
+		return nil
+	}
+	const maxRows = 16
+	seen := make(map[string]bool)
+	var rows []principalSupportSurfaceTermRow
+	for _, ob := range obligations {
+		if !principalSupportMemberIdentityVisibleForSurfaceTerms(visibleSurface, ob) {
+			continue
+		}
+		cit, ok := citationForPrincipalSupportMember(ob)
+		if !ok {
+			continue
+		}
+		missing := missingSurfaceTermsForSupportObligation(ob, evidence, visibleSurface)
+		if len(missing) == 0 {
+			continue
+		}
+		ref := appendOrReusePreEmitCitation(doc, cit)
+		if ref < 0 {
+			continue
+		}
+		label := principalSupportMemberItemLabel(ob)
+		location := ob.LocationHint()
+		key := strings.ToLower(strings.TrimSpace(label)) + "\x00" + strings.ToLower(strings.TrimSpace(location)) + "\x00" + strings.ToLower(strings.Join(missing, "\x00"))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		rows = append(rows, principalSupportSurfaceTermRow{
+			label:       label,
+			terms:       missing,
+			location:    location,
+			citationRef: ref,
+		})
+		if len(rows) >= maxRows {
+			break
+		}
+	}
+	return rows
+}
+
+func missingSurfaceTermsForSupportObligation(ob types.AnswerSupportMemberObligation, evidence []types.EvidenceItem, visibleSurface string) []string {
+	if len(evidence) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var missing []string
+	for _, ev := range evidence {
+		if !surfaceTermEvidenceMatchesSupportObligation(ev, ob) {
+			continue
+		}
+		for _, term := range ev.SurfaceTerms {
+			term = strings.TrimSpace(term)
+			if term == "" || principalSupportSurfaceTermAppears(term, visibleSurface) {
+				continue
+			}
+			if !types.SurfaceTermShouldBeRequiredForEvidence(term, ev, ob.Label) {
+				continue
+			}
+			key := strings.ToLower(term)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			missing = append(missing, term)
+		}
+	}
+	return missing
+}
+
+func surfaceTermEvidenceMatchesSupportObligation(ev types.EvidenceItem, ob types.AnswerSupportMemberObligation) bool {
+	cit, ok := citationForPrincipalSupportMember(ob)
+	if ok {
+		if strings.TrimSpace(cit.File) != "" && !sameSurfaceTermSource(ev.Source, cit.File) {
+			return false
+		}
+		if !surfaceTermLineClose(ev, cit) {
+			return false
+		}
+	}
+	label := strings.TrimSpace(ob.Label)
+	if label == "" {
+		return true
+	}
+	for _, candidate := range []string{ev.Subject, ev.AnchorSymbol, ev.Object, ev.OwnerSymbol} {
+		if principalSupportSurfacesOverlap(candidate, label) {
+			return true
+		}
+	}
+	for _, term := range ev.SurfaceTerms {
+		if principalSupportSurfacesOverlap(term, label) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalSupportMemberIdentityVisibleForSurfaceTerms(visibleSurface string, ob types.AnswerSupportMemberObligation) bool {
+	if principalSupportSurfaceTermAppears(ob.Label, visibleSurface) {
+		return true
+	}
+	for _, location := range append([]string{ob.Location}, ob.EquivalentLocations...) {
+		location = strings.TrimSpace(location)
+		if location != "" && principalSupportSurfaceTermAppears(location, visibleSurface) {
+			return true
+		}
+		if cit, ok := parsePreEmitCitationLocation(location); ok && principalSupportCitationSurfaceVisible(cit, visibleSurface) {
+			return true
+		}
+	}
+	if source := strings.TrimSpace(ob.Source); source != "" {
+		if principalSupportCitationSurfaceVisible(types.Citation{File: source, Line: ob.LineStart}, visibleSurface) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalSupportCitationSurfaceVisible(cit types.Citation, visibleSurface string) bool {
+	file := strings.TrimSpace(cit.File)
+	if file == "" || !principalSupportSurfaceTermAppears(file, visibleSurface) {
+		return false
+	}
+	if cit.Line <= 0 {
+		return true
+	}
+	return principalSupportSurfaceTermAppears(strconv.Itoa(cit.Line), visibleSurface)
+}
+
+func principalSupportSurfacesOverlap(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	return preEmitCodeSurfaceMatches(a, b) ||
+		principalSupportSurfaceTermAppears(a, b) ||
+		principalSupportSurfaceTermAppears(b, a)
+}
+
+func principalSupportSurfaceTermAppears(term, surface string) bool {
+	term = strings.TrimSpace(term)
+	surface = strings.TrimSpace(surface)
+	if term == "" || surface == "" {
+		return false
+	}
+	if types.CodeSurfaceAppearsAsToken(term, surface) || preEmitDisplaySurfaceAppears(term, surface) {
+		return true
+	}
+	return strings.Contains(surface, term)
+}
+
+func principalSupportSurfaceTermTitle(zh bool, n int) string {
+	if zh {
+		return fmt.Sprintf("系统按已验证证据补充可见标签（%d）", n)
+	}
+	return fmt.Sprintf("System-verified surface-label supplement (%d)", n)
+}
+
+func principalSupportSurfaceTermText(zh bool) string {
+	if zh {
+		return "以下标签来自已验收的结构化证据 surface_terms；系统仅补充答案中已列出成员缺失的源码可见标签。"
+	}
+	return "The following labels come from accepted structured evidence surface_terms; the system only supplements source-visible labels missing from already listed members."
+}
+
+func principalSupportSurfaceTermColumns(zh bool) []string {
+	if zh {
+		return []string{"成员", "已验证标签", "位置"}
+	}
+	return []string{"Member", "Verified labels", "Location"}
+}
+
+func nextPrincipalSupportSurfaceTermBlockID(doc *types.AnswerDocumentV2) string {
+	base := "principal-support-surface-terms"
+	used := make(map[string]bool, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		if id := strings.TrimSpace(block.ID); id != "" {
+			used[id] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		id := fmt.Sprintf("%s-%d", base, i)
+		if !used[id] {
+			return id
+		}
+	}
+}
+
+func principalSupportSurfaceTermItemID(blockID string, idx int, label string) string {
+	base := strings.TrimSpace(blockID)
+	if base == "" {
+		base = "principal-support-surface-terms"
+	}
+	if suffix := sanitizeRequiredMechanismAnchorID(label); suffix != "" {
+		return base + "-" + suffix
+	}
+	return fmt.Sprintf("%s-%d", base, idx+1)
+}
+
 func preEmitBlockCanCarryPrincipalSupportMember(block types.AnswerBlock) bool {
 	switch block.Kind {
 	case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:

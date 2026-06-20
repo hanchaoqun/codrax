@@ -592,6 +592,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		if fixed := normalizePrincipalSupportMemberCarriers(doc, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
 			logging.Warning("[%s] repaired %d principal support member citation carrier(s) from visible answer surface", toolName, fixed)
 		}
+		if fixed := normalizePrincipalSupportSurfaceTermSupplement(doc, types.BuildAnswerSupportPlanForBusContext(ctx), ctx); fixed > 0 {
+			logging.Warning("[%s] materialized %d principal support surface-term row(s) from accepted evidence handoff", toolName, fixed)
+		}
 	}
 	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
 		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)

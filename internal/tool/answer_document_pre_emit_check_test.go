@@ -1424,6 +1424,80 @@ func TestNormalizeAggregateMemberSetCarriers_LocalizesEnglishSystemSupplement(t 
 	}
 }
 
+func TestNormalizePrincipalSupportSurfaceTermSupplement_MaterializesMissingEvidenceLabels(t *testing.T) {
+	mu := types.NewMutableState("surface-term handoff")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-index",
+		Producer:     EmitEvidenceProducer,
+		Scope:        types.ScopeLine,
+		Kind:         types.EvidenceRegistration,
+		Subject:      "Index",
+		AnchorSymbol: "Index",
+		Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		LineStart:    7,
+		Snippet:      "@Entry\n@Component\nstruct Index {",
+		SurfaceTerms: []string{"Index.ets", "@Entry", "@Component"},
+	}})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all members",
+			},
+		}},
+	}
+	plan := &types.AnswerSupportPlan{
+		Family:                  types.QFEnumeration,
+		PrincipalMemberCoverage: types.PrincipalMemberCoveragePolicyRequired,
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{{
+				Text:         "Index @Entry component",
+				Location:     "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:7",
+				ClaimForm:    types.ClaimDefinitionFact,
+				Subject:      "Index",
+				AnchorSymbol: "Index",
+				SurfaceTerms: []string{"Index.ets", "@Entry", "@Component"},
+				Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+				LineStart:    7,
+			}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "entry-list",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Text:        "| 组件名 | 文件路径 | 行号 |\n|---|---|---|\n| Index | internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets | 7 |",
+		}},
+	}
+
+	if fixed := normalizePrincipalSupportSurfaceTermSupplement(doc, plan, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1; doc=%+v", fixed, doc.Blocks)
+	}
+	visible := preEmitVisibleAnswerSurface(doc)
+	for _, want := range []string{"@Component", "Index.ets", "系统按已验证证据补充可见标签"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("visible supplement missing %q:\n%s", want, visible)
+		}
+	}
+	if len(doc.Citations) != 1 ||
+		doc.Citations[0].File != "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets" ||
+		doc.Citations[0].Line != 7 {
+		t.Fatalf("supplement should cite the typed evidence line, got %+v", doc.Citations)
+	}
+	if fixed := normalizePrincipalSupportSurfaceTermSupplement(doc, plan, ctx); fixed != 0 {
+		t.Fatalf("second normalization must be idempotent, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+}
+
 func TestNormalizeAggregateMemberSetCarriers_DoesNotOverrideSingletonModelCategoryBlock(t *testing.T) {
 	mu := types.NewMutableState("singleton aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

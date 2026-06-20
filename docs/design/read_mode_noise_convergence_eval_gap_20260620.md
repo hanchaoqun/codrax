@@ -1305,3 +1305,45 @@ roles from many raw trace rows.
   Remaining work: expose resumable cursor state as a typed execution artifact
   rather than a render-only offset hint, and continue collapsing residual
   helper-specific loops into one execution view/budget carrier.
+- 2026-06-20 Batch U9o representative refresh:
+  `eval/convergence_audit_summary_20260620_goal_batch_after_u9n.md` ran six
+  read-mode cases after the first execution-budget slice. Harness verdict was
+  5/6 PASS. Manual audit split the remaining noise into three classes rather
+  than another per-case patch. First, `arkts_repomap` still exposed a visible
+  answer-surface gap: accepted `surface_terms` such as `@Component` existed in
+  typed evidence but the final answer could omit those source-visible labels.
+  Second, mixed runtime/current-source cases still used long exploration
+  loops, so RNE-C48/RNE-C59 remain active smoothness debts even when correctness
+  is recovered. Third, trace/log source-lane cases prove the current bridge is
+  better but still not cheap; future work should reduce repeated context
+  pruning and redundant exploration through shared coverage snapshots.
+- 2026-06-20 Batch U9p delivered RNE-C62. `emit_answer_document` now materializes
+  a small system-verified supplement when all of the following typed conditions
+  hold: a principal support member is already visible, its citation is present,
+  accepted `explorer.emit_evidence` rows carry missing `surface_terms`, and the
+  terms are required for that evidence/member pair. The normalizer reads the
+  `AnswerSupportPlan`, citations, and typed evidence only; it does not inspect
+  user prose or model rationale for routing. Focused validation passed:
+  `go test ./internal/tool -run
+  'TestNormalizePrincipalSupportSurfaceTermSupplement|TestNormalizeAggregateMemberSetCarriers|TestPreCheckModelSurfaceTerms|TestRunPreEmitChecks'`,
+  `go test ./internal/types -run
+  'TestMissingPrincipalSupportMembers|TestPrincipalSupportMemberObligations'`,
+  `make build`, and full `go test ./...`. The focused ArkTS rerun
+  `eval/convergence_audit_summary_20260620_goal_batch_arkts_after_surface_term_supplement.md`
+  passed and logged the supplement path:
+  `materialized 1 principal support surface-term row(s) from accepted evidence
+  handoff`.
+- 2026-06-20 RNE-C65 opened after U9p manual audit. The ArkTS focused harness
+  passed, but the visible answer listed only `Index` while earlier correct runs
+  listed four `@Entry` owners and two `@Builder` fragments. The analyzer
+  pre-scan had already observed the stronger candidate universe through typed
+  tool outputs, but the model omitted `required_files` in `emit_analysis`, so
+  downstream forced-read and pre-complete coverage obligations never inherited
+  those candidates. The explorer then accepted a partial enumeration as a
+  complete member set. This is a read-mode coverage-authority gap, not an ArkTS
+  special case: deterministic prescan candidates for source-inventory or
+  exhaustive category-enumeration lanes must be projected into bounded required
+  read obligations and closure checks must treat unread prescan candidates as
+  open coverage. The fix must consume structured tool outputs, repo-relative
+  path validation, typed request traits, and source-scope policy; it must not
+  parse user wording or model prose.
