@@ -1391,13 +1391,6 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 			if dim.Role != RequestedAnswerDimensionCurrentKeyCode {
 				continue
 			}
-			if rm.externalObservationDefaultArtifactOnly() {
-				if targetLooksLikeCurrentSourceAnchor(dim.SourceQuote) ||
-					targetLooksLikeCurrentSourceAnchor(dim.Label) {
-					return true
-				}
-				continue
-			}
 			if rm.dimensionHasCurrentSourceAnchor(dim) {
 				return true
 			}
@@ -1452,7 +1445,7 @@ func textCanRepresentCurrentSourceAnchor(raw string, artifactExternalOnly bool) 
 		(looksLikeExternalObservationReference(s) || looksLikeExternalArtifactCoordinate(s)) {
 		return false
 	}
-	return true
+	return !LooksLikeRuntimeArtifactPath(s)
 }
 
 func targetLooksLikeCurrentSourceAnchor(raw string) bool {

@@ -160,9 +160,10 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentKeyCodeDimensionOpensCurrentSo
 		t.Fatal("explicit current_key_code dimension should keep mixed runtime/current-source lane open")
 	}
 	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
-		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
-		SourceQuotes:      []string{"不要把日志行当成当前源码引用"},
-		Confidence:        0.9,
+		CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+		ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+		SourceQuotes:         []string{"不要把日志行当成当前源码引用"},
+		Confidence:           0.9,
 	}
 	if rm.HasObservationOnlyRuntimeArtifact() {
 		t.Fatal("current_key_code dimension must outrank accidental source exclusion")
@@ -196,9 +197,10 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentSourceExplanationProfileOpensL
 		t.Fatal("typed current-source explanation profile should keep mixed runtime/current-source lane open")
 	}
 	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
-		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
-		SourceQuotes:      []string{"不要把日志行当成当前源码引用"},
-		Confidence:        0.9,
+		CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+		ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+		SourceQuotes:         []string{"不要把日志行当成当前源码引用"},
+		Confidence:           0.9,
 	}
 	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
 		t.Fatalf("current-source explanation profile should require current source even with exclusion drift, got %s", got)

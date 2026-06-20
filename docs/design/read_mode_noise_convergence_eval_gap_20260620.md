@@ -22,11 +22,11 @@ summaries remain soft context only.
 | Class | Priority | Why it matters | Representative gaps |
 | --- | --- | --- | --- |
 | Noise and convergence debt | P0 | Causes repeated post-complete retries, stale "verification not stable" status, high token use, and unnecessary model turns. | RNE-C1, RNE-C4, RNE-C6, RNE-C13, RNE-C14 |
-| Typed localization and proof coverage | P0 | Determines whether read and write tasks investigate the right owner, prove the active lane, and avoid answering or patching from the wrong source surface. | RNE-C8, RNE-C16, RNE-C17, RNE-C20, RNE-C21, RNE-C23 |
+| Typed localization and proof coverage | P0 | Determines whether read and write tasks investigate the right owner, prove the active lane, and avoid answering or patching from the wrong source surface. | RNE-C8, RNE-C16, RNE-C17, RNE-C20, RNE-C21, RNE-C23, RNE-C32 |
 | Handoff and final-answer fidelity | P0 | Preserves rich exploration evidence into extractor/finalizer/report consumers without exposing executable repair instructions to the wrong stage. | RNE-C5, RNE-C10, RNE-C11, RNE-C22, RNE-C26 |
 | Prompt/tool-surface hygiene | P0 | Prevents hard-ish scheduling, authority prompts, or tool decisions from being driven by raw user words, model prose, visible thinking, or unavailable-tool directives. | RNE-C27, RNE-C30, RNE-C31 |
 | Performance and observability | P0/P1 | Makes slow tool execution, schema repair loops, context assembly, and eval timeouts diagnosable and bounded. | RNE-C7, RNE-C12, RNE-C15, RNE-C24 |
-| Cross-language source inventory | P1 | Avoids Python-only or Go-only fixes by making supported-language scope, parser fallback, and absence proof language-neutral. | RNE-C9, RNE-C19, RNE-C23 |
+| Cross-language source inventory | P1 | Avoids Python-only or Go-only fixes by making supported-language scope, parser fallback, and absence proof language-neutral. | RNE-C9, RNE-C19, RNE-C23, RNE-C32 |
 
 ## Eval Batch Summary
 
@@ -46,6 +46,27 @@ Visible `<think>` content in REPL logs is expected for user transparency and is
 not a bug. The gap is that executable repair/navigation instructions and noisy
 evidence surfaces can enter the wrong consumer stage.
 
+## Latest Representative Refresh
+
+Latest refresh:
+`eval/convergence_audit_summary_20260620_batch3.md`.
+
+| Case | Result | Key signals | Manual audit |
+| --- | --- | --- | --- |
+| `qf_relation_subagent_registry` | pass | `read_file=11`, `repo_map=2`, `explorer_iters=19`, `midloop=8`, about 69k context tokens in the run log. | Correct final answer, but still too much support-context noise for a one-symbol relation lookup. RNE-C1/RNE-C4/RNE-C6/RNE-C12 remain open. |
+| `qf_architecture` | pass | `read_file=2`, `repo_map=2`, `explorer_iters=4`, one explorer dispatch. | Correct enough, but broad architecture answers still need a compact typed inventory/relevance budget rather than large prompt surfaces. |
+| `read_combo_log_current_code_dimensions` | fail before Batch N refinement | `read_file=0`, `repo_map=0`; analyzer emitted required `current_key_code` plus artifact-citation policy. | Current-source obligation was lost because artifact citation external-only/exclude drift collapsed the turn to observation-only. Fixed by the Batch N refinement in this ledger; residual performance and final-answer patch rounds remain tracked separately. |
+| `trace_query_wakeup_causal_io_chain` | pass | `trace_query=4`, no source reads. | Trace lane is now using the right tool and no longer demands source navigation, but trace_query throughput and status-card clarity stay under RNE-C12/RNE-C22 follow-up. |
+| `arkts_repomap` | fail | `read_file=4`, `repo_map=0`, `list_files=1`, `explorer_iters=16`, `midloop=9`. | The run proved absence with grep/list/read instead of typed source inventory, missed the in-repo ArkTS fixture/corpus surface, and shows source inventory is still advisory rather than an executable localization authority. RNE-C23 and RNE-C32 cover this as a cross-language gap. |
+| `sr_cpp_virtual_chain` | pass with warning | `repo_map=1`, `read_file=4`, `contract_warning=7`. | Functional answer was correct, but citation repair/contract telemetry remains noisy after success. RNE-C15 and Batch M must split blocking defects from repaired/audit-only schema drift. |
+
+Focused Batch N regression rerun:
+`eval/results/read_combo_after_lane_fix_20260620/read_combo_log_current_code_dimensions-20260620-105809`
+passed with `read_file=5`, `repo_map=1`, `investigation_complete_calls=1`,
+and current-source citations. It still took 242s with about 66k context tokens
+and one `answer_richness_facet_coverage` contract warning, so the lane fix is
+not a performance/noise fix by itself.
+
 ## Gap Ledger
 
 | ID | Priority | Gap | Root cause | Target state |
@@ -61,11 +82,11 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C9 | P1 | Cross-language call-chain cases still over-read. | Repo-map navigation facts and read-range obligations are not used as a strict enough exploration budget for C/C++, ArkTS, Cangjie, Java/Kotlin, JS/TS, Ruby, Go, config, and workflow files. | Language-neutral localization and impact views set read budgets and proof obligations, with language adapters providing typed parse/edge facts where available. |
 | RNE-C10 | P0 | Post-complete localization repair can still leak into extraction. | A retry directive / localization supplement can mention a forced `read_file` after exploration already accepted closure. The extractor cannot run read tools, so it burns an unavailable-tool round and may broaden reasoning from stale repair text. | Stage handoff must project localization repair debt into extractor-safe obligations: verdict/caveat/status only. Any real need for more `read_file` must route back to exploration before StageExtract. |
 | RNE-C11 | P0 | Final system supplements can contradict a solved principal answer. | Localization/navigation supplements are rendered even after the principal member set, citations, and repo_map coverage are accepted. The final answer can simultaneously pass eval and display "localization needed" / low-proof caveats that are stale or support-only. | Final report supplements need a typed relevance gate: principal-answer proof status first, support-only localization debt collapsed or hidden, and residual caveats shown only when they are blocking or materially affect the user's answer. |
-| RNE-C12 | P0 | Tool/preflight/context assembly latency can dominate successful read runs. | Large evidence ledgers and repeated completion prechecks can make `emit_evidence`, `emit_investigation_complete`, and "organizing context" slow even when the next decision is already known. Static tool schemas, grounding views, completion preflight state, and evidence scans are rebuilt in multiple places. | Add timing telemetry and shared typed preflight/cache layers: static tool parameters cached, schema normalization marked once, grounding context cached by dispatch/version, and completion gates consume one `CompletionPreflightView` instead of rescanning evidence repeatedly. |
+| RNE-C12 | P0 | Tool/preflight/context assembly latency can dominate successful read runs. | Large evidence ledgers and repeated completion prechecks can make `emit_evidence`, `emit_investigation_complete`, and "organizing context" slow even when the next decision is already known. Static tool schemas, grounding views, completion preflight state, and evidence scans are rebuilt in multiple places. The latest mixed runtime/source rerun passed but still spent 242s and about 66k context tokens, proving that correctness and smoothness are separate deliverables. | Add timing telemetry and shared typed preflight/cache layers: static tool parameters cached, schema normalization marked once, grounding context cached by dispatch/version, and completion gates consume one `CompletionPreflightView` instead of rescanning evidence repeatedly. |
 | RNE-C13 | P0 | Accepted-closure advisory debt is not consumed consistently across scheduler surfaces. | `chain_promotion.*` pending reads can be advisory for auto-complete but still appear in retry hints or forced-read drains if the cleanup happens after hint rendering. This creates the visible pattern "investigation complete → verification not stable → same support-chain read again". | A single typed `RepairDebtClass` policy must feed auto-complete, fact-retry suppression, retry-hint rendering, forced-read drains, and audit checkpoints. Accepted closure may keep principal blockers, but advisory debt is cleared before any model-facing retry hint. |
 | RNE-C14 | P1 | User-facing retry notices can remain stale after auto-complete. | The renderer may already have emitted "verification not stable enough" before the scheduler recognizes that accepted closure supersedes a retry carry-over. The system state is correct, but the REPL progress card looks like a real retry. | Status-card events should be driven by typed next-action decisions after stale retry carry-over suppression, so auto-completed advisory retries render as "accepted; skipping support-only retry" instead of another unstable-verification cue. |
-| RNE-C15 | P1 | Final contract telemetry still has schema-level noise after eval pass. | A run can report eval `answer_contract_violations=0` while the internal CGEC summary records non-blocking answer-document field violations such as candidate role annotation drift. | Final contract telemetry should distinguish blocking user-answer defects, repaired/non-blocking schema drift, and audit-only annotation gaps with typed severity, then feed the same status card and reasoning graph. |
-| RNE-C16 | P0 | Mixed runtime-artifact plus current-code requests can collapse to observation-only. | Analyzer can emit typed `requested_answer_dimensions.role=current_key_code` and `source_scope_profile`, while `CurrentSourceLaneDecision` only treats `current_source_mode=allow` or explicit current-source profile as hard current-source anchors. Explorer then receives `Runtime Artifact Only Start`, accepts `external_only_log`, and finalizer discovers the missing current-code dimension too late. | Source-lane authority consumes typed required `current_key_code` dimensions paired with valid source scope, not prose. Observation-only remains valid for pure runtime metric dimensions; explicit `exclude` still wins; `external_only_*` waiver cannot close a required current-source lane. |
+| RNE-C15 | P1 | Final contract telemetry still has schema-level noise after eval pass. | A run can report eval `answer_contract_violations=0` while the internal CGEC summary records non-blocking answer-document field violations such as candidate role annotation drift. The C++ virtual-chain pass still had seven contract warnings, and the mixed runtime/source rerun needed a finalizer patch for `answer_richness_facet_coverage` despite enough evidence. | Final contract telemetry should distinguish blocking user-answer defects, repaired/non-blocking schema drift, and audit-only annotation gaps with typed severity, then feed the same status card and reasoning graph. |
+| RNE-C16 | P0 | Mixed runtime-artifact plus current-code requests can collapse to observation-only. | Analyzer can emit typed `requested_answer_dimensions.role=current_key_code` and `source_scope_profile`, while `CurrentSourceLaneDecision` only treats `current_source_mode=allow` or explicit current-source profile as hard current-source anchors. Explorer then receives `Runtime Artifact Only Start`, accepts `external_only_log`, and finalizer discovers the missing current-code dimension too late. The latest regression showed a second variant: artifact-citation external-only is valid for citation provenance, but it must not close a required current-code answer dimension. | Source-lane authority consumes typed required `current_key_code` dimensions paired with valid source scope or dimension anchors, not prose. Observation-only remains valid for pure runtime metric dimensions. Explicit source exclusion may override weak source-scope drift, but it must not override a separate required current-source answer dimension unless the typed request model marks that dimension out of scope. `external_only_*` citation policy cannot close a required current-source lane. |
 | RNE-C17 | P0 | Missing repo_map lens debt can requeue after grounded current-source evidence exists. | After source anchors and evidence are accepted, pre-finalize localization can still treat a missing `file_map` lens as principal and repeatedly show "verification not stable enough". This is support/navigation debt, not necessarily answer-blocking proof debt. | Navigation debt must be classified by consumer and principal coverage. If current-source evidence/read coverage satisfies the active lane, missing lens debt is advisory or at most one bounded repair; it must not keep requeueing identical source-localizer work. |
 | RNE-C18 | P1 | Requested-dimension role drift causes avoidable finalizer patch rounds. | The visible answer may already cover the user's dimension label, but coverage hints can report a role-shaped miss such as `日志线索 (diff_clue)`. This happens when origin/dimension role projection overfits a role enum rather than the typed source quote/label coverage. | Dimension coverage should consume normalized dimension ids, labels, source quotes, and block evidence origins together. Role aliases are soft display metadata; missing-dimension hints must not depend on a misleading role name alone. |
 | RNE-C19 | P1 | Runtime-artifact language guesses can pollute repository reasoning. | Log triage may emit `meta.lang=python` for a generic runtime log even when the repository is Go. That artifact-language guess can become noise for downstream source localization and audit language summaries. | Separate artifact format/language from repository/source language. Runtime triage language is advisory artifact metadata only; source-language decisions come from repo_map/file paths/typed source inventory. |
@@ -81,6 +102,7 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C29 | P1 | Observation-only finalizer prompts and contract checks still carry broad source-rule noise. | The Batch W trace rerun no longer indexed or read source, but the finalizer prompt still included many source citation / repo_map / member-set / absence-contract instructions. The first emit was accepted only after deterministic observed-artifact carrier repairs and a second contract check. | Add observation-only answer-surface specialization: finalizer receives a compact runtime-artifact contract, source-specific rules are hidden unless a current-source lane is active, and deterministic carrier repair remains as fallback rather than the normal path. |
 | RNE-C30 | P0 | Stage-owned retry directives can bypass stage tool-surface projection. | Previous fixes scoped explore-owned retry hints away from extraction, but a retry hint whose owner is already `StageExtract` can still carry stale exploration actions from a downstream validator or repair directive. `BuildPromptContext` rendered `ac.RetryHint` verbatim before the extractor/finalizer-specific handoff sanitizer ran, so the model could see "use repo_map/read_file" in a stage where those tools are unavailable. | All model-facing retry directives pass through a capability-surface projector keyed by current `ToolSuggestions`. If a directive mentions unavailable known tools, the original prose is replaced with a stage-safe structured emit/caveat instruction; original text remains in logs/state for audit. This is prompt hygiene only, not user-intent or model-prose hard routing. |
 | RNE-C31 | P0 | Hypothesis-to-task binding can still score model/template prose. | `analysis/binder` used task node objective surface tokens as part of relevance scoring. Node objectives are useful user/model guidance, but they are not typed routing authority and can reintroduce prose-driven scheduling even without direct RawRequest parsing. | Binder relevance consumes only typed search hints and typed falsification-kind affinity. Objective prose remains visible guidance but cannot change task/hypothesis routing. |
+| RNE-C32 | P0 | Source inventory remains prompt-advisory instead of an executable localization authority. | The ArkTS representative run had `repo_map=0`, `source_lens=0`, and answered absence after `list_files`/`read_file` work. The explorer prompt mentions `repo_map(view="source_inventory")`, but no typed scheduler obligation required it before closing an absence/member-set answer over supported language files. | Add a language-neutral `SourceInventoryAuthority`: analyzer/source-inventory profiles, absence answers, exhaustive member-set questions, and cross-language scope requests create a typed navigation obligation. The scheduler or localizer executes a bounded `repo_map(source_inventory)` view before absence closure, records scope classes, and feeds only the Top-N typed view to the model. |
 
 ## Architecture Direction
 
@@ -181,6 +203,7 @@ roles from many raw trace rows.
 | Batch S | delivered | Add origin-aware runtime-only source navigation suppression. | Trace/log artifact-only tasks with no current-source obligation skip repo_map/localizer blocking floors and user-facing source supplements while keeping runtime observation audit. |
 | Batch T | delivered | Add trace causal projection and source-optional supplement gating. | Trace causal projection selects attributable wakeup-chain root-cause nodes over aggregate sentinels, dedupes supporting hops, and runtime-artifact source-optional answers no longer render source localization / repo_map audit supplements. |
 | Batch U | planned | Add source inventory authority with scope classes. | Supported-language searches expose product/test/fixture/corpus/vendor/generated scope classes; absence closes only against the classes required by the typed task. |
+| Batch U1 | planned | Make source inventory an executable navigation obligation. | A source-inventory/absence/exhaustive supported-language task must run a bounded typed inventory view before closure; C/C++, Cangjie, ArkTS/ETS, JS/TS, Java/Kotlin, Ruby, Go, config, workflow, and other repomap languages share the same authority surface. |
 | Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
 | Batch V2 | planned | Complete aggregate negative-fact repair hints. | Invalid no-hit payloads receive one precise typed repair hint or deterministic normalization before retry; the model does not bounce between `negative_search`, `negative_observation`, `scalar_value`, and empty `member_set` schemas. |
 | Batch W | delivered | Add lazy repo-index warmup for runtime-artifact-only read turns. | Runtime trace/log answers with no typed current-source obligation do not print or pay repo-index warmup unless a later typed source route actually opens. |
@@ -191,7 +214,7 @@ roles from many raw trace rows.
 | Batch Y2a | delivered | Remove trace_query platform/flavor selection from raw user wording. | `trace_query` now selects platform/flavor only from typed tool parameters, attached-source metadata, or content detection. Raw request words cannot choose Harmony/Android/Donghu semantics. |
 | Batch Y2b | delivered | Finish first hard-ish production prose-signal cleanup pass. | Binder relevance no longer consumes task objective prose; remaining RawRequest/Objectives are classified as exact provenance/path extraction, typed analyzer echo, or follow-up candidates for RequestSignalAuthority. |
 | Batch Z | planned | Add observation-only finalizer contract specialization. | Runtime/log/trace answers without a current-source lane receive compact runtime-artifact answer contracts, avoid source-rule prompt noise, and pass without deterministic metadata auto-repair in representative cases. |
-| Batch J | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
+| Batch J | partial | Re-run the representative batch and refresh this ledger. | Batch3 is recorded here. Remaining failures now map to RNE-C23/RNE-C32 rather than only empty-set schema loops; another full refresh is required after Batch U1 and Batch M/K2. |
 
 ## Test Matrix
 
@@ -243,6 +266,12 @@ roles from many raw trace rows.
 - Unit: source inventory reports scope classes for product, test, fixture,
   corpus, vendor, generated, config, and workflow files across supported
   languages.
+- Unit: source inventory obligations are created from typed source-inventory,
+  absence, exhaustive-set, and supported-language scope profiles; they are not
+  created from user-word keyword matches or model rationale.
+- Unit: source inventory obligation execution deduplicates existing repo_map
+  source-inventory observations and never re-runs an identical lens after no
+  typed input changed.
 - Unit: absence answers cannot close if the typed source inventory finds
   matching files inside a required source-scope class.
 - Unit: negative search / negative observation / exact empty member-set facts
@@ -269,6 +298,8 @@ roles from many raw trace rows.
   prose and changes only when typed search hints or typed falsification kind
   change.
 - Eval: `arkts_repomap` no longer loops on empty set shape.
+- Eval: `arkts_repomap` uses repo_map/source_inventory before absence or
+  member-set closure and reports the exact source-scope classes searched.
 - Eval: `qf_relation_subagent_registry` converges without repeated identical
   relation support downgrade.
 - Eval: `trace_query_wakeup_causal_io_chain` preserves intermediate path roles.
@@ -548,3 +579,39 @@ roles from many raw trace rows.
   timing a semantic hard gate. Existing static schema caches, grounding
   context cache, and completion preflight view remain active; K2 continues to
   track deeper context/preflight reuse and "organizing context" latency.
+- 2026-06-20 representative six-case refresh Batch3 recorded:
+  `eval/convergence_audit_summary_20260620_batch3.md` passed 4/6 cases.
+  `read_combo_log_current_code_dimensions` failed with zero source reads and
+  zero repo_map calls, exposing a second mixed-lane authority bug where
+  artifact-citation external-only/exclude drift could close a required
+  `current_key_code` dimension. `arkts_repomap` failed with `repo_map=0`,
+  `source_lens=0`, and an absence answer after list/read exploration,
+  confirming that source inventory is still advisory rather than an executable
+  typed authority. `sr_cpp_virtual_chain` passed but emitted seven contract
+  warnings, keeping final contract severity split in Batch M. The passing
+  relation/architecture cases still used large contexts, so RNE-C1/RNE-C4/
+  RNE-C6/RNE-C12 remain active. This refresh explicitly keeps non-noise gaps
+  in scope: localization authority, source inventory, citation/contract
+  telemetry, proof coverage, and performance are tracked beside noise.
+- 2026-06-20 Batch N refinement delivered: `current_key_code` requested-answer
+  dimensions now remain a current-source requirement even when an attached
+  runtime artifact uses external-only artifact citations. Artifact lines still
+  cannot be borrowed as current-source citations, but that citation-provenance
+  policy no longer closes a separate typed current-source answer dimension.
+  Weak source-scope drift can still be overridden by explicit typed source
+  exclusion; the required current-source dimension path is stronger. Focused
+  tests passed for `internal/types`, `internal/agent`, and `internal/tool`,
+  and `read_combo_log_current_code_dimensions` reran successfully under
+  `eval/results/read_combo_after_lane_fix_20260620/read_combo_log_current_code_dimensions-20260620-105809`
+  with `read_file=5`, `repo_map=1`, `investigation_complete_calls=1`, and
+  current-source citations. Residual 242s wall time, about 66k context tokens,
+  and one answer-richness contract warning stay open under RNE-C12/RNE-C15/
+  RNE-C26/RNE-C29.
+- 2026-06-20 source inventory gap split: RNE-C23 keeps the scope-class and
+  supported-language inventory model; new RNE-C32 / Batch U1 tracks the
+  scheduler/localizer side that must turn source-inventory, absence,
+  exhaustive-set, and supported-language scope profiles into a bounded typed
+  `repo_map(source_inventory)` obligation before closure. This is language
+  neutral and covers C/C++, Cangjie, ArkTS/ETS, JS/TS, Java/Kotlin, Ruby, Go,
+  config, workflow, and all other repomap-supported surfaces. It must not be
+  implemented with user-keyword matching or model-prose routing.
