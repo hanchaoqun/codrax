@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/tool/sourceinventory"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -524,26 +525,14 @@ func sourceInventoryObservationWithLensExecutionState(observation types.SourceIn
 	if total == 0 {
 		return out
 	}
-	limit := sourceInventoryObservationPageLimit(query)
-	offset := sourceInventoryLensQueryOffset(query)
-	if offset > total {
-		offset = total
-	}
-	emitted := 0
-	if limit > 0 && offset < total {
-		emitted = minInt(limit, total-offset)
-	}
-	nextCursor := ""
-	if offset+emitted < total {
-		nextCursor = strconv.Itoa(offset + emitted)
-	}
-	out.Page = &types.SourceInventoryObservationPage{
-		Offset:     offset,
-		Limit:      limit,
-		Total:      total,
-		Emitted:    emitted,
-		NextCursor: nextCursor,
-		Complete:   nextCursor == "" && !budgetTruncated,
+	page, ok := sourceinventory.Page(
+		sourceInventoryLensQueryOffset(query),
+		sourceInventoryObservationPageLimit(query),
+		total,
+		budgetTruncated,
+	)
+	if ok {
+		out.Page = &page
 	}
 	return out
 }
@@ -557,15 +546,7 @@ func sourceInventoryObservationMemberTotal(observation types.SourceInventoryObse
 }
 
 func sourceInventoryObservationPageLimit(query types.SourceInventoryLensQuery) int {
-	if query.TopN > 0 {
-		return query.TopN
-	}
-	if query.RepoFileCount > 0 {
-		if tiered := repotypes.DefaultTopN("source_inventory", repotypes.RepoSizeTier(query.RepoFileCount)); tiered > 0 {
-			return tiered
-		}
-	}
-	return sourceInventoryExecBudgetDefaultTopN
+	return sourceinventory.PageLimit(query.TopN, query.RepoFileCount)
 }
 
 func sourceInventorySourceClassUniverseForLens(ctx *types.BusContext, query types.SourceInventoryLensQuery) []types.SourceInventorySourceClassCount {
@@ -2727,18 +2708,7 @@ func renderSourceInventorySourceClassCount(class types.SourceInventorySourceClas
 }
 
 func sourceInventoryLensQueryOffset(query types.SourceInventoryLensQuery) int {
-	if query.Offset > 0 {
-		return query.Offset
-	}
-	cursor := strings.TrimSpace(query.Cursor)
-	if cursor == "" {
-		return 0
-	}
-	offset, err := strconv.Atoi(cursor)
-	if err != nil || offset < 0 {
-		return 0
-	}
-	return offset
+	return sourceinventory.CursorOffset(query.Offset, query.Cursor)
 }
 
 func renderSourceInventoryObservationMember(member types.SourceInventoryObservationMember, includeAttributes bool) string {

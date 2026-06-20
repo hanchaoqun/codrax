@@ -10,6 +10,7 @@ import (
 	"time"
 
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/tool/sourceinventory"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -99,7 +100,13 @@ func TestSourceInventoryCandidateBudgetDeadlineTruncatesFileScan(t *testing.T) {
 		nil,
 		false,
 		sourceInventoryQueryFilter{},
-		sourceInventoryExecBudget{maxPerRole: 10, maxScanPerRole: 10, deadline: time.Now().Add(-time.Second)},
+		sourceInventoryExecBudget{kernel: sourceinventory.NewBudget(sourceinventory.BudgetOptions{
+			ForceAdvisoryOnly: true,
+			GraphFileCount:    sourceInventoryExecBudgetFileThreshold + 1,
+			MaxPerRole:        10,
+			MaxScanPerRole:    10,
+			Deadline:          time.Now().Add(-time.Second),
+		})},
 	)
 	if !set.truncated || set.complete || len(set.candidates) != 0 {
 		t.Fatalf("expired execution budget should truncate before materializing file candidates: %+v", set)
@@ -159,7 +166,12 @@ func TestSourceInventoryCandidateBudgetCountsScopedQueryMisses(t *testing.T) {
 		&types.SourceInventoryProfile{IsSourceInventory: true, TargetRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction}},
 		types.AnswerCandidateRoleFunction,
 		sourceInventoryBuildQueryFilter("definitely_absent_query_token"),
-		sourceInventoryExecBudget{maxPerRole: 10, maxScanPerRole: 3},
+		sourceInventoryExecBudget{kernel: sourceinventory.NewBudget(sourceinventory.BudgetOptions{
+			ForceAdvisoryOnly: true,
+			GraphFileCount:    sourceInventoryExecBudgetFileThreshold + 1,
+			MaxPerRole:        10,
+			MaxScanPerRole:    3,
+		})},
 	)
 	if !set.truncated || set.complete || len(set.candidates) != 0 {
 		t.Fatalf("query-miss scan should be bounded by scoped symbols, got %+v", set)
