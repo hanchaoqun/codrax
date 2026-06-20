@@ -337,7 +337,7 @@ func sourceInventoryObservationFromListFilesToolResult(ctx *types.BusContext, re
 			continue
 		}
 		rel := sourceInventoryDiscoverySafeResultPath(ctx, line)
-		if rel == "" {
+		if rel == "" || !sourceInventoryDiscoveryResultPathExists(ctx, rel) {
 			continue
 		}
 		member := sourceInventoryObservationMemberFromListFilesPath(ctx, rel)
@@ -1212,6 +1212,21 @@ func sourceInventoryDiscoverySafeResultPath(ctx *types.BusContext, raw string) s
 		}
 	}
 	return safe
+}
+
+func sourceInventoryDiscoveryResultPathExists(ctx *types.BusContext, rel string) bool {
+	rel = strings.Trim(strings.TrimSpace(strings.ReplaceAll(rel, `\`, `/`)), "/")
+	if rel == "" {
+		return false
+	}
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return true
+	}
+	fsPath := resolveToolPath(ctx, rel)
+	if _, err := os.Stat(fsPath); err != nil {
+		return false
+	}
+	return true
 }
 
 func sourceInventoryDiscoveryChildScope(file, basePath string) string {
@@ -4056,8 +4071,13 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 	}
 	seen := map[string]bool{}
 	scanned := 0
+	scoped := 0
 	for _, sym := range symbolIndex.all {
 		if sym == nil || !sourceInventoryFileInScopes(sym.File, scopes) || !scopeFilter.SourceInRequestedScope(sym.File) {
+			continue
+		}
+		scoped++
+		if queryFilter.Active() && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
 			continue
 		}
 		if sourceInventoryCandidateBudgetScanExceeded(scanned, budget) {
@@ -4086,6 +4106,9 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 		}
 		seen[key] = true
 		set.candidates = append(set.candidates, candidate)
+	}
+	if queryFilter.Active() && len(set.candidates) == 0 && sourceInventoryCandidateBudgetScanExceeded(scoped, budget) {
+		sourceInventoryMarkCandidateBudgetTruncated(&set)
 	}
 	sourceInventorySortCandidates(set.candidates)
 	return set

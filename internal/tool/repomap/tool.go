@@ -860,7 +860,12 @@ func sourceInventoryGraphWithAuxiliaryProjection(ctx *ctypes.BusContext, repoRoo
 }
 
 func sourceInventoryShouldProjectAuxiliary(ctx *ctypes.BusContext, p repoMapParams, scopes []string) bool {
-	if ctx == nil || ctx.AnalysisIR == nil || !repoMapSourceInventoryBroadRootScope(p) && !sourceInventoryScopesContainRoot(scopes) {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rootScoped := repoMapSourceInventoryBroadRootScope(p) || sourceInventoryScopesContainRoot(scopes)
+	auxiliaryScoped := sourceInventoryScopesContainAuxiliarySourceClass(append(append([]string(nil), scopes...), p.Path))
+	if !rootScoped && !auxiliaryScoped {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
@@ -874,6 +879,19 @@ func sourceInventoryShouldProjectAuxiliary(ctx *ctypes.BusContext, p repoMapPara
 		return true
 	}
 	return ctypes.IsTypedSourceEnumerationShape(rm)
+}
+
+func sourceInventoryScopesContainAuxiliarySourceClass(scopes []string) bool {
+	for _, raw := range scopes {
+		scope := strings.Trim(strings.ReplaceAll(strings.TrimSpace(raw), `\`, `/`), "/")
+		if scope == "" || scope == "." {
+			continue
+		}
+		if ctypes.SourcePathRoleIsAuxiliary(ctypes.ClassifySourcePathRole(scope)) {
+			return true
+		}
+	}
+	return false
 }
 
 const (
@@ -1266,13 +1284,25 @@ func repoMapSourceInventoryDefaultQuery(ctx *ctypes.BusContext, raw string) (str
 	}
 	parts := make([]string, 0, len(profile.SourceQuotes))
 	seen := map[string]bool{}
-	for _, quote := range profile.SourceQuotes {
-		quote = strings.TrimSpace(quote)
-		if quote == "" || seen[quote] {
-			continue
+	usedQuotes := false
+	usedEntities := false
+	add := func(item string) {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			return
 		}
-		seen[quote] = true
-		parts = append(parts, quote)
+		seen[item] = true
+		parts = append(parts, item)
+	}
+	for _, quote := range profile.SourceQuotes {
+		before := len(parts)
+		add(quote)
+		usedQuotes = usedQuotes || len(parts) > before
+	}
+	for _, entity := range ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities {
+		before := len(parts)
+		add(entity)
+		usedEntities = usedEntities || len(parts) > before
 	}
 	if len(parts) == 0 {
 		policy := ctypes.CompileRepoMapNavigationPolicy(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
@@ -1281,7 +1311,14 @@ func repoMapSourceInventoryDefaultQuery(ctx *ctypes.BusContext, raw string) (str
 		}
 		return raw, ""
 	}
-	return strings.Join(parts, " "), "source_inventory_profile.source_quotes"
+	switch {
+	case usedQuotes && usedEntities:
+		return strings.Join(parts, " "), "source_inventory_profile.source_quotes+analyzer_hints.entities"
+	case usedEntities:
+		return strings.Join(parts, " "), "analyzer_hints.entities"
+	default:
+		return strings.Join(parts, " "), "source_inventory_profile.source_quotes"
+	}
 }
 
 func sourceInventoryScopesContainRoot(scopes []string) bool {

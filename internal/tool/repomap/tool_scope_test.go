@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	tool "github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -747,6 +748,92 @@ func TestRepoMapSourceInventoryQueryExpandsRolesAndFiltersLanguage(t *testing.T)
 	}
 }
 
+func TestRepoMapSourceInventoryQueryBudgetPrioritizesMatchingSymbols(t *testing.T) {
+	repo := t.TempDir()
+	graph := &Graph{
+		Root:       repo,
+		Files:      []*FileInfo{},
+		FileIndex:  map[string]*FileInfo{},
+		SymbolDefs: map[string][]*Symbol{},
+	}
+	var allSymbols []*Symbol
+	for i := 0; i < 650; i++ {
+		rel := fmt.Sprintf("src/pkg%03d/file.go", i)
+		symbols := make([]Symbol, 0, 8)
+		for j := 0; j < 8; j++ {
+			sym := &Symbol{
+				Name:     fmt.Sprintf("NoisyFunction%03d_%02d", i, j),
+				Kind:     "function",
+				File:     rel,
+				Line:     j + 1,
+				Exported: true,
+			}
+			allSymbols = append(allSymbols, sym)
+			symbols = append(symbols, *sym)
+		}
+		fi := &FileInfo{RelPath: rel, Language: LangGo, Package: "pkg", Symbols: symbols}
+		graph.Files = append(graph.Files, fi)
+		graph.FileIndex[rel] = fi
+	}
+	arkFile := "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"
+	arkSymbols := []*Symbol{
+		{Name: "Index", Kind: "component", File: arkFile, Line: 6, Exported: true, Doc: "@Entry @Component"},
+		{Name: "GlobalCard", Kind: "builder", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 1, Exported: true, Doc: "@Builder"},
+	}
+	for _, sym := range arkSymbols {
+		allSymbols = append(allSymbols, sym)
+		fi := graph.FileIndex[sym.File]
+		if fi == nil {
+			fi = &FileInfo{RelPath: sym.File, Language: LangArkTS, Package: "corpus"}
+			graph.Files = append(graph.Files, fi)
+			graph.FileIndex[sym.File] = fi
+		}
+		fi.Symbols = append(fi.Symbols, *sym)
+	}
+	graph.SymbolDefs["ordered"] = allSymbols
+	mut := types.NewMutableState("source inventory query budget")
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+
+	obs := tool.PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleMethod},
+		Query:         "@Entry @Builder ArkTS",
+		IncludeCounts: true,
+		TopN:          50,
+	})
+	if !obs.IsActive() {
+		t.Fatal("query-filtered source_inventory observation should be active")
+	}
+	rendered := tool.RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
+		IncludeCounts: true,
+		Query:         "@Entry @Builder ArkTS",
+	})
+	for _, want := range []string{
+		"`Index`",
+		"note: surface=@Entry @Component",
+		"`GlobalCard`",
+		"note: surface=@Builder",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("query-filtered budgeted source_inventory missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "NoisyFunction") {
+		t.Fatalf("query-filtered budgeted source_inventory leaked unrelated symbols:\n%s", rendered)
+	}
+}
+
 func TestRepoMapSourceInventoryRootTypedLaneProjectsAuxiliaryCorpus(t *testing.T) {
 	repo := t.TempDir()
 	files := map[string]string{
@@ -807,6 +894,74 @@ func TestRepoMapSourceInventoryRootTypedLaneProjectsAuxiliaryCorpus(t *testing.T
 	}
 	if graph, _ := mut.SearchGraph().(*Graph); graph == nil || graph.FileIndex["internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"] != nil {
 		t.Fatalf("source_inventory auxiliary projection should restore the default graph after the tool call: %+v", graph)
+	}
+}
+
+func TestRepoMapSourceInventoryNarrowAuxiliaryScopeProjectsCorpus(t *testing.T) {
+	repo := t.TempDir()
+	for rel, body := range map[string]string{
+		"internal/app/main.go": "package app\nfunc Run() {}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets": "@Entry\n@Component\nstruct Index {\n  build() {\n    Text('hi')\n  }\n}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets":       "@Builder\nfunction GlobalCard() {\n  Text('card')\n}\nfunction PlainHelper() {}\n",
+	} {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory narrow auxiliary projection")
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFunction,
+					types.AnswerCandidateRoleMethod,
+				},
+				SourceQuotes: []string{"@Entry 标记的 ArkTS 页面入口", "@Builder 复用片段"},
+				Confidence:   0.95,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": "internal/thirdparty/tree-sitter-arkts/corpus/sources",
+		"roles": ["function", "method"],
+		"include_counts": true,
+		"include_attributes": false
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"repo_lens:auxiliary_projection",
+		"source_classes:",
+		"thirdparty:2",
+		"`Index`",
+		"note: surface=@Component @Entry",
+		"`GlobalCard`",
+		"note: surface=@Builder",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("narrow auxiliary projection missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "PlainHelper") {
+		t.Fatalf("narrow auxiliary projection leaked unrelated helper:\n%s", res.Summary)
 	}
 }
 
@@ -1012,6 +1167,79 @@ func TestRepoMapSourceInventoryUsesProfileQuotesForRootAuxiliaryProjection(t *te
 	}
 	if strings.Contains(res.Summary, "PlainHelper") {
 		t.Fatalf("profile-quote source_inventory leaked unrelated helper:\n%s", res.Summary)
+	}
+}
+
+func TestRepoMapSourceInventoryDefaultQueryIncludesTypedEntities(t *testing.T) {
+	repo := t.TempDir()
+	for rel, body := range map[string]string{
+		"internal/app/main.go": "package app\nfunc Run() {}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets": "@Entry\n@Component\nstruct Index {\n  build() {\n    Text('hi')\n  }\n}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets":       "@Builder\nfunction GlobalCard() {\n  Text('card')\n}\nfunction PlainHelper() {}\n",
+	} {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory typed entities")
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			AnalyzerHints: types.AnalyzerHints{
+				Entities: []string{"@Entry", "@Builder", "ArkTS"},
+			},
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFunction,
+					types.AnswerCandidateRoleMethod,
+				},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				SourceQuotes: []string{"列出文件路径和函数名"},
+				Confidence:   0.95,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": ".",
+		"roles": ["function", "method"],
+		"include_counts": true,
+		"include_attributes": false
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"query: unset -> source_inventory_profile.source_quotes+analyzer_hints.entities",
+		"`Index`",
+		"note: surface=@Component @Entry",
+		"`GlobalCard`",
+		"note: surface=@Builder",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("typed-entity default query source_inventory missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "PlainHelper") {
+		t.Fatalf("typed-entity default query leaked unrelated helper:\n%s", res.Summary)
 	}
 }
 

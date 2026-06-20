@@ -53,6 +53,55 @@ func TestPublishSourceInventoryObservationFromToolObservation_ListFilesDirectUni
 	}
 }
 
+func TestPublishSourceInventoryObservationFromToolObservation_ListFilesIgnoresRenderedAdvisory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mut := types.NewMutableState("source inventory advisory pollution")
+	ctx := &types.BusContext{RepoRoot: root, Mutable: mut}
+	ok := PublishSourceInventoryObservationFromToolObservation(ctx, types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[list_files: path=.]",
+			"src",
+			"README.md",
+			"",
+			"Structured source-inventory candidate checklist (verified navigation/count facts, not final answer text):",
+			"- for a compact scoped member/count checklist, call repo_map with view=\"source_inventory\"",
+			"Use this first as a navigation summary.",
+			"- summary: member_rows=0",
+			"",
+		}, "\n"),
+	})
+	if !ok {
+		t.Fatal("direct list_files should publish real rows and ignore rendered advisory text")
+	}
+	obs := mut.SourceInventoryObservation()
+	var members []string
+	memberSet := map[string]bool{}
+	for _, set := range obs.Sets {
+		for _, member := range set.Members {
+			members = append(members, member.Name)
+			memberSet[member.Name] = true
+		}
+	}
+	for _, noise := range []string{"repo_map", "member_rows=0", "navigation summary", "Structured source-inventory"} {
+		for _, member := range members {
+			if strings.Contains(member, noise) {
+				t.Fatalf("rendered advisory text entered source-inventory observation: %q in %+v", noise, obs)
+			}
+		}
+	}
+	if !memberSet["src"] || !memberSet["README.md"] || len(members) != 2 {
+		t.Fatalf("expected only the two real list_files rows, got members=%v observation=%+v", members, obs)
+	}
+}
+
 func TestSourceInventoryObservationFromLensDirectChildren_ExactUniverseForExplicitRoles(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{"internal/analysis/aggregator", "internal/analysis/subject"} {
