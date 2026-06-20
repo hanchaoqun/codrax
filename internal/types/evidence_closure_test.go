@@ -62,6 +62,60 @@ func TestEvidenceClosure_ExploreForkMergeDoesNotDuplicateBaselineEvents(t *testi
 	}
 }
 
+func TestEvidenceClosure_SourceInventoryObservationCloneMergeReset(t *testing.T) {
+	parent := NewEvidenceClosure("")
+	parent.RecordSourceInventoryObservation(SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:     SourcePathRoleProduction,
+			Count:    2,
+			Complete: true,
+		}},
+	})
+	fork := parent.CloneForExploreDispatch()
+	fork.RecordSourceInventoryObservation(SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:     SourcePathRoleThirdParty,
+			Count:    1,
+			Complete: true,
+		}},
+	})
+
+	parent.MergeFrom(fork)
+	got := parent.SourceInventoryObservation()
+	counts := map[SourcePathRole]int{}
+	for _, class := range got.SourceClasses {
+		counts[class.Role] = class.Count
+	}
+	if counts[SourcePathRoleProduction] != 2 || counts[SourcePathRoleThirdParty] != 1 {
+		t.Fatalf("merged source-class universe = %+v, want production=2 thirdparty=1", got.SourceClasses)
+	}
+
+	cloned := parent.Clone()
+	cloned.RecordSourceInventoryObservation(SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:     SourcePathRoleVendor,
+			Count:    1,
+			Complete: true,
+		}},
+	})
+	for _, class := range parent.SourceInventoryObservation().SourceClasses {
+		if class.Role == SourcePathRoleVendor {
+			t.Fatal("clone mutation leaked into parent source-class universe")
+		}
+	}
+
+	parent.Reset()
+	if got := parent.SourceInventoryObservation(); got.IsActive() {
+		t.Fatalf("reset must clear source inventory observation: %+v", got)
+	}
+}
+
 // TestEvidenceClosure_AbsolutePathCanonicalizesAgainstRepoRoot pins
 // the session-22 canonicalisation fix on the CGEC ReadSet layer.
 // Before the fix, SetReadSet / HasRead / HasReadLine all called

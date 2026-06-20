@@ -177,6 +177,13 @@ type EvidenceClosure struct {
 	// orchestrator-private maps.
 	nodeExecStatus map[string]NodeExecStatus
 
+	// sourceInventoryObservation mirrors the typed source-class / candidate
+	// universe produced by source_inventory navigation. It is a durable
+	// closure-side projection so absence gates, loopkernel snapshots, and final
+	// report/audit consumers can read one typed authority instead of each
+	// scraping MutableState, TurnAArtifacts, or rendered repo_map text.
+	sourceInventoryObservation SourceInventoryObservation
+
 	// stats accumulates CGEC enforcer fire counters across the
 	// current task. Each enforcer increments its own field
 	// (chain promotion → ChainsDemoted, findings_validator →
@@ -437,6 +444,7 @@ func (c *EvidenceClosure) Clone() *EvidenceClosure {
 	out.fingerprints = append([]ClosureFingerprint(nil), c.fingerprints...)
 	out.repairs = cloneRepairDirectives(c.repairs)
 	out.nodeExecStatus = cloneNodeExecStatusMap(c.nodeExecStatus)
+	out.sourceInventoryObservation = CloneSourceInventoryObservation(c.sourceInventoryObservation)
 	out.stats = cloneClosureStats(c.stats)
 	out.symbolEmitRejections = c.symbolEmitRejections
 	out.violations = cloneViolations(c.violations)
@@ -556,6 +564,9 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 			continue
 		}
 		c.nodeExecStatus[id] = NormalizeNodeExecStatus(status)
+	}
+	if snap.sourceInventoryObservation.IsActive() {
+		c.sourceInventoryObservation = MergeSourceInventoryObservation(c.sourceInventoryObservation, snap.sourceInventoryObservation)
 	}
 	c.stats = addClosureStats(c.stats, snap.stats)
 	if base := clampMergeBaseLen(snap.mergeBaseSymbolEmitRejections, snap.symbolEmitRejections); base > 0 {
@@ -2431,6 +2442,33 @@ func (c *EvidenceClosure) NodeExecStatuses() map[string]NodeExecStatus {
 	return cloneNodeExecStatusMap(c.nodeExecStatus)
 }
 
+func (c *EvidenceClosure) RecordSourceInventoryObservation(observation SourceInventoryObservation) {
+	if c == nil || !observation.IsActive() {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sourceInventoryObservation = MergeSourceInventoryObservation(c.sourceInventoryObservation, observation)
+}
+
+func (c *EvidenceClosure) SourceInventoryObservation() SourceInventoryObservation {
+	if c == nil {
+		return SourceInventoryObservation{}
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return CloneSourceInventoryObservation(c.sourceInventoryObservation)
+}
+
+func (c *EvidenceClosure) ClearSourceInventoryObservation() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sourceInventoryObservation = SourceInventoryObservation{}
+}
+
 // Reset wipes the closure back to NewEvidenceClosure() state. Called
 // by MutableState.ResetEvidenceClosure at task entry.
 //
@@ -2462,6 +2500,7 @@ func (c *EvidenceClosure) Reset() {
 	c.fingerprints = nil
 	c.repairs = nil
 	c.nodeExecStatus = make(map[string]NodeExecStatus)
+	c.sourceInventoryObservation = SourceInventoryObservation{}
 	c.violations = nil
 	c.stats = ClosureStats{}
 	c.phase1UnreadFired = false
@@ -2865,6 +2904,9 @@ func (m *MutableState) EvidenceClosure() *EvidenceClosure {
 	defer m.mu.Unlock()
 	if m.evidenceClosure == nil {
 		m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
+		if observation := sourceInventoryObservationFromMutableFields(m.sourceInventoryObservation, m.turnAArtifacts); observation.IsActive() {
+			m.evidenceClosure.RecordSourceInventoryObservation(observation)
+		}
 	}
 	return m.evidenceClosure
 }

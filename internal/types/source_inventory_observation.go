@@ -97,24 +97,6 @@ func (o SourceInventoryObservation) IsActive() bool {
 	return o.Active && (len(o.Sets) > 0 || len(o.SourceClasses) > 0)
 }
 
-// SourceInventoryObservationFromMutable returns the current durable
-// source-inventory view, including Turn A handoff state. Consumers that need
-// the complete typed inventory authority should use this instead of reading the
-// live MutableState field alone.
-func SourceInventoryObservationFromMutable(m *MutableState) SourceInventoryObservation {
-	if m == nil {
-		return SourceInventoryObservation{}
-	}
-	observation := m.SourceInventoryObservation()
-	if ta := m.TurnAArtifacts(); ta != nil {
-		observation = MergeSourceInventoryObservation(observation, ta.SourceInventoryObservation)
-		if !observation.IsActive() && ta.SourceInventoryAdvisory.IsActive() {
-			observation = SourceInventoryObservationFromAdvisory(ta.SourceInventoryAdvisory)
-		}
-	}
-	return observation
-}
-
 // SourceInventoryObservationSet is one role-bounded member set. Count is a
 // machine-checkable invariant and is always normalized to len(Members) by the
 // clone/merge/build helpers. Total is the scanned member total or lower bound;

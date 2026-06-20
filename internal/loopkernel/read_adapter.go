@@ -15,22 +15,24 @@ const ReadProofAdapterSource = "read_turn_a_artifacts"
 // verification artifacts. It never parses user prose, model rationale, prompt
 // text, terminal narrative, or visible thinking logs.
 type ProofSnapshot struct {
-	Source                         string                         `json:"source,omitempty"`
-	UnitID                         string                         `json:"unit_id,omitempty"`
-	Profile                        types.VerificationProofProfile `json:"profile,omitempty"`
-	Ledger                         types.VerificationProofLedger  `json:"ledger,omitempty"`
-	Authority                      ProofCoverageAuthorityView     `json:"authority,omitempty"`
-	Truth                          types.TruthLedger              `json:"truth,omitempty"`
-	Paths                          []string                       `json:"paths,omitempty"`
-	EvidenceRefs                   []string                       `json:"evidence_refs,omitempty"`
-	AcceptedResultKind             string                         `json:"accepted_result_kind,omitempty"`
-	EvidenceItemCount              int                            `json:"evidence_item_count,omitempty"`
-	AggregateFactCount             int                            `json:"aggregate_fact_count,omitempty"`
-	SourceInventoryActive          bool                           `json:"source_inventory_active,omitempty"`
-	SourceInventoryComplete        bool                           `json:"source_inventory_complete,omitempty"`
-	RuntimeObservationOnlyComplete bool                           `json:"runtime_observation_only_complete,omitempty"`
-	LocalizationStatus             types.SourceLocalizationStatus `json:"localization_status,omitempty"`
-	LocalizationAuthority          LocalizationAuthorityView      `json:"localization_authority,omitempty"`
+	Source                         string                                  `json:"source,omitempty"`
+	UnitID                         string                                  `json:"unit_id,omitempty"`
+	Profile                        types.VerificationProofProfile          `json:"profile,omitempty"`
+	Ledger                         types.VerificationProofLedger           `json:"ledger,omitempty"`
+	Authority                      ProofCoverageAuthorityView              `json:"authority,omitempty"`
+	Truth                          types.TruthLedger                       `json:"truth,omitempty"`
+	Paths                          []string                                `json:"paths,omitempty"`
+	EvidenceRefs                   []string                                `json:"evidence_refs,omitempty"`
+	AcceptedResultKind             string                                  `json:"accepted_result_kind,omitempty"`
+	EvidenceItemCount              int                                     `json:"evidence_item_count,omitempty"`
+	AggregateFactCount             int                                     `json:"aggregate_fact_count,omitempty"`
+	SourceInventoryActive          bool                                    `json:"source_inventory_active,omitempty"`
+	SourceInventoryComplete        bool                                    `json:"source_inventory_complete,omitempty"`
+	SourceClasses                  []types.SourceInventorySourceClassCount `json:"source_classes,omitempty"`
+	SourceClassUniverseComplete    bool                                    `json:"source_class_universe_complete,omitempty"`
+	RuntimeObservationOnlyComplete bool                                    `json:"runtime_observation_only_complete,omitempty"`
+	LocalizationStatus             types.SourceLocalizationStatus          `json:"localization_status,omitempty"`
+	LocalizationAuthority          LocalizationAuthorityView               `json:"localization_authority,omitempty"`
 }
 
 // ReadProofGuidance is the read-mode consumer view of proof coverage. It is
@@ -54,6 +56,7 @@ func ProofSnapshotFromReadTurnA(turnA *types.TurnAArtifacts) (ProofSnapshot, boo
 	if turnA == nil {
 		return ProofSnapshot{}, false
 	}
+	sourceInventory := types.CloneSourceInventoryObservation(turnA.SourceInventoryObservation)
 	snapshot := ProofSnapshot{
 		Source:                         ReadProofAdapterSource,
 		UnitID:                         "read:explore",
@@ -62,8 +65,10 @@ func ProofSnapshotFromReadTurnA(turnA *types.TurnAArtifacts) (ProofSnapshot, boo
 		AcceptedResultKind:             strings.TrimSpace(turnA.AcceptedResultKind),
 		EvidenceItemCount:              len(turnA.EvidenceItems),
 		AggregateFactCount:             len(turnA.AcceptedAggregateFacts),
-		SourceInventoryActive:          turnA.SourceInventoryObservation.IsActive(),
-		SourceInventoryComplete:        turnA.SourceInventoryObservation.IsActive() && turnA.SourceInventoryObservation.Complete,
+		SourceInventoryActive:          sourceInventory.IsActive(),
+		SourceInventoryComplete:        sourceInventory.IsActive() && sourceInventory.Complete,
+		SourceClasses:                  cloneReadProofSourceClassCounts(sourceInventory.SourceClasses),
+		SourceClassUniverseComplete:    readProofSourceClassUniverseComplete(sourceInventory.SourceClasses),
 		RuntimeObservationOnlyComplete: turnA.RuntimeObservationOnlyCompletion,
 	}
 	if types.SourceLocalizationReviewHasSignal(turnA.SourceLocalization) {
@@ -79,6 +84,26 @@ func ProofSnapshotFromReadTurnA(turnA *types.TurnAArtifacts) (ProofSnapshot, boo
 		snapshot.Truth = truth
 	}
 	return normalizeProofSnapshot(snapshot), true
+}
+
+func ProofSnapshotFromReadMutable(m *types.MutableState) (ProofSnapshot, bool) {
+	if m == nil {
+		return ProofSnapshot{}, false
+	}
+	turnA := m.TurnAArtifacts()
+	if turnA == nil {
+		turnA = &types.TurnAArtifacts{}
+	}
+	turnA.SourceInventoryObservation = types.SourceInventoryObservationFromMutable(m)
+	return ProofSnapshotFromReadTurnA(turnA)
+}
+
+func ReadProofGuidanceFromMutable(m *types.MutableState) (ReadProofGuidance, bool) {
+	snapshot, ok := ProofSnapshotFromReadMutable(m)
+	if !ok {
+		return ReadProofGuidance{}, false
+	}
+	return ReadProofGuidanceFromSnapshot(snapshot)
 }
 
 func ReadProofGuidanceFromTurnA(turnA *types.TurnAArtifacts) (ReadProofGuidance, bool) {
@@ -231,11 +256,18 @@ func readProofArtifactsFromSnapshot(snapshot ProofSnapshot) (types.VerificationP
 		return types.NormalizeVerificationProofProfile(profile), types.NormalizeVerificationProofLedger(ledger)
 	}
 	localizationCovered := snapshot.LocalizationAuthority.State == LocalizationAuthorityOwnerSupported
-	inventoryCovered := snapshot.SourceInventoryActive && snapshot.SourceInventoryComplete
+	inventoryCovered := snapshot.SourceInventoryActive &&
+		snapshot.SourceInventoryComplete &&
+		(len(snapshot.SourceClasses) == 0 || snapshot.SourceClassUniverseComplete)
 	switch {
 	case localizationCovered || inventoryCovered:
 		profile.Status = types.VerificationProofStrong
 		ledger.State = types.VerificationProofLedgerVerified
+	case snapshot.SourceInventoryActive && len(snapshot.SourceClasses) > 0 && !snapshot.SourceClassUniverseComplete:
+		profile.Status = types.VerificationProofWeak
+		profile.ReasonCodes = append(profile.ReasonCodes, "read_proof_source_class_universe_incomplete")
+		ledger.State = types.VerificationProofLedgerLowConfidence
+		ledger.ReasonCodes = append(ledger.ReasonCodes, "read_proof_source_class_universe_incomplete")
 	case hasAcceptedClosure && hasTypedEvidence:
 		profile.Status = types.VerificationProofWeak
 		profile.ReasonCodes = append(profile.ReasonCodes, "read_proof_needs_owner_or_complete_inventory")
@@ -294,6 +326,11 @@ func readProofEvidenceRefs(turnA *types.TurnAArtifacts) []string {
 			}
 		}
 	}
+	for _, class := range turnA.SourceInventoryObservation.SourceClasses {
+		if class.Role != types.SourcePathRoleUnknown && class.Count > 0 {
+			refs = append(refs, "source_class:"+string(class.Role))
+		}
+	}
 	return compactWriteWorkflowStrings(refs...)
 }
 
@@ -302,6 +339,8 @@ func normalizeProofSnapshot(snapshot ProofSnapshot) ProofSnapshot {
 	snapshot.UnitID = firstNonEmptyString(snapshot.UnitID, "read:explore")
 	snapshot.Paths = compactWriteWorkflowStrings(snapshot.Paths...)
 	snapshot.EvidenceRefs = compactWriteWorkflowStrings(snapshot.EvidenceRefs...)
+	snapshot.SourceClasses = cloneReadProofSourceClassCounts(snapshot.SourceClasses)
+	snapshot.SourceClassUniverseComplete = readProofSourceClassUniverseComplete(snapshot.SourceClasses)
 	snapshot.Profile = types.NormalizeVerificationProofProfile(snapshot.Profile)
 	snapshot.Ledger = types.NormalizeVerificationProofLedger(snapshot.Ledger)
 	snapshot.Authority = normalizeProofCoverageAuthorityView(snapshot.Authority)
@@ -315,4 +354,36 @@ func normalizeProofSnapshot(snapshot ProofSnapshot) ProofSnapshot {
 		}
 	}
 	return snapshot
+}
+
+func cloneReadProofSourceClassCounts(in []types.SourceInventorySourceClassCount) []types.SourceInventorySourceClassCount {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.SourceInventorySourceClassCount, 0, len(in))
+	for _, item := range in {
+		if item.Role == types.SourcePathRoleUnknown || item.Count <= 0 {
+			continue
+		}
+		item.Provenance = append([]string(nil), item.Provenance...)
+		out = append(out, item)
+	}
+	return out
+}
+
+func readProofSourceClassUniverseComplete(classes []types.SourceInventorySourceClassCount) bool {
+	if len(classes) == 0 {
+		return false
+	}
+	seen := false
+	for _, class := range classes {
+		if class.Role == types.SourcePathRoleUnknown || class.Count <= 0 {
+			continue
+		}
+		seen = true
+		if !class.Complete {
+			return false
+		}
+	}
+	return seen
 }

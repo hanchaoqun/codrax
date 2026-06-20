@@ -115,6 +115,72 @@ func TestProofSnapshotFromReadTurnARuntimeObservationOnlyIsCovered(t *testing.T)
 	}
 }
 
+func TestProofSnapshotFromReadTurnACarriesSourceClassUniverse(t *testing.T) {
+	snapshot, ok := ProofSnapshotFromReadTurnA(&types.TurnAArtifacts{
+		AcceptedResultKind: "absence",
+		SourceInventoryObservation: types.SourceInventoryObservation{
+			Active:   true,
+			Complete: true,
+			Lens:     []string{"source_class_universe", "count"},
+			SourceClasses: []types.SourceInventorySourceClassCount{{
+				Role:     types.SourcePathRoleThirdParty,
+				Count:    6,
+				Complete: true,
+			}},
+			Sets: []types.SourceInventoryObservationSet{{
+				Role:     types.AnswerCandidateRoleFunction,
+				Complete: true,
+			}},
+		},
+	})
+	if !ok {
+		t.Fatal("expected read proof snapshot")
+	}
+	if !snapshot.SourceClassUniverseComplete || len(snapshot.SourceClasses) != 1 ||
+		snapshot.SourceClasses[0].Role != types.SourcePathRoleThirdParty {
+		t.Fatalf("source-class universe not projected: %+v", snapshot)
+	}
+	if snapshot.Authority.State != ProofCoverageCovered {
+		t.Fatalf("complete source-inventory universe should be covered proof: %+v", snapshot.Authority)
+	}
+	foundRef := false
+	for _, ref := range snapshot.EvidenceRefs {
+		if ref == "source_class:thirdparty" {
+			foundRef = true
+			break
+		}
+	}
+	if !foundRef {
+		t.Fatalf("source-class ref missing from proof evidence refs: %+v", snapshot.EvidenceRefs)
+	}
+}
+
+func TestProofSnapshotFromReadMutableUsesClosureUniverse(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.EvidenceClosure().RecordSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Lens:     []string{"source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    6,
+			Complete: false,
+		}},
+	})
+
+	snapshot, ok := ProofSnapshotFromReadMutable(mut)
+	if !ok {
+		t.Fatal("expected mutable proof snapshot")
+	}
+	if snapshot.SourceClassUniverseComplete {
+		t.Fatalf("incomplete closure universe should stay incomplete: %+v", snapshot.SourceClasses)
+	}
+	if snapshot.Authority.State != ProofCoverageWeak ||
+		snapshot.Authority.RecommendedAction != LoopActionAddProof {
+		t.Fatalf("incomplete source-class universe should request proof follow-up: %+v", snapshot.Authority)
+	}
+}
+
 func TestEventsFromReadProofSnapshotReduceToLoopProof(t *testing.T) {
 	snapshot, ok := ProofSnapshotFromReadTurnA(&types.TurnAArtifacts{
 		ReadFiles:          []string{"pkg/owner.py"},

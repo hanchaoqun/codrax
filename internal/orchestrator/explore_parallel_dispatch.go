@@ -506,8 +506,11 @@ func exploreParallelResultSatisfiesLaneHandoff(res exploreParallelResult) bool {
 		return false
 	}
 	turnA := res.fork.TurnAArtifacts()
-	guidance, ok := loopkernel.ReadProofGuidanceFromTurnA(turnA)
+	guidance, ok := loopkernel.ReadProofGuidanceFromMutable(res.fork)
 	if !ok {
+		return false
+	}
+	if turnA == nil {
 		return false
 	}
 	if strings.TrimSpace(turnA.AcceptedResultKind) == "" && !turnA.RuntimeObservationOnlyCompletion {

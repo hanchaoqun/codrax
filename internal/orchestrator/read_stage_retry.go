@@ -180,8 +180,8 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 			c.toolResults += countSuccessfulToolResults(artifacts.ToolResults)
 			c.hasClosure = strings.TrimSpace(artifacts.AcceptedClosureReason) != "" ||
 				strings.TrimSpace(artifacts.AcceptedResultKind) != ""
-			c.proofGuidance = readProofGuidanceSummaryFromTurnA(artifacts)
 		}
+		c.proofGuidance = readProofGuidanceSummaryFromMutable(o.busCtx.Mutable)
 		if len(o.busCtx.Mutable.StableInvestigationAggregateFacts()) > 0 {
 			c.aggregateFacts += len(o.busCtx.Mutable.StableInvestigationAggregateFacts())
 		}
@@ -294,10 +294,10 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 			c.toolResults += countSuccessfulToolResults(artifacts.ToolResults)
 			c.hasClosure = strings.TrimSpace(artifacts.AcceptedClosureReason) != "" ||
 				strings.TrimSpace(artifacts.AcceptedResultKind) != ""
-			c.proofGuidance = readProofGuidanceSummaryFromTurnA(artifacts)
 			aggregateFacts = append(aggregateFacts, artifacts.AcceptedAggregateFacts...)
 			toolResults = append(toolResults, artifacts.ToolResults...)
 		}
+		c.proofGuidance = readProofGuidanceSummaryFromMutable(o.busCtx.Mutable)
 		stableFacts := o.busCtx.Mutable.StableInvestigationAggregateFacts()
 		if len(stableFacts) > 0 {
 			c.aggregateFacts += len(stableFacts)
@@ -374,6 +374,15 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 
 func readProofGuidanceSummaryFromTurnA(artifacts *types.TurnAArtifacts) string {
 	guidance, ok := loopkernel.ReadProofGuidanceFromTurnA(artifacts)
+	return readProofGuidanceSummary(guidance, ok)
+}
+
+func readProofGuidanceSummaryFromMutable(m *types.MutableState) string {
+	guidance, ok := loopkernel.ReadProofGuidanceFromMutable(m)
+	return readProofGuidanceSummary(guidance, ok)
+}
+
+func readProofGuidanceSummary(guidance loopkernel.ReadProofGuidance, ok bool) string {
 	if !ok || !guidance.Active {
 		return ""
 	}

@@ -3677,6 +3677,12 @@ func (m *MutableState) SetSourceInventoryAdvisory(a SourceInventoryAdvisory) {
 	if priorObservation.IsActive() {
 		m.sourceInventoryObservation = MergeSourceInventoryObservation(priorObservation, m.sourceInventoryObservation)
 	}
+	if m.sourceInventoryObservation.IsActive() {
+		if m.evidenceClosure == nil {
+			m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
+		}
+		m.evidenceClosure.RecordSourceInventoryObservation(m.sourceInventoryObservation)
+	}
 	if !m.sourceInventoryAdvisory.IsActive() || !priorActive {
 		m.sourceInventoryAdvisoryHinted = false
 	}
@@ -3705,6 +3711,12 @@ func (m *MutableState) SetSourceInventoryObservation(o SourceInventoryObservatio
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sourceInventoryObservation = CloneSourceInventoryObservation(o)
+	if m.sourceInventoryObservation.IsActive() {
+		if m.evidenceClosure == nil {
+			m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
+		}
+		m.evidenceClosure.RecordSourceInventoryObservation(m.sourceInventoryObservation)
+	}
 	m.bumpAnswerSurfaceRevisionLocked()
 }
 
@@ -3827,6 +3839,12 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	snap.HandoffCarriers = ToolHandoffCarriersFromTurnAInputs(snap.ToolResults, snap.EvidenceItems, snap.HandoffCarriers)
 	m.turnAArtifacts = &snap
 	m.turnAArtifactsRevision++
+	if snap.SourceInventoryObservation.IsActive() {
+		if m.evidenceClosure == nil {
+			m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
+		}
+		m.evidenceClosure.RecordSourceInventoryObservation(snap.SourceInventoryObservation)
+	}
 	// Snapshot changed → invalidate the memoised label-support pool.
 	m.cachedLabelSupport = nil
 	m.cachedLabelSupportSource = nil
@@ -3904,6 +3922,9 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
 	m.sourceInventoryObservation = SourceInventoryObservation{}
+	if m.evidenceClosure != nil {
+		m.evidenceClosure.ClearSourceInventoryObservation()
+	}
 	m.cachedLabelSupport = nil
 	m.cachedLabelSupportSource = nil
 }

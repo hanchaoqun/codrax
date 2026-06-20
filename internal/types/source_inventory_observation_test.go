@@ -337,3 +337,30 @@ func TestTurnAArtifacts_SourceInventoryObservationBackfilledFromAdvisory(t *test
 		t.Fatalf("turn A observation = %+v", got.SourceInventoryObservation)
 	}
 }
+
+func TestSourceInventoryObservationFromMutableReadsClosureUniverse(t *testing.T) {
+	mut := NewMutableState("source inventory")
+	mut.EvidenceClosure().RecordSourceInventoryObservation(SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Lens:     []string{"source_class_universe", "count"},
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:       SourcePathRoleThirdParty,
+			Count:      6,
+			Complete:   true,
+			Provenance: []string{"source_class_universe:git_tracked_or_filesystem"},
+		}},
+	})
+
+	got := SourceInventoryObservationFromMutable(mut)
+	if !got.IsActive() || len(got.SourceClasses) != 1 ||
+		got.SourceClasses[0].Role != SourcePathRoleThirdParty ||
+		got.SourceClasses[0].Count != 6 {
+		t.Fatalf("merged observation should read closure source-class universe: %+v", got)
+	}
+
+	mut.ResetTurnAArtifacts()
+	if got := SourceInventoryObservationFromMutable(mut); got.IsActive() {
+		t.Fatalf("ResetTurnAArtifacts must clear closure-backed source inventory to prevent stale universe leakage: %+v", got)
+	}
+}
