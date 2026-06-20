@@ -404,6 +404,37 @@ func TestConsumeRepairs_RetainsLivePendingReadRepairs(t *testing.T) {
 	}
 }
 
+func TestClearPendingReadsByDebtClass_DropsOnlySelectedDebt(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{
+		File:      "phase1.go",
+		Origin:    "phase1_unread",
+		Rationale: "support breadth",
+	})
+	c.AddPendingRead(PendingRead{
+		File:       "chain.go",
+		Origin:     "chain_promotion.bridge_literal",
+		Rationale:  "support chain line",
+		LineRanges: []LineRange{{Start: 10, End: 12}},
+	})
+	c.AddPendingRead(PendingRead{
+		File:      "anchor.go",
+		Origin:    "pre_complete.primary_anchor",
+		Rationale: "load-bearing anchor",
+	})
+
+	if cleared := c.ClearPendingReadsByDebtClass(RepairDebtAdvisory); cleared != 2 {
+		t.Fatalf("cleared advisory pending reads=%d, want 2", cleared)
+	}
+	pending := c.PendingReads()
+	if len(pending) != 1 {
+		t.Fatalf("remaining pending reads=%d, want 1: %+v", len(pending), pending)
+	}
+	if pending[0].File != "anchor.go" || ClassifyPendingReadRepair(pending[0]) != RepairDebtPrincipalBlocking {
+		t.Fatalf("remaining pending read should be the principal blocker, got %+v", pending[0])
+	}
+}
+
 // TestAddRepair_ExpandSearch_BumpsStats is the B1 producer
 // regression: every RepairExpandSearch written to the closure MUST
 // bump ClosureStats.ExpandSearchRaised (on top of the generic

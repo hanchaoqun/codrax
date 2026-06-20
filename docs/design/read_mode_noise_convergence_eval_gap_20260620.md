@@ -48,6 +48,9 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C10 | P0 | Post-complete localization repair can still leak into extraction. | A retry directive / localization supplement can mention a forced `read_file` after exploration already accepted closure. The extractor cannot run read tools, so it burns an unavailable-tool round and may broaden reasoning from stale repair text. | Stage handoff must project localization repair debt into extractor-safe obligations: verdict/caveat/status only. Any real need for more `read_file` must route back to exploration before StageExtract. |
 | RNE-C11 | P0 | Final system supplements can contradict a solved principal answer. | Localization/navigation supplements are rendered even after the principal member set, citations, and repo_map coverage are accepted. The final answer can simultaneously pass eval and display "localization needed" / low-proof caveats that are stale or support-only. | Final report supplements need a typed relevance gate: principal-answer proof status first, support-only localization debt collapsed or hidden, and residual caveats shown only when they are blocking or materially affect the user's answer. |
 | RNE-C12 | P0 | Tool/preflight/context assembly latency can dominate successful read runs. | Large evidence ledgers and repeated completion prechecks can make `emit_evidence`, `emit_investigation_complete`, and "organizing context" slow even when the next decision is already known. Static tool schemas, grounding views, completion preflight state, and evidence scans are rebuilt in multiple places. | Add timing telemetry and shared typed preflight/cache layers: static tool parameters cached, schema normalization marked once, grounding context cached by dispatch/version, and completion gates consume one `CompletionPreflightView` instead of rescanning evidence repeatedly. |
+| RNE-C13 | P0 | Accepted-closure advisory debt is not consumed consistently across scheduler surfaces. | `chain_promotion.*` pending reads can be advisory for auto-complete but still appear in retry hints or forced-read drains if the cleanup happens after hint rendering. This creates the visible pattern "investigation complete → verification not stable → same support-chain read again". | A single typed `RepairDebtClass` policy must feed auto-complete, fact-retry suppression, retry-hint rendering, forced-read drains, and audit checkpoints. Accepted closure may keep principal blockers, but advisory debt is cleared before any model-facing retry hint. |
+| RNE-C14 | P1 | User-facing retry notices can remain stale after auto-complete. | The renderer may already have emitted "verification not stable enough" before the scheduler recognizes that accepted closure supersedes a retry carry-over. The system state is correct, but the REPL progress card looks like a real retry. | Status-card events should be driven by typed next-action decisions after stale retry carry-over suppression, so auto-completed advisory retries render as "accepted; skipping support-only retry" instead of another unstable-verification cue. |
+| RNE-C15 | P1 | Final contract telemetry still has schema-level noise after eval pass. | A run can report eval `answer_contract_violations=0` while the internal CGEC summary records non-blocking answer-document field violations such as candidate role annotation drift. | Final contract telemetry should distinguish blocking user-answer defects, repaired/non-blocking schema drift, and audit-only annotation gaps with typed severity, then feed the same status card and reasoning graph. |
 
 ## Architecture Direction
 
@@ -128,7 +131,8 @@ roles from many raw trace rows.
 | Batch A | delivered | Record this eval/gap/design ledger. | All P0/P1 gaps above are tracked with testable acceptance criteria. |
 | Batch B | delivered | Implement first-class empty `member_set` support. | `value="0", members=[]` validates, satisfies exhaustive handoff when principal and backed by `negative_search` / `negative_observation`, and does not create bogus answer rows. Unit tests cover the no-hit path; the ArkTS representative rerun confirms the change does not break positive ArkTS enumeration. |
 | Batch C1 | delivered | Strengthen relation/member-set support resolution. | One-member answers with a citable owner line and a unique read-file value line can receive deterministic `Member @ file:line` support without another model retry; ambiguous multi-line matches still downgrade. |
-| Batch C2 | planned | Add relation retry delta handling. | Duplicate support rows stay advisory, and repeated identical relation support downgrades stop broadening after one bounded repair turn. |
+| Batch C2a | delivered | Propagate accepted-closure advisory debt consistently. | Support-only `chain_promotion.*` / Phase-1 pending reads are advisory after accepted closure across auto-complete, fact-retry, retry-hint render, and forced-read drains; principal anchors still block. |
+| Batch C2b | planned | Add relation retry delta handling. | Duplicate support rows stay advisory, and repeated identical relation support downgrades stop broadening after one bounded repair turn. |
 | Batch D | planned | Add typed relevance budget for chain/concrete/support evidence. | Architecture inventory and C++ call-chain cases render bounded Top-N prompt sections while preserving full refs in audit artifacts. |
 | Batch E | planned | Add downgrade fingerprint / low-delta guard. | Identical pre-complete rejection without new typed input stops after one bounded repair turn. |
 | Batch F | planned | Add trace causal path projection. | Trace eval preserves intermediate path-role facets in final answer with fewer trace_query calls. |
@@ -136,6 +140,8 @@ roles from many raw trace rows.
 | Batch H | delivered | Quarantine post-complete localization repair for extractor. | Extractor receives non-executable localization status/caveat fields and does not attempt `read_file` / `repo_map` after accepted closure. |
 | Batch I | delivered | Gate final system supplements by principal-answer relevance. | A passing scalar/member-set answer does not show stale "localization needed" or generic low-proof caveats unless typed proof debt is principal/blocking. |
 | Batch K | planned | Add tool/preflight/context assembly telemetry and caches. | `emit_evidence`, `emit_investigation_complete`, schema normalization, grounding view, and completion preflight expose sub-stage timings and reuse dispatch/version-scoped typed views. |
+| Batch L | planned | Align user-facing retry/status notices with typed next-action state. | Accepted closure that skips support-only retry debt shows a clear auto-complete/skip notice, not a stale "verification not stable enough" retry cue. |
+| Batch M | planned | Split final contract telemetry by typed severity. | Eval pass/fail, user-answer blocking defects, repaired schema drift, and audit-only annotation gaps are reported separately and consumable by URGR/reasoning graph. |
 | Batch J | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
 
 ## Test Matrix
@@ -223,3 +229,33 @@ roles from many raw trace rows.
   pain, but the commercial plan continues to cover convergence, relation
   support, trace projection, eval watchdogs, mixed runtime/source proof, and
   tool latency.
+- 2026-06-20 Batch C2a delivered: accepted-closure advisory debt now uses one
+  typed `RepairDebtClass` policy across auto-complete, fact-retry suppression,
+  retry-hint rendering, and forced-read drains. `chain_promotion.*` support
+  reads and Phase-1 breadth debt become advisory after accepted closure; exact
+  primary anchors, required-file hints, and other principal blockers still
+  block. The change is structural: it does not parse user intent keywords,
+  model rationale, visible thinking, or rendered retry prose.
+- 2026-06-20 Batch C2a verification: focused tests passed for
+  `internal/types`, `internal/agent`, and `internal/orchestrator`; the wider
+  package set `go test ./internal/types ./internal/agent ./internal/orchestrator`
+  passed, and full `go test ./...` passed after the final retry-order
+  refinement. The first rerun
+  `qf_relation_subagent_registry-20260620-075206` proved the forced-read drain
+  skipped advisory debt but still showed the model a stale Forced Read List,
+  so the cleanup was moved before retry-hint rendering and stale retry
+  carry-over is ignored when accepted closure leaves only non-blocking debt.
+  The second rerun `qf_relation_subagent_registry-20260620-075655` passed with
+  wall time 149s, `read_file=4`, `repo_map=1`, `explorer_iters=9`,
+  `midloop_inject=4`, `answer_chain_lines=8`, and
+  `answer_contract_violations=0`, down from the previous 240s / 14 reads / 7
+  repo_map / 23 explorer iterations / 12 midloop / 28 chain lines. Logs confirm
+  `Forced Read List` was no longer rendered for the support-only Resolution
+  Chain debt and stale retry carry-over was ignored twice.
+- 2026-06-20 remaining gaps after Batch C2a: the REPL output can still show
+  "verification not stable enough" before the scheduler auto-completes the
+  advisory retry, now tracked as RNE-C14 / Batch L. Context remains large
+  (~58k estimated tokens) even after tool calls dropped, so RNE-C1/RNE-C12 and
+  Batch D/K remain high-priority. Internal CGEC still records a non-blocking
+  answer-document annotation violation even when eval answer-contract metrics
+  are zero, now tracked as RNE-C15 / Batch M.

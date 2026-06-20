@@ -134,11 +134,11 @@ func ClassifyRepairDirective(r RepairDirective) RepairDebtClass {
 	case RepairEmitEvidence:
 		return RepairDebtSurgicalGrounding
 	case RepairReadFile:
-		if len(r.LineRanges) > 0 {
-			return RepairDebtSurgicalGrounding
-		}
 		if !PendingReadBlocksAcceptedClosure(PendingRead{Origin: r.Origin}) {
 			return RepairDebtAdvisory
+		}
+		if len(r.LineRanges) > 0 {
+			return RepairDebtSurgicalGrounding
 		}
 		return RepairDebtPrincipalBlocking
 	case RepairStructuredHandoff, RepairSwapView, RepairRebindSubject:
@@ -190,7 +190,7 @@ func IsGenericForcedReadOrigin(origin string) bool {
 		"pre_complete.multi_path_anchor":
 		return true
 	default:
-		return strings.HasPrefix(origin, "chain_promotion.concrete_values_tracer")
+		return strings.HasPrefix(origin, "chain_promotion.")
 	}
 }
 
@@ -212,7 +212,7 @@ func PendingReadBlocksAcceptedClosure(p PendingRead) bool {
 	case "pre_complete.phase1_unread":
 		return false
 	}
-	if strings.HasPrefix(origin, "chain_promotion.concrete_values_tracer") {
+	if strings.HasPrefix(origin, "chain_promotion.") {
 		return false
 	}
 	return true

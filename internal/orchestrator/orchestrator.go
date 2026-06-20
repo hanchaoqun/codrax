@@ -4420,6 +4420,10 @@ func (o *Orchestrator) requeueExploreWindowForFactRetry(state *graphState, windo
 	if !readExploreOutputRequestsFactRetry(output) {
 		return false
 	}
+	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		logging.Info("[orchestrator] ignored explore fact retry because accepted investigation closure leaves only non-blocking debt")
+		return false
+	}
 	if o.acceptedSourceInventoryClosureSuppressesReconcileFactRetry(window) {
 		logging.Info("[orchestrator] ignored reconcile fact retry because accepted source-inventory closure already covers an exact candidate universe")
 		return false
@@ -4946,6 +4950,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				o.applyWindowHint("", "")
 				continue
 			}
+			if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+				if len(pendingValidationTargets) > 0 || strings.TrimSpace(pendingViolation) != "" || strings.TrimSpace(pendingStageRetry) != "" {
+					logging.Info("[orchestrator] ignored stale explore retry carry-over because accepted investigation closure leaves only non-blocking debt")
+					pendingValidationTargets = nil
+					pendingViolation = ""
+					pendingStageRetry = ""
+				}
+			}
 			if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(pendingValidationTargets, pendingViolation, pendingStageRetry) {
 				if o.busCtx != nil {
 					o.busCtx.Signals.HasEnoughFacts = true
@@ -4997,7 +5009,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// one step.
 			var pendingRepairs []types.RepairDirective
 			if o.busCtx.Mutable != nil {
-				pendingRepairs = o.busCtx.Mutable.EvidenceClosure().ConsumeRepairs()
+				closure := o.busCtx.Mutable.EvidenceClosure()
+				if o.acceptedClosureAllowsAdvisoryDebt() {
+					if cleared := closure.ClearPendingReadsByDebtClass(types.RepairDebtAdvisory); cleared > 0 {
+						logging.Info("[orchestrator] accepted closure dropped %d advisory pending read(s) before retry-hint render", cleared)
+					}
+				}
+				pendingRepairs = closure.ConsumeRepairs()
 			}
 			stopLocal = o.startSchedulerLocalWork(types.StageExplore, "window_hint")
 			var hint string
@@ -7391,6 +7409,18 @@ func (o *Orchestrator) repairBlocksAcceptedClosure(r types.RepairDirective) bool
 		return false
 	}
 	return true
+}
+
+func (o *Orchestrator) acceptedClosureAllowsAdvisoryDebt() bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return false
+	}
+	policy := o.effectiveInvestigationCompletePolicy()
+	if policy != types.ICPolicySoft && policy != types.ICPolicyOverride {
+		return false
+	}
+	mut := o.busCtx.Mutable
+	return mut.IsInvestigationComplete() || strings.TrimSpace(mut.StableInvestigationCompleteReason()) != ""
 }
 
 func (o *Orchestrator) sourceInventoryClosureMakesSubjectRebindAdvisory(r types.RepairDirective) bool {

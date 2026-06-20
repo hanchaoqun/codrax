@@ -1352,6 +1352,41 @@ func (c *EvidenceClosure) ClearPendingReads() int {
 	return n
 }
 
+// ClearPendingReadsByDebtClass removes pending reads whose structured repair
+// debt class matches one of the supplied classes. It is used at accepted
+// closure boundaries to drop support/advisory read debt without weakening
+// principal-blocking anchors.
+func (c *EvidenceClosure) ClearPendingReadsByDebtClass(classes ...RepairDebtClass) int {
+	if c == nil || len(classes) == 0 {
+		return 0
+	}
+	wanted := make(map[RepairDebtClass]bool, len(classes))
+	for _, class := range classes {
+		if class != "" {
+			wanted[class] = true
+		}
+	}
+	if len(wanted) == 0 {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pendingReads) == 0 {
+		return 0
+	}
+	kept := c.pendingReads[:0]
+	cleared := 0
+	for _, pending := range c.pendingReads {
+		if wanted[ClassifyPendingReadRepair(pending)] {
+			cleared++
+			continue
+		}
+		kept = append(kept, pending)
+	}
+	c.pendingReads = kept
+	return cleared
+}
+
 // ClearRepairs drops queued repair directives without touching read coverage,
 // pending forced reads, violations, or statistics. It is used at accepted
 // investigation-completion boundaries: a later accepted closure supersedes

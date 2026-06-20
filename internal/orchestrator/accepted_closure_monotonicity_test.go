@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -176,8 +177,8 @@ func TestAcceptedClosure_ReconcileIgnoresChainPromotionPendingReadOnly(t *testin
 	if !o.shouldAutoCompleteReadyReconcileNode(reconcile, criterion.Env{}) {
 		t.Fatal("reconcile-only node should treat chain-promotion debt as advisory after accepted closure")
 	}
-	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
-		t.Fatal("normal explore auto-complete must keep the stricter pending-read boundary")
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("normal explore auto-complete should also treat chain-promotion debt as advisory after accepted closure")
 	}
 
 	blocking := types.NewMutableState("accepted closure with load-bearing anchor debt")
@@ -190,5 +191,31 @@ func TestAcceptedClosure_ReconcileIgnoresChainPromotionPendingReadOnly(t *testin
 	o.busCtx.Mutable = blocking
 	if o.shouldAutoCompleteReadyReconcileNode(reconcile, criterion.Env{}) {
 		t.Fatal("load-bearing primary-anchor debt must still block reconcile auto-complete")
+	}
+}
+
+func TestAcceptedClosureSuppressesAdvisoryFactRetry(t *testing.T) {
+	mut := types.NewMutableState("accepted closure with advisory retry")
+	mut.SetInvestigationComplete("accepted closure already covers the answer")
+	mut.ResetInvestigationComplete()
+	mut.EvidenceClosure().AddPendingRead(types.PendingRead{
+		File:       "support.go",
+		Origin:     "chain_promotion.bridge_literal",
+		Rationale:  "support-chain line after accepted closure",
+		LineRanges: []types.LineRange{{Start: 10, End: 12}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1}})
+	node := &types.TaskNode{ID: "n_evidence", Type: types.NodeEvidence}
+	out := &agent.StageOutput{
+		MissingPiece: types.MissingFacts,
+		RetryHint:    "support-only retry should not reopen accepted closure",
+	}
+
+	if o.requeueExploreWindowForFactRetry(state, []*types.TaskNode{node}, out) {
+		t.Fatal("accepted closure should suppress fact retry when only advisory support debt remains")
+	}
+	if state.retryUsed != 0 {
+		t.Fatalf("suppressed fact retry must not consume retry budget, got %d", state.retryUsed)
 	}
 }

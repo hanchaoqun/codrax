@@ -39,6 +39,11 @@ func TestClassifyRepairDirective(t *testing.T) {
 			want: RepairDebtAdvisory,
 		},
 		{
+			name: "chain-promotion surgical read is advisory after accepted closure",
+			in:   RepairDirective{Kind: RepairReadFile, Files: []string{"support.go"}, Origin: "chain_promotion.bridge_literal", LineRanges: []LineRange{{Start: 10, End: 12}}},
+			want: RepairDebtAdvisory,
+		},
+		{
 			name: "required read is principal blocking",
 			in:   RepairDirective{Kind: RepairReadFile, Files: []string{"required.go"}, Origin: "required_file_hint_unread"},
 			want: RepairDebtPrincipalBlocking,
@@ -78,6 +83,11 @@ func TestClassifyPendingReadRepair(t *testing.T) {
 			name: "line-ranged read is surgical",
 			in:   PendingRead{File: "anchor.go", Origin: "pre_complete.multi_path_anchor", LineRanges: []LineRange{{Start: 4, End: 4}}},
 			want: RepairDebtSurgicalGrounding,
+		},
+		{
+			name: "line-ranged chain promotion is advisory",
+			in:   PendingRead{File: "support.go", Origin: "chain_promotion.bridge_literal", LineRanges: []LineRange{{Start: 4, End: 4}}},
+			want: RepairDebtAdvisory,
 		},
 		{
 			name: "required file remains principal blocking",

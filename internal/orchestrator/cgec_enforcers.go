@@ -127,6 +127,11 @@ func (o *Orchestrator) runForcedReads() int {
 		return 0
 	}
 	closure := o.busCtx.Mutable.EvidenceClosure()
+	if o.acceptedClosureAllowsAdvisoryDebt() {
+		if cleared := closure.ClearPendingReadsByDebtClass(types.RepairDebtAdvisory); cleared > 0 {
+			logging.Info("[CGEC] accepted closure dropped %d advisory pending read(s) before forced-read drain", cleared)
+		}
+	}
 	// readSet is the canonical-key snapshot. Used at the success-
 	// path bottom (line ~326 closure.SetReadSet(readSet)) to push
 	// the post-forced-read state back to the closure in one shot.

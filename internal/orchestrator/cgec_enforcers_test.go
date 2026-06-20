@@ -99,6 +99,53 @@ func TestRunForcedReads_NoPending_Noop(t *testing.T) {
 	}
 }
 
+func TestRunForcedReads_AcceptedClosureDropsAdvisoryPendingReads(t *testing.T) {
+	o := newTestOrch(t)
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	o.busCtx.Mutable.SetInvestigationComplete("accepted closure already covers the principal answer")
+	o.busCtx.Mutable.ResetInvestigationComplete()
+	closure.AddPendingRead(types.PendingRead{
+		File:       "missing/support.go",
+		Origin:     "chain_promotion.bridge_literal",
+		Rationale:  "support-chain line after accepted closure",
+		LineRanges: []types.LineRange{{Start: 10, End: 12}},
+	})
+
+	if got := o.runForcedReads(); got != 0 {
+		t.Fatalf("advisory support debt must not trigger forced reads after accepted closure; got %d", got)
+	}
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Fatalf("advisory support debt should be cleared after accepted closure, got %+v", pending)
+	}
+	if got := o.busCtx.Mutable.DispatchToolResults(); len(got) != 0 {
+		t.Fatalf("advisory support debt should not execute read_file, got %+v", got)
+	}
+}
+
+func TestRunForcedReads_AcceptedClosureKeepsLoadBearingPendingReads(t *testing.T) {
+	o := newTestOrch(t)
+	repoRoot := o.busCtx.RepoRoot
+	relPath := "anchor.txt"
+	if err := os.WriteFile(filepath.Join(repoRoot, relPath), []byte("load-bearing anchor\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	o.busCtx.Mutable.SetInvestigationComplete("accepted closure still has a precise anchor repair")
+	o.busCtx.Mutable.ResetInvestigationComplete()
+	closure.AddPendingRead(types.PendingRead{
+		File:      relPath,
+		Origin:    "pre_complete.primary_anchor",
+		Rationale: "load-bearing anchor remains unread",
+	})
+
+	if got := o.runForcedReads(); got != 1 {
+		t.Fatalf("load-bearing anchor debt should still be force-read, got %d", got)
+	}
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Fatalf("load-bearing pending read should be drained after successful forced read, got %+v", pending)
+	}
+}
+
 // TestRunForcedReads_BudgetCap: even with many PendingReads, the
 // per-round cap (cgecForcedReadsPerRound) is respected.
 func TestRunForcedReads_BudgetCap(t *testing.T) {
