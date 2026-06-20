@@ -170,7 +170,7 @@ roles from many raw trace rows.
 | Batch H | delivered | Quarantine post-complete localization repair for extractor. | Extractor receives non-executable localization status/caveat fields and does not attempt `read_file` / `repo_map` after accepted closure. |
 | Batch H2 | delivered | Project stage-owned retry directives through current tool surface. | Extractor/finalizer retry directives cannot carry unavailable exploration-tool action plans into the prompt; explorer/analyzer hints that reference tools available in their own stage stay intact. |
 | Batch I | delivered | Gate final system supplements by principal-answer relevance. | A passing scalar/member-set answer does not show stale "localization needed" or generic low-proof caveats unless typed proof debt is principal/blocking. |
-| Batch K | planned | Add tool/preflight/context assembly telemetry and caches. | `emit_evidence`, `emit_investigation_complete`, schema normalization, grounding view, and completion preflight expose sub-stage timings and reuse dispatch/version-scoped typed views. |
+| Batch K | partial | Add tool/preflight/context assembly telemetry and caches. | K1 delivered generic slow timing logs for tools that publish `RuntimeTimings`; existing schema and grounding caches remain in use. K2 remains for cross-gate completion preflight/context assembly reuse. |
 | Batch L | delivered | Align user-facing retry/status notices with typed next-action state. | Accepted closure that skips support-only retry debt emits one progress-class skip notice from the typed advisory-debt decision, not another retry cue. |
 | Batch M | planned | Split final contract telemetry by typed severity. | Eval pass/fail, user-answer blocking defects, repaired schema drift, and audit-only annotation gaps are reported separately and consumable by URGR/reasoning graph. |
 | Batch N | delivered | Fix mixed runtime/source lane authority. | `current_key_code` requested dimensions plus typed source scope require source coverage before closure; pure runtime metric dimensions stay source-optional; the representative mixed log/current-code eval passes with real source reads and citations. |
@@ -210,6 +210,8 @@ roles from many raw trace rows.
   answers with supported localization and remain visible for observed-only
   localization.
 - Unit: tool/preflight timing and cache keys are dispatch/version scoped.
+- Unit: runtime timing log summaries are compact and capped so telemetry does
+  not become a new prompt/status noise source.
 - Unit: a required `current_key_code` dimension plus typed source scope requires
   the current-source lane for external observations.
 - Unit: pure runtime metric dimensions remain source-optional under default
@@ -539,3 +541,10 @@ roles from many raw trace rows.
   are the typed scheduler decisions that clear stale retry carry-over or
   advisory pending reads; they do not inspect user prose, model prose, visible
   thinking, or retry text.
+- 2026-06-20 Batch K1 delivered: tool runtime timings now also produce compact
+  debug logs and slow-path warnings (`[tool_timing]`) from the shared
+  `attachToolRuntimeTimings` helper. This makes slow `emit_evidence` /
+  `emit_investigation_complete` phases visible in ordinary logs without making
+  timing a semantic hard gate. Existing static schema caches, grounding
+  context cache, and completion preflight view remain active; K2 continues to
+  track deeper context/preflight reuse and "organizing context" latency.
