@@ -327,6 +327,7 @@ roles from many raw trace rows.
 | Batch U9i | planned | Add cross-language source-inventory member/facet projection. | `repo_map(source_inventory)` returns typed member rows or explicit `no_member_parser` coverage for supported-language constructs across Go, Python, JS/TS, Ruby, Java/Kotlin, C/C++, Rust, Cangjie, ArkTS, config, and workflow files. Decorators/annotations/modifiers/config facets are structured attributes, not rendered-prose hints. |
 | Batch U9g | planned | Share proof coverage across exploration siblings. | Sibling lanes consume a shared principal proof ledger and suppress duplicate reads/repo_map/trace_query work once an equivalent owner/evidence/proof obligation is already accepted. |
 | Batch U9h | planned | Unify tool JSON repair and accepted-evidence handoff. | Schema/decode repair hints and accepted evidence IDs flow through one typed layer so later stages see precise supported JSON fields and citation candidates without prose-only reconstruction. |
+| Batch U9t | delivered | Extract source-inventory execution budget kernel. | Replaced the private per-role `sourceInventoryCandidateBudget` helpers with one typed execution budget object that owns materialization limits, scan limits, query-scan widening, wall-clock deadline, cancellation state, and cursor/page metadata. File/config/package/graph candidate builders and completion support now consume this API instead of open-coded scan/materialization/deadline checks. Focused tests pin deadline and cancellation truncation, broad materialization/no-match budgeting, and source-inventory lens execution proof. |
 | Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
 | Batch V2 | planned | Complete aggregate negative-fact repair hints. | Invalid no-hit payloads receive one precise typed repair hint or deterministic normalization before retry; the model does not bounce between `negative_search`, `negative_observation`, `scalar_value`, and empty `member_set` schemas. |
 | Batch W | delivered | Add lazy repo-index warmup for runtime-artifact-only read turns. | Runtime trace/log answers with no typed current-source obligation do not print or pay repo-index warmup unless a later typed source route actually opens. |
@@ -1421,3 +1422,28 @@ roles from many raw trace rows.
   validation passed:
   `go test ./internal/tool -run
   'TestSourceInventoryLensExecutionGap|TestSourceInventoryCandidateUniverseCoverageGap'`.
+- 2026-06-20 Batch U9t delivered the first source-inventory execution-kernel
+  extraction slice. The old private per-role `sourceInventoryCandidateBudget`
+  helpers are gone; candidate construction now receives one
+  `sourceInventoryExecBudget` object that owns materialization caps, scan caps,
+  query-scan widening, wall-clock deadline, cooperative cancellation via
+  `BusContext.Context()`, and cursor/page metadata. File/config/package/graph
+  candidate builders and completion support call the budget object's methods
+  instead of reading open-coded limit fields or standalone helper functions.
+  This does not change the model-facing `repo_map` schema or rendered answer
+  text; it moves execution control into one typed kernel seam. Focused
+  validation passed:
+  `go test ./internal/tool -run
+  'TestSourceInventory(ExecBudget|CandidateBudget)|TestPublishSourceInventoryObservationFromLens_(BudgetsBroadCandidateMaterialization|BudgetsBroadNoMatchScan|PublishesSourceClassUniverseWithoutCandidates|DefersBroadAttributesWithNarrowingHint)|TestSourceInventoryLensExecutionGap'`
+  and
+  `go test ./internal/tool/repomap -run
+  'TestRepoMapSourceInventoryBroadNavigationLensIsBoundedBeforeReconcile|TestRepoMapSourceInventoryBroadRootBudgetGuard|TestRepoMapSupportedViewsMatchSchemaEnum'`.
+  The post-U9s representative eval
+  `eval/convergence_audit_summary_20260620_after_typed_source_inventory_lens.md`
+  passed all six cases. Five cases still emitted advisory flags
+  (`contract_warning`, `auto_repair`, or `context_prune`), so U9g shared
+  proof coverage and U9h typed repair/handoff carrier remain the next
+  commercial smoothness work. Remaining RNE-C59 work: move the private
+  execution budget/view into a dedicated source-inventory kernel package and
+  add true cursor-backed resumable candidate pagination before full
+  materialization.

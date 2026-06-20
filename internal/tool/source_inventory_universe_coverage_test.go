@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -98,10 +99,35 @@ func TestSourceInventoryCandidateBudgetDeadlineTruncatesFileScan(t *testing.T) {
 		nil,
 		false,
 		sourceInventoryQueryFilter{},
-		sourceInventoryCandidateBudget{maxPerRole: 10, maxScanPerRole: 10, deadline: time.Now().Add(-time.Second)},
+		sourceInventoryExecBudget{maxPerRole: 10, maxScanPerRole: 10, deadline: time.Now().Add(-time.Second)},
 	)
 	if !set.truncated || set.complete || len(set.candidates) != 0 {
 		t.Fatalf("expired execution budget should truncate before materializing file candidates: %+v", set)
+	}
+}
+
+func TestSourceInventoryExecBudgetCancellationTruncatesFileScan(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/main.go",
+		Language: repotypes.LangGo,
+	}})
+	view := newSourceInventoryExecutionView(graph, []string{"."})
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	ctx := &types.BusContext{Ctx: cancelled}
+	set := sourceInventoryFileCandidates(
+		ctx,
+		view,
+		nil,
+		newSourceInventoryScopeFilter(nil),
+		&types.SourceInventoryProfile{IsSourceInventory: true, TargetRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFile}},
+		nil,
+		false,
+		sourceInventoryQueryFilter{},
+		sourceInventoryExecBudgetForLens(ctx, types.SourceInventoryLensQuery{}, false, graph),
+	)
+	if !set.truncated || set.complete || len(set.candidates) != 0 {
+		t.Fatalf("cancelled execution budget should truncate before materializing file candidates: %+v", set)
 	}
 }
 
@@ -133,7 +159,7 @@ func TestSourceInventoryCandidateBudgetCountsScopedQueryMisses(t *testing.T) {
 		&types.SourceInventoryProfile{IsSourceInventory: true, TargetRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction}},
 		types.AnswerCandidateRoleFunction,
 		sourceInventoryBuildQueryFilter("definitely_absent_query_token"),
-		sourceInventoryCandidateBudget{maxPerRole: 10, maxScanPerRole: 3},
+		sourceInventoryExecBudget{maxPerRole: 10, maxScanPerRole: 3},
 	)
 	if !set.truncated || set.complete || len(set.candidates) != 0 {
 		t.Fatalf("query-miss scan should be bounded by scoped symbols, got %+v", set)
@@ -362,8 +388,8 @@ func TestPublishSourceInventoryObservationFromLens_PublishesSourceClassUniverseW
 }
 
 func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterialization(t *testing.T) {
-	files := make([]*repotypes.FileInfo, 0, sourceInventoryCandidateBudgetFileThreshold+100)
-	for i := 0; i < sourceInventoryCandidateBudgetFileThreshold+100; i++ {
+	files := make([]*repotypes.FileInfo, 0, sourceInventoryExecBudgetFileThreshold+100)
+	for i := 0; i < sourceInventoryExecBudgetFileThreshold+100; i++ {
 		rel := "src/pkg" + strconv.Itoa(i) + "/file" + strconv.Itoa(i) + ".ts"
 		files = append(files, &repotypes.FileInfo{
 			RelPath:  rel,
@@ -391,7 +417,7 @@ func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterial
 	if !obs.IsActive() || len(obs.Sets) != 1 {
 		t.Fatalf("broad source_inventory should still return a bounded active observation: %+v", obs)
 	}
-	wantLimit := 50 * sourceInventoryCandidateBudgetMultiplier
+	wantLimit := 50 * sourceInventoryExecBudgetMaterializeMultiplier
 	if obs.Sets[0].Count != wantLimit || len(obs.Sets[0].Members) != wantLimit {
 		t.Fatalf("broad lens should materialize exactly the per-role budget %d, got %+v", wantLimit, obs.Sets[0])
 	}
@@ -426,8 +452,8 @@ func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterial
 }
 
 func TestPublishSourceInventoryObservationFromLens_BudgetsBroadNoMatchScan(t *testing.T) {
-	files := make([]*repotypes.FileInfo, 0, sourceInventoryCandidateScanBudgetMaxPerRole+100)
-	for i := 0; i < sourceInventoryCandidateScanBudgetMaxPerRole+100; i++ {
+	files := make([]*repotypes.FileInfo, 0, sourceInventoryExecBudgetMaxScanPerRole+100)
+	for i := 0; i < sourceInventoryExecBudgetMaxScanPerRole+100; i++ {
 		rel := "src/pkg" + strconv.Itoa(i) + "/file" + strconv.Itoa(i) + ".ts"
 		files = append(files, &repotypes.FileInfo{
 			RelPath:  rel,
