@@ -5,13 +5,13 @@
 // Relevance metric (see relevance() below):
 //
 //	α · jaccard(hypothesis term IDs, node search hints)
-//	+ β · surface mentions of the hypothesis statement in node objective
-//	+ γ · kind-family affinity between the hypothesis falsification
+//	+ β · kind-family affinity between the hypothesis falsification
 //	      kind and the node type
 //
-// α=1.0, β=0.5, γ=0.3. Each binding-eligible node picks the top-K
-// hypotheses by score. A hypothesis that scores zero for every node
-// gets a fallback binding to the first evidence node so gate's
+// α=1.0, β=0.3. Each binding-eligible node picks the top-K hypotheses by
+// score. Node objectives remain user/model-facing guidance, but they are not
+// routing signals for binder authority. A hypothesis that scores zero for
+// every node gets a fallback binding to the first evidence node so gate's
 // hypothesis_coverage rule still passes.
 package binder
 
@@ -158,21 +158,9 @@ func relevance(h types.Hypothesis, n types.TaskNode) float64 {
 	hintIDs := append(append([]string(nil), n.SearchHints.KeywordIDs...), n.SearchHints.EntityIDs...)
 	j := jaccard(termIDs, hintIDs)
 
-	surfaces := 0.0
-	stmt := strings.ToLower(h.Statement)
-	for _, tok := range strings.Fields(strings.ToLower(n.Objective)) {
-		if len(tok) > 3 && strings.Contains(stmt, tok) {
-			surfaces++
-		}
-	}
-	surfaces /= 5.0 // saturate quickly
-	if surfaces > 1 {
-		surfaces = 1
-	}
-
 	kindFit := kindAffinity(h.FalsificationCondition.Kind, n.Type)
 
-	return 1.0*j + 0.5*surfaces + 0.3*kindFit
+	return 1.0*j + 0.3*kindFit
 }
 
 // termTokens extracts space-separated lowercase tokens ≥4 chars

@@ -3,16 +3,30 @@
 ## Scope
 
 This document records the system gaps exposed by the 2026-06-20 read-mode
-representative eval batch. Noise reduction is the highest-priority track, but
-the repair scope is broader: schema ergonomics, typed handoff, relation
-support, trace causal projection, eval watchdogs, and final-answer evidence
-preservation all need phased work.
+representative eval batch. Noise reduction is the highest-priority user pain
+because it directly causes repeated "verification not stable enough" loops and
+large model contexts, but the repair scope is deliberately broader: typed
+localization, proof coverage, schema ergonomics, handoff preservation, relation
+support, trace causal projection, eval watchdogs, prompt/tool-surface hygiene,
+status-card clarity, and final-answer evidence preservation all need phased
+work.
 
 The target is a generalized commercial design, not case-by-case prompt patches.
 Hard gates must consume typed artifacts only: request-model fields, aggregate
 facts, relation axes, support refs, read ranges, trace rows, and structured
 tool results. User prose, model rationale, visible thinking, and rendered
 summaries remain soft context only.
+
+## System Gap Classes
+
+| Class | Priority | Why it matters | Representative gaps |
+| --- | --- | --- | --- |
+| Noise and convergence debt | P0 | Causes repeated post-complete retries, stale "verification not stable" status, high token use, and unnecessary model turns. | RNE-C1, RNE-C4, RNE-C6, RNE-C13, RNE-C14 |
+| Typed localization and proof coverage | P0 | Determines whether read and write tasks investigate the right owner, prove the active lane, and avoid answering or patching from the wrong source surface. | RNE-C8, RNE-C16, RNE-C17, RNE-C20, RNE-C21, RNE-C23 |
+| Handoff and final-answer fidelity | P0 | Preserves rich exploration evidence into extractor/finalizer/report consumers without exposing executable repair instructions to the wrong stage. | RNE-C5, RNE-C10, RNE-C11, RNE-C22, RNE-C26 |
+| Prompt/tool-surface hygiene | P0 | Prevents hard-ish scheduling, authority prompts, or tool decisions from being driven by raw user words, model prose, visible thinking, or unavailable-tool directives. | RNE-C27, RNE-C30, RNE-C31 |
+| Performance and observability | P0/P1 | Makes slow tool execution, schema repair loops, context assembly, and eval timeouts diagnosable and bounded. | RNE-C7, RNE-C12, RNE-C15, RNE-C24 |
+| Cross-language source inventory | P1 | Avoids Python-only or Go-only fixes by making supported-language scope, parser fallback, and absence proof language-neutral. | RNE-C9, RNE-C19, RNE-C23 |
 
 ## Eval Batch Summary
 
@@ -66,6 +80,7 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C28 | P0 | Runtime negative observations still use a source-shaped schema path. | The Batch W trace rerun had enough `trace_query` evidence but one `emit_investigation_complete` attempt was rejected because `aggregate_facts[6]` used `negative_observation` for a missing IO layer detail without a dimension target/query/pattern/predicate. The retry completed, but the rejection added another explorer loop. | Split negative fact authority by origin. Runtime/log/trace negative observations have typed runtime dimension carriers such as `missing_signal`, `missing_event`, and `missing_field`; repo no-hit, artifact no-hit, and trace missing-field facts canonicalize through one repair layer before the model sees a retry. Batch V1 delivers the runtime carrier path; Batch V2 keeps the broader repair-hint layer. |
 | RNE-C29 | P1 | Observation-only finalizer prompts and contract checks still carry broad source-rule noise. | The Batch W trace rerun no longer indexed or read source, but the finalizer prompt still included many source citation / repo_map / member-set / absence-contract instructions. The first emit was accepted only after deterministic observed-artifact carrier repairs and a second contract check. | Add observation-only answer-surface specialization: finalizer receives a compact runtime-artifact contract, source-specific rules are hidden unless a current-source lane is active, and deterministic carrier repair remains as fallback rather than the normal path. |
 | RNE-C30 | P0 | Stage-owned retry directives can bypass stage tool-surface projection. | Previous fixes scoped explore-owned retry hints away from extraction, but a retry hint whose owner is already `StageExtract` can still carry stale exploration actions from a downstream validator or repair directive. `BuildPromptContext` rendered `ac.RetryHint` verbatim before the extractor/finalizer-specific handoff sanitizer ran, so the model could see "use repo_map/read_file" in a stage where those tools are unavailable. | All model-facing retry directives pass through a capability-surface projector keyed by current `ToolSuggestions`. If a directive mentions unavailable known tools, the original prose is replaced with a stage-safe structured emit/caveat instruction; original text remains in logs/state for audit. This is prompt hygiene only, not user-intent or model-prose hard routing. |
+| RNE-C31 | P0 | Hypothesis-to-task binding can still score model/template prose. | `analysis/binder` used task node objective surface tokens as part of relevance scoring. Node objectives are useful user/model guidance, but they are not typed routing authority and can reintroduce prose-driven scheduling even without direct RawRequest parsing. | Binder relevance consumes only typed search hints and typed falsification-kind affinity. Objective prose remains visible guidance but cannot change task/hypothesis routing. |
 
 ## Architecture Direction
 
@@ -174,7 +189,7 @@ roles from many raw trace rows.
 | Batch Y1 | delivered | Move finalizer runtime trace guidance off RawRequest / Objective wording. | Runtime Trace Answer Guidance now renders from typed observation ledger and PerfBundle observations only. Raw question words or attachment spelling alone cannot trigger Harmony/scheduler guidance. |
 | Batch Y2 | partial | Complete production RawRequest signal authority audit. | Remaining production RawRequest reads are classified as exact provenance, path/artifact tokenization, typed analyzer echo, or unsafe semantic routing; unsafe reads move behind typed profiles or soft advisory views with structural tests preventing new hard gates. |
 | Batch Y2a | delivered | Remove trace_query platform/flavor selection from raw user wording. | `trace_query` now selects platform/flavor only from typed tool parameters, attached-source metadata, or content detection. Raw request words cannot choose Harmony/Android/Donghu semantics. |
-| Batch Y2b | planned | Finish remaining RawRequest production classification. | Non-risky exact selector/path extraction is documented; any remaining semantic route/prompt authority reads move to typed analyzer profiles or typed runtime artifacts. |
+| Batch Y2b | delivered | Finish first hard-ish production prose-signal cleanup pass. | Binder relevance no longer consumes task objective prose; remaining RawRequest/Objectives are classified as exact provenance/path extraction, typed analyzer echo, or follow-up candidates for RequestSignalAuthority. |
 | Batch Z | planned | Add observation-only finalizer contract specialization. | Runtime/log/trace answers without a current-source lane receive compact runtime-artifact answer contracts, avoid source-rule prompt noise, and pass without deterministic metadata auto-repair in representative cases. |
 | Batch J | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
 
@@ -246,6 +261,9 @@ roles from many raw trace rows.
   user-word substrings, model rationale, visible thinking, or rendered summary
   text directly; any legitimate raw text extraction must enter through typed
   request profiles or exact provenance/path-token parsers first.
+- Hygiene: hypothesis/task binding relevance is invariant to task objective
+  prose and changes only when typed search hints or typed falsification kind
+  change.
 - Eval: `arkts_repomap` no longer loops on empty set shape.
 - Eval: `qf_relation_subagent_registry` converges without repeated identical
   relation support downgrade.
@@ -501,3 +519,15 @@ roles from many raw trace rows.
   a non-blocking `contract_warning` from finalizer-side
   `answer_prose_density` and `block_kind_vs_lane_allowed`; that residual is
   tracked by RNE-C15 / RNE-C29 rather than by the stage retry projection batch.
+- 2026-06-20 non-noise scope refresh: this ledger is not limited to noise
+  cleanup. Noise remains P0 because it is the most visible cause of loops and
+  context bloat, but typed localization/proof coverage, handoff fidelity,
+  prompt/tool-surface hygiene, performance observability, status-card UX, and
+  cross-language source inventory remain tracked as separate commercial
+  delivery classes.
+- 2026-06-20 Batch Y2b delivered: `analysis/binder` relevance no longer reads
+  task node objective prose. Hypothesis binding now uses typed search hints
+  plus typed falsification-kind affinity only, with fallback binding semantics
+  preserved for coverage. This closes a hard-ish scheduling path from
+  model/template natural language without using user-intent keywords, model
+  rationale, visible thinking, or rendered summaries as logic.
