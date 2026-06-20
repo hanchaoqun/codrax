@@ -745,6 +745,123 @@ func TestRepoMapSourceInventoryQueryExpandsRolesAndFiltersLanguage(t *testing.T)
 	}
 }
 
+func TestRepoMapSourceInventoryRootTypedLaneProjectsAuxiliaryCorpus(t *testing.T) {
+	repo := t.TempDir()
+	files := map[string]string{
+		"internal/app/main.go": "package app\nfunc Run() {}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets": "@Entry\n@Component\nstruct Index {\n  build() {\n    Text('hi')\n  }\n}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets":       "@Builder\nfunction GlobalCard() {\n  Text('card')\n}\nfunction PlainHelper() {}\n",
+	}
+	for rel, body := range files {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory auxiliary projection")
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"query": "@Entry @Builder ArkTS",
+		"scope": ".",
+		"roles": ["function"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"repo_lens:auxiliary_projection",
+		"`Index`",
+		"@ internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		"`GlobalCard`",
+		"@ internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("auxiliary source projection missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "PlainHelper") {
+		t.Fatalf("query-filtered auxiliary projection leaked unrelated helper:\n%s", res.Summary)
+	}
+	if graph, _ := mut.SearchGraph().(*Graph); graph == nil || graph.FileIndex["internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"] != nil {
+		t.Fatalf("source_inventory auxiliary projection should restore the default graph after the tool call: %+v", graph)
+	}
+}
+
+func TestRepoMapSourceInventoryExplicitProductionScopeDoesNotProjectAuxiliaryCorpus(t *testing.T) {
+	repo := t.TempDir()
+	for rel, body := range map[string]string{
+		"internal/app/main.go": "package app\nfunc Run() {}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets": "@Entry\n@Component\nstruct Index { build() { Text('hi') } }\n",
+	} {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory explicit production")
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				Confidence:        0.9,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"query": "@Entry ArkTS",
+		"scope": ".",
+		"roles": ["function"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed with an empty production lens: %+v", res)
+	}
+	for _, noise := range []string{"repo_lens:auxiliary_projection", "01_entry_component_minimal.ets", "`Index`"} {
+		if strings.Contains(res.Summary, noise) {
+			t.Fatalf("explicit production source_inventory should not project auxiliary corpus %q:\n%s", noise, res.Summary)
+		}
+	}
+}
+
 func TestRepoMapSourceInventoryViewConfigFilesAreNavigationRows(t *testing.T) {
 	repo := t.TempDir()
 	mut := types.NewMutableState("source inventory config files")

@@ -3,6 +3,7 @@ package repomap
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -14,6 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/index"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/render"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
+	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	ctypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -328,6 +330,14 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			includeCounts = *p.IncludeCounts
 		}
 		scopes := sourceInventoryScopesForRepoMapParams(p, repoRoot, graph)
+		graph, restoreGraph, auxProjectionApplied := sourceInventoryGraphWithAuxiliaryProjection(ctx, repoRoot, graph, p, scopes)
+		if restoreGraph != nil {
+			defer ctx.Mutable.SetSearchGraph(restoreGraph)
+		}
+		provenance := []string(nil)
+		if auxProjectionApplied {
+			provenance = append(provenance, "repo_lens:auxiliary_projection")
+		}
 		observation := tool.PublishSourceInventoryObservationFromLens(ctx, ctypes.SourceInventoryLensQuery{
 			Path:              p.Path,
 			Scopes:            scopes,
@@ -339,6 +349,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Offset:            p.Offset,
 			Cursor:            p.Cursor,
 			Query:             p.Query,
+			Provenance:        provenance,
 			RepoFileCount:     len(graph.FileIndex),
 		})
 		output := tool.RenderSourceInventoryObservationView(observation, ctypes.SourceInventoryLensQuery{
@@ -351,6 +362,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			TopN:              p.TopN,
 			Offset:            p.Offset,
 			Cursor:            p.Cursor,
+			Provenance:        provenance,
 			RepoFileCount:     len(graph.FileIndex),
 		})
 		output = prependRepoMapSourceInventoryFitAdvisory(ctx, p.Query, output)
@@ -794,7 +806,216 @@ const (
 	sourceInventoryBroadRootBudgetFileThreshold = 500
 	sourceInventoryBroadRootDefaultTopN         = 50
 	sourceInventoryBroadRootMaxTopN             = 100
+	sourceInventoryAuxProjectionMaxFiles        = 256
+	sourceInventoryAuxProjectionMaxFileBytes    = 2 << 20
 )
+
+func sourceInventoryGraphWithAuxiliaryProjection(ctx *ctypes.BusContext, repoRoot string, graph *Graph, p repoMapParams, scopes []string) (*Graph, *Graph, bool) {
+	if ctx == nil || ctx.Mutable == nil || graph == nil || !sourceInventoryShouldProjectAuxiliary(ctx, p, scopes) {
+		return graph, nil, false
+	}
+	entries := sourceInventoryAuxiliaryProjectionEntries(repoRoot, graph, scopes)
+	if len(entries) == 0 {
+		return graph, nil, false
+	}
+	infos := index.ParseFiles(entries, repoRoot)
+	if len(infos) == 0 {
+		return graph, nil, false
+	}
+	seen := make(map[string]bool, len(graph.FileIndex)+len(infos))
+	files := make([]*FileInfo, 0, len(graph.Files)+len(infos))
+	for _, fi := range graph.Files {
+		if fi == nil {
+			continue
+		}
+		rel := strings.Trim(strings.ReplaceAll(fi.RelPath, `\`, `/`), "/")
+		if rel == "" || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		files = append(files, fi)
+	}
+	for _, fi := range infos {
+		if fi == nil {
+			continue
+		}
+		rel := strings.Trim(strings.ReplaceAll(fi.RelPath, `\`, `/`), "/")
+		if rel == "" || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		files = append(files, fi)
+	}
+	if len(files) == len(graph.Files) {
+		return graph, nil, false
+	}
+	projected := index.BuildGraph(repoRoot, files)
+	ctx.Mutable.SetSearchGraph(projected)
+	return projected, graph, true
+}
+
+func sourceInventoryShouldProjectAuxiliary(ctx *ctypes.BusContext, p repoMapParams, scopes []string) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || !repoMapSourceInventoryBroadRootScope(p) && !sourceInventoryScopesContainRoot(scopes) {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		if rm.SourceScopeProfile == nil || !rm.SourceScopeProfile.AllowsAuxiliaryPrincipal() {
+			return false
+		}
+		return true
+	}
+	if rm.SourceScopeProfile != nil && rm.SourceScopeProfile.AllowsAuxiliaryPrincipal() {
+		return true
+	}
+	return ctypes.IsTypedSourceEnumerationShape(rm)
+}
+
+func sourceInventoryScopesContainRoot(scopes []string) bool {
+	if len(scopes) == 0 {
+		return true
+	}
+	for _, scope := range scopes {
+		if repoMapParamPathIsRoot(scope) {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, scopes []string) []index.FileEntry {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" || graph == nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(graph.FileIndex))
+	for rel := range graph.FileIndex {
+		seen[strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")] = true
+	}
+	var entries []index.FileEntry
+	_ = filepath.WalkDir(repoRoot, func(abs string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := strings.TrimSpace(d.Name())
+		if name == "" || tool.IsWindowsReservedDevicePath(name) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if abs == repoRoot {
+			return nil
+		}
+		rel, relErr := filepath.Rel(repoRoot, abs)
+		if relErr != nil {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel = strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")
+		if rel == "" {
+			return nil
+		}
+		if d.IsDir() {
+			if sourceInventoryAuxiliaryProjectionSkipDir(rel, name) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if seen[rel] || !sourceInventoryAuxiliaryProjectionInScopes(rel, scopes) || sourceInventoryAuxiliarySourceClass(rel) == "" {
+			return nil
+		}
+		info, statErr := d.Info()
+		if statErr != nil || info.IsDir() || info.Size() > sourceInventoryAuxProjectionMaxFileBytes {
+			return nil
+		}
+		lang := rmtypes.DetectLanguage(rel)
+		if lang == rmtypes.LangTypeScript && rmtypes.IsArkTSProject(repoRoot, rel) {
+			lang = rmtypes.LangArkTS
+		}
+		if lang == "" || !rmtypes.IsSupportedReadLanguage(lang) {
+			return nil
+		}
+		entries = append(entries, index.FileEntry{
+			RelPath:  rel,
+			AbsPath:  abs,
+			Language: lang,
+			Size:     info.Size(),
+		})
+		seen[rel] = true
+		if len(entries) >= sourceInventoryAuxProjectionMaxFiles {
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return entries
+}
+
+func sourceInventoryAuxiliaryProjectionSkipDir(rel, base string) bool {
+	base = strings.ToLower(strings.TrimSpace(base))
+	if base == "" {
+		return true
+	}
+	switch base {
+	case ".git", ".hg", ".svn", ".codrax", "node_modules", ".tox", ".venv", "venv", ".mypy_cache", ".pytest_cache", ".idea", ".vscode", ".vs", "target", "dist", "build", ".gradle", ".cargo", ".next", ".nuxt", ".turbo", ".pnpm-store":
+		return true
+	case "vendor":
+		return !sourceInventoryAuxiliaryPathHasSourceClass(rel)
+	default:
+		return false
+	}
+}
+
+func sourceInventoryAuxiliaryProjectionInScopes(rel string, scopes []string) bool {
+	rel = strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")
+	if rel == "" {
+		return false
+	}
+	if len(scopes) == 0 {
+		return true
+	}
+	for _, raw := range scopes {
+		scope := strings.Trim(strings.ReplaceAll(raw, `\`, `/`), "/")
+		if scope == "" || scope == "." {
+			return true
+		}
+		if rel == scope || strings.HasPrefix(rel, scope+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryAuxiliarySourceClass(rel string) string {
+	parts := sourceInventoryAuxiliaryPathParts(rel)
+	for _, part := range parts {
+		switch part {
+		case "testdata", "__tests__", "tests", "test":
+			return "test"
+		case "fixtures", "fixture":
+			return "fixture"
+		case "examples", "example":
+			return "example"
+		case "corpus", "corpora":
+			return "corpus"
+		}
+	}
+	return ""
+}
+
+func sourceInventoryAuxiliaryPathHasSourceClass(rel string) bool {
+	return sourceInventoryAuxiliarySourceClass(rel) != ""
+}
+
+func sourceInventoryAuxiliaryPathParts(rel string) []string {
+	rel = strings.Trim(strings.ToLower(strings.ReplaceAll(rel, `\`, `/`)), "/")
+	if rel == "" {
+		return nil
+	}
+	return strings.Split(rel, "/")
+}
 
 func repoMapSourceInventoryApplyBudgetGuard(p *repoMapParams, fileCount int) []string {
 	if p == nil || fileCount < sourceInventoryBroadRootBudgetFileThreshold || !repoMapSourceInventoryBroadRootScope(*p) {

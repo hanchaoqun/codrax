@@ -422,7 +422,8 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 	if ctx == nil || ctx.Mutable == nil {
 		return types.SourceInventoryObservation{}
 	}
-	advisory := buildSourceInventoryAdvisoryForLens(ctx, query, true, []string{"repo_lens:tool_query"})
+	advisoryProvenance := append([]string{"repo_lens:tool_query"}, query.Provenance...)
+	advisory := buildSourceInventoryAdvisoryForLens(ctx, query, true, advisoryProvenance)
 	if !advisory.IsActive() {
 		return types.SourceInventoryObservation{}
 	}
