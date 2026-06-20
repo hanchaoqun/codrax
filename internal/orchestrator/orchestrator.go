@@ -27,6 +27,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/outputdump"
+	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -54,6 +55,7 @@ type Orchestrator struct {
 	busCtx                *types.BusContext
 	maxSteps              int
 	subRuntime            *agent.SubAgentRuntime
+	reasoningObserver     reasoninggraph.Observer
 	language              string
 	emit                  render.EventEmitter
 	thinkAloudMap         map[types.AgentName]bool // per-agent think-aloud override
@@ -592,6 +594,18 @@ func (o *Orchestrator) SetEmitter(emit render.EventEmitter) {
 		emit = render.NopEmitter
 	}
 	o.emit = emit
+}
+
+// SetReasoningObserver installs the append-only typed reasoning graph sink used
+// by side-effect-only agent and subagent runtime observations.
+func (o *Orchestrator) SetReasoningObserver(observer reasoninggraph.Observer) {
+	if o == nil {
+		return
+	}
+	o.reasoningObserver = observer
+	if o.subRuntime != nil {
+		o.subRuntime.SetReasoningObserver(observer)
+	}
 }
 
 // WriteWorkflowEngine returns the resolved outer write workflow engine. The

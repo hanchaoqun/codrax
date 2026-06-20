@@ -75,6 +75,27 @@ func (GraphReplayExecutor) Replay(ctx context.Context, req GraphReplayRequest) (
 	return result, nil
 }
 
+// FindToolInvocation locates a tool invocation in a reduced view by the typed
+// invocation ID stamped at the agent tool boundary. It is replay/audit sugar
+// only; callers must not derive control-flow from prompt or transcript prose.
+func FindToolInvocation(view ReasoningGraphView, invocationID string) (ReasoningEventSummary, bool) {
+	invocationID = strings.TrimSpace(invocationID)
+	if invocationID == "" {
+		return ReasoningEventSummary{}, false
+	}
+	for _, event := range view.ToolEvents {
+		if strings.TrimSpace(event.InvocationID) == invocationID {
+			return event, true
+		}
+	}
+	for _, event := range view.RepairEvents {
+		if strings.TrimSpace(event.InvocationID) == invocationID {
+			return event, true
+		}
+	}
+	return ReasoningEventSummary{}, false
+}
+
 func graphReplayFilterNode(events []ReasoningEvent, nodeID string) []ReasoningEvent {
 	nodeID = strings.TrimSpace(nodeID)
 	if nodeID == "" {

@@ -128,6 +128,13 @@ func TestRuntimeStoresInstallOnOrchestrator(t *testing.T) {
 	}
 }
 
+func TestRuntimeReasoningGraphIDIsRuntimeScoped(t *testing.T) {
+	got := runtimeReasoningGraphID(filepath.Join(t.TempDir(), ".codrax"))
+	if !strings.HasPrefix(got, "runtime-.codrax-") {
+		t.Fatalf("runtime graph id = %q", got)
+	}
+}
+
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }

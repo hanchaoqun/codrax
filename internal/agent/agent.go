@@ -4110,6 +4110,7 @@ func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, t
 }
 
 func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, currentToolSurface ...map[string]bool) (*types.ToolResult, *types.MCPResponse) {
+	tc = ensureToolInvocationID(tc)
 	// Fix G (2026-05-07 customer report): repair common LLM-induced
 	// JSON corruption in tool call parameters before validation /
 	// execution. LLMs occasionally emit a trailing extra `}` (the

@@ -44,6 +44,7 @@ type ReasoningGraphAuditEvent struct {
 	NodeID            string `json:"node_id,omitempty"`
 	Kind              string `json:"kind,omitempty"`
 	ReasonCode        string `json:"reason_code,omitempty"`
+	InvocationID      string `json:"invocation_id,omitempty"`
 	ToolName          string `json:"tool_name,omitempty"`
 	ToolPhase         string `json:"tool_phase,omitempty"`
 	Agent             string `json:"agent,omitempty"`
@@ -74,6 +75,8 @@ type ReasoningGraphAuditEvent struct {
 	Producer          string `json:"producer,omitempty"`
 	ResourceURI       string `json:"resource_uri,omitempty"`
 	PayloadRef        string `json:"payload_ref,omitempty"`
+	ParamsRef         string `json:"params_ref,omitempty"`
+	ResultRef         string `json:"result_ref,omitempty"`
 	ObservationID     string `json:"observation_id,omitempty"`
 	WorkflowID        string `json:"workflow_id,omitempty"`
 	ActionID          string `json:"action_id,omitempty"`
@@ -231,6 +234,7 @@ func normalizeReasoningGraphAuditEvents(in []ReasoningGraphAuditEvent) []Reasoni
 		event.NodeID = strings.TrimSpace(event.NodeID)
 		event.Kind = strings.TrimSpace(event.Kind)
 		event.ReasonCode = strings.TrimSpace(event.ReasonCode)
+		event.InvocationID = strings.TrimSpace(event.InvocationID)
 		event.ToolName = strings.TrimSpace(event.ToolName)
 		event.ToolPhase = strings.TrimSpace(event.ToolPhase)
 		event.Agent = strings.TrimSpace(event.Agent)
@@ -283,6 +287,8 @@ func normalizeReasoningGraphAuditEvents(in []ReasoningGraphAuditEvent) []Reasoni
 		event.Producer = strings.TrimSpace(event.Producer)
 		event.ResourceURI = strings.TrimSpace(event.ResourceURI)
 		event.PayloadRef = strings.TrimSpace(event.PayloadRef)
+		event.ParamsRef = strings.TrimSpace(event.ParamsRef)
+		event.ResultRef = strings.TrimSpace(event.ResultRef)
 		event.ObservationID = strings.TrimSpace(event.ObservationID)
 		event.WorkflowID = strings.TrimSpace(event.WorkflowID)
 		event.ActionID = strings.TrimSpace(event.ActionID)

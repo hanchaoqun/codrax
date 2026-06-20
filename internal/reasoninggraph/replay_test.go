@@ -18,8 +18,11 @@ func replayTestEvents() []ReasoningEvent {
 			Kind:       ReasoningEventToolCallObserved,
 			ReasonCode: "tool_call_ok",
 			Payload: ObservationPayload{
-				ToolName: "read_file",
-				Stage:    "explore",
+				InvocationID: "call-read-1",
+				ToolName:     "read_file",
+				Stage:        "explore",
+				ParamsRef:    "blob://read-params",
+				ResultRef:    "blob://read-result",
 			},
 		}),
 		NewObservationEvent(ObservationInput{
@@ -51,8 +54,23 @@ func TestGraphReplayExecutorRecomputesViewAndAuditReadOnly(t *testing.T) {
 	if got.View.EventCount != 2 || len(got.View.ToolEvents) != 1 || len(got.View.RepairEvents) != 1 {
 		t.Fatalf("view not recomputed from events: %+v", got.View)
 	}
+	if got.View.ToolEvents[0].InvocationID != "call-read-1" ||
+		got.View.ToolEvents[0].ParamsRef != "blob://read-params" ||
+		got.View.ToolEvents[0].ResultRef != "blob://read-result" {
+		t.Fatalf("tool invocation refs missing from replay view: %+v", got.View.ToolEvents[0])
+	}
 	if got.Audit == nil || got.Audit.Source != "unit_test" || got.Audit.EventCount != 2 {
 		t.Fatalf("audit not recomputed from view: %+v", got.Audit)
+	}
+	if len(got.Audit.RecentEvents) == 0 ||
+		got.Audit.RecentEvents[0].InvocationID != "call-read-1" ||
+		got.Audit.RecentEvents[0].ParamsRef != "blob://read-params" ||
+		got.Audit.RecentEvents[0].ResultRef != "blob://read-result" {
+		t.Fatalf("tool invocation refs missing from replay audit: %+v", got.Audit.RecentEvents)
+	}
+	invocation, ok := FindToolInvocation(got.View, "call-read-1")
+	if !ok || invocation.ToolName != "read_file" || invocation.ParamsRef != "blob://read-params" {
+		t.Fatalf("FindToolInvocation = %+v, %v", invocation, ok)
 	}
 }
 

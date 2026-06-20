@@ -2,13 +2,27 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+var reasoningToolInvocationSeq atomic.Uint64
+
+func ensureToolInvocationID(call llm.ToolCall) llm.ToolCall {
+	if strings.TrimSpace(call.ID) != "" {
+		call.ID = strings.TrimSpace(call.ID)
+		return call
+	}
+	call.ID = fmt.Sprintf("tool-inv-%d", reasoningToolInvocationSeq.Add(1))
+	return call
+}
 
 func (b *BaseAgent) observeReasoningObservation(ctx *types.AgentContext, kind reasoninggraph.ReasoningEventKind, reasonCode string, nodeKind reasoninggraph.ReasoningNodeKind, payload reasoninggraph.ObservationPayload) {
 	if b == nil || b.deps == nil || b.deps.ReasoningObserver == nil || kind == "" {
@@ -41,7 +55,9 @@ func (b *BaseAgent) observeReasoningObservation(ctx *types.AgentContext, kind re
 
 func (b *BaseAgent) observeToolParamsRecovered(ctx *types.AgentContext, call llm.ToolCall, before, after json.RawMessage) {
 	b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventStructuredPayloadRecovered, "tool_params_json_recovered", reasoninggraph.ReasoningNodeRepair, reasoninggraph.ObservationPayload{
+		InvocationID:      toolInvocationID(call),
 		ToolName:          call.Name,
+		ParamsRef:         b.toolInvocationParamsRef(ctx, call, after),
 		RepairCode:        "tool_params_json_recovered",
 		ViolationKind:     "malformed_json",
 		RepairLocus:       "tool_arguments",
@@ -52,7 +68,9 @@ func (b *BaseAgent) observeToolParamsRecovered(ctx *types.AgentContext, call llm
 
 func (b *BaseAgent) observeToolParamsNormalized(ctx *types.AgentContext, call llm.ToolCall, before, after json.RawMessage, reasonCode string) {
 	b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventToolParamNormalized, reasonCode, reasoninggraph.ReasoningNodeTool, reasoninggraph.ObservationPayload{
+		InvocationID:      toolInvocationID(call),
 		ToolName:          call.Name,
+		ParamsRef:         b.toolInvocationParamsRef(ctx, call, after),
 		RepairCode:        reasonCode,
 		RepairLocus:       "tool_arguments",
 		OriginalByteLen:   len(before),
@@ -62,7 +80,9 @@ func (b *BaseAgent) observeToolParamsNormalized(ctx *types.AgentContext, call ll
 
 func (b *BaseAgent) observeToolRejected(ctx *types.AgentContext, call llm.ToolCall, reasonCode, violationKind string) {
 	b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventToolCallRejected, reasonCode, reasoninggraph.ReasoningNodeTool, reasoninggraph.ObservationPayload{
+		InvocationID:  toolInvocationID(call),
 		ToolName:      call.Name,
+		ParamsRef:     b.toolInvocationParamsRef(ctx, call, call.Params),
 		ViolationKind: violationKind,
 		RepairLocus:   "tool_call",
 	})
@@ -70,7 +90,9 @@ func (b *BaseAgent) observeToolRejected(ctx *types.AgentContext, call llm.ToolCa
 
 func (b *BaseAgent) observeToolCallObserved(ctx *types.AgentContext, call llm.ToolCall, elapsed time.Duration, result *types.ToolResult, resp *types.MCPResponse, execErr error) {
 	payload := reasoninggraph.ObservationPayload{
+		InvocationID:  toolInvocationID(call),
 		ToolName:      call.Name,
+		ParamsRef:     b.toolInvocationParamsRef(ctx, call, call.Params),
 		ElapsedMillis: elapsed.Milliseconds(),
 	}
 	if result != nil {
@@ -94,6 +116,10 @@ func (b *BaseAgent) observeToolCallObserved(ctx *types.AgentContext, call llm.To
 				payload.PayloadRef = strings.TrimSpace(ref)
 			}
 		}
+	}
+	payload.ResultRef = b.toolInvocationResultRef(ctx, call, result, resp)
+	if payload.ResultRef != "" && payload.PayloadRef == "" {
+		payload.PayloadRef = payload.ResultRef
 	}
 	reasonCode := "tool_call_ok"
 	payload.ActionStatus = "success"
@@ -133,6 +159,7 @@ func (b *BaseAgent) observeToolRuntimeTimings(ctx *types.AgentContext, call llm.
 			violationKind = "tool_phase_failed"
 		}
 		b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventToolCallObserved, reasonCode, reasoninggraph.ReasoningNodeTool, reasoninggraph.ObservationPayload{
+			InvocationID:  toolInvocationID(call),
 			ToolName:      call.Name,
 			ToolPhase:     phase,
 			ElapsedMillis: elapsed,
@@ -158,10 +185,76 @@ func observedToolFailureKind(result *types.ToolResult, resp *types.MCPResponse, 
 
 func (b *BaseAgent) observeSchemaRejected(ctx *types.AgentContext, call llm.ToolCall, reasonCode, violationKind string) {
 	b.observeReasoningObservation(ctx, reasoninggraph.ReasoningEventSchemaRejected, reasonCode, reasoninggraph.ReasoningNodeRepair, reasoninggraph.ObservationPayload{
+		InvocationID:  toolInvocationID(call),
 		ToolName:      call.Name,
+		ParamsRef:     b.toolInvocationParamsRef(ctx, call, call.Params),
 		ViolationKind: violationKind,
 		RepairLocus:   "tool_arguments",
 	})
+}
+
+func toolInvocationID(call llm.ToolCall) string {
+	return strings.TrimSpace(call.ID)
+}
+
+func (b *BaseAgent) toolInvocationParamsRef(ctx *types.AgentContext, call llm.ToolCall, params json.RawMessage) string {
+	if b == nil || b.deps == nil || b.deps.ReasoningObserver == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(string(params))
+	if raw == "" {
+		return ""
+	}
+	busCtx := b.buildToolBusContext(ctx)
+	if busCtx == nil || strings.TrimSpace(busCtx.WorkDir) == "" {
+		return ""
+	}
+	return tool.StoreBlobArtifact(busCtx.WorkDir, "tool_invocation_params", toolInvocationArtifactName(call, "params.json"), raw)
+}
+
+func (b *BaseAgent) toolInvocationResultRef(ctx *types.AgentContext, call llm.ToolCall, result *types.ToolResult, resp *types.MCPResponse) string {
+	if result != nil {
+		if ref := strings.TrimSpace(result.RawRef); ref != "" {
+			return ref
+		}
+	}
+	if resp != nil {
+		for _, ref := range []string{resp.PayloadRef, resp.RawRef, resp.RowSetRef, resp.PageRef} {
+			if ref = strings.TrimSpace(ref); ref != "" {
+				return ref
+			}
+		}
+	}
+	if b == nil || b.deps == nil || b.deps.ReasoningObserver == nil {
+		return ""
+	}
+	body := ""
+	if result != nil {
+		body = strings.TrimSpace(result.Summary)
+	}
+	if body == "" && resp != nil {
+		body = strings.TrimSpace(resp.Summary)
+	}
+	if body == "" {
+		return ""
+	}
+	busCtx := b.buildToolBusContext(ctx)
+	if busCtx == nil || strings.TrimSpace(busCtx.WorkDir) == "" {
+		return ""
+	}
+	return tool.StoreBlobArtifact(busCtx.WorkDir, "tool_invocation_result", toolInvocationArtifactName(call, "result.txt"), body)
+}
+
+func toolInvocationArtifactName(call llm.ToolCall, suffix string) string {
+	parts := []string{"tool"}
+	if id := toolInvocationID(call); id != "" {
+		parts = append(parts, id)
+	}
+	if name := strings.TrimSpace(call.Name); name != "" {
+		parts = append(parts, name)
+	}
+	parts = append(parts, suffix)
+	return strings.Join(parts, "-")
 }
 
 func (b *BaseAgent) observeToolRepairPackEmitted(ctx *types.AgentContext, result *types.ToolResult) {

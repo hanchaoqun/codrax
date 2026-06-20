@@ -18,7 +18,10 @@ func TestAuditSummaryFromEventsProjectsTypedLanes(t *testing.T) {
 			Kind:       ReasoningEventSchemaRejected,
 			ReasonCode: "emit_change_plan_schema_rejected",
 			Payload: ObservationPayload{
+				InvocationID:  "call-plan-audit",
 				ToolName:      "emit_change_plan",
+				ParamsRef:     "blob://params-audit",
+				ResultRef:     "blob://result-audit",
 				RepairCode:    "missing_required_field",
 				ViolationKind: "schema",
 			},
@@ -64,6 +67,11 @@ func TestAuditSummaryFromEventsProjectsTypedLanes(t *testing.T) {
 	}
 	if len(got.RepairEvents) != 1 || got.RepairEvents[0].ToolName != "emit_change_plan" || got.RepairEvents[0].RepairCode != "missing_required_field" {
 		t.Fatalf("repair events = %+v", got.RepairEvents)
+	}
+	if got.RepairEvents[0].InvocationID != "call-plan-audit" ||
+		got.RepairEvents[0].ParamsRef != "blob://params-audit" ||
+		got.RepairEvents[0].ResultRef != "blob://result-audit" {
+		t.Fatalf("repair invocation refs = %+v", got.RepairEvents[0])
 	}
 	if len(got.LLMEvents) != 1 || got.LLMEvents[0].ReasonCode != "llm_slow_response" || got.LLMEvents[0].ElapsedMillis != 1500 {
 		t.Fatalf("llm events = %+v", got.LLMEvents)

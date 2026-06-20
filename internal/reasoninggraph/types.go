@@ -144,6 +144,7 @@ type ReasoningEvent struct {
 }
 
 type ObservationPayload struct {
+	InvocationID           string   `json:"invocation_id,omitempty"`
 	ToolName               string   `json:"tool_name,omitempty"`
 	ToolPhase              string   `json:"tool_phase,omitempty"`
 	Agent                  string   `json:"agent,omitempty"`
@@ -185,6 +186,8 @@ type ObservationPayload struct {
 	Producer               string   `json:"producer,omitempty"`
 	ResourceURI            string   `json:"resource_uri,omitempty"`
 	PayloadRef             string   `json:"payload_ref,omitempty"`
+	ParamsRef              string   `json:"params_ref,omitempty"`
+	ResultRef              string   `json:"result_ref,omitempty"`
 	ObservationID          string   `json:"observation_id,omitempty"`
 	WorkflowID             string   `json:"workflow_id,omitempty"`
 	ActionID               string   `json:"action_id,omitempty"`
@@ -222,6 +225,7 @@ type ReasoningEventSummary struct {
 	NodeID            string             `json:"node_id,omitempty"`
 	Kind              ReasoningEventKind `json:"kind,omitempty"`
 	ReasonCode        string             `json:"reason_code,omitempty"`
+	InvocationID      string             `json:"invocation_id,omitempty"`
 	ToolName          string             `json:"tool_name,omitempty"`
 	ToolPhase         string             `json:"tool_phase,omitempty"`
 	Agent             string             `json:"agent,omitempty"`
@@ -256,6 +260,8 @@ type ReasoningEventSummary struct {
 	Producer          string             `json:"producer,omitempty"`
 	ResourceURI       string             `json:"resource_uri,omitempty"`
 	PayloadRef        string             `json:"payload_ref,omitempty"`
+	ParamsRef         string             `json:"params_ref,omitempty"`
+	ResultRef         string             `json:"result_ref,omitempty"`
 	ObservationID     string             `json:"observation_id,omitempty"`
 	WorkflowID        string             `json:"workflow_id,omitempty"`
 	ActionID          string             `json:"action_id,omitempty"`
@@ -510,6 +516,7 @@ func IsAuxiliaryObservationKind(kind ReasoningEventKind) bool {
 }
 
 func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
+	in.InvocationID = strings.TrimSpace(in.InvocationID)
 	in.ToolName = strings.TrimSpace(in.ToolName)
 	in.ToolPhase = strings.TrimSpace(in.ToolPhase)
 	in.Agent = strings.TrimSpace(in.Agent)
@@ -538,6 +545,8 @@ func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	in.Producer = strings.TrimSpace(in.Producer)
 	in.ResourceURI = strings.TrimSpace(in.ResourceURI)
 	in.PayloadRef = strings.TrimSpace(in.PayloadRef)
+	in.ParamsRef = strings.TrimSpace(in.ParamsRef)
+	in.ResultRef = strings.TrimSpace(in.ResultRef)
 	in.ObservationID = strings.TrimSpace(in.ObservationID)
 	in.WorkflowID = strings.TrimSpace(in.WorkflowID)
 	in.ActionID = strings.TrimSpace(in.ActionID)

@@ -34,6 +34,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/orchestrator"
 	"github.com/hanchaoqun/codrax/internal/outputdump"
 	"github.com/hanchaoqun/codrax/internal/preview"
+	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/repl"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -102,6 +103,14 @@ const (
 	defaultWorktreeKeepTTLHours = 168
 	defaultWorktreeKeepMaxCount = 20
 )
+
+func runtimeReasoningGraphID(runtimeAnchor string) string {
+	base := strings.TrimSpace(filepath.Base(strings.TrimSpace(runtimeAnchor)))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		base = "runtime"
+	}
+	return "runtime-" + base + "-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+}
 
 // CLI flag variables.
 var (
@@ -417,6 +426,7 @@ type appContext struct {
 	mcpServerConfigs        []types.MCPServerConfig
 	operationSkillConfigs   []types.OperationSkillConfig
 	operationCommandPolicy  operation.CommandPolicy
+	reasoningGraphCollector *reasoninggraph.EventCollector
 	// writeEnabled mirrors codrax.yaml :: write_enabled. Forwarded to
 	// the REPL Config so /mode write, /write, and /approve can be
 	// rejected at the slash-command surface with a clear error pointing
@@ -3718,12 +3728,15 @@ func initApp(cmd *cobra.Command, args []string) error {
 	subAgentRegistry := agent.NewSubAgentRegistry()
 
 	agentCfg := pipelineSettings.Agent
+	reasoningCollector := reasoninggraph.NewEventCollector(runtimeReasoningGraphID(runtimeAnchor))
+	app.reasoningGraphCollector = reasoningCollector
 	deps := &agent.Dependencies{
 		LLM:                    app.defaultLLM,
 		Tools:                  toolRegistry,
 		MCPServers:             mcpRegistry,
 		SubAgents:              subAgentRegistry,
 		Skills:                 skillRegistry,
+		ReasoningObserver:      reasoningCollector,
 		MaxIterations:          agentCfg.MaxIterations,
 		Emit:                   renderer.Emitter(),
 		ExploreHeuristics:      pipelineSettings.Explore.Heuristics,
@@ -3843,6 +3856,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	logging.Info("registered %d agents", len(agentRegistry.List()))
 
 	orch = orchestrator.New(pipelineSettings, agentRegistry, skillRegistry, subAgentRegistry)
+	orch.SetReasoningObserver(reasoningCollector)
 	orch.SetMaxSteps(flagMaxSteps)
 	orch.SetLanguage(flagLang)
 	orch.SetEmitter(renderer.Emitter())

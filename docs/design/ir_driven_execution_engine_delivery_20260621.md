@@ -252,7 +252,7 @@ Commercial hardening before declaring complete:
 | M0a Write DAG install retirement | completed | Production write mode no longer installs `BuildWriteTaskGraph` or emits legacy write TaskGraph rows; `TestMode_WriteControllerDoesNotInstallLegacyWriteTaskGraph` pins controller-first behavior. |
 | M0b Legacy write scheduler deletion | completed | Removed `write_scheduler.go`, `write_graph.go`, and stale scheduler tests; retained shared retry helpers in `write_retry_helpers.go`; updated controller/read tests and architecture docs. |
 | M0c TaskNode slot guard | completed | Added `TestTaskNodeExecSlotsHaveNoRuntimeConsumersToday`; TaskNode artifact slots remain serialized/compiler/gate-only until Phase 2 artifact contracts wire or delete them. |
-| M1a ToolInvocation production wiring | not_started | Observer exists but production replay identity incomplete. |
+| M1a ToolInvocation production wiring | completed | Added typed `invocation_id` / `params_ref` / `result_ref` through ReasoningGraph payload, reducer, replay, and audit views; production `cmd/root.go` now installs a shared observer into agent deps and orchestrator/subagent runtime; `FindToolInvocation` locates replayed calls. Verified with `go test ./cmd`, `go test ./internal/agent`, `go test ./internal/orchestrator`, `go test ./internal/reasoninggraph ./internal/types`. |
 | M1b EvidenceClosure node status | not_started | `graphState` still owns node status. |
 | M1c IngestRound shadow reducer | not_started | Legacy recompute still scattered. |
 | M1d ProgressDelta authority | not_started | Downgrade/replan signals still scattered. |

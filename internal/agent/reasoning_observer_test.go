@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -153,6 +155,134 @@ func TestReasoningObserverCapturesLocalToolObservedSuccess(t *testing.T) {
 		ev.PayloadRef != "blob://tool/raw-success" ||
 		ev.ElapsedMillis < 0 {
 		t.Fatalf("unexpected observed success event: %+v", ev)
+	}
+}
+
+func TestToolInvocationStampedInProduction(t *testing.T) {
+	collector := reasoninggraph.NewEventCollector("graph-agent")
+	reg := toolpkg.NewRegistry()
+	reg.Register(&observedRuntimeTool{
+		name: "observed_artifact",
+		result: types.ToolResult{
+			ToolName:  "observed_artifact",
+			Summary:   "small result",
+			Success:   true,
+			Timestamp: time.Now(),
+		},
+	})
+	workDir := t.TempDir()
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		Tools:             reg,
+		ReasoningObserver: collector,
+	}, nil)
+	ctx := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		WorkDir:   workDir,
+	}
+
+	res, _ := base.executeTool(ctx, llm.ToolCall{
+		ID:     "call-artifact",
+		Name:   "observed_artifact",
+		Params: json.RawMessage(`{}`),
+	})
+	if res == nil || !res.Success {
+		t.Fatalf("expected successful ToolResult, got %+v", res)
+	}
+
+	view := collector.View()
+	if len(view.ToolEvents) != 1 {
+		t.Fatalf("tool events=%+v", view.ToolEvents)
+	}
+	ev := view.ToolEvents[0]
+	if ev.InvocationID != "call-artifact" ||
+		ev.ParamsRef == "" ||
+		ev.ResultRef == "" ||
+		ev.PayloadRef != ev.ResultRef {
+		t.Fatalf("invocation refs missing: %+v", ev)
+	}
+	if _, err := os.Stat(ev.ParamsRef); err != nil {
+		t.Fatalf("params ref not persisted: %v", err)
+	}
+	if _, err := os.Stat(ev.ResultRef); err != nil {
+		t.Fatalf("result ref not persisted: %v", err)
+	}
+}
+
+func TestToolInvocationObserverSideEffectFree(t *testing.T) {
+	collector := reasoninggraph.NewEventCollector("graph-agent")
+	reg := toolpkg.NewRegistry()
+	reg.Register(&observedRuntimeTool{
+		name: "observed_side_effect_free",
+		result: types.ToolResult{
+			ToolName:  "observed_side_effect_free",
+			Summary:   "model visible summary",
+			Success:   true,
+			Timestamp: time.Now(),
+		},
+	})
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		Tools:             reg,
+		ReasoningObserver: collector,
+	}, nil)
+	ctx := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		WorkDir:   t.TempDir(),
+	}
+
+	res, _ := base.executeTool(ctx, llm.ToolCall{
+		ID:     "call-side-effect-free",
+		Name:   "observed_side_effect_free",
+		Params: json.RawMessage(`{}`),
+	})
+	if res == nil || res.Summary != "model visible summary" {
+		t.Fatalf("observer changed model-visible result: %+v", res)
+	}
+	if view := collector.View(); len(view.ToolEvents) != 1 || view.ToolEvents[0].ResultRef == "" {
+		t.Fatalf("expected side-effect-only graph event, got %+v", view.ToolEvents)
+	}
+}
+
+func TestToolInvocationReplayable(t *testing.T) {
+	collector := reasoninggraph.NewEventCollector("graph-agent")
+	reg := toolpkg.NewRegistry()
+	reg.Register(&observedRuntimeTool{
+		name: "observed_replay",
+		result: types.ToolResult{
+			ToolName:  "observed_replay",
+			Summary:   "replay result",
+			Success:   true,
+			Timestamp: time.Now(),
+		},
+	})
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		Tools:             reg,
+		ReasoningObserver: collector,
+	}, nil)
+	ctx := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		WorkDir:   t.TempDir(),
+	}
+
+	base.executeTool(ctx, llm.ToolCall{
+		ID:     "call-replay",
+		Name:   "observed_replay",
+		Params: json.RawMessage(`{}`),
+	})
+	replay, err := (reasoninggraph.GraphReplayExecutor{}).Replay(context.Background(), reasoninggraph.GraphReplayRequest{
+		Events: collector.Events(),
+		Source: "agent_test",
+	})
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if len(replay.View.ToolEvents) != 1 ||
+		replay.View.ToolEvents[0].InvocationID != "call-replay" ||
+		replay.View.ToolEvents[0].ParamsRef == "" ||
+		replay.View.ToolEvents[0].ResultRef == "" {
+		t.Fatalf("replay lost invocation refs: %+v", replay.View.ToolEvents)
 	}
 }
 

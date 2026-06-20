@@ -61,9 +61,12 @@ func TestReduceEventsSummarizesToolRepairAndLLMObservationLanes(t *testing.T) {
 			Kind:       ReasoningEventToolCallObserved,
 			ReasonCode: "tool_call_ok",
 			Payload: ObservationPayload{
-				ToolName: "emit_change_plan",
-				Agent:    "planner",
-				Stage:    "plan",
+				InvocationID: "call-plan-1",
+				ToolName:     "emit_change_plan",
+				Agent:        "planner",
+				Stage:        "plan",
+				ParamsRef:    "blob://params",
+				ResultRef:    "blob://result",
 			},
 			At: now,
 		}),
@@ -107,6 +110,11 @@ func TestReduceEventsSummarizesToolRepairAndLLMObservationLanes(t *testing.T) {
 	}
 	if len(view.ToolEvents) != 1 || view.ToolEvents[0].ToolName != "emit_change_plan" {
 		t.Fatalf("tool events not summarized: %+v", view.ToolEvents)
+	}
+	if view.ToolEvents[0].InvocationID != "call-plan-1" ||
+		view.ToolEvents[0].ParamsRef != "blob://params" ||
+		view.ToolEvents[0].ResultRef != "blob://result" {
+		t.Fatalf("tool invocation refs not summarized: %+v", view.ToolEvents[0])
 	}
 	if len(view.RepairEvents) != 1 ||
 		view.RepairEvents[0].RepairCode != "write_plan_repair_pack" ||
