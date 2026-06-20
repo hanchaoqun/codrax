@@ -252,6 +252,94 @@ func TestApplyAndPersistMutation_DemotesNavigationOnlyFollowupAfterOwnerEvidence
 	}
 }
 
+func TestApplyAndPersistMutation_RuntimeTraceObservationOnlySkipsReadNavigationSupplement(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AttachedHitrace = "app-100 sched_switch prev_state=S"
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"app-100"},
+		},
+	}}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "answer"},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil {
+		t.Fatal("answer document not persisted")
+	}
+	if got.ReadNavigationCoverage != nil {
+		t.Fatalf("runtime-only trace should not stamp source navigation coverage: %+v", got.ReadNavigationCoverage)
+	}
+	if got.ReadLocalizerFollowup != nil {
+		t.Fatalf("runtime-only trace should not stamp source localizer follow-up: %+v", got.ReadLocalizerFollowup)
+	}
+}
+
+func TestApplyAndPersistMutation_RuntimeTraceCurrentSourceRequirementStampsReadNavigation(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AttachedHitrace = "app-100 sched_switch prev_state=S"
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"app-100"},
+		},
+		SourceScopeProfile: &types.SourceScopeProfile{
+			RequestedScope: types.SourceScopeProduction,
+			Confidence:     0.8,
+		},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Label:    "current implementation",
+				Role:     types.RequestedAnswerDimensionCurrentKeyCode,
+				Required: true,
+				Index:    1,
+			}},
+			Confidence: 0.9,
+		},
+	}}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "answer"},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil {
+		t.Fatal("answer document not persisted")
+	}
+	if got.ReadNavigationCoverage == nil || got.ReadNavigationCoverage.State != types.RepoMapNavigationCoverageMissing {
+		t.Fatalf("current-source trace should keep navigation coverage: %+v", got.ReadNavigationCoverage)
+	}
+	if got.ReadLocalizerFollowup == nil || got.ReadLocalizerFollowup.State != types.ReadLocalizerFollowupNeeded {
+		t.Fatalf("current-source trace should keep localizer follow-up: %+v", got.ReadLocalizerFollowup)
+	}
+}
+
 func TestApplyAndPersistMutation_StampsReadReasoningGraphSummary(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.TraceID = "trace-read-summary"

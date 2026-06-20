@@ -310,6 +310,76 @@ func TestCheckTier1Floor_ReadLocalizerFollowupDemotesNavigationAfterOwnerEvidenc
 	}
 }
 
+func TestCheckTier1Floor_RuntimeTraceObservationOnlySkipsNavigationFollowup(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("analyze attached trace root cause")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable:         mu,
+		AttachedHitrace: "app-100 sched_switch prev_state=S",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			AnalyzerHints: types.AnalyzerHints{
+				PrimaryEntities: []string{"app-100"},
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("runtime-only trace should skip source-navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+func TestCheckTier1Floor_RuntimeTraceCurrentSourceRequirementKeepsNavigationFollowup(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("analyze trace and current implementation")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable:         mu,
+		AttachedHitrace: "app-100 sched_switch prev_state=S",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			AnalyzerHints: types.AnalyzerHints{
+				PrimaryEntities: []string{"app-100"},
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.8,
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label:    "current implementation",
+					Role:     types.RequestedAnswerDimensionCurrentKeyCode,
+					Required: true,
+					Index:    1,
+				}},
+				Confidence: 0.9,
+			},
+		}},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if proceed || exhausted || !strings.Contains(msg, "repo_map") {
+		t.Fatalf("current-source requirement should keep navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
 func TestCheckTier1Floor_ReadLocalizerFollowupCoveredDoesNotBlock(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())

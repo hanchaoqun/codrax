@@ -235,6 +235,11 @@ func stampReadNavigationCoverageFromTurnA(ctx *types.BusContext, doc *types.Answ
 	if ctx == nil || ctx.Mutable == nil || doc == nil || ctx.AnalysisIR == nil {
 		return false
 	}
+	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
+	if types.RuntimeArtifactReadSourceNavigationNotRequired(ctx.AnalysisIR, attachedTrace) {
+		doc.ReadNavigationCoverage = nil
+		return false
+	}
 	turnA := ctx.Mutable.TurnAArtifacts()
 	if turnA == nil {
 		return false

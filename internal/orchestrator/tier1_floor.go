@@ -84,6 +84,10 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 	if busCtx == nil || busCtx.Mutable == nil || ir == nil {
 		return nil
 	}
+	attachedTrace := strings.TrimSpace(busCtx.AttachedHitrace) != ""
+	if types.RuntimeArtifactReadSourceNavigationNotRequired(ir, attachedTrace) {
+		return nil
+	}
 	turnA := busCtx.Mutable.TurnAArtifacts()
 	if turnA == nil {
 		return nil

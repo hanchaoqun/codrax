@@ -156,7 +156,7 @@ roles from many raw trace rows.
 | Batch P | planned | Normalize requested-dimension coverage by typed ids/labels/origins. | Finalizer does not patch solely because a role enum label drifted; it patches only when the typed requested dimension is absent from visible answer content. |
 | Batch Q | planned | Split runtime-artifact language metadata from repo/source language. | Log/trace artifact language guesses cannot drive source-language summaries, source localization, or hard gates. |
 | Batch R | planned | Share proof coverage across exploration siblings. | Mixed runtime/source cases converge with bounded duplicate reads and smaller context while preserving source citations. |
-| Batch S | planned | Add origin-aware runtime-only source navigation suppression. | Trace/log artifact-only tasks with no current-source obligation skip repo_map/localizer blocking floors and user-facing source supplements while keeping runtime observation audit. |
+| Batch S | delivered | Add origin-aware runtime-only source navigation suppression. | Trace/log artifact-only tasks with no current-source obligation skip repo_map/localizer blocking floors and user-facing source supplements while keeping runtime observation audit. |
 | Batch T | planned | Add trace causal projection and principal root-cause obligation. | Trace final answers surface the typed primary root cause, direct wait, causal chain, and drilldown boundaries from one compact projection. |
 | Batch U | planned | Add source inventory authority with scope classes. | Supported-language searches expose product/test/fixture/corpus/vendor/generated scope classes; absence closes only against the classes required by the typed task. |
 | Batch V | planned | Add aggregate negative-fact canonicalization and repair hints. | Empty-set and no-hit searches converge through one canonical schema path without repeated dimension repair loops. |
@@ -195,6 +195,9 @@ roles from many raw trace rows.
   audit, but does not stamp a blocking localizer follow-up after owner evidence.
 - Unit: runtime-artifact-only trace tasks do not require repo_map/localizer
   coverage when the typed request model has no current-source obligation.
+- Unit: runtime-artifact trace tasks that explicitly require current-source
+  coverage still keep repo_map/localizer pre-finalize and final-supplement
+  obligations.
 - Unit: trace causal projection binds a single primary root-cause node, direct
   wait node, ordered causal chain, and drilldown boundary from structured
   trace observations.
@@ -357,3 +360,20 @@ roles from many raw trace rows.
   remains the highest priority, but these non-noise gaps are part of the same
   commercial delivery ledger and will be fixed in separate typed-authority
   batches rather than as eval-specific patches.
+- 2026-06-20 Batch S delivered: added shared
+  `RuntimeArtifactReadSourceNavigationNotRequired` authority and consumed it in
+  the pre-finalize Tier-1 localizer floor plus final-answer navigation/localizer
+  stamping. Attached trace / runtime-artifact observation-only tasks no longer
+  produce source-navigation requeues or source-localizer user supplements when
+  the typed current-source lane is not required. The reverse path is pinned:
+  a runtime artifact with a required `current_key_code` dimension and typed
+  source scope still keeps repo_map/localizer obligations. Focused tests passed
+  for `internal/types`, `internal/orchestrator`, and `internal/tool`.
+- 2026-06-20 Batch S verification: full `go test ./...` passed. The targeted
+  representative rerun
+  `eval/convergence_audit_summary_20260620_trace_after_batch_s.md` passed
+  `trace_query_wakeup_causal_io_chain` with `read_file=0`, `repo_map=0`,
+  `midloop_inject=0`, `finalizer_iters=1`, and no flags. Log audit found no
+  `pre-finalize read localizer follow-up`, no repo_map navigation supplement,
+  and no read-localizer supplement. The broader trace principal-root-cause
+  projection work remains tracked separately as RNE-C22 / Batch T.

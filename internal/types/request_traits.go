@@ -1208,6 +1208,19 @@ func (rm RequestModel) HasRuntimeArtifactObservationOnlySurfaceInTraceContext(at
 	return withTrace.HasRuntimeArtifactObservationOnlySurface()
 }
 
+// RuntimeArtifactReadSourceNavigationNotRequired reports whether read-mode
+// source navigation/localizer debt is advisory for this request. It is used by
+// hard pre-finalize floors and final-answer system supplement stamping. The
+// signal is typed: runtime artifact presence comes from structured bundles or
+// an attached trace flag, and the current-source posture comes from
+// CurrentSourceLaneDecision.
+func RuntimeArtifactReadSourceNavigationNotRequired(ir *AnalysisIR, attachedTrace bool) bool {
+	if ir == nil {
+		return false
+	}
+	return ir.RequestModel.HasRuntimeArtifactObservationOnlySurfaceInTraceContext(attachedTrace)
+}
+
 // HasRuntimeArtifactSourceOptionalMixedSurface is the counterpart of
 // HasRuntimeArtifactObservationOnlySurface: runtime observations may answer the
 // artifact lane, but the analyzer explicitly kept current-source analysis in

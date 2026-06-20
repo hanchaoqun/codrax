@@ -575,6 +575,43 @@ func TestCurrentSourceLaneDecision_DefaultExternalArtifactMetricDimensionStaysOp
 	}
 }
 
+func TestRuntimeArtifactReadSourceNavigationNotRequired_AttachedTraceObservationOnly(t *testing.T) {
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent:   IntentTrace,
+		Scenario: ScenarioPerformanceBottleneck,
+		AnalyzerHints: AnalyzerHints{
+			PrimaryEntities: []string{"app-20"},
+		},
+	}}
+	if !RuntimeArtifactReadSourceNavigationNotRequired(ir, true) {
+		t.Fatal("attached trace without current-source requirement should not require source navigation")
+	}
+}
+
+func TestRuntimeArtifactReadSourceNavigationNotRequired_CurrentKeyCodeKeepsSourceRequired(t *testing.T) {
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeProduction,
+			Confidence:     0.8,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:    "current implementation",
+				Role:     RequestedAnswerDimensionCurrentKeyCode,
+				Required: true,
+				Index:    1,
+			}},
+			Confidence: 0.9,
+		},
+	}}
+	if RuntimeArtifactReadSourceNavigationNotRequired(ir, true) {
+		t.Fatal("required current_key_code dimension must keep source navigation required")
+	}
+}
+
 func TestCurrentSourceLaneDecision_RuntimeExactTargetsRemainSourceOptional(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,
