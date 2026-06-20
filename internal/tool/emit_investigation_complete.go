@@ -1942,6 +1942,19 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
+	} else if downgrade := sourceInventoryClassUniverseAbsenceDowngrade(ctx, resultKind); downgrade != "" {
+		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_source_class_universe", preCompleteStart, len(preflight.Evidence))
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneSourceClassUniverse) {
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			}
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   downgrade,
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
 	} else if downgrade := sourceInventoryLensExecutionDowngrade(ctx, effectiveAggregateFacts); downgrade != "" {
 		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_source_inventory_lens", preCompleteStart, len(preflight.Evidence))
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneSourceInventoryLens) {
@@ -3614,6 +3627,51 @@ func exhaustiveEnumerationHasOriginSpecificOnlyMemberSet(ctx *types.BusContext, 
 		}
 	}
 	return false
+}
+
+// sourceInventoryClassUniverseAbsenceDowngrade is the LOOP-gate twin of the
+// finalize-stage validateSourceInventoryExactAbsenceBound: it consumes the same
+// typed SourceInventoryExactAbsenceNeedsInventoryProof signal so a source-family
+// exact absence cannot close MID-LOOP while the typed source-class universe is
+// still open. The finalize gate alone let the explorer spend its whole budget
+// and only catch the false-absence post-hoc; this surfaces it where the model
+// can still act. It is subtype-scoped by the predicate (fires only when the
+// request has an active source_inventory_profile with positive source classes
+// that are not complete-zero for the requested roles — so symbol-existence /
+// behaviour-verdict absence is inert). It reads typed inputs only (the profile
+// + the typed observation), never the model's absence_justification prose.
+//
+// RNE-C61: it declares repo_map as a required tool (RepairDirective.Tools) so the
+// restricted / no-emit completion surface EXPOSES repo_map and the demand is
+// satisfiable — the production-only lens that satisfied the lens-execution gate
+// can leave corpus / fixture / thirdparty classes uncovered, which this catches.
+func sourceInventoryClassUniverseAbsenceDowngrade(ctx *types.BusContext, resultKind string) string {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(resultKind), "absence") {
+		return ""
+	}
+	summary, blocked := types.SourceInventoryExactAbsenceNeedsInventoryProof(
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile,
+		types.SourceInventoryObservationFromMutable(ctx.Mutable),
+	)
+	if !blocked {
+		return ""
+	}
+	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:      types.RepairStructuredHandoff,
+		Tools:     []string{"repo_map"},
+		Subject:   "Prove the requested source-class universe with a complete `repo_map(view=\"source_inventory\")` pass over the principal roles (including any repo-owned corpus / fixture / thirdparty source files), or emit unknown/caveated, before declaring exact absence.",
+		Rationale: "A source-family exact absence was declared while the typed source-class universe is still open (" + summary + "). A production-source no-hit does not bound corpus / fixture / thirdparty source classes; run the bounded source_inventory lens over the requested roles, then hand off a complete zero member_set or an honest bounded absence.",
+		Origin:    "pre_complete.source_class_universe",
+		Stage:     string(types.StageExplore),
+	})
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — source-family absence declared while the typed source-class universe is still open.\n\n")
+	b.WriteString(summary + "\n\n")
+	b.WriteString("Run `repo_map` with `view=\"source_inventory\"` over the requested principal roles to prove the exact source-class universe (including any repo-owned corpus / fixture / thirdparty source files), then re-emit with a complete zero `member_set` or a bounded absence. A production-source no-hit does not by itself prove cross-class absence.\n")
+	return b.String()
 }
 
 func sourceInventoryLensExecutionDowngrade(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) string {

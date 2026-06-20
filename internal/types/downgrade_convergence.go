@@ -16,6 +16,10 @@ const (
 	DowngradeLaneCurrentSourceLane DowngradeLane = "current_source_lane"
 	// DowngradeLaneSourceInventoryLens is the source-inventory lens-execution gate.
 	DowngradeLaneSourceInventoryLens DowngradeLane = "source_inventory_lens"
+	// DowngradeLaneSourceClassUniverse is the source-class-universe absence gate:
+	// a source-family exact absence declared while the typed source-class
+	// universe (production/test/fixture/corpus/thirdparty/...) is still open.
+	DowngradeLaneSourceClassUniverse DowngradeLane = "source_class_universe"
 	// DowngradeLaneContractChain is the pre-complete contract-check chain gate
 	// (the ~13 sub-checks aggregate into this lane; the typed BlockerKey below
 	// distinguishes which sub-blocker is active).
