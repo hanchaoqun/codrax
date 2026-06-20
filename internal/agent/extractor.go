@@ -203,6 +203,14 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 
 		// Deterministic evidence: top 24 ranked items
 		evidenceItems := extractorTranscriptEvidenceItems(ta.EvidenceItems, supportScope)
+		// Gap 3 handoff fidelity: stably bubble principal (load-bearing /
+		// exhaustively-listed) evidence to the front so the top-N cap below
+		// cannot crowd an answer-bearing row out behind incidental reads.
+		// Uses the same typed salience predicate the value lens ranks on
+		// (SalienceLockedForScoring); relative order is otherwise preserved,
+		// so the citation/recovered/location semantics of each row are
+		// untouched — only selection priority changes.
+		evidenceItems = extractorPrioritizePrincipalEvidence(evidenceItems)
 		if len(evidenceItems) > 0 {
 			b.WriteString("### Deterministic evidence the investigation extracted\n\n")
 			evMax := len(evidenceItems)
@@ -480,6 +488,22 @@ func extractorTranscriptSupportScope(ctx *types.AgentContext) *supportLaneScope 
 		return nil
 	}
 	return scope
+}
+
+// extractorPrioritizePrincipalEvidence stably reorders evidence so principal
+// (typed load-bearing / exhaustively-listed) rows precede incidental ones,
+// ensuring the Turn-A→Turn-B handoff carries answer-bearing evidence by
+// priority and does not lose it to the top-N display cap. Typed-only; relative
+// order within each band is preserved.
+func extractorPrioritizePrincipalEvidence(items []types.EvidenceItem) []types.EvidenceItem {
+	if len(items) < 2 {
+		return items
+	}
+	out := append([]types.EvidenceItem(nil), items...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].SalienceLockedForScoring() && !out[j].SalienceLockedForScoring()
+	})
+	return out
 }
 
 func extractorTranscriptEvidenceItems(items []types.EvidenceItem, supportScope *supportLaneScope) []types.EvidenceItem {

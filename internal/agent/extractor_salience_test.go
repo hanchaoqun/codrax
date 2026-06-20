@@ -89,3 +89,36 @@ func TestExtractorValueEvidenceDisplayLimit_WidensForLockedSalience(t *testing.T
 		t.Fatalf("unset salience must keep default limit, got %d", limit)
 	}
 }
+
+// Gap 3 handoff fidelity: principal (typed load-bearing / exhaustively-listed)
+// evidence must stably precede incidental rows so the Turn-A→Turn-B top-N cap
+// cannot crowd answer-bearing evidence out. Order within each band is preserved.
+func TestExtractorPrioritizePrincipalEvidence_StableBandedOrder(t *testing.T) {
+	items := []types.EvidenceItem{
+		{ID: "ctx1", Salience: types.SalienceContext},
+		{ID: "lb1", Salience: types.SalienceLoadBearing},
+		{ID: "sup1", Salience: types.SalienceSupporting},
+		{ID: "ex1", Salience: types.SalienceExhaustListed},
+		{ID: "lb2", Salience: types.SalienceLoadBearing},
+	}
+	got := extractorPrioritizePrincipalEvidence(items)
+	var ids []string
+	for _, it := range got {
+		ids = append(ids, it.ID)
+	}
+	// Principal rows first in original relative order (lb1, ex1, lb2), then the
+	// rest in original relative order (ctx1, sup1).
+	want := []string{"lb1", "ex1", "lb2", "ctx1", "sup1"}
+	if len(ids) != len(want) {
+		t.Fatalf("got %v, want %v", ids, want)
+	}
+	for i := range want {
+		if ids[i] != want[i] {
+			t.Fatalf("order = %v, want %v (principal stably first)", ids, want)
+		}
+	}
+	// Must not mutate the caller's slice.
+	if items[0].ID != "ctx1" {
+		t.Fatalf("input slice was mutated: %s", items[0].ID)
+	}
+}
