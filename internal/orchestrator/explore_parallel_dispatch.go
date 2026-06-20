@@ -12,6 +12,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/agent"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -167,7 +168,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 			}
 			earlyConverged = true
 			cancel()
-		} else if !allowEarlyConvergence && handoffTracker.active() && exploreParallelResultConverged(res) {
+		} else if !allowEarlyConvergence && handoffTracker.active() && exploreParallelResultSatisfiesLaneHandoff(res) {
 			if handoffTracker.mark(res.index, res.lanePlan) {
 				collectiveConverged = true
 				for _, idx := range handoffTracker.convergedIndexes() {
@@ -495,6 +496,24 @@ func exploreParallelResultConverged(res exploreParallelResult) bool {
 		return true
 	}
 	return false
+}
+
+func exploreParallelResultSatisfiesLaneHandoff(res exploreParallelResult) bool {
+	if exploreParallelResultConverged(res) {
+		return true
+	}
+	if res.fork == nil {
+		return false
+	}
+	turnA := res.fork.TurnAArtifacts()
+	snapshot, ok := loopkernel.ProofSnapshotFromReadTurnA(turnA)
+	if !ok {
+		return false
+	}
+	if strings.TrimSpace(snapshot.AcceptedResultKind) == "" && !snapshot.RuntimeObservationOnlyComplete {
+		return false
+	}
+	return snapshot.Authority.State == loopkernel.ProofCoverageCovered
 }
 
 func (o *Orchestrator) parallelExploreAllowsEarlyConvergence() bool {

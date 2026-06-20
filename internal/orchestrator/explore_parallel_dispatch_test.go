@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -864,6 +865,154 @@ func TestDispatchExploreWindowsParallel_CollectiveLaneConvergenceCancelsSupportS
 	got := []string{o.busCtx.StageReports[0].Findings, o.busCtx.StageReports[1].Findings}
 	if strings.Join(got, "|") != "vcs owner report|source owner report" {
 		t.Fatalf("stage reports = %+v, want owner reports only", got)
+	}
+}
+
+func TestDispatchExploreWindowsParallel_CollectiveLaneConsumesReadProofSnapshot(t *testing.T) {
+	var supportStarted sync.Once
+	supportStartedCh := make(chan struct{})
+	firstProofDoneCh := make(chan struct{})
+	var supportCanceled int32
+
+	coveredTurnA := func(path, id string) types.TurnAArtifacts {
+		return types.TurnAArtifacts{
+			UserQuestion:       "q",
+			AcceptedResultKind: "resolved",
+			ReadFiles:          []string{path},
+			SourceLocalization: &types.SourceLocalizationReview{
+				Status:              types.SourceLocalizationSupported,
+				SourcePaths:         []string{path},
+				SupportedPaths:      []string{path},
+				OwnerSupportedPaths: []string{path},
+				Anchors: []types.SourceLocalizationAnchor{{
+					Path:        path,
+					Role:        types.SourcePathRoleProduction,
+					Kind:        types.SourceLocalizationAnchorGroundedEvidence,
+					Strength:    types.SourceLocalizationAnchorOwner,
+					OwnerSymbol: "Owner",
+				}},
+			},
+			EvidenceItems: []types.EvidenceItem{{
+				ID:              id,
+				Kind:            types.EvidenceDirect,
+				Scope:           types.ScopeLine,
+				Source:          path,
+				LineStart:       1,
+				LineEnd:         1,
+				Subject:         "Owner",
+				OwnerSymbol:     "Owner",
+				GroundingStatus: types.GroundingGrounded,
+			}},
+		}
+	}
+
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			switch ctx.ExploreDispatchKey {
+			case "n1_evidence_t0":
+				<-supportStartedCh
+				ctx.Mutable.SetTurnAArtifacts(coveredTurnA("internal/agent/a.go", "ev-a"))
+				close(firstProofDoneCh)
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					StageReport:   "proof owner a",
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			case "n1_evidence_t1":
+				<-firstProofDoneCh
+				ctx.Mutable.SetTurnAArtifacts(coveredTurnA("internal/agent/b.go", "ev-b"))
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					StageReport:   "proof owner b",
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			case "n1_evidence_t2":
+				supportStarted.Do(func() { close(supportStartedCh) })
+				select {
+				case <-ctx.Context().Done():
+					atomic.StoreInt32(&supportCanceled, 1)
+					return nil, ctx.Context().Err()
+				case <-time.After(2 * time.Second):
+					return nil, errors.New("support sibling was not canceled after proof coverage")
+				}
+			default:
+				t.Fatalf("unexpected dispatch key %q", ctx.ExploreDispatchKey)
+				return nil, nil
+			}
+		},
+	})
+	o := New(types.PipelineSettings{MaxParallelism: 3}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		PipelineStage: types.StageAnalyze,
+		ActiveAgent:   types.AgentAnalyzer,
+		Mutable:       types.NewMutableState("collective proof coverage"),
+		Signals:       types.ExecutionSignals{},
+		ExploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{
+			{
+				ID:                  "lane-a",
+				Label:               "owner_a",
+				Origin:              types.AnswerEvidenceOriginCurrentSource,
+				InvestigationUnitID: "subtopic-1",
+				Role:                types.ExploreLaneRolePrincipal,
+				HandoffPolicy:       types.ExploreLaneHandoffOwn,
+			},
+			{
+				ID:                  "lane-b",
+				Label:               "owner_b",
+				Origin:              types.AnswerEvidenceOriginCurrentSource,
+				InvestigationUnitID: "subtopic-2",
+				Role:                types.ExploreLaneRolePrincipal,
+				HandoffPolicy:       types.ExploreLaneHandoffOwn,
+			},
+		}},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+	}
+
+	out, err := o.dispatchExploreWindowsParallel([][]*types.TaskNode{
+		{{ID: "n1_evidence_t0", Type: types.NodeEvidence}},
+		{{ID: "n1_evidence_t1", Type: types.NodeEvidence}},
+		{{ID: "n1_evidence_t2", Type: types.NodeEvidence}},
+	}, nil, 3)
+	if err != nil {
+		t.Fatalf("covered proof snapshots should cancel support sibling without error: %v", err)
+	}
+	if out == nil || out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("merged output should preserve enough-facts after proof coverage, got %+v", out)
+	}
+	if atomic.LoadInt32(&supportCanceled) != 1 {
+		t.Fatal("support sibling was not canceled after proof coverage")
+	}
+	if len(o.busCtx.StageReports) != 2 {
+		t.Fatalf("stage reports = %+v, want proof-owner reports only", o.busCtx.StageReports)
+	}
+	got := []string{o.busCtx.StageReports[0].Findings, o.busCtx.StageReports[1].Findings}
+	if strings.Join(got, "|") != "proof owner a|proof owner b" {
+		t.Fatalf("stage reports = %+v, want proof-owner reports only", got)
+	}
+}
+
+func TestExploreParallelResultSatisfiesLaneHandoffRejectsWeakProof(t *testing.T) {
+	mut := types.NewMutableState("weak proof")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedResultKind: "resolved",
+		EvidenceItems: []types.EvidenceItem{{
+			ID:        "ev-weak",
+			Kind:      types.EvidenceDirect,
+			Scope:     types.ScopeLine,
+			Source:    "internal/agent/weak.go",
+			LineStart: 1,
+			LineEnd:   1,
+		}},
+	})
+	if exploreParallelResultSatisfiesLaneHandoff(exploreParallelResult{fork: mut}) {
+		t.Fatal("weak proof without owner localization or complete source inventory must not satisfy lane handoff")
 	}
 }
 
