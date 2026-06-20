@@ -77,6 +77,60 @@ func TestEmitInvestigationComplete_AbsenceWithGroundedEvidenceRejected(t *testin
 	}
 }
 
+func TestEmitInvestigationComplete_AbsenceWithTypedEmptyMemberSetAllowsContextEvidence(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: "a.go", LineStart: 10,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "Foo",
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}})
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"the bounded inventory was checked and no requested members were found",
+		"confidence":"high",
+		"result_kind":"absence",
+		"absence_justification":"the checked member universe is empty for the requested target",
+		"aggregate_facts":[
+			{
+				"kind":"negative_search",
+				"label":"requested member search",
+				"value":"0",
+				"unit":"matches",
+				"dimensions":[
+					{"name":"repo","value":"current repository"},
+					{"name":"pattern","value":"requested target"},
+					{"name":"scope","value":"bounded inventory"},
+					{"name":"searched_at","value":"current_investigation"}
+				]
+			},
+			{
+				"kind":"member_set",
+				"label":"requested members",
+				"value":"0",
+				"unit":"members",
+				"role":"principal_answer",
+				"members":[]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("typed empty member_set with no-hit support should allow contextual evidence: %s", res.Summary)
+	}
+	if mut.AbsenceJustification() == "" {
+		t.Fatalf("absence justification should be stored after accepted typed empty handoff")
+	}
+}
+
 // TestEmitInvestigationComplete_AbsenceWithoutEvidenceAccepted locks
 // the legit honest-zero path: when no evidence was emitted, the LLM
 // can still declare absence (e.g. "how many .py files?" → 0). The

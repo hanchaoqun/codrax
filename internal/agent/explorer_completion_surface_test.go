@@ -41,3 +41,33 @@ func TestExplorerFilterToolSchemasCompletionOnly(t *testing.T) {
 		t.Fatalf("flag-off dispatch must keep the full surface, got %d", len(got))
 	}
 }
+
+func TestExplorerFilterToolSchemasCompletionOnlyAllowsTypedRepairTools(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:  types.RepairStructuredHandoff,
+		Tools: []string{"repo_map"},
+		Stage: string(types.StageExplore),
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, CompletionOnlySurface: true, Mutable: mut}
+	schemas := []llm.ToolSchema{
+		{Name: "grep"}, {Name: "read_file"}, {Name: "repo_map"},
+		{Name: "emit_evidence"}, {Name: "emit_investigation_complete"},
+	}
+
+	got := (&explorerEvaluator{}).FilterToolSchemas(ctx, schemas)
+	names := map[string]bool{}
+	for _, schema := range got {
+		names[schema.Name] = true
+	}
+	for _, want := range []string{"repo_map", "emit_evidence", "emit_investigation_complete"} {
+		if !names[want] {
+			t.Fatalf("completion repair surface missing %q: %+v", want, got)
+		}
+	}
+	for _, blocked := range []string{"grep", "read_file"} {
+		if names[blocked] {
+			t.Fatalf("completion repair surface should not reopen broad tool %q: %+v", blocked, got)
+		}
+	}
+}

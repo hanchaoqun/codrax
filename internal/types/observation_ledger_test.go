@@ -608,6 +608,70 @@ func TestCompileObservationLedger_SourceInventoryObservation(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedger_SourceInventoryObservationProjectionBudget(t *testing.T) {
+	members := make([]SourceInventoryObservationMember, 0, 200)
+	for i := 0; i < 200; i++ {
+		name := fmt.Sprintf("Run%03d", i)
+		members = append(members, SourceInventoryObservationMember{
+			Name:          name,
+			Key:           name,
+			SupportRef:    fmt.Sprintf("%s: src/run_%03d.go:7", name, i),
+			Role:          AnswerCandidateRoleFunction,
+			File:          fmt.Sprintf("src/run_%03d.go", i),
+			Line:          7,
+			Language:      "go",
+			CoverageState: SourceInventoryCoverageObserved,
+			Attributes: []SourceInventoryObservationAttribute{{
+				Name:          "Build",
+				Key:           name + ".Build",
+				SupportRef:    fmt.Sprintf("%s.Build: src/run_%03d.go:11", name, i),
+				Role:          AnswerCandidateRoleMethod,
+				File:          fmt.Sprintf("src/run_%03d.go", i),
+				Line:          11,
+				CoverageState: SourceInventoryCoverageObserved,
+			}},
+		})
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		SourceInventoryObservation: SourceInventoryObservation{
+			Active: true,
+			Scopes: []string{"."},
+			Sets: []SourceInventoryObservationSet{{
+				Role:     AnswerCandidateRoleFunction,
+				Complete: true,
+				Count:    len(members),
+				Members:  members,
+			}},
+		},
+	})
+	set := findObservationRecord(t, ledger, "source_inventory:set:0")
+	if set.ResultCount == nil || *set.ResultCount != len(members) {
+		t.Fatalf("set record should preserve full count, got %+v", set)
+	}
+	if len(set.SupportRefs) != sourceInventoryObservationSetSupportRefMaxItems {
+		t.Fatalf("set support refs should be sampled to %d, got %d", sourceInventoryObservationSetSupportRefMaxItems, len(set.SupportRefs))
+	}
+	if !strings.Contains(strings.Join(set.RichNotes, " "), "member_projection_truncated=128/200") {
+		t.Fatalf("set should disclose member projection truncation: %+v", set.RichNotes)
+	}
+	memberRecords := 0
+	attrRecords := 0
+	for _, record := range ledger.Records {
+		if strings.HasPrefix(record.ID, "source_inventory:0:") && !strings.Contains(record.ID, ":attr:") {
+			memberRecords++
+		}
+		if strings.Contains(record.ID, ":attr:") {
+			attrRecords++
+		}
+	}
+	if memberRecords != sourceInventoryObservationLedgerMemberLimit {
+		t.Fatalf("member projection count = %d, want %d", memberRecords, sourceInventoryObservationLedgerMemberLimit)
+	}
+	if attrRecords != sourceInventoryObservationLedgerAttributeLimit {
+		t.Fatalf("attribute projection count = %d, want %d", attrRecords, sourceInventoryObservationLedgerAttributeLimit)
+	}
+}
+
 func TestCompileObservationLedger_AggregateRichNotesPreferMemberNotes(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		AggregateFacts: []AnswerAggregateFact{{

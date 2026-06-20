@@ -1728,7 +1728,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
-		if evidence := preflight.Evidence; preflight.GenericEvidenceTally.hasAny() && !allowsContextualEvidenceForAbsence(ctx, reason, justification, evidence) {
+		if evidence := preflight.Evidence; preflight.GenericEvidenceTally.hasAny() &&
+			!completionFactsContainPrincipalEmptyMemberSetWithTypedNoHitSupport(ctx, effectiveAggregateFacts) &&
+			!allowsContextualEvidenceForAbsence(ctx, reason, justification, evidence) {
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: "emit_investigation_complete rejected: absence_justification is reserved for honest-zero answers " +
@@ -3633,6 +3635,7 @@ func sourceInventoryLensExecutionDowngrade(ctx *types.BusContext, aggregateFacts
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 			Kind:      types.RepairStructuredHandoff,
+			Tools:     []string{"repo_map"},
 			Subject:   subject,
 			Rationale: rationale,
 			Origin:    "pre_complete.source_inventory_lens_execution",
@@ -3973,6 +3976,25 @@ func exactEmptyMemberSetHasTypedNoHitSupport(fact types.AnswerAggregateFact, fac
 			continue
 		}
 		if strings.TrimSpace(candidate.Value) == "0" {
+			return true
+		}
+	}
+	return false
+}
+
+func completionFactsContainPrincipalEmptyMemberSetWithTypedNoHitSupport(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+	if len(facts) == 0 {
+		return false
+	}
+	var rm *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	for _, fact := range facts {
+		if !types.AnswerAggregateFactRoleForRequest(fact, rm).IsPrincipal() {
+			continue
+		}
+		if exactEmptyMemberSetHasTypedNoHitSupport(fact, facts) {
 			return true
 		}
 	}

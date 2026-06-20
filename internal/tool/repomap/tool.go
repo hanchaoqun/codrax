@@ -790,6 +790,7 @@ func repoMapSourceInventoryParamPreflight(p repoMapParams) (string, bool) {
 const (
 	sourceInventoryBroadRootBudgetFileThreshold = 500
 	sourceInventoryBroadRootDefaultTopN         = 50
+	sourceInventoryBroadRootMaxTopN             = 100
 )
 
 func repoMapSourceInventoryApplyBudgetGuard(p *repoMapParams, fileCount int) []string {
@@ -800,9 +801,18 @@ func repoMapSourceInventoryApplyBudgetGuard(p *repoMapParams, fileCount int) []s
 	if p.TopN <= 0 {
 		p.TopN = sourceInventoryBroadRootDefaultTopN
 		advisories = append(advisories, fmt.Sprintf("top_n: unset -> %d for broad root source_inventory over %d indexed files", p.TopN, fileCount))
+	} else if p.TopN > sourceInventoryBroadRootMaxTopN {
+		original := p.TopN
+		p.TopN = sourceInventoryBroadRootMaxTopN
+		advisories = append(advisories, fmt.Sprintf("top_n: %d -> %d for broad root source_inventory over %d indexed files", original, p.TopN, fileCount))
 	}
 	includeAttributes := p.IncludeAttributes == nil || *p.IncludeAttributes
-	if includeAttributes && len(p.AttributeRoles) == 0 {
+	if includeAttributes && len(p.AttributeRoles) > 0 {
+		p.AttributeRoles = nil
+		v := false
+		p.IncludeAttributes = &v
+		advisories = append(advisories, "attribute_roles ignored and include_attributes disabled for broad root source_inventory; rerun with explicit narrow scope/scopes for row-local attributes")
+	} else if includeAttributes {
 		v := false
 		p.IncludeAttributes = &v
 		advisories = append(advisories, "include_attributes: true/default -> false for broad root source_inventory without explicit attribute_roles")

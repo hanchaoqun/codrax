@@ -1009,6 +1009,12 @@ func observationRowSetSupportRefAt(fact AnswerAggregateFact, idx int, member str
 	return ""
 }
 
+const (
+	sourceInventoryObservationLedgerMemberLimit     = 128
+	sourceInventoryObservationLedgerAttributeLimit  = 128
+	sourceInventoryObservationSetSupportRefMaxItems = 32
+)
+
 func compileSourceInventoryObservationObservations(observation SourceInventoryObservation, rowSetWriter ObservationRowSetWriter, add func(ObservationRecord)) {
 	if !observation.IsActive() {
 		return
@@ -1018,6 +1024,9 @@ func compileSourceInventoryObservationObservations(observation SourceInventoryOb
 			continue
 		}
 		count := len(set.Members)
+		memberLimit := minInt(count, sourceInventoryObservationLedgerMemberLimit)
+		attrRemaining := sourceInventoryObservationLedgerAttributeLimit
+		richNotes := sourceInventoryObservationLedgerProjectionNotes(count, memberLimit, set)
 		sourceRef := ObservationSourceRef{
 			Kind:      ObservationSourceCurrentSource,
 			Path:      firstNonEmptyString(firstSourceInventoryObservationScope(observation), firstSourceInventoryObservationMemberPath(set.Members)),
@@ -1039,24 +1048,48 @@ func compileSourceInventoryObservationObservations(observation SourceInventoryOb
 			Predicate:       "source_inventory_count",
 			ResultCount:     &count,
 			Summary:         fmt.Sprintf("source-inventory %s count=%d complete=%t", SourceInventoryAdvisoryRoleLabel(set.Role), count, set.Complete),
-			SupportRefs:     sourceInventoryObservationSupportRefs(set.Members),
+			RichNotes:       richNotes,
+			SupportRefs:     sourceInventoryObservationSupportRefs(set.Members, sourceInventoryObservationSetSupportRefMaxItems),
 			Scope:           strings.Join(observation.Scopes, ","),
 			Confidence:      0.9,
 		})
-		for memberIdx, member := range set.Members {
+		for memberIdx, member := range set.Members[:memberLimit] {
 			if strings.TrimSpace(member.Name) == "" {
 				continue
 			}
 			record := sourceInventoryObservationMemberRecord(setIdx, memberIdx, member)
 			add(record)
 			for attrIdx, attr := range member.Attributes {
+				if attrRemaining <= 0 {
+					break
+				}
 				if strings.TrimSpace(attr.Name) == "" {
 					continue
 				}
 				add(sourceInventoryObservationAttributeRecord(setIdx, memberIdx, attrIdx, member, attr))
+				attrRemaining--
 			}
 		}
 	}
+}
+
+func sourceInventoryObservationLedgerProjectionNotes(count, memberLimit int, set SourceInventoryObservationSet) []string {
+	var notes []string
+	if count > memberLimit {
+		notes = append(notes, fmt.Sprintf("member_projection_truncated=%d/%d; use row_set_ref or a narrower source_inventory scope for the full set", memberLimit, count))
+	}
+	if sourceInventoryObservationAttributeCount(set.Members[:memberLimit]) > sourceInventoryObservationLedgerAttributeLimit {
+		notes = append(notes, fmt.Sprintf("attribute_projection_truncated=%d; use a narrower source_inventory scope for row-local attributes", sourceInventoryObservationLedgerAttributeLimit))
+	}
+	return notes
+}
+
+func sourceInventoryObservationAttributeCount(members []SourceInventoryObservationMember) int {
+	total := 0
+	for _, member := range members {
+		total += len(member.Attributes)
+	}
+	return total
 }
 
 func sourceInventoryObservationMemberRecord(setIdx, memberIdx int, member SourceInventoryObservationMember) ObservationRecord {
@@ -1190,11 +1223,22 @@ func firstSourceInventoryObservationMemberPath(members []SourceInventoryObservat
 	return ""
 }
 
-func sourceInventoryObservationSupportRefs(members []SourceInventoryObservationMember) []string {
-	out := make([]string, 0, len(members))
+func sourceInventoryObservationSupportRefs(members []SourceInventoryObservationMember, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	out := make([]string, 0, minInt(len(members), limit))
+	seen := make(map[string]bool, minInt(len(members), limit))
 	for _, member := range members {
 		if ref := strings.TrimSpace(member.SupportRef); ref != "" {
-			out = appendUniqueObservationString(out, ref)
+			if seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			out = append(out, ref)
+			if len(out) >= limit {
+				break
+			}
 		}
 	}
 	return out

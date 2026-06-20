@@ -21,11 +21,11 @@ summaries remain soft context only.
 
 | Class | Priority | Why it matters | Representative gaps |
 | --- | --- | --- | --- |
-| Noise and convergence debt | P0 | Causes repeated post-complete retries, stale "verification not stable" status, high token use, and unnecessary model turns. | RNE-C1, RNE-C4, RNE-C6, RNE-C13, RNE-C14, RNE-C40, RNE-C50 |
+| Noise and convergence debt | P0 | Causes repeated post-complete retries, stale "verification not stable" status, high token use, and unnecessary model turns. | RNE-C1, RNE-C4, RNE-C6, RNE-C13, RNE-C14, RNE-C40, RNE-C50, RNE-C51 |
 | Typed localization and proof coverage | P0 | Determines whether read and write tasks investigate the right owner, prove the active lane, and avoid answering or patching from the wrong source surface. | RNE-C8, RNE-C16, RNE-C17, RNE-C20, RNE-C21, RNE-C23, RNE-C32, RNE-C36, RNE-C41, RNE-C44, RNE-C45 |
 | Handoff and final-answer fidelity | P0 | Preserves rich exploration evidence into extractor/finalizer/report consumers without exposing executable repair instructions to the wrong stage. | RNE-C5, RNE-C10, RNE-C11, RNE-C22, RNE-C26, RNE-C40 |
 | Prompt/tool-surface hygiene | P0 | Prevents hard-ish scheduling, authority prompts, or tool decisions from being driven by raw user words, model prose, visible thinking, or unavailable-tool directives. | RNE-C27, RNE-C30, RNE-C31 |
-| Performance and observability | P0/P1 | Makes slow tool execution, schema repair loops, context assembly, and eval timeouts diagnosable and bounded. | RNE-C7, RNE-C12, RNE-C15, RNE-C24, RNE-C39, RNE-C42, RNE-C43, RNE-C47, RNE-C48, RNE-C49, RNE-C50 |
+| Performance and observability | P0/P1 | Makes slow tool execution, schema repair loops, context assembly, and eval timeouts diagnosable and bounded. | RNE-C7, RNE-C12, RNE-C15, RNE-C24, RNE-C39, RNE-C42, RNE-C43, RNE-C47, RNE-C48, RNE-C49, RNE-C50, RNE-C51 |
 | Cross-language source inventory | P1 | Avoids Python-only or Go-only fixes by making supported-language scope, parser fallback, and absence proof language-neutral. | RNE-C9, RNE-C19, RNE-C23, RNE-C32, RNE-C33, RNE-C37, RNE-C38, RNE-C44, RNE-C46, RNE-C49, RNE-C50 |
 
 ## Eval Batch Summary
@@ -129,10 +129,11 @@ and are not limited to "noise" fixes.
 | RNE-C44 | P0 | Repo-wide file-family absence can be falsely accepted from content grep. | `grep include=*.ext` searches file contents under the current search filter; an empty result proves zero matching contents in searched files, not that matching paths or source-family files do not exist. Non-recursive top-level `list_files` has the same proof gap for nested language surfaces. | File-family absence needs a typed path-discovery universe: recursive `list_files` with `include` or `file_type`, or a typed `repo_map(view="source_inventory")` lens. Completion rejects negative_search / empty member_set closure when a path-filtered grep no-hit is the only proof. |
 | RNE-C45 | P0 | Soft path-discovery advisories can be ignored before closure. | Tool output correctly advises that grep is not path discovery, but the model may still call `emit_investigation_complete` with `negative_search` or an exact empty set. Prompt guidance alone is insufficient for hard absence proof. | Completion preflight escalates the typed tool-result advisory into a narrow hard proof obligation. The gate consumes only tool banners, aggregate fact kinds, and typed request shape, never user words or model prose. |
 | RNE-C46 | P1 | Repo-owned auxiliary/corpus directories are excluded unless scope is explicit. | Default search/list filters skip large auxiliary trees to control noise. That is correct for routine production questions, but false absence proof for repository-wide inventory or fixture/corpus evals unless the universe explicitly includes those repo-owned auxiliary surfaces. | `list_files` supports `include_auxiliary=true` for repo-owned auxiliary/corpus surfaces while retaining dependency/cache exclusions. Completion requires that flag when such trees exist and the proof claims repo-wide file-family absence after a production-only/no-hit scan. |
-| RNE-C47 | P0 | `repo_map(view="source_inventory", roles=["file"], scope=".")` can enter a high-CPU runaway. | `source_inventory` is a semantic member/count lens, but the schema allowed `file` as the sole primary role. The model used it as file-family discovery after a completion refusal, causing a root-scope source_inventory pass to spin at high CPU instead of failing fast. | Tool-boundary preflight rejects sole-primary `file` role before graph load/index work and directs the model to `list_files(recursive=true, include/file_type=...)`. `file` remains allowed only for bounded file-local attribute expansion or alongside semantic roles such as `config_file`. Broad root source-inventory calls also receive deterministic budget normalization before lens execution: default `top_n` is bounded and default row-local attributes are disabled unless explicit `attribute_roles` are present. |
-| RNE-C48 | P0 | `source_inventory` candidate construction still needs an internal execution budget. | Boundary normalization prevents the observed runaway class, but the lens engine can still traverse large symbol graphs to build candidate sets before render-time paging. That is acceptable for normal repositories but should not be the only guard for very large or adversarial scopes. | Add a source-inventory execution kernel with per-role candidate budgets, progress checkpoints, cancellation/time budget, and resumable pagination before full candidate/attribute materialization. It must consume typed role/scope/top_n/query parameters and graph indexes only, not user prose or model explanations. |
+| RNE-C47 | P0 | `repo_map(view="source_inventory", roles=["file"], scope=".")` can enter a high-CPU runaway. | `source_inventory` is a semantic member/count lens, but the schema allowed `file` as the sole primary role. The model used it as file-family discovery after a completion refusal, causing a root-scope source_inventory pass to spin at high CPU instead of failing fast. | Tool-boundary preflight rejects sole-primary `file` role before graph load/index work and directs the model to `list_files(recursive=true, include/file_type=...)`. `file` remains allowed only for bounded file-local attribute expansion or alongside semantic roles such as `config_file`. Broad root source-inventory calls also receive deterministic budget normalization before lens execution: unset `top_n` is default-bounded, explicit oversized `top_n` is clamped, and row-local attribute expansion is disabled until the model chooses a narrower scope. |
+| RNE-C48 | P0 | `source_inventory` candidate construction still needs an internal execution budget. | Boundary normalization and broad-root parameter clamping prevent the observed runaway class and explicit over-wide model calls from materializing huge result pages, but the lens engine can still traverse large symbol graphs to build candidate sets before render-time paging. That is acceptable for normal repositories but should not be the only guard for very large or adversarial scopes. | Add a source-inventory execution kernel with per-role candidate budgets, progress checkpoints, cancellation/time budget, and resumable pagination before full candidate/attribute materialization. It must consume typed role/scope/top_n/query parameters and graph indexes only, not user prose or model explanations. |
 | RNE-C49 | P0 | Filtered `list_files` path discovery can emit directory noise as if it were matches. | Recursive `list_files(include=.../file_type=...)` used directory traversal rows as output rows. For file-family discovery this makes a precise `.ets` query look like a generic directory listing, causing the model to discard a valid path-discovery tool and fall back to slow shell `find`/grep. | When include/file_type filters are present, directories are traversal-only and never output as result rows. Only matching files appear in the returned universe; unfiltered list_files keeps its directory-listing behavior. |
-| RNE-C50 | P0 | Empty source-inventory answers can loop between `absence`, `resolved`, `member_set`, and unavailable tool surfaces. | A task can gather contextual grounded evidence that proves why the requested member set is empty. The completion gate then rejects `absence` because evidence exists, but also downgrades `resolved` until an executable source-inventory lens/empty `member_set` handoff is present. In retry-only tool surfaces, the model may be asked to run `repo_map` when only `emit_*` tools are available, producing low-delta loops. | Model-authored empty `member_set` plus typed zero-result support should close the lane without semantic contradiction from supporting evidence. Retry directives must be executable in the current tool surface; if a missing lens is mandatory, the scheduler routes back to exploration before emitting an `emit_*`-only retry. |
+| RNE-C50 | P0 | Empty source-inventory answers can loop between `absence`, `resolved`, `member_set`, and unavailable tool surfaces. | A task can gather contextual grounded evidence that proves why the requested member set is empty. The completion gate then rejects `absence` because evidence exists, but also downgrades `resolved` until an executable source-inventory lens/empty `member_set` handoff is present. In retry-only tool surfaces, the model may be asked to run `repo_map` when only `emit_*` tools are available, producing low-delta loops. | Delivered: model-authored empty `member_set` plus typed zero-result support closes the lane without semantic contradiction from supporting evidence. Structured repair directives now declare required tools, and completion-only surfaces expose only `emit_*` plus those typed repair tools, so a mandatory source-inventory repair can call `repo_map` without reopening broad exploration. |
+| RNE-C51 | P0 | Source-inventory observation ledger compiles huge member sets before budgeting. | The post-U7g ArkTS rerun no longer hit the old `repo_map` CPU path, but after a broad source-inventory observation with 47,117 members the mid-loop answer-surface builder spent high CPU in `CompileObservationLedger -> compileSourceInventoryObservationObservations -> sourceInventoryObservationSupportRefs`, expanding every member/support ref before prompt budgeting. | Delivered: source-inventory observation compilation now preserves the set-level full count and row-set ref but projects only a bounded member/attribute sample into the ledger, samples support refs with map-based dedupe, and records truncation notes for consumers. Deeper source-inventory candidate-construction budgets remain under RNE-C48. |
 
 ## Architecture Direction
 
@@ -244,10 +245,11 @@ roles from many raw trace rows.
 | Batch U7a | delivered | Add language-neutral file-family path discovery. | `list_files` now accepts `include`, `file_type`, and `include_auxiliary` so source-family/path discovery does not depend on shell `find` or content grep; grep/exec results emit typed advisories when they are being used as path discovery substitutes. Default filters still skip dependency/cache noise. |
 | Batch U7b | delivered | Add typed file-family absence-proof gate. | `emit_investigation_complete` rejects negative_search / exact empty member-set closure for typed inventory/enumeration lanes when the only zero proof is path-filtered content grep or non-recursive listing. Recursive `list_files` with matching include/file_type or `repo_map(view="source_inventory")` satisfies the proof; repo-owned auxiliary trees require explicit `include_auxiliary=true`. |
 | Batch U7c | delivered | Add source_inventory sole-file role fast refusal. | `repo_map(view="source_inventory")` rejects `roles=["file"]` as the only primary role before graph load/index work, preventing root-scope high-CPU runs. File path discovery uses `list_files`; file-local attribute expansion and `config_file` inventories remain supported. |
-| Batch U7d | delivered | Add broad-root source_inventory budget normalization and early completion refusal. | Large root-scope source_inventory calls receive a bounded default `top_n` and default attribute expansion is disabled unless row-local `attribute_roles` are explicit. File-family absence refusal runs before expensive completion preflight/source-inventory advisory work when the typed proof gap is already known. |
+| Batch U7d | delivered | Add broad-root source_inventory budget normalization and early completion refusal. | Large root-scope source_inventory calls receive a bounded default `top_n`, explicit oversized `top_n` is clamped, and row-local attribute expansion is disabled until a narrower scope is provided. File-family absence refusal runs before expensive completion preflight/source-inventory advisory work when the typed proof gap is already known. |
 | Batch U7e | planned | Add source_inventory internal execution budgets. | Candidate construction observes per-role candidate limits, progress checkpoints, cancellation/time budget, and resumable pagination before materializing very large candidate/attribute sets. |
 | Batch U7f | delivered | Make filtered list_files output file-only. | With `include` or `file_type`, recursive `list_files` traverses directories but only emits matching files, so file-family discovery cannot be confused with generic directory inventory. Unfiltered listing behavior remains unchanged. |
-| Batch U7g | planned | Add executable empty-set completion recovery. | Empty member-set lanes close from `member_set(value="0", members=[])` plus typed zero-result support even when supporting evidence exists, and mandatory missing-lens retries route back to exploration instead of entering `emit_*`-only loops. |
+| Batch U7g | delivered | Add executable empty-set completion recovery. | Empty member-set lanes close from `member_set(value="0", members=[])` plus typed zero-result support even when supporting evidence exists. Structured repairs carry typed required tools, and completion-only dispatches expose only `emit_*` plus those tools, so missing-lens recovery can execute `repo_map` without broadening to unrelated exploration tools. |
+| Batch U7h | delivered | Budget source-inventory observation-ledger projection. | Large source-inventory observations keep the full set count and optional row-set ref, but ledger compilation projects only a bounded member/attribute sample and sampled support refs before downstream answer-surface budgeting. The post-U7g eval sample confirmed the previous hotspot was ledger projection, not `repo_map` execution. |
 | Batch U7 | planned | Add source-inventory/status telemetry split. | Eval and REPL status cards distinguish explicit source-inventory lens calls, system-compiled source-inventory authority, active obligations, satisfied gates, blocked gates, and advisory pre-scan no-hit state. |
 | Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
 | Batch V2 | planned | Complete aggregate negative-fact repair hints. | Invalid no-hit payloads receive one precise typed repair hint or deterministic normalization before retry; the model does not bounce between `negative_search`, `negative_observation`, `scalar_value`, and empty `member_set` schemas. |
@@ -343,9 +345,10 @@ roles from many raw trace rows.
 - Unit: `repo_map(view="source_inventory", roles=["file"])` refuses before
   graph/index work when `file` is the only primary role, while bounded
   file-local attribute expansion and `config_file` inventories still work.
-- Unit: large root-scope `source_inventory` calls normalize broad defaults
-  before lens execution by setting a bounded `top_n` and disabling default
-  row-local attributes unless explicit `attribute_roles` are present.
+- Unit: large root-scope `source_inventory` calls normalize broad parameters
+  before lens execution by setting a bounded default `top_n`, clamping
+  explicit oversized `top_n`, and disabling row-local attributes until a
+  narrower scope is provided.
 - Unit: recursive `list_files` with `include` or `file_type` outputs matching
   files only; directory rows, including directories whose names match the glob,
   are traversal-only and do not appear as results.
@@ -353,9 +356,13 @@ roles from many raw trace rows.
   `member_set(value="0", members=[])` when paired with typed zero-result
   support and does not reject solely because contextual supporting evidence was
   emitted.
-- Scheduler: if a completion downgrade requires a tool unavailable in the
-  current retry surface, the scheduler routes back to the owning exploration
-  surface instead of asking the model to satisfy an impossible instruction.
+- Unit: if a completion downgrade requires a non-emit tool, the structured
+  repair declares that tool and the completion-only surface exposes only
+  `emit_*` plus the declared repair tools instead of asking the model to
+  satisfy an unavailable instruction or reopening broad exploration.
+- Unit: large source-inventory observations compile to one set-level record plus
+  bounded member/attribute samples before prompt budgeting; set count and
+  truncation notes survive for audit/status consumers.
 - Unit: source-inventory fresh-start explorer prompts render the principal
   typed slate before breadth scan / grep / parser-helper exploration guidance.
 - Unit: analyzer search terms become secondary grep fallbacks when a principal
@@ -802,9 +809,9 @@ roles from many raw trace rows.
 - 2026-06-20 Batch U7d delivered: the same bug also required an algorithm-side
   guard, not just model-call correction. Large root-scope source_inventory
   calls now get deterministic parameter-budget normalization before lens
-  execution: unset `top_n` is bounded and default row-local attributes are
-  disabled unless explicit `attribute_roles` are present. The
-  file-family absence-proof gate also runs before expensive completion
+  execution: unset `top_n` is bounded, explicit oversized `top_n` is clamped,
+  and row-local attributes are disabled until a narrower scope is provided.
+  The file-family absence-proof gate also runs before expensive completion
   preflight/source-inventory advisory work when typed tool results already
   prove the closure is invalid. Focused tests cover the budget guard and the
   existing path-family closure matrix. RNE-C48 remains open for deeper
@@ -832,3 +839,30 @@ roles from many raw trace rows.
   traversal state and are omitted from the result even if their names match the
   glob. The focused test adds a fake `*.ets` directory to pin that behavior and
   keeps unfiltered list_files behavior unchanged.
+- 2026-06-20 Batch U7g delivered: empty source-inventory completion now accepts
+  a principal `member_set(value="0", members=[])` when paired with typed
+  `negative_search` / `negative_observation` zero-result support, even if
+  contextual grounded evidence was emitted to explain the empty boundary.
+  `RepairDirective` also carries typed required tools; the completion-only
+  explorer surface remains narrow but exposes those tools, so a mandatory
+  source-inventory repair can call `repo_map` without reopening broad grep,
+  read, or shell surfaces. Focused tests cover the absence/context evidence
+  path and the typed repair tool-surface projection.
+- 2026-06-20 post-U7g ArkTS eval refresh:
+  `eval/results/arkts_repomap-20260620-134129` was manually terminated after
+  sampling confirmed a new high-CPU hotspot. The old
+  `repo_map(source_inventory, roles=["file"])` runaway did not recur. Instead,
+  the process burned CPU in answer-surface observation compilation after a broad
+  source-inventory observation with `member_rows=47117`; the sampled stack was
+  `CompileObservationLedger -> compileSourceInventoryObservationObservations ->
+  sourceInventoryObservationSupportRefs`. The run also showed that analyzer
+  `list_files(include=*.ets)` proof was not reused as explorer completion proof,
+  and the model still drifted into parser implementation evidence instead of
+  the repository ArkTS corpus surface. Those localization/proof gaps remain
+  tracked by RNE-C32/RNE-C36/RNE-C38/RNE-C44/RNE-C50.
+- 2026-06-20 Batch U7h delivered: source-inventory observation-ledger
+  compilation now budgets before record materialization. Set records preserve
+  full `ResultCount` and row-set refs, while member records are capped,
+  attribute records are capped, and set-level support refs are sampled with
+  map-based dedupe. Focused tests cover a 200-member observation and confirm
+  the ledger keeps count/truncation notes without expanding every row.

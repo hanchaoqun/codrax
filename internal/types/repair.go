@@ -241,9 +241,15 @@ func RepairBlocksAcceptedClosure(r RepairDirective) bool {
 // ReadSet — read it before next emit_investigation_complete");
 // Origin is short tag for attribution / debugging.
 type RepairDirective struct {
-	Kind      RepairKind
-	Files     []string
-	Keywords  []string
+	Kind     RepairKind
+	Files    []string
+	Keywords []string
+	// Tools is the exact tool surface a structured repair needs when
+	// the scheduler grants a narrowed repair dispatch. Empty preserves
+	// the kind-derived defaults below; non-empty is written by the
+	// system-side enforcer that owns the repair, not inferred from
+	// model prose.
+	Tools     []string
 	Subject   string
 	Rationale string
 	Origin    string
@@ -305,6 +311,46 @@ func MergeRepairs(in []RepairDirective) []RepairDirective {
 		}
 		seen[k] = true
 		out = append(out, r)
+	}
+	return out
+}
+
+// RepairDirectiveRequiredTools returns the exact tool names a repair
+// dispatch must expose to make progress. It consumes typed repair
+// fields only. Callers must not infer tool needs from Rationale,
+// Subject, user text, or model prose.
+func RepairDirectiveRequiredTools(r RepairDirective) []string {
+	if r.Advisory {
+		return nil
+	}
+	if len(r.Tools) > 0 {
+		return uniqueRepairDirectiveTools(r.Tools)
+	}
+	switch r.Kind {
+	case RepairReadFile:
+		return []string{"read_file"}
+	case RepairEmitEvidence:
+		return []string{"emit_evidence"}
+	case RepairExpandSearch:
+		return []string{"grep"}
+	default:
+		return nil
+	}
+}
+
+func uniqueRepairDirectiveTools(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		name := strings.TrimSpace(raw)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
 	}
 	return out
 }

@@ -2551,6 +2551,7 @@ func cloneRepairDirectives(in []RepairDirective) []RepairDirective {
 		out[i] = r
 		out[i].Files = append([]string(nil), r.Files...)
 		out[i].Keywords = append([]string(nil), r.Keywords...)
+		out[i].Tools = append([]string(nil), r.Tools...)
 		out[i].LineRanges = cloneLineRanges(r.LineRanges)
 	}
 	return out

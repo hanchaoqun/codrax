@@ -13,6 +13,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func boolPtr(v bool) *bool { return &v }
+
 func TestResolveRepoMapRootScopedRejectsParentEscape(t *testing.T) {
 	repo := t.TempDir()
 
@@ -260,6 +262,26 @@ func TestRepoMapSourceInventoryBroadRootBudgetGuard(t *testing.T) {
 	}
 	if p.IncludeAttributes == nil || *p.IncludeAttributes {
 		t.Fatalf("expected broad-root default include_attributes to be disabled: %#v", p.IncludeAttributes)
+	}
+
+	wide := repoMapParams{
+		Path:              ".",
+		View:              "source_inventory",
+		Scope:             ".",
+		Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		AttributeRoles:    []types.AnswerCandidateRole{types.AnswerCandidateRoleMethod},
+		IncludeAttributes: boolPtr(true),
+		TopN:              10000,
+	}
+	advisories = repoMapSourceInventoryApplyBudgetGuard(&wide, 1200)
+	if len(advisories) != 2 {
+		t.Fatalf("expected top_n clamp and attribute advisories, got %#v", advisories)
+	}
+	if wide.TopN != sourceInventoryBroadRootMaxTopN {
+		t.Fatalf("expected broad-root top_n max %d, got %d", sourceInventoryBroadRootMaxTopN, wide.TopN)
+	}
+	if len(wide.AttributeRoles) != 0 || wide.IncludeAttributes == nil || *wide.IncludeAttributes {
+		t.Fatalf("expected broad-root attributes to be disabled and cleared: %#v", wide)
 	}
 
 	narrow := repoMapParams{

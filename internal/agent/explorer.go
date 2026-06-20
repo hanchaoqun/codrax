@@ -6582,6 +6582,29 @@ var evidenceRepairToolNames = map[string]bool{
 	"emit_investigation_complete": true,
 }
 
+func completionOnlyToolSurface(ctx *types.AgentContext) map[string]bool {
+	allowed := make(map[string]bool, len(completionProgressToolNames)+2)
+	for name := range completionProgressToolNames {
+		allowed[name] = true
+	}
+	if ctx == nil || ctx.Mutable == nil {
+		return allowed
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return allowed
+	}
+	for _, repair := range closure.ActiveRepairs() {
+		for _, name := range types.RepairDirectiveRequiredTools(repair) {
+			if name == "" {
+				continue
+			}
+			allowed[name] = true
+		}
+	}
+	return allowed
+}
+
 // FilterToolSchemas narrows explorer turns only after the runtime has
 // observed a concrete evidence backlog: source material was read, but
 // the model still has not materialized it through emit_evidence /
@@ -6608,13 +6631,15 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	}
 	// Completion-obligation lane: the scheduler granted ONE bounded
 	// dispatch whose sole purpose is materializing the pending typed
-	// completion handoff. Narrow to the existing emit-only completion
-	// surface regardless of mid-loop state; same fail-open contract
-	// as below (never strand a dispatch with zero tools).
+	// completion handoff. Default to emit-only, but let typed repair
+	// directives add the exact non-emit tools they require. This keeps
+	// broad navigation closed while avoiding dead turns where a system
+	// repair asks for a tool that the schema filter removed.
 	if ctx.CompletionOnlySurface {
-		out := make([]llm.ToolSchema, 0, 2)
+		allowed := completionOnlyToolSurface(ctx)
+		out := make([]llm.ToolSchema, 0, len(allowed))
 		for _, schema := range schemas {
-			if completionProgressToolNames[strings.TrimSpace(schema.Name)] {
+			if allowed[strings.TrimSpace(schema.Name)] {
 				out = append(out, schema)
 			}
 		}
@@ -6861,7 +6886,7 @@ func closureRepairDirectives(mutable *types.MutableState) []types.RepairDirectiv
 	out := make([]types.RepairDirective, 0, len(repairs))
 	for _, repair := range repairs {
 		switch repair.Kind {
-		case types.RepairReadFile, types.RepairEmitEvidence, types.RepairExpandSearch, types.RepairRebindSubject, types.RepairForceCompleteDowngrade:
+		case types.RepairReadFile, types.RepairEmitEvidence, types.RepairExpandSearch, types.RepairStructuredHandoff, types.RepairRebindSubject, types.RepairForceCompleteDowngrade:
 			out = append(out, repair)
 		}
 	}
@@ -6943,6 +6968,19 @@ func renderCompactClosureRepairSection(repair types.RepairDirective) string {
 			b.WriteString(strings.Join(repair.Keywords, ", "))
 			b.WriteString("\n")
 		} else {
+			b.WriteString(strings.TrimSpace(repair.Rationale))
+			b.WriteString("\n")
+		}
+	case types.RepairStructuredHandoff:
+		if strings.TrimSpace(repair.Subject) == "" && strings.TrimSpace(repair.Rationale) == "" {
+			return ""
+		}
+		b.WriteString("## Structured Handoff Repair\n")
+		if strings.TrimSpace(repair.Subject) != "" {
+			b.WriteString(strings.TrimSpace(repair.Subject))
+			b.WriteString("\n")
+		}
+		if strings.TrimSpace(repair.Rationale) != "" {
 			b.WriteString(strings.TrimSpace(repair.Rationale))
 			b.WriteString("\n")
 		}
