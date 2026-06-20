@@ -4508,7 +4508,8 @@ func appendSourceInventorySupportLocations(ctx *types.BusContext, idx *aggregate
 	if len(scopes) == 0 {
 		return
 	}
-	for _, set := range sourceInventoryCandidateSets(ctx, graph, newSourceInventoryExecutionView(graph, scopes), scopes, profile, nil, false, false, "", sourceInventoryExecBudget{}) {
+	supportBudget := sourceInventoryExecBudgetForSupport(ctx, graph)
+	for _, set := range sourceInventoryCandidateSets(ctx, graph, newSourceInventoryExecutionViewWithBudget(graph, scopes, supportBudget), scopes, profile, nil, false, false, "", supportBudget) {
 		if !set.complete {
 			continue
 		}

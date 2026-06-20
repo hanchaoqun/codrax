@@ -48,6 +48,16 @@ func sourceInventoryExecBudgetForLens(ctx *types.BusContext, query types.SourceI
 	return sourceInventoryExecBudget{kernel: sourceinventory.NewBudget(options)}
 }
 
+func sourceInventoryInactiveExecBudget() sourceInventoryExecBudget {
+	return sourceInventoryExecBudget{kernel: sourceinventory.NewBudget(sourceinventory.BudgetOptions{})}
+}
+
+func sourceInventoryExecBudgetForSupport(ctx *types.BusContext, graph *repotypes.Graph) sourceInventoryExecBudget {
+	return sourceInventoryExecBudgetForLens(ctx, types.SourceInventoryLensQuery{
+		TopN: sourceInventoryExecBudgetDefaultTopN,
+	}, true, graph)
+}
+
 func (budget sourceInventoryExecBudget) materializationEnabled() bool {
 	return budget.kernel.MaterializationEnabled()
 }
@@ -74,6 +84,10 @@ func (budget sourceInventoryExecBudget) queryScanExceeded(scanned int) bool {
 
 func (budget sourceInventoryExecBudget) page(total int, budgetTruncated bool) (types.SourceInventoryObservationPage, bool) {
 	return budget.kernel.Page(total, budgetTruncated)
+}
+
+func (budget sourceInventoryExecBudget) executionKernel() *sourceinventory.Budget {
+	return &budget.kernel
 }
 
 func (budget sourceInventoryExecBudget) appendCandidate(set *sourceInventoryCandidateSet, candidate sourceInventoryCandidate, filter sourceInventoryQueryFilter) bool {

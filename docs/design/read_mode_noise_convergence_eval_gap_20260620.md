@@ -141,10 +141,12 @@ Four-kernel convergence status:
 - Bounded source-inventory execution kernel: partial. The current code now has
   a dedicated `internal/tool/sourceinventory` budget/page kernel for scan,
   materialization, query-scan widening, wall-clock, cancellation, cursor
-  offset, and page state. `internal/tool` candidate construction consumes it
-  through a thin adapter. Remaining work is to move the execution view/scoped
-  file materialization into the kernel and add true cursor-backed resumable
-  candidate pagination before full attribute/member materialization.
+  offset, and page state, plus a scoped `ExecutionView` that owns sorted file
+  materialization, language indexing, scope membership, truncation state, and
+  complete/incomplete reporting. `internal/tool` candidate construction
+  consumes it through a thin adapter, and the zero-value budget bypass ratchet is
+  now 0. Remaining work is true cursor-backed resumable candidate pagination
+  before full attribute/member materialization.
 - Lane-neutral proof coverage kernel: delivered for the current read/write
   loop. Write mode consumes `loopkernel.DeriveProofCoverageAuthority`;
   read mode projects `TurnAArtifacts` into the same `ProofSnapshot` authority
@@ -356,7 +358,7 @@ roles from many raw trace rows.
 | Batch U9i | planned | Add cross-language source-inventory member/facet projection. | `repo_map(source_inventory)` returns typed member rows or explicit `no_member_parser` coverage for supported-language constructs across Go, Python, JS/TS, Ruby, Java/Kotlin, C/C++, Rust, Cangjie, ArkTS, config, and workflow files. Decorators/annotations/modifiers/config facets are structured attributes, not rendered-prose hints. |
 | Batch U9g | delivered | Share proof coverage across exploration siblings. | Read TurnA artifacts project a typed `ProofSnapshot` into the lane-neutral loopkernel proof/truth authority and ReasoningGraph audit view. Parallel explore dispatch now consumes covered proof snapshots by typed lane ownership key to cancel equivalent support siblings; weak proof without owner localization or complete inventory does not satisfy handoff. |
 | Batch U9h | partial | Unify tool JSON repair and accepted-evidence handoff. | Delivered: `ToolHandoffCarrier` is projected from typed tool repair, plan repair packs, observation refs, and accepted evidence refs; BaseAgent, forced-read injection, Mutable dispatch buffers, TurnA snapshots, fork merge, and Turn-A handoff bounds all preserve the carrier without parsing summaries. Extractor/finalizer prompts render a bounded typed carrier view and intentionally omit repair hints/tool summaries. ReasoningGraph emits `tool_handoff_projected` with typed field/evidence/observation IDs. Remaining: per-tool schema descriptor registry and status-card carrier projection. |
-| Batch U9t | partial | Extract source-inventory execution budget kernel. | Delivered: replaced the private per-role `sourceInventoryCandidateBudget` helpers with one typed execution budget object, then moved budget/page/cursor authority into `internal/tool/sourceinventory` with a thin tool-local adapter. File/config/package/graph candidate builders and completion support consume this API instead of open-coded scan/materialization/deadline checks. Remaining: move scoped execution view/file materialization into the kernel and implement true cursor-backed resumable candidate pagination before full attribute/member materialization. |
+| Batch U9t | partial | Extract source-inventory execution budget kernel. | Delivered: replaced the private per-role `sourceInventoryCandidateBudget` helpers with one typed execution budget object, moved budget/page/cursor authority into `internal/tool/sourceinventory`, moved scoped sorted file materialization/language cache/file-set/complete state into `sourceinventory.ExecutionView`, and set the zero-value budget bypass ratchet to 0. File/config/package/graph candidate builders and completion support consume this API instead of open-coded scan/materialization/deadline checks. Remaining: implement true cursor-backed resumable candidate pagination before full attribute/member materialization. |
 | Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
 | Batch V2 | planned | Complete aggregate negative-fact repair hints. | Invalid no-hit payloads receive one precise typed repair hint or deterministic normalization before retry; the model does not bounce between `negative_search`, `negative_observation`, `scalar_value`, and empty `member_set` schemas. |
 | Batch W | delivered | Add lazy repo-index warmup for runtime-artifact-only read turns. | Runtime trace/log answers with no typed current-source obligation do not print or pay repo-index warmup unless a later typed source route actually opens. |
@@ -1542,3 +1544,14 @@ roles from many raw trace rows.
   `go test ./internal/agent -run TestObserveToolHandoffCarrierProjected`,
   `go test ./internal/reasoninggraph`. Remaining RNE-C55:
   per-tool schema descriptor registry and status-card carrier projection.
+- 2026-06-20 Batch U9t follow-up moved scoped source-inventory file
+  materialization into `internal/tool/sourceinventory.ExecutionView`. The
+  kernel now owns sorted scoped files, language-index cache, file membership,
+  budget truncation, and complete/incomplete state. `sourceInventoryCandidate`
+  builders and investigation-complete support indexing consume the same budget
+  adapter; the zero-value budget bypass ratchet is now 0. Focused validation
+  passed:
+  `go test ./internal/tool/sourceinventory ./internal/tool -run
+  'TestExecutionView|TestSourceInventoryConvergence|TestSourceInventoryBroadRootFileRoleStaysBoundedBeforeFullReconcile|TestSourceInventoryCandidateBudget'`.
+  Remaining RNE-C59: cursor-backed candidate pagination before attribute/member
+  materialization, rather than only page metadata after candidate construction.

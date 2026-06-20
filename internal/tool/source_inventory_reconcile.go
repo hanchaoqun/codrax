@@ -102,14 +102,7 @@ type sourceInventoryScopeFilter struct {
 	typedSourceEnumerationShape  bool
 }
 
-type sourceInventoryExecutionView struct {
-	graph             *repotypes.Graph
-	scopes            []string
-	files             []*repotypes.FileInfo
-	filesByLanguage   map[string][]*repotypes.FileInfo
-	fileSet           map[string]bool
-	hasInventoryFiles bool
-}
+type sourceInventoryExecutionView = sourceinventory.ExecutionView
 
 type sourceInventoryDiscoveryParams struct {
 	Path           string                      `json:"path,omitempty"`
@@ -2851,7 +2844,8 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 	if len(scopes) == 0 {
 		return types.SourceInventoryAdvisory{}
 	}
-	execView := newSourceInventoryExecutionView(graph, scopes)
+	candidateBudget := sourceInventoryExecBudgetForLens(ctx, query, forceAdvisoryOnly, graph)
+	execView := newSourceInventoryExecutionViewWithBudget(graph, scopes, candidateBudget)
 	if queryProfile, changed := sourceInventoryProfileWithQueryMatchedRoles(ctx, graph, scopes, profile, query.Query); changed {
 		profile = queryProfile
 		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:query_roles")
@@ -2860,7 +2854,6 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 		includeAttributes = false
 		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:attributes_deferred_broad_scope")
 	}
-	candidateBudget := sourceInventoryExecBudgetForLens(ctx, query, forceAdvisoryOnly, graph)
 	sets := sourceInventoryCandidateSets(ctx, graph, execView, scopes, profile, attributeRoles, explicitAttributeRoles, includeAttributes, query.Query, candidateBudget)
 	if len(sets) == 0 {
 		return types.SourceInventoryAdvisory{}
@@ -3378,7 +3371,8 @@ func reconcileCompletionAggregateFactsWithSourceInventory(ctx *types.BusContext,
 	if len(scopes) == 0 {
 		return facts
 	}
-	sets := sourceInventoryCandidateSets(ctx, graph, newSourceInventoryExecutionView(graph, scopes), scopes, profile, nil, false, false, "", sourceInventoryExecBudget{})
+	supportBudget := sourceInventoryExecBudgetForSupport(ctx, graph)
+	sets := sourceInventoryCandidateSets(ctx, graph, newSourceInventoryExecutionViewWithBudget(graph, scopes, supportBudget), scopes, profile, nil, false, false, "", supportBudget)
 	if len(sets) == 0 {
 		return facts
 	}
@@ -3648,6 +3642,14 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 	return out
 }
 
+func newSourceInventoryCandidateSet(role types.AnswerCandidateRole, view *sourceInventoryExecutionView) sourceInventoryCandidateSet {
+	set := sourceInventoryCandidateSet{role: role, complete: sourceInventoryViewComplete(view)}
+	if sourceInventoryViewBudgetTruncated(view) {
+		sourceInventoryMarkCandidateBudgetTruncated(&set)
+	}
+	return set
+}
+
 const sourceInventoryBroadToolLensAttributeFileThreshold = 128
 
 func sourceInventoryShouldDeferAttributesForBroadToolLensView(view *sourceInventoryExecutionView) bool {
@@ -3668,7 +3670,7 @@ func sourceInventoryShouldDeferAttributesForBroadToolLensView(view *sourceInvent
 }
 
 func sourceInventoryFileCandidates(ctx *types.BusContext, view *sourceInventoryExecutionView, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, queryFilter sourceInventoryQueryFilter, budget sourceInventoryExecBudget) sourceInventoryCandidateSet {
-	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleFile, complete: sourceInventoryViewHasInventoryFiles(view)}
+	set := newSourceInventoryCandidateSet(types.AnswerCandidateRoleFile, view)
 	if view == nil {
 		return set
 	}
@@ -3708,7 +3710,7 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, view *sourceInventoryE
 }
 
 func sourceInventoryConfigFileCandidates(ctx *types.BusContext, view *sourceInventoryExecutionView, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, queryFilter sourceInventoryQueryFilter, budget sourceInventoryExecBudget) sourceInventoryCandidateSet {
-	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleConfigFile, complete: sourceInventoryViewHasInventoryFiles(view)}
+	set := newSourceInventoryCandidateSet(types.AnswerCandidateRoleConfigFile, view)
 	if view == nil {
 		return set
 	}
@@ -3748,7 +3750,7 @@ func sourceInventoryConfigFileCandidates(ctx *types.BusContext, view *sourceInve
 }
 
 func sourceInventoryPackageCandidates(ctx *types.BusContext, view *sourceInventoryExecutionView, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, queryFilter sourceInventoryQueryFilter, budget sourceInventoryExecBudget) sourceInventoryCandidateSet {
-	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRolePackage, complete: sourceInventoryViewHasInventoryFiles(view)}
+	set := newSourceInventoryCandidateSet(types.AnswerCandidateRolePackage, view)
 	if view == nil {
 		return set
 	}
@@ -4047,7 +4049,7 @@ func sourceInventoryConfigFileCandidateNote(fi *repotypes.FileInfo) string {
 }
 
 func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Graph, view *sourceInventoryExecutionView, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, role types.AnswerCandidateRole, queryFilter sourceInventoryQueryFilter, budget sourceInventoryExecBudget) sourceInventoryCandidateSet {
-	set := sourceInventoryCandidateSet{role: role, complete: sourceInventoryViewHasInventoryFiles(view)}
+	set := newSourceInventoryCandidateSet(role, view)
 	if graph == nil || symbolIndex == nil {
 		return set
 	}
@@ -4652,90 +4654,47 @@ func sourceInventoryScopedGraphFiles(graph *repotypes.Graph, scopes []string, la
 }
 
 func sourceInventoryFileInScopes(file string, scopes []string) bool {
-	file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
-	if file == "" {
-		return false
-	}
-	for _, scope := range scopes {
-		scope = strings.Trim(strings.TrimSpace(strings.ReplaceAll(scope, `\`, `/`)), "/")
-		if scope == "" || scope == "." {
-			return true
-		}
-		if file == scope || strings.HasPrefix(file, scope+"/") || aggregateReadFilePathMatchesQualifier(file, scope) {
-			return true
-		}
-	}
-	return false
+	return sourceinventory.FileInScopes(file, scopes, aggregateReadFilePathMatchesQualifier)
 }
 
 func newSourceInventoryExecutionView(graph *repotypes.Graph, scopes []string) *sourceInventoryExecutionView {
-	view := &sourceInventoryExecutionView{
-		graph:           graph,
-		scopes:          sourceInventoryDedupeScopeAliases(scopes),
-		filesByLanguage: map[string][]*repotypes.FileInfo{},
-		fileSet:         map[string]bool{},
-	}
-	if graph == nil {
-		return view
-	}
-	for _, fi := range graph.Files {
-		if fi == nil {
-			continue
-		}
-		rel := sourceInventoryNormalizeFileSurface(fi.RelPath)
-		if rel == "" || !sourceInventoryFileInScopes(rel, view.scopes) || view.fileSet[rel] {
-			continue
-		}
-		view.fileSet[rel] = true
-		view.files = append(view.files, fi)
-		if strings.TrimSpace(fi.Language) != "" || fi.IsSpecial {
-			view.hasInventoryFiles = true
-		}
-	}
-	sort.Slice(view.files, func(i, j int) bool {
-		return strings.TrimSpace(view.files[i].RelPath) < strings.TrimSpace(view.files[j].RelPath)
-	})
-	return view
+	return newSourceInventoryExecutionViewWithBudget(graph, scopes, sourceInventoryInactiveExecBudget())
 }
 
-func (view *sourceInventoryExecutionView) Files(language string) []*repotypes.FileInfo {
-	if view == nil {
-		return nil
-	}
-	language = strings.TrimSpace(language)
-	if language == "" {
-		return append([]*repotypes.FileInfo(nil), view.files...)
-	}
-	if files, ok := view.filesByLanguage[language]; ok {
-		return append([]*repotypes.FileInfo(nil), files...)
-	}
-	files := make([]*repotypes.FileInfo, 0)
-	for _, fi := range view.files {
-		if fi != nil && strings.TrimSpace(fi.Language) == language {
-			files = append(files, fi)
-		}
-	}
-	view.filesByLanguage[language] = files
-	return append([]*repotypes.FileInfo(nil), files...)
+func newSourceInventoryExecutionViewWithBudget(graph *repotypes.Graph, scopes []string, budget sourceInventoryExecBudget) *sourceInventoryExecutionView {
+	return sourceinventory.NewExecutionView(sourceinventory.ExecutionViewOptions{
+		Graph:        graph,
+		Scopes:       sourceInventoryDedupeScopeAliases(scopes),
+		ScopeMatcher: aggregateReadFilePathMatchesQualifier,
+		Budget:       budget.executionKernel(),
+	})
+}
+
+func sourceInventoryViewComplete(view *sourceInventoryExecutionView) bool {
+	return view != nil && view.Complete()
 }
 
 func sourceInventoryViewHasInventoryFiles(view *sourceInventoryExecutionView) bool {
-	return view != nil && view.hasInventoryFiles
+	return view != nil && view.HasInventoryFiles()
+}
+
+func sourceInventoryViewBudgetTruncated(view *sourceInventoryExecutionView) bool {
+	return view != nil && view.BudgetTruncated()
 }
 
 func sourceInventoryViewContainsFile(view *sourceInventoryExecutionView, file string, fallbackScopes []string) bool {
-	rel := sourceInventoryNormalizeFileSurface(file)
+	rel := sourceinventory.NormalizeFileSurface(file)
 	if rel == "" {
 		return false
 	}
 	if view == nil {
 		return sourceInventoryFileInScopes(rel, fallbackScopes)
 	}
-	return view.fileSet[rel]
+	return view.ContainsFile(rel)
 }
 
 func sourceInventoryNormalizeFileSurface(file string) string {
-	return strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+	return sourceinventory.NormalizeFileSurface(file)
 }
 
 func newSourceInventoryScopeFilter(ctx *types.BusContext) sourceInventoryScopeFilter {

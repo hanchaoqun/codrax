@@ -82,7 +82,7 @@ func TestSourceInventoryConvergence_LOCCeilingRatchet(t *testing.T) {
 // Clause B — kernel-bypass ratchet. A zero-value sourceInventoryExecBudget{}
 // bypasses the bounded execution kernel (unbudgeted candidate construction).
 // The count may only ratchet DOWN to 0 as the kernel becomes load-bearing.
-const sourceInventoryZeroBudgetLiteralCeiling = 2
+const sourceInventoryZeroBudgetLiteralCeiling = 0
 
 func TestSourceInventoryConvergence_NoNewKernelBypass(t *testing.T) {
 	fset := token.NewFileSet()
