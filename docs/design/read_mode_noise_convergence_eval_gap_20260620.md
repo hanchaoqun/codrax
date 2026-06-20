@@ -1266,3 +1266,27 @@ roles from many raw trace rows.
   log boundary. Residual smoothness debt remains: the passing run still used
   10 explorer iterations and 39% of the context window, so the broader
   RNE-C48/RNE-C59 execution-kernel and context-noise work remains active.
+- 2026-06-20 Batch U9m source-inventory audit disposition: the latest
+  source-inventory hot-spot audit was reconciled against current `main`.
+  RNE-C53's correctness core is now implemented by the existing
+  `SourcePathRole` / `SourceScope` authority, `SourceClasses` on
+  `SourceInventoryObservation`, and both pre-emit/post-emit exact-absence
+  gates; production-only negative citations no longer close source-inventory
+  absence while repo-owned auxiliary/thirdparty classes are present. The
+  remaining P0 was the over-broad execution path. `repo_map` already rejects
+  `source_inventory` with sole `roles=["file"]` before graph/index work, but
+  the broad-navigation fast path could still bypass the source-class matrix.
+  This slice exported a single typed helper for attaching the repo-owned
+  source-class universe and made the broad-navigation guard call it before
+  persisting handoff state. Focused tests passed:
+  `go test ./internal/tool/repomap -run
+  'TestRepoMapSourceInventory(RejectsSoleFileRoleBeforeIndexWork|RejectsBroadRootFileRoleWithAttributesBeforeIndexWork|BroadNavigationLensIsBoundedBeforeReconcile|BroadRootBudgetGuard)'`,
+  `go test ./internal/tool -run
+  'TestPublishSourceInventoryObservationFromLens_PublishesSourceClassUniverseWithoutCandidates|TestPreCheckAbsenceScopeBound_SourceInventoryClassUniverseRequiresInventoryProof|TestSourceInventoryLensExecution|TestSourceInventoryCandidateUniverseCoverageGap'`,
+  and
+  `go test ./internal/orchestrator -run
+  'TestValidateSourceInventoryExactAbsenceBound_RequiresClosedClassUniverse'`.
+  Remaining work is not another taxonomy patch: RNE-C47/RNE-C48 still need a
+  unified source-inventory execution budget with wall-clock cancellation,
+  resumable pagination/cursors, and one scan/materialization kernel replacing
+  residual per-role helper loops.

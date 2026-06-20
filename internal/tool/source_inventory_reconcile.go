@@ -504,6 +504,14 @@ func sourceInventoryObservationWithSourceClassUniverse(ctx *types.BusContext, ob
 	return types.CloneSourceInventoryObservation(observation)
 }
 
+// AttachSourceInventorySourceClassUniverse adds the repo-owned source-class
+// matrix to a source-inventory observation without running the full member
+// reconciler. Fast-path repo_map guards use this to preserve exact-absence
+// authority while still refusing or bounding over-broad navigation shapes.
+func AttachSourceInventorySourceClassUniverse(ctx *types.BusContext, observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) types.SourceInventoryObservation {
+	return sourceInventoryObservationWithSourceClassUniverse(ctx, observation, query)
+}
+
 func sourceInventorySourceClassUniverseForLens(ctx *types.BusContext, query types.SourceInventoryLensQuery) []types.SourceInventorySourceClassCount {
 	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
 		return nil

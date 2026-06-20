@@ -1042,6 +1042,19 @@ func TestRepoMapSourceInventoryAutoNarrowsBroadNoRowsToRequiredFiles(t *testing.
 }
 
 func TestRepoMapSourceInventoryBroadNavigationLensIsBoundedBeforeReconcile(t *testing.T) {
+	repo := t.TempDir()
+	for _, rel := range []string{
+		"src/main.go",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+	} {
+		abs := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte("package main\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	graph := &Graph{Files: []*rmtypes.FileInfo{}, FileIndex: map[string]*rmtypes.FileInfo{}}
 	for i := 0; i < 650; i++ {
 		rel := fmt.Sprintf("pkg%03d/file.go", i)
@@ -1049,7 +1062,7 @@ func TestRepoMapSourceInventoryBroadNavigationLensIsBoundedBeforeReconcile(t *te
 		graph.Files = append(graph.Files, fi)
 		graph.FileIndex[rel] = fi
 	}
-	ctx := &types.BusContext{Mutable: types.NewMutableState("broad source inventory guard")}
+	ctx := &types.BusContext{RepoRoot: repo, Mutable: types.NewMutableState("broad source inventory guard")}
 
 	observation, query, advisories, guarded := repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx, graph, types.SourceInventoryLensQuery{
 		Path:              ".",
@@ -1079,8 +1092,17 @@ func TestRepoMapSourceInventoryBroadNavigationLensIsBoundedBeforeReconcile(t *te
 	if got := observation.Sets[0].Count; got <= 0 || got >= 650 || got > repoMapSourceInventoryBroadNavigationMaxRows {
 		t.Fatalf("bounded observation count=%d, want a small non-exhaustive sample", got)
 	}
+	sourceClasses := map[types.SourcePathRole]int{}
+	for _, class := range observation.SourceClasses {
+		sourceClasses[class.Role] = class.Count
+	}
+	if sourceClasses[types.SourcePathRoleProduction] != 1 || sourceClasses[types.SourcePathRoleThirdParty] != 1 {
+		t.Fatalf("broad guard should preserve source-class universe counts, got %+v in %+v", sourceClasses, observation.SourceClasses)
+	}
 	if stored := ctx.Mutable.SourceInventoryObservation(); !stored.IsActive() {
 		t.Fatalf("bounded observation should be persisted for handoff/status: %+v", stored)
+	} else if len(stored.SourceClasses) == 0 {
+		t.Fatalf("persisted broad observation should keep source-class universe: %+v", stored)
 	}
 
 	_, _, _, guarded = repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx, graph, types.SourceInventoryLensQuery{
