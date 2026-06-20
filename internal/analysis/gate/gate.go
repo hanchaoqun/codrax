@@ -112,10 +112,9 @@ func (t Thresholds) withDefaults() Thresholds {
 // (`hypothesis_coverage`, `contract_complete`) are skipped —
 // they gate AnswerDocument quality and read-mode investigation
 // depth, neither of which applies to the write pipeline. The
-// planner doesn't consume the HypothesisSet and the
-// AnswerContract is replaced by the write graph's criterion
-// suite (CritPlanReady / CritPatchApplies / CritTestsPass /
-// CritNoRegression).
+// planner doesn't consume the HypothesisSet and controller-first write mode
+// records its own typed workflow verdicts instead of read AnswerDocument
+// quality gates.
 //
 // Without this gating, a "create from scratch" write request
 // like "用 python 写一个猜数字游戏" reliably fails the analyzer's

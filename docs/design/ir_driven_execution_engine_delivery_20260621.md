@@ -14,7 +14,7 @@ Base HEAD: `8269ed6ed docs: IR-driven adaptive execution engine PRD (next-stage 
 
 | Area | Current evidence | Status | Delivery implication |
 | --- | --- | --- | --- |
-| Write DAG legacy | `internal/orchestrator/write_scheduler.go` still defines `runWriteSchedulerLoop`; `internal/orchestrator/write_graph.go` still defines `BuildWriteTaskGraph`; `Run()` still installs a write TaskGraph before controller dispatch. | Open | Must prove production controller path does not consume the installed graph, then retire the false "unified DAG" surface and migrate tests to controller semantics. |
+| Write DAG legacy | Production no longer installs `BuildWriteTaskGraph`; legacy `write_scheduler.go` / `write_graph.go` were removed. Shared retry helpers moved to neutral controller/read retry helpers. | Completed M0a/M0b | Continue with TaskNode compatibility cleanup and future controller/loopkernel work; do not restore a linear write TaskGraph. |
 | Read scheduler | `runReadSchedulerLoop` remains the real adaptive read engine; node status is still local `graphState`, not durable EvidenceClosure state. | Open | Fold node execution status into EvidenceClosure behind a thin accessor, with golden trace proving dispatch sequence equivalence. |
 | TaskNode artifact slots | `TaskNode.Inputs`, `Outputs`, `ExitArtifacts` still exist with comments saying no runtime consumer reads/writes them. | Open | Add structural guard now; wire them in execution-tree artifact contracts in Phase 2 or delete them. |
 | ReasoningGraph observer | `Dependencies.ReasoningObserver` and BaseAgent observation helpers exist; tests cover local tool observation. Production orchestration coverage is incomplete and ToolInvocation lacks full params/result replay identity. | Partial | Extend existing observer, not a new system: add invocation identity, params/result refs, construction wiring tests, and replayable audit projection. |
@@ -250,7 +250,7 @@ Commercial hardening before declaring complete:
 | --- | --- | --- |
 | D0 Delivery Ledger | completed | This document added on 2026-06-21; current-state audit and batch ledger recorded. |
 | M0a Write DAG install retirement | completed | Production write mode no longer installs `BuildWriteTaskGraph` or emits legacy write TaskGraph rows; `TestMode_WriteControllerDoesNotInstallLegacyWriteTaskGraph` pins controller-first behavior. |
-| M0b Legacy write scheduler deletion | not_started | Legacy tests still target removed-in-future scheduler. |
+| M0b Legacy write scheduler deletion | completed | Removed `write_scheduler.go`, `write_graph.go`, and stale scheduler tests; retained shared retry helpers in `write_retry_helpers.go`; updated controller/read tests and architecture docs. |
 | M0c TaskNode slot guard | not_started | Slots still documented as unused. |
 | M1a ToolInvocation production wiring | not_started | Observer exists but production replay identity incomplete. |
 | M1b EvidenceClosure node status | not_started | `graphState` still owns node status. |

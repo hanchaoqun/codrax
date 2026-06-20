@@ -48,10 +48,9 @@ type stageHooks struct {
 // because verify will flip it).
 type stageHookPostFunc func(o *Orchestrator, out *agent.StageOutput) error
 
-// writeStageHooks is the static lookup table the write scheduler
-// consults before/after each dispatchStage call. Entries without a
-// hook (e.g. StagePlan post-hook is just a Result render) keep the
-// nil pointer; the scheduler skips nil hooks.
+// writeStageHooks is the static lookup table the controller uses around
+// dispatchStage calls. Entries without a hook keep the nil pointer; callers
+// skip nil hooks.
 var writeStageHooks = map[types.PipelineStage]stageHooks{
 	types.StagePlan: {
 		Pre:  planPreHook,
@@ -1142,7 +1141,7 @@ func isTestPath(path string) bool {
 // appendVerifyFingerprint snapshots the current verify-round signal
 // onto WriteClosure.fingerprints. The retry detector reads these
 // to compare adjacent rounds; a no-progress signal triggers
-// retry-suppression in the write scheduler. Hash is FNV-32 over
+// retry-suppression in controller repair loops. Hash is FNV-32 over
 // the trimmed FailureSummary so the in-memory fingerprint stays
 // small regardless of stderr length.
 func appendVerifyFingerprint(busCtx *types.BusContext, report *types.ChangeReport) {
@@ -1178,8 +1177,8 @@ func appendVerifyFingerprint(busCtx *types.BusContext, report *types.ChangeRepor
 // failure narrative so the planner's next dispatch incorporates the
 // retry rationale.
 //
-// Called by the write scheduler when verify SuccessCriteria fails
-// AND retry budget remains. The flow:
+// Called by controller repair paths when verify evidence requires a fresh plan.
+// The flow:
 //
 //  1. Capture prevReport + prevPlan BEFORE any reset wipes them —
 //     they're needed to build the planning hint and to drive the
@@ -1207,9 +1206,8 @@ func appendVerifyFingerprint(busCtx *types.BusContext, report *types.ChangeRepor
 //  8. Install the assembled hint on Mutable.PlanningHint so the
 //     planner's BuildInitialInstruction picks it up via consume-once.
 //
-// Note: the per-node transient-stall bookkeeping (transientStallSignatures
-// + transientNoEmitStreak) is wiped by the caller in
-// write_scheduler.go just before invoking this function, not here.
+// Note: transient retry bookkeeping is reset by controller repair paths before
+// invoking this function, not here.
 func clearForReplan(o *Orchestrator, attempt int) {
 	if o == nil || o.busCtx == nil {
 		return

@@ -96,16 +96,6 @@ type graphState struct {
 	// whenever a terminal emit fires (computeStallSignature returns "").
 	transientNoEmitStreak map[string]int
 
-	// visitCount tracks how many times each node has been dispatched
-	// (incremented on markRunning). Used by the write scheduler to
-	// honour TaskNode.SkipOnFirstVisit — when true, the FIRST entry
-	// dispatches as a no-op (markDone immediately) and only LATER
-	// entries (post-retry) actually invoke the agent. Read-mode
-	// scheduler ignores this counter; write-mode plan node uses it
-	// to preserve R8a (don't regenerate the user-reviewed plan)
-	// without losing access to retry-driven plan regeneration.
-	visitCount map[string]int
-
 	// Session 11 F5 per-kind retry bookkeeping + yield check
 	// state. retryUsedByKind tracks how many retries each
 	// ViolationKind has consumed (drives the C6 per-kind budget);
@@ -168,9 +158,8 @@ type nodeBlock struct {
 
 func newGraphState(g types.TaskGraph) *graphState {
 	s := &graphState{
-		graph:      g,
-		status:     make(map[string]nodeStatus, len(g.Nodes)),
-		visitCount: make(map[string]int, len(g.Nodes)),
+		graph:  g,
+		status: make(map[string]nodeStatus, len(g.Nodes)),
 	}
 	for _, n := range g.Nodes {
 		s.status[n.ID] = nodePending
@@ -232,29 +221,14 @@ func declOrder(g types.TaskGraph, id string) int {
 	return 1 << 30
 }
 
-// markRunning / markDone / markFailed / requeue are unchanged state
-// transitions on the per-node status map. markRunning ALSO bumps the
-// visitCount used by SkipOnFirstVisit logic — keep these in sync if
-// any caller introduces a separate transition into the running state.
+// markRunning / markDone / markFailed / requeue are state transitions on the
+// per-node status map.
 func (s *graphState) markRunning(id string) {
 	s.status[id] = nodeRunning
-	if s.visitCount != nil {
-		s.visitCount[id]++
-	}
 }
 func (s *graphState) markDone(id string)   { s.status[id] = nodeDone }
 func (s *graphState) markFailed(id string) { s.status[id] = nodeFailed }
 func (s *graphState) requeue(id string)    { s.status[id] = nodeRequeued }
-
-// visits returns how many times the node has been dispatched. Zero
-// before the first dispatch, 1 during the first run, etc. Used by
-// the write scheduler to honour TaskNode.SkipOnFirstVisit.
-func (s *graphState) visits(id string) int {
-	if s == nil || s.visitCount == nil {
-		return 0
-	}
-	return s.visitCount[id]
-}
 
 // retryBudgetExhausted reports whether the cumulative cross-window
 // retry count has hit ExecutionPolicy.RetryBudget.
@@ -324,10 +298,9 @@ func (s *graphState) transientStallPlateau(nodeID, sig string) bool {
 	return prev == sig
 }
 
-// recordTransientNoEmitStall increments the consecutive-no-emit
-// counter for nodeID. Called by the write scheduler whenever a
-// transient retry is about to fire AND the just-finished attempt
-// did not reach a terminal emit (signature is non-empty).
+// recordTransientNoEmitStall increments the consecutive-no-emit counter for
+// nodeID. Called when a transient retry is about to fire and the just-finished
+// attempt did not reach a terminal emit.
 func (s *graphState) recordTransientNoEmitStall(nodeID string) {
 	if s == nil {
 		return
@@ -625,12 +598,9 @@ func (s *graphState) markSuccessCriteriaFailedContext(ctx context.Context, n *ty
 	return allOK, failedList, nil
 }
 
-// stageMapping returns the pipeline stage for a given TaskNode type.
-// Read-mode node types (Probe / Evidence / Validate / Reconcile) all
-// route to StageExplore — the read scheduler batches them into a
-// single explorer dispatch per round. Write-mode node types each map
-// to their own stage so the write scheduler dispatches one at a time
-// with stage-specific pre/post hooks.
+// stageMapping returns the pipeline stage for a read TaskNode type. Probe /
+// Evidence / Validate / Reconcile all route to StageExplore because the read
+// scheduler batches them into a single explorer dispatch per round.
 func stageMapping(g types.TaskGraph, n *types.TaskNode, writing bool) (types.PipelineStage, error) {
 	_ = g
 	_ = writing
@@ -639,12 +609,6 @@ func stageMapping(g types.TaskGraph, n *types.TaskNode, writing bool) (types.Pip
 		return types.StageExplore, nil
 	case types.NodeFinalize:
 		return types.StageFinalize, nil
-	case types.NodePlan:
-		return types.StagePlan, nil
-	case types.NodeApply:
-		return types.StageApply, nil
-	case types.NodeVerify:
-		return types.StageVerify, nil
 	}
 	return "", fmt.Errorf("scheduler: unknown task node type %q", n.Type)
 }

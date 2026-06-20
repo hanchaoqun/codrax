@@ -176,9 +176,9 @@ func TestLookupSymbolStem_MultiHit(t *testing.T) {
 
 func TestLookupSymbolActionAlias_ActionPrefixVariants(t *testing.T) {
 	g := fakeGraphForStem(map[string]string{
-		"runReadSchedulerLoop":  "internal/orchestrator/scheduler.go",
-		"runWriteSchedulerLoop": "internal/orchestrator/write_scheduler.go",
-		"runnerConfig":          "internal/orchestrator/config.go",
+		"runReadSchedulerLoop":       "internal/orchestrator/scheduler.go",
+		"runWriteControllerWorkflow": "internal/orchestrator/write_controller_scheduler.go",
+		"runnerConfig":               "internal/orchestrator/config.go",
 	})
 	r := newRepomapSymbolResolver(g)
 	aliasR := r.(interface {

@@ -12,9 +12,9 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// TestPatchKind_E2E_MachineSide drives the full plan→apply→verify
-// machine path (no LLM) through the new write scheduler against a
-// real git worktree, using kind=patch with a unified-diff payload.
+// TestPatchKind_E2E_MachineSide drives the full plan→apply→verify machine path
+// (no LLM) through the controller workflow against a real git worktree, using
+// kind=patch with a unified-diff payload.
 // The mock planner emits a hand-rolled diff that fixes a one-line
 // typo; apply_patch pipes it through git apply; verify confirms
 // the post-apply file content matches.

@@ -13,10 +13,9 @@ import (
 // mode machinery; the L1 red line requires read-mode to stay byte-
 // identical. These tests cover three risk surfaces:
 //
-//   1. Dispatch routing — IsWriteGraph(readIR) must be false so
-//      runTaskGraph routes to runReadSchedulerLoop, never the
-//      write loop. The write loop is wrong for read graphs (no
-//      stage hooks, no clearForReplan, no contract checker).
+//   1. Dispatch routing — readIR must not contain retired write nodes, so
+//      runTaskGraph routes to runReadSchedulerLoop. Write mode now bypasses
+//      this read scheduler entirely.
 //
 //   2. TaskNode.OneShot zero-value compatibility — read TaskGraphs
 //      construct nodes via the analyzer's compiler templates. Those
@@ -33,9 +32,8 @@ import (
 // TestE2E_ReadMode_DispatchRoutesToReadLoop verifies that an
 // analyzer-emitted read TaskGraph (no NodePlan/Apply/Verify nodes)
 // runs through runReadSchedulerLoop and reaches finalize cleanly.
-// If T4's IsWriteGraph predicate misfired and routed to the write
-// loop, the explorer mock would never get called (write loop
-// dispatches StagePlan/Apply/Verify, not StageExplore).
+// If retired write nodes leaked into this graph, runTaskGraph would fail loud
+// before dispatching the read explorer.
 func TestE2E_ReadMode_DispatchRoutesToReadLoop(t *testing.T) {
 	explorerCalls := 0
 	finalizeCalls := 0
@@ -43,8 +41,8 @@ func TestE2E_ReadMode_DispatchRoutesToReadLoop(t *testing.T) {
 	ir := dagIR(types.AnswerContract{
 		Language: "en",
 	})
-	if IsWriteGraph(ir.TaskGraph) {
-		t.Fatal("dagIR is supposed to be a read graph; IsWriteGraph wrongly classifying it as write")
+	if taskGraphHasRetiredWriteNodes(ir.TaskGraph) {
+		t.Fatal("dagIR is supposed to be a read graph; it contains retired write nodes")
 	}
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -92,8 +90,7 @@ func TestE2E_ReadMode_DispatchRoutesToReadLoop(t *testing.T) {
 
 // TestE2E_ReadMode_OneShotZeroValueCompatible verifies that read-
 // mode TaskNode literals (which never set OneShot) still get the
-// "fire once then done" behaviour through markDone, NOT through the
-// OneShot+nodeDone skip the write scheduler relies on.
+// "fire once then done" behaviour through markDone.
 //
 // Failure mode this catches: if someone accidentally added an
 // `if n.OneShot { skip first dispatch }` shortcut into the read

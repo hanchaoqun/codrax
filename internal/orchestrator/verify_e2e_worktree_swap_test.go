@@ -20,8 +20,8 @@ import (
 //  2. Build a separate "preserved worktree" dir with main.go
 //     containing "applied-bytes".
 //  3. SetMode(ModeVerify) + SetReuseWorktreePath(preserved).
-//  4. Run() — analyzer fires as classifier, write graph emits
-//     verify-only node, verifyPreHook swaps RepoRoot.
+//  4. Run() — analyzer fires as classifier, controller dispatches verify,
+//     verifyPreHook swaps RepoRoot.
 //  5. Mock verifier reads main.go via ctx.Mutable.RepoRoot() —
 //     MUST see "applied-bytes" (proves the swap landed).
 //

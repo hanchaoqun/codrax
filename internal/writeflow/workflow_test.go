@@ -63,7 +63,7 @@ func TestWriteWorkflowPlanSchemaToolParamCompat(t *testing.T) {
 			"id": "batch-1",
 			"goal": "inspect planner",
 			"needs_code_exploration": "true",
-			"explore_targets": "internal/agent/planner.go, internal/orchestrator/write_scheduler.go",
+			"explore_targets": "internal/agent/planner.go, internal/orchestrator/write_controller_scheduler.go",
 			"depends_on": "bootstrap"
 		}
 	}`)

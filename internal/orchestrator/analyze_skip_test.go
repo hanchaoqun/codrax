@@ -10,10 +10,8 @@ import (
 // `--mode=write --write-phase=apply --plan-file=` fast path: when the user has supplied a
 // vetted plan, the analyzer has nothing useful to do (the plan was
 // classified upstream) and running it wastes time + produces a
-// misleading task_map for files that may not even exist in the main
-// repo yet (write_graph.go SkipOnFirstVisit then suppresses the
-// planner so the AnalysisIR is never read either). Pre-fix path
-// dispatched the analyzer for ~30-60s on every /approve.
+// misleading task_map for files that may not even exist in the main repo yet.
+// Pre-fix path dispatched the analyzer for ~30-60s on every /approve.
 func TestRunAnalyzePhase_SkipsWhenApplyHasPlanFile(t *testing.T) {
 	cases := []struct {
 		name string

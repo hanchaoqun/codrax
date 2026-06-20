@@ -12,7 +12,7 @@ func TestWriteWorkflowEngineDefaultsController(t *testing.T) {
 		t.Fatalf("WriteWorkflowEngine = %q, want controller", got)
 	}
 	if !o.WriteWorkflowControllerEnabled() {
-		t.Fatal("controller engine must be the default write scheduler")
+		t.Fatal("controller engine must be the default write workflow engine")
 	}
 }
 

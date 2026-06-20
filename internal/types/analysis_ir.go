@@ -1054,28 +1054,14 @@ type TaskNode struct {
 	// OneShot caps the node at one successful dispatch. After
 	// markDone the scheduler skips it on subsequent ready-window
 	// scans even when the node still satisfies its EntryConditions.
-	// Used for terminal-shape nodes: NodeFinalize (read mode) and
-	// NodePlan (write mode); Apply/Verify are NOT OneShot so the
-	// verify→plan retry cycle can re-queue them via
-	// EdgeValidationFeedback. Defaults to false to preserve the
-	// pre-T4 yield-on-EntryConditions semantics for read explorer
-	// nodes.
+	// Used for terminal-shape read nodes such as NodeFinalize. Defaults to
+	// false to preserve the pre-T4 yield-on-EntryConditions semantics for read
+	// explorer nodes.
 	OneShot bool `json:"one_shot,omitempty"`
 
-	// SkipOnFirstVisit causes the scheduler to mark the node as done
-	// without dispatching the agent on the FIRST entry, but allows
-	// later visits (triggered via EdgeValidationFeedback retry) to
-	// dispatch normally. Used by the write-mode plan node when the
-	// user supplied --plan-file: the disk plan is loaded into Mutable
-	// by applyPreHook, so re-emitting on the first iteration would be
-	// wasted work. On retry (verify failed → clearForReplan wipes
-	// planPath + ChangePlan), the second visit DOES dispatch and
-	// regenerates the plan informed by Mutable.PlanningHint.
-	//
-	// Implemented in the write scheduler via a per-node visit counter
-	// so the same field works whether or not the node is OneShot.
-	// Defaults to false to preserve pre-existing behaviour for every
-	// node not explicitly opted in.
+	// SkipOnFirstVisit is retained only for historical serialized TaskGraph
+	// compatibility. Controller-first write mode no longer consumes it; new
+	// scheduler behavior must use typed workflow/controller state instead.
 	SkipOnFirstVisit bool `json:"skip_on_first_visit,omitempty"`
 }
 
@@ -1088,15 +1074,12 @@ const (
 	NodeReconcile TaskNodeType = "reconcile"
 	NodeFinalize  TaskNodeType = "finalize"
 
-	// Write-mode node types. Each maps to a dedicated PipelineStage
-	// via orchestrator/scheduler.go::stageMapping. Plan/Apply/Verify
-	// run sequentially in the linear graph that
-	// orchestrator/write_graph.go::BuildWriteTaskGraph emits when
-	// BusContext.Mode is ModePlan / ModeApply / ModeVerify, and never
-	// fire in read-only scenarios.
-	NodePlan   TaskNodeType = "plan"   // planner emits ChangePlan artifact
-	NodeApply  TaskNodeType = "apply"  // coder applies ChangeUnits inside worktree
-	NodeVerify TaskNodeType = "verify" // verifier runs tests + asserts no regression
+	// Historical write-mode node types retained for serialized TaskGraph and
+	// renderer compatibility. Controller-first write mode does not execute
+	// these TaskNode types.
+	NodePlan   TaskNodeType = "plan"
+	NodeApply  TaskNodeType = "apply"
+	NodeVerify TaskNodeType = "verify"
 )
 
 type TaskEdge struct {
@@ -1112,15 +1095,9 @@ const (
 	EdgeHardDependency     EdgeType = "hard_dependency"
 	EdgeSoftDependency     EdgeType = "soft_dependency"
 	EdgeValidationFeedback EdgeType = "validation_feedback"
-	// EdgeValidationFeedback also drives the write-mode verify→plan
-	// retry cycle: BuildWriteTaskGraph emits an edge from the verify
-	// node back to the plan node so a verify SuccessCriteria failure
-	// (TestsPass / NoRegression) requeues the plan via
-	// requeueValidationTargets. The orchestrator's clearForReplan
-	// helper resets ChangePlan / WriteClosure.AppliedSet / PlanPath
-	// before the requeue and seeds Mutable.PlanningHint with the
-	// failure summary so the planner's next dispatch sees the
-	// retry rationale.
+	// In controller-first write mode, repair/replan transitions are represented
+	// by WriteWorkflowRun batches and attempts rather than TaskGraph feedback
+	// edges.
 )
 
 type ExecutionPolicy struct {
@@ -1172,31 +1149,12 @@ const (
 	// builds no hard gate from final answer prose.
 	CritExternalArtifactDecoded = "external_artifact_decoded"
 
-	// Write-mode criteria (B0). Evaluators live in
-	// internal/analysis/criterion/eval.go and read
-	// MutableState.WriteClosure for their ground truth. B0 ships
-	// grammar constants + registered entries only; real evaluator
-	// bodies land with emit_change_plan / apply_patch / run_tests
-	// (Day 5, plus B2/B3 for the verify-level assertions).
-	//
-	//   - CritPlanReady: a ChangePlan artifact exists (either in
-	//     WriteClosure.pendingApplies or on disk at PlanPath) and
-	//     its Status is "approved". Used as EntryCondition on
-	//     NodeApply to gate Apply on Plan completion.
-	//
-	//   - CritPatchApplies: every ChangeUnit in the current plan
-	//     has landed successfully in the worktree (WriteClosure
-	//     .AppliedSet ⊇ plan.TargetPaths). Used as SuccessCriterion
-	//     on NodeApply.
-	//
-	//   - CritTestsPass: every assertion named in plan.AcceptanceTests
-	//     has a WriteClosure.VerifyResult with Passed=true. Used as
-	//     SuccessCriterion on NodeVerify.
-	//
-	//   - CritNoRegression: no MetricDelta in ChangeReport regressed
-	//     past its configured threshold. Used as SuccessCriterion on
-	//     NodeVerify. Expr is either empty (check all metrics) or a
-	//     specific metric name.
+	// Historical write-mode criteria. Evaluators live in
+	// internal/analysis/criterion/eval.go and read MutableState.WriteClosure for
+	// their ground truth. Controller-first write mode records equivalent typed
+	// state on WriteWorkflowRun attempts instead of executing write TaskGraph
+	// nodes. Keep the constants parseable for older artifacts and shared verdict
+	// helpers.
 	CritPlanReady    = "plan_ready"
 	CritPatchApplies = "patch_applies"
 	CritTestsPass    = "tests_pass"

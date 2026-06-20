@@ -1540,8 +1540,8 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 			return ""
 		}
 		glyph = string(glyphSuccess)
-		// SkipOnFirstVisit / --skip-verify short-circuit: the LLM
-		// didn't run, so the regular "已 X" phrase would lie. Phrase
+		// Loaded-plan / --skip-verify short-circuit: the LLM didn't
+		// run, so the regular "已 X" phrase would lie. Phrase
 		// table carries dedicated skipped variants ("已加载预审方案"
 		// / "已跳过测试验证") for the two stages that can be skipped
 		// in production (plan, verify); other keys fall through to

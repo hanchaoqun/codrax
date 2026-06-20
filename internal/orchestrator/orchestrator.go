@@ -452,9 +452,9 @@ type Orchestrator struct {
 	keepWorktreeOnSuccess bool
 
 	// skipVerify, when true, short-circuits the verify stage in
-	// ModeApply: the apply node still runs (bytes land in the
-	// worktree), but the write scheduler marks the verify node
-	// done without dispatching the verifier agent. Used by REPL
+	// ModeApply: apply still runs (bytes land in the worktree), but the
+	// controller records verify as skipped without dispatching the verifier
+	// agent. Used by REPL
 	// `/approve --skip-verify` for cases where the operator can't
 	// run integration tests locally (DB / GPU / external API)
 	// and prefers to defer testing to CI on push.
@@ -1616,11 +1616,10 @@ func (o *Orchestrator) SetKeepWorktreeOnSuccess(on bool) {
 	o.keepWorktreeOnSuccess = on
 }
 
-// SetSkipVerify toggles the verify-stage short-circuit for
-// ModeApply Runs. When true, the write scheduler marks the verify
-// node done immediately after apply succeeds — no run_tests
-// dispatch, no FailureSummary, no verify→plan retry. Per-Run
-// scope: REPL `/approve --skip-verify` flips this on then defers
+// SetSkipVerify toggles the verify-stage short-circuit for ModeApply Runs.
+// When true, the controller records verify as skipped after apply succeeds: no
+// run_tests dispatch, no FailureSummary, no verify→plan retry. Per-Run scope:
+// REPL `/approve --skip-verify` flips this on then defers
 // SetSkipVerify(false) so the override doesn't bleed into the
 // next Run.
 //
@@ -2459,18 +2458,15 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	// Approved-plan fast path: when the user has supplied a vetted
 	// ChangePlan via --plan-file (CLI single-shot) or /approve (REPL),
 	// the analyzer has nothing useful to do. The plan-mode pipeline
-	// already classified the request that produced this plan; the
-	// apply / verify stages do not consume AnalysisIR (the planner
-	// would, but plan-stage SkipOnFirstVisit on these flows skips it
-	// when planPath != ""). Running the analyzer here wastes ~30-60s
-	// of LLM time, and worse: when the plan creates a NEW file the
+	// already classified the request that produced this plan, and the
+	// controller imports the plan as a typed workflow seed. Running the
+	// analyzer here wastes ~30-60s of LLM time, and worse: when the plan
+	// creates a NEW file the
 	// analyzer's task_map fuzzy-matches the (yet-uncreated) file
 	// against unrelated repo files at high score, surfacing
 	// "Pre-scored relevant files" that mislead any downstream prompt
-	// that consumes them. Install a stub IR so the Mode-switch in
-	// Run() (line ~612) finds AnalysisIR != nil; TaskGraph is
-	// overwritten by BuildWriteTaskGraph immediately afterwards so
-	// the empty stub is never read.
+	// that consumes them. Install a stub IR so write_analyzer/controller
+	// setup can proceed without a read TaskGraph.
 	if (o.busCtx.Mode == types.ModeApply || o.busCtx.Mode == types.ModeVerify) && o.planPath != "" {
 		logging.Info("[orchestrator] analyze skipped: %s mode with --plan-file / /approve (using stub IR)", string(o.busCtx.Mode))
 		o.busCtx.AnalysisIR = &types.AnalysisIR{}
@@ -2926,12 +2922,10 @@ func retryStormUserCaveat(busCtx *types.BusContext) string {
 // controller. Returns the steps consumed and only unrecovered dispatch
 // errors; a fallback install is a successful degraded outcome.
 //
-// Approved-plan fast path: when --plan-file / /approve has supplied
-// a vetted plan, the planner is going to be skipped on its first
-// visit anyway (BuildWriteTaskGraph sets SkipOnFirstVisit=true) so
-// running write_analyze burns LLM time for no consumer. Skip in
-// that case for the same reason runAnalyzePhase installs a stub IR
-// for the same path.
+// Approved-plan fast path: when --plan-file / /approve has supplied a vetted
+// plan, the controller imports that plan as typed workflow seed; running
+// write_analyze burns LLM time for no consumer. Skip in that case for the same
+// reason runAnalyzePhase installs a stub IR for the same path.
 func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 	if (o.busCtx.Mode == types.ModeApply || o.busCtx.Mode == types.ModeVerify) && o.planPath != "" {
 		logging.Info("[orchestrator] write_analyze skipped: %s mode with --plan-file / /approve", string(o.busCtx.Mode))
@@ -3161,10 +3155,8 @@ func firstLineTrimmed(s string) string {
 // pathologically expensive analyze phase cannot silently starve the
 // per-task path.
 //
-// runTaskGraph internally dispatches to runReadSchedulerLoop or
-// runWriteSchedulerLoop based on whether the graph carries write
-// nodes. T4 fold-in: write modes assemble their own TaskGraph
-// upstream in Run(), so this function is mode-agnostic.
+// Write mode bypasses this function entirely and enters
+// runWriteControllerWorkflow.
 func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 	if *stepsUsed >= o.maxSteps {
 		logging.Error("[orchestrator] global max-steps (%d) exhausted before task phase", o.maxSteps)
@@ -4351,26 +4343,35 @@ func renderChangePlanSummary(plan *types.ChangePlan, lang string) string {
 	return b.String()
 }
 
-// runTaskGraph dispatches to the read or write scheduler loop based
-// on whether the TaskGraph carries write nodes (NodePlan / NodeApply
-// / NodeVerify). Read TaskGraphs come from the analyzer; write
-// TaskGraphs come from BuildWriteTaskGraph emitted by Run() before
-// reaching this entry point.
+// runTaskGraph executes the analyzer-emitted read TaskGraph. Write mode uses
+// runWriteControllerWorkflow and must never reach this read scheduler entry.
 func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	ir := o.busCtx.AnalysisIR
 	if ir == nil || len(ir.TaskGraph.Nodes) == 0 {
-		// Defensive: analyzer (read) or BuildWriteTaskGraph (write)
-		// should always produce a non-empty TaskGraph; an empty graph
-		// means upstream failed and we cannot execute the task.
+		// Defensive: analyzer should always produce a non-empty read TaskGraph;
+		// an empty graph means upstream failed and we cannot execute the task.
 		logging.Error("[orchestrator] task: empty TaskGraph — upstream failed to produce a valid graph")
 		o.busCtx.Mutable.SetResult("")
 		o.busCtx.TaskState.LastError = "empty TaskGraph"
 		return 0
 	}
-	if IsWriteGraph(ir.TaskGraph) {
-		return o.runWriteSchedulerLoop(stepBudget)
+	if taskGraphHasRetiredWriteNodes(ir.TaskGraph) {
+		logging.Error("[orchestrator] task: retired write TaskGraph nodes reached read scheduler")
+		o.busCtx.Mutable.SetResult("")
+		o.busCtx.TaskState.LastError = "retired write TaskGraph nodes cannot be executed by read scheduler"
+		return 0
 	}
 	return o.runReadSchedulerLoop(stepBudget)
+}
+
+func taskGraphHasRetiredWriteNodes(g types.TaskGraph) bool {
+	for _, n := range g.Nodes {
+		switch n.Type {
+		case types.NodePlan, types.NodeApply, types.NodeVerify:
+			return true
+		}
+	}
+	return false
 }
 
 func (o *Orchestrator) investigationStructurallyEmpty() bool {
@@ -7619,10 +7620,10 @@ func (o *Orchestrator) emitNodeEnd(id string, ok bool, errMsg string) {
 			ev.Error = "criteria not met"
 		}
 	} else if strings.HasPrefix(errMsg, "skipped") {
-		// Success-path "skipped" signal: SkipOnFirstVisit (plan
-		// loaded from disk) or --skip-verify short-circuit. The
-		// renderer picks a "已加载" / "已跳过" phrase variant so the
-		// dock's done line doesn't claim the LLM did work it didn't.
+		// Success-path "skipped" signal for read-side node shims or
+		// --skip-verify compatibility. The renderer picks a "已加载" /
+		// "已跳过" phrase variant so the dock's done line doesn't claim
+		// the LLM did work it didn't.
 		ev.NodeSkipped = true
 	}
 	o.emit(ev)

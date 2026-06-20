@@ -92,6 +92,26 @@ func TestGraphState_RetryBudgetExhausted(t *testing.T) {
 	}
 }
 
+func TestGraphState_TransientNoEmitPlateau(t *testing.T) {
+	state := newGraphState(smallChainGraph())
+	nodeID := "n1"
+	if state.transientNoEmitPlateau(nodeID) {
+		t.Fatal("plateau must not fire on a fresh node")
+	}
+	state.recordTransientNoEmitStall(nodeID)
+	if state.transientNoEmitPlateau(nodeID) {
+		t.Fatal("one stall is not yet a plateau (threshold is 2)")
+	}
+	state.recordTransientNoEmitStall(nodeID)
+	if !state.transientNoEmitPlateau(nodeID) {
+		t.Fatal("two consecutive no-emit stalls should fire advisory plateau")
+	}
+	state.resetTransientNoEmitStreak(nodeID)
+	if state.transientNoEmitPlateau(nodeID) {
+		t.Fatal("reset must clear the streak")
+	}
+}
+
 func TestGraphState_RequeueValidationTargets(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	// Walk to validate stage.

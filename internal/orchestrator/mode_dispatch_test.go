@@ -284,7 +284,7 @@ func TestMode_WriteControllerDoesNotInstallLegacyWriteTaskGraph(t *testing.T) {
 	if busCtx.AnalysisIR == nil {
 		t.Fatal("AnalysisIR should remain available as write classifier context")
 	}
-	if IsWriteGraph(busCtx.AnalysisIR.TaskGraph) {
+	if taskGraphHasRetiredWriteNodes(busCtx.AnalysisIR.TaskGraph) {
 		t.Fatalf("write mode must not install legacy plan/apply/verify TaskGraph: %+v", busCtx.AnalysisIR.TaskGraph.Nodes)
 	}
 	for _, ev := range events {

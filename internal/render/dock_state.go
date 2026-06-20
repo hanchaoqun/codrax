@@ -247,8 +247,8 @@ func stagePhraseDoneFor(stageKey, lang string) string {
 }
 
 // stagePhraseSkippedFor returns the localized phrase for a stage that
-// completed via a short-circuit path (SkipOnFirstVisit plan loaded
-// from disk; --skip-verify verify bypassed). Returns "" for stage
+// completed via a short-circuit path (loaded plan or --skip-verify verify
+// bypassed). Returns "" for stage
 // keys that don't have a defined skipped phrase, signalling the
 // caller to fall through to the regular done phrase.
 //

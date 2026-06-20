@@ -29,8 +29,8 @@ import (
 //	    (AppliedCount / VerifyPassed / VerifyFailed / FailureSummaryHash)
 //	    must change — otherwise the planner is structurally unable to
 //	    fix from the signal it has and further retry just burns LLM
-//	    budget. Enforced via Fingerprints() comparison in
-//	    write_scheduler.go.
+//	    budget. Enforced via Fingerprints() comparison in controller repair
+//	    paths.
 //
 // (The original B0 design also tracked W2 — verify-set coverage of
 // AcceptanceTests — via a verifySet map and a stats counter struct

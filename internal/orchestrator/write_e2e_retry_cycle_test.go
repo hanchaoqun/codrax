@@ -12,19 +12,17 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// End-to-end write-mode retry cycle: plan-1 emits a bad ChangePlan
-// that breaks the build, verify fails the SC, the verify→{plan,apply}
-// EdgeValidationFeedback edges requeue both, plan-2 emits a fixed
-// ChangePlan, second apply lands clean, verify passes. The whole
-// chain runs through the real runWriteSchedulerLoop + stage hooks
-// with no LLM calls — mock agents stand in for planner/coder/verifier
-// but exercise the actual orchestrator state machine.
+// End-to-end write-mode retry cycle: plan-1 emits a bad ChangePlan that breaks
+// the build, verify fails, the controller replans, plan-2 emits a fixed
+// ChangePlan, second apply lands clean, verify passes. The whole chain runs
+// through the controller workflow + stage hooks with no LLM calls; mock agents
+// stand in for planner/coder/verifier but exercise the actual orchestrator
+// state machine.
 //
 // This is the integration test the recent T2/T3/T4 changes wanted but
-// didn't have: it locks the verify→plan retry semantics, the
-// AppliedSet requeue invariant (verify→apply edge fix from 656a046),
-// the clearForReplan PlanningHint thread, and the planPostHook
-// PendingApplies idempotent fallback all in one shot.
+// didn't have: it locks verify→replan retry semantics, the applied-set reset,
+// the clearForReplan PlanningHint thread, and the planPostHook PendingApplies
+// idempotent fallback all in one shot.
 func TestE2E_WriteRetryCycle_BadPlanThenGoodPlan(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")

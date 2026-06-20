@@ -1394,7 +1394,7 @@ controller 是唯一公开写模式调度器。它通过 typed `emit_write_workf
 
 Behavior contracts 是写模式的硬覆盖信号。`operator` 是 schema enum（如 `raises` / `not_raises` / `equals` / `not_equals` / `contains` / `not_contains` / `exists` / `not_exists` / `returns` / `satisfies`），未知值在 `emit_write_analysis` 阶段 fail-loud 并返回可修正 enum 列表，不能静默降级为散文。`polarity=expected|forbidden` 表示修复后必须满足/避免的目标；`polarity=observed` 表示前序现象、traceback 或探索证据，只进入 handoff，不作为 P0 completion target，也不要求 verification probe 覆盖。硬门只读这些 typed enum 和 id 引用，不从用户关键词、SWE-bench id、模型 summary/rationale、日志或 `<think>` 推断语义。
 
-产品主路径不再让用户手工调度线性 plan→apply→verify。`WriteAnalysisIR` 会 seed durable `WriteWorkflowRun`,由 controller 按当前 batch typed state 动态选择探索、规划、应用、验证、replan、split 或 finish。当前实现仍用 `BuildWriteTaskGraph` 作为内部 scheduler envelope 进入写阶段和承载历史回归测试；它不是用户可见决策面,后续功能应优先扩展 controller action/attempt/context 体系,而不是增加新的用户命令步骤。
+产品主路径不再让用户手工调度线性 plan→apply→verify。`WriteAnalysisIR` 会 seed durable `WriteWorkflowRun`,由 controller 按当前 batch typed state 动态选择探索、规划、应用、验证、replan、split 或 finish。当前实现不再安装 `BuildWriteTaskGraph` 或进入旧线性执行器；`AnalysisIR.TaskGraph` 在写模式只保留 analyzer 分类上下文,不可作为写执行图消费。后续功能应优先扩展 controller action/attempt/context 体系,而不是增加新的用户命令步骤或恢复线性写 DAG。
 
 ### 8.4 Planner Agent
 

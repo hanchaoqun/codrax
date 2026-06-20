@@ -413,10 +413,8 @@ type Event struct {
 	NodeKind      string
 	NodeObjective string
 
-	// NodeSkipped marks an EventTaskNodeEnd that completed via the
-	// SkipOnFirstVisit short-circuit (plan loaded from disk for
-	// /approve --plan-file) or the --skip-verify short-circuit
-	// (verify dispatched without running tests). Renderer uses this
+	// NodeSkipped marks an EventTaskNodeEnd that completed via a loaded-plan or
+	// --skip-verify short-circuit. Renderer uses this
 	// to pick a "已加载" / "已跳过" phrase variant instead of the
 	// regular "已 X" — the LLM didn't actually run, so claiming the
 	// stage's normal completion phrase would mislead the user.

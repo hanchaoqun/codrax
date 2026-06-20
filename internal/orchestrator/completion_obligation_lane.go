@@ -5,7 +5,7 @@
 // emit_investigation_complete (success-criteria pass, stop-condition
 // incl. react-iters cap, hard stall, blocked DAG, step-budget drain),
 // which structurally bypasses every typed obligation enforced inside
-// that tool. Mirroring the write scheduler's budget-completion verify
+// that tool. Mirroring the write controller's budget-completion verify
 // ("completion outranks pacing"), the lane grants ONE emit-only
 // explorer dispatch when the loop is about to leave exploration with
 // a pending typed obligation, then proceeds regardless of outcome.
@@ -77,8 +77,8 @@ func completionObligationLaneHint(pending []string) string {
 // runCompletionObligationLane fires at the scheduler's convergence
 // points (pre-extract floor checks and the step-drain break). It is
 // single-shot per Run via the caller-owned laneFired flag; the
-// dispatch is billed through the same step counter past the ceiling,
-// exactly like the write scheduler's budget-completion verify.
+// dispatch is billed through the same step counter past the ceiling, exactly
+// like the write controller's budget-completion verify.
 func (o *Orchestrator) runCompletionObligationLane(laneFired *bool, stepsUsed *int) {
 	if o == nil || laneFired == nil || *laneFired {
 		return

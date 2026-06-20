@@ -103,8 +103,7 @@ type taskRow struct {
 	paused               bool
 
 	// skipped marks a node that completed without dispatching its
-	// agent — SkipOnFirstVisit (plan loaded from disk) or
-	// --skip-verify short-circuit. The completion line uses a
+	// agent — loaded-plan or --skip-verify short-circuit. The completion line uses a
 	// dedicated "已加载" / "已跳过" phrase instead of the regular
 	// "已 X" so the user reads honest provenance.
 	skipped bool
