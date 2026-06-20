@@ -178,6 +178,38 @@ func TestSourceInventoryCandidateBudgetCountsScopedQueryMisses(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryGoStringEnumCandidatesCarriesBudgetTruncation(t *testing.T) {
+	var files []*repotypes.FileInfo
+	for i := 0; i < 12; i++ {
+		files = append(files, &repotypes.FileInfo{
+			RelPath:  "src/enum" + strconv.Itoa(i) + ".go",
+			Language: repotypes.LangGo,
+		})
+	}
+	graph := testGraphWithFiles(files)
+	ctx := &types.BusContext{RepoRoot: t.TempDir()}
+	set := sourceInventoryGoStringEnumCandidates(
+		ctx,
+		graph,
+		[]string{"src"},
+		&types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+			RequiresConstSet:  true,
+		},
+		sourceInventoryExecBudget{kernel: sourceinventory.NewBudget(sourceinventory.BudgetOptions{
+			ForceAdvisoryOnly: true,
+			GraphFileCount:    sourceInventoryExecBudgetFileThreshold + 1,
+			MaxPerRole:        10,
+			MaxScanPerRole:    3,
+		})},
+	)
+	if !set.truncated || set.complete {
+		t.Fatalf("budgeted enum special path must carry execution truncation, got %+v", set)
+	}
+}
+
 func TestPublishSourceInventoryObservationFromToolObservation_ListFilesIgnoresRenderedAdvisory(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {

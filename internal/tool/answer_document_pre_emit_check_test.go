@@ -95,6 +95,30 @@ func TestPreCheckAbsenceScopeBound_SourceInventoryClassUniverseRequiresInventory
 	if hints := preCheckAbsenceScopeBound(doc, ctx); len(hints) != 0 {
 		t.Fatalf("complete empty source-inventory set should close the class-bound absence proof: %+v", hints)
 	}
+
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Lens:         []string{"source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    1,
+			Complete: true,
+		}},
+		Execution: &types.SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+		}},
+	})
+	hints = preCheckAbsenceScopeBound(doc, ctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].Reason, "candidate_budget_truncated") {
+		t.Fatalf("budget-truncated zero set must not close source-inventory absence proof: %+v", hints)
+	}
 }
 
 func TestPreCheckNegativeCitationBoundsRejectsUnboundedAbsenceCitation(t *testing.T) {

@@ -2373,7 +2373,7 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 		case role == types.AnswerCandidateRoleType &&
 			profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
 			profile.RequiresConstSet:
-			out[role] = sourceInventoryGoStringEnumCandidates(ctx, graph, scopes, profile)
+			out[role] = sourceInventoryGoStringEnumCandidates(ctx, graph, scopes, profile, budget)
 		default:
 			out[role] = sourceInventoryGraphCandidates(ctx, graph, view, getSymbolIndex(), scopeFilter, scopes, profile, role, queryFilter, budget)
 		}
@@ -3082,13 +3082,17 @@ func sourceInventoryCandidateDedupeKey(candidate sourceInventoryCandidate) strin
 	}, "\x00")
 }
 
-func sourceInventoryGoStringEnumCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile) sourceInventoryCandidateSet {
+func sourceInventoryGoStringEnumCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, budget sourceInventoryExecBudget) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleType, complete: true}
 	if graph == nil || ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
 		set.complete = false
 		return set
 	}
-	files := sourceInventoryScopedGraphFiles(graph, scopes, "go")
+	view := newSourceInventoryExecutionViewWithBudget(graph, scopes, budget)
+	if sourceInventoryViewBudgetTruncated(view) {
+		sourceInventoryMarkCandidateBudgetTruncated(&set)
+	}
+	files := view.Files("go")
 	if len(files) == 0 {
 		set.complete = false
 		return set

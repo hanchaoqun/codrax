@@ -206,6 +206,83 @@ func TestSourceInventoryExactAbsenceNeedsInventoryProof(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryExactAbsenceNeedsInventoryProof_BlocksTruncatedZeroSet(t *testing.T) {
+	profile := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+	}
+	closedZero := SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Lens:         []string{"source_class_universe", "count"},
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:     SourcePathRoleThirdParty,
+			Count:    1,
+			Complete: true,
+		}},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: true,
+		}},
+	}
+	if summary, blocked := SourceInventoryExactAbsenceNeedsInventoryProof(profile, closedZero); blocked || summary != "" {
+		t.Fatalf("complete untruncated zero set should close absence, summary=%q blocked=%t", summary, blocked)
+	}
+
+	for _, tc := range []struct {
+		name string
+		mut  func(*SourceInventoryObservation)
+		want string
+	}{
+		{
+			name: "observation incomplete",
+			mut: func(obs *SourceInventoryObservation) {
+				obs.Complete = false
+			},
+			want: "observation_incomplete",
+		},
+		{
+			name: "candidate budget truncated",
+			mut: func(obs *SourceInventoryObservation) {
+				obs.Execution = &SourceInventoryExecutionState{
+					Budgeted:                 true,
+					CandidateBudgetTruncated: true,
+				}
+			},
+			want: "candidate_budget_truncated",
+		},
+		{
+			name: "page incomplete",
+			mut: func(obs *SourceInventoryObservation) {
+				obs.Page = &SourceInventoryObservationPage{
+					Offset:     0,
+					Limit:      10,
+					Total:      11,
+					Emitted:    10,
+					NextCursor: "10",
+					Complete:   false,
+				}
+			},
+			want: "page_incomplete",
+		},
+		{
+			name: "source class incomplete",
+			mut: func(obs *SourceInventoryObservation) {
+				obs.SourceClasses[0].Complete = false
+			},
+			want: "source_class_universe_incomplete",
+		},
+	} {
+		obs := CloneSourceInventoryObservation(closedZero)
+		tc.mut(&obs)
+		summary, blocked := SourceInventoryExactAbsenceNeedsInventoryProof(profile, obs)
+		if !blocked || !strings.Contains(summary, tc.want) {
+			t.Fatalf("%s: truncated/incomplete zero set should not close absence, summary=%q blocked=%t", tc.name, summary, blocked)
+		}
+	}
+}
+
 func TestMutableState_SourceInventoryAdvisoryMaintainsObservation(t *testing.T) {
 	mut := NewMutableState("source inventory")
 	mut.SetSourceInventoryAdvisory(SourceInventoryAdvisory{

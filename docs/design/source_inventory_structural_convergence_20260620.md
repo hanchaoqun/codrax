@@ -28,12 +28,20 @@ Current calibrated facts after SIC-1:
 - Render-only helpers/functions now live in the render file; BusContext/read
   miss hint helpers remain in the reconcile file.
 
+Current calibrated facts after SIC-2:
+
+- Source-inventory exact-absence authority lives in
+  `internal/types/source_inventory_absence.go`.
+- `internal/types/source_inventory_observation.go`: 490 LOC, below its ratchet.
+- Complete zero member sets prove absence only when source classes are complete,
+  observation/page state is complete, and candidate execution is not truncated.
+
 ## Gap List
 
 | ID | Priority | Gap | Current evidence | Target state |
 | --- | --- | --- | --- | --- |
 | SIC-1 | HIGH | Source-inventory god-file remains too large; render cluster was embedded in `source_inventory_reconcile.go`. | Delivered: render-only helper structs and functions moved to `source_inventory_render.go`; reconcile file dropped from 5211 LOC to 3924 LOC. | Keep render logic isolated and lower the LOC ratchet in SIC-5. |
-| SIC-2 | MEDIUM | Execution kernel is wired but not fully load-bearing for absence safety. | `sourceinventory.ExecutionView` exists, but inactive budget paths can still scan `graph.Files`; absence predicates must not accept truncated/partial views as confident absence. | First make exact-absence predicates consume typed truncation/incomplete state and refuse confident absence when view execution is budget-truncated. Then install real budgets at remaining hot call sites. B before A is forbidden because it can revive false absence. |
+| SIC-2 | MEDIUM | Execution kernel is wired but not fully load-bearing for absence safety. | Delivered: exact-absence predicates now consume complete source-class, observation/page, and execution budget state; Go string-enum special path uses the budgeted execution view. | Keep new source-inventory hot paths on `sourceinventory.ExecutionView`/`Budget` and reject confident absence from partial views. |
 | SIC-3 | MEDIUM | Proof ledger derivation is lane-neutral, but read consumption remains split. | `loopkernel.DeriveProofCoverageAuthority` and read snapshots exist; write truth-ledger decisions consume proof more directly than read sufficiency/status paths. | Fold proof coverage into read sufficiency/status as soft guidance by default. Only `TruthLedgerFailed` can become hard blocking; weak/missing proof should guide exploration and status cards without over-firing hard gates. Preserve read-mode L1. |
 | SIC-4 | MEDIUM | Repair carrier is unified for result lanes, but demand-side repair lacks accepted evidence IDs. | `ToolHandoffCarrier` carries accepted evidence for tool/result handoff; `RepairDirective` has tools and repair metadata but no typed accepted-evidence carrier. | Add bounded typed accepted evidence refs to `RepairDirective`. Only enforcers/EvidenceClosure populate it from accepted evidence state. Keep advisory semantics and do not merge `RepairDirective` into `ToolHandoffCarrier`. |
 | SIC-5 | HIGH | Source-inventory convergence tripwire has coverage and slack holes. | `sourceInventoryClusterFiles` scans only `internal/tool` and `internal/types`; `internal/tool/sourceinventory/` is outside the LOC ratchet. `source_inventory_reconcile.go` ceiling is 5236 while actual is 5211. | Expand tripwire scan to `internal/tool/sourceinventory`; add explicit ceilings for `budget.go` and `execution_view.go`; ratchet stale ceilings down to current LOC. |
@@ -135,7 +143,7 @@ Current calibrated facts after SIC-1:
 | --- | --- | --- |
 | Design ledger | delivered | Initial gap list and task breakdown recorded and pushed. |
 | SIC-1 render split | delivered | Render-only helper structs and functions moved into `internal/tool/source_inventory_render.go`; `sourceInventoryReadFilePathMissHint` and `sourceInventoryReadFileRequestedRel` remain in `source_inventory_reconcile.go`. `source_inventory_reconcile.go` is down from 5211 LOC to 3924 LOC on latest main. Focused `go test ./internal/tool -run 'TestRepoLanguageCensus_BuilderInScope|TestSourceInventoryConvergence|TestSourceInventory|TestPublishSourceInventoryObservationFromLens|TestRenderSourceInventory'` passed. Full `go test ./...` passed. |
-| SIC-2 exec kernel absence safety | pending |  |
+| SIC-2 exec kernel absence safety | delivered | Added `internal/types/source_inventory_absence.go`; source-inventory exact absence now blocks on incomplete source-class universe, incomplete observation, incomplete page, or `CandidateBudgetTruncated`. Pre-emit and contract twin gates share the same typed authority. Go string-enum candidate special path now uses a budgeted execution view and carries truncation. Focused source-inventory/absence tests passed, LOC ratchet passed, and full `go test ./...` passed. |
 | SIC-3 proof consumption | pending |  |
 | SIC-4 repair accepted evidence | pending |  |
 | SIC-5 tripwire coverage | pending |  |

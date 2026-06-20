@@ -1760,6 +1760,35 @@ func TestValidateSourceInventoryExactAbsenceBound_RequiresClosedClassUniverse(t 
 	if vs := validateSourceInventoryExactAbsenceBound(doc, bus); len(vs) != 0 {
 		t.Fatalf("complete empty source-inventory set should close the class-bound absence proof: %+v", vs)
 	}
+
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Lens:         []string{"source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    1,
+			Complete: true,
+		}},
+		Page: &types.SourceInventoryObservationPage{
+			Offset:     0,
+			Limit:      10,
+			Total:      11,
+			Emitted:    10,
+			NextCursor: "10",
+			Complete:   false,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+		}},
+	})
+	vs = validateSourceInventoryExactAbsenceBound(doc, bus)
+	if len(vs) != 1 || vs[0].Kind != types.ViolAbsenceScopeExceeded ||
+		!strings.Contains(vs[0].Detail, "page_incomplete") {
+		t.Fatalf("paged zero set must not close source-inventory absence proof: %+v", vs)
+	}
 }
 
 // ── AllViolationKinds 完整性 (4 新 kind 在 covered + kindSymbols 双表) ──
