@@ -11,7 +11,7 @@ observations, execution budget state, proof ledgers, repair directives, tool
 schemas, and evidence IDs. User prose, model rationale, visible thinking, and
 rendered Markdown remain soft context.
 
-Current calibrated facts:
+Initial calibrated facts:
 
 - `internal/tool/source_inventory_reconcile.go`: 5211 LOC / 211 funcs.
 - `sourceInventoryExecBudget{}` zero-value bypass literals: 0.
@@ -21,11 +21,18 @@ Current calibrated facts:
 - Cross-stage repair result carrier is `types.ToolHandoffCarrier`.
 - Demand-side repair carrier is `types.RepairDirective`.
 
+Current calibrated facts after SIC-1:
+
+- `internal/tool/source_inventory_reconcile.go`: 3924 LOC.
+- `internal/tool/source_inventory_render.go`: 1308 LOC.
+- Render-only helpers/functions now live in the render file; BusContext/read
+  miss hint helpers remain in the reconcile file.
+
 ## Gap List
 
 | ID | Priority | Gap | Current evidence | Target state |
 | --- | --- | --- | --- | --- |
-| SIC-1 | HIGH | Source-inventory god-file remains too large; render cluster is still embedded in `source_inventory_reconcile.go`. | Render helpers and helper structs are concentrated around `source_inventory_reconcile.go:1455-2765`; file remains 5211 LOC. | Move render-only cluster into `internal/tool/source_inventory_render.go` with zero exported signature changes. Keep BusContext/read-miss hint functions in the existing file. LOC ratchet must drop. |
+| SIC-1 | HIGH | Source-inventory god-file remains too large; render cluster was embedded in `source_inventory_reconcile.go`. | Delivered: render-only helper structs and functions moved to `source_inventory_render.go`; reconcile file dropped from 5211 LOC to 3924 LOC. | Keep render logic isolated and lower the LOC ratchet in SIC-5. |
 | SIC-2 | MEDIUM | Execution kernel is wired but not fully load-bearing for absence safety. | `sourceinventory.ExecutionView` exists, but inactive budget paths can still scan `graph.Files`; absence predicates must not accept truncated/partial views as confident absence. | First make exact-absence predicates consume typed truncation/incomplete state and refuse confident absence when view execution is budget-truncated. Then install real budgets at remaining hot call sites. B before A is forbidden because it can revive false absence. |
 | SIC-3 | MEDIUM | Proof ledger derivation is lane-neutral, but read consumption remains split. | `loopkernel.DeriveProofCoverageAuthority` and read snapshots exist; write truth-ledger decisions consume proof more directly than read sufficiency/status paths. | Fold proof coverage into read sufficiency/status as soft guidance by default. Only `TruthLedgerFailed` can become hard blocking; weak/missing proof should guide exploration and status cards without over-firing hard gates. Preserve read-mode L1. |
 | SIC-4 | MEDIUM | Repair carrier is unified for result lanes, but demand-side repair lacks accepted evidence IDs. | `ToolHandoffCarrier` carries accepted evidence for tool/result handoff; `RepairDirective` has tools and repair metadata but no typed accepted-evidence carrier. | Add bounded typed accepted evidence refs to `RepairDirective`. Only enforcers/EvidenceClosure populate it from accepted evidence state. Keep advisory semantics and do not merge `RepairDirective` into `ToolHandoffCarrier`. |
@@ -126,8 +133,8 @@ Current calibrated facts:
 
 | Batch | Status | Notes |
 | --- | --- | --- |
-| Design ledger | in_progress | Initial gap list and task breakdown recorded. |
-| SIC-1 render split | pending |  |
+| Design ledger | delivered | Initial gap list and task breakdown recorded and pushed. |
+| SIC-1 render split | delivered | Render-only helper structs and functions moved into `internal/tool/source_inventory_render.go`; `sourceInventoryReadFilePathMissHint` and `sourceInventoryReadFileRequestedRel` remain in `source_inventory_reconcile.go`. `source_inventory_reconcile.go` is down from 5211 LOC to 3924 LOC on latest main. Focused `go test ./internal/tool -run 'TestRepoLanguageCensus_BuilderInScope|TestSourceInventoryConvergence|TestSourceInventory|TestPublishSourceInventoryObservationFromLens|TestRenderSourceInventory'` passed. Full `go test ./...` passed. |
 | SIC-2 exec kernel absence safety | pending |  |
 | SIC-3 proof consumption | pending |  |
 | SIC-4 repair accepted evidence | pending |  |

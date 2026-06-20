@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -82,6 +83,10 @@ func TestRepoLanguageCensus_Empty(t *testing.T) {
 // real .cj sample paths to open.
 func TestRepoLanguageCensus_BuilderInScope(t *testing.T) {
 	ctx := &types.BusContext{RepoRoot: "../.."}
+	wantCJ := sourceInventoryTrackedLanguageCount(t, ctx.RepoRoot, repotypes.LangCangjie)
+	if wantCJ == 0 {
+		t.Fatal("expected repo fixture to carry tracked Cangjie source files")
+	}
 	census := sourceInventoryRepoLanguageCensus(ctx, []string{
 		"internal/tool/repomap/index/cangjie_parser.go",
 	})
@@ -103,12 +108,27 @@ func TestRepoLanguageCensus_BuilderInScope(t *testing.T) {
 	if cjLC.InScope {
 		t.Fatalf("cangjie should be scope-absent under a go-only scope: %+v", cjLC)
 	}
-	if cjLC.Count != 8 {
-		t.Fatalf("expected cangjie count 8, got %d", cjLC.Count)
+	if cjLC.Count != wantCJ {
+		t.Fatalf("expected cangjie count %d from tracked source universe, got %d", wantCJ, cjLC.Count)
 	}
 	if len(cjLC.Samples) == 0 || !strings.HasSuffix(cjLC.Samples[0], ".cj") {
 		t.Fatalf("expected .cj sample paths for cangjie, got %v", cjLC.Samples)
 	}
+}
+
+func sourceInventoryTrackedLanguageCount(t *testing.T, repoRoot, lang string) int {
+	t.Helper()
+	files, complete := sourceInventoryTrackedRepoFiles(repoRoot)
+	if !complete {
+		t.Fatalf("expected complete tracked source universe for %s", repoRoot)
+	}
+	count := 0
+	for _, rel := range files {
+		if repotypes.DetectLanguage(rel) == lang {
+			count++
+		}
+	}
+	return count
 }
 
 // TestRepoLanguageCountsCloneMergeRoundTrip exercises the typed clone/merge so
