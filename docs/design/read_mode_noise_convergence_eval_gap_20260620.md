@@ -60,6 +60,9 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C22 | P0 | Trace root-cause rank is not promoted to the principal answer carrier. | `trace_query` emits `root_evidence` / `root_cause_rank` rows for `threadpool-400`, but final answer can lead with the target thread's direct wait state and fail evals or user reading that expect the primary root-cause node to be first-class. | Add a typed `TraceCausalProjection` with roles such as `target_direct_wait`, `primary_root_cause`, `causal_chain_hop`, `direct_waker`, and `drilldown_boundary`. Finalizer consumes this projection as a principal obligation instead of rediscovering rank from raw trace rows or prose. |
 | RNE-C23 | P0 | Source inventory can falsely prove absence when supported-language fixture/corpus files are outside the default source scope. | The ArkTS eval repository contains `.ets` corpus sources under `internal/thirdparty/tree-sitter-arkts/corpus/sources`, but the run answered that no ArkTS source files exist. The scanner/navigation view and grep/list outputs did not expose a typed source-scope boundary that differentiates product source, fixtures, corpora, testdata, vendored code, and generated assets. | Introduce a language-neutral `SourceInventoryAuthority` with typed scope classes. Absence answers must state the exact searched source classes and cannot close if matching files exist in an in-scope class required by the task/eval. This must cover all supported languages, including C/C++, Cangjie, ArkTS, JS/TS, Java/Kotlin, Ruby, Go, config, workflow, and other repomap languages. |
 | RNE-C24 | P1 | Empty/negative aggregate schema repair still burns many model rounds. | After exact empty member-set support landed, models still repeatedly repair `negative_search` / `negative_observation` dimensions and sometimes mix repo no-hit evidence with infrastructure evidence. | Add a unified aggregate-fact repair/normalization layer that returns precise typed repair hints and canonicalizes no-hit repo searches, artifact no-hit observations, and exact empty sets before retry. The layer must not infer from model prose; it only consumes schema-validated fields and tool result metadata. |
+| RNE-C25 | P0 | Runtime-artifact-only turns can still print repo-index progress before any source lane is needed. | The targeted trace rerun no longer used `read_file` or `repo_map`, but Stage 1 still warmed and reported the repo index before perf triage / source-lane authority had proved current-source work unnecessary. | Make repo-index warmup lazy and origin-aware. Runtime-artifact-only requests should not scan or report repo index progress unless a typed current-source obligation, repo_map tool call, or source-localizer route actually needs it. |
+| RNE-C26 | P1 | Requested answer dimensions can be repaired only at finalizer patch time. | The trace rerun answered correctly, but the finalizer needed a second patch round solely to add requested dimensions such as related chain and drilldown direction. | Compile a typed answer-surface scaffold from requested dimensions and runtime projections before the first finalizer call. Patch rounds should be reserved for real missing evidence, not predictable section skeletons. |
+| RNE-C27 | P0 | Legacy `RawRequest` lexical fallbacks can still influence hard-ish gates. | A quick audit found scattered helpers such as trace flavor/platform hints and coherence entity mention checks reading raw user text directly. Some uses are legitimate explicit-overrides, but their current shape is not centralized and can drift into keyword-driven routing. | Add a `RequestSignalAuthority` / typed provenance layer: raw text may be used only for path/artifact tokenization, exact quoted provenance, or analyzer-emitted typed profiles. Hard gates consume those typed profiles, never ad hoc RawRequest substring checks. |
 
 ## Architecture Direction
 
@@ -144,7 +147,7 @@ roles from many raw trace rows.
 | Batch C2b | planned | Add relation retry delta handling. | Duplicate support rows stay advisory, and repeated identical relation support downgrades stop broadening after one bounded repair turn. |
 | Batch D | planned | Add typed relevance budget for chain/concrete/support evidence. | Architecture inventory and C++ call-chain cases render bounded Top-N prompt sections while preserving full refs in audit artifacts. |
 | Batch E | planned | Add downgrade fingerprint / low-delta guard. | Identical pre-complete rejection without new typed input stops after one bounded repair turn. |
-| Batch F | planned | Add trace causal path projection. | Trace eval preserves intermediate path-role facets in final answer with fewer trace_query calls. |
+| Batch F | planned | Add broader trace causal path-role projection. | Trace eval preserves source/sink/intermediate/exclusion path roles in final answer with fewer trace_query calls. Batch T covers the principal root-cause carrier; this batch remains for richer path-role facets. |
 | Batch G | planned | Add read eval watchdog. | Read-mode eval paths use a configurable timeout and emit typed timeout summaries. |
 | Batch H | delivered | Quarantine post-complete localization repair for extractor. | Extractor receives non-executable localization status/caveat fields and does not attempt `read_file` / `repo_map` after accepted closure. |
 | Batch I | delivered | Gate final system supplements by principal-answer relevance. | A passing scalar/member-set answer does not show stale "localization needed" or generic low-proof caveats unless typed proof debt is principal/blocking. |
@@ -157,9 +160,12 @@ roles from many raw trace rows.
 | Batch Q | planned | Split runtime-artifact language metadata from repo/source language. | Log/trace artifact language guesses cannot drive source-language summaries, source localization, or hard gates. |
 | Batch R | planned | Share proof coverage across exploration siblings. | Mixed runtime/source cases converge with bounded duplicate reads and smaller context while preserving source citations. |
 | Batch S | delivered | Add origin-aware runtime-only source navigation suppression. | Trace/log artifact-only tasks with no current-source obligation skip repo_map/localizer blocking floors and user-facing source supplements while keeping runtime observation audit. |
-| Batch T | planned | Add trace causal projection and principal root-cause obligation. | Trace final answers surface the typed primary root cause, direct wait, causal chain, and drilldown boundaries from one compact projection. |
+| Batch T | delivered | Add trace causal projection and source-optional supplement gating. | Trace causal projection selects attributable wakeup-chain root-cause nodes over aggregate sentinels, dedupes supporting hops, and runtime-artifact source-optional answers no longer render source localization / repo_map audit supplements. |
 | Batch U | planned | Add source inventory authority with scope classes. | Supported-language searches expose product/test/fixture/corpus/vendor/generated scope classes; absence closes only against the classes required by the typed task. |
 | Batch V | planned | Add aggregate negative-fact canonicalization and repair hints. | Empty-set and no-hit searches converge through one canonical schema path without repeated dimension repair loops. |
+| Batch W | planned | Add lazy repo-index warmup for runtime-artifact-only read turns. | Runtime trace/log answers with no typed current-source obligation do not print or pay repo-index warmup unless a later typed source route actually opens. |
+| Batch X | planned | Add requested-dimension answer-surface scaffold. | First finalizer draft receives the typed section/dimension skeleton, reducing predictable finalizer patch rounds. |
+| Batch Y | planned | Centralize RawRequest-derived signals into typed request authority. | Trace platform/flavor overrides, coherence mention signals, and similar raw-text helpers are migrated behind typed profiles or exact provenance extractors with hygiene tests blocking new hard gates over raw user words. |
 | Batch J | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
 
 ## Test Matrix
@@ -201,6 +207,12 @@ roles from many raw trace rows.
 - Unit: trace causal projection binds a single primary root-cause node, direct
   wait node, ordered causal chain, and drilldown boundary from structured
   trace observations.
+- Unit: trace causal projection prefers attributable wakeup-chain nodes over
+  aggregate sentinel subjects such as `unknown-thread`, and deduplicates
+  repeated supporting hop rows.
+- Unit: runtime-artifact source-optional answers suppress final source
+  localization, owner-anchor, repo_map navigation, and localizer follow-up
+  supplements even when optional source exploration happened.
 - Unit: source inventory reports scope classes for product, test, fixture,
   corpus, vendor, generated, config, and workflow files across supported
   languages.
@@ -208,10 +220,17 @@ roles from many raw trace rows.
   matching files inside a required source-scope class.
 - Unit: negative search / negative observation / exact empty member-set facts
   are canonicalized without requiring model prose repair loops.
+- Hygiene: hard gates and scheduler decisions do not read `RawRequest`,
+  user-word substrings, model rationale, visible thinking, or rendered summary
+  text directly; any legitimate raw text extraction must enter through typed
+  request profiles or exact provenance/path-token parsers first.
 - Eval: `arkts_repomap` no longer loops on empty set shape.
 - Eval: `qf_relation_subagent_registry` converges without repeated identical
   relation support downgrade.
 - Eval: `trace_query_wakeup_causal_io_chain` preserves intermediate path roles.
+- Eval: runtime-artifact trace reruns produce no `read_file` / `repo_map` tool
+  calls and no source-localization / repo_map user-facing supplements when
+  current-source evidence is not typed-required.
 - Eval: `read_combo_log_current_code_dimensions` reads current-source anchors
   and cites repo lines instead of answering observation-only.
 - Eval: architecture inventory and C++ call-chain cases stay bounded in reads,
@@ -377,3 +396,25 @@ roles from many raw trace rows.
   `pre-finalize read localizer follow-up`, no repo_map navigation supplement,
   and no read-localizer supplement. The broader trace principal-root-cause
   projection work remains tracked separately as RNE-C22 / Batch T.
+- 2026-06-20 Batch T delivered: added typed `TraceCausalProjection` over
+  structured `trace_query` observation records and final-answer source
+  supplement gating for runtime-artifact answers without a current-source hard
+  requirement. The projection ranks attributable wakeup-chain nodes ahead of
+  aggregate sentinel rows such as `unknown-thread`, compares impact within the
+  same attribution class, and deduplicates repeated supporting hop rows. Final
+  answer mutation now suppresses source localization / owner-anchor /
+  repo_map-navigation / localizer-follow-up supplements for source-optional
+  runtime-artifact answers while preserving the full TurnA artifacts for audit.
+- 2026-06-20 Batch T verification: focused tests passed for
+  `internal/types` and `internal/tool`, and full `go test ./...` passed. The
+  targeted trace rerun
+  `eval/convergence_audit_summary_20260620_trace_after_batch_t2.md` passed
+  with `read_file=0`, `repo_map=0`, `list_files=0`, `explorer_iters=3`, and
+  `midloop_inject=2`. A log audit found no source-localization, repo_map
+  navigation, localizer follow-up, or `Resolution Chain anchor` user-facing
+  supplements. The run still printed repo-index warmup progress before source
+  lane suppression and needed a second finalizer patch for requested answer
+  dimensions, now tracked as RNE-C25 / Batch W and RNE-C26 / Batch X.
+  Scattered `RawRequest` lexical helper usage was also refreshed into this
+  ledger as RNE-C27 / Batch Y so the follow-up work covers red-line hygiene
+  alongside noise and convergence.

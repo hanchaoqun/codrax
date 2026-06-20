@@ -289,6 +289,70 @@ func TestApplyAndPersistMutation_RuntimeTraceObservationOnlySkipsReadNavigationS
 	}
 }
 
+func TestApplyAndPersistMutation_RuntimeTraceSourceOptionalSuppressesSourceAuditSupplements(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AttachedHitrace = "app-100 sched_switch prev_state=S"
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"app-100"},
+		},
+	}}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		SourceLocalization: &types.SourceLocalizationReview{
+			Source:              "read_turn_a",
+			Status:              types.SourceLocalizationSupported,
+			SourcePaths:         []string{"internal/tracequery/query.go"},
+			SupportedPaths:      []string{"internal/tracequery/query.go"},
+			OwnerSupportedPaths: []string{"internal/tracequery/query.go"},
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:        "internal/tracequery/query.go",
+				Kind:        types.SourceLocalizationAnchorGroundedEvidence,
+				Strength:    types.SourceLocalizationAnchorOwner,
+				OwnerSymbol: "expandChain",
+			}},
+		},
+		ToolResults: []types.ToolResult{{
+			ToolName: "repo_map",
+			Success:  true,
+			RawRef:   "blob://repo-map-task",
+			Observations: []types.ObservationRecord{{
+				ID:        "repo_map:task#navigation:task_map",
+				Origin:    types.AnswerEvidenceOriginCrossRepoIndex,
+				Producer:  "repo_map",
+				SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceCrossRepoIndex, RawRef: "blob://repo-map-task"},
+				Predicate: types.RepoMapNavigationObservationPredicate,
+				Object:    string(types.RepoMapNavigationRouteTaskMap),
+			}},
+		}},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "runtime observation answer"},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil {
+		t.Fatal("answer document not persisted")
+	}
+	if got.ReadSourceLocalization != nil || len(got.ReadOwnerAnchors) != 0 {
+		t.Fatalf("runtime source-optional answer should not stamp source localization supplements: localization=%+v anchors=%+v", got.ReadSourceLocalization, got.ReadOwnerAnchors)
+	}
+	if got.ReadNavigationCoverage != nil || got.ReadLocalizerFollowup != nil {
+		t.Fatalf("runtime source-optional answer should not stamp navigation/localizer supplements: coverage=%+v followup=%+v", got.ReadNavigationCoverage, got.ReadLocalizerFollowup)
+	}
+}
+
 func TestApplyAndPersistMutation_RuntimeTraceCurrentSourceRequirementStampsReadNavigation(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.AttachedHitrace = "app-100 sched_switch prev_state=S"
@@ -337,6 +401,94 @@ func TestApplyAndPersistMutation_RuntimeTraceCurrentSourceRequirementStampsReadN
 	}
 	if got.ReadLocalizerFollowup == nil || got.ReadLocalizerFollowup.State != types.ReadLocalizerFollowupNeeded {
 		t.Fatalf("current-source trace should keep localizer follow-up: %+v", got.ReadLocalizerFollowup)
+	}
+}
+
+func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+	}}
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			traceProjectionObservation("root-app", "app-100", "compute_supply", "0.020", "0.020", 1),
+			traceProjectionObservation("root-threadpool", "threadpool-400", "io_wait", "11.000", "11.000", 4),
+			{
+				ID:              "path",
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard,
+				Predicate:       "wakeup_chain",
+				ClaimKey:        "wakeup_chain:path",
+				Object:          "threadpool-400 -> network-300 -> cookie-200 -> app-100",
+			},
+		},
+	}}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "app-100 direct wait was observed."},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) < 2 {
+		t.Fatalf("answer document not persisted with projection: %+v", got)
+	}
+	projection := got.Blocks[1]
+	if projection.ID != "runtime_trace_causal_projection" ||
+		projection.Kind != types.BlockOrderedList ||
+		projection.SurfaceRole != types.SurfacePrincipal {
+		t.Fatalf("missing principal trace causal projection block: %+v", projection)
+	}
+	if len(projection.ClaimUses) != 1 || projection.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
+		t.Fatalf("projection must stay in external-observation lane: %+v", projection.ClaimUses)
+	}
+	if len(projection.Items) < 2 {
+		t.Fatalf("projection items missing: %+v", projection.Items)
+	}
+	if projection.Items[0].Label != "主根因" ||
+		!strings.Contains(projection.Items[0].Text, "threadpool-400 -> io_wait") ||
+		!strings.Contains(projection.Items[0].Text, "cumulative_impact=11.000ms") {
+		t.Fatalf("projection should select highest impact root cause first: %+v", projection.Items[0])
+	}
+	if projection.Items[1].Label != "因果链路" ||
+		!strings.Contains(projection.Items[1].Text, "threadpool-400 -> network-300 -> cookie-200 -> app-100") {
+		t.Fatalf("projection should preserve wakeup path: %+v", projection.Items[1])
+	}
+}
+
+func traceProjectionObservation(id, subject, object, value, cumulative string, rank int) types.ObservationRecord {
+	return types.ObservationRecord{
+		ID:              id,
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRolePrincipalAnswer,
+		GroundingPolicy: types.ClaimGroundingHard,
+		Predicate:       "root_cause_primary",
+		ClaimKey:        "root_cause_primary",
+		Subject:         subject,
+		Object:          object,
+		Value:           value,
+		Unit:            "ms",
+		RichNotes: []string{
+			fmt.Sprintf("rank=%d", rank),
+			"tier=primary",
+			"impact_ms=" + value,
+			"cumulative_impact_ms=" + cumulative,
+			"causality=on_wakeup_chain",
+		},
+		Confidence: 0.9,
 	}
 }
 

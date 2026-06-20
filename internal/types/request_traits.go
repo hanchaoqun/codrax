@@ -1221,6 +1221,19 @@ func RuntimeArtifactReadSourceNavigationNotRequired(ir *AnalysisIR, attachedTrac
 	return ir.RequestModel.HasRuntimeArtifactObservationOnlySurfaceInTraceContext(attachedTrace)
 }
 
+// RuntimeArtifactReadSourceSupplementsNotRequired reports whether final answer
+// source-localization / repo_map audit supplements should stay out of the
+// user-facing answer surface. Source exploration may still have happened and
+// remains available in TurnA / reasoning artifacts; this only prevents optional
+// source-side audit tables from crowding runtime-artifact answers when current
+// checkout source was not a typed requirement.
+func RuntimeArtifactReadSourceSupplementsNotRequired(ir *AnalysisIR, attachedTrace bool) bool {
+	if ir == nil {
+		return false
+	}
+	return ir.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSourceInTraceContext(attachedTrace)
+}
+
 // HasRuntimeArtifactSourceOptionalMixedSurface is the counterpart of
 // HasRuntimeArtifactObservationOnlySurface: runtime observations may answer the
 // artifact lane, but the analyzer explicitly kept current-source analysis in

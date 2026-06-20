@@ -612,6 +612,43 @@ func TestRuntimeArtifactReadSourceNavigationNotRequired_CurrentKeyCodeKeepsSourc
 	}
 }
 
+func TestRuntimeArtifactReadSourceSupplementsNotRequired_SourceOptionalTrace(t *testing.T) {
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent:   IntentTrace,
+		Scenario: ScenarioPerformanceBottleneck,
+		AnalyzerHints: AnalyzerHints{
+			PrimaryEntities: []string{"app-20"},
+		},
+	}}
+	if !RuntimeArtifactReadSourceSupplementsNotRequired(ir, true) {
+		t.Fatal("source-optional attached trace should keep source audit supplements off the user answer surface")
+	}
+}
+
+func TestRuntimeArtifactReadSourceSupplementsNotRequired_CurrentKeyCodeKeepsSupplements(t *testing.T) {
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeProduction,
+			Confidence:     0.8,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:    "current implementation",
+				Role:     RequestedAnswerDimensionCurrentKeyCode,
+				Required: true,
+				Index:    1,
+			}},
+			Confidence: 0.9,
+		},
+	}}
+	if RuntimeArtifactReadSourceSupplementsNotRequired(ir, true) {
+		t.Fatal("required current_key_code dimension should preserve source audit supplements")
+	}
+}
+
 func TestCurrentSourceLaneDecision_RuntimeExactTargetsRemainSourceOptional(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentRootCause,

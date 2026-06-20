@@ -141,6 +141,9 @@ func persistMergedAnswerDocument(
 	if fixed := normalizeMergedDiagramPayloadKinds(merged); fixed > 0 {
 		logging.Warning("[%s] repaired %d diagram block discriminator(s) before persist", toolName, fixed)
 	}
+	if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
+		logging.Info("[%s] materialized runtime trace causal projection from structured trace observations", toolName)
+	}
 	if materializeRuntimeTraceMetricSnapshotBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace metric snapshot from structured observation notes", toolName)
 	}
@@ -186,6 +189,11 @@ func persistMergedAnswerDocument(
 
 func stampReadOwnerAnchorsFromTurnA(ctx *types.BusContext, doc *types.AnswerDocumentV2) int {
 	if ctx == nil || ctx.Mutable == nil || doc == nil {
+		return 0
+	}
+	if readFinalAnswerSourceSupplementsNotRequired(ctx) {
+		doc.ReadOwnerAnchors = nil
+		doc.ReadSourceLocalization = nil
 		return 0
 	}
 	turnA := ctx.Mutable.TurnAArtifacts()
@@ -235,6 +243,10 @@ func stampReadNavigationCoverageFromTurnA(ctx *types.BusContext, doc *types.Answ
 	if ctx == nil || ctx.Mutable == nil || doc == nil || ctx.AnalysisIR == nil {
 		return false
 	}
+	if readFinalAnswerSourceSupplementsNotRequired(ctx) {
+		doc.ReadNavigationCoverage = nil
+		return false
+	}
 	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
 	if types.RuntimeArtifactReadSourceNavigationNotRequired(ctx.AnalysisIR, attachedTrace) {
 		doc.ReadNavigationCoverage = nil
@@ -252,6 +264,14 @@ func stampReadNavigationCoverageFromTurnA(ctx *types.BusContext, doc *types.Answ
 	}
 	doc.ReadNavigationCoverage = &coverage
 	return true
+}
+
+func readFinalAnswerSourceSupplementsNotRequired(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	attachedTrace := strings.TrimSpace(ctx.AttachedHitrace) != ""
+	return types.RuntimeArtifactReadSourceSupplementsNotRequired(ctx.AnalysisIR, attachedTrace)
 }
 
 func stampReadLocalizerFollowup(ctx *types.BusContext, doc *types.AnswerDocumentV2) bool {
@@ -392,6 +412,136 @@ func normalizeMergedDiagramPayloadKinds(doc *types.AnswerDocumentV2) int {
 		}
 	}
 	return fixed
+}
+
+func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		logging.Warning("[answer_document] runtime trace causal projection block skipped: document already at the %d-block cap", maxBlocksPerDoc)
+		return false
+	}
+	if answerDocumentHasBlockID(doc, "runtime_trace_causal_projection") {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 128))
+	projection := types.CompileTraceCausalProjection(ledger)
+	items := runtimeTraceCausalProjectionItems(projection)
+	if len(items) == 0 {
+		return false
+	}
+	block := types.AnswerBlock{
+		ID:          "runtime_trace_causal_projection",
+		Kind:        types.BlockOrderedList,
+		Title:       "Trace 因果投影",
+		Items:       items,
+		SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimExternalObservation,
+		}},
+		FacetIDs: []string{"observed_artifact_fact"},
+	}
+	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
+	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
+	doc.Blocks[insertAt] = block
+	return true
+}
+
+func runtimeTraceCausalProjectionItems(projection types.TraceCausalProjection) []types.AnswerBlockItem {
+	if !projection.Active() || projection.PrimaryRootCause == nil {
+		return nil
+	}
+	items := []types.AnswerBlockItem{{
+		ID:          "trace_primary_root_cause",
+		Label:       "主根因",
+		Text:        runtimeTraceCausalProjectionNodeText(*projection.PrimaryRootCause),
+		CitationRef: -1,
+	}}
+	if len(projection.WakeupPath) > 0 {
+		items = append(items, types.AnswerBlockItem{
+			ID:          "trace_wakeup_path",
+			Label:       "因果链路",
+			Text:        strings.Join(projection.WakeupPath, " -> "),
+			CitationRef: -1,
+		})
+	}
+	for i, hop := range projection.SupportingHops {
+		items = append(items, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("trace_causal_hop_%d", i+1),
+			Label:       "支撑节点",
+			Text:        runtimeTraceCausalProjectionNodeText(hop),
+			CitationRef: -1,
+		})
+		if len(items) >= 5 {
+			break
+		}
+	}
+	return items
+}
+
+func runtimeTraceCausalProjectionNodeText(node types.TraceCausalProjectionNode) string {
+	parts := make([]string, 0, 6)
+	subject := strings.TrimSpace(node.Subject)
+	object := strings.TrimSpace(node.Object)
+	switch {
+	case subject != "" && object != "":
+		parts = append(parts, subject+" -> "+object)
+	case subject != "":
+		parts = append(parts, subject)
+	case object != "":
+		parts = append(parts, object)
+	}
+	if metric := runtimeTraceCausalProjectionMetric(node); metric != "" {
+		parts = append(parts, metric)
+	}
+	if node.Causality != "" {
+		parts = append(parts, "causality="+node.Causality)
+	}
+	if node.Rank > 0 {
+		parts = append(parts, fmt.Sprintf("rank=%d", node.Rank))
+	}
+	if ref := runtimeTraceCausalProjectionEvidenceRef(node); ref != "" {
+		parts = append(parts, ref)
+	}
+	if summary := strings.TrimSpace(node.Summary); summary != "" {
+		parts = append(parts, summary)
+	}
+	return strings.Join(parts, "；")
+}
+
+func runtimeTraceCausalProjectionMetric(node types.TraceCausalProjectionNode) string {
+	switch {
+	case node.CumulativeImpactMS > 0:
+		return fmt.Sprintf("cumulative_impact=%.3fms", node.CumulativeImpactMS)
+	case node.ImpactMS > 0:
+		return fmt.Sprintf("impact=%.3fms", node.ImpactMS)
+	case strings.TrimSpace(node.Value) != "":
+		value := strings.TrimSpace(node.Value)
+		unit := strings.TrimSpace(node.Unit)
+		if unit != "" && !strings.HasSuffix(strings.ToLower(value), strings.ToLower(unit)) {
+			value += unit
+		}
+		return "value=" + value
+	default:
+		return ""
+	}
+}
+
+func runtimeTraceCausalProjectionEvidenceRef(node types.TraceCausalProjectionNode) string {
+	for _, ref := range node.SupportRefs {
+		if s := strings.TrimSpace(ref); s != "" {
+			return s
+		}
+	}
+	if node.LineStart <= 0 {
+		return ""
+	}
+	if node.LineEnd > node.LineStart {
+		return fmt.Sprintf("lines=%d-%d", node.LineStart, node.LineEnd)
+	}
+	return fmt.Sprintf("line=%d", node.LineStart)
 }
 
 func materializeRuntimeTraceMetricSnapshotBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
