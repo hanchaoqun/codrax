@@ -3630,8 +3630,9 @@ func sourceInventoryLensExecutionDowngrade(ctx *types.BusContext, aggregateFacts
 	if len(scopes) == 0 {
 		scopes = []string{"."}
 	}
-	subject := fmt.Sprintf("Run `repo_map` with `view=\"source_inventory\"`, roles=[%s], scopes=[%s], include_counts=true, and include_attributes=false for the broad pass.",
-		strings.Join(roles, ", "), sourceInventoryLensExecutionQuotedList(scopes))
+	repoMapPath, repoMapScopes := sourceInventoryLensExecutionRepoMapCallShape(scopes)
+	subject := fmt.Sprintf("Run `repo_map` with path=%q, `view=\"source_inventory\"`, roles=[%s], scopes=[%s], include_counts=true, and include_attributes=false for the broad pass.",
+		repoMapPath, strings.Join(roles, ", "), sourceInventoryLensExecutionQuotedList(repoMapScopes))
 	rationale := "The active `source_inventory_profile` makes this a bounded source-inventory lane. Advisory graph rows and direct `list_files` universes are navigation context only; before closing, execute the typed source_inventory lens, then verify selected rows with read_file/targeted grep and hand off the model-authored principal set through aggregate_facts.member_set or an honest absence boundary."
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
@@ -3648,7 +3649,8 @@ func sourceInventoryLensExecutionDowngrade(ctx *types.BusContext, aggregateFacts
 	b.WriteString("The current question has an active typed `source_inventory_profile`, so closure needs the executable repo-map source inventory lens before the final member/absence handoff. ")
 	b.WriteString("Advisory graph rows and `list_files` direct-child universes are useful navigation context, but they do not replace the bounded `repo_map(view=\"source_inventory\")` pass for this inventory lane.\n\n")
 	fmt.Fprintf(&b, "- required roles: `%s`\n", strings.Join(roles, "`, `"))
-	fmt.Fprintf(&b, "- suggested scopes: `%s`\n", strings.Join(scopes, "`, `"))
+	fmt.Fprintf(&b, "- suggested repo_map path: `%s`\n", repoMapPath)
+	fmt.Fprintf(&b, "- suggested scopes: `%s`\n", strings.Join(repoMapScopes, "`, `"))
 	if gap.HasAdvisory {
 		b.WriteString("- current state: source-inventory advisory is present\n")
 	}
@@ -3659,6 +3661,48 @@ func sourceInventoryLensExecutionDowngrade(ctx *types.BusContext, aggregateFacts
 	b.WriteString(subject)
 	b.WriteString(" Then verify/cite selected source rows and retry `emit_investigation_complete` with the completed model-authored `aggregate_facts.member_set`, or `result_kind=\"absence\"` plus a typed absence justification if the lens confirms there are no matching members.")
 	return strings.TrimSpace(b.String())
+}
+
+func sourceInventoryLensExecutionRepoMapCallShape(scopes []string) (string, []string) {
+	cleaned := sourceInventoryLensExecutionCleanScopes(scopes)
+	if len(cleaned) == 0 {
+		return ".", []string{"."}
+	}
+	if len(cleaned) == 1 && sourceInventoryLensExecutionScopeLooksLikeFile(cleaned[0]) {
+		dir := path.Dir(cleaned[0])
+		base := path.Base(cleaned[0])
+		if dir == "" || dir == "." || dir == "/" {
+			return ".", []string{base}
+		}
+		return dir, []string{base}
+	}
+	return ".", cleaned
+}
+
+func sourceInventoryLensExecutionCleanScopes(scopes []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(scopes))
+	for _, raw := range scopes {
+		scope := strings.Trim(strings.ReplaceAll(strings.TrimSpace(raw), `\`, `/`), "/")
+		if scope == "" {
+			scope = "."
+		}
+		if seen[scope] {
+			continue
+		}
+		seen[scope] = true
+		out = append(out, scope)
+	}
+	return out
+}
+
+func sourceInventoryLensExecutionScopeLooksLikeFile(scope string) bool {
+	scope = strings.Trim(strings.ReplaceAll(strings.TrimSpace(scope), `\`, `/`), "/")
+	if scope == "" || scope == "." {
+		return false
+	}
+	base := path.Base(scope)
+	return base != "." && strings.TrimSpace(path.Ext(base)) != ""
 }
 
 func sourceInventoryLensExecutionPrincipalHandoffComplete(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {

@@ -344,7 +344,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		if auxProjectionApplied {
 			provenance = append(provenance, "repo_lens:auxiliary_projection")
 		}
-		observation := tool.PublishSourceInventoryObservationFromLens(ctx, ctypes.SourceInventoryLensQuery{
+		lensQuery := ctypes.SourceInventoryLensQuery{
 			Path:              p.Path,
 			Scopes:            scopes,
 			Roles:             append([]ctypes.AnswerCandidateRole(nil), p.Roles...),
@@ -357,21 +357,20 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Query:             p.Query,
 			Provenance:        provenance,
 			RepoFileCount:     len(graph.FileIndex),
-		})
-		output := tool.RenderSourceInventoryObservationView(observation, ctypes.SourceInventoryLensQuery{
-			Path:              p.Path,
-			Scopes:            scopes,
-			Roles:             append([]ctypes.AnswerCandidateRole(nil), p.Roles...),
-			AttributeRoles:    append([]ctypes.AnswerCandidateRole(nil), p.AttributeRoles...),
-			IncludeAttributes: includeAttributes,
-			IncludeCounts:     includeCounts,
-			TopN:              p.TopN,
-			Offset:            p.Offset,
-			Cursor:            p.Cursor,
-			Provenance:        provenance,
-			RepoFileCount:     len(graph.FileIndex),
-		})
+		}
+		narrowingAdvisories := []string(nil)
+		observation, guardedQuery, guardAdvisories, guarded := repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx, graph, lensQuery)
+		if guarded {
+			lensQuery = guardedQuery
+			narrowingAdvisories = append(narrowingAdvisories, guardAdvisories...)
+		} else {
+			observation = tool.PublishSourceInventoryObservationFromLens(ctx, lensQuery)
+			observation, lensQuery, guardAdvisories = repoMapSourceInventoryMaybeNarrowNoRows(ctx, graph, observation, lensQuery)
+			narrowingAdvisories = append(narrowingAdvisories, guardAdvisories...)
+		}
+		output := tool.RenderSourceInventoryObservationView(observation, lensQuery)
 		output = prependRepoMapSourceInventoryFitAdvisory(ctx, p.Query, output)
+		output = prependRepoMapParameterAdvisory(output, narrowingAdvisories)
 		output = prependRepoMapBudgetGuardAdvisory(output, budgetAdvisories)
 		output = prependRepoMapParameterAdvisory(output, paramAdvisories)
 		output = appendRepoMapBudgetHint(graph, p.View, p.TopN, output)
@@ -875,6 +874,386 @@ func sourceInventoryShouldProjectAuxiliary(ctx *ctypes.BusContext, p repoMapPara
 		return true
 	}
 	return ctypes.IsTypedSourceEnumerationShape(rm)
+}
+
+const (
+	repoMapSourceInventoryBroadNavigationFileThreshold = 500
+	repoMapSourceInventoryBroadNavigationScanLimit     = 4096
+	repoMapSourceInventoryBroadNavigationMaxRows       = 96
+)
+
+func repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx *ctypes.BusContext, graph *Graph, query ctypes.SourceInventoryLensQuery) (ctypes.SourceInventoryObservation, ctypes.SourceInventoryLensQuery, []string, bool) {
+	if ctx == nil || ctx.Mutable == nil || graph == nil || len(graph.FileIndex) < repoMapSourceInventoryBroadNavigationFileThreshold {
+		return ctypes.SourceInventoryObservation{}, query, nil, false
+	}
+	if !repoMapSourceInventoryQueryIsBroad(query) {
+		return ctypes.SourceInventoryObservation{}, query, nil, false
+	}
+	roles := repoMapSourceInventoryEffectiveRoles(ctx, query)
+	if len(roles) == 0 || !repoMapSourceInventoryOnlyNavigationRoles(roles) {
+		return ctypes.SourceInventoryObservation{}, query, nil, false
+	}
+	topN := query.TopN
+	if topN <= 0 {
+		topN = rmtypes.DefaultTopN("source_inventory", rmtypes.RepoSizeTier(len(graph.FileIndex)))
+	}
+	if topN <= 0 {
+		topN = 60
+	}
+	if topN > repoMapSourceInventoryBroadNavigationMaxRows {
+		topN = repoMapSourceInventoryBroadNavigationMaxRows
+	}
+	guardedQuery := query
+	guardedQuery.Roles = roles
+	guardedQuery.TopN = topN
+	guardedQuery.IncludeAttributes = false
+	guardedQuery.Provenance = append(append([]string(nil), query.Provenance...),
+		"repo_lens:broad_navigation_guard",
+		"repo_lens:candidate_budget_truncated",
+	)
+	observation := repoMapSourceInventoryBroadNavigationObservation(graph, guardedQuery, topN)
+	if !observation.IsActive() {
+		observation = ctypes.SourceInventoryObservation{
+			Active:       true,
+			AdvisoryOnly: true,
+			Complete:     false,
+			Scopes:       repoMapSourceInventoryObservationScopes(guardedQuery),
+			Provenance:   append([]string(nil), guardedQuery.Provenance...),
+			Lens:         []string{"bounded_navigation_sample", "count"},
+		}
+	}
+	if current := ctx.Mutable.SourceInventoryObservation(); current.IsActive() {
+		ctx.Mutable.SetSourceInventoryObservation(ctypes.MergeSourceInventoryObservation(current, observation))
+	} else {
+		ctx.Mutable.SetSourceInventoryObservation(observation)
+	}
+	return observation, guardedQuery, []string{
+		"source_inventory_broad_navigation_guard: bounded navigation sample; rerun with narrower scope or use list_files for file enumeration",
+	}, true
+}
+
+func repoMapSourceInventoryEffectiveRoles(ctx *ctypes.BusContext, query ctypes.SourceInventoryLensQuery) []ctypes.AnswerCandidateRole {
+	if len(query.Roles) > 0 {
+		return append([]ctypes.AnswerCandidateRole(nil), query.Roles...)
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.SourceInventoryProfile != nil &&
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active() {
+		return ctx.AnalysisIR.RequestModel.SourceInventoryProfile.PrincipalTargetRoles()
+	}
+	return nil
+}
+
+func repoMapSourceInventoryOnlyNavigationRoles(roles []ctypes.AnswerCandidateRole) bool {
+	if len(roles) == 0 {
+		return false
+	}
+	for _, role := range roles {
+		switch role {
+		case ctypes.AnswerCandidateRoleFile,
+			ctypes.AnswerCandidateRoleConfigFile,
+			ctypes.AnswerCandidateRolePackage:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func repoMapSourceInventoryBroadNavigationObservation(graph *Graph, query ctypes.SourceInventoryLensQuery, topN int) ctypes.SourceInventoryObservation {
+	scopes := repoMapSourceInventoryObservationScopes(query)
+	roleOrder := repoMapSourceInventoryEffectiveRoles(nil, query)
+	setByRole := map[ctypes.AnswerCandidateRole]*ctypes.SourceInventoryObservationSet{}
+	seenByRole := map[ctypes.AnswerCandidateRole]map[string]bool{}
+	add := func(role ctypes.AnswerCandidateRole, member ctypes.SourceInventoryObservationMember) {
+		if setByRole[role] == nil {
+			setByRole[role] = &ctypes.SourceInventoryObservationSet{Role: role, Complete: false}
+		}
+		if seenByRole[role] == nil {
+			seenByRole[role] = map[string]bool{}
+		}
+		key := strings.TrimSpace(member.Key)
+		if key == "" {
+			key = strings.TrimSpace(member.File)
+		}
+		if key == "" || seenByRole[role][key] || len(setByRole[role].Members) >= topN {
+			return
+		}
+		seenByRole[role][key] = true
+		member.Role = role
+		member.Provenance = []string{"repo_lens:broad_navigation_guard"}
+		member.CoverageState = ctypes.SourceInventoryCoverageNeedsRead
+		setByRole[role].Members = append(setByRole[role].Members, member)
+		setByRole[role].Count = len(setByRole[role].Members)
+	}
+	scanned := 0
+	for _, fi := range graph.Files {
+		if fi == nil || strings.TrimSpace(fi.RelPath) == "" {
+			continue
+		}
+		if scanned >= repoMapSourceInventoryBroadNavigationScanLimit || repoMapSourceInventoryAllSetsAtLimit(setByRole, roleOrder, topN) {
+			break
+		}
+		scanned++
+		rel := strings.Trim(strings.ReplaceAll(strings.TrimSpace(fi.RelPath), `\`, `/`), "/")
+		if rel == "" || !repoMapSourceInventoryFileInAnyScope(rel, scopes) ||
+			!repoMapSourceInventoryBroadNavigationMatchesQuery(rel, fi.Language, query.Query) {
+			continue
+		}
+		for _, role := range roleOrder {
+			switch role {
+			case ctypes.AnswerCandidateRoleFile:
+				add(role, ctypes.SourceInventoryObservationMember{
+					Name:       rel,
+					Key:        rel,
+					SupportRef: rel,
+					File:       rel,
+					Language:   strings.TrimSpace(fi.Language),
+				})
+			case ctypes.AnswerCandidateRoleConfigFile:
+				if ctypes.LooksLikeConfigFilePath(rel) {
+					add(role, ctypes.SourceInventoryObservationMember{
+						Name:       rel,
+						Key:        rel,
+						SupportRef: rel,
+						File:       rel,
+						Language:   strings.TrimSpace(fi.Language),
+					})
+				}
+			case ctypes.AnswerCandidateRolePackage:
+				if dir := repoMapSourceInventoryTopPackageScope(rel); dir != "" {
+					add(role, ctypes.SourceInventoryObservationMember{
+						Name:       dir,
+						Key:        dir,
+						SupportRef: dir,
+						File:       dir,
+						Language:   strings.TrimSpace(fi.Language),
+					})
+				}
+			}
+		}
+	}
+	sets := make([]ctypes.SourceInventoryObservationSet, 0, len(roleOrder))
+	for _, role := range roleOrder {
+		set := setByRole[role]
+		if set == nil || len(set.Members) == 0 {
+			continue
+		}
+		set.Count = len(set.Members)
+		sets = append(sets, *set)
+	}
+	return ctypes.CloneSourceInventoryObservation(ctypes.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       scopes,
+		Provenance:   append([]string(nil), query.Provenance...),
+		Lens:         []string{"bounded_navigation_sample", "count"},
+		Sets:         sets,
+	})
+}
+
+func repoMapSourceInventoryObservationScopes(query ctypes.SourceInventoryLensQuery) []string {
+	scopes := append([]string(nil), query.Scopes...)
+	if len(scopes) == 0 {
+		scopes = append(scopes, query.Path)
+	}
+	if len(scopes) == 0 {
+		return []string{"."}
+	}
+	for i, scope := range scopes {
+		scope = strings.Trim(strings.ReplaceAll(strings.TrimSpace(scope), `\`, `/`), "/")
+		if scope == "" {
+			scope = "."
+		}
+		scopes[i] = scope
+	}
+	return scopes
+}
+
+func repoMapSourceInventoryAllSetsAtLimit(sets map[ctypes.AnswerCandidateRole]*ctypes.SourceInventoryObservationSet, roles []ctypes.AnswerCandidateRole, topN int) bool {
+	if len(roles) == 0 || topN <= 0 {
+		return false
+	}
+	for _, role := range roles {
+		set := sets[role]
+		if set == nil || len(set.Members) < topN {
+			return false
+		}
+	}
+	return true
+}
+
+func repoMapSourceInventoryFileInAnyScope(file string, scopes []string) bool {
+	file = strings.Trim(strings.ReplaceAll(strings.TrimSpace(file), `\`, `/`), "/")
+	if file == "" {
+		return false
+	}
+	for _, scope := range scopes {
+		scope = strings.Trim(strings.ReplaceAll(strings.TrimSpace(scope), `\`, `/`), "/")
+		if scope == "" || scope == "." || file == scope || strings.HasPrefix(file, scope+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func repoMapSourceInventoryBroadNavigationMatchesQuery(file, language, rawQuery string) bool {
+	rawQuery = strings.TrimSpace(rawQuery)
+	if rawQuery == "" {
+		return true
+	}
+	haystack := strings.ToLower(file + " " + filepath.Base(file) + " " + strings.TrimSpace(language))
+	for _, token := range strings.Fields(strings.ToLower(rawQuery)) {
+		token = strings.Trim(token, "`'\"()[]{}.,;:")
+		if token == "" {
+			continue
+		}
+		if strings.Contains(haystack, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func repoMapSourceInventoryTopPackageScope(file string) string {
+	file = strings.Trim(strings.ReplaceAll(strings.TrimSpace(file), `\`, `/`), "/")
+	if file == "" || !strings.Contains(file, "/") {
+		return ""
+	}
+	return strings.Split(file, "/")[0]
+}
+
+func repoMapSourceInventoryMaybeNarrowNoRows(ctx *ctypes.BusContext, graph *Graph, observation ctypes.SourceInventoryObservation, query ctypes.SourceInventoryLensQuery) (ctypes.SourceInventoryObservation, ctypes.SourceInventoryLensQuery, []string) {
+	if ctx == nil || ctx.AnalysisIR == nil || graph == nil {
+		return observation, query, nil
+	}
+	if repoMapSourceInventoryObservationMemberCount(observation) > 0 {
+		return observation, query, nil
+	}
+	if !repoMapSourceInventoryQueryIsBroad(query) {
+		return observation, query, nil
+	}
+	scopes := repoMapSourceInventoryRequiredFileScopes(ctx, graph, query.Path)
+	if len(scopes) == 0 {
+		return observation, query, nil
+	}
+	narrowQuery := query
+	narrowQuery.Scopes = scopes
+	narrowQuery.Offset = 0
+	narrowQuery.Cursor = ""
+	narrowQuery.Provenance = append(append([]string(nil), query.Provenance...), "repo_lens:auto_narrow_required_files")
+	narrowed := tool.PublishSourceInventoryObservationFromLens(ctx, narrowQuery)
+	advisories := []string{"source_inventory_narrowing: broad no-row lens -> typed required_files/common_scope"}
+	if repoMapSourceInventoryObservationMemberCount(narrowed) > 0 {
+		return narrowed, narrowQuery, advisories
+	}
+	if strings.TrimSpace(query.Query) == "" {
+		return narrowed, narrowQuery, advisories
+	}
+	relaxedQuery := narrowQuery
+	relaxedQuery.Query = ""
+	relaxedQuery.Provenance = append(append([]string(nil), query.Provenance...), "repo_lens:auto_narrow_required_files", "repo_lens:auto_narrow_query_relaxed")
+	relaxed := tool.PublishSourceInventoryObservationFromLens(ctx, relaxedQuery)
+	if repoMapSourceInventoryObservationMemberCount(relaxed) > 0 {
+		advisories = append(advisories, "source_inventory_narrowing_query: relaxed broad query inside typed required_files/common_scope")
+		return relaxed, relaxedQuery, advisories
+	}
+	return narrowed, narrowQuery, advisories
+}
+
+func repoMapSourceInventoryQueryIsBroad(query ctypes.SourceInventoryLensQuery) bool {
+	scopes := append([]string(nil), query.Scopes...)
+	if len(scopes) == 0 {
+		scopes = append(scopes, query.Path)
+	}
+	if len(scopes) == 0 {
+		return true
+	}
+	for _, raw := range scopes {
+		scope := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+		if scope == "" || scope == "." || scope == "./" || scope == "/" {
+			return true
+		}
+	}
+	return false
+}
+
+func repoMapSourceInventoryRequiredFileScopes(ctx *ctypes.BusContext, graph *Graph, queryPath string) []string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	files := ctypes.BoundedSourceEnumerationScopeFiles(rm, ctx.AnalysisIR.EvidencePlan.RequiredFiles, ctx.RepoRoot)
+	if len(files) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		scope := repoMapSourceInventoryResolveScope(graph, queryPath, raw)
+		if scope == "" || scope == "." || seen[scope] {
+			return
+		}
+		seen[scope] = true
+		out = append(out, scope)
+	}
+	if common := ctypes.BoundedSourceEnumerationCommonScope(files); common != "" {
+		add(common)
+	}
+	const maxFileScopes = 8
+	for _, file := range files {
+		if len(out) >= maxFileScopes+1 {
+			break
+		}
+		add(file)
+		dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(file)))
+		if dir == "." {
+			dir = ""
+		}
+		dir = strings.Trim(dir, "/")
+		if dir != "" {
+			add(dir)
+		}
+	}
+	return out
+}
+
+func repoMapSourceInventoryResolveScope(graph *Graph, queryPath, raw string) string {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	if raw == "" {
+		return ""
+	}
+	base := strings.TrimSpace(strings.ReplaceAll(queryPath, `\`, `/`))
+	if base != "" && base != "." && base != "./" && base != "/" {
+		trimmed := strings.TrimPrefix(raw, strings.Trim(base, "/")+"/")
+		if trimmed != raw {
+			raw = trimmed
+		}
+	}
+	raw = strings.Trim(raw, "/")
+	if raw == "" || raw == "." {
+		return ""
+	}
+	if graph != nil {
+		if _, ok := graph.FileIndex[raw]; ok {
+			return raw
+		}
+		for file := range graph.FileIndex {
+			file = strings.Trim(file, "/")
+			if file == raw || strings.HasPrefix(file, raw+"/") {
+				return raw
+			}
+		}
+	}
+	return raw
+}
+
+func repoMapSourceInventoryObservationMemberCount(observation ctypes.SourceInventoryObservation) int {
+	total := 0
+	for _, set := range observation.Sets {
+		total += len(set.Members)
+	}
+	return total
 }
 
 func repoMapSourceInventoryDefaultQuery(ctx *ctypes.BusContext, raw string) (string, string) {

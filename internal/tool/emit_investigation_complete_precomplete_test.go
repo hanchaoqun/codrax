@@ -1716,6 +1716,17 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryMemberSetDoes
 	}
 }
 
+func TestSourceInventoryLensExecutionRepoMapCallShapeNormalizesFileScopes(t *testing.T) {
+	path, scopes := sourceInventoryLensExecutionRepoMapCallShape([]string{"internal/tool/repomap/index/extract_arkts.go"})
+	if path != "internal/tool/repomap/index" || len(scopes) != 1 || scopes[0] != "extract_arkts.go" {
+		t.Fatalf("file scope should become containing repo_map path plus relative scope, got path=%q scopes=%+v", path, scopes)
+	}
+	path, scopes = sourceInventoryLensExecutionRepoMapCallShape([]string{"internal/tool", "internal/types"})
+	if path != "." || len(scopes) != 2 || scopes[0] != "internal/tool" || scopes[1] != "internal/types" {
+		t.Fatalf("multi-scope directory calls should keep root path plus scopes, got path=%q scopes=%+v", path, scopes)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryExactUniverseRejectsPartialMemberSet(t *testing.T) {
 	mut := types.NewMutableState("list all source scopes")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{

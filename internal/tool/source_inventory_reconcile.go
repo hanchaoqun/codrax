@@ -444,12 +444,14 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 			Lens:         []string{"source_class_universe", "count"},
 		}, query)
 		if classOnly.IsActive() {
+			renderObservation := types.CloneSourceInventoryObservation(classOnly)
 			current := ctx.Mutable.SourceInventoryObservation()
 			if current.IsActive() {
-				classOnly = types.MergeSourceInventoryObservation(current, classOnly)
+				ctx.Mutable.SetSourceInventoryObservation(types.MergeSourceInventoryObservation(current, classOnly))
+			} else {
+				ctx.Mutable.SetSourceInventoryObservation(classOnly)
 			}
-			ctx.Mutable.SetSourceInventoryObservation(classOnly)
-			return classOnly
+			return renderObservation
 		}
 		return types.SourceInventoryObservation{}
 	}

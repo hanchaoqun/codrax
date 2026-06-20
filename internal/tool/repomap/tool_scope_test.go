@@ -2,6 +2,7 @@ package repomap
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
+	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -805,6 +807,134 @@ func TestRepoMapSourceInventoryRootTypedLaneProjectsAuxiliaryCorpus(t *testing.T
 	}
 	if graph, _ := mut.SearchGraph().(*Graph); graph == nil || graph.FileIndex["internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"] != nil {
 		t.Fatalf("source_inventory auxiliary projection should restore the default graph after the tool call: %+v", graph)
+	}
+}
+
+func TestRepoMapSourceInventoryAutoNarrowsBroadNoRowsToRequiredFiles(t *testing.T) {
+	repo := t.TempDir()
+	for rel, body := range map[string]string{
+		"internal/app/main.go": "package app\nfunc Run() {}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets": "@Entry\n@Component\nstruct Index {\n  build() {\n    Text('hi')\n  }\n}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets":       "@Builder\nfunction GlobalCard() {\n  Text('card')\n}\nfunction PlainHelper() {}\n",
+	} {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory narrow required files")
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{
+			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+				"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+				"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+			}},
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceScopeProfile: &types.SourceScopeProfile{
+					RequestedScope:              types.SourceScopeAuxiliary,
+					IncludeAuxiliaryAsPrincipal: true,
+					Confidence:                  0.9,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleFunction,
+						types.AnswerCandidateRoleType,
+					},
+					Confidence: 0.9,
+				},
+			},
+		},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"query": "definitely-no-symbol-surface",
+		"scope": ".",
+		"roles": ["function", "type"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"source_inventory_narrowing: broad no-row lens -> typed required_files/common_scope",
+		"source_inventory_narrowing_query: relaxed broad query inside typed required_files/common_scope",
+		"repo_lens:auto_narrow_required_files",
+		"repo_lens:auto_narrow_query_relaxed",
+		"`Index`",
+		"@ internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		"`GlobalCard`",
+		"@ internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("auto-narrowed source_inventory missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestRepoMapSourceInventoryBroadNavigationLensIsBoundedBeforeReconcile(t *testing.T) {
+	graph := &Graph{Files: []*rmtypes.FileInfo{}, FileIndex: map[string]*rmtypes.FileInfo{}}
+	for i := 0; i < 650; i++ {
+		rel := fmt.Sprintf("pkg%03d/file.go", i)
+		fi := &rmtypes.FileInfo{RelPath: rel, Language: "go"}
+		graph.Files = append(graph.Files, fi)
+		graph.FileIndex[rel] = fi
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("broad source inventory guard")}
+
+	observation, query, advisories, guarded := repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx, graph, types.SourceInventoryLensQuery{
+		Path:              ".",
+		Scopes:            []string{"."},
+		Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleFile},
+		IncludeAttributes: true,
+		IncludeCounts:     true,
+	})
+	if !guarded {
+		t.Fatal("broad root file source_inventory lens should be bounded before full reconcile")
+	}
+	if query.IncludeAttributes {
+		t.Fatalf("broad navigation guard should disable row-local attributes: %+v", query)
+	}
+	if !strings.Contains(strings.Join(query.Provenance, "\n"), "repo_lens:broad_navigation_guard") {
+		t.Fatalf("guarded query missing provenance: %+v", query.Provenance)
+	}
+	if len(advisories) != 1 || !strings.Contains(advisories[0], "source_inventory_broad_navigation_guard") {
+		t.Fatalf("missing broad navigation advisory: %+v", advisories)
+	}
+	if !observation.IsActive() || observation.Complete {
+		t.Fatalf("bounded observation should be active and incomplete: %+v", observation)
+	}
+	if len(observation.Sets) != 1 || observation.Sets[0].Role != types.AnswerCandidateRoleFile {
+		t.Fatalf("bounded observation should keep the requested navigation role: %+v", observation.Sets)
+	}
+	if got := observation.Sets[0].Count; got <= 0 || got >= 650 || got > repoMapSourceInventoryBroadNavigationMaxRows {
+		t.Fatalf("bounded observation count=%d, want a small non-exhaustive sample", got)
+	}
+	if stored := ctx.Mutable.SourceInventoryObservation(); !stored.IsActive() {
+		t.Fatalf("bounded observation should be persisted for handoff/status: %+v", stored)
+	}
+
+	_, _, _, guarded = repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx, graph, types.SourceInventoryLensQuery{
+		Path:   ".",
+		Scopes: []string{"."},
+		Roles:  []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+	})
+	if guarded {
+		t.Fatal("semantic source_inventory roles should continue through the normal reconcile path")
 	}
 }
 

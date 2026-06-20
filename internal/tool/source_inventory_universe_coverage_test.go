@@ -438,6 +438,71 @@ func TestPublishSourceInventoryObservationFromLens_RenderExcludesPriorExactUnive
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_ClassOnlyRenderExcludesPriorRows(t *testing.T) {
+	root := t.TempDir()
+	for rel, body := range map[string]string{
+		"internal/analysis/aggregator/aggregator.go": "package aggregator\nfunc Aggregate() {}\n",
+		"internal/analysis/subject/taxonomy.go":      "package subject\nfunc Score() {}\n",
+	} {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "internal/analysis/aggregator/aggregator.go",
+			Language: "go",
+			Package:  "aggregator",
+			Symbols: []repotypes.Symbol{{
+				Name:     "Aggregate",
+				Kind:     "function",
+				File:     "internal/analysis/aggregator/aggregator.go",
+				Line:     12,
+				Exported: true,
+			}},
+		},
+	})
+	ctx := sourceInventoryTestContext(root, graph, "internal/analysis", nil)
+	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"internal/analysis"},
+		Provenance:   []string{sourceInventoryExactUniverseProvenanceListFilesDirect},
+		Lens:         []string{"direct_children", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "aggregator", Key: "internal/analysis/aggregator", File: "internal/analysis/aggregator", Role: types.AnswerCandidateRolePackage, Provenance: []string{sourceInventoryExactUniverseProvenanceListFilesDirect}},
+				{Name: "subject", Key: "internal/analysis/subject", File: "internal/analysis/subject", Role: types.AnswerCandidateRolePackage, Provenance: []string{sourceInventoryExactUniverseProvenanceListFilesDirect}},
+			},
+		}},
+	})
+
+	renderObs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:          "internal/analysis",
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		Query:         "definitely-no-current-lens-row",
+		IncludeCounts: true,
+	})
+	if !renderObs.IsActive() || len(renderObs.SourceClasses) == 0 {
+		t.Fatalf("class-only current lens should remain active via source classes: %+v", renderObs)
+	}
+	if len(renderObs.Sets) != 0 {
+		t.Fatalf("class-only visible lens should not inherit prior direct-child rows: %+v", renderObs)
+	}
+	stored := ctx.Mutable.SourceInventoryObservation()
+	if !stored.IsActive() || len(sourceInventoryExactUniverseSets(stored)) == 0 {
+		t.Fatalf("prior exact universe should remain stored for coverage checks: %+v", stored)
+	}
+}
+
 func TestPublishSourceInventoryObservationFromLens_RenderIsCurrentQueryOnly(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{
 		{
