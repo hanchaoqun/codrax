@@ -131,6 +131,56 @@ func sourceInventoryTrackedLanguageCount(t *testing.T, repoRoot, lang string) in
 	return count
 }
 
+// TestSourceClassInclusionDirective pins the root-cause fix for the shared
+// arkts/cangjie flake: when the source-class universe contains auxiliary
+// (thirdparty/corpus/fixture/test) classes, the lens must tell the model those
+// git-tracked source files COUNT for a repo-wide enumeration — countering the
+// "test corpus, not production → answer 0" dismissal. A production-only repo
+// must get no such steer.
+func TestSourceClassInclusionDirective(t *testing.T) {
+	withAux := []types.SourceInventorySourceClassCount{
+		{Role: types.SourcePathRoleProduction, Count: 1700},
+		{Role: types.SourcePathRoleThirdParty, Count: 14},
+	}
+	d := types.SourceInventoryAuxiliaryInclusionDirective(withAux)
+	if d == "" {
+		t.Fatal("expected inclusion directive when thirdparty class present")
+	}
+	if !strings.Contains(d, "COUNT as answer members") || !strings.Contains(d, "path-role") {
+		t.Fatalf("directive missing key guidance: %q", d)
+	}
+
+	prodOnly := []types.SourceInventorySourceClassCount{
+		{Role: types.SourcePathRoleProduction, Count: 1700},
+	}
+	if got := types.SourceInventoryAuxiliaryInclusionDirective(prodOnly); got != "" {
+		t.Fatalf("production-only repo must get no directive, got: %q", got)
+	}
+
+	noise := []types.SourceInventorySourceClassCount{
+		{Role: types.SourcePathRoleProduction, Count: 5},
+		{Role: types.SourcePathRoleUnknown, Count: 3},
+	}
+	if got := types.SourceInventoryAuxiliaryInclusionDirective(noise); got != "" {
+		t.Fatalf("unknown-role noise must not trigger directive, got: %q", got)
+	}
+
+	obs := types.SourceInventoryObservation{
+		Active:        true,
+		Scopes:        []string{"."},
+		SourceClasses: withAux,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:    types.AnswerCandidateRoleFunction,
+			Count:   1,
+			Members: []types.SourceInventoryObservationMember{{Name: "x", File: "a/b.cj"}},
+		}},
+	}
+	view := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{})
+	if !strings.Contains(view, "COUNT as answer members") {
+		t.Fatalf("inclusion directive missing from rendered lens view:\n%s", view)
+	}
+}
+
 // TestRepoLanguageCountsCloneMergeRoundTrip exercises the typed clone/merge so
 // the census survives MutableState round-trips without losing samples or the
 // InScope flag.

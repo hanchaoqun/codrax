@@ -798,6 +798,9 @@ func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
 		if sourceClasses := renderExtractorSourceInventorySourceClasses(observation.SourceClasses); sourceClasses != "" {
 			fmt.Fprintf(&b, "- source_classes: %s\n", sourceClasses)
 			b.WriteString("- A no-row source_inventory/list_files result is not absence proof while source_classes shows in-scope repo-owned source classes; narrow the lens or include auxiliary before absence closure.\n")
+			if directive := types.SourceInventoryAuxiliaryInclusionDirective(observation.SourceClasses); directive != "" {
+				fmt.Fprintf(&b, "- %s\n", directive)
+			}
 		}
 	}
 	if guide := renderExtractorSourceInventoryCascadeGuide(observation, scopes); guide != "" {

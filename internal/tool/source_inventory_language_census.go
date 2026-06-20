@@ -111,19 +111,16 @@ func sourceInventoryRepoLanguageCensus(ctx *types.BusContext, scopes []string) [
 	return out
 }
 
-// renderSourceInventoryRepoLanguageCensus renders the repo-wide language census
-// as a navigation hint. The first line is the whole-repo language composition.
-// It then flags any language with NO file under the current lens scopes (InScope
-// == false) — the exact blind spot that lets a grep-derived, scope-limited pass
-// conclude language-wide absence (e.g. "no .cj source files") while git-tracked
-// sources of that language sit in the repo. Specialty (low-count) languages are
-// listed first and the list is capped, since a repo-dominant language is almost
-// always at least partially in scope and not the enumeration target. It is soft
-// guidance: the model decides relevance and still owns the answer.
+// renderSourceInventoryRepoLanguageCensus renders the source-inventory soft
+// guidance for a lens result: (1) the repo-wide language census + out-of-scope
+// hint (a grep-narrow scope can miss a whole language; specialty languages list
+// first, capped), and (2) the source-class inclusion directive when the typed
+// universe carries auxiliary classes (corpus/fixture/thirdparty) so the model
+// does not dismiss them as "not production" and answer zero. Both soft; the
+// model still owns the answer. See SourceInventoryAuxiliaryInclusionDirective.
 func renderSourceInventoryRepoLanguageCensus(observation types.SourceInventoryObservation) string {
-	if len(observation.RepoLanguages) == 0 {
-		return ""
-	}
+	var b strings.Builder
+
 	counts := make([]string, 0, len(observation.RepoLanguages))
 	var flagged []types.SourceInventoryLanguageCount
 	for _, lc := range observation.RepoLanguages {
@@ -135,36 +132,37 @@ func renderSourceInventoryRepoLanguageCensus(observation types.SourceInventoryOb
 			flagged = append(flagged, lc)
 		}
 	}
-	if len(counts) == 0 {
-		return ""
+	if len(counts) > 0 {
+		fmt.Fprintf(&b, "- repo_languages (whole-repo census, independent of the scopes above): %s\n", strings.Join(counts, ", "))
+		if len(flagged) > 0 {
+			// Specialty (low-count) languages first: a narrow scope is most
+			// likely to miss those entirely, and they are the usual target.
+			sort.SliceStable(flagged, func(i, j int) bool {
+				if flagged[i].Count != flagged[j].Count {
+					return flagged[i].Count < flagged[j].Count
+				}
+				return flagged[i].Language < flagged[j].Language
+			})
+			if len(flagged) > sourceInventoryRepoLanguageHintLimit {
+				flagged = flagged[:sourceInventoryRepoLanguageHintLimit]
+			}
+			hints := make([]string, 0, len(flagged))
+			for _, lc := range flagged {
+				samples := lc.Samples
+				if len(samples) > sourceInventoryRepoLanguageHintSampleLimit {
+					samples = samples[:sourceInventoryRepoLanguageHintSampleLimit]
+				}
+				hints = append(hints, fmt.Sprintf("  - %s (%d file(s)): %s", lc.Language, lc.Count, strings.Join(samples, ", ")))
+			}
+			b.WriteString("- these languages have source files in the repo but NONE under the scopes above; if the request enumerates source constructs of one of them, open these files before concluding absence:\n")
+			b.WriteString(strings.Join(hints, "\n"))
+			b.WriteByte('\n')
+		}
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "- repo_languages (whole-repo census, independent of the scopes above): %s\n", strings.Join(counts, ", "))
 
-	if len(flagged) == 0 {
-		return strings.TrimSpace(b.String())
+	if directive := types.SourceInventoryAuxiliaryInclusionDirective(observation.SourceClasses); directive != "" {
+		fmt.Fprintf(&b, "- %s\n", directive)
 	}
-	// Specialty (low-count) languages first: a narrow scope is most likely to
-	// miss those entirely, and they are the usual enumeration target.
-	sort.SliceStable(flagged, func(i, j int) bool {
-		if flagged[i].Count != flagged[j].Count {
-			return flagged[i].Count < flagged[j].Count
-		}
-		return flagged[i].Language < flagged[j].Language
-	})
-	if len(flagged) > sourceInventoryRepoLanguageHintLimit {
-		flagged = flagged[:sourceInventoryRepoLanguageHintLimit]
-	}
-	hints := make([]string, 0, len(flagged))
-	for _, lc := range flagged {
-		samples := lc.Samples
-		if len(samples) > sourceInventoryRepoLanguageHintSampleLimit {
-			samples = samples[:sourceInventoryRepoLanguageHintSampleLimit]
-		}
-		hints = append(hints, fmt.Sprintf("  - %s (%d file(s)): %s", lc.Language, lc.Count, strings.Join(samples, ", ")))
-	}
-	b.WriteString("- these languages have source files in the repo but NONE under the scopes above; if the request enumerates source constructs of one of them, open these files before concluding absence:\n")
-	b.WriteString(strings.Join(hints, "\n"))
-	b.WriteByte('\n')
+
 	return strings.TrimSpace(b.String())
 }
