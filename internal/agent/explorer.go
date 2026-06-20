@@ -724,6 +724,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString(writeExplorationPrefix)
 		b.WriteString("\n\n")
 	}
+	sourceInventorySlate := renderExplorerSourceInventoryAdvisory(ctx)
+	if sourceInventorySlate != "" {
+		b.WriteString(sourceInventorySlate)
+	}
 	b.WriteString("## Breadth Scan\n\n")
 	b.WriteString("Your goal is to map a bounded candidate set for the user's question, not every broadly related file. ")
 	b.WriteString("Do NOT read files in full yet. Use lightweight tools:\n")
@@ -782,8 +786,13 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		if len(display) > 15 {
 			display = display[:15]
 		}
-		b.WriteString("### Suggested Search Terms\n\n")
-		b.WriteString("Use these for grep (from the classification above):\n`")
+		if sourceInventorySlate != "" {
+			b.WriteString("### Secondary Search Terms\n\n")
+			b.WriteString("Use these only after reconciling the Principal Source Inventory Slate above, or when the slate explicitly lacks the target scope. They are grep fallbacks from typed classification, not absence proof:\n`")
+		} else {
+			b.WriteString("### Suggested Search Terms\n\n")
+			b.WriteString("Use these for grep (from the classification above):\n`")
+		}
 		b.WriteString(strings.Join(display, "`, `"))
 		b.WriteString("`\n\n")
 	}
@@ -839,8 +848,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("- Once a principal member has a grounded attribute candidate, emit that candidate as evidence. If the attribute is ambiguous or not grounded for that member after the relevant file/list/grep scope has been checked, record the member with an explicit unresolved-attribute note instead of widening indefinitely.\n")
 			b.WriteString("- When the bounded / exhaustive principal member set is covered, call emit_investigation_complete. Do not keep searching solely to prove a unique attribute when the final answer can carry a caveat for that member.\n\n")
 		}
-		if advisory := renderExplorerSourceInventoryAdvisory(ctx); advisory != "" {
-			b.WriteString(advisory)
+		if sourceInventorySlate == "" {
+			if advisory := renderExplorerSourceInventoryAdvisory(ctx); advisory != "" {
+				b.WriteString(advisory)
+			}
 		}
 		if types.ResolveQuestionFamily(rm) == types.QFArchitecture {
 			b.WriteString("### Architecture Role / Output Handoff\n\n")
@@ -1131,7 +1142,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				}
 			}
 		}
-		results := e.filterKeywordResults(sr.Files)
+		var results []keywordFileScore
+		if sr != nil {
+			results = e.filterKeywordResults(sr.Files)
+		}
 		// Publish the graph to MutableState so tools running later in
 		// this dispatch (notably emit_evidence's synchronous grounder)
 		// can consult it without re-invoking BuildOrLoadGraph. The
@@ -1616,10 +1630,11 @@ func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("### Structured Source Inventory Progress\n\n")
-	b.WriteString("A typed graph-backed candidate checklist is available for this source-inventory shape. It carries verified navigation/count/member candidates, but it is not final answer text and not a semantic source citation.\n")
+	b.WriteString("### Principal Source Inventory Slate (Structured Source Inventory Progress)\n\n")
+	b.WriteString("This typed graph-backed slate is the first navigation authority for the active source-inventory lane. It carries verified navigation/count/member candidates, but it is not final answer text and not a semantic source citation.\n")
+	b.WriteString("- Reconcile this slate before broad grep/list_files expansion, parser/helper reads, or absence closure. Generic no-hit searches are advisory until this typed slate is satisfied, contradicted, or explicitly scoped out.\n")
 	b.WriteString("- Use it to avoid re-enumerating the same scope in sibling lanes or transient retries.\n")
-	b.WriteString("- If the checklist matches what you need, use its counts/members as a candidate universe, verify only the selected or disputed semantic claims, and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
+	b.WriteString("- If the slate matches what you need, use its counts/members as the candidate universe, verify only the selected or disputed semantic claims, and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
 	b.WriteString("- If it does not match, keep your own investigation boundary and explain the gap in the structured closure instead of silently widening the answer.\n\n")
 	b.WriteString(renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryAdvisory:    advisory,

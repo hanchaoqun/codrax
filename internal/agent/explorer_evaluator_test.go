@@ -180,16 +180,23 @@ func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *test
 				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
 				Confidence:        0.95,
 			},
+			AnalyzerHints: types.AnalyzerHints{
+				Keywords: []string{"Run"},
+			},
 		}},
 	}
 
 	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
+		"Principal Source Inventory Slate",
 		"Structured Source Inventory Progress",
 		"verified navigation/candidate-universe facts",
+		"first navigation authority",
+		"Generic no-hit searches are advisory",
 		"repo-lens observation invariants",
 		"Cascaded Repo Lens Guide",
 		`"view": "source_inventory"`,
+		"Secondary Search Terms",
 		"count=1 len(members)=1",
 		"`Run`",
 		"src/run.py:7",
@@ -197,6 +204,14 @@ func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *test
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	slateIdx := strings.Index(prompt, "Principal Source Inventory Slate")
+	breadthIdx := strings.Index(prompt, "## Breadth Scan")
+	if slateIdx < 0 || breadthIdx < 0 || slateIdx > breadthIdx {
+		t.Fatalf("source-inventory slate should render before breadth scan; slate=%d breadth=%d\n%s", slateIdx, breadthIdx, prompt)
+	}
+	if strings.Contains(prompt, "Use these for grep (from the classification above)") {
+		t.Fatalf("source-inventory lane should not render primary grep search guidance:\n%s", prompt)
 	}
 }
 

@@ -215,8 +215,8 @@ roles from many raw trace rows.
 | Batch U1b | delivered | Keep repository-wide typed inventory queries from defaulting to production-only scope. | Synthetic typed query/root-scope inventory lanes include fixture/corpus/testdata/example source classes across supported languages; explicit production inventory profiles still filter auxiliary sources. Unit tests cover both sides. |
 | Batch U2 | planned | Add source-inventory lane telemetry and status-card explanations. | Eval/status cards distinguish explicit model lens toolcalls, system advisory projections, active inventory obligations, satisfied gates, and blocked gates. |
 | Batch U3 | planned | Cap support/audit rows around principal source-inventory slates. | Finalizer/extractor render accepted principal member sets first and keep parser/helper/support rows out of principal answer candidates unless a typed role transition promotes them. |
-| Batch U4 | planned | Promote localization/source-inventory observations into principal exploration slates. | Explorer/finalizer consume a typed Top-N owner/member/path slate before parser/helper/support rows, and absence closure cannot ignore a fresher system localization authority. |
-| Batch U5 | planned | De-prioritize pre-scan noise until typed inventory obligations run. | Source-inventory-shaped turns mark grep/list_files/pre-scan absence priors advisory until the typed source-inventory lane is satisfied or explicitly blocked. |
+| Batch U4 | partial | Promote localization/source-inventory observations into principal exploration slates. | Delivered: explorer fresh-start prompts now render the typed source-inventory slate before breadth scan, parser/helper reads, grep/list guidance, and suggested search terms. Remaining: move the same priority into the shared observation-ledger ranking and answer-side soft absence advisory. |
+| Batch U5 | partial | De-prioritize pre-scan noise until typed inventory obligations run. | Delivered: when a source-inventory slate is active, analyzer search terms render as secondary grep fallbacks and generic no-hit searches are explicitly advisory until the typed slate is reconciled. Remaining: make pre-scan/list no-hit status cards and eval telemetry carry the same advisory-vs-authority split. |
 | Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
 | Batch V2 | planned | Complete aggregate negative-fact repair hints. | Invalid no-hit payloads receive one precise typed repair hint or deterministic normalization before retry; the model does not bounce between `negative_search`, `negative_observation`, `scalar_value`, and empty `member_set` schemas. |
 | Batch W | delivered | Add lazy repo-index warmup for runtime-artifact-only read turns. | Runtime trace/log answers with no typed current-source obligation do not print or pay repo-index warmup unless a later typed source route actually opens. |
@@ -304,6 +304,10 @@ roles from many raw trace rows.
   matching files inside a required source-scope class.
 - Unit: source-inventory-shaped turns mark pre-scan no-hit/list summaries as
   advisory until the typed inventory obligation is satisfied.
+- Unit: source-inventory fresh-start explorer prompts render the principal
+  typed slate before breadth scan / grep / parser-helper exploration guidance.
+- Unit: analyzer search terms become secondary grep fallbacks when a principal
+  source-inventory slate is active.
 - Unit: negative search / negative observation / exact empty member-set facts
   are canonicalized without requiring model prose repair loops.
 - Unit: runtime/log/trace negative observations can represent a missing event
@@ -679,3 +683,16 @@ roles from many raw trace rows.
   Batch K2/RNE-C39 remains the commercial fix for cached
   `CompletionPreflightView`, aggregate-normalization reuse, and status-card
   timing explanations.
+- 2026-06-20 Batch U4/U5 first slice delivered: explorer fresh-start prompts
+  now render the typed source-inventory slate before breadth-scan guidance,
+  generic grep/list exploration, parser/helper reads, and analyzer search-term
+  suggestions. When that slate is active, search terms render only as
+  secondary grep fallbacks and generic no-hit searches are labeled advisory
+  until the typed slate is reconciled, contradicted, or explicitly scoped out.
+  This is a model-facing typed projection change over existing
+  `SourceInventoryAdvisory` / `SourceInventoryObservation`; it does not parse
+  user prose, model prose, visible thinking, or rendered summaries. The same
+  batch also made explorer keyword-search post-processing nil-safe when typed
+  analyzer keywords exist but no repo search result is available. Remaining
+  U4/U5 work: put this priority into shared `ObservationLedger` ranking,
+  status cards, eval telemetry, and answer-side soft absence advisories.
