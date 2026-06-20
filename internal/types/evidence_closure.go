@@ -144,6 +144,19 @@ type EvidenceClosure struct {
 	// across a retry) and three-in-a-row to force-finalize.
 	fingerprints []ClosureFingerprint
 
+	// downgradeFingerprints is the rolling history of pre-complete
+	// downgrade fingerprints, one entry per emit_investigation_complete
+	// attempt that produced a downgrade. The low-delta convergence
+	// boundary force-completes after N consecutive equal entries (same
+	// lane + same typed blocker), breaking the runaway re-issue loop.
+	// Bounded to keep memory flat under a runaway.
+	downgradeFingerprints []DowngradeFingerprint
+
+	// completionCaveats records lanes the convergence boundary
+	// force-completed without resolving the blocker, for downstream
+	// answer-caveat / telemetry consumers. Deduped by lane.
+	completionCaveats []CompletionCaveat
+
 	// repairs is the queue of structured RepairDirective values that
 	// downstream enforcers (grounder, pre-complete check, stall
 	// detector) emit when a contract violation needs to be surfaced
@@ -1723,6 +1736,56 @@ func (c *EvidenceClosure) AppendFingerprint(fp ClosureFingerprint) int {
 	defer c.mu.Unlock()
 	c.fingerprints = append(c.fingerprints, fp)
 	return len(c.fingerprints)
+}
+
+// downgradeFingerprintWindow bounds the rolling downgrade history so a
+// runaway loop cannot grow it without limit.
+const downgradeFingerprintWindow = 16
+
+// AppendDowngradeFingerprint records a pre-complete downgrade fingerprint and
+// returns how many trailing fingerprints (including this one) are equal to it —
+// i.e. the count of consecutive no-progress re-attempts on the same lane+blocker.
+// The convergence boundary force-completes once this reaches its hard threshold.
+func (c *EvidenceClosure) AppendDowngradeFingerprint(fp DowngradeFingerprint) int {
+	if c == nil {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.downgradeFingerprints = append(c.downgradeFingerprints, fp)
+	if len(c.downgradeFingerprints) > downgradeFingerprintWindow {
+		c.downgradeFingerprints = append(c.downgradeFingerprints[:0:0], c.downgradeFingerprints[len(c.downgradeFingerprints)-downgradeFingerprintWindow:]...)
+	}
+	return ConsecutiveEqualTail(c.downgradeFingerprints)
+}
+
+// AppendCompletionCaveat records, deduped by lane, that the convergence boundary
+// force-completed a downgrade lane without resolving its blocker.
+func (c *EvidenceClosure) AppendCompletionCaveat(caveat CompletionCaveat) {
+	if c == nil || caveat.Lane == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, existing := range c.completionCaveats {
+		if existing.Lane == caveat.Lane {
+			return
+		}
+	}
+	c.completionCaveats = append(c.completionCaveats, caveat)
+}
+
+// CompletionCaveats returns a copy of the recorded convergence completion caveats.
+func (c *EvidenceClosure) CompletionCaveats() []CompletionCaveat {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.completionCaveats) == 0 {
+		return nil
+	}
+	return append([]CompletionCaveat(nil), c.completionCaveats...)
 }
 
 // Fingerprints returns a defensive copy of the history.

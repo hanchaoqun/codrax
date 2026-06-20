@@ -3390,6 +3390,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.AgentInvestigationCompletePolicy != nil {
 			a.InvestigationCompletePolicy = *rs.AgentInvestigationCompletePolicy
 		}
+		if rs.AgentDowngradeConvergenceHard != nil {
+			a.DowngradeConvergenceHard = *rs.AgentDowngradeConvergenceHard
+		}
 		if rs.AgentPriorConvPolicy != nil {
 			a.PriorConvPolicy = *rs.AgentPriorConvPolicy
 		}
@@ -3434,6 +3437,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	// orchestrator's DAG scheduler is already configured to skip
 	// criteria).
 	tool.SetInvestigationCompletePolicy(pipelineSettings.Agent.InvestigationCompletePolicy)
+	tool.SetDowngradeConvergenceHardThreshold(pipelineSettings.Agent.DowngradeConvergenceHard)
 
 	// Memory store limits from YAML.
 	var memCfg types.MemorySettings

@@ -1900,64 +1900,78 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// flip investigationComplete). The explorer's ShouldStop sees
 	// the flag still false and continues the loop.
 	preCompleteStart := time.Now()
+	// Low-delta convergence boundary (gap 1): each gate, when it fires, checks
+	// whether the model has re-attempted emit_investigation_complete with the
+	// SAME lane + SAME typed blocker (pending reads / unverified findings /
+	// raised repairs) and no new typed delta. After the hard threshold of such
+	// no-progress re-attempts, the gate FALLS THROUGH to completion with a
+	// typed caveat instead of re-issuing the identical downgrade forever — the
+	// runaway "verification not stable" loop. Incidental evidence churn does not
+	// reset convergence; only a genuinely changed blocker does. The else-if
+	// chain preserves "first firing gate wins" and lets a converged gate skip
+	// the rest and complete.
 	if downgrade := currentSourceLaneCoverageDowngrade(ctx, preflight); downgrade != "" {
 		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_current_source_lane", preCompleteStart, len(preflight.Evidence))
-		if ctx != nil && ctx.Mutable != nil {
-			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneCurrentSourceLane) {
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			}
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   downgrade,
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
 		}
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Summary:   downgrade,
-			Success:   true,
-			Timestamp: time.Now(),
-		}, nil
-	}
-	if downgrade := sourceInventoryLensExecutionDowngrade(ctx, effectiveAggregateFacts); downgrade != "" {
+	} else if downgrade := sourceInventoryLensExecutionDowngrade(ctx, effectiveAggregateFacts); downgrade != "" {
 		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_source_inventory_lens", preCompleteStart, len(preflight.Evidence))
-		if ctx != nil && ctx.Mutable != nil {
-			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneSourceInventoryLens) {
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			}
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   downgrade,
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
 		}
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Summary:   downgrade,
-			Success:   true,
-			Timestamp: time.Now(),
-		}, nil
-	}
-	if downgrade := preCompleteContractCheckWithPreflight(ctx, justification, preflight); downgrade != "" {
+	} else if downgrade := preCompleteContractCheckWithPreflight(ctx, justification, preflight); downgrade != "" {
 		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(preflight.Evidence))
-		if ctx != nil && ctx.Mutable != nil {
-			closure := ctx.Mutable.EvidenceClosure()
-			closure.BumpPreCompleteDowngrades(1)
-			// Session 11 F1: pre-complete downgrade is a compound
-			// signal — something (missing reads, zero citations, shape
-			// mismatch, unverified finds) blocked completion. The
-			// downgrade message body carries the reason for the
-			// operator; we record a ledger entry so F2 can aggregate
-			// "closure blocked N times with same root" into a direct
-			// IR patch request. Confidence 0.70 — the downgrade
-			// doesn't pinpoint which IR field without more context,
-			// so we leave CitationReq as the default blame and let
-			// the paired Repair (always raised by preCompleteContractCheck)
-			// carry the kind-specific detail.
-			closure.AppendViolation(types.Violation{
-				Kind:       types.ViolPreCompleteDowngrade,
-				Detail:     "pre-complete simulator rejected emit_investigation_complete",
-				ClusterKey: types.ComposeClusterKey("root", "CitationReq", "stage", "pre_complete"),
-				Stage:      string(types.StageExplore),
-				SuspectedRoot: types.SuspectedRoot{
-					IRField:    "CitationReq",
-					Reason:     "closure snapshot fails preflight; evidence insufficient or citations outside the already-read file set",
-					Confidence: 0.70,
-				},
-			})
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneContractChain) {
+			if ctx != nil && ctx.Mutable != nil {
+				closure := ctx.Mutable.EvidenceClosure()
+				closure.BumpPreCompleteDowngrades(1)
+				// Session 11 F1: pre-complete downgrade is a compound
+				// signal — something (missing reads, zero citations, shape
+				// mismatch, unverified finds) blocked completion. The
+				// downgrade message body carries the reason for the
+				// operator; we record a ledger entry so F2 can aggregate
+				// "closure blocked N times with same root" into a direct
+				// IR patch request. Confidence 0.70 — the downgrade
+				// doesn't pinpoint which IR field without more context,
+				// so we leave CitationReq as the default blame and let
+				// the paired Repair (always raised by preCompleteContractCheck)
+				// carry the kind-specific detail.
+				closure.AppendViolation(types.Violation{
+					Kind:       types.ViolPreCompleteDowngrade,
+					Detail:     "pre-complete simulator rejected emit_investigation_complete",
+					ClusterKey: types.ComposeClusterKey("root", "CitationReq", "stage", "pre_complete"),
+					Stage:      string(types.StageExplore),
+					SuspectedRoot: types.SuspectedRoot{
+						IRField:    "CitationReq",
+						Reason:     "closure snapshot fails preflight; evidence insufficient or citations outside the already-read file set",
+						Confidence: 0.70,
+					},
+				})
+			}
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   downgrade,
+				Success:   true, // soft signal so the loop continues without surfacing a tool error
+				Timestamp: time.Now(),
+			}, nil
 		}
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Summary:   downgrade,
-			Success:   true, // soft signal so the loop continues without surfacing a tool error
-			Timestamp: time.Now(),
-		}, nil
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(preflight.Evidence))
 
@@ -2103,6 +2117,53 @@ var investigationCompletePolicy string
 // behavior.
 func SetInvestigationCompletePolicy(policy string) {
 	investigationCompletePolicy = strings.TrimSpace(policy)
+}
+
+// downgradeConvergenceHardThreshold is the number of CONSECUTIVE no-progress
+// pre-complete downgrade re-attempts (same lane + same typed blocker) after
+// which the convergence boundary force-completes with a typed caveat instead of
+// re-issuing the identical downgrade. Default 4 is conservative: a healthy run
+// completes in 1-2 attempts or makes progress (changing the blocker and
+// resetting the count), so only a genuine runaway reaches the threshold.
+var downgradeConvergenceHardThreshold = 4
+
+// SetDowngradeConvergenceHardThreshold configures the low-delta convergence
+// hard threshold from cmd/root.go. Non-positive values restore the default.
+func SetDowngradeConvergenceHardThreshold(n int) {
+	if n <= 0 {
+		downgradeConvergenceHardThreshold = 4
+		return
+	}
+	downgradeConvergenceHardThreshold = n
+}
+
+// preCompleteDowngradeConverges records a typed downgrade fingerprint for the
+// given lane and reports whether the model has now re-attempted
+// emit_investigation_complete with the SAME lane + SAME typed blocker enough
+// consecutive times (the hard threshold) that the loop should force-complete.
+// It reads only typed closure state (pending reads, unverified findings, active
+// repairs) — never the downgrade Summary prose — so the boundary routes on
+// precise signals. On convergence it records a typed CompletionCaveat for
+// downstream answer-caveat / telemetry consumers.
+func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLane) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return false
+	}
+	blockerKey := types.ComputeDowngradeBlockerKey(closure.PendingReads(), closure.UnverifiedFindings(), closure.ActiveRepairs())
+	consecutive := closure.AppendDowngradeFingerprint(types.DowngradeFingerprint{Lane: lane, BlockerKey: blockerKey})
+	if consecutive < downgradeConvergenceHardThreshold {
+		return false
+	}
+	closure.AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:   lane,
+		Reason: "completed under low-delta convergence: the same blocker recurred across repeated attempts with no new grounded progress",
+	})
+	logging.Info("[emit_investigation_complete] low-delta convergence force-complete lane=%s after %d consecutive no-progress attempts (blocker=%d)", lane, consecutive, blockerKey)
+	return true
 }
 
 // CurrentInvestigationCompletePolicy returns the active policy

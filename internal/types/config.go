@@ -542,6 +542,13 @@ type AgentSettings struct {
 	// unbounded token spend.
 	PerfTriagerIterCap int `yaml:"perf_triager_iter_cap"`
 
+	// DowngradeConvergenceHard is the number of consecutive no-progress
+	// pre-complete downgrade re-attempts (same lane + same typed blocker)
+	// after which the read loop force-completes with a typed caveat instead
+	// of re-issuing the identical downgrade forever. Default 4; the runaway
+	// "verification not stable" loop is the symptom this bounds.
+	DowngradeConvergenceHard int `yaml:"downgrade_convergence_hard"`
+
 	// LogTriagerIterCap is the hard outer-loop cap on the log_triager
 	// agent. Default 6. Same single-emit semantics as PerfTriagerIterCap.
 	LogTriagerIterCap int `yaml:"log_triager_iter_cap"`
@@ -678,8 +685,9 @@ func DefaultAgentSettings() AgentSettings {
 		VerifierScaledIterMax:  12,
 		MaxRetryBudgetCeil:     5,
 
-		PerfTriagerIterCap: 6,
-		LogTriagerIterCap:  6,
+		PerfTriagerIterCap:       6,
+		DowngradeConvergenceHard: 4,
+		LogTriagerIterCap:        6,
 
 		InvestigationCompletePolicy: ICPolicySoft,
 		PriorConvPolicy:             PriorConvPolicyAnalyzer,
@@ -818,6 +826,9 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 	}
 	if s.PerfTriagerIterCap <= 0 {
 		s.PerfTriagerIterCap = d.PerfTriagerIterCap
+	}
+	if s.DowngradeConvergenceHard <= 0 {
+		s.DowngradeConvergenceHard = d.DowngradeConvergenceHard
 	}
 	if s.LogTriagerIterCap <= 0 {
 		s.LogTriagerIterCap = d.LogTriagerIterCap

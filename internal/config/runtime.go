@@ -941,6 +941,7 @@ type RuntimeSettings struct {
 	AgentVerifierScaledIterMax         *int     `yaml:"agent_verifier_scaled_iter_max"`
 	AgentMaxRetryBudgetCeil            *int     `yaml:"agent_max_retry_budget_ceil"`
 	AgentPerfTriagerIterCap            *int     `yaml:"agent_perf_triager_iter_cap"`
+	AgentDowngradeConvergenceHard      *int     `yaml:"agent_downgrade_convergence_hard"`
 	AgentLogTriagerIterCap             *int     `yaml:"agent_log_triager_iter_cap"`
 	AgentInvestigationCompletePolicy   *string  `yaml:"agent_investigation_complete_policy"`
 	AgentPriorConvPolicy               *string  `yaml:"agent_prior_conversation_policy"`
