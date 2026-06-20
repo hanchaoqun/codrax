@@ -287,6 +287,7 @@ type emitCurrentSourceExplanationParam struct {
 
 type emitExternalObservationPolicyParam struct {
 	CurrentSourceMode    string   `json:"current_source_mode,omitempty"`
+	ExclusionKind        string   `json:"exclusion_kind,omitempty"`
 	ArtifactCitationMode string   `json:"artifact_citation_mode,omitempty"`
 	SourceQuotes         []string `json:"source_quotes,omitempty"`
 	Confidence           *float64 `json:"confidence"`
@@ -651,11 +652,12 @@ func buildEmitAnalysisSchema() {
 			},
 			"external_observation_policy": map[string]any{
 				"type":        "object",
-				"description": "Optional typed source/citation policy for external observations such as logs, traces, MCP resources, connector rows, command output, web pages, or external documents. Omit it or set current_source_mode=default/allow unless the CURRENT request explicitly says not to use current checkout/source evidence. If current_source_mode=exclude is emitted with a valid source quote, diagnostic_profile.current_risk/current_version_check/historical_regression must be false because current checkout/source verification is out of scope. If the request only says external artifact line numbers are not current-source citations, set artifact_citation_mode=external_only instead of excluding current source.",
+				"description": "Optional typed source/citation policy for external observations such as logs, traces, MCP resources, connector rows, command output, web pages, or external documents. Omit it or set current_source_mode=default/allow unless the CURRENT request explicitly says not to use current checkout/source evidence. If current_source_mode=exclude is emitted, also set exclusion_kind=explicit_user_exclusion and provide a valid source quote copied from the user's forbidding phrase; otherwise the tool downgrades the exclusion to default. If the request only says external artifact line numbers are not current-source citations, set artifact_citation_mode=external_only instead of excluding current source.",
 				"properties": map[string]any{
 					"current_source_mode":    map[string]any{"type": "string", "enum": externalObservationCurrentSourceModeValues(), "description": "default/allow means analyze external observations together with current source. exclude means suppress current-source exploration only when the current request explicitly forbids source/current-checkout analysis."},
+					"exclusion_kind":         map[string]any{"type": "string", "enum": externalObservationCurrentSourceExclusionKindValues(), "description": "Set to explicit_user_exclusion only when current_source_mode=exclude is justified by a user-authored phrase that forbids current checkout/source evidence. Leave empty otherwise."},
 					"artifact_citation_mode": map[string]any{"type": "string", "enum": externalObservationArtifactCitationModeValues(), "description": "default leaves citation policy unchanged. external_only means external artifact line/row refs stay external-observation evidence and must not be re-rendered as current-source file:line citations; it does NOT suppress current-source exploration. allow_current_source is only for external material that has been resolved to current source by another typed signal."},
-					"source_quotes":          map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that justify exclude or external-only artifact citation. Required for active source exclusion; unanchored quotes are ignored for exclusion."},
+					"source_quotes":          map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that justify exclude or external-only artifact citation. Required together with exclusion_kind=explicit_user_exclusion for active source exclusion; unanchored quotes are ignored for exclusion."},
 					"confidence":             map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this source/citation policy in [0,1]."},
 					"rationale":              map[string]any{"type": "string", "description": "Short audit rationale."},
 				},
@@ -886,6 +888,15 @@ func currentSourceExplanationModeValues() []string {
 
 func externalObservationCurrentSourceModeValues() []string {
 	values := types.AllExternalObservationCurrentSourceModes()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func externalObservationCurrentSourceExclusionKindValues() []string {
+	values := types.AllExternalObservationCurrentSourceExclusionKinds()
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		out = append(out, string(v))
@@ -2857,6 +2868,7 @@ func parseExternalObservationPolicy(raw string, p *emitExternalObservationPolicy
 		confidence = 1
 	}
 	mode := types.NormalizeExternalObservationCurrentSourceMode(p.CurrentSourceMode)
+	exclusionKind := types.NormalizeExternalObservationCurrentSourceExclusionKind(p.ExclusionKind)
 	artifactCitationMode := types.NormalizeExternalObservationArtifactCitationMode(p.ArtifactCitationMode)
 	var quotes []string
 	for _, quote := range p.SourceQuotes {
@@ -2870,18 +2882,30 @@ func parseExternalObservationPolicy(raw string, p *emitExternalObservationPolicy
 		}
 		warnings = append(warnings, "external_observation_policy.source_quotes entry ignored because it is not copied from the current request")
 	}
+	if mode != types.ExternalObservationCurrentSourceExclude {
+		exclusionKind = types.ExternalObservationSourceExclusionNone
+	}
+	if mode == types.ExternalObservationCurrentSourceExclude &&
+		exclusionKind != types.ExternalObservationSourceExclusionExplicitUserBoundary {
+		warnings = append(warnings, "external_observation_policy exclude ignored because exclusion_kind is not explicit_user_exclusion")
+		mode = types.ExternalObservationCurrentSourceDefault
+		exclusionKind = types.ExternalObservationSourceExclusionNone
+	}
 	if mode == types.ExternalObservationCurrentSourceExclude && len(quotes) == 0 {
 		warnings = append(warnings, "external_observation_policy exclude ignored because no source_quote survived current-request provenance validation")
 		mode = types.ExternalObservationCurrentSourceDefault
+		exclusionKind = types.ExternalObservationSourceExclusionNone
 	}
 	if mode == types.ExternalObservationCurrentSourceDefault &&
 		artifactCitationMode == types.ExternalObservationArtifactCitationDefault &&
+		exclusionKind == types.ExternalObservationSourceExclusionNone &&
 		len(quotes) == 0 &&
 		strings.TrimSpace(p.Rationale) == "" {
 		return nil, "", warnings
 	}
 	return &types.ExternalObservationPolicy{
 		CurrentSourceMode:    mode,
+		ExclusionKind:        exclusionKind,
 		ArtifactCitationMode: artifactCitationMode,
 		SourceQuotes:         dedupeTrimmedStrings(quotes),
 		Confidence:           confidence,

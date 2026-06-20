@@ -878,6 +878,7 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 		},
 		ExternalObservationPolicy: &types.ExternalObservationPolicy{
 			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes:      []string{"只分析日志"},
 			Confidence:        0.9,
 		},
@@ -994,6 +995,7 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 		},
 		ExternalObservationPolicy: &types.ExternalObservationPolicy{
 			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes:      []string{"只分析日志"},
 			Confidence:        0.9,
 		},
@@ -1016,6 +1018,7 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 		},
 		ExternalObservationPolicy: &types.ExternalObservationPolicy{
 			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes:      []string{"只分析日志"},
 			Confidence:        0.9,
 		},

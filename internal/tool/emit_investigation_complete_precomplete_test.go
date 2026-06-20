@@ -2913,6 +2913,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks(t *testi
 				LogTriage: mut.LogTriage(),
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},
@@ -3120,6 +3121,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceLogWaivesCitat
 				LogTriage: mut.LogTriage(),
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},
@@ -3295,6 +3297,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_TraceQueryPathObservationsWa
 				RawRequest: "只分析 eval/fixtures/path_runtime_trace_capture 这个文件，不分析代码。",
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"不分析代码"},
 				},
 			},

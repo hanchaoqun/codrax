@@ -1358,6 +1358,9 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
 		return false
 	}
+	if rm.hasRuntimeArtifactDiagnosticMechanismBridge() {
+		return true
+	}
 	if rm.CurrentSourceExplanationProfile != nil &&
 		rm.CurrentSourceExplanationProfile.Active() &&
 		rm.currentSourceExplanationHasCurrentSourceQuote() {
@@ -1397,6 +1400,23 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 		}
 	}
 	return false
+}
+
+func (rm RequestModel) hasRuntimeArtifactDiagnosticMechanismBridge() bool {
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	if !rm.DiagnosticProfile.CurrentVersionCheck ||
+		!rm.Predicates.IsDiagnosticQuestion ||
+		!rm.Predicates.IsCrossComponent {
+		return false
+	}
+	switch rm.Intent {
+	case IntentRootCause, IntentExplain:
+		return true
+	default:
+		return false
+	}
 }
 
 func (rm RequestModel) hasRequiredCurrentKeyCodeDimension() bool {

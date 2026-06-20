@@ -665,6 +665,7 @@ func TestValidateExplorerTraceQueryFirstToolCall_BlocksSuffixlessTracePathBefore
 			ExternalObservationPolicy: &types.ExternalObservationPolicy{
 				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
 				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
 				SourceQuotes:         []string{"不分析代码"},
 				Confidence:           0.9,
 			},

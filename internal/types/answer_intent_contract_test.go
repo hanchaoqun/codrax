@@ -199,6 +199,7 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactExplicitExcludeSuppr
 		},
 		ExternalObservationPolicy: &ExternalObservationPolicy{
 			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes:      []string{"只分析日志"},
 			Confidence:        0.9,
 		},
@@ -375,6 +376,7 @@ func TestCompileAnswerIntentContract_MCPResourceDefaultsToCurrentSourceUnlessExc
 
 	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
 		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
 		SourceQuotes:      []string{"只分析 MCP"},
 		Confidence:        0.9,
 	}

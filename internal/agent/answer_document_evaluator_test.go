@@ -4501,6 +4501,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 				LogTriage: mut.LogTriage(),
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},
@@ -4638,6 +4639,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureRe
 				LogTriage: mut.LogTriage(),
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},
@@ -4705,6 +4707,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SkipsRuntimeClosureNarr
 				PerfTrace: perf,
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					Confidence:        0.9,
 				},
 			},
@@ -4753,6 +4756,7 @@ func TestAnswerDocumentFallbackEvidenceRows_RuntimeObservationOnlySkipsCurrentRe
 				LogTriage: mut.LogTriage(),
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},
@@ -4871,6 +4875,7 @@ func TestAnswerDocumentEvaluator_RuntimeObservationOnlySuppressesRepoEnrichment(
 				},
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},

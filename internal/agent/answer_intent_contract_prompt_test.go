@@ -84,6 +84,7 @@ func TestRenderAnswerDocUnifiedIntentContract_RuntimeArtifactAvoidsRepoCitationP
 				},
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},
@@ -119,6 +120,7 @@ func TestRenderAnswerDocUnifiedIntentContract_PerfTraceAvoidsRepoCitationPressur
 				},
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析 trace"},
 					Confidence:        0.9,
 				},

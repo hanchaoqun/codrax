@@ -1241,3 +1241,28 @@ roles from many raw trace rows.
   smoothness debt remains: the run still used 23 explorer iterations and context
   pruning, so RNE-C48/RNE-C59 execution-kernel work and RNE-C58 member/facet
   projection remain active rather than closed by this patch.
+- 2026-06-20 Batch U9l delivered a mixed runtime/current-source lane repair.
+  The first focused control rerun
+  `eval/convergence_audit_summary_20260620_goal_batch_log_source_after_exclusion_kind.md`
+  still failed with `read=0` / `repo_map=0`: the analyzer no longer emitted an
+  explicit current-source exclusion, but an external runtime diagnostic request
+  that asked for mechanism explanation still collapsed to observation-only after
+  `current_version_check` was cleared for lack of exact runtime frame/path
+  anchors. The repair is typed, not prose-routed. `external_observation_policy`
+  now requires `exclusion_kind=explicit_user_exclusion` before
+  `current_source_mode=exclude` can close the source lane, and
+  `RequestModel.HasRuntimeArtifactCurrentVerificationAnchor` now treats an
+  external runtime artifact plus diagnostic/cross-component root-cause or
+  explanation shape as a current-source mechanism bridge unless an explicit
+  typed exclusion is present. Focused tests, full `go test ./...`, and the
+  post-change eval
+  `eval/convergence_audit_summary_20260620_goal_batch_log_source_after_diagnostic_bridge.md`
+  passed. Manual audit of
+  `eval/results/read_combo_log_current_source_explanation-20260620-193552`
+  confirms the final answer cites current source
+  (`internal/llm/stream_errors.go`, `internal/llm/openai.go`,
+  `internal/render/status_messages.go`, and
+  `internal/agent/answer_document_evaluator.go`) while preserving the runtime
+  log boundary. Residual smoothness debt remains: the passing run still used
+  10 explorer iterations and 39% of the context window, so the broader
+  RNE-C48/RNE-C59 execution-kernel and context-noise work remains active.

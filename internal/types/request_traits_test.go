@@ -111,6 +111,7 @@ func TestHasObservationOnlyRuntimeArtifact_DefaultKeepsCurrentSourceLane(t *test
 
 	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
 		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
 		SourceQuotes:      []string{"只分析日志"},
 		Confidence:        0.9,
 	}
@@ -125,6 +126,7 @@ func TestHasRuntimeArtifactPathReference_ExternalObservationQuoteEmbeddedPath(t 
 		Scenario: ScenarioRootCause,
 		ExternalObservationPolicy: &ExternalObservationPolicy{
 			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes: []string{
 				"只分析 ../customlogs/xxx_all.systrace 这个 trace 文件，不分析代码",
 			},
@@ -161,6 +163,7 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentKeyCodeDimensionOpensCurrentSo
 	}
 	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
 		CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+		ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
 		ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
 		SourceQuotes:         []string{"不要把日志行当成当前源码引用"},
 		Confidence:           0.9,
@@ -198,6 +201,7 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentSourceExplanationProfileOpensL
 	}
 	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
 		CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+		ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
 		ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
 		SourceQuotes:         []string{"不要把日志行当成当前源码引用"},
 		Confidence:           0.9,
@@ -349,6 +353,7 @@ func TestCurrentSourceLaneDecision_RuntimeArtifactDefaultOptional(t *testing.T) 
 
 	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
 		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
 		SourceQuotes:      []string{"只分析 trace"},
 		Confidence:        0.9,
 	}
@@ -474,6 +479,7 @@ func TestCurrentSourceLaneDecision_ExternalArtifactSourceScopeRequiresSource(t *
 	}
 
 	rm.ExternalObservationPolicy.CurrentSourceMode = ExternalObservationCurrentSourceExclude
+	rm.ExternalObservationPolicy.ExclusionKind = ExternalObservationSourceExclusionExplicitUserBoundary
 	rm.ExternalObservationPolicy.SourceQuotes = []string{"只分析 trace"}
 	if rm.HasTypedCurrentSourceScopeRequest() {
 		t.Fatal("explicit typed source exclusion must override source-scope drift")
@@ -684,6 +690,48 @@ func TestCurrentSourceLaneDecision_RuntimeExactTargetsRemainSourceOptional(t *te
 	}
 	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 		t.Fatal("runtime exact targets alone must not hard-require current source")
+	}
+}
+
+func TestCurrentSourceLaneDecision_RuntimeDiagnosticMechanismBridgeRequiresSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		LogTriage: &LogBundle{
+			Observations: []LogObservation{{
+				Kind:      LogObservationRetryCycle,
+				Summary:   "finalizer retry after stream timeout",
+				LineStart: 2,
+			}},
+		},
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+			IsCrossComponent:     true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentVersionCheck: true,
+			Confidence:          0.9,
+		},
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("typed diagnostic mechanism bridge should require source, got %s", got)
+	}
+	if !rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("typed diagnostic mechanism bridge should be a current-source anchor")
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("typed diagnostic mechanism bridge must not be observation-only")
+	}
+
+	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
+		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:      []string{"只分析日志"},
+		Confidence:        0.9,
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneExcluded {
+		t.Fatalf("explicit typed source exclusion should override diagnostic bridge, got %s", got)
 	}
 }
 

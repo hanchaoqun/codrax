@@ -333,6 +333,7 @@ func TestEmitHypothesisVerdict_NormalizesArtifactLocalLogLineCitation(t *testing
 				LogTriage: logBundle,
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},
@@ -385,6 +386,7 @@ func TestEmitHypothesisVerdict_AcceptsRationaleOnlyRuntimeArtifactVerdict(t *tes
 				LogTriage: logBundle,
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},
@@ -525,6 +527,7 @@ func TestEmitHypothesisVerdict_NormalizesArtifactLocalTraceLineCitation(t *testi
 				PerfTrace: perfBundle,
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析 trace"},
 					Confidence:        0.9,
 				},

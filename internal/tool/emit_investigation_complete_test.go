@@ -1051,6 +1051,7 @@ func TestEmitInvestigationComplete_RuntimeNegativeObservationCompat(t *testing.T
 			}}},
 			ExternalObservationPolicy: &types.ExternalObservationPolicy{
 				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 				SourceQuotes:      []string{"只分析日志"},
 				Confidence:        0.9,
 			},
@@ -1108,6 +1109,7 @@ func TestEmitInvestigationComplete_RuntimeNegativeObservationMissingSignalCompat
 			ExternalObservationPolicy: &types.ExternalObservationPolicy{
 				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
 				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
 				Confidence:           0.9,
 			},
 		}},
@@ -1345,6 +1347,7 @@ func TestEmitInvestigationComplete_RuntimeArtifactDropsInvalidOptionalAggregateF
 			}}},
 			ExternalObservationPolicy: &types.ExternalObservationPolicy{
 				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 				SourceQuotes:      []string{"只分析日志"},
 				Confidence:        0.9,
 			},
@@ -5357,6 +5360,7 @@ func TestEmitInvestigationComplete_AllowsDecoratedRuntimeMemberSetForObservation
 			LogTriage: logBundle,
 			ExternalObservationPolicy: &types.ExternalObservationPolicy{
 				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 				SourceQuotes:      []string{"只分析日志"},
 				Confidence:        0.9,
 			},

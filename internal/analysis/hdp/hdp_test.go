@@ -382,6 +382,7 @@ func TestPlan_RootCause_ObservationOnlyRuntimeSkipsAlternativeHypothesis(t *test
 	}
 	input.ExternalObservationPolicy = &types.ExternalObservationPolicy{
 		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 		SourceQuotes:      []string{"只分析日志"},
 		Confidence:        0.9,
 	}

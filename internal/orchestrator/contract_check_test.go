@@ -97,6 +97,7 @@ func TestFinalizerCitationSupportCount_RuntimeTraceObservationOnlyCountsArtifact
 				},
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:        types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
 					SourceQuotes:         []string{"只分析 ../customlogs/xxx_all.systrace 这个 trace 文件，不分析代码"},
 				},

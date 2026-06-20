@@ -507,6 +507,7 @@ func TestCompileFacetCoverage_ExternalOnlyRuntimeDoesNotPromoteCurrentCodePath(t
 		},
 		ExternalObservationPolicy: &ExternalObservationPolicy{
 			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes:      []string{"只分析日志"},
 			Confidence:        0.9,
 		},
@@ -547,6 +548,7 @@ func TestCompileFacetCoverage_RuntimePathSourceExcludeDoesNotRequireCurrentCodeP
 		Scenario: ScenarioRootCause,
 		ExternalObservationPolicy: &ExternalObservationPolicy{
 			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes: []string{
 				"只分析 /Users/han/opt/customlogs/xxx_all.systrace 这个 trace 文件，不分析代码",
 			},
@@ -633,6 +635,7 @@ func TestCompileFacetCoverage_LogObservationOnlyDoesNotPromoteCurrentCodePath(t 
 		},
 		ExternalObservationPolicy: &ExternalObservationPolicy{
 			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes:      []string{"只分析日志"},
 			Confidence:        0.9,
 		},

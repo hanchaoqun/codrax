@@ -695,6 +695,7 @@ func TestBuildAnalysisIR_ExternalOnlyRuntimeArtifactStripsAllThreeGates(t *testi
 		},
 		ExternalObservationPolicy: &types.ExternalObservationPolicy{
 			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes:      []string{"只分析日志"},
 			Confidence:        0.9,
 		},
@@ -969,6 +970,47 @@ func TestBuildAnalysisIR_ExternalRuntimeSpuriousCurrentVersionCheckKeepsSourceDe
 	}
 	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
 		t.Fatalf("CurrentStatusDiagnostic should not be required: %+v", ir.AnswerContract.CurrentStatusDiagnostic)
+	}
+}
+
+func TestBuildAnalysisIR_ExternalRuntimeDiagnosticMechanismBridgeKeepsSourceRequired(t *testing.T) {
+	mut := types.NewMutableState("这段日志显示 finalizer 因 LLM timeout 触发重试；请结合当前源码解释系统如何区分模型响应超时和成文校验失败，并说明这个日志结论的边界。")
+	mut.SetLogTriage(&types.LogBundle{
+		Observations: []types.LogObservation{{
+			Kind:      types.LogObservationRetryCycle,
+			Summary:   "first_byte_timeout exceeded after 40s",
+			LineStart: 2,
+		}},
+	})
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "这段日志显示 finalizer 因 LLM timeout 触发重试；请结合当前源码解释系统如何区分模型响应超时和成文校验失败，并说明这个日志结论的边界。",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexityModerate,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+			IsCrossComponent:     true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentVersionCheck: true,
+			Confidence:          0.9,
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if !ir.RequestModel.DiagnosticProfile.CurrentVersionCheck {
+		t.Fatalf("typed diagnostic mechanism bridge should preserve current-version source lane: %+v", ir.RequestModel.DiagnosticProfile)
+	}
+	if got := ir.RequestModel.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want required", got)
+	}
+	if ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		t.Fatalf("diagnostic mechanism bridge must not be observation-only: %+v", ir.RequestModel)
 	}
 }
 

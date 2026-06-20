@@ -404,6 +404,7 @@ func observationOnlyRuntimeCaveatTestContext(request string) *types.BusContext {
 		},
 		ExternalObservationPolicy: &types.ExternalObservationPolicy{
 			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes:      []string{"只分析日志"},
 			Confidence:        0.9,
 		},

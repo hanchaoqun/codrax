@@ -61,6 +61,7 @@ func TestNormalizeRuntimeArtifactCitationRefs_ObservationOnlyDropsCitationPool(t
 				},
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},
@@ -202,6 +203,7 @@ func TestNormalizeRuntimeArtifactVisibleCitationSentinels_SanitizesOnlyTypedObse
 			},
 			ExternalObservationPolicy: &types.ExternalObservationPolicy{
 				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 				SourceQuotes:      []string{"只分析日志"},
 				Confidence:        0.9,
 			},

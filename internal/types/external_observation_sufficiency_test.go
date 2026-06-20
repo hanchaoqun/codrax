@@ -97,6 +97,7 @@ func TestAssessExternalObservationSufficiency_BlockedByCurrentKeyCodeDimensionWi
 		},
 		ExternalObservationPolicy: &ExternalObservationPolicy{
 			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+			ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
 			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
 			SourceQuotes:         []string{"do not cite artifact lines as source"},
 			Confidence:           0.9,

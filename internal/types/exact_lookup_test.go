@@ -405,6 +405,7 @@ func TestBuildExactResolutionContract_RuntimeArtifactWithoutCurrentSourceDoesNot
 		},
 		ExternalObservationPolicy: &ExternalObservationPolicy{
 			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
 			SourceQuotes:      []string{"不要分析当前仓库代码"},
 			Confidence:        0.9,
 		},

@@ -890,6 +890,7 @@ func TestNormalizeDiagnosticProfileForExternalObservationPolicyClearsCurrentStat
 	}
 	policy := &types.ExternalObservationPolicy{
 		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 		SourceQuotes:      []string{"只分析 trace，不分析代码"},
 		Confidence:        0.95,
 	}
@@ -3589,6 +3590,7 @@ func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForRuntimeArtifact(t 
 		},
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
 			"source_quotes": ["只分析 trace"],
 			"confidence": 0.9
 		},
@@ -3699,6 +3701,7 @@ func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresAnchoredQuote(t *t
 		"question_kind": "mechanism",
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
 			"source_quotes": ["不要读取源码", "not in request"],
 			"confidence": 0.91
 		}
@@ -3743,6 +3746,7 @@ func TestEmitAnalysis_ExternalObservationPolicyUnanchoredExcludeDefaults(t *test
 		"question_kind": "mechanism",
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
 			"source_quotes": ["不要读取源码"],
 			"confidence": 0.91
 		}
@@ -3763,6 +3767,62 @@ func TestEmitAnalysis_ExternalObservationPolicyUnanchoredExcludeDefaults(t *test
 	}
 }
 
+func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresTypedExclusionKind(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("这段日志显示 finalizer 因 LLM timeout 触发重试；请结合当前源码解释系统如何区分模型响应超时和成文校验失败，并说明这个日志结论的边界。")
+	mu.SetLogTriage(&types.LogBundle{
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationRetryCycle,
+			Summary:    "first_byte_timeout exceeded after 40s",
+			LineStart:  2,
+			Confidence: 0.95,
+		}},
+	})
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["timeout", "finalizer", "validation"],
+		"entities": ["finalizer", "LLM timeout"],
+		"question_kind": "conditional",
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"artifact_citation_mode": "external_only",
+			"source_quotes": ["请结合当前源码解释系统如何区分模型响应超时和成文校验失败，并说明这个日志结论的边界"],
+			"confidence": 0.95
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("missing exclusion_kind should be repaired, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil {
+		t.Fatalf("policy should survive for artifact citation mode: %+v", rm)
+	}
+	if rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		t.Fatalf("exclude without typed exclusion_kind must not suppress current source: %+v", rm.ExternalObservationPolicy)
+	}
+	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceDefault {
+		t.Fatalf("CurrentSourceMode=%q, want default after repair", got)
+	}
+	if got := rm.ExternalObservationPolicy.ArtifactCitationMode; got != types.ExternalObservationArtifactCitationExternalOnly {
+		t.Fatalf("artifact citation mode should survive, got %q", got)
+	}
+	if !strings.Contains(res.Summary, "exclusion_kind") {
+		t.Fatalf("summary should explain ignored exclusion_kind, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_ExternalObservationPolicyRepairsStringWrappedObject(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -3779,7 +3839,7 @@ func TestEmitAnalysis_ExternalObservationPolicyRepairsStringWrappedObject(t *tes
 		"keywords": ["log", "runtime"],
 		"entities": ["panic"],
 		"question_kind": "mechanism",
-		"external_observation_policy": "{\"current_source_mode\":\"exclude\",\"source_quotes\":[\"不要读取源码\"],\"confidence\":0.91}"
+		"external_observation_policy": "{\"current_source_mode\":\"exclude\",\"exclusion_kind\":\"explicit_user_exclusion\",\"source_quotes\":[\"不要读取源码\"],\"confidence\":0.91}"
 	}`)
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if err != nil {
@@ -4089,6 +4149,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForObservationOnlyRuntime(t *t
 		},
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
 			"artifact_citation_mode": "external_only",
 			"source_quotes": ["请只基于这段 systrace 文本", "不要分析当前仓库代码"],
 			"confidence": 0.95
@@ -4948,6 +5009,7 @@ func TestEmitAnalysis_Execute_DropsInvalidExactTargetsForRuntimeArtifact(t *test
 		},
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
 			"source_quotes": ["只分析 trace"],
 			"confidence": 0.9
 		}
@@ -5010,6 +5072,7 @@ func TestEmitAnalysis_Execute_DefaultsRuntimeArtifactRoleLocateSubject(t *testin
 		},
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
 			"source_quotes": ["只分析日志"],
 			"confidence": 0.9
 		}

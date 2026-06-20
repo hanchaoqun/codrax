@@ -42,6 +42,7 @@ func TestAnswerAggregateFactEvidenceOrigins_RuntimePathFromExternalPolicyQuote(t
 	rm := &RequestModel{
 		ExternalObservationPolicy: &ExternalObservationPolicy{
 			CurrentSourceMode:    ExternalObservationCurrentSourceExclude,
+			ExclusionKind:        ExternalObservationSourceExclusionExplicitUserBoundary,
 			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
 			SourceQuotes: []string{
 				"只分析 ../customlogs/xxx_all.systrace 这个 trace 文件，不分析代码",

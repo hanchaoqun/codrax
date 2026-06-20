@@ -2078,6 +2078,7 @@ func TestExtractor_BuildPrompt_ObservationOnlyRuntimeHypothesesAreContextOnly(t 
 				LogTriage: logBundle,
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析 trace"},
 					Confidence:        0.9,
 				},
@@ -2195,6 +2196,7 @@ func TestExtractor_ParseOutput_SkipsAutoVerdictsForObservationOnlyRuntimeArtifac
 				LogTriage: logBundle,
 				ExternalObservationPolicy: &types.ExternalObservationPolicy{
 					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 					SourceQuotes:      []string{"只分析日志"},
 					Confidence:        0.9,
 				},
@@ -2532,6 +2534,7 @@ func TestExtractor_Observe_RuntimeArtifactOnly_DoesNotRequireHypothesisVerdict(t
 	}
 	ctx.AnalysisIR.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
 		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
 		SourceQuotes:      []string{"只分析日志"},
 		Confidence:        0.9,
 	}
