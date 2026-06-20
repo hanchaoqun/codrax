@@ -646,6 +646,39 @@ func TestWriteContextPackFromPlannerToolResultsProjectsReadFileObservation(t *te
 	}
 }
 
+func TestWriteContextPackFromPlannerToolResultsProjectsToolHandoffCarrier(t *testing.T) {
+	result := AttachToolHandoffCarrier(ToolResult{
+		ToolName: "emit_change_plan",
+		Success:  false,
+		Repair: &ToolRepair{
+			Code:   "tool_param_unknown_field",
+			Fields: []string{"$.changes[].kind"},
+			Metadata: map[string]string{
+				ToolJSONSurfaceMetadataKey: ToolJSONSurfaceDescriptorJSON(ToolJSONSurfaceDescriptor{
+					ToolName:           "emit_change_plan",
+					ReasonCode:         "tool_param_unknown_field",
+					FailingFieldPaths:  []string{"$.changes[].kind"},
+					AcceptedFieldPaths: []string{"$.changes", "$.changes[].kind"},
+					AcceptedEnums: map[string][]string{
+						"$.changes[].kind": {"create", "modify", "delete", "patch"},
+					},
+				}),
+			},
+		},
+	})
+	pack := WriteContextPackFromPlannerToolResults("batch-1", "repair", []ToolResult{result})
+	view := pack.View(WriteConsumerPlanner, 10)
+	if !writeContextViewContains(view, "tool_json_repair", "tool=emit_change_plan") ||
+		!writeContextViewContains(view, "tool_json_repair", "json_fields=$.changes[].kind") ||
+		!writeContextViewContains(view, "tool_json_repair", "enum_fields=1") {
+		t.Fatalf("tool handoff carrier not projected into planner context: %+v", view.Items)
+	}
+	controller := pack.View(WriteConsumerController, 10)
+	if !writeContextViewContains(controller, "tool_json_repair", "accepted_json_fields=2") {
+		t.Fatalf("tool handoff carrier not visible to controller: %+v", controller.Items)
+	}
+}
+
 func TestWriteContextPackFromRepoMapNavigationCoverageProjectsP1State(t *testing.T) {
 	coverage := RepoMapNavigationCoverage{
 		State:          RepoMapNavigationCoveragePartial,

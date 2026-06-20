@@ -893,12 +893,12 @@ func WriteContextPackFromPlanContextCoverage(batchID, goal string, prior []Write
 	return NormalizeWriteContextPack(pack)
 }
 
-// WriteContextPackFromPlannerToolResults projects typed observations gathered
-// during a planner/replan dispatch into durable localization context. It
-// consumes ToolResult.Observations only; tool summaries, model rationale, and
-// user prose are intentionally ignored. A read_file observation records that
-// current bytes were inspected, but remains observed/read-file depth rather
-// than owner proof.
+// WriteContextPackFromPlannerToolResults projects typed observations and
+// structured tool handoff carriers gathered during a planner/replan dispatch
+// into durable context. It consumes ToolResult.Observations and
+// ToolHandoffCarrier only; tool summaries, model rationale, and user prose are
+// intentionally ignored. A read_file observation records that current bytes
+// were inspected, but remains observed/read-file depth rather than owner proof.
 func WriteContextPackFromPlannerToolResults(batchID, goal string, results []ToolResult) WriteContextPack {
 	if len(results) == 0 {
 		return WriteContextPack{}
@@ -911,6 +911,17 @@ func WriteContextPackFromPlannerToolResults(batchID, goal string, results []Tool
 	}
 	seen := map[string]struct{}{}
 	for _, result := range results {
+		result = AttachToolHandoffCarrier(result)
+		if result.Handoff != nil {
+			for _, item := range writeContextItemsFromToolHandoffCarrier(batchID, *result.Handoff) {
+				key := writeContextItemKey(item)
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				pack.Items = append(pack.Items, item)
+			}
+		}
 		if !result.Success {
 			continue
 		}
@@ -943,6 +954,76 @@ func WriteContextPackFromPlannerToolResults(batchID, goal string, results []Tool
 		}
 	}
 	return NormalizeWriteContextPack(pack)
+}
+
+func writeContextItemsFromToolHandoffCarrier(batchID string, carrier ToolHandoffCarrier) []WriteContextItem {
+	carrier = NormalizeToolHandoffCarrier(carrier)
+	if carrier.Empty() {
+		return nil
+	}
+	text := renderToolHandoffCarrierContext(carrier)
+	if text == "" {
+		return nil
+	}
+	priority := WriteContextP2
+	kind := "tool_handoff"
+	consumers := []WriteContextConsumer{WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier}
+	if carrier.SupportedJSON != nil || carrier.PlanRepairPack != nil || carrier.Repair != nil {
+		priority = WriteContextP1
+		kind = "tool_json_repair"
+		consumers = []WriteContextConsumer{WriteConsumerController, WriteConsumerPlanner}
+	}
+	item := writeContextItem(kind, priority, text, "planner_observation", consumers...)
+	item.BatchID = trimWriteContextText(batchID)
+	item.SourceID = trimWriteContextText(carrier.ToolName)
+	item.ID = writeContextStableID(kind, carrier.ToolName, carrier.ReasonCode, carrier.RepairCode, strings.Join(toolHandoffContextJSONFields(carrier), ","), strconv.Itoa(len(carrier.AcceptedEvidence)), strconv.Itoa(len(carrier.ObservationRefs)))
+	return []WriteContextItem{item}
+}
+
+func renderToolHandoffCarrierContext(carrier ToolHandoffCarrier) string {
+	parts := []string{}
+	if carrier.ToolName != "" {
+		parts = append(parts, "tool="+carrier.ToolName)
+	}
+	if carrier.ReasonCode != "" {
+		parts = append(parts, "reason="+carrier.ReasonCode)
+	}
+	if carrier.RepairCode != "" {
+		parts = append(parts, "repair="+carrier.RepairCode)
+	}
+	if carrier.SupportedJSON != nil {
+		fields := toolHandoffContextJSONFields(carrier)
+		if len(fields) > 0 {
+			parts = append(parts, "json_fields="+strings.Join(fields, ","))
+		}
+		if len(carrier.SupportedJSON.AcceptedFieldPaths) > 0 {
+			parts = append(parts, "accepted_json_fields="+strconv.Itoa(len(carrier.SupportedJSON.AcceptedFieldPaths)))
+		}
+		if len(carrier.SupportedJSON.AcceptedEnums) > 0 {
+			parts = append(parts, "enum_fields="+strconv.Itoa(len(carrier.SupportedJSON.AcceptedEnums)))
+		}
+	}
+	if len(carrier.AcceptedEvidence) > 0 {
+		parts = append(parts, "accepted_evidence="+strconv.Itoa(len(carrier.AcceptedEvidence)))
+	}
+	if len(carrier.ObservationRefs) > 0 {
+		parts = append(parts, "observation_refs="+strconv.Itoa(len(carrier.ObservationRefs)))
+	}
+	return trimWriteContextText(strings.Join(parts, " "))
+}
+
+func toolHandoffContextJSONFields(carrier ToolHandoffCarrier) []string {
+	if carrier.SupportedJSON == nil {
+		return nil
+	}
+	fields := append([]string(nil), carrier.SupportedJSON.FailingFieldPaths...)
+	if len(fields) == 0 {
+		fields = append(fields, carrier.SupportedJSON.AcceptedFieldPaths...)
+	}
+	if len(fields) > 6 {
+		fields = fields[:6]
+	}
+	return fields
 }
 
 func WriteContextPackFromRepoMapNavigationCoverage(batchID, goal string, coverage RepoMapNavigationCoverage) WriteContextPack {
