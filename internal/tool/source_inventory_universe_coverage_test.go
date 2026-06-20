@@ -53,6 +53,35 @@ func TestPublishSourceInventoryObservationFromToolObservation_ListFilesDirectUni
 	}
 }
 
+func TestSourceInventoryExecutionView_ScopedLanguageAndMembership(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/beta/file.ts", Language: repotypes.LangTypeScript},
+		{RelPath: "src/alpha/file.cpp", Language: repotypes.LangC},
+		{RelPath: "src/config.yaml", IsSpecial: true},
+		{RelPath: "tests/alpha_test.py", Language: repotypes.LangPython},
+	})
+
+	view := newSourceInventoryExecutionView(graph, []string{"src"})
+	all := view.Files("")
+	if len(all) != 3 {
+		t.Fatalf("scoped view should keep only src files, got %d: %+v", len(all), all)
+	}
+	if all[0].RelPath != "src/alpha/file.cpp" || all[1].RelPath != "src/beta/file.ts" || all[2].RelPath != "src/config.yaml" {
+		t.Fatalf("scoped view should be sorted once by repo path, got %+v", all)
+	}
+	if !sourceInventoryViewHasInventoryFiles(view) {
+		t.Fatalf("scoped view should record language/config inventory files")
+	}
+	if !sourceInventoryViewContainsFile(view, "src/alpha/file.cpp", nil) ||
+		sourceInventoryViewContainsFile(view, "tests/alpha_test.py", nil) {
+		t.Fatalf("view membership should be scoped and exact")
+	}
+	cppFiles := view.Files(repotypes.LangC)
+	if len(cppFiles) != 1 || cppFiles[0].RelPath != "src/alpha/file.cpp" {
+		t.Fatalf("language-filtered view should reuse the scoped file set, got %+v", cppFiles)
+	}
+}
+
 func TestPublishSourceInventoryObservationFromToolObservation_ListFilesIgnoresRenderedAdvisory(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {

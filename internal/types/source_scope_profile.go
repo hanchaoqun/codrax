@@ -44,6 +44,7 @@ func (s SourceScope) IsValid() bool {
 type SourceScopeProfile struct {
 	RequestedScope              SourceScope `json:"requested_scope"`
 	IncludeAuxiliaryAsPrincipal bool        `json:"include_auxiliary_as_principal,omitempty"`
+	SourceQuotes                []string    `json:"source_quotes,omitempty"`
 	Confidence                  float64     `json:"confidence,omitempty"`
 	Rationale                   string      `json:"rationale,omitempty"`
 }
@@ -72,6 +73,9 @@ func (p *SourceScopeProfile) Fingerprint() string {
 	}
 	if p.IncludeAuxiliaryAsPrincipal {
 		parts = append(parts, "aux-principal")
+	}
+	if len(p.SourceQuotes) > 0 {
+		parts = append(parts, strings.Join(p.SourceQuotes, "|"))
 	}
 	return strings.Join(parts, ":")
 }

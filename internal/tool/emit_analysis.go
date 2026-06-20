@@ -193,6 +193,7 @@ type emitResolvedConversationSubjectParam struct {
 type emitSourceScopeProfileParam struct {
 	RequestedScope              string   `json:"requested_scope"`
 	IncludeAuxiliaryAsPrincipal *bool    `json:"include_auxiliary_as_principal,omitempty"`
+	SourceQuotes                []string `json:"source_quotes,omitempty"`
 	Confidence                  *float64 `json:"confidence"`
 	Rationale                   string   `json:"rationale,omitempty"`
 }
@@ -498,10 +499,11 @@ func buildEmitAnalysisSchema() {
 			},
 			"source_scope_profile": map[string]any{
 				"type":        "object",
-				"description": "Optional typed path-scope intent. Emit when tests, docs, fixtures, examples, or all repo material are principal answer scope; otherwise production is the default for code-behavior questions. This is user intent, not path classification.",
+				"description": "Optional typed path-scope intent. Emit when the current request explicitly makes production, tests, docs, fixtures, examples, or all repo material the principal answer scope. This is user intent, not path classification; include source_quotes copied from the current request when a scope boundary is explicit.",
 				"properties": map[string]any{
 					"requested_scope":                map[string]any{"type": "string", "enum": sourceScopeValues(), "description": "production, test, documentation, auxiliary, all, or unknown."},
 					"include_auxiliary_as_principal": map[string]any{"type": "boolean", "description": "True only when test/docs/fixture/example files may be principal answer members rather than supporting context."},
+					"source_quotes":                  map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that state the requested path/source scope. Leave empty when the scope is inferred only from repository layout or model judgment."},
 					"confidence":                     map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this source scope in [0,1]."},
 					"rationale":                      map[string]any{"type": "string", "description": "Short audit rationale for the selected scope."},
 				},
@@ -1102,7 +1104,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	sourceScopeProfile, sourceScopeErr := parseSourceScopeProfile(p.SourceScopeProfile)
+	sourceScopeProfile, sourceScopeErr, sourceScopeWarnings := parseSourceScopeProfile(raw, p.SourceScopeProfile)
 	if sourceScopeErr != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1110,6 +1112,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Summary:   "emit_analysis rejected: " + sourceScopeErr,
 			Timestamp: time.Now(),
 		}, nil
+	}
+	if len(sourceScopeWarnings) > 0 {
+		val.Warnings = append(val.Warnings, sourceScopeWarnings...)
 	}
 	changeImpactProfile, changeImpactErr := parseChangeImpactProfile(p.ChangeImpactProfile)
 	if changeImpactErr != "" {
@@ -1401,6 +1406,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// every summary before it reaches downstream consumers.
 	sanitizedSubTopics := sanitizeSubTopics(subTopics)
 
+	requiredFileHints := validateAndBuildRequiredFileHintsWithContext(ctx, p.RequiredFiles, &val)
+	irrelevantFiles := validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val)
+	requiredFileHints, irrelevantFiles, sourceScopeProfile = reconcilePrincipalScopeIrrelevantFiles(
+		ctx,
+		sourceScopeProfile,
+		sourceInventoryProfile,
+		intent,
+		predicates,
+		requiredFileHints,
+		irrelevantFiles,
+		&val,
+	)
+
 	rm := types.RequestModel{
 		RawRequest: raw,
 		Language:   p.Language,
@@ -1416,8 +1434,8 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ExactTargets:      exactTargets,
 			ExactContextTerms: exactContextTerms,
 			ExactContextRoles: exactContextRoles,
-			RequiredFileHints: validateAndBuildRequiredFileHintsWithContext(ctx, p.RequiredFiles, &val),
-			IrrelevantFiles:   validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val),
+			RequiredFileHints: requiredFileHints,
+			IrrelevantFiles:   irrelevantFiles,
 			Kind:              kind,
 		},
 		AnswerSubject:                   answerSubject,
@@ -2142,10 +2160,11 @@ func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam)
 	return out, ""
 }
 
-func parseSourceScopeProfile(p *emitSourceScopeProfileParam) (*types.SourceScopeProfile, string) {
+func parseSourceScopeProfile(raw string, p *emitSourceScopeProfileParam) (*types.SourceScopeProfile, string, []string) {
 	if p == nil {
-		return nil, ""
+		return nil, "", nil
 	}
+	var warnings []string
 	var missing []string
 	if strings.TrimSpace(p.RequestedScope) == "" {
 		missing = append(missing, "requested_scope")
@@ -2157,28 +2176,38 @@ func parseSourceScopeProfile(p *emitSourceScopeProfileParam) (*types.SourceScope
 		return nil, fmt.Sprintf(
 			"source_scope_profile missing required field(s): %s",
 			strings.Join(missing, ", "),
-		)
+		), nil
 	}
 	if *p.Confidence < 0 || *p.Confidence > 1 {
-		return nil, fmt.Sprintf("source_scope_profile.confidence %.2f out of [0,1]", *p.Confidence)
+		return nil, fmt.Sprintf("source_scope_profile.confidence %.2f out of [0,1]", *p.Confidence), nil
 	}
 	scope := types.SourceScope(strings.TrimSpace(p.RequestedScope))
 	if !scope.IsValid() {
 		return nil, fmt.Sprintf(
 			"source_scope_profile.requested_scope %q is invalid; use one of %s",
 			p.RequestedScope, strings.Join(sourceScopeValues(), ", "),
-		)
+		), nil
 	}
 	includeAux := false
 	if p.IncludeAuxiliaryAsPrincipal != nil {
 		includeAux = *p.IncludeAuxiliaryAsPrincipal
 	}
+	sourceQuotes := trimStringSlice(p.SourceQuotes)
+	keptQuotes := sourceQuotes[:0]
+	for _, quote := range sourceQuotes {
+		if sourceQuotePresentInCurrentRequest(raw, quote) {
+			keptQuotes = append(keptQuotes, quote)
+			continue
+		}
+		warnings = append(warnings, "source_scope_profile.source_quotes entry ignored because it is not copied verbatim from the current request")
+	}
 	return &types.SourceScopeProfile{
 		RequestedScope:              scope,
 		IncludeAuxiliaryAsPrincipal: includeAux,
+		SourceQuotes:                append([]string(nil), keptQuotes...),
 		Confidence:                  *p.Confidence,
 		Rationale:                   strings.TrimSpace(p.Rationale),
-	}, ""
+	}, "", warnings
 }
 
 func parseAnswerVisibilityProfile(raw string, p *emitAnswerVisibilityProfileParam) (*types.AnswerVisibilityProfile, string, []string) {
@@ -4496,6 +4525,121 @@ func validateAndBuildIrrelevantFiles(in []string, val *analysisValidationResult)
 		return nil
 	}
 	return out
+}
+
+func reconcilePrincipalScopeIrrelevantFiles(
+	ctx *types.BusContext,
+	sourceScopeProfile *types.SourceScopeProfile,
+	sourceInventoryProfile *types.SourceInventoryProfile,
+	intent types.Intent,
+	predicates types.SemanticPredicates,
+	required []types.RequiredFileHint,
+	irrelevant []string,
+	val *analysisValidationResult,
+) ([]types.RequiredFileHint, []string, *types.SourceScopeProfile) {
+	if len(irrelevant) == 0 || !emitAnalysisPrincipalSourceInventoryShape(intent, predicates, sourceInventoryProfile) {
+		return required, irrelevant, sourceScopeProfile
+	}
+	requiredSeen := make(map[string]bool, len(required)+len(irrelevant))
+	for _, hint := range required {
+		if key := strings.TrimSpace(hint.Path); key != "" {
+			requiredSeen[key] = true
+		}
+	}
+	filtered := make([]string, 0, len(irrelevant))
+	demoted := 0
+	promoted := 0
+	promotedAuxiliary := false
+	effectiveScopeProfile := emitAnalysisEffectiveInventoryScopeProfile(sourceScopeProfile)
+	for _, rel := range irrelevant {
+		rel = canonicalRequiredFilePath(rel)
+		if rel == "" {
+			continue
+		}
+		if !emitAnalysisPrincipalSourcePathAllowed(ctx, rel, effectiveScopeProfile) {
+			filtered = append(filtered, rel)
+			continue
+		}
+		demoted++
+		if types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(rel)) {
+			promotedAuxiliary = true
+		}
+		if len(required) >= requiredFileHintsMax || requiredSeen[rel] {
+			continue
+		}
+		requiredSeen[rel] = true
+		required = append(required, types.RequiredFileHint{
+			Path:       rel,
+			Confidence: 0.80,
+			Rationale:  "principal source-scope path preserved from contradictory analyzer irrelevant_files",
+		})
+		promoted++
+	}
+	if val != nil && demoted > 0 {
+		msg := fmt.Sprintf("irrelevant_files: dropped %d principal source-scope path(s) for source-inventory/enumeration shape", demoted)
+		if promoted > 0 {
+			msg += fmt.Sprintf("; promoted %d to required_files", promoted)
+		}
+		val.Warnings = append(val.Warnings, msg)
+	}
+	if promotedAuxiliary && emitAnalysisShouldSynthesizeAllScopeForAuxiliaryInventory(sourceScopeProfile) {
+		sourceScopeProfile = &types.SourceScopeProfile{
+			RequestedScope:              types.SourceScopeAll,
+			IncludeAuxiliaryAsPrincipal: true,
+			Confidence:                  0.70,
+			Rationale:                   "source-inventory paths preserved from analyzer negative channel require auxiliary source classes as principal candidates",
+		}
+		if val != nil {
+			val.Warnings = append(val.Warnings, "source_scope_profile: synthesized all-scope because source-inventory irrelevant_files contained principal auxiliary source path(s)")
+		}
+	}
+	if len(filtered) == 0 {
+		return required, nil, sourceScopeProfile
+	}
+	return required, filtered, sourceScopeProfile
+}
+
+func emitAnalysisEffectiveInventoryScopeProfile(profile *types.SourceScopeProfile) *types.SourceScopeProfile {
+	if profile == nil {
+		return nil
+	}
+	if profile.RequestedScope == types.SourceScopeProduction && len(profile.SourceQuotes) == 0 {
+		return nil
+	}
+	return profile
+}
+
+func emitAnalysisShouldSynthesizeAllScopeForAuxiliaryInventory(profile *types.SourceScopeProfile) bool {
+	if profile == nil || profile.RequestedScope == "" || profile.RequestedScope == types.SourceScopeUnknown {
+		return true
+	}
+	return profile.RequestedScope == types.SourceScopeProduction && len(profile.SourceQuotes) == 0
+}
+
+func emitAnalysisPrincipalSourceInventoryShape(intent types.Intent, predicates types.SemanticPredicates, profile *types.SourceInventoryProfile) bool {
+	if profile != nil && profile.Active() {
+		return true
+	}
+	return intent == types.IntentEnumerate && predicates.IsCategoryEnumeration
+}
+
+func emitAnalysisPrincipalSourcePathAllowed(ctx *types.BusContext, rel string, profile *types.SourceScopeProfile) bool {
+	rel = canonicalRequiredFilePath(rel)
+	if rel == "" || !types.HasCodeOrConfigPathSuffix(rel) {
+		return false
+	}
+	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
+		if _, ok := requiredFileHintExistingRepoFile(ctx, rel); !ok {
+			return false
+		}
+	}
+	scope := types.SourceScopeProduction
+	if profile != nil && profile.RequestedScope != "" {
+		scope = profile.RequestedScope
+	} else {
+		scope = types.SourceScopeAll
+	}
+	return types.SourceScopeAllowsPathRole(scope, types.ClassifySourcePathRole(rel))
 }
 
 // normalizeEmitArtifactLineRefs converts the wire shape into the typed

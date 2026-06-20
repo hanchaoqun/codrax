@@ -317,6 +317,9 @@ func TestEmitAnalysisSchemaIncludesSourceScopeProfile(t *testing.T) {
 	if !reflect.DeepEqual(prop.Properties["requested_scope"].Enum, wantEnum) {
 		t.Fatalf("source_scope_profile.requested_scope enum = %v, want %v", prop.Properties["requested_scope"].Enum, wantEnum)
 	}
+	if prop.Properties["source_quotes"].Type != "array" {
+		t.Fatalf("source_scope_profile.source_quotes type = %q, want array", prop.Properties["source_quotes"].Type)
+	}
 }
 
 func TestEmitAnalysisSchemaIncludesSourceInventoryProfile(t *testing.T) {

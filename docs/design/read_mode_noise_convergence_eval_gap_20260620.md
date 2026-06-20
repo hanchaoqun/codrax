@@ -122,6 +122,17 @@ work is the
 broader SourceInventoryMemberProjection kernel for richer cross-language facets
 and explicit `no_member_parser` coverage states.
 
+RNE follow-up representative refresh:
+`eval/convergence_audit_summary_20260620_rne_followup.md` ran six read-mode
+cases with two-way parallelism. All six passed, but five were flagged for
+commercial smoothness or audit noise: `qf_architecture` still used 42 explorer
+iterations and 8 repo_map calls; `cangjie_repomap` still hit context pruning;
+`read_combo_log_current_source_explanation` still used 5 analyzer iterations
+and 18 explorer iterations; several passing cases still emitted advisory
+contract warnings. This confirms the correctness path is improving while RNE-C54
+shared proof ledger, RNE-C55 typed repair/handoff carrier, RNE-C59 execution
+kernel extraction, and analyzer prompt/tool-surface cleanup remain active work.
+
 ## Gap Ledger
 
 | ID | Priority | Gap | Root cause | Target state |
@@ -182,6 +193,8 @@ and explicit `no_member_parser` coverage states.
 | RNE-C56 | P1 | Broad source-inventory repair does not auto-narrow to required files/scopes after a no-row lens. | The passing ArkTS rerun still took 235s / 15 explorer iterations. After the closure gate requested `repo_map(view="source_inventory")`, the model ran a broad root lens with all semantic roles; it returned `member_rows=0` plus `source_classes`, then needed extra loops even though analyzer `required_files` and read evidence already named the exact corpus sources. | Delivered first slice: broad no-row source-inventory lenses now auto-narrow to typed analyzer `required_files` / common scope, and if the model supplied an over-specific query that still yields no rows, the same required-file scope is retried with the query relaxed. Tool output carries `source_inventory_narrowing:*` advisories and `repo_lens:auto_narrow_*` provenance. The current-lens renderer was also separated from cumulative MutableState so old `list_files`/direct-child rows cannot suppress no-row narrowing. Remaining: extend the same narrowing authority to accepted evidence files/source-class scopes and scheduler-driven execution before model close attempts. |
 | RNE-C57 | P1 | Source-inventory closure repair can suggest a file path as the `repo_map` path. | The post-U9f ArkTS eval showed the pre-complete repair directive asking for source_inventory over `required_files`, where the only required file was `internal/tool/repomap/index/extract_arkts.go`. The model copied that file path into `repo_map.path`, hit a deterministic tool refusal, then retried with the containing directory. | Delivered: repair directives now normalize file-shaped source-inventory scopes into a legal `repo_map` call shape: `path` becomes the containing directory and `scopes` contains the relative basename. Multi-scope directory repairs still use `path="."` plus repo-relative scopes. This is path-kind normalization over typed scope strings, not user/model prose matching. |
 | RNE-C58 | P0 | SourceInventory class universe prevents false absence, but cross-language member/facet extraction can still be incomplete. | The post-gate ArkTS rerun proved the hard absence boundary works, but `repo_map(source_inventory)` returned zero `function/method` rows for decorator-bearing `.ets` corpus files; the correct answer came from `read_file` evidence instead. Root cause had four generic parts: scan budget was spent on unrelated symbols before applying active typed query filters; direct list-files observation accepted rendered advisory text as if it were member rows; auxiliary projection triggered for broad/root scopes but not for precise repo-owned auxiliary scopes such as `internal/thirdparty/...`; and generic source-inventory field quotes could replace exact analyzer entities in the default repo-map query. The same class can recur for C/C++, Cangjie, ArkTS, Java/Kotlin annotations, Ruby DSL methods, JS/TS decorators, config/workflow declarations, and any supported language where file-level class inventory exists before member/facet extraction. | Delivered first slice: query-active candidate construction filters parser-produced symbol fields before consuming scan budget, list-files observation rows must resolve to existing repo-relative paths before becoming typed members, narrow auxiliary source-class scopes trigger auxiliary projection through `SourcePathRole`, and default repo-map source-inventory queries merge typed `source_quotes` with typed `AnalyzerHints.Entities`. Remaining: build a language-neutral SourceInventoryMemberProjection kernel over repomap parser outputs plus line-feature fallback; files/classes come from `SourcePathRole`, members come from typed language adapters, and facets such as decorators/annotations/modifiers/visibility/config-key kind are represented as structured attributes. `repo_map(source_inventory)` should return bounded member rows for supported-language constructs or an explicit `no_member_parser` coverage state, so completion can avoid contradictory "empty lens + positive read evidence" loops. |
+| RNE-C59 | P0 | Source-inventory remains a god-object with per-role materialization instead of one execution kernel. | U9b audit showed `source_inventory_reconcile.go` carrying advisory, lens execution, rendering, absence support, candidate building, and class universe responsibilities in one 5k+ line file. Even after broad-call guards, file/config/package roles and completion support paths could each rebuild and sort the same scoped file slice, so every new role/scope/language shape risked reintroducing a performance bug under a new label. | Delivered first execution-kernel slice: source-inventory candidate construction now builds one `sourceInventoryExecutionView` per lens/support pass, with scoped sorted files, language-subset caching, O(1) membership checks, and shared inventory-file completeness. File/config/package candidates, graph-symbol file membership, broad attribute defer, and completion support indexing consume the same typed view. Remaining: extract this private view into a dedicated SourceInventoryExecutionKernel package with wall-clock/cancellation checkpoints, true cursor-backed resumable pagination, shared source-class universe, and per-consumer Top-N projection; no hard logic may consume user/model prose. |
+| RNE-C60 | P0 | Analyzer source-scope and irrelevant-file channels can turn repo-wide inventory into production-only absence. | The ArkTS U9h/U9i sequence showed two related structural contradictions: the analyzer could put repo-owned auxiliary `.ets` corpus files into `irrelevant_files`, and it could emit `source_scope=production` from repository-layout inference even though the current request did not explicitly say production-only. That let later stages preserve some evidence but still drift into a "production 0" answer. | Delivered: `source_scope_profile` now supports validated `source_quotes[]`; quoted production/test/aux/all scope can remain a hard path boundary, while unquoted production in source-inventory/enumeration repair is treated as model inference and cannot exclude existing source/config paths. Principal source-scope `irrelevant_files` are dropped and promoted to `required_files`; auxiliary promotions synthesize `source_scope=all` with `include_auxiliary_as_principal=true`. The analyzer prompt/schema says scope boundaries need current-request quotes, but hard behavior consumes only typed fields, path existence, `SourcePathRole`, and `SourceScopeAllowsPathRole`. |
 | RNE-C54 | P1 | Parallel exploration siblings duplicate proof work after one lane has enough evidence. | U9 mixed log+current-code passed but took 277s with 13 reads, 3 repo_map calls, 17 explorer iterations, and duplicated LLM timeout/finalizer investigation across siblings. One sibling tried to close while another continued reading the same files. | Add a shared proof ledger and sibling suppression policy: once a principal obligation has accepted owner/evidence/proof coverage, sibling lanes receive a compact typed proof snapshot and cannot repeat equivalent reads/tool calls unless they add a new blocker, source class, or failed proof dimension. |
 | RNE-C55 | P1 | Tool/JSON repair hints remain stage-local and can lose accepted evidence IDs. | U9 mixed runtime/source logs showed `emit_analysis` retrying an unsupported `source_quotes` field, `emit_investigation_complete` aggregate-fact shape repair, and extractor verdict citation/evidence-id gaps after accepted evidence existed upstream. | Route tool decode/schema failures, repair decisions, and accepted evidence IDs through one typed repair/handoff layer. Stage prompts render the exact supported JSON surface; extractor/finalizer receive accepted evidence IDs and citations as typed candidates, not prose-only summaries. |
 
@@ -308,6 +321,7 @@ roles from many raw trace rows.
 | Batch U9d | delivered | Add typed SourceClassUniverse matrix. | `SourceInventoryObservation` now carries `source_classes[]` computed from repo-tracked paths through the existing `SourcePathRole` authority, including production/test/fixture/example/documentation/prompt_support/thirdparty/vendor/generated. Class-only observations stay active without member rows, render `source_classes`, and no longer rely on the retired parallel `sourceInventoryAuxiliarySourceClass` taxonomy. |
 | Batch U9e | delivered | Consume SourceClassUniverse in handoff/path-discovery/final-answer lanes. | Turn A snapshots preserve `SourceInventoryObservation`, extractor slates render `source_classes`, targeted root `list_files(include/file_type)` empty results retry recursively, empty-primary targeted scans fall back to repo-owned auxiliary/corpus sources without reopening dependency/cache noise, and exact-absence preflight/final contract consume source-class counts directly. |
 | Batch U9f | delivered | Add source-inventory narrowing authority first slice. | Broad no-row source-inventory repairs narrow to analyzer `required_files` / common scope, relax over-specific query text inside the typed scope when needed, and keep current-lens rendering separate from cumulative coverage state. Accepted-evidence/source-class scheduler narrowing remains tracked as the next source-inventory authority slice. |
+| Batch U9j | delivered | Make source-scope production boundaries quote-backed and repair principal source negative channels. | `source_scope_profile.source_quotes[]` is schema/type supported and validated against the current request. For source-inventory/enumeration lanes, unquoted production scope cannot hide existing auxiliary/corpus source paths through `irrelevant_files`; those paths promote to required files and synthesize all-scope when needed. ArkTS U9j passes and manual audit confirms 4 `@Entry` rows + 2 `@Builder` rows are rendered. |
 | Batch U9i | planned | Add cross-language source-inventory member/facet projection. | `repo_map(source_inventory)` returns typed member rows or explicit `no_member_parser` coverage for supported-language constructs across Go, Python, JS/TS, Ruby, Java/Kotlin, C/C++, Rust, Cangjie, ArkTS, config, and workflow files. Decorators/annotations/modifiers/config facets are structured attributes, not rendered-prose hints. |
 | Batch U9g | planned | Share proof coverage across exploration siblings. | Sibling lanes consume a shared principal proof ledger and suppress duplicate reads/repo_map/trace_query work once an equivalent owner/evidence/proof obligation is already accepted. |
 | Batch U9h | planned | Unify tool JSON repair and accepted-evidence handoff. | Schema/decode repair hints and accepted evidence IDs flow through one typed layer so later stages see precise supported JSON fields and citation candidates without prose-only reconstruction. |
@@ -1123,3 +1137,67 @@ roles from many raw trace rows.
   validation passed:
   `go test ./internal/tool -run
   'SourceInventoryLensExecutionRepoMapCallShape|SourceInventoryLensExecution|SourceInventory'`.
+- 2026-06-20 Batch U9g delivered the first RNE-C59 execution-kernel slice.
+  Source-inventory lens construction now creates one scoped execution view per
+  pass and shares it across file/config/package candidate builders, graph-symbol
+  file membership, broad attribute defer, and completion support indexing.
+  The view is language-neutral: it stores sorted repo-relative files, caches
+  language subsets, records inventory-file completeness, and exposes exact
+  membership checks. This reduces the class of per-role materialize/sort
+  regressions without changing read/write scheduler entry points or adding
+  prose/keyword routing. Focused validation passed:
+  `go test ./internal/tool -run
+  'TestSourceInventoryExecutionView_ScopedLanguageAndMembership|TestPublishSourceInventoryObservationFromLens_(BudgetsBroadCandidateMaterialization|BudgetsBroadNoMatchScan|DefersBroadAttributesWithNarrowingHint)'`,
+  `go test ./internal/tool -run
+  'TestPublishSourceInventoryObservationFromLens_(BudgetsBroadCandidateMaterialization|BudgetsBroadNoMatchScan|PublishesSourceClassUniverseWithoutCandidates|DefersBroadAttributesWithNarrowingHint)|TestSourceInventoryObservationFromLensDirectChildren|TestRepoMapSourceInventory'`,
+  `go test ./internal/tool/repomap/... ./internal/types -run
+  'TestClassifySourcePathRole|TestLang|TestExtract|TestResolver|TestScanner'`,
+  and `go test ./internal/tool -run
+  'TestSourceInventoryLensExecutionGap|TestSourceInventoryCandidateUniverseCoverageGap'`.
+- 2026-06-20 Batch U9g/U9h eval audit separated harness pass from manual
+  correctness. `eval/convergence_audit_summary_20260620_u9g_after.md` showed
+  ArkTS failed functionally: the final answer still said there was no actual
+  `.ets` source while repo-owned corpus files existed. The first U9h repair
+  (`eval/convergence_audit_summary_20260620_u9h_arkts_after.md`) made the
+  harness pass, but manual audit found the answer still framed the result as
+  "production 0" and treated corpus files as excluded context. This became
+  RNE-C60: analyzer source-scope/negative channels must be quote-backed typed
+  authority, not model layout inference.
+- 2026-06-20 Batch U9j delivered RNE-C60. `source_scope_profile` now carries
+  optional `source_quotes[]`; parse-time repair keeps only quotes copied from
+  the current request. In source-inventory/enumeration lanes, unquoted
+  `requested_scope=production` is not a hard exclusion boundary. Existing
+  repo-relative source/config paths in `irrelevant_files` are dropped from the
+  negative channel and promoted to `required_files`; when those paths are
+  auxiliary/corpus/test/thirdparty classes, the analyzer IR synthesizes
+  `source_scope=all` with auxiliary principal scope. Focused tests passed:
+  `go test ./internal/tool -run
+  'TestReconcilePrincipalScopeIrrelevantFiles|TestEmitAnalysisExecute_RepairsPrincipalSourceScopeIrrelevantFiles|TestEmitAnalysisExecute_SynthesizesAllScopeForSourceInventoryIrrelevantAuxiliaryPaths|TestEmitAnalysisExecute_OverridesUnquotedProductionScopeForSourceInventoryAuxiliaryPaths|TestEmitAnalysisSchemaIncludesSourceScopeProfile|TestEmitAnalysis_Execute_PersistsSourceScopeProfile'`,
+  `go test ./internal/types -run
+  'TestSourceScopeProfile|TestSourceScopeAllowsPathRole'`, full
+  `go test ./...`, `make test`, and `make`.
+- 2026-06-20 Batch U9j eval verification:
+  `eval/convergence_audit_summary_20260620_u9j_arkts_scope_quote_after.md`
+  passed with no eval flags. Manual audit of
+  `eval/results/arkts_repomap-20260620-184821` confirms the final answer lists
+  4 `@Entry` ArkTS page-entry structs (`Index`, `ParentComponent`,
+  `StyledPage`, `ListPage`) and 2 `@Builder` fragments (`defaultHeader`,
+  `GlobalCard`) with `.ets` paths and citations, while separately disclosing
+  that these are thirdparty tree-sitter corpus examples and production Go code
+  contains only comments/string references. Residual low-priority audit noise:
+  the log still records one CGEC `CitationReq` repair event even though eval
+  contract flags are zero and the visible answer is correct; track under Batch
+  M/K2 rather than RNE-C53/C60 correctness.
+- 2026-06-20 Batch U9j Cangjie follow-up:
+  `eval/convergence_audit_summary_20260620_u9j_cangjie_scope_quote_after.md`
+  still reports harness `FAIL` with `missing_section:package`, but manual audit
+  of `eval/results/cangjie_repomap-20260620-185259` shows the final answer
+  enumerates the repo-owned Cangjie corpus and includes package-path evidence
+  in the result table: 1 `extend` block (`extend String` in
+  `04_extend_operator.cj`), 1 `foreign func` (`native_add` in
+  `07_foreign_ffi.cj`), and 5 `public class` declarations (`Greeter`,
+  `Version`, `Animal`, `Dog`, `Service`) with their `demo.*` packages. Treat
+  this as an eval/requested-dimension presentation gap, not an RNE-C60 source
+  truth-path failure. Track the generic fix under Batch P/X/M/K2: requested
+  dimensions should become typed answer obligations and visible status/section
+  scaffolds so oracle and human audit can consume the same structured result.
