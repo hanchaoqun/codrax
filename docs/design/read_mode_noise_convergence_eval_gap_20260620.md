@@ -1290,3 +1290,18 @@ roles from many raw trace rows.
   unified source-inventory execution budget with wall-clock cancellation,
   resumable pagination/cursors, and one scan/materialization kernel replacing
   residual per-role helper loops.
+- 2026-06-20 Batch U9n delivered the first execution-budget kernel slice for
+  RNE-C47/RNE-C48. The existing per-role candidate budget now carries an
+  internal deadline for broad advisory source-inventory lenses, and the graph
+  symbol candidate path now has a separate query-prefilter scan cap: query
+  misses are bounded by scoped symbol count and deadline, while query matches
+  that appear after broad noise still get a wider deterministic budget. This
+  closes the "narrow query over a huge symbol set scans forever because nothing
+  matches" class without regressing ArkTS-style "target symbols appear after a
+  noisy production graph" discovery. No user-facing tool schema, read
+  scheduler, or prompt routing changed. Focused validation passed:
+  `go test ./internal/tool -run
+  'TestSourceInventoryCandidateBudget(DeadlineTruncatesFileScan|CountsScopedQueryMisses)|TestPublishSourceInventoryObservationFromLens_(BudgetsBroadCandidateMaterialization|BudgetsBroadNoMatchScan|DefersBroadAttributesWithNarrowingHint)'`.
+  Remaining work: expose resumable cursor state as a typed execution artifact
+  rather than a render-only offset hint, and continue collapsing residual
+  helper-specific loops into one execution view/budget carrier.

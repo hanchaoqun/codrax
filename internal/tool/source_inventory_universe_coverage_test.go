@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -79,6 +80,63 @@ func TestSourceInventoryExecutionView_ScopedLanguageAndMembership(t *testing.T) 
 	cppFiles := view.Files(repotypes.LangC)
 	if len(cppFiles) != 1 || cppFiles[0].RelPath != "src/alpha/file.cpp" {
 		t.Fatalf("language-filtered view should reuse the scoped file set, got %+v", cppFiles)
+	}
+}
+
+func TestSourceInventoryCandidateBudgetDeadlineTruncatesFileScan(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/main.go",
+		Language: repotypes.LangGo,
+	}})
+	view := newSourceInventoryExecutionView(graph, []string{"."})
+	set := sourceInventoryFileCandidates(
+		nil,
+		view,
+		nil,
+		newSourceInventoryScopeFilter(nil),
+		&types.SourceInventoryProfile{IsSourceInventory: true, TargetRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFile}},
+		nil,
+		false,
+		sourceInventoryQueryFilter{},
+		sourceInventoryCandidateBudget{maxPerRole: 10, maxScanPerRole: 10, deadline: time.Now().Add(-time.Second)},
+	)
+	if !set.truncated || set.complete || len(set.candidates) != 0 {
+		t.Fatalf("expired execution budget should truncate before materializing file candidates: %+v", set)
+	}
+}
+
+func TestSourceInventoryCandidateBudgetCountsScopedQueryMisses(t *testing.T) {
+	var files []*repotypes.FileInfo
+	for i := 0; i < 12; i++ {
+		rel := "src/file" + strconv.Itoa(i) + ".go"
+		files = append(files, &repotypes.FileInfo{
+			RelPath:  rel,
+			Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{{
+				Name:     "Symbol" + strconv.Itoa(i),
+				Kind:     "function",
+				File:     rel,
+				Line:     10,
+				Exported: true,
+			}},
+		})
+	}
+	graph := testGraphWithFiles(files)
+	view := newSourceInventoryExecutionView(graph, []string{"src"})
+	set := sourceInventoryGraphCandidates(
+		nil,
+		graph,
+		view,
+		newSourceInventoryGraphSymbolIndex(graph),
+		newSourceInventoryScopeFilter(nil),
+		[]string{"src"},
+		&types.SourceInventoryProfile{IsSourceInventory: true, TargetRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction}},
+		types.AnswerCandidateRoleFunction,
+		sourceInventoryBuildQueryFilter("definitely_absent_query_token"),
+		sourceInventoryCandidateBudget{maxPerRole: 10, maxScanPerRole: 3},
+	)
+	if !set.truncated || set.complete || len(set.candidates) != 0 {
+		t.Fatalf("query-miss scan should be bounded by scoped symbols, got %+v", set)
 	}
 }
 

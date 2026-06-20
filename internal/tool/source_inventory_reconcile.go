@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -46,6 +47,7 @@ const sourceInventorySourceClassUniverseMaxFiles = 200000
 type sourceInventoryCandidateBudget struct {
 	maxPerRole     int
 	maxScanPerRole int
+	deadline       time.Time
 }
 
 const (
@@ -57,6 +59,9 @@ const (
 	sourceInventoryCandidateBudgetMaxPerRole     = 512
 	sourceInventoryCandidateScanBudgetMinPerRole = 512
 	sourceInventoryCandidateScanBudgetMaxPerRole = 4096
+	sourceInventoryCandidateBudgetMaxElapsed     = 3 * time.Second
+	sourceInventoryCandidateQueryScanMultiplier  = 4
+	sourceInventoryCandidateQueryScanMaxPerRole  = 16384
 )
 
 type sourceInventoryPackageBucket struct {
@@ -3582,7 +3587,11 @@ func sourceInventoryCandidateBudgetForLens(query types.SourceInventoryLensQuery,
 	if scanLimit > sourceInventoryCandidateScanBudgetMaxPerRole {
 		scanLimit = sourceInventoryCandidateScanBudgetMaxPerRole
 	}
-	return sourceInventoryCandidateBudget{maxPerRole: limit, maxScanPerRole: scanLimit}
+	return sourceInventoryCandidateBudget{
+		maxPerRole:     limit,
+		maxScanPerRole: scanLimit,
+		deadline:       time.Now().Add(sourceInventoryCandidateBudgetMaxElapsed),
+	}
 }
 
 func (budget sourceInventoryCandidateBudget) enabled() bool {
@@ -3593,8 +3602,29 @@ func (budget sourceInventoryCandidateBudget) scanEnabled() bool {
 	return budget.maxScanPerRole > 0
 }
 
+func (budget sourceInventoryCandidateBudget) deadlineExceeded() bool {
+	return !budget.deadline.IsZero() && time.Now().After(budget.deadline)
+}
+
 func sourceInventoryCandidateBudgetScanExceeded(scanned int, budget sourceInventoryCandidateBudget) bool {
+	if budget.deadlineExceeded() {
+		return true
+	}
 	return budget.scanEnabled() && scanned >= budget.maxScanPerRole
+}
+
+func sourceInventoryCandidateBudgetQueryScanExceeded(scanned int, budget sourceInventoryCandidateBudget) bool {
+	if budget.deadlineExceeded() {
+		return true
+	}
+	if !budget.scanEnabled() {
+		return false
+	}
+	limit := budget.maxScanPerRole * sourceInventoryCandidateQueryScanMultiplier
+	if limit > sourceInventoryCandidateQueryScanMaxPerRole {
+		limit = sourceInventoryCandidateQueryScanMaxPerRole
+	}
+	return scanned >= limit
 }
 
 func sourceInventoryMarkCandidateBudgetTruncated(set *sourceInventoryCandidateSet) {
@@ -4096,12 +4126,16 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 			continue
 		}
 		scoped++
-		if queryFilter.Active() && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
-			continue
-		}
-		if sourceInventoryCandidateBudgetScanExceeded(scanned, budget) {
+		if queryFilter.Active() && sourceInventoryCandidateBudgetQueryScanExceeded(scoped, budget) {
 			sourceInventoryMarkCandidateBudgetTruncated(&set)
 			break
+		}
+		if !queryFilter.Active() && sourceInventoryCandidateBudgetScanExceeded(scoped, budget) {
+			sourceInventoryMarkCandidateBudgetTruncated(&set)
+			break
+		}
+		if queryFilter.Active() && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
+			continue
 		}
 		scanned++
 		candidateRole, ok := aggregateAnswerCandidateRoleForSymbol(sym)
