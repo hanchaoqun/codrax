@@ -3662,7 +3662,16 @@ func canonicalNegativeObservationDimensionName(raw string) string {
 		return "pattern"
 	case "target", "subject", "symbol", "member", "entity":
 		return "target"
-	case "checked_types", "checked_type", "absent_types", "absent_type", "checked_events", "event_types", "observed_types":
+	case "checked_types", "checked_type",
+		"absent_types", "absent_type",
+		"checked_events", "event_types", "observed_types",
+		"missing_signal", "missing_signals",
+		"absent_signal", "absent_signals",
+		"missing_field", "missing_fields",
+		"absent_field", "absent_fields",
+		"missing_event", "missing_events",
+		"absent_event", "absent_events",
+		"missing_type", "missing_types":
 		return "target"
 	case "predicate", "condition", "absence", "negative_predicate":
 		return "predicate"

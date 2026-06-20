@@ -105,7 +105,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						"kind": {
 							"type": "string",
 							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value", "member_set", "negative_search", "negative_observation", "behavior_outcome", "error_granularity_verdict"],
-							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members), including value=\"0\" with members=[] for a verified empty set; behavior_outcome = a categorical code behavior result such as accepted/rejected/partial_success/fail_fast/collect_errors; error_granularity_verdict = the categorical failure-scope verdict for item/batch/transaction behavior questions. behavior_outcome and error_granularity_verdict use value as a stable category string, not a number; put compared axes in dimensions and support in support_refs. negative_search = a verified zero-result repository search. For negative_search, set value=\"0\", unit=\"matches\", and dimensions for repo, query or pattern, scope, and searched_at; do NOT fake a file:line evidence item such as repo:0 for not-found proof. negative_observation = a verified zero-result observation over a non-repo source such as git history/diff output, an attached log, a trace, command output, or repo-map/index output. For negative_observation, set value=\"0\", unit=\"matches\", include origin/evidence_origin, target/query/pattern/predicate, scope, and searched_at; do NOT invent repo dimensions."
+							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members), including value=\"0\" with members=[] for a verified empty set; behavior_outcome = a categorical code behavior result such as accepted/rejected/partial_success/fail_fast/collect_errors; error_granularity_verdict = the categorical failure-scope verdict for item/batch/transaction behavior questions. behavior_outcome and error_granularity_verdict use value as a stable category string, not a number; put compared axes in dimensions and support in support_refs. negative_search = a verified zero-result repository search. For negative_search, set value=\"0\", unit=\"matches\", and dimensions for repo, query or pattern, scope, and searched_at; do NOT fake a file:line evidence item such as repo:0 for not-found proof. negative_observation = a verified zero-result observation over a non-repo source such as git history/diff output, an attached log, a trace, command output, or repo-map/index output. For negative_observation, set value=\"0\", unit=\"matches\", include origin/evidence_origin, target/query/pattern/predicate or a runtime carrier such as missing_signal/missing_event/missing_field, scope, and searched_at; do NOT invent repo dimensions."
 						},
 						"label": {
 							"type": "string",
@@ -130,7 +130,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"dimensions": {
 							"type": "array",
-							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}, {name:\"stage\", value:\"candidate_pre_filter\"}, {name:\"basis\", value:\"verified_member_set\"}]. For kind=negative_search, include repo, query or pattern, scope, and searched_at. For kind=negative_observation, include origin/evidence_origin plus target, query, pattern, or predicate; include scope for the bounded observed surface, such as a commit range, tool result, artifact id, or trace window. Use searched_at=\"current_investigation\" when no wall-clock timestamp is available. If a broad candidate search count differs from the final verified member_set, emit companion total_count/excluded_count facts with dimensions that explain the stage/basis instead of burying the discrepancy in prose.",
+							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}, {name:\"stage\", value:\"candidate_pre_filter\"}, {name:\"basis\", value:\"verified_member_set\"}]. For kind=negative_search, include repo, query or pattern, scope, and searched_at. For kind=negative_observation, include origin/evidence_origin plus target, query, pattern, predicate, or runtime carriers such as missing_signal/missing_event/missing_field; include scope for the bounded observed surface, such as a commit range, tool result, artifact id, or trace window. Use searched_at=\"current_investigation\" when no wall-clock timestamp is available. If a broad candidate search count differs from the final verified member_set, emit companion total_count/excluded_count facts with dimensions that explain the stage/basis instead of burying the discrepancy in prose.",
 							"items": {
 								"type": "object",
 								"properties": {
@@ -451,6 +451,21 @@ func aggregateFactTopLevelDimensionAliases(kind string) map[string]string {
 		common["absent_type"] = "target"
 		common["checked_events"] = "target"
 		common["event_types"] = "target"
+		common["observed_types"] = "target"
+		common["missing_signal"] = "target"
+		common["missing_signals"] = "target"
+		common["absent_signal"] = "target"
+		common["absent_signals"] = "target"
+		common["missing_field"] = "target"
+		common["missing_fields"] = "target"
+		common["absent_field"] = "target"
+		common["absent_fields"] = "target"
+		common["missing_event"] = "target"
+		common["missing_events"] = "target"
+		common["absent_event"] = "target"
+		common["absent_events"] = "target"
+		common["missing_type"] = "target"
+		common["missing_types"] = "target"
 	}
 	return common
 }
@@ -475,9 +490,26 @@ func normalizeAggregateFactCompatDimensionKey(raw string) string {
 	switch key {
 	case "window", "range", "search_scope", "observed_scope":
 		return "scope"
+	case "artifact", "log", "log_id", "trace", "trace_id":
+		return "artifact_id"
+	case "span_window", "time_window":
+		return "trace_window"
+	case "git_range", "revision_range", "history_window":
+		return "commit_range"
+	case "tool_result_id", "command_id", "command_result":
+		return "tool_result"
 	case "matches", "match_count", "count", "observed_count":
 		return "result_count"
-	case "checked_types", "checked_type", "absent_types", "absent_type", "checked_events", "event_types":
+	case "checked_types", "checked_type",
+		"absent_types", "absent_type",
+		"checked_events", "event_types", "observed_types",
+		"missing_signal", "missing_signals",
+		"absent_signal", "absent_signals",
+		"missing_field", "missing_fields",
+		"absent_field", "absent_fields",
+		"missing_event", "missing_events",
+		"absent_event", "absent_events",
+		"missing_type", "missing_types":
 		return "target"
 	case "source", "tool", "producer":
 		return "source_ref"
@@ -1099,6 +1131,13 @@ func normalizeCompletionNegativeObservationFacts(ctx *types.BusContext, raw []ty
 		if dims["target"] == "" && dims["query"] == "" && dims["pattern"] == "" && dims["predicate"] == "" && len(fact.Excluded) > 0 {
 			if target := strings.TrimSpace(fact.Excluded[0]); target != "" {
 				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "target", Value: target})
+				dims["target"] = target
+			}
+		}
+		if dims["scope"] == "" &&
+			completionAggregateFirstDimensionValue(dims, "artifact_id", "trace_window", "commit_range", "tool_result", "source_ref") == "" {
+			if scope := completionRuntimeNegativeObservationDefaultScope(ctx); scope != "" {
+				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "scope", Value: scope})
 			}
 		}
 	}
@@ -1108,17 +1147,54 @@ func normalizeCompletionNegativeObservationFacts(ctx *types.BusContext, raw []ty
 func completionAggregateDimensionMap(dims []types.AnswerAggregateDimension) map[string]string {
 	out := make(map[string]string, len(dims))
 	for _, dim := range dims {
-		name := strings.ToLower(strings.TrimSpace(dim.Name))
-		name = strings.ReplaceAll(name, "-", "_")
-		name = strings.ReplaceAll(name, " ", "_")
+		name := normalizeAggregateFactCompatDimensionKey(dim.Name)
 		switch name {
-		case "origin", "evidence_origin", "target", "query", "pattern", "predicate":
+		case "origin", "evidence_origin",
+			"target", "query", "pattern", "predicate",
+			"scope", "artifact_id", "trace_window", "commit_range", "tool_result", "source_ref":
 			if out[name] == "" {
 				out[name] = strings.TrimSpace(dim.Value)
 			}
 		}
 	}
 	return out
+}
+
+func completionAggregateFirstDimensionValue(dims map[string]string, names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(dims[name]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func completionRuntimeNegativeObservationDefaultScope(ctx *types.BusContext) string {
+	if ctx == nil {
+		return ""
+	}
+	if strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		return "attached_runtime_trace"
+	}
+	if strings.TrimSpace(ctx.AttachedLog) != "" {
+		return "attached_runtime_log"
+	}
+	if ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	switch {
+	case rm.PerfTrace != nil && rm.PerfTrace.HasStructuredObservations():
+		return "attached_runtime_trace"
+	case rm.LogTriage != nil && rm.LogTriage.HasStructuredObservations():
+		return "attached_runtime_log"
+	case rm.HasExternalOnlyRuntimeArtifact(),
+		rm.HasRuntimeArtifactPathReference(),
+		rm.HasRuntimeArtifactWithoutRequiredCurrentSource():
+		return "attached_runtime_artifact"
+	default:
+		return ""
+	}
 }
 
 func completionAggregateFactsAreOptional(ctx *types.BusContext, resultKind string) bool {

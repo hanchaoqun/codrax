@@ -63,7 +63,7 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C25 | P0 | Runtime-artifact-only turns can still print repo-index progress before any source lane is needed. | The targeted trace rerun no longer used `read_file` or `repo_map`, but Stage 1 still warmed and reported the repo index before perf triage / source-lane authority had proved current-source work unnecessary. | Make repo-index warmup lazy and origin-aware. Runtime-artifact-only requests should not scan or report repo index progress unless a typed current-source obligation, repo_map tool call, or source-localizer route actually needs it. |
 | RNE-C26 | P1 | Requested answer dimensions can be repaired only at finalizer patch time. | The trace rerun answered correctly, but the finalizer needed a second patch round solely to add requested dimensions such as related chain and drilldown direction. | Compile a typed answer-surface scaffold from requested dimensions and runtime projections before the first finalizer call. Patch rounds should be reserved for real missing evidence, not predictable section skeletons. |
 | RNE-C27 | P0 | Legacy `RawRequest` lexical fallbacks can still influence hard-ish gates. | A quick audit found scattered helpers such as trace flavor/platform hints and coherence entity mention checks reading raw user text directly. Some uses are legitimate explicit-overrides, but their current shape is not centralized and can drift into keyword-driven routing. | Add a `RequestSignalAuthority` / typed provenance layer: raw text may be used only for path/artifact tokenization, exact quoted provenance, or analyzer-emitted typed profiles. Hard gates consume those typed profiles, never ad hoc RawRequest substring checks. |
-| RNE-C28 | P0 | Runtime negative observations still use a source-shaped schema path. | The Batch W trace rerun had enough `trace_query` evidence but one `emit_investigation_complete` attempt was rejected because `aggregate_facts[6]` used `negative_observation` for a missing IO layer detail without a dimension target/query/pattern/predicate. The retry completed, but the rejection added another explorer loop. | Split negative fact authority by origin. Runtime/log/trace negative observations should have a typed runtime dimension carrier (event type, thread/span/window, missing field, support refs) instead of borrowing repo-search query/pattern requirements. Repo no-hit, artifact no-hit, and trace missing-field facts canonicalize through one repair layer before the model sees a retry. |
+| RNE-C28 | P0 | Runtime negative observations still use a source-shaped schema path. | The Batch W trace rerun had enough `trace_query` evidence but one `emit_investigation_complete` attempt was rejected because `aggregate_facts[6]` used `negative_observation` for a missing IO layer detail without a dimension target/query/pattern/predicate. The retry completed, but the rejection added another explorer loop. | Split negative fact authority by origin. Runtime/log/trace negative observations have typed runtime dimension carriers such as `missing_signal`, `missing_event`, and `missing_field`; repo no-hit, artifact no-hit, and trace missing-field facts canonicalize through one repair layer before the model sees a retry. Batch V1 delivers the runtime carrier path; Batch V2 keeps the broader repair-hint layer. |
 | RNE-C29 | P1 | Observation-only finalizer prompts and contract checks still carry broad source-rule noise. | The Batch W trace rerun no longer indexed or read source, but the finalizer prompt still included many source citation / repo_map / member-set / absence-contract instructions. The first emit was accepted only after deterministic observed-artifact carrier repairs and a second contract check. | Add observation-only answer-surface specialization: finalizer receives a compact runtime-artifact contract, source-specific rules are hidden unless a current-source lane is active, and deterministic carrier repair remains as fallback rather than the normal path. |
 
 ## Architecture Direction
@@ -164,7 +164,8 @@ roles from many raw trace rows.
 | Batch S | delivered | Add origin-aware runtime-only source navigation suppression. | Trace/log artifact-only tasks with no current-source obligation skip repo_map/localizer blocking floors and user-facing source supplements while keeping runtime observation audit. |
 | Batch T | delivered | Add trace causal projection and source-optional supplement gating. | Trace causal projection selects attributable wakeup-chain root-cause nodes over aggregate sentinels, dedupes supporting hops, and runtime-artifact source-optional answers no longer render source localization / repo_map audit supplements. |
 | Batch U | planned | Add source inventory authority with scope classes. | Supported-language searches expose product/test/fixture/corpus/vendor/generated scope classes; absence closes only against the classes required by the typed task. |
-| Batch V | planned | Add aggregate negative-fact canonicalization and repair hints. | Empty-set and no-hit searches converge through one canonical schema path without repeated dimension repair loops. |
+| Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
+| Batch V2 | planned | Complete aggregate negative-fact repair hints. | Invalid no-hit payloads receive one precise typed repair hint or deterministic normalization before retry; the model does not bounce between `negative_search`, `negative_observation`, `scalar_value`, and empty `member_set` schemas. |
 | Batch W | delivered | Add lazy repo-index warmup for runtime-artifact-only read turns. | Runtime trace/log answers with no typed current-source obligation do not print or pay repo-index warmup unless a later typed source route actually opens. |
 | Batch X | planned | Add requested-dimension answer-surface scaffold. | First finalizer draft receives the typed section/dimension skeleton, reducing predictable finalizer patch rounds. |
 | Batch Y | planned | Centralize RawRequest-derived signals into typed request authority. | Trace platform/flavor overrides, coherence mention signals, and similar raw-text helpers are migrated behind typed profiles or exact provenance extractors with hygiene tests blocking new hard gates over raw user words. |
@@ -455,3 +456,22 @@ roles from many raw trace rows.
   `negative_observation` schema repair rejection, and deterministic finalizer
   observed-artifact carrier auto-repair; those are now tracked separately as
   RNE-C28 / Batch V follow-up and RNE-C29 / Batch Z.
+- 2026-06-20 Batch V1 delivered: runtime/log/trace `negative_observation`
+  facts now canonicalize typed missing-signal carriers such as
+  `missing_signal`, `missing_event`, and `missing_field` into the absent-target
+  axis, and `emit_investigation_complete` adds a bounded runtime scope from
+  typed attached-log / attached-trace / runtime-artifact context. Ordinary
+  source no-hit proof still requires explicit repo/source scope, and optional
+  malformed aggregate facts without an absent target continue to be dropped
+  rather than accepted. This closes the trace missing-IO-layer schema rejection
+  path without using user-intent keywords, model rationale, visible thinking,
+  or rendered prose as control flow. The broader aggregate repair-hint layer
+  remains tracked as Batch V2.
+- 2026-06-20 Batch V1 verification: focused `internal/types` and
+  `internal/tool` tests passed, full `go test ./...` passed, and the targeted
+  `trace_query_wakeup_causal_io_chain` rerun
+  `eval/convergence_audit_summary_20260620_trace_after_batch_v1.md` passed with
+  `read_file=0`, `repo_map=0`, `list_files=0`, `source_lens=0`,
+  `analyzer_iters=1`, `explorer_iters=2`, `midloop=0`, `finalizer_iters=1`,
+  and no flags. Log audit found no `negative_observation` target/schema
+  rejection, no source tool calls, and no user-visible repo-index progress.

@@ -460,6 +460,34 @@ func TestNormalizeAnswerAggregateFacts_AcceptsNegativeObservation(t *testing.T) 
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_NegativeObservationCanonicalizesRuntimeMissingSignal(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateNegativeObservation,
+		Label: "trace did not carry storage-layer rows",
+		Value: "0",
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "origin", Value: "runtime_artifact"},
+			{Name: "missing_signal", Value: "inode/block_dev/file_bytes/storage_latency"},
+			{Name: "trace_window", Value: "11.000s-11.008s cpu=1"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("runtime missing-signal observation should validate: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d facts, want 1", len(got))
+	}
+	dims := aggregateDimensionMap(got[0].Dimensions)
+	for _, want := range []string{"origin", "target", "trace_window", "scope", "searched_at", "result_count"} {
+		if dims[want] == "" {
+			t.Fatalf("missing canonical dimension %q in %+v", want, got[0].Dimensions)
+		}
+	}
+	if dims["target"] != "inode/block_dev/file_bytes/storage_latency" {
+		t.Fatalf("target = %q, want missing-signal payload", dims["target"])
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_NegativeObservationInfersOriginFromStructuredSourceRef(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:  AnswerAggregateNegativeObservation,

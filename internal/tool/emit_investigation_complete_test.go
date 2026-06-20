@@ -1038,6 +1038,69 @@ func TestEmitInvestigationComplete_RuntimeNegativeObservationCompat(t *testing.T
 	}
 }
 
+func TestEmitInvestigationComplete_RuntimeNegativeObservationMissingSignalCompat(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+				Kind:       "attached_trace",
+				Subject:    "attached trace",
+				Summary:    "trace contains sched_blocked_reason but no storage rows",
+				Confidence: 1,
+			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+				CurrentSourceMode:    types.ExternalObservationCurrentSourceExclude,
+				Confidence:           0.9,
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"trace rows are sufficient to answer the runtime-only question",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"negative_observation",
+			"label":"IO 层证据缺失",
+			"value":"0",
+			"dimensions":[
+				{"name":"missing_signal","value":"inode/block_dev/file_bytes/storage_latency"},
+				{"name":"reason","value":"trace has sched_blocked_reason and no block_rq/filesystem rows"}
+			]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("runtime missing-signal negative observation should normalize without retry: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("expected one aggregate fact, got %+v", facts)
+	}
+	var dimParts []string
+	for _, dim := range facts[0].Dimensions {
+		dimParts = append(dimParts, dim.Name+"="+dim.Value)
+	}
+	joined := strings.Join(dimParts, ",")
+	for _, want := range []string{
+		"origin=runtime_artifact",
+		"target=inode/block_dev/file_bytes/storage_latency",
+		"scope=attached_runtime_trace",
+		"result_count=0",
+		"searched_at=current_investigation",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("normalized dimensions missing %q: %s", want, joined)
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_ExplicitAllowRejectsExternalOnlyWaiverWithoutCurrentSource(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{
