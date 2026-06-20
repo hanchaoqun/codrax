@@ -94,7 +94,7 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 
 func traceCausalProjectionTraceQueryRecord(record ObservationRecord) bool {
 	return record.Origin == AnswerEvidenceOriginRuntimeArtifact &&
-		strings.TrimSpace(record.Producer) == "trace_query" &&
+		runtimeObservationProducerIsDeterministicQuery(record.Producer) &&
 		record.GroundingPolicy == ClaimGroundingHard
 }
 

@@ -4222,15 +4222,11 @@ func answerDocHasDeterministicRuntimeQueryObservation(ctx *types.AgentContext) b
 	}
 	input := types.ObservationLedgerInputFromAgentContext(ctx, 64)
 	ledger := types.CompileObservationLedger(input)
-	for _, record := range ledger.Records {
-		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
-			continue
-		}
-		if strings.TrimSpace(record.Producer) == "trace_query" {
-			return true
-		}
-	}
-	return false
+	// Single source of truth: the ledger chokepoint base-normalizes the
+	// producer id, so run-suffixed ids (trace_query:run2) are recognized.
+	// An inline exact-match here previously diverged from the two other
+	// channels and missed those ids.
+	return ledger.HasDeterministicRuntimeQueryObservation()
 }
 
 func recentSanitizedInvestigationNarrativeNotes(raw []string) []string {
@@ -6583,7 +6579,7 @@ func answerDocRuntimeTraceGuidanceRecord(record types.ObservationRecord) bool {
 	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
 		return false
 	}
-	if strings.TrimSpace(record.Producer) == "trace_query" && traceQueryObservationSupplementOrder(record) > 0 {
+	if types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) && traceQueryObservationSupplementOrder(record) > 0 {
 		return true
 	}
 	predicate := strings.TrimSpace(record.Predicate)

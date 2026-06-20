@@ -387,6 +387,15 @@ func runtimeObservationProducerIsDeterministicQuery(producer string) bool {
 	}
 }
 
+// RuntimeObservationProducerIsDeterministicQuery is the exported chokepoint for
+// classifying a runtime-artifact producer id (e.g. trace_query, trace_query:run2)
+// as a deterministic query producer. All cross-package consumers MUST route
+// through this instead of an inline exact-match on Producer == "trace_query",
+// which silently misses run-suffixed ids like "trace_query:run2".
+func RuntimeObservationProducerIsDeterministicQuery(producer string) bool {
+	return runtimeObservationProducerIsDeterministicQuery(producer)
+}
+
 func runtimeObservationProducerIsPreTriage(producer string) bool {
 	switch runtimeObservationProducerBase(producer) {
 	case "perf_trace", "emit_perf_trace":

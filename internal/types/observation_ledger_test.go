@@ -2075,3 +2075,46 @@ func containsObservationString(values []string, want string) bool {
 	}
 	return false
 }
+
+// Gap ⑤ regression: the producer-precedence chokepoint must base-normalize the
+// producer id so run-suffixed ids (trace_query:run2) are recognized. Before the
+// collapse, three channels exact-matched Producer=="trace_query" and silently
+// dropped run-suffixed ids. RuntimeObservationProducerIsDeterministicQuery is the
+// single exported source of truth all cross-package consumers route through.
+func TestRuntimeObservationProducerIsDeterministicQuery_BaseNormalized(t *testing.T) {
+	cases := []struct {
+		producer string
+		want     bool
+	}{
+		{"trace_query", true},
+		{"trace_query:run2", true},
+		{"trace_query:run10", true},
+		{"  Trace_Query:run2  ", true}, // case + space normalized
+		{"perf_trace", false},
+		{"perf_trace:run2", false},
+		{"emit_perf_trace", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := RuntimeObservationProducerIsDeterministicQuery(tc.producer); got != tc.want {
+			t.Errorf("RuntimeObservationProducerIsDeterministicQuery(%q) = %v, want %v", tc.producer, got, tc.want)
+		}
+	}
+}
+
+// The ledger-level chokepoint recognizes a run-suffixed runtime-artifact
+// producer (the exact case the inline exact-match channels missed).
+func TestHasDeterministicRuntimeQueryObservation_RunSuffixed(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		{Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query:run2"},
+	}}
+	if !ledger.HasDeterministicRuntimeQueryObservation() {
+		t.Fatal("run-suffixed trace_query producer must be recognized by the ledger chokepoint")
+	}
+	srcOnly := ObservationLedger{Records: []ObservationRecord{
+		{Origin: AnswerEvidenceOriginCurrentSource, Producer: "trace_query:run2"},
+	}}
+	if srcOnly.HasDeterministicRuntimeQueryObservation() {
+		t.Fatal("a non-runtime-artifact origin must not count as a runtime query observation")
+	}
+}
