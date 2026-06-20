@@ -133,6 +133,26 @@ contract warnings. This confirms the correctness path is improving while RNE-C54
 shared proof ledger, RNE-C55 typed repair/handoff carrier, RNE-C59 execution
 kernel extraction, and analyzer prompt/tool-surface cleanup remain active work.
 
+Four-kernel convergence status:
+
+- Typed SourceClassUniverse matrix: delivered. Source-class counts are computed
+  from git-tracked paths via `SourcePathRole`, carried on
+  `SourceInventoryObservation`, and consumed by exact-absence gates.
+- Bounded source-inventory execution kernel: partial. The current code has one
+  typed execution budget/view with scan, materialization, cancellation,
+  wall-clock, page, and cursor metadata. Remaining work is to extract it from
+  the private source-inventory package into a dedicated kernel with true
+  cursor-backed resumable pagination.
+- Lane-neutral proof coverage kernel: partial. Write mode already consumes
+  `loopkernel.DeriveProofCoverageAuthority`; this batch adds read-mode
+  `ProofSnapshot` projection from `TurnAArtifacts` into the same authority and
+  truth ledger, plus ReasoningGraph visibility. Remaining work is scheduler
+  consumption for sibling duplicate suppression.
+- Typed repair/handoff carrier: planned. `ToolRepair`, `RepairDirective`,
+  accepted aggregate facts, and TurnA handoff exist, but schema repair,
+  accepted evidence IDs, and supported JSON surfaces still need one cross-stage
+  carrier.
+
 ## Gap Ledger
 
 | ID | Priority | Gap | Root cause | Target state |
@@ -196,7 +216,7 @@ kernel extraction, and analyzer prompt/tool-surface cleanup remain active work.
 | RNE-C59 | P0 | Source-inventory remains a god-object with per-role materialization instead of one execution kernel. | U9b audit showed `source_inventory_reconcile.go` carrying advisory, lens execution, rendering, absence support, candidate building, and class universe responsibilities in one 5k+ line file. Even after broad-call guards, file/config/package roles and completion support paths could each rebuild and sort the same scoped file slice, so every new role/scope/language shape risked reintroducing a performance bug under a new label. | Delivered first execution-kernel slice: source-inventory candidate construction now builds one `sourceInventoryExecutionView` per lens/support pass, with scoped sorted files, language-subset caching, O(1) membership checks, and shared inventory-file completeness. File/config/package candidates, graph-symbol file membership, broad attribute defer, and completion support indexing consume the same typed view. Remaining: extract this private view into a dedicated SourceInventoryExecutionKernel package with wall-clock/cancellation checkpoints, true cursor-backed resumable pagination, shared source-class universe, and per-consumer Top-N projection; no hard logic may consume user/model prose. |
 | RNE-C60 | P0 | Analyzer source-scope and irrelevant-file channels can turn repo-wide inventory into production-only absence. | The ArkTS U9h/U9i sequence showed two related structural contradictions: the analyzer could put repo-owned auxiliary `.ets` corpus files into `irrelevant_files`, and it could emit `source_scope=production` from repository-layout inference even though the current request did not explicitly say production-only. That let later stages preserve some evidence but still drift into a "production 0" answer. | Delivered: `source_scope_profile` now supports validated `source_quotes[]`; quoted production/test/aux/all scope can remain a hard path boundary, while unquoted production in source-inventory/enumeration repair is treated as model inference and cannot exclude existing source/config paths. Principal source-scope `irrelevant_files` are dropped and promoted to `required_files`; auxiliary promotions synthesize `source_scope=all` with `include_auxiliary_as_principal=true`. The analyzer prompt/schema says scope boundaries need current-request quotes, but hard behavior consumes only typed fields, path existence, `SourcePathRole`, and `SourceScopeAllowsPathRole`. |
 | RNE-C61 | P0 | Typed repair-required tools can be hidden by mid-loop restricted explorer surfaces. | The post-U9j ArkTS refresh produced a `RepairStructuredHandoff` requiring `repo_map` after the source-inventory lens gate downgraded completion. The no-emit escalated explorer surface still exposed only `emit_evidence` and `emit_investigation_complete`, so the model received a typed instruction to run `repo_map` while the schema/runtime surface made `repo_map` unavailable. After repeated no-delta turns, low-delta force-complete accepted an incomplete inventory. | Delivered: no-emit restricted explorer surfaces now overlay active `RepairDirective.Tools`, and schema filtering plus runtime boundary validation consume the same typed surface. The status hint prefers the actual observed tool surface when known. This fix consumes only schema-validated repair fields and tool names, never model prose or user-intent keywords. Remaining broader work stays under Batch U9h: tool/schema repair, supported JSON surfaces, and accepted evidence IDs should flow through one cross-stage typed carrier. |
-| RNE-C54 | P1 | Parallel exploration siblings duplicate proof work after one lane has enough evidence. | U9 mixed log+current-code passed but took 277s with 13 reads, 3 repo_map calls, 17 explorer iterations, and duplicated LLM timeout/finalizer investigation across siblings. One sibling tried to close while another continued reading the same files. | Add a shared proof ledger and sibling suppression policy: once a principal obligation has accepted owner/evidence/proof coverage, sibling lanes receive a compact typed proof snapshot and cannot repeat equivalent reads/tool calls unless they add a new blocker, source class, or failed proof dimension. |
+| RNE-C54 | P1 | Parallel exploration siblings duplicate proof work after one lane has enough evidence. | U9 mixed log+current-code passed but took 277s with 13 reads, 3 repo_map calls, 17 explorer iterations, and duplicated LLM timeout/finalizer investigation across siblings. One sibling tried to close while another continued reading the same files. | Delivered first slice: read-mode TurnA handoff now projects a typed `loopkernel.ProofSnapshot` from accepted closure, source localization, source-inventory observation, runtime-observation-only completion, and evidence refs. The snapshot derives `ProofCoverageAuthority` and `TruthLedger` through the same loopkernel authority functions write mode uses, and ReasoningGraph records the projection for audit/status-card consumers. Remaining: the parallel scheduler must consume these snapshots by dispatch group to suppress equivalent sibling reads/repo_map/trace_query work unless a sibling contributes a new blocker, source class, failed proof dimension, or missing principal obligation. |
 | RNE-C55 | P1 | Tool/JSON repair hints remain stage-local and can lose accepted evidence IDs. | U9 mixed runtime/source logs showed `emit_analysis` retrying an unsupported `source_quotes` field, `emit_investigation_complete` aggregate-fact shape repair, and extractor verdict citation/evidence-id gaps after accepted evidence existed upstream. | Route tool decode/schema failures, repair decisions, and accepted evidence IDs through one typed repair/handoff layer. Stage prompts render the exact supported JSON surface; extractor/finalizer receive accepted evidence IDs and citations as typed candidates, not prose-only summaries. |
 
 ## Architecture Direction
@@ -325,7 +345,7 @@ roles from many raw trace rows.
 | Batch U9j | delivered | Make source-scope production boundaries quote-backed and repair principal source negative channels. | `source_scope_profile.source_quotes[]` is schema/type supported and validated against the current request. For source-inventory/enumeration lanes, unquoted production scope cannot hide existing auxiliary/corpus source paths through `irrelevant_files`; those paths promote to required files and synthesize all-scope when needed. ArkTS U9j passes and manual audit confirms 4 `@Entry` rows + 2 `@Builder` rows are rendered. |
 | Batch U9k | delivered | Preserve typed repair-required tools in restricted explorer surfaces. | No-emit escalation now keeps `emit_*` plus active `RepairDirective.Tools`, so source-inventory completion repair can execute `repo_map` without reopening unrelated broad tools or lying to the model about unavailable tools. Runtime validation and schema filtering use the same typed surface. |
 | Batch U9i | planned | Add cross-language source-inventory member/facet projection. | `repo_map(source_inventory)` returns typed member rows or explicit `no_member_parser` coverage for supported-language constructs across Go, Python, JS/TS, Ruby, Java/Kotlin, C/C++, Rust, Cangjie, ArkTS, config, and workflow files. Decorators/annotations/modifiers/config facets are structured attributes, not rendered-prose hints. |
-| Batch U9g | planned | Share proof coverage across exploration siblings. | Sibling lanes consume a shared principal proof ledger and suppress duplicate reads/repo_map/trace_query work once an equivalent owner/evidence/proof obligation is already accepted. |
+| Batch U9g | partial | Share proof coverage across exploration siblings. | Delivered first slice: read TurnA artifacts now project a typed `ProofSnapshot` into the lane-neutral loopkernel proof/truth authority and ReasoningGraph audit view. Remaining: dispatch-group scheduler consumption to suppress duplicate sibling reads/repo_map/trace_query once equivalent proof coverage is accepted. |
 | Batch U9h | planned | Unify tool JSON repair and accepted-evidence handoff. | Schema/decode repair hints and accepted evidence IDs flow through one typed layer so later stages see precise supported JSON fields and citation candidates without prose-only reconstruction. |
 | Batch U9t | delivered | Extract source-inventory execution budget kernel. | Replaced the private per-role `sourceInventoryCandidateBudget` helpers with one typed execution budget object that owns materialization limits, scan limits, query-scan widening, wall-clock deadline, cancellation state, and cursor/page metadata. File/config/package/graph candidate builders and completion support now consume this API instead of open-coded scan/materialization/deadline checks. Focused tests pin deadline and cancellation truncation, broad materialization/no-match budgeting, and source-inventory lens execution proof. |
 | Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
@@ -1143,7 +1163,7 @@ roles from many raw trace rows.
   validation passed:
   `go test ./internal/tool -run
   'SourceInventoryLensExecutionRepoMapCallShape|SourceInventoryLensExecution|SourceInventory'`.
-- 2026-06-20 Batch U9g delivered the first RNE-C59 execution-kernel slice.
+- 2026-06-20 Earlier RNE-C59 execution-view slice delivered.
   Source-inventory lens construction now creates one scoped execution view per
   pass and shares it across file/config/package candidate builders, graph-symbol
   file membership, broad attribute defer, and completion support indexing.
@@ -1160,7 +1180,7 @@ roles from many raw trace rows.
   'TestClassifySourcePathRole|TestLang|TestExtract|TestResolver|TestScanner'`,
   and `go test ./internal/tool -run
   'TestSourceInventoryLensExecutionGap|TestSourceInventoryCandidateUniverseCoverageGap'`.
-- 2026-06-20 Batch U9g/U9h eval audit separated harness pass from manual
+- 2026-06-20 Source-inventory execution-view eval audit separated harness pass from manual
   correctness. `eval/convergence_audit_summary_20260620_u9g_after.md` showed
   ArkTS failed functionally: the final answer still said there was no actual
   `.ets` source while repo-owned corpus files existed. The first U9h repair
@@ -1447,3 +1467,17 @@ roles from many raw trace rows.
   execution budget/view into a dedicated source-inventory kernel package and
   add true cursor-backed resumable candidate pagination before full
   materialization.
+- 2026-06-20 Batch U9g delivered the first shared proof-coverage slice. Added
+  `loopkernel.ProofSnapshot` and `ProofSnapshotFromReadTurnA`, deriving read
+  proof authority from typed TurnA fields only: accepted result kind, grounded
+  evidence refs, source localization, source-inventory observation, and
+  runtime-observation-only completion. `DeriveProofCoverageAuthority` and a
+  shared `TruthLedgerFromProofCoverageAuthority` now serve both read and write
+  projections. ReasoningGraph read projection records the proof snapshot as an
+  authority event, giving status-card/eval consumers the same proof/truth view
+  without parsing logs, prompts, visible thinking, or final-answer prose.
+  Focused validation passed:
+  `go test ./internal/loopkernel ./internal/reasoninggraph`. Remaining RNE-C54:
+  have `dispatchExploreWindowsParallel` consume per-dispatch snapshots by lane
+  ownership key so equivalent sibling proof work is skipped while new blockers,
+  source classes, failed proof, or missing principal obligations still run.

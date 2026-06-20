@@ -65,6 +65,9 @@ func EventsFromReadAnswerDocument(ctx *types.BusContext, doc *types.AnswerDocume
 				"localization_reason_set": append([]string(nil), review.ReasonCodes...),
 			}, readEvidenceRefsFromLocalization(review, "read:explore", 64))
 		}
+		if snapshot, ok := loopkernel.ProofSnapshotFromReadTurnA(turnA); ok && snapshot.Authority.State != "" {
+			add(ReasoningEventAuthorityProjected, "read:explore", ReasoningNodeExplore, snapshot.Authority.ReasonCode, snapshot, readEvidenceRefsFromReadProofSnapshot(snapshot, "read:explore", 64))
+		}
 	}
 
 	if doc != nil {
@@ -217,6 +220,51 @@ func readEvidenceRefsFromEvidenceItems(items []types.EvidenceItem, nodeID string
 		}
 	}
 	return out
+}
+
+func readEvidenceRefsFromReadProofSnapshot(snapshot loopkernel.ProofSnapshot, nodeID string, limit int) []ReasoningEvidenceRef {
+	refs := snapshot.EvidenceRefs
+	if limit <= 0 || limit > len(refs) {
+		limit = len(refs)
+	}
+	out := make([]ReasoningEvidenceRef, 0, limit)
+	for i, ref := range refs {
+		if i >= limit {
+			break
+		}
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		out = append(out, ReasoningEvidenceRef{
+			ID:          ref,
+			Kind:        string(types.TruthSignalProofCoverage),
+			NodeID:      nodeID,
+			Priority:    "p0",
+			Confidence:  readProofSnapshotConfidence(snapshot.Authority),
+			SourceStage: "explore",
+			Consumer:    "scheduler",
+			ReasonCode:  snapshot.Authority.ReasonCode,
+			ArtifactRef: loopkernel.ArtifactRef{
+				Kind: "proof",
+				ID:   ref,
+			},
+		})
+	}
+	return out
+}
+
+func readProofSnapshotConfidence(authority loopkernel.ProofCoverageAuthorityView) string {
+	switch authority.State {
+	case loopkernel.ProofCoverageCovered:
+		return "high"
+	case loopkernel.ProofCoverageWeak, loopkernel.ProofCoverageUnavailable:
+		return "medium"
+	case loopkernel.ProofCoverageFailed, loopkernel.ProofCoverageMissing:
+		return "low"
+	default:
+		return ""
+	}
 }
 
 func readEvidenceRefsFromLocalization(review types.SourceLocalizationReview, nodeID string, limit int) []ReasoningEvidenceRef {

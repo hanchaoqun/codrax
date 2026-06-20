@@ -220,40 +220,9 @@ func truthLedgerFromWriteWorkflowSlice(slice types.WriteWorkflowSlice) (types.Tr
 	if !ok {
 		return types.TruthLedger{}, false
 	}
-	state := types.TruthLedgerUnknown
-	action := types.TruthActionVerify
-	switch proof.State {
-	case ProofCoverageCovered:
-		state = types.TruthLedgerCovered
-		action = types.TruthActionContinue
-	case ProofCoverageFailed:
-		state = types.TruthLedgerFailed
-		action = types.TruthActionRepair
-	case ProofCoverageUnavailable:
-		state = types.TruthLedgerUnverified
-		action = types.TruthActionContinue
-	case ProofCoverageWeak, ProofCoverageMissing:
-		state = types.TruthLedgerWeak
-		action = types.TruthActionAddProof
-	default:
-		return types.TruthLedger{}, false
-	}
 	reason := firstNonEmptyString(proof.ReasonCode, writeWorkflowSliceCompletionReason(slice))
-	return types.NormalizeTruthLedger(types.TruthLedger{
-		State:             state,
-		ReasonCode:        reason,
-		RecommendedAction: action,
-		Signals: []types.TruthSignal{{
-			Kind:              types.TruthSignalProofCoverage,
-			State:             state,
-			ReasonCode:        reason,
-			RecommendedAction: action,
-			Source:            "write_workflow_slice",
-			Paths:             append([]string(nil), slice.Paths...),
-			EvidenceRefs:      compactWriteWorkflowStrings(slice.VerifyRef, slice.ObserveRef, slice.ApplyRef),
-			RequiresAction:    state == types.TruthLedgerFailed || state == types.TruthLedgerWeak,
-		}},
-	}), true
+	proof.ReasonCode = reason
+	return TruthLedgerFromProofCoverageAuthority("write_workflow_slice", proof, slice.Paths, compactWriteWorkflowStrings(slice.VerifyRef, slice.ObserveRef, slice.ApplyRef))
 }
 
 func writeWorkflowSliceCompletionReason(slice types.WriteWorkflowSlice) string {

@@ -96,11 +96,12 @@ func TestEventsFromReadAnswerDocumentProjectsTypedEvidenceShadow(t *testing.T) {
 	if view.GraphID != "trace-read-1" || view.EventCount == 0 {
 		t.Fatalf("view header=%+v", view)
 	}
-	if len(view.ReadEvents) < 6 {
+	if len(view.ReadEvents) < 7 {
 		t.Fatalf("read events=%+v, want analysis/evidence/aggregate/localization/navigation/answer", view.ReadEvents)
 	}
 	if !reasoningGraphViewHasKind(view, ReasoningEventReadAnswerProjected) ||
-		!reasoningGraphViewHasKind(view, ReasoningEventReadNavigationProjected) {
+		!reasoningGraphViewHasKind(view, ReasoningEventReadNavigationProjected) ||
+		!reasoningGraphViewHasKind(view, ReasoningEventAuthorityProjected) {
 		t.Fatalf("read event kinds missing: %+v", view.EventKindCounts)
 	}
 	if len(view.EvidenceRefs) == 0 {
