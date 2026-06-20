@@ -482,6 +482,10 @@ func sourceInventoryObservationWithSourceClassUniverse(ctx *types.BusContext, ob
 	observation.Lens = sourceInventoryAdvisoryAppendProvenance(observation.Lens, "source_class_universe", "count")
 	observation.Provenance = sourceInventoryAdvisoryAppendProvenance(observation.Provenance, "source_class_universe:repo_tracked")
 	observation.Complete = observation.Complete && sourceInventorySourceClassUniverseComplete(sourceClasses)
+	if languages := sourceInventoryRepoLanguageCensus(ctx, observation.Scopes); len(languages) > 0 {
+		observation.RepoLanguages = languages
+		observation.Lens = sourceInventoryAdvisoryAppendProvenance(observation.Lens, "repo_languages")
+	}
 	return types.CloneSourceInventoryObservation(observation)
 }
 
@@ -1836,6 +1840,10 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 	}
 	if sourceClasses := renderSourceInventorySourceClassCounts(observation.SourceClasses); sourceClasses != "" {
 		fmt.Fprintf(&b, "- source_classes: %s\n", sourceClasses)
+	}
+	if census := renderSourceInventoryRepoLanguageCensus(observation); census != "" {
+		b.WriteString(census)
+		b.WriteByte('\n')
 	}
 	if roles := sourceInventoryLensQueryAttributeRoles(query); len(roles) > 0 {
 		labels := make([]string, 0, len(roles))

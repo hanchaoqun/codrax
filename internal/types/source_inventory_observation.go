@@ -29,6 +29,7 @@ type SourceInventoryObservation struct {
 	Provenance    []string                          `json:"provenance,omitempty"`
 	Lens          []string                          `json:"lens,omitempty"`
 	SourceClasses []SourceInventorySourceClassCount `json:"source_classes,omitempty"`
+	RepoLanguages []SourceInventoryLanguageCount    `json:"repo_languages,omitempty"`
 	Page          *SourceInventoryObservationPage   `json:"page,omitempty"`
 	Execution     *SourceInventoryExecutionState    `json:"execution,omitempty"`
 	Sets          []SourceInventoryObservationSet   `json:"sets,omitempty"`
@@ -321,6 +322,7 @@ func CloneSourceInventoryObservation(in SourceInventoryObservation) SourceInvent
 	out.Provenance = append([]string(nil), in.Provenance...)
 	out.Lens = append([]string(nil), in.Lens...)
 	out.SourceClasses = cloneSourceInventorySourceClassCounts(in.SourceClasses)
+	out.RepoLanguages = cloneSourceInventoryLanguageCounts(in.RepoLanguages)
 	out.Page = cloneSourceInventoryObservationPage(in.Page)
 	out.Execution = cloneSourceInventoryExecutionState(in.Execution)
 	if in.Sets != nil {
@@ -349,6 +351,7 @@ func MergeSourceInventoryObservation(prior, current SourceInventoryObservation) 
 	merged.Provenance = mergeSourceInventoryAdvisoryStrings(merged.Provenance, current.Provenance)
 	merged.Lens = mergeSourceInventoryAdvisoryStrings(merged.Lens, current.Lens)
 	merged.SourceClasses = mergeSourceInventorySourceClassCounts(merged.SourceClasses, current.SourceClasses)
+	merged.RepoLanguages = mergeSourceInventoryLanguageCounts(merged.RepoLanguages, current.RepoLanguages)
 	if current.Page != nil {
 		merged.Page = cloneSourceInventoryObservationPage(current.Page)
 	}
