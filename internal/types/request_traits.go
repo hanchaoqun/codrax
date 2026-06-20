@@ -1218,7 +1218,15 @@ func RuntimeArtifactReadSourceNavigationNotRequired(ir *AnalysisIR, attachedTrac
 	if ir == nil {
 		return false
 	}
-	return ir.RequestModel.HasRuntimeArtifactObservationOnlySurfaceInTraceContext(attachedTrace)
+	return RuntimeArtifactRequestSourceNavigationNotRequired(ir.RequestModel, attachedTrace)
+}
+
+// RuntimeArtifactRequestSourceNavigationNotRequired is the pre-IR companion to
+// RuntimeArtifactReadSourceNavigationNotRequired. Analyzer post-processing uses
+// it before AnalysisIR exists to avoid eager source graph construction for
+// answer-grade runtime artifacts whose current-source lane is typed optional.
+func RuntimeArtifactRequestSourceNavigationNotRequired(rm RequestModel, attachedTrace bool) bool {
+	return rm.HasRuntimeArtifactObservationOnlySurfaceInTraceContext(attachedTrace)
 }
 
 // RuntimeArtifactReadSourceSupplementsNotRequired reports whether final answer

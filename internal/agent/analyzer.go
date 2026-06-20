@@ -139,6 +139,9 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if runtimeArtifactWithoutRequiredSourceForAnalyzer(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerRuntimeSourceOptionalShortcut()))
 	}
+	if runtimeArtifactAttachmentPendingAnalysisForAnalyzer(ctx) {
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerAttachedRuntimeArtifactShortcut()))
+	}
 	if explicitRuntimeArtifactPathInObjective(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()))
 	}
@@ -201,6 +204,14 @@ func renderAnalyzerRuntimeSourceOptionalShortcut() string {
 		"Do not run repo pre-scan just to classify trace/log literals, thread labels, timestamps, wakeup chains, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
 		"Classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now. " +
 		"Keep current-source analysis at the default posture unless the typed external_observation_policy explicitly excludes it or the current request asks for a mixed current-source explanation. Use current_source_mode=allow only for that explicit mixed-lane case; otherwise default keeps source exploration permitted without making it a required lane. When exclude is valid, emit diagnostic_profile.current_risk/current_version_check/historical_regression=false because current-checkout verification is out of scope. Later exploration may use focused source tools only if a current-source question remains unresolved or would materially change the answer.\n\n"
+}
+
+func renderAnalyzerAttachedRuntimeArtifactShortcut() string {
+	return "## Attached Runtime Artifact Classification Shortcut\n\n" +
+		"This dispatch already carries a structured runtime attachment (log, hitrace, atrace, systrace, or perf trace), but the current turn's typed classification has not been emitted yet. " +
+		"Do not build or call repo pre-scan (`repo_map`, `grep`, or `list_files`) just to classify artifact rows, stack-frame literals, thread labels, timestamps, wakeup chains, sleep/runnable/D-state, CPU frequency, IRQ, binder, IO, or log error tokens. " +
+		"Classify from the attached artifact facts and the current request, then call `emit_analysis` now. If current-checkout source evidence is genuinely needed, express that as typed requested dimensions, source scope, required files, exact targets, diagnostic profile, or external_observation_policy fields; the later exploration stage will open the source lane. " +
+		"Keep hard routing out of raw request words and model rationale: source decisions after this point must consume the emitted typed fields, not the prose you write here.\n\n"
 }
 
 func externalObservationFirstTurnHintForAnalyzer(ctx *types.AgentContext) bool {
@@ -2742,6 +2753,9 @@ func shouldMergeLogTriageEntities(bundle *types.LogBundle) bool {
 //
 // Design doc: docs/design/multirepo_entity_scope_separation.md §4.2.
 func analyzerSymbolResolver(ctx *types.AgentContext, rm types.RequestModel) normalizer.SymbolResolver {
+	if analyzerRuntimeArtifactSourceNavigationOptional(ctx, rm) {
+		return nil
+	}
 	if mg := repomap.MultiGraphFromAgentContext(ctx); mg != nil && !mg.IsSingle() {
 		var pending []string
 		if ctx != nil {
@@ -2760,6 +2774,10 @@ func analyzerGraphForNormalize(ctx *types.AgentContext, rm types.RequestModel) *
 		if g, ok := ctx.Mutable.SearchGraph().(*repomap.Graph); ok && g != nil {
 			return g
 		}
+	}
+	if analyzerRuntimeArtifactSourceNavigationOptional(ctx, rm) {
+		logging.Debug("[analyzer] source graph eager load skipped: runtime artifact source navigation is optional")
+		return nil
 	}
 	entities := rm.AnalyzerHints.Entities
 	if len(entities) == 0 {
@@ -2861,6 +2879,9 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	if logAuthoritative && len(logFiles) > 0 {
 		return append([]string(nil), logFiles...)
 	}
+	if analyzerRuntimeArtifactSourceNavigationOptional(ctx, rm) {
+		return nil
+	}
 	if externalSource {
 		return nil
 	}
@@ -2941,6 +2962,23 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 		return merged
 	}
 	return logtriage.MergeResolvedFiles(logFiles, merged)
+}
+
+func analyzerRuntimeArtifactSourceNavigationOptional(ctx *types.AgentContext, rm types.RequestModel) bool {
+	return types.RuntimeArtifactRequestSourceNavigationNotRequired(rm, analyzerAttachedTraceContext(ctx))
+}
+
+func analyzerAttachedTraceContext(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedHitrace) != "" || ctx.PerfTrace != nil {
+		return true
+	}
+	if ctx.Mutable != nil && ctx.Mutable.PerfTrace() != nil {
+		return true
+	}
+	return false
 }
 
 // mergeRequiredFilePathLists unions head + tail, de-dupes by string

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -70,6 +72,96 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	}
 	if rm := mut.RequestModel(); rm == nil || rm.AnalyzerHints.Kind != "mechanism" {
 		t.Errorf("RequestModel was clobbered, got %+v", rm)
+	}
+}
+
+func TestAnalyzerGraphForNormalize_SkipsEagerLoadForRuntimeArtifactOptionalSource(t *testing.T) {
+	repo := t.TempDir()
+	writeAnalyzerGraphFixture(t, repo)
+	ctx := &types.AgentContext{
+		Stage:           types.StageAnalyze,
+		RepoRoot:        repo,
+		AttachedHitrace: "sched_switch prev=app next=worker",
+		Mutable:         types.NewMutableState("attached trace"),
+	}
+	rm := types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"Widget"},
+		},
+	}
+	if got := analyzerGraphForNormalize(ctx, rm); got != nil {
+		t.Fatalf("runtime artifact with optional current-source lane should not eager-load analyzer source graph, got %+v", got.Metadata)
+	}
+	if ctx.Mutable.SearchGraph() != nil {
+		t.Fatal("optional-source runtime artifact must not publish a search graph during analyze post-processing")
+	}
+}
+
+func TestAnalyzerGraphForNormalize_SourceTurnStillLoadsGraph(t *testing.T) {
+	repo := t.TempDir()
+	writeAnalyzerGraphFixture(t, repo)
+	ctx := &types.AgentContext{
+		Stage:    types.StageAnalyze,
+		RepoRoot: repo,
+		Mutable:  types.NewMutableState("explain Widget"),
+	}
+	rm := types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioArchitectureExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"Widget"},
+		},
+	}
+	got := analyzerGraphForNormalize(ctx, rm)
+	if got == nil {
+		t.Fatal("ordinary source turn should keep analyzer source graph loading")
+	}
+	if ctx.Mutable.SearchGraph() == nil {
+		t.Fatal("ordinary source graph load should publish the reusable search graph")
+	}
+}
+
+func TestAnalyzerGraphForNormalize_CurrentSourceDimensionReopensRuntimeArtifactGraph(t *testing.T) {
+	repo := t.TempDir()
+	writeAnalyzerGraphFixture(t, repo)
+	ctx := &types.AgentContext{
+		Stage:           types.StageAnalyze,
+		RepoRoot:        repo,
+		AttachedHitrace: "sched_switch prev=app next=worker",
+		Mutable:         types.NewMutableState("attached trace plus current implementation"),
+	}
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		SourceScopeProfile: &types.SourceScopeProfile{
+			RequestedScope: types.SourceScopeProduction,
+			Confidence:     0.9,
+		},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Role:     types.RequestedAnswerDimensionCurrentKeyCode,
+				Required: true,
+				Index:    1,
+			}},
+			Confidence: 0.9,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"Widget"},
+		},
+	}
+	if got := analyzerGraphForNormalize(ctx, rm); got == nil {
+		t.Fatal("typed current-source dimension should reopen analyzer source graph loading")
+	}
+}
+
+func writeAnalyzerGraphFixture(t *testing.T, repo string) {
+	t.Helper()
+	path := filepath.Join(repo, "widget.go")
+	if err := os.WriteFile(path, []byte("package fixture\n\ntype Widget struct{}\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
 	}
 }
 

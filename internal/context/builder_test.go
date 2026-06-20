@@ -3851,6 +3851,25 @@ func TestFormatMultiRepoActiveSetAdvisory_RendersFocusSource(t *testing.T) {
 	}
 }
 
+func TestFormatMultiRepoActiveSetAdvisory_RendersRuntimeArtifactDeferredSource(t *testing.T) {
+	ac := &types.AgentContext{
+		SubRepos: []types.SubRepoSnapshot{
+			{RootRel: "repo-a", PrimaryLangs: []string{"Go"}},
+			{RootRel: "repo-b", PrimaryLangs: []string{"Python"}},
+		},
+		PendingSubRepos:               []string{"repo-b"},
+		MultiRepoInactivePreviewCount: 2,
+		MultiRepoFocusDecision: &types.MultiRepoFocusDecision{
+			Source: types.MultiRepoFocusSourceRuntimeArtifactDeferred,
+		},
+	}
+	got := formatMultiRepoActiveSetAdvisory(ac)
+	if !strings.Contains(got, "source-code routing is deferred") ||
+		!strings.Contains(got, "attached runtime artifact") {
+		t.Fatalf("advisory should explain runtime-artifact-deferred focus source, got:\n%s", got)
+	}
+}
+
 func TestFormatMultiRepoActiveSetAdvisory_TruncatesInactivePreview(t *testing.T) {
 	ac := &types.AgentContext{
 		SubRepos: []types.SubRepoSnapshot{

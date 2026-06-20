@@ -282,6 +282,24 @@ func runtimeArtifactWithoutRequiredSourceForAnalyzer(ctx *types.AgentContext) bo
 	return false
 }
 
+func runtimeArtifactAttachmentPendingAnalysisForAnalyzer(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return false
+	}
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			return false
+		}
+	}
+	if ctx.AnalysisIR != nil {
+		return false
+	}
+	return strings.TrimSpace(ctx.AttachedLog) != "" ||
+		strings.TrimSpace(ctx.AttachedHitrace) != "" ||
+		ctx.LogTriage != nil ||
+		ctx.PerfTrace != nil
+}
+
 func analyzerHasAttachedTraceContext(ctx *types.AgentContext) bool {
 	if ctx == nil {
 		return false

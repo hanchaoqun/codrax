@@ -4938,6 +4938,8 @@ func formatMultiRepoFocusSourceNote(decision *types.MultiRepoFocusDecision) stri
 		return "Scope source: selected from a compact workspace-topology pre-scan for this question."
 	case types.MultiRepoFocusSourceFallbackPreview:
 		return "Scope source: fallback preview because no precise focus was available; treat this as provisional."
+	case types.MultiRepoFocusSourceRuntimeArtifactDeferred:
+		return "Scope source: source-code routing is deferred because this turn starts from an attached runtime artifact; use artifact evidence first and open source tools only when typed analysis requires current source."
 	default:
 		return ""
 	}

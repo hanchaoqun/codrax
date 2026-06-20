@@ -1455,6 +1455,19 @@ func (o *Orchestrator) injectResidualConcernsCaveat(out *agent.StageOutput, viol
 	})
 }
 
+func shouldDeferRunEntryRepoGraphWarmup(mode types.PipelineMode, hint types.TurnRouteHint, attachedLog, attachedTrace string) bool {
+	if mode.Normalize() != types.ModeRead {
+		return false
+	}
+	if strings.TrimSpace(attachedLog) == "" && strings.TrimSpace(attachedTrace) == "" {
+		return false
+	}
+	if hint.IsZero() {
+		return true
+	}
+	return hint.ExternalObservationFirst()
+}
+
 // SetSemanticQualityMinConfidence sets the G5 reviewer's self-rated
 // confidence floor below which verdicts are silently dropped. 0
 // (or out-of-range) keeps the SemanticQualityMinConfidenceDefault
@@ -1796,6 +1809,12 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// EnsureLoadedFor when a frame resolves to an inactive sub-repo,
 	// and the analyzer post-emit hook does the same for RequiredFiles.
 	// Single-repo posture short-circuits inside RouteActiveSet.
+	deferRunEntryRepoWarmup := shouldDeferRunEntryRepoGraphWarmup(
+		o.busCtx.Mode,
+		turnRouteHint,
+		o.attachedLog,
+		o.attachedHitrace,
+	)
 	if mg, _ := o.busCtx.MultiGraph.(*multigraph.MultiGraph); mg != nil {
 		focusSlugs := mg.FocusSlugs()
 		inputs := multigraph.RoutingInputs{}
@@ -1807,6 +1826,14 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			inputs.StrictFocus = true
 			inputs.DisableFallback = true
 			o.busCtx.MultiRepoFocusDecision = multiRepoFocusDecisionForSlugs(mg, focusSlugs, types.MultiRepoFocusSourceUserPinned, 1.0, "user-pinned focus")
+		} else if deferRunEntryRepoWarmup {
+			if !mg.IsSingle() {
+				o.busCtx.MultiRepoFocusDecision = &types.MultiRepoFocusDecision{
+					Source:    types.MultiRepoFocusSourceRuntimeArtifactDeferred,
+					Fallback:  true,
+					Rationale: "attached runtime artifact starts the turn; source graph warmup is deferred until a typed source route opens",
+				}
+			}
 		} else {
 			if dec := tryExactMultiRepoFocus(mg, request); dec != nil {
 				if slugs := multiRepoFocusDecisionSlugs(mg, dec); len(slugs) > 0 {
@@ -1834,7 +1861,10 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			}
 		}
 		decision := mg.RouteActiveSet(inputs)
-		if err := mg.EnsureMany(decision.Active); err != nil {
+		if deferRunEntryRepoWarmup {
+			logging.Info("multigraph: deferred run-entry graph warmup for attached runtime artifact (route=%s source=%s active_preview=%d)",
+				turnRouteHint.Route, turnRouteHint.Source, len(decision.Active))
+		} else if err := mg.EnsureMany(decision.Active); err != nil {
 			// Fail-loud per design §3.4 R3 — caller fold should have
 			// pre-trimmed; if we trip here, log and degrade to whatever
 			// loaded (single-repo fallback path stays consistent).

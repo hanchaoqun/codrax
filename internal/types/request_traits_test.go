@@ -586,6 +586,9 @@ func TestRuntimeArtifactReadSourceNavigationNotRequired_AttachedTraceObservation
 	if !RuntimeArtifactReadSourceNavigationNotRequired(ir, true) {
 		t.Fatal("attached trace without current-source requirement should not require source navigation")
 	}
+	if !RuntimeArtifactRequestSourceNavigationNotRequired(ir.RequestModel, true) {
+		t.Fatal("pre-IR request helper should match IR helper for attached trace without current-source requirement")
+	}
 }
 
 func TestRuntimeArtifactReadSourceNavigationNotRequired_CurrentKeyCodeKeepsSourceRequired(t *testing.T) {
@@ -609,6 +612,9 @@ func TestRuntimeArtifactReadSourceNavigationNotRequired_CurrentKeyCodeKeepsSourc
 	}}
 	if RuntimeArtifactReadSourceNavigationNotRequired(ir, true) {
 		t.Fatal("required current_key_code dimension must keep source navigation required")
+	}
+	if RuntimeArtifactRequestSourceNavigationNotRequired(ir.RequestModel, true) {
+		t.Fatal("pre-IR request helper must preserve required current-source navigation")
 	}
 }
 

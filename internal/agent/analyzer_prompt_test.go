@@ -312,6 +312,51 @@ func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
 	}
 }
 
+func TestAnalyzerPrompt_AttachedTracePendingAnalysisSkipsRepoOverview(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName:       types.AgentAnalyzer,
+		Stage:           types.StageAnalyze,
+		Objective:       "分析 2.000s 到 2.020s 的 trace 窗口",
+		RepoRoot:        ".",
+		Mutable:         types.NewMutableState("分析 2.000s 到 2.020s 的 trace 窗口"),
+		AttachedHitrace: "app-100 (100) [001] .... 2.000000: sched_switch: prev_comm=app prev_pid=100 prev_state=S ==> next_comm=idle/1 next_pid=0",
+	}
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, skill.BuildAnalysisSkill())
+	for _, want := range []string{
+		"Attached Runtime Artifact Classification Shortcut",
+		"structured runtime attachment",
+		"Do not build or call repo pre-scan",
+		"call `emit_analysis` now",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("attached trace shortcut missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Repository overview") || strings.Contains(got, "Task Map") {
+		t.Fatalf("attached trace shortcut must skip precomputed repo overview; got:\n%s", got)
+	}
+}
+
+func TestAnalyzerPrompt_AttachedLogPendingAnalysisSkipsRepoOverview(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName:   types.AgentAnalyzer,
+		Stage:       types.StageAnalyze,
+		Objective:   "分析这段 panic 日志",
+		RepoRoot:    ".",
+		Mutable:     types.NewMutableState("分析这段 panic 日志"),
+		AttachedLog: "panic: boom\nstack frame\n",
+	}
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, skill.BuildAnalysisSkill())
+	if !strings.Contains(got, "Attached Runtime Artifact Classification Shortcut") {
+		t.Fatalf("attached log shortcut missing:\n%s", got)
+	}
+	if strings.Contains(got, "Repository overview") || strings.Contains(got, "Task Map") {
+		t.Fatalf("attached log shortcut must skip precomputed repo overview; got:\n%s", got)
+	}
+}
+
 func TestAnalyzerPrompt_RuntimeSourceOptionalSkipsRepoOverview(t *testing.T) {
 	mut := types.NewMutableState("分析这份 trace 的卡顿原因")
 	rm := types.RequestModel{
