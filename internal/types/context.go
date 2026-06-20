@@ -2012,7 +2012,7 @@ func traceQueryRuntimeObservationToolResultCount(r ToolResult) int {
 	count := 0
 	for _, observation := range r.Observations {
 		if observation.Origin != AnswerEvidenceOriginRuntimeArtifact ||
-			strings.TrimSpace(observation.Producer) != "trace_query" ||
+			!runtimeObservationProducerIsDeterministicQuery(observation.Producer) ||
 			observation.SourceRef.Kind != ObservationSourceRuntimeArtifact ||
 			observation.GroundingPolicy != ClaimGroundingHard {
 			continue

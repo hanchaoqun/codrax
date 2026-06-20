@@ -2888,7 +2888,7 @@ func traceQueryRuntimeObservationCompletionBypassLabel(ctx *types.BusContext) (s
 			}
 			for _, observation := range result.Observations {
 				if observation.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
-					strings.TrimSpace(observation.Producer) != "trace_query" ||
+					!types.RuntimeObservationProducerIsDeterministicQuery(observation.Producer) ||
 					observation.SourceRef.Kind != types.ObservationSourceRuntimeArtifact ||
 					observation.GroundingPolicy != types.ClaimGroundingHard {
 					continue

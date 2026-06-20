@@ -10708,7 +10708,7 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 
 func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
 	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
-		strings.TrimSpace(record.Producer) != "trace_query" ||
+		!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
 		record.GroundingPolicy != types.ClaimGroundingHard {
 		return 0
 	}
@@ -10993,7 +10993,7 @@ func runtimeTracePerfQualityRequestedOrder(requested map[string]int) (int, bool)
 }
 
 func runtimeTracePerfQualityRecord(record types.ObservationRecord) bool {
-	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact || record.Producer != "trace_query" {
+	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact || !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 		return false
 	}
 	claim := strings.ToLower(strings.TrimSpace(record.ClaimKey))

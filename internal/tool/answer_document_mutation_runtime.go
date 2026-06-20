@@ -634,7 +634,7 @@ func runtimeTraceMetricSnapshotFromObservationRecord(record types.ObservationRec
 	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
 		return ""
 	}
-	if strings.TrimSpace(record.Producer) != "trace_query" {
+	if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 		return ""
 	}
 	if !runtimeTraceStateChurnHasPositiveImpact(record) {
@@ -809,7 +809,7 @@ func runtimeTraceNextStepFromObservationRecord(record types.ObservationRecord) s
 	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
 		return ""
 	}
-	if strings.TrimSpace(record.Producer) != "trace_query" {
+	if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 		return ""
 	}
 	return trimRuntimeTraceNextStepText(runtimeTraceObservationRichNoteValue(record.RichNotes, "next_step"))
@@ -945,7 +945,7 @@ func runtimeTracePerfQualityItems(doc *types.AnswerDocumentV2, ctx *types.BusCon
 
 func runtimeTracePerfQualityText(record types.ObservationRecord) string {
 	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
-		strings.TrimSpace(record.Producer) != "trace_query" ||
+		!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
 		strings.TrimSpace(record.Predicate) != "perf_sample_top_symbol" {
 		return ""
 	}

@@ -2075,7 +2075,7 @@ func observationLedgerHasRuntimeTraceArtifact(ledger ObservationLedger) bool {
 		if record.SourceRef.Kind != ObservationSourceRuntimeArtifact {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(record.Producer), "trace_query") ||
+		if runtimeObservationProducerIsDeterministicQuery(record.Producer) ||
 			strings.EqualFold(strings.TrimSpace(record.SourceRef.ArtifactKind), "trace") {
 			return true
 		}
@@ -2106,7 +2106,7 @@ func observationLedgerHasTraceQueryRuntimeObservation(ledger ObservationLedger) 
 		if record.SourceRef.Kind != ObservationSourceRuntimeArtifact {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(record.Producer), "trace_query") {
+		if runtimeObservationProducerIsDeterministicQuery(record.Producer) {
 			return true
 		}
 	}
