@@ -117,8 +117,9 @@ func (g SourceInventoryCandidateUniverseGap) MissingNames(max int) []string {
 // they do not prove that the model/tool loop actually ran the typed
 // source_inventory navigation lens for this inventory lane. This helper is the
 // pre-complete guard for that missing step. It consumes only typed request
-// fields, structured observation provenance, and structured tool output
-// summaries; it does not inspect user prose or model rationale.
+// fields, structured observation provenance, and typed tool observation
+// records; it does not inspect user prose, model rationale, or rendered tool
+// summaries.
 func SourceInventoryLensExecutionGapForContext(ctx *types.BusContext) SourceInventoryLensExecutionGap {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return SourceInventoryLensExecutionGap{}
@@ -263,10 +264,11 @@ func sourceInventoryToolResultsHaveSourceInventoryLens(results []types.ToolResul
 		if !result.Success || types.CanonicalToolName(result.ToolName) != "repo_map" {
 			continue
 		}
-		summary := result.Summary
-		if strings.Contains(summary, "# Repo Lens: Source Inventory") ||
-			strings.Contains(summary, "Repo Lens: no source-inventory observation is available") {
-			return true
+		for _, record := range result.Observations {
+			route, ok := types.RepoMapNavigationRouteFromObservation(record)
+			if ok && route == types.RepoMapNavigationRouteSourceInventory {
+				return true
+			}
 		}
 	}
 	return false

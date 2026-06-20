@@ -1402,3 +1402,22 @@ roles from many raw trace rows.
   dedicated execution-kernel package with explicit cancellation checkpoints
   shared by file/config/package/graph candidates, then have scheduler/status
   consume typed page/execution state instead of text advisories.
+- 2026-06-20 Batch U9s closed a residual hard-gate hygiene gap in
+  source-inventory lens execution proof. Current HEAD already has the RNE-C53
+  source-class universe authority: `SourceInventoryObservation.SourceClasses`
+  is derived from git-tracked repository files with `SourcePathRole`, the
+  exact-absence pre-emit and post-contract gates consume that matrix, and
+  third-party/corpus/vendor/generated/test/documentation classes cannot be
+  erased by the normal search graph's production-source filters. The remaining
+  issue was that `SourceInventoryLensExecutionGapForContext` still accepted a
+  `repo_map` tool result by matching rendered Summary text such as
+  "Repo Lens: Source Inventory". That made a hard pre-complete gate depend on
+  Markdown prose. U9s now requires the existing typed `ObservationRecord`
+  emitted by `repo_map` (`Producer=repo_map`,
+  `Predicate=repo_map_navigation_route`, route=`source_inventory`) and ignores
+  Summary text for this decision. A zero-result source-inventory lens still
+  satisfies the execution proof when it carries the typed navigation
+  observation, while a Summary-only synthetic result remains blocking. Focused
+  validation passed:
+  `go test ./internal/tool -run
+  'TestSourceInventoryLensExecutionGap|TestSourceInventoryCandidateUniverseCoverageGap'`.
