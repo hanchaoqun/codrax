@@ -64,8 +64,10 @@ func NormalizeReadLocalizerFollowup(in ReadLocalizerFollowup) ReadLocalizerFollo
 
 func DeriveReadLocalizerFollowup(review *SourceLocalizationReview, coverage *RepoMapNavigationCoverage) *ReadLocalizerFollowup {
 	var requirements LocalizationRequirementSet
+	var normalizedReview SourceLocalizationReview
 	if SourceLocalizationReviewHasSignal(review) {
-		requirements = LocalizationRequirementsFromSourceLocalizationReview(*review, 0)
+		normalizedReview = NormalizeSourceLocalizationReview(*review)
+		requirements = LocalizationRequirementsFromSourceLocalizationReview(normalizedReview, 0)
 	}
 	normalizedCoverage := RepoMapNavigationCoverage{}
 	if coverage != nil {
@@ -74,6 +76,11 @@ func DeriveReadLocalizerFollowup(review *SourceLocalizationReview, coverage *Rep
 	needsOwner := requirements.OpenItems > 0 && len(requirements.MissingOwnerAnchorPaths) > 0
 	needsNavigation := normalizedCoverage.State == RepoMapNavigationCoverageMissing ||
 		normalizedCoverage.State == RepoMapNavigationCoveragePartial
+	if readLocalizerPrincipalSourceCovered(normalizedReview) &&
+		!readLocalizerHasExplicitMissingOwner(normalizedReview) {
+		needsOwner = false
+		needsNavigation = false
+	}
 	if !needsOwner && !needsNavigation {
 		return nil
 	}
@@ -103,6 +110,30 @@ func DeriveReadLocalizerFollowup(review *SourceLocalizationReview, coverage *Rep
 		return nil
 	}
 	return &normalized
+}
+
+func readLocalizerPrincipalSourceCovered(review SourceLocalizationReview) bool {
+	review = NormalizeSourceLocalizationReview(review)
+	if len(review.OwnerSupportedPaths) > 0 {
+		return true
+	}
+	for _, anchor := range review.Anchors {
+		if anchor.Strength != SourceLocalizationAnchorOwner {
+			continue
+		}
+		switch anchor.Kind {
+		case SourceLocalizationAnchorGroundedEvidence,
+			SourceLocalizationAnchorRecoveredEvidence,
+			SourceLocalizationAnchorEvidence:
+			return true
+		}
+	}
+	return false
+}
+
+func readLocalizerHasExplicitMissingOwner(review SourceLocalizationReview) bool {
+	review = NormalizeSourceLocalizationReview(review)
+	return len(review.MissingPaths) > 0 || len(review.OwnerMissingPaths) > 0
 }
 
 func readLocalizerCandidatePaths(review *SourceLocalizationReview, requirements LocalizationRequirementSet) []string {

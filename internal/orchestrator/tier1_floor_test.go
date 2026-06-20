@@ -273,6 +273,43 @@ func TestCheckTier1Floor_ReadLocalizerFollowupRequeuesMissingCoverage(t *testing
 	}
 }
 
+func TestCheckTier1Floor_ReadLocalizerFollowupDemotesNavigationAfterOwnerEvidence(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("why did the runtime observation happen in current code")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"pkg/handler.py", "pkg/nearby.py"},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev-owner",
+			Source:          "pkg/handler.py",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			LineStart:       42,
+			Subject:         "Handler.Dispatch",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			OwnerSymbol:     "Handler.Dispatch",
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentTrace},
+		},
+	}}
+	ir := o.busCtx.AnalysisIR
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(ir, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("navigation-only localizer debt should be advisory after owner evidence, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
 func TestCheckTier1Floor_ReadLocalizerFollowupCoveredDoesNotBlock(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())

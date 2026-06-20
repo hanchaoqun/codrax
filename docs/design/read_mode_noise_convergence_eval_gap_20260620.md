@@ -56,6 +56,10 @@ evidence surfaces can enter the wrong consumer stage.
 | RNE-C18 | P1 | Requested-dimension role drift causes avoidable finalizer patch rounds. | The visible answer may already cover the user's dimension label, but coverage hints can report a role-shaped miss such as `日志线索 (diff_clue)`. This happens when origin/dimension role projection overfits a role enum rather than the typed source quote/label coverage. | Dimension coverage should consume normalized dimension ids, labels, source quotes, and block evidence origins together. Role aliases are soft display metadata; missing-dimension hints must not depend on a misleading role name alone. |
 | RNE-C19 | P1 | Runtime-artifact language guesses can pollute repository reasoning. | Log triage may emit `meta.lang=python` for a generic runtime log even when the repository is Go. That artifact-language guess can become noise for downstream source localization and audit language summaries. | Separate artifact format/language from repository/source language. Runtime triage language is advisory artifact metadata only; source-language decisions come from repo_map/file paths/typed source inventory. |
 | RNE-C20 | P1 | Parallel exploration siblings can duplicate a solved current-source lane. | The mixed runtime/source eval passed only after 24 reads, 4 repo_map calls, 56 explorer iterations, 18 midloop injections, and context pruning. Several sibling routes collected overlapping finalizer/LLM timeout evidence. | Add a shared proof-coverage ledger across siblings. Once one route satisfies runtime observation + current-source owner + mechanism coverage, sibling routes consume the ledger, skip duplicate reads, and converge through a compact handoff. |
+| RNE-C21 | P0 | Runtime-only trace answers can be blocked or polluted by source navigation debt. | Trace-only tasks can produce enough `trace_query` observation facts, then pre-finalize Tier-1 still demands `repo_map` `task_map/file_map` and final rendering appends repo navigation/localizer supplements. The request's typed route is artifact-local, but the source-localizer authority is not origin-aware enough. | Add an origin-aware proof profile. When a task is runtime-artifact-only and has no typed current-source obligation, repo navigation/localizer debt is not a blocking pre-finalize floor and is not rendered as a user-facing source supplement. Trace observation audit remains visible through trace-specific typed observations. |
+| RNE-C22 | P0 | Trace root-cause rank is not promoted to the principal answer carrier. | `trace_query` emits `root_evidence` / `root_cause_rank` rows for `threadpool-400`, but final answer can lead with the target thread's direct wait state and fail evals or user reading that expect the primary root-cause node to be first-class. | Add a typed `TraceCausalProjection` with roles such as `target_direct_wait`, `primary_root_cause`, `causal_chain_hop`, `direct_waker`, and `drilldown_boundary`. Finalizer consumes this projection as a principal obligation instead of rediscovering rank from raw trace rows or prose. |
+| RNE-C23 | P0 | Source inventory can falsely prove absence when supported-language fixture/corpus files are outside the default source scope. | The ArkTS eval repository contains `.ets` corpus sources under `internal/thirdparty/tree-sitter-arkts/corpus/sources`, but the run answered that no ArkTS source files exist. The scanner/navigation view and grep/list outputs did not expose a typed source-scope boundary that differentiates product source, fixtures, corpora, testdata, vendored code, and generated assets. | Introduce a language-neutral `SourceInventoryAuthority` with typed scope classes. Absence answers must state the exact searched source classes and cannot close if matching files exist in an in-scope class required by the task/eval. This must cover all supported languages, including C/C++, Cangjie, ArkTS, JS/TS, Java/Kotlin, Ruby, Go, config, workflow, and other repomap languages. |
+| RNE-C24 | P1 | Empty/negative aggregate schema repair still burns many model rounds. | After exact empty member-set support landed, models still repeatedly repair `negative_search` / `negative_observation` dimensions and sometimes mix repo no-hit evidence with infrastructure evidence. | Add a unified aggregate-fact repair/normalization layer that returns precise typed repair hints and canonicalizes no-hit repo searches, artifact no-hit observations, and exact empty sets before retry. The layer must not infer from model prose; it only consumes schema-validated fields and tool result metadata. |
 
 ## Architecture Direction
 
@@ -148,10 +152,14 @@ roles from many raw trace rows.
 | Batch L | planned | Align user-facing retry/status notices with typed next-action state. | Accepted closure that skips support-only retry debt shows a clear auto-complete/skip notice, not a stale "verification not stable enough" retry cue. |
 | Batch M | planned | Split final contract telemetry by typed severity. | Eval pass/fail, user-answer blocking defects, repaired schema drift, and audit-only annotation gaps are reported separately and consumable by URGR/reasoning graph. |
 | Batch N | delivered | Fix mixed runtime/source lane authority. | `current_key_code` requested dimensions plus typed source scope require source coverage before closure; pure runtime metric dimensions stay source-optional; the representative mixed log/current-code eval passes with real source reads and citations. |
-| Batch O | planned | Demote stale repo_map navigation debt after principal source coverage. | Missing lens debt no longer requeues after current-source proof is satisfied unless it is tied to an unresolved principal owner/path obligation. |
+| Batch O | delivered | Demote stale repo_map navigation debt after principal source coverage. | Missing lens debt no longer requeues after current-source proof is satisfied unless it is tied to an unresolved principal owner/path obligation. |
 | Batch P | planned | Normalize requested-dimension coverage by typed ids/labels/origins. | Finalizer does not patch solely because a role enum label drifted; it patches only when the typed requested dimension is absent from visible answer content. |
 | Batch Q | planned | Split runtime-artifact language metadata from repo/source language. | Log/trace artifact language guesses cannot drive source-language summaries, source localization, or hard gates. |
 | Batch R | planned | Share proof coverage across exploration siblings. | Mixed runtime/source cases converge with bounded duplicate reads and smaller context while preserving source citations. |
+| Batch S | planned | Add origin-aware runtime-only source navigation suppression. | Trace/log artifact-only tasks with no current-source obligation skip repo_map/localizer blocking floors and user-facing source supplements while keeping runtime observation audit. |
+| Batch T | planned | Add trace causal projection and principal root-cause obligation. | Trace final answers surface the typed primary root cause, direct wait, causal chain, and drilldown boundaries from one compact projection. |
+| Batch U | planned | Add source inventory authority with scope classes. | Supported-language searches expose product/test/fixture/corpus/vendor/generated scope classes; absence closes only against the classes required by the typed task. |
+| Batch V | planned | Add aggregate negative-fact canonicalization and repair hints. | Empty-set and no-hit searches converge through one canonical schema path without repeated dimension repair loops. |
 | Batch J | planned | Re-run the representative batch and refresh this ledger. | At least the original 6 cases are re-run; remaining failures identify new architecture gaps rather than repeated schema/noise loops. |
 
 ## Test Matrix
@@ -179,6 +187,24 @@ roles from many raw trace rows.
   observation-only behavior.
 - Unit: `external_only_log` / `external_only_trace` waiver is ignored when the
   typed current-source lane is required and no current-source coverage exists.
+- Unit: read localizer follow-up demotes navigation-only debt after owner
+  evidence coverage, while explicit missing owner paths still block.
+- Unit: pre-finalize Tier-1 floor proceeds when current-source owner evidence
+  exists and only repo_map lens debt remains.
+- Unit: final answer mutation still stamps repo_map navigation coverage for
+  audit, but does not stamp a blocking localizer follow-up after owner evidence.
+- Unit: runtime-artifact-only trace tasks do not require repo_map/localizer
+  coverage when the typed request model has no current-source obligation.
+- Unit: trace causal projection binds a single primary root-cause node, direct
+  wait node, ordered causal chain, and drilldown boundary from structured
+  trace observations.
+- Unit: source inventory reports scope classes for product, test, fixture,
+  corpus, vendor, generated, config, and workflow files across supported
+  languages.
+- Unit: absence answers cannot close if the typed source inventory finds
+  matching files inside a required source-scope class.
+- Unit: negative search / negative observation / exact empty member-set facts
+  are canonicalized without requiring model prose repair loops.
 - Eval: `arkts_repomap` no longer loops on empty set shape.
 - Eval: `qf_relation_subagent_registry` converges without repeated identical
   relation support downgrade.
@@ -304,3 +330,30 @@ roles from many raw trace rows.
   stale navigation debt, requested-dimension coverage drift, runtime language
   metadata hygiene, and sibling proof sharing are tracked as RNE-C17 through
   RNE-C20 for the next batches.
+- 2026-06-20 Batch O delivered: read localizer follow-up derivation now treats
+  navigation-only repo_map lens debt as advisory once the same TurnA artifacts
+  contain typed owner-level current-source evidence. Explicit
+  `MissingPaths` / `OwnerMissingPaths` remain blocking, and repo_map navigation
+  coverage is still stamped on the answer document for audit. This keeps the
+  useful coverage ledger while preventing post-completion "verification not
+  stable enough" requeues caused only by a stale missing lens. Focused
+  `internal/types`, `internal/orchestrator`, and `internal/tool` tests passed;
+  full regression and representative eval rerun follow this ledger update.
+- 2026-06-20 Batch O verification: focused
+  `go test ./internal/types ./internal/orchestrator ./internal/tool -run
+  'ReadLocalizerFollowup|CheckTier1Floor_ReadLocalizer|ApplyAndPersistMutation_.*Localizer|ApplyAndPersistMutation_DemotesNavigationOnly'`
+  passed, and full `go test ./...` passed. The six-case representative rerun
+  is recorded in
+  `eval/convergence_audit_summary_20260620_batch2_after_batch_o.md`: 4/6 cases
+  passed. `read_combo_log_current_code_dimensions` improved from
+  24 reads / 4 repo_map / 56 explorer iterations / 18 midloop injections to
+  11 reads / 1 repo_map / 11 explorer iterations / 7 midloop injections, and
+  the pre-finalize localizer requeue no longer appeared for that case. The
+  rerun exposed four broader gaps now tracked as RNE-C21 through RNE-C24:
+  runtime-only trace tasks still received source navigation debt,
+  trace root-cause rank was not first-class in the final answer, ArkTS source
+  inventory falsely answered absence despite in-repo `.ets` corpus files, and
+  empty/negative aggregate facts still produced schema repair churn. Noise
+  remains the highest priority, but these non-noise gaps are part of the same
+  commercial delivery ledger and will be fixed in separate typed-authority
+  batches rather than as eval-specific patches.

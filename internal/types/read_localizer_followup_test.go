@@ -63,6 +63,64 @@ func TestDeriveReadLocalizerFollowupNilWhenOwnerAndNavigationCovered(t *testing.
 	}
 }
 
+func TestDeriveReadLocalizerFollowupDemotesNavigationOnlyAfterOwnerCoverage(t *testing.T) {
+	review := SourceLocalizationReviewFromTurnA(
+		[]string{"pkg/owner.py", "pkg/nearby.py"},
+		[]EvidenceItem{{
+			ID:              "ev-owner",
+			Kind:            EvidenceMechanism,
+			Scope:           ScopeLine,
+			Source:          "pkg/owner.py",
+			LineStart:       42,
+			Subject:         "Owner.Handle",
+			GroundingStatus: GroundingGrounded,
+			GroundingTier:   TierLineText,
+		}},
+	)
+	coverage := RepoMapNavigationCoverage{
+		State:          RepoMapNavigationCoverageMissing,
+		ReasonCode:     "repo_map_navigation_missing",
+		RequiredRoutes: []RepoMapNavigationRoute{RepoMapNavigationRouteFileMap},
+		MissingRoutes:  []RepoMapNavigationRoute{RepoMapNavigationRouteFileMap},
+	}
+
+	if got := DeriveReadLocalizerFollowup(&review, &coverage); got != nil {
+		t.Fatalf("navigation-only debt should be advisory after owner evidence coverage: %+v", got)
+	}
+}
+
+func TestDeriveReadLocalizerFollowupKeepsExplicitMissingOwner(t *testing.T) {
+	review := NormalizeSourceLocalizationReview(SourceLocalizationReview{
+		Status:              SourceLocalizationWeak,
+		SourcePaths:         []string{"pkg/owner.py", "pkg/missing.py"},
+		OwnerSupportedPaths: []string{"pkg/owner.py"},
+		OwnerMissingPaths:   []string{"pkg/missing.py"},
+		Anchors: []SourceLocalizationAnchor{{
+			Path:        "pkg/owner.py",
+			Strength:    SourceLocalizationAnchorOwner,
+			Kind:        SourceLocalizationAnchorGroundedEvidence,
+			OwnerSymbol: "Owner.Handle",
+		}},
+	})
+	coverage := RepoMapNavigationCoverage{
+		State:          RepoMapNavigationCoverageMissing,
+		ReasonCode:     "repo_map_navigation_missing",
+		RequiredRoutes: []RepoMapNavigationRoute{RepoMapNavigationRouteFileMap},
+		MissingRoutes:  []RepoMapNavigationRoute{RepoMapNavigationRouteFileMap},
+	}
+
+	got := DeriveReadLocalizerFollowup(&review, &coverage)
+	if got == nil {
+		t.Fatal("explicit missing owner path should remain a follow-up")
+	}
+	if got.ReasonCode != "read_localizer_owner_and_navigation_missing" {
+		t.Fatalf("explicit owner gap should preserve blocking reason, got %+v", got)
+	}
+	if strings.Join(got.CandidatePaths, ",") != "pkg/missing.py,pkg/owner.py" {
+		t.Fatalf("candidate paths should preserve explicit missing owner first, got %+v", got.CandidatePaths)
+	}
+}
+
 func containsRepoMapRouteForLocalizer(routes []RepoMapNavigationRoute, want RepoMapNavigationRoute) bool {
 	for _, route := range routes {
 		if route == want {

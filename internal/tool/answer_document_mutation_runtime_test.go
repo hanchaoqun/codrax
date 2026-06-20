@@ -207,6 +207,51 @@ func TestApplyAndPersistMutation_StampsReadLocalizerFollowupFromTypedAuthorities
 	}
 }
 
+func TestApplyAndPersistMutation_DemotesNavigationOnlyFollowupAfterOwnerEvidence(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{Intent: types.IntentTrace},
+	}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"pkg/handler.py", "pkg/nearby.py"},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev-owner",
+			Kind:            types.EvidenceMechanism,
+			Scope:           types.ScopeLine,
+			Source:          "pkg/handler.py",
+			LineStart:       12,
+			Subject:         "Handler.Dispatch",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			OwnerSymbol:     "Handler.Dispatch",
+		}},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "answer"},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil {
+		t.Fatal("answer document not persisted")
+	}
+	if got.ReadNavigationCoverage == nil || got.ReadNavigationCoverage.State == types.RepoMapNavigationCoverageNotRequired {
+		t.Fatalf("navigation coverage should still be stamped for audit: %+v", got.ReadNavigationCoverage)
+	}
+	if got.ReadLocalizerFollowup != nil {
+		t.Fatalf("navigation-only follow-up should be advisory after owner evidence: %+v", got.ReadLocalizerFollowup)
+	}
+}
+
 func TestApplyAndPersistMutation_StampsReadReasoningGraphSummary(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.TraceID = "trace-read-summary"
