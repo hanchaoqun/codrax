@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,16 +29,27 @@ import (
 // Ceilings may only RATCHET DOWN as the subsystem is decomposed (the
 // convergence target is reconcile.go <= 1500). A file that grows past its
 // ceiling fails the build: extract code into a concern sub-file / the bounded
-// execution kernel instead of accreting here. A NEW source_inventory_*.go file
-// gets the strict default ceiling so the cluster cannot grow a fresh god-file.
+// execution kernel instead of accreting here. A NEW cluster file must add an
+// explicit ceiling below so it cannot inherit broad default slack unnoticed.
 var sourceInventoryFileLOCCeiling = map[string]int{
-	"source_inventory_reconcile.go":         5236,
-	"source_inventory_observation.go":       645,
-	"source_inventory_universe_coverage.go": 644,
-	"source_inventory_profile.go":           229,
-	"source_inventory_advisory.go":          223,
-	"source_inventory_exec_budget.go":       141,
-	"source_inventory_scope.go":             117,
+	"source_inventory_reconcile.go":                 3928,
+	"source_inventory_render.go":                    1308,
+	"source_inventory_render_paging.go":             17,
+	"source_inventory_symbol_sort.go":               38,
+	"source_inventory_universe_coverage.go":         644,
+	"source_inventory_exec_budget.go":               120,
+	"source_inventory_language_census.go":           170,
+	"sourceinventory/budget.go":                     233,
+	"sourceinventory/execution_view.go":             162,
+	"../types/source_inventory_absence.go":          190,
+	"../types/source_inventory_advisory.go":         212,
+	"../types/source_inventory_advisory_label.go":   18,
+	"../types/source_inventory_advisory_total.go":   11,
+	"../types/source_inventory_language_census.go":  75,
+	"../types/source_inventory_observation.go":      490,
+	"../types/source_inventory_observation_page.go": 41,
+	"../types/source_inventory_profile.go":          229,
+	"../types/source_inventory_scope.go":            117,
 }
 
 const sourceInventoryNewFileLOCCeiling = 1500
@@ -45,19 +57,28 @@ const sourceInventoryNewFileLOCCeiling = 1500
 func sourceInventoryClusterFiles(t *testing.T) []string {
 	t.Helper()
 	var files []string
-	for _, dir := range []string{".", "../types"} {
+	for _, dir := range []string{".", "../types", "sourceinventory"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatalf("readdir %s: %v", dir, err)
 		}
 		for _, e := range entries {
 			n := e.Name()
-			if strings.HasPrefix(n, "source_inventory") && strings.HasSuffix(n, ".go") && !strings.HasSuffix(n, "_test.go") {
+			if !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+				continue
+			}
+			if dir == "sourceinventory" || strings.HasPrefix(n, "source_inventory") {
 				files = append(files, filepath.Join(dir, n))
 			}
 		}
 	}
+	sort.Strings(files)
 	return files
+}
+
+func sourceInventoryClusterFileKey(path string) string {
+	key := filepath.ToSlash(filepath.Clean(path))
+	return strings.TrimPrefix(key, "./")
 }
 
 // Clause A — LOC-ceiling ratchet. Stops the +423/commit god-file accretion.
@@ -68,14 +89,27 @@ func TestSourceInventoryConvergence_LOCCeilingRatchet(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		loc := strings.Count(string(data), "\n") // newline count == wc -l for newline-terminated Go files
-		base := filepath.Base(path)
-		ceiling, known := sourceInventoryFileLOCCeiling[base]
+		key := sourceInventoryClusterFileKey(path)
+		ceiling, known := sourceInventoryFileLOCCeiling[key]
 		if !known {
 			ceiling = sourceInventoryNewFileLOCCeiling
 		}
 		if loc > ceiling {
 			t.Errorf("%s is %d LOC, over its convergence ceiling %d. The source-inventory convergence target is to SHRINK this cluster (reconcile.go -> <=1500): extract code into a concern sub-file or the bounded execution kernel instead of growing it. If a growth is genuinely unavoidable, raise the ceiling here DELIBERATELY (never silently) — it is a ratchet, meant to fall.", path, loc, ceiling)
 		}
+	}
+}
+
+func TestSourceInventoryConvergence_AllClusterFilesHaveExplicitLOCCeilings(t *testing.T) {
+	var missing []string
+	for _, path := range sourceInventoryClusterFiles(t) {
+		key := sourceInventoryClusterFileKey(path)
+		if _, ok := sourceInventoryFileLOCCeiling[key]; !ok {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("source-inventory cluster file(s) missing explicit LOC ceilings; add deliberate ceilings instead of inheriting broad default slack:\n  %s", strings.Join(missing, "\n  "))
 	}
 }
 
@@ -87,16 +121,8 @@ const sourceInventoryZeroBudgetLiteralCeiling = 0
 func TestSourceInventoryConvergence_NoNewKernelBypass(t *testing.T) {
 	fset := token.NewFileSet()
 	count := 0
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("readdir: %v", err)
-	}
-	for _, e := range entries {
-		n := e.Name()
-		if !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
-			continue
-		}
-		f, perr := parser.ParseFile(fset, n, nil, 0)
+	for _, path := range sourceInventoryClusterFiles(t) {
+		f, perr := parser.ParseFile(fset, path, nil, 0)
 		if perr != nil {
 			continue
 		}
@@ -104,6 +130,25 @@ func TestSourceInventoryConvergence_NoNewKernelBypass(t *testing.T) {
 	}
 	if count > sourceInventoryZeroBudgetLiteralCeiling {
 		t.Errorf("found %d zero-value sourceInventoryExecBudget{} literal(s) (unbudgeted kernel bypass), over the ratchet ceiling %d. Route candidate construction through the bounded execution kernel (sourceInventoryExecBudgetForLens); do NOT add a new unbudgeted bypass — the target is 0.", count, sourceInventoryZeroBudgetLiteralCeiling)
+	}
+}
+
+func TestSourceInventoryConvergence_ClusterIncludesKernelSubpackage(t *testing.T) {
+	files := sourceInventoryClusterFiles(t)
+	seen := map[string]bool{}
+	for _, path := range files {
+		seen[sourceInventoryClusterFileKey(path)] = true
+	}
+	for _, want := range []string{
+		"sourceinventory/budget.go",
+		"sourceinventory/execution_view.go",
+	} {
+		if !seen[want] {
+			t.Fatalf("source-inventory cluster tripwire did not scan %s; kernel files must not escape LOC/bypass/taxonomy ratchets", want)
+		}
+		if _, ok := sourceInventoryFileLOCCeiling[want]; !ok {
+			t.Fatalf("source-inventory cluster tripwire scans %s but has no explicit LOC ceiling", want)
+		}
 	}
 }
 

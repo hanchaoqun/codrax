@@ -54,6 +54,16 @@ Current calibrated facts after SIC-4:
   consume paths preserve accepted-evidence refs without rendering them into
   retry prose.
 
+Current calibrated facts after SIC-5:
+
+- Source-inventory convergence tripwire scans `internal/tool`,
+  `internal/types`, and `internal/tool/sourceinventory`.
+- `sourceinventory/budget.go` and `sourceinventory/execution_view.go` have
+  explicit LOC ceilings.
+- Every current cluster file must have an explicit LOC ceiling; new files can
+  no longer inherit broad default slack silently.
+- `source_inventory_reconcile.go` ceiling is ratcheted down to 3928 LOC.
+
 ## Gap List
 
 | ID | Priority | Gap | Current evidence | Target state |
@@ -62,7 +72,7 @@ Current calibrated facts after SIC-4:
 | SIC-2 | MEDIUM | Execution kernel is wired but not fully load-bearing for absence safety. | Delivered: exact-absence predicates now consume complete source-class, observation/page, and execution budget state; Go string-enum special path uses the budgeted execution view. | Keep new source-inventory hot paths on `sourceinventory.ExecutionView`/`Budget` and reject confident absence from partial views. |
 | SIC-3 | MEDIUM | Proof ledger derivation is lane-neutral, but read consumption remains split. | Delivered: `ReadProofGuidance` is the read-side consumer view over `ProofSnapshot`; retry checkpoints and parallel lane handoff consume the same authority. | Continue to keep weak/missing/unavailable proof advisory-only; only failed truth can become hard blocking. Preserve read-mode L1. |
 | SIC-4 | MEDIUM | Repair carrier is unified for result lanes, but demand-side repair lacked accepted evidence IDs. | Delivered: `RepairDirective` carries bounded accepted-evidence refs; `AppendEvidence` mirrors accepted evidence into `EvidenceClosure`; repair clone/merge/dedupe paths preserve refs without rendering them. | Keep demand-side repair and result-side `ToolHandoffCarrier` separate; consume typed refs in downstream handoff/status/report surfaces without parsing prose. |
-| SIC-5 | HIGH | Source-inventory convergence tripwire has coverage and slack holes. | `sourceInventoryClusterFiles` scans only `internal/tool` and `internal/types`; `internal/tool/sourceinventory/` is outside the LOC ratchet. `source_inventory_reconcile.go` ceiling is 5236 while actual is 5211. | Expand tripwire scan to `internal/tool/sourceinventory`; add explicit ceilings for `budget.go` and `execution_view.go`; ratchet stale ceilings down to current LOC. |
+| SIC-5 | HIGH | Source-inventory convergence tripwire had coverage and slack holes. | Delivered: `sourceInventoryClusterFiles` scans `internal/tool/sourceinventory`; kernel files have explicit ceilings; all current cluster files require explicit ceilings; `source_inventory_reconcile.go` ceiling is 3928. | Keep adding deliberate ceilings for new cluster files and ratchet down as concerns move into smaller kernels. |
 | SIC-6 | HIGH | RNE tracker still has open high-water/noise gaps not covered by SIC-1..SIC-5. | Tracker still mentions RNE-C47/C48, RNE-C1/C4/C6/C12, RNE-C15, RNE-C65, and explorer high-water around 42. | Add a tracker disposition layer: classify each remaining RNE as closed by SIC work, superseded by a kernel, or still open with a concrete owner batch. High-water/runaway signals must become explicit eval/status telemetry, not scattered prose. |
 
 ## Delivery Order
@@ -132,11 +142,13 @@ Current calibrated facts after SIC-4:
 
 ### SIC-5 Tripwire Coverage
 
-- Expand `sourceInventoryClusterFiles` to scan `internal/tool/sourceinventory`.
-- Add ceilings for `budget.go` and `execution_view.go`.
-- Ratchet `source_inventory_reconcile.go` ceiling to current or lower after
-  SIC-1.
-- Add a test path assertion so future kernel files cannot silently escape.
+- Delivered: expanded `sourceInventoryClusterFiles` to scan
+  `internal/tool/sourceinventory`.
+- Delivered: added explicit ceilings for `sourceinventory/budget.go` and
+  `sourceinventory/execution_view.go`.
+- Delivered: ratcheted `source_inventory_reconcile.go` ceiling to 3928.
+- Delivered: added assertions that current cluster files all have explicit LOC
+  ceilings and that kernel subpackage files are scanned.
 
 ### SIC-6 RNE Tracker Disposition
 
@@ -169,5 +181,5 @@ Current calibrated facts after SIC-4:
 | SIC-2 exec kernel absence safety | delivered | Added `internal/types/source_inventory_absence.go`; source-inventory exact absence now blocks on incomplete source-class universe, incomplete observation, incomplete page, or `CandidateBudgetTruncated`. Pre-emit and contract twin gates share the same typed authority. Go string-enum candidate special path now uses a budgeted execution view and carries truncation. Focused source-inventory/absence tests passed, LOC ratchet passed, and full `go test ./...` passed. |
 | SIC-3 proof consumption | delivered | Added `loopkernel.ReadProofGuidance`; weak read proof renders as `mode=advisory` in retry checkpoints and does not hard-block. Parallel lane handoff now consumes the same guidance view. Focused proof/retry tests passed and full `go test ./...` passed. |
 | SIC-4 repair accepted evidence | delivered | Added demand-side accepted-evidence carrier to `RepairDirective`; `MutableState.AppendEvidence` seeds `EvidenceClosure`; `AddRepair` snapshots refs and duplicate repair merge preserves them. Focused `go test ./internal/types -run 'Test(MergeRepairs_MergesAcceptedEvidenceCarrier|RepairDirectiveRender_DoesNotRenderAcceptedEvidenceCarrier|EvidenceClosure_AddRepairCarriesAcceptedEvidenceSnapshot|MutableStateAppendEvidenceSeedsRepairAcceptedEvidence|EvidenceClosure_ExploreForkMergeDoesNotDuplicateBaselineEvents|AddRepair_ReadFile_MirrorsToPendingReads|ConsumeRepairs_RetainsLivePendingReadRepairs)$'` passed; full `go test ./internal/types` passed. |
-| SIC-5 tripwire coverage | pending |  |
+| SIC-5 tripwire coverage | delivered | Expanded source-inventory convergence tripwire to `sourceinventory/`, added explicit kernel ceilings, required explicit ceilings for every current cluster file, and lowered `source_inventory_reconcile.go` ceiling to 3928. Focused `go test ./internal/tool -run 'TestSourceInventoryConvergence'` passed. |
 | SIC-6 tracker disposition | pending |  |
