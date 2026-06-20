@@ -1,0 +1,28 @@
+# Repomap — Cangjie enumeration on an ISOLATED .cj fixture
+#
+# Companion to cangjie_repomap.case. That case runs against the codrax
+# repo itself (--repo .), where the only .cj files are the thirdparty
+# tree-sitter corpus and the request keywords (extend / foreign func /
+# public class) collide with codrax's own Go parser — so it exercises
+# the source-discovery / RNE-C53 path. THIS case instead delivers the
+# PR-0c fixture that case always referenced but never shipped
+# (eval/fixtures/testdata/cangjie_minimal/), so the Cangjie parser is
+# exercised on real .cj source files in a clean repo with no grep noise.
+#
+# Fixture layout (covers func / class / struct / extend / foreign):
+#   main.cj          package demo.app    — public class App + main entry
+#   cart/Cart.cj     package demo.cart   — public struct Item, public class
+#                                          Cart, extend Cart { ... }
+#   bridge/Bridge.cj package demo.bridge — foreign func native_add,
+#                                          public class Bridge
+#
+# Ground truth pinned by the grader: the `extend` block, the foreign func
+# `native_add`, and at least one of the demo.* package declarations must
+# all surface — a vague "Cangjie supports OOP" answer fails.
+ID="cangjie_repomap_fixture"
+NAME="repomap Cangjie extend + foreign func + public class on isolated .cj fixture"
+FIXTURE="eval/fixtures/testdata/cangjie_minimal"
+QUESTION="仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？分别列出文件路径和符号名，并指出包路径（package 声明）。"
+EXPECT_CONTAINS="extend native_add"
+EXPECT_SECTIONS="package"
+EXPECT_MATCHES_TEXT_REGEX='demo\.(app|cart|bridge)'
