@@ -29,7 +29,31 @@ type SourceInventoryObservation struct {
 	Provenance    []string                          `json:"provenance,omitempty"`
 	Lens          []string                          `json:"lens,omitempty"`
 	SourceClasses []SourceInventorySourceClassCount `json:"source_classes,omitempty"`
+	Page          *SourceInventoryObservationPage   `json:"page,omitempty"`
+	Execution     *SourceInventoryExecutionState    `json:"execution,omitempty"`
 	Sets          []SourceInventoryObservationSet   `json:"sets,omitempty"`
+}
+
+// SourceInventoryObservationPage is the typed pagination companion for a
+// source-inventory lens result. It mirrors the model-facing cursor/offset view
+// without requiring downstream gates or status cards to parse rendered
+// markdown.
+type SourceInventoryObservationPage struct {
+	Offset     int    `json:"offset,omitempty"`
+	Limit      int    `json:"limit,omitempty"`
+	Total      int    `json:"total,omitempty"`
+	Emitted    int    `json:"emitted,omitempty"`
+	NextCursor string `json:"next_cursor,omitempty"`
+	Complete   bool   `json:"complete,omitempty"`
+}
+
+// SourceInventoryExecutionState records deterministic execution budget state
+// for a source-inventory observation. It is operational/coverage metadata, not
+// semantic answer text.
+type SourceInventoryExecutionState struct {
+	Budgeted                 bool `json:"budgeted,omitempty"`
+	CandidateBudgetTruncated bool `json:"candidate_budget_truncated,omitempty"`
+	AttributesDeferred       bool `json:"attributes_deferred,omitempty"`
 }
 
 // SourceInventorySourceClassCount is the source-class universe matrix attached
@@ -291,6 +315,8 @@ func CloneSourceInventoryObservation(in SourceInventoryObservation) SourceInvent
 	out.Provenance = append([]string(nil), in.Provenance...)
 	out.Lens = append([]string(nil), in.Lens...)
 	out.SourceClasses = cloneSourceInventorySourceClassCounts(in.SourceClasses)
+	out.Page = cloneSourceInventoryObservationPage(in.Page)
+	out.Execution = cloneSourceInventoryExecutionState(in.Execution)
 	if in.Sets != nil {
 		out.Sets = make([]SourceInventoryObservationSet, len(in.Sets))
 		for i, set := range in.Sets {
@@ -317,6 +343,10 @@ func MergeSourceInventoryObservation(prior, current SourceInventoryObservation) 
 	merged.Provenance = mergeSourceInventoryAdvisoryStrings(merged.Provenance, current.Provenance)
 	merged.Lens = mergeSourceInventoryAdvisoryStrings(merged.Lens, current.Lens)
 	merged.SourceClasses = mergeSourceInventorySourceClassCounts(merged.SourceClasses, current.SourceClasses)
+	if current.Page != nil {
+		merged.Page = cloneSourceInventoryObservationPage(current.Page)
+	}
+	merged.Execution = mergeSourceInventoryExecutionState(merged.Execution, current.Execution)
 	byRole := make(map[AnswerCandidateRole]int, len(merged.Sets))
 	for i := range merged.Sets {
 		byRole[merged.Sets[i].Role] = i
@@ -350,6 +380,36 @@ func normalizeSourceInventoryObservation(in SourceInventoryObservation) SourceIn
 		in.Sets[i].Count = len(in.Sets[i].Members)
 	}
 	return in
+}
+
+func cloneSourceInventoryObservationPage(in *SourceInventoryObservationPage) *SourceInventoryObservationPage {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
+}
+
+func cloneSourceInventoryExecutionState(in *SourceInventoryExecutionState) *SourceInventoryExecutionState {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
+}
+
+func mergeSourceInventoryExecutionState(existing, incoming *SourceInventoryExecutionState) *SourceInventoryExecutionState {
+	if existing == nil {
+		return cloneSourceInventoryExecutionState(incoming)
+	}
+	if incoming == nil {
+		return cloneSourceInventoryExecutionState(existing)
+	}
+	return &SourceInventoryExecutionState{
+		Budgeted:                 existing.Budgeted || incoming.Budgeted,
+		CandidateBudgetTruncated: existing.CandidateBudgetTruncated || incoming.CandidateBudgetTruncated,
+		AttributesDeferred:       existing.AttributesDeferred || incoming.AttributesDeferred,
+	}
 }
 
 func cloneSourceInventorySourceClassCounts(in []SourceInventorySourceClassCount) []SourceInventorySourceClassCount {

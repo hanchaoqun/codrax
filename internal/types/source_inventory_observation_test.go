@@ -57,6 +57,16 @@ func TestSourceInventoryObservation_CloneAndMergePreservesCountInvariant(t *test
 		AdvisoryOnly: true,
 		Complete:     true,
 		Lens:         []string{"members"},
+		Page: &SourceInventoryObservationPage{
+			Offset:     0,
+			Limit:      1,
+			Total:      2,
+			Emitted:    1,
+			NextCursor: "1",
+		},
+		Execution: &SourceInventoryExecutionState{
+			AttributesDeferred: true,
+		},
 		Sets: []SourceInventoryObservationSet{{
 			Role:     AnswerCandidateRoleFunction,
 			Complete: true,
@@ -75,6 +85,17 @@ func TestSourceInventoryObservation_CloneAndMergePreservesCountInvariant(t *test
 		AdvisoryOnly: true,
 		Complete:     true,
 		Lens:         []string{"count"},
+		Page: &SourceInventoryObservationPage{
+			Offset:     10,
+			Limit:      5,
+			Total:      20,
+			Emitted:    5,
+			NextCursor: "15",
+		},
+		Execution: &SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
 		Sets: []SourceInventoryObservationSet{{
 			Role:     AnswerCandidateRoleFunction,
 			Complete: true,
@@ -98,6 +119,17 @@ func TestSourceInventoryObservation_CloneAndMergePreservesCountInvariant(t *test
 	}
 	if len(merged.Lens) != 2 || merged.Lens[0] != "members" || merged.Lens[1] != "count" {
 		t.Fatalf("merge lens order = %+v", merged.Lens)
+	}
+	if merged.Page == nil || merged.Page.NextCursor != "15" || merged.Page.Total != 20 {
+		t.Fatalf("merge should preserve the latest typed page state: %+v", merged.Page)
+	}
+	if merged.Execution == nil || !merged.Execution.Budgeted || !merged.Execution.CandidateBudgetTruncated {
+		t.Fatalf("merge should preserve typed execution budget state: %+v", merged.Execution)
+	}
+	cloned.Page.NextCursor = "mutated"
+	cloned.Execution = &SourceInventoryExecutionState{}
+	if prior.Page == nil || prior.Page.NextCursor != "1" || prior.Execution == nil || !prior.Execution.AttributesDeferred {
+		t.Fatalf("clone mutation leaked into prior observation: page=%+v execution=%+v", prior.Page, prior.Execution)
 	}
 }
 

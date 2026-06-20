@@ -1382,3 +1382,23 @@ roles from many raw trace rows.
   member. Remaining RNE-C65 follow-up: extend the projection with a typed
   observation carrier if future logs show useful prescan candidates hidden
   behind blob-only raw refs.
+- 2026-06-20 Batch U9r delivered a second RNE-C47/RNE-C48 execution-kernel
+  slice. `SourceInventoryObservation` now carries typed `page` and `execution`
+  metadata: offset, limit, total, emitted rows, `next_cursor`, page completeness,
+  budgeted execution, candidate-budget truncation, and broad-attribute deferral.
+  The metadata is attached at lens construction time and preserved by
+  clone/merge/MutableState handoff, so future gates/status cards/ReasoningGraph
+  projections do not need to parse rendered markdown for `next_cursor` or
+  budget truncation. Renderer pagination still uses its call-time query, so
+  existing `top_n`/`cursor` model-facing behavior is preserved. Focused
+  validation passed:
+  `go test ./internal/types -run
+  'TestSourceInventoryObservation_CloneAndMergePreservesCountInvariant|TestSourceInventoryObservation_ClassUniverseCanBeActiveWithoutMemberRows'`,
+  `go test ./internal/tool -run
+  'TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterialization|TestSourceInventoryCandidateBudgetDeadlineTruncatesFileScan|TestSourceInventoryCandidateBudgetCountsScopedQueryMisses'`,
+  and `go test ./internal/tool/repomap -run
+  'TestRepoMapSourceInventoryBroadNavigationLensIsBoundedBeforeReconcile|TestRepoMapSourceInventoryBroadRootBudgetGuard'`.
+  Remaining RNE-C47/RNE-C48 follow-up: move candidate construction into a
+  dedicated execution-kernel package with explicit cancellation checkpoints
+  shared by file/config/package/graph candidates, then have scheduler/status
+  consume typed page/execution state instead of text advisories.

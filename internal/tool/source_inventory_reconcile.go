@@ -480,8 +480,10 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 	// can mislead the model into treating navigation hints as the answer set.
 	renderObservation := types.SourceInventoryObservationFromAdvisory(advisory)
 	renderObservation = sourceInventoryObservationWithSourceClassUniverse(ctx, renderObservation, query)
+	renderObservation = sourceInventoryObservationWithLensExecutionState(renderObservation, query)
 	if exact := sourceInventoryObservationFromLensDirectChildren(ctx, query); exact.IsActive() {
 		exact = sourceInventoryObservationWithSourceClassUniverse(ctx, exact, query)
+		exact = sourceInventoryObservationWithLensExecutionState(exact, query)
 		current := ctx.Mutable.SourceInventoryObservation()
 		if current.IsActive() {
 			exact = types.MergeSourceInventoryObservation(current, exact)
@@ -515,6 +517,76 @@ func sourceInventoryObservationWithSourceClassUniverse(ctx *types.BusContext, ob
 // authority while still refusing or bounding over-broad navigation shapes.
 func AttachSourceInventorySourceClassUniverse(ctx *types.BusContext, observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) types.SourceInventoryObservation {
 	return sourceInventoryObservationWithSourceClassUniverse(ctx, observation, query)
+}
+
+// AttachSourceInventoryLensExecutionState adds typed pagination and deterministic
+// budget metadata to a source-inventory observation. The information mirrors
+// the current lens query and is intended for status cards, ledgers, and gates;
+// renderers still use the query they are called with for visible pagination.
+func AttachSourceInventoryLensExecutionState(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) types.SourceInventoryObservation {
+	return sourceInventoryObservationWithLensExecutionState(observation, query)
+}
+
+func sourceInventoryObservationWithLensExecutionState(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) types.SourceInventoryObservation {
+	if !observation.IsActive() {
+		return observation
+	}
+	out := types.CloneSourceInventoryObservation(observation)
+	budgetTruncated := sourceInventoryStringSliceContains(out.Provenance, "repo_lens:candidate_budget_truncated")
+	attributesDeferred := sourceInventoryStringSliceContains(out.Provenance, "repo_lens:attributes_deferred_broad_scope")
+	if budgetTruncated || attributesDeferred {
+		out.Execution = &types.SourceInventoryExecutionState{
+			Budgeted:                 budgetTruncated,
+			CandidateBudgetTruncated: budgetTruncated,
+			AttributesDeferred:       attributesDeferred,
+		}
+	}
+	total := sourceInventoryObservationMemberTotal(out)
+	if total == 0 {
+		return out
+	}
+	limit := sourceInventoryObservationPageLimit(query)
+	offset := sourceInventoryLensQueryOffset(query)
+	if offset > total {
+		offset = total
+	}
+	emitted := 0
+	if limit > 0 && offset < total {
+		emitted = minInt(limit, total-offset)
+	}
+	nextCursor := ""
+	if offset+emitted < total {
+		nextCursor = strconv.Itoa(offset + emitted)
+	}
+	out.Page = &types.SourceInventoryObservationPage{
+		Offset:     offset,
+		Limit:      limit,
+		Total:      total,
+		Emitted:    emitted,
+		NextCursor: nextCursor,
+		Complete:   nextCursor == "" && !budgetTruncated,
+	}
+	return out
+}
+
+func sourceInventoryObservationMemberTotal(observation types.SourceInventoryObservation) int {
+	total := 0
+	for _, set := range observation.Sets {
+		total += len(set.Members)
+	}
+	return total
+}
+
+func sourceInventoryObservationPageLimit(query types.SourceInventoryLensQuery) int {
+	if query.TopN > 0 {
+		return query.TopN
+	}
+	if query.RepoFileCount > 0 {
+		if tiered := repotypes.DefaultTopN("source_inventory", repotypes.RepoSizeTier(query.RepoFileCount)); tiered > 0 {
+			return tiered
+		}
+	}
+	return sourceInventoryCandidateBudgetDefaultTopN
 }
 
 func sourceInventorySourceClassUniverseForLens(ctx *types.BusContext, query types.SourceInventoryLensQuery) []types.SourceInventorySourceClassCount {

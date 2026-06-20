@@ -401,6 +401,12 @@ func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterial
 	if !sourceInventoryStringSliceContains(obs.Provenance, "repo_lens:candidate_budget_truncated") {
 		t.Fatalf("budget-truncated observation should carry typed provenance: %+v", obs.Provenance)
 	}
+	if obs.Execution == nil || !obs.Execution.Budgeted || !obs.Execution.CandidateBudgetTruncated {
+		t.Fatalf("budget-truncated observation should carry typed execution state: %+v", obs.Execution)
+	}
+	if obs.Page == nil || obs.Page.Total != wantLimit || obs.Page.Limit != 50 || obs.Page.NextCursor != "50" || obs.Page.Complete {
+		t.Fatalf("budget-truncated observation should carry typed page cursor state: %+v", obs.Page)
+	}
 	rendered := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
 		Path:          ".",
 		Scopes:        []string{"."},

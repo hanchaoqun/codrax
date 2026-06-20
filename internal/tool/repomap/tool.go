@@ -941,6 +941,7 @@ func repoMapSourceInventoryMaybeBoundBroadNavigationLens(ctx *ctypes.BusContext,
 		}
 	}
 	observation = tool.AttachSourceInventorySourceClassUniverse(ctx, observation, guardedQuery)
+	observation = tool.AttachSourceInventoryLensExecutionState(observation, guardedQuery)
 	if current := ctx.Mutable.SourceInventoryObservation(); current.IsActive() {
 		ctx.Mutable.SetSourceInventoryObservation(ctypes.MergeSourceInventoryObservation(current, observation))
 	} else {
