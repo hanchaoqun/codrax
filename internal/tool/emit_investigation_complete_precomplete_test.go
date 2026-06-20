@@ -38,6 +38,47 @@ func TestCompletionAggregateFactsAreOptional_SourceOptionalRuntimeDiagnostic(t *
 	}
 }
 
+func TestCurrentSourceForcedReadGatesApply_AttachedTraceObservationOnly(t *testing.T) {
+	ctx := &types.BusContext{
+		AttachedHitrace: "app-100 (100) [001] .... 2.000000: sched_switch: prev_state=S",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+		}},
+	}
+
+	if currentSourceForcedReadGatesApply(ctx) {
+		t.Fatal("attached trace observation-only turn must not require current-source forced reads")
+	}
+}
+
+func TestCurrentSourceForcedReadGatesApply_AttachedTraceCurrentCodeDimension(t *testing.T) {
+	ctx := &types.BusContext{
+		AttachedHitrace: "app-100 (100) [001] .... 2.000000: sched_switch: prev_state=S",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label:       "current key code",
+					Role:        types.RequestedAnswerDimensionCurrentKeyCode,
+					SourceQuote: "current key code",
+					Required:    true,
+				}},
+			},
+		}},
+	}
+
+	if !currentSourceForcedReadGatesApply(ctx) {
+		t.Fatal("typed current-code dimension on an attached trace must keep current-source forced reads")
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_PendingReadsBlocks
 // is the CGEC E1 regression. When the closure has queued a
 // PendingRead the tool MUST return a downgrade message AND must NOT

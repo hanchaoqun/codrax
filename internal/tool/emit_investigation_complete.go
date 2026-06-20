@@ -6917,6 +6917,9 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return true
 	}
+	if runtimeArtifactGroundingBypassAllowed(ctx) {
+		return false
+	}
 	return ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision().RequiresCurrentSource()
 }
 

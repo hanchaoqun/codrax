@@ -88,6 +88,14 @@ type sourceInventoryQueryFilter struct {
 	Languages map[string]bool
 }
 
+type sourceInventoryScopeFilter struct {
+	ctx                          *types.BusContext
+	repositoryWideTypedQueryLane bool
+	sourceScopeProfileRequested  bool
+	sourceInventoryProfileActive bool
+	typedSourceEnumerationShape  bool
+}
+
 type sourceInventoryDiscoveryParams struct {
 	Path           string                      `json:"path,omitempty"`
 	View           string                      `json:"view,omitempty"`
@@ -2642,10 +2650,11 @@ func sourceInventoryProfileWithQueryMatchedRoles(ctx *types.BusContext, graph *r
 	if index == nil {
 		return profile, false
 	}
+	scopeFilter := newSourceInventoryScopeFilter(ctx)
 	for _, sym := range index.all {
 		if sym == nil ||
 			!sourceInventoryFileInScopes(sym.File, scopes) ||
-			!sourceInventorySourceInRequestedScope(ctx, sym.File) ||
+			!scopeFilter.SourceInRequestedScope(sym.File) ||
 			!sourceInventorySymbolMatchesQuery(sym, graph, filter) {
 			continue
 		}
@@ -2676,6 +2685,7 @@ func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Grap
 		}
 		return nil
 	}
+	scopeFilter := newSourceInventoryScopeFilter(ctx)
 	seen := map[string]bool{}
 	var scopes []string
 	for _, raw := range query.Scopes {
@@ -2687,7 +2697,7 @@ func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Grap
 		// evidence path. Keep the per-file source-scope checks at candidate
 		// construction time so tests/docs/config rows are still filtered by the
 		// typed source scope instead of by this synthetic selector.
-		if scope != "." && ctx != nil && !sourceInventorySourceInRequestedScope(ctx, scope) {
+		if scope != "." && ctx != nil && !scopeFilter.SourceInRequestedScope(scope) {
 			continue
 		}
 		seen[scope] = true
@@ -3193,6 +3203,7 @@ func sourceInventoryAppendProvenance(current string) string {
 
 func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, includeAttributes bool, rawQuery string) map[types.AnswerCandidateRole]sourceInventoryCandidateSet {
 	out := map[types.AnswerCandidateRole]sourceInventoryCandidateSet{}
+	scopeFilter := newSourceInventoryScopeFilter(ctx)
 	var symbolIndex *sourceInventoryGraphSymbolIndex
 	getSymbolIndex := func() *sourceInventoryGraphSymbolIndex {
 		if symbolIndex == nil {
@@ -3207,25 +3218,25 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 			if includeAttributes && explicitAttributeRoles {
 				attributeIndex = getSymbolIndex()
 			}
-			out[role] = sourceInventoryFileCandidates(ctx, graph, attributeIndex, scopes, profile, attributeRoles, explicitAttributeRoles)
+			out[role] = sourceInventoryFileCandidates(ctx, graph, attributeIndex, scopeFilter, scopes, profile, attributeRoles, explicitAttributeRoles)
 		case role == types.AnswerCandidateRoleConfigFile:
 			var attributeIndex *sourceInventoryGraphSymbolIndex
 			if includeAttributes && explicitAttributeRoles {
 				attributeIndex = getSymbolIndex()
 			}
-			out[role] = sourceInventoryConfigFileCandidates(ctx, graph, attributeIndex, scopes, profile, attributeRoles, explicitAttributeRoles)
+			out[role] = sourceInventoryConfigFileCandidates(ctx, graph, attributeIndex, scopeFilter, scopes, profile, attributeRoles, explicitAttributeRoles)
 		case role == types.AnswerCandidateRolePackage:
 			var attributeIndex *sourceInventoryGraphSymbolIndex
 			if includeAttributes {
 				attributeIndex = getSymbolIndex()
 			}
-			out[role] = sourceInventoryPackageCandidates(ctx, graph, attributeIndex, scopes, profile, attributeRoles, explicitAttributeRoles)
+			out[role] = sourceInventoryPackageCandidates(ctx, graph, attributeIndex, scopeFilter, scopes, profile, attributeRoles, explicitAttributeRoles)
 		case role == types.AnswerCandidateRoleType &&
 			profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
 			profile.RequiresConstSet:
 			out[role] = sourceInventoryGoStringEnumCandidates(ctx, graph, scopes, profile)
 		default:
-			out[role] = sourceInventoryGraphCandidates(ctx, graph, getSymbolIndex(), scopes, profile, role)
+			out[role] = sourceInventoryGraphCandidates(ctx, graph, getSymbolIndex(), scopeFilter, scopes, profile, role)
 		}
 		out[role] = sourceInventoryFilterCandidateSetByQuery(out[role], rawQuery)
 		if len(out[role].candidates) == 0 {
@@ -3256,7 +3267,7 @@ func sourceInventoryShouldDeferAttributesForBroadToolLens(graph *repotypes.Graph
 	return false
 }
 
-func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) sourceInventoryCandidateSet {
+func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleFile, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil {
 		return set
@@ -3267,7 +3278,7 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph
 			continue
 		}
 		file := strings.Trim(strings.TrimSpace(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
-		if file == "" || seen[file] || !sourceInventorySourceInRequestedScope(ctx, file) {
+		if file == "" || seen[file] || !scopeFilter.SourceInRequestedScope(file) {
 			continue
 		}
 		seen[file] = true
@@ -3280,14 +3291,14 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph
 			exported:   true,
 			file:       file,
 			language:   strings.TrimSpace(fi.Language),
-			attributes: sourceInventoryFileAttributes(ctx, symbolIndex, file, attributeRoles, explicitAttributeRoles),
+			attributes: sourceInventoryFileAttributes(ctx, symbolIndex, scopeFilter, file, attributeRoles, explicitAttributeRoles),
 		})
 	}
 	sourceInventorySortCandidates(set.candidates)
 	return set
 }
 
-func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) sourceInventoryCandidateSet {
+func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleConfigFile, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil {
 		return set
@@ -3298,7 +3309,7 @@ func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes
 			continue
 		}
 		file := strings.Trim(strings.TrimSpace(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
-		if file == "" || seen[file] || !sourceInventorySourceInRequestedScope(ctx, file) {
+		if file == "" || seen[file] || !scopeFilter.SourceInRequestedScope(file) {
 			continue
 		}
 		seen[file] = true
@@ -3311,14 +3322,14 @@ func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes
 			exported:   true,
 			file:       file,
 			language:   strings.TrimSpace(fi.Language),
-			attributes: sourceInventoryFileAttributes(ctx, symbolIndex, file, attributeRoles, explicitAttributeRoles),
+			attributes: sourceInventoryFileAttributes(ctx, symbolIndex, scopeFilter, file, attributeRoles, explicitAttributeRoles),
 		})
 	}
 	sourceInventorySortCandidates(set.candidates)
 	return set
 }
 
-func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) sourceInventoryCandidateSet {
+func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRolePackage, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil {
 		return set
@@ -3328,7 +3339,7 @@ func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Gr
 		if fi == nil || fi.IsSpecial || strings.TrimSpace(fi.RelPath) == "" || strings.TrimSpace(fi.Language) == "" {
 			continue
 		}
-		if !sourceInventorySourceInRequestedScope(ctx, fi.RelPath) {
+		if !scopeFilter.SourceInRequestedScope(fi.RelPath) {
 			continue
 		}
 		dir := strings.Trim(path.Dir(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
@@ -3371,7 +3382,7 @@ func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Gr
 			exported:   true,
 			file:       key,
 			language:   sourceInventoryDominantMapKey(bucket.languages),
-			attributes: sourceInventoryPackageBucketAttributes(ctx, symbolIndex, key, attributeRoles, explicitAttributeRoles),
+			attributes: sourceInventoryPackageBucketAttributes(ctx, symbolIndex, scopeFilter, key, attributeRoles, explicitAttributeRoles),
 		})
 	}
 	sourceInventorySortCandidates(set.candidates)
@@ -3383,7 +3394,7 @@ const (
 	sourceInventoryMaxExplicitAttributes = 8
 )
 
-func sourceInventoryPackageBucketAttributes(ctx *types.BusContext, symbolIndex *sourceInventoryGraphSymbolIndex, dir string, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) []sourceInventoryCandidate {
+func sourceInventoryPackageBucketAttributes(ctx *types.BusContext, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, dir string, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) []sourceInventoryCandidate {
 	if symbolIndex == nil {
 		return nil
 	}
@@ -3398,7 +3409,7 @@ func sourceInventoryPackageBucketAttributes(ctx *types.BusContext, symbolIndex *
 	seen := map[string]bool{}
 	var out []sourceInventoryCandidate
 	for _, sym := range symbolIndex.symbolsForDir(dir) {
-		if sym == nil || !sourceInventorySourceInRequestedScope(ctx, sym.File) {
+		if sym == nil || !scopeFilter.SourceInRequestedScope(sym.File) {
 			continue
 		}
 		role, ok := sourceInventoryAttributeRole(sym, attributeRoles)
@@ -3424,7 +3435,7 @@ func sourceInventoryPackageBucketAttributes(ctx *types.BusContext, symbolIndex *
 	return out
 }
 
-func sourceInventoryFileAttributes(ctx *types.BusContext, symbolIndex *sourceInventoryGraphSymbolIndex, file string, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) []sourceInventoryCandidate {
+func sourceInventoryFileAttributes(ctx *types.BusContext, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, file string, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool) []sourceInventoryCandidate {
 	if symbolIndex == nil || !explicitAttributeRoles {
 		return nil
 	}
@@ -3436,7 +3447,7 @@ func sourceInventoryFileAttributes(ctx *types.BusContext, symbolIndex *sourceInv
 	seen := map[string]bool{}
 	var out []sourceInventoryCandidate
 	for _, sym := range symbolIndex.symbolsForFile(file) {
-		if sym == nil || !sourceInventorySourceInRequestedScope(ctx, sym.File) {
+		if sym == nil || !scopeFilter.SourceInRequestedScope(sym.File) {
 			continue
 		}
 		role, ok := sourceInventoryAttributeRole(sym, attributeRoles)
@@ -3608,7 +3619,7 @@ func sourceInventoryConfigFileCandidateNote(fi *repotypes.FileInfo) string {
 	return strings.Join(parts, ", ")
 }
 
-func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopes []string, profile *types.SourceInventoryProfile, role types.AnswerCandidateRole) sourceInventoryCandidateSet {
+func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Graph, symbolIndex *sourceInventoryGraphSymbolIndex, scopeFilter sourceInventoryScopeFilter, scopes []string, profile *types.SourceInventoryProfile, role types.AnswerCandidateRole) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: role, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil || symbolIndex == nil {
 		return set
@@ -3623,7 +3634,7 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 	}
 	seen := map[string]bool{}
 	for _, sym := range symbolIndex.all {
-		if sym == nil || !sourceInventoryFileInScopes(sym.File, scopes) || !sourceInventorySourceInRequestedScope(ctx, sym.File) {
+		if sym == nil || !sourceInventoryFileInScopes(sym.File, scopes) || !scopeFilter.SourceInRequestedScope(sym.File) {
 			continue
 		}
 		candidateRole, ok := aggregateAnswerCandidateRoleForSymbol(sym)
@@ -4196,24 +4207,43 @@ func sourceInventoryFileInScopes(file string, scopes []string) bool {
 	return false
 }
 
-func sourceInventorySourceInRequestedScope(ctx *types.BusContext, source string) bool {
+func newSourceInventoryScopeFilter(ctx *types.BusContext) sourceInventoryScopeFilter {
+	filter := sourceInventoryScopeFilter{ctx: ctx}
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return true
+		return filter
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if sourceInventoryUsesRepositoryWideTypedQueryLane(ctx) {
+	filter.sourceScopeProfileRequested = rm.SourceScopeProfile != nil && rm.SourceScopeProfile.RequestedScope != ""
+	filter.sourceInventoryProfileActive = rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active()
+	filter.typedSourceEnumerationShape = types.IsTypedSourceEnumerationShape(rm)
+	if ctx.Mutable != nil && filter.typedSourceEnumerationShape {
+		advisory := ctx.Mutable.SourceInventoryAdvisory()
+		filter.repositoryWideTypedQueryLane = sourceInventoryAdvisoryUsesRepositoryRootQueryLane(ctx, advisory)
+	}
+	return filter
+}
+
+func (filter sourceInventoryScopeFilter) SourceInRequestedScope(source string) bool {
+	if filter.ctx == nil || filter.ctx.AnalysisIR == nil {
 		return true
 	}
-	if profile := rm.SourceScopeProfile; profile != nil && profile.RequestedScope != "" {
-		return aggregateEvidenceSourceInRequestedScope(ctx, source)
-	}
-	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+	if filter.repositoryWideTypedQueryLane {
 		return true
 	}
-	if types.IsTypedSourceEnumerationShape(rm) {
+	if filter.sourceScopeProfileRequested {
+		return aggregateEvidenceSourceInRequestedScope(filter.ctx, source)
+	}
+	if filter.sourceInventoryProfileActive {
 		return true
 	}
-	return aggregateEvidenceSourceInRequestedScope(ctx, source)
+	if filter.typedSourceEnumerationShape {
+		return true
+	}
+	return aggregateEvidenceSourceInRequestedScope(filter.ctx, source)
+}
+
+func sourceInventorySourceInRequestedScope(ctx *types.BusContext, source string) bool {
+	return newSourceInventoryScopeFilter(ctx).SourceInRequestedScope(source)
 }
 
 func sourceInventoryUsesRepositoryWideTypedQueryLane(ctx *types.BusContext) bool {
@@ -4225,6 +4255,10 @@ func sourceInventoryUsesRepositoryWideTypedQueryLane(ctx *types.BusContext) bool
 		return false
 	}
 	advisory := ctx.Mutable.SourceInventoryAdvisory()
+	return sourceInventoryAdvisoryUsesRepositoryRootQueryLane(ctx, advisory)
+}
+
+func sourceInventoryAdvisoryUsesRepositoryRootQueryLane(ctx *types.BusContext, advisory types.SourceInventoryAdvisory) bool {
 	if !sourceInventoryAdvisoryIsTypedQueryLane(ctx, advisory) {
 		return false
 	}
