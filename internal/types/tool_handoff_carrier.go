@@ -1,12 +1,14 @@
 package types
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 )
 
 const (
-	ToolHandoffCarrierVersion = 1
+	ToolHandoffCarrierVersion  = 1
+	ToolJSONSurfaceMetadataKey = "tool_json_surface"
 
 	toolHandoffMaxCarriers         = 64
 	toolHandoffMaxAcceptedEvidence = 64
@@ -20,10 +22,11 @@ const (
 // rendered summary text, so retry consumers can render valid JSON guidance
 // without reverse-engineering prose.
 type ToolJSONSurfaceDescriptor struct {
-	ToolName          string              `json:"tool_name,omitempty"`
-	ReasonCode        string              `json:"reason_code,omitempty"`
-	FailingFieldPaths []string            `json:"failing_field_paths,omitempty"`
-	AcceptedEnums     map[string][]string `json:"accepted_enums,omitempty"`
+	ToolName           string              `json:"tool_name,omitempty"`
+	ReasonCode         string              `json:"reason_code,omitempty"`
+	FailingFieldPaths  []string            `json:"failing_field_paths,omitempty"`
+	AcceptedFieldPaths []string            `json:"accepted_field_paths,omitempty"`
+	AcceptedEnums      map[string][]string `json:"accepted_enums,omitempty"`
 }
 
 // AcceptedEvidenceRef is the bounded evidence identity that survives stage
@@ -102,6 +105,9 @@ func ToolHandoffCarrierFromToolResult(result ToolResult) (ToolHandoffCarrier, bo
 		carrier.Repair = repair
 		carrier.RepairCode = trimToolHandoffText(repair.Code)
 		carrier.ReasonCode = toolRepairReasonCode(repair)
+		if surface, ok := ToolJSONSurfaceDescriptorFromToolRepair(carrier.ToolName, repair); ok {
+			carrier.SupportedJSON = &surface
+		}
 		if pack, ok := PlanRepairPackFromToolRepair(repair); ok {
 			pack = NormalizePlanRepairPack(pack)
 			carrier.PlanRepairPack = &pack
@@ -109,6 +115,9 @@ func ToolHandoffCarrierFromToolResult(result ToolResult) (ToolHandoffCarrier, bo
 				carrier.ReasonCode = pack.ReasonCode
 			}
 			surface := toolJSONSurfaceFromPlanRepairPack(pack)
+			if carrier.SupportedJSON != nil {
+				surface = mergeToolJSONSurfaceDescriptor(*carrier.SupportedJSON, surface)
+			}
 			if !surface.Empty() {
 				carrier.SupportedJSON = &surface
 			}
@@ -241,6 +250,7 @@ func NormalizeToolJSONSurfaceDescriptor(in ToolJSONSurfaceDescriptor) ToolJSONSu
 	in.ToolName = trimToolHandoffText(in.ToolName)
 	in.ReasonCode = trimToolHandoffText(in.ReasonCode)
 	in.FailingFieldPaths = normalizeToolHandoffStrings(in.FailingFieldPaths, toolHandoffMaxFields, 160)
+	in.AcceptedFieldPaths = normalizeToolHandoffStrings(in.AcceptedFieldPaths, toolHandoffMaxFields, 160)
 	for k, vals := range in.AcceptedEnums {
 		key := trimToolHandoffText(k)
 		normalized := normalizeToolHandoffStrings(vals, 64, 120)
@@ -266,7 +276,51 @@ func (s ToolJSONSurfaceDescriptor) Empty() bool {
 	return s.ToolName == "" &&
 		s.ReasonCode == "" &&
 		len(s.FailingFieldPaths) == 0 &&
+		len(s.AcceptedFieldPaths) == 0 &&
 		len(s.AcceptedEnums) == 0
+}
+
+func ToolJSONSurfaceDescriptorJSON(in ToolJSONSurfaceDescriptor) string {
+	normalized := NormalizeToolJSONSurfaceDescriptor(in)
+	if normalized.Empty() {
+		return ""
+	}
+	data, err := json.Marshal(normalized)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func ToolJSONSurfaceDescriptorFromJSON(raw string) (ToolJSONSurfaceDescriptor, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ToolJSONSurfaceDescriptor{}, false
+	}
+	var surface ToolJSONSurfaceDescriptor
+	if err := json.Unmarshal([]byte(raw), &surface); err != nil {
+		return ToolJSONSurfaceDescriptor{}, false
+	}
+	surface = NormalizeToolJSONSurfaceDescriptor(surface)
+	return surface, !surface.Empty()
+}
+
+func ToolJSONSurfaceDescriptorFromToolRepair(toolName string, repair *ToolRepair) (ToolJSONSurfaceDescriptor, bool) {
+	if repair == nil || repair.Metadata == nil {
+		return ToolJSONSurfaceDescriptor{}, false
+	}
+	surface, ok := ToolJSONSurfaceDescriptorFromJSON(repair.Metadata[ToolJSONSurfaceMetadataKey])
+	if !ok {
+		return ToolJSONSurfaceDescriptor{}, false
+	}
+	if surface.ToolName == "" {
+		surface.ToolName = toolName
+	}
+	if surface.ReasonCode == "" {
+		surface.ReasonCode = toolRepairReasonCode(repair)
+	}
+	surface = NormalizeToolJSONSurfaceDescriptor(surface)
+	return surface, !surface.Empty()
 }
 
 func AcceptedEvidenceRefFromEvidenceItem(item EvidenceItem) (AcceptedEvidenceRef, bool) {
@@ -394,6 +448,28 @@ func toolJSONSurfaceFromPlanRepairPack(pack PlanRepairPack) ToolJSONSurfaceDescr
 		FailingFieldPaths: append([]string(nil), pack.FailingFieldPaths...),
 		AcceptedEnums:     cloneStringSliceMap(pack.AcceptedEnums),
 	})
+}
+
+func mergeToolJSONSurfaceDescriptor(a, b ToolJSONSurfaceDescriptor) ToolJSONSurfaceDescriptor {
+	a = NormalizeToolJSONSurfaceDescriptor(a)
+	b = NormalizeToolJSONSurfaceDescriptor(b)
+	if a.ToolName == "" {
+		a.ToolName = b.ToolName
+	}
+	if a.ReasonCode == "" {
+		a.ReasonCode = b.ReasonCode
+	}
+	a.FailingFieldPaths = append(a.FailingFieldPaths, b.FailingFieldPaths...)
+	a.AcceptedFieldPaths = append(a.AcceptedFieldPaths, b.AcceptedFieldPaths...)
+	if len(b.AcceptedEnums) > 0 {
+		if a.AcceptedEnums == nil {
+			a.AcceptedEnums = map[string][]string{}
+		}
+		for k, vals := range b.AcceptedEnums {
+			a.AcceptedEnums[k] = append(a.AcceptedEnums[k], vals...)
+		}
+	}
+	return NormalizeToolJSONSurfaceDescriptor(a)
 }
 
 func cloneToolRepairPtr(in *ToolRepair) *ToolRepair {

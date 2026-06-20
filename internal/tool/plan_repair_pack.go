@@ -54,6 +54,7 @@ func attachPlanRepairPack(res types.ToolResult, pack *types.PlanRepairPack) type
 	}
 	res.Repair.Metadata[planRepairMetadataKey] = encoded
 	res.Repair.Metadata["reason_code"] = normalized.ReasonCode
+	res.Repair = attachToolJSONSurfaceMetadata(res.ToolName, res.Repair)
 	if res.Summary != "" && !strings.Contains(res.Summary, planRepairSummaryTag) {
 		res.Summary += "\n" + planRepairSummaryTag + encoded
 	}

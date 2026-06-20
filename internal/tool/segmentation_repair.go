@@ -37,7 +37,7 @@ func segmentationCoordinateRejected(toolName, artifactLabel string, total, attem
 			ToolName:  toolName,
 			Success:   false,
 			Summary:   fmt.Sprintf("%s rejected: the attached %s body is empty in this dispatch, so byte ranges cannot be validated. Segment only the raw attached %s body, not repository files or prompt prose.", toolName, artifactLabel, artifactLabel),
-			Repair:    segmentationCoordinateRepair(toolName, artifactLabel, total),
+			Repair:    attachToolJSONSurfaceMetadata(toolName, segmentationCoordinateRepair(toolName, artifactLabel, total)),
 			Timestamp: time.Now(),
 		}
 	}
@@ -46,7 +46,7 @@ func segmentationCoordinateRejected(toolName, artifactLabel string, total, attem
 		Success:  false,
 		Summary: fmt.Sprintf("%s rejected: no valid segments after coordinate validation (attachment_bytes=%d, attempted=%d). Coordinates must satisfy 0 <= byte_start < byte_end <= %d and be measured over the raw attached %s body only, not over prompt prose / code fences / file previews.",
 			toolName, total, attempted, total, artifactLabel),
-		Repair:    segmentationCoordinateRepair(toolName, artifactLabel, total),
+		Repair:    attachToolJSONSurfaceMetadata(toolName, segmentationCoordinateRepair(toolName, artifactLabel, total)),
 		Timestamp: time.Now(),
 	}
 }

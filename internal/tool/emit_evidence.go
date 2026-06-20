@@ -648,7 +648,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			ToolName: t.Name(),
 			Success:  true,
 			Summary:  renderEmitEvidenceCommandScalarSoftSkipSummary(softSkippedItems),
-			Repair: &types.ToolRepair{
+			Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
 				Code: "evidence_command_value_to_closure",
 				Hint: "Command/VCS-derived outputs are not source-line evidence. Carry verified scalar/count/list answers through emit_investigation_complete.aggregate_facts when they are the requested principal shape; for non-scalar history summaries or diagnostics, carry the VCS finding in emit_investigation_complete.reason and mark any commit/count metadata aggregate_facts as supporting_coverage.",
 				Fields: []string{
@@ -657,7 +657,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 				Metadata: map[string]string{
 					"repair_status": "advisory",
 				},
-			},
+			}),
 			Timestamp: now,
 		}, nil
 	}
@@ -666,7 +666,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			ToolName:  t.Name(),
 			Success:   true,
 			Summary:   renderEmitEvidenceExternalObservationSoftSkipSummary(externalObservationSkippedItems),
-			Repair:    emitEvidenceExternalObservationRepair(),
+			Repair:    attachToolJSONSurfaceMetadata(t.Name(), emitEvidenceExternalObservationRepair()),
 			Timestamp: now,
 		}, nil
 	}
@@ -904,7 +904,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	recordToolRuntimeTiming(&runtimeTimings, "summary_repair_render", summaryStart, len(built)+len(duplicateItems))
 	return types.ToolResult{
 		ToolName:  t.Name(),
-		Repair:    repair,
+		Repair:    attachToolJSONSurfaceMetadata(t.Name(), repair),
 		Success:   true,
 		Summary:   summary,
 		Timestamp: now,
@@ -3934,7 +3934,7 @@ func failEmitWithRepair(name string, now time.Time, repair *types.ToolRepair, fo
 		ToolName:  name,
 		Success:   false,
 		Summary:   msg,
-		Repair:    repair,
+		Repair:    attachToolJSONSurfaceMetadata(name, repair),
 		Timestamp: now,
 	}, nil
 }

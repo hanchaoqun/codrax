@@ -53,6 +53,36 @@ func TestToolHandoffCarrierFromToolResultUsesTypedRepairAndObservations(t *testi
 	}
 }
 
+func TestToolHandoffCarrierFromToolResultUsesJSONSurfaceMetadata(t *testing.T) {
+	surface := NormalizeToolJSONSurfaceDescriptor(ToolJSONSurfaceDescriptor{
+		ToolName:           "emit_evidence",
+		ReasonCode:         "tool_param_unknown_field",
+		FailingFieldPaths:  []string{"$.items[].source"},
+		AcceptedFieldPaths: []string{"$.items", "$.items[].source", "$.items[].line_start"},
+		AcceptedEnums: map[string][]string{
+			"$.items[].scope": {"line", "symbol"},
+		},
+	})
+	result := AttachToolHandoffCarrier(ToolResult{
+		ToolName: "emit_evidence",
+		Success:  false,
+		Repair: &ToolRepair{
+			Code:   "tool_param_unknown_field",
+			Fields: []string{"$.items[].source"},
+			Metadata: map[string]string{
+				ToolJSONSurfaceMetadataKey: ToolJSONSurfaceDescriptorJSON(surface),
+			},
+		},
+	})
+	if result.Handoff == nil || result.Handoff.SupportedJSON == nil {
+		t.Fatalf("expected supported JSON carrier: %+v", result.Handoff)
+	}
+	if len(result.Handoff.SupportedJSON.AcceptedFieldPaths) != 3 ||
+		len(result.Handoff.SupportedJSON.AcceptedEnums) != 1 {
+		t.Fatalf("supported JSON surface mismatch: %+v", result.Handoff.SupportedJSON)
+	}
+}
+
 func TestSetTurnAArtifactsProjectsAcceptedEvidenceCarrier(t *testing.T) {
 	mut := NewMutableState("q")
 	mut.SetTurnAArtifacts(TurnAArtifacts{

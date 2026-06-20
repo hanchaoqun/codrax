@@ -85,14 +85,14 @@ func (t *EmitWriteWorkflowDecision) Execute(ctx *types.BusContext, params json.R
 			Success:   false,
 			Summary:   fmt.Sprintf("emit_write_workflow_decision rejected: action=%s is not available in the current mode", decision.Action),
 			Timestamp: now,
-			Repair: &types.ToolRepair{
+			Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
 				Code: "workflow_action_not_in_mode",
 				Hint: "Choose one of the actions offered by the tool schema for this mode: " + strings.Join(names, ", ") + ".",
 				Metadata: map[string]string{
 					"action": string(decision.Action),
 					"mode":   string(ctx.Mode),
 				},
-			},
+			}),
 		}, nil
 	}
 	raw, err := json.Marshal(decision)

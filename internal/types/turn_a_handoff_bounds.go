@@ -196,6 +196,9 @@ func ToolHandoffCarrierBytes(c ToolHandoffCarrier) int {
 		for _, field := range c.SupportedJSON.FailingFieldPaths {
 			n += len(field)
 		}
+		for _, field := range c.SupportedJSON.AcceptedFieldPaths {
+			n += len(field)
+		}
 		for k, vals := range c.SupportedJSON.AcceptedEnums {
 			n += len(k)
 			for _, val := range vals {

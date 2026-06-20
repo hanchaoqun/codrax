@@ -1892,7 +1892,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				return types.ToolResult{
 					ToolName:  t.Name(),
 					Summary:   summary,
-					Repair:    repair,
+					Repair:    attachToolJSONSurfaceMetadata(t.Name(), repair),
 					Success:   false,
 					Timestamp: time.Now(),
 				}, nil

@@ -144,63 +144,64 @@ type ReasoningEvent struct {
 }
 
 type ObservationPayload struct {
-	ToolName            string   `json:"tool_name,omitempty"`
-	ToolPhase           string   `json:"tool_phase,omitempty"`
-	Agent               string   `json:"agent,omitempty"`
-	Stage               string   `json:"stage,omitempty"`
-	Model               string   `json:"model,omitempty"`
-	Attempt             int      `json:"attempt,omitempty"`
-	MaxAttempts         int      `json:"max_attempts,omitempty"`
-	ElapsedMillis       int64    `json:"elapsed_millis,omitempty"`
-	RepairCode          string   `json:"repair_code,omitempty"`
-	RepairReasonCode    string   `json:"repair_reason_code,omitempty"`
-	ViolationKind       string   `json:"violation_kind,omitempty"`
-	RepairLocus         string   `json:"repair_locus,omitempty"`
-	SchemaName          string   `json:"schema_name,omitempty"`
-	JSONFieldPaths      []string `json:"json_field_paths,omitempty"`
-	EnumFieldPaths      []string `json:"enum_field_paths,omitempty"`
-	AcceptedEvidenceIDs []string `json:"accepted_evidence_ids,omitempty"`
-	ObservationIDs      []string `json:"observation_ids,omitempty"`
-	FallbackTarget      string   `json:"fallback_target,omitempty"`
-	OriginalByteLen     int      `json:"original_byte_len,omitempty"`
-	NormalizedByteLen   int      `json:"normalized_byte_len,omitempty"`
-	Message             string   `json:"message,omitempty"`
-	WorkerKind          string   `json:"worker_kind,omitempty"`
-	WorkerStatus        string   `json:"worker_status,omitempty"`
-	WorkerRole          string   `json:"worker_role,omitempty"`
-	SubAgentName        string   `json:"subagent_name,omitempty"`
-	PermissionAction    string   `json:"permission_action,omitempty"`
-	PermissionReason    string   `json:"permission_reason_code,omitempty"`
-	ScopePathCount      int      `json:"scope_path_count,omitempty"`
-	InputRefCount       int      `json:"input_ref_count,omitempty"`
-	OutputRefCount      int      `json:"output_ref_count,omitempty"`
-	EvidenceRefCount    int      `json:"evidence_ref_count,omitempty"`
-	ToolResultCount     int      `json:"tool_result_count,omitempty"`
-	FactCount           int      `json:"fact_count,omitempty"`
-	FlowFindingCount    int      `json:"flow_finding_count,omitempty"`
-	MCPResponseCount    int      `json:"mcp_response_count,omitempty"`
-	ExternalOrigin      string   `json:"external_origin,omitempty"`
-	SourceKind          string   `json:"source_kind,omitempty"`
-	Producer            string   `json:"producer,omitempty"`
-	ResourceURI         string   `json:"resource_uri,omitempty"`
-	PayloadRef          string   `json:"payload_ref,omitempty"`
-	ObservationID       string   `json:"observation_id,omitempty"`
-	WorkflowID          string   `json:"workflow_id,omitempty"`
-	ActionID            string   `json:"action_id,omitempty"`
-	ActionStatus        string   `json:"action_status,omitempty"`
-	OperationKind       string   `json:"operation_kind,omitempty"`
-	TargetSurface       string   `json:"target_surface,omitempty"`
-	RiskLevel           string   `json:"risk_level,omitempty"`
-	DataStage           string   `json:"data_stage,omitempty"`
-	DataActionKind      string   `json:"data_action_kind,omitempty"`
-	DataEvalStatus      string   `json:"data_evaluation_status,omitempty"`
-	DataViolationCode   string   `json:"data_violation_code,omitempty"`
-	ActionCount         int      `json:"action_count,omitempty"`
-	EdgeCount           int      `json:"edge_count,omitempty"`
-	QueueCount          int      `json:"queue_count,omitempty"`
-	RecordCount         int      `json:"record_count,omitempty"`
-	ResultCount         int      `json:"result_count,omitempty"`
-	ViolationCount      int      `json:"violation_count,omitempty"`
+	ToolName               string   `json:"tool_name,omitempty"`
+	ToolPhase              string   `json:"tool_phase,omitempty"`
+	Agent                  string   `json:"agent,omitempty"`
+	Stage                  string   `json:"stage,omitempty"`
+	Model                  string   `json:"model,omitempty"`
+	Attempt                int      `json:"attempt,omitempty"`
+	MaxAttempts            int      `json:"max_attempts,omitempty"`
+	ElapsedMillis          int64    `json:"elapsed_millis,omitempty"`
+	RepairCode             string   `json:"repair_code,omitempty"`
+	RepairReasonCode       string   `json:"repair_reason_code,omitempty"`
+	ViolationKind          string   `json:"violation_kind,omitempty"`
+	RepairLocus            string   `json:"repair_locus,omitempty"`
+	SchemaName             string   `json:"schema_name,omitempty"`
+	JSONFieldPaths         []string `json:"json_field_paths,omitempty"`
+	AcceptedJSONFieldPaths []string `json:"accepted_json_field_paths,omitempty"`
+	EnumFieldPaths         []string `json:"enum_field_paths,omitempty"`
+	AcceptedEvidenceIDs    []string `json:"accepted_evidence_ids,omitempty"`
+	ObservationIDs         []string `json:"observation_ids,omitempty"`
+	FallbackTarget         string   `json:"fallback_target,omitempty"`
+	OriginalByteLen        int      `json:"original_byte_len,omitempty"`
+	NormalizedByteLen      int      `json:"normalized_byte_len,omitempty"`
+	Message                string   `json:"message,omitempty"`
+	WorkerKind             string   `json:"worker_kind,omitempty"`
+	WorkerStatus           string   `json:"worker_status,omitempty"`
+	WorkerRole             string   `json:"worker_role,omitempty"`
+	SubAgentName           string   `json:"subagent_name,omitempty"`
+	PermissionAction       string   `json:"permission_action,omitempty"`
+	PermissionReason       string   `json:"permission_reason_code,omitempty"`
+	ScopePathCount         int      `json:"scope_path_count,omitempty"`
+	InputRefCount          int      `json:"input_ref_count,omitempty"`
+	OutputRefCount         int      `json:"output_ref_count,omitempty"`
+	EvidenceRefCount       int      `json:"evidence_ref_count,omitempty"`
+	ToolResultCount        int      `json:"tool_result_count,omitempty"`
+	FactCount              int      `json:"fact_count,omitempty"`
+	FlowFindingCount       int      `json:"flow_finding_count,omitempty"`
+	MCPResponseCount       int      `json:"mcp_response_count,omitempty"`
+	ExternalOrigin         string   `json:"external_origin,omitempty"`
+	SourceKind             string   `json:"source_kind,omitempty"`
+	Producer               string   `json:"producer,omitempty"`
+	ResourceURI            string   `json:"resource_uri,omitempty"`
+	PayloadRef             string   `json:"payload_ref,omitempty"`
+	ObservationID          string   `json:"observation_id,omitempty"`
+	WorkflowID             string   `json:"workflow_id,omitempty"`
+	ActionID               string   `json:"action_id,omitempty"`
+	ActionStatus           string   `json:"action_status,omitempty"`
+	OperationKind          string   `json:"operation_kind,omitempty"`
+	TargetSurface          string   `json:"target_surface,omitempty"`
+	RiskLevel              string   `json:"risk_level,omitempty"`
+	DataStage              string   `json:"data_stage,omitempty"`
+	DataActionKind         string   `json:"data_action_kind,omitempty"`
+	DataEvalStatus         string   `json:"data_evaluation_status,omitempty"`
+	DataViolationCode      string   `json:"data_violation_code,omitempty"`
+	ActionCount            int      `json:"action_count,omitempty"`
+	EdgeCount              int      `json:"edge_count,omitempty"`
+	QueueCount             int      `json:"queue_count,omitempty"`
+	RecordCount            int      `json:"record_count,omitempty"`
+	ResultCount            int      `json:"result_count,omitempty"`
+	ViolationCount         int      `json:"violation_count,omitempty"`
 }
 
 type ObservationInput struct {
@@ -520,6 +521,7 @@ func normalizeObservationPayload(in ObservationPayload) ObservationPayload {
 	in.RepairLocus = strings.TrimSpace(in.RepairLocus)
 	in.SchemaName = strings.TrimSpace(in.SchemaName)
 	in.JSONFieldPaths = normalizePayloadStringSlice(in.JSONFieldPaths, 32, 160)
+	in.AcceptedJSONFieldPaths = normalizePayloadStringSlice(in.AcceptedJSONFieldPaths, 32, 160)
 	in.EnumFieldPaths = normalizePayloadStringSlice(in.EnumFieldPaths, 32, 160)
 	in.AcceptedEvidenceIDs = normalizePayloadStringSlice(in.AcceptedEvidenceIDs, 64, 160)
 	in.ObservationIDs = normalizePayloadStringSlice(in.ObservationIDs, 64, 160)

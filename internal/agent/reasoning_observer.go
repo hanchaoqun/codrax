@@ -191,16 +191,17 @@ func (b *BaseAgent) observeToolHandoffCarrierProjected(ctx *types.AgentContext, 
 		return
 	}
 	payload := reasoninggraph.ObservationPayload{
-		ToolName:            result.ToolName,
-		RepairCode:          carrier.RepairCode,
-		RepairReasonCode:    carrier.ReasonCode,
-		RepairLocus:         "tool_handoff_carrier",
-		EvidenceRefCount:    len(carrier.AcceptedEvidence),
-		FactCount:           len(carrier.ObservationRefs),
-		JSONFieldPaths:      toolHandoffJSONFieldPaths(carrier),
-		EnumFieldPaths:      toolHandoffEnumFieldPaths(carrier),
-		AcceptedEvidenceIDs: toolHandoffAcceptedEvidenceIDs(carrier),
-		ObservationIDs:      toolHandoffObservationIDs(carrier),
+		ToolName:               result.ToolName,
+		RepairCode:             carrier.RepairCode,
+		RepairReasonCode:       carrier.ReasonCode,
+		RepairLocus:            "tool_handoff_carrier",
+		EvidenceRefCount:       len(carrier.AcceptedEvidence),
+		FactCount:              len(carrier.ObservationRefs),
+		JSONFieldPaths:         toolHandoffJSONFieldPaths(carrier),
+		AcceptedJSONFieldPaths: toolHandoffAcceptedJSONFieldPaths(carrier),
+		EnumFieldPaths:         toolHandoffEnumFieldPaths(carrier),
+		AcceptedEvidenceIDs:    toolHandoffAcceptedEvidenceIDs(carrier),
+		ObservationIDs:         toolHandoffObservationIDs(carrier),
 	}
 	if payload.RepairCode == "" && carrier.Repair != nil {
 		payload.RepairCode = carrier.Repair.Code
@@ -222,6 +223,13 @@ func toolHandoffJSONFieldPaths(carrier types.ToolHandoffCarrier) []string {
 		return nil
 	}
 	return append([]string(nil), carrier.SupportedJSON.FailingFieldPaths...)
+}
+
+func toolHandoffAcceptedJSONFieldPaths(carrier types.ToolHandoffCarrier) []string {
+	if carrier.SupportedJSON == nil {
+		return nil
+	}
+	return append([]string(nil), carrier.SupportedJSON.AcceptedFieldPaths...)
 }
 
 func toolHandoffEnumFieldPaths(carrier types.ToolHandoffCarrier) []string {

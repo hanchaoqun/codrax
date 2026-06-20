@@ -25,7 +25,7 @@ func failStrictDecodeWithErrorMessage(name string, now time.Time, err error, hin
 }
 
 func strictDecodeFailure(name string, now time.Time, err error, hints []MisplacedFieldHint, raw []byte, prefix, suffix string, returnErr bool) (types.ToolResult, error) {
-	repair := strictDecodeToolRepair(err, hints, raw)
+	repair := attachToolJSONSurfaceMetadata(name, strictDecodeToolRepair(err, hints, raw))
 	remapped := RemapStrictDecodeErrorWithRaw(err, hints, raw)
 	res := types.ToolResult{
 		ToolName:  name,

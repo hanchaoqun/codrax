@@ -67,6 +67,9 @@ func renderTypedToolHandoffCarrierLine(carrier types.ToolHandoffCarrier) string 
 		if len(carrier.SupportedJSON.FailingFieldPaths) > 0 {
 			parts = append(parts, "json_fields="+quoteHandoffValue(strings.Join(carrier.SupportedJSON.FailingFieldPaths, ",")))
 		}
+		if len(carrier.SupportedJSON.AcceptedFieldPaths) > 0 {
+			parts = append(parts, "accepted_json_fields="+quoteHandoffValue(strings.Join(boundedStringSlice(carrier.SupportedJSON.AcceptedFieldPaths, 12), ",")))
+		}
 		if len(carrier.SupportedJSON.AcceptedEnums) > 0 {
 			keys := make([]string, 0, len(carrier.SupportedJSON.AcceptedEnums))
 			for key := range carrier.SupportedJSON.AcceptedEnums {
@@ -83,6 +86,13 @@ func renderTypedToolHandoffCarrierLine(carrier types.ToolHandoffCarrier) string 
 		parts = append(parts, fmt.Sprintf("observation_refs=%d", len(carrier.ObservationRefs)))
 	}
 	return strings.Join(parts, " · ")
+}
+
+func boundedStringSlice(values []string, limit int) []string {
+	if limit > 0 && len(values) > limit {
+		return values[:limit]
+	}
+	return values
 }
 
 func renderTypedToolHandoffEvidenceRefs(refs []types.AcceptedEvidenceRef, limit int) string {
