@@ -251,7 +251,7 @@ Commercial hardening before declaring complete:
 | D0 Delivery Ledger | completed | This document added on 2026-06-21; current-state audit and batch ledger recorded. |
 | M0a Write DAG install retirement | completed | Production write mode no longer installs `BuildWriteTaskGraph` or emits legacy write TaskGraph rows; `TestMode_WriteControllerDoesNotInstallLegacyWriteTaskGraph` pins controller-first behavior. |
 | M0b Legacy write scheduler deletion | completed | Removed `write_scheduler.go`, `write_graph.go`, and stale scheduler tests; retained shared retry helpers in `write_retry_helpers.go`; updated controller/read tests and architecture docs. |
-| M0c TaskNode slot guard | not_started | Slots still documented as unused. |
+| M0c TaskNode slot guard | completed | Added `TestTaskNodeExecSlotsHaveNoRuntimeConsumersToday`; TaskNode artifact slots remain serialized/compiler/gate-only until Phase 2 artifact contracts wire or delete them. |
 | M1a ToolInvocation production wiring | not_started | Observer exists but production replay identity incomplete. |
 | M1b EvidenceClosure node status | not_started | `graphState` still owns node status. |
 | M1c IngestRound shadow reducer | not_started | Legacy recompute still scattered. |
