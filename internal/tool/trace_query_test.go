@@ -51,6 +51,103 @@ func TestTraceQueryExplicitPathProducesRuntimeArtifactSummary(t *testing.T) {
 	}
 }
 
+func TestTraceQueryAttachedTraceNormalizesDotPath(t *testing.T) {
+	dir := t.TempDir()
+	trace := strings.Join([]string{
+		`waker-10 (10) [000] .... 1.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 1.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`waker-10 (10) [000] .... 1.050000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 1.080000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+	}, "\n")
+	ctx := &types.BusContext{
+		RepoRoot:        dir,
+		WorkDir:         dir,
+		AttachedHitrace: trace,
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       ".",
+		"view":       "wakeup_chain",
+		"pid":        20,
+		"time_start": 1.0,
+		"time_end":   1.1,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query should normalize dot path to attached_trace, got: %s", res.Summary)
+	}
+	for _, want := range []string{"source=attached_trace", "Wakeup chain", "waker-10"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("attached dot-path query missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryDirectoryPathWithoutAttachmentFailsFast(t *testing.T) {
+	dir := t.TempDir()
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source": "path",
+		"path":   ".",
+		"view":   "window_stats",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success {
+		t.Fatalf("directory path without attachment should fail fast: %s", res.Summary)
+	}
+	for _, want := range []string{"source=path requires a trace file", "resolves to a directory", "source=\"attached_trace\""} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("directory refusal missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryExplicitFilePathIsNotOverriddenByAttachment(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "explicit.systrace")
+	trace := strings.Join([]string{
+		`explicit-10 (10) [000] .... 1.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 1.020000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot:        dir,
+		WorkDir:         dir,
+		AttachedHitrace: `attached-30 (30) [000] .... 1.000000: sched_wakeup: comm=other pid=40 prio=53 target_cpu=001`,
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       "explicit.systrace",
+		"view":       "event_search",
+		"pattern":    "explicit-10",
+		"time_start": 1.0,
+		"time_end":   1.03,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("explicit trace path failed: %s", res.Summary)
+	}
+	for _, want := range []string{"source=path", "explicit-10"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("explicit path query missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "source=attached_trace") {
+		t.Fatalf("explicit file path should not be normalized to attached_trace:\n%s", res.Summary)
+	}
+}
+
 func TestTraceQueryAttachedSourceHintControlsPrioritySemantics(t *testing.T) {
 	dir := t.TempDir()
 	trace := strings.Join([]string{

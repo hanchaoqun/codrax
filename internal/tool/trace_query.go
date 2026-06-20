@@ -765,24 +765,18 @@ func traceQueryHeavyViewGuardSummary(path, sourceLabel string, p traceQueryParam
 func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string, string, *types.ToolResult) {
 	source := strings.TrimSpace(p.Source)
 	if source == "" {
-		if strings.TrimSpace(p.Path) == "" {
+		if strings.TrimSpace(p.Path) == "" || traceQueryPathDefaultsToAttachedTrace(ctx, p.Path) {
 			source = "attached_trace"
 		} else {
 			source = "path"
 		}
 	}
+	if source == "path" && traceQueryPathDefaultsToAttachedTrace(ctx, p.Path) {
+		source = "attached_trace"
+	}
 	if source == "attached_trace" {
-		if ctx != nil && strings.TrimSpace(ctx.WorkDir) != "" {
-			blob := filepath.Join(ctx.WorkDir, promptctx.AttachedTraceBlobName)
-			if _, err := os.Stat(blob); err == nil {
-				return blob, "attached_trace", nil
-			}
-		}
-		if ctx != nil && strings.TrimSpace(ctx.AttachedHitrace) != "" {
-			ref := StoreBlobArtifact(ctx.WorkDir, "trace_query", promptctx.AttachedTraceBlobName, ctx.AttachedHitrace)
-			if strings.TrimSpace(ref) != "" {
-				return ref, "attached_trace", nil
-			}
+		if path, ok := resolveAttachedTraceQueryPath(ctx); ok {
+			return path, "attached_trace", nil
 		}
 		return "", source, &types.ToolResult{
 			ToolName:  "trace_query",
@@ -799,7 +793,65 @@ func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string,
 			Timestamp: time.Now(),
 		}
 	}
-	return resolveToolPath(ctx, p.Path), "path", nil
+	resolved := resolveToolPath(ctx, p.Path)
+	if info, err := os.Stat(resolved); err == nil && info.IsDir() {
+		return "", source, &types.ToolResult{
+			ToolName: "trace_query",
+			Success:  false,
+			Summary: fmt.Sprintf(
+				"trace_query source=path requires a trace file, but path %q resolves to a directory. Use source=\"attached_trace\" for the current attached --htrace/--atrace blob, or pass an explicit .systrace/.htrace/.atrace/.perftrace/.tracebundle.json file.",
+				strings.TrimSpace(p.Path),
+			),
+			Timestamp: time.Now(),
+		}
+	}
+	return resolved, "path", nil
+}
+
+func resolveAttachedTraceQueryPath(ctx *types.BusContext) (string, bool) {
+	if ctx != nil && strings.TrimSpace(ctx.WorkDir) != "" {
+		blob := filepath.Join(ctx.WorkDir, promptctx.AttachedTraceBlobName)
+		if _, err := os.Stat(blob); err == nil {
+			return blob, true
+		}
+	}
+	if ctx != nil && strings.TrimSpace(ctx.AttachedHitrace) != "" {
+		ref := StoreBlobArtifact(ctx.WorkDir, "trace_query", promptctx.AttachedTraceBlobName, ctx.AttachedHitrace)
+		if strings.TrimSpace(ref) != "" {
+			return ref, true
+		}
+	}
+	return "", false
+}
+
+func traceQueryPathDefaultsToAttachedTrace(ctx *types.BusContext, rawPath string) bool {
+	if _, ok := resolveAttachedTraceQueryPath(ctx); !ok {
+		return false
+	}
+	raw := strings.TrimSpace(rawPath)
+	if raw == "" || raw == "." || raw == "./" {
+		return true
+	}
+	resolved := filepath.Clean(resolveToolPath(ctx, raw))
+	if !filepath.IsAbs(resolved) {
+		if abs, err := filepath.Abs(resolved); err == nil {
+			resolved = filepath.Clean(abs)
+		}
+	}
+	for _, base := range []string{ctxRepoRoot(ctx), ctxWorkDir(ctx)} {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			continue
+		}
+		base = filepath.Clean(base)
+		if abs, err := filepath.Abs(base); err == nil {
+			base = filepath.Clean(abs)
+		}
+		if resolved == base {
+			return true
+		}
+	}
+	return false
 }
 
 func parseTraceQueryEventTypes(raw []string) []tracequery.EventType {
