@@ -148,10 +148,13 @@ Four-kernel convergence status:
   `ProofSnapshot` projection from `TurnAArtifacts` into the same authority and
   truth ledger, plus ReasoningGraph visibility. Remaining work is scheduler
   consumption for sibling duplicate suppression.
-- Typed repair/handoff carrier: planned. `ToolRepair`, `RepairDirective`,
-  accepted aggregate facts, and TurnA handoff exist, but schema repair,
-  accepted evidence IDs, and supported JSON surfaces still need one cross-stage
-  carrier.
+- Typed repair/handoff carrier: partial. `ToolResult` now carries a bounded
+  `ToolHandoffCarrier` derived from typed `ToolRepair`,
+  `PlanRepairPack`, `ObservationRecord`, and accepted `EvidenceItem` IDs.
+  `TurnAArtifacts` preserves those carriers across explorer fork/merge and
+  handoff bounds. Remaining work is a schema-descriptor registry for every
+  emit tool, explicit extractor/finalizer Top-N carrier rendering, and
+  ReasoningGraph repair/handoff projections.
 
 ## Gap Ledger
 
@@ -217,7 +220,7 @@ Four-kernel convergence status:
 | RNE-C60 | P0 | Analyzer source-scope and irrelevant-file channels can turn repo-wide inventory into production-only absence. | The ArkTS U9h/U9i sequence showed two related structural contradictions: the analyzer could put repo-owned auxiliary `.ets` corpus files into `irrelevant_files`, and it could emit `source_scope=production` from repository-layout inference even though the current request did not explicitly say production-only. That let later stages preserve some evidence but still drift into a "production 0" answer. | Delivered: `source_scope_profile` now supports validated `source_quotes[]`; quoted production/test/aux/all scope can remain a hard path boundary, while unquoted production in source-inventory/enumeration repair is treated as model inference and cannot exclude existing source/config paths. Principal source-scope `irrelevant_files` are dropped and promoted to `required_files`; auxiliary promotions synthesize `source_scope=all` with `include_auxiliary_as_principal=true`. The analyzer prompt/schema says scope boundaries need current-request quotes, but hard behavior consumes only typed fields, path existence, `SourcePathRole`, and `SourceScopeAllowsPathRole`. |
 | RNE-C61 | P0 | Typed repair-required tools can be hidden by mid-loop restricted explorer surfaces. | The post-U9j ArkTS refresh produced a `RepairStructuredHandoff` requiring `repo_map` after the source-inventory lens gate downgraded completion. The no-emit escalated explorer surface still exposed only `emit_evidence` and `emit_investigation_complete`, so the model received a typed instruction to run `repo_map` while the schema/runtime surface made `repo_map` unavailable. After repeated no-delta turns, low-delta force-complete accepted an incomplete inventory. | Delivered: no-emit restricted explorer surfaces now overlay active `RepairDirective.Tools`, and schema filtering plus runtime boundary validation consume the same typed surface. The status hint prefers the actual observed tool surface when known. This fix consumes only schema-validated repair fields and tool names, never model prose or user-intent keywords. Remaining broader work stays under Batch U9h: tool/schema repair, supported JSON surfaces, and accepted evidence IDs should flow through one cross-stage typed carrier. |
 | RNE-C54 | P1 | Parallel exploration siblings duplicate proof work after one lane has enough evidence. | U9 mixed log+current-code passed but took 277s with 13 reads, 3 repo_map calls, 17 explorer iterations, and duplicated LLM timeout/finalizer investigation across siblings. One sibling tried to close while another continued reading the same files. | Delivered first slice: read-mode TurnA handoff now projects a typed `loopkernel.ProofSnapshot` from accepted closure, source localization, source-inventory observation, runtime-observation-only completion, and evidence refs. The snapshot derives `ProofCoverageAuthority` and `TruthLedger` through the same loopkernel authority functions write mode uses, and ReasoningGraph records the projection for audit/status-card consumers. Remaining: the parallel scheduler must consume these snapshots by dispatch group to suppress equivalent sibling reads/repo_map/trace_query work unless a sibling contributes a new blocker, source class, failed proof dimension, or missing principal obligation. |
-| RNE-C55 | P1 | Tool/JSON repair hints remain stage-local and can lose accepted evidence IDs. | U9 mixed runtime/source logs showed `emit_analysis` retrying an unsupported `source_quotes` field, `emit_investigation_complete` aggregate-fact shape repair, and extractor verdict citation/evidence-id gaps after accepted evidence existed upstream. | Route tool decode/schema failures, repair decisions, and accepted evidence IDs through one typed repair/handoff layer. Stage prompts render the exact supported JSON surface; extractor/finalizer receive accepted evidence IDs and citations as typed candidates, not prose-only summaries. |
+| RNE-C55 | P1 | Tool/JSON repair hints remain stage-local and can lose accepted evidence IDs. | U9 mixed runtime/source logs showed `emit_analysis` retrying an unsupported `source_quotes` field, `emit_investigation_complete` aggregate-fact shape repair, and extractor verdict citation/evidence-id gaps after accepted evidence existed upstream. | Delivered first carrier slice: tool decode/schema repair, plan repair packs, typed observations, and accepted evidence IDs now project into `ToolHandoffCarrier` and survive Turn-A snapshots/fork merge/bounds. Remaining: stage prompts/status cards must render the exact supported JSON surface from a per-tool descriptor registry, and extractor/finalizer must consume accepted evidence/citation candidates from carrier Top-N views rather than prose-only summaries. |
 
 ## Architecture Direction
 
@@ -346,7 +349,7 @@ roles from many raw trace rows.
 | Batch U9k | delivered | Preserve typed repair-required tools in restricted explorer surfaces. | No-emit escalation now keeps `emit_*` plus active `RepairDirective.Tools`, so source-inventory completion repair can execute `repo_map` without reopening unrelated broad tools or lying to the model about unavailable tools. Runtime validation and schema filtering use the same typed surface. |
 | Batch U9i | planned | Add cross-language source-inventory member/facet projection. | `repo_map(source_inventory)` returns typed member rows or explicit `no_member_parser` coverage for supported-language constructs across Go, Python, JS/TS, Ruby, Java/Kotlin, C/C++, Rust, Cangjie, ArkTS, config, and workflow files. Decorators/annotations/modifiers/config facets are structured attributes, not rendered-prose hints. |
 | Batch U9g | partial | Share proof coverage across exploration siblings. | Delivered first slice: read TurnA artifacts now project a typed `ProofSnapshot` into the lane-neutral loopkernel proof/truth authority and ReasoningGraph audit view. Remaining: dispatch-group scheduler consumption to suppress duplicate sibling reads/repo_map/trace_query once equivalent proof coverage is accepted. |
-| Batch U9h | planned | Unify tool JSON repair and accepted-evidence handoff. | Schema/decode repair hints and accepted evidence IDs flow through one typed layer so later stages see precise supported JSON fields and citation candidates without prose-only reconstruction. |
+| Batch U9h | partial | Unify tool JSON repair and accepted-evidence handoff. | Delivered first slice: `ToolHandoffCarrier` is projected from typed tool repair, plan repair packs, observation refs, and accepted evidence refs; BaseAgent, forced-read injection, Mutable dispatch buffers, TurnA snapshots, fork merge, and Turn-A handoff bounds all preserve the carrier without parsing summaries. Remaining: per-tool schema descriptor registry, extractor/finalizer/status-card Top-N carrier rendering, and ReasoningGraph carrier projection. |
 | Batch U9t | delivered | Extract source-inventory execution budget kernel. | Replaced the private per-role `sourceInventoryCandidateBudget` helpers with one typed execution budget object that owns materialization limits, scan limits, query-scan widening, wall-clock deadline, cancellation state, and cursor/page metadata. File/config/package/graph candidate builders and completion support now consume this API instead of open-coded scan/materialization/deadline checks. Focused tests pin deadline and cancellation truncation, broad materialization/no-match budgeting, and source-inventory lens execution proof. |
 | Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
 | Batch V2 | planned | Complete aggregate negative-fact repair hints. | Invalid no-hit payloads receive one precise typed repair hint or deterministic normalization before retry; the model does not bounce between `negative_search`, `negative_observation`, `scalar_value`, and empty `member_set` schemas. |
@@ -1481,3 +1484,15 @@ roles from many raw trace rows.
   have `dispatchExploreWindowsParallel` consume per-dispatch snapshots by lane
   ownership key so equivalent sibling proof work is skipped while new blockers,
   source classes, failed proof, or missing principal obligations still run.
+- 2026-06-20 Batch U9h delivered the first typed repair/handoff carrier slice.
+  Added `ToolHandoffCarrier` as the lane-neutral structured carrier for
+  `ToolRepair`, `PlanRepairPack`, supported JSON retry surfaces, typed
+  observation refs, and accepted evidence refs. `BaseAgent`, forced-read
+  injection, `MutableState.AppendDispatchToolResult`, `SetTurnAArtifacts`,
+  explore-fork merge, and Turn-A handoff bounds now attach/preserve the carrier
+  without parsing tool summaries, model rationale, user wording, or visible
+  thinking. Focused validation passed:
+  `go test ./internal/types`,
+  `go test ./internal/agent ./internal/orchestrator`. Remaining RNE-C55:
+  per-tool schema descriptor registry, extractor/finalizer/status-card Top-N
+  carrier rendering, and ReasoningGraph carrier projection.

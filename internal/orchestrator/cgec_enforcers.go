@@ -305,6 +305,7 @@ func (o *Orchestrator) runForcedReads() int {
 		}
 		artifacts.ReadFiles = appendUniqueString(artifacts.ReadFiles, p.File)
 		for _, result := range perRangeResults {
+			result = types.AttachToolHandoffCarrier(result)
 			o.busCtx.Mutable.AppendDispatchToolResult(result)
 			o.busCtx.ToolResults = append(o.busCtx.ToolResults, result)
 			artifacts.ToolResults = append(artifacts.ToolResults, result)

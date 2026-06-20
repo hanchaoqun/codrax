@@ -155,6 +155,7 @@ type MutableState struct {
 	exploreForkTurnABaseToolLen      int
 	exploreForkTurnABaseMCPLen       int
 	exploreForkTurnABaseFlowLen      int
+	exploreForkTurnABaseHandoffLen   int
 	// cachedLabelSupport memoises the dot-qualified selector / anchor /
 	// subject / object support pool drawn from turnAArtifacts.EvidenceItems.
 	// Built lazily on first call to CachedLabelSupportTokens; cleared
@@ -891,6 +892,12 @@ type TurnAArtifacts struct {
 	// does NOT bound this slice — it only stubs LLM message history.
 	ToolResults []ToolResult
 
+	// HandoffCarriers is the bounded typed projection of tool repair,
+	// supported JSON retry surfaces, accepted evidence identities, and typed
+	// observation refs. It rides beside raw ToolResults so later stages can
+	// consume structured repair/evidence handoff without parsing summaries.
+	HandoffCarriers []ToolHandoffCarrier
+
 	// MCPResponses is the raw MCP response history from Turn A. These
 	// are external resource observations, never current-source citations.
 	// Keeping them beside ToolResults lets downstream stages reuse typed
@@ -1098,6 +1105,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		out.exploreForkTurnABaseToolLen = len(out.turnAArtifacts.ToolResults)
 		out.exploreForkTurnABaseMCPLen = len(out.turnAArtifacts.MCPResponses)
 		out.exploreForkTurnABaseFlowLen = len(out.turnAArtifacts.FlowFindings)
+		out.exploreForkTurnABaseHandoffLen = len(out.turnAArtifacts.HandoffCarriers)
 	}
 	out.phase1Ranking = append([]Phase1RankedFile(nil), m.phase1Ranking...)
 	out.investigationAggregateFacts = cloneAnswerAggregateFacts(m.investigationAggregateFacts)
@@ -1130,6 +1138,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		ToolLen:               fork.exploreForkTurnABaseToolLen,
 		MCPLen:                fork.exploreForkTurnABaseMCPLen,
 		FlowLen:               fork.exploreForkTurnABaseFlowLen,
+		HandoffLen:            fork.exploreForkTurnABaseHandoffLen,
 	}
 	phase1 := append([]Phase1RankedFile(nil), fork.phase1Ranking...)
 	searchGraph := fork.searchGraph
@@ -1980,6 +1989,7 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	if m == nil {
 		return
 	}
+	r = AttachToolHandoffCarrier(r)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dispatchToolResults = append(m.dispatchToolResults, r)
@@ -3787,6 +3797,9 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	if a.ToolResults != nil {
 		snap.ToolResults = append([]ToolResult(nil), a.ToolResults...)
 	}
+	if a.HandoffCarriers != nil {
+		snap.HandoffCarriers = append([]ToolHandoffCarrier(nil), a.HandoffCarriers...)
+	}
 	if a.MCPResponses != nil {
 		snap.MCPResponses = append([]MCPResponse(nil), a.MCPResponses...)
 	}
@@ -3804,6 +3817,7 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	if !snap.SourceInventoryObservation.IsActive() && snap.SourceInventoryAdvisory.IsActive() {
 		snap.SourceInventoryObservation = SourceInventoryObservationFromAdvisory(snap.SourceInventoryAdvisory)
 	}
+	snap.HandoffCarriers = ToolHandoffCarriersFromTurnAInputs(snap.ToolResults, snap.EvidenceItems, snap.HandoffCarriers)
 	m.turnAArtifacts = &snap
 	m.turnAArtifactsRevision++
 	// Snapshot changed → invalidate the memoised label-support pool.
@@ -3837,6 +3851,9 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 	out.SourceLocalization = CloneSourceLocalizationReviewPtr(m.turnAArtifacts.SourceLocalization)
 	if m.turnAArtifacts.ToolResults != nil {
 		out.ToolResults = append([]ToolResult(nil), m.turnAArtifacts.ToolResults...)
+	}
+	if m.turnAArtifacts.HandoffCarriers != nil {
+		out.HandoffCarriers = append([]ToolHandoffCarrier(nil), m.turnAArtifacts.HandoffCarriers...)
 	}
 	if m.turnAArtifacts.MCPResponses != nil {
 		out.MCPResponses = append([]MCPResponse(nil), m.turnAArtifacts.MCPResponses...)
@@ -3875,6 +3892,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.exploreForkTurnABaseToolLen = 0
 	m.exploreForkTurnABaseMCPLen = 0
 	m.exploreForkTurnABaseFlowLen = 0
+	m.exploreForkTurnABaseHandoffLen = 0
 	m.traceQueryRuntimeObservationCount = 0
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
@@ -3915,6 +3933,7 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	out.ReadFiles = append([]string(nil), in.ReadFiles...)
 	out.SourceLocalization = CloneSourceLocalizationReviewPtr(in.SourceLocalization)
 	out.ToolResults = append([]ToolResult(nil), in.ToolResults...)
+	out.HandoffCarriers = append([]ToolHandoffCarrier(nil), in.HandoffCarriers...)
 	out.MCPResponses = append([]MCPResponse(nil), in.MCPResponses...)
 	out.EvidenceItems = append([]EvidenceItem(nil), in.EvidenceItems...)
 	out.FlowFindings = cloneFlowFindingDigests(in.FlowFindings)
@@ -3933,6 +3952,7 @@ type turnAArtifactsMergeBase struct {
 	ToolLen               int
 	MCPLen                int
 	FlowLen               int
+	HandoffLen            int
 }
 
 const (
@@ -3974,6 +3994,10 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 		turnAArtifactsMutableToolResultsByteCap,
 		PreserveSuccessfulToolResultWithPayload,
 	)
+	merged.HandoffCarriers = NormalizeToolHandoffCarriers(append(
+		append([]ToolHandoffCarrier(nil), prior.HandoffCarriers...),
+		current.HandoffCarriers[clampMergeSliceBase(base.HandoffLen, len(current.HandoffCarriers)):]...,
+	))
 	merged.MCPResponses = append(
 		append([]MCPResponse(nil), prior.MCPResponses...),
 		current.MCPResponses[clampMergeSliceBase(base.MCPLen, len(current.MCPResponses)):]...,
@@ -4000,6 +4024,7 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 	}
 	merged.RuntimeObservationOnlyCompletion = prior.RuntimeObservationOnlyCompletion || current.RuntimeObservationOnlyCompletion
 	merged.EvidenceItems = mergeEvidenceByStableID(prior.EvidenceItems, current.EvidenceItems)
+	merged.HandoffCarriers = ToolHandoffCarriersFromTurnAInputs(merged.ToolResults, merged.EvidenceItems, merged.HandoffCarriers)
 	flowBase := clampMergeSliceBase(base.FlowLen, len(current.FlowFindings))
 	merged.FlowFindings = mergeFlowFindingsForMutable(prior.FlowFindings, current.FlowFindings[flowBase:])
 	if prior.TerminalEvidenceCount > merged.TerminalEvidenceCount {
@@ -5260,10 +5285,11 @@ type ToolRuntimeTiming struct {
 }
 
 type ToolResult struct {
-	ToolName string      `json:"tool_name"`
-	Summary  string      `json:"summary"`
-	Repair   *ToolRepair `json:"repair,omitempty"`
-	RawRef   string      `json:"raw_ref,omitempty"`
+	ToolName string              `json:"tool_name"`
+	Summary  string              `json:"summary"`
+	Repair   *ToolRepair         `json:"repair,omitempty"`
+	Handoff  *ToolHandoffCarrier `json:"handoff,omitempty"`
+	RawRef   string              `json:"raw_ref,omitempty"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

@@ -30,7 +30,7 @@ func boundTurnAToolResults(results []types.ToolResult, countCap, byteCap int) []
 }
 
 func preserveSuccessfulInvestigationToolResult(r types.ToolResult) bool {
-	return r.Success && investigationToolKinds[r.ToolName]
+	return r.Handoff != nil || (r.Success && investigationToolKinds[r.ToolName])
 }
 
 // mergeTurnAArtifactsWithPrior folds a prior TurnAArtifacts snapshot into the

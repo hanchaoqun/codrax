@@ -2546,6 +2546,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				er := execResults[idx]
 				toolOK := false
 				if er.result != nil {
+					attached := types.AttachToolHandoffCarrier(*er.result)
+					er.result = &attached
 					b.observeToolRepairPackEmitted(ctx, er.result)
 					toolOK = er.result.Success
 					allToolResults = append(allToolResults, *er.result)
@@ -2619,6 +2621,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 				toolOK := false
 				if result != nil {
+					attached := types.AttachToolHandoffCarrier(*result)
+					result = &attached
 					b.observeToolRepairPackEmitted(ctx, result)
 					toolOK = result.Success
 					allToolResults = append(allToolResults, *result)
