@@ -49,8 +49,12 @@ type explorerSummary struct {
 	MidLoopSignals    int            `json:"midloop_signals"`
 	MidLoopInjects    int            `json:"midloop_injects"`
 	MidLoopForceStops int            `json:"midloop_force_stops"`
+	HighWaterEvents   int            `json:"high_water_events"`
+	MaxIters          int            `json:"max_iters"`
+	MaxDispatches     int            `json:"max_dispatches"`
 	ByKey             map[string]int `json:"by_key,omitempty"`
 	ByAction          map[string]int `json:"by_action,omitempty"`
+	HighWaterByMetric map[string]int `json:"high_water_by_metric,omitempty"`
 }
 
 type provenanceSum struct {
@@ -122,6 +126,7 @@ type fileRetrySnapshot struct {
 	AnalyzerRetries   int    `json:"analyzer_retries"`
 	AnalyzerRejects   int    `json:"analyzer_rejects"`
 	ExplorerInjects   int    `json:"explorer_injects"`
+	ExplorerHighWater int    `json:"explorer_high_water"`
 	FinalizerRejects  int    `json:"finalizer_rejects"`
 	FinalizerRewrites int    `json:"finalizer_rewrites"`
 	RepairPlans       int    `json:"repair_plans"`
@@ -135,6 +140,7 @@ type fileMetrics struct {
 	analyzerRetries    int
 	analyzerRejects    int
 	explorerInjects    int
+	explorerHighWater  int
 	finalizerRejects   int
 	finalizerRewrites  int
 	repairPlans        int
@@ -207,6 +213,7 @@ func collect(paths []string) (report, error) {
 	c.report.Analyzer.BlocklistShadow.Samples = map[string]int{}
 	c.report.Explorer.ByKey = map[string]int{}
 	c.report.Explorer.ByAction = map[string]int{}
+	c.report.Explorer.HighWaterByMetric = map[string]int{}
 	c.report.Finalizer.ContractViolationBySection = map[string]int{}
 	c.report.Finalizer.RepairKinds = map[string]int{}
 	c.report.Finalizer.RepairTargets = map[string]int{}
@@ -264,7 +271,7 @@ func scanPath(root string, c *collector) error {
 
 func looksLikeLogFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".log", ".txt", ".out":
+	case ".log", ".txt", ".out", ".md":
 		return true
 	default:
 		return false
@@ -310,6 +317,7 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 	if isControlComponentLine(line, "DEBUG", "diag explorer") {
 		c.observeExplorerLine(line, fm)
 	}
+	c.observeSummaryMetricLine(line, fm)
 	c.observeRenderLine(line, fm)
 	if (isControlComponentLine(line, "DEBUG", "diag analyzer") && strings.Contains(line, "TOOLRESULT emit_analysis ok=false")) ||
 		(isControlComponentLine(line, "DEBUG", "diag analyzer") && strings.Contains(line, "emit_analysis rejected:")) ||
@@ -377,6 +385,47 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 			c.report.LLM.ByModel[m[1]]++
 		}
 	}
+}
+
+const (
+	explorerItersHighWaterThreshold      = 30
+	explorerDispatchesHighWaterThreshold = 3
+)
+
+func (c *collector) observeSummaryMetricLine(line string, fm *fileMetrics) {
+	cells := parseMarkdownTableRow(line)
+	if len(cells) < 2 {
+		return
+	}
+	metric := strings.TrimSpace(cells[0])
+	if metric != "explorer_iters" && metric != "explorer_dispatches" {
+		return
+	}
+	maxValue := 0
+	for _, cell := range cells[1:] {
+		n, ok := parseSummaryMetricInt(cell)
+		if ok && n > maxValue {
+			maxValue = n
+		}
+	}
+	if maxValue <= 0 {
+		return
+	}
+	threshold := explorerItersHighWaterThreshold
+	if metric == "explorer_dispatches" {
+		threshold = explorerDispatchesHighWaterThreshold
+		if maxValue > c.report.Explorer.MaxDispatches {
+			c.report.Explorer.MaxDispatches = maxValue
+		}
+	} else if maxValue > c.report.Explorer.MaxIters {
+		c.report.Explorer.MaxIters = maxValue
+	}
+	if maxValue < threshold {
+		return
+	}
+	c.report.Explorer.HighWaterEvents++
+	c.report.Explorer.HighWaterByMetric[metric]++
+	fm.explorerHighWater++
 }
 
 func (c *collector) observeExplorerLine(line string, fm *fileMetrics) {
@@ -537,7 +586,7 @@ func (c *collector) finalize() {
 			c.report.Render.Anomalies["first_draft_without_retry"] += fm.firstDraftPreviews
 			fm.renderAnomalies += fm.firstDraftPreviews
 		}
-		score := fm.analyzerRetries + fm.analyzerRejects*2 + fm.explorerInjects + fm.finalizerRejects*3 + fm.finalizerRewrites*2 + fm.repairPlans*2 + fm.renderAnomalies*2
+		score := fm.analyzerRetries + fm.analyzerRejects*2 + fm.explorerInjects + fm.explorerHighWater*2 + fm.finalizerRejects*3 + fm.finalizerRewrites*2 + fm.repairPlans*2 + fm.renderAnomalies*2
 		if score == 0 && fm.blocklistDropped == 0 {
 			continue
 		}
@@ -547,6 +596,7 @@ func (c *collector) finalize() {
 			AnalyzerRetries:   fm.analyzerRetries,
 			AnalyzerRejects:   fm.analyzerRejects,
 			ExplorerInjects:   fm.explorerInjects,
+			ExplorerHighWater: fm.explorerHighWater,
 			FinalizerRejects:  fm.finalizerRejects,
 			FinalizerRewrites: fm.finalizerRewrites,
 			RepairPlans:       fm.repairPlans,
@@ -618,6 +668,36 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+func parseMarkdownTableRow(line string) []string {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") {
+		return nil
+	}
+	trimmed := strings.Trim(line, "|")
+	parts := strings.Split(trimmed, "|")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		cell := strings.TrimSpace(part)
+		if cell == "" {
+			continue
+		}
+		out = append(out, cell)
+	}
+	return out
+}
+
+func parseSummaryMetricInt(cell string) (int, bool) {
+	cell = strings.TrimSpace(strings.Trim(cell, "`"))
+	if cell == "" || strings.Contains(cell, "-") {
+		return 0, false
+	}
+	n, err := strconv.Atoi(cell)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func parseTokenValue(s, key string) string {
@@ -853,8 +933,14 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 		rep.Explorer.MidLoopInjects,
 		rep.Explorer.MidLoopForceStops,
 	)
+	fmt.Fprintf(w, "- high-water: events=%d max_iters=%d max_dispatches=%d\n",
+		rep.Explorer.HighWaterEvents,
+		rep.Explorer.MaxIters,
+		rep.Explorer.MaxDispatches,
+	)
 	writeTopMap(w, "Explorer mid-loop keys", rep.Explorer.ByKey, 12)
 	writeTopMap(w, "Explorer mid-loop actions", rep.Explorer.ByAction, 8)
+	writeTopMap(w, "Explorer high-water metrics", rep.Explorer.HighWaterByMetric, 8)
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "## Finalizer")
@@ -913,19 +999,20 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "## Hot Logs")
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "| file | score | ana_retry | ana_reject | exp_inject | fin_reject | fin_rewrite | repair | blocklist_drop | render_anom |")
-		fmt.Fprintln(w, "|------|------:|----------:|-----------:|-----------:|-----------:|------------:|-------:|---------------:|------------:|")
+		fmt.Fprintln(w, "| file | score | ana_retry | ana_reject | exp_inject | exp_high_water | fin_reject | fin_rewrite | repair | blocklist_drop | render_anom |")
+		fmt.Fprintln(w, "|------|------:|----------:|-----------:|-----------:|---------------:|-----------:|------------:|-------:|---------------:|------------:|")
 		n := len(rep.FilesByRetryScore)
 		if n > top {
 			n = top
 		}
 		for _, f := range rep.FilesByRetryScore[:n] {
-			fmt.Fprintf(w, "| `%s` | %d | %d | %d | %d | %d | %d | %d | %d | %d |\n",
+			fmt.Fprintf(w, "| `%s` | %d | %d | %d | %d | %d | %d | %d | %d | %d | %d |\n",
 				escapePipe(f.Path),
 				f.Score,
 				f.AnalyzerRetries,
 				f.AnalyzerRejects,
 				f.ExplorerInjects,
+				f.ExplorerHighWater,
 				f.FinalizerRejects,
 				f.FinalizerRewrites,
 				f.RepairPlans,

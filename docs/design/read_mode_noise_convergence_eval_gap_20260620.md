@@ -173,6 +173,29 @@ Four-kernel convergence status:
   repair/evidence/observation counts through the existing `/workflow show`
   context lane.
 
+## 2026-06-20 Source-Inventory Structural Disposition
+
+This section is the current authority for the source-inventory/read-loop
+structural convergence audit. It supersedes older "remaining" prose in this
+file when that prose refers to per-shape source-inventory guard work.
+
+| RNE | Status | Disposition |
+| --- | --- | --- |
+| RNE-C47 | closed for current source-inventory execution path | Candidate construction now routes through `internal/tool/sourceinventory.Budget` and `ExecutionView`; current file/config/package/graph candidates append through the budget adapter before row-local materialization. |
+| RNE-C48 | superseded by execution-kernel plus telemetry | Wall-clock/cancel/page/cursor state is typed. Residual smoothness should be prioritized from high-water telemetry and status-card consumption, not new guard slices. |
+| RNE-C53 | closed for correctness core | Absence gates consume source-class universe counts from git-tracked `SourcePathRole`, observation/page completeness, and budget truncation. Production-only negative citations cannot close auxiliary/corpus/third-party source absence. |
+| RNE-C1/C4/C6 | open under relevance/repair-debt owner | These are still broad read-loop noise debts: support-chain relevance budgets, low-delta retry stop, and support-only range repair demotion. They are not source-inventory taxonomy gaps. |
+| RNE-C12 | open under completion preflight/cache owner | Slow `emit_evidence`, `emit_investigation_complete`, and context assembly remain performance work. The eval telemetry high-water counters now identify affected runs. |
+| RNE-C15 | open under contract-severity owner | Blocking user-answer defects, repaired schema drift, and audit-only annotation gaps still need a typed severity split. |
+| RNE-C65 | mostly delivered; residual observation-carrier follow-up | Prescan required-file projection is delivered. Add a typed observation carrier only if future logs show useful prescan candidates hidden behind blob-only refs. |
+
+Eval telemetry now parses Markdown summary rows for `explorer_iters` and
+`explorer_dispatches`. The high-water thresholds are typed constants:
+`explorer_iters >= 30` and `explorer_dispatches >= 3`. JSON/Markdown reports
+show event count, max values, metric buckets, and hot-log ranking impact. This
+turns the previous scattered "qf_architecture hit 42 iterations" prose into an
+auditable eval signal.
+
 ## Gap Ledger
 
 | ID | Priority | Gap | Root cause | Target state |

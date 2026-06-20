@@ -64,6 +64,17 @@ Current calibrated facts after SIC-5:
   no longer inherit broad default slack silently.
 - `source_inventory_reconcile.go` ceiling is ratcheted down to 3928 LOC.
 
+Current calibrated facts after SIC-6:
+
+- `eval/telemetry` parses Markdown eval summary rows for
+  `explorer_iters` and `explorer_dispatches`.
+- Explorer high-water telemetry is emitted in JSON/Markdown as typed counters:
+  event count, max iterations, max dispatches, and metric buckets.
+- Hot-log ranking now includes explorer high-water events, so runaway/smoothness
+  debt is visible without reading prose audit notes.
+- RNE disposition is recorded in this document and mirrored to
+  `read_mode_noise_convergence_eval_gap_20260620.md`.
+
 ## Gap List
 
 | ID | Priority | Gap | Current evidence | Target state |
@@ -73,7 +84,7 @@ Current calibrated facts after SIC-5:
 | SIC-3 | MEDIUM | Proof ledger derivation is lane-neutral, but read consumption remains split. | Delivered: `ReadProofGuidance` is the read-side consumer view over `ProofSnapshot`; retry checkpoints and parallel lane handoff consume the same authority. | Continue to keep weak/missing/unavailable proof advisory-only; only failed truth can become hard blocking. Preserve read-mode L1. |
 | SIC-4 | MEDIUM | Repair carrier is unified for result lanes, but demand-side repair lacked accepted evidence IDs. | Delivered: `RepairDirective` carries bounded accepted-evidence refs; `AppendEvidence` mirrors accepted evidence into `EvidenceClosure`; repair clone/merge/dedupe paths preserve refs without rendering them. | Keep demand-side repair and result-side `ToolHandoffCarrier` separate; consume typed refs in downstream handoff/status/report surfaces without parsing prose. |
 | SIC-5 | HIGH | Source-inventory convergence tripwire had coverage and slack holes. | Delivered: `sourceInventoryClusterFiles` scans `internal/tool/sourceinventory`; kernel files have explicit ceilings; all current cluster files require explicit ceilings; `source_inventory_reconcile.go` ceiling is 3928. | Keep adding deliberate ceilings for new cluster files and ratchet down as concerns move into smaller kernels. |
-| SIC-6 | HIGH | RNE tracker still has open high-water/noise gaps not covered by SIC-1..SIC-5. | Tracker still mentions RNE-C47/C48, RNE-C1/C4/C6/C12, RNE-C15, RNE-C65, and explorer high-water around 42. | Add a tracker disposition layer: classify each remaining RNE as closed by SIC work, superseded by a kernel, or still open with a concrete owner batch. High-water/runaway signals must become explicit eval/status telemetry, not scattered prose. |
+| SIC-6 | HIGH | RNE tracker still had open high-water/noise gaps not covered by SIC-1..SIC-5. | Delivered: RNE disposition table classifies closed/superseded/open items; eval telemetry now reports explorer high-water from typed summary metrics. | Continue future non-source-inventory smoothness work under the recorded owner batches instead of reopening source-inventory guard patches. |
 
 ## Delivery Order
 
@@ -152,13 +163,29 @@ Current calibrated facts after SIC-5:
 
 ### SIC-6 RNE Tracker Disposition
 
-- Add a tracker table mapping RNE-C47/C48, RNE-C1/C4/C6/C12, RNE-C15, and
-  RNE-C65 to concrete owner batches.
-- Add high-water telemetry criteria for explorer iteration/runaway signals.
-- Refresh `read_mode_noise_convergence_eval_gap_20260620.md` so stale
-  "remaining" text does not contradict delivered kernel work.
-- Pick six representative eval cases for the next validation batch after the
-  structural work lands.
+- Delivered: added a disposition table mapping RNE-C47/C48, RNE-C53,
+  RNE-C1/C4/C6/C12, RNE-C15, and RNE-C65 to closed, superseded, or concrete
+  owner batches.
+- Delivered: eval telemetry now treats `explorer_iters >= 30` and
+  `explorer_dispatches >= 3` summary rows as typed high-water events.
+- Delivered: refreshed `read_mode_noise_convergence_eval_gap_20260620.md` so
+  source-inventory kernel work is not listed as a pending per-shape guard.
+- Delivered: next validation set is the existing six-case representative
+  follow-up: `qf_architecture`, `qf_relation_subagent_registry`,
+  `arkts_repomap`, `cangjie_repomap`, `read_combo_log_current_source_explanation`,
+  and `trace_query_wakeup_causal_io_chain`.
+
+## RNE Disposition
+
+| RNE | Disposition | Owner / next action |
+| --- | --- | --- |
+| RNE-C47 | Closed for current source-inventory candidate construction. | `sourceinventory.Budget`, `ExecutionView`, cursor page state, absence-safe truncation gates, and SIC-5 tripwire now carry this class. Future growth must route through the kernel. |
+| RNE-C48 | Superseded by execution-kernel and telemetry work; residual UX/status-card smoothness stays open outside source-inventory guards. | Use eval high-water telemetry and typed execution/page state to prioritize future status-card consumption. Do not add per-role guard slices. |
+| RNE-C53 | Closed for correctness core. | Source-class universe and exact-absence gates consume git-tracked `SourcePathRole` counts, observation/page completeness, and budget truncation. |
+| RNE-C1/C4/C6 | Open, non-source-inventory noise owner. | Future read relevance-budget / repair-debt consumer work: cap support chains, stop low-delta retries, and demote support-only range repairs after principal proof. |
+| RNE-C12 | Open, performance/preflight owner. | Completion preflight/cache work remains responsible for slow `emit_evidence`, `emit_investigation_complete`, and context assembly. High-water telemetry now exposes impacted evals. |
+| RNE-C15 | Open, contract-severity owner. | Final contract telemetry still needs blocking/repaired/audit-only severity split. |
+| RNE-C65 | Mostly delivered; residual observation-carrier follow-up only if future logs show hidden prescan candidates. | Keep deterministic prescan required-file projection and use typed observation carriers rather than user/model prose. |
 
 ## Acceptance Criteria
 
@@ -182,4 +209,4 @@ Current calibrated facts after SIC-5:
 | SIC-3 proof consumption | delivered | Added `loopkernel.ReadProofGuidance`; weak read proof renders as `mode=advisory` in retry checkpoints and does not hard-block. Parallel lane handoff now consumes the same guidance view. Focused proof/retry tests passed and full `go test ./...` passed. |
 | SIC-4 repair accepted evidence | delivered | Added demand-side accepted-evidence carrier to `RepairDirective`; `MutableState.AppendEvidence` seeds `EvidenceClosure`; `AddRepair` snapshots refs and duplicate repair merge preserves them. Focused `go test ./internal/types -run 'Test(MergeRepairs_MergesAcceptedEvidenceCarrier|RepairDirectiveRender_DoesNotRenderAcceptedEvidenceCarrier|EvidenceClosure_AddRepairCarriesAcceptedEvidenceSnapshot|MutableStateAppendEvidenceSeedsRepairAcceptedEvidence|EvidenceClosure_ExploreForkMergeDoesNotDuplicateBaselineEvents|AddRepair_ReadFile_MirrorsToPendingReads|ConsumeRepairs_RetainsLivePendingReadRepairs)$'` passed; full `go test ./internal/types` passed. |
 | SIC-5 tripwire coverage | delivered | Expanded source-inventory convergence tripwire to `sourceinventory/`, added explicit kernel ceilings, required explicit ceilings for every current cluster file, and lowered `source_inventory_reconcile.go` ceiling to 3928. Focused `go test ./internal/tool -run 'TestSourceInventoryConvergence'` passed. |
-| SIC-6 tracker disposition | pending |  |
+| SIC-6 tracker disposition | delivered | Added eval explorer high-water telemetry (`explorer_iters >= 30`, `explorer_dispatches >= 3`) with JSON/Markdown/hot-log output; recorded RNE disposition and next-owner table; refreshed the read-mode RNE tracker. Focused `go test ./eval/telemetry` passed. |

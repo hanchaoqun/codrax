@@ -20,6 +20,8 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 		`2026-05-19T10:00:00.026 DEBUG [diag explorer] iter=3 phase=midloop_inject MIDLOOP inject len=675:`,
 		`2026-05-19T10:00:00.027 DEBUG [diag explorer] iter=5 phase=midloop_signal hint=true progress=true stop=false key="explorer.mid-loop.completion-ready" → stop ()`,
 		`2026-05-19T10:00:00.028 DEBUG [diag explorer] iter=5 phase=midloop_force_stop MIDLOOP force-stop: evaluator stop: completion ready`,
+		`| explorer_iters | 42 | 42 |`,
+		`| explorer_dispatches | 4 | 4 |`,
 		`2026-05-19T10:00:00.030 INFO [render]   ⟳ 1/4 模型响应出错,正在重新理解问题`,
 		`2026-05-19T10:00:00.040 DEBUG [diag analyzer] iter=0 phase=toolresult TOOLRESULT emit_analysis ok=false len=32: emit_analysis rejected: keywords below hard floor got=1 want≥3`,
 		`2026-05-19T10:00:00.050 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document ok=false len=99: bad citation`,
@@ -61,10 +63,15 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 	if rep.Explorer.MidLoopSignals != 2 ||
 		rep.Explorer.MidLoopInjects != 1 ||
 		rep.Explorer.MidLoopForceStops != 1 ||
+		rep.Explorer.HighWaterEvents != 2 ||
+		rep.Explorer.MaxIters != 42 ||
+		rep.Explorer.MaxDispatches != 4 ||
 		rep.Explorer.ByKey["explorer.mid-loop.read-without-emit"] != 1 ||
 		rep.Explorer.ByKey["explorer.mid-loop.completion-ready"] != 1 ||
 		rep.Explorer.ByAction["inject_hint"] != 1 ||
-		rep.Explorer.ByAction["stop"] != 1 {
+		rep.Explorer.ByAction["stop"] != 1 ||
+		rep.Explorer.HighWaterByMetric["explorer_iters"] != 1 ||
+		rep.Explorer.HighWaterByMetric["explorer_dispatches"] != 1 {
 		t.Fatalf("explorer mid-loop counters wrong: %+v", rep.Explorer)
 	}
 	if rep.Finalizer.DocumentRejects != 1 || rep.Finalizer.RewriteRenders != 1 || rep.Finalizer.RepairPlans != 1 {
@@ -100,6 +107,7 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 	if len(rep.FilesByRetryScore) != 1 ||
 		rep.FilesByRetryScore[0].BlocklistDropped != 2 ||
 		rep.FilesByRetryScore[0].ExplorerInjects != 1 ||
+		rep.FilesByRetryScore[0].ExplorerHighWater != 2 ||
 		rep.FilesByRetryScore[0].RenderAnomalies != 2 {
 		t.Fatalf("hot-log snapshot wrong: %+v", rep.FilesByRetryScore)
 	}
@@ -135,8 +143,11 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 			MidLoopSignals:    2,
 			MidLoopInjects:    1,
 			MidLoopForceStops: 1,
+			HighWaterEvents:   1,
+			MaxIters:          42,
 			ByKey:             map[string]int{"explorer.mid-loop.read-without-emit": 1},
 			ByAction:          map[string]int{"inject_hint": 1},
+			HighWaterByMetric: map[string]int{"explorer_iters": 1},
 		},
 		Richness: richnessSummary{
 			Events:      1,
@@ -161,7 +172,9 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 		"# Codrax Telemetry Report",
 		"blocklist shadow: events=1 dropped=1 would_search=0 would_shape=0",
 		"mid-loop: signals=2 injects=1 force_stops=1",
+		"high-water: events=1 max_iters=42 max_dispatches=0",
 		"explorer.mid-loop.read-without-emit",
+		"explorer_iters",
 		"diagram_edge_endpoint_hallucinated",
 		"support_plan",
 		"facet_softened",
@@ -172,6 +185,31 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestCollectParsesMarkdownHighWaterSummary(t *testing.T) {
+	dir := t.TempDir()
+	summary := filepath.Join(dir, "summary.md")
+	body := strings.Join([]string{
+		`| metric | run1 | run2 |`,
+		`| --- | ---: | ---: |`,
+		`| explorer_iters | 12 | 31 |`,
+		`| explorer_dispatches | 1 | 2 |`,
+		``,
+	}, "\n")
+	if err := os.WriteFile(summary, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := collect([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Files != 1 || rep.Explorer.HighWaterEvents != 1 || rep.Explorer.MaxIters != 31 {
+		t.Fatalf("markdown high-water summary not collected: %+v", rep)
+	}
+	if rep.Explorer.HighWaterByMetric["explorer_iters"] != 1 {
+		t.Fatalf("high-water metric missing: %+v", rep.Explorer.HighWaterByMetric)
 	}
 }
 
