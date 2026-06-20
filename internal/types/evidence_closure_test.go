@@ -207,6 +207,70 @@ func TestAddRepair_ReadFile_MirrorsToPendingReads(t *testing.T) {
 	}
 }
 
+func TestEvidenceClosure_AddRepairCarriesAcceptedEvidenceSnapshot(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AppendAcceptedEvidenceItems([]EvidenceItem{
+		{
+			ID:              "ev-owner",
+			Kind:            EvidenceDirect,
+			Scope:           ScopeLine,
+			Source:          "internal/owner.go",
+			LineStart:       12,
+			Subject:         "Owner",
+			OwnerSymbol:     "Owner",
+			GroundingStatus: GroundingGrounded,
+		},
+	})
+	c.AddRepair(RepairDirective{
+		Kind:      RepairEmitEvidence,
+		Files:     []string{"internal/owner.go"},
+		Rationale: "materialize exact owner evidence",
+	})
+
+	repairs := c.PendingRepairs()
+	if len(repairs) != 1 {
+		t.Fatalf("PendingRepairs len=%d, want 1", len(repairs))
+	}
+	if len(repairs[0].AcceptedEvidence) != 1 {
+		t.Fatalf("AcceptedEvidence len=%d, want 1: %+v", len(repairs[0].AcceptedEvidence), repairs[0].AcceptedEvidence)
+	}
+	ref := repairs[0].AcceptedEvidence[0]
+	if ref.ID != "ev-owner" || ref.Source != "internal/owner.go" || ref.SourcePathRole != SourcePathRoleProduction {
+		t.Fatalf("unexpected accepted evidence ref: %+v", ref)
+	}
+}
+
+func TestMutableStateAppendEvidenceSeedsRepairAcceptedEvidence(t *testing.T) {
+	m := &MutableState{}
+	m.AppendEvidence([]EvidenceItem{
+		{
+			ID:              "ev-shared",
+			Kind:            EvidenceMechanism,
+			Scope:           ScopeLine,
+			Source:          "internal/shared.go",
+			LineStart:       42,
+			Subject:         "shared",
+			GroundingStatus: GroundingRecovered,
+		},
+	})
+	c := m.EvidenceClosure()
+	if refs := c.AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-shared" {
+		t.Fatalf("closure accepted evidence refs = %+v, want ev-shared", refs)
+	}
+	c.AddRepair(RepairDirective{
+		Kind:    RepairRebindSubject,
+		Subject: string(SubjectFunctionName),
+		Origin:  "test",
+	})
+	repairs := c.PendingRepairs()
+	if len(repairs) != 1 {
+		t.Fatalf("PendingRepairs len=%d, want 1", len(repairs))
+	}
+	if len(repairs[0].AcceptedEvidence) != 1 || repairs[0].AcceptedEvidence[0].ID != "ev-shared" {
+		t.Fatalf("repair accepted evidence = %+v, want ev-shared", repairs[0].AcceptedEvidence)
+	}
+}
+
 // TestAddRepair_NonReadFile_DoesNotMirror asserts the A1 bridge is
 // kind-specific: RepairExpandSearch / RepairSwapView / etc. MUST
 // NOT silently write PendingReads (those kinds have no file list

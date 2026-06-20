@@ -277,6 +277,13 @@ type RepairDirective struct {
 	// byte-identically.
 	LineRanges []LineRange
 
+	// AcceptedEvidence carries bounded, typed identities for evidence that had
+	// already been accepted when this repair was raised. It is a handoff
+	// carrier, not prose: renderers should not print it into retry hints, but
+	// downstream extract/finalize/report stages can use it to keep repair
+	// context attached without re-parsing summaries.
+	AcceptedEvidence []AcceptedEvidenceRef
+
 	// Stage (A.1+E.1, 2026-05-02) is the explicit stage attribution
 	// for this directive. When non-empty, AddRepair bumps
 	// stats.PerStage[Stage].Repairs and propagates Stage into the
@@ -286,13 +293,28 @@ type RepairDirective struct {
 	Stage string
 }
 
+// NormalizeRepairDirective returns a defensive, bounded copy of r. It preserves
+// caller order for user-visible fields while normalizing the typed carrier
+// fields that survive handoff.
+func NormalizeRepairDirective(r RepairDirective) RepairDirective {
+	r.Files = append([]string(nil), r.Files...)
+	r.Keywords = append([]string(nil), r.Keywords...)
+	r.Tools = uniqueRepairDirectiveTools(r.Tools)
+	r.LineRanges = cloneLineRanges(r.LineRanges)
+	r.AcceptedEvidence = cloneAcceptedEvidenceRefs(r.AcceptedEvidence)
+	return r
+}
+
 // MergeRepairs deduplicates a slice of RepairDirective by Kind +
 // sorted-Files + Subject. The renderer calls this before formatting
 // so two enforcers raising the same directive surface only once. The
 // caller-supplied order is preserved for the kept entries.
 func MergeRepairs(in []RepairDirective) []RepairDirective {
 	if len(in) <= 1 {
-		return in
+		if len(in) == 0 {
+			return nil
+		}
+		return []RepairDirective{NormalizeRepairDirective(in[0])}
 	}
 	type key struct {
 		kind     RepairKind
@@ -300,16 +322,18 @@ func MergeRepairs(in []RepairDirective) []RepairDirective {
 		files    string
 		advisory bool
 	}
-	seen := make(map[key]bool, len(in))
-	out := in[:0]
+	seen := make(map[key]int, len(in))
+	out := make([]RepairDirective, 0, len(in))
 	for _, r := range in {
+		r = NormalizeRepairDirective(r)
 		dup := append([]string(nil), r.Files...)
 		sort.Strings(dup)
 		k := key{kind: r.Kind, subject: r.Subject, files: strings.Join(dup, "\x00"), advisory: r.Advisory}
-		if seen[k] {
+		if idx, ok := seen[k]; ok {
+			out[idx].AcceptedEvidence = mergeAcceptedEvidenceRefs(out[idx].AcceptedEvidence, r.AcceptedEvidence)
 			continue
 		}
-		seen[k] = true
+		seen[k] = len(out)
 		out = append(out, r)
 	}
 	return out

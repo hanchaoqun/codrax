@@ -115,6 +115,12 @@ type EvidenceClosure struct {
 	// signatures. Map: file → sorted unique line numbers.
 	citedRefs map[string][]int
 
+	// acceptedEvidence stores bounded typed identities for evidence already
+	// accepted in this run. RepairDirective snapshots copy this carrier so a
+	// later extractor/finalizer/report can consume precise evidence refs
+	// without scraping retry prose or losing prior-stage context.
+	acceptedEvidence []AcceptedEvidenceRef
+
 	// pendingReads is the queue of files the framework has decided
 	// MUST be read before emit_investigation_complete can succeed.
 	// Populated by chain promotion (anchor outside ReadSet) and by
@@ -416,6 +422,7 @@ func (c *EvidenceClosure) Clone() *EvidenceClosure {
 	out.fileTotalLines = cloneIntMap(c.fileTotalLines)
 	out.scannedSet = cloneBoolMap(c.scannedSet)
 	out.citedRefs = cloneIntSliceMap(c.citedRefs)
+	out.acceptedEvidence = cloneAcceptedEvidenceRefs(c.acceptedEvidence)
 	out.pendingReads = clonePendingReads(c.pendingReads)
 	out.unverifiedFinds = append([]UnverifiedFinding(nil), c.unverifiedFinds...)
 	out.subjectMatches = cloneFloatMap(c.subjectMatches)
@@ -499,6 +506,7 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 	for file, lines := range snap.citedRefs {
 		c.citedRefs[file] = mergeSortedUniqueInts(c.citedRefs[file], lines)
 	}
+	c.acceptedEvidence = mergeAcceptedEvidenceRefs(c.acceptedEvidence, snap.acceptedEvidence)
 	for _, p := range snap.pendingReads {
 		c.mergePendingReadLocked(p)
 	}
@@ -517,9 +525,11 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 		c.fingerprints = append(c.fingerprints, snap.fingerprints...)
 	}
 	for _, r := range snap.repairs {
+		r = NormalizeRepairDirective(r)
 		duplicate := false
-		for _, existing := range c.repairs {
+		for i, existing := range c.repairs {
 			if existing.Kind == r.Kind && existing.Subject == r.Subject && existing.Advisory == r.Advisory && sameFileSet(existing.Files, r.Files) {
+				c.repairs[i].AcceptedEvidence = mergeAcceptedEvidenceRefs(existing.AcceptedEvidence, r.AcceptedEvidence)
 				duplicate = true
 				break
 			}
@@ -1289,17 +1299,19 @@ func (c *EvidenceClosure) activeReadRepairsLocked() []RepairDirective {
 		return nil
 	}
 	out := make([]RepairDirective, 0, len(order))
+	acceptedEvidence := cloneAcceptedEvidenceRefs(c.acceptedEvidence)
 	for _, key := range order {
 		files := filesByGroup[key]
 		if len(files) == 0 {
 			continue
 		}
 		out = append(out, RepairDirective{
-			Kind:       RepairReadFile,
-			Files:      append([]string(nil), files...),
-			Rationale:  key.rationale,
-			Origin:     key.origin,
-			LineRanges: cloneLineRanges(rangesByGroup[key]),
+			Kind:             RepairReadFile,
+			Files:            append([]string(nil), files...),
+			Rationale:        key.rationale,
+			Origin:           key.origin,
+			LineRanges:       cloneLineRanges(rangesByGroup[key]),
+			AcceptedEvidence: cloneAcceptedEvidenceRefs(acceptedEvidence),
 		})
 	}
 	return out
@@ -1656,6 +1668,52 @@ func (c *EvidenceClosure) CitedRefs() map[string][]int {
 	return out
 }
 
+// AppendAcceptedEvidenceItems records accepted evidence identities in the
+// closure handoff carrier. The caller supplies already-normalized EvidenceItem
+// values from the authoritative accepted evidence buffer.
+func (c *EvidenceClosure) AppendAcceptedEvidenceItems(items []EvidenceItem) {
+	if c == nil || len(items) == 0 {
+		return
+	}
+	refs := acceptedEvidenceRefsFromEvidenceItems(items)
+	c.AppendAcceptedEvidenceRefs(refs)
+}
+
+// AppendAcceptedEvidenceRefs merges bounded accepted-evidence identities into
+// the closure. It is intentionally typed and compact; downstream repair
+// handoff must not reconstruct this state from model prose.
+func (c *EvidenceClosure) AppendAcceptedEvidenceRefs(refs []AcceptedEvidenceRef) {
+	if c == nil || len(refs) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.acceptedEvidence = mergeAcceptedEvidenceRefs(c.acceptedEvidence, refs)
+}
+
+// AcceptedEvidenceRefs returns the current bounded evidence identity carrier.
+func (c *EvidenceClosure) AcceptedEvidenceRefs() []AcceptedEvidenceRef {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return cloneAcceptedEvidenceRefs(c.acceptedEvidence)
+}
+
+func acceptedEvidenceRefsFromEvidenceItems(items []EvidenceItem) []AcceptedEvidenceRef {
+	if len(items) == 0 {
+		return nil
+	}
+	refs := make([]AcceptedEvidenceRef, 0, len(items))
+	for _, item := range items {
+		if ref, ok := AcceptedEvidenceRefFromEvidenceItem(item); ok {
+			refs = append(refs, ref)
+		}
+	}
+	return normalizeAcceptedEvidenceRefs(refs)
+}
+
 // SetSubjectMatch caches a chain → subject score lookup.
 func (c *EvidenceClosure) SetSubjectMatch(chain string, score float64) {
 	if c == nil || chain == "" {
@@ -1835,8 +1893,13 @@ func (c *EvidenceClosure) addRepairLocked(r RepairDirective) {
 	if c == nil || r.Kind == "" {
 		return
 	}
-	for _, existing := range c.repairs {
+	r = NormalizeRepairDirective(r)
+	if len(r.AcceptedEvidence) == 0 && len(c.acceptedEvidence) > 0 {
+		r.AcceptedEvidence = cloneAcceptedEvidenceRefs(c.acceptedEvidence)
+	}
+	for i, existing := range c.repairs {
 		if existing.Kind == r.Kind && existing.Subject == r.Subject && sameFileSet(existing.Files, r.Files) {
+			c.repairs[i].AcceptedEvidence = mergeAcceptedEvidenceRefs(existing.AcceptedEvidence, r.AcceptedEvidence)
 			return
 		}
 	}
@@ -2256,9 +2319,7 @@ func (c *EvidenceClosure) PendingRepairs() []RepairDirective {
 	if len(c.repairs) == 0 {
 		return nil
 	}
-	out := make([]RepairDirective, len(c.repairs))
-	copy(out, c.repairs)
-	return out
+	return cloneRepairDirectives(c.repairs)
 }
 
 // ConsumeRepairs returns and clears the queue in one atomic step. The
@@ -2306,6 +2367,7 @@ func (c *EvidenceClosure) Reset() {
 	c.fileTotalLines = make(map[string]int)
 	c.scannedSet = make(map[string]bool)
 	c.citedRefs = make(map[string][]int)
+	c.acceptedEvidence = nil
 	c.pendingReads = nil
 	c.unverifiedFinds = nil
 	c.subjectMatches = make(map[string]float64)
@@ -2548,11 +2610,7 @@ func cloneRepairDirectives(in []RepairDirective) []RepairDirective {
 	}
 	out := make([]RepairDirective, len(in))
 	for i, r := range in {
-		out[i] = r
-		out[i].Files = append([]string(nil), r.Files...)
-		out[i].Keywords = append([]string(nil), r.Keywords...)
-		out[i].Tools = append([]string(nil), r.Tools...)
-		out[i].LineRanges = cloneLineRanges(r.LineRanges)
+		out[i] = NormalizeRepairDirective(r)
 	}
 	return out
 }

@@ -2241,9 +2241,16 @@ func (m *MutableState) AppendEvidence(items []EvidenceItem) {
 		items = normalizeEvidenceItemsForMutableStorage(items, m.RepoRoot())
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.emittedEvidence = append(m.emittedEvidence, items...)
+	if m.evidenceClosure == nil {
+		m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
+	}
+	closure := m.evidenceClosure
 	m.bumpAnswerSurfaceRevisionLocked()
+	m.mu.Unlock()
+	if closure != nil {
+		closure.AppendAcceptedEvidenceItems(items)
+	}
 }
 
 func normalizeEvidenceItemsForMutableStorage(items []EvidenceItem, repoRoot string) []EvidenceItem {

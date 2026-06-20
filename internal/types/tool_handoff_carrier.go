@@ -564,6 +564,23 @@ func normalizeAcceptedEvidenceRefs(in []AcceptedEvidenceRef) []AcceptedEvidenceR
 	return out
 }
 
+func cloneAcceptedEvidenceRefs(in []AcceptedEvidenceRef) []AcceptedEvidenceRef {
+	return normalizeAcceptedEvidenceRefs(append([]AcceptedEvidenceRef(nil), in...))
+}
+
+func mergeAcceptedEvidenceRefs(a, b []AcceptedEvidenceRef) []AcceptedEvidenceRef {
+	if len(a) == 0 {
+		return cloneAcceptedEvidenceRefs(b)
+	}
+	if len(b) == 0 {
+		return cloneAcceptedEvidenceRefs(a)
+	}
+	merged := make([]AcceptedEvidenceRef, 0, len(a)+len(b))
+	merged = append(merged, a...)
+	merged = append(merged, b...)
+	return normalizeAcceptedEvidenceRefs(merged)
+}
+
 func normalizeAcceptedEvidenceRef(ref AcceptedEvidenceRef) AcceptedEvidenceRef {
 	ref.ID = trimToolHandoffText(ref.ID)
 	ref.Source = trimToolHandoffText(ref.Source)

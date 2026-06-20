@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestClassifyRepairDirective(t *testing.T) {
 	tests := []struct {
@@ -101,5 +104,52 @@ func TestClassifyPendingReadRepair(t *testing.T) {
 				t.Fatalf("ClassifyPendingReadRepair()=%q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMergeRepairs_MergesAcceptedEvidenceCarrier(t *testing.T) {
+	in := []RepairDirective{
+		{
+			Kind:  RepairEmitEvidence,
+			Files: []string{"internal/a.go"},
+			AcceptedEvidence: []AcceptedEvidenceRef{
+				{ID: "ev-a", Source: "internal/a.go", LineStart: 10, Subject: "A"},
+			},
+		},
+		{
+			Kind:  RepairEmitEvidence,
+			Files: []string{"internal/a.go"},
+			AcceptedEvidence: []AcceptedEvidenceRef{
+				{ID: "ev-a", Source: "internal/a.go", LineStart: 10, Subject: "duplicate"},
+				{ID: "ev-b", Source: "internal/b.go", LineStart: 22, Subject: "B"},
+			},
+		},
+	}
+	got := MergeRepairs(in)
+	if len(got) != 1 {
+		t.Fatalf("MergeRepairs len=%d, want 1", len(got))
+	}
+	if len(got[0].AcceptedEvidence) != 2 {
+		t.Fatalf("accepted evidence len=%d, want 2: %+v", len(got[0].AcceptedEvidence), got[0].AcceptedEvidence)
+	}
+	if got[0].AcceptedEvidence[0].ID != "ev-a" || got[0].AcceptedEvidence[1].ID != "ev-b" {
+		t.Fatalf("accepted evidence order/ids = %+v, want ev-a then ev-b", got[0].AcceptedEvidence)
+	}
+}
+
+func TestRepairDirectiveRender_DoesNotRenderAcceptedEvidenceCarrier(t *testing.T) {
+	r := RepairDirective{
+		Kind:      RepairEmitEvidence,
+		Files:     []string{"internal/a.go"},
+		Rationale: "materialize accepted evidence",
+		AcceptedEvidence: []AcceptedEvidenceRef{
+			{ID: "ev-secret", Source: "internal/hidden.go", LineStart: 99, Subject: "hidden"},
+		},
+	}
+	rendered := r.Render()
+	for _, forbidden := range []string{"ev-secret", "internal/hidden.go", "hidden"} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("Render leaked accepted evidence carrier %q in:\n%s", forbidden, rendered)
+		}
 	}
 }
