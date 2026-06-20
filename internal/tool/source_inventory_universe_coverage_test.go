@@ -452,6 +452,324 @@ func TestSourceInventoryCandidateUniverseCoverageGap_IgnoresAdvisoryRowsWithoutE
 	}
 }
 
+func TestSourceInventoryLensExecutionGap_AdvisoryAndListFilesDoNotSatisfyLens(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{"source_inventory_profile", "repomap_graph", "pre_explore_typed_request"},
+		Sets: []types.SourceInventoryAdvisorySet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Candidates: []types.SourceInventoryAdvisoryCandidate{{
+				Member:     "run",
+				Key:        "src/app.py::run",
+				SupportRef: "run: src/app.py:7",
+				Role:       types.AnswerCandidateRoleFunction,
+				File:       "src/app.py",
+				Line:       7,
+				Language:   "python",
+			}},
+		}},
+	})
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{sourceInventoryExactUniverseProvenanceListFilesDirect},
+		Lens:         []string{"direct_children", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFile,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "app.py",
+				Key:        "src/app.py",
+				SupportRef: "src/app.py",
+				Provenance: []string{sourceInventoryExactUniverseProvenanceListFilesDirect},
+				Role:       types.AnswerCandidateRoleFile,
+				File:       "src/app.py",
+			}},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				Confidence: 0.9,
+			},
+		}},
+	}
+	gap := SourceInventoryLensExecutionGapForContext(ctx)
+	if !gap.Blocking || !gap.HasAdvisory || !gap.HasListFiles {
+		t.Fatalf("advisory/list_files state should still require source_inventory lens execution, got %+v", gap)
+	}
+	if len(gap.Roles) != 1 || gap.Roles[0] != types.AnswerCandidateRoleFunction {
+		t.Fatalf("gap should preserve typed profile roles, got %+v", gap.Roles)
+	}
+}
+
+func TestSourceInventoryLensExecutionGap_TypedQueryAdvisoryRequiresLens(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"."},
+		Provenance: []string{
+			"request_traits:typed_source_enumeration_query",
+			"request_traits:query_root_scope",
+			"pre_explore_typed_request",
+			"repomap_graph",
+		},
+		Sets: []types.SourceInventoryAdvisorySet{
+			{
+				Role:     types.AnswerCandidateRoleType,
+				Complete: true,
+				Candidates: []types.SourceInventoryAdvisoryCandidate{{
+					Member:     "Index",
+					Key:        "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets::Index",
+					SupportRef: "Index: internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:7",
+					Role:       types.AnswerCandidateRoleType,
+					File:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+					Line:       7,
+					Language:   "arkts",
+				}},
+			},
+			{
+				Role:     types.AnswerCandidateRoleFunction,
+				Complete: true,
+				Candidates: []types.SourceInventoryAdvisoryCandidate{{
+					Member:     "GlobalCard",
+					Key:        "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets::GlobalCard",
+					SupportRef: "GlobalCard: internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:26",
+					Role:       types.AnswerCandidateRoleFunction,
+					File:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+					Line:       26,
+					Language:   "arkts",
+				}},
+			},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+
+	gap := SourceInventoryLensExecutionGapForContext(ctx)
+	if !gap.Blocking || !gap.HasAdvisory || gap.HasListFiles {
+		t.Fatalf("typed query advisory should require executable source_inventory lens, got %+v", gap)
+	}
+	if !sameAnswerRoles(gap.Roles, []types.AnswerCandidateRole{
+		types.AnswerCandidateRoleType,
+		types.AnswerCandidateRoleFunction,
+	}) {
+		t.Fatalf("gap roles = %+v, want advisory roles", gap.Roles)
+	}
+	if len(gap.Scopes) != 1 || gap.Scopes[0] != "." {
+		t.Fatalf("gap scopes = %+v, want root query scope", gap.Scopes)
+	}
+
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"."},
+		Provenance:   []string{"repo_lens:tool_query"},
+		Lens:         []string{"members", "symbols", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "Index",
+				Key:        "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets::Index",
+				SupportRef: "Index: internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:7",
+				Provenance: []string{"repo_lens:tool_query"},
+				Role:       types.AnswerCandidateRoleType,
+				File:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+				Line:       7,
+			}},
+		}},
+	})
+	if satisfied := SourceInventoryLensExecutionGapForContext(ctx); satisfied.Blocking {
+		t.Fatalf("repo_lens tool observation should satisfy synthetic query lane, got %+v", satisfied)
+	}
+}
+
+func TestSourceInventoryLensExecutionGap_SatisfiedByRepoLensAdvisoryProvenance(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"."},
+		Provenance: []string{
+			"request_traits:typed_source_enumeration_query",
+			"repo_lens:tool_query",
+			"repomap_graph",
+		},
+		Sets: []types.SourceInventoryAdvisorySet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Candidates: []types.SourceInventoryAdvisoryCandidate{{
+				Member:     "GlobalCard",
+				Key:        "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets::GlobalCard",
+				SupportRef: "GlobalCard: internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:26",
+				Role:       types.AnswerCandidateRoleFunction,
+				File:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+				Line:       26,
+				Language:   "arkts",
+			}},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	if gap := SourceInventoryLensExecutionGapForContext(ctx); gap.Blocking {
+		t.Fatalf("repo_lens advisory provenance should satisfy executable lens gate, got %+v", gap)
+	}
+}
+
+func TestSourceInventoryLensExecutionGap_SatisfiedByRepoLensObservation(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{"repo_lens:tool_query"},
+		Lens:         []string{"members", "symbols", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "run",
+				Key:           "src/app.py::run",
+				SupportRef:    "run: src/app.py:7",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "src/app.py",
+				Line:          7,
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				Confidence:        0.9,
+			},
+		}},
+	}
+	if gap := SourceInventoryLensExecutionGapForContext(ctx); gap.Blocking {
+		t.Fatalf("repo_lens:tool_query source-inventory observation should satisfy execution gate, got %+v", gap)
+	}
+}
+
+func TestSourceInventoryLensExecutionGap_SatisfiedByZeroResultRepoLensToolOutput(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+		Summary:  "Repo Lens: no source-inventory observation is available for the requested typed scope/role slice.",
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				Confidence:        0.9,
+			},
+		}},
+	}
+	if gap := SourceInventoryLensExecutionGapForContext(ctx); gap.Blocking {
+		t.Fatalf("zero-result source_inventory lens tool output should count as executed, got %+v", gap)
+	}
+}
+
+func TestSourceInventorySourceScope_TypedQueryRootScopeIncludesAuxiliarySources(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{
+		Active:       true,
+		AdvisoryOnly: true,
+		Scopes:       []string{"."},
+		Provenance: []string{
+			"request_traits:typed_source_enumeration_query",
+			"request_traits:query_root_scope",
+			"pre_explore_typed_request",
+		},
+		Sets: []types.SourceInventoryAdvisorySet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+	if !sourceInventorySourceInRequestedScope(ctx, "fixtures/arkts/entry.ets") {
+		t.Fatal("typed repository-wide source inventory query should include auxiliary source classes")
+	}
+}
+
+func TestSourceInventorySourceScope_ExplicitProductionInventoryStillFiltersAuxiliarySources(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("source inventory"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				Confidence:        0.9,
+			},
+		}},
+	}
+	if sourceInventorySourceInRequestedScope(ctx, "fixtures/arkts/entry.ets") {
+		t.Fatal("explicit production source inventory should keep auxiliary sources out of principal candidates")
+	}
+}
+
 func TestSourceInventoryCandidateUniverseCoverageGap_ExplicitExclusionSatisfiesUniverse(t *testing.T) {
 	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
 	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, []types.AnswerAggregateFact{{
@@ -517,6 +835,18 @@ func TestSourceInventoryAcceptedClosureCoversExactUniverse_RejectsExclusionOnly(
 }
 
 func sameStringSlice(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameAnswerRoles(got, want []types.AnswerCandidateRole) bool {
 	if len(got) != len(want) {
 		return false
 	}

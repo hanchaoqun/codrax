@@ -1912,6 +1912,18 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if downgrade := sourceInventoryLensExecutionDowngrade(ctx, effectiveAggregateFacts); downgrade != "" {
+		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_source_inventory_lens", preCompleteStart, len(preflight.Evidence))
+		if ctx != nil && ctx.Mutable != nil {
+			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+		}
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   downgrade,
+			Success:   true,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	if downgrade := preCompleteContractCheckWithPreflight(ctx, justification, preflight); downgrade != "" {
 		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(preflight.Evidence))
 		if ctx != nil && ctx.Mutable != nil {
@@ -3524,6 +3536,101 @@ func exhaustiveEnumerationHasOriginSpecificOnlyMemberSet(ctx *types.BusContext, 
 	return false
 }
 
+func sourceInventoryLensExecutionDowngrade(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) string {
+	if sourceInventoryLensExecutionPrincipalHandoffComplete(ctx, aggregateFacts) {
+		return ""
+	}
+	gap := SourceInventoryLensExecutionGapForContext(ctx)
+	if !gap.Blocking {
+		return ""
+	}
+	roles := sourceInventoryLensExecutionRoleLabels(gap.Roles)
+	scopes := append([]string(nil), gap.Scopes...)
+	if len(scopes) == 0 {
+		scopes = []string{"."}
+	}
+	subject := fmt.Sprintf("Run `repo_map` with `view=\"source_inventory\"`, roles=[%s], scopes=[%s], include_counts=true, and include_attributes=false for the broad pass.",
+		strings.Join(roles, ", "), sourceInventoryLensExecutionQuotedList(scopes))
+	rationale := "The active `source_inventory_profile` makes this a bounded source-inventory lane. Advisory graph rows and direct `list_files` universes are navigation context only; before closing, execute the typed source_inventory lens, then verify selected rows with read_file/targeted grep and hand off the model-authored principal set through aggregate_facts.member_set or an honest absence boundary."
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:      types.RepairStructuredHandoff,
+			Subject:   subject,
+			Rationale: rationale,
+			Origin:    "pre_complete.source_inventory_lens_execution",
+			Stage:     string(types.StageExplore),
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — source-inventory lens has not run.\n\n")
+	b.WriteString("The current question has an active typed `source_inventory_profile`, so closure needs the executable repo-map source inventory lens before the final member/absence handoff. ")
+	b.WriteString("Advisory graph rows and `list_files` direct-child universes are useful navigation context, but they do not replace the bounded `repo_map(view=\"source_inventory\")` pass for this inventory lane.\n\n")
+	fmt.Fprintf(&b, "- required roles: `%s`\n", strings.Join(roles, "`, `"))
+	fmt.Fprintf(&b, "- suggested scopes: `%s`\n", strings.Join(scopes, "`, `"))
+	if gap.HasAdvisory {
+		b.WriteString("- current state: source-inventory advisory is present\n")
+	}
+	if gap.HasListFiles {
+		b.WriteString("- current state: list_files direct universe is present, but source_inventory lens execution is still missing\n")
+	}
+	b.WriteString("\nNext action: ")
+	b.WriteString(subject)
+	b.WriteString(" Then verify/cite selected source rows and retry `emit_investigation_complete` with the completed model-authored `aggregate_facts.member_set`, or `result_kind=\"absence\"` plus a typed absence justification if the lens confirms there are no matching members.")
+	return strings.TrimSpace(b.String())
+}
+
+func sourceInventoryLensExecutionPrincipalHandoffComplete(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+	if len(facts) == 0 {
+		return false
+	}
+	var rm *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	for _, fact := range facts {
+		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) {
+			continue
+		}
+		if !types.AnswerAggregateFactRoleForRequest(fact, rm).IsPrincipal() {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func sourceInventoryLensExecutionRoleLabels(roles []types.AnswerCandidateRole) []string {
+	out := make([]string, 0, len(roles))
+	seen := map[string]bool{}
+	for _, role := range roles {
+		label := strings.TrimSpace(string(role))
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		out = append(out, label)
+	}
+	if len(out) == 0 {
+		return []string{"function", "method", "type", "file"}
+	}
+	return out
+}
+
+func sourceInventoryLensExecutionQuotedList(values []string) string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		out = append(out, strconv.Quote(value))
+	}
+	if len(out) == 0 {
+		return strconv.Quote(".")
+	}
+	return strings.Join(out, ", ")
+}
+
 func sourceInventoryMemberSetRepairChecklist(ctx *types.BusContext, maxRows int) string {
 	if ctx == nil || ctx.Mutable == nil || maxRows <= 0 {
 		return ""
@@ -4043,7 +4150,7 @@ func appendSourceInventorySupportLocations(ctx *types.BusContext, idx *aggregate
 	if len(scopes) == 0 {
 		return
 	}
-	for _, set := range sourceInventoryCandidateSets(ctx, graph, scopes, profile, nil, false, false) {
+	for _, set := range sourceInventoryCandidateSets(ctx, graph, scopes, profile, nil, false, false, "") {
 		if !set.complete {
 			continue
 		}

@@ -7552,6 +7552,9 @@ func (o *Orchestrator) emitAnalysisReady() {
 	}
 	if tool.PublishSourceInventoryAdvisoryFromTypedRequest(o.busCtx) {
 		logging.Info("[orchestrator] pre-explore source-inventory advisory published")
+		if tool.PublishSourceInventoryObservationFromTypedRequest(o.busCtx) {
+			logging.Info("[orchestrator] pre-explore source-inventory lens auto-observed")
+		}
 	}
 	nodes := o.busCtx.AnalysisIR.TaskGraph.Nodes
 	investigationPlan := types.CompileInvestigationPlan(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract)

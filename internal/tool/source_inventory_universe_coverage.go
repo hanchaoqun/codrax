@@ -44,6 +44,14 @@ type SourceInventoryCandidateUniverseGap struct {
 	Disclosed bool
 }
 
+type SourceInventoryLensExecutionGap struct {
+	Roles        []types.AnswerCandidateRole
+	Scopes       []string
+	HasAdvisory  bool
+	HasListFiles bool
+	Blocking     bool
+}
+
 func (g SourceInventoryCandidateUniverseGap) IsActive() bool {
 	return g.Count > 0 && len(g.Missing) > 0
 }
@@ -100,6 +108,168 @@ func (g SourceInventoryCandidateUniverseGap) MissingNames(max int) []string {
 		}
 	}
 	return out
+}
+
+// SourceInventoryLensExecutionGapForContext reports whether an active
+// source_inventory_profile has reached the executable repo-map lens boundary.
+//
+// Advisory graph rows and direct list_files universes are useful context, but
+// they do not prove that the model/tool loop actually ran the typed
+// source_inventory navigation lens for this inventory lane. This helper is the
+// pre-complete guard for that missing step. It consumes only typed request
+// fields, structured observation provenance, and structured tool output
+// summaries; it does not inspect user prose or model rationale.
+func SourceInventoryLensExecutionGapForContext(ctx *types.BusContext) SourceInventoryLensExecutionGap {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return SourceInventoryLensExecutionGap{}
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	advisory := ctx.Mutable.SourceInventoryAdvisory()
+	var roles []types.AnswerCandidateRole
+	if profile != nil && profile.Active() {
+		roles = profile.PrincipalTargetRoles()
+		if len(roles) == 0 {
+			roles = append([]types.AnswerCandidateRole(nil), profile.TargetRoles...)
+		}
+	} else if sourceInventoryAdvisoryIsTypedQueryLane(ctx, advisory) {
+		roles = sourceInventoryLensExecutionRolesFromAdvisory(advisory)
+	} else {
+		return SourceInventoryLensExecutionGap{}
+	}
+	observation := ctx.Mutable.SourceInventoryObservation()
+	gap := SourceInventoryLensExecutionGap{
+		Roles:       sourceInventoryLensExecutionRoles(roles),
+		Scopes:      sourceInventoryLensExecutionScopes(advisory, observation),
+		HasAdvisory: advisory.IsActive(),
+	}
+	if sourceInventoryObservationHasListFilesDirect(observation) {
+		gap.HasListFiles = true
+	}
+	if sourceInventoryAdvisoryHasRepoLensToolQuery(advisory) ||
+		sourceInventoryObservationHasRepoLensToolQuery(observation) ||
+		sourceInventoryToolResultsHaveSourceInventoryLens(ctx.Mutable.DispatchToolResults()) ||
+		sourceInventoryToolResultsHaveSourceInventoryLens(ctx.ToolResults) {
+		return gap
+	}
+	gap.Blocking = true
+	return gap
+}
+
+func sourceInventoryAdvisoryIsTypedQueryLane(ctx *types.BusContext, advisory types.SourceInventoryAdvisory) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || !types.IsTypedSourceEnumerationShape(ctx.AnalysisIR.RequestModel) || !advisory.IsActive() {
+		return false
+	}
+	for _, provenance := range advisory.Provenance {
+		if strings.TrimSpace(provenance) == "request_traits:typed_source_enumeration_query" {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryLensExecutionRolesFromAdvisory(advisory types.SourceInventoryAdvisory) []types.AnswerCandidateRole {
+	seen := map[types.AnswerCandidateRole]bool{}
+	out := make([]types.AnswerCandidateRole, 0, len(advisory.Sets))
+	for _, set := range advisory.Sets {
+		if set.Role == "" || set.Role == types.AnswerCandidateRoleUnknown || seen[set.Role] {
+			continue
+		}
+		seen[set.Role] = true
+		out = append(out, set.Role)
+	}
+	return out
+}
+
+func sourceInventoryLensExecutionRoles(in []types.AnswerCandidateRole) []types.AnswerCandidateRole {
+	seen := map[types.AnswerCandidateRole]bool{}
+	out := make([]types.AnswerCandidateRole, 0, len(in))
+	for _, role := range in {
+		if role == "" || role == types.AnswerCandidateRoleUnknown || seen[role] {
+			continue
+		}
+		seen[role] = true
+		out = append(out, role)
+	}
+	return out
+}
+
+func sourceInventoryLensExecutionScopes(advisory types.SourceInventoryAdvisory, observation types.SourceInventoryObservation) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || seen[raw] {
+			return
+		}
+		seen[raw] = true
+		out = append(out, raw)
+	}
+	for _, scope := range advisory.Scopes {
+		add(scope)
+	}
+	for _, scope := range observation.Scopes {
+		add(scope)
+	}
+	return out
+}
+
+func sourceInventoryAdvisoryHasRepoLensToolQuery(advisory types.SourceInventoryAdvisory) bool {
+	if !advisory.IsActive() {
+		return false
+	}
+	for _, provenance := range advisory.Provenance {
+		if strings.TrimSpace(provenance) == "repo_lens:tool_query" {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryObservationHasRepoLensToolQuery(observation types.SourceInventoryObservation) bool {
+	if !observation.IsActive() {
+		return false
+	}
+	for _, provenance := range observation.Provenance {
+		if strings.TrimSpace(provenance) == "repo_lens:tool_query" {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryObservationHasListFilesDirect(observation types.SourceInventoryObservation) bool {
+	if !observation.IsActive() {
+		return false
+	}
+	for _, provenance := range observation.Provenance {
+		if strings.TrimSpace(provenance) == sourceInventoryExactUniverseProvenanceListFilesDirect {
+			return true
+		}
+	}
+	for _, set := range observation.Sets {
+		for _, member := range set.Members {
+			for _, provenance := range member.Provenance {
+				if strings.TrimSpace(provenance) == sourceInventoryExactUniverseProvenanceListFilesDirect {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func sourceInventoryToolResultsHaveSourceInventoryLens(results []types.ToolResult) bool {
+	for _, result := range results {
+		if !result.Success || types.CanonicalToolName(result.ToolName) != "repo_map" {
+			continue
+		}
+		summary := result.Summary
+		if strings.Contains(summary, "# Repo Lens: Source Inventory") ||
+			strings.Contains(summary, "Repo Lens: no source-inventory observation is available") {
+			return true
+		}
+	}
+	return false
 }
 
 // SourceInventoryCandidateUniverseCoverageGap compares exact observed

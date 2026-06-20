@@ -95,18 +95,23 @@ func TestExtractArkTS_BuilderDecorator(t *testing.T) {
 	kindByName := map[string]string{}
 	endLineByName := map[string]int{}
 	lineByName := map[string]int{}
+	docByName := map[string]string{}
 	for _, s := range syms {
 		kindByName[s.Name] = s.Kind
 		endLineByName[s.Name] = s.EndLine
 		lineByName[s.Name] = s.Line
+		docByName[s.Name] = s.Doc
 	}
-	for _, tc := range []struct{ name, wantKind string }{
-		{"GlobalCard", "builder"},
-		{"commonStyle", "styles"},
-		{"highlight", "extend"},
+	for _, tc := range []struct{ name, wantKind, wantDoc string }{
+		{"GlobalCard", "builder", "@Builder"},
+		{"commonStyle", "styles", "@Styles"},
+		{"highlight", "extend", "@Extend(Text)"},
 	} {
 		if got := kindByName[tc.name]; got != tc.wantKind {
 			t.Errorf("symbol %q: want kind=%q, got %q", tc.name, tc.wantKind, got)
+		}
+		if got := docByName[tc.name]; got != tc.wantDoc {
+			t.Errorf("symbol %q: want doc=%q, got %q", tc.name, tc.wantDoc, got)
 		}
 		if endLineByName[tc.name] <= lineByName[tc.name] {
 			t.Errorf("symbol %q should carry block EndLine; got line=%d end=%d", tc.name, lineByName[tc.name], endLineByName[tc.name])

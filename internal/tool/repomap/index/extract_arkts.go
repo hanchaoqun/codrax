@@ -236,7 +236,7 @@ func arkTSPostPass(src []byte, file string) ([]types.Symbol, []types.Import) {
 		line := byteOffsetToLine(srcStr, m[0])
 		syms = append(syms, types.Symbol{
 			Name: name, Kind: "builder", File: file, Line: line,
-			EndLine: findBlockEndLine(lines, line), Exported: true,
+			EndLine: findBlockEndLine(lines, line), Exported: true, Doc: "@Builder",
 		})
 	}
 	for _, m := range stylesFunctionRegex.FindAllStringSubmatchIndex(srcStr, -1) {
@@ -244,7 +244,7 @@ func arkTSPostPass(src []byte, file string) ([]types.Symbol, []types.Import) {
 		line := byteOffsetToLine(srcStr, m[0])
 		syms = append(syms, types.Symbol{
 			Name: name, Kind: "styles", File: file, Line: line,
-			EndLine: findBlockEndLine(lines, line), Exported: true,
+			EndLine: findBlockEndLine(lines, line), Exported: true, Doc: "@Styles",
 		})
 	}
 	for _, m := range extendFunctionRegex.FindAllStringSubmatchIndex(srcStr, -1) {
@@ -259,7 +259,7 @@ func arkTSPostPass(src []byte, file string) ([]types.Symbol, []types.Import) {
 			EndLine:  findBlockEndLine(lines, line),
 			Parent:   target,
 			Exported: true,
-			Doc:      "extends " + target,
+			Doc:      "@Extend(" + target + ")",
 		})
 	}
 

@@ -83,6 +83,11 @@ type sourceInventorySuggestedFileCandidate struct {
 	Line int
 }
 
+type sourceInventoryQueryFilter struct {
+	Tokens    []string
+	Languages map[string]bool
+}
+
 type sourceInventoryDiscoveryParams struct {
 	Path           string                      `json:"path,omitempty"`
 	View           string                      `json:"view,omitempty"`
@@ -130,6 +135,30 @@ func PublishSourceInventoryAdvisoryFromTypedRequest(ctx *types.BusContext) bool 
 	return publishSourceInventoryAdvisorySnapshot(ctx, "pre_explore_typed_request", true)
 }
 
+// PublishSourceInventoryObservationFromTypedRequest executes the deterministic
+// source-inventory lens for the current typed request when a pre-explore
+// advisory is already active. This is a system projection over typed IR and
+// graph artifacts, not model prose routing, and it reuses the same lens engine
+// exposed through repo_map(view="source_inventory").
+func PublishSourceInventoryObservationFromTypedRequest(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if sourceInventoryObservationHasRepoLensToolQuery(ctx.Mutable.SourceInventoryObservation()) {
+		return false
+	}
+	advisory := ctx.Mutable.SourceInventoryAdvisory()
+	if !advisory.IsActive() || !sourceInventoryAdvisoryIsExecutableTypedLane(ctx, advisory) {
+		return false
+	}
+	query := sourceInventoryLensQueryFromAdvisory(ctx, advisory)
+	if len(query.Roles) == 0 {
+		return false
+	}
+	obs := PublishSourceInventoryObservationFromLens(ctx, query)
+	return obs.IsActive()
+}
+
 // PublishSourceInventoryAdvisoryFromToolObservation publishes the same
 // advisory from a successful navigation observation. The returned string is a
 // compact model-visible hint for the current ReAct dispatch. Empty means either
@@ -146,6 +175,32 @@ func PublishSourceInventoryAdvisoryFromToolObservation(ctx *types.BusContext, re
 		return ""
 	}
 	return renderSourceInventoryAdvisoryToolHint(ctx.Mutable.SourceInventoryAdvisory())
+}
+
+func sourceInventoryAdvisoryIsExecutableTypedLane(ctx *types.BusContext, advisory types.SourceInventoryAdvisory) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || !advisory.IsActive() {
+		return false
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	if profile != nil && profile.Active() {
+		return true
+	}
+	return sourceInventoryAdvisoryIsTypedQueryLane(ctx, advisory)
+}
+
+func sourceInventoryLensQueryFromAdvisory(ctx *types.BusContext, advisory types.SourceInventoryAdvisory) types.SourceInventoryLensQuery {
+	query := types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        append([]string(nil), advisory.Scopes...),
+		Roles:         sourceInventoryLensExecutionRolesFromAdvisory(advisory),
+		IncludeCounts: true,
+		TopN:          24,
+		Query:         sourceInventoryAdvisorySnapshotQuery(ctx),
+	}
+	if len(query.Scopes) == 0 {
+		query.Scopes = []string{"."}
+	}
+	return query
 }
 
 // PublishSourceInventoryObservationFromToolObservation stores exact mechanical
@@ -177,7 +232,8 @@ func publishSourceInventoryAdvisorySnapshot(ctx *types.BusContext, provenance st
 	if ctx == nil || ctx.Mutable == nil {
 		return false
 	}
-	advisory := buildSourceInventoryAdvisory(ctx, nil, nil)
+	query := types.SourceInventoryLensQuery{Query: sourceInventoryAdvisorySnapshotQuery(ctx)}
+	advisory := buildSourceInventoryAdvisoryWithQuery(ctx, nil, query, advisoryOnly, nil)
 	if !advisory.IsActive() {
 		return false
 	}
@@ -190,6 +246,24 @@ func publishSourceInventoryAdvisorySnapshot(ctx *types.BusContext, provenance st
 	}
 	ctx.Mutable.SetSourceInventoryAdvisory(advisory)
 	return true
+}
+
+func sourceInventoryAdvisorySnapshotQuery(ctx *types.BusContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	if profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile; profile != nil && profile.Active() {
+		return ""
+	}
+	return sourceInventoryAdvisoryQueryFromRequest(ctx)
+}
+
+func sourceInventoryAdvisoryQueryFromRequest(ctx *types.BusContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	policy := types.CompileRepoMapNavigationPolicy(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
+	return strings.Join(policy.QueryTerms, " ")
 }
 
 func sourceInventoryObservationFromListFilesToolResult(ctx *types.BusContext, result types.ToolResult) types.SourceInventoryObservation {
@@ -2348,7 +2422,7 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 		provenance   []string
 	)
 	if ctx.AnalysisIR != nil {
-		profile, advisoryOnly, provenance = sourceInventoryAdvisoryProfile(ctx, graph)
+		profile, advisoryOnly, provenance = sourceInventoryAdvisoryProfile(ctx, graph, query.Query)
 	}
 	if forceAdvisoryOnly {
 		advisoryOnly = true
@@ -2362,6 +2436,9 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 	attributeRoles := sourceInventoryLensQueryAttributeRoles(query)
 	explicitAttributeRoles := len(attributeRoles) > 0
 	includeAttributes := query.IncludeAttributes || !forceAdvisoryOnly
+	if forceAdvisoryOnly && sourceInventoryExplicitPackageProfile(ctx, profile) {
+		includeAttributes = true
+	}
 	if explicitAttributeRoles {
 		advisoryOnly = true
 		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:attribute_roles")
@@ -2380,13 +2457,24 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 	}
 	scopes = sourceInventoryDedupeScopeAliases(scopes)
 	if len(scopes) == 0 {
+		if sourceInventoryCanUseQueryRootScope(ctx, query.Query) {
+			scopes = []string{"."}
+			advisoryOnly = true
+			provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "request_traits:query_root_scope")
+		}
+	}
+	if len(scopes) == 0 {
 		return types.SourceInventoryAdvisory{}
+	}
+	if queryProfile, changed := sourceInventoryProfileWithQueryMatchedRoles(ctx, graph, scopes, profile, query.Query); changed {
+		profile = queryProfile
+		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:query_roles")
 	}
 	if includeAttributes && forceAdvisoryOnly && sourceInventoryShouldDeferAttributesForBroadToolLens(graph, scopes) {
 		includeAttributes = false
 		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:attributes_deferred_broad_scope")
 	}
-	sets := sourceInventoryCandidateSets(ctx, graph, scopes, profile, attributeRoles, explicitAttributeRoles, includeAttributes)
+	sets := sourceInventoryCandidateSets(ctx, graph, scopes, profile, attributeRoles, explicitAttributeRoles, includeAttributes, query.Query)
 	if len(sets) == 0 {
 		return types.SourceInventoryAdvisory{}
 	}
@@ -2518,6 +2606,69 @@ func sourceInventoryProfileWithLensRoles(profile *types.SourceInventoryProfile, 
 	return &clone
 }
 
+func sourceInventoryExplicitPackageProfile(ctx *types.BusContext, profile *types.SourceInventoryProfile) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || profile == nil || !profile.Active() {
+		return false
+	}
+	if ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil || !ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active() {
+		return false
+	}
+	for _, role := range profile.PrincipalTargetRoles() {
+		if role == types.AnswerCandidateRolePackage {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryProfileWithQueryMatchedRoles(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, rawQuery string) (*types.SourceInventoryProfile, bool) {
+	if profile == nil || !profile.Active() || graph == nil || strings.TrimSpace(rawQuery) == "" {
+		return profile, false
+	}
+	filter := sourceInventoryBuildQueryFilter(rawQuery)
+	if !filter.Active() {
+		return profile, false
+	}
+	seen := map[types.AnswerCandidateRole]bool{}
+	var merged []types.AnswerCandidateRole
+	for _, role := range profile.TargetRoles {
+		if role == types.AnswerCandidateRoleUnknown || seen[role] {
+			continue
+		}
+		seen[role] = true
+		merged = append(merged, role)
+	}
+	index := newSourceInventoryGraphSymbolIndex(graph)
+	if index == nil {
+		return profile, false
+	}
+	for _, sym := range index.all {
+		if sym == nil ||
+			!sourceInventoryFileInScopes(sym.File, scopes) ||
+			!sourceInventorySourceInRequestedScope(ctx, sym.File) ||
+			!sourceInventorySymbolMatchesQuery(sym, graph, filter) {
+			continue
+		}
+		role, ok := aggregateAnswerCandidateRoleForSymbol(sym)
+		if !ok || role == types.AnswerCandidateRoleUnknown || seen[role] {
+			continue
+		}
+		seen[role] = true
+		merged = append(merged, role)
+	}
+	if len(merged) == len(profile.TargetRoles) {
+		return profile, false
+	}
+	clone := *profile
+	clone.TargetRoles = merged
+	clone.RequestedFields = append([]types.SourceInventoryRequestedField(nil), profile.RequestedFields...)
+	clone.SourceQuotes = append([]string(nil), profile.SourceQuotes...)
+	if clone.Confidence <= 0 || clone.Confidence > 0.75 {
+		clone.Confidence = 0.75
+	}
+	return &clone, true
+}
+
 func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Graph, query types.SourceInventoryLensQuery) []string {
 	if len(query.Scopes) == 0 {
 		if scope := sourceInventoryScopeForLensSurfaceWithPath(graph, query.Path, query.Path); scope != "" {
@@ -2536,7 +2687,7 @@ func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Grap
 		// evidence path. Keep the per-file source-scope checks at candidate
 		// construction time so tests/docs/config rows are still filtered by the
 		// typed source scope instead of by this synthetic selector.
-		if scope != "." && ctx != nil && !aggregateEvidenceSourceInRequestedScope(ctx, scope) {
+		if scope != "." && ctx != nil && !sourceInventorySourceInRequestedScope(ctx, scope) {
 			continue
 		}
 		seen[scope] = true
@@ -2645,7 +2796,7 @@ func sourceInventoryRoleOrder(profile *types.SourceInventoryProfile, sets map[ty
 	return append(roles, rest...)
 }
 
-func sourceInventoryAdvisoryProfile(ctx *types.BusContext, graph *repotypes.Graph) (*types.SourceInventoryProfile, bool, []string) {
+func sourceInventoryAdvisoryProfile(ctx *types.BusContext, graph *repotypes.Graph, rawQuery string) (*types.SourceInventoryProfile, bool, []string) {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil, false, nil
 	}
@@ -2686,6 +2837,22 @@ func sourceInventoryAdvisoryProfile(ctx *types.BusContext, graph *repotypes.Grap
 			}, true, provenance
 		}
 	}
+	if types.IsTypedSourceEnumerationShape(rm) && sourceInventoryBuildQueryFilter(rawQuery).Active() {
+		roles := roleProfileRoles
+		if len(roles) == 0 {
+			roles = sourceInventoryDefaultQueryEnumerationRoles()
+		}
+		return &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       roles,
+			RequestedFields: []types.SourceInventoryRequestedField{
+				types.SourceInventoryFieldName,
+				types.SourceInventoryFieldLocation,
+				types.SourceInventoryFieldSummary,
+			},
+			Confidence: 0.45,
+		}, true, []string{"request_traits:typed_source_enumeration_query"}
+	}
 	if types.HasBoundedSourceEnumerationScope(rm, ctx.AnalysisIR.EvidencePlan.RequiredFiles, ctx.RepoRoot) {
 		roles := roleProfileRoles
 		if len(roles) == 0 {
@@ -2719,6 +2886,30 @@ func sourceInventoryAdvisoryProfile(ctx *types.BusContext, graph *repotypes.Grap
 		}, true, []string{"request_traits:source_scope_enumeration"}
 	}
 	return nil, false, nil
+}
+
+func sourceInventoryDefaultQueryEnumerationRoles() []types.AnswerCandidateRole {
+	return []types.AnswerCandidateRole{
+		types.AnswerCandidateRoleFunction,
+		types.AnswerCandidateRoleMethod,
+		types.AnswerCandidateRoleType,
+		types.AnswerCandidateRoleConstant,
+		types.AnswerCandidateRoleVariable,
+		types.AnswerCandidateRoleField,
+		types.AnswerCandidateRoleRoute,
+		types.AnswerCandidateRoleConfigKey,
+		types.AnswerCandidateRoleImportPath,
+	}
+}
+
+func sourceInventoryCanUseQueryRootScope(ctx *types.BusContext, rawQuery string) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if !types.IsTypedSourceEnumerationShape(ctx.AnalysisIR.RequestModel) {
+		return false
+	}
+	return sourceInventoryBuildQueryFilter(rawQuery).Active()
 }
 
 func sourceInventoryCanUseScopeEntityFallback(rm types.RequestModel) bool {
@@ -2795,7 +2986,7 @@ func reconcileCompletionAggregateFactsWithSourceInventory(ctx *types.BusContext,
 	if len(scopes) == 0 {
 		return facts
 	}
-	sets := sourceInventoryCandidateSets(ctx, graph, scopes, profile, nil, false, false)
+	sets := sourceInventoryCandidateSets(ctx, graph, scopes, profile, nil, false, false, "")
 	if len(sets) == 0 {
 		return facts
 	}
@@ -3000,7 +3191,7 @@ func sourceInventoryAppendProvenance(current string) string {
 	return current + ", " + marker
 }
 
-func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, includeAttributes bool) map[types.AnswerCandidateRole]sourceInventoryCandidateSet {
+func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, includeAttributes bool, rawQuery string) map[types.AnswerCandidateRole]sourceInventoryCandidateSet {
 	out := map[types.AnswerCandidateRole]sourceInventoryCandidateSet{}
 	var symbolIndex *sourceInventoryGraphSymbolIndex
 	getSymbolIndex := func() *sourceInventoryGraphSymbolIndex {
@@ -3036,6 +3227,7 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 		default:
 			out[role] = sourceInventoryGraphCandidates(ctx, graph, getSymbolIndex(), scopes, profile, role)
 		}
+		out[role] = sourceInventoryFilterCandidateSetByQuery(out[role], rawQuery)
 		if len(out[role].candidates) == 0 {
 			delete(out, role)
 		}
@@ -3075,7 +3267,7 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph
 			continue
 		}
 		file := strings.Trim(strings.TrimSpace(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
-		if file == "" || seen[file] || !aggregateEvidenceSourceInRequestedScope(ctx, file) {
+		if file == "" || seen[file] || !sourceInventorySourceInRequestedScope(ctx, file) {
 			continue
 		}
 		seen[file] = true
@@ -3106,7 +3298,7 @@ func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes
 			continue
 		}
 		file := strings.Trim(strings.TrimSpace(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
-		if file == "" || seen[file] || !aggregateEvidenceSourceInRequestedScope(ctx, file) {
+		if file == "" || seen[file] || !sourceInventorySourceInRequestedScope(ctx, file) {
 			continue
 		}
 		seen[file] = true
@@ -3136,7 +3328,7 @@ func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Gr
 		if fi == nil || fi.IsSpecial || strings.TrimSpace(fi.RelPath) == "" || strings.TrimSpace(fi.Language) == "" {
 			continue
 		}
-		if !aggregateEvidenceSourceInRequestedScope(ctx, fi.RelPath) {
+		if !sourceInventorySourceInRequestedScope(ctx, fi.RelPath) {
 			continue
 		}
 		dir := strings.Trim(path.Dir(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
@@ -3206,7 +3398,7 @@ func sourceInventoryPackageBucketAttributes(ctx *types.BusContext, symbolIndex *
 	seen := map[string]bool{}
 	var out []sourceInventoryCandidate
 	for _, sym := range symbolIndex.symbolsForDir(dir) {
-		if sym == nil || !aggregateEvidenceSourceInRequestedScope(ctx, sym.File) {
+		if sym == nil || !sourceInventorySourceInRequestedScope(ctx, sym.File) {
 			continue
 		}
 		role, ok := sourceInventoryAttributeRole(sym, attributeRoles)
@@ -3244,7 +3436,7 @@ func sourceInventoryFileAttributes(ctx *types.BusContext, symbolIndex *sourceInv
 	seen := map[string]bool{}
 	var out []sourceInventoryCandidate
 	for _, sym := range symbolIndex.symbolsForFile(file) {
-		if sym == nil || !aggregateEvidenceSourceInRequestedScope(ctx, sym.File) {
+		if sym == nil || !sourceInventorySourceInRequestedScope(ctx, sym.File) {
 			continue
 		}
 		role, ok := sourceInventoryAttributeRole(sym, attributeRoles)
@@ -3431,7 +3623,7 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 	}
 	seen := map[string]bool{}
 	for _, sym := range symbolIndex.all {
-		if sym == nil || !sourceInventoryFileInScopes(sym.File, scopes) || !aggregateEvidenceSourceInRequestedScope(ctx, sym.File) {
+		if sym == nil || !sourceInventoryFileInScopes(sym.File, scopes) || !sourceInventorySourceInRequestedScope(ctx, sym.File) {
 			continue
 		}
 		candidateRole, ok := aggregateAnswerCandidateRoleForSymbol(sym)
@@ -3451,6 +3643,179 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 	}
 	sourceInventorySortCandidates(set.candidates)
 	return set
+}
+
+func sourceInventoryFilterCandidateSetByQuery(set sourceInventoryCandidateSet, rawQuery string) sourceInventoryCandidateSet {
+	filter := sourceInventoryBuildQueryFilter(rawQuery)
+	if !filter.Active() || len(set.candidates) == 0 {
+		return set
+	}
+	filtered := make([]sourceInventoryCandidate, 0, len(set.candidates))
+	for _, candidate := range set.candidates {
+		if sourceInventoryCandidateMatchesQuery(candidate, filter) {
+			filtered = append(filtered, candidate)
+		}
+	}
+	if len(filtered) == 0 {
+		return set
+	}
+	set.candidates = filtered
+	return set
+}
+
+func sourceInventoryCandidateMatchesQuery(candidate sourceInventoryCandidate, filter sourceInventoryQueryFilter) bool {
+	if !filter.Active() {
+		return true
+	}
+	if !sourceInventoryQueryLanguageMatches(candidate.language, filter) {
+		return false
+	}
+	parts := []string{
+		candidate.member,
+		candidate.key,
+		candidate.note,
+		string(candidate.role),
+	}
+	for _, attr := range candidate.attributes {
+		parts = append(parts, attr.member, attr.key, attr.note, string(attr.role))
+	}
+	if len(filter.Tokens) == 0 {
+		return true
+	}
+	return sourceInventoryAnyQueryTokenMatches(parts, filter.Tokens)
+}
+
+func sourceInventorySymbolMatchesQuery(sym *repotypes.Symbol, graph *repotypes.Graph, filter sourceInventoryQueryFilter) bool {
+	if sym == nil || !filter.Active() {
+		return false
+	}
+	language := sourceInventoryGraphLanguageForFile(graph, sym.File)
+	if !sourceInventoryQueryLanguageMatches(language, filter) {
+		return false
+	}
+	parts := []string{
+		sym.Name,
+		sym.Kind,
+		sym.Doc,
+		sym.Parent,
+		sym.Receiver,
+		sym.Signature,
+	}
+	if graph != nil && graph.FileIndex != nil {
+		if fi := graph.FileIndex[sym.File]; fi != nil {
+			parts = append(parts, fi.Package)
+		}
+	}
+	if len(filter.Tokens) == 0 {
+		return true
+	}
+	return sourceInventoryAnyQueryTokenMatches(parts, filter.Tokens)
+}
+
+func sourceInventoryAnyQueryTokenMatches(parts []string, tokens []string) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	for _, part := range parts {
+		normalized := sourceInventoryQueryNormalizeText(part)
+		if normalized == "" {
+			continue
+		}
+		for _, token := range tokens {
+			if token != "" && strings.Contains(normalized, token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sourceInventoryBuildQueryFilter(raw string) sourceInventoryQueryFilter {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return sourceInventoryQueryFilter{}
+	}
+	seen := map[string]bool{}
+	languages := map[string]bool{}
+	var tokens []string
+	add := func(token string) {
+		token = strings.Trim(token, "_-")
+		if len(token) < 2 || seen[token] {
+			return
+		}
+		if repotypes.IsSupportedReadLanguage(token) {
+			languages[token] = true
+			seen[token] = true
+			return
+		}
+		if sourceInventoryQueryTokenIsGeneric(token) {
+			return
+		}
+		seen[token] = true
+		tokens = append(tokens, token)
+	}
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() == 0 {
+			return
+		}
+		add(cur.String())
+		cur.Reset()
+	}
+	for _, r := range raw {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+			cur.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	if len(languages) == 0 {
+		languages = nil
+	}
+	return sourceInventoryQueryFilter{Tokens: tokens, Languages: languages}
+}
+
+func sourceInventoryQueryTokenIsGeneric(token string) bool {
+	switch token {
+	case "function", "functions", "method", "methods", "type", "types",
+		"file", "files", "path", "paths", "name", "names", "symbol", "symbols":
+		return true
+	}
+	return false
+}
+
+func (f sourceInventoryQueryFilter) Active() bool {
+	return len(f.Tokens) > 0 || len(f.Languages) > 0
+}
+
+func sourceInventoryQueryLanguageMatches(language string, filter sourceInventoryQueryFilter) bool {
+	if len(filter.Languages) == 0 {
+		return true
+	}
+	return filter.Languages[strings.ToLower(strings.TrimSpace(language))]
+}
+
+func sourceInventoryQueryNormalizeText(raw string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastSpace := true
+	for _, r := range raw {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-':
+			b.WriteRune(r)
+			lastSpace = false
+		default:
+			if !lastSpace {
+				b.WriteByte(' ')
+				lastSpace = true
+			}
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func sourceInventoryCandidateDedupeKey(candidate sourceInventoryCandidate) string {
@@ -3831,6 +4196,46 @@ func sourceInventoryFileInScopes(file string, scopes []string) bool {
 	return false
 }
 
+func sourceInventorySourceInRequestedScope(ctx *types.BusContext, source string) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return true
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if sourceInventoryUsesRepositoryWideTypedQueryLane(ctx) {
+		return true
+	}
+	if profile := rm.SourceScopeProfile; profile != nil && profile.RequestedScope != "" {
+		return aggregateEvidenceSourceInRequestedScope(ctx, source)
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return true
+	}
+	if types.IsTypedSourceEnumerationShape(rm) {
+		return true
+	}
+	return aggregateEvidenceSourceInRequestedScope(ctx, source)
+}
+
+func sourceInventoryUsesRepositoryWideTypedQueryLane(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.IsTypedSourceEnumerationShape(rm) {
+		return false
+	}
+	advisory := ctx.Mutable.SourceInventoryAdvisory()
+	if !sourceInventoryAdvisoryIsTypedQueryLane(ctx, advisory) {
+		return false
+	}
+	for _, provenance := range advisory.Provenance {
+		if strings.TrimSpace(provenance) == "request_traits:query_root_scope" {
+			return true
+		}
+	}
+	return false
+}
+
 func sourceInventoryScopesAllLanguage(graph *repotypes.Graph, scopes []string, language string) bool {
 	files := sourceInventoryScopedGraphFiles(graph, scopes, "")
 	if len(files) == 0 {
@@ -3998,6 +4403,9 @@ func sourceInventoryCandidateNoteFromGraph(sym *repotypes.Symbol, language strin
 		return ""
 	}
 	note := sourceInventoryCompactNote(sym.Doc)
+	if strings.HasPrefix(strings.TrimSpace(note), "@") {
+		return "surface=" + note
+	}
 	if !sourceInventoryGraphDocDescribesSymbol(note, sym.Name, language) {
 		return ""
 	}

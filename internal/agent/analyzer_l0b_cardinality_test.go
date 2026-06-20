@@ -71,6 +71,7 @@ func TestL0B_EnumerationCardinalityGate_PresentInSource(t *testing.T) {
 	const wantRelationalCarveOut = "!rm.Predicates.IsRelationalLookup"
 	const wantHistoryCarveOut = "!rm.Predicates.IsHistoryLookup"
 	const wantVisibilityCarveOut = "rm.AnswerVisibilityProfile.Active()"
+	const wantIntentEnumerateCarveOut = "rm.Intent != types.IntentEnumerate"
 
 	src := readAnalyzerSource(t)
 
@@ -91,6 +92,9 @@ func TestL0B_EnumerationCardinalityGate_PresentInSource(t *testing.T) {
 	}
 	if !strings.Contains(src, wantHistoryCarveOut) {
 		t.Errorf("L0-B gate must carry the IsHistoryLookup carve-out (expected substring %q) — pure VCS history enumerations list commits discovered by git tools, not analyzer-time code entities", wantHistoryCarveOut)
+	}
+	if !strings.Contains(src, wantIntentEnumerateCarveOut) {
+		t.Errorf("L0-B gate must carry the IntentEnumerate discovery carve-out (expected substring %q) — source-inventory members are discovered after classification", wantIntentEnumerateCarveOut)
 	}
 	if !strings.Contains(src, wantVisibilityCarveOut) {
 		t.Errorf("L0-B gate must carry the typed AnswerVisibilityProfile inventory carve-out (expected substring %q) — package-scope source inventories may name only one example entity and discover members later", wantVisibilityCarveOut)
@@ -118,6 +122,12 @@ func TestL0B_GateClassification_TableDriven(t *testing.T) {
 		{"cat_true_one_entity_dup", true, false, []string{"Foo", "FOO"}, nil, true},
 		{"cat_true_two_distinct", true, false, []string{"StageAnalyze", "StageExplore"}, nil, false},
 		{"cat_true_four_distinct", true, false, []string{"a", "b", "c", "d"}, nil, false},
+		{"intent_enumerate_single_entity_discovers_members_later", true, false, []string{"@Entry"}, func(rm *types.RequestModel) {
+			rm.Intent = types.IntentEnumerate
+		}, false},
+		{"intent_enumerate_zero_entities_discovers_members_later", true, false, nil, func(rm *types.RequestModel) {
+			rm.Intent = types.IntentEnumerate
+		}, false},
 		{"cat_false_one_entity", false, false, []string{"PipelineStage"}, nil, false},
 		{"cat_false_zero_entities", false, false, nil, nil, false},
 		{"cat_false_two_distinct", false, false, []string{"a", "b"}, nil, false},

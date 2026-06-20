@@ -579,11 +579,11 @@ func TestSourceInventoryCandidateNoteFromGraphCrossLanguageSafety(t *testing.T) 
 			wantNote: true,
 		},
 		{
-			name:     "arkts decorator metadata is not descriptive doc",
+			name:     "arkts decorator metadata is preserved as structural surface",
 			lang:     repotypes.LangArkTS,
 			symbol:   "RuntimePanel",
 			doc:      "@Component @Entry",
-			wantNote: false,
+			wantNote: true,
 		},
 		{
 			name:     "cangjie modifier metadata is not descriptive doc",
@@ -608,6 +608,9 @@ func TestSourceInventoryCandidateNoteFromGraphCrossLanguageSafety(t *testing.T) 
 			}
 			if strings.Contains(got, "//") || strings.Contains(got, "/*") || strings.Contains(got, "*/") {
 				t.Fatalf("note should be cleaned, got %q", got)
+			}
+			if tc.lang == repotypes.LangArkTS && got != "" && !strings.HasPrefix(got, "surface=@") {
+				t.Fatalf("ArkTS decorator metadata should stay structural surface, got %q", got)
 			}
 		})
 	}
@@ -1260,6 +1263,98 @@ func TestPublishSourceInventoryAdvisoryFromTypedRequest_AdvisoryOnlyPackageAndFu
 	}
 	if !reflect.DeepEqual(functions, []string{"run_alpha", "RunBeta"}) {
 		t.Fatalf("function candidates = %#v", functions)
+	}
+}
+
+func TestPublishSourceInventoryAdvisoryFromTypedRequest_QuerySynthesizesProfileAndFiltersLanguage(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			Language: "arkts",
+			Symbols: []repotypes.Symbol{{
+				Name: "Index", Kind: "component", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", Line: 7, Exported: true, Doc: "@Entry @Component",
+			}},
+		},
+		{
+			RelPath:  "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+			Language: "arkts",
+			Symbols: []repotypes.Symbol{{
+				Name: "GlobalCard", Kind: "builder", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 26, Exported: true, Doc: "@Builder",
+			}},
+		},
+		{
+			RelPath:  "internal/tool/repomap/index/extract_arkts.go",
+			Language: "go",
+			Symbols: []repotypes.Symbol{{
+				Name: "builderFunctionRegex", Kind: "function", File: "internal/tool/repomap/index/extract_arkts.go", Line: 130, Exported: false, Doc: "@Builder parser helper",
+			}},
+		},
+	})
+	mut := types.NewMutableState("typed source enumeration query")
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				Keywords: []string{"@Entry", "@Builder", "ArkTS"},
+				Entities: []string{"@Entry", "@Builder", "ArkTS"},
+			},
+		}},
+	}
+
+	if !PublishSourceInventoryAdvisoryFromTypedRequest(ctx) {
+		t.Fatal("expected typed source enumeration query to publish advisory")
+	}
+	advisory := ctx.Mutable.SourceInventoryAdvisory()
+	if !advisory.IsActive() || !advisory.AdvisoryOnly {
+		t.Fatalf("advisory = %+v, want active advisory-only", advisory)
+	}
+	for _, want := range []string{
+		"request_traits:typed_source_enumeration_query",
+		"request_traits:query_root_scope",
+		"pre_explore_typed_request",
+	} {
+		if !containsString(advisory.Provenance, want) {
+			t.Fatalf("provenance = %#v, want %s", advisory.Provenance, want)
+		}
+	}
+	gotByRole := map[types.AnswerCandidateRole][]string{}
+	for _, set := range advisory.Sets {
+		gotByRole[set.Role] = advisoryMemberNames(set.Candidates)
+	}
+	if !reflect.DeepEqual(gotByRole[types.AnswerCandidateRoleType], []string{"Index"}) {
+		t.Fatalf("type candidates = %#v, want [Index] (advisory=%+v)", gotByRole[types.AnswerCandidateRoleType], advisory)
+	}
+	if !reflect.DeepEqual(gotByRole[types.AnswerCandidateRoleFunction], []string{"GlobalCard"}) {
+		t.Fatalf("function candidates = %#v, want [GlobalCard] (advisory=%+v)", gotByRole[types.AnswerCandidateRoleFunction], advisory)
+	}
+	for _, names := range gotByRole {
+		for _, name := range names {
+			if name == "builderFunctionRegex" {
+				t.Fatalf("language-filtered source inventory leaked Go parser helper: %+v", advisory)
+			}
+		}
+	}
+	obs := ctx.Mutable.SourceInventoryObservation()
+	if !obs.IsActive() {
+		t.Fatalf("source inventory advisory should maintain observation companion: %+v", obs)
+	}
+	if !SourceInventoryLensExecutionGapForContext(ctx).Blocking {
+		t.Fatal("advisory-only typed query lane should still require executable lens before auto-observation")
+	}
+	if !PublishSourceInventoryObservationFromTypedRequest(ctx) {
+		t.Fatal("expected typed query lane to publish deterministic lens observation")
+	}
+	obs = ctx.Mutable.SourceInventoryObservation()
+	if !sourceInventoryObservationHasRepoLensToolQuery(obs) {
+		t.Fatalf("auto-observed source inventory missing repo_lens provenance: %+v", obs)
+	}
+	if gap := SourceInventoryLensExecutionGapForContext(ctx); gap.Blocking {
+		t.Fatalf("auto-observed source inventory should satisfy lens gate, got %+v", gap)
 	}
 }
 

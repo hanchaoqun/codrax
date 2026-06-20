@@ -1481,6 +1481,113 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryChecklistGuid
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryRequiresLensExecution(t *testing.T) {
+	mut := types.NewMutableState("列出仓库里的 ArkTS 入口和 Builder 片段")
+	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"."},
+		Provenance:   []string{"source_inventory_profile", "repomap_graph", "pre_explore_typed_request"},
+		Sets: []types.SourceInventoryAdvisorySet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Candidates: []types.SourceInventoryAdvisoryCandidate{{
+				Member:     "GlobalCard",
+				Key:        "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets::GlobalCard",
+				SupportRef: "GlobalCard: internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:26",
+				Role:       types.AnswerCandidateRoleFunction,
+				File:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+				Line:       26,
+				Language:   "arkts",
+			}},
+		}},
+	})
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"."},
+		Provenance:   []string{"tool:list_files:direct"},
+		Lens:         []string{"direct_children", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFile,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "internal",
+				Key:        "internal",
+				SupportRef: "internal",
+				Provenance: []string{"tool:list_files:direct"},
+				Role:       types.AnswerCandidateRolePackage,
+				File:       "internal",
+			}},
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleFunction,
+						types.AnswerCandidateRoleMethod,
+					},
+					RequestedFields: []types.SourceInventoryRequestedField{
+						types.SourceInventoryFieldName,
+						types.SourceInventoryFieldLocation,
+					},
+					Confidence: 0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "the decorator inventory was inspected",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, want := range []string{
+		"source-inventory lens has not run",
+		"`source_inventory_profile`",
+		"`repo_map(view=\"source_inventory\")`",
+		"roles=[function, method]",
+		"list_files direct universe is present",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("source-inventory lens downgrade missing %q:\n%s", want, res.Summary)
+		}
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 {
+		t.Fatal("expected source-inventory lens repair directive")
+	}
+	last := repairs[len(repairs)-1]
+	if last.Kind != types.RepairStructuredHandoff ||
+		last.Origin != "pre_complete.source_inventory_lens_execution" ||
+		!strings.Contains(last.Subject, `repo_map`) ||
+		!strings.Contains(last.Subject, `source_inventory`) {
+		t.Fatalf("unexpected source-inventory repair directive: %+v", last)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("investigation must stay open until source_inventory lens execution lands")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryExactUniverseRejectsPartialMemberSet(t *testing.T) {
 	mut := types.NewMutableState("list all source scopes")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{

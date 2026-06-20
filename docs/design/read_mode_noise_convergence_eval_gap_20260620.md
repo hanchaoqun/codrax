@@ -22,11 +22,11 @@ summaries remain soft context only.
 | Class | Priority | Why it matters | Representative gaps |
 | --- | --- | --- | --- |
 | Noise and convergence debt | P0 | Causes repeated post-complete retries, stale "verification not stable" status, high token use, and unnecessary model turns. | RNE-C1, RNE-C4, RNE-C6, RNE-C13, RNE-C14 |
-| Typed localization and proof coverage | P0 | Determines whether read and write tasks investigate the right owner, prove the active lane, and avoid answering or patching from the wrong source surface. | RNE-C8, RNE-C16, RNE-C17, RNE-C20, RNE-C21, RNE-C23, RNE-C32 |
+| Typed localization and proof coverage | P0 | Determines whether read and write tasks investigate the right owner, prove the active lane, and avoid answering or patching from the wrong source surface. | RNE-C8, RNE-C16, RNE-C17, RNE-C20, RNE-C21, RNE-C23, RNE-C32, RNE-C36 |
 | Handoff and final-answer fidelity | P0 | Preserves rich exploration evidence into extractor/finalizer/report consumers without exposing executable repair instructions to the wrong stage. | RNE-C5, RNE-C10, RNE-C11, RNE-C22, RNE-C26 |
 | Prompt/tool-surface hygiene | P0 | Prevents hard-ish scheduling, authority prompts, or tool decisions from being driven by raw user words, model prose, visible thinking, or unavailable-tool directives. | RNE-C27, RNE-C30, RNE-C31 |
-| Performance and observability | P0/P1 | Makes slow tool execution, schema repair loops, context assembly, and eval timeouts diagnosable and bounded. | RNE-C7, RNE-C12, RNE-C15, RNE-C24 |
-| Cross-language source inventory | P1 | Avoids Python-only or Go-only fixes by making supported-language scope, parser fallback, and absence proof language-neutral. | RNE-C9, RNE-C19, RNE-C23, RNE-C32 |
+| Performance and observability | P0/P1 | Makes slow tool execution, schema repair loops, context assembly, and eval timeouts diagnosable and bounded. | RNE-C7, RNE-C12, RNE-C15, RNE-C24, RNE-C39 |
+| Cross-language source inventory | P1 | Avoids Python-only or Go-only fixes by making supported-language scope, parser fallback, and absence proof language-neutral. | RNE-C9, RNE-C19, RNE-C23, RNE-C32, RNE-C33, RNE-C37, RNE-C38 |
 
 ## Eval Batch Summary
 
@@ -103,6 +103,13 @@ not a performance/noise fix by itself.
 | RNE-C30 | P0 | Stage-owned retry directives can bypass stage tool-surface projection. | Previous fixes scoped explore-owned retry hints away from extraction, but a retry hint whose owner is already `StageExtract` can still carry stale exploration actions from a downstream validator or repair directive. `BuildPromptContext` rendered `ac.RetryHint` verbatim before the extractor/finalizer-specific handoff sanitizer ran, so the model could see "use repo_map/read_file" in a stage where those tools are unavailable. | All model-facing retry directives pass through a capability-surface projector keyed by current `ToolSuggestions`. If a directive mentions unavailable known tools, the original prose is replaced with a stage-safe structured emit/caveat instruction; original text remains in logs/state for audit. This is prompt hygiene only, not user-intent or model-prose hard routing. |
 | RNE-C31 | P0 | Hypothesis-to-task binding can still score model/template prose. | `analysis/binder` used task node objective surface tokens as part of relevance scoring. Node objectives are useful user/model guidance, but they are not typed routing authority and can reintroduce prose-driven scheduling even without direct RawRequest parsing. | Binder relevance consumes only typed search hints and typed falsification-kind affinity. Objective prose remains visible guidance but cannot change task/hypothesis routing. |
 | RNE-C32 | P0 | Source inventory remains prompt-advisory instead of an executable localization authority. | The ArkTS representative run had `repo_map=0`, `source_lens=0`, and answered absence after `list_files`/`read_file` work. The explorer prompt mentions `repo_map(view="source_inventory")`, but no typed scheduler obligation required it before closing an absence/member-set answer over supported language files. | Add a language-neutral `SourceInventoryAuthority`: analyzer/source-inventory profiles, absence answers, exhaustive member-set questions, and cross-language scope requests create a typed navigation obligation. The scheduler or localizer executes a bounded `repo_map(source_inventory)` view before absence closure, records scope classes, and feeds only the Top-N typed view to the model. |
+| RNE-C33 | P0 | Source inventory profile synthesis is not strong enough when analyzer omits the optional profile. | Typed source-enumeration requests can arrive as `IntentEnumerate + IsCategoryEnumeration` plus navigation query terms, while `source_inventory_profile` is absent. Pre-explore advisory can then be missing or too broad, and pre-complete lens execution gates do not see an active inventory lane. | Synthesize an advisory-only `SourceInventoryProfile` from typed request shape plus analyzer navigation query terms, query-filter candidates by supported language and structural symbol surface, and make synthetic inventory lanes participate in the same executable lens gate as explicit profiles. |
+| RNE-C34 | P1 | Source inventory telemetry can under-report system-supplied authority. | Eval metrics count explicit model toolcalls to `repo_map(view="source_inventory")`, but system-built advisory/observation projections and pre-complete synthetic inventory lanes can guide or gate the run without being visible as `source_lens`. This can make a PASS look healthier or less healthy than it really is. | Split telemetry into explicit lens toolcalls, system-compiled advisory projections, active inventory obligations, and satisfied/blocked inventory gates. Status cards and eval summaries should explain which carrier closed the lane. |
+| RNE-C35 | P1 | Support/audit rows can still appear near principal source-inventory slates. | ArkTS logs showed parser/helper rows such as `builderFunctionRegex` in support-context lanes while the final principal answer correctly used the aggregate member set. The final answer passed, but broad support rows increase context noise and can pollute weaker finalizer drafts. | Finalizer and extractor consume a principal slate compiled from accepted `member_set` / source-inventory observation rows; support/audit rows stay in a capped secondary lane and cannot become principal members without a typed role transition. |
+| RNE-C36 | P0 | System-supplied localization observations are not authoritative enough in model-facing exploration. | The source-inventory lens can now be system-compiled, but the explorer may still spend its next turn reading parser/helper implementation files and then answer from a weaker absence prior. Typed observations exist, yet the model-facing context does not make them the principal investigation slate early enough. | Promote system-supplied localization observations into a typed `PrincipalLocalizationSlate` before free-form exploration. Explorer receives owner/member/path candidates first, support rows capped second, and any close/absence attempt checks the same slate. The scheduler may still allow additional exploration, but not by ignoring a fresher typed authority. |
+| RNE-C37 | P0 | Repository-wide typed source-inventory queries can be narrowed by default production scope. | Analyzer can emit `source_scope_profile=production` as a default even when the source-inventory lane is a repository-wide typed query. Fixture, corpus, testdata, vendored, generated, and example source files can then disappear before the inventory authority sees them. | Repository-wide typed query/root-scope inventory lanes search all source classes by default; explicit production-only inventory remains production-filtered. The rule is driven by typed inventory provenance and source-scope fields, not language names or user keywords. |
+| RNE-C38 | P1 | Analyzer pre-scan/listing priors can conflict with later source-inventory authority. | Early grep/list_files or pre-scan summaries can tell the model "no matching source" before the typed inventory lane has run, especially for non-Go language surfaces inside corpus/fixture directories. That stale prior increases model noise and can bias absence answers. | Source-inventory-shaped requests get either an early bounded inventory observation before broad pre-scan summaries are rendered, or the pre-scan result is marked advisory/low-priority until the typed inventory obligation is satisfied. |
+| RNE-C39 | P0/P1 | `emit_investigation_complete` aggregate normalization remains slow on large ledgers. | Latest logs showed `emit_investigation_complete` taking about 15s with `aggregate_normalization` as the slowest phase. The tool may already know the next typed decision, but repeated scans over evidence, aggregate facts, read history, and grounding views still dominate "organizing context" / completion checks. | Finish Batch K2: one `CompletionPreflightView` per dispatch/version, cached aggregate normalization inputs, shared source-inventory/localization proof projections, and timing rows that feed status cards without becoming semantic gates. |
 
 ## Architecture Direction
 
@@ -202,8 +209,14 @@ roles from many raw trace rows.
 | Batch R | planned | Share proof coverage across exploration siblings. | Mixed runtime/source cases converge with bounded duplicate reads and smaller context while preserving source citations. |
 | Batch S | delivered | Add origin-aware runtime-only source navigation suppression. | Trace/log artifact-only tasks with no current-source obligation skip repo_map/localizer blocking floors and user-facing source supplements while keeping runtime observation audit. |
 | Batch T | delivered | Add trace causal projection and source-optional supplement gating. | Trace causal projection selects attributable wakeup-chain root-cause nodes over aggregate sentinels, dedupes supporting hops, and runtime-artifact source-optional answers no longer render source localization / repo_map audit supplements. |
-| Batch U | planned | Add source inventory authority with scope classes. | Supported-language searches expose product/test/fixture/corpus/vendor/generated scope classes; absence closes only against the classes required by the typed task. |
-| Batch U1 | planned | Make source inventory an executable navigation obligation. | A source-inventory/absence/exhaustive supported-language task must run a bounded typed inventory view before closure; C/C++, Cangjie, ArkTS/ETS, JS/TS, Java/Kotlin, Ruby, Go, config, workflow, and other repomap languages share the same authority surface. |
+| Batch U | partial | Add source inventory authority with scope classes. | Delivered: source-inventory scope handling no longer defaults typed source enumerations to production-only when no explicit source-scope profile exists, so fixture/corpus/testdata/vendor surfaces can be considered when the typed task requires repository-wide enumeration. Remaining: expose source-class breakdowns explicitly in status/eval reports. |
+| Batch U1 | partial | Make source inventory an executable navigation obligation. | Delivered: explicit and synthetic source-inventory lanes now share a pre-complete executable lens gate; advisory/list_files rows do not replace `repo_map(view="source_inventory")`; query-filtered cross-language inventory avoids parser-helper noise; system-compiled repo-lens advisory/observation provenance now satisfies the same gate. Remaining: scheduler/localizer auto-execution before model close attempts, plus inventory-lane telemetry split. |
+| Batch U1a | delivered | Synthesize and auto-observe typed source-inventory query lanes. | Typed `IntentEnumerate + IsCategoryEnumeration` requests with supported-language/query terms can synthesize an advisory-only inventory profile, query-filter graph candidates, auto-publish a system source-inventory observation, and avoid analyzer cardinality retry loops when members are intentionally discovered after classification. |
+| Batch U1b | delivered | Keep repository-wide typed inventory queries from defaulting to production-only scope. | Synthetic typed query/root-scope inventory lanes include fixture/corpus/testdata/example source classes across supported languages; explicit production inventory profiles still filter auxiliary sources. Unit tests cover both sides. |
+| Batch U2 | planned | Add source-inventory lane telemetry and status-card explanations. | Eval/status cards distinguish explicit model lens toolcalls, system advisory projections, active inventory obligations, satisfied gates, and blocked gates. |
+| Batch U3 | planned | Cap support/audit rows around principal source-inventory slates. | Finalizer/extractor render accepted principal member sets first and keep parser/helper/support rows out of principal answer candidates unless a typed role transition promotes them. |
+| Batch U4 | planned | Promote localization/source-inventory observations into principal exploration slates. | Explorer/finalizer consume a typed Top-N owner/member/path slate before parser/helper/support rows, and absence closure cannot ignore a fresher system localization authority. |
+| Batch U5 | planned | De-prioritize pre-scan noise until typed inventory obligations run. | Source-inventory-shaped turns mark grep/list_files/pre-scan absence priors advisory until the typed source-inventory lane is satisfied or explicitly blocked. |
 | Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
 | Batch V2 | planned | Complete aggregate negative-fact repair hints. | Invalid no-hit payloads receive one precise typed repair hint or deterministic normalization before retry; the model does not bounce between `negative_search`, `negative_observation`, `scalar_value`, and empty `member_set` schemas. |
 | Batch W | delivered | Add lazy repo-index warmup for runtime-artifact-only read turns. | Runtime trace/log answers with no typed current-source obligation do not print or pay repo-index warmup unless a later typed source route actually opens. |
@@ -272,8 +285,25 @@ roles from many raw trace rows.
 - Unit: source inventory obligation execution deduplicates existing repo_map
   source-inventory observations and never re-runs an identical lens after no
   typed input changed.
+- Unit: typed source-enumeration requests that lack `source_inventory_profile`
+  synthesize an advisory-only inventory profile from analyzer navigation query
+  terms, not from raw user words or model prose.
+- Unit: query-filtered source inventory treats supported-language tokens as a
+  typed language filter and excludes parser/helper rows from other languages.
+- Unit: synthetic source-inventory lanes participate in the same executable
+  lens gate as explicit analyzer profiles.
+- Unit: system-compiled source-inventory advisory/observation provenance
+  satisfies the executable lens gate without requiring a duplicate model
+  `repo_map` call.
+- Unit: repository-wide typed query/root-scope source-inventory lanes include
+  fixture, corpus, testdata, example, and vendored source classes even when the
+  analyzer defaulted `source_scope_profile` to production.
+- Unit: explicit production source-inventory profiles still exclude auxiliary
+  source classes from principal candidates.
 - Unit: absence answers cannot close if the typed source inventory finds
   matching files inside a required source-scope class.
+- Unit: source-inventory-shaped turns mark pre-scan no-hit/list summaries as
+  advisory until the typed inventory obligation is satisfied.
 - Unit: negative search / negative observation / exact empty member-set facts
   are canonicalized without requiring model prose repair loops.
 - Unit: runtime/log/trace negative observations can represent a missing event
@@ -300,6 +330,8 @@ roles from many raw trace rows.
 - Eval: `arkts_repomap` no longer loops on empty set shape.
 - Eval: `arkts_repomap` uses repo_map/source_inventory before absence or
   member-set closure and reports the exact source-scope classes searched.
+- Eval: source-inventory telemetry distinguishes explicit lens calls from
+  system advisory projections and executable gate satisfaction.
 - Eval: `qf_relation_subagent_registry` converges without repeated identical
   relation support downgrade.
 - Eval: `trace_query_wakeup_causal_io_chain` preserves intermediate path roles.
@@ -615,3 +647,35 @@ roles from many raw trace rows.
   neutral and covers C/C++, Cangjie, ArkTS/ETS, JS/TS, Java/Kotlin, Ruby, Go,
   config, workflow, and all other repomap-supported surfaces. It must not be
   implemented with user-keyword matching or model-prose routing.
+- 2026-06-20 Batch U1a delivered: source-inventory advisory generation now
+  synthesizes an advisory-only profile for typed source-enumeration queries
+  when the analyzer omitted optional `source_inventory_profile`. The synthetic
+  lane is query-filtered by supported language and structural symbol surface,
+  auto-publishes a system source-inventory observation before exploration, and
+  shares the same pre-complete executable lens gate as explicit profiles.
+  Analyzer L0B cardinality rejection now exempts `IntentEnumerate` source
+  inventory shapes so member discovery can happen after classification.
+  ArkTS decorator entries expose structural `@Entry` / `@Component` /
+  `@Builder` / `@Styles` / `@Extend(...)` surfaces for inventory matching.
+- 2026-06-20 Batch U1b delivered: repository-wide typed query/root-scope
+  inventory lanes no longer inherit production-only narrowing from a default
+  analyzer `source_scope_profile`. This is driven by typed source-inventory
+  provenance (`typed_source_enumeration_query` + `query_root_scope`) and keeps
+  explicit production inventory profiles production-filtered. Focused tests
+  cover the synthetic all-source-class path and the explicit production guard.
+- 2026-06-20 source-inventory eval refresh: the latest ArkTS runs after query
+  filtering and auto-observe still failed before the final gate/scope fixes:
+  `eval/results/arkts_after_inventory_authority_batch_20260620/arkts_repomap-20260620-115049`
+  showed the system compiling an advisory/observation, but the explorer still
+  read parser/helper support files and the pre-complete gate did not yet count
+  system advisory provenance as an executed lens. The gate/provenance and
+  root-scope fixes above close those two structural holes, but RNE-C36/RNE-C38
+  remain open because model-facing exploration still needs a principal
+  localization slate and pre-scan no-hit priors must stay advisory until typed
+  inventory authority has run.
+- 2026-06-20 slow completion refresh: the same ArkTS log showed
+  `emit_investigation_complete` calls around 15s with
+  `aggregate_normalization` as the slowest phase. Batch K1 made this visible;
+  Batch K2/RNE-C39 remains the commercial fix for cached
+  `CompletionPreflightView`, aggregate-normalization reuse, and status-card
+  timing explanations.

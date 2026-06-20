@@ -541,6 +541,88 @@ func TestRepoMapSourceInventoryViewSameRepoCrossLanguage(t *testing.T) {
 	}
 }
 
+func TestRepoMapSourceInventoryQueryExpandsRolesAndFiltersLanguage(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("source inventory query arkts")
+	graph := BuildGraph(repo, []*FileInfo{
+		{
+			RelPath:  "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			Language: LangArkTS,
+			Package:  "corpus",
+			Symbols: []Symbol{
+				{Name: "Index", Kind: "component", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", Line: 6, Exported: true, Doc: "@Entry @Component"},
+				{Name: "build", Kind: "ui-entry", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", Line: 24, Parent: "Index", Exported: true},
+			},
+		},
+		{
+			RelPath:  "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+			Language: LangArkTS,
+			Package:  "corpus",
+			Symbols: []Symbol{
+				{Name: "GlobalCard", Kind: "builder", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 1, Exported: true, Doc: "@Builder"},
+				{Name: "PlainHelper", Kind: "function", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 20, Exported: true},
+			},
+		},
+		{
+			RelPath:  "internal/tool/repomap/index/extract_arkts.go",
+			Language: LangGo,
+			Package:  "index",
+			Symbols: []Symbol{{
+				Name: "builderFunctionRegex", Kind: "function", File: "internal/tool/repomap/index/extract_arkts.go", Line: 130, Exported: false, Doc: "@Builder parser helper",
+			}},
+		},
+	})
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"query": "@Entry @Builder ArkTS Entry Builder",
+		"scope": ".",
+		"roles": ["function"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"roles=function:1,type:1",
+		"`Index`",
+		"@ internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:6",
+		"note: surface=@Entry @Component",
+		"`GlobalCard`",
+		"@ internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:1",
+		"note: surface=@Builder",
+		"repo_lens:tool_query",
+		"repo_lens:roles",
+		"repo_lens:scopes",
+		"repo_lens:query_roles",
+		"repomap_graph",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("query-filtered source_inventory missing %q:\n%s", want, res.Summary)
+		}
+	}
+	for _, noise := range []string{"PlainHelper", "builderFunctionRegex"} {
+		if strings.Contains(res.Summary, noise) {
+			t.Fatalf("query-filtered source_inventory leaked %q:\n%s", noise, res.Summary)
+		}
+	}
+}
+
 func TestRepoMapSourceInventoryViewConfigFilesAreNavigationRows(t *testing.T) {
 	repo := t.TempDir()
 	mut := types.NewMutableState("source inventory config files")

@@ -2399,6 +2399,15 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// CATEGORY wrapper, not a relation criterion. So the carve-out
 	// preserves L0-B's true-positive coverage while closing the
 	// false-positive on relational lookups.
+	//
+	// 2026-06-20 — IntentEnumerate carve-out. Source inventories,
+	// route/config/API listings, decorator/member scans, and many
+	// cross-language repository enumerations do not know their members at
+	// classification time. Requiring AnalyzerHints.Entities to already hold
+	// discovered members turns a typed discovery problem into a retry loop.
+	// The hard gate now remains only for non-enumerate intent drift; real
+	// enumerate requests hand off to repo_map/source-inventory/localizer
+	// authorities to discover the members.
 	if shouldRejectEnumerationCardinality(&rm) {
 		return nil, fmt.Errorf(
 			"analyzer: enumeration intent with ≤1 distinct named entity is structurally inconsistent — " +
@@ -4248,6 +4257,7 @@ func distinctNamedEntities(entities []string) int {
 
 func shouldRejectEnumerationCardinality(rm *types.RequestModel) bool {
 	return rm != nil &&
+		rm.Intent != types.IntentEnumerate &&
 		rm.Predicates.IsCategoryEnumeration &&
 		!rm.Predicates.IsHistoryLookup &&
 		!rm.Predicates.IsRelationalLookup &&

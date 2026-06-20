@@ -481,6 +481,9 @@ func prependRepoMapSourceInventoryFitAdvisory(ctx *ctypes.BusContext, query, out
 	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
 		return output
 	}
+	if ctypes.IsTypedSourceEnumerationShape(rm) {
+		return output
+	}
 	policy := ctypes.CompileRepoMapNavigationPolicy(rm, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
 	if !policy.HasRoute(ctypes.RepoMapNavigationRouteRelationMap) && !policy.HasRoute(ctypes.RepoMapNavigationRouteCallPath) {
 		return output
