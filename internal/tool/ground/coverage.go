@@ -1,7 +1,6 @@
 package ground
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -33,49 +32,7 @@ import (
 // fire mid-dispatch from internal/tool/) can use the same parser
 // instead of reaching into the agent layer.
 func ParseReadFileBanner(summary string) (path string, rng types.LineRange, totalLines int, ok bool) {
-	first := strings.SplitN(summary, "\n", 2)[0]
-	first = stripForcedReadPrefix(first)
-	if !strings.HasPrefix(first, "[") {
-		return "", types.LineRange{}, 0, false
-	}
-	if idx := strings.Index(first, ": showing all "); idx > 1 {
-		path = first[1:idx]
-		if path == "" {
-			return "", types.LineRange{}, 0, false
-		}
-		rest := first[idx+len(": showing all "):]
-		spaceIdx := strings.Index(rest, " ")
-		if spaceIdx < 1 {
-			return "", types.LineRange{}, 0, false
-		}
-		n, err := strconv.Atoi(rest[:spaceIdx])
-		if err != nil || n <= 0 {
-			return "", types.LineRange{}, 0, false
-		}
-		return path, types.LineRange{Start: 1, End: n}, n, true
-	}
-	colonIdx := strings.Index(first, ": showing lines ")
-	if colonIdx <= 1 {
-		return "", types.LineRange{}, 0, false
-	}
-	path = first[1:colonIdx]
-	rest := first[colonIdx+len(": showing lines "):]
-	dashIdx := strings.Index(rest, "-")
-	ofIdx := strings.Index(rest, " of ")
-	if dashIdx < 0 || ofIdx < 0 || dashIdx > ofIdx {
-		return "", types.LineRange{}, 0, false
-	}
-	startLine, err1 := strconv.Atoi(strings.TrimSpace(rest[:dashIdx]))
-	endLine, err2 := strconv.Atoi(strings.TrimSpace(rest[dashIdx+1 : ofIdx]))
-	if err1 != nil || err2 != nil {
-		return "", types.LineRange{}, 0, false
-	}
-	totalStr := strings.TrimSuffix(strings.TrimSuffix(rest[ofIdx+4:], "]"), " total")
-	total, _ := strconv.Atoi(strings.TrimSpace(totalStr))
-	if startLine <= 0 || endLine < startLine {
-		return "", types.LineRange{}, 0, false
-	}
-	return path, types.LineRange{Start: startLine, End: endLine}, total, true
+	return types.ParseReadFileBanner(summary)
 }
 
 // ExtractReadCoverage walks tool history and rebuilds the per-file
@@ -107,28 +64,7 @@ func ExtractReadCoverage(history []types.ToolResult, repoRoot string) (
 	readRanges map[string][]types.LineRange,
 	totals map[string]int,
 ) {
-	readSet = make(map[string]bool)
-	readRanges = make(map[string][]types.LineRange)
-	totals = make(map[string]int)
-	for _, r := range history {
-		if !r.Success || r.ToolName != "read_file" {
-			continue
-		}
-		path, rng, total, ok := ParseReadFileBanner(r.Summary)
-		if !ok {
-			continue
-		}
-		path = canonicalCoveragePath(path, repoRoot)
-		if path == "" {
-			continue
-		}
-		readSet[path] = true
-		readRanges[path] = append(readRanges[path], rng)
-		if total > 0 && total > totals[path] {
-			totals[path] = total
-		}
-	}
-	return readSet, readRanges, totals
+	return types.ExtractReadCoverage(history, repoRoot)
 }
 
 // dispatchHistory aggregates the same three-source tool history

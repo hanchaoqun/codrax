@@ -621,6 +621,26 @@ func (c *EvidenceClosure) SetReadSet(files map[string]bool) {
 	}
 }
 
+// AddReadSet merges files into the current ReadSet snapshot.
+func (c *EvidenceClosure) AddReadSet(files map[string]bool) {
+	if c == nil || len(files) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.readSet == nil {
+		c.readSet = make(map[string]bool, len(files))
+	}
+	for f, v := range files {
+		if !v {
+			continue
+		}
+		if canon := c.canonicalize(f); canon != "" {
+			c.readSet[canon] = true
+		}
+	}
+}
+
 // ReadSet returns a defensive copy of the current ReadSet so callers
 // can iterate without holding the closure lock.
 func (c *EvidenceClosure) ReadSet() map[string]bool {

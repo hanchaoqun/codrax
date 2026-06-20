@@ -91,6 +91,37 @@ func TestApplyStageOutput_DedupsAnswerChainsOnSelfLoop(t *testing.T) {
 	}
 }
 
+func TestEvidenceRoundIngestShadowDoesNotMutateClosure(t *testing.T) {
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	mu := types.NewMutableState("question")
+	o.busCtx = &types.BusContext{
+		RepoRoot:      "",
+		Mutable:       mu,
+		PipelineStage: types.StageExplore,
+		ActiveAgent:   types.AgentExplorer,
+		TaskState:     types.TaskState{Stage: types.StageExplore},
+	}
+	results := []types.ToolResult{{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[a.go: showing lines 1-3 of 10 total]\ncode",
+	}}
+
+	delta := o.runEvidenceRoundIngestShadow(results)
+	if delta.Empty() || !delta.ReadSet["a.go"] {
+		t.Fatalf("shadow delta = %+v, want a.go read coverage", delta)
+	}
+	if got := mu.EvidenceClosure().ReadSet(); len(got) != 0 {
+		t.Fatalf("shadow ingest mutated production closure: %+v", got)
+	}
+
+	o.applyStageOutput(&agent.StageOutput{ToolResults: results})
+	if got := mu.EvidenceClosure().ReadSet(); len(got) != 0 {
+		t.Fatalf("applyStageOutput shadow mutated production closure: %+v", got)
+	}
+}
+
 func TestApplyStageOutput_MergesAdvisoryInvestigationNotesIntoTurnA(t *testing.T) {
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{}, ar, sr, sar)
