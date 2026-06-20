@@ -97,6 +97,20 @@ func (budget sourceInventoryExecBudget) appendCandidate(set *sourceInventoryCand
 	if candidate.key == "" || (filter.Active() && !sourceInventoryCandidateMatchesQuery(candidate, filter)) {
 		return false
 	}
+	set.total++
+	offset := budget.kernel.CursorOffset()
+	limit := budget.kernel.PageLimit()
+	if limit > 0 {
+		idx := set.total - 1
+		if idx < offset {
+			set.complete = false
+			return false
+		}
+		if len(set.candidates) >= limit {
+			sourceInventoryMarkCandidateBudgetTruncated(set)
+			return true
+		}
+	}
 	if budget.materializationExceeded(len(set.candidates)) {
 		sourceInventoryMarkCandidateBudgetTruncated(set)
 		return true

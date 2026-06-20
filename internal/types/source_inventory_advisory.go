@@ -22,12 +22,14 @@ func (a SourceInventoryAdvisory) IsActive() bool {
 }
 
 // SourceInventoryAdvisorySet groups candidates for a single requested role.
-// Complete means the underlying graph/index had source files for the requested
-// scopes; it is a boundedness signal, not a guarantee that the user wanted this
-// set rendered verbatim.
+// Total is the scanned candidate total or lower bound for the role; Candidates
+// may hold only the current cursor page. Complete means the underlying
+// graph/index had source files for the requested scopes; it is a boundedness
+// signal, not a guarantee that the user wanted this set rendered verbatim.
 type SourceInventoryAdvisorySet struct {
 	Role       AnswerCandidateRole                `json:"role,omitempty"`
 	Complete   bool                               `json:"complete,omitempty"`
+	Total      int                                `json:"total,omitempty"`
 	Candidates []SourceInventoryAdvisoryCandidate `json:"candidates,omitempty"`
 }
 
@@ -62,23 +64,6 @@ type SourceInventoryAdvisoryAttribute struct {
 	Language   string              `json:"language,omitempty"`
 }
 
-// SourceInventoryAdvisoryRoleLabel returns the display label for advisory
-// candidate sets. It intentionally distinguishes the package role's source
-// inventory usage from a language-specific package answer: in this lane the
-// role is a bounded package/directory/module scope carrier.
-func SourceInventoryAdvisoryRoleLabel(role AnswerCandidateRole) string {
-	switch role {
-	case AnswerCandidateRolePackage:
-		return "package/directory/module scope"
-	case AnswerCandidateRoleConfigFile:
-		return "configuration/manifest file"
-	case AnswerCandidateRoleUnknown:
-		return "candidate"
-	default:
-		return string(role)
-	}
-}
-
 func CloneSourceInventoryAdvisory(in SourceInventoryAdvisory) SourceInventoryAdvisory {
 	out := in
 	out.Scopes = append([]string(nil), in.Scopes...)
@@ -93,6 +78,9 @@ func CloneSourceInventoryAdvisory(in SourceInventoryAdvisory) SourceInventoryAdv
 					out.Sets[i].Candidates[j] = candidate
 					out.Sets[i].Candidates[j].Attributes = append([]SourceInventoryAdvisoryAttribute(nil), candidate.Attributes...)
 				}
+			}
+			if out.Sets[i].Total < len(out.Sets[i].Candidates) {
+				out.Sets[i].Total = len(out.Sets[i].Candidates)
 			}
 		}
 	}
@@ -120,6 +108,7 @@ func MergeSourceInventoryAdvisory(prior, current SourceInventoryAdvisory) Source
 		if idx, ok := byRole[set.Role]; ok {
 			merged.Sets[idx].Complete = merged.Sets[idx].Complete && set.Complete
 			merged.Sets[idx].Candidates = mergeSourceInventoryAdvisoryCandidates(merged.Sets[idx].Candidates, set.Candidates)
+			merged.Sets[idx].Total = maxSourceInventoryAdvisoryTotal(merged.Sets[idx].Total, set.Total, len(merged.Sets[idx].Candidates))
 			continue
 		}
 		byRole[set.Role] = len(merged.Sets)

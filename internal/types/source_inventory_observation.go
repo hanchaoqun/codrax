@@ -172,11 +172,13 @@ func SourceInventorySourceClassSummary(classes []SourceInventorySourceClassCount
 
 // SourceInventoryObservationSet is one role-bounded member set. Count is a
 // machine-checkable invariant and is always normalized to len(Members) by the
-// clone/merge/build helpers.
+// clone/merge/build helpers. Total is the scanned member total or lower bound;
+// Members may hold only the current cursor page.
 type SourceInventoryObservationSet struct {
 	Role     AnswerCandidateRole                `json:"role,omitempty"`
 	Complete bool                               `json:"complete,omitempty"`
 	Count    int                                `json:"count,omitempty"`
+	Total    int                                `json:"total,omitempty"`
 	Members  []SourceInventoryObservationMember `json:"members,omitempty"`
 }
 
@@ -241,6 +243,7 @@ func SourceInventoryObservationFromAdvisory(advisory SourceInventoryAdvisory) So
 		obsSet := SourceInventoryObservationSet{
 			Role:     set.Role,
 			Complete: set.Complete,
+			Total:    set.Total,
 			Members:  make([]SourceInventoryObservationMember, 0, len(set.Candidates)),
 		}
 		for _, candidate := range set.Candidates {
@@ -251,6 +254,9 @@ func SourceInventoryObservationFromAdvisory(advisory SourceInventoryAdvisory) So
 			obsSet.Members = append(obsSet.Members, member)
 		}
 		obsSet.Count = len(obsSet.Members)
+		if obsSet.Total < obsSet.Count {
+			obsSet.Total = obsSet.Count
+		}
 		if obsSet.Count == 0 {
 			continue
 		}
@@ -356,15 +362,20 @@ func MergeSourceInventoryObservation(prior, current SourceInventoryObservation) 
 			merged.Sets[idx].Complete = merged.Sets[idx].Complete && set.Complete
 			merged.Sets[idx].Members = mergeSourceInventoryObservationMembers(merged.Sets[idx].Members, set.Members)
 			merged.Sets[idx].Count = len(merged.Sets[idx].Members)
+			merged.Sets[idx].Total = maxSourceInventoryObservationTotal(merged.Sets[idx].Total, set.Total, merged.Sets[idx].Count)
 			continue
 		}
 		byRole[set.Role] = len(merged.Sets)
 		cloned := SourceInventoryObservationSet{
 			Role:     set.Role,
 			Complete: set.Complete,
+			Total:    set.Total,
 			Members:  cloneSourceInventoryObservationMembers(set.Members),
 		}
 		cloned.Count = len(cloned.Members)
+		if cloned.Total < cloned.Count {
+			cloned.Total = cloned.Count
+		}
 		merged.Sets = append(merged.Sets, cloned)
 	}
 	return normalizeSourceInventoryObservation(merged)
@@ -378,38 +389,11 @@ func normalizeSourceInventoryObservation(in SourceInventoryObservation) SourceIn
 	in.Active = true
 	for i := range in.Sets {
 		in.Sets[i].Count = len(in.Sets[i].Members)
+		if in.Sets[i].Total < in.Sets[i].Count {
+			in.Sets[i].Total = in.Sets[i].Count
+		}
 	}
 	return in
-}
-
-func cloneSourceInventoryObservationPage(in *SourceInventoryObservationPage) *SourceInventoryObservationPage {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	return &out
-}
-
-func cloneSourceInventoryExecutionState(in *SourceInventoryExecutionState) *SourceInventoryExecutionState {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	return &out
-}
-
-func mergeSourceInventoryExecutionState(existing, incoming *SourceInventoryExecutionState) *SourceInventoryExecutionState {
-	if existing == nil {
-		return cloneSourceInventoryExecutionState(incoming)
-	}
-	if incoming == nil {
-		return cloneSourceInventoryExecutionState(existing)
-	}
-	return &SourceInventoryExecutionState{
-		Budgeted:                 existing.Budgeted || incoming.Budgeted,
-		CandidateBudgetTruncated: existing.CandidateBudgetTruncated || incoming.CandidateBudgetTruncated,
-		AttributesDeferred:       existing.AttributesDeferred || incoming.AttributesDeferred,
-	}
 }
 
 func cloneSourceInventorySourceClassCounts(in []SourceInventorySourceClassCount) []SourceInventorySourceClassCount {

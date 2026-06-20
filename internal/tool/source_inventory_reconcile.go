@@ -38,6 +38,7 @@ type sourceInventoryCandidate struct {
 type sourceInventoryCandidateSet struct {
 	role       types.AnswerCandidateRole
 	candidates []sourceInventoryCandidate
+	total      int
 	complete   bool
 	truncated  bool
 }
@@ -533,6 +534,10 @@ func sourceInventoryObservationWithLensExecutionState(observation types.SourceIn
 func sourceInventoryObservationMemberTotal(observation types.SourceInventoryObservation) int {
 	total := 0
 	for _, set := range observation.Sets {
+		if set.Total > len(set.Members) {
+			total += set.Total
+			continue
+		}
 		total += len(set.Members)
 	}
 	return total
@@ -1804,6 +1809,11 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 		topN = 24
 	}
 	offset := sourceInventoryLensQueryOffset(query)
+	renderOffset := offset
+	pageAlreadyApplied := sourceInventoryObservationPageAlreadyApplied(observation, offset)
+	if pageAlreadyApplied {
+		renderOffset = 0
+	}
 	includeCounts := query.IncludeCounts
 	includeAttributes := query.IncludeAttributes
 	var b strings.Builder
@@ -1863,17 +1873,23 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 	}
 	emitted := 0
 	visited := 0
-	total := 0
+	visibleTotal := 0
+	fullTotal := 0
 	for _, set := range observation.Sets {
-		total += len(set.Members)
+		visibleTotal += len(set.Members)
+		if set.Total > len(set.Members) {
+			fullTotal += set.Total
+			continue
+		}
+		fullTotal += len(set.Members)
 	}
 	for _, set := range observation.Sets {
 		if len(set.Members) == 0 || emitted >= topN {
 			continue
 		}
 		setRowsRemaining := len(set.Members)
-		if offset > visited {
-			skipInSet := minInt(offset-visited, len(set.Members))
+		if renderOffset > visited {
+			skipInSet := minInt(renderOffset-visited, len(set.Members))
 			setRowsRemaining -= skipInSet
 		}
 		if setRowsRemaining <= 0 {
@@ -1888,7 +1904,7 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 				types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Role, set.Complete)
 		}
 		for _, member := range set.Members {
-			if visited < offset {
+			if visited < renderOffset {
 				visited++
 				continue
 			}
@@ -1907,18 +1923,27 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 		}
 		b.WriteByte('\n')
 	}
-	if total > emitted {
-		end := offset + emitted
-		if end > total {
-			end = total
+	if pageAlreadyApplied && observation.Page != nil {
+		fullTotal = observation.Page.Total
+	}
+	if fullTotal > emitted || visibleTotal > emitted {
+		footerOffset := offset
+		if !pageAlreadyApplied {
+			footerOffset = renderOffset
 		}
-		fmt.Fprintf(&b, "---\nshowing rows [%d,%d) of %d visible member rows in this tool result", offset, end, total)
+		end := footerOffset + emitted
+		if end > fullTotal {
+			end = fullTotal
+		}
+		fmt.Fprintf(&b, "---\nshowing rows [%d,%d) of %d visible member rows in this tool result", footerOffset, end, fullTotal)
 		if sourceInventoryStringSliceContains(observation.Provenance, "repo_lens:candidate_budget_truncated") {
 			b.WriteString("; the structured observation is budget-truncated, so rerun a narrower source_inventory lens before exhaustive claims.\n")
 		} else {
 			b.WriteString("; the structured observation stored in run state preserves the full set.\n")
 		}
-		if end < total {
+		if observation.Page != nil && observation.Page.NextCursor != "" {
+			fmt.Fprintf(&b, "next_cursor=%s\n", observation.Page.NextCursor)
+		} else if end < fullTotal {
 			fmt.Fprintf(&b, "next_cursor=%d\n", end)
 		}
 	}
@@ -2880,7 +2905,11 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 		advisorySet := types.SourceInventoryAdvisorySet{
 			Role:       set.role,
 			Complete:   set.complete,
+			Total:      set.total,
 			Candidates: make([]types.SourceInventoryAdvisoryCandidate, 0, len(set.candidates)),
+		}
+		if advisorySet.Total < len(set.candidates) {
+			advisorySet.Total = len(set.candidates)
 		}
 		for _, candidate := range set.candidates {
 			attrs := make([]types.SourceInventoryAdvisoryAttribute, 0, len(candidate.attributes))
@@ -3699,9 +3728,13 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, view *sourceInventoryE
 			exported:   true,
 			file:       file,
 			language:   strings.TrimSpace(fi.Language),
-			attributes: sourceInventoryFileAttributes(ctx, symbolIndex, scopeFilter, file, attributeRoles, explicitAttributeRoles),
 		}
-		if budget.appendCandidate(&set, candidate, queryFilter) {
+		before := len(set.candidates)
+		stop := budget.appendCandidate(&set, candidate, queryFilter)
+		if len(set.candidates) > before {
+			set.candidates[len(set.candidates)-1].attributes = sourceInventoryFileAttributes(ctx, symbolIndex, scopeFilter, file, attributeRoles, explicitAttributeRoles)
+		}
+		if stop {
 			break
 		}
 	}
@@ -3739,9 +3772,13 @@ func sourceInventoryConfigFileCandidates(ctx *types.BusContext, view *sourceInve
 			exported:   true,
 			file:       file,
 			language:   strings.TrimSpace(fi.Language),
-			attributes: sourceInventoryFileAttributes(ctx, symbolIndex, scopeFilter, file, attributeRoles, explicitAttributeRoles),
 		}
-		if budget.appendCandidate(&set, candidate, queryFilter) {
+		before := len(set.candidates)
+		stop := budget.appendCandidate(&set, candidate, queryFilter)
+		if len(set.candidates) > before {
+			set.candidates[len(set.candidates)-1].attributes = sourceInventoryFileAttributes(ctx, symbolIndex, scopeFilter, file, attributeRoles, explicitAttributeRoles)
+		}
+		if stop {
 			break
 		}
 	}
@@ -3793,24 +3830,34 @@ func sourceInventoryPackageCandidates(ctx *types.BusContext, view *sourceInvento
 			bucket.packages[pkg]++
 		}
 	}
-	for _, bucket := range buckets {
+	bucketKeys := make([]string, 0, len(buckets))
+	for key := range buckets {
+		bucketKeys = append(bucketKeys, key)
+	}
+	sort.Strings(bucketKeys)
+	for _, key := range bucketKeys {
+		bucket := buckets[key]
 		member := sourceInventoryPackageBucketMember(bucket)
-		key := strings.TrimSpace(bucket.dir)
-		if member == "" || key == "" {
+		candidateKey := strings.TrimSpace(bucket.dir)
+		if member == "" || candidateKey == "" {
 			continue
 		}
 		candidate := sourceInventoryCandidate{
 			member:     member,
-			key:        key,
-			supportRef: key,
+			key:        candidateKey,
+			supportRef: candidateKey,
 			note:       sourceInventoryPackageBucketNote(bucket),
 			role:       types.AnswerCandidateRolePackage,
 			exported:   true,
-			file:       key,
+			file:       candidateKey,
 			language:   sourceInventoryDominantMapKey(bucket.languages),
-			attributes: sourceInventoryPackageBucketAttributes(ctx, symbolIndex, scopeFilter, key, attributeRoles, explicitAttributeRoles),
 		}
-		if budget.appendCandidate(&set, candidate, queryFilter) {
+		before := len(set.candidates)
+		stop := budget.appendCandidate(&set, candidate, queryFilter)
+		if len(set.candidates) > before {
+			set.candidates[len(set.candidates)-1].attributes = sourceInventoryPackageBucketAttributes(ctx, symbolIndex, scopeFilter, candidateKey, attributeRoles, explicitAttributeRoles)
+		}
+		if stop {
 			break
 		}
 	}
@@ -4096,12 +4143,10 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 		if key == "" || seen[key] {
 			continue
 		}
-		if budget.materializationExceeded(len(set.candidates)) {
-			sourceInventoryMarkCandidateBudgetTruncated(&set)
+		seen[key] = true
+		if budget.appendCandidate(&set, candidate, queryFilter) {
 			break
 		}
-		seen[key] = true
-		set.candidates = append(set.candidates, candidate)
 	}
 	if queryFilter.Active() && len(set.candidates) == 0 && budget.scanExceeded(scoped) {
 		sourceInventoryMarkCandidateBudgetTruncated(&set)
@@ -4838,6 +4883,7 @@ func newSourceInventoryGraphSymbolIndex(graph *repotypes.Graph) *sourceInventory
 			}
 		}
 	}
+	index.sort()
 	return index
 }
 

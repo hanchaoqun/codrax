@@ -429,9 +429,12 @@ func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterial
 	if !obs.IsActive() || len(obs.Sets) != 1 {
 		t.Fatalf("broad source_inventory should still return a bounded active observation: %+v", obs)
 	}
-	wantLimit := 50 * sourceInventoryExecBudgetMaterializeMultiplier
-	if obs.Sets[0].Count != wantLimit || len(obs.Sets[0].Members) != wantLimit {
-		t.Fatalf("broad lens should materialize exactly the per-role budget %d, got %+v", wantLimit, obs.Sets[0])
+	wantPage := 50
+	if obs.Sets[0].Count != wantPage || len(obs.Sets[0].Members) != wantPage {
+		t.Fatalf("broad lens should materialize exactly the current page %d, got %+v", wantPage, obs.Sets[0])
+	}
+	if obs.Sets[0].Total <= wantPage {
+		t.Fatalf("broad lens should retain a typed total/next-page lower bound, got %+v", obs.Sets[0])
 	}
 	if obs.Complete || obs.Sets[0].Complete {
 		t.Fatalf("budget-truncated observation must not be marked complete: %+v", obs)
@@ -442,7 +445,7 @@ func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterial
 	if obs.Execution == nil || !obs.Execution.Budgeted || !obs.Execution.CandidateBudgetTruncated {
 		t.Fatalf("budget-truncated observation should carry typed execution state: %+v", obs.Execution)
 	}
-	if obs.Page == nil || obs.Page.Total != wantLimit || obs.Page.Limit != 50 || obs.Page.NextCursor != "50" || obs.Page.Complete {
+	if obs.Page == nil || obs.Page.Total <= wantPage || obs.Page.Limit != 50 || obs.Page.NextCursor != "50" || obs.Page.Complete {
 		t.Fatalf("budget-truncated observation should carry typed page cursor state: %+v", obs.Page)
 	}
 	rendered := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
@@ -460,6 +463,60 @@ func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterial
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered budgeted lens missing %q:\n%s", want, rendered)
 		}
+	}
+}
+
+func TestPublishSourceInventoryObservationFromLens_CursorPaginatesBeforeMaterialization(t *testing.T) {
+	files := make([]*repotypes.FileInfo, 0, sourceInventoryExecBudgetFileThreshold+100)
+	for i := 0; i < sourceInventoryExecBudgetFileThreshold+100; i++ {
+		rel := "src/pkg" + strconv.Itoa(i) + "/file" + strconv.Itoa(i) + ".ts"
+		files = append(files, &repotypes.FileInfo{
+			RelPath:  rel,
+			Language: "typescript",
+			Package:  "pkg" + strconv.Itoa(i),
+			Symbols: []repotypes.Symbol{{
+				Name:     "run" + strconv.Itoa(i),
+				Kind:     "function",
+				File:     rel,
+				Line:     10,
+				Exported: true,
+			}},
+		})
+	}
+	graph := testGraphWithFiles(files)
+	ctx := sourceInventoryTestContext("", graph, ".", nil)
+	query := types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+		TopN:          25,
+	}
+
+	first := PublishSourceInventoryObservationFromLens(ctx, query)
+	if !first.IsActive() || len(first.Sets) != 1 || first.Sets[0].Count != 25 || first.Page == nil || first.Page.NextCursor != "25" {
+		t.Fatalf("first page should be a bounded current page with a cursor: %+v", first)
+	}
+	query.Cursor = first.Page.NextCursor
+	second := PublishSourceInventoryObservationFromLens(ctx, query)
+	if !second.IsActive() || len(second.Sets) != 1 || second.Sets[0].Count != 25 || second.Page == nil || second.Page.Offset != 25 || second.Page.NextCursor != "50" {
+		t.Fatalf("second page should resume from typed cursor: %+v", second)
+	}
+	seenFirst := map[string]bool{}
+	for _, member := range first.Sets[0].Members {
+		seenFirst[member.Key] = true
+	}
+	for _, member := range second.Sets[0].Members {
+		if seenFirst[member.Key] {
+			t.Fatalf("cursor page should not rematerialize first-page member %q; first=%+v second=%+v", member.Key, first.Sets[0], second.Sets[0])
+		}
+	}
+	rendered := RenderSourceInventoryObservationView(second, query)
+	if !strings.Contains(rendered, "page_offset: 25") ||
+		!strings.Contains(rendered, "showing rows [25,50)") ||
+		!strings.Contains(rendered, "next_cursor=50") ||
+		strings.Contains(rendered, "No candidate member rows matched") {
+		t.Fatalf("second page render should not apply cursor offset twice:\n%s", rendered)
 	}
 }
 

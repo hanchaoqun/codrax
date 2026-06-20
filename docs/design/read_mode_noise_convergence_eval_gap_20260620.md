@@ -129,24 +129,28 @@ commercial smoothness or audit noise: `qf_architecture` still used 42 explorer
 iterations and 8 repo_map calls; `cangjie_repomap` still hit context pruning;
 `read_combo_log_current_source_explanation` still used 5 analyzer iterations
 and 18 explorer iterations; several passing cases still emitted advisory
-contract warnings. This confirms the correctness path is improving while RNE-C54
-shared proof ledger, RNE-C55 typed repair/handoff carrier, RNE-C59 execution
-kernel extraction, and analyzer prompt/tool-surface cleanup remain active work.
+contract warnings. The four convergence kernels below now carry the core
+structural load; remaining work should target analyzer prompt/tool-surface
+cleanup, member/facet projection breadth, and eval/status telemetry rather than
+new one-off source-inventory guards.
 
 Four-kernel convergence status:
 
 - Typed SourceClassUniverse matrix: delivered. Source-class counts are computed
   from git-tracked paths via `SourcePathRole`, carried on
   `SourceInventoryObservation`, and consumed by exact-absence gates.
-- Bounded source-inventory execution kernel: partial. The current code now has
-  a dedicated `internal/tool/sourceinventory` budget/page kernel for scan,
-  materialization, query-scan widening, wall-clock, cancellation, cursor
-  offset, and page state, plus a scoped `ExecutionView` that owns sorted file
-  materialization, language indexing, scope membership, truncation state, and
-  complete/incomplete reporting. `internal/tool` candidate construction
-  consumes it through a thin adapter, and the zero-value budget bypass ratchet is
-  now 0. Remaining work is true cursor-backed resumable candidate pagination
-  before full attribute/member materialization.
+- Bounded source-inventory execution kernel: delivered for the current
+  source-inventory execution path. `internal/tool/sourceinventory` owns the
+  budget/page kernel for scan, materialization, query-scan widening, wall-clock,
+  cancellation, cursor offset, and page state. Its `ExecutionView` owns sorted
+  scoped file materialization, language indexing, scope membership, truncation
+  state, and complete/incomplete reporting. Candidate builders now append
+  through the budget adapter before row-local attributes are expanded, so
+  file/config/package/function/type/member pages are produced as bounded current
+  cursor pages instead of materializing the full role set first. `Total` is
+  preserved as a typed scanned lower bound, `Page.NextCursor` is generated from
+  the same kernel, and renderers detect pre-paged observations to avoid applying
+  cursor offsets twice. The zero-value budget bypass ratchet remains 0.
 - Lane-neutral proof coverage kernel: delivered for the current read/write
   loop. Write mode consumes `loopkernel.DeriveProofCoverageAuthority`;
   read mode projects `TurnAArtifacts` into the same `ProofSnapshot` authority
@@ -154,7 +158,8 @@ Four-kernel convergence status:
   explore dispatch consumes covered read proof by lane ownership key before
   canceling equivalent support siblings. Weak/missing proof cannot satisfy the
   dispatch-group handoff.
-- Typed repair/handoff carrier: partial. `ToolResult` now carries a bounded
+- Typed repair/handoff carrier: delivered for current read/write status and
+  prompt consumers. `ToolResult` now carries a bounded
   `ToolHandoffCarrier` derived from typed `ToolRepair`,
   `PlanRepairPack`, `ObservationRecord`, and accepted `EvidenceItem` IDs.
   `TurnAArtifacts` preserves those carriers across explorer fork/merge and
@@ -164,8 +169,9 @@ Four-kernel convergence status:
   now uses a schema-derived descriptor registry compiled from `Parameters()`,
   stored as typed `ToolRepair` metadata, and carried as
   `ToolJSONSurfaceDescriptor`. Planner/replan tool-result carriers are also
-  projected into `WriteContextPack` items, so workflow status cards can show
-  the same bounded typed repair/evidence state without new user commands.
+  projected into `WriteContextPack`, so workflow status cards expose typed
+  repair/evidence/observation counts through the existing `/workflow show`
+  context lane.
 
 ## Gap Ledger
 
@@ -218,7 +224,7 @@ Four-kernel convergence status:
 | RNE-C45 | P0 | Soft path-discovery advisories can be ignored before closure. | Tool output correctly advises that grep is not path discovery, but the model may still call `emit_investigation_complete` with `negative_search` or an exact empty set. Prompt guidance alone is insufficient for hard absence proof. | Completion preflight escalates the typed tool-result advisory into a narrow hard proof obligation. The gate consumes only tool banners, aggregate fact kinds, and typed request shape, never user words or model prose. |
 | RNE-C46 | P1 | Repo-owned auxiliary/corpus directories are excluded unless scope is explicit. | Default search/list filters skip large auxiliary trees to control noise. That is correct for routine production questions, but false absence proof for repository-wide inventory or fixture/corpus evals unless the universe explicitly includes those repo-owned auxiliary surfaces. | `list_files` supports `include_auxiliary=true` for repo-owned auxiliary/corpus surfaces while retaining dependency/cache exclusions. Completion requires that flag when such trees exist and the proof claims repo-wide file-family absence after a production-only/no-hit scan. |
 | RNE-C47 | P0 | `repo_map(view="source_inventory", roles=["file"], scope=".")` can enter a high-CPU runaway. | `source_inventory` is a semantic member/count lens, but the schema allowed `file` as the sole primary role. The model used it as file-family discovery after a completion refusal, causing a root-scope source_inventory pass to spin at high CPU instead of failing fast. | Tool-boundary preflight rejects sole-primary `file` role before graph load/index work and directs the model to `list_files(recursive=true, include/file_type=...)`. `file` remains allowed only for bounded non-root file-local attribute expansion or alongside semantic roles such as `config_file`; broad root `roles=["file"]` is refused even when `attribute_roles` is present. Broad root source-inventory calls also receive deterministic budget normalization before lens execution: unset `top_n` is default-bounded, explicit oversized `top_n` is clamped, and row-local attribute expansion is disabled until the model chooses a narrower scope. |
-| RNE-C48 | P0 | `source_inventory` candidate construction needs a tool-internal execution budget, not only model-call correction. | Boundary normalization and broad-root parameter clamping prevent the observed `roles=["file"]` runaway class and explicit over-wide model calls from materializing huge result pages, but the lens engine also needs its own guard so future wide role/scope combinations cannot build full candidate/advisory sets before render-time paging. The 2026-06-20 samples exposed both dimensions: the model can choose a too-wide tool shape, and the algorithm must remain bounded even when that happens. | Delivered fourth slice: candidate construction separates materialization budget from scan budget, and broad root navigation-only lenses (`file`/`package`/`config_file`) now bypass full reconcile entirely and return an active bounded navigation sample with `complete=false`, `repo_lens:broad_navigation_guard`, and `repo_lens:candidate_budget_truncated`. A no-match or sparse-role wide scan cannot disappear or become absence proof. Remaining: add explicit wall-clock/cancellation checkpoints and true resumable pagination before full candidate/attribute materialization. The guards consume typed role/scope/top_n/query parameters and graph indexes only, not user prose or model explanations. |
+| RNE-C48 | P0 | `source_inventory` candidate construction needs a tool-internal execution budget, not only model-call correction. | Boundary normalization and broad-root parameter clamping prevent the observed `roles=["file"]` runaway class and explicit over-wide model calls from materializing huge result pages, but the lens engine also needs its own guard so future wide role/scope combinations cannot build full candidate/advisory sets before render-time paging. The 2026-06-20 samples exposed both dimensions: the model can choose a too-wide tool shape, and the algorithm must remain bounded even when that happens. | Delivered: candidate construction separates materialization budget from scan budget; broad root navigation-only lenses (`file`/`package`/`config_file`) bypass full reconcile and return an active bounded navigation sample with `complete=false`, `repo_lens:broad_navigation_guard`, and `repo_lens:candidate_budget_truncated`; wall-clock/cancellation, scoped execution view, and cursor-backed pagination before attribute/member materialization are now owned by the sourceinventory kernel/budget path. A no-match or sparse-role wide scan cannot disappear or become absence proof. The guards consume typed role/scope/top_n/query parameters and graph indexes only, not user prose or model explanations. |
 | RNE-C49 | P0 | Filtered `list_files` path discovery can emit directory noise as if it were matches. | Recursive `list_files(include=.../file_type=...)` used directory traversal rows as output rows. For file-family discovery this makes a precise `.ets` query look like a generic directory listing, causing the model to discard a valid path-discovery tool and fall back to slow shell `find`/grep. | When include/file_type filters are present, directories are traversal-only and never output as result rows. Only matching files appear in the returned universe; unfiltered list_files keeps its directory-listing behavior. |
 | RNE-C50 | P0 | Empty source-inventory answers can loop between `absence`, `resolved`, `member_set`, and unavailable tool surfaces. | A task can gather contextual grounded evidence that proves why the requested member set is empty. The completion gate then rejects `absence` because evidence exists, but also downgrades `resolved` until an executable source-inventory lens/empty `member_set` handoff is present. In retry-only tool surfaces, the model may be asked to run `repo_map` when only `emit_*` tools are available, producing low-delta loops. | Delivered: model-authored empty `member_set` plus typed zero-result support closes the lane without semantic contradiction from supporting evidence. Structured repair directives now declare required tools, and completion-only surfaces expose only `emit_*` plus those typed repair tools, so a mandatory source-inventory repair can call `repo_map` without reopening broad exploration. |
 | RNE-C51 | P0 | Source-inventory observation ledger compiles huge member sets before budgeting. | The post-U7g ArkTS rerun no longer hit the old `repo_map` CPU path, but after a broad source-inventory observation with 47,117 members the mid-loop answer-surface builder spent high CPU in `CompileObservationLedger -> compileSourceInventoryObservationObservations -> sourceInventoryObservationSupportRefs`, expanding every member/support ref before prompt budgeting. | Delivered: source-inventory observation compilation now preserves the set-level full count and row-set ref but projects only a bounded member/attribute sample into the ledger, samples support refs with map-based dedupe, and records truncation notes for consumers. Deeper source-inventory candidate-construction budgets remain under RNE-C48. |
@@ -227,7 +233,7 @@ Four-kernel convergence status:
 | RNE-C56 | P1 | Broad source-inventory repair does not auto-narrow to required files/scopes after a no-row lens. | The passing ArkTS rerun still took 235s / 15 explorer iterations. After the closure gate requested `repo_map(view="source_inventory")`, the model ran a broad root lens with all semantic roles; it returned `member_rows=0` plus `source_classes`, then needed extra loops even though analyzer `required_files` and read evidence already named the exact corpus sources. | Delivered first slice: broad no-row source-inventory lenses now auto-narrow to typed analyzer `required_files` / common scope, and if the model supplied an over-specific query that still yields no rows, the same required-file scope is retried with the query relaxed. Tool output carries `source_inventory_narrowing:*` advisories and `repo_lens:auto_narrow_*` provenance. The current-lens renderer was also separated from cumulative MutableState so old `list_files`/direct-child rows cannot suppress no-row narrowing. Remaining: extend the same narrowing authority to accepted evidence files/source-class scopes and scheduler-driven execution before model close attempts. |
 | RNE-C57 | P1 | Source-inventory closure repair can suggest a file path as the `repo_map` path. | The post-U9f ArkTS eval showed the pre-complete repair directive asking for source_inventory over `required_files`, where the only required file was `internal/tool/repomap/index/extract_arkts.go`. The model copied that file path into `repo_map.path`, hit a deterministic tool refusal, then retried with the containing directory. | Delivered: repair directives now normalize file-shaped source-inventory scopes into a legal `repo_map` call shape: `path` becomes the containing directory and `scopes` contains the relative basename. Multi-scope directory repairs still use `path="."` plus repo-relative scopes. This is path-kind normalization over typed scope strings, not user/model prose matching. |
 | RNE-C58 | P0 | SourceInventory class universe prevents false absence, but cross-language member/facet extraction can still be incomplete. | The post-gate ArkTS rerun proved the hard absence boundary works, but `repo_map(source_inventory)` returned zero `function/method` rows for decorator-bearing `.ets` corpus files; the correct answer came from `read_file` evidence instead. Root cause had four generic parts: scan budget was spent on unrelated symbols before applying active typed query filters; direct list-files observation accepted rendered advisory text as if it were member rows; auxiliary projection triggered for broad/root scopes but not for precise repo-owned auxiliary scopes such as `internal/thirdparty/...`; and generic source-inventory field quotes could replace exact analyzer entities in the default repo-map query. The same class can recur for C/C++, Cangjie, ArkTS, Java/Kotlin annotations, Ruby DSL methods, JS/TS decorators, config/workflow declarations, and any supported language where file-level class inventory exists before member/facet extraction. | Delivered first slice: query-active candidate construction filters parser-produced symbol fields before consuming scan budget, list-files observation rows must resolve to existing repo-relative paths before becoming typed members, narrow auxiliary source-class scopes trigger auxiliary projection through `SourcePathRole`, and default repo-map source-inventory queries merge typed `source_quotes` with typed `AnalyzerHints.Entities`. Remaining: build a language-neutral SourceInventoryMemberProjection kernel over repomap parser outputs plus line-feature fallback; files/classes come from `SourcePathRole`, members come from typed language adapters, and facets such as decorators/annotations/modifiers/visibility/config-key kind are represented as structured attributes. `repo_map(source_inventory)` should return bounded member rows for supported-language constructs or an explicit `no_member_parser` coverage state, so completion can avoid contradictory "empty lens + positive read evidence" loops. |
-| RNE-C59 | P0 | Source-inventory remains a god-object with per-role materialization instead of one execution kernel. | U9b audit showed `source_inventory_reconcile.go` carrying advisory, lens execution, rendering, absence support, candidate building, and class universe responsibilities in one 5k+ line file. Even after broad-call guards, file/config/package roles and completion support paths could each rebuild and sort the same scoped file slice, so every new role/scope/language shape risked reintroducing a performance bug under a new label. | Delivered: source-inventory candidate construction builds one `sourceInventoryExecutionView` per lens/support pass, and the budget/page/cursor authority has moved into the dedicated `internal/tool/sourceinventory` kernel package. File/config/package candidates, graph-symbol file membership, broad attribute defer, completion support indexing, and page metadata consume the shared API. Remaining: extract scoped sorted-file execution view into the kernel, then add true cursor-backed resumable candidate pagination before full member/attribute materialization; no hard logic may consume user/model prose. |
+| RNE-C59 | P0 | Source-inventory remains a god-object with per-role materialization instead of one execution kernel. | U9b audit showed `source_inventory_reconcile.go` carrying advisory, lens execution, rendering, absence support, candidate building, and class universe responsibilities in one 5k+ line file. Even after broad-call guards, file/config/package roles and completion support paths could each rebuild and sort the same scoped file slice, so every new role/scope/language shape risked reintroducing a performance bug under a new label. | Delivered: source-inventory candidate construction builds one `sourceInventoryExecutionView` per lens/support pass, and the budget/page/cursor authority has moved into the dedicated `internal/tool/sourceinventory` kernel package. File/config/package candidates, graph-symbol file membership, broad attribute defer, completion support indexing, and page metadata consume the shared API. Scoped sorted-file execution view is now in the kernel, graph symbols are sorted deterministically, and candidate builders append through the budget before member/attribute materialization. Current-page cursor results carry typed `Total` and `Page.NextCursor`; renderers no longer double-apply cursor offsets. No hard logic consumes user/model prose. |
 | RNE-C60 | P0 | Analyzer source-scope and irrelevant-file channels can turn repo-wide inventory into production-only absence. | The ArkTS U9h/U9i sequence showed two related structural contradictions: the analyzer could put repo-owned auxiliary `.ets` corpus files into `irrelevant_files`, and it could emit `source_scope=production` from repository-layout inference even though the current request did not explicitly say production-only. That let later stages preserve some evidence but still drift into a "production 0" answer. | Delivered: `source_scope_profile` now supports validated `source_quotes[]`; quoted production/test/aux/all scope can remain a hard path boundary, while unquoted production in source-inventory/enumeration repair is treated as model inference and cannot exclude existing source/config paths. Principal source-scope `irrelevant_files` are dropped and promoted to `required_files`; auxiliary promotions synthesize `source_scope=all` with `include_auxiliary_as_principal=true`. The analyzer prompt/schema says scope boundaries need current-request quotes, but hard behavior consumes only typed fields, path existence, `SourcePathRole`, and `SourceScopeAllowsPathRole`. |
 | RNE-C61 | P0 | Typed repair-required tools can be hidden by mid-loop restricted explorer surfaces. | The post-U9j ArkTS refresh produced a `RepairStructuredHandoff` requiring `repo_map` after the source-inventory lens gate downgraded completion. The no-emit escalated explorer surface still exposed only `emit_evidence` and `emit_investigation_complete`, so the model received a typed instruction to run `repo_map` while the schema/runtime surface made `repo_map` unavailable. After repeated no-delta turns, low-delta force-complete accepted an incomplete inventory. | Delivered: no-emit restricted explorer surfaces now overlay active `RepairDirective.Tools`, and schema filtering plus runtime boundary validation consume the same typed surface. The status hint prefers the actual observed tool surface when known. This fix consumes only schema-validated repair fields and tool names, never model prose or user-intent keywords. Remaining broader work stays under Batch U9h: tool/schema repair, supported JSON surfaces, and accepted evidence IDs should flow through one cross-stage typed carrier. |
 | RNE-C54 | P1 | Parallel exploration siblings duplicate proof work after one lane has enough evidence. | U9 mixed log+current-code passed but took 277s with 13 reads, 3 repo_map calls, 17 explorer iterations, and duplicated LLM timeout/finalizer investigation across siblings. One sibling tried to close while another continued reading the same files. | Delivered: read-mode TurnA handoff projects a typed `loopkernel.ProofSnapshot` from accepted closure, source localization, source-inventory observation, runtime-observation-only completion, and evidence refs. The snapshot derives `ProofCoverageAuthority` and `TruthLedger` through the same loopkernel authority functions write mode uses; ReasoningGraph records it; and parallel dispatch consumes covered proof by lane ownership key to cancel equivalent support siblings. Weak/missing proof, failed proof, or proof without accepted closure/runtime completion cannot satisfy the handoff. |
@@ -344,7 +350,7 @@ roles from many raw trace rows.
 | Batch U7b | delivered | Add typed file-family absence-proof gate. | `emit_investigation_complete` rejects negative_search / exact empty member-set closure for typed inventory/enumeration lanes when the only zero proof is path-filtered content grep or non-recursive listing. Recursive `list_files` with matching include/file_type or `repo_map(view="source_inventory")` satisfies the proof; repo-owned auxiliary trees require explicit `include_auxiliary=true`. |
 | Batch U7c | delivered | Add source_inventory sole-file role fast refusal. | `repo_map(view="source_inventory")` rejects `roles=["file"]` as the only primary role before graph load/index work, preventing root-scope high-CPU runs. File path discovery uses `list_files`; file-local attribute expansion and `config_file` inventories remain supported. |
 | Batch U7d | delivered | Add broad-root source_inventory budget normalization and early completion refusal. | Large root-scope source_inventory calls receive a bounded default `top_n`, explicit oversized `top_n` is clamped, and row-local attribute expansion is disabled until a narrower scope is provided. File-family absence refusal runs before expensive completion preflight/source-inventory advisory work when the typed proof gap is already known. |
-| Batch U7e | partial | Add source_inventory internal execution budgets. | Delivered: candidate construction caches typed source-scope/repository-wide query decisions once per pass, applies typed query/language filters before candidate append, and enforces broad tool-lens per-role materialization budgets with `complete=false` / `repo_lens:candidate_budget_truncated` guidance. Remaining: progress checkpoints, cancellation/time budget, and true resumable pagination before full candidate/attribute materialization. |
+| Batch U7e | delivered | Add source_inventory internal execution budgets. | Delivered: candidate construction caches typed source-scope/repository-wide query decisions once per pass, applies typed query/language filters before candidate append, and enforces broad tool-lens per-role materialization budgets with `complete=false` / `repo_lens:candidate_budget_truncated` guidance. Later U9t/U9u follow-ups added progress/cancellation budget authority and cursor-backed pagination before full candidate/attribute materialization. |
 | Batch U7f | delivered | Make filtered list_files output file-only. | With `include` or `file_type`, recursive `list_files` traverses directories but only emits matching files, so file-family discovery cannot be confused with generic directory inventory. Unfiltered listing behavior remains unchanged. |
 | Batch U7g | delivered | Add executable empty-set completion recovery. | Empty member-set lanes close from `member_set(value="0", members=[])` plus typed zero-result support even when supporting evidence exists. Structured repairs carry typed required tools, and completion-only dispatches expose only `emit_*` plus those tools, so missing-lens recovery can execute `repo_map` without broadening to unrelated exploration tools. |
 | Batch U7h | delivered | Budget source-inventory observation-ledger projection. | Large source-inventory observations keep the full set count and optional row-set ref, but ledger compilation projects only a bounded member/attribute sample and sampled support refs before downstream answer-surface budgeting. The post-U7g eval sample confirmed the previous hotspot was ledger projection, not `repo_map` execution. |
@@ -361,7 +367,7 @@ roles from many raw trace rows.
 | Batch U9i | planned | Add cross-language source-inventory member/facet projection. | `repo_map(source_inventory)` returns typed member rows or explicit `no_member_parser` coverage for supported-language constructs across Go, Python, JS/TS, Ruby, Java/Kotlin, C/C++, Rust, Cangjie, ArkTS, config, and workflow files. Decorators/annotations/modifiers/config facets are structured attributes, not rendered-prose hints. |
 | Batch U9g | delivered | Share proof coverage across exploration siblings. | Read TurnA artifacts project a typed `ProofSnapshot` into the lane-neutral loopkernel proof/truth authority and ReasoningGraph audit view. Parallel explore dispatch now consumes covered proof snapshots by typed lane ownership key to cancel equivalent support siblings; weak proof without owner localization or complete inventory does not satisfy handoff. |
 | Batch U9h | delivered | Unify tool JSON repair and accepted-evidence handoff. | `ToolHandoffCarrier` is projected from typed tool repair, plan repair packs, observation refs, accepted evidence refs, and schema-derived JSON surface descriptors; BaseAgent, forced-read injection, Mutable dispatch buffers, TurnA snapshots, fork merge, and Turn-A handoff bounds all preserve the carrier without parsing summaries. Extractor/finalizer prompts render a bounded typed carrier view and intentionally omit repair hints/tool summaries. ReasoningGraph emits `tool_handoff_projected` with typed field/evidence/observation IDs. The emit-tool schema descriptor registry is compiled from each tool's `Parameters()` and attached through `ToolRepair.Metadata`, not handwritten prompt prose. Planner/replan carriers project into `WriteContextPack`, so workflow status cards show the same bounded typed repair/evidence state through existing `/workflow show` context lines. |
-| Batch U9t | partial | Extract source-inventory execution budget kernel. | Delivered: replaced the private per-role `sourceInventoryCandidateBudget` helpers with one typed execution budget object, moved budget/page/cursor authority into `internal/tool/sourceinventory`, moved scoped sorted file materialization/language cache/file-set/complete state into `sourceinventory.ExecutionView`, and set the zero-value budget bypass ratchet to 0. File/config/package/graph candidate builders and completion support consume this API instead of open-coded scan/materialization/deadline checks. Remaining: implement true cursor-backed resumable candidate pagination before full attribute/member materialization. |
+| Batch U9t | delivered | Extract source-inventory execution budget kernel. | Delivered: replaced the private per-role `sourceInventoryCandidateBudget` helpers with one typed execution budget object, moved budget/page/cursor authority into `internal/tool/sourceinventory`, moved scoped sorted file materialization/language cache/file-set/complete state into `sourceinventory.ExecutionView`, and set the zero-value budget bypass ratchet to 0. File/config/package/graph candidate builders and completion support consume this API instead of open-coded scan/materialization/deadline checks. Candidate pagination now happens before full member/attribute materialization; `Total` and `Page.NextCursor` remain typed state, and renderers avoid offset double-application on current-page observations. |
 | Batch V | partial | Add aggregate negative-fact canonicalization and repair hints. | V1 delivered runtime/log/trace missing-signal carriers and typed default runtime scope. V2 remains for the broader canonical repair-hint layer across repo no-hit, artifact no-hit, and exact empty sets. |
 | Batch V2 | planned | Complete aggregate negative-fact repair hints. | Invalid no-hit payloads receive one precise typed repair hint or deterministic normalization before retry; the model does not bounce between `negative_search`, `negative_observation`, `scalar_value`, and empty `member_set` schemas. |
 | Batch W | delivered | Add lazy repo-index warmup for runtime-artifact-only read turns. | Runtime trace/log answers with no typed current-source obligation do not print or pay repo-index warmup unless a later typed source route actually opens. |
@@ -1476,11 +1482,10 @@ roles from many raw trace rows.
   `eval/convergence_audit_summary_20260620_after_typed_source_inventory_lens.md`
   passed all six cases. Five cases still emitted advisory flags
   (`contract_warning`, `auto_repair`, or `context_prune`), so U9g shared
-  proof coverage and U9h typed repair/handoff carrier remain the next
-  commercial smoothness work. Remaining RNE-C59 work: move the private
+  proof coverage and U9h typed repair/handoff carrier were queued as the next
+  commercial smoothness work. Later U9t/U9u follow-ups moved the private
   execution budget/view into a dedicated source-inventory kernel package and
-  add true cursor-backed resumable candidate pagination before full
-  materialization.
+  added cursor-backed candidate pagination before full materialization.
 - 2026-06-20 Batch U9u moved source-inventory budget/page/cursor authority into
   a dedicated kernel package. `internal/tool/sourceinventory.Budget` now owns
   materialization caps, scan caps, query-scan widening, wall-clock deadline,
@@ -1491,9 +1496,9 @@ roles from many raw trace rows.
   `go test ./internal/tool/sourceinventory`,
   `go test ./internal/tool -run
   'TestSourceInventory(ExecBudget|CandidateBudget)|TestPublishSourceInventoryObservationFromLens_(BudgetsBroadCandidateMaterialization|BudgetsBroadNoMatchScan|PublishesSourceClassUniverseWithoutCandidates|DefersBroadAttributesWithNarrowingHint)|TestSourceInventoryLensExecutionGap|TestSourceInventoryCandidateUniverseCoverageGap'`.
-  Remaining RNE-C59: move `sourceInventoryExecutionView` scoped file
-  materialization into the kernel and implement true cursor-backed resumable
-  candidate pagination before full member/attribute materialization.
+  Later U9t follow-ups moved `sourceInventoryExecutionView` scoped file
+  materialization into the kernel and added cursor-backed candidate pagination
+  before full member/attribute materialization.
 - 2026-06-20 Batch U9g delivered the first shared proof-coverage slice. Added
   `loopkernel.ProofSnapshot` and `ProofSnapshotFromReadTurnA`, deriving read
   proof authority from typed TurnA fields only: accepted result kind, grounded
@@ -1504,10 +1509,8 @@ roles from many raw trace rows.
   authority event, giving status-card/eval consumers the same proof/truth view
   without parsing logs, prompts, visible thinking, or final-answer prose.
   Focused validation passed:
-  `go test ./internal/loopkernel ./internal/reasoninggraph`. Remaining RNE-C54:
-  have `dispatchExploreWindowsParallel` consume per-dispatch snapshots by lane
-  ownership key so equivalent sibling proof work is skipped while new blockers,
-  source classes, failed proof, or missing principal obligations still run.
+  `go test ./internal/loopkernel ./internal/reasoninggraph`. The follow-up
+  below completes scheduler consumption by lane ownership key.
 - 2026-06-20 Batch U9g follow-up completed scheduler consumption for shared
   proof coverage. `dispatchExploreWindowsParallel` now accepts a lane handoff
   when the fork's typed read `ProofSnapshot` is covered and backed by accepted
@@ -1526,9 +1529,9 @@ roles from many raw trace rows.
   without parsing tool summaries, model rationale, user wording, or visible
   thinking. Focused validation passed:
   `go test ./internal/types`,
-  `go test ./internal/agent ./internal/orchestrator`. Remaining RNE-C55:
-  per-tool schema descriptor registry, extractor/finalizer/status-card Top-N
-  carrier rendering, and ReasoningGraph carrier projection.
+  `go test ./internal/agent ./internal/orchestrator`. Later U9h follow-ups
+  complete per-tool schema descriptors, extractor/finalizer/status-card carrier
+  rendering, and ReasoningGraph carrier projection.
 - 2026-06-20 Batch U9h follow-up added typed carrier consumers for extractor
   and finalizer prompts. The renderer projects only typed fields:
   tool/reason/repair code, failing JSON field paths, accepted enum field keys,
@@ -1537,15 +1540,15 @@ roles from many raw trace rows.
   visible thinking. Focused validation passed:
   `go test ./internal/agent -run
   'TestRenderTypedToolHandoffCarriers|TestRenderAnswerDocToolHandoffCarriers|TestAnswerDocumentEvaluator_BuildInitialInstruction|TestRenderExtractorSourceInventory'`.
-  Remaining RNE-C55: status-card/ReasoningGraph carrier projection and a
-  per-tool schema descriptor registry for all emit tools.
+  Later U9h follow-ups complete status-card/ReasoningGraph carrier projection
+  and the per-tool schema descriptor registry for emit tools.
 - 2026-06-20 Batch U9h graph follow-up added ReasoningGraph carrier
   projection. `BaseAgent` now emits `tool_handoff_projected` from
   `ToolResult.Handoff`, carrying typed JSON field paths, enum field keys,
   accepted evidence IDs, and observation IDs. It does not parse tool summaries
   or repair prose. Focused validation passed:
   `go test ./internal/agent -run TestObserveToolHandoffCarrierProjected`,
-  `go test ./internal/reasoninggraph`. Remaining RNE-C55:
+  `go test ./internal/reasoninggraph`. Later U9h follow-ups complete the
   per-tool schema descriptor registry and status-card carrier projection.
 - 2026-06-20 Batch U9t follow-up moved scoped source-inventory file
   materialization into `internal/tool/sourceinventory.ExecutionView`. The
@@ -1556,8 +1559,8 @@ roles from many raw trace rows.
   passed:
   `go test ./internal/tool/sourceinventory ./internal/tool -run
   'TestExecutionView|TestSourceInventoryConvergence|TestSourceInventoryBroadRootFileRoleStaysBoundedBeforeFullReconcile|TestSourceInventoryCandidateBudget'`.
-  Remaining RNE-C59: cursor-backed candidate pagination before attribute/member
-  materialization, rather than only page metadata after candidate construction.
+  The final U9t follow-up below adds cursor-backed candidate pagination before
+  attribute/member materialization.
 - 2026-06-20 Batch U9h schema-registry follow-up added a typed emit-tool JSON
   surface registry compiled from each emit tool's `Parameters()` schema. Repair
   exits attach `ToolJSONSurfaceDescriptor` through `ToolRepair.Metadata`;
@@ -1577,3 +1580,15 @@ roles from many raw trace rows.
   prose. Focused validation passed:
   `go test ./internal/types -run
   'TestWriteContextPackFromPlannerToolResultsProjects(ToolHandoffCarrier|ReadFileObservation)|TestToolHandoff'`.
+- 2026-06-20 Batch U9t final follow-up completed cursor-backed
+  source-inventory candidate pagination. File/config/package and graph-symbol
+  candidate builders append through the shared budget adapter before row-local
+  attributes are expanded; `SourceInventoryAdvisorySet.Total` and
+  `SourceInventoryObservationSet.Total` preserve typed scanned lower bounds;
+  graph symbols are sorted deterministically for stable cursors; and
+  `RenderSourceInventoryObservationView` detects pre-paged current-page
+  observations so it does not apply the same cursor twice. New helper files keep
+  the source-inventory LOC ratchet shrinking instead of growing the god-file.
+  Focused validation passed:
+  `go test ./internal/tool ./internal/tool/repomap ./internal/types -run
+  'TestSourceInventoryCandidateBudget|TestRepoMapSourceInventoryQueryBudgetPrioritizesMatchingSymbols|TestSourceInventory|TestPublishSourceInventoryObservationFromLens_(BudgetsBroadCandidateMaterialization|CursorPaginatesBeforeMaterialization|BudgetsBroadNoMatchScan|DefersBroadAttributesWithNarrowingHint)'`.
