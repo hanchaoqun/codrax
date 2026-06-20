@@ -69,6 +69,33 @@ func TestProofSnapshotFromReadTurnAObservedOnlyIsWeak(t *testing.T) {
 	}
 }
 
+func TestReadProofGuidanceFromTurnAWeakIsAdvisory(t *testing.T) {
+	guidance, ok := ReadProofGuidanceFromTurnA(&types.TurnAArtifacts{
+		ReadFiles:          []string{"pkg/maybe.py"},
+		AcceptedResultKind: "resolved",
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev-observed",
+			Source:          "pkg/maybe.py",
+			LineStart:       3,
+			Subject:         "Maybe",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+		SourceLocalization: &types.SourceLocalizationReview{
+			Status:      types.SourceLocalizationObserved,
+			SourcePaths: []string{"pkg/maybe.py"},
+		},
+	})
+	if !ok || !guidance.Active {
+		t.Fatalf("expected active guidance, got %+v ok=%t", guidance, ok)
+	}
+	if guidance.State != ProofCoverageWeak || !guidance.Advisory || guidance.HardBlock {
+		t.Fatalf("weak read proof should be advisory only: %+v", guidance)
+	}
+	if guidance.TruthState != types.TruthLedgerWeak || guidance.RecommendedAction != LoopActionAddProof {
+		t.Fatalf("truth/action = %+v, want weak/add_proof", guidance)
+	}
+}
+
 func TestProofSnapshotFromReadTurnARuntimeObservationOnlyIsCovered(t *testing.T) {
 	snapshot, ok := ProofSnapshotFromReadTurnA(&types.TurnAArtifacts{
 		AcceptedResultKind:               "resolved",

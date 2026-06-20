@@ -32,6 +32,41 @@ func TestBuildExploreTransientRetryCheckpointHintIncludesTypedObservationOrigins
 	}
 }
 
+func TestBuildExploreTransientRetryCheckpointHintCarriesReadProofGuidance(t *testing.T) {
+	mut := types.NewMutableState("weak read proof")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:          []string{"pkg/maybe.py"},
+		AcceptedResultKind: "resolved",
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev-observed",
+			Source:          "pkg/maybe.py",
+			LineStart:       3,
+			Subject:         "Maybe",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+		SourceLocalization: &types.SourceLocalizationReview{
+			Status:      types.SourceLocalizationObserved,
+			SourcePaths: []string{"pkg/maybe.py"},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+	got := o.buildExploreTransientRetryCheckpointHint()
+	for _, want := range []string{
+		"proof authority=weak",
+		"reason=proof_weak",
+		"action=add_proof",
+		"mode=advisory",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("checkpoint hint missing proof guidance %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "mode=hard") {
+		t.Fatalf("weak read proof must not be rendered as a hard block:\n%s", got)
+	}
+}
+
 func TestBuildExploreFactRetryContinuationHintCarriesRuntimeFrontier(t *testing.T) {
 	mut := types.NewMutableState("trace root cause")
 	mut.AppendDispatchToolResult(types.ToolResult{

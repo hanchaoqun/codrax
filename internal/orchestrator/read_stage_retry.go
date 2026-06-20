@@ -8,6 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -140,6 +141,7 @@ type exploreTransientRetryCheckpoint struct {
 	toolResults    int
 	hasClosure     bool
 	typedOrigins   string
+	proofGuidance  string
 }
 
 func (c exploreTransientRetryCheckpoint) hasProgress() bool {
@@ -151,7 +153,8 @@ func (c exploreTransientRetryCheckpoint) hasProgress() bool {
 		c.readFiles > 0 ||
 		c.toolResults > 0 ||
 		c.hasClosure ||
-		c.typedOrigins != ""
+		c.typedOrigins != "" ||
+		c.proofGuidance != ""
 }
 
 func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
@@ -177,6 +180,7 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 			c.toolResults += countSuccessfulToolResults(artifacts.ToolResults)
 			c.hasClosure = strings.TrimSpace(artifacts.AcceptedClosureReason) != "" ||
 				strings.TrimSpace(artifacts.AcceptedResultKind) != ""
+			c.proofGuidance = readProofGuidanceSummaryFromTurnA(artifacts)
 		}
 		if len(o.busCtx.Mutable.StableInvestigationAggregateFacts()) > 0 {
 			c.aggregateFacts += len(o.busCtx.Mutable.StableInvestigationAggregateFacts())
@@ -213,6 +217,9 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 	}
 	if c.typedOrigins != "" {
 		facts = append(facts, "typed observation origins="+c.typedOrigins)
+	}
+	if c.proofGuidance != "" {
+		facts = append(facts, c.proofGuidance)
 	}
 	if c.hasClosure {
 		facts = append(facts, "accepted closure state present")
@@ -287,6 +294,7 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 			c.toolResults += countSuccessfulToolResults(artifacts.ToolResults)
 			c.hasClosure = strings.TrimSpace(artifacts.AcceptedClosureReason) != "" ||
 				strings.TrimSpace(artifacts.AcceptedResultKind) != ""
+			c.proofGuidance = readProofGuidanceSummaryFromTurnA(artifacts)
 			aggregateFacts = append(aggregateFacts, artifacts.AcceptedAggregateFacts...)
 			toolResults = append(toolResults, artifacts.ToolResults...)
 		}
@@ -333,6 +341,9 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 	if c.typedOrigins != "" {
 		facts = append(facts, "typed observation origins="+c.typedOrigins)
 	}
+	if c.proofGuidance != "" {
+		facts = append(facts, c.proofGuidance)
+	}
 	if c.hasClosure {
 		facts = append(facts, "accepted closure state present")
 	}
@@ -359,6 +370,33 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 	}
 	body = append(body, "If the checkpoint already covers the active objective, call `emit_investigation_complete`. If a concrete anchor is still missing, use one narrow search/read for that anchor, then materialize or close.")
 	return strings.Join(body, "\n\n")
+}
+
+func readProofGuidanceSummaryFromTurnA(artifacts *types.TurnAArtifacts) string {
+	guidance, ok := loopkernel.ReadProofGuidanceFromTurnA(artifacts)
+	if !ok || !guidance.Active {
+		return ""
+	}
+	mode := "covered"
+	if guidance.HardBlock {
+		mode = "hard"
+	} else if guidance.Advisory {
+		mode = "advisory"
+	}
+	return fmt.Sprintf("proof authority=%s reason=%s action=%s mode=%s",
+		firstNonEmptyRetryString(string(guidance.State), "unknown"),
+		firstNonEmptyRetryString(guidance.ReasonCode, "none"),
+		firstNonEmptyRetryString(string(guidance.RecommendedAction), "none"),
+		mode)
+}
+
+func firstNonEmptyRetryString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func exploreRuntimeTraceContinuationLikely(bus *types.BusContext, toolResults []types.ToolResult) bool {

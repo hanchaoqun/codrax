@@ -36,13 +36,21 @@ Current calibrated facts after SIC-2:
 - Complete zero member sets prove absence only when source classes are complete,
   observation/page state is complete, and candidate execution is not truncated.
 
+Current calibrated facts after SIC-3:
+
+- Read proof consumption uses `loopkernel.ReadProofGuidance`.
+- Weak/missing/unavailable read proof is advisory in retry checkpoints; failed
+  truth remains the only hard proof state.
+- Parallel lane handoff consumes the same guidance view instead of interpreting
+  proof snapshots separately.
+
 ## Gap List
 
 | ID | Priority | Gap | Current evidence | Target state |
 | --- | --- | --- | --- | --- |
 | SIC-1 | HIGH | Source-inventory god-file remains too large; render cluster was embedded in `source_inventory_reconcile.go`. | Delivered: render-only helper structs and functions moved to `source_inventory_render.go`; reconcile file dropped from 5211 LOC to 3924 LOC. | Keep render logic isolated and lower the LOC ratchet in SIC-5. |
 | SIC-2 | MEDIUM | Execution kernel is wired but not fully load-bearing for absence safety. | Delivered: exact-absence predicates now consume complete source-class, observation/page, and execution budget state; Go string-enum special path uses the budgeted execution view. | Keep new source-inventory hot paths on `sourceinventory.ExecutionView`/`Budget` and reject confident absence from partial views. |
-| SIC-3 | MEDIUM | Proof ledger derivation is lane-neutral, but read consumption remains split. | `loopkernel.DeriveProofCoverageAuthority` and read snapshots exist; write truth-ledger decisions consume proof more directly than read sufficiency/status paths. | Fold proof coverage into read sufficiency/status as soft guidance by default. Only `TruthLedgerFailed` can become hard blocking; weak/missing proof should guide exploration and status cards without over-firing hard gates. Preserve read-mode L1. |
+| SIC-3 | MEDIUM | Proof ledger derivation is lane-neutral, but read consumption remains split. | Delivered: `ReadProofGuidance` is the read-side consumer view over `ProofSnapshot`; retry checkpoints and parallel lane handoff consume the same authority. | Continue to keep weak/missing/unavailable proof advisory-only; only failed truth can become hard blocking. Preserve read-mode L1. |
 | SIC-4 | MEDIUM | Repair carrier is unified for result lanes, but demand-side repair lacks accepted evidence IDs. | `ToolHandoffCarrier` carries accepted evidence for tool/result handoff; `RepairDirective` has tools and repair metadata but no typed accepted-evidence carrier. | Add bounded typed accepted evidence refs to `RepairDirective`. Only enforcers/EvidenceClosure populate it from accepted evidence state. Keep advisory semantics and do not merge `RepairDirective` into `ToolHandoffCarrier`. |
 | SIC-5 | HIGH | Source-inventory convergence tripwire has coverage and slack holes. | `sourceInventoryClusterFiles` scans only `internal/tool` and `internal/types`; `internal/tool/sourceinventory/` is outside the LOC ratchet. `source_inventory_reconcile.go` ceiling is 5236 while actual is 5211. | Expand tripwire scan to `internal/tool/sourceinventory`; add explicit ceilings for `budget.go` and `execution_view.go`; ratchet stale ceilings down to current LOC. |
 | SIC-6 | HIGH | RNE tracker still has open high-water/noise gaps not covered by SIC-1..SIC-5. | Tracker still mentions RNE-C47/C48, RNE-C1/C4/C6/C12, RNE-C15, RNE-C65, and explorer high-water around 42. | Add a tracker disposition layer: classify each remaining RNE as closed by SIC work, superseded by a kernel, or still open with a concrete owner batch. High-water/runaway signals must become explicit eval/status telemetry, not scattered prose. |
@@ -144,7 +152,7 @@ Current calibrated facts after SIC-2:
 | Design ledger | delivered | Initial gap list and task breakdown recorded and pushed. |
 | SIC-1 render split | delivered | Render-only helper structs and functions moved into `internal/tool/source_inventory_render.go`; `sourceInventoryReadFilePathMissHint` and `sourceInventoryReadFileRequestedRel` remain in `source_inventory_reconcile.go`. `source_inventory_reconcile.go` is down from 5211 LOC to 3924 LOC on latest main. Focused `go test ./internal/tool -run 'TestRepoLanguageCensus_BuilderInScope|TestSourceInventoryConvergence|TestSourceInventory|TestPublishSourceInventoryObservationFromLens|TestRenderSourceInventory'` passed. Full `go test ./...` passed. |
 | SIC-2 exec kernel absence safety | delivered | Added `internal/types/source_inventory_absence.go`; source-inventory exact absence now blocks on incomplete source-class universe, incomplete observation, incomplete page, or `CandidateBudgetTruncated`. Pre-emit and contract twin gates share the same typed authority. Go string-enum candidate special path now uses a budgeted execution view and carries truncation. Focused source-inventory/absence tests passed, LOC ratchet passed, and full `go test ./...` passed. |
-| SIC-3 proof consumption | pending |  |
+| SIC-3 proof consumption | delivered | Added `loopkernel.ReadProofGuidance`; weak read proof renders as `mode=advisory` in retry checkpoints and does not hard-block. Parallel lane handoff now consumes the same guidance view. Focused proof/retry tests passed and full `go test ./...` passed. |
 | SIC-4 repair accepted evidence | pending |  |
 | SIC-5 tripwire coverage | pending |  |
 | SIC-6 tracker disposition | pending |  |

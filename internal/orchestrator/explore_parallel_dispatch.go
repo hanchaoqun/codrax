@@ -506,14 +506,14 @@ func exploreParallelResultSatisfiesLaneHandoff(res exploreParallelResult) bool {
 		return false
 	}
 	turnA := res.fork.TurnAArtifacts()
-	snapshot, ok := loopkernel.ProofSnapshotFromReadTurnA(turnA)
+	guidance, ok := loopkernel.ReadProofGuidanceFromTurnA(turnA)
 	if !ok {
 		return false
 	}
-	if strings.TrimSpace(snapshot.AcceptedResultKind) == "" && !snapshot.RuntimeObservationOnlyComplete {
+	if strings.TrimSpace(turnA.AcceptedResultKind) == "" && !turnA.RuntimeObservationOnlyCompletion {
 		return false
 	}
-	return snapshot.Authority.State == loopkernel.ProofCoverageCovered
+	return guidance.State == loopkernel.ProofCoverageCovered
 }
 
 func (o *Orchestrator) parallelExploreAllowsEarlyConvergence() bool {

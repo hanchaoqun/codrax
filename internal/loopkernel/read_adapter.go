@@ -33,6 +33,23 @@ type ProofSnapshot struct {
 	LocalizationAuthority          LocalizationAuthorityView      `json:"localization_authority,omitempty"`
 }
 
+// ReadProofGuidance is the read-mode consumer view of proof coverage. It is
+// intentionally softer than write-mode controller truth decisions: failed truth
+// is the only hard block, while weak/missing/unavailable proof remains advisory
+// guidance for continuation hints, status cards, and audit surfaces.
+type ReadProofGuidance struct {
+	Active            bool                         `json:"active,omitempty"`
+	State             ProofCoverageAuthorityState  `json:"state,omitempty"`
+	ReasonCode        string                       `json:"reason_code,omitempty"`
+	RecommendedAction LoopRecommendedAction        `json:"recommended_action,omitempty"`
+	TruthState        types.TruthLedgerState       `json:"truth_state,omitempty"`
+	TruthAction       types.TruthRecommendedAction `json:"truth_action,omitempty"`
+	HardBlock         bool                         `json:"hard_block,omitempty"`
+	Advisory          bool                         `json:"advisory,omitempty"`
+	Paths             []string                     `json:"paths,omitempty"`
+	EvidenceRefs      []string                     `json:"evidence_refs,omitempty"`
+}
+
 func ProofSnapshotFromReadTurnA(turnA *types.TurnAArtifacts) (ProofSnapshot, bool) {
 	if turnA == nil {
 		return ProofSnapshot{}, false
@@ -62,6 +79,35 @@ func ProofSnapshotFromReadTurnA(turnA *types.TurnAArtifacts) (ProofSnapshot, boo
 		snapshot.Truth = truth
 	}
 	return normalizeProofSnapshot(snapshot), true
+}
+
+func ReadProofGuidanceFromTurnA(turnA *types.TurnAArtifacts) (ReadProofGuidance, bool) {
+	snapshot, ok := ProofSnapshotFromReadTurnA(turnA)
+	if !ok {
+		return ReadProofGuidance{}, false
+	}
+	return ReadProofGuidanceFromSnapshot(snapshot)
+}
+
+func ReadProofGuidanceFromSnapshot(snapshot ProofSnapshot) (ReadProofGuidance, bool) {
+	snapshot = normalizeProofSnapshot(snapshot)
+	if snapshot.Authority.State == "" {
+		return ReadProofGuidance{}, false
+	}
+	truth := types.NormalizeTruthLedger(snapshot.Truth)
+	guidance := ReadProofGuidance{
+		Active:            true,
+		State:             snapshot.Authority.State,
+		ReasonCode:        snapshot.Authority.ReasonCode,
+		RecommendedAction: snapshot.Authority.RecommendedAction,
+		TruthState:        truth.State,
+		TruthAction:       truth.RecommendedAction,
+		HardBlock:         truth.State == types.TruthLedgerFailed,
+		Paths:             compactWriteWorkflowStrings(snapshot.Paths...),
+		EvidenceRefs:      compactWriteWorkflowStrings(snapshot.EvidenceRefs...),
+	}
+	guidance.Advisory = !guidance.HardBlock && guidance.State != ProofCoverageCovered
+	return guidance, true
 }
 
 func DeriveProofCoverageAuthorityFromSnapshot(snapshot ProofSnapshot) ProofCoverageAuthorityView {
