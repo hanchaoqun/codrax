@@ -1706,6 +1706,62 @@ func TestValidateAbsenceScopeBound_NilGuards(t *testing.T) {
 	}
 }
 
+func TestValidateSourceInventoryExactAbsenceBound_RequiresClosedClassUniverse(t *testing.T) {
+	mu := types.NewMutableState("source inventory absence")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Lens:         []string{"source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    1,
+			Complete: true,
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Citations: []types.Citation{{
+			File:            ".",
+			Scope:           types.ScopeNegative,
+			NegativePattern: "repo-wide no hit",
+		}},
+	}
+	vs := validateSourceInventoryExactAbsenceBound(doc, bus)
+	if len(vs) != 1 || vs[0].Kind != types.ViolAbsenceScopeExceeded ||
+		!strings.Contains(vs[0].Detail, "thirdparty:1") {
+		t.Fatalf("source-class universe should reject source-inventory exact absence, got %+v", vs)
+	}
+
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Lens:         []string{"source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    1,
+			Complete: true,
+		}},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+		}},
+	})
+	if vs := validateSourceInventoryExactAbsenceBound(doc, bus); len(vs) != 0 {
+		t.Fatalf("complete empty source-inventory set should close the class-bound absence proof: %+v", vs)
+	}
+}
+
 // ── AllViolationKinds 完整性 (4 新 kind 在 covered + kindSymbols 双表) ──
 func TestB4ViolationKindsRegistered(t *testing.T) {
 	want := []types.ViolationKind{

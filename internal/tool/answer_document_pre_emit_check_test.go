@@ -42,6 +42,61 @@ func TestPreCheckAbsenceScopeBound_RequiresNegativeCitation(t *testing.T) {
 	}
 }
 
+func TestPreCheckAbsenceScopeBound_SourceInventoryClassUniverseRequiresInventoryProof(t *testing.T) {
+	mu := types.NewMutableState("source inventory absence")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Lens:         []string{"source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    1,
+			Complete: true,
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Citations: []types.Citation{{
+			File:            ".",
+			Scope:           types.ScopeNegative,
+			NegativePattern: "repo-wide no hit",
+		}},
+	}
+	hints := preCheckAbsenceScopeBound(doc, ctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].Reason, "thirdparty:1") {
+		t.Fatalf("source-class universe should keep source-inventory absence open, got %+v", hints)
+	}
+
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Lens:         []string{"source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    1,
+			Complete: true,
+		}},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+		}},
+	})
+	if hints := preCheckAbsenceScopeBound(doc, ctx); len(hints) != 0 {
+		t.Fatalf("complete empty source-inventory set should close the class-bound absence proof: %+v", hints)
+	}
+}
+
 func TestPreCheckNegativeCitationBoundsRejectsUnboundedAbsenceCitation(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

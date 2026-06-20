@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSourceInventoryObservationFromAdvisory_NormalizesCountAndAmbiguity(t *testing.T) {
 	advisory := SourceInventoryAdvisory{
@@ -136,6 +139,38 @@ func TestSourceInventoryObservation_ClassUniverseCanBeActiveWithoutMemberRows(t 
 	}
 	if merged.SourceClasses[0].Role != SourcePathRoleThirdParty || merged.SourceClasses[0].Count != 2 {
 		t.Fatalf("source classes not preserved: %+v", merged.SourceClasses)
+	}
+}
+
+func TestSourceInventoryExactAbsenceNeedsInventoryProof(t *testing.T) {
+	profile := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+	}
+	observation := SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Lens:         []string{"source_class_universe", "count"},
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:     SourcePathRoleThirdParty,
+			Count:    1,
+			Complete: true,
+		}},
+	}
+	summary, blocked := SourceInventoryExactAbsenceNeedsInventoryProof(profile, observation)
+	if !blocked || !strings.Contains(summary, "thirdparty:1") || !strings.Contains(summary, "function") {
+		t.Fatalf("open source class universe should block exact absence, summary=%q blocked=%t", summary, blocked)
+	}
+
+	observation.Sets = []SourceInventoryObservationSet{{
+		Role:     AnswerCandidateRoleFunction,
+		Complete: true,
+		Count:    0,
+	}}
+	summary, blocked = SourceInventoryExactAbsenceNeedsInventoryProof(profile, observation)
+	if blocked || summary != "" {
+		t.Fatalf("complete empty principal source-inventory set should close absence, summary=%q blocked=%t", summary, blocked)
 	}
 }
 

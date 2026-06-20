@@ -427,7 +427,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// 5e. Bounded exact absence. Keep the same typed check inside the
 	// emit dispatch, but route it through the soft/hard split so the
 	// default path can ship with a bounded-scope caveat.
-	if h := preCheckAbsenceScopeBound(doc); len(h) > 0 {
+	if h := preCheckAbsenceScopeBound(doc, ctxOpt...); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolAbsenceScopeExceeded, h)
 	}
 	// Multi-repo absence disclosure is prompted from typed PendingSubRepos /
@@ -4859,20 +4859,44 @@ func changeImpactMissingMembersForHint(diag *types.ChangeImpactNarrowingDiagnost
 	return strings.Join(parts, "; ")
 }
 
-func preCheckAbsenceScopeBound(doc *types.AnswerDocumentV2) []emitFixHint {
+func preCheckAbsenceScopeBound(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || doc.ExactResolution == nil || doc.ExactResolution.Status != types.AnswerExactResolutionAbsent {
 		return nil
 	}
+	bounded := false
 	for _, c := range doc.Citations {
 		if c.Scope == types.ScopeNegative && strings.TrimSpace(c.NegativePattern) != "" {
-			return nil
+			bounded = true
+			break
 		}
 	}
-	return []emitFixHint{{
-		Field:         "citations[]",
-		ExpectedShape: "when exact_resolution.status is absent, include at least one citation with scope=\"negative\" and a non-empty negative_pattern that names the bounded search/query proving absence.",
-		Reason:        "an exact absence answer needs a typed negative-scope proof; a normal file:line citation or vague prose cannot bound what was searched.",
-	}}
+	if !bounded {
+		return []emitFixHint{{
+			Field:         "citations[]",
+			ExpectedShape: "when exact_resolution.status is absent, include at least one citation with scope=\"negative\" and a non-empty negative_pattern that names the bounded search/query proving absence.",
+			Reason:        "an exact absence answer needs a typed negative-scope proof; a normal file:line citation or vague prose cannot bound what was searched.",
+		}}
+	}
+	if summary, ok := preCheckSourceInventoryExactAbsenceBound(ctxOpt...); ok {
+		return []emitFixHint{{
+			Field: "exact_resolution.status OR aggregate_facts.member_set/repo_map(source_inventory)",
+			ExpectedShape: "do not finalize source-inventory absence from a generic no-hit query while the repo source-class universe is still open; " +
+				"emit/consume a complete empty source_inventory member_set for the requested principal roles, or change the exact resolution to unknown/caveated if the universe was not fully covered.",
+			Reason: "typed source-inventory class coverage is still open (" + summary + "); source-family absence must be proven by the source-inventory universe, not only by a negative search citation.",
+		}}
+	}
+	return nil
+}
+
+func preCheckSourceInventoryExactAbsenceBound(ctxOpt ...*types.BusContext) (string, bool) {
+	if len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].AnalysisIR == nil || ctxOpt[0].Mutable == nil {
+		return "", false
+	}
+	ctx := ctxOpt[0]
+	return types.SourceInventoryExactAbsenceNeedsInventoryProof(
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile,
+		types.SourceInventoryObservationFromMutable(ctx.Mutable),
+	)
 }
 
 func preEmitBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemanticView) []types.ClaimForm {

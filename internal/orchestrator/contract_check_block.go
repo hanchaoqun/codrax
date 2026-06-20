@@ -1882,6 +1882,34 @@ func validateAbsenceScopeBound(doc *types.AnswerDocumentV2) []types.Violation {
 	}}
 }
 
+func validateSourceInventoryExactAbsenceBound(doc *types.AnswerDocumentV2, bus *types.BusContext) []types.Violation {
+	if doc == nil || doc.ExactResolution == nil ||
+		doc.ExactResolution.Status != types.AnswerExactResolutionAbsent ||
+		bus == nil || bus.AnalysisIR == nil || bus.Mutable == nil {
+		return nil
+	}
+	summary, blocked := types.SourceInventoryExactAbsenceNeedsInventoryProof(
+		bus.AnalysisIR.RequestModel.SourceInventoryProfile,
+		types.SourceInventoryObservationFromMutable(bus.Mutable),
+	)
+	if !blocked {
+		return nil
+	}
+	return []types.Violation{{
+		Kind: types.ViolAbsenceScopeExceeded,
+		Detail: "source-inventory exact absence declared while the typed source-class universe is still open: " +
+			summary,
+		Repair:     "Route the source-inventory lane through a complete repo_map(source_inventory) / member_set proof for the requested principal roles before declaring exact absence. If the universe cannot be fully covered, emit unknown/caveated rather than exact_resolution.status=absent.",
+		ClusterKey: "root:source_inventory.absence_class_universe",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "source_inventory_profile.source_class_universe",
+			Reason:     "source-family absence is not bounded by the typed source-class universe",
+			Confidence: 0.8,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
 // validateRequiredMechanismAnchorsRendered re-checks the typed
 // required-anchor obligation against the FINAL document. The
 // pre-emit chokepoint runs the same comparison, but later mutations
