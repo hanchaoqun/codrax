@@ -36,6 +36,10 @@ func TestNoKeywordMatchOfUserIntentInGates(t *testing.T) {
 		"../analysis/gate/coherence.go",
 		"../tool/answer_document_pre_emit_check.go",
 		"../tool/emit_investigation_complete.go",
+		// gap 4: the absence / candidate-universe coverage decisions must stay
+		// typed (scope class, member sets, typed enums) — never keyword-match
+		// the request — so the absence authority cannot drift into prose gating.
+		"../tool/source_inventory_universe_coverage.go",
 	}
 	fset := token.NewFileSet()
 	var violations []string
