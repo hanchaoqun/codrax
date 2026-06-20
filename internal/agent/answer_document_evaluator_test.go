@@ -4355,9 +4355,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePrio
 	mut.SetPerfTrace(&types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace"},
 		Observations: []types.PerfObservation{{
-			Kind:    "scheduler",
-			Subject: "Binder:924_3",
-			Summary: "prio=120 observed in attached trace",
+			Kind:    "priority_semantics",
+			Subject: "HarmonyOS priority semantics",
+			Summary: "Harmony priority semantics: prio=120/ohos_rt observed in attached trace",
+			Tags:    []string{"harmony_priority", "prio=120/ohos_rt"},
 		}},
 	})
 	ctx := &types.AgentContext{
@@ -4402,6 +4403,33 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePrio
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_DoesNotRenderRuntimeTraceGuidanceFromRawQuestionWords(t *testing.T) {
+	mut := types.NewMutableState("这是一段 OpenHarmony/鸿蒙 bytrace 文本，分析 sched_wakeup 调度和优先级")
+	ctx := &types.AgentContext{
+		Objective:             "这是一段 OpenHarmony/鸿蒙 bytrace 文本，分析 sched_wakeup 调度和优先级",
+		AttachedHitraceSource: "harmony_hitrace",
+		Mutable:               mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, forbidden := range []string{
+		"## Runtime Trace Answer Guidance",
+		"Harmony trace priority reminder",
+		"Runtime trace presentation hint",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("raw question / attachment wording must not trigger runtime trace guidance %q:\n%s", forbidden, prompt)
 		}
 	}
 }

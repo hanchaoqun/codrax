@@ -6522,15 +6522,16 @@ func renderAnswerDocExternalObservationSeeds(ctx *types.AgentContext) string {
 }
 
 func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
-	if !answerDocHarmonyTracePrioritySemantics(ctx) && !answerDocRuntimeTraceSchedulerQuestion(ctx) {
+	view := answerDocRuntimeTraceGuidanceView(ctx)
+	if !view.HarmonyPriority && !view.RuntimeTrace {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("## Runtime Trace Answer Guidance\n\n")
-	if answerDocHarmonyTracePrioritySemantics(ctx) {
+	if view.HarmonyPriority {
 		b.WriteString("- Harmony trace priority reminder: larger numeric priority means higher priority; 1-40=CFS and 41-139=RT. When the user asks for platform priority semantics, explicitly state both the direction (`数值越大优先级越高`) and the two ranges (`1-40=CFS`, `41-139=RT`). Concrete examples: prio=20 is CFS; prio=41, prio=51, and prio=52 are RT. Recompute every concrete `prio=N` classification before writing it; do not copy CFS/RT labels from earlier prose when the numeric range contradicts the Harmony rule. If an earlier runtime summary conflicts, keep the raw timing/event fact but prefer this platform rule, any `trace_query priority_semantics` line, or system-derived `priority_semantics` perf observation for the priority class.\n")
 	}
-	if answerDocRuntimeTraceSchedulerQuestion(ctx) {
+	if view.RuntimeTrace {
 		b.WriteString("- Runtime trace presentation hint: for scheduler/time-window questions, do not collapse all trace facts into one short sentence. Prefer a compact answer with conclusion, event timeline or bullets, priority/time-unit semantics, and explicit caveats for trace gaps; keep runtime artifact facts separate from current-source citations.\n")
 		b.WriteString("- Runtime metric snapshot hint: when one typed runtime observation row carries multiple compact metric notes such as `key=value` timings/counts/states, preserve those notes together as one metric snapshot line before the richer explanation. The snapshot complements the detailed bullets; it must not replace root-cause reasoning, caveats, or next-step guidance.\n")
 		b.WriteString("- Runtime root-cause layering hint: when the same frame/window contains runnable scheduling delay, D-state/IO dependency delay, or on-chain compute-supply limits (`compute_supply`, `low_frequency`, `cpu_affinity_or_cpuset`, CPU/core/frequency/DDR/L3 supply context), report every `tier=primary` layer explicitly instead of choosing only one. Separate direct scheduler wait/priority-inversion evidence from upstream dependency-chain IO/D-state and compute-supply evidence, tie each layer to the concrete thread/window where it appears, and keep unrelated background pressure as auxiliary context.\n")
@@ -6543,59 +6544,183 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 	return b.String()
 }
 
-func answerDocHarmonyTracePrioritySemantics(ctx *types.AgentContext) bool {
-	if ctx == nil {
-		return false
-	}
-	text := strings.ToLower(strings.TrimSpace(ctx.AttachedHitraceSource + " " + ctx.Objective))
-	if strings.Contains(text, "harmony_hitrace") {
-		return true
-	}
-	harmony := strings.Contains(text, "harmony") ||
-		strings.Contains(text, "openharmony") ||
-		strings.Contains(text, "ohos") ||
-		strings.Contains(text, "hitrace") ||
-		strings.Contains(text, "bytrace") ||
-		strings.Contains(text, "鸿蒙") ||
-		strings.Contains(text, "东湖")
-	android := strings.Contains(text, "android") ||
-		strings.Contains(text, "atrace") ||
-		strings.Contains(text, "安卓")
-	return harmony && !android
+type runtimeTraceGuidanceView struct {
+	RuntimeTrace    bool
+	HarmonyPriority bool
 }
 
-func answerDocRuntimeTraceSchedulerQuestion(ctx *types.AgentContext) bool {
+func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuidanceView {
+	var view runtimeTraceGuidanceView
 	if ctx == nil {
+		return view
+	}
+	ledger := answerDocObservationLedger(ctx)
+	for _, record := range ledger.Records {
+		if !answerDocRuntimeTraceGuidanceRecord(record) {
+			continue
+		}
+		view.RuntimeTrace = true
+		if answerDocHarmonyPriorityObservationRecord(record) {
+			view.HarmonyPriority = true
+		}
+	}
+	for _, perf := range answerDocRuntimeTraceGuidancePerfBundles(ctx) {
+		if perf == nil {
+			continue
+		}
+		if answerDocPerfBundleHasRuntimeTraceGuidance(perf) {
+			view.RuntimeTrace = true
+		}
+		if answerDocPerfBundleHasHarmonyPrioritySemantics(perf) {
+			view.HarmonyPriority = true
+			view.RuntimeTrace = true
+		}
+	}
+	return view
+}
+
+func answerDocRuntimeTraceGuidanceRecord(record types.ObservationRecord) bool {
+	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
 		return false
 	}
-	text := strings.ToLower(strings.TrimSpace(ctx.AttachedHitraceSource + " " + ctx.Objective))
-	traceLike := strings.Contains(text, "trace") ||
-		strings.Contains(text, "systrace") ||
-		strings.Contains(text, "hitrace") ||
-		strings.Contains(text, "bytrace") ||
-		strings.Contains(text, ".trace") ||
-		strings.Contains(text, "perfetto")
-	if !traceLike {
+	if strings.TrimSpace(record.Producer) == "trace_query" && traceQueryObservationSupplementOrder(record) > 0 {
+		return true
+	}
+	predicate := strings.TrimSpace(record.Predicate)
+	claimKey := strings.TrimSpace(record.ClaimKey)
+	switch predicate {
+	case "wakeup_chain",
+		"wakeup_causal_impact",
+		"wakeup_causal_aggregate",
+		"critical_blocking",
+		"state_churn",
+		"thread_cpu_load",
+		"cpu_constraint",
+		"runnable_context",
+		"process_cpu_load",
+		"file_io_by_inode",
+		"page_cache_by_inode",
+		"storage_latency_by_layer",
+		"bio_resource",
+		"filesystem_resource",
+		"page_fault_resource",
+		"priority_semantics",
+		"priority_semantics_normalized",
+		"time_semantics":
+		return true
+	}
+	if strings.HasPrefix(predicate, "root_cause_") ||
+		strings.HasPrefix(claimKey, "root_cause_") ||
+		strings.HasPrefix(claimKey, "io_pressure:") ||
+		strings.HasPrefix(claimKey, "plugin_event:") {
+		return true
+	}
+	return false
+}
+
+func answerDocHarmonyPriorityObservationRecord(record types.ObservationRecord) bool {
+	if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact {
 		return false
 	}
-	return strings.Contains(text, "sched") ||
-		strings.Contains(text, "wakeup") ||
-		strings.Contains(text, "sleep") ||
-		strings.Contains(text, "runnable") ||
-		strings.Contains(text, "running") ||
-		strings.Contains(text, "io") ||
-		strings.Contains(text, "inode") ||
-		strings.Contains(text, "page_cache") ||
-		strings.Contains(text, "file_io") ||
-		strings.Contains(text, "storage") ||
-		strings.Contains(text, "priority") ||
-		strings.Contains(text, "调度") ||
-		strings.Contains(text, "唤醒") ||
-		strings.Contains(text, "睡眠") ||
-		strings.Contains(text, "丢帧") ||
-		strings.Contains(text, "文件") ||
-		strings.Contains(text, "读写") ||
-		strings.Contains(text, "优先级")
+	switch strings.TrimSpace(record.Predicate) {
+	case "priority_semantics", "priority_semantics_normalized":
+		return true
+	}
+	switch strings.TrimSpace(record.ClaimKey) {
+	case "priority_semantics", "priority_semantics_normalized":
+		return true
+	}
+	return false
+}
+
+func answerDocRuntimeTraceGuidancePerfBundles(ctx *types.AgentContext) []*types.PerfBundle {
+	if ctx == nil {
+		return nil
+	}
+	var out []*types.PerfBundle
+	seen := map[*types.PerfBundle]bool{}
+	add := func(perf *types.PerfBundle) {
+		if perf == nil || seen[perf] {
+			return
+		}
+		seen[perf] = true
+		out = append(out, perf)
+	}
+	if ctx.AnalysisIR != nil {
+		add(ctx.AnalysisIR.RequestModel.PerfTrace)
+	}
+	if ctx.Mutable != nil {
+		add(ctx.Mutable.PerfTrace())
+	}
+	return out
+}
+
+func answerDocPerfBundleHasHarmonyPrioritySemantics(perf *types.PerfBundle) bool {
+	if perf == nil {
+		return false
+	}
+	if !answerDocPerfTraceSourceIsHarmony(perf.Meta.Source) {
+		return false
+	}
+	for _, obs := range perf.Observations {
+		switch strings.TrimSpace(obs.Kind) {
+		case "priority_semantics", "priority_semantics_normalized":
+			return true
+		}
+		for _, tag := range obs.Tags {
+			switch strings.TrimSpace(tag) {
+			case "harmony_priority", "harmony_priority_normalized":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func answerDocPerfTraceSourceIsHarmony(source string) bool {
+	switch strings.TrimSpace(source) {
+	case "hitrace", "harmony_hitrace":
+		return true
+	default:
+		return false
+	}
+}
+
+func answerDocPerfBundleHasRuntimeTraceGuidance(perf *types.PerfBundle) bool {
+	if perf == nil {
+		return false
+	}
+	if answerDocPerfBundleHasHarmonyPrioritySemantics(perf) {
+		return true
+	}
+	for _, obs := range perf.Observations {
+		switch strings.TrimSpace(obs.Kind) {
+		case "scheduler",
+			"scheduler_latency",
+			"state_churn",
+			"runtime_trace",
+			"trace_window",
+			"wakeup_chain",
+			"root_cause_rank",
+			"frame_root_cause_bundle",
+			"critical_blocking",
+			"file_io",
+			"page_cache",
+			"storage_latency",
+			"io_pressure",
+			"priority_semantics",
+			"priority_semantics_normalized",
+			"time_semantics":
+			return true
+		}
+	}
+	for _, signal := range perf.Meta.Signals {
+		switch strings.TrimSpace(signal) {
+		case "jank", "cold-start-slow", "main-thread-stall", "io-block", "gc-pause", "render-miss":
+			return true
+		}
+	}
+	return false
 }
 
 func collectRelatedContextCitationCandidates(ctx *types.AgentContext, contract *types.ExactResolutionContract) []relatedContextCitationCandidate {
