@@ -43,8 +43,9 @@ type DowngradeFingerprint struct {
 // force-completed by the convergence boundary without the blocker being resolved.
 // It is carried for downstream answer caveat / telemetry consumers.
 type CompletionCaveat struct {
-	Lane   DowngradeLane
-	Reason string
+	Lane       DowngradeLane
+	ReasonCode string
+	Reason     string
 }
 
 // ComputeDowngradeBlockerKey hashes the typed blocker state a pre-complete gate

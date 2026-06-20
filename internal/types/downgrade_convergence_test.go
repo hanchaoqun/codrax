@@ -44,9 +44,29 @@ func TestAppendDowngradeFingerprint_ConvergesAndResets(t *testing.T) {
 	}
 }
 
+func TestProgressDeltaConvergesLikeDowngradeFingerprint(t *testing.T) {
+	c := NewEvidenceClosure("")
+	first := c.RecordDowngradeProgressDelta(DowngradeLaneContractChain, 111, 3)
+	if !first.ShouldReplan || first.ReasonCode != ProgressReasonContinue || first.Delta.Consecutive != 1 {
+		t.Fatalf("first decision = %+v, want continue with consecutive=1", first)
+	}
+	second := c.RecordDowngradeProgressDelta(DowngradeLaneContractChain, 111, 3)
+	if !second.ShouldReplan || second.Delta.Consecutive != 2 {
+		t.Fatalf("second decision = %+v, want continue with consecutive=2", second)
+	}
+	third := c.RecordDowngradeProgressDelta(DowngradeLaneContractChain, 111, 3)
+	if third.ShouldReplan || third.ReasonCode != ProgressReasonConverged || third.Delta.Consecutive != 3 {
+		t.Fatalf("third decision = %+v, want converged at consecutive=3", third)
+	}
+	reset := c.RecordDowngradeProgressDelta(DowngradeLaneContractChain, 222, 3)
+	if !reset.ShouldReplan || reset.Delta.Consecutive != 1 {
+		t.Fatalf("changed blocker should reset progress decision: %+v", reset)
+	}
+}
+
 func TestAppendCompletionCaveat_DedupByLane(t *testing.T) {
 	c := NewEvidenceClosure("")
-	c.AppendCompletionCaveat(CompletionCaveat{Lane: DowngradeLaneContractChain, Reason: "r1"})
+	c.AppendCompletionCaveat(CompletionCaveat{Lane: DowngradeLaneContractChain, ReasonCode: ProgressReasonConverged, Reason: "r1"})
 	c.AppendCompletionCaveat(CompletionCaveat{Lane: DowngradeLaneContractChain, Reason: "r2"})
 	c.AppendCompletionCaveat(CompletionCaveat{Lane: DowngradeLaneCurrentSourceLane, Reason: "r3"})
 	c.AppendCompletionCaveat(CompletionCaveat{Lane: ""}) // ignored
@@ -56,5 +76,8 @@ func TestAppendCompletionCaveat_DedupByLane(t *testing.T) {
 	}
 	if got[0].Reason != "r1" {
 		t.Fatalf("first-write-wins per lane, got %q", got[0].Reason)
+	}
+	if got[0].ReasonCode != ProgressReasonConverged {
+		t.Fatalf("typed reason code lost: %+v", got[0])
 	}
 }

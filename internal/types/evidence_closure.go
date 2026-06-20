@@ -1856,6 +1856,17 @@ func (c *EvidenceClosure) AppendDowngradeFingerprint(fp DowngradeFingerprint) in
 	return ConsecutiveEqualTail(c.downgradeFingerprints)
 }
 
+func (c *EvidenceClosure) RecordDowngradeProgressDelta(lane DowngradeLane, blockerKey uint32, hardThreshold int) ProgressDecision {
+	consecutive := c.AppendDowngradeFingerprint(DowngradeFingerprint{Lane: lane, BlockerKey: blockerKey})
+	return ShouldReplan(ProgressDelta{
+		Kind:          ProgressDeltaDowngradeBlocker,
+		DowngradeLane: lane,
+		BlockerKey:    blockerKey,
+		Consecutive:   consecutive,
+		HardThreshold: hardThreshold,
+	})
+}
+
 // AppendCompletionCaveat records, deduped by lane, that the convergence boundary
 // force-completed a downgrade lane without resolving its blocker.
 func (c *EvidenceClosure) AppendCompletionCaveat(caveat CompletionCaveat) {

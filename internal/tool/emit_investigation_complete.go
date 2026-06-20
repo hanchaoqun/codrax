@@ -2186,15 +2186,17 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 		return false
 	}
 	blockerKey := types.ComputeDowngradeBlockerKey(closure.PendingReads(), closure.UnverifiedFindings(), closure.ActiveRepairs())
-	consecutive := closure.AppendDowngradeFingerprint(types.DowngradeFingerprint{Lane: lane, BlockerKey: blockerKey})
-	if consecutive < downgradeConvergenceHardThreshold {
+	decision := closure.RecordDowngradeProgressDelta(lane, blockerKey, downgradeConvergenceHardThreshold)
+	if decision.ShouldReplan {
 		return false
 	}
 	closure.AppendCompletionCaveat(types.CompletionCaveat{
-		Lane:   lane,
-		Reason: "completed under low-delta convergence: the same blocker recurred across repeated attempts with no new grounded progress",
+		Lane:       lane,
+		ReasonCode: decision.ReasonCode,
+		Reason:     "completed under low-delta convergence: the same blocker recurred across repeated attempts with no new grounded progress",
 	})
-	logging.Info("[emit_investigation_complete] low-delta convergence force-complete lane=%s after %d consecutive no-progress attempts (blocker=%d)", lane, consecutive, blockerKey)
+	logging.Info("[emit_investigation_complete] low-delta convergence force-complete lane=%s after %d consecutive no-progress attempts (blocker=%d reason=%s)",
+		lane, decision.Delta.Consecutive, blockerKey, decision.ReasonCode)
 	return true
 }
 
