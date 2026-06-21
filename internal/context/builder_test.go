@@ -15,6 +15,7 @@ func TestBuildAgentContext(t *testing.T) {
 	bus := &types.BusContext{
 		PipelineStage:         types.StageExplore,
 		ActiveAgent:           types.AgentExplorer,
+		ExploreToolSurface:    types.ExploreToolSurfaceSourceInventoryLens,
 		RepoRoot:              "/tmp/repo",
 		Branch:                "main",
 		Commit:                "abc123",
@@ -50,6 +51,9 @@ func TestBuildAgentContext(t *testing.T) {
 		}
 		if !ac.EvalDisableGitHistory {
 			t.Errorf("EvalDisableGitHistory was not propagated")
+		}
+		if ac.ExploreToolSurface != types.ExploreToolSurfaceSourceInventoryLens {
+			t.Errorf("ExploreToolSurface was not propagated")
 		}
 	})
 

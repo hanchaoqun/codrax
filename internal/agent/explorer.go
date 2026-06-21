@@ -161,33 +161,34 @@ type explorerEvaluator struct {
 	// orientation finalize nudge. Without this latch the nudge would
 	// re-render every iteration after the threshold fires, drowning
 	// the LLM in repeated "you have enough" reminders.
-	midLoopOrientationFinalizeSent    bool
-	midLoopNoEmitPushSent             bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
-	midLoopNoEmitEscalated            bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
-	midLoopNoEmitClosureOnlySent      bool // one-shot: materialization-only redirect after the escalation was ignored
-	midLoopNoEmitEndpointSent         bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
-	midLoopExecRedirectSent           bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
-	midLoopExplanationAnchorSent      bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
-	midLoopCompletionReadySent        bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
-	midLoopCandidateUniverseSent      bool // one-shot: exact candidate universe is not yet covered/excluded by a structured member_set
-	midLoopCompletionReadyEscalated   bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
-	midLoopCompletionReadyClosureSent bool // one-shot: post-ready navigation grace was already consumed without structured progress
-	midLoopCompletionReadyIter        int  // iteration where completion-ready first fired
-	midLoopNoveltySeen                map[string]bool
-	midLoopNoNoveltyNavigationStreak  int
-	midLoopNoNoveltyStreakByScope     map[string]int
-	midLoopLowNoveltyHintSent         bool
-	midLoopNoEmitPushIter             int // iteration where the current backlog window's read-without-emit nudge fired
-	midLoopNoEmitPushResultsLen       int // allResults length when the current backlog window's read-without-emit nudge fired
-	midLoopEmitBacklogBaseLen         int // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
-	midLoopPartialReadHinted          map[string]types.RepairDebtClass
-	midLoopPartialReadBacklogKey      string
-	midLoopPartialReadBacklogClass    types.RepairDebtClass
-	primaryReadSeen                   bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
-	primaryReadIter                   int  // df3-drift: iter at which a primary-entity file first entered readSet
-	notesLenAtPrimaryRead             int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
-	investigationComplete             bool // set when emit_investigation_complete tool was observed in MidLoop
-	mergedEmittedEvidenceLen          int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
+	midLoopOrientationFinalizeSent     bool
+	midLoopNoEmitPushSent              bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
+	midLoopNoEmitEscalated             bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
+	midLoopNoEmitClosureOnlySent       bool // one-shot: materialization-only redirect after the escalation was ignored
+	midLoopNoEmitEndpointSent          bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
+	midLoopExecRedirectSent            bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
+	midLoopExplanationAnchorSent       bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
+	midLoopCompletionReadySent         bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
+	midLoopCandidateUniverseSent       bool // one-shot: exact candidate universe is not yet covered/excluded by a structured member_set
+	midLoopCompletionReadyEscalated    bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
+	midLoopCompletionReadyClosureSent  bool // one-shot: post-ready navigation grace was already consumed without structured progress
+	midLoopCompletionReadyIter         int  // iteration where completion-ready first fired
+	sourceInventoryLensSurfaceReleased bool
+	midLoopNoveltySeen                 map[string]bool
+	midLoopNoNoveltyNavigationStreak   int
+	midLoopNoNoveltyStreakByScope      map[string]int
+	midLoopLowNoveltyHintSent          bool
+	midLoopNoEmitPushIter              int // iteration where the current backlog window's read-without-emit nudge fired
+	midLoopNoEmitPushResultsLen        int // allResults length when the current backlog window's read-without-emit nudge fired
+	midLoopEmitBacklogBaseLen          int // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
+	midLoopPartialReadHinted           map[string]types.RepairDebtClass
+	midLoopPartialReadBacklogKey       string
+	midLoopPartialReadBacklogClass     types.RepairDebtClass
+	primaryReadSeen                    bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
+	primaryReadIter                    int  // df3-drift: iter at which a primary-entity file first entered readSet
+	notesLenAtPrimaryRead              int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
+	investigationComplete              bool // set when emit_investigation_complete tool was observed in MidLoop
+	mergedEmittedEvidenceLen           int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -370,6 +371,74 @@ func renderExplorerToolBudgetPlan(ctx *types.AgentContext) string {
 	return b.String()
 }
 
+func renderExplorerSourceInventoryLensSurfaceInstruction(ctx *types.AgentContext) string {
+	var b strings.Builder
+	b.WriteString("## Source Inventory Lens Probe\n\n")
+	b.WriteString("This dispatch starts with a scheduler-owned source-inventory lens tool surface. First call `repo_map` with `view=\"source_inventory\"`, `include_attributes=false`, and bounded `roles` / `scope` or `scopes` from the typed request context below. Before that first lens result, do not read files, grep, list directories, or run shell commands. After a typed source_inventory observation exists, if it does not cover the requested universe and the tool surface opens, use only the narrow follow-up needed to inspect the mismatched source class.\n")
+	if roles := sourceInventoryLensRoleLabels(ctx); len(roles) > 0 {
+		b.WriteString("- typed principal roles: `")
+		b.WriteString(strings.Join(roles, "`, `"))
+		b.WriteString("`\n")
+	}
+	if scopes := sourceInventoryLensScopeLabels(ctx); len(scopes) > 0 {
+		b.WriteString("- typed bounded scopes: `")
+		b.WriteString(strings.Join(scopes, "`, `"))
+		b.WriteString("`\n")
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.SourceScopeProfile != nil {
+		scope := strings.TrimSpace(string(ctx.AnalysisIR.RequestModel.SourceScopeProfile.RequestedScope))
+		if scope != "" {
+			b.WriteString("- typed source class scope: `")
+			b.WriteString(scope)
+			b.WriteString("`\n")
+		}
+	}
+	b.WriteString("\nAfter the lens result, emit structured evidence or complete the investigation only if the returned observation covers the requested source-class universe; otherwise let the typed validator drive the next bounded follow-up.\n")
+	return b.String()
+}
+
+func sourceInventoryLensRoleLabels(ctx *types.AgentContext) []string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, role := range ctx.AnalysisIR.RequestModel.SourceInventoryProfile.PrincipalTargetRoles() {
+		label := strings.TrimSpace(string(role))
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		out = append(out, label)
+	}
+	return out
+}
+
+func sourceInventoryLensScopeLabels(ctx *types.AgentContext) []string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	files := types.BoundedSourceEnumerationScopeFiles(
+		ctx.AnalysisIR.RequestModel,
+		ctx.AnalysisIR.EvidencePlan.RequiredFiles,
+		ctx.RepoRoot,
+	)
+	if len(files) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(files))
+	for _, file := range files {
+		file = strings.TrimSpace(file)
+		if file == "" || seen[file] {
+			continue
+		}
+		seen[file] = true
+		out = append(out, file)
+	}
+	return out
+}
+
 func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	// CROSS-RUN STATE RESET (REPL turn boundary fix).
 	//
@@ -444,6 +513,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopCompletionReadyEscalated = false
 		e.midLoopCompletionReadyClosureSent = false
 		e.midLoopCompletionReadyIter = 0
+		e.sourceInventoryLensSurfaceReleased = false
 		e.midLoopNoveltySeen = nil
 		e.midLoopNoNoveltyNavigationStreak = 0
 		e.midLoopNoNoveltyStreakByScope = nil
@@ -715,6 +785,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if externalObservationFirstSourceOptionalForExplorer(ctx) {
 		e.phase = 1
 		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExternalObservationFirstStartInstruction(ctx))
+	}
+
+	if ctx != nil && ctx.ExploreToolSurface.IsSourceInventoryLens() {
+		e.phase = 0
+		return joinExplorerInstructionSections(writeExplorationPrefix, renderExplorerSourceInventoryLensSurfaceInstruction(ctx))
 	}
 
 	e.phase = 0 // start in breadth-scan phase
@@ -6651,6 +6726,19 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 		}
 		return schemas
 	}
+	if e.sourceInventoryLensSurfaceActive(ctx) {
+		allowed := sourceInventoryLensToolSurface()
+		out := make([]llm.ToolSchema, 0, len(allowed))
+		for _, schema := range schemas {
+			if allowed[strings.TrimSpace(schema.Name)] {
+				out = append(out, schema)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+		return schemas
+	}
 	if e.investigationComplete {
 		return schemas
 	}
@@ -6694,6 +6782,13 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 		return mergeRestrictedToolSurfaceWithActiveRepairs(completionProgressToolNames, ctx)
 	}
 	return nil
+}
+
+func (e *explorerEvaluator) sourceInventoryLensSurfaceActive(ctx *types.AgentContext) bool {
+	return ctx != nil &&
+		ctx.Stage == types.StageExplore &&
+		ctx.ExploreToolSurface.IsSourceInventoryLens() &&
+		(e == nil || !e.sourceInventoryLensSurfaceReleased)
 }
 
 func (e *explorerEvaluator) materializationOnlyToolSurfaceActive() bool {
@@ -11795,11 +11890,38 @@ func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	switch obs.Phase {
 	case PhaseMidLoop:
 		e.refreshMidLoopStructuredEvidence(ctx)
+		e.observeSourceInventoryLensSurfaceProgress(ctx, obs)
 		return e.observeMidLoop(obs)
 	case PhaseSoftStop:
 		return e.observeSoftStop(obs)
 	}
 	return LoopSignal{}
+}
+
+func (e *explorerEvaluator) observeSourceInventoryLensSurfaceProgress(ctx *types.AgentContext, obs LoopObservation) {
+	if e == nil || ctx == nil || !ctx.ExploreToolSurface.IsSourceInventoryLens() || e.sourceInventoryLensSurfaceReleased {
+		return
+	}
+	for _, result := range obs.AllToolResults {
+		if toolResultHasSourceInventoryLensObservation(result) {
+			e.sourceInventoryLensSurfaceReleased = true
+			return
+		}
+	}
+}
+
+func toolResultHasSourceInventoryLensObservation(result types.ToolResult) bool {
+	if !result.Success || result.ToolName != "repo_map" {
+		return false
+	}
+	for _, observation := range result.Observations {
+		if observation.Producer == "repo_map" &&
+			observation.Predicate == types.RepoMapNavigationObservationPredicate &&
+			strings.EqualFold(strings.TrimSpace(observation.Value), string(types.RepoMapNavigationRouteSourceInventory)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) refreshMidLoopStructuredEvidence(ctx *types.AgentContext) {

@@ -5107,9 +5107,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// transitioning independently. See
 			// dag_node_dispatch.go for the typed-signal predicate and
 			// split helper. When pipeline_max_parallelism permits, the
-			// split windows below run concurrently; when the cap is 1,
-			// the same helper degrades to the original serial-per-node
-			// flow.
+			// split windows below run concurrently; cap=1 degrades to serial-per-node flow.
+			window = o.prioritizeSourceInventoryLensWindow(window, env)
 			var parallelWindows [][]*types.TaskNode
 			parallelism := 1
 			dispatchWindows := exploreWindowDispatchGroups(o.busCtx, window)
@@ -5212,7 +5211,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// over them in the SAME dispatch, rather than waiting
 			// for the next retry round. Harmless no-op when
 			// PendingReads is empty.
-			preseededRequiredFiles := o.seedRequiredFileHintForcedReadsBeforeExplore()
+			preseededRequiredFiles := o.seedRequiredFileHintForcedReadsBeforeExploreForWindow(window)
 			if preseededRequiredFiles > 0 {
 				logging.Info("[CGEC] pre-dispatch seeded %d required-file forced-read(s)", preseededRequiredFiles)
 			}
@@ -5247,13 +5246,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					time.Since(stageStart).Round(time.Millisecond), len(parallelWindows), parallelism)
 				dispatchStepCount = len(parallelWindows)
 			} else {
-				prevDispatchKey := o.busCtx.ExploreDispatchKey
-				prevDispatchKind := o.busCtx.ExploreDispatchKind
-				o.busCtx.ExploreDispatchKey = exploreDispatchKeyForWindow(window)
-				o.busCtx.ExploreDispatchKind = exploreDispatchKindForWindow(window)
-				out, dispatchErr = o.dispatchStage(types.StageExplore)
-				o.busCtx.ExploreDispatchKey = prevDispatchKey
-				o.busCtx.ExploreDispatchKind = prevDispatchKind
+				out, dispatchErr = o.dispatchExploreWindow(window)
 			}
 			if dispatchErr != nil {
 				logging.Error("[orchestrator] DAG explore window failed: %v", dispatchErr)

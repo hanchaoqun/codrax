@@ -431,6 +431,51 @@ func TestPublishSourceInventoryObservationFromLens_PublishesSourceClassUniverseW
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_PreservesGraphSurfaceTerms(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/ui/Index.ets",
+		Language: "arkts",
+		Package:  "ui",
+		Symbols: []repotypes.Symbol{{
+			Name:     "Index",
+			Kind:     "component",
+			File:     "src/ui/Index.ets",
+			Line:     6,
+			Exported: true,
+			Doc:      "@Entry @Component",
+		}},
+	}})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		SourceQuotes:      []string{"@Entry", "@Component"},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.90,
+	})
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Scopes:        []string{"src"},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+		Query:         "@Entry @Component",
+	})
+	if !obs.IsActive() || len(obs.Sets) != 1 || len(obs.Sets[0].Members) != 1 {
+		t.Fatalf("expected one graph-backed source-inventory member: %+v", obs)
+	}
+	member := obs.Sets[0].Members[0]
+	if strings.Join(member.SurfaceTerms, ",") != "@Entry,@Component" {
+		t.Fatalf("graph surface terms were not preserved: %+v", member)
+	}
+	stored := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	if !stored.IsActive() || len(stored.Sets) != 1 || len(stored.Sets[0].Members) != 1 ||
+		strings.Join(stored.Sets[0].Members[0].SurfaceTerms, ",") != "@Entry,@Component" {
+		t.Fatalf("stored observation lost graph surface terms: %+v", stored)
+	}
+}
+
 func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterialization(t *testing.T) {
 	files := make([]*repotypes.FileInfo, 0, sourceInventoryExecBudgetFileThreshold+100)
 	for i := 0; i < sourceInventoryExecBudgetFileThreshold+100; i++ {

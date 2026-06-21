@@ -111,7 +111,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 					Parallelism:        parallelism,
 					ParallelLaneLabels: lanePlan.Labels(),
 				})
-				out, err := o.runExploreAgentOnFork(runCtx, fork, hint, unitID, groupID, exploreDispatchKindForWindow(windows[i]), lanePlan)
+				out, err := o.runExploreAgentOnFork(runCtx, fork, hint, unitID, groupID, exploreDispatchKindForWindow(windows[i]), exploreToolSurfaceForWindow(windows[i]), lanePlan)
 				unitErr := ""
 				if err != nil {
 					unitErr = err.Error()
@@ -249,6 +249,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	dispatchKey string,
 	parallelGroupID string,
 	dispatchKind types.TaskNodeType,
+	toolSurface types.ExploreToolSurface,
 	lanePlan types.ExploreLanePlan,
 ) (*agent.StageOutput, error) {
 	stage := types.StageExplore
@@ -283,6 +284,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	workerBus.PipelineStage = stage
 	workerBus.ExploreDispatchKey = dispatchKey
 	workerBus.ExploreDispatchKind = dispatchKind
+	workerBus.ExploreToolSurface = toolSurface
 	if !lanePlan.Empty() {
 		workerBus.ExploreLanePlan = lanePlan
 	}

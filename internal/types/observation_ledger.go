@@ -141,6 +141,7 @@ type ObservationRecord struct {
 	RawExcerpt      string                    `json:"raw_excerpt,omitempty"`
 	RichNotes       []string                  `json:"rich_notes,omitempty"`
 	SupportRefs     []string                  `json:"support_refs,omitempty"`
+	SurfaceTerms    []string                  `json:"surface_terms,omitempty"`
 	ObservedAt      string                    `json:"observed_at,omitempty"`
 	Scope           string                    `json:"scope,omitempty"`
 	Confidence      float64                   `json:"confidence,omitempty"`
@@ -800,6 +801,7 @@ func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationR
 			Summary:         strings.TrimSpace(ev.Summary),
 			RawExcerpt:      strings.TrimSpace(ev.Snippet),
 			SupportRefs:     cloneStringSlice(ev.SurfaceTerms),
+			SurfaceTerms:    cloneStringSlice(ev.SurfaceTerms),
 			Confidence:      ev.Confidence,
 		})
 	}
@@ -905,13 +907,14 @@ func observationProvenanceLaneForAggregateFact(dims map[string]string) Observati
 const observationRowSetMinRows = 24
 
 type observationRowSetLine struct {
-	Index      int    `json:"index"`
-	Member     string `json:"member,omitempty"`
-	SupportRef string `json:"support_ref,omitempty"`
-	Note       string `json:"note,omitempty"`
-	Label      string `json:"label,omitempty"`
-	Kind       string `json:"kind,omitempty"`
-	Role       string `json:"role,omitempty"`
+	Index        int      `json:"index"`
+	Member       string   `json:"member,omitempty"`
+	SupportRef   string   `json:"support_ref,omitempty"`
+	Note         string   `json:"note,omitempty"`
+	SurfaceTerms []string `json:"surface_terms,omitempty"`
+	Label        string   `json:"label,omitempty"`
+	Kind         string   `json:"kind,omitempty"`
+	Role         string   `json:"role,omitempty"`
 }
 
 func observationRowSetRefForAggregateFact(writer ObservationRowSetWriter, factIndex int, origin AnswerEvidenceOrigin, fact AnswerAggregateFact) string {
@@ -1121,6 +1124,7 @@ func sourceInventoryObservationMemberRecord(setIdx, memberIdx int, member Source
 		Predicate:       "source_inventory_member",
 		Summary:         strings.TrimSpace(member.Note),
 		SupportRefs:     sourceInventoryObservationSingleSupportRef(member.SupportRef),
+		SurfaceTerms:    cloneStringSlice(member.SurfaceTerms),
 		Scope:           strings.TrimSpace(member.File),
 		Confidence:      0.9,
 	}
@@ -1164,6 +1168,7 @@ func sourceInventoryObservationAttributeRecord(setIdx, memberIdx, attrIdx int, m
 		Summary:         strings.TrimSpace(attr.Note),
 		RichNotes:       notes,
 		SupportRefs:     sourceInventoryObservationSingleSupportRef(attr.SupportRef),
+		SurfaceTerms:    cloneStringSlice(attr.SurfaceTerms),
 		Scope:           strings.TrimSpace(member.File),
 		Confidence:      0.85,
 	}
@@ -1260,13 +1265,14 @@ func observationRowSetJSONLForSourceInventoryObservation(set SourceInventoryObse
 	var b strings.Builder
 	for i, member := range set.Members {
 		line := observationRowSetLine{
-			Index:      i,
-			Member:     strings.TrimSpace(member.Name),
-			SupportRef: strings.TrimSpace(member.SupportRef),
-			Note:       strings.Join(strings.Fields(strings.TrimSpace(member.Note)), " "),
-			Role:       string(set.Role),
+			Index:        i,
+			Member:       strings.TrimSpace(member.Name),
+			SupportRef:   strings.TrimSpace(member.SupportRef),
+			Note:         strings.Join(strings.Fields(strings.TrimSpace(member.Note)), " "),
+			SurfaceTerms: cloneStringSlice(member.SurfaceTerms),
+			Role:         string(set.Role),
 		}
-		if line.Member == "" && line.SupportRef == "" && line.Note == "" {
+		if line.Member == "" && line.SupportRef == "" && line.Note == "" && len(line.SurfaceTerms) == 0 {
 			continue
 		}
 		raw, err := json.Marshal(line)

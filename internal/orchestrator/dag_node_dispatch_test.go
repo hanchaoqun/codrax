@@ -391,6 +391,49 @@ func TestShouldDispatchExploreNodesIndividually_NilEntrySkipped(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryLensFirstWindowPrioritizesTypedLens(t *testing.T) {
+	lens := &types.TaskNode{
+		ID:       "n_source_inventory_lens",
+		Type:     types.NodeProbe,
+		Optional: true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceInventoryLensMissing,
+		}},
+	}
+	evidence := &types.TaskNode{ID: "n_evidence", Type: types.NodeEvidence}
+	validate := &types.TaskNode{ID: "n_validate", Type: types.NodeValidate}
+
+	got := sourceInventoryLensFirstWindow([]*types.TaskNode{evidence, lens, validate}, true, false)
+	if len(got) != 1 || got[0] != lens {
+		t.Fatalf("active missing lens must dispatch lens-only first, got %+v", idsOf(got))
+	}
+	if !sourceInventoryLensProbeOnlyWindow(got) {
+		t.Fatalf("lens-only helper must identify prioritized source-inventory lens window: %+v", idsOf(got))
+	}
+	if surface := exploreToolSurfaceForWindow(got); surface != types.ExploreToolSurfaceSourceInventoryLens {
+		t.Fatalf("lens-only window must select source-inventory tool surface, got %q", surface)
+	}
+}
+
+func TestSourceInventoryLensFirstWindowNoopsWhenInactiveOrExecuted(t *testing.T) {
+	lens := &types.TaskNode{
+		ID:       "n_source_inventory_lens",
+		Type:     types.NodeProbe,
+		Optional: true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceInventoryLensMissing,
+		}},
+	}
+	evidence := &types.TaskNode{ID: "n_evidence", Type: types.NodeEvidence}
+	window := []*types.TaskNode{evidence, lens}
+	if got := sourceInventoryLensFirstWindow(window, false, false); len(got) != 0 {
+		t.Fatalf("inactive source inventory must not reorder window: %+v", idsOf(got))
+	}
+	if got := sourceInventoryLensFirstWindow(window, true, true); len(got) != 0 {
+		t.Fatalf("already executed source inventory lens must not reorder window: %+v", idsOf(got))
+	}
+}
+
 // TestTrimExploreWindowToFirstEvidence_DropsExtraSiblingsKeepsCompanions
 // pins the trim helper's load-bearing contract on production-shape
 // windows: companions (probe / validate) survive; only sibling

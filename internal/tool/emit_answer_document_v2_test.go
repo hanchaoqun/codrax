@@ -880,6 +880,120 @@ func TestEmitAnswerDocumentV2_LeavesMissingModelSurfaceTermAsAdvisory(t *testing
 	}
 }
 
+func TestEmitAnswerDocumentV2_MaterializesNonPathSurfaceTermsForPrincipalItem(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-index",
+		Kind:         types.EvidenceDirect,
+		Producer:     EmitEvidenceProducer,
+		Subject:      "Index",
+		AnchorSymbol: "Index",
+		Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		LineStart:    7,
+		Scope:        types.ScopeLine,
+		SurfaceTerms: []string{"@Entry", "@Component"},
+	}})
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "entry_list",
+			"kind": "ordered_list",
+			"surface_role": "principal",
+			"items": [{
+				"id": "e1",
+				"label": "Index",
+				"text": "minimal page entry",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			"line": 7
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 {
+		t.Fatalf("document not written: %+v", doc)
+	}
+	got := doc.Blocks[0].Items[0].Text
+	for _, want := range []string{"@Entry", "@Component"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("required source-visible surface term %q was not materialized into %q", want, got)
+		}
+	}
+	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) != 0 {
+		t.Fatalf("materialized source labels should clear model surface-term hints, got %+v", hints)
+	}
+}
+
+func TestEmitAnswerDocumentV2_MaterializesSourceInventorySurfaceTermsForPrincipalItem(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Index",
+				Key:           "Index",
+				SupportRef:    "Index: internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:6",
+				SurfaceTerms:  []string{"@Entry", "@Component"},
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+				Line:          6,
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "entry_list",
+			"kind": "ordered_list",
+			"surface_role": "principal",
+			"items": [{
+				"id": "e1",
+				"label": "Index",
+				"text": "minimal page entry",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			"line": 6
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 {
+		t.Fatalf("document not written: %+v", doc)
+	}
+	got := doc.Blocks[0].Items[0].Text
+	for _, want := range []string{"@Entry", "@Component"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("source-inventory surface term %q was not materialized into %q", want, got)
+		}
+	}
+	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) != 0 {
+		t.Fatalf("materialized source-inventory labels should clear model surface-term hints, got %+v", hints)
+	}
+}
+
 func TestEmitAnswerDocumentV2_AcceptsPreservedModelSurfaceTerm(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Mutable.AppendEvidence([]types.EvidenceItem{{

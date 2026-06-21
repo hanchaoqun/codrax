@@ -23,16 +23,17 @@ import (
 )
 
 type sourceInventoryCandidate struct {
-	member     string
-	key        string
-	supportRef string
-	note       string
-	role       types.AnswerCandidateRole
-	exported   bool
-	file       string
-	line       int
-	language   string
-	attributes []sourceInventoryCandidate
+	member       string
+	key          string
+	supportRef   string
+	note         string
+	surfaceTerms []string
+	role         types.AnswerCandidateRole
+	exported     bool
+	file         string
+	line         int
+	language     string
+	attributes   []sourceInventoryCandidate
 }
 
 type sourceInventoryCandidateSet struct {
@@ -1627,28 +1628,30 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 			attrs := make([]types.SourceInventoryAdvisoryAttribute, 0, len(candidate.attributes))
 			for _, attr := range candidate.attributes {
 				attrs = append(attrs, types.SourceInventoryAdvisoryAttribute{
-					Member:     attr.member,
-					Key:        attr.key,
-					SupportRef: attr.supportRef,
-					Note:       sourceInventoryCandidateNote(attr),
-					Role:       attr.role,
-					Exported:   attr.exported,
-					File:       attr.file,
-					Line:       attr.line,
-					Language:   attr.language,
+					Member:       attr.member,
+					Key:          attr.key,
+					SupportRef:   attr.supportRef,
+					Note:         sourceInventoryCandidateNote(attr),
+					SurfaceTerms: sourceInventoryCandidateSurfaceTerms(attr),
+					Role:         attr.role,
+					Exported:     attr.exported,
+					File:         attr.file,
+					Line:         attr.line,
+					Language:     attr.language,
 				})
 			}
 			advisorySet.Candidates = append(advisorySet.Candidates, types.SourceInventoryAdvisoryCandidate{
-				Member:     candidate.member,
-				Key:        candidate.key,
-				SupportRef: candidate.supportRef,
-				Note:       sourceInventoryCandidateNote(candidate),
-				Role:       candidate.role,
-				Exported:   candidate.exported,
-				File:       candidate.file,
-				Line:       candidate.line,
-				Language:   candidate.language,
-				Attributes: attrs,
+				Member:       candidate.member,
+				Key:          candidate.key,
+				SupportRef:   candidate.supportRef,
+				Note:         sourceInventoryCandidateNote(candidate),
+				SurfaceTerms: sourceInventoryCandidateSurfaceTerms(candidate),
+				Role:         candidate.role,
+				Exported:     candidate.exported,
+				File:         candidate.file,
+				Line:         candidate.line,
+				Language:     candidate.language,
+				Attributes:   attrs,
 			})
 		}
 		advisory.Sets = append(advisory.Sets, advisorySet)
@@ -3172,7 +3175,7 @@ func sourceInventoryGoStringEnumCandidates(ctx *types.BusContext, graph *repotyp
 		if sym != nil {
 			exported = sym.Exported
 		}
-		note := sourceInventoryCandidateNoteFromGraph(sym, sourceInventoryGraphLanguageForFile(graph, info.file))
+		note, surfaceTerms := sourceInventoryCandidateNoteAndSurfaceTermsFromGraph(sym, sourceInventoryGraphLanguageForFile(graph, info.file))
 		if note == "" {
 			note = info.note
 		}
@@ -3185,15 +3188,16 @@ func sourceInventoryGoStringEnumCandidates(ctx *types.BusContext, graph *repotyp
 		}
 		seen[key] = true
 		set.candidates = append(set.candidates, sourceInventoryCandidate{
-			member:     name,
-			key:        key,
-			supportRef: name + ": " + aggregateSupportLocationKey(info.file, info.line),
-			note:       note,
-			role:       types.AnswerCandidateRoleType,
-			exported:   exported,
-			file:       info.file,
-			line:       info.line,
-			language:   "go",
+			member:       name,
+			key:          key,
+			supportRef:   name + ": " + aggregateSupportLocationKey(info.file, info.line),
+			note:         note,
+			surfaceTerms: surfaceTerms,
+			role:         types.AnswerCandidateRoleType,
+			exported:     exported,
+			file:         info.file,
+			line:         info.line,
+			language:     "go",
 		})
 	}
 	sourceInventorySortCandidates(set.candidates)
@@ -3658,48 +3662,6 @@ func sourceInventoryGraphFileDirs(file string) []string {
 		out = append(out, strings.Join(parts[:i+1], "/"))
 	}
 	return out
-}
-
-func sourceInventoryCandidateForSymbol(sym *repotypes.Symbol, role types.AnswerCandidateRole, graph *repotypes.Graph) sourceInventoryCandidate {
-	language := sourceInventoryGraphLanguageForFile(graph, sym.File)
-	key := aggregateMemberKey(sym.Name)
-	if role == types.AnswerCandidateRoleRoute {
-		// Route names are "<VERB> <path>"; the shared symbol-tail
-		// canonicaliser keys on the first whitespace field, which
-		// would collapse every GET route to "get". Key routes on the
-		// whitespace-collapsed lowercased full name — local to route
-		// candidates, the shared canonicaliser stays untouched.
-		key = strings.ToLower(strings.Join(strings.Fields(sym.Name), " "))
-	}
-	return sourceInventoryCandidate{
-		member:     strings.TrimSpace(sym.Name),
-		key:        key,
-		supportRef: strings.TrimSpace(sym.Name) + ": " + aggregateSupportLocationKey(sym.File, sym.Line),
-		note:       sourceInventoryCandidateNoteFromGraph(sym, language),
-		role:       role,
-		exported:   sym.Exported,
-		file:       sym.File,
-		line:       sym.Line,
-		language:   language,
-	}
-}
-
-func sourceInventoryCandidateNote(candidate sourceInventoryCandidate) string {
-	return sourceInventoryCompactNote(candidate.note)
-}
-
-func sourceInventoryCandidateNoteFromGraph(sym *repotypes.Symbol, language string) string {
-	if sym == nil {
-		return ""
-	}
-	note := sourceInventoryCompactNote(sym.Doc)
-	if strings.HasPrefix(strings.TrimSpace(note), "@") {
-		return "surface=" + note
-	}
-	if !sourceInventoryGraphDocDescribesSymbol(note, sym.Name, language) {
-		return ""
-	}
-	return note
 }
 
 func sourceInventoryGraphLanguageForFile(graph *repotypes.Graph, file string) string {

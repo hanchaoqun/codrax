@@ -5638,6 +5638,12 @@ type BusContext struct {
 	// prompt text or node ids.
 	ExploreDispatchKind TaskNodeType `json:"-"`
 
+	// ExploreToolSurface is a scheduler-owned tool capability slice for this
+	// focused explorer dispatch. Unlike ExploreDispatchKind, this field is
+	// explicitly allowed to drive tool schema filtering and runtime tool-call
+	// boundary checks because it is a typed execution contract, not UI metadata.
+	ExploreToolSurface ExploreToolSurface `json:"-"`
+
 	// CompletionOnlySurface marks the one bounded completion-obligation
 	// dispatch the read scheduler grants when the explore loop drained
 	// its budget without an accepted emit_investigation_complete while
@@ -5926,6 +5932,10 @@ type AgentContext struct {
 	// ExploreDispatchKind mirrors BusContext.ExploreDispatchKind for
 	// render-only activity labels. It must not drive evaluator behavior.
 	ExploreDispatchKind TaskNodeType `json:"-"`
+
+	// ExploreToolSurface mirrors BusContext.ExploreToolSurface for scheduler-
+	// owned tool schema filtering and runtime boundary checks.
+	ExploreToolSurface ExploreToolSurface `json:"-"`
 
 	// CompletionOnlySurface mirrors BusContext.CompletionOnlySurface
 	// for the explorer's tool-schema filter (emit-only completion

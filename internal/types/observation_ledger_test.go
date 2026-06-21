@@ -566,6 +566,7 @@ func TestCompileObservationLedger_SourceInventoryObservation(t *testing.T) {
 					Name:          "Run",
 					Key:           "Run",
 					SupportRef:    "Run: src/run.py:7",
+					SurfaceTerms:  []string{"@Entry", "@Component"},
 					Role:          AnswerCandidateRoleFunction,
 					File:          "src/run.py",
 					Line:          7,
@@ -575,6 +576,7 @@ func TestCompileObservationLedger_SourceInventoryObservation(t *testing.T) {
 						Name:          "build",
 						Key:           "build",
 						SupportRef:    "build: src/run.py:11",
+						SurfaceTerms:  []string{"@Builder"},
 						Role:          AnswerCandidateRoleFunction,
 						File:          "src/run.py",
 						Line:          11,
@@ -598,10 +600,16 @@ func TestCompileObservationLedger_SourceInventoryObservation(t *testing.T) {
 		member.AnchorKind != AnchorDefinition || member.GroundingPolicy != ClaimGroundingRepairable {
 		t.Fatalf("member observation should preserve exact mechanical location: %+v", member)
 	}
+	if strings.Join(member.SurfaceTerms, ",") != "@Entry,@Component" {
+		t.Fatalf("member surface terms should be preserved: %+v", member.SurfaceTerms)
+	}
 	attr := findObservationRecord(t, ledger, "source_inventory:0:0:attr:0")
 	if attr.Object != "build" || len(attr.RichNotes) == 0 ||
 		!strings.Contains(strings.Join(attr.RichNotes, " "), "one_of_many_candidate_attributes") {
 		t.Fatalf("attribute ambiguity should be preserved: %+v", attr)
+	}
+	if strings.Join(attr.SurfaceTerms, ",") != "@Builder" {
+		t.Fatalf("attribute surface terms should be preserved: %+v", attr.SurfaceTerms)
 	}
 	if len(rowSets) != 0 {
 		t.Fatalf("single-row source inventory should not create row set refs: %+v", rowSets)

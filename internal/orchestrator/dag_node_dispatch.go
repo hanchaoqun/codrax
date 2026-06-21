@@ -248,6 +248,59 @@ func exploreWindowDispatchGroups(ctx *types.BusContext, window []*types.TaskNode
 	return [][]*types.TaskNode{cp}
 }
 
+// sourceInventoryLensFirstWindow returns a lens-only dispatch window when the
+// typed source-inventory profile is active and no executable lens observation
+// has run yet. This keeps the source-inventory probe load-bearing without
+// adding a runtime DAG node: the compiler already authored the optional probe,
+// and the scheduler merely prioritizes that typed node before broad evidence
+// reads can become the first investigation surface.
+func sourceInventoryLensFirstWindow(window []*types.TaskNode, profileActive, lensExecuted bool) []*types.TaskNode {
+	if !profileActive || lensExecuted || len(window) == 0 {
+		return nil
+	}
+	var lens []*types.TaskNode
+	for _, n := range window {
+		if sourceInventoryLensProbeNode(n) {
+			lens = append(lens, n)
+		}
+	}
+	if len(lens) == 0 || len(lens) == len(window) {
+		return nil
+	}
+	return lens
+}
+
+func sourceInventoryLensProbeOnlyWindow(window []*types.TaskNode) bool {
+	if len(window) == 0 {
+		return false
+	}
+	for _, n := range window {
+		if !sourceInventoryLensProbeNode(n) {
+			return false
+		}
+	}
+	return true
+}
+
+func exploreToolSurfaceForWindow(window []*types.TaskNode) types.ExploreToolSurface {
+	if sourceInventoryLensProbeOnlyWindow(window) {
+		return types.ExploreToolSurfaceSourceInventoryLens
+	}
+	return types.ExploreToolSurfaceDefault
+}
+
+func sourceInventoryLensProbeNode(n *types.TaskNode) bool {
+	if n == nil || n.Type != types.NodeProbe {
+		return false
+	}
+	for _, c := range n.EntryConditions {
+		if c.Kind == types.CritSourceInventoryLensMissing {
+			return true
+		}
+	}
+	return false
+}
+
 func shouldKeepCoupledExploreWindowUnified(ctx *types.BusContext, window []*types.TaskNode) bool {
 	if exploreEvidenceNodeCount(window) < 2 || ctx == nil || ctx.AnalysisIR == nil {
 		return false

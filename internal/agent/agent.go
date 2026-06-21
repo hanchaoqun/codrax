@@ -4997,6 +4997,7 @@ func isAnalyzerStageAllowedTool(name string) bool {
 }
 
 const explorerRestrictedToolSurfaceCode = "explorer_restricted_tool_surface"
+const explorerSourceInventoryLensSurfaceCode = "explorer_source_inventory_lens_surface"
 const explorerTraceQueryFirstCode = "explorer_trace_query_first"
 const explorerTraceQuerySufficientRuntimeEvidenceCode = "explorer_trace_query_sufficient_runtime_evidence"
 const unavailableToolSurfaceCode = "unavailable_tool_surface"
@@ -5006,6 +5007,9 @@ func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc ll
 		return nil
 	}
 	explorerEval, ok := eval.(*explorerEvaluator)
+	if violation := validateExplorerSourceInventoryLensToolCall(ctx, explorerEval, tc); violation != nil {
+		return violation
+	}
 	if !ok || explorerEval == nil || explorerEval.investigationComplete {
 		return nil
 	}
@@ -5021,6 +5025,51 @@ func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc ll
 		Success:   false,
 		Summary:   reason,
 		Repair:    &types.ToolRepair{Code: explorerRestrictedToolSurfaceCode, Hint: reason},
+		Timestamp: time.Now(),
+	}
+}
+
+func sourceInventoryLensToolSurface() map[string]bool {
+	return map[string]bool{
+		"repo_map":                    true,
+		"emit_evidence":               true,
+		"emit_investigation_complete": true,
+	}
+}
+
+func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *explorerEvaluator, tc llm.ToolCall) *types.ToolResult {
+	if ctx == nil || ctx.Stage != types.StageExplore || !ctx.ExploreToolSurface.IsSourceInventoryLens() {
+		return nil
+	}
+	if eval != nil && eval.sourceInventoryLensSurfaceReleased {
+		return nil
+	}
+	name := strings.TrimSpace(tc.Name)
+	switch name {
+	case "repo_map":
+		if analyzerRepoMapSourceInventoryView(tc.Params) {
+			return nil
+		}
+		return rejectExplorerSourceInventoryLensTool(ctx, tc, "repo_map must use view=\"source_inventory\" in this scheduler-owned lens probe")
+	case "emit_evidence", "emit_investigation_complete":
+		return nil
+	default:
+		return rejectExplorerSourceInventoryLensTool(ctx, tc,
+			fmt.Sprintf("tool %q is outside this scheduler-owned source-inventory lens probe; available tools here: emit_evidence, emit_investigation_complete, repo_map(view=\"source_inventory\")", name))
+	}
+}
+
+func rejectExplorerSourceInventoryLensTool(ctx *types.AgentContext, tc llm.ToolCall, reason string) *types.ToolResult {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "this scheduler-owned source-inventory lens probe is restricted to repo_map(view=\"source_inventory\") and completion tools"
+	}
+	logging.Warning("[explorer] tool %q rejected by source-inventory lens surface: %s", tc.Name, reason)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   reason,
+		Repair:    &types.ToolRepair{Code: explorerSourceInventoryLensSurfaceCode, Hint: reason},
 		Timestamp: time.Now(),
 	}
 }

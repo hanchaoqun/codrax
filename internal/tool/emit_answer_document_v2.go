@@ -253,7 +253,13 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		}
 	}
 	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
-		logSoftPreEmitAdvisory(toolName, "model-emitted surface_terms", hints)
+		if fixed := materializeRequiredModelSurfaceTerms(doc, ctx); fixed > 0 {
+			logging.Warning("[emit_answer_document] materialized required model surface_terms into %d principal item(s)", fixed)
+			hints = preCheckModelSurfaceTerms(doc, ctx)
+		}
+		if len(hints) > 0 {
+			logSoftPreEmitAdvisory(toolName, "model-emitted surface_terms", hints)
+		}
 	}
 
 	// v3 B4 (2026-05-04): route the full-emit write through the

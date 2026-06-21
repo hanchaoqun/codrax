@@ -6334,10 +6334,117 @@ func preCheckModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	return hints
 }
 
+func materializeRequiredModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil {
+		return 0
+	}
+	evidence := modelSurfaceTermEvidence(ctx)
+	if len(evidence) == 0 {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		if block.Kind != types.BlockOrderedList && block.Kind != types.BlockBulletList && block.Kind != types.BlockTable {
+			continue
+		}
+		if block.Kind == types.BlockTable && strings.TrimSpace(block.Text) != "" {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			cite := doc.Citations[item.CitationRef]
+			missing := missingSurfaceTermsForItem(*item, cite, evidence)
+			required := requiredVisibleSurfaceTermsForItem(missing)
+			if len(required) == 0 {
+				continue
+			}
+			if materializeSurfaceTermsIntoItem(item, required) {
+				fixed++
+			}
+		}
+	}
+	return fixed
+}
+
+func requiredVisibleSurfaceTermsForItem(terms []string) []string {
+	if len(terms) == 0 {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, raw := range terms {
+		term := strings.TrimSpace(raw)
+		if term == "" || surfaceTermLooksLikePathOrFilename(term) {
+			continue
+		}
+		key := strings.ToLower(term)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, term)
+	}
+	return out
+}
+
+func surfaceTermLooksLikePathOrFilename(term string) bool {
+	term = strings.TrimSpace(strings.Trim(term, "`'\""))
+	if term == "" {
+		return false
+	}
+	if types.SurfaceTermLooksLikeSourcePathReference(term) {
+		return true
+	}
+	term = strings.ReplaceAll(term, `\`, `/`)
+	if strings.Contains(term, "/") {
+		return filepath.Ext(term) != ""
+	}
+	ext := filepath.Ext(term)
+	return ext != "" && types.IsCodeOrConfigPathExtension(ext)
+}
+
+func materializeSurfaceTermsIntoItem(item *types.AnswerBlockItem, terms []string) bool {
+	if item == nil || len(terms) == 0 {
+		return false
+	}
+	suffix := "source labels: " + strings.Join(terms, ", ")
+	if len(item.Cells) > 0 {
+		idx := len(item.Cells) - 1
+		item.Cells[idx] = appendSurfaceTermSuffix(item.Cells[idx], suffix)
+		return true
+	}
+	item.Text = appendSurfaceTermSuffix(item.Text, suffix)
+	return true
+}
+
+func appendSurfaceTermSuffix(text, suffix string) string {
+	text = strings.TrimSpace(text)
+	suffix = strings.TrimSpace(suffix)
+	if suffix == "" {
+		return text
+	}
+	if text == "" {
+		return suffix
+	}
+	trimmed := strings.TrimRight(text, " \t\r\n.")
+	if strings.Contains(strings.ToLower(trimmed), strings.ToLower(suffix)) {
+		return text
+	}
+	return trimmed + "; " + suffix
+}
+
 func modelSurfaceTermEvidence(ctx *types.BusContext) []types.EvidenceItem {
 	var pool []types.EvidenceItem
 	if ctx != nil && ctx.Mutable != nil {
 		pool = append(pool, ctx.Mutable.EmittedEvidence()...)
+		pool = append(pool, sourceInventorySurfaceTermEvidence(types.SourceInventoryObservationFromMutable(ctx.Mutable))...)
 	}
 	if ctx != nil {
 		pool = append(pool, ctx.EvidenceItems...)
@@ -6345,7 +6452,10 @@ func modelSurfaceTermEvidence(ctx *types.BusContext) []types.EvidenceItem {
 	out := make([]types.EvidenceItem, 0, len(pool))
 	seen := make(map[string]bool, len(pool))
 	for _, ev := range pool {
-		if ev.Producer != EmitEvidenceProducer || len(ev.SurfaceTerms) == 0 {
+		if len(ev.SurfaceTerms) == 0 {
+			continue
+		}
+		if ev.Producer != EmitEvidenceProducer && ev.Producer != "source_inventory_observation" {
 			continue
 		}
 		key := ev.ID
@@ -6357,6 +6467,56 @@ func modelSurfaceTermEvidence(ctx *types.BusContext) []types.EvidenceItem {
 		}
 		seen[key] = true
 		out = append(out, ev)
+	}
+	return out
+}
+
+func sourceInventorySurfaceTermEvidence(observation types.SourceInventoryObservation) []types.EvidenceItem {
+	if !observation.IsActive() {
+		return nil
+	}
+	var out []types.EvidenceItem
+	add := func(id string, memberName string, source string, line int, terms []string) {
+		source = strings.TrimSpace(source)
+		if source == "" || len(terms) == 0 {
+			return
+		}
+		surfaceTerms := requiredVisibleSurfaceTermsForItem(terms)
+		if len(surfaceTerms) == 0 {
+			return
+		}
+		memberName = strings.TrimSpace(memberName)
+		out = append(out, types.EvidenceItem{
+			ID:           id,
+			Producer:     "source_inventory_observation",
+			Kind:         types.EvidenceDirect,
+			Source:       source,
+			LineStart:    line,
+			LineEnd:      line,
+			Subject:      memberName,
+			AnchorSymbol: memberName,
+			SurfaceTerms: surfaceTerms,
+		})
+	}
+	for setIdx, set := range observation.Sets {
+		for memberIdx, member := range set.Members {
+			add(
+				fmt.Sprintf("source_inventory:%d:%d", setIdx, memberIdx),
+				member.Name,
+				member.File,
+				member.Line,
+				member.SurfaceTerms,
+			)
+			for attrIdx, attr := range member.Attributes {
+				add(
+					fmt.Sprintf("source_inventory:%d:%d:attr:%d", setIdx, memberIdx, attrIdx),
+					attr.Name,
+					attr.File,
+					attr.Line,
+					attr.SurfaceTerms,
+				)
+			}
+		}
 	}
 	return out
 }

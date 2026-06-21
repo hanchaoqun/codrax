@@ -16,13 +16,14 @@ func TestSourceInventoryObservationFromAdvisory_NormalizesCountAndAmbiguity(t *t
 			Role:     AnswerCandidateRolePackage,
 			Complete: true,
 			Candidates: []SourceInventoryAdvisoryCandidate{{
-				Member:     "alpha",
-				Key:        "src/alpha",
-				SupportRef: "src/alpha",
-				File:       "src/alpha",
-				Language:   "python",
+				Member:       "alpha",
+				Key:          "src/alpha",
+				SupportRef:   "src/alpha",
+				SurfaceTerms: []string{"@Route"},
+				File:         "src/alpha",
+				Language:     "python",
 				Attributes: []SourceInventoryAdvisoryAttribute{
-					{Member: "run_alpha", Key: "run_alpha", SupportRef: "run_alpha: src/alpha/a.py:7", Role: AnswerCandidateRoleFunction, File: "src/alpha/a.py", Line: 7},
+					{Member: "run_alpha", Key: "run_alpha", SupportRef: "run_alpha: src/alpha/a.py:7", SurfaceTerms: []string{"@Entry"}, Role: AnswerCandidateRoleFunction, File: "src/alpha/a.py", Line: 7},
 					{Member: "build_alpha", Key: "build_alpha", SupportRef: "build_alpha: src/alpha/build.py:11", Role: AnswerCandidateRoleFunction, File: "src/alpha/build.py", Line: 11},
 				},
 			}},
@@ -40,8 +41,14 @@ func TestSourceInventoryObservationFromAdvisory_NormalizesCountAndAmbiguity(t *t
 	if member.CoverageState != SourceInventoryCoverageObserved {
 		t.Fatalf("member coverage = %q", member.CoverageState)
 	}
+	if strings.Join(member.SurfaceTerms, ",") != "@Route" {
+		t.Fatalf("member surface terms not preserved: %+v", member.SurfaceTerms)
+	}
 	if len(member.Attributes) != 2 {
 		t.Fatalf("attributes = %+v", member.Attributes)
+	}
+	if strings.Join(member.Attributes[0].SurfaceTerms, ",") != "@Entry" {
+		t.Fatalf("attribute surface terms not preserved: %+v", member.Attributes[0].SurfaceTerms)
 	}
 	for _, attr := range member.Attributes {
 		if attr.CoverageState != SourceInventoryCoverageAmbiguous ||

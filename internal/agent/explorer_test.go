@@ -4123,6 +4123,69 @@ func TestExplorer_FilterToolSchemas_CompletionReadyEscalatedStillAdvisory(t *tes
 	}
 }
 
+func TestExplorer_FilterToolSchemas_SourceInventoryLensSurface(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage:              types.StageExplore,
+		ExploreToolSurface: types.ExploreToolSurfaceSourceInventoryLens,
+	}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "repo_map,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("source-inventory lens surface should expose only repo_map plus completion tools, got %v", gotNames)
+	}
+
+	eval.observeSourceInventoryLensSurfaceProgress(ctx, LoopObservation{AllToolResults: []types.ToolResult{{
+		ToolName: "repo_map",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			Producer:  "repo_map",
+			Predicate: types.RepoMapNavigationObservationPredicate,
+			Value:     string(types.RepoMapNavigationRouteSourceInventory),
+		}},
+	}}})
+	got = eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,repo_map,exec_command,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("source-inventory lens surface should release after typed lens observation, got %v", gotNames)
+	}
+}
+
+func TestExplorer_BuildInitialInstruction_SourceInventoryLensSurface(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage:              types.StageExplore,
+		ExploreToolSurface: types.ExploreToolSurfaceSourceInventoryLens,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				},
+			},
+			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{"internal/agent/explorer.go"}},
+		},
+		RepoRoot: ".",
+	}
+
+	got := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{"Source Inventory Lens Probe", `repo_map`, `view="source_inventory"`, "Before that first lens result", "typed principal roles"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("source-inventory lens instruction missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Breadth Scan") {
+		t.Fatalf("lens-only dispatch must not render broad breadth-scan instructions:\n%s", got)
+	}
+}
+
 func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopNoEmitPushSent:  true,
@@ -4142,6 +4205,33 @@ func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T)
 	}
 	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_evidence", Params: json.RawMessage(`{}`)}); ok != nil {
 		t.Fatalf("emit_evidence should remain allowed, got %+v", ok)
+	}
+}
+
+func TestExplorer_RuntimeBoundary_SourceInventoryLensSurface(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage:              types.StageExplore,
+		ExploreToolSurface: types.ExploreToolSurfaceSourceInventoryLens,
+	}
+
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"view":"source_inventory"}`)}); got != nil {
+		t.Fatalf("source_inventory repo_map should be allowed, got %+v", got)
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"view":"task_map"}`)}); got == nil || got.Success {
+		t.Fatalf("wrong repo_map view should be rejected in lens surface, got %+v", got)
+	} else if got.Repair == nil || got.Repair.Code != explorerSourceInventoryLensSurfaceCode {
+		t.Fatalf("wrong repo_map view should carry source-inventory repair code, got %+v", got.Repair)
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"x"}`)}); got == nil || got.Success {
+		t.Fatalf("broad grep should be rejected in lens surface, got %+v", got)
+	}
+	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); ok != nil {
+		t.Fatalf("completion tool should remain available, got %+v", ok)
+	}
+	eval.sourceInventoryLensSurfaceReleased = true
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"x"}`)}); got != nil {
+		t.Fatalf("lens runtime boundary should release after typed lens observation, got %+v", got)
 	}
 }
 
