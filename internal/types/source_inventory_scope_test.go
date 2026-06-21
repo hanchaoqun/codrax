@@ -89,3 +89,33 @@ func TestIsTypedSourceEnumerationShape_SourceScopeBacksInventoryLane(t *testing.
 		t.Fatal("role lookup should not become a source-inventory lane")
 	}
 }
+
+func TestSourceInventoryRequiresRepoWideLens_TypedScopeOnly(t *testing.T) {
+	rm := RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRolePackage},
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeAll},
+	}
+	if !SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("repo-wide source inventory should require the root lens before narrowing")
+	}
+	rm.SourceScopeProfile.RequestedScope = SourceScopeUnknown
+	if !SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("explicit unknown source scope should prefer root inventory over RequiredFiles-derived narrowing")
+	}
+	rm.SourceScopeProfile = nil
+	if !SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("missing source-scope profile should prefer root inventory over analyzer RequiredFiles-derived narrowing")
+	}
+	rm.SourceScopeProfile = &SourceScopeProfile{RequestedScope: SourceScopeProduction}
+	rm.SourceScopeProfile.RequestedScope = SourceScopeProduction
+	if SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("production source scope may use bounded typed scopes")
+	}
+	rm.SourceInventoryProfile = nil
+	if SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("non-source-inventory requests must not activate root inventory policy")
+	}
+}

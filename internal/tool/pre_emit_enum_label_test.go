@@ -569,6 +569,10 @@ func TestPreCheckItemCitationAlignment_AggregateMemberSetPackageLabelRejectsCita
 		!strings.Contains(hints[0].ExpectedShape, "internal/analysis/findings_validator/validator.go:70") {
 		t.Fatalf("hint should name the drifting label, got %+v", hints[0])
 	}
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCitation, hints))
+	if len(hard) != 1 || len(advisory) != 0 {
+		t.Fatalf("principal item citation drift must be hard at pre-emit, hard=%+v advisory=%+v", hard, advisory)
+	}
 	if hints := preCheckEnumerationLabelGrounding(doc, &stubOracle{known: map[string]int{}}, ctx); hints != nil {
 		t.Fatalf("label grounding should not misclassify typed aggregate display labels as fabricated, got %v", hints)
 	}

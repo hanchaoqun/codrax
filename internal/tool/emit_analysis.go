@@ -1484,7 +1484,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(&rm); warning != "" {
+	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(&rm, raw, p.SourceInventoryProfile); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -1502,7 +1502,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}, nil
 }
 
-func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel) string {
+func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel, raw string, attempted *emitSourceInventoryProfileParam) string {
 	if rm == nil || rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
 		return ""
 	}
@@ -1526,10 +1526,27 @@ func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel)
 			types.SourceInventoryFieldLocation,
 			types.SourceInventoryFieldSummary,
 		},
-		Confidence: 0.45,
-		Rationale:  "synthesized from typed source-enumeration request shape",
+		SourceQuotes: sourceInventoryProfileRepairSourceQuotes(raw, attempted),
+		Confidence:   0.45,
+		Rationale:    "synthesized from typed source-enumeration request shape",
 	}
 	return "synthesized source_inventory_profile from typed source-enumeration request shape"
+}
+
+func sourceInventoryProfileRepairSourceQuotes(raw string, attempted *emitSourceInventoryProfileParam) []string {
+	if attempted == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, quote := range trimStringSlice(attempted.SourceQuotes) {
+		if !sourceQuotePresentInCurrentRequest(raw, quote) || seen[quote] {
+			continue
+		}
+		seen[quote] = true
+		out = append(out, quote)
+	}
+	return out
 }
 
 func recordExactTargetPrescanFindings(ctx *types.BusContext, rm types.RequestModel, seenBlob string) {

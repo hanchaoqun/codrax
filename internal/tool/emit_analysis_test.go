@@ -4192,6 +4192,71 @@ func TestEmitAnalysis_Execute_SynthesizesInventoryFromSourceScopeEnumeration(t *
 	}
 }
 
+func TestEmitAnalysis_SynthesizedInventoryPreservesValidatedSourceQuotesFromInvalidProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？")
+	tool := &EmitAnalysis{}
+	payload := withRequiredAnswerRoleProfile(`{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["extend", "foreign func", "public class"],
+		"entities": [],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.95,
+		"kind_confidence": 0.95,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"requested_fields": ["name", "location"],
+			"source_quotes": ["extend 块", "foreign func 声明", "public class", "not in request"],
+			"confidence": 0.95
+		}
+	}`)
+
+	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		t.Fatalf("typed enumeration should synthesize source inventory profile: %+v", rm)
+	}
+	got := strings.Join(rm.SourceInventoryProfile.SourceQuotes, "|")
+	for _, want := range []string{"extend 块", "foreign func 声明", "public class"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("synthesized source inventory lost validated source quote %q: %+v", want, rm.SourceInventoryProfile.SourceQuotes)
+		}
+	}
+	if strings.Contains(got, "not in request") {
+		t.Fatalf("synthesized source inventory kept unvalidated source quote: %+v", rm.SourceInventoryProfile.SourceQuotes)
+	}
+}
+
 func TestEmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

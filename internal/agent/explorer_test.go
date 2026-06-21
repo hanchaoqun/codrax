@@ -4186,6 +4186,48 @@ func TestExplorer_BuildInitialInstruction_SourceInventoryLensSurface(t *testing.
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_SourceInventoryLensSurfaceRepoWideUsesRootScope(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage:              types.StageExplore,
+		ExploreToolSurface: types.ExploreToolSurfaceSourceInventoryLens,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+				},
+				SourceScopeProfile: &types.SourceScopeProfile{
+					RequestedScope:              types.SourceScopeAll,
+					IncludeAuxiliaryAsPrincipal: true,
+				},
+			},
+			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+				"internal/tool/repomap/index/extract_cangjie.go",
+				"internal/tool/repomap/index/cangjie_parser.go",
+			}},
+		},
+		RepoRoot: ".",
+	}
+
+	got := eval.BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(got, "typed bounded scopes: `.`") {
+		t.Fatalf("repo-wide inventory lens should render root scope, got:\n%s", got)
+	}
+	if strings.Contains(got, "internal/tool/repomap/index") {
+		t.Fatalf("repo-wide inventory lens must not turn analyzer RequiredFiles into bounded scopes:\n%s", got)
+	}
+
+	ctx.AnalysisIR.RequestModel.SourceScopeProfile = nil
+	got = eval.BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(got, "typed bounded scopes: `.`") {
+		t.Fatalf("source-inventory without explicit source scope should render root scope, got:\n%s", got)
+	}
+	if strings.Contains(got, "internal/tool/repomap/index") {
+		t.Fatalf("source-inventory without explicit source scope must not turn analyzer RequiredFiles into bounded scopes:\n%s", got)
+	}
+}
+
 func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopNoEmitPushSent:  true,
@@ -4232,6 +4274,44 @@ func TestExplorer_RuntimeBoundary_SourceInventoryLensSurface(t *testing.T) {
 	eval.sourceInventoryLensSurfaceReleased = true
 	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"x"}`)}); got != nil {
 		t.Fatalf("lens runtime boundary should release after typed lens observation, got %+v", got)
+	}
+}
+
+func TestExplorer_RuntimeBoundary_SourceInventoryRepoWideLensRejectsNarrowScope(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage:              types.StageExplore,
+		ExploreToolSurface: types.ExploreToolSurfaceSourceInventoryLens,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeAll},
+		}},
+	}
+
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"view":"source_inventory","path":".","roles":["package"]}`)}); got != nil {
+		t.Fatalf("repo-wide root source_inventory lens should be allowed, got %+v", got)
+	}
+	got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"view":"source_inventory","path":"internal/tool/repomap/index","roles":["package"]}`)})
+	if got == nil || got.Success {
+		t.Fatalf("repo-wide source inventory must reject a narrow first-lens path, got %+v", got)
+	}
+	if got.Repair == nil || got.Repair.Code != explorerSourceInventoryLensScopeCode {
+		t.Fatalf("narrow repo-wide source inventory should carry scope repair code, got %+v", got.Repair)
+	}
+	if !strings.Contains(got.Summary, `path="."`) {
+		t.Fatalf("scope repair should name the root lens shape, got %q", got.Summary)
+	}
+
+	ctx.AnalysisIR.RequestModel.SourceScopeProfile = nil
+	got = validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"view":"source_inventory","scope":"internal/tool/repomap/index","roles":["package"]}`)})
+	if got == nil || got.Success {
+		t.Fatalf("source inventory without explicit source scope must reject a narrow first-lens scope, got %+v", got)
+	}
+	if got.Repair == nil || got.Repair.Code != explorerSourceInventoryLensScopeCode {
+		t.Fatalf("nil-scope narrow inventory should carry scope repair code, got %+v", got.Repair)
 	}
 }
 

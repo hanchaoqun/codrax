@@ -1955,6 +1955,19 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
+	} else if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, resultKind, effectiveAggregateFacts); downgrade != "" {
+		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_source_inventory_completion", preCompleteStart, len(preflight.Evidence))
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneSourceInventoryCompletion) {
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			}
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   downgrade,
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
 	} else if downgrade := sourceInventoryLensExecutionDowngrade(ctx, effectiveAggregateFacts); downgrade != "" {
 		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_source_inventory_lens", preCompleteStart, len(preflight.Evidence))
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneSourceInventoryLens) {
@@ -3675,6 +3688,131 @@ func sourceInventoryClassUniverseAbsenceDowngrade(ctx *types.BusContext, resultK
 	b.WriteString(summary + "\n\n")
 	b.WriteString("Run `repo_map` with `view=\"source_inventory\"` over the requested principal roles to prove the exact source-class universe (including any repo-owned corpus / fixture / thirdparty source files), then re-emit with a complete zero `member_set` or a bounded absence. A production-source no-hit does not by itself prove cross-class absence.\n")
 	return b.String()
+}
+
+func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKind string, aggregateFacts []types.AnswerAggregateFact) string {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(resultKind), "resolved") {
+		return ""
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	if profile == nil || !profile.Active() {
+		return ""
+	}
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	if !observation.IsActive() || !types.SourceInventoryLensExecuted(observation) {
+		return ""
+	}
+	if !sourceInventoryObservationResolvedCompletionIncomplete(observation) {
+		return ""
+	}
+	if SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts) {
+		return ""
+	}
+	roles := sourceInventoryLensExecutionRoleLabels(profile.PrincipalTargetRoles())
+	if len(roles) == 0 {
+		roles = sourceInventoryLensExecutionRoleLabels(sourceInventoryObservationRolesForCompletion(observation))
+	}
+	scopes := append([]string(nil), observation.Scopes...)
+	if len(scopes) == 0 {
+		scopes = []string{"."}
+	}
+	repoMapPath, repoMapScopes := sourceInventoryLensExecutionRepoMapCallShape(scopes)
+	nextCursor := sourceInventoryObservationNextCursor(observation)
+	subject := fmt.Sprintf("Continue the incomplete source-inventory lens with path=%q, view=\"source_inventory\", roles=[%s], scopes=[%s], include_counts=true, and include_attributes=false.",
+		repoMapPath, strings.Join(roles, ", "), sourceInventoryLensExecutionQuotedList(repoMapScopes))
+	if nextCursor != "" {
+		subject += " Use cursor=" + strconv.Quote(nextCursor) + " when paging the same lens."
+	}
+	rationale := "A resolved source-inventory closure was attempted while the typed inventory observation is incomplete or budget-truncated. Page or narrow the source_inventory lens by the missing typed family, then hand off a complete principal member_set or an explicit bounded-incomplete scope."
+	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:      types.RepairStructuredHandoff,
+		Tools:     []string{"repo_map"},
+		Subject:   subject,
+		Rationale: rationale,
+		Origin:    "pre_complete.source_inventory_completion",
+		Stage:     string(types.StageExplore),
+	})
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — source-inventory result is still incomplete for a resolved exhaustive answer.\n\n")
+	b.WriteString(sourceInventoryResolvedCompletionSummary(observation, profile) + "\n\n")
+	b.WriteString("Continue with the typed `repo_map(view=\"source_inventory\")` lens using the cursor or a narrower typed family/scope before closing as resolved. Do not replace an incomplete repo-wide inventory with a smaller fixture/support subtree unless the final handoff explicitly declares that bounded scope.\n")
+	return b.String()
+}
+
+func sourceInventoryObservationResolvedCompletionIncomplete(observation types.SourceInventoryObservation) bool {
+	if !observation.Complete {
+		return true
+	}
+	if observation.Execution != nil && observation.Execution.CandidateBudgetTruncated {
+		return true
+	}
+	if observation.Page != nil && !observation.Page.Complete {
+		return true
+	}
+	for _, set := range observation.Sets {
+		if !set.Complete {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryObservationRolesForCompletion(observation types.SourceInventoryObservation) []types.AnswerCandidateRole {
+	var roles []types.AnswerCandidateRole
+	seen := map[types.AnswerCandidateRole]bool{}
+	for _, set := range observation.Sets {
+		if set.Role == types.AnswerCandidateRoleUnknown || seen[set.Role] {
+			continue
+		}
+		seen[set.Role] = true
+		roles = append(roles, set.Role)
+	}
+	return roles
+}
+
+func sourceInventoryObservationNextCursor(observation types.SourceInventoryObservation) string {
+	if observation.Page == nil {
+		return ""
+	}
+	return strings.TrimSpace(observation.Page.NextCursor)
+}
+
+func sourceInventoryResolvedCompletionSummary(observation types.SourceInventoryObservation, profile *types.SourceInventoryProfile) string {
+	var parts []string
+	if summary := types.SourceInventorySourceClassSummary(observation.SourceClasses, 8); summary != "" {
+		parts = append(parts, "source_classes="+summary)
+	}
+	if profile != nil {
+		if roles := sourceInventoryLensExecutionRoleLabels(profile.PrincipalTargetRoles()); len(roles) > 0 {
+			parts = append(parts, "principal_roles="+strings.Join(roles, ","))
+		}
+	}
+	if !observation.Complete {
+		parts = append(parts, "observation_incomplete")
+	}
+	if observation.Execution != nil && observation.Execution.CandidateBudgetTruncated {
+		parts = append(parts, "candidate_budget_truncated")
+	}
+	if observation.Page != nil {
+		if !observation.Page.Complete {
+			parts = append(parts, "page_incomplete")
+		}
+		if observation.Page.NextCursor != "" {
+			parts = append(parts, "next_cursor="+observation.Page.NextCursor)
+		}
+	}
+	for _, set := range observation.Sets {
+		if !set.Complete {
+			parts = append(parts, fmt.Sprintf("role_%s_incomplete_count=%d", types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Count))
+		}
+	}
+	if len(parts) == 0 {
+		return "source_inventory=incomplete"
+	}
+	return strings.Join(parts, "; ")
 }
 
 func sourceInventoryLensExecutionDowngrade(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) string {

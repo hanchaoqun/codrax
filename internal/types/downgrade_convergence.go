@@ -16,6 +16,10 @@ const (
 	DowngradeLaneCurrentSourceLane DowngradeLane = "current_source_lane"
 	// DowngradeLaneSourceInventoryLens is the source-inventory lens-execution gate.
 	DowngradeLaneSourceInventoryLens DowngradeLane = "source_inventory_lens"
+	// DowngradeLaneSourceInventoryCompletion is the source-inventory completion
+	// gate: the lens ran, but the typed inventory universe is still incomplete
+	// or budget-truncated for a resolved exhaustive answer.
+	DowngradeLaneSourceInventoryCompletion DowngradeLane = "source_inventory_completion"
 	// DowngradeLaneSourceClassUniverse is the source-class-universe absence gate:
 	// a source-family exact absence declared while the typed source-class
 	// universe (production/test/fixture/corpus/thirdparty/...) is still open.

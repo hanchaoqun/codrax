@@ -264,6 +264,36 @@ func TestSubtopicCoherence_R1_3_SourceInventoryBasenameAliasesSatisfyPrimaryScop
 	}
 }
 
+func TestSubtopicCoherence_R1_3_SourceInventoryCategoryLabelsAreAdvisory(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"Cangjie", "ArkTS"},
+			Entities:        []string{"extend block", "foreign func", "public class"},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+			Confidence:        0.95,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "extend blocks", Entities: []string{"extend block"}},
+			{Summary: "foreign functions", Entities: []string{"foreign func"}},
+			{Summary: "public classes", Entities: []string{"public class"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil)
+	if !check.Passed {
+		t.Fatalf("source-inventory category labels must not hard-fail R1.3 as repo-symbol orphans; got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "source-inventory questions") {
+		t.Fatalf("detail should explain source-inventory category-label advisory; got %q", check.Detail)
+	}
+}
+
 func TestSubtopicCoherence_R1_3_SourceInventoryBasenameAliasIsStructuralNotArbitrary(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentEnumerate,
@@ -475,6 +505,40 @@ func TestSubtopicCoherence_R1_5_SourceInventoryFileAsymmetryIsAdvisory(t *testin
 	}
 	if !strings.Contains(check.Detail, "source-inventory questions") {
 		t.Fatalf("detail should explain source-inventory scoped planning advisory; got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_SourceInventoryCategoryLabelsAreAdvisory(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"public class": {{Canonical: "PublicClass", Domain: "fixtures"}},
+		},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"extend block", "foreign func", "public class"},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+			Confidence:        0.95,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "extend blocks", Entities: []string{"extend block"}},
+			{Summary: "foreign functions", Entities: []string{"foreign func"}},
+			{Summary: "public classes", Entities: []string{"public class"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if !check.Passed {
+		t.Fatalf("mixed resolver hit/miss on source-inventory category labels must be advisory; got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "source-inventory category labels") {
+		t.Fatalf("detail should explain category-label advisory; got %q", check.Detail)
 	}
 }
 

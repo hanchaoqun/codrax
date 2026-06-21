@@ -897,6 +897,91 @@ func TestRepoMapSourceInventoryRootTypedLaneProjectsAuxiliaryCorpus(t *testing.T
 	}
 }
 
+func TestRepoMapSourceInventoryRootTypedLaneSamplesSourceClassFamiliesBeforeBudget(t *testing.T) {
+	repo := t.TempDir()
+	files := map[string]string{
+		"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj":                             "package demo.cart\npublic class Cart {}\n",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj": "package demo.greeter\npublic class Greeter {}\n",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj":    "package demo.stringext\nextend String {\n    public func shout(): String { return this }\n}\n",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj":        "package demo.ffi\nforeign func native_add(a: Int64, b: Int64): Int64\n",
+		"internal/zzz_after_thirdparty/cangjie_extra/Noise.cj":                            "package demo.after\npublic class AfterNoise {}\n",
+	}
+	for rel, body := range files {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 48; i++ {
+		rel := fmt.Sprintf("internal/aaa/noise/noise_%02d.go", i)
+		body := fmt.Sprintf("package noise\n\n// Noise%02d mentions public class extend foreign func.\nfunc Noise%02d() {}\n", i, i)
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mut := types.NewMutableState("source inventory mixed source-class projection")
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleType,
+					types.AnswerCandidateRoleFunction,
+				},
+				SourceQuotes: []string{"extend 块", "foreign func 声明", "public class"},
+				Confidence:   0.95,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"query": "extend foreign func public class",
+		"scope": ".",
+		"roles": ["type", "function"],
+		"include_counts": true,
+		"include_attributes": false,
+		"top_n": 12
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"repo_lens:auxiliary_projection",
+		"source_classes:",
+		"fixture:1",
+		"thirdparty:3",
+		"`Greeter`",
+		"package=demo.greeter",
+		"`String`",
+		"package=demo.stringext",
+		"`native_add`",
+		"package=demo.ffi",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("mixed source-class source_inventory missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestRepoMapSourceInventoryNarrowAuxiliaryScopeProjectsCorpus(t *testing.T) {
 	repo := t.TempDir()
 	for rel, body := range map[string]string{

@@ -513,6 +513,85 @@ func TestPublishSourceInventoryObservationFromLens_PreservesGraphPackageAsRowAtt
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_ProjectsTypedConstructSurface(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "corpus/04_extend_operator.cj",
+		Language: "cangjie",
+		Package:  "demo.stringext",
+		Symbols: []repotypes.Symbol{{
+			Name:     "String",
+			Kind:     "extend",
+			File:     "corpus/04_extend_operator.cj",
+			Line:     6,
+			Exported: true,
+		}},
+	}, {
+		RelPath:  "corpus/07_foreign_ffi.cj",
+		Language: "cangjie",
+		Package:  "demo.ffi",
+		Symbols: []repotypes.Symbol{{
+			Name:     "native_add",
+			Kind:     "foreign-func",
+			File:     "corpus/07_foreign_ffi.cj",
+			Line:     6,
+			Exported: true,
+			Doc:      "foreign",
+		}},
+	}, {
+		RelPath:  "corpus/02_class_init_methods.cj",
+		Language: "cangjie",
+		Package:  "demo.greeter",
+		Symbols: []repotypes.Symbol{{
+			Name:     "Greeter",
+			Kind:     "class",
+			File:     "corpus/02_class_init_methods.cj",
+			Line:     4,
+			Exported: true,
+			Doc:      "public",
+		}},
+	}})
+	ctx := sourceInventoryTestContext("", graph, ".", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+		Confidence:        0.90,
+	})
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+		IncludeCounts: true,
+		TopN:          10,
+	})
+	rendered := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+		IncludeCounts: true,
+		TopN:          10,
+	})
+	for _, want := range []string{"extend String", "foreign func native_add", "public class Greeter", "demo.stringext", "demo.ffi", "demo.greeter"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("typed construct source_inventory surface missing %q:\n%s", want, rendered)
+		}
+	}
+
+	filtered := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:          ".",
+		Scopes:        []string{"."},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+		Query:         "foreign",
+		TopN:          10,
+	})
+	if len(filtered.Sets) != 1 || len(filtered.Sets[0].Members) != 1 ||
+		filtered.Sets[0].Members[0].Name != "native_add" ||
+		!containsString(filtered.Sets[0].Members[0].SurfaceTerms, "foreign func native_add") {
+		t.Fatalf("typed construct query should isolate foreign-func candidate, got %+v", filtered)
+	}
+}
+
 func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterialization(t *testing.T) {
 	files := make([]*repotypes.FileInfo, 0, sourceInventoryExecBudgetFileThreshold+100)
 	for i := 0; i < sourceInventoryExecBudgetFileThreshold+100; i++ {

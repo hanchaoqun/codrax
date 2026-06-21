@@ -418,6 +418,9 @@ func sourceInventoryLensScopeLabels(ctx *types.AgentContext) []string {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
+	if types.SourceInventoryRequiresRepoWideLens(ctx.AnalysisIR.RequestModel) {
+		return []string{"."}
+	}
 	files := types.BoundedSourceEnumerationScopeFiles(
 		ctx.AnalysisIR.RequestModel,
 		ctx.AnalysisIR.EvidencePlan.RequiredFiles,

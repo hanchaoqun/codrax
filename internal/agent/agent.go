@@ -4998,6 +4998,7 @@ func isAnalyzerStageAllowedTool(name string) bool {
 
 const explorerRestrictedToolSurfaceCode = "explorer_restricted_tool_surface"
 const explorerSourceInventoryLensSurfaceCode = "explorer_source_inventory_lens_surface"
+const explorerSourceInventoryLensScopeCode = "explorer_source_inventory_lens_scope"
 const explorerTraceQueryFirstCode = "explorer_trace_query_first"
 const explorerTraceQuerySufficientRuntimeEvidenceCode = "explorer_trace_query_sufficient_runtime_evidence"
 const unavailableToolSurfaceCode = "unavailable_tool_surface"
@@ -5048,6 +5049,9 @@ func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *
 	switch name {
 	case "repo_map":
 		if analyzerRepoMapSourceInventoryView(tc.Params) {
+			if reason, blocked := explorerSourceInventoryLensRootScopeViolation(ctx, tc.Params); blocked {
+				return rejectExplorerSourceInventoryLensToolWithCode(ctx, tc, explorerSourceInventoryLensScopeCode, reason)
+			}
 			return nil
 		}
 		return rejectExplorerSourceInventoryLensTool(ctx, tc, "repo_map must use view=\"source_inventory\" in this scheduler-owned lens probe")
@@ -5059,17 +5063,62 @@ func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *
 	}
 }
 
+func explorerSourceInventoryLensRootScopeViolation(ctx *types.AgentContext, params json.RawMessage) (string, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil ||
+		!types.SourceInventoryRequiresRepoWideLens(ctx.AnalysisIR.RequestModel) {
+		return "", false
+	}
+	var p struct {
+		Path   string   `json:"path,omitempty"`
+		Scope  string   `json:"scope,omitempty"`
+		Scopes []string `json:"scopes,omitempty"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return "", false
+	}
+	if !repoMapRootScopeSurface(p.Path) {
+		return "repo-wide source_inventory lens requires path=\".\" or omitted path; RequiredFiles are follow-up hints, not the principal inventory boundary", true
+	}
+	if !repoMapRootScopeSurface(p.Scope) {
+		return "repo-wide source_inventory lens requires scope=\".\" or omitted scope; run the first lens over the repository source universe before narrowing", true
+	}
+	for _, scope := range p.Scopes {
+		if !repoMapRootScopeSurface(scope) {
+			return "repo-wide source_inventory lens requires scopes=[\".\"] or omitted scopes; narrow only after the first typed universe observation", true
+		}
+	}
+	return "", false
+}
+
+func repoMapRootScopeSurface(raw string) bool {
+	s := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	if s == "" {
+		return true
+	}
+	s = strings.TrimPrefix(s, "./")
+	s = strings.Trim(s, "/")
+	return s == "" || s == "."
+}
+
 func rejectExplorerSourceInventoryLensTool(ctx *types.AgentContext, tc llm.ToolCall, reason string) *types.ToolResult {
+	return rejectExplorerSourceInventoryLensToolWithCode(ctx, tc, explorerSourceInventoryLensSurfaceCode, reason)
+}
+
+func rejectExplorerSourceInventoryLensToolWithCode(ctx *types.AgentContext, tc llm.ToolCall, code, reason string) *types.ToolResult {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		reason = "this scheduler-owned source-inventory lens probe is restricted to repo_map(view=\"source_inventory\") and completion tools"
+	}
+	code = strings.TrimSpace(code)
+	if code == "" {
+		code = explorerSourceInventoryLensSurfaceCode
 	}
 	logging.Warning("[explorer] tool %q rejected by source-inventory lens surface: %s", tc.Name, reason)
 	return &types.ToolResult{
 		ToolName:  tc.Name,
 		Success:   false,
 		Summary:   reason,
-		Repair:    &types.ToolRepair{Code: explorerSourceInventoryLensSurfaceCode, Hint: reason},
+		Repair:    &types.ToolRepair{Code: code, Hint: reason},
 		Timestamp: time.Now(),
 	}
 }

@@ -16,6 +16,11 @@ func sourceInventoryCandidateForSymbol(sym *repotypes.Symbol, role types.AnswerC
 		key = strings.ToLower(strings.Join(strings.Fields(sym.Name), " "))
 	}
 	note, surfaceTerms := sourceInventoryCandidateNoteAndSurfaceTermsFromGraph(sym, language)
+	if graph != nil && graph.FileIndex != nil {
+		if fi := graph.FileIndex[sym.File]; fi != nil {
+			note = sourceInventoryAppendCandidateNote(note, "package="+strings.TrimSpace(fi.Package))
+		}
+	}
 	return sourceInventoryCandidate{
 		member:       strings.TrimSpace(sym.Name),
 		key:          key,
@@ -65,7 +70,8 @@ func sourceInventoryCandidateNoteAndSurfaceTermsFromGraph(sym *repotypes.Symbol,
 		return "", nil
 	}
 	note := sourceInventoryCompactNote(sym.Doc)
-	if terms := sourceInventorySurfaceTermsFromGraphNote(note); len(terms) > 0 {
+	terms := append(sourceInventorySurfaceTermsFromGraphNote(note), sourceInventoryConstructSurfaceTerms(sym)...)
+	if terms = sourceInventoryDedupSurfaceTerms(terms); len(terms) > 0 {
 		return "surface=" + strings.Join(terms, " "), terms
 	}
 	if !sourceInventoryGraphDocDescribesSymbol(note, sym.Name, language) {

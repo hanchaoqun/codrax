@@ -1716,6 +1716,121 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryMemberSetDoes
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryResolvedRequiresCompleteInventory(t *testing.T) {
+	mut := types.NewMutableState("列出仓库里的 Cangjie extend / foreign func / public class")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		Provenance:   []string{"source_inventory_profile", "repo_lens:tool_query", "repo_lens:candidate_budget_truncated"},
+		Lens:         []string{"members", "symbols", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleProduction,
+			Count:    40,
+			Complete: true,
+		}, {
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    3,
+			Complete: true,
+		}},
+		Page: &types.SourceInventoryObservationPage{
+			Offset:     0,
+			Limit:      50,
+			Total:      120,
+			Emitted:    50,
+			NextCursor: "50",
+			Complete:   false,
+		},
+		Execution: &types.SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: false,
+			Count:    51,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "native_add",
+				Key:           "native_add",
+				SupportRef:    "native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+				Line:          6,
+				Language:      "cangjie",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleType,
+						types.AnswerCandidateRoleFunction,
+					},
+					Confidence: 0.95,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "fixture cangjie rows were verified",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "foreign func 声明",
+			"value":        "1",
+			"role":         "principal_answer",
+			"members":      []string{"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+			"support_refs": []string{"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, want := range []string{
+		"source-inventory result is still incomplete",
+		"candidate_budget_truncated",
+		"next_cursor=50",
+		"repo_map(view=\"source_inventory\")",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("source-inventory completion downgrade missing %q:\n%s", want, res.Summary)
+		}
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 {
+		t.Fatal("expected source-inventory completion repair directive")
+	}
+	last := repairs[len(repairs)-1]
+	if last.Kind != types.RepairStructuredHandoff ||
+		last.Origin != "pre_complete.source_inventory_completion" ||
+		!strings.Contains(last.Subject, "cursor=\"50\"") && !strings.Contains(last.Subject, "cursor=50") {
+		t.Fatalf("unexpected source-inventory completion repair directive: %+v", last)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("incomplete source-inventory observation must not close as resolved")
+	}
+	if facts := mut.StableInvestigationAggregateFacts(); len(facts) != 0 {
+		t.Fatalf("downgraded partial source-inventory facts must not become stable handoff facts, got %+v", facts)
+	}
+}
+
 func TestSourceInventoryLensExecutionRepoMapCallShapeNormalizesFileScopes(t *testing.T) {
 	path, scopes := sourceInventoryLensExecutionRepoMapCallShape([]string{"internal/tool/repomap/index/extract_arkts.go"})
 	if path != "internal/tool/repomap/index" || len(scopes) != 1 || scopes[0] != "extract_arkts.go" {

@@ -2826,25 +2826,25 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 		}
 	}
 	seen := map[string]bool{}
-	scanned := 0
 	scoped := 0
+	candidates := []sourceInventoryCandidate{}
+	scanTruncated := false
 	for _, sym := range symbolIndex.all {
 		if sym == nil || !sourceInventoryViewContainsFile(view, sym.File, scopes) || !scopeFilter.SourceInRequestedScope(sym.File) {
 			continue
 		}
 		scoped++
 		if queryFilter.Active() && budget.queryScanExceeded(scoped) {
-			sourceInventoryMarkCandidateBudgetTruncated(&set)
+			scanTruncated = true
 			break
 		}
 		if !queryFilter.Active() && budget.scanExceeded(scoped) {
-			sourceInventoryMarkCandidateBudgetTruncated(&set)
+			scanTruncated = true
 			break
 		}
 		if queryFilter.Active() && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
 			continue
 		}
-		scanned++
 		candidateRole, ok := aggregateAnswerCandidateRoleForSymbol(sym)
 		if !ok || candidateRole != role || answerDocumentSymbolMatchesExcludedRole(sym, excludedRoles) {
 			continue
@@ -2861,14 +2861,20 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 			continue
 		}
 		seen[key] = true
-		if budget.appendCandidate(&set, candidate, queryFilter) {
-			break
-		}
+		candidates = append(candidates, candidate)
+	}
+	selection := sourceInventorySelectCandidatesForBudget(candidates, budget)
+	set.total = selection.total
+	set.candidates = selection.candidates
+	if selection.partial {
+		set.complete = false
+	}
+	if scanTruncated || selection.truncated {
+		sourceInventoryMarkCandidateBudgetTruncated(&set)
 	}
 	if queryFilter.Active() && len(set.candidates) == 0 && budget.scanExceeded(scoped) {
 		sourceInventoryMarkCandidateBudgetTruncated(&set)
 	}
-	sourceInventorySortCandidates(set.candidates)
 	return set
 }
 
@@ -2928,8 +2934,10 @@ func sourceInventoryCandidateMatchesQuery(candidate sourceInventoryCandidate, fi
 		candidate.note,
 		string(candidate.role),
 	}
+	parts = append(parts, candidate.surfaceTerms...)
 	for _, attr := range candidate.attributes {
 		parts = append(parts, attr.member, attr.key, attr.note, string(attr.role))
+		parts = append(parts, attr.surfaceTerms...)
 	}
 	if len(filter.Tokens) == 0 {
 		return true

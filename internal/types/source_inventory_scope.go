@@ -53,6 +53,25 @@ func HasBoundedSourceEnumerationScope(rm RequestModel, requiredFiles []string, r
 	return BoundedSourceEnumerationCommonScope(files) != ""
 }
 
+// SourceInventoryRequiresRepoWideLens reports whether the typed request lacks
+// an explicit local source boundary, so the first source-inventory lens must
+// cover the repository source universe. RequiredFiles remain verification hints;
+// broad analyzer search candidates must not become the principal boundary.
+func SourceInventoryRequiresRepoWideLens(rm RequestModel) bool {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if rm.SourceScopeProfile == nil {
+		return true
+	}
+	switch rm.SourceScopeProfile.RequestedScope {
+	case SourceScopeAll, SourceScopeUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 func boundedSourceEnumerationPathAllowed(rm RequestModel, rel string) bool {
 	rel = strings.TrimSpace(strings.ReplaceAll(rel, `\`, `/`))
 	if rel == "" || rel == "." || strings.HasSuffix(rel, "/") {

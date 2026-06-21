@@ -167,6 +167,9 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 				if markerInventorySubtopicsSupportedByFiles(rm) {
 					softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.3 entity_orphan:", "R1.3 entity_orphan (advisory):", 1)+
 						" — marker/decorator inventory questions may decompose marker tokens into discovered file or function buckets; let exploration verify each bucket before forcing an analyzer rewrite")
+				} else if sourceInventoryCategorySubtopicsShouldBeAdvisory(rm) {
+					softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.3 entity_orphan:", "R1.3 entity_orphan (advisory):", 1)+
+						" — source-inventory questions may decompose requested category labels into sub-topics even when those labels are not repo symbol declarations; let the typed source-inventory lens prove or reject the categories")
 				} else if sourceInventorySubtopicsWithinPrimaryScope(rm) {
 					softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.3 entity_orphan:", "R1.3 entity_orphan (advisory):", 1)+
 						" — source-inventory questions may decompose the requested package/path into concrete file or directory planning anchors; let exploration verify those scoped anchors before forcing an analyzer rewrite")
@@ -279,6 +282,9 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			if markerInventorySubtopicsSupportedByFiles(rm) {
 				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
 					" — marker/decorator inventory questions may carry file or function buckets that are valid scoped search leads even when they are not symbol declarations; downstream evidence gates decide whether each marker exists")
+			} else if sourceInventoryCategorySubtopicsShouldBeAdvisory(rm) {
+				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
+					" — source-inventory category labels are candidate-universe axes, not necessarily declared repo symbols; downstream source-inventory evidence gates decide whether each category exists")
 			} else if sourceInventorySubtopicsWithinPrimaryScope(rm) {
 				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
 					" — source-inventory questions may carry directory/file planning anchors that are valid scoped search leads even when they are not symbol declarations; downstream evidence gates decide whether each anchor exists")
@@ -324,6 +330,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	if resolver != nil && nSub >= 2 && !rm.Predicates.IsCrossComponent &&
 		!attributeBearingEnumerationBypassesAxisCollapse(rm) &&
 		!markerInventorySubtopicsSupportedByFiles(rm) &&
+		!sourceInventoryCategorySubtopicsShouldBeAdvisory(rm) &&
 		(rm.Predicates.IsCategoryEnumeration || rm.Intent == types.IntentEnumerate) {
 		seen := make(map[string]bool)
 		for _, st := range rm.SubTopics {
@@ -618,6 +625,70 @@ func sourceInventorySubtopicsWithinPrimaryScope(rm types.RequestModel) bool {
 		}
 	}
 	return seen
+}
+
+func sourceInventoryCategorySubtopicsShouldBeAdvisory(rm types.RequestModel) bool {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() || len(rm.SubTopics) == 0 {
+		return false
+	}
+	if !types.IsTypedSourceEnumerationShape(rm) {
+		return false
+	}
+	if rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.Predicates.IsHistoryLookup {
+		return false
+	}
+	allowed := sourceInventoryCategoryLabelSet(rm)
+	if len(allowed) == 0 {
+		return false
+	}
+	seen := false
+	for _, st := range rm.SubTopics {
+		for _, entity := range st.Entities {
+			label := normalizeCoherenceCategoryLabel(entity)
+			if label == "" {
+				continue
+			}
+			seen = true
+			if !allowed[label] {
+				return false
+			}
+		}
+	}
+	return seen
+}
+
+func sourceInventoryCategoryLabelSet(rm types.RequestModel) map[string]bool {
+	out := map[string]bool{}
+	add := func(raw string) {
+		label := normalizeCoherenceCategoryLabel(raw)
+		if label != "" {
+			out[label] = true
+		}
+	}
+	for _, entity := range rm.AnalyzerHints.Entities {
+		add(entity)
+	}
+	if rm.SourceInventoryProfile != nil {
+		for _, quote := range rm.SourceInventoryProfile.SourceQuotes {
+			add(quote)
+		}
+	}
+	return out
+}
+
+func normalizeCoherenceCategoryLabel(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	raw = strings.Trim(raw, "`'\" ")
+	raw = strings.ToLower(raw)
+	replacer := strings.NewReplacer("-", " ", "_", " ", ".", " ", "(", " ", ")", " ", "[", " ", "]", " ")
+	raw = replacer.Replace(raw)
+	return strings.Join(strings.Fields(raw), " ")
 }
 
 func sourceInventoryCoherenceScopes(rm types.RequestModel) []string {
