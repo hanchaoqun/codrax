@@ -148,9 +148,11 @@ type yieldSnapshot struct {
 
 // nodeBlock carries a node's failed criteria into retry hints.
 type nodeBlock struct {
-	NodeID             string
-	FailedCriteria     []criterion.Result
-	DependencyBlockers []string
+	NodeID                 string
+	ReasonCode             nodeReadinessReason
+	FailedCriteria         []criterion.Result
+	DependencyBlockers     []string
+	FailedDependencyBlocks []string
 }
 
 func newGraphState(g types.TaskGraph) *graphState {
@@ -183,33 +185,23 @@ func (s *graphState) readyExplorerWindowContext(ctx context.Context, env criteri
 			return ready, blocked, err
 		}
 		n := &s.graph.Nodes[i]
-		if n.Type == types.NodeExtract || n.Type == types.NodeFinalize || n.IsCounterfactual {
+		readiness, err := s.evaluateNodeReadinessContext(ctx, n, env)
+		if err != nil {
+			return ready, blocked, err
+		}
+		if readiness.Ready {
+			ready = append(ready, n)
 			continue
 		}
-		st := s.nodeStatus(n.ID)
-		if st != nodePending && st != nodeRequeued {
+		if !readiness.Blocked {
 			continue
 		}
-		if blockers := s.hardDependencyBlockersForNode(n.ID); len(blockers) > 0 {
-			if !n.Optional {
-				dependencyBlocked = append(dependencyBlocked, nodeBlock{
-					NodeID:             n.ID,
-					DependencyBlockers: blockers,
-				})
-			}
+		nb := readiness.toNodeBlock()
+		if len(nb.DependencyBlockers) > 0 || len(nb.FailedDependencyBlocks) > 0 {
+			dependencyBlocked = append(dependencyBlocked, nb)
 			continue
 		}
-		if len(n.EntryConditions) > 0 {
-			ok, failed := criterion.EvalAll(n.EntryConditions, env)
-			if !ok {
-				if n.Optional {
-					continue
-				}
-				blocked = append(blocked, nodeBlock{NodeID: n.ID, FailedCriteria: failed})
-				continue
-			}
-		}
-		ready = append(ready, n)
+		blocked = append(blocked, nb)
 	}
 	sort.SliceStable(ready, func(i, j int) bool {
 		return declOrder(s.graph, ready[i].ID) < declOrder(s.graph, ready[j].ID)

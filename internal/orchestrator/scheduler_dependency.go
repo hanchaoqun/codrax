@@ -8,26 +8,30 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func (s *graphState) hardDependencyBlockersForNode(nodeID string) []string {
+func (s *graphState) hardDependencyPredecessorStateForNode(nodeID string) (waiting []string, failed []string) {
 	if s == nil || strings.TrimSpace(nodeID) == "" {
-		return nil
+		return nil, nil
 	}
-	var blockers []string
 	seen := map[string]bool{}
 	for _, e := range s.graph.Edges {
 		if e.EdgeType != types.EdgeHardDependency || e.To != nodeID || strings.TrimSpace(e.From) == "" {
 			continue
 		}
-		if s.nodeStatus(e.From) == nodeDone {
+		status := s.nodeStatus(e.From)
+		if status == nodeDone {
 			continue
 		}
 		if seen[e.From] {
 			continue
 		}
 		seen[e.From] = true
-		blockers = append(blockers, e.From)
+		if status == nodeFailed {
+			failed = append(failed, e.From)
+			continue
+		}
+		waiting = append(waiting, e.From)
 	}
-	return blockers
+	return waiting, failed
 }
 
 func renderNodeBlocks(ctx context.Context, b *strings.Builder, blocks []nodeBlock) error {
@@ -36,6 +40,7 @@ func renderNodeBlocks(ctx context.Context, b *strings.Builder, blocks []nodeBloc
 	}
 	wroteEntryHeader := false
 	wroteDependencyHeader := false
+	wroteFailedDependencyHeader := false
 	for _, bk := range blocks {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -55,6 +60,13 @@ func renderNodeBlocks(ctx context.Context, b *strings.Builder, blocks []nodeBloc
 				wroteDependencyHeader = true
 			}
 			fmt.Fprintf(b, "  - %s: waiting for %s\n", bk.NodeID, strings.Join(bk.DependencyBlockers, ", "))
+		}
+		if len(bk.FailedDependencyBlocks) > 0 {
+			if !wroteFailedDependencyHeader {
+				b.WriteString("\nDependency gate: the following nodes are blocked by failed hard_dependency predecessors:\n")
+				wroteFailedDependencyHeader = true
+			}
+			fmt.Fprintf(b, "  - %s: failed predecessor %s\n", bk.NodeID, strings.Join(bk.FailedDependencyBlocks, ", "))
 		}
 	}
 	return nil

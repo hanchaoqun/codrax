@@ -125,12 +125,40 @@ func TestGraphState_ReadyWindowUsesClosureStatus(t *testing.T) {
 	}
 }
 
+func TestGraphState_NodeReadinessUsesTypedAuthority(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	closure := types.NewEvidenceClosure("")
+	s.attachEvidenceClosure(closure)
+	closure.SetNodeExecStatus("n0", types.NodeExecDone)
+	s.status = map[string]nodeStatus{"n0": nodePending}
+
+	readiness, err := s.evaluateNodeReadinessContext(context.Background(), &s.graph.Nodes[1], emptyEnv())
+	if err != nil {
+		t.Fatalf("evaluateNodeReadinessContext: %v", err)
+	}
+	if !readiness.Ready || readiness.ReasonCode != nodeReadinessReasonReady {
+		t.Fatalf("n1 should be ready from closure-backed status authority: %+v", readiness)
+	}
+	if readiness.Status != nodePending {
+		t.Fatalf("n1 status = %q, want pending", readiness.Status)
+	}
+}
+
 func TestGraphState_ReadyWindowContextCancelled(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, _, err := s.readyExplorerWindowContext(ctx, emptyEnv()); err == nil {
 		t.Fatal("readyExplorerWindowContext must report cancellation")
+	}
+}
+
+func TestGraphState_NodeReadinessCancelled(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.evaluateNodeReadinessContext(ctx, &s.graph.Nodes[0], emptyEnv()); err == nil {
+		t.Fatal("evaluateNodeReadinessContext must report cancellation")
 	}
 }
 
@@ -224,6 +252,10 @@ func TestGraphState_RequeueValidationTargets(t *testing.T) {
 	if s.nodeStatus("n0") != nodeDone {
 		t.Error("n0 (not a validation target) must stay done")
 	}
+	window, _ := s.readyExplorerWindow(emptyEnv())
+	if got := idsOf(window); strings.Join(got, ",") != "n1" {
+		t.Fatalf("validation-feedback requeue should make upstream evidence ready again, got %v", got)
+	}
 }
 
 func TestGraphState_ForceCloseExploreWindow(t *testing.T) {
@@ -291,7 +323,7 @@ func TestGraphState_EntryConditionBlocks(t *testing.T) {
 	}
 }
 
-func TestGraphState_HardDependencyBlockersSurfaceOnlyWhenNoReadyWindow(t *testing.T) {
+func TestGraphState_FailedHardDependencySurfacesOnlyWhenNoReadyWindow(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	s.markFailed("n0")
 	window, blocked := s.readyExplorerWindow(emptyEnv())
@@ -303,16 +335,64 @@ func TestGraphState_HardDependencyBlockersSurfaceOnlyWhenNoReadyWindow(t *testin
 	}
 	var found bool
 	for _, b := range blocked {
-		if b.NodeID == "n1" && strings.Join(b.DependencyBlockers, ",") == "n0" {
+		if b.NodeID == "n1" &&
+			b.ReasonCode == nodeReadinessReasonFailedDependency &&
+			strings.Join(b.FailedDependencyBlocks, ",") == "n0" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("blocked nodes should include n1 waiting for n0; got %+v", blocked)
+		t.Fatalf("blocked nodes should include n1 failed predecessor n0; got %+v", blocked)
 	}
 	hint := renderWindowHint(nil, blocked, nil, nil, "", "", nil)
-	if !strings.Contains(hint, "Dependency gate") || !strings.Contains(hint, "n1: waiting for n0") {
+	if !strings.Contains(hint, "failed hard_dependency predecessors") || !strings.Contains(hint, "n1: failed predecessor n0") {
 		t.Fatalf("dependency blockers should render as typed dependency gate, got:\n%s", hint)
+	}
+}
+
+func TestGraphState_NodeReadinessDistinguishesFailedHardDependency(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	s.markFailed("n0")
+	readiness, err := s.evaluateNodeReadinessContext(context.Background(), &s.graph.Nodes[1], emptyEnv())
+	if err != nil {
+		t.Fatalf("evaluateNodeReadinessContext: %v", err)
+	}
+	if !readiness.Blocked || readiness.ReasonCode != nodeReadinessReasonFailedDependency {
+		t.Fatalf("n1 should be blocked by failed predecessor: %+v", readiness)
+	}
+	if got := strings.Join(readiness.FailedPredecessors, ","); got != "n0" {
+		t.Fatalf("failed predecessors = %q, want n0", got)
+	}
+	if len(readiness.WaitingOn) != 0 {
+		t.Fatalf("failed predecessor must not be collapsed into waiting_on: %+v", readiness)
+	}
+}
+
+func TestGraphState_OptionalHardDependencyWaitStaysSilent(t *testing.T) {
+	g := smallChainGraph()
+	optional := types.TaskNode{
+		ID:       "n_opt_after_probe",
+		Type:     types.NodeProbe,
+		Optional: true,
+	}
+	g.Nodes = append([]types.TaskNode{optional}, g.Nodes...)
+	g.Edges = append(g.Edges, types.TaskEdge{From: "n0", To: "n_opt_after_probe", EdgeType: types.EdgeHardDependency})
+	s := newGraphState(g)
+	readiness, err := s.evaluateNodeReadinessContext(context.Background(), &s.graph.Nodes[0], emptyEnv())
+	if err != nil {
+		t.Fatalf("evaluateNodeReadinessContext: %v", err)
+	}
+	if !readiness.Skip || readiness.Blocked || readiness.ReasonCode != nodeReadinessReasonWaitingDependency {
+		t.Fatalf("optional dependency wait should skip silently, got %+v", readiness)
+	}
+	window, blocked := s.readyExplorerWindow(emptyEnv())
+	if got := idsOf(window); !strings.Contains(strings.Join(got, ","), "n0") {
+		t.Fatalf("root node should still be ready, got %v", got)
+	}
+	for _, b := range blocked {
+		if b.NodeID == "n_opt_after_probe" {
+			t.Fatalf("optional dependency wait must not surface as blocked noise: %+v", blocked)
+		}
 	}
 }
 
