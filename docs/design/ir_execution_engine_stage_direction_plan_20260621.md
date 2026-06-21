@@ -397,6 +397,24 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 - 每个失败都进入 ledger 的系统 gap，不允许只在聊天或临时日志里存在。
 - 对通过样本做人工正确性审计，不只看 harness PASS。
 
+### Batch D1-F1: Source-Inventory Routine-Path Noise Reduction
+
+Gap IDs:
+- D1-G1: Typed source-inventory lens is often executed late, after broad grep/read_file/list_files work or after completion rejection. This raises explorer iterations while correctness eventually recovers.
+- D1-G2: Read mode still allows broad repo-local file discovery through `exec_command find`, even when `list_files` / `repo_map(source_inventory)` are the typed tools for the requested lane.
+- D1-G3: Final answer surfaces repaired/audit-only enum caveats and deterministic system supplements after all requested members are directly grounded.
+
+Tasks:
+- Explore `SourceInventoryLensExecutionGapForContext`, `PublishSourceInventoryObservationFromTypedRequest`, source-inventory optional nodes, read retry hints, and final answer caveat materialization before editing.
+- Promote the existing typed source-inventory lens-execution gap earlier in the explore loop as a soft-but-load-bearing next-action hint: when active source-inventory profile has no executable lens evidence, guide the next tool call toward bounded `repo_map(view="source_inventory")` / `list_files` before broad shell/file reads.
+- Add a typed read-mode command-policy guard for repo-local file discovery commands that parse as broad `find`/shell path enumeration and have an equivalent structured tool. The guard must consume parsed command shape and active tool context, not user prose.
+- Split enum final-surface caveats into blocking/repaired/audit-only/displayable states. For complete member sets whose rows have direct read-file citations, suppress generic weak-evidence supplements and keep only real scope caveats.
+- Add tests proving exact source-inventory enumerations do not show generic weak evidence notes once direct citations cover every listed member.
+
+Validation:
+- Focused tests around source-inventory lens-execution preflight, `exec_command` broad file-discovery policy, and answer-document enum caveat suppression.
+- Rerun `eval/cases/harmony/arkts_repomap.case` and `eval/cases/harmony/cangjie_repomap_fixture.case`; target is not only PASS but lower explorer iterations, no broad `exec_command find`, and no generic weak-evidence caveat on fully grounded rows.
+
 ---
 
 ## 9. 规划进展 Ledger
@@ -411,7 +429,9 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 | 2026-06-21 | B2 Read run snapshot substrate | complete | Added typed `ReadRunSnapshot` projection/persistence plus `ReadRunSnapshotStore` under `<planDir>/read_runs/`. Snapshot carries TaskGraph identity, node exec statuses, read coverage, accepted-evidence refs, source-inventory authority, and progress decision from typed carriers only. Automatic resume remains explicitly out of batch. `go test ./internal/types ./internal/repl -run 'ReadRunSnapshot|EvidenceClosure.*Snapshot'` and `go test ./internal/types ./internal/repl` passed. |
 | 2026-06-21 | C1 Read loopkernel add-proof action cutover | complete | `LoopActionAddProof` is now the first read-side load-bearing loopkernel action: weak proof guidance selects a typed narrow proof follow-up continuation summary, while covered/continue proof emits no add-proof action and hard block/finish semantics remain unchanged. `go test ./internal/loopkernel ./internal/orchestrator -run 'ReadProofGuidance|ReadLoopShadow|ExploreTransientRetryCheckpoint|ReadLoopAddProof'` and `go test ./internal/loopkernel ./internal/orchestrator` passed. |
 | 2026-06-21 | C2 AnalyzeRefine optional node cutover | complete | Compiler now emits a bounded optional one-shot `NodeProbe` gated by typed `progress_replan_required`, with immutable `analysis_refinement_handoff` output. Scheduler behavior stays generic: it only consumes analyzer-authored optional topology and typed criterion env; no runtime DAG append, no prompt/prose hard routing, no new TaskNodeType. `go test ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator -run 'AnalyzeRefine|ProgressReplan|Optional|StageExpansion'` and full affected package tests passed. |
-| 2026-06-21 | D1 Source-inventory correctness eval intake | in_progress | Explored current source-class universe, repo-truth absence wrapper, bounded source-inventory kernel, convergence tripwire, ArkTS/Cangjie tool tests, and harmony eval cases. D1 will first run focused typed tests, then `arkts_repomap`, `cangjie_repomap`, and `cangjie_repomap_fixture`; any failure must be classified by scanner/lens/projection/gate/final-surface/eval-infra before code changes. |
+| 2026-06-21 | D1 Source-inventory correctness eval intake | complete | Explored current source-class universe, repo-truth absence wrapper, bounded source-inventory kernel, convergence tripwire, ArkTS/Cangjie tool tests, and harmony eval cases. Focused `go test ./internal/types ./internal/tool ./internal/tool/repomap ./internal/orchestrator -run 'SourceInventory|SourceClass|RepoMapSourceInventory|AbsenceRepoTruth|ClassUniverse|Convergence'` passed. |
+| 2026-06-21 | D1 Source-inventory correctness eval recheck | complete | `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/harmony/arkts_repomap.case eval/cases/harmony/cangjie_repomap.case eval/cases/harmony/cangjie_repomap_fixture.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/ir_engine_d1_source_inventory_20260621_summary.md bash eval/convergence_audit.sh` passed 3/3. Fresh evidence closes the stale "repo_map=0/advisory" failure label, but not the routine-path UX/perf gap: `arkts_repomap` took 305s, 14 explorer iterations, 6 midloop injections, 7 reads, 3 list_files, and displayed a generic weak-evidence caveat; `cangjie_repomap` took 16 explorer iterations, 8 midloop injections, and used broad `exec_command find`; `cangjie_repomap_fixture` passed but still showed generic weak-evidence caveat after direct citations. |
+| 2026-06-21 | D1-F1 source-inventory routine-path noise reduction | planned | Follow-up split from D1: earlier typed source-inventory next-action guidance, broad file-discovery shell guard, and final enum caveat severity split. Must be implemented before treating D2 as a clean commercial baseline. |
 
 ---
 
