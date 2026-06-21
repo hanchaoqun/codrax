@@ -16,6 +16,7 @@ func TestBuildAgentContext(t *testing.T) {
 		PipelineStage:         types.StageExplore,
 		ActiveAgent:           types.AgentExplorer,
 		ExploreToolSurface:    types.ExploreToolSurfaceSourceInventoryLens,
+		ReadDispatchPolicy:    types.ReadDispatchPolicy{Active: true, Action: types.ReadDispatchPolicyActionAddProof, AllowedTools: []string{"read_file"}, OneShot: true},
 		RepoRoot:              "/tmp/repo",
 		Branch:                "main",
 		Commit:                "abc123",
@@ -54,6 +55,9 @@ func TestBuildAgentContext(t *testing.T) {
 		}
 		if ac.ExploreToolSurface != types.ExploreToolSurfaceSourceInventoryLens {
 			t.Errorf("ExploreToolSurface was not propagated")
+		}
+		if !ac.ReadDispatchPolicy.IsActive() || ac.ReadDispatchPolicy.Action != types.ReadDispatchPolicyActionAddProof {
+			t.Errorf("ReadDispatchPolicy was not propagated: %+v", ac.ReadDispatchPolicy)
 		}
 	})
 

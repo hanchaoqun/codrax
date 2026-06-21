@@ -4158,6 +4158,33 @@ func TestExplorer_FilterToolSchemas_SourceInventoryLensSurface(t *testing.T) {
 	}
 }
 
+func TestExplorer_FilterToolSchemas_ReadDispatchPolicy(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		ReadDispatchPolicy: types.ReadDispatchPolicy{
+			Active:       true,
+			Action:       types.ReadDispatchPolicyActionAddProof,
+			AllowedTools: []string{"run_tests", "read_file", "repo_map", "emit_evidence", "emit_investigation_complete"},
+			DeniedTools:  []string{"exec_command", "list_files"},
+			OneShot:      true,
+		},
+	}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,repo_map,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("read dispatch policy should expose allowed tool intersection, got %v", gotNames)
+	}
+}
+
 func TestExplorer_BuildInitialInstruction_SourceInventoryLensSurface(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
@@ -4250,6 +4277,27 @@ func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T)
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_ReadDispatchPolicy(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		ReadDispatchPolicy: types.ReadDispatchPolicy{
+			Active:         true,
+			Action:         types.ReadDispatchPolicyActionAddProof,
+			AllowedTools:   []string{"read_file", "emit_evidence"},
+			PreferredTools: []string{"run_tests"},
+			ScopePaths:     []string{"pkg/a.py"},
+			OneShot:        true,
+		},
+	}
+	got := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{"Read Dispatch Policy", "preferred tools", "run_tests", "proof scope paths", "pkg/a.py"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("read dispatch policy instruction missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestExplorer_RuntimeBoundary_SourceInventoryLensSurface(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
@@ -4274,6 +4322,35 @@ func TestExplorer_RuntimeBoundary_SourceInventoryLensSurface(t *testing.T) {
 	eval.sourceInventoryLensSurfaceReleased = true
 	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"x"}`)}); got != nil {
 		t.Fatalf("lens runtime boundary should release after typed lens observation, got %+v", got)
+	}
+}
+
+func TestExplorer_RuntimeBoundary_ReadDispatchPolicy(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		ReadDispatchPolicy: types.ReadDispatchPolicy{
+			Active:       true,
+			Action:       types.ReadDispatchPolicyActionAddProof,
+			AllowedTools: []string{"read_file", "emit_evidence", "emit_investigation_complete"},
+			DeniedTools:  []string{"exec_command", "list_files"},
+			ScopePaths:   []string{"pkg/a.py"},
+			OneShot:      true,
+		},
+	}
+
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"pkg/a.py"}`)}); got != nil {
+		t.Fatalf("read_file should be allowed by read dispatch policy, got %+v", got)
+	}
+	got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "exec_command", Params: json.RawMessage(`{"cmd":"find . -type f"}`)})
+	if got == nil || got.Success {
+		t.Fatalf("exec_command should be rejected by read dispatch policy, got %+v", got)
+	}
+	if got.Repair == nil || got.Repair.Code != explorerReadDispatchPolicyCode {
+		t.Fatalf("read dispatch rejection should carry policy repair code, got %+v", got.Repair)
+	}
+	if !strings.Contains(got.Summary, "pkg/a.py") {
+		t.Fatalf("policy rejection should carry proof scope, got %q", got.Summary)
 	}
 }
 

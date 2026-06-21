@@ -5001,6 +5001,7 @@ const explorerSourceInventoryLensSurfaceCode = "explorer_source_inventory_lens_s
 const explorerSourceInventoryLensScopeCode = "explorer_source_inventory_lens_scope"
 const explorerTraceQueryFirstCode = "explorer_trace_query_first"
 const explorerTraceQuerySufficientRuntimeEvidenceCode = "explorer_trace_query_sufficient_runtime_evidence"
+const explorerReadDispatchPolicyCode = "explorer_read_dispatch_policy"
 const unavailableToolSurfaceCode = "unavailable_tool_surface"
 
 func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc llm.ToolCall) *types.ToolResult {
@@ -5009,6 +5010,9 @@ func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc ll
 	}
 	explorerEval, ok := eval.(*explorerEvaluator)
 	if violation := validateExplorerSourceInventoryLensToolCall(ctx, explorerEval, tc); violation != nil {
+		return violation
+	}
+	if violation := validateExplorerReadDispatchPolicyToolCall(ctx, tc); violation != nil {
 		return violation
 	}
 	if !ok || explorerEval == nil || explorerEval.investigationComplete {
@@ -5026,6 +5030,28 @@ func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc ll
 		Success:   false,
 		Summary:   reason,
 		Repair:    &types.ToolRepair{Code: explorerRestrictedToolSurfaceCode, Hint: reason},
+		Timestamp: time.Now(),
+	}
+}
+
+func validateExplorerReadDispatchPolicyToolCall(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	if ctx == nil || ctx.Stage != types.StageExplore {
+		return nil
+	}
+	policy := types.NormalizeReadDispatchPolicy(ctx.ReadDispatchPolicy)
+	if !policy.Active || policy.AllowsTool(tc.Name) {
+		return nil
+	}
+	reason := fmt.Sprintf("tool %q is outside the current scheduler-owned read dispatch policy; available tools here: %s", tc.Name, strings.Join(policy.AllowedTools, ", "))
+	if len(policy.ScopePaths) > 0 {
+		reason += fmt.Sprintf("; proof scope paths: %s", strings.Join(policy.ScopePaths, ", "))
+	}
+	logging.Warning("[explorer] tool %q rejected by read dispatch policy: %s", tc.Name, reason)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   reason,
+		Repair:    &types.ToolRepair{Code: explorerReadDispatchPolicyCode, Hint: reason},
 		Timestamp: time.Now(),
 	}
 }

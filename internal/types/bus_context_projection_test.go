@@ -206,6 +206,13 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		ac.EvalDisableGitHistory = true
 	case "WorktreePath":
 		ac.WorktreePath = "/tmp/codrax-worktree-sentinel"
+	case "ReadDispatchPolicy":
+		ac.ReadDispatchPolicy = ReadDispatchPolicy{
+			Active:       true,
+			Action:       ReadDispatchPolicyActionAddProof,
+			AllowedTools: []string{"read_file"},
+			OneShot:      true,
+		}
 	default:
 		return false
 	}
@@ -249,6 +256,13 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		bc.EvalDisableGitHistory = true
 	case "WorktreePath":
 		bc.WorktreePath = "/tmp/codrax-worktree-sentinel"
+	case "ReadDispatchPolicy":
+		bc.ReadDispatchPolicy = ReadDispatchPolicy{
+			Active:       true,
+			Action:       ReadDispatchPolicyActionAddProof,
+			AllowedTools: []string{"read_file"},
+			OneShot:      true,
+		}
 	default:
 		return false
 	}

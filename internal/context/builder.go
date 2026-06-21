@@ -34,6 +34,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		ExploreDispatchKey:    bus.ExploreDispatchKey,
 		ExploreDispatchKind:   bus.ExploreDispatchKind,
 		ExploreToolSurface:    bus.ExploreToolSurface,
+		ReadDispatchPolicy:    bus.ReadDispatchPolicy,
 		CompletionOnlySurface: bus.CompletionOnlySurface,
 		ExploreLanePlan:       bus.ExploreLanePlan,
 		Objective:             objective,

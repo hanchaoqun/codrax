@@ -5661,6 +5661,12 @@ type BusContext struct {
 	// boundary checks because it is a typed execution contract, not UI metadata.
 	ExploreToolSurface ExploreToolSurface `json:"-"`
 
+	// ReadDispatchPolicy is a scheduler-owned one-dispatch policy for typed
+	// read-loop retry actions. It is allowed to drive tool schema filtering,
+	// runtime tool-call boundaries, and bounded per-dispatch budgets. It must
+	// never be derived from prompt text, model rationale, or RawRequest words.
+	ReadDispatchPolicy ReadDispatchPolicy `json:"-"`
+
 	// CompletionOnlySurface marks the one bounded completion-obligation
 	// dispatch the read scheduler grants when the explore loop drained
 	// its budget without an accepted emit_investigation_complete while
@@ -5953,6 +5959,10 @@ type AgentContext struct {
 	// ExploreToolSurface mirrors BusContext.ExploreToolSurface for scheduler-
 	// owned tool schema filtering and runtime boundary checks.
 	ExploreToolSurface ExploreToolSurface `json:"-"`
+
+	// ReadDispatchPolicy mirrors BusContext.ReadDispatchPolicy for scheduler-
+	// owned tool schema filtering, runtime boundaries, and dispatch budgets.
+	ReadDispatchPolicy ReadDispatchPolicy `json:"-"`
 
 	// CompletionOnlySurface mirrors BusContext.CompletionOnlySurface
 	// for the explorer's tool-schema filter (emit-only completion

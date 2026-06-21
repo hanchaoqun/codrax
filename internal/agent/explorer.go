@@ -397,6 +397,35 @@ func renderExplorerSourceInventoryLensSurfaceInstruction(ctx *types.AgentContext
 	return b.String()
 }
 
+func renderExplorerReadDispatchPolicyInstruction(ctx *types.AgentContext) string {
+	policy := types.ReadDispatchPolicy{}
+	if ctx != nil {
+		policy = types.NormalizeReadDispatchPolicy(ctx.ReadDispatchPolicy)
+	}
+	if !policy.Active {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Read Dispatch Policy\n\n")
+	b.WriteString("This dispatch is a scheduler-owned continuation for a typed read-loop action. Use only the currently available tools in the policy surface and keep the work bounded to the listed proof scopes. If no direct proof route is available, emit the best grounded evidence closure with an explicit unverified-proof caveat instead of widening discovery.\n")
+	if len(policy.PreferredTools) > 0 {
+		b.WriteString("- preferred tools: `")
+		b.WriteString(strings.Join(policy.PreferredTools, "`, `"))
+		b.WriteString("`\n")
+	}
+	if len(policy.AllowedTools) > 0 {
+		b.WriteString("- allowed tools: `")
+		b.WriteString(strings.Join(policy.AllowedTools, "`, `"))
+		b.WriteString("`\n")
+	}
+	if len(policy.ScopePaths) > 0 {
+		b.WriteString("- proof scope paths: `")
+		b.WriteString(strings.Join(policy.ScopePaths, "`, `"))
+		b.WriteString("`\n")
+	}
+	return b.String()
+}
+
 func sourceInventoryLensRoleLabels(ctx *types.AgentContext) []string {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil {
 		return nil
@@ -793,6 +822,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if ctx != nil && ctx.ExploreToolSurface.IsSourceInventoryLens() {
 		e.phase = 0
 		return joinExplorerInstructionSections(writeExplorationPrefix, renderExplorerSourceInventoryLensSurfaceInstruction(ctx))
+	}
+
+	if ctx != nil && ctx.ReadDispatchPolicy.IsActive() {
+		e.phase = 0
+		return joinExplorerInstructionSections(writeExplorationPrefix, renderExplorerReadDispatchPolicyInstruction(ctx))
 	}
 
 	e.phase = 0 // start in breadth-scan phase
@@ -6742,6 +6776,9 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 		}
 		return schemas
 	}
+	if out, ok := filterSchemasByReadDispatchPolicy(ctx, schemas); ok {
+		return out
+	}
 	if e.investigationComplete {
 		return schemas
 	}
@@ -6759,6 +6796,26 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 		return schemas
 	}
 	return out
+}
+
+func filterSchemasByReadDispatchPolicy(ctx *types.AgentContext, schemas []llm.ToolSchema) ([]llm.ToolSchema, bool) {
+	if ctx == nil || ctx.Stage != types.StageExplore || len(schemas) == 0 {
+		return nil, false
+	}
+	policy := types.NormalizeReadDispatchPolicy(ctx.ReadDispatchPolicy)
+	if !policy.Active {
+		return nil, false
+	}
+	out := make([]llm.ToolSchema, 0, len(schemas))
+	for _, schema := range schemas {
+		if policy.AllowsTool(schema.Name) {
+			out = append(out, schema)
+		}
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
 }
 
 func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[string]bool {

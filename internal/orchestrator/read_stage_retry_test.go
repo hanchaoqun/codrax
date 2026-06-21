@@ -120,6 +120,12 @@ func TestReadLoopNextActionDecisionFromGuidanceWeakProof(t *testing.T) {
 		!containsString(decision.ToolSuggestions, "run_tests") {
 		t.Fatalf("unexpected decision route: %+v", decision)
 	}
+	if !decision.Policy.IsActive() ||
+		!containsString(decision.Policy.AllowedTools, "read_file") ||
+		!containsString(decision.Policy.AllowedTools, "run_tests") ||
+		!containsString(decision.Policy.DeniedTools, "exec_command") {
+		t.Fatalf("decision should carry executable read dispatch policy: %+v", decision.Policy)
+	}
 	summary := readLoopNextActionDecisionSummary(decision)
 	for _, want := range []string{
 		"loop next-action=add_proof",
@@ -127,6 +133,7 @@ func TestReadLoopNextActionDecisionFromGuidanceWeakProof(t *testing.T) {
 		"reason=proof_weak",
 		"route_surface=verification",
 		"route_tools=run_tests",
+		"policy_allowed_tools=",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("decision summary missing %q: %s", want, summary)
@@ -183,6 +190,72 @@ func TestGraphStateReadLoopNextActionIsOneShot(t *testing.T) {
 		if !strings.Contains(directive, want) {
 			t.Fatalf("directive missing %q:\n%s", want, directive)
 		}
+	}
+}
+
+func TestReadDispatchPolicyForNextActionCarriesAcceptedEvidenceScopes(t *testing.T) {
+	mut := types.NewMutableState("weak proof with accepted evidence")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{ID: "ev-a", Source: "./pkg/a.py", GroundingStatus: types.GroundingGrounded},
+	}})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "ev-b", Source: `pkg\b.py`, GroundingStatus: types.GroundingGrounded},
+		{ID: "ev-a2", Source: "pkg/a.py", GroundingStatus: types.GroundingGrounded},
+	})
+	decision := readLoopNextActionDecision{
+		Active:          true,
+		Action:          loopkernel.LoopActionAddProof,
+		ReasonCode:      "proof_weak",
+		RouteSurface:    loopkernel.LoopToolSurfaceVerification,
+		RouteReasonCode: "loop_tool_route_verification",
+		ToolSuggestions: []string{"run_tests"},
+	}
+	policy := readDispatchPolicyForNextAction(decision, mut)
+	if !policy.IsActive() || policy.Action != types.ReadDispatchPolicyActionAddProof {
+		t.Fatalf("policy inactive: %+v", policy)
+	}
+	for _, want := range []string{"run_tests", "repo_map", "read_file", "grep", "emit_evidence", "emit_investigation_complete"} {
+		if !containsString(policy.AllowedTools, want) {
+			t.Fatalf("policy missing allowed tool %q: %+v", want, policy)
+		}
+	}
+	for _, deny := range []string{"exec_command", "list_files"} {
+		if !containsString(policy.DeniedTools, deny) {
+			t.Fatalf("policy missing denied tool %q: %+v", deny, policy)
+		}
+	}
+	if got, want := strings.Join(policy.ScopePaths, ","), "pkg/a.py,pkg/b.py"; got != want {
+		t.Fatalf("policy scope paths = %s, want %s", got, want)
+	}
+}
+
+func TestInstallReadDispatchPolicyForExploreTightensAndRestoresBudget(t *testing.T) {
+	mut := types.NewMutableState("install policy")
+	mut.SetExploreBudget(&types.ExploreBudget{
+		PerToolCap:  map[string]int{"read_file": 8, "exec_command": 8},
+		PerToolUsed: map[string]int{},
+		OverallCap:  10,
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+	restore := o.installReadDispatchPolicyForExplore(types.ReadDispatchPolicy{
+		Active:       true,
+		Action:       types.ReadDispatchPolicyActionAddProof,
+		AllowedTools: []string{"read_file", "emit_evidence"},
+		MaxToolCalls: 2,
+		OneShot:      true,
+	}, true)
+	if !o.busCtx.ReadDispatchPolicy.IsActive() {
+		t.Fatalf("policy not installed: %+v", o.busCtx.ReadDispatchPolicy)
+	}
+	if rem := mut.BudgetRemaining("read_file"); rem != 2 {
+		t.Fatalf("read_file budget remaining = %d, want 2", rem)
+	}
+	restore()
+	if o.busCtx.ReadDispatchPolicy.IsActive() {
+		t.Fatalf("policy should restore to inactive: %+v", o.busCtx.ReadDispatchPolicy)
+	}
+	if rem := mut.BudgetRemaining("read_file"); rem != 8 {
+		t.Fatalf("read_file budget after restore = %d, want 8", rem)
 	}
 }
 

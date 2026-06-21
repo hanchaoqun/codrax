@@ -5155,7 +5155,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					hint = prependRetryHint(checkpointHint, hint)
 				}
 			}
-			applyReadLoopNextActionHint(state, &hint, parallelHints)
+			readDispatchPolicy, readDispatchPolicyActive := applyReadLoopNextActionHint(state, &hint, parallelHints)
 			pendingViolation = ""
 			pendingStageRetry = ""
 			pendingValidationTargets = nil
@@ -5205,6 +5205,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			var out *agent.StageOutput
 			var dispatchErr error
 			dispatchStepCount := 1
+			restoreReadDispatchPolicy := o.installReadDispatchPolicyForExplore(readDispatchPolicy, readDispatchPolicyActive)
 			if len(parallelWindows) > 0 {
 				stageStart := emitParallelExploreStageStart(o)
 				out, dispatchErr = o.dispatchExploreWindowsParallel(parallelWindows, parallelHints, parallelism)
@@ -5227,6 +5228,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			} else {
 				out, dispatchErr = o.dispatchExploreWindow(window)
 			}
+			restoreReadDispatchPolicy()
 			if dispatchErr != nil {
 				logging.Error("[orchestrator] DAG explore window failed: %v", dispatchErr)
 				if o.retryReadStageDispatchError(state, types.StageExplore, window, nil, dispatchErr) {
