@@ -18,7 +18,7 @@ Base HEAD: `398a32303b`（2026-06-21 复核基线；v2 修订基线为 `2b5c4ba0
 
 交付账本以严明纪律把 PRD 各阶段**脚手架**立了起来，并**诚实地把 shadow 标成 shadow**。准确的现状是：
 
-> **脚手架和若干周边 authority 已完成，write 侧、source-class、ToolInvocation 等部分已承重；但 read scheduler 的核心执行状态仍由 `graphState` 承重，`IngestRound` 与 read loopkernel 仍主要是 shadow/telemetry。因此当前不是「Stage 1 完成」，而是「Stage 1 部分承重，核心 read-loop cutover 未完成」。**
+> **脚手架和若干周边 authority 已完成，write 侧、source-class、ToolInvocation、read node execution status 等部分已承重；但 `IngestRound`、read resumability 与 read loopkernel 仍主要是 shadow/telemetry。因此当前不是「Stage 1 完成」，而是「Stage 1 部分承重，核心 read reducer/resume cutover 未完成」。**
 
 ### 1.1 记账纪律：scaffold-complete vs load-bearing-complete 必须分两列
 
@@ -34,7 +34,7 @@ Base HEAD: `398a32303b`（2026-06-21 复核基线；v2 修订基线为 `2b5c4ba0
 | 阶段 | 退出标准（必须 load-bearing） | 当前真实位置（对 `2b5c4ba0` file:line 核实） |
 |---|---|---|
 | **Stage 0** 退役 legacy write DAG | 生产路径走 controller，**生产可达性测试**证明不再装 legacy write TaskGraph | ✅ **load-bearing-complete**：生产 `Mode.IsWrite()→runWriteControllerWorkflow`（orchestrator.go:2364），由 `TestMode_WriteControllerDoesNotInstallLegacyWriteTaskGraph`（mode_dispatch_test.go:256）守护。**以可达性测试为准，非字符串 grep** |
-| **Stage 1** 单一执行 IR + 闭环 | `nodeExecStatus` 成唯一 *decision-read* 执行状态（`graphState` 退成 accessor 而非双写镜像）；`IngestRound` 成**生产** reducer；ToolInvocation log 真支撑 replay；**read 有 resumability** | ⚠️ **部分承重，核心未 cutover**：周边已承重——ToolInvocation 已生产 wiring（cmd/root.go:3859 `SetReasoningObserver`、agent.go:4113 `ensureToolInvocationID`，作 append-only 审计/replay projection）；source-class universe 已进 absence gate（见 Stage-correctness）。核心仍 shadow——`nodeExecStatus`（evidence_closure.go:182）是**双写镜像**，`setStatus` 写 `s.status[id]` 后再 mirror `closure.SetNodeExecStatus`（scheduler.go:263），而 `readyExplorerWindowContext`（scheduler.go:198）仍读 `graphState.status` 决策；`graphState` 未序列化→**read 无 resumability** |
+| **Stage 1** 单一执行 IR + 闭环 | `nodeExecStatus` 成唯一 *decision-read* 执行状态（`graphState` 退成 accessor 而非双写镜像）；`IngestRound` 成**生产** reducer；ToolInvocation log 真支撑 replay；**read 有 resumability** | ⚠️ **部分承重，reducer/resume 未 cutover**：ToolInvocation 已生产 wiring（cmd/root.go:3859 `SetReasoningObserver`、agent.go:4113 `ensureToolInvocationID`）；source-class universe 已进 absence gate（见 Stage-correctness）；B1 已让 `EvidenceClosure.NodeExecStatus` 成为 scheduler/orchestrator decision-read authority。仍 open：`IngestRound` 在 `runEvidenceRoundIngestShadow` 里 clone-only，read run snapshot/resume 尚未承重。 |
 | **Stage 2** 自适应引擎 | extract 真门 ✅；**optional/refine 节点机制承重**；progress 驱动的 AnalyzeRefine 有真生产节点；execution-tree 轻量分支可用 | ⚠️ **机制承重、AnalyzeRefine 未发节点**：extract = **真门**（`CritExtractInputReady`，stage_nodes.go）；optional-node 机制 = **已承重**（M2d-B 的 compiler-emitted source-inventory re-probe 节点，挂 `source_class_universe_incomplete`，scheduler 真处理 `TaskNode.Optional`）；但 **AnalyzeRefine via `progress_replan_required` 仍是机制就绪无生产节点**——sensor 全接（eval.go:794-802），ProgressDecision 投进 env（orchestrator.go），但**全仓无 EntryCondition 挂 `progress_replan_required`**（grep 非测试=空），账本自述"pinned AnalyzeRefine as pre-authored optional topology only" |
 | **Stage 3** 语义 kernel | write budget 真门 ✅；**read loop 真消费 ≥1 个 loopkernel `RecommendedAction` 作决策**；event store 有真回放路径 | ⚠️ write = **真承重**（5 个 LoopBudget/LoopRun 构造在 write_controller_scheduler.go，`Advance` 经 `controllerLoopAdvanceAllowsAction` 硬门 3 个 write action）；read = `ReadLoopShadowComparison` 代码注释自述 "telemetry/shadow only: callers must not use this view as a hard gate until a later cutover"（read_shadow.go:4），出口只折进 `proofGuidance` advisory（read_stage_retry.go:184） |
 
@@ -258,6 +258,12 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 - `internal/tool/ground` compatibility wrapper
 - `extractFileCoverage` 相关调用点
 
+本批探索确认：
+- `applyStageOutput` 先追加 `output.ToolResults` 到 `busCtx.ToolResults`，随后只调用 `runEvidenceRoundIngestShadow` 记录 Debug；生产 closure 未消费该 delta。
+- `runEvidenceRoundIngestShadow` 当前 clone `Mutable.EvidenceClosure()` 后调用 `shadow.IngestRound(results, repoRoot)`，对应测试明确断言 shadow 不得修改生产 closure。
+- `EvidenceClosure.IngestRound` 已是 typed reducer：只消费 `ToolResult`、`repoRoot`、read coverage 和 typed `ToolHandoffCarrier.AcceptedEvidence`，不依赖 prompt、模型散文或用户意图关键词。
+- B3 不改变 `ToolResults` append-history 语义，不替代 `EvidenceItems`/`FlowFindings` truth-set merge；只让 read coverage / accepted evidence carrier 的已有 typed reducer 承重。
+
 任务：
 - 先增加 parity test：同一 `StageOutput.ToolResults` 下，legacy recompute 与 `IngestRound` delta 完全一致。
 - 在 `applyStageOutput` 中对真实 closure 调用 `IngestRound`，同时保留一轮 legacy parity assertion。
@@ -376,6 +382,7 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 | 2026-06-21 | A1 Extract dispatch golden pin | complete | Added golden tests for `extract_input_ready=false` skip-complete and `extract_input_ready=true` StageExtract dispatch using compiler-emitted stage nodes. Focused `go test ./internal/orchestrator -run 'TestE2E_ReadMode_.*Extract|TestStageMappingFirstClassExtractSkip'` and `go test ./internal/analysis/compiler ./internal/analysis/criterion` passed. |
 | 2026-06-21 | A2 Biting ratchet pin | complete | Ratchet pinned to current counts: `evidence_closure.go=2636`, `scheduler.go=799`, `orchestrator.go=9402`; failure message now requires splitting concern-specific code or updating this ledger before expanding budget. `go test ./internal/orchestrator -run TestIRDeliveryHotFileLineRatchet` passed. |
 | 2026-06-21 | B1 NodeExecStatus load-bearing cutover | complete | `EvidenceClosure.NodeExecStatus` is now the closure-first decision-read authority for scheduler/orchestrator status checks; `graphState.status` is retired after closure attach and remains only nil-closure bootstrap fallback. `rg 'state\\.status\\[|s\\.status\\[|\\.status\\[' internal/orchestrator` only finds accessor internals. Focused `go test ./internal/types ./internal/orchestrator -run 'TestGraphState|TestHandleStructurallyEmptyInvestigation|TestE2E_ReadMode_.*Extract|TestStageMappingFirstClassExtractSkip'` and `go test ./internal/orchestrator -run 'TestGraphState|TestRunTaskGraph|TestE2E_ReadMode|TestMode_DefaultIsRead|TestRunMode_ReadByteIdentical'` passed. |
+| 2026-06-21 | B3 IngestRound production reducer intake | in_progress | Code exploration confirmed `IngestRound` is typed and ready but production path runs it only against a cloned closure. Implementation must cut over `applyStageOutput` to mutate the real closure, rename the helper away from shadow semantics, preserve `ToolResults` history append behavior, and update parity tests before coding further. |
 
 ---
 
