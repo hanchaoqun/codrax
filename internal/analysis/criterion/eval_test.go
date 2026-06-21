@@ -221,6 +221,40 @@ func TestEval_EvidenceCount_CurrentVerificationDoesNotUseArtifactWaiver(t *testi
 	}
 }
 
+func TestEval_ExtractInputReady_UsesTypedInputsOnly(t *testing.T) {
+	c := types.Criterion{Kind: string(KindExtractInputReady)}
+	if r := Eval(c, Env{}); r.Satisfied {
+		t.Fatalf("empty env must not be extract-ready: %s", r.Detail)
+	}
+	if r := Eval(c, Env{
+		Signals:     types.ExecutionSignals{HasEnoughFacts: true},
+		ToolResults: []types.ToolResult{{Summary: "evidence-looking prose"}},
+	}); r.Satisfied {
+		t.Fatalf("extract readiness must not use HasEnoughFacts or raw tool prose: %s", r.Detail)
+	}
+	if r := Eval(c, Env{Evidence: []types.EvidenceItem{{ID: "ev1"}}}); !r.Satisfied {
+		t.Fatalf("typed evidence should make extract ready: %s", r.Detail)
+	}
+	if r := Eval(c, Env{AnswerChains: []types.AnswerChain{{Item: types.EvidenceItem{ID: "ev-chain"}}}}); !r.Satisfied {
+		t.Fatalf("answer chains should make extract ready: %s", r.Detail)
+	}
+	if r := Eval(c, Env{AggregateFacts: []types.AnswerAggregateFact{{Kind: types.AnswerAggregateMemberSet, Label: "agents"}}}); !r.Satisfied {
+		t.Fatalf("aggregate facts should make extract ready: %s", r.Detail)
+	}
+	if r := Eval(c, Env{
+		ObservationOnlyCompletion: true,
+		MCPResponses: []types.MCPResponse{{
+			Success: true,
+			Observations: []types.MCPTypedObservation{{
+				ResourceURI: "mcp://fixture/trace",
+				LineStart:   3,
+			}},
+		}},
+	}); !r.Satisfied {
+		t.Fatalf("typed MCP observations should make extract ready: %s", r.Detail)
+	}
+}
+
 func TestEval_CitationCountGE_ExternalSourceLogWaivesFloor(t *testing.T) {
 	env := Env{
 		LogTriage: &types.LogBundle{

@@ -42,6 +42,7 @@ const (
 	KindBudgetExhausted               Kind = Kind(types.CritBudgetExhausted)
 	KindEvidenceCount                 Kind = Kind(types.CritEvidenceCount)
 	KindCitationCountGE               Kind = Kind(types.CritCitationCountGE)
+	KindExtractInputReady             Kind = Kind(types.CritExtractInputReady)
 	KindContainsSymbol                Kind = Kind(types.CritContainsSymbol)
 	KindRegexMatch                    Kind = Kind(types.CritRegexMatch)
 	KindCounterfactualBranchesDecided Kind = Kind(types.CritCounterfactualBranchesDecided)
@@ -85,6 +86,7 @@ var registered = map[Kind]bool{
 	KindBudgetExhausted:               true,
 	KindEvidenceCount:                 true,
 	KindCitationCountGE:               true,
+	KindExtractInputReady:             true,
 	KindContainsSymbol:                true,
 	KindRegexMatch:                    true,
 	KindCounterfactualBranchesDecided: true,

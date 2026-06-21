@@ -36,7 +36,7 @@ func EnsureReadStageNodes(g *types.TaskGraph) {
 			"structured_support",
 		},
 		EntryConditions: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=0"},
+			{Kind: types.CritExtractInputReady},
 		},
 	}
 	g.Nodes = append(g.Nodes, types.TaskNode{})

@@ -4949,6 +4949,40 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		startExtractNode(n)
 		finishExtractNode(n, true, msg)
 	}
+	summarizeCriterionFailures := func(failed []criterion.Result) string {
+		if len(failed) == 0 {
+			return "entry conditions not satisfied"
+		}
+		const maxFailures = 3
+		parts := make([]string, 0, min(len(failed), maxFailures))
+		for i, f := range failed {
+			if i >= maxFailures {
+				break
+			}
+			label := string(f.Kind)
+			if f.Expr != "" {
+				label += " " + f.Expr
+			}
+			if f.Detail != "" {
+				label += ": " + f.Detail
+			}
+			parts = append(parts, label)
+		}
+		if len(failed) > maxFailures {
+			parts = append(parts, fmt.Sprintf("+%d more", len(failed)-maxFailures))
+		}
+		return strings.Join(parts, "; ")
+	}
+	extractEntryReady := func(n *types.TaskNode) (bool, string) {
+		if n == nil || len(n.EntryConditions) == 0 {
+			return true, ""
+		}
+		ok, failed := criterion.EvalAll(n.EntryConditions, buildEnv("", 0))
+		if ok {
+			return true, ""
+		}
+		return false, summarizeCriterionFailures(failed)
+	}
 
 	for stepsUsed < stepBudget && !state.allDone() {
 		// Phase 2 cancel checkpoint at the top of every window-merge
@@ -5605,6 +5639,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			logging.Info("[orchestrator] B3-F3 skip pre-finalize extract: prior FinalizerOnly fallback preserved Turn-B state (extract_completed=%t %s)",
 				preFinalizeExtractCompleted, o.reusableTurnBSlateSummary())
 			skipExtractNode(extractNode, "skipped: reusable Turn-B slate")
+			lastFallbackFinalizerOnly = false
+		} else if ok, detail := extractEntryReady(extractNode); !ok {
+			logging.Info("[orchestrator] skip pre-finalize extract: %s", detail)
+			skipExtractNode(extractNode, "skipped: "+detail)
 			lastFallbackFinalizerOnly = false
 		} else {
 			o.busCtx.PipelineStage = types.StageExtract
@@ -6545,54 +6583,59 @@ contractFailureBreak:
 				lastFallbackFinalizerOnly = false
 			} else {
 				extractNode := findPendingExtractNode()
-				o.busCtx.PipelineStage = types.StageExtract
-				o.busCtx.TaskState.Stage = types.StageExtract
-				for {
-					startExtractNode(extractNode)
-					if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
-						if o.completeExtractAfterTransientProgress(exErr) {
+				if ok, detail := extractEntryReady(extractNode); !ok {
+					logging.Info("[orchestrator] skip pre-forced-finalize extract: %s", detail)
+					skipExtractNode(extractNode, "skipped: "+detail)
+				} else {
+					o.busCtx.PipelineStage = types.StageExtract
+					o.busCtx.TaskState.Stage = types.StageExtract
+					for {
+						startExtractNode(extractNode)
+						if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+							if o.completeExtractAfterTransientProgress(exErr) {
+								stepsUsed++
+								preFinalizeExtractCompleted = true
+								finishExtractNode(extractNode, true, "completed after transient progress")
+								break
+							}
+							if o.retryReadStandaloneDispatchError(state, types.StageExtract, exErr) {
+								finishExtractNode(extractNode, false, exErr.Error())
+								if extractNode != nil {
+									state.requeue(extractNode.ID)
+								}
+								continue
+							}
 							stepsUsed++
-							preFinalizeExtractCompleted = true
-							finishExtractNode(extractNode, true, "completed after transient progress")
+							logging.Warning("[orchestrator] pre-forced-finalize extract dispatch failed (continuing): %v", exErr)
+							runtimeDispatchAdvisories = appendUniqueRuntimeAdvisory(
+								runtimeDispatchAdvisories,
+								runtimeDispatchAdvisoryForStage(types.StageExtract, exErr, o.busCtx.Language),
+							)
+							// Force-finalize escape path: same transparency requirement
+							// as the normal DAG branch — let the user see that we are
+							// dropping extract results before finalize starts, instead
+							// of silently jumping from "未能提炼关键发现" to "正在生成
+							// 最终答案".
+							o.emit(render.Event{
+								Kind:       render.EventOrchestratorNotice,
+								Timestamp:  time.Now(),
+								Agent:      "orchestrator",
+								NoticeKind: render.NoticeProceedingWithoutExtract,
+								Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
+							})
+							finishExtractNode(extractNode, false, exErr.Error())
 							break
 						}
-						if o.retryReadStandaloneDispatchError(state, types.StageExtract, exErr) {
-							finishExtractNode(extractNode, false, exErr.Error())
-							if extractNode != nil {
-								state.requeue(extractNode.ID)
-							}
-							continue
-						}
 						stepsUsed++
-						logging.Warning("[orchestrator] pre-forced-finalize extract dispatch failed (continuing): %v", exErr)
-						runtimeDispatchAdvisories = appendUniqueRuntimeAdvisory(
-							runtimeDispatchAdvisories,
-							runtimeDispatchAdvisoryForStage(types.StageExtract, exErr, o.busCtx.Language),
-						)
-						// Force-finalize escape path: same transparency requirement
-						// as the normal DAG branch — let the user see that we are
-						// dropping extract results before finalize starts, instead
-						// of silently jumping from "未能提炼关键发现" to "正在生成
-						// 最终答案".
-						o.emit(render.Event{
-							Kind:       render.EventOrchestratorNotice,
-							Timestamp:  time.Now(),
-							Agent:      "orchestrator",
-							NoticeKind: render.NoticeProceedingWithoutExtract,
-							Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
-						})
-						finishExtractNode(extractNode, false, exErr.Error())
+						preFinalizeExtractCompleted = true
+						stopLocal := o.startSchedulerLocalWork(types.StageExtract, "drain_hypothesis_verdicts")
+						o.drainHypothesisVerdicts()
+						if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
+							return stepsUsed
+						}
+						finishExtractNode(extractNode, true, "")
 						break
 					}
-					stepsUsed++
-					preFinalizeExtractCompleted = true
-					stopLocal := o.startSchedulerLocalWork(types.StageExtract, "drain_hypothesis_verdicts")
-					o.drainHypothesisVerdicts()
-					if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
-						return stepsUsed
-					}
-					finishExtractNode(extractNode, true, "")
-					break
 				}
 			}
 		}

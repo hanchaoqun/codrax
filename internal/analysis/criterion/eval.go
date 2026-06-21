@@ -82,6 +82,8 @@ func dispatch(k Kind, expr string, env Env) Result {
 		return evalEvidenceCount(expr, env)
 	case KindCitationCountGE:
 		return evalCitationCountGE(expr, env)
+	case KindExtractInputReady:
+		return evalExtractInputReady(env)
 	case KindContainsSymbol:
 		return evalContainsSymbol(expr, env)
 	case KindRegexMatch:
@@ -757,6 +759,22 @@ func evalEvidenceCount(expr string, env Env) Result {
 		Satisfied: compareInt(n, op, threshold),
 		Detail:    fmt.Sprintf("|evidence|=%d %s %d", n, op, threshold),
 	}
+}
+
+func evalExtractInputReady(env Env) Result {
+	if len(env.Evidence) > 0 {
+		return Result{Satisfied: true, Detail: fmt.Sprintf("extract_input_ready: evidence_items=%d", len(env.Evidence))}
+	}
+	if len(env.AnswerChains) > 0 {
+		return Result{Satisfied: true, Detail: fmt.Sprintf("extract_input_ready: answer_chains=%d", len(env.AnswerChains))}
+	}
+	if len(env.AggregateFacts) > 0 {
+		return Result{Satisfied: true, Detail: fmt.Sprintf("extract_input_ready: aggregate_facts=%d", len(env.AggregateFacts))}
+	}
+	if artifactCount, waived := externalRuntimeEvidenceFloorWaived(env); waived && artifactCount > 0 {
+		return Result{Satisfied: true, Detail: fmt.Sprintf("extract_input_ready: external_observations=%d", artifactCount)}
+	}
+	return Result{Satisfied: false, Detail: "extract_input_ready: no typed evidence, answer chains, aggregate facts, or external observations"}
 }
 
 func externalRuntimeEvidenceFloorWaived(env Env) (count int, waived bool) {

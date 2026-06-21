@@ -103,8 +103,8 @@ func TestCompile_ExtractStageNodeWiresBeforeFinalize(t *testing.T) {
 	if extract.ID == "" || finalize.ID == "" {
 		t.Fatalf("missing extract/finalize nodes: %+v", out.TaskGraph.Nodes)
 	}
-	if len(extract.EntryConditions) == 0 {
-		t.Fatal("extract node must carry a typed entry condition")
+	if len(extract.EntryConditions) != 1 || extract.EntryConditions[0].Kind != types.CritExtractInputReady {
+		t.Fatalf("extract node must carry typed extract readiness; got %+v", extract.EntryConditions)
 	}
 	if !containsString(extract.Outputs, "answer_symbols") || !containsString(extract.Outputs, "hypothesis_verdicts") {
 		t.Fatalf("extract outputs missing answer-ready artifacts: %v", extract.Outputs)

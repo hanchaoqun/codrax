@@ -1137,6 +1137,7 @@ const (
 	CritBudgetExhausted               = "budget_exhausted"
 	CritEvidenceCount                 = "evidence_count"
 	CritCitationCountGE               = "citation_count_ge"
+	CritExtractInputReady             = "extract_input_ready"
 	CritContainsSymbol                = "contains_symbol"
 	CritRegexMatch                    = "regex_match"
 	CritCounterfactualBranchesDecided = "counterfactual_branches_decided"

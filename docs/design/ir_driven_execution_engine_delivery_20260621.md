@@ -187,6 +187,13 @@ Tests:
 - `TestPartialReExecToAnyStage`
 - `TestExtractReadinessDoesNotDependOnNoisySignals`
 
+M2b-A scoped implementation:
+- Add a registered typed criterion `extract_input_ready`.
+- Evaluate extract stage node `EntryConditions` immediately before `StageExtract` dispatch.
+- If `extract_input_ready` is false, mark extract skipped/done and proceed to finalize; this is a typed stage-skip, not a finalization hard gate.
+- `extract_input_ready` may only read structured evidence/chains/aggregate facts/typed external observation carriers. It must not inspect user prose, model rationale, prompt text, raw tool summaries, elapsed time, ranker scores, or grep counts.
+- Keep optional AnalyzeRefine out of M2b-A; it remains a later M2b task after the stage readiness contract is proven.
+
 ### Batch M2c: Execution Tree And Artifact Contracts
 
 Deliverables:
@@ -272,7 +279,7 @@ Commercial hardening before declaring complete:
 | M1e SourceClassUniverse projection | completed | EvidenceClosure now mirrors typed `SourceInventoryObservation` / `SourceClasses`; MutableState source-inventory setters, TurnA handoff, fork merge, reset, and `SourceInventoryObservationFromMutable` all consume the same closure-backed authority. Loopkernel read proof snapshots now carry `SourceClasses`, `SourceClassUniverseComplete`, source-class evidence refs, and `ProofSnapshotFromReadMutable` / `ReadProofGuidanceFromMutable`; read retry checkpoints and parallel explore convergence consume the mutable view. Verified with source-inventory absence/convergence tests, `go test ./internal/tool/repomap`, and package regression for types/loopkernel/orchestrator/tool. |
 | M1f Read failure memory | completed | Added deterministic typed read failure memory as a fallback into the existing `AnswerTaxonomyStore`; it persists retry/repair classes only as analyzer pitfall soft guidance, skips raw retry prose for routing, avoids duplicate fallback when the LLM answer reviewer emits a pattern, and creates no current-run hard repairs or reviewer violations. Verified with `go test ./internal/orchestrator -run 'TestReadFailureMemory|TestAnswerTaxonomy|TestReviewerRoundTrip|TestAnswerReviewer'`, `go test ./internal/agent -run 'TestPrependAnswerPitfalls|TestAnalyzer'`, package regression, and `go test ./...`. |
 | M2a Stage nodes | completed | Added typed `NodeExtract` and deterministic `EnsureReadStageNodes` injection in the analyzer/compiler path; counterfactual expansion now routes through extract when present; binder/HDP require extract hypothesis binding; scheduler maps extract to `StageExtract`, excludes it from merged explore windows, and wraps the existing pre-finalize extract dispatch with node start/end/retry status updates. M2a deliberately uses a behavior-preserving typed readiness condition; richer extract readiness and optional AnalyzeRefine nodes are recorded under M2b. Verified with compiler/counterfactual/binder/HDP/types/orchestrator package tests and focused analyzer tests. |
-| M2b Stage mapping/re-exec | not_started | Stage axis still mostly command-style; newly tracked follow-up: typed extract readiness generalization and optional AnalyzeRefine nodes must be implemented here, not hidden inside M2a. |
+| M2b Stage mapping/re-exec | in_progress | M2b-A completed: added registered `extract_input_ready`, compiler now emits it on `NodeExtract`, and the read scheduler evaluates extract `EntryConditions` immediately before StageExtract dispatch. When no structured extract input exists, the extractor is skipped as a typed stage-skip and finalize still owns the answer contract. Tests pin that readiness uses typed evidence/chains/aggregate facts/external observations only, not `HasEnoughFacts`, raw tool prose, prompt text, or noisy telemetry. Remaining M2b work: optional AnalyzeRefine node and broader partial re-execution criteria. |
 | M2c Execution tree/artifacts | not_started | No BranchPoint/artifact contract consumer. |
 | M2d Dynamic expansion/loopkernel shadow | not_started | Loopkernel not yet shadow-driving scheduler decisions. |
 | M3a LoopBudget | not_started | LoopBudget passive. |
