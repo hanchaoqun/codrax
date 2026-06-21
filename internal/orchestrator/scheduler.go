@@ -40,11 +40,12 @@ const (
 
 // graphState tracks per-node status plus aggregate retry consumption.
 type graphState struct {
-	graph     types.TaskGraph
-	status    map[string]nodeStatus
-	attempts  map[string]int
-	closure   *types.EvidenceClosure
-	retryUsed int
+	graph                        types.TaskGraph
+	status                       map[string]nodeStatus
+	attempts                     map[string]int
+	closure                      *types.EvidenceClosure
+	retryUsed                    int
+	executionPolicyAuditWarnings []types.ExecutionPolicyAuditWarning
 
 	// transientRetryUsed counts retries triggered by transient
 	// dispatch errors (stream stall / first-byte timeout / 429 / 5xx
@@ -160,9 +161,10 @@ type nodeBlock struct {
 
 func newGraphState(g types.TaskGraph) *graphState {
 	s := &graphState{
-		graph:    g,
-		status:   make(map[string]nodeStatus, len(g.Nodes)),
-		attempts: make(map[string]int),
+		graph:                        g,
+		status:                       make(map[string]nodeStatus, len(g.Nodes)),
+		attempts:                     make(map[string]int),
+		executionPolicyAuditWarnings: deriveExecutionPolicyAuditWarnings(g),
 	}
 	for _, n := range g.Nodes {
 		s.setStatus(n.ID, nodePending)

@@ -147,6 +147,41 @@ func TestGraphState_ReadyWindowOrdersByCriticalPathBeforeDeclaration(t *testing.
 	}
 }
 
+func TestGraphState_ExecutionPolicyAuditWarningsDoNotBlockOrdering(t *testing.T) {
+	graph := types.TaskGraph{
+		Nodes: []types.TaskNode{
+			{ID: "a", Type: types.NodeEvidence},
+			{ID: "b", Type: types.NodeEvidence},
+			{ID: "c", Type: types.NodeEvidence},
+		},
+		ExecutionPolicy: types.ExecutionPolicy{
+			RetryBudget:  1,
+			CriticalPath: []string{"b", "missing", "b", ""},
+		},
+	}
+	s := newGraphState(graph)
+	warnings := s.executionPolicyWarnings()
+	if len(warnings) != 3 {
+		t.Fatalf("warnings len=%d, want 3: %+v", len(warnings), warnings)
+	}
+	if warnings[0].Code != types.ExecutionPolicyAuditMissingCriticalPathNode ||
+		warnings[1].Code != types.ExecutionPolicyAuditDuplicateCriticalPathID ||
+		warnings[2].Code != types.ExecutionPolicyAuditBlankCriticalPathID {
+		t.Fatalf("unexpected warnings: %+v", warnings)
+	}
+	warnings[0].Code = "mutated"
+	if got := s.executionPolicyWarnings()[0].Code; got != types.ExecutionPolicyAuditMissingCriticalPathNode {
+		t.Fatalf("warnings surface leaked mutable slice: %q", got)
+	}
+	window, blocked := s.readyExplorerWindow(emptyEnv())
+	if len(blocked) > 0 {
+		t.Fatalf("unexpected blockers: %+v", blocked)
+	}
+	if got := strings.Join(idsOf(window), ","); got != "b,a,c" {
+		t.Fatalf("audit warnings must not block valid critical-path ordering, got %s", got)
+	}
+}
+
 func TestGraphState_CriticalPathOrderingDoesNotBypassReadiness(t *testing.T) {
 	graph := types.TaskGraph{
 		Nodes: []types.TaskNode{
