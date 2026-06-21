@@ -747,7 +747,22 @@ Remaining follow-up:
     - False path is silent and does not show up as a blocked optional node or extra user-visible loop.
     - True path dispatches exactly once from typed `ProgressDecision`, not from prompt text, model rationale, raw user keywords, elapsed time, or noisy ranker counts.
     - Eval telemetry can flag optional refine/runaway cost for human audit without altering runtime decisions.
-- **D1-F8d read snapshot production writer/resume path**: wire `ReadRunSnapshotStore` into a production read-run save point and an explicit/automatic resume consumer that seeds scheduler from typed `NodeExecStatus`, read ranges, accepted evidence refs, source-inventory observation, and progress decision. Keep scaffold/replay one-way; no prose replay.
+- **D1-F8d read snapshot production writer/resume path**: wire `ReadRunSnapshotStore` into production read-run persistence and then into a typed resume/replay consumer. Keep scaffold/replay one-way; no prose replay.
+  - Current state: `ReadRunSnapshot` and `ReadRunSnapshotStore` exist with typed projection/store tests, but no production `Orchestrator` save point, no runtime-store wiring, no REPL/CLI audit consumer, and no scheduler seed path. This is still scaffold, not read resumability.
+  - Architecture rule: snapshot persistence must be a typed artifact projection from `BusContext` / `EvidenceClosure` / source-inventory authority. It must not include prompt text, model rationale, final answer prose as a routing input, or user-keyword-derived logic.
+  - Batch D1-F8d.1 production writer:
+    1. Add an orchestrator-side `ReadRunSnapshotSaver` interface and setter, parallel to the existing plan/workflow store interfaces, avoiding an orchestrator -> repl import.
+    2. Extend `runtimeStores` and `installRuntimeStores` so CLI and REPL wire `repl.NewReadRunSnapshotStore(planDir)` alongside plan/workflow stores.
+    3. Persist a read snapshot at read-run exit using `TraceID` as the `RunID`; save best-effort and never fail the user request because audit persistence failed.
+    4. Add read E2E/unit tests proving successful read runs save typed node status/read coverage/progress state, write-mode runs do not write read snapshots, and invalid/nil stores remain no-op.
+    5. Keep this batch audit-only: it does not alter scheduler decisions, final answer generation, or automatic resume behavior.
+  - Batch D1-F8d.2 explicit resume seed:
+    1. Add a small typed loader/seed adapter that validates repo root, task graph hash, and schema version before seeding `EvidenceClosure.NodeExecStatus`, read ranges, accepted evidence refs, source-inventory observation, and progress decision.
+    2. Expose an advanced audit/recovery command surface for listing/showing read snapshots and explicitly resuming one; routine read path stays automatic and uninterrupted.
+    3. Add golden tests that resume consumes only typed fields and refuses schema/hash/repo mismatches fail-loud without parsing final answer prose.
+  - Batch D1-F8d.3 replay/eval:
+    1. Connect the snapshot artifacts to reasoning graph / eval telemetry so read-mode handoff loss, repeated refine loops, and proof coverage changes are auditable across runs.
+    2. Run representative read eval cases before marking Stage 1 read resumability commercially closed.
 - **D1-F8e IngestRound single-owner reducer plan**: audit every read artifact written both by `applyStageOutput` truth-set merge and Mutable setters. Either route it through a typed reducer carrier or document a non-overlapping ownership rule with tests. Goal is to remove N-writer ambiguity without destabilizing stable read scenarios. Status: complete for production closure/handoff writes.
   - Exploration finding: `applyStageOutput` already calls production `ingestEvidenceRound(output.ToolResults)`, and `EvidenceClosure.IngestRound` consumes only `ToolResult` rows to add read coverage, read ranges, file totals, and accepted-evidence refs from `ToolHandoffCarrier`. This is the event-stream owner for tool-derived proof.
   - Residual multi-writer surfaces:
