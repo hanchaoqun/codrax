@@ -182,8 +182,8 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 				strings.TrimSpace(artifacts.AcceptedResultKind) != ""
 		}
 		c.proofGuidance = readProofGuidanceSummaryFromMutable(o.busCtx.Mutable)
-		if shadow := readLoopShadowSummaryFromMutable(o.busCtx.Mutable, loopkernel.LoopActionAddProof); shadow != "" {
-			c.proofGuidance = strings.TrimSpace(strings.Join([]string{c.proofGuidance, shadow}, "; "))
+		if action := readLoopAddProofActionSummaryFromMutable(o.busCtx.Mutable); action != "" {
+			c.proofGuidance = strings.TrimSpace(strings.Join([]string{c.proofGuidance, action}, "; "))
 		}
 		if len(o.busCtx.Mutable.StableInvestigationAggregateFacts()) > 0 {
 			c.aggregateFacts += len(o.busCtx.Mutable.StableInvestigationAggregateFacts())
@@ -301,8 +301,8 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 			toolResults = append(toolResults, artifacts.ToolResults...)
 		}
 		c.proofGuidance = readProofGuidanceSummaryFromMutable(o.busCtx.Mutable)
-		if shadow := readLoopShadowSummaryFromMutable(o.busCtx.Mutable, loopkernel.LoopActionAddProof); shadow != "" {
-			c.proofGuidance = strings.TrimSpace(strings.Join([]string{c.proofGuidance, shadow}, "; "))
+		if action := readLoopAddProofActionSummaryFromMutable(o.busCtx.Mutable); action != "" {
+			c.proofGuidance = strings.TrimSpace(strings.Join([]string{c.proofGuidance, action}, "; "))
 		}
 		stableFacts := o.busCtx.Mutable.StableInvestigationAggregateFacts()
 		if len(stableFacts) > 0 {
@@ -402,6 +402,22 @@ func readLoopShadowSummaryFromMutable(m *types.MutableState, imperative loopkern
 		firstNonEmptyRetryString(string(comparison.ImperativeAction), "none"),
 		comparison.Match,
 		firstNonEmptyRetryString(comparison.ReasonCode, "none"))
+}
+
+func readLoopAddProofActionSummaryFromMutable(m *types.MutableState) string {
+	guidance, ok := loopkernel.ReadProofGuidanceFromMutable(m)
+	if !ok || !guidance.Active || guidance.HardBlock {
+		return ""
+	}
+	if guidance.RecommendedAction != loopkernel.LoopActionAddProof {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("loop action=add_proof source=proof_authority reason=%s",
+		firstNonEmptyRetryString(guidance.ReasonCode, "none"))}
+	if shadow := readLoopShadowSummaryFromMutable(m, guidance.RecommendedAction); shadow != "" {
+		parts = append(parts, shadow)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func readProofGuidanceSummary(guidance loopkernel.ReadProofGuidance, ok bool) string {

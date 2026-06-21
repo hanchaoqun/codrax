@@ -57,6 +57,7 @@ func TestBuildExploreTransientRetryCheckpointHintCarriesReadProofGuidance(t *tes
 		"reason=proof_weak",
 		"action=add_proof",
 		"mode=advisory",
+		"loop action=add_proof source=proof_authority reason=proof_weak",
 		"loop shadow recommended=add_proof imperative=add_proof match=true reason=proof_weak",
 	} {
 		if !strings.Contains(got, want) {
@@ -65,6 +66,22 @@ func TestBuildExploreTransientRetryCheckpointHintCarriesReadProofGuidance(t *tes
 	}
 	if strings.Contains(got, "mode=hard") {
 		t.Fatalf("weak read proof must not be rendered as a hard block:\n%s", got)
+	}
+}
+
+func TestReadLoopAddProofActionSkipsCoveredProof(t *testing.T) {
+	mut := types.NewMutableState("covered runtime proof")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedResultKind:               "resolved",
+		RuntimeObservationOnlyCompletion: true,
+		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+			Kind:  types.AnswerAggregateScalar,
+			Label: "answer",
+			Value: "covered",
+		}},
+	})
+	if got := readLoopAddProofActionSummaryFromMutable(mut); got != "" {
+		t.Fatalf("covered proof should not request add_proof action, got %q", got)
 	}
 }
 
