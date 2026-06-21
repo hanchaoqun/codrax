@@ -91,7 +91,7 @@ func TestApplyStageOutput_DedupsAnswerChainsOnSelfLoop(t *testing.T) {
 	}
 }
 
-func TestEvidenceRoundIngestShadowDoesNotMutateClosure(t *testing.T) {
+func TestEvidenceRoundIngestUpdatesProductionClosure(t *testing.T) {
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	mu := types.NewMutableState("question")
@@ -102,23 +102,43 @@ func TestEvidenceRoundIngestShadowDoesNotMutateClosure(t *testing.T) {
 		ActiveAgent:   types.AgentExplorer,
 		TaskState:     types.TaskState{Stage: types.StageExplore},
 	}
-	results := []types.ToolResult{{
-		ToolName: "read_file",
-		Success:  true,
-		Summary:  "[a.go: showing lines 1-3 of 10 total]\ncode",
-	}}
-
-	delta := o.runEvidenceRoundIngestShadow(results)
-	if delta.Empty() || !delta.ReadSet["a.go"] {
-		t.Fatalf("shadow delta = %+v, want a.go read coverage", delta)
+	results := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[a.go: showing lines 1-3 of 10 total]\ncode",
+		},
+		{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Handoff: &types.ToolHandoffCarrier{
+				Version:          types.ToolHandoffCarrierVersion,
+				ToolName:         "emit_evidence",
+				AcceptedEvidence: []types.AcceptedEvidenceRef{{ID: "ev-a", Source: "a.go", LineStart: 1}},
+			},
+		},
 	}
-	if got := mu.EvidenceClosure().ReadSet(); len(got) != 0 {
-		t.Fatalf("shadow ingest mutated production closure: %+v", got)
+
+	delta := o.ingestEvidenceRound(results)
+	if delta.Empty() || !delta.ReadSet["a.go"] {
+		t.Fatalf("ingest delta = %+v, want a.go read coverage", delta)
+	}
+	if got := mu.EvidenceClosure().ReadSet(); !got["a.go"] || len(got) != 1 {
+		t.Fatalf("production closure read set = %+v, want a.go", got)
+	}
+	if refs := mu.EvidenceClosure().AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-a" {
+		t.Fatalf("production accepted evidence refs = %+v, want ev-a", refs)
 	}
 
 	o.applyStageOutput(&agent.StageOutput{ToolResults: results})
-	if got := mu.EvidenceClosure().ReadSet(); len(got) != 0 {
-		t.Fatalf("applyStageOutput shadow mutated production closure: %+v", got)
+	if got := len(o.busCtx.ToolResults); got != len(results) {
+		t.Fatalf("ToolResults history len = %d, want %d", got, len(results))
+	}
+	if got := mu.EvidenceClosure().ReadSet(); !got["a.go"] || len(got) != 1 {
+		t.Fatalf("applyStageOutput production read set = %+v, want stable a.go", got)
+	}
+	if refs := mu.EvidenceClosure().AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-a" {
+		t.Fatalf("applyStageOutput accepted evidence refs = %+v, want stable ev-a", refs)
 	}
 }
 

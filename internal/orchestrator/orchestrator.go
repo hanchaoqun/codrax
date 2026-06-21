@@ -8596,8 +8596,8 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 
 	// Append tool results
 	o.busCtx.ToolResults = append(o.busCtx.ToolResults, output.ToolResults...)
-	if delta := o.runEvidenceRoundIngestShadow(output.ToolResults); !delta.Empty() {
-		logging.Debug("[orchestrator] evidence round shadow: reads=%d ranges=%d totals=%d accepted_evidence=%d",
+	if delta := o.ingestEvidenceRound(output.ToolResults); !delta.Empty() {
+		logging.Debug("[orchestrator] evidence round ingest: reads=%d ranges=%d totals=%d accepted_evidence=%d",
 			len(delta.ReadSet), len(delta.ReadRanges), len(delta.FileTotalLines), len(delta.AcceptedEvidence))
 	}
 
@@ -8774,7 +8774,7 @@ func appendUniqueInvestigationNotes(existing, incoming []string) []string {
 	return out
 }
 
-func (o *Orchestrator) runEvidenceRoundIngestShadow(results []types.ToolResult) types.EvidenceRoundDelta {
+func (o *Orchestrator) ingestEvidenceRound(results []types.ToolResult) types.EvidenceRoundDelta {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || len(results) == 0 {
 		return types.EvidenceRoundDelta{}
 	}
@@ -8782,11 +8782,7 @@ func (o *Orchestrator) runEvidenceRoundIngestShadow(results []types.ToolResult) 
 	if closure == nil {
 		return types.EvidenceRoundDelta{}
 	}
-	shadow := closure.Clone()
-	if shadow == nil {
-		return types.EvidenceRoundDelta{}
-	}
-	return shadow.IngestRound(results, o.busCtx.RepoRoot)
+	return closure.IngestRound(results, o.busCtx.RepoRoot)
 }
 
 // BusContext returns the current bus context (for inspection/testing).
