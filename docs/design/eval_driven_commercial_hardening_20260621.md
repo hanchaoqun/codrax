@@ -90,6 +90,43 @@ the same lane family only after documenting the substitution.
 | EDH-4 | P0 | Contract severity still mixes blocking, repaired, and audit-only states. | Continue RNE-C15 with typed severity split so successful answers are not polluted by repaired warnings. |
 | EDH-5 | P0 | Cross-language member/facet projection must remain language-neutral and include C/C++, Cangjie, ArkTS, JS/TS, Java/Kotlin, Ruby, Go, config/workflow, generated/vendor/third-party/corpus surfaces. | Continue SourceInventoryMemberProjection work from RNE-C58; avoid Python-only or Go-only assumptions. |
 | EDH-6 | P0 | Write-mode symptom-driven localization and proof confidence remain the main SWE/eval correctness risk. | Use write evals and SWE artifacts to decide whether the bug is localization, impact analysis, patch critic, verifier scope, or handoff loss before implementing. |
+| EDH-7 | P0 | Verify-failure replan can produce the correct small patch but still block on stale or under-integrated source-owner localization state. | Make write apply gating consume the latest batch plan, actual-diff owner anchors, failed-verification observation, and approval state as one typed authority snapshot. Do not block a replan whose changed lines have structural owner anchors. |
+| EDH-8 | P0 | Micro write tasks can duplicate planning after a valid plan because path-only localization is treated as unresolved even when the patch itself is a bounded single-owner edit. | Add a typed micro-plan acceptance path based on normalized paths, actual diff hunks, owner anchors, and risk policy. This must be language-neutral and not infer intent from request text. |
+| EDH-9 | P0 | Read final answers can show repaired/audit-only contract warnings and system supplements after exact evidence already satisfies the answer. | Split final-answer contract states into blocking, repaired, audit-only, and displayable states. Routine exact answers must not show low-confidence caveats created by already-repaired obligations. |
+| EDH-10 | P0 | `repo_map(source_inventory)` can under-project members for ArkTS/decorator/facet-heavy files even when `read_file` evidence has exact symbols. | Extend the SourceInventoryMemberProjection authority so source inventory and direct read evidence share a typed member/facet projection. Keep it cross-language and class-aware. |
+| EDH-11 | P1 | Trace/read final answers can over-render raw structured observations and duplicate metric sections, while citation accounting may report zero citations for artifact-backed facts. | Add a trace observation projection for final-answer consumption: principal causal facts first, supporting artifact refs second, bulky diagnostics behind audit/detail surfaces. |
+| EDH-12 | P1 | Eval harness result discovery is brittle around discarded write worktrees and concurrent run summaries. | Make eval reporting consume typed run artifacts when available and explicitly distinguish product failure, eval-infrastructure failure, missing worktree, and missing final report. |
+
+## Batch E1 Results
+
+Result root: `eval/results/eval-driven-20260621-batch1b`
+
+| Case | Harness verdict | Manual verdict | Key observations |
+| --- | --- | --- | --- |
+| `qf_relation_subagent_registry.case` | PASS | Correct answer: only `explorer` can call subagents through the registered tool path. | 150s, about 75k context tokens, 12 explorer iterations, and repaired contract warnings still appeared in the final answer. This is a noise/severity gap, not an answer correctness gap. |
+| `harmony/arkts_repomap.case` | PASS | Correct symbols: `Index`, `defaultHeader`, `GlobalCard`. | Analyzer formed an early false absence prior, exploration recovered with `list_files`/`read_file`, and final answer still showed range/support caveats. `repo_map(source_inventory)` under-projected member rows. |
+| `trace_query_wakeup_causal_io_chain.case` | PASS | Correct causal chain from attached trace evidence. | Good `trace_query` adoption. Final surface over-rendered structured observations and duplicated metric-style supplements; citation accounting reported zero citations at one point despite artifact-backed facts. |
+| `sr_ts_workspace_impls.case` | PASS | Correct implementers: `ExponentialBackoff` and `FixedDelay`; `JitterHelper` correctly excluded. | Late completion pressure forced `repo_map(source_inventory)` after exact direct evidence existed. Small fixture still took 90s, showing navigation/readiness noise. |
+| `github_issue_fmt_tm_year_overflow_symptom.case` | FAIL | The system found the correct missing change after verify failure, but blocked before applying it. | First patch was incomplete. Verify failure identified `calendar_year` overflow. Replan produced the correct `int` to `long long` patch, then apply blocked on source-owner localization. This is EDH-7. |
+| `patch_cpp_typo.case` | PASS | Correct low-risk C++ patch. | Valid plan was duplicated because path-only localization was considered insufficient, and `emit_change_plan` repair repeated around whitespace-sensitive old text. This is EDH-8 plus schema-repair cost. |
+
+## Manual Audit Intake
+
+The batch shows the strongest current commercial risk is no longer "cannot find
+any patch". It is state and evidence authority integration after the system has
+already found useful evidence:
+
+- Write mode can identify the correct failure point from verifier output but
+  then let stale localization or approval state block the latest small repair.
+- Read mode can gather enough precise evidence but still spend extra rounds
+  satisfying secondary navigation or contract obligations and then display those
+  repaired obligations as user-facing uncertainty.
+- Source inventory is valuable and should be encouraged, but its member/facet
+  projection must not become a weaker truth source than direct read evidence.
+- Trace queries are being used appropriately, but final-answer projection needs
+  a compact principal-evidence view instead of dumping raw observation detail.
+- Eval infrastructure should classify missing/discarded worktree artifacts as
+  reportability gaps without hiding the underlying product gap.
 
 ## Delivery Plan
 
@@ -140,12 +177,111 @@ Validation:
 - `go test ./...` passes when the batch touches shared infrastructure.
 - Representative reruns show reduced gap symptoms without regressions.
 
+### Batch E3: Write Replan Authority And State Convergence
+
+Gap IDs: EDH-7, EDH-8.
+
+Tasks:
+- Explore the write controller state machine, owner-localization gate,
+  approval/fingerprint handling, and actual-diff anchor projection before
+  editing.
+- Build a single typed pre-apply authority view for the active batch that folds
+  latest plan, actual diff hunks, structural owner anchors, verifier failure
+  observations, approval state, and risk decision.
+- Allow bounded replan application when every edited hunk has a normalized path
+  and structural owner anchor, even if earlier plan-context localization was
+  path-only or stale.
+- Reject contradictory states deterministically: a batch cannot be both
+  `needs_replan` and applying an older plan, and a replaced plan cannot carry
+  forward approval for a changed fingerprint.
+- Add focused tests for verify-failure replan, micro single-line C/C++ patch,
+  stale owner-localization requirement, and approval fingerprint mismatch.
+
+Validation:
+- Focused `go test` for write controller scheduler.
+- Rerun `github_issue_fmt_tm_year_overflow_symptom.case` and
+  `patch_cpp_typo.case`.
+
+### Batch E4: Read Contract Severity And Noise Convergence
+
+Gap IDs: EDH-2, EDH-4, EDH-9.
+
+Tasks:
+- Explore answer contract, retry guidance, completion preflight, and final
+  rendering paths before editing.
+- Promote contract severity into typed states: blocking, repaired,
+  audit-only, and displayable.
+- Stop rendering repaired/audit-only warnings into routine exact answers.
+- Add progress-delta checks so repeated completion retries require a new typed
+  obligation, not repeated low-delta "verification not stable" loops.
+- Add tests with exact relation/member answers and repaired support-chain
+  obligations.
+
+Validation:
+- Focused read-mode contract tests.
+- Rerun `qf_relation_subagent_registry.case` and
+  `sr_ts_workspace_impls.case`.
+
+### Batch E5: Cross-Language Source Inventory Projection
+
+Gap IDs: EDH-5, EDH-10.
+
+Tasks:
+- Explore existing `SourcePathRole`, `SourceScope`,
+  `SourceInventoryObservation`, direct read symbol extraction, and language
+  parsers before editing.
+- Make source inventory and read-file symbol evidence share a typed member/facet
+  projection authority.
+- Ensure the projection is class-aware across repo-owned, generated, vendor,
+  third-party, corpus, fixture, example, and test surfaces.
+- Cover C/C++, Cangjie, ArkTS, JS/TS, Java/Kotlin, Ruby, Go,
+  config/workflow, and parser-fallback paths without language-specific hard
+  gates on request prose.
+
+Validation:
+- Source inventory focused tests across representative languages.
+- Rerun `harmony/arkts_repomap.case`.
+
+### Batch E6: Trace Projection And Citation Surface
+
+Gap IDs: EDH-11.
+
+Tasks:
+- Explore trace artifact projection, answer document emission, and citation
+  accounting before editing.
+- Add a compact typed trace-observation final-answer view with principal causal
+  claims, supporting spans, and optional audit detail.
+- Normalize artifact-backed facts so citation accounting reflects structured
+  trace evidence without forcing raw metric dumps into the principal answer.
+
+Validation:
+- Focused trace answer tests.
+- Rerun `trace_query_wakeup_causal_io_chain.case`.
+
+### Batch E7: Eval Reporting Hardening
+
+Gap IDs: EDH-1, EDH-12.
+
+Tasks:
+- Explore eval runner result discovery, write worktree cleanup, final report
+  emission, and summary generation before editing.
+- Add typed product/eval-infra verdict categories and robust artifact lookup.
+- Keep audit search defaults bounded and explicit-result-dir aware.
+
+Validation:
+- Rerun the same six-case batch with two-way parallelism.
+- Confirm summary rows and product gaps remain inspectable after worktree
+  cleanup.
+
 ## Progress Ledger
 
 | Batch | Status | Notes |
 | --- | --- | --- |
-| E0 | in_progress | Ledger created from current repo audit and existing eval harness. |
-| E1 | pending | Six representative cases selected; run order fixed above. |
-| E2 | pending | Manual audit not started. |
-| E3+ | pending | Implementation batches must be added after E2 gap intake. |
-
+| E0 | done | Ledger created and pushed in commit `b45f02dc7`. |
+| E1 | done | Six representative cases ran under `eval/results/eval-driven-20260621-batch1b` with two-way parallelism. |
+| E2 | done | Manual audit completed and gap IDs EDH-7 through EDH-12 added before code changes. |
+| E3 | in_progress | Start with write replan authority/state convergence because it caused the only batch harness failure. |
+| E4 | pending | Read contract severity and noise convergence. |
+| E5 | pending | Cross-language source inventory projection. |
+| E6 | pending | Trace projection and citation surface. |
+| E7 | pending | Eval reporting hardening and six-case rerun. |
