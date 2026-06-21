@@ -234,6 +234,12 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 - `.codrax` output/session persistence surfaces
 - existing write workflow run store 的 atomic write 模式
 
+本批探索确认：
+- `EvidenceClosure` 已暴露 B2 所需 typed getters：`NodeExecStatuses`、`AcceptedEvidenceRefs`、`ReadSet`、`ReadRanges`、`FileTotalLines`、`LatestProgressDecision`、`SourceInventoryObservation`。
+- `SourceInventoryObservationFromMutable` 已能合并 Mutable / TurnA / closure 侧 source-inventory authority，不需要新建 source-class taxonomy。
+- 原子写已有统一工具 `types.AtomicWriteFileSync`，write workflow / reasoninggraph / loopkernel store 都复用该写法；B2 不新造非原子 JSON 落盘。
+- B2 只交付 replay/audit substrate：typed snapshot projection、Save/Load/List/Clear store 和测试；不自动恢复 read run，不让 snapshot 改变 scheduler 决策。
+
 任务：
 - 定义 read run snapshot：TaskGraph identity、NodeExecStatus map、accepted evidence refs、read ranges、source inventory observation、progress decision。
 - 先实现 replay/audit load，不直接开启自动 resume。
@@ -383,6 +389,7 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 | 2026-06-21 | A2 Biting ratchet pin | complete | Ratchet pinned to current counts: `evidence_closure.go=2636`, `scheduler.go=799`, `orchestrator.go=9402`; failure message now requires splitting concern-specific code or updating this ledger before expanding budget. `go test ./internal/orchestrator -run TestIRDeliveryHotFileLineRatchet` passed. |
 | 2026-06-21 | B1 NodeExecStatus load-bearing cutover | complete | `EvidenceClosure.NodeExecStatus` is now the closure-first decision-read authority for scheduler/orchestrator status checks; `graphState.status` is retired after closure attach and remains only nil-closure bootstrap fallback. `rg 'state\\.status\\[|s\\.status\\[|\\.status\\[' internal/orchestrator` only finds accessor internals. Focused `go test ./internal/types ./internal/orchestrator -run 'TestGraphState|TestHandleStructurallyEmptyInvestigation|TestE2E_ReadMode_.*Extract|TestStageMappingFirstClassExtractSkip'` and `go test ./internal/orchestrator -run 'TestGraphState|TestRunTaskGraph|TestE2E_ReadMode|TestMode_DefaultIsRead|TestRunMode_ReadByteIdentical'` passed. |
 | 2026-06-21 | B3 IngestRound production reducer cutover | complete | `applyStageOutput` now calls production `ingestEvidenceRound`, mutating the real closure via typed `EvidenceClosure.IngestRound` while preserving `ToolResults` history append semantics. Tests cover production read coverage, accepted-evidence carrier idempotence, and existing truth-set merge behavior. `go test ./internal/types ./internal/tool/ground ./internal/orchestrator -run 'IngestRound|ApplyStageOutput|ReadCoverage|AcceptedEvidence'` passed. |
+| 2026-06-21 | B2 Read run snapshot substrate intake | in_progress | Code exploration confirmed the required typed carriers and atomic-write patterns already exist. Implementation scope is typed snapshot projection/store plus audit load/list tests only; automatic resume and scheduler behavior changes are explicitly out of this batch. |
 
 ---
 
