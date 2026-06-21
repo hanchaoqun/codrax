@@ -4898,6 +4898,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			env.LogTriage = o.busCtx.Mutable.LogTriage()
 			env.PerfTrace = o.busCtx.Mutable.PerfTrace()
 			env.InvestigationComplete = o.busCtx.Mutable.IsInvestigationComplete()
+			sourceInventoryObservation := types.SourceInventoryObservationFromMutable(o.busCtx.Mutable)
+			env.SourceInventoryActive = sourceInventoryObservation.IsActive()
+			env.SourceClassUniverseComplete = types.SourceInventorySourceClassesComplete(sourceInventoryObservation.SourceClasses)
 			if ta := o.busCtx.Mutable.TurnAArtifacts(); ta != nil {
 				env.ObservationOnlyCompletion = ta.RuntimeObservationOnlyCompletion
 				if len(o.busCtx.MCPResponses) == 0 {

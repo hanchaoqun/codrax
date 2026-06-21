@@ -214,6 +214,9 @@ func (s *graphState) readyExplorerWindowContext(ctx context.Context, env criteri
 		if len(n.EntryConditions) > 0 {
 			ok, failed := criterion.EvalAll(n.EntryConditions, env)
 			if !ok {
+				if n.Optional {
+					continue
+				}
 				blocked = append(blocked, nodeBlock{NodeID: n.ID, FailedCriteria: failed})
 				continue
 			}
@@ -521,6 +524,9 @@ func (s *graphState) firstFinalizeReadyMerged() *types.TaskNode {
 			if m.ID == n.ID || m.Type == types.NodeExtract || m.Type == types.NodeFinalize || m.IsCounterfactual {
 				continue
 			}
+			if m.Optional && s.status[m.ID] != nodeRunning {
+				continue
+			}
 			if s.status[m.ID] != nodeDone {
 				allOtherDone = false
 				break
@@ -560,7 +566,7 @@ func (s *graphState) forceCloseExploreWindow() {
 		return
 	}
 	for _, n := range s.graph.Nodes {
-		if n.Type == types.NodeExtract || n.Type == types.NodeFinalize || n.IsCounterfactual {
+		if n.Optional || n.Type == types.NodeExtract || n.Type == types.NodeFinalize || n.IsCounterfactual {
 			continue
 		}
 		if s.status[n.ID] != nodeDone {

@@ -372,18 +372,5 @@ func cloneReadProofSourceClassCounts(in []types.SourceInventorySourceClassCount)
 }
 
 func readProofSourceClassUniverseComplete(classes []types.SourceInventorySourceClassCount) bool {
-	if len(classes) == 0 {
-		return false
-	}
-	seen := false
-	for _, class := range classes {
-		if class.Role == types.SourcePathRoleUnknown || class.Count <= 0 {
-			continue
-		}
-		seen = true
-		if !class.Complete {
-			return false
-		}
-	}
-	return seen
+	return types.SourceInventorySourceClassesComplete(classes)
 }

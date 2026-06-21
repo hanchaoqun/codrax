@@ -68,8 +68,8 @@ func hasEdge(g types.TaskGraph, from, to string, et types.EdgeType) bool {
 
 func TestCompile_ArchitectureExplain_HasExplanationContract(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
-	if countNodeType(out.TaskGraph, types.NodeProbe) != 1 {
-		t.Fatalf("want 1 probe node")
+	if countNodeType(out.TaskGraph, types.NodeProbe) < 1 {
+		t.Fatalf("want at least 1 probe node")
 	}
 	if countNodeType(out.TaskGraph, types.NodeExtract) != 1 {
 		t.Fatalf("want 1 extract stage node")
@@ -85,6 +85,40 @@ func TestCompile_ArchitectureExplain_HasExplanationContract(t *testing.T) {
 	for _, e := range out.TaskGraph.Edges {
 		if !ids[e.From] || !ids[e.To] {
 			t.Fatalf("dangling edge %+v", e)
+		}
+	}
+}
+
+func TestStageExpansionOptInPreciseBoolean(t *testing.T) {
+	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	var reprobe, finalize types.TaskNode
+	for _, n := range out.TaskGraph.Nodes {
+		if n.Type == types.NodeProbe && n.Optional {
+			for _, c := range n.EntryConditions {
+				if c.Kind == types.CritSourceClassUniverseIncomplete {
+					reprobe = n
+				}
+			}
+		}
+		if n.Type == types.NodeFinalize {
+			finalize = n
+		}
+	}
+	if reprobe.ID == "" {
+		t.Fatalf("missing optional source-inventory reprobe node: %+v", out.TaskGraph.Nodes)
+	}
+	if reprobe.OneShot != true || reprobe.MaxRetries != 1 {
+		t.Fatalf("reprobe should be bounded one-shot; got %+v", reprobe)
+	}
+	if !containsString(reprobe.Outputs, "source_inventory_observation") || !containsString(reprobe.Outputs, "source_classes") {
+		t.Fatalf("reprobe outputs missing source inventory artifacts: %v", reprobe.Outputs)
+	}
+	if finalize.ID == "" || !hasEdge(out.TaskGraph, reprobe.ID, finalize.ID, types.EdgeSoftDependency) {
+		t.Fatalf("reprobe should have a soft edge to finalize; edges=%+v", out.TaskGraph.Edges)
+	}
+	for _, id := range out.TaskGraph.ExecutionPolicy.CriticalPath {
+		if id == reprobe.ID {
+			t.Fatalf("optional reprobe must not enter the default critical path: %v", out.TaskGraph.ExecutionPolicy.CriticalPath)
 		}
 	}
 }
@@ -162,7 +196,7 @@ func TestCompile_RootCause_CurrentStatusDiagnosticHasThreeLaneContract(t *testin
 	var finalObjective string
 	var probeOutputs []string
 	for _, n := range out.TaskGraph.Nodes {
-		if n.Type == types.NodeProbe {
+		if n.Type == types.NodeProbe && !n.Optional {
 			probeOutputs = n.Outputs
 		}
 		if n.Type == types.NodeFinalize {
@@ -361,9 +395,10 @@ func TestCompile_MultiTopicCrossComponentTraceKeepsArchitectureTemplate(t *testi
 
 func TestCompile_UnknownScenarioFallsBackToGeneric(t *testing.T) {
 	out := compileT(sampleRM("no_such_scenario", types.IntentExplain, types.ComplexityModerate))
-	// Generic template has probe, evidence, extract, finalize.
-	if len(out.TaskGraph.Nodes) != 4 {
-		t.Fatalf("unknown scenario should fall back to generic (4 nodes); got %d", len(out.TaskGraph.Nodes))
+	// Generic template has probe, evidence, optional source-inventory reprobe,
+	// extract, finalize.
+	if len(out.TaskGraph.Nodes) != 5 {
+		t.Fatalf("unknown scenario should fall back to generic (5 nodes); got %d", len(out.TaskGraph.Nodes))
 	}
 }
 

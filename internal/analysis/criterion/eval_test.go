@@ -255,6 +255,19 @@ func TestEval_ExtractInputReady_UsesTypedInputsOnly(t *testing.T) {
 	}
 }
 
+func TestEval_SourceClassUniverseIncomplete_UsesTypedBooleans(t *testing.T) {
+	c := types.Criterion{Kind: string(KindSourceClassUniverseIncomplete)}
+	if r := Eval(c, Env{}); r.Satisfied {
+		t.Fatalf("inactive source inventory must not trigger opt-in node: %s", r.Detail)
+	}
+	if r := Eval(c, Env{SourceInventoryActive: true, SourceClassUniverseComplete: true}); r.Satisfied {
+		t.Fatalf("complete source-class universe must not trigger opt-in node: %s", r.Detail)
+	}
+	if r := Eval(c, Env{SourceInventoryActive: true, SourceClassUniverseComplete: false}); !r.Satisfied {
+		t.Fatalf("active incomplete source-class universe should trigger opt-in node: %s", r.Detail)
+	}
+}
+
 func TestEval_CitationCountGE_ExternalSourceLogWaivesFloor(t *testing.T) {
 	env := Env{
 		LogTriage: &types.LogBundle{

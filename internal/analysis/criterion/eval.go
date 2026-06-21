@@ -84,6 +84,8 @@ func dispatch(k Kind, expr string, env Env) Result {
 		return evalCitationCountGE(expr, env)
 	case KindExtractInputReady:
 		return evalExtractInputReady(env)
+	case KindSourceClassUniverseIncomplete:
+		return evalSourceClassUniverseIncomplete(env)
 	case KindContainsSymbol:
 		return evalContainsSymbol(expr, env)
 	case KindRegexMatch:
@@ -775,6 +777,16 @@ func evalExtractInputReady(env Env) Result {
 		return Result{Satisfied: true, Detail: fmt.Sprintf("extract_input_ready: external_observations=%d", artifactCount)}
 	}
 	return Result{Satisfied: false, Detail: "extract_input_ready: no typed evidence, answer chains, aggregate facts, or external observations"}
+}
+
+func evalSourceClassUniverseIncomplete(env Env) Result {
+	if !env.SourceInventoryActive {
+		return Result{Satisfied: false, Detail: "source_class_universe_incomplete: no active source inventory"}
+	}
+	if env.SourceClassUniverseComplete {
+		return Result{Satisfied: false, Detail: "source_class_universe_incomplete: universe complete"}
+	}
+	return Result{Satisfied: true, Detail: "source_class_universe_incomplete: active universe incomplete"}
 }
 
 func externalRuntimeEvidenceFloorWaived(env Env) (count int, waived bool) {

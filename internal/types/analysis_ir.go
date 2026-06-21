@@ -1044,6 +1044,7 @@ type TaskNode struct {
 	Hypotheses       []string    `json:"hypotheses,omitempty"`
 	SearchHints      SearchHints `json:"search_hints"`
 	IsCounterfactual bool        `json:"is_counterfactual,omitempty"`
+	Optional         bool        `json:"optional,omitempty"`
 	MaxRetries       int         `json:"max_retries,omitempty"`
 
 	// OneShot caps the node at one successful dispatch. After
@@ -1132,6 +1133,7 @@ const (
 	CritEvidenceCount                 = "evidence_count"
 	CritCitationCountGE               = "citation_count_ge"
 	CritExtractInputReady             = "extract_input_ready"
+	CritSourceClassUniverseIncomplete = "source_class_universe_incomplete"
 	CritContainsSymbol                = "contains_symbol"
 	CritRegexMatch                    = "regex_match"
 	CritCounterfactualBranchesDecided = "counterfactual_branches_decided"

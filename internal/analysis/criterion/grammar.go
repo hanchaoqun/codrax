@@ -43,6 +43,7 @@ const (
 	KindEvidenceCount                 Kind = Kind(types.CritEvidenceCount)
 	KindCitationCountGE               Kind = Kind(types.CritCitationCountGE)
 	KindExtractInputReady             Kind = Kind(types.CritExtractInputReady)
+	KindSourceClassUniverseIncomplete Kind = Kind(types.CritSourceClassUniverseIncomplete)
 	KindContainsSymbol                Kind = Kind(types.CritContainsSymbol)
 	KindRegexMatch                    Kind = Kind(types.CritRegexMatch)
 	KindCounterfactualBranchesDecided Kind = Kind(types.CritCounterfactualBranchesDecided)
@@ -87,6 +88,7 @@ var registered = map[Kind]bool{
 	KindEvidenceCount:                 true,
 	KindCitationCountGE:               true,
 	KindExtractInputReady:             true,
+	KindSourceClassUniverseIncomplete: true,
 	KindContainsSymbol:                true,
 	KindRegexMatch:                    true,
 	KindCounterfactualBranchesDecided: true,
@@ -124,16 +126,18 @@ var ErrUnknownKind = errors.New("criterion: unknown kind")
 // that are irrelevant to the current call site may be left zero —
 // evaluators document which fields they require.
 type Env struct {
-	IR             *types.AnalysisIR
-	Evidence       []types.EvidenceItem
-	AnswerSymbols  []types.AnswerSymbol
-	AnswerChains   []types.AnswerChain
-	AggregateFacts []types.AnswerAggregateFact
-	ToolResults    []types.ToolResult
-	PrescanBlob    string
-	Signals        types.ExecutionSignals
-	DraftAnswer    string
-	DraftCitations int
+	IR                          *types.AnalysisIR
+	Evidence                    []types.EvidenceItem
+	AnswerSymbols               []types.AnswerSymbol
+	AnswerChains                []types.AnswerChain
+	AggregateFacts              []types.AnswerAggregateFact
+	ToolResults                 []types.ToolResult
+	PrescanBlob                 string
+	Signals                     types.ExecutionSignals
+	SourceInventoryActive       bool
+	SourceClassUniverseComplete bool
+	DraftAnswer                 string
+	DraftCitations              int
 	// ReactItersUsed is the per-task explore-window iteration count
 	// the scheduler has already spent. Consumed by budget_exhausted.
 	ReactItersUsed int

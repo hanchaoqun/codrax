@@ -46,6 +46,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_advisory_label.go":   18,
 	"../types/source_inventory_advisory_total.go":   11,
 	"../types/source_inventory_inclusion.go":        38,
+	"../types/source_inventory_class_complete.go":   35,
 	"../types/source_inventory_language_census.go":  75,
 	"../types/source_inventory_mutable.go":          40,
 	"../types/source_inventory_observation.go":      490,

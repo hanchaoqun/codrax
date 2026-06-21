@@ -103,15 +103,7 @@ func sourceInventoryObservationHasCompleteZeroSetsForRoles(observation SourceInv
 }
 
 func sourceInventorySourceClassesComplete(classes []SourceInventorySourceClassCount) bool {
-	if len(classes) == 0 {
-		return false
-	}
-	for _, class := range classes {
-		if !class.Complete {
-			return false
-		}
-	}
-	return true
+	return SourceInventorySourceClassesComplete(classes)
 }
 
 func sourceInventoryObservationExecutionIncompleteForAbsence(observation SourceInventoryObservation) bool {

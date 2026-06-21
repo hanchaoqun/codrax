@@ -364,3 +364,29 @@ func TestSourceInventoryObservationFromMutableReadsClosureUniverse(t *testing.T)
 		t.Fatalf("ResetTurnAArtifacts must clear closure-backed source inventory to prevent stale universe leakage: %+v", got)
 	}
 }
+
+func TestSourceInventorySourceClassesCompleteRequiresPositiveKnownClasses(t *testing.T) {
+	if SourceInventorySourceClassesComplete(nil) {
+		t.Fatal("nil classes must not be complete")
+	}
+	if SourceInventorySourceClassesComplete([]SourceInventorySourceClassCount{{
+		Role: SourcePathRoleUnknown, Count: 1, Complete: true,
+	}}) {
+		t.Fatal("unknown role must not make the universe complete")
+	}
+	if SourceInventorySourceClassesComplete([]SourceInventorySourceClassCount{{
+		Role: SourcePathRoleProduction, Count: 0, Complete: true,
+	}}) {
+		t.Fatal("zero-count class must not make the universe complete")
+	}
+	if SourceInventorySourceClassesComplete([]SourceInventorySourceClassCount{{
+		Role: SourcePathRoleProduction, Count: 2, Complete: false,
+	}}) {
+		t.Fatal("incomplete positive class must not be complete")
+	}
+	if !SourceInventorySourceClassesComplete([]SourceInventorySourceClassCount{{
+		Role: SourcePathRoleProduction, Count: 2, Complete: true,
+	}}) {
+		t.Fatal("positive known complete class should complete the universe")
+	}
+}

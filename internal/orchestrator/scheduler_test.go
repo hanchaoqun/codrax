@@ -253,6 +253,58 @@ func TestGraphState_EntryConditionBlocks(t *testing.T) {
 	}
 }
 
+func TestGraphState_OptionalEntryConditionDoesNotBlockFinalize(t *testing.T) {
+	g := chainGraphWithExtract()
+	optional := types.TaskNode{
+		ID:       "n_opt",
+		Type:     types.NodeProbe,
+		Optional: true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceClassUniverseIncomplete,
+		}},
+	}
+	g.Nodes = append([]types.TaskNode{optional}, g.Nodes...)
+	s := newGraphState(g)
+	window, blocked := s.readyExplorerWindow(emptyEnv())
+	if got := idsOf(window); strings.Contains(strings.Join(got, ","), "n_opt") {
+		t.Fatalf("optional node with false entry condition should not be ready: %v", got)
+	}
+	for _, b := range blocked {
+		if b.NodeID == "n_opt" {
+			t.Fatalf("optional node with false entry condition must not add blocked noise: %+v", blocked)
+		}
+	}
+	for _, id := range []string{"n0", "n1"} {
+		s.markRunning(id)
+		s.markDone(id)
+	}
+	if fin := s.firstFinalizeReadyMerged(); fin == nil || fin.ID != "n3" {
+		t.Fatalf("optional pending node must not prevent finalize readiness; got %v", fin)
+	}
+}
+
+func TestGraphState_OptionalEntryConditionCanDispatchWhenTypedSignalTrue(t *testing.T) {
+	g := chainGraphWithExtract()
+	optional := types.TaskNode{
+		ID:       "n_opt",
+		Type:     types.NodeProbe,
+		Optional: true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceClassUniverseIncomplete,
+		}},
+	}
+	g.Nodes = append([]types.TaskNode{optional}, g.Nodes...)
+	s := newGraphState(g)
+	env := criterion.Env{SourceInventoryActive: true, SourceClassUniverseComplete: false}
+	window, blocked := s.readyExplorerWindow(env)
+	if len(blocked) != 0 {
+		t.Fatalf("optional ready node should not be blocked: %+v", blocked)
+	}
+	if got := idsOf(window); !strings.Contains(strings.Join(got, ","), "n_opt") {
+		t.Fatalf("optional node should be ready when typed criterion is true: %v", got)
+	}
+}
+
 // ── envShape fingerprint tests ──────────────────────────────────
 
 // TestEnvShape_EmptyInput_IsZero verifies the baseline: zero Env,
