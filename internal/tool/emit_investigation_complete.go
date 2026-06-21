@@ -3708,14 +3708,15 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	if !sourceInventoryObservationResolvedCompletionIncomplete(observation) {
 		return ""
 	}
-	if SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts) {
+	if SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts) &&
+		!sourceInventoryResolvedCompletionRequiresRepoWideAuthority(ctx, observation) {
 		return ""
 	}
 	roles := sourceInventoryLensExecutionRoleLabels(profile.PrincipalTargetRoles())
 	if len(roles) == 0 {
 		roles = sourceInventoryLensExecutionRoleLabels(sourceInventoryObservationRolesForCompletion(observation))
 	}
-	scopes := append([]string(nil), observation.Scopes...)
+	scopes := sourceInventoryResolvedCompletionRepairScopes(ctx, observation)
 	if len(scopes) == 0 {
 		scopes = []string{"."}
 	}
@@ -3723,6 +3724,9 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	nextCursor := sourceInventoryObservationNextCursor(observation)
 	subject := fmt.Sprintf("Continue the incomplete source-inventory lens with path=%q, view=\"source_inventory\", roles=[%s], scopes=[%s], include_counts=true, and include_attributes=false.",
 		repoMapPath, strings.Join(roles, ", "), sourceInventoryLensExecutionQuotedList(repoMapScopes))
+	if query := sourceInventoryResolvedCompletionRepairQuery(ctx); query != "" {
+		subject += " Use query=" + strconv.Quote(query) + " to target the typed requested construct/language surface."
+	}
 	if nextCursor != "" {
 		subject += " Use cursor=" + strconv.Quote(nextCursor) + " when paging the same lens."
 	}
@@ -3740,6 +3744,27 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	b.WriteString(sourceInventoryResolvedCompletionSummary(observation, profile) + "\n\n")
 	b.WriteString("Continue with the typed `repo_map(view=\"source_inventory\")` lens using the cursor or a narrower typed family/scope before closing as resolved. Do not replace an incomplete repo-wide inventory with a smaller fixture/support subtree unless the final handoff explicitly declares that bounded scope.\n")
 	return b.String()
+}
+
+func sourceInventoryResolvedCompletionRequiresRepoWideAuthority(ctx *types.BusContext, observation types.SourceInventoryObservation) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if !types.SourceInventoryRequiresRepoWideLens(ctx.AnalysisIR.RequestModel) {
+		return false
+	}
+	return sourceInventoryObservationResolvedCompletionIncomplete(observation)
+}
+
+func sourceInventoryResolvedCompletionRepairScopes(ctx *types.BusContext, observation types.SourceInventoryObservation) []string {
+	if sourceInventoryResolvedCompletionRequiresRepoWideAuthority(ctx, observation) {
+		return []string{"."}
+	}
+	return append([]string(nil), observation.Scopes...)
+}
+
+func sourceInventoryResolvedCompletionRepairQuery(ctx *types.BusContext) string {
+	return strings.TrimSpace(sourceInventoryAdvisorySnapshotQuery(ctx))
 }
 
 func sourceInventoryObservationResolvedCompletionIncomplete(observation types.SourceInventoryObservation) bool {

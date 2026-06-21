@@ -1831,6 +1831,142 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryResolvedRequi
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryRepoWideRepairIgnoresSupportScopes(t *testing.T) {
+	mut := types.NewMutableState("列出仓库里的 Cangjie extend / foreign func / public class")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes: []string{
+			".",
+			"internal/tool/repomap/index/cangjie_parser.go",
+			"internal/tool/source_inventory_construct_surface.go",
+			"eval/fixtures/testdata/cangjie_minimal",
+		},
+		Provenance: []string{"source_inventory_profile", "repo_lens:tool_query", "repo_lens:candidate_budget_truncated"},
+		Lens:       []string{"members", "symbols", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleProduction,
+			Count:    40,
+			Complete: true,
+		}, {
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    3,
+			Complete: true,
+		}},
+		Page: &types.SourceInventoryObservationPage{
+			Offset:     0,
+			Limit:      50,
+			Total:      120,
+			Emitted:    50,
+			NextCursor: "50",
+			Complete:   false,
+		},
+		Execution: &types.SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Count:    3,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "Bridge",
+				Key:        "Bridge",
+				SupportRef: "Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15",
+				Provenance: []string{sourceInventoryExactUniverseProvenanceRepoLensDirectChildren},
+				Role:       types.AnswerCandidateRoleType,
+				File:       "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+				Line:       15,
+				Language:   "cangjie",
+			}, {
+				Name:       "Cart",
+				Key:        "Cart",
+				SupportRef: "Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+				Provenance: []string{sourceInventoryExactUniverseProvenanceRepoLensDirectChildren},
+				Role:       types.AnswerCandidateRoleType,
+				File:       "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				Line:       14,
+				Language:   "cangjie",
+			}, {
+				Name:       "App",
+				Key:        "App",
+				SupportRef: "App: eval/fixtures/testdata/cangjie_minimal/main.cj:11",
+				Provenance: []string{sourceInventoryExactUniverseProvenanceRepoLensDirectChildren},
+				Role:       types.AnswerCandidateRoleType,
+				File:       "eval/fixtures/testdata/cangjie_minimal/main.cj",
+				Line:       11,
+				Language:   "cangjie",
+			}},
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleType,
+						types.AnswerCandidateRoleFunction,
+					},
+					SourceQuotes: []string{"extend", "foreign func", "public class"},
+					Confidence:   0.95,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "bounded fixture cangjie rows were verified",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "public class",
+			"value":        "3",
+			"role":         "principal_answer",
+			"members":      []string{"Bridge", "Cart", "App"},
+			"support_refs": []string{"Bridge: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15", "Cart: eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14", "App: eval/fixtures/testdata/cangjie_minimal/main.cj:11"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "source-inventory result is still incomplete") {
+		t.Fatalf("repo-wide incomplete inventory should still downgrade, summary:\n%s", res.Summary)
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 {
+		t.Fatal("expected source-inventory completion repair directive")
+	}
+	last := repairs[len(repairs)-1]
+	if !strings.Contains(last.Subject, `scopes=["."]`) || !strings.Contains(last.Subject, `query="extend foreign func public class"`) {
+		t.Fatalf("repair must target repo-wide requested universe with typed query, got subject=%q", last.Subject)
+	}
+	for _, forbidden := range []string{
+		"internal/tool/repomap/index/cangjie_parser.go",
+		"internal/tool/source_inventory_construct_surface.go",
+		"eval/fixtures/testdata/cangjie_minimal",
+	} {
+		if strings.Contains(last.Subject, forbidden) {
+			t.Fatalf("repair subject leaked support/bounded scope %q: %s", forbidden, last.Subject)
+		}
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("narrow exact universe coverage must not close a repo-wide incomplete inventory")
+	}
+}
+
 func TestSourceInventoryLensExecutionRepoMapCallShapeNormalizesFileScopes(t *testing.T) {
 	path, scopes := sourceInventoryLensExecutionRepoMapCallShape([]string{"internal/tool/repomap/index/extract_arkts.go"})
 	if path != "internal/tool/repomap/index" || len(scopes) != 1 || scopes[0] != "extract_arkts.go" {
