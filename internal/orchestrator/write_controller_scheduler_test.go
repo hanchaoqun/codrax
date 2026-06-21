@@ -3432,7 +3432,7 @@ func TestRunWriteControllerWorkflow_RunnerMissingCompletesUnverifiedWithoutRepla
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelToken = NewCancelToken()
 	o.writeWorkflowRunStore = store
-	o.SetWriteRetryBudget(3)
+	o.SetWriteRetryBudget(0)
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
 		case types.StagePlan:
@@ -4658,6 +4658,36 @@ func TestControllerLoopAdvanceAskUserBudgetBlocksTypedApproval(t *testing.T) {
 	})
 	if ok || decision.ReasonCode != loopkernel.LoopBudgetReasonApprovalsExhausted {
 		t.Fatalf("ask budget decision = %+v ok=%v, want approval exhaustion", decision, ok)
+	}
+}
+
+func TestControllerRepairRetryBudgetMatchesWriteRetryBudget(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: types.NewMutableState("loop repair"), Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-loop-repair",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchReadyToPlan,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind:       "verify",
+				Status:     "failed",
+				ReasonCode: "tests_failed",
+			}},
+		}},
+	}
+	decision, ok := o.controllerLoopAdvanceAllowsAction(run, loopkernel.LoopActionRepair, controllerRepairRetryBudget(0, 1))
+	if ok || decision.ReasonCode != loopkernel.LoopBudgetReasonRepairsExhausted {
+		t.Fatalf("repair budget decision = %+v ok=%v, want repair exhaustion", decision, ok)
+	}
+	decision, ok = o.controllerLoopAdvanceAllowsAction(run, loopkernel.LoopActionRepair, controllerRepairRetryBudget(2, 2))
+	if !ok || decision.BudgetDecision.Kind != loopkernel.LoopBudgetSpendRepair {
+		t.Fatalf("second failed verify should still allow next repair with budget=2: decision=%+v ok=%v", decision, ok)
+	}
+	decision, ok = o.controllerLoopAdvanceAllowsAction(run, loopkernel.LoopActionRepair, controllerRepairRetryBudget(2, 3))
+	if ok || decision.ReasonCode != loopkernel.LoopBudgetReasonRepairsExhausted {
+		t.Fatalf("third failed verify should exhaust budget=2: decision=%+v ok=%v", decision, ok)
 	}
 }
 

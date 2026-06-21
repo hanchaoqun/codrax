@@ -521,10 +521,12 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
 				}
 				o.persistWriteWorkflowRun(&run)
-				if verifyFailures[run.ActiveBatchID] > o.writeRetryBudget {
+				repairBudget := controllerRepairRetryBudget(o.writeRetryBudget, verifyFailures[run.ActiveBatchID])
+				if advance, ok := o.controllerLoopAdvanceAllowsAction(&run, loopkernel.LoopActionRepair, repairBudget); !ok {
 					run.Status = types.WriteWorkflowRunBlocked
 					updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchBlocked)
-					appendControllerProgress(&run, run.ActiveBatchID, "verify_retry_budget_exhausted", innerErr.Error())
+					appendControllerProgress(&run, run.ActiveBatchID, "verify_retry_budget_exhausted",
+						firstNonEmptyController(advance.ReasonCode, loopkernel.LoopBudgetReasonRepairsExhausted)+": "+innerErr.Error())
 					o.persistWriteWorkflowRun(&run)
 					o.publishBlockedRunGuidance(&run, "verify_retry_budget_exhausted")
 					return innerErr
@@ -6292,6 +6294,19 @@ func controllerExplorationRoundBudget(run types.WriteWorkflowRun) int {
 		return run.Budget.MaxExplorationRounds
 	}
 	return defaultWriteWorkflowMaxExplorationRounds
+}
+
+func controllerRepairRetryBudget(writeRetryBudget, failedVerifyAttempts int) loopkernel.LoopBudget {
+	if writeRetryBudget < 0 {
+		writeRetryBudget = 0
+	}
+	if failedVerifyAttempts < 0 {
+		failedVerifyAttempts = 0
+	}
+	return loopkernel.LoopBudget{
+		MaxRepairs:  writeRetryBudget + 1,
+		RepairsUsed: failedVerifyAttempts,
+	}
 }
 
 func (o *Orchestrator) controllerLoopAdvanceAllowsAction(run *types.WriteWorkflowRun, action loopkernel.LoopRecommendedAction, budget loopkernel.LoopBudget) (loopkernel.LoopAdvanceDecision, bool) {
