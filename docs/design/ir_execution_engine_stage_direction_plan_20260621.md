@@ -368,6 +368,7 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 |---|---|---|---|
 | 2026-06-21 | Plan refresh | complete | 对 `398a32303b` 复核：v2 大方向成立；补充当前 HEAD 承重矩阵与 A0-D2 可执行任务列表。 |
 | 2026-06-21 | A1 Extract dispatch golden pin | complete | Added golden tests for `extract_input_ready=false` skip-complete and `extract_input_ready=true` StageExtract dispatch using compiler-emitted stage nodes. Focused `go test ./internal/orchestrator -run 'TestE2E_ReadMode_.*Extract|TestStageMappingFirstClassExtractSkip'` and `go test ./internal/analysis/compiler ./internal/analysis/criterion` passed. |
+| 2026-06-21 | A2 Biting ratchet pin | in_progress | Code exploration completed: current counts are `evidence_closure.go=2636`, `scheduler.go=799`, `orchestrator.go=9402`. Existing ratchet still allows 2774/945 and omits `orchestrator.go`; implementation must pin current values and require ledger refresh before any future budget expansion. |
 
 ---
 
