@@ -901,7 +901,15 @@ Remaining follow-up:
 - 保持现有稳定 stage shell、BaseAgent ReAct loop、controller-first write workflow、typed criteria 和 EvidenceClosure reducer family；不引入大 GraphExecutor，不用 prompt/用户关键词/模型散文作 hard route。
 
 任务顺序：
-1. **D1-F9a hard-dependency readiness authority**：为 TaskGraph 建 typed predecessor-readiness projection，先加测试证明当前 explore window 对 hard_dependency 的行为，再让 ready-window 合并 `NodeExecStatus`、hard_dependency、`EntryConditions` 三类 precise signal。Optional/soft edges 保持非 hard block。
+1. **D1-F9a hard-dependency readiness authority**：为 TaskGraph 建 typed predecessor-readiness projection，先加测试证明当前 explore window 对 hard_dependency 的行为，再让 ready-window 合并 `NodeExecStatus`、hard_dependency、`EntryConditions` 三类 precise signal。Optional/soft edges 保持非 hard block。Status: in progress.
+   - Current code fact at `f21a56e0a`/`1d64b1f07`: `scheduler.go` header says hard-dependency predecessors must be `nodeDone`, but `readyExplorerWindowContext` still checks only node status plus `EntryConditions`; `TestGraphState_ReadyWindow_MergedInitial` explicitly expects the old merged chain window.
+   - Implementation tasks:
+     1. Add a typed helper such as `hardDependencyBlockersForNode` / `nodeHardDependenciesSatisfied` that scans only `TaskGraph.Edges` where `EdgeType == EdgeHardDependency` and `To == nodeID`; unknown predecessor ids remain a gate/analyzer validation issue and should not panic the scheduler.
+     2. Update `readyExplorerWindowContext` to skip non-optional nodes whose hard predecessors are not `nodeDone`, and keep optional nodes silent when their predecessors are not ready so routine status does not spam blocked optional nodes.
+     3. Extend `nodeBlock` with dependency blocker ids or add a sibling typed blocker carrier so forced-finalize / render hints can distinguish entry-condition failures from dependency-wait state without parsing prose.
+     4. Update scheduler unit tests from "merged initial chain" to "probe first, evidence after probe done, validate after evidence done"; add closure-status coverage so predecessor checks consume `EvidenceClosure.NodeExecStatus` over stale bootstrap maps.
+     5. Update dispatch split tests that assumed all hard-dependent siblings were in the first window; preserve independent sibling parallelism only when their shared predecessor is already done.
+     6. Run focused scheduler/dag tests before any broader read tests: `go test ./internal/orchestrator -run 'GraphState|ReadyWindow|Dependency|DagNode|AnalyzeRefine|SourceInventory|ExtractInputReady|IRDeliveryHotFileLineRatchet'`.
 2. **D1-F9b NodeArtifactLedger substrate**：从现有 `EvidenceReducerInput`、`ToolInvocation`、`ReasoningGraph`、`ReadRunSnapshot` 投影 node-scoped artifact refs，记录 produced/consumed refs、source stage、evidence id、file/range、consumer。不得回写 `AnalysisIR.TaskNode`。
 3. **D1-F9c ReadDispatchPolicy actuator**：把 `readLoopNextActionDecision` 扩展为 one-shot policy，包含 allowed tools、denied tools、scope paths、budget、reason code。Agent prompt 只渲染 policy 说明；工具/schema过滤与调度必须消费 typed policy。
 4. **D1-F9d lightweight StageRunner seam**：抽取 `StageExecutionRequest` / `StageExecutionResult`，先覆盖 Explore retry/finalize-adjacent路径，保持 BaseAgent 和 stage topology 不变。
