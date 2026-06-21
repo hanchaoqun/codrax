@@ -66,6 +66,7 @@ type SourceInventorySourceClassCount struct {
 	Role       SourcePathRole `json:"role,omitempty"`
 	Count      int            `json:"count,omitempty"`
 	Complete   bool           `json:"complete,omitempty"`
+	Samples    []string       `json:"samples,omitempty"`
 	Provenance []string       `json:"provenance,omitempty"`
 }
 

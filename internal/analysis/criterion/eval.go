@@ -88,6 +88,8 @@ func dispatch(k Kind, expr string, env Env) Result {
 		return evalSourceClassUniverseIncomplete(env)
 	case KindSourceInventoryLensMissing:
 		return evalSourceInventoryLensMissing(env)
+	case KindSourceInventoryFollowupDebt:
+		return evalSourceInventoryFollowupDebt(env)
 	case KindProgressReplanRequired:
 		return evalProgressReplanRequired(env)
 	case KindContainsSymbol:
@@ -809,6 +811,14 @@ func evalSourceInventoryLensMissing(env Env) Result {
 		return Result{Satisfied: false, Detail: "source_inventory_lens_missing: executable lens already observed"}
 	}
 	return Result{Satisfied: true, Detail: "source_inventory_lens_missing: typed source-inventory profile has no executable lens observation"}
+}
+
+func evalSourceInventoryFollowupDebt(env Env) Result {
+	debt := types.NormalizeSourceInventoryFollowupDebt(env.SourceInventoryFollowupDebt)
+	if !debt.Active {
+		return Result{Satisfied: false, Detail: "source_inventory_followup_debt: no active typed debt"}
+	}
+	return Result{Satisfied: true, Detail: "source_inventory_followup_debt: " + debt.ReasonCode}
 }
 
 func evalProgressReplanRequired(env Env) Result {

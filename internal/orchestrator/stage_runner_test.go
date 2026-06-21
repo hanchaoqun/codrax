@@ -32,6 +32,25 @@ func TestNewExploreStageExecutionRequestUsesTypedWindowHelpers(t *testing.T) {
 	}
 }
 
+func TestNewExploreStageExecutionRequestUsesSourceInventoryFollowupSurface(t *testing.T) {
+	window := []*types.TaskNode{{
+		ID:       "followup",
+		Type:     types.NodeProbe,
+		Optional: true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceInventoryFollowupDebt,
+		}},
+	}}
+	req := newExploreStageExecutionRequest(window)
+	if req.Stage != types.StageExplore ||
+		req.ExploreDispatchKey != "followup" ||
+		req.ExploreDispatchKind != types.NodeProbe ||
+		req.ExploreToolSurface != types.ExploreToolSurfaceSourceInventoryFollowup ||
+		req.ReasonCode != "read_dag_explore_window" {
+		t.Fatalf("unexpected follow-up explore request: %+v", req)
+	}
+}
+
 func TestNewParallelExploreStageExecutionRequestCarriesRetryHint(t *testing.T) {
 	window := []*types.TaskNode{{ID: "node-a", Type: types.NodeEvidence}}
 	req := newParallelExploreStageExecutionRequest(window, "retry this slice")

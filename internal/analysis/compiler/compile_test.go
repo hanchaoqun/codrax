@@ -158,6 +158,55 @@ func TestSourceInventoryLensOptionalNodeIsCompilerAuthoredAndBounded(t *testing.
 	}
 }
 
+func TestSourceInventoryFollowupOptionalNodeIsCompilerAuthoredAndBounded(t *testing.T) {
+	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	var followup, finalize types.TaskNode
+	followupCount := 0
+	for _, n := range out.TaskGraph.Nodes {
+		for _, c := range n.EntryConditions {
+			if c.Kind != types.CritSourceInventoryFollowupDebt {
+				continue
+			}
+			followup = n
+			followupCount++
+		}
+		if n.Type == types.NodeFinalize {
+			finalize = n
+		}
+	}
+	if followupCount != 1 || followup.ID == "" {
+		t.Fatalf("want exactly one optional source-inventory follow-up node, count=%d nodes=%+v", followupCount, out.TaskGraph.Nodes)
+	}
+	if followup.Type != types.NodeProbe || !followup.Optional || !followup.OneShot || followup.MaxRetries != 1 {
+		t.Fatalf("source-inventory follow-up should be a bounded optional probe, got %+v", followup)
+	}
+	if !containsString(followup.Inputs, "source_inventory_followup_debt") ||
+		!containsString(followup.Outputs, "source_inventory_observation") ||
+		!containsString(followup.Outputs, "source_inventory_navigation") {
+		t.Fatalf("source-inventory follow-up artifact contract missing: inputs=%v outputs=%v", followup.Inputs, followup.Outputs)
+	}
+	if finalize.ID == "" || !hasEdge(out.TaskGraph, followup.ID, finalize.ID, types.EdgeSoftDependency) {
+		t.Fatalf("source-inventory follow-up should have a soft edge to finalize; edges=%+v", out.TaskGraph.Edges)
+	}
+	for _, id := range out.TaskGraph.ExecutionPolicy.CriticalPath {
+		if id == followup.ID {
+			t.Fatalf("optional source-inventory follow-up must not enter the default critical path: %v", out.TaskGraph.ExecutionPolicy.CriticalPath)
+		}
+	}
+	EnsureReadStageNodes(&out.TaskGraph)
+	followupCount = 0
+	for _, n := range out.TaskGraph.Nodes {
+		for _, c := range n.EntryConditions {
+			if c.Kind == types.CritSourceInventoryFollowupDebt {
+				followupCount++
+			}
+		}
+	}
+	if followupCount != 1 {
+		t.Fatalf("EnsureReadStageNodes should be idempotent for source-inventory follow-up; count=%d", followupCount)
+	}
+}
+
 func TestAnalyzeRefineOptionalNodeIsCompilerAuthoredAndBounded(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
 	var refine, finalize types.TaskNode
@@ -476,11 +525,37 @@ func TestCompile_MultiTopicCrossComponentTraceKeepsArchitectureTemplate(t *testi
 
 func TestCompile_UnknownScenarioFallsBackToGeneric(t *testing.T) {
 	out := compileT(sampleRM("no_such_scenario", types.IntentExplain, types.ComplexityModerate))
-	// Generic template has probe/evidence plus compiler-authored optional
-	// source-inventory lens/reprobe + analyze-refine nodes, extract, and
-	// finalize.
-	if len(out.TaskGraph.Nodes) != 7 {
-		t.Fatalf("unknown scenario should fall back to generic (7 nodes); got %d", len(out.TaskGraph.Nodes))
+	for _, typ := range []types.TaskNodeType{types.NodeProbe, types.NodeEvidence, types.NodeExtract, types.NodeFinalize} {
+		if countNodeType(out.TaskGraph, typ) == 0 {
+			t.Fatalf("unknown scenario should fall back to generic graph with %s node: %+v", typ, out.TaskGraph.Nodes)
+		}
+	}
+	for _, kind := range []string{
+		types.CritSourceInventoryLensMissing,
+		types.CritSourceClassUniverseIncomplete,
+		types.CritSourceInventoryFollowupDebt,
+		types.CritProgressReplanRequired,
+	} {
+		found := false
+		for _, n := range out.TaskGraph.Nodes {
+			for _, c := range n.EntryConditions {
+				if c.Kind != kind {
+					continue
+				}
+				found = true
+				if !n.Optional || !n.OneShot || n.MaxRetries != 1 {
+					t.Fatalf("generic fallback optional node for %s should be bounded, got %+v", kind, n)
+				}
+				for _, id := range out.TaskGraph.ExecutionPolicy.CriticalPath {
+					if id == n.ID {
+						t.Fatalf("generic fallback optional node for %s must not enter critical path: %v", kind, out.TaskGraph.ExecutionPolicy.CriticalPath)
+					}
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("unknown scenario generic fallback missing compiler-authored optional node for %s: %+v", kind, out.TaskGraph.Nodes)
+		}
 	}
 }
 

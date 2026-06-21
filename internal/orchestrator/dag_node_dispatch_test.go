@@ -434,6 +434,33 @@ func TestSourceInventoryLensFirstWindowNoopsWhenInactiveOrExecuted(t *testing.T)
 	}
 }
 
+func TestSourceInventoryFollowupFirstWindowPrioritizesTypedDebt(t *testing.T) {
+	followup := &types.TaskNode{
+		ID:       "n_source_inventory_followup",
+		Type:     types.NodeProbe,
+		Optional: true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceInventoryFollowupDebt,
+		}},
+	}
+	evidence := &types.TaskNode{ID: "n_evidence", Type: types.NodeEvidence}
+	validate := &types.TaskNode{ID: "n_validate", Type: types.NodeValidate}
+
+	got := sourceInventoryFollowupFirstWindow([]*types.TaskNode{evidence, followup, validate}, true)
+	if len(got) != 1 || got[0] != followup {
+		t.Fatalf("active typed debt must dispatch follow-up only first, got %+v", idsOf(got))
+	}
+	if !sourceInventoryFollowupProbeOnlyWindow(got) {
+		t.Fatalf("follow-up-only helper must identify prioritized source-inventory follow-up window: %+v", idsOf(got))
+	}
+	if surface := exploreToolSurfaceForWindow(got); surface != types.ExploreToolSurfaceSourceInventoryFollowup {
+		t.Fatalf("follow-up window must select source-inventory follow-up tool surface, got %q", surface)
+	}
+	if got := sourceInventoryFollowupFirstWindow([]*types.TaskNode{evidence, followup}, false); len(got) != 0 {
+		t.Fatalf("inactive typed debt must not reorder window: %+v", idsOf(got))
+	}
+}
+
 // TestTrimExploreWindowToFirstEvidence_DropsExtraSiblingsKeepsCompanions
 // pins the trim helper's load-bearing contract on production-shape
 // windows: companions (probe / validate) survive; only sibling

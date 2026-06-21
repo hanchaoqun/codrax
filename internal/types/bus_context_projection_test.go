@@ -213,6 +213,8 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 			AllowedTools: []string{"read_file"},
 			OneShot:      true,
 		}
+	case "SourceInventoryFollowupDebt":
+		ac.SourceInventoryFollowupDebt = sourceInventoryFollowupDebtProjectionSentinel()
 	default:
 		return false
 	}
@@ -263,10 +265,29 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 			AllowedTools: []string{"read_file"},
 			OneShot:      true,
 		}
+	case "SourceInventoryFollowupDebt":
+		bc.SourceInventoryFollowupDebt = sourceInventoryFollowupDebtProjectionSentinel()
 	default:
 		return false
 	}
 	return true
+}
+
+func sourceInventoryFollowupDebtProjectionSentinel() SourceInventoryFollowupDebt {
+	return NormalizeSourceInventoryFollowupDebt(SourceInventoryFollowupDebt{
+		Active:     true,
+		ReasonCode: SourceInventoryFollowupDebtMissingSourceClass,
+		Query: SourceInventoryLensQuery{
+			Path:              ".",
+			Scopes:            []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+			Roles:             []AnswerCandidateRole{AnswerCandidateRoleType},
+			IncludeCounts:     true,
+			IncludeAttributes: false,
+			TopN:              24,
+		},
+		MissingClasses: []SourcePathRole{SourcePathRoleThirdParty},
+		Roles:          []AnswerCandidateRole{AnswerCandidateRoleType},
+	})
 }
 
 // nonZeroFieldOnBusContext reports whether the named typed-signal

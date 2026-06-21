@@ -5667,6 +5667,11 @@ type BusContext struct {
 	// never be derived from prompt text, model rationale, or RawRequest words.
 	ReadDispatchPolicy ReadDispatchPolicy `json:"-"`
 
+	// SourceInventoryFollowupDebt is a scheduler-owned source-inventory
+	// continuation contract. It is derived from typed observation/page/source
+	// class carriers and may drive repo_map(source_inventory) route validation.
+	SourceInventoryFollowupDebt SourceInventoryFollowupDebt `json:"-"`
+
 	// CompletionOnlySurface marks the one bounded completion-obligation
 	// dispatch the read scheduler grants when the explore loop drained
 	// its budget without an accepted emit_investigation_complete while
@@ -5963,6 +5968,10 @@ type AgentContext struct {
 	// ReadDispatchPolicy mirrors BusContext.ReadDispatchPolicy for scheduler-
 	// owned tool schema filtering, runtime boundaries, and dispatch budgets.
 	ReadDispatchPolicy ReadDispatchPolicy `json:"-"`
+
+	// SourceInventoryFollowupDebt mirrors BusContext.SourceInventoryFollowupDebt
+	// for source-inventory follow-up route validation.
+	SourceInventoryFollowupDebt SourceInventoryFollowupDebt `json:"-"`
 
 	// CompletionOnlySurface mirrors BusContext.CompletionOnlySurface
 	// for the explorer's tool-schema filter (emit-only completion

@@ -4158,6 +4158,28 @@ func TestExplorer_FilterToolSchemas_SourceInventoryLensSurface(t *testing.T) {
 	}
 }
 
+func TestExplorer_FilterToolSchemas_SourceInventoryFollowupSurfaceStaysNarrow(t *testing.T) {
+	eval := &explorerEvaluator{sourceInventoryLensSurfaceReleased: true}
+	ctx := &types.AgentContext{
+		Stage:                       types.StageExplore,
+		ExploreToolSurface:          types.ExploreToolSurfaceSourceInventoryFollowup,
+		SourceInventoryFollowupDebt: sourceInventoryFollowupDebtForExplorerTest(""),
+	}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "repo_map,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("source-inventory follow-up surface must stay narrow for the whole dispatch, got %v", gotNames)
+	}
+}
+
 func TestExplorer_FilterToolSchemas_ReadDispatchPolicy(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
@@ -4255,6 +4277,33 @@ func TestExplorer_BuildInitialInstruction_SourceInventoryLensSurfaceRepoWideUses
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_SourceInventoryFollowupSurface(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage:                       types.StageExplore,
+		ExploreToolSurface:          types.ExploreToolSurfaceSourceInventoryFollowup,
+		SourceInventoryFollowupDebt: sourceInventoryFollowupDebtForExplorerTest("24"),
+	}
+
+	got := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"source-inventory follow-up",
+		"missing_source_class_family",
+		"route roles: `type`",
+		"route scopes: `internal/thirdparty/tree-sitter-cangjie/corpus/sources`",
+		"route cursor: `24`",
+		"include_counts=true",
+		"include_attributes=false",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("source-inventory follow-up instruction missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Breadth Scan") {
+		t.Fatalf("follow-up dispatch must not render broad breadth-scan instructions:\n%s", got)
+	}
+}
+
 func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopNoEmitPushSent:  true,
@@ -4323,6 +4372,101 @@ func TestExplorer_RuntimeBoundary_SourceInventoryLensSurface(t *testing.T) {
 	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"x"}`)}); got != nil {
 		t.Fatalf("lens runtime boundary should release after typed lens observation, got %+v", got)
 	}
+}
+
+func TestExplorer_RuntimeBoundary_SourceInventoryFollowupExactRoute(t *testing.T) {
+	eval := &explorerEvaluator{sourceInventoryLensSurfaceReleased: true}
+	ctx := &types.AgentContext{
+		Stage:                       types.StageExplore,
+		ExploreToolSurface:          types.ExploreToolSurfaceSourceInventoryFollowup,
+		SourceInventoryFollowupDebt: sourceInventoryFollowupDebtForExplorerTest(""),
+	}
+	exact := llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["type"],"include_counts":true,"include_attributes":false,"top_n":24}`)}
+	if got := validateExplorerToolBoundary(ctx, eval, exact); got != nil {
+		t.Fatalf("exact source-inventory follow-up route should be allowed, got %+v", got)
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"type"}`)}); got == nil || got.Success {
+		t.Fatalf("follow-up surface must reject broad grep even after lens release flag, got %+v", got)
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"internal/thirdparty/tree-sitter-cangjie/corpus/sources/a.cj"}`)}); got == nil || got.Success {
+		t.Fatalf("follow-up surface must reject read_file, got %+v", got)
+	}
+}
+
+func TestExplorer_RuntimeBoundary_SourceInventoryFollowupRejectsRouteDrift(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:                       types.StageExplore,
+		ExploreToolSurface:          types.ExploreToolSurfaceSourceInventoryFollowup,
+		SourceInventoryFollowupDebt: sourceInventoryFollowupDebtForExplorerTest("24"),
+	}
+	cases := []struct {
+		name   string
+		params string
+		want   string
+	}{
+		{
+			name:   "wrong_scope",
+			params: `{"view":"source_inventory","path":".","scopes":["src"],"roles":["type"],"cursor":"24","include_counts":true,"include_attributes":false,"top_n":24}`,
+			want:   "scope",
+		},
+		{
+			name:   "wrong_role",
+			params: `{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["function"],"cursor":"24","include_counts":true,"include_attributes":false,"top_n":24}`,
+			want:   "roles",
+		},
+		{
+			name:   "missing_cursor",
+			params: `{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["type"],"include_counts":true,"include_attributes":false,"top_n":24}`,
+			want:   "cursor",
+		},
+		{
+			name:   "missing_counts",
+			params: `{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["type"],"cursor":"24","include_attributes":false,"top_n":24}`,
+			want:   "include_counts=true",
+		},
+		{
+			name:   "attributes_enabled",
+			params: `{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["type"],"cursor":"24","include_counts":true,"include_attributes":true,"top_n":24}`,
+			want:   "include_attributes=false",
+		},
+		{
+			name:   "top_n_too_high",
+			params: `{"view":"source_inventory","path":".","scopes":["internal/thirdparty/tree-sitter-cangjie/corpus/sources"],"roles":["type"],"cursor":"24","include_counts":true,"include_attributes":false,"top_n":99}`,
+			want:   "top_n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := validateExplorerToolBoundary(ctx, &explorerEvaluator{}, llm.ToolCall{Name: "repo_map", Params: json.RawMessage(tc.params)})
+			if got == nil || got.Success {
+				t.Fatalf("route drift should be rejected, got %+v", got)
+			}
+			if got.Repair == nil || got.Repair.Code != explorerSourceInventoryLensScopeCode {
+				t.Fatalf("route drift should carry source-inventory scope repair, got %+v", got.Repair)
+			}
+			if !strings.Contains(got.Summary, tc.want) {
+				t.Fatalf("route drift summary should mention %q, got %q", tc.want, got.Summary)
+			}
+		})
+	}
+}
+
+func sourceInventoryFollowupDebtForExplorerTest(cursor string) types.SourceInventoryFollowupDebt {
+	return types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
+		Active:     true,
+		ReasonCode: types.SourceInventoryFollowupDebtMissingSourceClass,
+		Query: types.SourceInventoryLensQuery{
+			Path:              ".",
+			Scopes:            []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources"},
+			Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			IncludeCounts:     true,
+			IncludeAttributes: false,
+			TopN:              24,
+			Cursor:            cursor,
+		},
+		MissingClasses: []types.SourcePathRole{types.SourcePathRoleThirdParty},
+		Roles:          []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+	})
 }
 
 func TestExplorer_RuntimeBoundary_ReadDispatchPolicy(t *testing.T) {

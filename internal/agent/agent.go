@@ -5094,16 +5094,22 @@ func sourceInventoryLensToolSurface() map[string]bool {
 }
 
 func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *explorerEvaluator, tc llm.ToolCall) *types.ToolResult {
-	if ctx == nil || ctx.Stage != types.StageExplore || !ctx.ExploreToolSurface.IsSourceInventoryLens() {
+	if ctx == nil || ctx.Stage != types.StageExplore || !ctx.ExploreToolSurface.IsSourceInventory() {
 		return nil
 	}
-	if eval != nil && eval.sourceInventoryLensSurfaceReleased {
+	if eval != nil && eval.sourceInventoryLensSurfaceReleased && !ctx.ExploreToolSurface.IsSourceInventoryFollowup() {
 		return nil
 	}
 	name := strings.TrimSpace(tc.Name)
 	switch name {
 	case "repo_map":
 		if analyzerRepoMapSourceInventoryView(tc.Params) {
+			if ctx.ExploreToolSurface.IsSourceInventoryFollowup() {
+				if reason, blocked := explorerSourceInventoryFollowupRouteViolation(ctx, tc.Params); blocked {
+					return rejectExplorerSourceInventoryLensToolWithCode(ctx, tc, explorerSourceInventoryLensScopeCode, reason)
+				}
+				return nil
+			}
 			if reason, blocked := explorerSourceInventoryLensRootScopeViolation(ctx, tc.Params); blocked {
 				return rejectExplorerSourceInventoryLensToolWithCode(ctx, tc, explorerSourceInventoryLensScopeCode, reason)
 			}
@@ -5143,6 +5149,119 @@ func explorerSourceInventoryLensRootScopeViolation(ctx *types.AgentContext, para
 		}
 	}
 	return "", false
+}
+
+func explorerSourceInventoryFollowupRouteViolation(ctx *types.AgentContext, params json.RawMessage) (string, bool) {
+	debt := types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt)
+	if !debt.Active {
+		return "source_inventory follow-up dispatch requires an active typed follow-up route", true
+	}
+	var p struct {
+		Path              string                      `json:"path,omitempty"`
+		View              string                      `json:"view,omitempty"`
+		Scope             string                      `json:"scope,omitempty"`
+		Scopes            []string                    `json:"scopes,omitempty"`
+		Roles             []types.AnswerCandidateRole `json:"roles,omitempty"`
+		IncludeCounts     *bool                       `json:"include_counts,omitempty"`
+		IncludeAttributes *bool                       `json:"include_attributes,omitempty"`
+		TopN              int                         `json:"top_n,omitempty"`
+		Cursor            string                      `json:"cursor,omitempty"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return "", false
+	}
+	if !repoMapRootScopeSurface(p.Path) || strings.Trim(strings.ReplaceAll(debt.Query.Path, `\`, `/`), "/") != "." {
+		return "source_inventory follow-up must keep path=\".\" and narrow with typed scope/scopes", true
+	}
+	if !sameSourceInventoryRouteStrings(sourceInventoryRouteScopesFromParams(p.Scope, p.Scopes), debt.Query.Scopes) {
+		return "source_inventory follow-up scope/scopes must match the scheduler-provided typed route", true
+	}
+	if !sameSourceInventoryRouteRoles(p.Roles, debt.Query.Roles) {
+		return "source_inventory follow-up roles must match the scheduler-provided typed route", true
+	}
+	if strings.TrimSpace(p.Cursor) != debt.Query.Cursor {
+		return "source_inventory follow-up cursor must match the scheduler-provided typed route", true
+	}
+	if debt.Query.IncludeCounts && (p.IncludeCounts == nil || !*p.IncludeCounts) {
+		return "source_inventory follow-up must set include_counts=true", true
+	}
+	if p.IncludeAttributes == nil || *p.IncludeAttributes {
+		return "source_inventory follow-up must set include_attributes=false", true
+	}
+	if debt.Query.TopN > 0 && p.TopN > debt.Query.TopN {
+		return "source_inventory follow-up top_n exceeds the scheduler-provided typed route", true
+	}
+	return "", false
+}
+
+func sourceInventoryRouteScopesFromParams(scope string, scopes []string) []string {
+	var out []string
+	if strings.TrimSpace(scope) != "" {
+		out = append(out, scope)
+	}
+	out = append(out, scopes...)
+	if len(out) == 0 {
+		out = append(out, ".")
+	}
+	return normalizeSourceInventoryRouteStrings(out)
+}
+
+func normalizeSourceInventoryRouteStrings(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, raw := range in {
+		value := strings.Trim(strings.ReplaceAll(strings.TrimSpace(raw), `\`, `/`), "/")
+		if value == "" {
+			value = "."
+		}
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func sameSourceInventoryRouteStrings(a, b []string) bool {
+	a = normalizeSourceInventoryRouteStrings(a)
+	b = normalizeSourceInventoryRouteStrings(b)
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameSourceInventoryRouteRoles(a, b []types.AnswerCandidateRole) bool {
+	na := normalizeSourceInventoryRouteRoles(a)
+	nb := normalizeSourceInventoryRouteRoles(b)
+	if len(na) != len(nb) {
+		return false
+	}
+	for i := range na {
+		if na[i] != nb[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeSourceInventoryRouteRoles(in []types.AnswerCandidateRole) []types.AnswerCandidateRole {
+	seen := map[types.AnswerCandidateRole]bool{}
+	var out []types.AnswerCandidateRole
+	for _, role := range in {
+		if role == "" || role == types.AnswerCandidateRoleUnknown || seen[role] {
+			continue
+		}
+		seen[role] = true
+		out = append(out, role)
+	}
+	return out
 }
 
 func repoMapRootScopeSurface(raw string) bool {

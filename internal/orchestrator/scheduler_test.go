@@ -705,6 +705,51 @@ func TestGraphState_SourceInventoryLensMissingDispatchesWhenTypedSignalTrue(t *t
 	}
 }
 
+func TestGraphState_SourceInventoryFollowupDebtDispatchesWhenTypedSignalTrue(t *testing.T) {
+	g := chainGraphWithExtract()
+	optional := types.TaskNode{
+		ID:       "n_source_inventory_followup",
+		Type:     types.NodeProbe,
+		Optional: true,
+		OneShot:  true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceInventoryFollowupDebt,
+		}},
+	}
+	g.Nodes = append([]types.TaskNode{optional}, g.Nodes...)
+	s := newGraphState(g)
+	if window, blocked := s.readyExplorerWindow(criterion.Env{}); len(window) > 0 {
+		for _, n := range window {
+			if n != nil && n.ID == "n_source_inventory_followup" {
+				t.Fatalf("inactive typed debt must keep follow-up node quiet; window=%v blocked=%+v", idsOf(window), blocked)
+			}
+		}
+	} else if len(blocked) != 0 {
+		t.Fatalf("inactive optional follow-up node should not add blocked noise: %+v", blocked)
+	}
+	debt := types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
+		Active:     true,
+		ReasonCode: types.SourceInventoryFollowupDebtPagination,
+		Query: types.SourceInventoryLensQuery{
+			Path:              ".",
+			Scopes:            []string{"."},
+			Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			IncludeCounts:     true,
+			IncludeAttributes: false,
+			TopN:              24,
+			Cursor:            "24",
+		},
+		Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+	})
+	window, blocked := s.readyExplorerWindow(criterion.Env{SourceInventoryFollowupDebt: debt})
+	if len(blocked) != 0 {
+		t.Fatalf("optional source-inventory follow-up should not be blocked: %+v", blocked)
+	}
+	if got := idsOf(window); !strings.Contains(strings.Join(got, ","), "n_source_inventory_followup") {
+		t.Fatalf("source-inventory follow-up should be ready from typed debt: %v", got)
+	}
+}
+
 func TestAnalyzeRefineUsesPreAuthoredOptionalNodeOnly(t *testing.T) {
 	g := chainGraphWithExtract()
 	refine := types.TaskNode{

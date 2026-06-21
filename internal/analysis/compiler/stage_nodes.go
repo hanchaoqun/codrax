@@ -17,6 +17,7 @@ func EnsureReadStageNodes(g *types.TaskGraph) {
 	}
 	ensureSourceInventoryLensProbeNode(g)
 	ensureSourceInventoryReprobeNode(g)
+	ensureSourceInventoryFollowupNode(g)
 	ensureAnalyzeRefineNode(g)
 	if hasNodeType(*g, types.NodeExtract) {
 		return
@@ -134,6 +135,40 @@ func ensureSourceInventoryReprobeNode(g *types.TaskGraph) {
 	}
 }
 
+func ensureSourceInventoryFollowupNode(g *types.TaskGraph) {
+	if g == nil || hasSourceInventoryFollowupNode(*g) {
+		return
+	}
+	finalIdx := firstNodeIndexByType(*g, types.NodeFinalize)
+	if finalIdx < 0 {
+		return
+	}
+	finalID := g.Nodes[finalIdx].ID
+	followup := types.TaskNode{
+		ID:        uniqueSourceInventoryFollowupNodeID(*g, finalID),
+		Type:      types.NodeProbe,
+		Objective: "Execute a bounded source-inventory follow-up route when typed pagination or family debt remains.",
+		Inputs:    []string{"source_inventory_observation", "source_inventory_followup_debt"},
+		Outputs:   []string{"source_inventory_observation", "source_inventory_navigation"},
+		EntryConditions: []types.Criterion{
+			{Kind: types.CritSourceInventoryFollowupDebt},
+		},
+		Optional:   true,
+		OneShot:    true,
+		MaxRetries: 1,
+	}
+	g.Nodes = append(g.Nodes, types.TaskNode{})
+	copy(g.Nodes[finalIdx+1:], g.Nodes[finalIdx:])
+	g.Nodes[finalIdx] = followup
+	if !taskGraphHasEdge(*g, followup.ID, finalID, types.EdgeSoftDependency) {
+		g.Edges = append(g.Edges, types.TaskEdge{
+			From:     followup.ID,
+			To:       finalID,
+			EdgeType: types.EdgeSoftDependency,
+		})
+	}
+}
+
 func ensureAnalyzeRefineNode(g *types.TaskGraph) {
 	if g == nil || hasAnalyzeRefineNode(*g) {
 		return
@@ -189,6 +224,20 @@ func hasSourceInventoryReprobeNode(g types.TaskGraph) bool {
 		}
 		for _, c := range n.EntryConditions {
 			if c.Kind == types.CritSourceClassUniverseIncomplete {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasSourceInventoryFollowupNode(g types.TaskGraph) bool {
+	for _, n := range g.Nodes {
+		if !n.Optional || n.Type != types.NodeProbe {
+			continue
+		}
+		for _, c := range n.EntryConditions {
+			if c.Kind == types.CritSourceInventoryFollowupDebt {
 				return true
 			}
 		}
@@ -274,6 +323,27 @@ func uniqueSourceInventoryReprobeNodeID(g types.TaskGraph, finalID string) strin
 		base = base + "_source_inventory_reprobe"
 	default:
 		base = "n_source_inventory_reprobe"
+	}
+	if !nodeIDExists(g, base) {
+		return base
+	}
+	for i := 0; ; i++ {
+		candidate := base + "_" + strconv.Itoa(i)
+		if !nodeIDExists(g, candidate) {
+			return candidate
+		}
+	}
+}
+
+func uniqueSourceInventoryFollowupNodeID(g types.TaskGraph, finalID string) string {
+	base := strings.TrimSpace(finalID)
+	switch {
+	case strings.HasSuffix(base, "finalize"):
+		base = strings.TrimSuffix(base, "finalize") + "source_inventory_followup"
+	case base != "":
+		base = base + "_source_inventory_followup"
+	default:
+		base = "n_source_inventory_followup"
 	}
 	if !nodeIDExists(g, base) {
 		return base

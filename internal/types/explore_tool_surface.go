@@ -7,10 +7,19 @@ package types
 type ExploreToolSurface string
 
 const (
-	ExploreToolSurfaceDefault             ExploreToolSurface = ""
-	ExploreToolSurfaceSourceInventoryLens ExploreToolSurface = "source_inventory_lens"
+	ExploreToolSurfaceDefault                 ExploreToolSurface = ""
+	ExploreToolSurfaceSourceInventoryLens     ExploreToolSurface = "source_inventory_lens"
+	ExploreToolSurfaceSourceInventoryFollowup ExploreToolSurface = "source_inventory_followup"
 )
 
 func (s ExploreToolSurface) IsSourceInventoryLens() bool {
 	return s == ExploreToolSurfaceSourceInventoryLens
+}
+
+func (s ExploreToolSurface) IsSourceInventory() bool {
+	return s == ExploreToolSurfaceSourceInventoryLens || s == ExploreToolSurfaceSourceInventoryFollowup
+}
+
+func (s ExploreToolSurface) IsSourceInventoryFollowup() bool {
+	return s == ExploreToolSurfaceSourceInventoryFollowup
 }

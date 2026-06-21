@@ -181,6 +181,46 @@ func TestSourceInventoryObservation_ClassUniverseCanBeActiveWithoutMemberRows(t 
 	}
 }
 
+func TestSourceInventoryObservation_SourceClassSamplesCloneMergeAndNormalize(t *testing.T) {
+	prior := SourceInventoryObservation{
+		Active: true,
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:       SourcePathRoleThirdParty,
+			Count:      1,
+			Complete:   true,
+			Samples:    []string{" internal/thirdparty/a.cj ", `internal\thirdparty\a.cj`, "internal/thirdparty/b.cj"},
+			Provenance: []string{"repo_lens"},
+		}},
+	}
+	current := SourceInventoryObservation{
+		Active: true,
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:       SourcePathRoleThirdParty,
+			Count:      3,
+			Complete:   true,
+			Samples:    []string{"internal/thirdparty/b.cj", "internal/thirdparty/c.cj"},
+			Provenance: []string{"repo_truth"},
+		}},
+	}
+
+	cloned := CloneSourceInventoryObservation(prior)
+	cloned.SourceClasses[0].Samples[0] = "mutated"
+	if prior.SourceClasses[0].Samples[0] == "mutated" {
+		t.Fatalf("source-class sample clone leaked into prior observation: %+v", prior.SourceClasses[0].Samples)
+	}
+	merged := MergeSourceInventoryObservation(prior, current)
+	if len(merged.SourceClasses) != 1 {
+		t.Fatalf("source classes = %+v", merged.SourceClasses)
+	}
+	got := strings.Join(merged.SourceClasses[0].Samples, ",")
+	if got != "internal/thirdparty/a.cj,internal/thirdparty/b.cj,internal/thirdparty/c.cj" {
+		t.Fatalf("merged samples = %q", got)
+	}
+	if merged.SourceClasses[0].Count != 3 {
+		t.Fatalf("merged count = %d, want 3", merged.SourceClasses[0].Count)
+	}
+}
+
 func TestSourceInventoryExactAbsenceNeedsInventoryProof(t *testing.T) {
 	profile := &SourceInventoryProfile{
 		IsSourceInventory: true,

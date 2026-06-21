@@ -13,10 +13,24 @@ import (
 
 func TestBuildAgentContext(t *testing.T) {
 	bus := &types.BusContext{
-		PipelineStage:         types.StageExplore,
-		ActiveAgent:           types.AgentExplorer,
-		ExploreToolSurface:    types.ExploreToolSurfaceSourceInventoryLens,
-		ReadDispatchPolicy:    types.ReadDispatchPolicy{Active: true, Action: types.ReadDispatchPolicyActionAddProof, AllowedTools: []string{"read_file"}, OneShot: true},
+		PipelineStage:      types.StageExplore,
+		ActiveAgent:        types.AgentExplorer,
+		ExploreToolSurface: types.ExploreToolSurfaceSourceInventoryLens,
+		ReadDispatchPolicy: types.ReadDispatchPolicy{Active: true, Action: types.ReadDispatchPolicyActionAddProof, AllowedTools: []string{"read_file"}, OneShot: true},
+		SourceInventoryFollowupDebt: types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
+			Active:     true,
+			ReasonCode: types.SourceInventoryFollowupDebtMissingSourceClass,
+			Query: types.SourceInventoryLensQuery{
+				Path:              ".",
+				Scopes:            []string{"thirdparty/corpus"},
+				Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				IncludeCounts:     true,
+				IncludeAttributes: false,
+				TopN:              24,
+			},
+			MissingClasses: []types.SourcePathRole{types.SourcePathRoleThirdParty},
+			Roles:          []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		}),
 		RepoRoot:              "/tmp/repo",
 		Branch:                "main",
 		Commit:                "abc123",
@@ -58,6 +72,10 @@ func TestBuildAgentContext(t *testing.T) {
 		}
 		if !ac.ReadDispatchPolicy.IsActive() || ac.ReadDispatchPolicy.Action != types.ReadDispatchPolicyActionAddProof {
 			t.Errorf("ReadDispatchPolicy was not propagated: %+v", ac.ReadDispatchPolicy)
+		}
+		if !ac.SourceInventoryFollowupDebt.IsActive() ||
+			ac.SourceInventoryFollowupDebt.ReasonCode != types.SourceInventoryFollowupDebtMissingSourceClass {
+			t.Errorf("SourceInventoryFollowupDebt was not propagated: %+v", ac.SourceInventoryFollowupDebt)
 		}
 	})
 

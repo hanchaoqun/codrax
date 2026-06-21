@@ -299,6 +299,28 @@ func TestEval_SourceClassUniverseIncomplete_UsesTypedBooleans(t *testing.T) {
 	}
 }
 
+func TestEval_SourceInventoryFollowupDebt_UsesTypedDebt(t *testing.T) {
+	c := types.Criterion{Kind: string(KindSourceInventoryFollowupDebt)}
+	if r := Eval(c, Env{}); r.Satisfied {
+		t.Fatalf("inactive debt must not satisfy criterion: %s", r.Detail)
+	}
+	debt := types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
+		Active:     true,
+		ReasonCode: types.SourceInventoryFollowupDebtMissingSourceClass,
+		Query: types.SourceInventoryLensQuery{
+			Path:              ".",
+			Scopes:            []string{"thirdparty/corpus"},
+			Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			IncludeCounts:     true,
+			IncludeAttributes: false,
+			TopN:              24,
+		},
+	})
+	if r := Eval(c, Env{SourceInventoryFollowupDebt: debt}); !r.Satisfied {
+		t.Fatalf("active typed debt should satisfy criterion: %s", r.Detail)
+	}
+}
+
 func TestEval_SourceInventoryLensMissing_UsesTypedExecutionState(t *testing.T) {
 	c := types.Criterion{Kind: string(KindSourceInventoryLensMissing)}
 	if r := Eval(c, Env{}); r.Satisfied {

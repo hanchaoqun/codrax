@@ -374,7 +374,37 @@ func renderExplorerToolBudgetPlan(ctx *types.AgentContext) string {
 func renderExplorerSourceInventoryLensSurfaceInstruction(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Source Inventory Lens Probe\n\n")
-	b.WriteString("This dispatch starts with a scheduler-owned source-inventory lens tool surface. First call `repo_map` with `view=\"source_inventory\"`, `include_attributes=false`, and bounded `roles` / `scope` or `scopes` from the typed request context below. Before that first lens result, do not read files, grep, list directories, or run shell commands. After a typed source_inventory observation exists, if it does not cover the requested universe and the tool surface opens, use only the narrow follow-up needed to inspect the mismatched source class.\n")
+	if ctx != nil && ctx.ExploreToolSurface.IsSourceInventoryFollowup() && ctx.SourceInventoryFollowupDebt.IsActive() {
+		debt := types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt)
+		b.WriteString("This dispatch is a scheduler-owned source-inventory follow-up. Call `repo_map` with `view=\"source_inventory\"` using the typed route below; do not replace it with grep, list_files, read_file, shell commands, or a broader root query.\n")
+		if debt.ReasonCode != "" {
+			b.WriteString("- follow-up reason: `")
+			b.WriteString(debt.ReasonCode)
+			b.WriteString("`\n")
+		}
+		if len(debt.Query.Roles) > 0 {
+			b.WriteString("- route roles: `")
+			b.WriteString(strings.Join(sourceInventoryRoleNames(debt.Query.Roles), "`, `"))
+			b.WriteString("`\n")
+		}
+		if len(debt.Query.Scopes) > 0 {
+			b.WriteString("- route scopes: `")
+			b.WriteString(strings.Join(debt.Query.Scopes, "`, `"))
+			b.WriteString("`\n")
+		}
+		if debt.Query.Cursor != "" {
+			b.WriteString("- route cursor: `")
+			b.WriteString(debt.Query.Cursor)
+			b.WriteString("`\n")
+		}
+		if debt.Query.IncludeCounts {
+			b.WriteString("- route flags: `include_counts=true`, `include_attributes=false`\n")
+		} else {
+			b.WriteString("- route flags: `include_attributes=false`\n")
+		}
+	} else {
+		b.WriteString("This dispatch starts with a scheduler-owned source-inventory lens tool surface. First call `repo_map` with `view=\"source_inventory\"`, `include_attributes=false`, and bounded `roles` / `scope` or `scopes` from the typed request context below. Before that first lens result, do not read files, grep, list directories, or run shell commands. After a typed source_inventory observation exists, if it does not cover the requested universe and the tool surface opens, use only the narrow follow-up needed to inspect the mismatched source class.\n")
+	}
 	if roles := sourceInventoryLensRoleLabels(ctx); len(roles) > 0 {
 		b.WriteString("- typed principal roles: `")
 		b.WriteString(strings.Join(roles, "`, `"))
@@ -433,6 +463,20 @@ func sourceInventoryLensRoleLabels(ctx *types.AgentContext) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, role := range ctx.AnalysisIR.RequestModel.SourceInventoryProfile.PrincipalTargetRoles() {
+		label := strings.TrimSpace(string(role))
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		out = append(out, label)
+	}
+	return out
+}
+
+func sourceInventoryRoleNames(roles []types.AnswerCandidateRole) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, role := range roles {
 		label := strings.TrimSpace(string(role))
 		if label == "" || seen[label] {
 			continue
@@ -819,7 +863,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExternalObservationFirstStartInstruction(ctx))
 	}
 
-	if ctx != nil && ctx.ExploreToolSurface.IsSourceInventoryLens() {
+	if ctx != nil && ctx.ExploreToolSurface.IsSourceInventory() {
 		e.phase = 0
 		return joinExplorerInstructionSections(writeExplorationPrefix, renderExplorerSourceInventoryLensSurfaceInstruction(ctx))
 	}
@@ -6845,9 +6889,13 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 }
 
 func (e *explorerEvaluator) sourceInventoryLensSurfaceActive(ctx *types.AgentContext) bool {
-	return ctx != nil &&
-		ctx.Stage == types.StageExplore &&
-		ctx.ExploreToolSurface.IsSourceInventoryLens() &&
+	if ctx == nil || ctx.Stage != types.StageExplore {
+		return false
+	}
+	if ctx.ExploreToolSurface.IsSourceInventoryFollowup() {
+		return true
+	}
+	return ctx.ExploreToolSurface.IsSourceInventoryLens() &&
 		(e == nil || !e.sourceInventoryLensSurfaceReleased)
 }
 

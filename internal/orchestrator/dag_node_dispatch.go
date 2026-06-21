@@ -270,6 +270,22 @@ func sourceInventoryLensFirstWindow(window []*types.TaskNode, profileActive, len
 	return lens
 }
 
+func sourceInventoryFollowupFirstWindow(window []*types.TaskNode, debtActive bool) []*types.TaskNode {
+	if !debtActive || len(window) == 0 {
+		return nil
+	}
+	var followup []*types.TaskNode
+	for _, n := range window {
+		if sourceInventoryFollowupProbeNode(n) {
+			followup = append(followup, n)
+		}
+	}
+	if len(followup) == 0 || len(followup) == len(window) {
+		return nil
+	}
+	return followup
+}
+
 func sourceInventoryLensProbeOnlyWindow(window []*types.TaskNode) bool {
 	if len(window) == 0 {
 		return false
@@ -282,9 +298,24 @@ func sourceInventoryLensProbeOnlyWindow(window []*types.TaskNode) bool {
 	return true
 }
 
+func sourceInventoryFollowupProbeOnlyWindow(window []*types.TaskNode) bool {
+	if len(window) == 0 {
+		return false
+	}
+	for _, n := range window {
+		if !sourceInventoryFollowupProbeNode(n) {
+			return false
+		}
+	}
+	return true
+}
+
 func exploreToolSurfaceForWindow(window []*types.TaskNode) types.ExploreToolSurface {
 	if sourceInventoryLensProbeOnlyWindow(window) {
 		return types.ExploreToolSurfaceSourceInventoryLens
+	}
+	if sourceInventoryFollowupProbeOnlyWindow(window) {
+		return types.ExploreToolSurfaceSourceInventoryFollowup
 	}
 	return types.ExploreToolSurfaceDefault
 }
@@ -295,6 +326,18 @@ func sourceInventoryLensProbeNode(n *types.TaskNode) bool {
 	}
 	for _, c := range n.EntryConditions {
 		if c.Kind == types.CritSourceInventoryLensMissing {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryFollowupProbeNode(n *types.TaskNode) bool {
+	if n == nil || n.Type != types.NodeProbe {
+		return false
+	}
+	for _, c := range n.EntryConditions {
+		if c.Kind == types.CritSourceInventoryFollowupDebt {
 			return true
 		}
 	}

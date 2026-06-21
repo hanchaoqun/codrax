@@ -45,6 +45,7 @@ const (
 	KindExtractInputReady             Kind = Kind(types.CritExtractInputReady)
 	KindSourceClassUniverseIncomplete Kind = Kind(types.CritSourceClassUniverseIncomplete)
 	KindSourceInventoryLensMissing    Kind = Kind(types.CritSourceInventoryLensMissing)
+	KindSourceInventoryFollowupDebt   Kind = Kind(types.CritSourceInventoryFollowupDebt)
 	KindProgressReplanRequired        Kind = Kind(types.CritProgressReplanRequired)
 	KindContainsSymbol                Kind = Kind(types.CritContainsSymbol)
 	KindRegexMatch                    Kind = Kind(types.CritRegexMatch)
@@ -92,6 +93,7 @@ var registered = map[Kind]bool{
 	KindExtractInputReady:             true,
 	KindSourceClassUniverseIncomplete: true,
 	KindSourceInventoryLensMissing:    true,
+	KindSourceInventoryFollowupDebt:   true,
 	KindProgressReplanRequired:        true,
 	KindContainsSymbol:                true,
 	KindRegexMatch:                    true,
@@ -142,6 +144,7 @@ type Env struct {
 	SourceInventoryActive        bool
 	SourceInventoryLensExecuted  bool
 	SourceClassUniverseComplete  bool
+	SourceInventoryFollowupDebt  types.SourceInventoryFollowupDebt
 	ProgressDecision             types.ProgressDecision
 	ArtifactReadiness            *types.ArtifactReadinessView
 	DraftAnswer                  string

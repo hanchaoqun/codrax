@@ -72,6 +72,7 @@ var projectionTypedSignalFields = []string{
 	"EvalDisableGitHistory",
 	"WorktreePath",
 	"ReadDispatchPolicy",
+	"SourceInventoryFollowupDebt",
 }
 
 // ProjectionTypedSignalFields returns a copy of the typed-signal
@@ -147,6 +148,7 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		EnvRecommendSettings:          ctx.EnvRecommendSettings,
 		EvalDisableGitHistory:         ctx.EvalDisableGitHistory,
 		ReadDispatchPolicy:            ctx.ReadDispatchPolicy,
+		SourceInventoryFollowupDebt:   ctx.SourceInventoryFollowupDebt,
 	}
 	return bc
 }
@@ -214,6 +216,7 @@ func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 		EnvRecommendSettings:          bus.EnvRecommendSettings,
 		EvalDisableGitHistory:         bus.EvalDisableGitHistory,
 		ReadDispatchPolicy:            bus.ReadDispatchPolicy,
+		SourceInventoryFollowupDebt:   bus.SourceInventoryFollowupDebt,
 	}
 	return ac
 }

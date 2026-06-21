@@ -1135,6 +1135,7 @@ const (
 	CritExtractInputReady             = "extract_input_ready"
 	CritSourceClassUniverseIncomplete = "source_class_universe_incomplete"
 	CritSourceInventoryLensMissing    = "source_inventory_lens_missing"
+	CritSourceInventoryFollowupDebt   = "source_inventory_followup_debt"
 	CritProgressReplanRequired        = "progress_replan_required"
 	CritContainsSymbol                = "contains_symbol"
 	CritRegexMatch                    = "regex_match"
