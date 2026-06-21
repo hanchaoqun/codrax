@@ -4471,6 +4471,7 @@ func (o *Orchestrator) requeueExploreWindowForFactRetry(state *graphState, windo
 		output.RetryHint = prependRetryHint(checkpoint, output.RetryHint)
 		logging.Debug("[orchestrator] explore fact retry checkpoint installed len=%d", len(checkpoint))
 	}
+	o.recordReadLoopNextActionForRetry(state, "explore fact retry")
 	for _, n := range window {
 		if n == nil {
 			continue
@@ -5177,6 +5178,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					hint = prependRetryHint(checkpointHint, hint)
 				}
 			}
+			applyReadLoopNextActionHint(state, &hint, parallelHints)
 			pendingViolation = ""
 			pendingStageRetry = ""
 			pendingValidationTargets = nil

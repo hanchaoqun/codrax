@@ -101,6 +101,7 @@ func (o *Orchestrator) retryReadStageDispatchError(
 
 	checkpointHint := ""
 	if stage == types.StageExplore {
+		o.recordReadLoopNextActionForRetry(state, "explore transient retry")
 		checkpointHint = o.buildExploreTransientRetryCheckpointHint()
 		if checkpointHint != "" {
 			state.setTransientRetryHint(checkpointHint)
@@ -405,16 +406,12 @@ func readLoopShadowSummaryFromMutable(m *types.MutableState, imperative loopkern
 }
 
 func readLoopAddProofActionSummaryFromMutable(m *types.MutableState) string {
-	guidance, ok := loopkernel.ReadProofGuidanceFromMutable(m)
-	if !ok || !guidance.Active || guidance.HardBlock {
+	decision, ok := readLoopNextActionDecisionFromMutable(m)
+	if !ok {
 		return ""
 	}
-	if guidance.RecommendedAction != loopkernel.LoopActionAddProof {
-		return ""
-	}
-	parts := []string{fmt.Sprintf("loop action=add_proof source=proof_authority reason=%s",
-		firstNonEmptyRetryString(guidance.ReasonCode, "none"))}
-	if shadow := readLoopShadowSummaryFromMutable(m, guidance.RecommendedAction); shadow != "" {
+	parts := []string{readLoopNextActionDecisionSummary(decision)}
+	if shadow := readLoopShadowSummaryFromMutable(m, decision.Action); shadow != "" {
 		parts = append(parts, shadow)
 	}
 	return strings.Join(parts, "; ")

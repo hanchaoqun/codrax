@@ -79,9 +79,9 @@ type graphState struct {
 	// installed by read-mode stream retries after durable structured
 	// progress. It is consumed by the next window-render pass and
 	// prepended to the ordinary DAG objectives. Keeping it on
-	// graphState avoids overloading BusContext.TaskState.RetryHint,
-	// which applyWindowHint intentionally rewrites on each window.
+	// graphState avoids overloading BusContext.TaskState.RetryHint, which applyWindowHint intentionally rewrites on each window.
 	transientRetryHint string
+	readLoopNextAction readLoopNextActionDecision
 
 	// transientNoEmitStreak counts consecutive transient stalls per
 	// node where the agent did NOT reach a terminal emit

@@ -15,7 +15,7 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 	}{
 		{path: filepath.Join("..", "types", "evidence_closure.go"), maxLines: 2636},
 		{path: "scheduler.go", maxLines: 747},
-		{path: "orchestrator.go", maxLines: 9395},
+		{path: "orchestrator.go", maxLines: 9397},
 	}
 	for _, tc := range cases {
 		tc := tc

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -57,7 +58,10 @@ func TestBuildExploreTransientRetryCheckpointHintCarriesReadProofGuidance(t *tes
 		"reason=proof_weak",
 		"action=add_proof",
 		"mode=advisory",
-		"loop action=add_proof source=proof_authority reason=proof_weak",
+		"loop next-action=add_proof source=proof_authority reason=proof_weak",
+		"route_surface=verification",
+		"route_reason=loop_tool_route_verification",
+		"route_tools=run_tests",
 		"loop shadow recommended=add_proof imperative=add_proof match=true reason=proof_weak",
 	} {
 		if !strings.Contains(got, want) {
@@ -66,6 +70,91 @@ func TestBuildExploreTransientRetryCheckpointHintCarriesReadProofGuidance(t *tes
 	}
 	if strings.Contains(got, "mode=hard") {
 		t.Fatalf("weak read proof must not be rendered as a hard block:\n%s", got)
+	}
+}
+
+func TestReadLoopNextActionDecisionFromGuidanceWeakProof(t *testing.T) {
+	decision, ok := readLoopNextActionDecisionFromGuidance(loopkernel.ReadProofGuidance{
+		Active:            true,
+		State:             loopkernel.ProofCoverageWeak,
+		ReasonCode:        "proof_weak",
+		RecommendedAction: loopkernel.LoopActionAddProof,
+		TruthState:        types.TruthLedgerWeak,
+		TruthAction:       types.TruthActionAddProof,
+		Advisory:          true,
+	}, true)
+	if !ok || !decision.Active {
+		t.Fatalf("weak add-proof guidance should produce active decision: %+v ok=%t", decision, ok)
+	}
+	if decision.Action != loopkernel.LoopActionAddProof ||
+		decision.RouteSurface != loopkernel.LoopToolSurfaceVerification ||
+		decision.RouteReasonCode != "loop_tool_route_verification" ||
+		!containsString(decision.ToolSuggestions, "run_tests") {
+		t.Fatalf("unexpected decision route: %+v", decision)
+	}
+	summary := readLoopNextActionDecisionSummary(decision)
+	for _, want := range []string{
+		"loop next-action=add_proof",
+		"source=proof_authority",
+		"reason=proof_weak",
+		"route_surface=verification",
+		"route_tools=run_tests",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("decision summary missing %q: %s", want, summary)
+		}
+	}
+}
+
+func TestReadLoopNextActionDecisionSkipsNonAddProofGuidance(t *testing.T) {
+	if decision, ok := readLoopNextActionDecisionFromGuidance(loopkernel.ReadProofGuidance{
+		Active:            true,
+		State:             loopkernel.ProofCoverageCovered,
+		RecommendedAction: loopkernel.LoopActionContinue,
+		TruthState:        types.TruthLedgerCovered,
+		TruthAction:       types.TruthActionContinue,
+	}, true); ok || decision.Active {
+		t.Fatalf("covered/continue guidance should not produce add-proof decision: %+v ok=%t", decision, ok)
+	}
+	if decision, ok := readLoopNextActionDecisionFromGuidance(loopkernel.ReadProofGuidance{
+		Active:            true,
+		State:             loopkernel.ProofCoverageFailed,
+		RecommendedAction: loopkernel.LoopActionRepair,
+		HardBlock:         true,
+		TruthState:        types.TruthLedgerFailed,
+		TruthAction:       types.TruthActionRepair,
+	}, true); ok || decision.Active {
+		t.Fatalf("hard-block guidance should not produce add-proof decision: %+v ok=%t", decision, ok)
+	}
+}
+
+func TestGraphStateReadLoopNextActionIsOneShot(t *testing.T) {
+	state := &graphState{}
+	decision := readLoopNextActionDecision{
+		Active:          true,
+		Action:          loopkernel.LoopActionAddProof,
+		ReasonCode:      "proof_weak",
+		RouteSurface:    loopkernel.LoopToolSurfaceVerification,
+		RouteReasonCode: "loop_tool_route_verification",
+		ToolSuggestions: []string{"run_tests"},
+	}
+	state.setReadLoopNextAction(decision)
+	got, ok := state.consumeReadLoopNextAction()
+	if !ok || got.Action != loopkernel.LoopActionAddProof {
+		t.Fatalf("consume decision = %+v ok=%t", got, ok)
+	}
+	if got, ok := state.consumeReadLoopNextAction(); ok || got.Active {
+		t.Fatalf("read loop next-action must be one-shot, got %+v ok=%t", got, ok)
+	}
+	directive := renderReadLoopNextActionDirective(decision)
+	for _, want := range []string{
+		"Read loop typed next action",
+		"loop next-action=add_proof",
+		"narrow proof-collection continuation",
+	} {
+		if !strings.Contains(directive, want) {
+			t.Fatalf("directive missing %q:\n%s", want, directive)
+		}
 	}
 }
 
