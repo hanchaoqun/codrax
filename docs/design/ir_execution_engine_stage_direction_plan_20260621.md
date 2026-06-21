@@ -18,7 +18,7 @@ Base HEAD: `398a32303b`（2026-06-21 复核基线；v2 修订基线为 `2b5c4ba0
 
 交付账本以严明纪律把 PRD 各阶段**脚手架**立了起来，并**诚实地把 shadow 标成 shadow**。准确的现状是：
 
-> **脚手架和若干周边 authority 已完成，write 侧、source-class、ToolInvocation、read node execution status、IngestRound reducer、read snapshot substrate 等部分已承重；但自动 read resume 与 read loopkernel 仍未切成生产决策。因此当前不是「Stage 1 完成」，而是「Stage 1 部分承重，核心 read auto-resume/loopkernel cutover 未完成」。**
+> **脚手架和若干周边 authority 已完成，write 侧、source-class、ToolInvocation、read node execution status、IngestRound reducer、read snapshot substrate、read loopkernel 首个 add-proof action、AnalyzeRefine optional actuator 等部分已承重；但自动 read resume、read loopkernel 更广泛 action cutover、execution-tree 轻量分支和事件回放仍未完成。因此当前不是「Stage 1/2/3 全完成」，而是「核心 cutover 已推进，剩余 work 要围绕 resume/replay/eval correctness 收敛」。**
 
 ### 1.1 记账纪律：scaffold-complete vs load-bearing-complete 必须分两列
 
@@ -34,9 +34,9 @@ Base HEAD: `398a32303b`（2026-06-21 复核基线；v2 修订基线为 `2b5c4ba0
 | 阶段 | 退出标准（必须 load-bearing） | 当前真实位置（对 `2b5c4ba0` file:line 核实） |
 |---|---|---|
 | **Stage 0** 退役 legacy write DAG | 生产路径走 controller，**生产可达性测试**证明不再装 legacy write TaskGraph | ✅ **load-bearing-complete**：生产 `Mode.IsWrite()→runWriteControllerWorkflow`（orchestrator.go:2364），由 `TestMode_WriteControllerDoesNotInstallLegacyWriteTaskGraph`（mode_dispatch_test.go:256）守护。**以可达性测试为准，非字符串 grep** |
-| **Stage 1** 单一执行 IR + 闭环 | `nodeExecStatus` 成唯一 *decision-read* 执行状态（`graphState` 退成 accessor 而非双写镜像）；`IngestRound` 成**生产** reducer；ToolInvocation log 真支撑 replay；**read 有 resumability** | ⚠️ **部分承重，auto-resume 未 cutover**：ToolInvocation 已生产 wiring（cmd/root.go:3859 `SetReasoningObserver`、agent.go:4113 `ensureToolInvocationID`）；source-class universe 已进 absence gate（见 Stage-correctness）；B1 已让 `EvidenceClosure.NodeExecStatus` 成为 scheduler/orchestrator decision-read authority；B3 已让 `applyStageOutput` 对生产 closure 执行 `IngestRound`；B2 已有 typed read run snapshot projection/store。仍 open：自动 read resume 尚未接生产调度。 |
-| **Stage 2** 自适应引擎 | extract 真门 ✅；**optional/refine 节点机制承重**；progress 驱动的 AnalyzeRefine 有真生产节点；execution-tree 轻量分支可用 | ⚠️ **机制承重、AnalyzeRefine 未发节点**：extract = **真门**（`CritExtractInputReady`，stage_nodes.go）；optional-node 机制 = **已承重**（M2d-B 的 compiler-emitted source-inventory re-probe 节点，挂 `source_class_universe_incomplete`，scheduler 真处理 `TaskNode.Optional`）；但 **AnalyzeRefine via `progress_replan_required` 仍是机制就绪无生产节点**——sensor 全接（eval.go:794-802），ProgressDecision 投进 env（orchestrator.go），但**全仓无 EntryCondition 挂 `progress_replan_required`**（grep 非测试=空），账本自述"pinned AnalyzeRefine as pre-authored optional topology only" |
-| **Stage 3** 语义 kernel | write budget 真门 ✅；**read loop 真消费 ≥1 个 loopkernel `RecommendedAction` 作决策**；event store 有真回放路径 | ⚠️ write = **真承重**（5 个 LoopBudget/LoopRun 构造在 write_controller_scheduler.go，`Advance` 经 `controllerLoopAdvanceAllowsAction` 硬门 3 个 write action）；read = `ReadLoopShadowComparison` 代码注释自述 "telemetry/shadow only: callers must not use this view as a hard gate until a later cutover"（read_shadow.go:4），出口只折进 `proofGuidance` advisory（read_stage_retry.go:184） |
+| **Stage 1** 单一执行 IR + 闭环 | `nodeExecStatus` 成唯一 *decision-read* 执行状态（`graphState` 退成 accessor 而非双写镜像）；`IngestRound` 成**生产** reducer；ToolInvocation log 真支撑 replay；**read 有 resumability** | ⚠️ **核心状态/ingest 已承重，auto-resume 未 cutover**：ToolInvocation 已生产 wiring（cmd/root.go:3859 `SetReasoningObserver`、agent.go:4113 `ensureToolInvocationID`）；source-class universe 已进 absence gate（见 Stage-correctness）；B1 已让 `EvidenceClosure.NodeExecStatus` 成为 scheduler/orchestrator decision-read authority；B3 已让 `applyStageOutput` 对生产 closure 执行 `IngestRound`；B2 已有 typed read run snapshot projection/store。仍 open：自动 read resume 尚未接生产调度。 |
+| **Stage 2** 自适应引擎 | extract 真门 ✅；**optional/refine 节点机制承重**；progress 驱动的 AnalyzeRefine 有真生产节点；execution-tree 轻量分支可用 | ⚠️ **typed optional actuator 已承重，execution-tree 分支未 cutover**：extract = **真门**（`CritExtractInputReady`，stage_nodes.go）且 A1 已有 golden pin；optional-node 机制 = **已承重**（source-inventory re-probe 与 C2 AnalyzeRefine 均由 compiler pre-author，scheduler 只消费 typed criterion env）；C2 已发 `progress_replan_required` optional one-shot `NodeProbe`。仍 open：execution-tree 轻量分支/branch replay 尚未完成。 |
+| **Stage 3** 语义 kernel | write budget 真门 ✅；**read loop 真消费 ≥1 个 loopkernel `RecommendedAction` 作决策**；event store 有真回放路径 | ⚠️ **write 与首个 read action 已承重，event replay 未 cutover**：write = **真承重**（5 个 LoopBudget/LoopRun 构造在 write_controller_scheduler.go，`Advance` 经 `controllerLoopAdvanceAllowsAction` 硬门 3 个 write action）；C1 已让 read retry 消费 typed `LoopActionAddProof` 生成窄 proof follow-up；其它 read actions 与 `ReadLoopShadowComparison` 仍保持 telemetry/advisory；event store 仍无生产 replay 路径。 |
 
 ---
 
@@ -86,7 +86,7 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 
 ## 6. 最高杠杆的下一步
 
-按团队优先序，落地顺序为：**(A) 修文档两列口径 + 装 extract-dispatch L1 golden pin（纯结构、零风险、补已跨红线）→ (B) `graphState.status` 退成 closure accessor（核心 read-loop cutover，解锁 resumability）→ (B) `IngestRound` 生产 reducer → (C) read loopkernel 单 action 承重 + AnalyzeRefine 真节点。** read loopkernel 与 source-inventory 的历史 eval 结论需重跑确认，不沿用旧口径。
+按当前 HEAD，A/B/C 中的 extract golden、ratchet、NodeExecStatus、IngestRound、read snapshot substrate、read loopkernel add-proof action、AnalyzeRefine optional node 已完成并入账。下一步最高杠杆顺序调整为：**(D1) 重跑 source-inventory correctness eval，确认 RNE-C23/C32/RNE-C61 真实状态 → (D2) 6-case 商用代表批，按 2 并行审计噪音、工具使用、性能、handoff → (E) 基于 D1/D2 新证据再切 read auto-resume、event replay 或 source-inventory correctness 修复。** 历史 eval 结论必须重跑确认，不沿用旧口径。
 
 ---
 
@@ -99,14 +99,14 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 | Legacy write DAG retired | yes | yes | 生产写模式从 `Mode.IsWrite()` 进入 `runWriteControllerWorkflow`，read `runTaskGraph` 防御 retired write node。Stage 0 以生产可达性测试为准。 |
 | ToolInvocation / ReasoningGraph | yes | yes | `cmd/root.go` 已安装 `ReasoningObserver`，`agent.go` 确保 tool invocation ID；这是 append-only audit/replay projection，非 shadow-only。 |
 | Source-class universe / absence gate | yes | yes | 新增 repo-truth wrapper：`SourceInventoryExactAbsenceNeedsInventoryProofRepoTruth`。contract check、pre-emit check、investigation-complete 都能在 observation 为空时从 repo truth seed source-class universe。历史 RNE-C23/C32 只能通过 eval 复验确认，不能继续按旧失败口径判断。 |
-| `NodeExecStatus` | yes | no | `EvidenceClosure` 有 typed status，但 `graphState.status` 仍是 read scheduler 决策源；`setStatus` 是 map + closure 双写。 |
-| `IngestRound` | yes | no | reducer 已存在，但生产路径在 clone 上 shadow 跑；散落 recompute/append 路径仍承重。 |
-| Extract stage node / `extract_input_ready` | yes | partial | Extract node 和 typed readiness 已承重；但该行为变化缺少专门 golden pin。必须先补守护，再做后续 read-loop cutover。 |
+| `NodeExecStatus` | yes | yes | B1 已将 `EvidenceClosure.NodeExecStatus` 提升为 scheduler/orchestrator closure-first decision-read authority；`graphState.status` 只保留 nil-closure bootstrap fallback。 |
+| `IngestRound` | yes | yes | B3 已将 `applyStageOutput` 切到生产 `ingestEvidenceRound`，由 typed `EvidenceClosure.IngestRound` 承载 read coverage / accepted evidence ingestion。 |
+| Extract stage node / `extract_input_ready` | yes | yes | Extract node 和 typed readiness 已承重；A1 已补 false skip-complete 与 true dispatch 的行为级 golden pin。 |
 | Optional source-inventory re-probe | yes | yes | compiler 预置 optional source-inventory re-probe node，scheduler 真处理 `TaskNode.Optional` 和 `source_class_universe_incomplete`。 |
-| Progress / AnalyzeRefine | yes | no | `progress_replan_required` criterion 和 `ProgressDecision` carrier 已存在；当前非测试路径没有生产 TaskNode 挂该 criterion。 |
+| Progress / AnalyzeRefine | yes | yes | C2 已由 compiler 发 bounded optional one-shot `NodeProbe`，EntryCondition 挂 typed `progress_replan_required`，scheduler 不 runtime append DAG。 |
 | Loopkernel write budget / advance | yes | yes for write | write controller 已通过 `LoopRun.Advance`/`LoopBudget` 消费 typed budget surfaces；read loopkernel 仍是 shadow/advisory。 |
-| Read loopkernel recommended action | yes | no | `ReadLoopShadowComparison` 注释明确 telemetry/shadow only；read retry 只把 comparison 渲染进 `proofGuidance`，不能算 decision consumer。 |
-| LOC ratchet | yes | partial | `evidence_closure.go` 当前 2636 行，`scheduler.go` 当前 799 行，但 ratchet 仍允许 2774/945；`orchestrator.go` 当前 9402 行未纳入 ratchet。 |
+| Read loopkernel recommended action | yes | partial | C1 已让 typed `LoopActionAddProof` 成为第一个 read-side load-bearing action；其它 action 仍为 advisory/shadow，对应 cutover 需 eval 证据。 |
+| LOC ratchet | yes | yes | A2 已 pin 当前值：`evidence_closure.go=2636`、`scheduler.go=799`、`orchestrator.go=9402`。 |
 
 红线复核：
 - 本计划不允许新增用户意图关键词、模型散文、prompt/hint 文本、ranker/grep count、elapsed time 作为 hard route。
@@ -360,6 +360,13 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 - 记录 repo_map/source_inventory 是否被调用、source-class universe 是否进入 observation、absence gate 是否按 repo truth 工作。
 - 若失败，按 per-class 分类：scanner/lens/projection/gate/final-surface/eval-infra，不做 per-shape patch。
 
+本批探索确认：
+- 现有 typed universe 入口为 `AttachSourceInventorySourceClassUniverse`，从 repo-truth tracked/filesystem walk 计算 `SourceInventorySourceClassCount`，并统一走 `types.ClassifySourcePathRole`；不得新增并行 source-class taxonomy。
+- Absence gate 的 repo-truth seed 已通过 `SourceInventoryExactAbsenceNeedsInventoryProofRepoTruth` 接入 contract/pre-emit/completion 面；D1 要验证它在真实 eval 中是否足够，而不是只看单元测试。
+- 现有 D1 单测入口包括 `source_inventory_absence_repo_truth_test.go`、`source_class_universe_absence_test.go`、`source_inventory_universe_coverage_test.go`、`repomap/tool_scope_test.go` 的 ArkTS/Cangjie/auxiliary projection cases，以及 `source_inventory_convergence_test.go` 的 LOC/kernel-bypass/no-parallel-taxonomy tripwire。
+- 现有 eval 入口包括 `eval/cases/harmony/arkts_repomap.case`、`cangjie_repomap.case`、`cangjie_repomap_fixture.case`。D1 先跑这三个，并用结果决定是否扩到 C/C++、JS/TS、config/workflow 的 source-inventory member cases。
+- 审计维度必须保留 typed 证据：`repo_map(view=source_inventory)` 是否实际调用、`source_classes:` 是否出现、`thirdparty/vendor/generated/fixture/test/production` 是否被正确分类、final answer 是否把 navigation facts 当语义 citation。
+
 验证：
 - eval 输出和 debug logs 人工审计。
 - focused source inventory tests。
@@ -404,6 +411,7 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 | 2026-06-21 | B2 Read run snapshot substrate | complete | Added typed `ReadRunSnapshot` projection/persistence plus `ReadRunSnapshotStore` under `<planDir>/read_runs/`. Snapshot carries TaskGraph identity, node exec statuses, read coverage, accepted-evidence refs, source-inventory authority, and progress decision from typed carriers only. Automatic resume remains explicitly out of batch. `go test ./internal/types ./internal/repl -run 'ReadRunSnapshot|EvidenceClosure.*Snapshot'` and `go test ./internal/types ./internal/repl` passed. |
 | 2026-06-21 | C1 Read loopkernel add-proof action cutover | complete | `LoopActionAddProof` is now the first read-side load-bearing loopkernel action: weak proof guidance selects a typed narrow proof follow-up continuation summary, while covered/continue proof emits no add-proof action and hard block/finish semantics remain unchanged. `go test ./internal/loopkernel ./internal/orchestrator -run 'ReadProofGuidance|ReadLoopShadow|ExploreTransientRetryCheckpoint|ReadLoopAddProof'` and `go test ./internal/loopkernel ./internal/orchestrator` passed. |
 | 2026-06-21 | C2 AnalyzeRefine optional node cutover | complete | Compiler now emits a bounded optional one-shot `NodeProbe` gated by typed `progress_replan_required`, with immutable `analysis_refinement_handoff` output. Scheduler behavior stays generic: it only consumes analyzer-authored optional topology and typed criterion env; no runtime DAG append, no prompt/prose hard routing, no new TaskNodeType. `go test ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator -run 'AnalyzeRefine|ProgressReplan|Optional|StageExpansion'` and full affected package tests passed. |
+| 2026-06-21 | D1 Source-inventory correctness eval intake | in_progress | Explored current source-class universe, repo-truth absence wrapper, bounded source-inventory kernel, convergence tripwire, ArkTS/Cangjie tool tests, and harmony eval cases. D1 will first run focused typed tests, then `arkts_repomap`, `cangjie_repomap`, and `cangjie_repomap_fixture`; any failure must be classified by scanner/lens/projection/gate/final-surface/eval-infra before code changes. |
 
 ---
 
