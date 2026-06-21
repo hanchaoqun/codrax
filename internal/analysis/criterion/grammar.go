@@ -143,6 +143,7 @@ type Env struct {
 	SourceInventoryLensExecuted  bool
 	SourceClassUniverseComplete  bool
 	ProgressDecision             types.ProgressDecision
+	ArtifactReadiness            *types.ArtifactReadinessView
 	DraftAnswer                  string
 	DraftCitations               int
 	// ReactItersUsed is the per-task explore-window iteration count

@@ -1,8 +1,6 @@
 package orchestrator
 
 import (
-	"fmt"
-	"hash/fnv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
@@ -32,12 +30,12 @@ func captureExploreNodeArtifactProjectionSnapshot(bus *types.BusContext, mut *ty
 	}
 	if bus != nil {
 		for _, item := range bus.EvidenceItems {
-			if id := exploreEvidenceItemArtifactID(item); id != "" {
+			if id := types.RuntimeArtifactIDForEvidenceItem(item); id != "" {
 				snap.evidenceIDs[id] = true
 			}
 		}
 		for _, chain := range bus.AnswerChains {
-			if id := exploreAnswerChainArtifactID(chain); id != "" {
+			if id := types.RuntimeArtifactIDForAnswerChain(chain); id != "" {
 				snap.answerChainIDs[id] = true
 			}
 		}
@@ -50,7 +48,7 @@ func captureExploreNodeArtifactProjectionSnapshot(bus *types.BusContext, mut *ty
 		facts = types.MergeAnswerAggregateFacts(facts, mut.StableInvestigationAggregateFacts())
 		snap.aggregateFactList = facts
 		for _, fact := range facts {
-			if id := exploreAggregateFactIdentity(fact); id != "" {
+			if id := types.RuntimeArtifactIdentityForAggregateFact(fact); id != "" {
 				snap.aggregateFactIDs[id] = true
 			}
 		}
@@ -109,7 +107,7 @@ func exploreNodeArtifactRecordsForOutput(
 	}
 	var records []types.NodeArtifactRecord
 	for _, item := range output.EvidenceItems {
-		id := exploreEvidenceItemArtifactID(item)
+		id := types.RuntimeArtifactIDForEvidenceItem(item)
 		if id == "" || before.evidenceIDs[id] {
 			continue
 		}
@@ -133,12 +131,12 @@ func exploreNodeArtifactRecordsForOutput(
 		}
 	}
 	for _, chain := range output.AnswerChains {
-		id := exploreAnswerChainArtifactID(chain)
+		id := types.RuntimeArtifactIDForAnswerChain(chain)
 		if id == "" || before.answerChainIDs[id] {
 			continue
 		}
 		path := strings.TrimSpace(chain.Item.Source)
-		evidenceID := exploreEvidenceItemArtifactID(chain.Item)
+		evidenceID := types.RuntimeArtifactIDForEvidenceItem(chain.Item)
 		for _, producer := range producers {
 			records = append(records, types.NodeArtifactRecord{
 				ProducerNodeID: producer,
@@ -170,11 +168,11 @@ func exploreNodeArtifactRecordsForAggregateFacts(
 	}
 	var records []types.NodeArtifactRecord
 	for _, fact := range after.aggregateFactList {
-		identity := exploreAggregateFactIdentity(fact)
+		identity := types.RuntimeArtifactIdentityForAggregateFact(fact)
 		if identity == "" || before.aggregateFactIDs[identity] {
 			continue
 		}
-		id := exploreAggregateFactArtifactID(identity)
+		id := types.RuntimeArtifactIDForAggregateFactIdentity(identity)
 		for _, producer := range producers {
 			records = append(records, types.NodeArtifactRecord{
 				ProducerNodeID: producer,
@@ -186,44 +184,10 @@ func exploreNodeArtifactRecordsForAggregateFacts(
 				Artifact: types.RuntimeArtifactRef{
 					Kind:        types.RuntimeArtifactAggregateFact,
 					ID:          id,
-					ContentHash: exploreHashString(identity),
+					ContentHash: types.RuntimeArtifactHashString(identity),
 				},
 			})
 		}
 	}
 	return records
-}
-
-func exploreEvidenceItemArtifactID(item types.EvidenceItem) string {
-	id := strings.TrimSpace(item.ID)
-	if id == "" {
-		id = types.StableEvidenceID(item)
-	}
-	return strings.TrimSpace(id)
-}
-
-func exploreAnswerChainArtifactID(chain types.AnswerChain) string {
-	id := exploreEvidenceItemArtifactID(chain.Item)
-	if id == "" {
-		return ""
-	}
-	return "answer_chain:" + id
-}
-
-func exploreAggregateFactIdentity(fact types.AnswerAggregateFact) string {
-	return strings.TrimSpace(types.AnswerAggregateFactIdentity(fact))
-}
-
-func exploreAggregateFactArtifactID(identity string) string {
-	identity = strings.TrimSpace(identity)
-	if identity == "" {
-		return ""
-	}
-	return "aggregate_fact:" + exploreHashString(identity)
-}
-
-func exploreHashString(value string) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(value))
-	return fmt.Sprintf("%016x", h.Sum64())
 }

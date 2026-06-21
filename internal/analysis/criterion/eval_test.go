@@ -241,7 +241,38 @@ func TestEval_ExtractInputReady_UsesTypedInputsOnly(t *testing.T) {
 	if r := Eval(c, Env{AggregateFacts: []types.AnswerAggregateFact{{Kind: types.AnswerAggregateMemberSet, Label: "agents"}}}); !r.Satisfied {
 		t.Fatalf("aggregate facts should make extract ready: %s", r.Detail)
 	}
+	resolvedView := types.BuildArtifactReadinessView(types.ArtifactReadinessInput{
+		Contracts: []types.TaskArtifactContract{{NodeID: "extract", Inputs: []string{"evidence_items"}}},
+		Ledger: types.NodeArtifactLedger{Records: []types.NodeArtifactRecord{{
+			ProducerNodeID: "explore",
+			Consumer:       types.RuntimeArtifactConsumerExtract,
+			Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-ready"},
+		}}},
+		EvidenceItems: []types.EvidenceItem{{ID: "ev-ready"}},
+		Consumer:      types.RuntimeArtifactConsumerExtract,
+	})
+	if r := Eval(c, Env{ArtifactReadiness: &resolvedView}); !r.Satisfied {
+		t.Fatalf("resolved artifact readiness should make extract ready: %s", r.Detail)
+	}
+	danglingView := types.BuildArtifactReadinessView(types.ArtifactReadinessInput{
+		Contracts: []types.TaskArtifactContract{{NodeID: "extract", Inputs: []string{"evidence_items"}}},
+		Ledger: types.NodeArtifactLedger{Records: []types.NodeArtifactRecord{{
+			ProducerNodeID: "explore",
+			Consumer:       types.RuntimeArtifactConsumerExtract,
+			Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-missing"},
+		}}},
+		EvidenceItems: []types.EvidenceItem{{ID: "ev-present"}},
+		Consumer:      types.RuntimeArtifactConsumerExtract,
+	})
+	if r := Eval(c, Env{ArtifactReadiness: &danglingView, Evidence: []types.EvidenceItem{{ID: "ev-present"}}}); r.Satisfied {
+		t.Fatalf("dangling artifact readiness must block global evidence fallback: %s", r.Detail)
+	}
+	emptyView := types.BuildArtifactReadinessView(types.ArtifactReadinessInput{
+		Contracts: []types.TaskArtifactContract{{NodeID: "extract", Inputs: []string{"evidence_items"}}},
+		Consumer:  types.RuntimeArtifactConsumerExtract,
+	})
 	if r := Eval(c, Env{
+		ArtifactReadiness:         &emptyView,
 		ObservationOnlyCompletion: true,
 		MCPResponses: []types.MCPResponse{{
 			Success: true,

@@ -27,6 +27,27 @@ func TaskArtifactContracts(g TaskGraph) []TaskArtifactContract {
 	return out
 }
 
+// TaskArtifactContractsForNodeType projects artifact declarations for nodes of
+// a specific type. Runtime consumers must use this contract projection instead
+// of reading TaskNode.Inputs/Outputs directly.
+func TaskArtifactContractsForNodeType(g TaskGraph, typ TaskNodeType) []TaskArtifactContract {
+	if typ == "" {
+		return nil
+	}
+	out := make([]TaskArtifactContract, 0)
+	for _, n := range g.Nodes {
+		if n.Type != typ || (len(n.Inputs) == 0 && len(n.Outputs) == 0) {
+			continue
+		}
+		out = append(out, TaskArtifactContract{
+			NodeID:  n.ID,
+			Inputs:  append([]string(nil), n.Inputs...),
+			Outputs: append([]string(nil), n.Outputs...),
+		})
+	}
+	return out
+}
+
 // BranchTarget is one typed target of a TaskGraph branch/backtrack edge.
 type BranchTarget struct {
 	NodeID string `json:"node_id"`

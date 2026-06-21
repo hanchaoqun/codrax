@@ -768,6 +768,14 @@ func evalEvidenceCount(expr string, env Env) Result {
 }
 
 func evalExtractInputReady(env Env) Result {
+	if env.ArtifactReadiness != nil && env.ArtifactReadiness.Active {
+		if env.ArtifactReadiness.Ready {
+			return Result{Satisfied: true, Detail: env.ArtifactReadiness.Detail()}
+		}
+		if env.ArtifactReadiness.HasBlockingLedgerIssue() {
+			return Result{Satisfied: false, Detail: env.ArtifactReadiness.Detail()}
+		}
+	}
 	if len(env.Evidence) > 0 {
 		return Result{Satisfied: true, Detail: fmt.Sprintf("extract_input_ready: evidence_items=%d", len(env.Evidence))}
 	}

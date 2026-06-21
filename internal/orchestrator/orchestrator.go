@@ -4876,6 +4876,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			DraftCitations: draftCitations,
 			ReactItersUsed: stepsUsed,
 		}
+		env.ArtifactReadiness = o.buildArtifactReadinessView(ir)
 		// Write-mode fields: populated for every Run. In read-only
 		// pipelines these remain nil / zero-valued because the
 		// write stages never ran; the corresponding evaluators
