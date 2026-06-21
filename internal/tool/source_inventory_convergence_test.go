@@ -34,7 +34,7 @@ import (
 var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_absence_repo_truth.go":         30,
 	"source_inventory_candidate_select.go":           130,
-	"source_inventory_reconcile.go":                  3928,
+	"source_inventory_reconcile.go":                  3899,
 	"source_inventory_render.go":                     1308,
 	"source_inventory_render_paging.go":              17,
 	"source_inventory_symbol_sort.go":                38,
