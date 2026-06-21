@@ -755,6 +755,65 @@ func TestExecCommandFindDiscoveryAdvisory(t *testing.T) {
 	}
 }
 
+func TestExecCommandFindDiscoveryRepair(t *testing.T) {
+	ctx := newBusContext()
+	ctx.RepoRoot = t.TempDir()
+	ctx.Mode = types.ModeRead
+	ctx.PipelineStage = types.StageExplore
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			Confidence:        0.9,
+		},
+	}}
+	tool := &ExecCommand{}
+	params, _ := json.Marshal(execCommandParams{Command: `find . -name "*.ets" | head`})
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("broad file discovery should be refused before execution, got %q", result.Summary)
+	}
+	if result.Repair == nil || result.Repair.Code != "exec_command_file_discovery_use_typed_tools" {
+		t.Fatalf("expected typed file-discovery repair, got %+v", result.Repair)
+	}
+	if !strings.Contains(result.Summary, "repo_map") || !strings.Contains(result.Summary, "source_inventory") {
+		t.Fatalf("source-inventory lane should steer to typed inventory tools, got %q", result.Summary)
+	}
+}
+
+func TestExecCommandFindCountMeasurementAllowed(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "sample.go"), []byte("package sample\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ctx := newBusContext()
+	ctx.RepoRoot = repo
+	ctx.Mode = types.ModeRead
+	ctx.PipelineStage = types.StageExplore
+	tool := &ExecCommand{}
+	params, _ := json.Marshal(execCommandParams{Command: `find . -name "*.go" | wc -l`})
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("deterministic find count should remain allowed, got %q", result.Summary)
+	}
+	if result.Repair != nil {
+		t.Fatalf("count measurement should not produce file-discovery repair: %+v", result.Repair)
+	}
+	if !strings.Contains(result.Summary, "evidence_origin=command_measurement") {
+		t.Fatalf("find count should remain a command measurement, got %q", result.Summary)
+	}
+}
+
 func TestExecCommand(t *testing.T) {
 	t.Run("echo hello", func(t *testing.T) {
 		tool := &ExecCommand{}

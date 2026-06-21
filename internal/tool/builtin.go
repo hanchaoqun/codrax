@@ -506,6 +506,10 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 			result.Timestamp = time.Now()
 			return result, nil
 		}
+		if result := readModeExecFileDiscoveryRepair(ctx, command); result != nil {
+			result.Timestamp = time.Now()
+			return *result, nil
+		}
 	}
 	if shouldGateExecCommandAsWriteReadOnly(ctx) {
 		command, compatibilityNote = normalizeReadOnlyExecCommand(command)
@@ -646,6 +650,53 @@ func execCommandFileDiscoveryAdvisory(command string) string {
 		return ""
 	}
 	return "[exec_command advisory: broad file discovery through `find` can be slow or over-broad inside repository worktrees. Prefer `list_files` with `recursive=true` and typed `include`/`file_type` filters for repo-local path discovery; use `include_auxiliary=true` only when the typed answer scope includes all/auxiliary repo-owned corpus material or a production-only scan was empty.]\n"
+}
+
+func readModeExecFileDiscoveryRepair(ctx *types.BusContext, command string) *types.ToolResult {
+	if !readModeExecFileDiscoveryShouldRepair(command) {
+		return nil
+	}
+	hint := "Use list_files with recursive=true plus typed include/file_type filters for repo-local path discovery."
+	metadata := map[string]string{
+		"reason_code":    "broad_file_discovery",
+		"preferred_tool": "list_files",
+	}
+	if execCommandActiveSourceInventoryProfile(ctx) {
+		hint = "Use repo_map with view=source_inventory for inventory membership, or list_files with recursive=true plus typed include/file_type filters for path discovery."
+		metadata["source_inventory"] = "true"
+		metadata["alternative_tool"] = "repo_map"
+		metadata["alternative_view"] = "source_inventory"
+	}
+	return &types.ToolResult{
+		ToolName: "exec_command",
+		Success:  false,
+		Summary: fmt.Sprintf(
+			"exec_command refused: broad repo-local file discovery through `find` is not executed in read mode because typed bounded tools can produce the same path set with clearer scope and lower runtime risk. %s The rejected command was: %s",
+			hint, sanitizeForBanner(command)),
+		Repair: &types.ToolRepair{
+			Code:     "exec_command_file_discovery_use_typed_tools",
+			Hint:     hint,
+			Fields:   []string{"path", "recursive", "include", "file_type", "include_auxiliary"},
+			Metadata: metadata,
+		},
+	}
+}
+
+func readModeExecFileDiscoveryShouldRepair(command string) bool {
+	if !execCommandLooksLikeFindDiscovery(command) {
+		return false
+	}
+	if execCommandLooksLikeCountOnly(command) {
+		return false
+	}
+	return true
+}
+
+func execCommandActiveSourceInventoryProfile(ctx *types.BusContext) bool {
+	return ctx != nil &&
+		ctx.AnalysisIR != nil &&
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile != nil &&
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active()
 }
 
 func execCommandLooksLikeFindDiscovery(command string) bool {
