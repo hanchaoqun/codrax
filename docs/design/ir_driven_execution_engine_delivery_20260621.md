@@ -16,7 +16,7 @@ Base HEAD: `8269ed6ed docs: IR-driven adaptive execution engine PRD (next-stage 
 | --- | --- | --- | --- |
 | Write DAG legacy | Production no longer installs `BuildWriteTaskGraph`; legacy `write_scheduler.go` / `write_graph.go` were removed. Shared retry helpers moved to neutral controller/read retry helpers. | Completed M0a/M0b | Continue with TaskNode compatibility cleanup and future controller/loopkernel work; do not restore a linear write TaskGraph. |
 | Read scheduler | `runReadSchedulerLoop` remains the real adaptive read engine; node status is still local `graphState`, not durable EvidenceClosure state. | Open | Fold node execution status into EvidenceClosure behind a thin accessor, with golden trace proving dispatch sequence equivalence. |
-| TaskNode artifact slots | `TaskNode.Inputs`, `Outputs`, `ExitArtifacts` still exist with comments saying no runtime consumer reads/writes them. | Open | Add structural guard now; wire them in execution-tree artifact contracts in Phase 2 or delete them. |
+| TaskNode artifact slots | `TaskNode.Inputs` / `Outputs` exist as immutable analyzer-authored declarations; `ExitArtifacts` was removed because runtime artifact IDs do not belong inside immutable AnalysisIR. | Completed M2c | Static contracts are exposed through `TaskArtifactContract`; runtime artifacts stay on EvidenceClosure/reasoning graph surfaces. |
 | ReasoningGraph observer | `Dependencies.ReasoningObserver` and BaseAgent observation helpers exist; tests cover local tool observation. Production orchestration coverage is incomplete and ToolInvocation lacks full params/result replay identity. | Partial | Extend existing observer, not a new system: add invocation identity, params/result refs, construction wiring tests, and replayable audit projection. |
 | Source-class universe | Source inventory now computes repo-wide source-class/language counts and absence gate consumes typed universe via `SourceInventoryExactAbsenceNeedsInventoryProof`. | Partial | Do not duplicate taxonomy. Project the same universe into the grown EvidenceClosure / loopkernel view so read and final report consume one authority. |
 | Tool/result ingestion | Tool outputs are still re-read through scattered recomputation and stage-specific handoff surfaces. | Open | Add `EvidenceClosure.IngestRound` as a shadow reducer first, assert equality against legacy recompute, then cut over only after golden trace is stable. |
@@ -84,7 +84,7 @@ Tests:
 ### Batch M0c: TaskNode Execution Slot Guard
 
 Deliverables:
-- Add a structural test that fails if `Inputs`, `Outputs`, or `ExitArtifacts` get runtime consumers before Phase 2 wiring.
+- Add a structural test that fails if `Inputs` or `Outputs` get runtime consumers before explicit contract wiring.
 - Add a code comment pointing to this ledger and PRD M2.5.
 
 Tests:
@@ -198,11 +198,19 @@ M2b-A scoped implementation:
 
 Deliverables:
 - Add lightweight `BranchPoint` and sibling backtrack using existing validation-feedback edges.
-- Wire `Inputs`/`Outputs`/`ExitArtifacts` as artifact contracts, or delete them if no consumer remains justified.
+- Keep `Inputs`/`Outputs` as immutable analyzer-authored artifact contract declarations.
+- Delete `ExitArtifacts` from `TaskNode`; runtime-produced artifact IDs must not be written into immutable `AnalysisIR`. A future runtime ledger must live beside `EvidenceClosure` / reasoning graph, not inside `TaskNode`.
 
 Tests:
 - `TestExecutionTreeBacktrackNotDAG`
 - `TestTaskNodeExecSlotsWiredOrDeleted`
+
+M2c-A scoped implementation:
+- Add typed `TaskArtifactContract` projection over `TaskNode.Inputs` / `TaskNode.Outputs`.
+- Add typed `BranchPoint` / `ValidationFeedbackTargets` helpers derived from `TaskGraph.Edges`.
+- Make scheduler validation-feedback requeue consume the shared typed helper instead of scanning edges locally.
+- Remove `ExitArtifacts` field, sample fixture usage, and gate checks; update M0c guard so any future runtime artifact ledger must be explicit, not hidden in `TaskNode`.
+- No prompt changes and no behavior change to dispatch order; this is a structural authority extraction.
 
 ### Batch M2d: Opt-In Dynamic Expansion And Loopkernel Shadow Match
 
@@ -273,7 +281,7 @@ Commercial hardening before declaring complete:
 | D0 Delivery Ledger | completed | This document added on 2026-06-21; current-state audit and batch ledger recorded. |
 | M0a Write DAG install retirement | completed | Production write mode no longer installs `BuildWriteTaskGraph` or emits legacy write TaskGraph rows; `TestMode_WriteControllerDoesNotInstallLegacyWriteTaskGraph` pins controller-first behavior. |
 | M0b Legacy write scheduler deletion | completed | Removed `write_scheduler.go`, `write_graph.go`, and stale scheduler tests; retained shared retry helpers in `write_retry_helpers.go`; updated controller/read tests and architecture docs. |
-| M0c TaskNode slot guard | completed | Added `TestTaskNodeExecSlotsHaveNoRuntimeConsumersToday`; TaskNode artifact slots remain serialized/compiler/gate-only until Phase 2 artifact contracts wire or delete them. |
+| M0c TaskNode slot guard | completed | Added the initial TaskNode slot guard; M2c upgrades it so Inputs/Outputs are readable only through explicit `TaskArtifactContract` projection and runtime artifact IDs cannot be reintroduced into TaskNode. |
 | M1a ToolInvocation production wiring | completed | Added typed `invocation_id` / `params_ref` / `result_ref` through ReasoningGraph payload, reducer, replay, and audit views; production `cmd/root.go` now installs a shared observer into agent deps and orchestrator/subagent runtime; `FindToolInvocation` locates replayed calls. Verified with `go test ./cmd`, `go test ./internal/agent`, `go test ./internal/orchestrator`, `go test ./internal/reasoninggraph ./internal/types`. |
 | M1b EvidenceClosure node status | completed | Added typed `NodeExecStatus` and EvidenceClosure accessors/clone/merge/reset coverage; `graphState` status mutations now dual-write through `setStatus` into the run closure while preserving scheduler map semantics. Verified with `go test ./internal/types` and `go test ./internal/orchestrator`. |
 | M1c IngestRound shadow reducer | completed | Moved read-file coverage parsing into `types`, kept `tool/ground` as a compatibility wrapper, added `EvidenceRoundDelta` / `EvidenceClosure.IngestRound`, and wired `applyStageOutput` to run the reducer on a cloned closure only. Verified with `go test ./internal/types`, `go test ./internal/tool/ground`, and `go test ./internal/orchestrator`. |
@@ -282,7 +290,7 @@ Commercial hardening before declaring complete:
 | M1f Read failure memory | completed | Added deterministic typed read failure memory as a fallback into the existing `AnswerTaxonomyStore`; it persists retry/repair classes only as analyzer pitfall soft guidance, skips raw retry prose for routing, avoids duplicate fallback when the LLM answer reviewer emits a pattern, and creates no current-run hard repairs or reviewer violations. Verified with `go test ./internal/orchestrator -run 'TestReadFailureMemory|TestAnswerTaxonomy|TestReviewerRoundTrip|TestAnswerReviewer'`, `go test ./internal/agent -run 'TestPrependAnswerPitfalls|TestAnalyzer'`, package regression, and `go test ./...`. |
 | M2a Stage nodes | completed | Added typed `NodeExtract` and deterministic `EnsureReadStageNodes` injection in the analyzer/compiler path; counterfactual expansion now routes through extract when present; binder/HDP require extract hypothesis binding; scheduler maps extract to `StageExtract`, excludes it from merged explore windows, and wraps the existing pre-finalize extract dispatch with node start/end/retry status updates. M2a deliberately uses a behavior-preserving typed readiness condition; richer extract readiness and optional AnalyzeRefine nodes are recorded under M2b. Verified with compiler/counterfactual/binder/HDP/types/orchestrator package tests and focused analyzer tests. |
 | M2b Stage mapping/re-exec | completed | Added registered `extract_input_ready`, compiler now emits it on `NodeExtract`, and the read scheduler evaluates extract `EntryConditions` immediately before StageExtract dispatch. When no structured extract input exists, the extractor is skipped as a typed stage-skip and finalize still owns the answer contract. Tests pin that readiness uses typed evidence/chains/aggregate facts/external observations only, not `HasEnoughFacts`, raw tool prose, prompt text, or noisy telemetry. Scope correction: optional AnalyzeRefine moved to M2d because it crosses the analyzer/IR rewrite boundary. |
-| M2c Execution tree/artifacts | not_started | No BranchPoint/artifact contract consumer. |
+| M2c Execution tree/artifacts | completed | Removed misleading `TaskNode.ExitArtifacts`; added typed `TaskArtifactContract`, `BranchPoint`, `ValidationFeedbackBranchPoints`, and `ValidationFeedbackTargets`; scheduler validation-feedback backtrack now consumes the shared typed helper. Tests pin immutable contract projection, execution-tree backtrack grouping/deduplication, and the upgraded TaskNode slot guard. |
 | M2d Dynamic expansion/loopkernel shadow | not_started | Loopkernel not yet shadow-driving scheduler decisions. Optional AnalyzeRefine is tracked here and must use analyzer-pre-authored opt-in nodes plus typed `ProgressDelta` / proof-state booleans. |
 | M3a LoopBudget | not_started | LoopBudget passive. |
 | M3b LoopRun.Advance | not_started | LoopRun passive; write controller not cut over. |

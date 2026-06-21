@@ -8,26 +8,20 @@ import (
 	"testing"
 )
 
-// TestTaskNodeExecSlotsHaveNoRuntimeConsumersToday pins the M0c boundary from
-// docs/design/ir_driven_execution_engine_delivery_20260621.md. The artifact
-// slots are allowed to exist in serialized TaskGraph data, compiler templates,
-// and schema wellformed checks, but they must not silently become runtime
-// scheduling inputs before Phase 2 wires a typed artifact contract.
-func TestTaskNodeExecSlotsHaveNoRuntimeConsumersToday(t *testing.T) {
+// TestTaskNodeExecSlotsHaveOnlyExplicitContractConsumers pins the M2c boundary
+// from docs/design/ir_driven_execution_engine_delivery_20260621.md. Inputs and
+// Outputs may be read only by compiler/gate tests and the explicit immutable
+// TaskArtifactContract projection. Runtime artifact IDs must not be hidden in
+// TaskNode.
+func TestTaskNodeExecSlotsHaveOnlyExplicitContractConsumers(t *testing.T) {
 	root := taskNodeExecSlotsRepoRoot(t)
-	allowedExitArtifactRefs := map[string]bool{
-		"internal/analysis/compiler/templates.go":     true,
-		"internal/analysis/gate/gate.go":              true,
-		"internal/analysis/gate/gate_test.go":         true,
-		"internal/types/analysis_ir.go":               true,
-		"internal/types/analysis_ir_test.go":          true,
-		"internal/types/task_node_exec_slots_test.go": true,
-	}
 	allowedSelectorRefs := map[string]bool{
-		"internal/analysis/compiler/compile_test.go":  true,
-		"internal/analysis/gate/gate.go":              true,
-		"internal/analysis/gate/gate_test.go":         true,
-		"internal/types/task_node_exec_slots_test.go": true,
+		"internal/analysis/compiler/compile_test.go":    true,
+		"internal/analysis/gate/gate.go":                true,
+		"internal/analysis/gate/gate_test.go":           true,
+		"internal/types/task_artifact_contract.go":      true,
+		"internal/types/task_artifact_contract_test.go": true,
+		"internal/types/task_node_exec_slots_test.go":   true,
 	}
 	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -46,11 +40,11 @@ func TestTaskNodeExecSlotsHaveNoRuntimeConsumersToday(t *testing.T) {
 			return err
 		}
 		text := string(body)
-		if strings.Contains(text, "ExitArtifacts") && !allowedExitArtifactRefs[rel] {
-			t.Errorf("TaskNode.ExitArtifacts referenced outside pending/gate boundary: %s", rel)
+		if strings.Contains(text, "Exit"+"Artifacts") {
+			t.Errorf("TaskNode.%s must not be reintroduced: %s", "Exit"+"Artifacts", rel)
 		}
 		if taskNodeSlotSelectorLikelyRuntimeRead(text) && !allowedSelectorRefs[rel] {
-			t.Errorf("TaskNode artifact slot selector read outside gate boundary: %s", rel)
+			t.Errorf("TaskNode artifact slot selector read outside explicit contract boundary: %s", rel)
 		}
 		return nil
 	})
@@ -70,6 +64,5 @@ func taskNodeExecSlotsRepoRoot(t *testing.T) string {
 
 func taskNodeSlotSelectorLikelyRuntimeRead(text string) bool {
 	return strings.Contains(text, "n.Inputs") ||
-		strings.Contains(text, "n.Outputs") ||
-		strings.Contains(text, "n.ExitArtifacts")
+		strings.Contains(text, "n.Outputs")
 }

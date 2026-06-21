@@ -63,7 +63,6 @@ func sampleAnalysisIR() AnalysisIR {
 					Objective:       "locate ShouldStop definition",
 					Inputs:          []string{"t2"},
 					Outputs:         []string{"shouldstop_impl"},
-					ExitArtifacts:   []string{"file_line_ref"},
 					SuccessCriteria: []Criterion{{Kind: CritSymbolPresent, Expr: "ShouldStop"}},
 					SearchHints:     SearchHints{KeywordIDs: []string{"t2"}, EntityIDs: []string{"t2"}},
 				},

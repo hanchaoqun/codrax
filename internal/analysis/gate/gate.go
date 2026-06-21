@@ -416,7 +416,7 @@ var pendingSlotName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 // checkPendingFieldsWellformed is the SOFT gate check for the
 // artifact-exchange pending fields. It verifies:
 //
-//   - TaskNode.Inputs / Outputs / ExitArtifacts entries match
+//   - TaskNode.Inputs / Outputs entries match
 //     snake_case_identifier so a future typed-artifact milestone
 //     can adopt them without a cleanup pass.
 //   - EvidencePlan.SourceMix values sum to ~100 (±5) when the
@@ -435,11 +435,6 @@ func checkPendingFieldsWellformed(ir *types.AnalysisIR) types.GateCheck {
 		for _, slot := range n.Outputs {
 			if !pendingSlotName.MatchString(slot) {
 				issues = append(issues, fmt.Sprintf("node %s output %q not snake_case", n.ID, slot))
-			}
-		}
-		for _, slot := range n.ExitArtifacts {
-			if !pendingSlotName.MatchString(slot) {
-				issues = append(issues, fmt.Sprintf("node %s exit_artifact %q not snake_case", n.ID, slot))
 			}
 		}
 	}

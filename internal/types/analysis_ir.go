@@ -1034,17 +1034,11 @@ type TaskNode struct {
 	Inputs []string `json:"inputs,omitempty"`
 
 	// pending(artifact-exchange): declared output artifact type
-	// slots. Paired with ExitArtifacts which will hold the concrete
-	// produced IDs at runtime. Same pending semantics as Inputs.
+	// slots. Runtime-produced artifact IDs deliberately live outside immutable
+	// AnalysisIR; see TaskArtifactContract and the execution ledger design.
 	Outputs []string `json:"outputs,omitempty"`
 
 	EntryConditions []Criterion `json:"entry_conditions,omitempty"`
-
-	// pending(artifact-exchange): runtime-populated artifact IDs the
-	// node actually produced, keyed to Outputs slot names. Will be
-	// read by a future artifact store; today nothing populates or
-	// reads it at runtime.
-	ExitArtifacts []string `json:"exit_artifacts,omitempty"`
 
 	SuccessCriteria  []Criterion `json:"success_criteria,omitempty"`
 	Hypotheses       []string    `json:"hypotheses,omitempty"`

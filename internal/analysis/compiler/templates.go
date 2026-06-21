@@ -51,10 +51,9 @@ func subTopicRetryBudgetBoost(rm types.RequestModel, base int) int {
 //
 // Every non-finalize node declares EntryConditions + SuccessCriteria
 // as typed []Criterion values; the criterion package evaluates them
-// at runtime. The pending artifact-exchange fields (Inputs, Outputs,
-// ExitArtifacts) carry snake_case slot names that will become a
-// typed data contract in a future milestone; gate only enforces
-// format hygiene on them.
+// at runtime. The artifact-exchange fields (Inputs, Outputs) carry
+// snake_case slot names for the immutable TaskArtifactContract view; runtime
+// artifact IDs live outside AnalysisIR.
 
 // critEntry builds an EntryCondition that waits on a named signal.
 func critEntry(signal string) []types.Criterion {

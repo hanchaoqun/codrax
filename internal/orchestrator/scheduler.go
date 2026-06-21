@@ -542,13 +542,10 @@ func (s *graphState) requeueValidationTargets(validateID string) []string {
 		return nil
 	}
 	var out []string
-	for _, e := range s.graph.Edges {
-		if e.EdgeType != types.EdgeValidationFeedback || e.From != validateID {
-			continue
-		}
-		if s.status[e.To] == nodeDone {
-			s.setStatus(e.To, nodeRequeued)
-			out = append(out, e.To)
+	for _, targetID := range types.ValidationFeedbackTargets(s.graph, validateID) {
+		if s.status[targetID] == nodeDone {
+			s.setStatus(targetID, nodeRequeued)
+			out = append(out, targetID)
 		}
 	}
 	s.setStatus(validateID, nodeRequeued)
