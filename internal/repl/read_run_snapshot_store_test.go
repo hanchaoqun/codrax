@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -76,5 +77,56 @@ func TestReadRunSnapshotStoreRejectsInvalidID(t *testing.T) {
 	}
 	if err := store.Clear("../escape"); err == nil {
 		t.Fatal("Clear should reject traversal-shaped id")
+	}
+}
+
+func TestReadRunSnapshotStoreLoadComparablePrior(t *testing.T) {
+	store := NewReadRunSnapshotStore(t.TempDir())
+	base := types.ReadRunSnapshot{
+		Request:       "same request",
+		RequestHash:   types.ReadRunRequestHash("same request"),
+		RepoRoot:      "/tmp/repo",
+		TaskGraphHash: "graph-1",
+	}
+	snapshots := []types.ReadRunSnapshot{
+		{RunID: "read-old-1", RequestHash: base.RequestHash, RepoRoot: base.RepoRoot, TaskGraphHash: base.TaskGraphHash},
+		{RunID: "read-old-2", RequestHash: base.RequestHash, RepoRoot: base.RepoRoot + "/", TaskGraphHash: base.TaskGraphHash},
+		{RunID: "read-other-request", RequestHash: "different", RepoRoot: base.RepoRoot, TaskGraphHash: base.TaskGraphHash},
+		{RunID: "read-current", RequestHash: base.RequestHash, RepoRoot: base.RepoRoot, TaskGraphHash: base.TaskGraphHash},
+		{RunID: "read-future", RequestHash: base.RequestHash, RepoRoot: base.RepoRoot, TaskGraphHash: base.TaskGraphHash},
+	}
+	for _, snapshot := range snapshots {
+		snapshot.SchemaVersion = types.ReadRunSnapshotSchemaVersion
+		if _, err := store.Save(&snapshot); err != nil {
+			t.Fatalf("Save %s: %v", snapshot.RunID, err)
+		}
+	}
+	baseTime := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
+	for i, id := range []string{"read-old-1", "read-other-request", "read-old-2", "read-current", "read-future"} {
+		path := filepath.Join(store.RunDir(), id+".json")
+		ts := baseTime.Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(path, ts, ts); err != nil {
+			t.Fatalf("Chtimes %s: %v", id, err)
+		}
+	}
+	current, err := store.Load("read-current")
+	if err != nil {
+		t.Fatalf("Load current: %v", err)
+	}
+	prior, err := store.LoadComparablePrior(*current)
+	if err != nil {
+		t.Fatalf("LoadComparablePrior: %v", err)
+	}
+	if prior == nil || prior.RunID != "read-old-2" {
+		t.Fatalf("prior = %+v, want read-old-2", prior)
+	}
+	missingKey := *current
+	missingKey.RequestHash = ""
+	prior, err = store.LoadComparablePrior(missingKey)
+	if err != nil {
+		t.Fatalf("LoadComparablePrior missing key: %v", err)
+	}
+	if prior != nil {
+		t.Fatalf("missing comparable key should not select prior, got %+v", prior)
 	}
 }

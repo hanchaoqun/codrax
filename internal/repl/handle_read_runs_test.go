@@ -3,6 +3,8 @@ package repl
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -156,6 +158,127 @@ func TestReadRunsListShowClear(t *testing.T) {
 	}
 	if loaded != nil {
 		t.Fatalf("snapshot should be cleared, got %+v", loaded)
+	}
+}
+
+func TestReadRunsShowIncludesComparableReplayAuditCard(t *testing.T) {
+	store := NewReadRunSnapshotStore(t.TempDir())
+	requestHash := types.ReadRunRequestHash("same typed request")
+	prior := &types.ReadRunSnapshot{
+		SchemaVersion: types.ReadRunSnapshotSchemaVersion,
+		RunID:         "read-prior",
+		Request:       "prior raw request text should not leak",
+		RequestHash:   requestHash,
+		RepoRoot:      "/tmp/repo",
+		TaskGraphHash: "graph-replay",
+		NodeStatuses:  map[string]types.NodeExecStatus{"explore": types.NodeExecDone},
+		ReadSet:       []string{"a.go"},
+		AcceptedEvidence: []types.AcceptedEvidenceRef{{
+			ID:        "ev-a",
+			Source:    "a.go",
+			LineStart: 1,
+		}},
+		NodeArtifacts: []types.NodeArtifactRecord{{
+			ProducerNodeID: "explore",
+			Artifact: types.RuntimeArtifactRef{
+				Kind:      types.RuntimeArtifactEvidenceItem,
+				ID:        "ev-a",
+				Path:      "a.go",
+				LineStart: 1,
+			},
+		}},
+		SourceInventory: types.SourceInventoryObservation{
+			Active: true,
+			Scopes: []string{"."},
+			Sets: []types.SourceInventoryObservationSet{{
+				Role:    types.AnswerCandidateRoleFile,
+				Members: []types.SourceInventoryObservationMember{{Name: "a.go", File: "a.go"}},
+			}},
+		},
+		ActiveState: types.ReadRunActiveState{TransientRetryPending: true},
+	}
+	current := types.NormalizeReadRunSnapshot(*prior)
+	current.RunID = "read-current"
+	current.Request = "same typed request"
+	current.NodeStatuses = map[string]types.NodeExecStatus{
+		"explore": types.NodeExecDone,
+		"extract": types.NodeExecDone,
+	}
+	current.ReadSet = []string{"a.go", "b.go"}
+	current.AcceptedEvidence = append(current.AcceptedEvidence, types.AcceptedEvidenceRef{
+		ID:        "ev-b",
+		Source:    "b.go",
+		LineStart: 7,
+	})
+	current.NodeArtifacts = append(current.NodeArtifacts, types.NodeArtifactRecord{
+		Direction:      types.RuntimeArtifactConsumed,
+		ProducerNodeID: "explore",
+		ConsumerNodeID: "extract",
+		Consumer:       types.RuntimeArtifactConsumerExtract,
+		Artifact: types.RuntimeArtifactRef{
+			Kind:      types.RuntimeArtifactEvidenceItem,
+			ID:        "ev-a",
+			Path:      "a.go",
+			LineStart: 1,
+		},
+	})
+	current.SourceInventory.Scopes = []string{".", "internal"}
+	current.SourceInventory.Sets[0].Members = append(current.SourceInventory.Sets[0].Members, types.SourceInventoryObservationMember{Name: "b.go", File: "b.go"})
+	current.ActiveState = types.ReadRunActiveState{}
+
+	if _, err := store.Save(prior); err != nil {
+		t.Fatalf("Save prior: %v", err)
+	}
+	if _, err := store.Save(&current); err != nil {
+		t.Fatalf("Save current: %v", err)
+	}
+	baseTime := time.Date(2026, 6, 22, 11, 0, 0, 0, time.UTC)
+	for i, id := range []string{"read-prior", "read-current"} {
+		path := filepath.Join(store.RunDir(), id+".json")
+		ts := baseTime.Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(path, ts, ts); err != nil {
+			t.Fatalf("Chtimes %s: %v", id, err)
+		}
+	}
+
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:               stubRunner{},
+		In:                   strings.NewReader(""),
+		Out:                  out,
+		RepoRoot:             "/tmp/repo",
+		Branch:               "main",
+		Render:               renderNothing,
+		ReadRunSnapshotStore: store,
+		Language:             "en",
+	})
+	r.handleReadRunsCmd("/read-runs show read-current")
+	got := out.String()
+	if !strings.Contains(got, "Replay audit:") || !strings.Contains(got, "baseline=`read-prior`") {
+		t.Fatalf("show output missing replay audit card:\n%s", got)
+	}
+	raw := readRunSnapshotMarkdownWithReplayAudit(types.NormalizeReadRunSnapshot(current), prior)
+	for _, want := range []string{
+		"Replay audit: baseline=`read-prior`",
+		"request=match",
+		"graph=match",
+		"repo=unknown",
+		"Replay audit status delta:",
+		"done=1→2 (+1)",
+		"evidence=1→2",
+		"read_set=1→2",
+		"artifacts=1→2 +1 -0",
+		"Replay audit source inventory:",
+		"members=1→2",
+		"scopes=1→2",
+		"Replay audit active state: true→false",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("raw replay audit markdown missing %q:\n%s", want, raw)
+		}
+	}
+	if strings.Contains(raw, "prior raw request text should not leak") {
+		t.Fatalf("replay card leaked prior request text:\n%s", raw)
 	}
 }
 

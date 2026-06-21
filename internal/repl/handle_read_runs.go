@@ -69,7 +69,11 @@ func (r *REPL) handleReadRunsShow(id string) {
 		r.info(fmt.Sprintf("read-runs show: snapshot %q not found", id))
 		return
 	}
-	r.renderBordered(readRunSnapshotMarkdown(*snapshot))
+	var prior *types.ReadRunSnapshot
+	if r.readRunSnapshotStore != nil {
+		prior, _ = r.readRunSnapshotStore.LoadComparablePrior(*snapshot)
+	}
+	r.renderBordered(readRunSnapshotMarkdownWithReplayAudit(*snapshot, prior))
 }
 
 func (r *REPL) handleReadRunsResume(id string) {
@@ -178,6 +182,10 @@ func readRunSnapshotListMarkdown(dir string, infos []ReadRunSnapshotInfo) string
 }
 
 func readRunSnapshotMarkdown(snapshot types.ReadRunSnapshot) string {
+	return readRunSnapshotMarkdownWithReplayAudit(snapshot, nil)
+}
+
+func readRunSnapshotMarkdownWithReplayAudit(snapshot types.ReadRunSnapshot, prior *types.ReadRunSnapshot) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Read run `%s`\n\n", snapshot.RunID)
 	fmt.Fprintf(&b, "- Schema: `%d`\n", snapshot.SchemaVersion)
@@ -223,12 +231,68 @@ func readRunSnapshotMarkdown(snapshot types.ReadRunSnapshot) string {
 	if snapshot.SourceInventory.IsActive() {
 		fmt.Fprintf(&b, "- Source inventory: %s\n", readRunSourceInventorySummary(snapshot.SourceInventory))
 	}
+	if prior != nil {
+		if audit := readRunReplayAuditSummary(*prior, snapshot); audit != "" {
+			b.WriteString(audit)
+		}
+	}
 	b.WriteString("\nAdvanced: `/read-runs resume ")
 	b.WriteString(snapshot.RunID)
 	b.WriteString("` · `/read-runs clear ")
 	b.WriteString(snapshot.RunID)
 	b.WriteString("`\n")
 	return b.String()
+}
+
+func readRunReplayAuditSummary(prior, current types.ReadRunSnapshot) string {
+	audit := types.BuildReadRunReplayAudit(&prior, &current, nil)
+	if strings.TrimSpace(audit.BaseRunID) == "" {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "- Replay audit: baseline=`%s` request=%s graph=%s repo=%s\n",
+		audit.BaseRunID, audit.RequestHashMatch, audit.TaskGraphHashMatch, audit.RepoFingerprintMatch)
+	if status := readRunReplayAuditCountDeltaSummary(audit.NodeStatusDeltas, 5); status != "" {
+		fmt.Fprintf(&b, "- Replay audit status delta: %s\n", status)
+	}
+	fmt.Fprintf(&b, "- Replay audit evidence/read/artifacts: evidence=%s read_set=%s artifacts=%s\n",
+		readRunReplayAuditSetDeltaSummary(audit.AcceptedEvidenceDelta),
+		readRunReplayAuditSetDeltaSummary(audit.ReadSetDelta),
+		readRunReplayAuditSetDeltaSummary(audit.NodeArtifactDelta))
+	src := audit.SourceInventoryDelta
+	if src.ActiveBefore || src.ActiveAfter {
+		fmt.Fprintf(&b, "- Replay audit source inventory: active=%t→%t members=%d→%d classes=%d→%d scopes=%s\n",
+			src.ActiveBefore, src.ActiveAfter,
+			src.MemberCountBefore, src.MemberCountAfter,
+			src.SourceClassCountBefore, src.SourceClassCountAfter,
+			readRunReplayAuditSetDeltaSummary(src.ScopeDelta))
+	}
+	if audit.ActiveStateBefore || audit.ActiveStateAfter {
+		fmt.Fprintf(&b, "- Replay audit active state: %t→%t\n", audit.ActiveStateBefore, audit.ActiveStateAfter)
+	}
+	return b.String()
+}
+
+func readRunReplayAuditSetDeltaSummary(delta types.ReadRunReplayAuditSetDelta) string {
+	delta = types.NormalizeReadRunReplayAudit(types.ReadRunReplayAudit{ReadSetDelta: delta}).ReadSetDelta
+	return fmt.Sprintf("%d→%d +%d -%d", delta.BeforeCount, delta.AfterCount, delta.AddedCount, delta.RemovedCount)
+}
+
+func readRunReplayAuditCountDeltaSummary(items []types.ReadRunReplayAuditCountDelta, limit int) string {
+	if limit <= 0 {
+		limit = len(items)
+	}
+	var parts []string
+	for _, item := range items {
+		if item.Name == "" || item.Delta == 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%d→%d (%+d)", item.Name, item.Before, item.After, item.Delta))
+		if len(parts) >= limit {
+			break
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func readRunActiveStateSummary(state types.ReadRunActiveState) string {

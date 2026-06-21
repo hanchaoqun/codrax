@@ -158,3 +158,96 @@ func (s *ReadRunSnapshotStore) List() ([]ReadRunSnapshotInfo, error) {
 	})
 	return out, nil
 }
+
+func (s *ReadRunSnapshotStore) LoadComparablePrior(snapshot types.ReadRunSnapshot) (*types.ReadRunSnapshot, error) {
+	if s == nil {
+		return nil, nil
+	}
+	target := types.NormalizeReadRunSnapshot(snapshot)
+	if !readRunSnapshotComparableKeyComplete(target) {
+		return nil, nil
+	}
+	if !validStoreIDPattern.MatchString(target.RunID) {
+		return nil, fmt.Errorf("ReadRunSnapshotStore.LoadComparablePrior: invalid run id %q", target.RunID)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	targetPath := filepath.Join(s.runDir, target.RunID+".json")
+	targetStat, err := os.Stat(targetPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("ReadRunSnapshotStore.LoadComparablePrior: stat %s: %w", targetPath, err)
+	}
+	entries, err := os.ReadDir(s.runDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("ReadRunSnapshotStore.LoadComparablePrior: read %s: %w", s.runDir, err)
+	}
+	targetMod := targetStat.ModTime().UnixNano()
+	var best *types.ReadRunSnapshot
+	var bestMod int64
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".json.tmp") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".json")
+		if id == target.RunID || !validStoreIDPattern.MatchString(id) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		mod := info.ModTime().UnixNano()
+		if mod >= targetMod {
+			continue
+		}
+		candidate, err := types.LoadReadRunSnapshotFromFile(filepath.Join(s.runDir, name))
+		if err != nil || candidate == nil || !readRunSnapshotsComparable(target, *candidate) {
+			continue
+		}
+		if best == nil || mod > bestMod || (mod == bestMod && candidate.RunID > best.RunID) {
+			best = candidate
+			bestMod = mod
+		}
+	}
+	return best, nil
+}
+
+func readRunSnapshotsComparable(target, candidate types.ReadRunSnapshot) bool {
+	target = types.NormalizeReadRunSnapshot(target)
+	candidate = types.NormalizeReadRunSnapshot(candidate)
+	if target.RunID == "" || candidate.RunID == "" || target.RunID == candidate.RunID {
+		return false
+	}
+	if !readRunSnapshotComparableKeyComplete(target) || !readRunSnapshotComparableKeyComplete(candidate) {
+		return false
+	}
+	return target.RequestHash == candidate.RequestHash &&
+		target.TaskGraphHash == candidate.TaskGraphHash &&
+		readRunNormalizedRepoRoot(target.RepoRoot) == readRunNormalizedRepoRoot(candidate.RepoRoot)
+}
+
+func readRunSnapshotComparableKeyComplete(snapshot types.ReadRunSnapshot) bool {
+	snapshot = types.NormalizeReadRunSnapshot(snapshot)
+	return snapshot.RunID != "" &&
+		snapshot.RequestHash != "" &&
+		snapshot.TaskGraphHash != "" &&
+		readRunNormalizedRepoRoot(snapshot.RepoRoot) != ""
+}
+
+func readRunNormalizedRepoRoot(root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	return filepath.Clean(root)
+}
