@@ -511,12 +511,13 @@ type appContext struct {
 	multigraph any
 
 	// Runtime write stores are created during initApp so single-shot
-	// CLI write mode and REPL share the same durable plan/workflow
+	// CLI write mode and REPL share the same durable plan/workflow/read-run
 	// surfaces. They remain lazy on disk: constructing the stores does
-	// not create files until a write/operation workflow persists state.
+	// not create files until a workflow or read snapshot persists state.
 	planStore             *repl.PlanStore
 	planGroupStore        *repl.PlanGroupStore
 	writeWorkflowRunStore *repl.WriteWorkflowRunStore
+	readRunSnapshotStore  *repl.ReadRunSnapshotStore
 	operationPendingStore *repl.OperationPendingStore
 
 	// planDir is the resolved codrax.yaml write_plan_dir override
@@ -1729,6 +1730,7 @@ type runtimeStores struct {
 	PlanStore             *repl.PlanStore
 	PlanGroupStore        *repl.PlanGroupStore
 	WriteWorkflowRunStore *repl.WriteWorkflowRunStore
+	ReadRunSnapshotStore  *repl.ReadRunSnapshotStore
 	OperationPendingStore *repl.OperationPendingStore
 }
 
@@ -1741,6 +1743,7 @@ func newRuntimeStores(runtimeAnchor string) runtimeStores {
 		PlanStore:             repl.NewPlanStore(planDir),
 		PlanGroupStore:        repl.NewPlanGroupStore(planDir),
 		WriteWorkflowRunStore: repl.NewWriteWorkflowRunStore(planDir),
+		ReadRunSnapshotStore:  repl.NewReadRunSnapshotStore(planDir),
 		OperationPendingStore: repl.NewOperationPendingStore(filepath.Join(runtimeAnchor, "operations")),
 	}
 }
@@ -1757,6 +1760,9 @@ func installRuntimeStores(orch *orchestrator.Orchestrator, stores runtimeStores)
 	}
 	if stores.PlanStore != nil {
 		orch.SetPlanSaver(stores.PlanStore)
+	}
+	if stores.ReadRunSnapshotStore != nil {
+		orch.SetReadRunSnapshotStore(stores.ReadRunSnapshotStore)
 	}
 }
 
@@ -1792,16 +1798,19 @@ func runREPL(_ *cobra.Command) error {
 	operationPendingStore := app.operationPendingStore
 	planGroupStore := app.planGroupStore
 	writeWorkflowRunStore := app.writeWorkflowRunStore
-	if planStore == nil || operationPendingStore == nil || planGroupStore == nil || writeWorkflowRunStore == nil {
+	readRunSnapshotStore := app.readRunSnapshotStore
+	if planStore == nil || operationPendingStore == nil || planGroupStore == nil || writeWorkflowRunStore == nil || readRunSnapshotStore == nil {
 		stores := newRuntimeStores(runtimeAnchor)
 		planStore = stores.PlanStore
 		operationPendingStore = stores.OperationPendingStore
 		planGroupStore = stores.PlanGroupStore
 		writeWorkflowRunStore = stores.WriteWorkflowRunStore
+		readRunSnapshotStore = stores.ReadRunSnapshotStore
 		app.planStore = planStore
 		app.operationPendingStore = operationPendingStore
 		app.planGroupStore = planGroupStore
 		app.writeWorkflowRunStore = writeWorkflowRunStore
+		app.readRunSnapshotStore = readRunSnapshotStore
 		installRuntimeStores(app.orch, stores)
 	}
 	// FailureTaxonomyStore is now wired in initApp (commit 40)
@@ -3952,6 +3961,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	app.planStore = stores.PlanStore
 	app.planGroupStore = stores.PlanGroupStore
 	app.writeWorkflowRunStore = stores.WriteWorkflowRunStore
+	app.readRunSnapshotStore = stores.ReadRunSnapshotStore
 	app.operationPendingStore = stores.OperationPendingStore
 	installRuntimeStores(orch, stores)
 	// Commit 2 P0 C: write-mode wall-clock deadline. 0 disables;

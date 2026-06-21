@@ -248,6 +248,8 @@ type Orchestrator struct {
 	// skip (back-compat with tests + CLI single-shot).
 	planSaver PlanSaver
 
+	readRunSnapshotSaver ReadRunSnapshotSaver
+
 	// nextPhaseHint is the consume-once carry-over from the
 	// previous phase's acceptance check (NextHint field). The
 	// next phase's seedPlanningHintFromPhase reads this slot
@@ -1694,7 +1696,6 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// leak a stale "canceled" state into the next Run.
 	o.cancelToken = NewCancelToken()
 	defer func() { o.cancelToken = nil }()
-
 	// Defensive reset of cross-Run sticky slots. The Orchestrator
 	// instance is reused across Runs in the REPL, so any field
 	// that was set during a previous multi-phase Run must be
@@ -1711,7 +1712,6 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.presentationDirective = ""
 	turnRouteHint := o.turnRouteHint
 	o.turnRouteHint = types.TurnRouteHint{}
-
 	// Wall-clock deadline for write-mode Runs. The timer fires at
 	// most once per Run; the AfterFunc closure cancels the token
 	// with a typed reason so the caller's "✗ canceled" rendering
@@ -1750,7 +1750,6 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			PreviewRejected: true,
 		})
 	}()
-
 	// Initialize BusContext
 	o.busCtx = &types.BusContext{
 		PipelineStage: types.StageAnalyze,
@@ -1798,6 +1797,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// than waiting for a cooperative checkpoint.
 		Ctx: o.cancelToken.Context(),
 	}
+	defer o.persistReadRunSnapshot()
 	if transcriptRequest := strings.TrimSpace(o.outputTranscriptRequest); transcriptRequest != "" {
 		// Freeze the REPL-provided expanded request onto this Run's
 		// MutableState. The Orchestrator itself is reused across REPL

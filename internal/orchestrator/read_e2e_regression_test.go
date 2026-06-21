@@ -409,6 +409,87 @@ func TestE2E_ReadMode_NoWriteSideEffects(t *testing.T) {
 	}
 }
 
+func TestE2E_ReadMode_SavesTypedReadRunSnapshot(t *testing.T) {
+	saver := &captureReadRunSnapshotSaver{}
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			ctx.Mutable.EvidenceClosure().AppendAcceptedEvidenceRefs([]types.AcceptedEvidenceRef{{
+				ID:        "ev-read-snapshot",
+				Source:    "snapshot.go",
+				LineStart: 1,
+			}})
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{
+					ID:        "ev-read-snapshot",
+					Predicate: "definition",
+					Subject:   "Snapshot",
+					Object:    "persisted",
+					Summary:   "Snapshot is persisted",
+					Source:    "snapshot.go",
+					LineStart: 1,
+				}},
+			}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "- `Snapshot` (snapshot.go:1)",
+			}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
+	o.SetReadRunSnapshotStore(saver)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain read snapshots", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(saver.snapshots) != 1 {
+		t.Fatalf("read run snapshot save count = %d, want 1", len(saver.snapshots))
+	}
+	snapshot := saver.snapshots[0]
+	if snapshot.RunID == "" || snapshot.RunID != busCtx.TraceID {
+		t.Fatalf("snapshot RunID = %q, want trace id %q", snapshot.RunID, busCtx.TraceID)
+	}
+	if snapshot.Request != "explain read snapshots" || snapshot.RepoRoot != "/tmp/repo" {
+		t.Fatalf("snapshot request/repo = %q/%q", snapshot.Request, snapshot.RepoRoot)
+	}
+	if snapshot.TaskGraphHash == "" || snapshot.TaskNodeCount == 0 {
+		t.Fatalf("snapshot missing task graph identity: %+v", snapshot)
+	}
+	if len(snapshot.NodeStatuses) == 0 {
+		t.Fatalf("snapshot missing node execution statuses: %+v", snapshot)
+	}
+	if len(snapshot.AcceptedEvidence) == 0 {
+		t.Fatalf("snapshot missing accepted evidence refs: %+v", snapshot)
+	}
+}
+
+func TestReadRunSnapshotSkippedOutsideReadMode(t *testing.T) {
+	saver := &captureReadRunSnapshotSaver{}
+	o := &Orchestrator{
+		readRunSnapshotSaver: saver,
+		busCtx: &types.BusContext{
+			Mode:    types.ModeApply,
+			TraceID: "trace-write",
+			Mutable: types.NewMutableState("write request"),
+		},
+	}
+	o.persistReadRunSnapshot()
+	if len(saver.snapshots) != 0 {
+		t.Fatalf("write-mode run must not save read snapshots: %+v", saver.snapshots)
+	}
+}
+
 // TestE2E_ReadMode_ValidateFeedbackRetry locks the read-mode
 // EdgeValidationFeedback retry path that T4 must NOT have changed.
 // Construct an explorer mock that fails on iteration 0 (so the
@@ -621,6 +702,18 @@ func dispatchKeyHasNodeID(key string, nodeID string) bool {
 		}
 	}
 	return false
+}
+
+type captureReadRunSnapshotSaver struct {
+	snapshots []types.ReadRunSnapshot
+}
+
+func (s *captureReadRunSnapshotSaver) Save(snapshot *types.ReadRunSnapshot) (string, error) {
+	if snapshot == nil {
+		return "", nil
+	}
+	s.snapshots = append(s.snapshots, types.NormalizeReadRunSnapshot(*snapshot))
+	return "/tmp/read-runs/" + snapshot.RunID + ".json", nil
 }
 
 // TestE2E_ReadMode_AnalyzeRetrySuccessClearsLastError verifies the
