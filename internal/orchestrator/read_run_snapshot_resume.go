@@ -10,12 +10,13 @@ import (
 )
 
 const (
-	readRunSnapshotSeedReasonSchemaMismatch      = "schema_mismatch"
-	readRunSnapshotSeedReasonRepoMismatch        = "repo_mismatch"
-	readRunSnapshotSeedReasonTaskGraphMismatch   = "task_graph_mismatch"
-	readRunSnapshotSeedReasonNodeMismatch        = "node_status_mismatch"
-	readRunSnapshotSeedReasonNodeAttemptMismatch = "node_attempt_mismatch"
-	readRunSnapshotSeedReasonNoAnalysisIR        = "analysis_ir_missing"
+	readRunSnapshotSeedReasonSchemaMismatch       = "schema_mismatch"
+	readRunSnapshotSeedReasonRepoMismatch         = "repo_mismatch"
+	readRunSnapshotSeedReasonTaskGraphMismatch    = "task_graph_mismatch"
+	readRunSnapshotSeedReasonNodeMismatch         = "node_status_mismatch"
+	readRunSnapshotSeedReasonNodeAttemptMismatch  = "node_attempt_mismatch"
+	readRunSnapshotSeedReasonNodeArtifactMismatch = "node_artifact_mismatch"
+	readRunSnapshotSeedReasonNoAnalysisIR         = "analysis_ir_missing"
 )
 
 // SetReadRunSnapshotSeed installs a one-shot typed resume seed. The seed is
@@ -81,6 +82,16 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 				"snapshot node attempts reference unknown node %q", nodeID)
 		}
 	}
+	for _, artifact := range snapshot.NodeArtifacts {
+		nodeID := strings.TrimSpace(artifact.ProducerNodeID)
+		if nodeID == "" {
+			continue
+		}
+		if _, ok := knownNodes[nodeID]; !ok {
+			return readRunSnapshotSeedError(readRunSnapshotSeedReasonNodeArtifactMismatch,
+				"snapshot node artifact references unknown producer node %q", nodeID)
+		}
+	}
 	if o.busCtx.Mutable == nil {
 		o.busCtx.Mutable = types.NewMutableState(snapshot.Request)
 		o.busCtx.Mutable.SetRepoRoot(o.busCtx.RepoRoot)
@@ -90,6 +101,7 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 		Class:                      types.EvidenceReducerInputReadRunSnapshotSeed,
 		NodeStatuses:               snapshot.NodeStatuses,
 		NodeAttempts:               snapshot.NodeAttempts,
+		NodeArtifacts:              snapshot.NodeArtifacts,
 		ReadSet:                    readRunSnapshotReadSetMap(snapshot.ReadSet),
 		ReadRanges:                 snapshot.ReadRanges,
 		FileTotalLines:             snapshot.FileTotals,
@@ -101,8 +113,8 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 		ProgressDecision:           snapshot.ProgressDecision,
 		HasProgressDecision:        true,
 	}, o.busCtx.RepoRoot)
-	logging.Info("[orchestrator] read run snapshot seed applied: run=%s nodes=%d attempts=%d reads=%d accepted=%d",
-		snapshot.RunID, len(snapshot.NodeStatuses), len(snapshot.NodeAttempts), len(snapshot.ReadSet), len(snapshot.AcceptedEvidence))
+	logging.Info("[orchestrator] read run snapshot seed applied: run=%s nodes=%d attempts=%d artifacts=%d reads=%d accepted=%d",
+		snapshot.RunID, len(snapshot.NodeStatuses), len(snapshot.NodeAttempts), len(snapshot.NodeArtifacts), len(snapshot.ReadSet), len(snapshot.AcceptedEvidence))
 	return nil
 }
 

@@ -195,6 +195,13 @@ type EvidenceClosure struct {
 	// helper maps.
 	nodeExecAttempts map[string]int
 
+	// nodeArtifactLedger is the typed node→artifact ownership ledger for read
+	// execution. It records artifact identities and producer nodes only; no
+	// payloads, prompt prose, or model rationale are stored here. Later
+	// readiness/reporting gates can consume this as a stable substrate instead
+	// of re-inferring ownership from global evidence counts.
+	nodeArtifactLedger NodeArtifactLedger
+
 	// stats accumulates CGEC enforcer fire counters across the
 	// current task. Each enforcer increments its own field
 	// (chain promotion → ChainsDemoted, findings_validator →
@@ -459,6 +466,7 @@ func (c *EvidenceClosure) Clone() *EvidenceClosure {
 	out.repairs = cloneRepairDirectives(c.repairs)
 	out.nodeExecStatus = cloneNodeExecStatusMap(c.nodeExecStatus)
 	out.nodeExecAttempts = cloneNodeExecAttemptMap(c.nodeExecAttempts)
+	out.nodeArtifactLedger = CloneNodeArtifactLedger(c.nodeArtifactLedger)
 	out.sourceInventoryObservation = CloneSourceInventoryObservation(c.sourceInventoryObservation)
 	out.stats = cloneClosureStats(c.stats)
 	out.symbolEmitRejections = c.symbolEmitRejections
@@ -592,6 +600,7 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 			c.nodeExecAttempts[id] = attempts
 		}
 	}
+	c.nodeArtifactLedger = MergeNodeArtifactLedgers(c.nodeArtifactLedger, snap.nodeArtifactLedger)
 	if snap.sourceInventoryObservation.IsActive() {
 		c.sourceInventoryObservation = MergeSourceInventoryObservation(c.sourceInventoryObservation, snap.sourceInventoryObservation)
 	}
@@ -2507,6 +2516,7 @@ func (c *EvidenceClosure) Reset() {
 	c.repairs = nil
 	c.nodeExecStatus = make(map[string]NodeExecStatus)
 	c.nodeExecAttempts = make(map[string]int)
+	c.nodeArtifactLedger = NodeArtifactLedger{}
 	c.sourceInventoryObservation = SourceInventoryObservation{}
 	c.violations = nil
 	c.stats = ClosureStats{}

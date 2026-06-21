@@ -23,6 +23,11 @@ func TestReadRunSnapshotFromBusContextCarriesTypedState(t *testing.T) {
 		Source:    "internal/agent/agent.go",
 		LineStart: 10,
 	}})
+	closure.AppendNodeArtifactRecords([]NodeArtifactRecord{{
+		ProducerNodeID: "explore",
+		ProducerStage:  StageExplore,
+		Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-agent"},
+	}})
 	closure.RecordSourceInventoryObservation(SourceInventoryObservation{
 		Active:   true,
 		Complete: true,
@@ -71,6 +76,9 @@ func TestReadRunSnapshotFromBusContextCarriesTypedState(t *testing.T) {
 	if len(snapshot.AcceptedEvidence) != 1 || snapshot.AcceptedEvidence[0].ID != "ev-agent" {
 		t.Fatalf("accepted evidence = %+v", snapshot.AcceptedEvidence)
 	}
+	if len(snapshot.NodeArtifacts) != 1 || snapshot.NodeArtifacts[0].ProducerNodeID != "explore" {
+		t.Fatalf("node artifacts = %+v", snapshot.NodeArtifacts)
+	}
 	if !snapshot.SourceInventory.IsActive() || len(snapshot.SourceInventory.SourceClasses) != 1 {
 		t.Fatalf("source inventory = %+v", snapshot.SourceInventory)
 	}
@@ -86,7 +94,19 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 		Request:      "where is agent runtime",
 		NodeStatuses: map[string]NodeExecStatus{"explore": NodeExecDone},
 		NodeAttempts: map[string]int{"explore": 2, "zero": 0},
-		ReadSet:      []string{"b.go", "a.go", "a.go"},
+		NodeArtifacts: []NodeArtifactRecord{
+			{
+				ProducerNodeID: "explore",
+				ProducerStage:  StageExplore,
+				Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-1"},
+			},
+			{
+				ProducerNodeID: "explore",
+				ProducerStage:  StageExplore,
+				Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-1"},
+			},
+		},
+		ReadSet: []string{"b.go", "a.go", "a.go"},
 	}
 	if err := WriteReadRunSnapshotToFile(original, path); err != nil {
 		t.Fatalf("WriteReadRunSnapshotToFile: %v", err)
@@ -100,6 +120,9 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 	}
 	if loaded.NodeAttempts["explore"] != 2 || loaded.NodeAttempts["zero"] != 0 {
 		t.Fatalf("loaded node attempts = %+v", loaded.NodeAttempts)
+	}
+	if len(loaded.NodeArtifacts) != 1 || loaded.NodeArtifacts[0].Artifact.ID != "ev-1" {
+		t.Fatalf("loaded node artifacts = %+v", loaded.NodeArtifacts)
 	}
 	if tmp := path + ".tmp"; fileExists(tmp) {
 		t.Fatalf("tmp file should not remain: %s", tmp)

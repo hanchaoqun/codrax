@@ -18,6 +18,11 @@ func TestReadRunSnapshotSeedAppliesTypedFields(t *testing.T) {
 	snapshot := readRunSnapshotSeedFixture(t, ir, repoRoot)
 	snapshot.NodeStatuses = map[string]types.NodeExecStatus{exploreID: types.NodeExecDone}
 	snapshot.NodeAttempts = map[string]int{exploreID: 2}
+	snapshot.NodeArtifacts = []types.NodeArtifactRecord{{
+		ProducerNodeID: exploreID,
+		ProducerStage:  types.StageExplore,
+		Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-seed"},
+	}}
 
 	o := &Orchestrator{
 		readRunSnapshotSeed: &snapshot,
@@ -54,6 +59,9 @@ func TestReadRunSnapshotSeedAppliesTypedFields(t *testing.T) {
 	}
 	if refs := closure.AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-seed" {
 		t.Fatalf("accepted evidence refs = %+v", refs)
+	}
+	if artifacts := closure.NodeArtifactRecords(); len(artifacts) != 1 || artifacts[0].ProducerNodeID != exploreID {
+		t.Fatalf("node artifacts = %+v", artifacts)
 	}
 	if obs := closure.SourceInventoryObservation(); !obs.IsActive() || len(obs.SourceClasses) != 1 {
 		t.Fatalf("source inventory observation = %+v", obs)
@@ -107,6 +115,16 @@ func TestReadRunSnapshotSeedRejectsMismatches(t *testing.T) {
 				s.NodeAttempts = map[string]int{"missing-node": 1}
 			},
 			wantReason: readRunSnapshotSeedReasonNodeAttemptMismatch,
+		},
+		{
+			name: "node_artifact",
+			mutate: func(s *types.ReadRunSnapshot) {
+				s.NodeArtifacts = []types.NodeArtifactRecord{{
+					ProducerNodeID: "missing-node",
+					Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-missing"},
+				}}
+			},
+			wantReason: readRunSnapshotSeedReasonNodeArtifactMismatch,
 		},
 	}
 	for _, tc := range cases {

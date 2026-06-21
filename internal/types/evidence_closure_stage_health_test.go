@@ -125,6 +125,14 @@ func TestEvidenceClosureReset_AllFieldsCleared(t *testing.T) {
 	c.MarkPhase1UnreadFired()
 	c.SetNodeExecStatus("node-1", NodeExecDone)
 	c.IncrementNodeExecAttempt("node-1")
+	c.AppendNodeArtifactRecords([]NodeArtifactRecord{{
+		ProducerNodeID: "node-1",
+		ProducerStage:  StageExplore,
+		Artifact: RuntimeArtifactRef{
+			Kind: RuntimeArtifactEvidenceItem,
+			ID:   "ev-node",
+		},
+	}})
 
 	c.Reset()
 
@@ -171,6 +179,9 @@ func TestEvidenceClosureReset_AllFieldsCleared(t *testing.T) {
 	}
 	if got := c.NodeExecAttempts(); len(got) != 0 {
 		t.Errorf("nodeExecAttempts not cleared: %+v", got)
+	}
+	if got := c.NodeArtifactRecords(); len(got) != 0 {
+		t.Errorf("nodeArtifactLedger not cleared: %+v", got)
 	}
 }
 
@@ -237,6 +248,46 @@ func TestEvidenceClosureNodeExecAttemptsCloneMergeAndNormalize(t *testing.T) {
 	snap["n1"] = 99
 	if got := parent.NodeExecAttempt("n1"); got != 2 {
 		t.Fatalf("NodeExecAttempts leaked internal map: %d", got)
+	}
+}
+
+func TestEvidenceClosureNodeArtifactsCloneMergeAndNormalize(t *testing.T) {
+	parent := NewEvidenceClosure("")
+	parent.AppendNodeArtifactRecords([]NodeArtifactRecord{{
+		ProducerNodeID: "n1",
+		ProducerStage:  StageExplore,
+		Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-1"},
+	}})
+	parent.AppendNodeArtifactRecords([]NodeArtifactRecord{{
+		ProducerNodeID: "",
+		Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "drop"},
+	}})
+	if got := parent.NodeArtifactRecords(); len(got) != 1 || got[0].ProducerNodeID != "n1" {
+		t.Fatalf("parent node artifacts = %+v, want one valid n1 record", got)
+	}
+
+	clone := parent.Clone()
+	clone.AppendNodeArtifactRecords([]NodeArtifactRecord{{
+		ProducerNodeID: "n2",
+		ProducerStage:  StageExtract,
+		Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactAnswerChain, ID: "chain-1"},
+	}})
+	if got := parent.NodeArtifactRecords(); len(got) != 1 {
+		t.Fatalf("clone mutated parent artifacts: %+v", got)
+	}
+
+	parent.MergeFrom(clone)
+	if got := parent.NodeArtifactRecords(); len(got) != 2 {
+		t.Fatalf("merged node artifacts = %+v, want 2", got)
+	}
+	if got := parent.NodeArtifactLedger().RecordsByProducer("n2"); len(got) != 1 || got[0].Artifact.Kind != RuntimeArtifactAnswerChain {
+		t.Fatalf("records by n2 = %+v", got)
+	}
+
+	snap := parent.NodeArtifactRecords()
+	snap[0].ProducerNodeID = "mutated"
+	if got := parent.NodeArtifactRecords(); got[0].ProducerNodeID == "mutated" {
+		t.Fatalf("NodeArtifactRecords leaked internal slice: %+v", got)
 	}
 }
 

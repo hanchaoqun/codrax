@@ -104,6 +104,35 @@ func TestEvidenceClosureIngestReducerInputStageEvidenceSnapshot(t *testing.T) {
 	}
 }
 
+func TestEvidenceClosureIngestReducerInputNodeArtifactDelta(t *testing.T) {
+	c := NewEvidenceClosure("")
+	delta := c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class: EvidenceReducerInputNodeArtifactDelta,
+		NodeArtifacts: []NodeArtifactRecord{
+			{
+				ProducerNodeID: "explore",
+				ProducerStage:  StageExplore,
+				Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-node"},
+			},
+			{
+				ProducerNodeID: "explore",
+				ProducerStage:  StageExplore,
+				Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-node"},
+			},
+			{
+				ProducerNodeID: "",
+				Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "drop"},
+			},
+		},
+	}, "")
+	if delta.Empty() || len(delta.NodeArtifacts) != 1 {
+		t.Fatalf("node artifact delta = %+v, want one normalized artifact", delta)
+	}
+	if got := c.NodeArtifactRecords(); len(got) != 1 || got[0].ProducerNodeID != "explore" {
+		t.Fatalf("closure node artifacts = %+v", got)
+	}
+}
+
 func TestEvidenceClosureIngestReducerInputReadCoverageDeltaAdds(t *testing.T) {
 	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{"old.go": true})
@@ -186,6 +215,11 @@ func TestEvidenceClosureIngestReducerInputReadRunSnapshotSeed(t *testing.T) {
 			"explore": 2,
 			"extract": 1,
 		},
+		NodeArtifacts: []NodeArtifactRecord{{
+			ProducerNodeID: "explore",
+			ProducerStage:  StageExplore,
+			Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-resume"},
+		}},
 		ReadSet: map[string]bool{"fresh.go": true},
 		ReadRanges: map[string][]LineRange{
 			"fresh.go": {{Start: 3, End: 8}},
@@ -200,7 +234,7 @@ func TestEvidenceClosureIngestReducerInputReadRunSnapshotSeed(t *testing.T) {
 		HasProgressDecision:        true,
 	}, "")
 
-	if delta.Empty() || len(delta.NodeStatuses) != 2 || len(delta.NodeAttempts) != 2 || !delta.HasProgressDecision {
+	if delta.Empty() || len(delta.NodeStatuses) != 2 || len(delta.NodeAttempts) != 2 || len(delta.NodeArtifacts) != 1 || !delta.HasProgressDecision {
 		t.Fatalf("snapshot seed delta = %+v, want node/progress carriers", delta)
 	}
 	if got := c.ReadSet(); len(got) != 1 || !got["fresh.go"] {
@@ -218,6 +252,9 @@ func TestEvidenceClosureIngestReducerInputReadRunSnapshotSeed(t *testing.T) {
 	if got := c.NodeExecAttempt("extract"); got != 1 {
 		t.Fatalf("extract attempts = %d, want 1", got)
 	}
+	if got := c.NodeArtifactRecords(); len(got) != 1 || got[0].ProducerNodeID != "explore" {
+		t.Fatalf("node artifacts = %+v", got)
+	}
 	if refs := c.AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-resume" {
 		t.Fatalf("accepted evidence refs = %+v", refs)
 	}
@@ -229,11 +266,19 @@ func TestEvidenceClosureIngestReducerInputReadRunSnapshotSeed(t *testing.T) {
 	}
 
 	c.IngestEvidenceReducerInput(EvidenceReducerInput{
-		Class:            EvidenceReducerInputReadRunSnapshotSeed,
+		Class: EvidenceReducerInputReadRunSnapshotSeed,
+		NodeArtifacts: []NodeArtifactRecord{{
+			ProducerNodeID: "explore",
+			ProducerStage:  StageExplore,
+			Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-resume"},
+		}},
 		AcceptedEvidence: []AcceptedEvidenceRef{{ID: "ev-resume", Source: "fresh.go", LineStart: 4}},
 	}, "")
 	if refs := c.AcceptedEvidenceRefs(); len(refs) != 1 {
 		t.Fatalf("repeated snapshot seed must not duplicate accepted refs: %+v", refs)
+	}
+	if got := c.NodeArtifactRecords(); len(got) != 1 {
+		t.Fatalf("repeated snapshot seed must not duplicate node artifacts: %+v", got)
 	}
 }
 

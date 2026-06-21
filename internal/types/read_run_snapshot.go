@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const ReadRunSnapshotSchemaVersion = 2
+const ReadRunSnapshotSchemaVersion = 3
 
 // ReadRunSnapshot is the typed audit/resume substrate for read-mode execution.
 // It records durable structured artifacts only; no scheduler gate may consume
@@ -31,6 +31,7 @@ type ReadRunSnapshot struct {
 	ReadRanges       map[string][]LineRange     `json:"read_ranges,omitempty"`
 	FileTotals       map[string]int             `json:"file_totals,omitempty"`
 	AcceptedEvidence []AcceptedEvidenceRef      `json:"accepted_evidence,omitempty"`
+	NodeArtifacts    []NodeArtifactRecord       `json:"node_artifacts,omitempty"`
 	SourceInventory  SourceInventoryObservation `json:"source_inventory,omitempty"`
 	ProgressDecision ProgressDecision           `json:"progress_decision,omitempty"`
 }
@@ -69,6 +70,7 @@ func ReadRunSnapshotFromBusContext(ctx *BusContext, runID string) ReadRunSnapsho
 		snapshot.ReadRanges = closure.ReadRangesSnapshot()
 		snapshot.FileTotals = closure.FileTotalLinesSnapshot()
 		snapshot.AcceptedEvidence = closure.AcceptedEvidenceRefs()
+		snapshot.NodeArtifacts = closure.NodeArtifactRecords()
 		snapshot.ProgressDecision = closure.LatestProgressDecision()
 	}
 	snapshot.SourceInventory = SourceInventoryObservationFromMutable(ctx.Mutable)
@@ -89,6 +91,7 @@ func NormalizeReadRunSnapshot(snapshot ReadRunSnapshot) ReadRunSnapshot {
 	snapshot.ReadRanges = cloneLineRangeMap(snapshot.ReadRanges)
 	snapshot.FileTotals = cloneIntMap(snapshot.FileTotals)
 	snapshot.AcceptedEvidence = cloneAcceptedEvidenceRefs(snapshot.AcceptedEvidence)
+	snapshot.NodeArtifacts = NormalizeNodeArtifactRecords(snapshot.NodeArtifacts)
 	snapshot.SourceInventory = CloneSourceInventoryObservation(snapshot.SourceInventory)
 	if snapshot.CreatedAt.IsZero() {
 		snapshot.CreatedAt = time.Now().UTC()
