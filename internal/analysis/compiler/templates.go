@@ -176,6 +176,13 @@ func evidenceCriticalPath(probeID string, evNodes []types.TaskNode, downstream .
 	return path
 }
 
+func evidenceMaxParallelism(evNodes []types.TaskNode) int {
+	if len(evNodes) <= 1 {
+		return 1
+	}
+	return len(evNodes)
+}
+
 // ── architecture_explain ────────────────────────────────────────
 
 func templateArchitectureExplain(rm types.RequestModel) Output {
@@ -240,7 +247,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		Nodes: nodes,
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
+			MaxParallelism: evidenceMaxParallelism(evNodes), RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
 			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, val.ID, final.ID),
 		},
 	}
@@ -350,7 +357,7 @@ func templateRootCause(rm types.RequestModel) Output {
 		Nodes: nodes,
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetVeryHigh),
+			MaxParallelism: evidenceMaxParallelism(evNodes), RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetVeryHigh),
 			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, val.ID, final.ID),
 		},
 	}
@@ -422,7 +429,7 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		Nodes: nodes,
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetLow),
+			MaxParallelism: evidenceMaxParallelism(evNodes), RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetLow),
 			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, final.ID),
 		},
 	}
@@ -509,7 +516,7 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 		Nodes: nodes,
 		Edges: evidenceChain(probe.ID, evNodes, val.ID, final.ID),
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
+			MaxParallelism: evidenceMaxParallelism(evNodes), RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
 			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, val.ID, final.ID),
 		},
 	}
@@ -587,7 +594,7 @@ func templateTraceWalkthrough(rm types.RequestModel) Output {
 		Nodes: nodes,
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
+			MaxParallelism: evidenceMaxParallelism(evNodes), RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
 			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, val.ID, final.ID),
 		},
 	}
@@ -642,7 +649,7 @@ func templateGeneric(rm types.RequestModel) Output {
 		Nodes: nodes,
 		Edges: evidenceChain(probe.ID, evNodes, final.ID),
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetLow),
+			MaxParallelism: evidenceMaxParallelism(evNodes), RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetLow),
 			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, final.ID),
 		},
 	}

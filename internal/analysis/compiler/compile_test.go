@@ -469,6 +469,9 @@ func TestCompile_MultiTopicCrossComponentTraceKeepsArchitectureTemplate(t *testi
 	if countNodeType(out.TaskGraph, types.NodeReconcile) != 1 {
 		t.Fatalf("cross-component trace should keep reconcile node")
 	}
+	if out.TaskGraph.ExecutionPolicy.MaxParallelism != 2 {
+		t.Fatalf("multi-topic graph MaxParallelism = %d, want evidence fan-out cap 2", out.TaskGraph.ExecutionPolicy.MaxParallelism)
+	}
 }
 
 func TestCompile_UnknownScenarioFallsBackToGeneric(t *testing.T) {

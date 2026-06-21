@@ -5091,7 +5091,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			parallelism := 1
 			dispatchWindows := exploreWindowDispatchGroups(o.busCtx, window)
 			if len(dispatchWindows) > 1 {
-				parallelism = effectiveParallelism(o.orchestratorMaxParallelism(), len(dispatchWindows))
+				parallelism = effectiveGraphParallelism(o.orchestratorMaxParallelism(), ir.TaskGraph.ExecutionPolicy, len(dispatchWindows))
 				if parallelism > 1 {
 					parallelWindows = dispatchWindows
 				} else {

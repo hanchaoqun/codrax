@@ -69,6 +69,28 @@ func effectiveParallelism(configured, candidateCount int) int {
 	return configured
 }
 
+// effectiveGraphParallelism intersects the operator cap with the
+// analyzer-authored graph policy. Operator semantics stay identical to
+// effectiveParallelism: 0 means unlimited, 1 means serial, negative
+// falls back to the runtime default. Graph policy semantics are
+// intentionally narrower: MaxParallelism <= 0 means "IR did not add an
+// extra cap"; positive values cap the already operator-bounded fan-out.
+func effectiveGraphParallelism(operatorCap int, policy types.ExecutionPolicy, candidateCount int) int {
+	operatorEffective := effectiveParallelism(operatorCap, candidateCount)
+	if operatorEffective <= 1 || candidateCount <= 0 {
+		return operatorEffective
+	}
+	graphCap := policy.MaxParallelism
+	if graphCap <= 0 {
+		return operatorEffective
+	}
+	graphEffective := effectiveParallelism(graphCap, candidateCount)
+	if graphEffective < operatorEffective {
+		return graphEffective
+	}
+	return operatorEffective
+}
+
 // orchestratorMaxParallelism returns the operator-configured
 // MaxParallelism for this orchestrator instance, defaulting to
 // DefaultPipelineMaxParallelism when unset or out of range.

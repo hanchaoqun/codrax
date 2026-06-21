@@ -125,6 +125,54 @@ func TestGraphState_ReadyWindowUsesClosureStatus(t *testing.T) {
 	}
 }
 
+func TestGraphState_ReadyWindowOrdersByCriticalPathBeforeDeclaration(t *testing.T) {
+	graph := types.TaskGraph{
+		Nodes: []types.TaskNode{
+			{ID: "a", Type: types.NodeEvidence},
+			{ID: "b", Type: types.NodeEvidence},
+			{ID: "c", Type: types.NodeEvidence},
+		},
+		ExecutionPolicy: types.ExecutionPolicy{
+			RetryBudget:  1,
+			CriticalPath: []string{"b", "a", "missing"},
+		},
+	}
+	s := newGraphState(graph)
+	window, blocked := s.readyExplorerWindow(emptyEnv())
+	if len(blocked) > 0 {
+		t.Fatalf("unexpected blockers: %+v", blocked)
+	}
+	if got := strings.Join(idsOf(window), ","); got != "b,a,c" {
+		t.Fatalf("ready order should follow critical path then declaration order, got %s", got)
+	}
+}
+
+func TestGraphState_CriticalPathOrderingDoesNotBypassReadiness(t *testing.T) {
+	graph := types.TaskGraph{
+		Nodes: []types.TaskNode{
+			{ID: "root", Type: types.NodeProbe},
+			{ID: "critical", Type: types.NodeEvidence},
+			{ID: "sibling", Type: types.NodeEvidence},
+		},
+		Edges: []types.TaskEdge{{From: "root", To: "critical", EdgeType: types.EdgeHardDependency}},
+		ExecutionPolicy: types.ExecutionPolicy{
+			RetryBudget:  1,
+			CriticalPath: []string{"critical"},
+		},
+	}
+	s := newGraphState(graph)
+	window, _ := s.readyExplorerWindow(emptyEnv())
+	if got := strings.Join(idsOf(window), ","); got != "root,sibling" {
+		t.Fatalf("critical blocked node must not bypass readiness, got %s", got)
+	}
+	s.markRunning("root")
+	s.markDone("root")
+	window, _ = s.readyExplorerWindow(emptyEnv())
+	if got := strings.Join(idsOf(window), ","); got != "critical,sibling" {
+		t.Fatalf("critical path should order only ready nodes after dependency clears, got %s", got)
+	}
+}
+
 func TestGraphState_NodeReadinessUsesTypedAuthority(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	closure := types.NewEvidenceClosure("")

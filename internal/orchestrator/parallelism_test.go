@@ -46,12 +46,12 @@ func TestEffectiveParallelism_HigherConfiguredCapsToMin(t *testing.T) {
 		candidates int
 		want       int
 	}{
-		{2, 1, 1},   // cap > candidates → all of them
-		{2, 2, 2},   // cap == candidates → all of them
-		{2, 5, 2},   // cap < candidates → cap
-		{4, 3, 3},   // cap > candidates
-		{4, 10, 4},  // cap < candidates
-		{16, 5, 5},  // ceiling-level cap, few candidates
+		{2, 1, 1},  // cap > candidates → all of them
+		{2, 2, 2},  // cap == candidates → all of them
+		{2, 5, 2},  // cap < candidates → cap
+		{4, 3, 3},  // cap > candidates
+		{4, 10, 4}, // cap < candidates
+		{16, 5, 5}, // ceiling-level cap, few candidates
 	}
 	for _, c := range cases {
 		if got := effectiveParallelism(c.configured, c.candidates); got != c.want {
@@ -86,6 +86,33 @@ func TestEffectiveParallelism_ZeroCandidatesReturnsZero(t *testing.T) {
 func TestEffectiveParallelism_NegativeCandidatesReturnsZero(t *testing.T) {
 	if got := effectiveParallelism(2, -1); got != 0 {
 		t.Errorf("negative candidate count must return 0; got %d", got)
+	}
+}
+
+func TestEffectiveGraphParallelismIntersectsOperatorAndIRPolicy(t *testing.T) {
+	cases := []struct {
+		name       string
+		operator   int
+		graph      int
+		candidates int
+		want       int
+	}{
+		{name: "graph unset preserves operator cap", operator: 2, graph: 0, candidates: 5, want: 2},
+		{name: "operator unlimited graph caps", operator: 0, graph: 3, candidates: 5, want: 3},
+		{name: "operator caps graph", operator: 2, graph: 4, candidates: 5, want: 2},
+		{name: "graph serial wins", operator: 4, graph: 1, candidates: 5, want: 1},
+		{name: "operator serial wins", operator: 1, graph: 4, candidates: 5, want: 1},
+		{name: "negative graph is unspecified", operator: 3, graph: -1, candidates: 5, want: 3},
+		{name: "few candidates cap both", operator: 8, graph: 8, candidates: 2, want: 2},
+		{name: "no candidates", operator: 0, graph: 3, candidates: 0, want: 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			policy := types.ExecutionPolicy{MaxParallelism: c.graph}
+			if got := effectiveGraphParallelism(c.operator, policy, c.candidates); got != c.want {
+				t.Fatalf("effectiveGraphParallelism(%d, %d, %d) = %d, want %d", c.operator, c.graph, c.candidates, got, c.want)
+			}
+		})
 	}
 }
 

@@ -208,7 +208,7 @@ func (s *graphState) readyExplorerWindowContext(ctx context.Context, env criteri
 		blocked = append(blocked, nb)
 	}
 	sort.SliceStable(ready, func(i, j int) bool {
-		return declOrder(s.graph, ready[i].ID) < declOrder(s.graph, ready[j].ID)
+		return readyNodeOrderLess(s.graph, ready[i].ID, ready[j].ID)
 	})
 	if len(ready) == 0 && len(dependencyBlocked) > 0 {
 		blocked = append(blocked, dependencyBlocked...)

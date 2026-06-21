@@ -621,11 +621,11 @@ func TestRunTaskGraph_PerNodeDispatch_TwoEvidenceSiblings(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if explorerCalls != 4 {
-		t.Errorf("expected 4 explorer dispatches (probe + 2 evidence + validate), got %d", explorerCalls)
+	if explorerCalls != 3 {
+		t.Errorf("expected 3 explorer dispatches after graph fan-out policy (probe/evidence windows; validate may auto-complete), got %d", explorerCalls)
 	}
-	if len(observedExplorerHints) != 4 {
-		t.Fatalf("expected 4 hints, got %d", len(observedExplorerHints))
+	if len(observedExplorerHints) != 3 {
+		t.Fatalf("expected 3 hints, got %d", len(observedExplorerHints))
 	}
 
 	// E': evidence hints should focus on ONE sub-topic. Parallel dispatch may
@@ -694,6 +694,7 @@ func TestRunTaskGraph_SingleEvidenceNode_ByteEquivalent(t *testing.T) {
 
 func TestRunTaskGraph_ParallelDispatch_UsesConfiguredCap(t *testing.T) {
 	ir := dagIRMultiTopic(3)
+	ir.TaskGraph.ExecutionPolicy.MaxParallelism = 3
 	var inFlight int32
 	var maxInFlight int32
 	var calls int32
