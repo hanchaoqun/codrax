@@ -1104,6 +1104,56 @@ func TestEmitAnswerDocumentV2_RejectsMissingBlockID(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_MergesAnnotationOnlyOrphanBlock(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id": "summary", "kind": "summary", "text": "hi"},
+			{"id": "entry", "kind": "section", "title": "Entry", "items": [{"id": "i1", "label": "Index", "text": "entry"}]},
+			{"claim_uses": [{"claim_form": "definition_fact", "facet_id": "enumeration_item"}], "facet_ids": ["enumeration_item"], "surface_role": "principal"}
+		]
+	}`)
+
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("annotation-only orphan block should merge into previous block: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("orphan annotation block should not survive as a separate block: %+v", doc)
+	}
+	got := doc.Blocks[1]
+	if got.SurfaceRole != types.SurfacePrincipal || len(got.ClaimUses) != 1 || len(got.FacetIDs) != 1 {
+		t.Fatalf("annotation fields not merged into target block: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_DoesNotMergeVisibleMissingIdentityBlock(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id": "summary", "kind": "summary", "text": "hi"},
+			{"text": "visible content must not be silently attached", "claim_uses": [{"claim_form": "definition_fact"}], "surface_role": "principal"}
+		]
+	}`)
+
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("visible missing-id block must still be rejected, got %+v", res)
+	}
+	if !strings.Contains(res.Summary, "id is required") {
+		t.Fatalf("visible invalid block should keep the precise schema error, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocumentV2_RejectsInvalidBlockKind(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

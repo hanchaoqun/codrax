@@ -140,6 +140,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			strings.Join(paths, ", "))
 		raw = repaired
 	}
+	if repaired, paths, ok := repairOrphanAnswerBlockAnnotations(raw); ok {
+		logging.Warning("[emit_answer_document] orphan block annotations merged via local-model JSON tolerance (paths: %s)",
+			strings.Join(paths, ", "))
+		raw = repaired
+	}
 	if repaired, paths, ok := quarantineUnknownAnswerDocumentFields(raw, answerDocumentFullEmitQuarantineProfile); ok {
 		logging.Warning("[emit_answer_document] quarantined schema-unknown answer-document field(s) without retry: %s",
 			strings.Join(paths, ", "))
@@ -2928,6 +2933,185 @@ func repairNestedAnswerBlockFields(raw json.RawMessage) (json.RawMessage, []stri
 
 func repairNestedArraysAsString(raw json.RawMessage) (json.RawMessage, []string, bool) {
 	return repairNestedAnswerBlockFields(raw)
+}
+
+func repairOrphanAnswerBlockAnnotations(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	if len(raw) == 0 {
+		return nil, nil, false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil, nil, false
+	}
+	rawBlocks, ok := probe["blocks"]
+	if !ok || len(rawBlocks) == 0 || rawBlocks[0] != '[' {
+		return nil, nil, false
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(rawBlocks, &blocks); err != nil || len(blocks) == 0 {
+		return nil, nil, false
+	}
+	out := make([]json.RawMessage, 0, len(blocks))
+	var paths []string
+	for i, rawBlock := range blocks {
+		var orphan map[string]json.RawMessage
+		if err := json.Unmarshal(rawBlock, &orphan); err != nil || !answerBlockObjectIsAnnotationOnlyOrphan(orphan) || len(out) == 0 {
+			out = append(out, rawBlock)
+			continue
+		}
+		var target map[string]json.RawMessage
+		if err := json.Unmarshal(out[len(out)-1], &target); err != nil || !answerBlockObjectHasIdentity(target) {
+			out = append(out, rawBlock)
+			continue
+		}
+		fields, ok := mergeAnswerBlockAnnotationOrphan(target, orphan)
+		if !ok || len(fields) == 0 {
+			out = append(out, rawBlock)
+			continue
+		}
+		patched, err := json.Marshal(target)
+		if err != nil {
+			out = append(out, rawBlock)
+			continue
+		}
+		out[len(out)-1] = patched
+		for _, field := range fields {
+			paths = append(paths, fmt.Sprintf("blocks[%d].%s->blocks[%d].%s", i, field, len(out)-1, field))
+		}
+	}
+	if len(paths) == 0 || len(out) == len(blocks) {
+		return raw, nil, false
+	}
+	patchedBlocks, err := json.Marshal(out)
+	if err != nil {
+		return raw, nil, false
+	}
+	probe["blocks"] = patchedBlocks
+	patched, err := json.Marshal(probe)
+	if err != nil {
+		return raw, nil, false
+	}
+	return patched, paths, true
+}
+
+func answerBlockObjectIsAnnotationOnlyOrphan(block map[string]json.RawMessage) bool {
+	if len(block) == 0 {
+		return false
+	}
+	if rawNonEmptyJSONString(block["id"]) || rawNonEmptyJSONString(block["kind"]) {
+		return false
+	}
+	found := false
+	for field, raw := range block {
+		switch field {
+		case "claim_uses", "edge_anchors", "facet_ids", "surface_role":
+			if len(bytes.TrimSpace(raw)) > 0 && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+				found = true
+			}
+		default:
+			return false
+		}
+	}
+	return found
+}
+
+func answerBlockObjectHasIdentity(block map[string]json.RawMessage) bool {
+	return rawNonEmptyJSONString(block["id"]) && rawNonEmptyJSONString(block["kind"])
+}
+
+func rawNonEmptyJSONString(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return false
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false
+	}
+	return strings.TrimSpace(value) != ""
+}
+
+func mergeAnswerBlockAnnotationOrphan(target, orphan map[string]json.RawMessage) ([]string, bool) {
+	var fields []string
+	for _, field := range []string{"claim_uses", "edge_anchors", "facet_ids"} {
+		raw, ok := orphan[field]
+		if !ok {
+			continue
+		}
+		merged, changed, ok := mergeRawJSONArrayField(target[field], raw)
+		if !ok {
+			return nil, false
+		}
+		if changed {
+			target[field] = merged
+			fields = append(fields, field)
+		}
+	}
+	if raw, ok := orphan["surface_role"]; ok {
+		changed, ok := mergeRawJSONStringField(target, "surface_role", raw)
+		if !ok {
+			return nil, false
+		}
+		if changed {
+			fields = append(fields, "surface_role")
+		}
+	}
+	return fields, true
+}
+
+func mergeRawJSONArrayField(existing, incoming json.RawMessage) (json.RawMessage, bool, bool) {
+	incoming = bytes.TrimSpace(incoming)
+	if len(incoming) == 0 || bytes.Equal(incoming, []byte("null")) {
+		return existing, false, true
+	}
+	var incomingItems []json.RawMessage
+	if err := json.Unmarshal(incoming, &incomingItems); err != nil {
+		return nil, false, false
+	}
+	if len(incomingItems) == 0 {
+		return existing, false, true
+	}
+	existing = bytes.TrimSpace(existing)
+	if len(existing) == 0 || bytes.Equal(existing, []byte("null")) {
+		encoded, err := json.Marshal(incomingItems)
+		return encoded, true, err == nil
+	}
+	var existingItems []json.RawMessage
+	if err := json.Unmarshal(existing, &existingItems); err != nil {
+		return nil, false, false
+	}
+	merged := append(append([]json.RawMessage(nil), existingItems...), incomingItems...)
+	encoded, err := json.Marshal(merged)
+	return encoded, true, err == nil
+}
+
+func mergeRawJSONStringField(target map[string]json.RawMessage, field string, incoming json.RawMessage) (bool, bool) {
+	incoming = bytes.TrimSpace(incoming)
+	if len(incoming) == 0 || bytes.Equal(incoming, []byte("null")) {
+		return false, true
+	}
+	var incomingValue string
+	if err := json.Unmarshal(incoming, &incomingValue); err != nil {
+		return false, false
+	}
+	incomingValue = strings.TrimSpace(incomingValue)
+	if incomingValue == "" {
+		return false, true
+	}
+	existing, ok := target[field]
+	existing = bytes.TrimSpace(existing)
+	if !ok || len(existing) == 0 || bytes.Equal(existing, []byte("null")) {
+		target[field] = mustMarshal(incomingValue)
+		return true, true
+	}
+	var existingValue string
+	if err := json.Unmarshal(existing, &existingValue); err != nil {
+		return false, false
+	}
+	if strings.TrimSpace(existingValue) != incomingValue {
+		return false, false
+	}
+	return false, true
 }
 
 // mergeWholeDocStringify is the Path B helper for
