@@ -143,6 +143,67 @@ func TestReadRunSnapshotSeedInstallsActiveStateSeed(t *testing.T) {
 	}
 }
 
+func TestReadRunSnapshotSeedAppliesReplayTransitions(t *testing.T) {
+	repoRoot := "/tmp/codrax-read-replay"
+	ir := readRunReplayIR()
+	snapshot := types.ReadRunSnapshot{
+		SchemaVersion: types.ReadRunSnapshotSchemaVersion,
+		RunID:         "read-replay-1",
+		Request:       "resume replay snapshot",
+		RepoRoot:      repoRoot,
+		TaskGraphHash: types.ReadTaskGraphHash(ir.TaskGraph),
+		TaskNodeCount: len(ir.TaskGraph.Nodes),
+		NodeStatuses: map[string]types.NodeExecStatus{
+			"running":          types.NodeExecRunning,
+			"done_valid":       types.NodeExecDone,
+			"done_missing":     types.NodeExecDone,
+			"failed_retry":     types.NodeExecFailed,
+			"failed_exhausted": types.NodeExecFailed,
+		},
+		NodeAttempts: map[string]int{
+			"failed_retry":     1,
+			"failed_exhausted": 2,
+		},
+		NodeArtifacts: []types.NodeArtifactRecord{{
+			ProducerNodeID: "done_valid",
+			ProducerStage:  types.StageExplore,
+			Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-valid"},
+		}},
+	}
+	o := &Orchestrator{
+		readRunSnapshotSeed: &snapshot,
+		busCtx: &types.BusContext{
+			Mode:       types.ModeRead,
+			RepoRoot:   repoRoot,
+			AnalysisIR: ir,
+			Mutable:    types.NewMutableState("resume replay snapshot"),
+		},
+	}
+	o.busCtx.Mutable.SetRepoRoot(repoRoot)
+	if err := o.applyReadRunSnapshotSeed(); err != nil {
+		t.Fatalf("applyReadRunSnapshotSeed: %v", err)
+	}
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	want := map[string]types.NodeExecStatus{
+		"running":          types.NodeExecRequeued,
+		"done_valid":       types.NodeExecDone,
+		"done_missing":     types.NodeExecRequeued,
+		"failed_retry":     types.NodeExecRequeued,
+		"failed_exhausted": types.NodeExecFailed,
+	}
+	for nodeID, wantStatus := range want {
+		if got := closure.NodeExecStatus(nodeID); got != wantStatus {
+			t.Fatalf("node %s status = %q, want %q", nodeID, got, wantStatus)
+		}
+	}
+	if got := closure.NodeExecAttempt("failed_retry"); got != 1 {
+		t.Fatalf("failed_retry attempts = %d, want 1", got)
+	}
+	if got := closure.NodeExecAttempt("failed_exhausted"); got != 2 {
+		t.Fatalf("failed_exhausted attempts = %d, want 2", got)
+	}
+}
+
 func TestReadRunSnapshotSeedRejectsMismatches(t *testing.T) {
 	repoRoot := "/tmp/codrax-read-seed"
 	ir := dagIR(types.AnswerContract{Language: "en"})
@@ -267,6 +328,25 @@ func TestReadRunSnapshotSeedRejectsMismatches(t *testing.T) {
 				t.Fatal("rejected snapshot must not hydrate read coverage")
 			}
 		})
+	}
+}
+
+func readRunReplayIR() *types.AnalysisIR {
+	graph := types.TaskGraph{Nodes: []types.TaskNode{
+		{ID: "pending", Type: types.NodeProbe, Objective: "pending"},
+		{ID: "running", Type: types.NodeProbe, Objective: "interrupted"},
+		{ID: "done_valid", Type: types.NodeEvidence, Objective: "valid evidence", Outputs: []string{"evidence_items"}},
+		{ID: "done_missing", Type: types.NodeEvidence, Objective: "missing evidence", Outputs: []string{"evidence_items"}},
+		{ID: "failed_retry", Type: types.NodeEvidence, Objective: "retryable", MaxRetries: 1},
+		{ID: "failed_exhausted", Type: types.NodeEvidence, Objective: "terminal", MaxRetries: 1},
+	}}
+	return &types.AnalysisIR{
+		Version:      types.AnalysisIRVersion,
+		RequestModel: types.RequestModel{Language: "en", Intent: types.IntentExplain, RawRequest: "resume replay snapshot"},
+		TaskGraph:    graph,
+		AnswerContract: types.AnswerContract{
+			Language: "en",
+		},
 	}
 }
 

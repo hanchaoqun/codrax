@@ -114,6 +114,13 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 				"snapshot node artifact consumed record is missing consumer node")
 		}
 	}
+	replayTransitions := types.DeriveReadRunReplayTransitions(types.ReadRunReplayInput{
+		TaskGraph:     o.busCtx.AnalysisIR.TaskGraph,
+		NodeStatuses:  snapshot.NodeStatuses,
+		NodeAttempts:  snapshot.NodeAttempts,
+		NodeArtifacts: snapshot.NodeArtifacts,
+	})
+	snapshot.NodeStatuses = types.ReadRunReplayNodeStatuses(replayTransitions)
 	if o.busCtx.Mutable == nil {
 		o.busCtx.Mutable = types.NewMutableState(snapshot.Request)
 		o.busCtx.Mutable.SetRepoRoot(o.busCtx.RepoRoot)
@@ -135,8 +142,8 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 		ProgressDecision:           snapshot.ProgressDecision,
 		HasProgressDecision:        true,
 	}, o.busCtx.RepoRoot)
-	logging.Info("[orchestrator] read run snapshot seed applied: run=%s nodes=%d attempts=%d artifacts=%d reads=%d accepted=%d",
-		snapshot.RunID, len(snapshot.NodeStatuses), len(snapshot.NodeAttempts), len(snapshot.NodeArtifacts), len(snapshot.ReadSet), len(snapshot.AcceptedEvidence))
+	logging.Info("[orchestrator] read run snapshot seed applied: run=%s nodes=%d transitions=%d attempts=%d artifacts=%d reads=%d accepted=%d",
+		snapshot.RunID, len(snapshot.NodeStatuses), len(replayTransitions), len(snapshot.NodeAttempts), len(snapshot.NodeArtifacts), len(snapshot.ReadSet), len(snapshot.AcceptedEvidence))
 	o.readRunActiveSeed = activeState
 	return nil
 }
