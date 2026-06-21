@@ -44,6 +44,107 @@ func TestEvidenceClosureIngestRoundReadCoverageAndAcceptedEvidence(t *testing.T)
 	}
 }
 
+func TestEvidenceClosureIngestReducerInputTurnAHandoffSnapshot(t *testing.T) {
+	c := NewEvidenceClosure("")
+	observation := evidenceRoundTestSourceInventoryObservation("Run")
+	input := EvidenceReducerInput{
+		Class: EvidenceReducerInputTurnAHandoffSnapshot,
+		HandoffCarriers: []ToolHandoffCarrier{{
+			Version:  ToolHandoffCarrierVersion,
+			ToolName: "emit_evidence",
+			AcceptedEvidence: []AcceptedEvidenceRef{{
+				ID:        "ev-carrier",
+				Source:    "a.go",
+				LineStart: 3,
+				Subject:   "A",
+			}},
+		}},
+		EvidenceItems: []EvidenceItem{{
+			ID:        "ev-item",
+			Source:    "b.go",
+			LineStart: 7,
+			Subject:   "B",
+		}},
+		SourceInventoryObservation: observation,
+	}
+
+	delta := c.IngestEvidenceReducerInput(input, "")
+	if delta.Empty() || len(delta.AcceptedEvidence) != 2 || !delta.SourceInventoryObservation.IsActive() {
+		t.Fatalf("turn-a reducer delta = %+v, want accepted evidence and source inventory", delta)
+	}
+	if refs := c.AcceptedEvidenceRefs(); len(refs) != 2 {
+		t.Fatalf("accepted evidence refs = %+v, want 2", refs)
+	}
+	if got := c.SourceInventoryObservation(); !got.IsActive() || len(got.Sets) != 1 || got.Sets[0].Members[0].Name != "Run" {
+		t.Fatalf("source inventory observation not ingested: %+v", got)
+	}
+
+	c.IngestEvidenceReducerInput(input, "")
+	if refs := c.AcceptedEvidenceRefs(); len(refs) != 2 {
+		t.Fatalf("repeated turn-a ingest must be idempotent, refs=%+v", refs)
+	}
+}
+
+func TestEvidenceClosureIngestReducerInputStageEvidenceSnapshot(t *testing.T) {
+	c := NewEvidenceClosure("")
+	delta := c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class: EvidenceReducerInputStageEvidenceSnapshot,
+		EvidenceItems: []EvidenceItem{{
+			ID:        "ev-stage",
+			Source:    "stage.go",
+			LineStart: 4,
+			Subject:   "Stage",
+		}},
+	}, "")
+	if delta.Empty() || len(delta.AcceptedEvidence) != 1 || delta.AcceptedEvidence[0].ID != "ev-stage" {
+		t.Fatalf("stage evidence reducer delta = %+v", delta)
+	}
+	if refs := c.AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-stage" {
+		t.Fatalf("stage evidence refs = %+v", refs)
+	}
+}
+
+func TestMutableSetTurnAArtifactsProjectsClosureThroughReducer(t *testing.T) {
+	mut := NewMutableState("q")
+	mut.SetTurnAArtifacts(TurnAArtifacts{
+		EvidenceItems: []EvidenceItem{{
+			ID:        "ev-turn-a",
+			Source:    "internal/app.go",
+			LineStart: 11,
+			Subject:   "App",
+		}},
+		SourceInventoryObservation: evidenceRoundTestSourceInventoryObservation("App"),
+	})
+
+	closure := mut.EvidenceClosure()
+	if refs := closure.AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-turn-a" {
+		t.Fatalf("turn-a accepted evidence was not projected through reducer: %+v", refs)
+	}
+	if got := closure.SourceInventoryObservation(); !got.IsActive() || got.Sets[0].Members[0].Name != "App" {
+		t.Fatalf("turn-a source inventory was not projected through reducer: %+v", got)
+	}
+
+	mut.SetTurnAArtifacts(*mut.TurnAArtifacts())
+	if refs := closure.AcceptedEvidenceRefs(); len(refs) != 1 {
+		t.Fatalf("repeated SetTurnAArtifacts must not duplicate accepted refs: %+v", refs)
+	}
+}
+
+func TestMutableSourceInventoryObservationSetterProjectsThroughReducer(t *testing.T) {
+	mut := NewMutableState("q")
+	observation := evidenceRoundTestSourceInventoryObservation("Build")
+	mut.SetSourceInventoryObservation(observation)
+	mut.SetSourceInventoryObservation(observation)
+
+	got := mut.EvidenceClosure().SourceInventoryObservation()
+	if !got.IsActive() || len(got.Sets) != 1 {
+		t.Fatalf("source inventory observation not projected: %+v", got)
+	}
+	if members := got.Sets[0].Members; len(members) != 1 || members[0].Name != "Build" {
+		t.Fatalf("source inventory projection not idempotent: %+v", got.Sets[0])
+	}
+}
+
 func TestEvidenceRoundDeltaMatchesExtractReadCoverage(t *testing.T) {
 	results := []ToolResult{
 		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-2 of 5 total]\n"},
@@ -60,5 +161,24 @@ func TestEvidenceRoundDeltaMatchesExtractReadCoverage(t *testing.T) {
 	}
 	if delta.FileTotalLines["a.go"] != totals["a.go"] {
 		t.Fatalf("delta totals = %+v, want %+v", delta.FileTotalLines, totals)
+	}
+}
+
+func evidenceRoundTestSourceInventoryObservation(name string) SourceInventoryObservation {
+	return SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"src"},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{{
+				Name: name,
+				Key:  name,
+				Role: AnswerCandidateRoleFunction,
+				File: "src/app.go",
+				Line: 11,
+			}},
+		}},
 	}
 }

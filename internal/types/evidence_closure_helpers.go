@@ -299,7 +299,10 @@ func (m *MutableState) EvidenceClosure() *EvidenceClosure {
 	if m.evidenceClosure == nil {
 		m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
 		if observation := sourceInventoryObservationFromMutableFields(m.sourceInventoryObservation, m.turnAArtifacts); observation.IsActive() {
-			m.evidenceClosure.RecordSourceInventoryObservation(observation)
+			m.evidenceClosure.IngestEvidenceReducerInput(EvidenceReducerInput{
+				Class:                      EvidenceReducerInputSourceInventoryObservation,
+				SourceInventoryObservation: observation,
+			}, m.repoRoot)
 		}
 	}
 	return m.evidenceClosure

@@ -2249,7 +2249,10 @@ func (m *MutableState) AppendEvidence(items []EvidenceItem) {
 	m.bumpAnswerSurfaceRevisionLocked()
 	m.mu.Unlock()
 	if closure != nil {
-		closure.AppendAcceptedEvidenceItems(items)
+		closure.IngestEvidenceReducerInput(EvidenceReducerInput{
+			Class:         EvidenceReducerInputStageEvidenceSnapshot,
+			EvidenceItems: items,
+		}, m.repoRoot)
 	}
 }
 
@@ -3681,7 +3684,10 @@ func (m *MutableState) SetSourceInventoryAdvisory(a SourceInventoryAdvisory) {
 		if m.evidenceClosure == nil {
 			m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
 		}
-		m.evidenceClosure.RecordSourceInventoryObservation(m.sourceInventoryObservation)
+		m.evidenceClosure.IngestEvidenceReducerInput(EvidenceReducerInput{
+			Class:                      EvidenceReducerInputSourceInventoryObservation,
+			SourceInventoryObservation: m.sourceInventoryObservation,
+		}, m.repoRoot)
 	}
 	if !m.sourceInventoryAdvisory.IsActive() || !priorActive {
 		m.sourceInventoryAdvisoryHinted = false
@@ -3715,7 +3721,10 @@ func (m *MutableState) SetSourceInventoryObservation(o SourceInventoryObservatio
 		if m.evidenceClosure == nil {
 			m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
 		}
-		m.evidenceClosure.RecordSourceInventoryObservation(m.sourceInventoryObservation)
+		m.evidenceClosure.IngestEvidenceReducerInput(EvidenceReducerInput{
+			Class:                      EvidenceReducerInputSourceInventoryObservation,
+			SourceInventoryObservation: m.sourceInventoryObservation,
+		}, m.repoRoot)
 	}
 	m.bumpAnswerSurfaceRevisionLocked()
 }
@@ -3839,11 +3848,16 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	snap.HandoffCarriers = ToolHandoffCarriersFromTurnAInputs(snap.ToolResults, snap.EvidenceItems, snap.HandoffCarriers)
 	m.turnAArtifacts = &snap
 	m.turnAArtifactsRevision++
-	if snap.SourceInventoryObservation.IsActive() {
+	if snap.SourceInventoryObservation.IsActive() || len(snap.HandoffCarriers) > 0 || len(snap.EvidenceItems) > 0 {
 		if m.evidenceClosure == nil {
 			m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
 		}
-		m.evidenceClosure.RecordSourceInventoryObservation(snap.SourceInventoryObservation)
+		m.evidenceClosure.IngestEvidenceReducerInput(EvidenceReducerInput{
+			Class:                      EvidenceReducerInputTurnAHandoffSnapshot,
+			EvidenceItems:              snap.EvidenceItems,
+			HandoffCarriers:            snap.HandoffCarriers,
+			SourceInventoryObservation: snap.SourceInventoryObservation,
+		}, m.repoRoot)
 	}
 	// Snapshot changed → invalidate the memoised label-support pool.
 	m.cachedLabelSupport = nil
