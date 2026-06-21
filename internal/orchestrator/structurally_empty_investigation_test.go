@@ -46,11 +46,11 @@ func TestHandleStructurallyEmptyInvestigation_RequeuesExploreBeforeFinalize(t *t
 	if !strings.Contains(retryMsg, "investigation structurally empty") {
 		t.Fatalf("retry message = %q, want structurally-empty explanation", retryMsg)
 	}
-	if state.status["evidence"] != nodeRequeued {
-		t.Fatalf("evidence node status = %q, want requeued", state.status["evidence"])
+	if state.nodeStatus("evidence") != nodeRequeued {
+		t.Fatalf("evidence node status = %q, want requeued", state.nodeStatus("evidence"))
 	}
-	if state.status["finalize"] != nodeRequeued {
-		t.Fatalf("finalize node status = %q, want requeued", state.status["finalize"])
+	if state.nodeStatus("finalize") != nodeRequeued {
+		t.Fatalf("finalize node status = %q, want requeued", state.nodeStatus("finalize"))
 	}
 	if state.retryUsed != 1 {
 		t.Fatalf("retryUsed = %d, want 1", state.retryUsed)

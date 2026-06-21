@@ -168,19 +168,6 @@ func newGraphState(g types.TaskGraph) *graphState {
 	return s
 }
 
-func (s *graphState) attachEvidenceClosure(closure *types.EvidenceClosure) {
-	if s == nil {
-		return
-	}
-	s.closure = closure
-	if closure == nil {
-		return
-	}
-	for id, status := range s.status {
-		closure.SetNodeExecStatus(id, nodeStatusToExecStatus(status))
-	}
-}
-
 // readyExplorerWindow collects every explore-family, non-counterfactual
 // node that is still pending or requeued AND whose EntryConditions
 // are all satisfied against env. Hard-dependency edges are NOT
@@ -207,7 +194,7 @@ func (s *graphState) readyExplorerWindowContext(ctx context.Context, env criteri
 		if n.Type == types.NodeExtract || n.Type == types.NodeFinalize || n.IsCounterfactual {
 			continue
 		}
-		st := s.status[n.ID]
+		st := s.nodeStatus(n.ID)
 		if st != nodePending && st != nodeRequeued {
 			continue
 		}
@@ -236,47 +223,6 @@ func declOrder(g types.TaskGraph, id string) int {
 		}
 	}
 	return 1 << 30
-}
-
-// markRunning / markDone / markFailed / requeue are state transitions on the
-// per-node status map.
-func (s *graphState) markRunning(id string) {
-	s.setStatus(id, nodeRunning)
-}
-func (s *graphState) markDone(id string)   { s.setStatus(id, nodeDone) }
-func (s *graphState) markFailed(id string) { s.setStatus(id, nodeFailed) }
-func (s *graphState) requeue(id string)    { s.setStatus(id, nodeRequeued) }
-
-func (s *graphState) setStatus(id string, status nodeStatus) {
-	if s == nil {
-		return
-	}
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return
-	}
-	if s.status == nil {
-		s.status = make(map[string]nodeStatus)
-	}
-	s.status[id] = status
-	if s.closure != nil {
-		s.closure.SetNodeExecStatus(id, nodeStatusToExecStatus(status))
-	}
-}
-
-func nodeStatusToExecStatus(status nodeStatus) types.NodeExecStatus {
-	switch status {
-	case nodeRunning:
-		return types.NodeExecRunning
-	case nodeDone:
-		return types.NodeExecDone
-	case nodeFailed:
-		return types.NodeExecFailed
-	case nodeRequeued:
-		return types.NodeExecRequeued
-	default:
-		return types.NodeExecPending
-	}
 }
 
 // retryBudgetExhausted reports whether the cumulative cross-window
@@ -496,7 +442,8 @@ func (s *graphState) allDone() bool {
 	if s == nil {
 		return true
 	}
-	for _, st := range s.status {
+	for _, n := range s.graph.Nodes {
+		st := s.nodeStatus(n.ID)
 		if st == nodePending || st == nodeRunning || st == nodeRequeued {
 			return false
 		}
@@ -516,7 +463,7 @@ func (s *graphState) firstFinalizeReadyMerged() *types.TaskNode {
 		if n.Type != types.NodeFinalize {
 			continue
 		}
-		if s.status[n.ID] != nodePending && s.status[n.ID] != nodeRequeued {
+		if st := s.nodeStatus(n.ID); st != nodePending && st != nodeRequeued {
 			continue
 		}
 		allOtherDone := true
@@ -524,10 +471,11 @@ func (s *graphState) firstFinalizeReadyMerged() *types.TaskNode {
 			if m.ID == n.ID || m.Type == types.NodeExtract || m.Type == types.NodeFinalize || m.IsCounterfactual {
 				continue
 			}
-			if m.Optional && s.status[m.ID] != nodeRunning {
+			st := s.nodeStatus(m.ID)
+			if m.Optional && st != nodeRunning {
 				continue
 			}
-			if s.status[m.ID] != nodeDone {
+			if st != nodeDone {
 				allOtherDone = false
 				break
 			}
@@ -549,7 +497,7 @@ func (s *graphState) requeueValidationTargets(validateID string) []string {
 	}
 	var out []string
 	for _, targetID := range types.ValidationFeedbackTargets(s.graph, validateID) {
-		if s.status[targetID] == nodeDone {
+		if s.nodeStatus(targetID) == nodeDone {
 			s.setStatus(targetID, nodeRequeued)
 			out = append(out, targetID)
 		}
@@ -569,7 +517,7 @@ func (s *graphState) forceCloseExploreWindow() {
 		if n.Optional || n.Type == types.NodeExtract || n.Type == types.NodeFinalize || n.IsCounterfactual {
 			continue
 		}
-		if s.status[n.ID] != nodeDone {
+		if s.nodeStatus(n.ID) != nodeDone {
 			s.setStatus(n.ID, nodeDone)
 		}
 	}
@@ -600,7 +548,7 @@ func (s *graphState) requeueToStage(target types.PipelineStage, writing bool) []
 		// Always requeue finalize — every contract-failure retry
 		// re-emits the answer document.
 		if n.Type == types.NodeFinalize {
-			if s.status[n.ID] == nodeDone {
+			if s.nodeStatus(n.ID) == nodeDone {
 				s.setStatus(n.ID, nodeRequeued)
 				requeued = append(requeued, n.ID)
 			}
@@ -617,7 +565,7 @@ func (s *graphState) requeueToStage(target types.PipelineStage, writing bool) []
 		if stage != target {
 			continue
 		}
-		if s.status[n.ID] == nodeDone {
+		if s.nodeStatus(n.ID) == nodeDone {
 			s.setStatus(n.ID, nodeRequeued)
 			requeued = append(requeued, n.ID)
 		}

@@ -73,25 +73,49 @@ func TestGraphState_ReadyWindow_MergedInitial(t *testing.T) {
 	}
 }
 
-func TestGraphState_NodeExecStatusShadow(t *testing.T) {
+func TestGraphState_NodeExecStatusLoadBearing(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	closure := types.NewEvidenceClosure("")
 	s.attachEvidenceClosure(closure)
 
 	if got := closure.NodeExecStatus("n1"); got != types.NodeExecPending {
-		t.Fatalf("initial shadow status = %q, want pending", got)
+		t.Fatalf("initial closure status = %q, want pending", got)
+	}
+	if s.status != nil {
+		t.Fatalf("bootstrap status map should be retired after closure attach")
 	}
 	s.markRunning("n1")
-	if s.status["n1"] != nodeRunning || closure.NodeExecStatus("n1") != types.NodeExecRunning {
-		t.Fatalf("running status mismatch: graph=%q shadow=%q", s.status["n1"], closure.NodeExecStatus("n1"))
+	if s.nodeStatus("n1") != nodeRunning || closure.NodeExecStatus("n1") != types.NodeExecRunning {
+		t.Fatalf("running status mismatch: graph=%q closure=%q", s.nodeStatus("n1"), closure.NodeExecStatus("n1"))
 	}
 	s.markDone("n1")
-	if s.status["n1"] != nodeDone || closure.NodeExecStatus("n1") != types.NodeExecDone {
-		t.Fatalf("done status mismatch: graph=%q shadow=%q", s.status["n1"], closure.NodeExecStatus("n1"))
+	if s.nodeStatus("n1") != nodeDone || closure.NodeExecStatus("n1") != types.NodeExecDone {
+		t.Fatalf("done status mismatch: graph=%q closure=%q", s.nodeStatus("n1"), closure.NodeExecStatus("n1"))
 	}
 	s.requeue("n1")
-	if s.status["n1"] != nodeRequeued || closure.NodeExecStatus("n1") != types.NodeExecRequeued {
-		t.Fatalf("requeued status mismatch: graph=%q shadow=%q", s.status["n1"], closure.NodeExecStatus("n1"))
+	if s.nodeStatus("n1") != nodeRequeued || closure.NodeExecStatus("n1") != types.NodeExecRequeued {
+		t.Fatalf("requeued status mismatch: graph=%q closure=%q", s.nodeStatus("n1"), closure.NodeExecStatus("n1"))
+	}
+
+	s.status = map[string]nodeStatus{"n1": nodeDone}
+	closure.SetNodeExecStatus("n1", types.NodeExecRequeued)
+	if got := s.nodeStatus("n1"); got != nodeRequeued {
+		t.Fatalf("closure status must be load-bearing over stale bootstrap map; got %q", got)
+	}
+}
+
+func TestGraphState_ReadyWindowUsesClosureStatus(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	closure := types.NewEvidenceClosure("")
+	s.attachEvidenceClosure(closure)
+	closure.SetNodeExecStatus("n0", types.NodeExecDone)
+	s.status = map[string]nodeStatus{"n0": nodePending}
+
+	window, _ := s.readyExplorerWindow(emptyEnv())
+	for _, n := range window {
+		if n.ID == "n0" {
+			t.Fatalf("ready window used stale bootstrap map instead of closure status; got %v", idsOf(window))
+		}
 	}
 }
 
@@ -138,8 +162,8 @@ func TestGraphState_FinalizeReadinessIgnoresPendingExtractStageNode(t *testing.T
 	if fin == nil || fin.ID != "n3" {
 		t.Fatalf("finalize readiness should preserve legacy pre-finalize extract dispatch; got %v", fin)
 	}
-	if s.status["n2"] != nodePending {
-		t.Fatalf("extract node should remain pending for the finalize branch to dispatch; got %s", s.status["n2"])
+	if s.nodeStatus("n2") != nodePending {
+		t.Fatalf("extract node should remain pending for the finalize branch to dispatch; got %s", s.nodeStatus("n2"))
 	}
 }
 
@@ -188,10 +212,10 @@ func TestGraphState_RequeueValidationTargets(t *testing.T) {
 	if len(targets) != 1 || targets[0] != "n1" {
 		t.Fatalf("want [n1], got %v", targets)
 	}
-	if s.status["n1"] != nodeRequeued || s.status["n2"] != nodeRequeued {
-		t.Errorf("n1/n2 should be requeued; n1=%v n2=%v", s.status["n1"], s.status["n2"])
+	if s.nodeStatus("n1") != nodeRequeued || s.nodeStatus("n2") != nodeRequeued {
+		t.Errorf("n1/n2 should be requeued; n1=%v n2=%v", s.nodeStatus("n1"), s.nodeStatus("n2"))
 	}
-	if s.status["n0"] != nodeDone {
+	if s.nodeStatus("n0") != nodeDone {
 		t.Error("n0 (not a validation target) must stay done")
 	}
 }
@@ -200,11 +224,11 @@ func TestGraphState_ForceCloseExploreWindow(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	s.forceCloseExploreWindow()
 	for _, id := range []string{"n0", "n1", "n2"} {
-		if s.status[id] != nodeDone {
-			t.Errorf("%s should be forced to done; got %v", id, s.status[id])
+		if s.nodeStatus(id) != nodeDone {
+			t.Errorf("%s should be forced to done; got %v", id, s.nodeStatus(id))
 		}
 	}
-	if s.status["n3"] == nodeDone {
+	if s.nodeStatus("n3") == nodeDone {
 		t.Error("finalize must not be force-closed")
 	}
 }
@@ -213,14 +237,14 @@ func TestGraphState_ForceCloseExploreWindowLeavesExtractPending(t *testing.T) {
 	s := newGraphState(chainGraphWithExtract())
 	s.forceCloseExploreWindow()
 	for _, id := range []string{"n0", "n1"} {
-		if s.status[id] != nodeDone {
-			t.Errorf("%s should be forced to done; got %v", id, s.status[id])
+		if s.nodeStatus(id) != nodeDone {
+			t.Errorf("%s should be forced to done; got %v", id, s.nodeStatus(id))
 		}
 	}
-	if s.status["n2"] == nodeDone {
+	if s.nodeStatus("n2") == nodeDone {
 		t.Error("extract must not be force-closed by the explore window")
 	}
-	if s.status["n3"] == nodeDone {
+	if s.nodeStatus("n3") == nodeDone {
 		t.Error("finalize must not be force-closed")
 	}
 }
@@ -624,11 +648,11 @@ func TestGraphState_RequeueToStageExtractOnly(t *testing.T) {
 	if got := strings.Join(requeued, ","); got != "n2,n3" {
 		t.Fatalf("extract fallback should requeue extract plus finalize only; got %v", requeued)
 	}
-	if s.status["n0"] != nodeDone || s.status["n1"] != nodeDone {
-		t.Fatalf("explore nodes should remain done; n0=%s n1=%s", s.status["n0"], s.status["n1"])
+	if s.nodeStatus("n0") != nodeDone || s.nodeStatus("n1") != nodeDone {
+		t.Fatalf("explore nodes should remain done; n0=%s n1=%s", s.nodeStatus("n0"), s.nodeStatus("n1"))
 	}
-	if s.status["n2"] != nodeRequeued || s.status["n3"] != nodeRequeued {
-		t.Fatalf("extract/finalize should be requeued; n2=%s n3=%s", s.status["n2"], s.status["n3"])
+	if s.nodeStatus("n2") != nodeRequeued || s.nodeStatus("n3") != nodeRequeued {
+		t.Fatalf("extract/finalize should be requeued; n2=%s n3=%s", s.nodeStatus("n2"), s.nodeStatus("n3"))
 	}
 }
 

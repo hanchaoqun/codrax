@@ -4420,7 +4420,7 @@ func (o *Orchestrator) handleStructurallyEmptyInvestigation(state *graphState, f
 			if n.Type == types.NodeFinalize {
 				continue
 			}
-			switch state.status[n.ID] {
+			switch state.nodeStatus(n.ID) {
 			case nodeDone, nodeFailed:
 				state.requeue(n.ID)
 			}
@@ -4923,7 +4923,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if n.Type != types.NodeExtract {
 				continue
 			}
-			st := state.status[n.ID]
+			st := state.nodeStatus(n.ID)
 			if st == nodePending || st == nodeRequeued {
 				return n
 			}
@@ -5570,7 +5570,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					if n.Type == types.NodeFinalize {
 						continue
 					}
-					if state.status[n.ID] == nodeDone {
+					if state.nodeStatus(n.ID) == nodeDone {
 						state.requeue(n.ID)
 					}
 				}

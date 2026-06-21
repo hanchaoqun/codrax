@@ -3,9 +3,8 @@ package types
 import "strings"
 
 // NodeExecStatus is the typed run-local execution status for an IR TaskNode.
-// It mirrors the scheduler's current graphState status map during the M1b
-// shadow phase so later loopkernel work can consume a lane-neutral authority
-// without scraping scheduler internals or rendered logs.
+// Read/write loop components consume it as the lane-neutral execution authority
+// instead of scraping scheduler internals, rendered logs, or model prose.
 type NodeExecStatus string
 
 const (
