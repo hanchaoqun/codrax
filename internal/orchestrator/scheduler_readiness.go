@@ -19,6 +19,7 @@ const (
 	nodeReadinessReasonWaitingDependency     nodeReadinessReason = "waiting_on_dependency"
 	nodeReadinessReasonFailedDependency      nodeReadinessReason = "failed_dependency"
 	nodeReadinessReasonEntryCondition        nodeReadinessReason = "entry_condition_unmet"
+	nodeReadinessReasonMaxRetriesExhausted   nodeReadinessReason = "max_retries_exhausted"
 )
 
 // nodeReadiness is the scheduler-local authority for whether a read DAG node
@@ -35,6 +36,8 @@ type nodeReadiness struct {
 	WaitingOn          []string
 	FailedPredecessors []string
 	FailedCriteria     []criterion.Result
+	AttemptsUsed       int
+	MaxAttempts        int
 }
 
 func (r nodeReadiness) toNodeBlock() nodeBlock {
@@ -44,6 +47,8 @@ func (r nodeReadiness) toNodeBlock() nodeBlock {
 		FailedCriteria:         append([]criterion.Result(nil), r.FailedCriteria...),
 		DependencyBlockers:     append([]string(nil), r.WaitingOn...),
 		FailedDependencyBlocks: append([]string(nil), r.FailedPredecessors...),
+		AttemptsUsed:           r.AttemptsUsed,
+		MaxAttempts:            r.MaxAttempts,
 	}
 }
 
@@ -58,8 +63,10 @@ func (s *graphState) evaluateNodeReadinessContext(ctx context.Context, n *types.
 		return nodeReadiness{Skip: true, ReasonCode: nodeReadinessReasonNilNode}, nil
 	}
 	out := nodeReadiness{
-		NodeID: strings.TrimSpace(n.ID),
-		Status: s.nodeStatus(n.ID),
+		NodeID:       strings.TrimSpace(n.ID),
+		Status:       s.nodeStatus(n.ID),
+		AttemptsUsed: s.nodeAttempt(n.ID),
+		MaxAttempts:  maxDispatchAttemptsForNode(n),
 	}
 	if n.IsCounterfactual {
 		out.Skip = true
@@ -74,6 +81,15 @@ func (s *graphState) evaluateNodeReadinessContext(ctx context.Context, n *types.
 	if out.Status != nodePending && out.Status != nodeRequeued {
 		out.Skip = true
 		out.ReasonCode = nodeReadinessReasonStatusNotDispatchable
+		return out, nil
+	}
+	if out.Status == nodeRequeued && out.MaxAttempts > 0 && out.AttemptsUsed >= out.MaxAttempts {
+		if n.Optional {
+			out.Skip = true
+		} else {
+			out.Blocked = true
+		}
+		out.ReasonCode = nodeReadinessReasonMaxRetriesExhausted
 		return out, nil
 	}
 	waiting, failed := s.hardDependencyPredecessorStateForNode(out.NodeID)
@@ -108,4 +124,11 @@ func (s *graphState) evaluateNodeReadinessContext(ctx context.Context, n *types.
 	out.Ready = true
 	out.ReasonCode = nodeReadinessReasonReady
 	return out, nil
+}
+
+func maxDispatchAttemptsForNode(n *types.TaskNode) int {
+	if n == nil || n.MaxRetries <= 0 {
+		return 0
+	}
+	return n.MaxRetries + 1
 }

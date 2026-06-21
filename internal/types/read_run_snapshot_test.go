@@ -11,6 +11,8 @@ func TestReadRunSnapshotFromBusContextCarriesTypedState(t *testing.T) {
 	mut.SetRepoRoot("/repo")
 	closure := mut.EvidenceClosure()
 	closure.SetNodeExecStatus("explore", NodeExecDone)
+	closure.IncrementNodeExecAttempt("explore")
+	closure.IncrementNodeExecAttempt("explore")
 	closure.AddReadSet(map[string]bool{"internal/agent/agent.go": true})
 	closure.AddReadRanges(map[string][]LineRange{
 		"internal/agent/agent.go": {{Start: 10, End: 20}},
@@ -54,6 +56,9 @@ func TestReadRunSnapshotFromBusContextCarriesTypedState(t *testing.T) {
 	if snapshot.NodeStatuses["explore"] != NodeExecDone {
 		t.Fatalf("node statuses = %+v, want explore done", snapshot.NodeStatuses)
 	}
+	if snapshot.NodeAttempts["explore"] != 2 {
+		t.Fatalf("node attempts = %+v, want explore=2", snapshot.NodeAttempts)
+	}
 	if len(snapshot.ReadSet) != 1 || snapshot.ReadSet[0] != "internal/agent/agent.go" {
 		t.Fatalf("read set = %+v", snapshot.ReadSet)
 	}
@@ -80,6 +85,7 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 		RunID:        "read-1",
 		Request:      "where is agent runtime",
 		NodeStatuses: map[string]NodeExecStatus{"explore": NodeExecDone},
+		NodeAttempts: map[string]int{"explore": 2, "zero": 0},
 		ReadSet:      []string{"b.go", "a.go", "a.go"},
 	}
 	if err := WriteReadRunSnapshotToFile(original, path); err != nil {
@@ -91,6 +97,9 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 	}
 	if loaded == nil || loaded.RunID != "read-1" || len(loaded.ReadSet) != 2 || loaded.ReadSet[0] != "a.go" {
 		t.Fatalf("loaded snapshot = %+v", loaded)
+	}
+	if loaded.NodeAttempts["explore"] != 2 || loaded.NodeAttempts["zero"] != 0 {
+		t.Fatalf("loaded node attempts = %+v", loaded.NodeAttempts)
 	}
 	if tmp := path + ".tmp"; fileExists(tmp) {
 		t.Fatalf("tmp file should not remain: %s", tmp)

@@ -26,6 +26,7 @@ type EvidenceReducerInput struct {
 	ReplaceFileTotalLines      bool
 	AcceptedEvidence           []AcceptedEvidenceRef
 	NodeStatuses               map[string]NodeExecStatus
+	NodeAttempts               map[string]int
 	ProgressDecision           ProgressDecision
 	HasProgressDecision        bool
 	SourceInventoryObservation SourceInventoryObservation
@@ -45,6 +46,7 @@ type EvidenceRoundDelta struct {
 	ReplaceFileTotalLines      bool                       `json:"replace_file_total_lines,omitempty"`
 	AcceptedEvidence           []AcceptedEvidenceRef      `json:"accepted_evidence,omitempty"`
 	NodeStatuses               map[string]NodeExecStatus  `json:"node_statuses,omitempty"`
+	NodeAttempts               map[string]int             `json:"node_attempts,omitempty"`
 	ProgressDecision           ProgressDecision           `json:"progress_decision,omitempty"`
 	HasProgressDecision        bool                       `json:"has_progress_decision,omitempty"`
 	SourceInventoryObservation SourceInventoryObservation `json:"source_inventory_observation,omitempty"`
@@ -56,6 +58,7 @@ func (d EvidenceRoundDelta) Empty() bool {
 		len(d.FileTotalLines) == 0 &&
 		len(d.AcceptedEvidence) == 0 &&
 		len(d.NodeStatuses) == 0 &&
+		len(d.NodeAttempts) == 0 &&
 		!d.HasProgressDecision &&
 		!d.SourceInventoryObservation.IsActive()
 }
@@ -119,6 +122,7 @@ func EvidenceRoundDeltaFromReducerInput(input EvidenceReducerInput, repoRoot str
 			ReplaceFileTotalLines:      input.ReplaceFileTotalLines,
 			AcceptedEvidence:           normalizeAcceptedEvidenceRefs(input.AcceptedEvidence),
 			NodeStatuses:               cloneNodeExecStatusMap(input.NodeStatuses),
+			NodeAttempts:               cloneNodeExecAttemptMap(input.NodeAttempts),
 			ProgressDecision:           input.ProgressDecision,
 			HasProgressDecision:        input.HasProgressDecision,
 			SourceInventoryObservation: CloneSourceInventoryObservation(input.SourceInventoryObservation),
@@ -178,6 +182,9 @@ func (c *EvidenceClosure) IngestEvidenceReducerInput(input EvidenceReducerInput,
 	}
 	for nodeID, status := range delta.NodeStatuses {
 		c.SetNodeExecStatus(nodeID, status)
+	}
+	if len(delta.NodeAttempts) > 0 {
+		c.SetNodeExecAttempts(delta.NodeAttempts)
 	}
 	if delta.HasProgressDecision {
 		c.SetLatestProgressDecision(delta.ProgressDecision)

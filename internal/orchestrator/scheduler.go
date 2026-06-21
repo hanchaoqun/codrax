@@ -42,6 +42,7 @@ const (
 type graphState struct {
 	graph     types.TaskGraph
 	status    map[string]nodeStatus
+	attempts  map[string]int
 	closure   *types.EvidenceClosure
 	retryUsed int
 
@@ -153,12 +154,15 @@ type nodeBlock struct {
 	FailedCriteria         []criterion.Result
 	DependencyBlockers     []string
 	FailedDependencyBlocks []string
+	AttemptsUsed           int
+	MaxAttempts            int
 }
 
 func newGraphState(g types.TaskGraph) *graphState {
 	s := &graphState{
-		graph:  g,
-		status: make(map[string]nodeStatus, len(g.Nodes)),
+		graph:    g,
+		status:   make(map[string]nodeStatus, len(g.Nodes)),
+		attempts: make(map[string]int),
 	}
 	for _, n := range g.Nodes {
 		s.setStatus(n.ID, nodePending)

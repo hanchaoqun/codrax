@@ -15,14 +15,31 @@ func (s *graphState) attachEvidenceClosure(closure *types.EvidenceClosure) {
 		return
 	}
 	for id, status := range s.status {
+		if status == nodePending && closure.NodeExecStatus(id) != types.NodeExecPending {
+			continue
+		}
 		closure.SetNodeExecStatus(id, nodeStatusToExecStatus(status))
 	}
 	s.status = nil
+	if len(s.attempts) > 0 {
+		merged := closure.NodeExecAttempts()
+		if merged == nil {
+			merged = make(map[string]int, len(s.attempts))
+		}
+		for id, attempts := range s.attempts {
+			if attempts > merged[id] {
+				merged[id] = attempts
+			}
+		}
+		closure.SetNodeExecAttempts(merged)
+	}
+	s.attempts = nil
 }
 
 // markRunning / markDone / markFailed / requeue are state transitions on the
 // typed node execution status authority.
 func (s *graphState) markRunning(id string) {
+	s.incrementNodeAttempt(id)
 	s.setStatus(id, nodeRunning)
 }
 func (s *graphState) markDone(id string)   { s.setStatus(id, nodeDone) }
@@ -75,6 +92,45 @@ func execStatusToNodeStatus(status types.NodeExecStatus) nodeStatus {
 	default:
 		return nodePending
 	}
+}
+
+func (s *graphState) incrementNodeAttempt(id string) int {
+	if s == nil {
+		return 0
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return 0
+	}
+	if s.closure != nil {
+		return s.closure.IncrementNodeExecAttempt(id)
+	}
+	if s.attempts == nil {
+		s.attempts = make(map[string]int)
+	}
+	s.attempts[id]++
+	return s.attempts[id]
+}
+
+func (s *graphState) nodeAttempt(id string) int {
+	if s == nil {
+		return 0
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return 0
+	}
+	if s.closure != nil {
+		return s.closure.NodeExecAttempt(id)
+	}
+	if s.attempts == nil {
+		return 0
+	}
+	attempts := s.attempts[id]
+	if attempts < 0 {
+		return 0
+	}
+	return attempts
 }
 
 func (s *graphState) nodeStatus(id string) nodeStatus {

@@ -163,6 +163,7 @@ func TestEvidenceClosureIngestReducerInputReadRunSnapshotSeed(t *testing.T) {
 	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{"old.go": true})
 	c.SetNodeExecStatus("explore", NodeExecFailed)
+	c.SetNodeExecAttempts(map[string]int{"explore": 3})
 	observation := evidenceRoundTestSourceInventoryObservation("Resume")
 	decision := ProgressDecision{
 		ShouldReplan: true,
@@ -181,6 +182,10 @@ func TestEvidenceClosureIngestReducerInputReadRunSnapshotSeed(t *testing.T) {
 			"explore": NodeExecDone,
 			"extract": NodeExecPending,
 		},
+		NodeAttempts: map[string]int{
+			"explore": 2,
+			"extract": 1,
+		},
 		ReadSet: map[string]bool{"fresh.go": true},
 		ReadRanges: map[string][]LineRange{
 			"fresh.go": {{Start: 3, End: 8}},
@@ -195,7 +200,7 @@ func TestEvidenceClosureIngestReducerInputReadRunSnapshotSeed(t *testing.T) {
 		HasProgressDecision:        true,
 	}, "")
 
-	if delta.Empty() || len(delta.NodeStatuses) != 2 || !delta.HasProgressDecision {
+	if delta.Empty() || len(delta.NodeStatuses) != 2 || len(delta.NodeAttempts) != 2 || !delta.HasProgressDecision {
 		t.Fatalf("snapshot seed delta = %+v, want node/progress carriers", delta)
 	}
 	if got := c.ReadSet(); len(got) != 1 || !got["fresh.go"] {
@@ -206,6 +211,12 @@ func TestEvidenceClosureIngestReducerInputReadRunSnapshotSeed(t *testing.T) {
 	}
 	if got := c.NodeExecStatus("extract"); got != NodeExecPending {
 		t.Fatalf("extract status = %s, want pending", got)
+	}
+	if got := c.NodeExecAttempt("explore"); got != 2 {
+		t.Fatalf("explore attempts = %d, want 2", got)
+	}
+	if got := c.NodeExecAttempt("extract"); got != 1 {
+		t.Fatalf("extract attempts = %d, want 1", got)
 	}
 	if refs := c.AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-resume" {
 		t.Fatalf("accepted evidence refs = %+v", refs)

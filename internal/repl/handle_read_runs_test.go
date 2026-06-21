@@ -2,6 +2,7 @@ package repl
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -71,7 +72,7 @@ func TestReadRunsListShowClear(t *testing.T) {
 	got = out.String()
 	for _, want := range []string{
 		"Read run `read-audit-1`",
-		"Schema: `1`",
+		fmt.Sprintf("Schema: `%d`", types.ReadRunSnapshotSchemaVersion),
 		"Repo: `/tmp/repo`",
 		"Task graph: hash=`aaaaaaaaaaaa` nodes=3",
 		"Node statuses: pending=1 done=1",

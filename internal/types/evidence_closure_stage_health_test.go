@@ -124,6 +124,7 @@ func TestEvidenceClosureReset_AllFieldsCleared(t *testing.T) {
 	c.IncrementStageRetry("finalize")
 	c.MarkPhase1UnreadFired()
 	c.SetNodeExecStatus("node-1", NodeExecDone)
+	c.IncrementNodeExecAttempt("node-1")
 
 	c.Reset()
 
@@ -168,6 +169,9 @@ func TestEvidenceClosureReset_AllFieldsCleared(t *testing.T) {
 	if got := c.NodeExecStatuses(); len(got) != 0 {
 		t.Errorf("nodeExecStatus not cleared: %+v", got)
 	}
+	if got := c.NodeExecAttempts(); len(got) != 0 {
+		t.Errorf("nodeExecAttempts not cleared: %+v", got)
+	}
 }
 
 func TestEvidenceClosureNodeExecStatusCloneMergeAndNormalize(t *testing.T) {
@@ -197,6 +201,42 @@ func TestEvidenceClosureNodeExecStatusCloneMergeAndNormalize(t *testing.T) {
 	snap["n1"] = NodeExecFailed
 	if got := parent.NodeExecStatus("n1"); got != NodeExecDone {
 		t.Fatalf("NodeExecStatuses leaked internal map: %q", got)
+	}
+}
+
+func TestEvidenceClosureNodeExecAttemptsCloneMergeAndNormalize(t *testing.T) {
+	parent := NewEvidenceClosure("")
+	parent.IncrementNodeExecAttempt("n1")
+	parent.IncrementNodeExecAttempt("n1")
+	parent.SetNodeExecAttempts(map[string]int{
+		"n1":     2,
+		" n2 ":   1,
+		"ignore": 0,
+	})
+	if got := parent.NodeExecAttempt("n1"); got != 2 {
+		t.Fatalf("n1 attempts = %d, want 2", got)
+	}
+	if got := parent.NodeExecAttempt("n2"); got != 1 {
+		t.Fatalf("n2 attempts = %d, want 1", got)
+	}
+	if got := parent.NodeExecAttempt("ignore"); got != 0 {
+		t.Fatalf("zero attempts should not be retained, got %d", got)
+	}
+
+	clone := parent.Clone()
+	clone.SetNodeExecAttempts(map[string]int{"n1": 1, "n3": 4})
+	parent.MergeFrom(clone)
+	if got := parent.NodeExecAttempt("n1"); got != 2 {
+		t.Fatalf("merge must keep max attempt for n1, got %d", got)
+	}
+	if got := parent.NodeExecAttempt("n3"); got != 4 {
+		t.Fatalf("merge must carry new attempt for n3, got %d", got)
+	}
+
+	snap := parent.NodeExecAttempts()
+	snap["n1"] = 99
+	if got := parent.NodeExecAttempt("n1"); got != 2 {
+		t.Fatalf("NodeExecAttempts leaked internal map: %d", got)
 	}
 }
 

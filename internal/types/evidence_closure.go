@@ -188,6 +188,13 @@ type EvidenceClosure struct {
 	// scraping MutableState, TurnAArtifacts, or rendered repo_map text.
 	sourceInventoryObservation SourceInventoryObservation
 
+	// nodeExecAttempts is the run-local dispatch-attempt ledger for IR
+	// TaskNodes. It deliberately lives next to nodeExecStatus so scheduler,
+	// resume, replay, and audit consumers share one typed execution authority
+	// instead of scattering retry counters through prompt prose or stage-local
+	// helper maps.
+	nodeExecAttempts map[string]int
+
 	// stats accumulates CGEC enforcer fire counters across the
 	// current task. Each enforcer increments its own field
 	// (chain promotion → ChainsDemoted, findings_validator →
@@ -414,14 +421,15 @@ type ClosureFingerprint struct {
 // historical slash-normalise + strip-"./" behaviour.
 func NewEvidenceClosure(repoRoot string) *EvidenceClosure {
 	return &EvidenceClosure{
-		repoRoot:       repoRoot,
-		readSet:        make(map[string]bool),
-		readRanges:     make(map[string][]LineRange),
-		fileTotalLines: make(map[string]int),
-		scannedSet:     make(map[string]bool),
-		citedRefs:      make(map[string][]int),
-		subjectMatches: make(map[string]float64),
-		nodeExecStatus: make(map[string]NodeExecStatus),
+		repoRoot:         repoRoot,
+		readSet:          make(map[string]bool),
+		readRanges:       make(map[string][]LineRange),
+		fileTotalLines:   make(map[string]int),
+		scannedSet:       make(map[string]bool),
+		citedRefs:        make(map[string][]int),
+		subjectMatches:   make(map[string]float64),
+		nodeExecStatus:   make(map[string]NodeExecStatus),
+		nodeExecAttempts: make(map[string]int),
 	}
 }
 
@@ -450,6 +458,7 @@ func (c *EvidenceClosure) Clone() *EvidenceClosure {
 	out.latestProgressDecision = c.latestProgressDecision
 	out.repairs = cloneRepairDirectives(c.repairs)
 	out.nodeExecStatus = cloneNodeExecStatusMap(c.nodeExecStatus)
+	out.nodeExecAttempts = cloneNodeExecAttemptMap(c.nodeExecAttempts)
 	out.sourceInventoryObservation = CloneSourceInventoryObservation(c.sourceInventoryObservation)
 	out.stats = cloneClosureStats(c.stats)
 	out.symbolEmitRejections = c.symbolEmitRejections
@@ -570,6 +579,18 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 			continue
 		}
 		c.nodeExecStatus[id] = NormalizeNodeExecStatus(status)
+	}
+	if c.nodeExecAttempts == nil {
+		c.nodeExecAttempts = make(map[string]int)
+	}
+	for id, attempts := range snap.nodeExecAttempts {
+		id = strings.TrimSpace(id)
+		if id == "" || attempts <= 0 {
+			continue
+		}
+		if attempts > c.nodeExecAttempts[id] {
+			c.nodeExecAttempts[id] = attempts
+		}
 	}
 	if snap.sourceInventoryObservation.IsActive() {
 		c.sourceInventoryObservation = MergeSourceInventoryObservation(c.sourceInventoryObservation, snap.sourceInventoryObservation)
@@ -2425,44 +2446,6 @@ func (c *EvidenceClosure) ConsumeRepairs() []RepairDirective {
 	return MergeRepairs(out)
 }
 
-func (c *EvidenceClosure) SetNodeExecStatus(nodeID string, status NodeExecStatus) {
-	if c == nil {
-		return
-	}
-	nodeID = strings.TrimSpace(nodeID)
-	if nodeID == "" {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.nodeExecStatus == nil {
-		c.nodeExecStatus = make(map[string]NodeExecStatus)
-	}
-	c.nodeExecStatus[nodeID] = NormalizeNodeExecStatus(status)
-}
-
-func (c *EvidenceClosure) NodeExecStatus(nodeID string) NodeExecStatus {
-	if c == nil {
-		return NodeExecPending
-	}
-	nodeID = strings.TrimSpace(nodeID)
-	if nodeID == "" {
-		return NodeExecPending
-	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return NormalizeNodeExecStatus(c.nodeExecStatus[nodeID])
-}
-
-func (c *EvidenceClosure) NodeExecStatuses() map[string]NodeExecStatus {
-	if c == nil {
-		return nil
-	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return cloneNodeExecStatusMap(c.nodeExecStatus)
-}
-
 func (c *EvidenceClosure) RecordSourceInventoryObservation(observation SourceInventoryObservation) {
 	if c == nil || !observation.IsActive() {
 		return
@@ -2523,6 +2506,7 @@ func (c *EvidenceClosure) Reset() {
 	c.latestProgressDecision = ProgressDecision{}
 	c.repairs = nil
 	c.nodeExecStatus = make(map[string]NodeExecStatus)
+	c.nodeExecAttempts = make(map[string]int)
 	c.sourceInventoryObservation = SourceInventoryObservation{}
 	c.violations = nil
 	c.stats = ClosureStats{}

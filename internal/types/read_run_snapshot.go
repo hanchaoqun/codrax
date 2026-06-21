@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const ReadRunSnapshotSchemaVersion = 1
+const ReadRunSnapshotSchemaVersion = 2
 
 // ReadRunSnapshot is the typed audit/resume substrate for read-mode execution.
 // It records durable structured artifacts only; no scheduler gate may consume
@@ -26,6 +26,7 @@ type ReadRunSnapshot struct {
 	TaskGraphHash    string                     `json:"task_graph_hash,omitempty"`
 	TaskNodeCount    int                        `json:"task_node_count,omitempty"`
 	NodeStatuses     map[string]NodeExecStatus  `json:"node_statuses,omitempty"`
+	NodeAttempts     map[string]int             `json:"node_attempts,omitempty"`
 	ReadSet          []string                   `json:"read_set,omitempty"`
 	ReadRanges       map[string][]LineRange     `json:"read_ranges,omitempty"`
 	FileTotals       map[string]int             `json:"file_totals,omitempty"`
@@ -63,6 +64,7 @@ func ReadRunSnapshotFromBusContext(ctx *BusContext, runID string) ReadRunSnapsho
 	closure := ctx.Mutable.EvidenceClosure()
 	if closure != nil {
 		snapshot.NodeStatuses = closure.NodeExecStatuses()
+		snapshot.NodeAttempts = closure.NodeExecAttempts()
 		snapshot.ReadSet = readRunSortedReadSet(closure.ReadSet())
 		snapshot.ReadRanges = closure.ReadRangesSnapshot()
 		snapshot.FileTotals = closure.FileTotalLinesSnapshot()
@@ -82,6 +84,7 @@ func NormalizeReadRunSnapshot(snapshot ReadRunSnapshot) ReadRunSnapshot {
 	snapshot.RepoRoot = strings.TrimSpace(snapshot.RepoRoot)
 	snapshot.TaskGraphHash = strings.TrimSpace(snapshot.TaskGraphHash)
 	snapshot.NodeStatuses = cloneNodeExecStatusMap(snapshot.NodeStatuses)
+	snapshot.NodeAttempts = cloneNodeExecAttemptMap(snapshot.NodeAttempts)
 	snapshot.ReadSet = compactReadRunStrings(snapshot.ReadSet...)
 	snapshot.ReadRanges = cloneLineRangeMap(snapshot.ReadRanges)
 	snapshot.FileTotals = cloneIntMap(snapshot.FileTotals)

@@ -41,6 +41,7 @@ func renderNodeBlocks(ctx context.Context, b *strings.Builder, blocks []nodeBloc
 	wroteEntryHeader := false
 	wroteDependencyHeader := false
 	wroteFailedDependencyHeader := false
+	wroteRetryHeader := false
 	for _, bk := range blocks {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -67,6 +68,13 @@ func renderNodeBlocks(ctx context.Context, b *strings.Builder, blocks []nodeBloc
 				wroteFailedDependencyHeader = true
 			}
 			fmt.Fprintf(b, "  - %s: failed predecessor %s\n", bk.NodeID, strings.Join(bk.FailedDependencyBlocks, ", "))
+		}
+		if bk.ReasonCode == nodeReadinessReasonMaxRetriesExhausted {
+			if !wroteRetryHeader {
+				b.WriteString("\nRetry gate: the following nodes exhausted their declared dispatch attempts:\n")
+				wroteRetryHeader = true
+			}
+			fmt.Fprintf(b, "  - %s: attempts %d/%d\n", bk.NodeID, bk.AttemptsUsed, bk.MaxAttempts)
 		}
 	}
 	return nil

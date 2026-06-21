@@ -30,6 +30,8 @@ func TestEvidenceClosureProductionMutationsUseReducer(t *testing.T) {
 		"RecordSourceInventoryObservation": true,
 		"SetLatestProgressDecision":        true,
 		"SetNodeExecStatus":                true,
+		"SetNodeExecAttempts":              true,
+		"IncrementNodeExecAttempt":         true,
 	}
 	allow := map[string]map[string]bool{
 		"internal/types/evidence_round.go": {
@@ -43,12 +45,15 @@ func TestEvidenceClosureProductionMutationsUseReducer(t *testing.T) {
 			"RecordSourceInventoryObservation": true,
 			"SetLatestProgressDecision":        true,
 			"SetNodeExecStatus":                true,
+			"SetNodeExecAttempts":              true,
 		},
 		"internal/types/evidence_closure.go": {
 			"AppendAcceptedEvidenceRefs": true,
 		},
 		"internal/orchestrator/scheduler_status.go": {
-			"SetNodeExecStatus": true,
+			"SetNodeExecStatus":        true,
+			"SetNodeExecAttempts":      true,
+			"IncrementNodeExecAttempt": true,
 		},
 	}
 

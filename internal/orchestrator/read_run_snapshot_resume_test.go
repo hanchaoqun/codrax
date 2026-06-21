@@ -17,6 +17,7 @@ func TestReadRunSnapshotSeedAppliesTypedFields(t *testing.T) {
 	exploreID := firstReadNodeIDByType(t, ir, types.NodeEvidence)
 	snapshot := readRunSnapshotSeedFixture(t, ir, repoRoot)
 	snapshot.NodeStatuses = map[string]types.NodeExecStatus{exploreID: types.NodeExecDone}
+	snapshot.NodeAttempts = map[string]int{exploreID: 2}
 
 	o := &Orchestrator{
 		readRunSnapshotSeed: &snapshot,
@@ -38,6 +39,9 @@ func TestReadRunSnapshotSeedAppliesTypedFields(t *testing.T) {
 	closure := o.busCtx.Mutable.EvidenceClosure()
 	if got := closure.NodeExecStatus(exploreID); got != types.NodeExecDone {
 		t.Fatalf("node status = %q, want %q", got, types.NodeExecDone)
+	}
+	if got := closure.NodeExecAttempt(exploreID); got != 2 {
+		t.Fatalf("node attempts = %d, want 2", got)
 	}
 	if !closure.HasRead("seeded.go") {
 		t.Fatalf("read set did not hydrate from snapshot: %+v", closure.ReadSet())
@@ -96,6 +100,13 @@ func TestReadRunSnapshotSeedRejectsMismatches(t *testing.T) {
 				s.NodeStatuses = map[string]types.NodeExecStatus{"missing-node": types.NodeExecDone}
 			},
 			wantReason: readRunSnapshotSeedReasonNodeMismatch,
+		},
+		{
+			name: "node_attempt",
+			mutate: func(s *types.ReadRunSnapshot) {
+				s.NodeAttempts = map[string]int{"missing-node": 1}
+			},
+			wantReason: readRunSnapshotSeedReasonNodeAttemptMismatch,
 		},
 	}
 	for _, tc := range cases {
@@ -231,6 +242,7 @@ func readRunSnapshotSeedFixture(t *testing.T, ir *types.AnalysisIR, repoRoot str
 		RepoRoot:      repoRoot,
 		TaskGraphHash: types.ReadTaskGraphHash(ir.TaskGraph),
 		TaskNodeCount: len(ir.TaskGraph.Nodes),
+		NodeAttempts:  map[string]int{firstReadNodeIDByType(t, ir, types.NodeEvidence): 1},
 		ReadSet:       []string{"seeded.go"},
 		ReadRanges: map[string][]types.LineRange{
 			"seeded.go": {{Start: 7, End: 9}},

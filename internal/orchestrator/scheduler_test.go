@@ -144,6 +144,155 @@ func TestGraphState_NodeReadinessUsesTypedAuthority(t *testing.T) {
 	}
 }
 
+func TestGraphState_NodeAttemptAuthorityIncrementsAndAttaches(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	s.markRunning("n0")
+	s.markRunning("n0")
+	if got := s.nodeAttempt("n0"); got != 2 {
+		t.Fatalf("pre-attach attempts = %d, want 2", got)
+	}
+	closure := types.NewEvidenceClosure("")
+	s.attachEvidenceClosure(closure)
+	if got := closure.NodeExecAttempt("n0"); got != 2 {
+		t.Fatalf("attached closure attempts = %d, want 2", got)
+	}
+	s.markRunning("n0")
+	if got := closure.NodeExecAttempt("n0"); got != 3 {
+		t.Fatalf("post-attach attempts = %d, want 3", got)
+	}
+}
+
+func TestGraphState_AttachPreservesSeededClosureExecutionState(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	s.markRunning("n1")
+	s.markRunning("n1")
+	closure := types.NewEvidenceClosure("")
+	closure.SetNodeExecStatus("n0", types.NodeExecDone)
+	closure.SetNodeExecAttempts(map[string]int{"n1": 3})
+
+	s.attachEvidenceClosure(closure)
+	if got := closure.NodeExecStatus("n0"); got != types.NodeExecDone {
+		t.Fatalf("bootstrap pending must not overwrite seeded status, got %q", got)
+	}
+	if got := closure.NodeExecAttempt("n1"); got != 3 {
+		t.Fatalf("attach must max-merge seeded attempts, got %d", got)
+	}
+}
+
+func TestGraphState_NodeReadinessAllowsPendingDespiteSeededAttempts(t *testing.T) {
+	g := types.TaskGraph{Nodes: []types.TaskNode{{ID: "n0", Type: types.NodeEvidence, MaxRetries: 1}}}
+	s := newGraphState(g)
+	closure := types.NewEvidenceClosure("")
+	closure.SetNodeExecAttempts(map[string]int{"n0": 3})
+	s.attachEvidenceClosure(closure)
+	readiness, err := s.evaluateNodeReadinessContext(context.Background(), &s.graph.Nodes[0], emptyEnv())
+	if err != nil {
+		t.Fatalf("evaluateNodeReadinessContext: %v", err)
+	}
+	if !readiness.Ready || readiness.ReasonCode != nodeReadinessReasonReady {
+		t.Fatalf("pending node should not be blocked by seeded attempts: %+v", readiness)
+	}
+}
+
+func TestGraphState_NodeReadinessHonorsMaxRetries(t *testing.T) {
+	g := types.TaskGraph{Nodes: []types.TaskNode{{ID: "n0", Type: types.NodeEvidence, MaxRetries: 1}}}
+	s := newGraphState(g)
+	s.markRunning("n0")
+	s.requeue("n0")
+	readiness, err := s.evaluateNodeReadinessContext(context.Background(), &s.graph.Nodes[0], emptyEnv())
+	if err != nil {
+		t.Fatalf("evaluateNodeReadinessContext: %v", err)
+	}
+	if !readiness.Ready || readiness.AttemptsUsed != 1 || readiness.MaxAttempts != 2 {
+		t.Fatalf("first retry should be ready with 1/2 attempts: %+v", readiness)
+	}
+
+	s.markRunning("n0")
+	s.requeue("n0")
+	readiness, err = s.evaluateNodeReadinessContext(context.Background(), &s.graph.Nodes[0], emptyEnv())
+	if err != nil {
+		t.Fatalf("evaluateNodeReadinessContext exhausted: %v", err)
+	}
+	if !readiness.Blocked || readiness.ReasonCode != nodeReadinessReasonMaxRetriesExhausted {
+		t.Fatalf("exhausted requeue should block with typed reason: %+v", readiness)
+	}
+	if readiness.AttemptsUsed != 2 || readiness.MaxAttempts != 2 {
+		t.Fatalf("exhausted attempts = %d/%d, want 2/2", readiness.AttemptsUsed, readiness.MaxAttempts)
+	}
+	block := readiness.toNodeBlock()
+	hint := renderWindowHint(nil, []nodeBlock{block}, nil, nil, "", "", nil)
+	if !strings.Contains(hint, "Retry gate") || !strings.Contains(hint, "n0: attempts 2/2") {
+		t.Fatalf("retry blocker should render typed attempts, got:\n%s", hint)
+	}
+}
+
+func TestGraphState_NodeReadinessMaxRetriesZeroUnlimited(t *testing.T) {
+	g := types.TaskGraph{Nodes: []types.TaskNode{{ID: "n0", Type: types.NodeEvidence}}}
+	s := newGraphState(g)
+	for i := 0; i < 5; i++ {
+		s.markRunning("n0")
+	}
+	s.requeue("n0")
+	readiness, err := s.evaluateNodeReadinessContext(context.Background(), &s.graph.Nodes[0], emptyEnv())
+	if err != nil {
+		t.Fatalf("evaluateNodeReadinessContext: %v", err)
+	}
+	if !readiness.Ready || readiness.MaxAttempts != 0 || readiness.AttemptsUsed != 5 {
+		t.Fatalf("MaxRetries=0 should be unlimited, got %+v", readiness)
+	}
+}
+
+func TestGraphState_ValidationFeedbackRequeueRespectsNodeMaxRetries(t *testing.T) {
+	g := smallChainGraph()
+	for i := range g.Nodes {
+		if g.Nodes[i].ID == "n1" {
+			g.Nodes[i].MaxRetries = 1
+		}
+	}
+	s := newGraphState(g)
+	for _, id := range []string{"n0", "n1", "n2"} {
+		s.markRunning(id)
+		s.markDone(id)
+	}
+	s.markRunning("n1")
+	s.markDone("n1")
+	targets := s.requeueValidationTargets("n2")
+	if strings.Join(targets, ",") != "n1" {
+		t.Fatalf("validation targets = %v, want n1", targets)
+	}
+	readiness, err := s.evaluateNodeReadinessContext(context.Background(), &s.graph.Nodes[1], emptyEnv())
+	if err != nil {
+		t.Fatalf("evaluateNodeReadinessContext: %v", err)
+	}
+	if !readiness.Blocked || readiness.ReasonCode != nodeReadinessReasonMaxRetriesExhausted {
+		t.Fatalf("requeued upstream should be capped by node max retries: %+v", readiness)
+	}
+}
+
+func TestGraphState_OptionalMaxRetriesExhaustedStaysSilent(t *testing.T) {
+	g := types.TaskGraph{Nodes: []types.TaskNode{{
+		ID:         "n_opt",
+		Type:       types.NodeProbe,
+		Optional:   true,
+		MaxRetries: 1,
+	}}}
+	s := newGraphState(g)
+	s.markRunning("n_opt")
+	s.markRunning("n_opt")
+	s.requeue("n_opt")
+	readiness, err := s.evaluateNodeReadinessContext(context.Background(), &s.graph.Nodes[0], emptyEnv())
+	if err != nil {
+		t.Fatalf("evaluateNodeReadinessContext: %v", err)
+	}
+	if !readiness.Skip || readiness.Blocked || readiness.ReasonCode != nodeReadinessReasonMaxRetriesExhausted {
+		t.Fatalf("optional exhausted node should skip silently: %+v", readiness)
+	}
+	window, blocked := s.readyExplorerWindow(emptyEnv())
+	if len(window) != 0 || len(blocked) != 0 {
+		t.Fatalf("optional exhausted node must not create ready/blocked noise: window=%v blocked=%+v", idsOf(window), blocked)
+	}
+}
+
 func TestGraphState_ReadyWindowContextCancelled(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	ctx, cancel := context.WithCancel(context.Background())

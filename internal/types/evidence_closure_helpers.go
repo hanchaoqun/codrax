@@ -107,6 +107,24 @@ func cloneNodeExecStatusMap(in map[string]NodeExecStatus) map[string]NodeExecSta
 	return out
 }
 
+func cloneNodeExecAttemptMap(in map[string]int) map[string]int {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(in))
+	for k, v := range in {
+		k = strings.TrimSpace(k)
+		if k == "" || v <= 0 {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func cloneIntSliceMap(in map[string][]int) map[string][]int {
 	if len(in) == 0 {
 		return nil
