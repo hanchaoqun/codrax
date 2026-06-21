@@ -224,6 +224,12 @@ Tests:
 - `TestLoopkernelShadowMatchesImperative`
 - `TestAnalyzeRefineUsesPreAuthoredNodeOnly`
 
+M2d-A scoped implementation:
+- Add typed `ReadLoopShadowComparison` in loopkernel.
+- Compare `ReadProofGuidance.RecommendedAction` with a caller-supplied typed imperative action, without changing scheduler behavior.
+- First consumer: read retry/checkpoint status text may render the comparison for audit, but no hard gate may consume the rendered text.
+- Dynamic opt-in nodes and AnalyzeRefine remain later M2d slices after the shadow comparison has package-level coverage.
+
 ### Batch M3a: LoopBudget Enforcement
 
 Deliverables:
@@ -291,7 +297,7 @@ Commercial hardening before declaring complete:
 | M2a Stage nodes | completed | Added typed `NodeExtract` and deterministic `EnsureReadStageNodes` injection in the analyzer/compiler path; counterfactual expansion now routes through extract when present; binder/HDP require extract hypothesis binding; scheduler maps extract to `StageExtract`, excludes it from merged explore windows, and wraps the existing pre-finalize extract dispatch with node start/end/retry status updates. M2a deliberately uses a behavior-preserving typed readiness condition; richer extract readiness and optional AnalyzeRefine nodes are recorded under M2b. Verified with compiler/counterfactual/binder/HDP/types/orchestrator package tests and focused analyzer tests. |
 | M2b Stage mapping/re-exec | completed | Added registered `extract_input_ready`, compiler now emits it on `NodeExtract`, and the read scheduler evaluates extract `EntryConditions` immediately before StageExtract dispatch. When no structured extract input exists, the extractor is skipped as a typed stage-skip and finalize still owns the answer contract. Tests pin that readiness uses typed evidence/chains/aggregate facts/external observations only, not `HasEnoughFacts`, raw tool prose, prompt text, or noisy telemetry. Scope correction: optional AnalyzeRefine moved to M2d because it crosses the analyzer/IR rewrite boundary. |
 | M2c Execution tree/artifacts | completed | Removed misleading `TaskNode.ExitArtifacts`; added typed `TaskArtifactContract`, `BranchPoint`, `ValidationFeedbackBranchPoints`, and `ValidationFeedbackTargets`; scheduler validation-feedback backtrack now consumes the shared typed helper. Tests pin immutable contract projection, execution-tree backtrack grouping/deduplication, and the upgraded TaskNode slot guard. |
-| M2d Dynamic expansion/loopkernel shadow | not_started | Loopkernel not yet shadow-driving scheduler decisions. Optional AnalyzeRefine is tracked here and must use analyzer-pre-authored opt-in nodes plus typed `ProgressDelta` / proof-state booleans. |
+| M2d Dynamic expansion/loopkernel shadow | in_progress | M2d-A completed: added typed `ReadLoopShadowComparison` and first read retry checkpoint consumer so loopkernel recommended action can be compared with the imperative retry action without changing scheduler behavior. Remaining M2d work: dynamic opt-in nodes and optional AnalyzeRefine through analyzer-pre-authored topology. |
 | M3a LoopBudget | not_started | LoopBudget passive. |
 | M3b LoopRun.Advance | not_started | LoopRun passive; write controller not cut over. |
 | M3c Semantic routing/shared proof | not_started | Tool routing not yet authority-driven end-to-end. |

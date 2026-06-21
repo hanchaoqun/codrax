@@ -182,6 +182,9 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 				strings.TrimSpace(artifacts.AcceptedResultKind) != ""
 		}
 		c.proofGuidance = readProofGuidanceSummaryFromMutable(o.busCtx.Mutable)
+		if shadow := readLoopShadowSummaryFromMutable(o.busCtx.Mutable, loopkernel.LoopActionAddProof); shadow != "" {
+			c.proofGuidance = strings.TrimSpace(strings.Join([]string{c.proofGuidance, shadow}, "; "))
+		}
 		if len(o.busCtx.Mutable.StableInvestigationAggregateFacts()) > 0 {
 			c.aggregateFacts += len(o.busCtx.Mutable.StableInvestigationAggregateFacts())
 		}
@@ -298,6 +301,9 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 			toolResults = append(toolResults, artifacts.ToolResults...)
 		}
 		c.proofGuidance = readProofGuidanceSummaryFromMutable(o.busCtx.Mutable)
+		if shadow := readLoopShadowSummaryFromMutable(o.busCtx.Mutable, loopkernel.LoopActionAddProof); shadow != "" {
+			c.proofGuidance = strings.TrimSpace(strings.Join([]string{c.proofGuidance, shadow}, "; "))
+		}
 		stableFacts := o.busCtx.Mutable.StableInvestigationAggregateFacts()
 		if len(stableFacts) > 0 {
 			c.aggregateFacts += len(stableFacts)
@@ -380,6 +386,22 @@ func readProofGuidanceSummaryFromTurnA(artifacts *types.TurnAArtifacts) string {
 func readProofGuidanceSummaryFromMutable(m *types.MutableState) string {
 	guidance, ok := loopkernel.ReadProofGuidanceFromMutable(m)
 	return readProofGuidanceSummary(guidance, ok)
+}
+
+func readLoopShadowSummaryFromMutable(m *types.MutableState, imperative loopkernel.LoopRecommendedAction) string {
+	guidance, ok := loopkernel.ReadProofGuidanceFromMutable(m)
+	if !ok {
+		return ""
+	}
+	comparison, ok := loopkernel.CompareReadLoopShadow(guidance, imperative)
+	if !ok || !comparison.Active {
+		return ""
+	}
+	return fmt.Sprintf("loop shadow recommended=%s imperative=%s match=%t reason=%s",
+		firstNonEmptyRetryString(string(comparison.RecommendedAction), "none"),
+		firstNonEmptyRetryString(string(comparison.ImperativeAction), "none"),
+		comparison.Match,
+		firstNonEmptyRetryString(comparison.ReasonCode, "none"))
 }
 
 func readProofGuidanceSummary(guidance loopkernel.ReadProofGuidance, ok bool) string {

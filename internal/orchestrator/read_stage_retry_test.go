@@ -57,6 +57,7 @@ func TestBuildExploreTransientRetryCheckpointHintCarriesReadProofGuidance(t *tes
 		"reason=proof_weak",
 		"action=add_proof",
 		"mode=advisory",
+		"loop shadow recommended=add_proof imperative=add_proof match=true reason=proof_weak",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("checkpoint hint missing proof guidance %q:\n%s", want, got)
