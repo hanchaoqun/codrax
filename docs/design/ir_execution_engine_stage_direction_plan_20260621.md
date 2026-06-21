@@ -295,6 +295,12 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 - `internal/orchestrator/read_stage_retry.go`
 - `internal/orchestrator/explore_parallel_dispatch.go`
 
+本批探索确认：
+- `ReadProofGuidance` 明确约束：failed truth 才是 hard block，weak/missing/unavailable proof 保持 advisory；C1 不升级 `LoopActionBlock`，避免改变用户可见终止语义。
+- 当前 read retry hint 已渲染 `proofGuidance` 和 shadow comparison，但 imperative action 仍硬编码为 `LoopActionAddProof`；C1 要把 action 选择改为消费 typed `ReadProofGuidance.RecommendedAction`。
+- 选定单一低风险 action：`LoopActionAddProof`。当 proof authority 为 weak/add_proof 且非 hard block 时，系统把下一轮 continuation hint 收敛成 narrow proof follow-up；其它 action 仍保持 telemetry/advisory，不做硬门。
+- C1 不消费 rendered guidance 字符串、不解析模型输出、不根据用户意图关键词分流；prompt 文案只承载 typed action 的软指导。
+
 任务：
 - 选择单一低风险 action：优先候选为 `LoopActionAddProof` 对已存在 typed proof weak 的 retry hint 强化，或 `LoopActionBlock` 对 hard truth failure 的 fail-loud。最终选择必须写入 ledger。
 - hard route 只能消费 loopkernel typed state、truth action、hard block enum；不能消费 rendered `proofGuidance` 字符串。
@@ -390,6 +396,7 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 | 2026-06-21 | B1 NodeExecStatus load-bearing cutover | complete | `EvidenceClosure.NodeExecStatus` is now the closure-first decision-read authority for scheduler/orchestrator status checks; `graphState.status` is retired after closure attach and remains only nil-closure bootstrap fallback. `rg 'state\\.status\\[|s\\.status\\[|\\.status\\[' internal/orchestrator` only finds accessor internals. Focused `go test ./internal/types ./internal/orchestrator -run 'TestGraphState|TestHandleStructurallyEmptyInvestigation|TestE2E_ReadMode_.*Extract|TestStageMappingFirstClassExtractSkip'` and `go test ./internal/orchestrator -run 'TestGraphState|TestRunTaskGraph|TestE2E_ReadMode|TestMode_DefaultIsRead|TestRunMode_ReadByteIdentical'` passed. |
 | 2026-06-21 | B3 IngestRound production reducer cutover | complete | `applyStageOutput` now calls production `ingestEvidenceRound`, mutating the real closure via typed `EvidenceClosure.IngestRound` while preserving `ToolResults` history append semantics. Tests cover production read coverage, accepted-evidence carrier idempotence, and existing truth-set merge behavior. `go test ./internal/types ./internal/tool/ground ./internal/orchestrator -run 'IngestRound|ApplyStageOutput|ReadCoverage|AcceptedEvidence'` passed. |
 | 2026-06-21 | B2 Read run snapshot substrate | complete | Added typed `ReadRunSnapshot` projection/persistence plus `ReadRunSnapshotStore` under `<planDir>/read_runs/`. Snapshot carries TaskGraph identity, node exec statuses, read coverage, accepted-evidence refs, source-inventory authority, and progress decision from typed carriers only. Automatic resume remains explicitly out of batch. `go test ./internal/types ./internal/repl -run 'ReadRunSnapshot|EvidenceClosure.*Snapshot'` and `go test ./internal/types ./internal/repl` passed. |
+| 2026-06-21 | C1 Read loopkernel add-proof action intake | in_progress | Selected `LoopActionAddProof` as the first read-side load-bearing action. Scope is typed retry-continuation action selection only: weak proof triggers a narrow proof follow-up hint; hard block/finish semantics remain unchanged. |
 
 ---
 
