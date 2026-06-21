@@ -339,6 +339,37 @@ func TestAppendUserCaveatsToAnswerForBus_RuntimePrincipalEnumerationKeepsEnumera
 	}
 }
 
+func TestAppendUserCaveatsToAnswerForBus_AcceptedEnumerationSuppressesGenericSelfContradiction(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := acceptedEnumerationCaveatTestContext()
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolSelfContradiction,
+		ClusterKey: types.TopicClusterKey("source inventory", "answer_summary_body_consistency"),
+	}}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("generic accepted-enumeration self-contradiction caveat should stay telemetry-only, got:\n%s", out)
+	}
+}
+
+func TestAppendUserCaveatsToAnswerForBus_AcceptedEnumerationKeepsSpecificSelfContradiction(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := acceptedEnumerationCaveatTestContext()
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolSelfContradiction,
+		Detail:     `self_contradiction[source inventory] — SUMMARY: "2 types" ⇄ BODY: "3 types"`,
+		ClusterKey: types.TopicClusterKey("source inventory", "answer_summary_body_consistency"),
+	}}, "zh", ctx)
+	for _, want := range []string{"**补充说明：**", "2 types", "3 types"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("specific accepted-enumeration contradiction missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswerForBus_PureHistoryNarrativeSuppressesCurrentSourceCaveats(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)
@@ -383,6 +414,60 @@ func TestAppendSoftContractCaveatsToAnswerForBus_PureHistoryNarrativeSuppressesC
 	}, "zh", mixedCtx)
 	if !strings.Contains(mixedOut, "**补充说明：**") {
 		t.Fatalf("mixed history/current-code request should keep caveat disclosure:\n%s", mixedOut)
+	}
+}
+
+func acceptedEnumerationCaveatTestContext() *types.BusContext {
+	rm := types.RequestModel{
+		RawRequest: "列出所有入口组件类型",
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			Confidence:        0.9,
+		},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "entry component types",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Index @ entry/src/main/ets/pages/Index.ets:7",
+			"Details @ entry/src/main/ets/pages/Details.ets:11",
+		},
+		SupportRefs: []string{
+			"entry/src/main/ets/pages/Index.ets:7",
+			"entry/src/main/ets/pages/Details.ets:11",
+		},
+	}})
+	mut.SetInvestigationComplete("accepted complete source inventory")
+	mut.RetainInvestigationAggregateFacts()
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "types",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{
+				{ID: "index", Label: "Index", Text: "entry component type", CitationRef: 0},
+				{ID: "details", Label: "Details", Text: "entry component type", CitationRef: 1},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "entry/src/main/ets/pages/Index.ets", Line: 7},
+			{File: "entry/src/main/ets/pages/Details.ets", Line: 11},
+		},
+	})
+	return &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
 	}
 }
 
