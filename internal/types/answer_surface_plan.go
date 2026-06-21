@@ -54,6 +54,7 @@ type AnswerSurfacePlan struct {
 	CapabilityAuthorityFiles      []string
 	ChangeImpactProfile           *ChangeImpactProfile
 	RequestedAnswerDimensions     []RequestedAnswerDimension
+	SourceInventoryObservation    SourceInventoryObservation
 
 	SurfaceEvidence []EvidenceItem
 
@@ -1702,6 +1703,7 @@ func BuildAnswerSurfacePlan(
 		plan.StableAbsenceJustification = strings.TrimSpace(mutable.StableAbsenceJustification())
 		plan.StableInvestigationReason = strings.TrimSpace(mutable.StableInvestigationCompleteReason())
 		plan.StableAggregateFacts = mutable.StableInvestigationAggregateFacts()
+		plan.SourceInventoryObservation = SourceInventoryObservationFromMutable(mutable)
 		if ta := mutable.TurnAArtifacts(); ta != nil {
 			plan.StableAggregateFacts = MergeAnswerAggregateFacts(plan.StableAggregateFacts, ta.AcceptedAggregateFacts)
 			if len(ta.ValidationBoundaryNotes) > 0 {

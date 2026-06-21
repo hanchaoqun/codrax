@@ -56,8 +56,22 @@ type EnumerationDisplayRow struct {
 	Producer            string
 	GroundingTier       GroundingTier
 	EvidenceOrigins     []AnswerEvidenceOrigin
+	Attributes          []EnumerationDisplayRowAttribute
 	Note                string
 	Detail              string
+}
+
+// EnumerationDisplayRowAttribute is a typed row-local dimension carried from
+// source-inventory observation, for example a language package/module scope.
+// It is intentionally separate from prose notes so finalizer prompts and
+// validators can preserve requested dimensions without inferring them from
+// member labels or file paths.
+type EnumerationDisplayRowAttribute struct {
+	Role     AnswerCandidateRole
+	Name     string
+	Source   string
+	Line     int
+	Location string
 }
 
 // CompileEnumerationDisplaySets compiles accepted complete principal
@@ -77,6 +91,7 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 	support := genericAggregateSupportEvidenceByMemberLabel(plan.SurfaceEvidence)
 	anchorSummaries := enumerationDisplayAnchorSummaryIndexForEvidence(plan.SurfaceEvidence)
 	stepSupport := enumerationDisplayStepBackboneIndex(plan.StepBackbone)
+	sourceInventoryAttributes := sourceInventoryRowAttributeIndex(plan.SourceInventoryObservation)
 	out := make([]EnumerationDisplaySet, 0, len(refs))
 	for _, ref := range refs {
 		fact := ref.Fact
@@ -93,7 +108,7 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 			EvidenceOrigins: cloneEnumerationDisplayOrigins(AnswerAggregateFactEvidenceOrigins(fact, rm)),
 		}
 		for memberIdx, member := range fact.Members {
-			row, ok := compileEnumerationDisplayRow(rm, set, fact, ref.Index, memberIdx, member, support, anchorSummaries, stepSupport)
+			row, ok := compileEnumerationDisplayRow(rm, set, fact, ref.Index, memberIdx, member, support, anchorSummaries, stepSupport, sourceInventoryAttributes)
 			if !ok {
 				continue
 			}
@@ -177,6 +192,7 @@ func compileEnumerationDisplayRow(
 	support *aggregateMemberEvidenceIndex,
 	anchorSummaries *enumerationDisplayAnchorSummaryIndex,
 	stepSupport *enumerationDisplayStepBackbone,
+	sourceInventoryAttributes *enumerationDisplaySourceInventoryAttributeIndex,
 ) (EnumerationDisplayRow, bool) {
 	entry, ok := genericAggregateMemberSupportEntry(fact, factIdx, memberIdx, member, support, set.EvidenceOrigins)
 	if !ok {
@@ -221,6 +237,7 @@ func compileEnumerationDisplayRow(
 		Producer:            entry.Producer,
 		GroundingTier:       entry.GroundingTier,
 		EvidenceOrigins:     cloneEnumerationDisplayOrigins(set.EvidenceOrigins),
+		Attributes:          sourceInventoryAttributes.attributesFor(member, entry),
 		Note:                note,
 		Detail:              enumerationDisplayDetail(entry.Detail, note),
 	}
@@ -239,6 +256,176 @@ func compileEnumerationDisplayRow(
 	row.Note = SanitizeSourceInventoryNoteForRequest(rm, row.Note)
 	row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	return row, true
+}
+
+type enumerationDisplaySourceInventoryAttributeIndex struct {
+	byLocation map[string][]EnumerationDisplayRowAttribute
+	byMember   map[string][]EnumerationDisplayRowAttribute
+}
+
+func sourceInventoryRowAttributeIndex(observation SourceInventoryObservation) *enumerationDisplaySourceInventoryAttributeIndex {
+	if !observation.IsActive() {
+		return nil
+	}
+	idx := &enumerationDisplaySourceInventoryAttributeIndex{
+		byLocation: map[string][]EnumerationDisplayRowAttribute{},
+		byMember:   map[string][]EnumerationDisplayRowAttribute{},
+	}
+	for _, set := range observation.Sets {
+		for _, member := range set.Members {
+			attrs := sourceInventoryRowContextAttributes(member.Attributes)
+			if len(attrs) == 0 {
+				continue
+			}
+			idx.addSourceInventoryMember(member, attrs)
+		}
+	}
+	if len(idx.byLocation) == 0 && len(idx.byMember) == 0 {
+		return nil
+	}
+	return idx
+}
+
+func sourceInventoryRowContextAttributes(attrs []SourceInventoryObservationAttribute) []EnumerationDisplayRowAttribute {
+	if len(attrs) == 0 {
+		return nil
+	}
+	out := make([]EnumerationDisplayRowAttribute, 0, len(attrs))
+	seen := map[string]bool{}
+	for _, attr := range attrs {
+		role := attr.Role
+		if role != AnswerCandidateRolePackage {
+			continue
+		}
+		name := strings.TrimSpace(attr.Name)
+		if name == "" {
+			continue
+		}
+		item := EnumerationDisplayRowAttribute{
+			Role:   role,
+			Name:   name,
+			Source: strings.TrimSpace(attr.File),
+			Line:   attr.Line,
+		}
+		if item.Source != "" {
+			item.Location = aggregateSupportLocationKeyForDisplay(item.Source, item.Line)
+		}
+		key := enumerationDisplayRowAttributeKey(item)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Role != out[j].Role {
+			return string(out[i].Role) < string(out[j].Role)
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
+}
+
+func (idx *enumerationDisplaySourceInventoryAttributeIndex) addSourceInventoryMember(member SourceInventoryObservationMember, attrs []EnumerationDisplayRowAttribute) {
+	if idx == nil || len(attrs) == 0 {
+		return
+	}
+	source := strings.TrimSpace(member.File)
+	line := member.Line
+	if key := enumerationDisplayLocationKey(source, line); key != "" {
+		idx.byLocation[key] = mergeEnumerationDisplayRowAttributes(idx.byLocation[key], attrs)
+	}
+	if label := aggregateMemberKey(member.Name); label != "" {
+		if source != "" {
+			idx.byMember[label+"\x00"+normalizeAnswerSupportPath(source)] = mergeEnumerationDisplayRowAttributes(idx.byMember[label+"\x00"+normalizeAnswerSupportPath(source)], attrs)
+		}
+		idx.byMember[label] = mergeEnumerationDisplayRowAttributes(idx.byMember[label], attrs)
+	}
+	if _, loc, ok := ParseAnswerSupportRefMemberLocation(member.SupportRef); ok {
+		if key := enumerationDisplayLocationKey(loc.File, loc.LineStart); key != "" {
+			idx.byLocation[key] = mergeEnumerationDisplayRowAttributes(idx.byLocation[key], attrs)
+		}
+	}
+}
+
+func (idx *enumerationDisplaySourceInventoryAttributeIndex) attributesFor(member string, entry AnswerSupportEntry) []EnumerationDisplayRowAttribute {
+	if idx == nil {
+		return nil
+	}
+	var out []EnumerationDisplayRowAttribute
+	if key := enumerationDisplayLocationKey(entry.Source, entry.LineStart); key != "" {
+		out = mergeEnumerationDisplayRowAttributes(out, idx.byLocation[key])
+	}
+	if loc, ok := ParseAnswerSourceLocationSurface(entry.Location); ok {
+		if key := enumerationDisplayLocationKey(loc.File, loc.LineStart); key != "" {
+			out = mergeEnumerationDisplayRowAttributes(out, idx.byLocation[key])
+		}
+	}
+	if label := aggregateMemberKey(member); label != "" {
+		if entry.Source != "" {
+			out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label+"\x00"+normalizeAnswerSupportPath(entry.Source)])
+		}
+		out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label])
+	}
+	if label := aggregateMemberKey(entry.Text); label != "" && !strings.EqualFold(label, aggregateMemberKey(member)) {
+		if entry.Source != "" {
+			out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label+"\x00"+normalizeAnswerSupportPath(entry.Source)])
+		}
+		out = mergeEnumerationDisplayRowAttributes(out, idx.byMember[label])
+	}
+	return out
+}
+
+func mergeEnumerationDisplayRowAttributes(existing, incoming []EnumerationDisplayRowAttribute) []EnumerationDisplayRowAttribute {
+	if len(incoming) == 0 {
+		return existing
+	}
+	seen := map[string]bool{}
+	out := make([]EnumerationDisplayRowAttribute, 0, len(existing)+len(incoming))
+	for _, attr := range existing {
+		key := enumerationDisplayRowAttributeKey(attr)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, attr)
+	}
+	for _, attr := range incoming {
+		key := enumerationDisplayRowAttributeKey(attr)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, attr)
+	}
+	return out
+}
+
+func enumerationDisplayRowAttributeKey(attr EnumerationDisplayRowAttribute) string {
+	name := strings.ToLower(strings.TrimSpace(attr.Name))
+	if name == "" {
+		return ""
+	}
+	return string(attr.Role) + "\x00" + name
+}
+
+func enumerationDisplayLocationKey(source string, line int) string {
+	source = normalizeAnswerSupportPath(source)
+	if source == "" || line <= 0 {
+		return ""
+	}
+	return source + ":" + strconv.Itoa(line)
+}
+
+func aggregateSupportLocationKeyForDisplay(file string, line int) string {
+	file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+	if file == "" {
+		return ""
+	}
+	if line > 0 {
+		return file + ":" + strconv.Itoa(line)
+	}
+	return file
 }
 
 func answerAggregateMemberNoteAt(notes []string, idx int) string {

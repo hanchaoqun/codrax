@@ -93,8 +93,7 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 		return nil
 	}
 	review := types.SourceLocalizationReviewFromTurnAArtifacts(turnA)
-	if readPrincipalMemberSetLocalizationComplete(busCtx, ir, turnA) &&
-		!readLocalizerExplicitMissingOwnerForTier1(review) {
+	if readPrincipalMemberSetLocalizationComplete(busCtx, ir, turnA) {
 		logging.Info("[orchestrator] pre-finalize read localizer follow-up suppressed: reason=principal_member_set_localization_complete")
 		return nil
 	}
@@ -180,11 +179,15 @@ func tier1LocationReadBacked(loc types.AnswerSourceLocationSurface, readFiles ma
 	if path == "" || loc.LineStart <= 0 {
 		return false
 	}
-	if readFiles[path] {
+	if tier1ReadFilesContainPath(path, readFiles) {
+		return true
+	}
+	if resolved, ok := tier1UniqueReadFileSuffix(path, readFiles); ok && resolved != "" {
 		return true
 	}
 	for _, ev := range evidence {
-		if canonicalTier1LocationPath(ev.Source) != path {
+		evPath := canonicalTier1LocationPath(ev.Source)
+		if !tier1PathEqual(evPath, path) && !tier1PathHasSuffix(evPath, path) {
 			continue
 		}
 		if ev.LineStart <= 0 {
@@ -208,6 +211,60 @@ func canonicalTier1LocationPath(raw string) string {
 	p := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
 	p = strings.TrimPrefix(p, "./")
 	return p
+}
+
+func tier1ReadFilesContainPath(path string, readFiles map[string]bool) bool {
+	path = canonicalTier1LocationPath(path)
+	if path == "" {
+		return false
+	}
+	if readFiles[path] {
+		return true
+	}
+	for candidate := range readFiles {
+		if tier1PathEqual(candidate, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func tier1UniqueReadFileSuffix(path string, readFiles map[string]bool) (string, bool) {
+	path = canonicalTier1LocationPath(path)
+	if path == "" || len(readFiles) == 0 {
+		return "", false
+	}
+	var match string
+	for candidate := range readFiles {
+		candidate = canonicalTier1LocationPath(candidate)
+		if candidate == "" || !tier1PathHasSuffix(candidate, path) {
+			continue
+		}
+		if match != "" && match != candidate {
+			return "", false
+		}
+		match = candidate
+	}
+	return match, match != ""
+}
+
+func tier1PathHasSuffix(candidate, suffix string) bool {
+	candidate = canonicalTier1LocationPath(candidate)
+	suffix = canonicalTier1LocationPath(suffix)
+	if candidate == "" || suffix == "" {
+		return false
+	}
+	return tier1PathEqual(candidate, suffix) ||
+		strings.HasSuffix(strings.ToLower(candidate), "/"+strings.ToLower(suffix))
+}
+
+func tier1PathEqual(left, right string) bool {
+	left = canonicalTier1LocationPath(left)
+	right = canonicalTier1LocationPath(right)
+	if left == "" || right == "" {
+		return false
+	}
+	return strings.EqualFold(left, right)
 }
 
 func renderReadLocalizerFollowupRetryMessage(followup *types.ReadLocalizerFollowup) string {

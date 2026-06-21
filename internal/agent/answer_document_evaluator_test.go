@@ -384,6 +384,76 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersSourceInventoryH
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalRowAttributes(t *testing.T) {
+	mut := types.NewMutableState("list cangjie entrypoints and packages")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "entrypoints",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Unit:        "function",
+		Members:     []string{"extend Cart"},
+		SupportRefs: []string{"extend Cart @ src/cart/cart.cj:30"},
+	}})
+	mut.SetInvestigationComplete("structured source inventory member set accepted")
+	mut.SetInvestigationResultKind("resolved")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"src"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "extend Cart",
+				File:          "src/cart/cart.cj",
+				Line:          30,
+				Language:      "cangjie",
+				CoverageState: types.SourceInventoryCoverageObserved,
+				Attributes: []types.SourceInventoryObservationAttribute{{
+					Name:          "demo.cart",
+					Role:          types.AnswerCandidateRolePackage,
+					File:          "src/cart/cart.cj",
+					Language:      "cangjie",
+					CoverageState: types.SourceInventoryCoverageObserved,
+				}},
+			}},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "list cangjie entrypoints and packages",
+		Mutable:   mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Principal Enumeration Rows",
+		"member=`extend Cart`",
+		"attributes=[`package:demo.cart`]",
+		"do not infer them from paths",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q for row attributes:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTurnASourceInventoryAdvisoryHandoff(t *testing.T) {
 	mut := types.NewMutableState("explain configuration routes")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{

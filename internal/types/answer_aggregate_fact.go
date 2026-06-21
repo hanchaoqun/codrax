@@ -2465,6 +2465,84 @@ func aggregateFactOutsideRequestedSourceInventoryScope(fact AnswerAggregateFact,
 	return false
 }
 
+// PrincipalSourceInventoryMemberSetScopeFiles returns the source files carried
+// by accepted principal source-inventory member_set facts. It is a scheduling
+// helper for read-loop scope pruning: the files come from typed member/support
+// carriers, not from final-answer prose, model rationale, or request-keyword
+// matching.
+func PrincipalSourceInventoryMemberSetScopeFiles(facts []AnswerAggregateFact, rm *RequestModel) []string {
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return nil
+	}
+	if HasTypedRelationMemberSetShape(*rm) {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		for _, file := range answerAggregateFactSourceFilesPreserveCase(raw) {
+			if file == "" || seen[strings.ToLower(file)] || !boundedSourceEnumerationPathAllowed(*rm, file) {
+				continue
+			}
+			seen[strings.ToLower(file)] = true
+			out = append(out, file)
+		}
+	}
+	for _, fact := range facts {
+		if fact.Kind != AnswerAggregateMemberSet || !answerAggregateFactCarriesCompleteMemberSet(fact) {
+			continue
+		}
+		if aggregateFactOutsideRequestedSourceInventoryScope(fact, rm) {
+			continue
+		}
+		if AnswerAggregateFactRoleForRequest(fact, rm) != AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
+		for _, ref := range fact.SupportRefs {
+			add(ref)
+		}
+		for _, member := range fact.Members {
+			add(member)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func answerAggregateFactSourceFilesPreserveCase(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(file string) {
+		file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+		if file == "" || seen[strings.ToLower(file)] {
+			return
+		}
+		seen[strings.ToLower(file)] = true
+		out = append(out, file)
+	}
+	if _, loc, ok := ParseAnswerSupportRefMemberLocation(raw); ok {
+		add(loc.File)
+	}
+	if loc, ok := ParseAnswerSourceLocationSurface(raw); ok {
+		add(loc.File)
+	}
+	if file, ok := ParseAnswerFilePathSurface(raw); ok {
+		add(file)
+	}
+	if _, qualifier, ok := AnswerAggregateDecoratedLabelParts(raw); ok {
+		if loc, parsed := ParseAnswerSourceLocationSurface(qualifier); parsed {
+			add(loc.File)
+		} else if file, parsed := ParseAnswerFilePathSurface(qualifier); parsed {
+			add(file)
+		}
+	}
+	return out
+}
+
 func aggregateRequestedSourceInventoryScopes(rm *RequestModel) []string {
 	if rm == nil {
 		return nil

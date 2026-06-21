@@ -362,6 +362,135 @@ func TestCheckTier1Floor_ReadLocalizerFollowupDemotesSupportAfterPrincipalMember
 	}
 }
 
+func TestCheckTier1Floor_ReadLocalizerFollowupDemotesNavigationForRelativePrincipalMemberPaths(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("list source inventory members")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "extend blocks",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend String @ 04_extend_operator.cj:6 (package demo.stringext)",
+			"highlight @ 04_styles_extend.ets:11",
+		},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ 07_foreign_ffi.cj:6 (package demo.ffi)",
+		},
+	}})
+	mu.SetInvestigationComplete("principal source-inventory member set accepted")
+	mu.RetainInvestigationAggregateFacts()
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{
+			"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj",
+			"internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets",
+			"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					HasPerMemberTable:     true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+					Confidence:        0.9,
+				},
+			},
+		},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("scope-relative principal member anchors should suppress navigation-only localizer debt, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+func TestCheckTier1Floor_ReadLocalizerFollowupDemotesCaseDriftForReadPrincipalMemberPaths(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("list cangjie source inventory members")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "extend blocks",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Cart @ cart/cart.cj:30 (package demo.cart)",
+		},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "public classes",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Bridge @ bridge/bridge.cj:15 (package demo.bridge)",
+		},
+	}})
+	mu.SetInvestigationComplete("principal source-inventory member set accepted")
+	mu.RetainInvestigationAggregateFacts()
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{
+			"cart/Cart.cj",
+			"bridge/Bridge.cj",
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			Source:          "cart/Cart.cj",
+			LineStart:       30,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		}, {
+			Source:          "bridge/Bridge.cj",
+			LineStart:       15,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					HasPerMemberTable:     true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+					Confidence:        0.9,
+				},
+			},
+		},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("case-drifted principal member anchors should match read-backed repo paths, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
 func TestCheckTier1Floor_ReadLocalizerFollowupKeepsMissingPrincipalMemberAnchor(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())

@@ -145,6 +145,68 @@ func TestCompileEnumerationDisplaySets_SourceInventorySuppressesUnrequestedValue
 	}
 }
 
+func TestCompileEnumerationDisplaySets_SourceInventoryRowAttributesPreservePackageDimension(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			RequestedFields: []SourceInventoryRequestedField{
+				SourceInventoryFieldName,
+				SourceInventoryFieldLocation,
+			},
+			Confidence: 0.95,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "Cangjie entrypoints",
+			Value:       "1",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Unit:        "function",
+			Members:     []string{"extend Cart"},
+			SupportRefs: []string{"extend Cart @ src/cart/cart.cj:30"},
+		}},
+		SourceInventoryObservation: SourceInventoryObservation{
+			Active:   true,
+			Complete: true,
+			Scopes:   []string{"src"},
+			Sets: []SourceInventoryObservationSet{{
+				Role:     AnswerCandidateRoleFunction,
+				Complete: true,
+				Count:    1,
+				Members: []SourceInventoryObservationMember{{
+					Name:          "extend Cart",
+					File:          "src/cart/cart.cj",
+					Line:          30,
+					Language:      "cangjie",
+					CoverageState: SourceInventoryCoverageObserved,
+					Attributes: []SourceInventoryObservationAttribute{{
+						Name:          "demo.cart",
+						Role:          AnswerCandidateRolePackage,
+						File:          "src/cart/cart.cj",
+						Language:      "cangjie",
+						CoverageState: SourceInventoryCoverageObserved,
+					}},
+				}},
+			}},
+		},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 1 {
+		t.Fatalf("sets = %+v", sets)
+	}
+	attrs := sets[0].Rows[0].Attributes
+	if len(attrs) != 1 || attrs[0].Role != AnswerCandidateRolePackage || attrs[0].Name != "demo.cart" {
+		t.Fatalf("row package attribute not preserved: %+v", sets[0].Rows[0])
+	}
+}
+
 func TestCompileEnumerationDisplaySets_UsesCanonicalMembersAndSupportRefs(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

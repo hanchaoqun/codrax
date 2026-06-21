@@ -41,6 +41,8 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_exec_budget.go":                120,
 	"source_inventory_language_census.go":            170,
 	"source_inventory_lens_marker.go":                40,
+	"source_inventory_context_attributes.go":         150,
+	"source_inventory_navigation_render.go":          50,
 	"source_inventory_surface_terms.go":              110,
 	"sourceinventory/budget.go":                      233,
 	"sourceinventory/execution_view.go":              162,

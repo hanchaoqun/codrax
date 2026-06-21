@@ -24,5 +24,6 @@ NAME="repomap Cangjie extend + foreign func + public class on isolated .cj fixtu
 FIXTURE="eval/fixtures/testdata/cangjie_minimal"
 QUESTION="仓库里有哪些 extend 块、哪些 foreign func 声明、哪些 public class？分别列出文件路径和符号名，并指出包路径（package 声明）。"
 EXPECT_CONTAINS="extend native_add"
-EXPECT_SECTIONS="package"
+EXPECT_DIMENSIONS="package"
+EXPECT_DIMENSION_VALUES_PACKAGE="demo.cart demo.bridge"
 EXPECT_MATCHES_TEXT_REGEX='demo\.(app|cart|bridge)'

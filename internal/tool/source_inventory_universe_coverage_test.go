@@ -476,6 +476,43 @@ func TestPublishSourceInventoryObservationFromLens_PreservesGraphSurfaceTerms(t 
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_PreservesGraphPackageAsRowAttribute(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/cart/cart.cj",
+		Language: "cangjie",
+		Package:  "demo.cart",
+		Symbols: []repotypes.Symbol{{
+			Name:     "extend Cart",
+			Kind:     "function",
+			File:     "src/cart/cart.cj",
+			Line:     30,
+			Exported: true,
+		}},
+	}})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.90,
+	})
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Scopes:        []string{"src"},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+	})
+	if !obs.IsActive() || len(obs.Sets) != 1 || len(obs.Sets[0].Members) != 1 {
+		t.Fatalf("expected one graph-backed source-inventory member: %+v", obs)
+	}
+	attrs := obs.Sets[0].Members[0].Attributes
+	if len(attrs) != 1 || attrs[0].Role != types.AnswerCandidateRolePackage || attrs[0].Name != "demo.cart" {
+		t.Fatalf("graph package should be preserved as row attribute: %+v", obs.Sets[0].Members[0])
+	}
+}
+
 func TestPublishSourceInventoryObservationFromLens_BudgetsBroadCandidateMaterialization(t *testing.T) {
 	files := make([]*repotypes.FileInfo, 0, sourceInventoryExecBudgetFileThreshold+100)
 	for i := 0; i < sourceInventoryExecBudgetFileThreshold+100; i++ {

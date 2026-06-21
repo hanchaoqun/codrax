@@ -4794,6 +4794,7 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 	b.WriteString("- These rows are compiled deterministically from accepted principal aggregate facts, member-specific support refs, and grounded evidence. Use them as the stable row/citation skeleton for enumeration tables or lists.\n")
 	b.WriteString("- Preserve every `member` as the principal row identity. Use `display_label`, `location`, and `citation_key` to build clear table cells; use `note` to keep the answer explanatory instead of a dry symbol dump.\n")
 	b.WriteString("- When any row has a non-empty `note`, render that note on the same row as a concise description/说明 column or equivalent item text. Do not collapse per-row notes only into a summary paragraph.\n")
+	b.WriteString("- When a row has non-empty `attributes`, preserve those typed dimensions on that same row as table columns or equivalent item text; do not infer them from paths.\n")
 	b.WriteString("- Render these rows as the actual principal `ordered_list`, `bullet_list`, or `table` blocks for the answer. Do not mention the row set only inside prose sections and rely on system-side fallback carriers; that creates duplicate user-visible lists.\n")
 	b.WriteString("- A row without `citation_key` is a legitimate non-file aggregate member; do not invent a `repo:0` citation for it.\n\n")
 	if guidance := renderAnswerDocSourceInventoryRowGuidance(ctx); guidance != "" {
@@ -4834,6 +4835,9 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 			if equivalents := renderSupportEntryEquivalentLocations(row.EquivalentLocations); equivalents != "" {
 				fmt.Fprintf(&b, ", equivalent_locations=%s", equivalents)
 			}
+			if attrs := renderEnumerationDisplayRowAttributes(row.Attributes); attrs != "" {
+				fmt.Fprintf(&b, ", attributes=%s", attrs)
+			}
 			if note != "" {
 				fmt.Fprintf(&b, " — note: %s", note)
 			}
@@ -4842,6 +4846,40 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func renderEnumerationDisplayRowAttributes(attrs []types.EnumerationDisplayRowAttribute) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(attrs))
+	seen := map[string]bool{}
+	for _, attr := range attrs {
+		name := strings.TrimSpace(attr.Name)
+		if name == "" {
+			continue
+		}
+		role := strings.TrimSpace(string(attr.Role))
+		if role == "" {
+			role = "attribute"
+		}
+		part := role + ":" + name
+		key := strings.ToLower(part)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		parts = append(parts, part)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	sort.Strings(parts)
+	escaped := make([]string, 0, len(parts))
+	for _, part := range parts {
+		escaped = append(escaped, "`"+part+"`")
+	}
+	return "[" + strings.Join(escaped, ", ") + "]"
 }
 
 func renderAnswerDocSourceInventoryRowGuidance(ctx *types.AgentContext) string {

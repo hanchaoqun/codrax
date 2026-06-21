@@ -2305,7 +2305,7 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 			logging.Info("[emit_investigation_complete] generic forced-read gates bypassed by grounded model-owned completion boundary")
 		} else {
 			raisePrimaryAnchorPendingRead(ctx, closure)
-			raisePhase1UnreadPendingReads(ctx, closure)
+			raisePhase1UnreadPendingReads(ctx, closure, aggregateFacts)
 			applyMultiPathAnchorChecksWithEvidence(ctx, closure, evidence)
 		}
 		if downgrade := structuredRelationAuthorityPreCompleteDowngrade(ctx, closure, structuredRelationAuthorityFacts, evidence); downgrade != "" {
@@ -7721,7 +7721,7 @@ func nextReadOffset(ranges []types.LineRange) int {
 // chain-promotion D2) and raise a RepairExpandSearch directive. The
 // downstream PendingReads branch of preCompleteContractCheck then
 // renders the downgrade message.
-func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.EvidenceClosure) {
+func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) {
 	if ctx == nil || ctx.Mutable == nil || closure == nil {
 		return
 	}
@@ -7797,7 +7797,7 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	if minUnread < 1 {
 		minUnread = 1
 	}
-	filter := newPhase1UnreadFilter(ctx, closure)
+	filter := newPhase1UnreadFilter(ctx, closure, aggregateFacts)
 	type unreadRankedFile struct {
 		rank int
 		file types.Phase1RankedFile
@@ -7880,14 +7880,14 @@ type phase1UnreadFilter struct {
 	sourceInventoryScopeSet    map[string]bool
 }
 
-func newPhase1UnreadFilter(ctx *types.BusContext, closure *types.EvidenceClosure) phase1UnreadFilter {
+func newPhase1UnreadFilter(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) phase1UnreadFilter {
 	var out phase1UnreadFilter
 	if ctx == nil || ctx.Mutable == nil || closure == nil {
 		return out
 	}
 	out.repoRoot = ctx.RepoRoot
 	out.requiredFileSet = phase1UnreadRequiredFileSet(ctx)
-	out.sourceInventoryScopeSet, out.sourceInventoryStrictScope = phase1UnreadSourceInventoryStrictScopeSet(ctx)
+	out.sourceInventoryScopeSet, out.sourceInventoryStrictScope = phase1UnreadSourceInventoryStrictScopeSet(ctx, aggregateFacts)
 	if out.sourceInventoryStrictScope {
 		out.enabled = true
 	}
@@ -7926,7 +7926,7 @@ func (f phase1UnreadFilter) hasMandatoryReadSignal(ranked types.Phase1RankedFile
 	return ranked.ExactEntityRank > 0
 }
 
-func phase1UnreadSourceInventoryStrictScopeSet(ctx *types.BusContext) (map[string]bool, bool) {
+func phase1UnreadSourceInventoryStrictScopeSet(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) (map[string]bool, bool) {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return nil, false
 	}
@@ -7934,7 +7934,13 @@ func phase1UnreadSourceInventoryStrictScopeSet(ctx *types.BusContext) (map[strin
 	if !types.SourceInventoryLensExecuted(observation) || !sourceInventoryObservationCompleteForPhase1Scope(observation) {
 		return nil, false
 	}
-	files := types.BoundedSourceEnumerationScopeFiles(ctx.AnalysisIR.RequestModel, ctx.AnalysisIR.EvidencePlan.RequiredFiles, ctx.RepoRoot)
+	files := types.PrincipalSourceInventoryMemberSetScopeFiles(aggregateFacts, &ctx.AnalysisIR.RequestModel)
+	if len(files) == 0 {
+		files = types.PrincipalSourceInventoryMemberSetScopeFiles(ctx.Mutable.StableInvestigationAggregateFacts(), &ctx.AnalysisIR.RequestModel)
+	}
+	if len(files) == 0 {
+		files = types.BoundedSourceEnumerationScopeFiles(ctx.AnalysisIR.RequestModel, ctx.AnalysisIR.EvidencePlan.RequiredFiles, ctx.RepoRoot)
+	}
 	if len(files) == 0 || types.BoundedSourceEnumerationCommonScope(files) == "" {
 		return nil, false
 	}

@@ -423,9 +423,11 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 	// visible repo_map result makes a narrow lens look like a broad union and
 	// can mislead the model into treating navigation hints as the answer set.
 	renderObservation := types.SourceInventoryObservationFromAdvisory(advisory)
+	renderObservation = sourceInventoryObservationWithGraphContextAttributes(ctx, renderObservation)
 	renderObservation = sourceInventoryObservationWithSourceClassUniverse(ctx, renderObservation, query)
 	renderObservation = sourceInventoryObservationWithLensExecutionState(renderObservation, query)
 	if exact := sourceInventoryObservationFromLensDirectChildren(ctx, query); exact.IsActive() {
+		exact = sourceInventoryObservationWithGraphContextAttributes(ctx, exact)
 		exact = sourceInventoryObservationWithSourceClassUniverse(ctx, exact, query)
 		exact = sourceInventoryObservationWithLensExecutionState(exact, query)
 		current := ctx.Mutable.SourceInventoryObservation()

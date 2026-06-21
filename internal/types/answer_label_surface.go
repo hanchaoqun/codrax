@@ -131,7 +131,7 @@ func ParseAnswerSupportRefMemberLocation(raw string) (label string, location Ans
 		if idx <= 0 {
 			continue
 		}
-		if surface, parsed := ParseAnswerSourceLocationSurface(strings.TrimSpace(raw[idx+len(sep):])); parsed {
+		if surface, parsed := parseAnswerSupportLocationSurface(strings.TrimSpace(raw[idx+len(sep):])); parsed {
 			return strings.TrimSpace(raw[:idx]), surface, true
 		}
 	}
@@ -153,7 +153,7 @@ func ParseAnswerSupportRefMemberLocation(raw string) (label string, location Ans
 		label := strings.TrimSpace(raw[:idx])
 		location := strings.TrimSpace(raw[idx+1:])
 		if label != "" {
-			if surface, parsed := ParseAnswerSourceLocationSurface(location); parsed {
+			if surface, parsed := parseAnswerSupportLocationSurface(location); parsed {
 				return label, surface, true
 			}
 		}
@@ -162,6 +162,28 @@ func ParseAnswerSupportRefMemberLocation(raw string) (label string, location Ans
 		return "", surface, true
 	}
 	return "", AnswerSourceLocationSurface{}, false
+}
+
+func parseAnswerSupportLocationSurface(raw string) (AnswerSourceLocationSurface, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return AnswerSourceLocationSurface{}, false
+	}
+	if surface, parsed := ParseAnswerSourceLocationSurface(raw); parsed {
+		return surface, true
+	}
+	for _, idx := range []int{
+		strings.Index(raw, " ("),
+		strings.Index(raw, " ["),
+	} {
+		if idx <= 0 {
+			continue
+		}
+		if surface, parsed := ParseAnswerSourceLocationSurface(strings.TrimSpace(raw[:idx])); parsed {
+			return surface, true
+		}
+	}
+	return AnswerSourceLocationSurface{}, false
 }
 
 // AnswerSupportRefLabelIsGeneric reports whether the label part of

@@ -205,6 +205,7 @@ func cloneAnswerSurfacePlan(in *AnswerSurfacePlan) *AnswerSurfacePlan {
 	out.StableAggregateFacts = cloneAnswerAggregateFacts(in.StableAggregateFacts)
 	out.ExactContextRequiredFiles = append([]string(nil), in.ExactContextRequiredFiles...)
 	out.CapabilityAuthorityFiles = append([]string(nil), in.CapabilityAuthorityFiles...)
+	out.SourceInventoryObservation = CloneSourceInventoryObservation(in.SourceInventoryObservation)
 	out.SurfaceEvidence = append([]EvidenceItem(nil), in.SurfaceEvidence...)
 	out.AllowedExactContextItems = append([]EvidenceItem(nil), in.AllowedExactContextItems...)
 	out.CitationGradeExactContextItems = append([]EvidenceItem(nil), in.CitationGradeExactContextItems...)

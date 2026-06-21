@@ -57,6 +57,8 @@ func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
 		{"BuildTypedRelationQueryWithResolvedSources (internal/types/typed_relation_hint.go:182, 183)", "BuildTypedRelationQueryWithResolvedSources", "internal/types/typed_relation_hint.go", 182},
 		{"ParserObserver@src/parser/observer.cpp:73", "ParserObserver", "src/parser/observer.cpp", 73},
 		{"explorer (via SubExplorer.Name @ internal/agent/sub_explorer.go:31)", "explorer", "internal/agent/sub_explorer.go", 31},
+		{"extend String @ 04_extend_operator.cj:6 (package demo.stringext)", "extend String", "04_extend_operator.cj", 6},
+		{"native_add @ 07_foreign_ffi.cj:6 [package demo.ffi]", "native_add", "07_foreign_ffi.cj", 6},
 	}
 	for _, tc := range cases {
 		label, loc, ok := ParseAnswerSupportRefMemberLocation(tc.raw)

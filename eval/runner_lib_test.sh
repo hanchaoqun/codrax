@@ -217,6 +217,47 @@ cat >"$tmp/mcp-repeat-control.log" <<'LOG'
 LOG
 assert_eq "$(eval_count_repeated_mcp_resource_reads "$tmp/mcp-repeat-control.log")" "1" "repeated MCP resource read control count"
 
+cat >"$tmp/fake-codrax-dimension-pass" <<'SH'
+#!/usr/bin/env bash
+echo 'thinking stream'
+echo '━━━'
+echo 'extend Cart — 包路径 demo.cart'
+echo 'foreign func native_add — 包路径 demo.bridge'
+SH
+chmod +x "$tmp/fake-codrax-dimension-pass"
+
+cat >"$tmp/dimension-pass.case" <<'CASE'
+ID="dimension_pass"
+NAME="dimension pass"
+QUESTION="dimension test"
+MIN_OUTPUT_CHARS=1
+EXPECT_DIMENSIONS="package"
+EXPECT_DIMENSION_VALUES_PACKAGE="demo.cart demo.bridge"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-dimension-pass" EVAL_RESULTS_ROOT="$tmp/dimension-results" CODRAX_PROVIDER_ARGS_RAW="" eval/run.sh "$tmp/dimension-pass.case" 1 >/dev/null || fail "dimension pass eval failed to run"
+dimension_pass_dir="$(eval_latest_result_dir "$tmp/dimension-results" dimension_pass 00000000-000000 || true)"
+[[ -n "$dimension_pass_dir" ]] || fail "dimension pass result dir missing"
+assert_eq "$(cat "$dimension_pass_dir/run-1.verdict")" "PASS" "dimension semantic values should pass without literal section label"
+
+cat >"$tmp/dimension-missing.case" <<'CASE'
+ID="dimension_missing"
+NAME="dimension missing"
+QUESTION="dimension test"
+MIN_OUTPUT_CHARS=1
+EXPECT_DIMENSIONS="package"
+EXPECT_DIMENSION_VALUES_PACKAGE="demo.cart demo.missing"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-dimension-pass" EVAL_RESULTS_ROOT="$tmp/dimension-results" CODRAX_PROVIDER_ARGS_RAW="" eval/run.sh "$tmp/dimension-missing.case" 1 >/dev/null || fail "dimension missing eval failed to run"
+dimension_missing_dir="$(eval_latest_result_dir "$tmp/dimension-results" dimension_missing 00000000-000000 || true)"
+[[ -n "$dimension_missing_dir" ]] || fail "dimension missing result dir missing"
+case "$(cat "$dimension_missing_dir/run-1.verdict")" in
+  "FAIL missing_dimension:package:demo.missing")
+    ;;
+  *)
+    fail "dimension missing should report missing semantic value, got: $(cat "$dimension_missing_dir/run-1.verdict")"
+    ;;
+esac
+
 cat >"$tmp/finalizer-content-only.log" <<'LOG'
 2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: the source code contains TOOLRESULT emit_answer_document ok=false and finalizer_rewrites strings
 2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 ASSISTANT content: 客户日志片段里有 成文校验未通过 和 ⟳ 4/4 答案待完善，正在重写

@@ -104,6 +104,12 @@ function Split-RegexPatterns {
     return @(($Text -replace "`r", "") -split "`n" | Where-Object { $_.Trim() -ne "" })
 }
 
+function Convert-DimensionKey {
+    param([string]$Text)
+    $key = ($Text.ToUpperInvariant() -replace '[^A-Z0-9]+', '_').Trim('_')
+    return $key
+}
+
 function Get-CurrentBranch {
     param([string]$RepoRoot)
     try {
@@ -533,6 +539,36 @@ for ($run = 1; $run -le $Runs; $run++) {
         if (-not (Contains-LiteralInsensitive -Haystack $answerBody -Needle $needle)) {
             $passed = $false
             $reasons.Add(("missing_section:{0}" -f $needle))
+        }
+    }
+
+    foreach ($dim in (Split-WhitespaceTokens ([string]($case["EXPECT_DIMENSIONS"])))) {
+        $dimKey = Convert-DimensionKey $dim
+        $valuesKey = "EXPECT_DIMENSION_VALUES_{0}" -f $dimKey
+        $regexKey = "EXPECT_DIMENSION_REGEX_{0}" -f $dimKey
+        $values = if ($case.Contains($valuesKey)) { [string]($case[$valuesKey]) } else { "" }
+        $regexes = if ($case.Contains($regexKey)) { [string]($case[$regexKey]) } else { "" }
+        if (-not [string]::IsNullOrWhiteSpace($values)) {
+            foreach ($value in (Split-WhitespaceTokens $values)) {
+                if (-not (Contains-LiteralInsensitive -Haystack $answerBody -Needle $value)) {
+                    $passed = $false
+                    $reasons.Add(("missing_dimension:{0}:{1}" -f $dim, $value))
+                }
+            }
+            continue
+        }
+        if (-not [string]::IsNullOrWhiteSpace($regexes)) {
+            foreach ($regexPattern in (Split-RegexPatterns $regexes)) {
+                if (-not [regex]::IsMatch($answerBody, $regexPattern)) {
+                    $passed = $false
+                    $reasons.Add(("missing_dimension_regex:{0}:{1}" -f $dim, $regexPattern))
+                }
+            }
+            continue
+        }
+        if (-not (Contains-LiteralInsensitive -Haystack $answerBody -Needle $dim)) {
+            $passed = $false
+            $reasons.Add(("missing_dimension:{0}" -f $dim))
         }
     }
 

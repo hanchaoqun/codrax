@@ -4470,7 +4470,7 @@ func TestRaisePhase1UnreadPendingReads_SourceInventoryScopeSkipsOutOfScopeExactM
 	})
 	bus := sourceInventoryPhase1UnreadTestBus(mut, entryFile, builderFile)
 
-	raisePhase1UnreadPendingReads(bus, closure)
+	raisePhase1UnreadPendingReads(bus, closure, nil)
 
 	for _, pending := range closure.PendingReads() {
 		if pending.Origin == "phase1_unread" {
@@ -4508,7 +4508,7 @@ func TestRaisePhase1UnreadPendingReads_SourceInventoryScopeKeepsInScopeUnreadBlo
 	})
 	bus := sourceInventoryPhase1UnreadTestBus(mut, entryFile, builderFile)
 
-	raisePhase1UnreadPendingReads(bus, closure)
+	raisePhase1UnreadPendingReads(bus, closure, nil)
 
 	pending := closure.PendingReads()
 	if len(pending) != 1 || pending[0].Origin != "phase1_unread" || pending[0].File != builderFile {
@@ -4552,7 +4552,7 @@ func TestRaisePhase1UnreadPendingReads_SourceInventoryScopeUsesCompleteSourceCla
 	})
 	bus := sourceInventoryPhase1UnreadTestBus(mut, entryFile, builderFile)
 
-	raisePhase1UnreadPendingReads(bus, closure)
+	raisePhase1UnreadPendingReads(bus, closure, nil)
 
 	for _, pending := range closure.PendingReads() {
 		if pending.Origin == "phase1_unread" {
@@ -4561,6 +4561,127 @@ func TestRaisePhase1UnreadPendingReads_SourceInventoryScopeUsesCompleteSourceCla
 	}
 	if closure.Phase1UnreadFired() {
 		t.Fatal("out-of-scope noise must not burn the phase1_unread latch")
+	}
+}
+
+func TestRaisePhase1UnreadPendingReads_SourceInventoryPrincipalMemberSetScopeIgnoresPollutedRequiredFiles(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 6
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	const (
+		extendFile  = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"
+		foreignFile = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"
+		goNoise     = "internal/tool/repomap/index/extract_cangjie.go"
+		docNoise    = "docs/design/harmonyos_arkts_cangjie_support.md"
+	)
+	mut := types.NewMutableState("list Cangjie source inventory")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: goNoise, Score: 99, ExactEntityRank: 3},
+		{Path: docNoise, Score: 98, ExactEntityRank: 3},
+		{Path: extendFile, Score: 90, ExactEntityRank: 3},
+		{Path: foreignFile, Score: 89, ExactEntityRank: 3},
+	})
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:     true,
+		Provenance: []string{"repo_lens:tool_query"},
+		Lens:       []string{"source_inventory"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    8,
+			Complete: true,
+		}},
+	})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "Cangjie principal declarations",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend String",
+			"native_add",
+		},
+		SupportRefs: []string{
+			"extend String: " + extendFile + ":6",
+			"native_add: " + foreignFile + ":6",
+		},
+	}}
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		extendFile:  true,
+		foreignFile: true,
+	})
+	bus := sourceInventoryPhase1UnreadTestBus(mut, extendFile, foreignFile, goNoise, docNoise)
+
+	raisePhase1UnreadPendingReads(bus, closure, facts)
+
+	for _, pending := range closure.PendingReads() {
+		if pending.Origin == "phase1_unread" {
+			t.Fatalf("principal source-inventory member set should bound polluted required_files, got %+v", pending)
+		}
+	}
+	if closure.Phase1UnreadFired() {
+		t.Fatal("out-of-scope required-file noise must not burn the phase1_unread latch")
+	}
+}
+
+func TestRaisePhase1UnreadPendingReads_SourceInventoryPrincipalMemberSetScopeKeepsUnreadPrincipalFile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 6
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	const (
+		extendFile  = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"
+		foreignFile = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"
+		goNoise     = "internal/tool/repomap/index/extract_cangjie.go"
+	)
+	mut := types.NewMutableState("list Cangjie source inventory")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: goNoise, Score: 99, ExactEntityRank: 3},
+		{Path: extendFile, Score: 90, ExactEntityRank: 3},
+		{Path: foreignFile, Score: 89, ExactEntityRank: 3},
+	})
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:     true,
+		Provenance: []string{"repo_lens:tool_query"},
+		Lens:       []string{"source_inventory"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    8,
+			Complete: true,
+		}},
+	})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "Cangjie principal declarations",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend String",
+			"native_add",
+		},
+		SupportRefs: []string{
+			"extend String: " + extendFile + ":6",
+			"native_add: " + foreignFile + ":6",
+		},
+	}}
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		extendFile: true,
+	})
+	bus := sourceInventoryPhase1UnreadTestBus(mut, extendFile, foreignFile, goNoise)
+
+	raisePhase1UnreadPendingReads(bus, closure, facts)
+
+	pending := closure.PendingReads()
+	if len(pending) != 1 || pending[0].Origin != "phase1_unread" || pending[0].File != foreignFile {
+		t.Fatalf("unread principal source-inventory file must remain blocking, got %+v", pending)
 	}
 }
 
@@ -5233,7 +5354,7 @@ func TestPhase1UnreadPendingReads_CapabilitySurfaceQueuesAuthorityFilesOnly(t *t
 			},
 		},
 	}
-	raisePhase1UnreadPendingReads(bus, closure)
+	raisePhase1UnreadPendingReads(bus, closure, nil)
 	got := closure.PendingReads()
 	if len(got) == 0 {
 		t.Fatal("expected unread capability authority files to be queued")
@@ -5987,7 +6108,7 @@ func TestRaisePhase1UnreadPendingReads_MultiRepoQualifiesBarePathAndDrains(t *te
 		},
 	}
 
-	raisePhase1UnreadPendingReads(bus, closure)
+	raisePhase1UnreadPendingReads(bus, closure, nil)
 
 	pending := closure.PendingReads()
 	if len(pending) != 2 {
@@ -6061,7 +6182,7 @@ func TestRaisePhase1UnreadPendingReads_MultiRepoPhantomPathSkipped(t *testing.T)
 		},
 	}
 
-	raisePhase1UnreadPendingReads(bus, closure)
+	raisePhase1UnreadPendingReads(bus, closure, nil)
 
 	if got := closure.PendingReads(); len(got) != 0 {
 		t.Fatalf("phantom-path seed must be dropped, got %d PendingRead(s): %+v", len(got), got)

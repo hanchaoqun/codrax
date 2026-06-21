@@ -141,7 +141,7 @@ func renderSourceInventoryAdvisoryToolHintAttributes(attrs []types.SourceInvento
 // preserve count/member invariants, but it must not be treated as a semantic
 // source citation or as system-written answer text.
 func RenderSourceInventoryCascadeGuideView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery, maxGroups int) string {
-	return renderSourceInventoryCascadeGuideView(observation, query, maxGroups)
+	return renderSourceInventoryCascadeGuideView(sourceInventoryObservationForNavigationRender(observation), query, maxGroups)
 }
 
 func renderSourceInventoryCascadeGuideView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery, maxGroups int) string {
@@ -380,7 +380,7 @@ func renderSourceInventoryFileGroupLanguageCounts(group sourceInventorySuggested
 // view. The underlying observation remains structured in MutableState; this
 // markdown is only a readable checklist for the current tool result.
 func RenderSourceInventoryObservationView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) string {
-	if !observation.IsActive() {
+	if observation = sourceInventoryObservationForNavigationRender(observation); !observation.IsActive() {
 		return "Repo Lens: no source-inventory observation is available for the requested typed scope/role slice. Try a narrower `scope` or provide `roles` that match repo-map candidate roles."
 	}
 	cascadeView := renderSourceInventoryCascadeGuideView(observation, query, 16)

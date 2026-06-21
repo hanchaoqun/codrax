@@ -843,6 +843,44 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_ExplicitRoleOverridesHeur
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceInventoryRelativeLocationsStayPrincipal(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "extend blocks",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend String @ 04_extend_operator.cj:6 (package demo.stringext)",
+			"highlight @ 04_styles_extend.ets:11",
+		},
+	}, {
+		Kind:  AnswerAggregateMemberSet,
+		Label: "foreign func",
+		Value: "1",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ 07_foreign_ffi.cj:6 (package demo.ffi)",
+		},
+	}}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			HasPerMemberTable:     true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction, AnswerCandidateRoleType},
+			Confidence:        0.9,
+		},
+	}
+
+	got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)
+	if len(got) != 2 {
+		t.Fatalf("relative source-inventory member locations should stay principal, got %+v", got)
+	}
+}
+
 func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesNarrativeGroupedCountsForArchitecture(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:    AnswerAggregateGroupedCount,

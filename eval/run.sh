@@ -64,6 +64,7 @@ EXPECT_NOT_CONTAINS="${EXPECT_NOT_CONTAINS:-}"
 EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
 EXPECT_MATCHES_TEXT_REGEX="${EXPECT_MATCHES_TEXT_REGEX:-}"
 EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
+EXPECT_DIMENSIONS="${EXPECT_DIMENSIONS:-}"
 # Runtime-artifact eval cases may attach either inline text or a file path:
 # LOG=<inline panic> / LOG_FILE=<path> exercise --log-text / --log, while
 # HTRACE=<inline trace> / HTRACE_FILE=<path> exercise --htrace-text / --htrace.
@@ -757,6 +758,49 @@ write_verdict() {
       if ! LC_ALL=C grep -aqiF -- "$needle" <<<"$cleaned"; then
         pass=0
         reasons+=("missing_section:$needle")
+      fi
+    done
+  fi
+
+  # EXPECT_DIMENSIONS: space-separated typed answer dimensions whose semantic
+  # values must be visible in the checked output. Unlike EXPECT_SECTIONS, this
+  # does not require a literal heading/label such as "package"; cases declare
+  # the expected values via EXPECT_DIMENSION_VALUES_<DIM>. This keeps evals
+  # aligned with functional correctness when a localized or tabular answer
+  # carries every requested value without using the English section label.
+  if [[ -n "$EXPECT_DIMENSIONS" ]]; then
+    local dim dim_key values_var values value regex_var regexes old_ifs rx
+    for dim in $EXPECT_DIMENSIONS; do
+      dim_key="$(LC_ALL=C tr '[:lower:]' '[:upper:]' <<<"$dim" | LC_ALL=C sed -E 's/[^A-Z0-9]+/_/g; s/^_+//; s/_+$//')"
+      values_var="EXPECT_DIMENSION_VALUES_${dim_key}"
+      values="${!values_var:-}"
+      regex_var="EXPECT_DIMENSION_REGEX_${dim_key}"
+      regexes="${!regex_var:-}"
+      if [[ -n "$values" ]]; then
+        for value in $values; do
+          if ! LC_ALL=C grep -aqiF -- "$value" <<<"$cleaned"; then
+            pass=0
+            reasons+=("missing_dimension:${dim}:${value}")
+          fi
+        done
+        continue
+      fi
+      if [[ -n "$regexes" ]]; then
+        old_ifs="$IFS"
+        IFS=$'\n'
+        for rx in $regexes; do
+          [[ -z "$rx" ]] && continue
+          if ! LC_ALL=C grep -aEq -- "$rx" <<<"$cleaned"; then
+            pass=0
+            reasons+=("missing_dimension_regex:${dim}:${rx}")
+          fi
+        done
+        IFS="$old_ifs"
+        continue
+      fi
+      if ! LC_ALL=C grep -aqiF -- "$dim" <<<"$cleaned"; then
+        pass=0
+        reasons+=("missing_dimension:$dim")
       fi
     done
   fi
