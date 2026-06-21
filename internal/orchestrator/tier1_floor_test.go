@@ -310,6 +310,105 @@ func TestCheckTier1Floor_ReadLocalizerFollowupDemotesNavigationAfterOwnerEvidenc
 	}
 }
 
+func TestCheckTier1Floor_ReadLocalizerFollowupDemotesSupportAfterPrincipalMemberSetCoverage(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("list source inventory members")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "@Entry members",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Index @ internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:7",
+			"ParentComponent @ internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets:34",
+		},
+	}})
+	mu.SetInvestigationComplete("principal member set accepted")
+	mu.RetainInvestigationAggregateFacts()
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{
+			"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			"internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets",
+			"internal/tool/repomap/index/extract_arkts.go",
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					HasPerMemberTable:     true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+					Confidence:        0.9,
+				},
+			},
+		},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("read-backed principal member set should suppress support/navigation localizer debt, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+func TestCheckTier1Floor_ReadLocalizerFollowupKeepsMissingPrincipalMemberAnchor(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("list source inventory members")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "@Entry members",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Index"},
+	}})
+	mu.SetInvestigationComplete("principal member set missing anchor")
+	mu.RetainInvestigationAggregateFacts()
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"internal/tool/repomap/index/extract_arkts.go"},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+					Confidence:        0.9,
+				},
+			},
+		},
+	}}
+	state := newGraphState(types.TaskGraph{
+		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
+	})
+
+	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	if proceed || exhausted {
+		t.Fatalf("missing principal member anchor should still requeue, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+	if !strings.Contains(msg, "repo_map") || !strings.Contains(msg, "read_file") {
+		t.Fatalf("retry message should preserve typed localizer recovery guidance, got:\n%s", msg)
+	}
+}
+
 func TestCheckTier1Floor_RuntimeTraceObservationOnlySkipsNavigationFollowup(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())

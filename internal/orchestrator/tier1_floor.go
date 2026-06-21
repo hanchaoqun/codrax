@@ -93,6 +93,11 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 		return nil
 	}
 	review := types.SourceLocalizationReviewFromTurnAArtifacts(turnA)
+	if readPrincipalMemberSetLocalizationComplete(busCtx, ir, turnA) &&
+		!readLocalizerExplicitMissingOwnerForTier1(review) {
+		logging.Info("[orchestrator] pre-finalize read localizer follow-up suppressed: reason=principal_member_set_localization_complete")
+		return nil
+	}
 	var coveragePtr *types.RepoMapNavigationCoverage
 	coverage := types.RepoMapNavigationCoverageFromReadArtifacts(ir, busCtx.ExploreLanePlan, turnA)
 	coverage = types.NormalizeRepoMapNavigationCoverage(coverage)
@@ -104,6 +109,105 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 		return nil
 	}
 	return followup
+}
+
+func readPrincipalMemberSetLocalizationComplete(busCtx *types.BusContext, ir *types.AnalysisIR, turnA *types.TurnAArtifacts) bool {
+	if busCtx == nil || busCtx.Mutable == nil || ir == nil || turnA == nil {
+		return false
+	}
+	facts := busCtx.Mutable.StableInvestigationAggregateFacts()
+	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &ir.RequestModel)
+	if len(refs) == 0 {
+		return false
+	}
+	readFiles := make(map[string]bool, len(turnA.ReadFiles))
+	for _, raw := range turnA.ReadFiles {
+		if p := canonicalTier1LocationPath(raw); p != "" {
+			readFiles[p] = true
+		}
+	}
+	if len(readFiles) == 0 && len(turnA.EvidenceItems) == 0 {
+		return false
+	}
+	covered := 0
+	for _, ref := range refs {
+		if len(ref.Fact.Members) == 0 {
+			continue
+		}
+		for idx, member := range ref.Fact.Members {
+			loc, ok := principalMemberSetLocationForTier1(ref.Fact, idx, member)
+			if !ok || !tier1LocationReadBacked(loc, readFiles, turnA.EvidenceItems) {
+				return false
+			}
+			covered++
+		}
+	}
+	return covered > 0
+}
+
+func readLocalizerExplicitMissingOwnerForTier1(review *types.SourceLocalizationReview) bool {
+	if !types.SourceLocalizationReviewHasSignal(review) {
+		return false
+	}
+	normalized := types.NormalizeSourceLocalizationReview(*review)
+	return len(normalized.MissingPaths) > 0 || len(normalized.OwnerMissingPaths) > 0
+}
+
+func principalMemberSetLocationForTier1(fact types.AnswerAggregateFact, memberIdx int, member string) (types.AnswerSourceLocationSurface, bool) {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return types.AnswerSourceLocationSurface{}, false
+	}
+	if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(member); ok && loc.File != "" && loc.LineStart > 0 {
+		return loc, true
+	}
+	if loc, ok := types.ParseAnswerSourceLocationSurface(member); ok && loc.File != "" && loc.LineStart > 0 {
+		return loc, true
+	}
+	if memberIdx >= 0 && memberIdx < len(fact.SupportRefs) {
+		if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(fact.SupportRefs[memberIdx]); ok && loc.File != "" && loc.LineStart > 0 {
+			return loc, true
+		}
+		if loc, ok := types.ParseAnswerSourceLocationSurface(fact.SupportRefs[memberIdx]); ok && loc.File != "" && loc.LineStart > 0 {
+			return loc, true
+		}
+	}
+	return types.AnswerSourceLocationSurface{}, false
+}
+
+func tier1LocationReadBacked(loc types.AnswerSourceLocationSurface, readFiles map[string]bool, evidence []types.EvidenceItem) bool {
+	path := canonicalTier1LocationPath(loc.File)
+	if path == "" || loc.LineStart <= 0 {
+		return false
+	}
+	if readFiles[path] {
+		return true
+	}
+	for _, ev := range evidence {
+		if canonicalTier1LocationPath(ev.Source) != path {
+			continue
+		}
+		if ev.LineStart <= 0 {
+			continue
+		}
+		lineEnd := ev.LineEnd
+		if lineEnd <= 0 {
+			lineEnd = ev.LineStart
+		}
+		if loc.LineStart < ev.LineStart || loc.LineStart > lineEnd {
+			continue
+		}
+		if ev.GroundingStatus == types.GroundingGrounded && ev.GroundingTier == types.TierLineText {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalTier1LocationPath(raw string) string {
+	p := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	p = strings.TrimPrefix(p, "./")
+	return p
 }
 
 func renderReadLocalizerFollowupRetryMessage(followup *types.ReadLocalizerFollowup) string {
