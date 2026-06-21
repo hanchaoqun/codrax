@@ -15,6 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/loopkernel"
 	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/sourceowner"
 	truthledger "github.com/hanchaoqun/codrax/internal/truth"
@@ -222,13 +223,17 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			if batchID == "" && decision.ExplorationRequest != nil {
 				batchID = decision.ExplorationRequest.BatchID
 			}
-			if explorationRounds[batchID] >= defaultWriteWorkflowMaxExplorationRounds {
+			exploreBudget := loopkernel.LoopBudget{
+				MaxUnits:  controllerExplorationRoundBudget(run),
+				UnitsUsed: explorationRounds[batchID],
+			}
+			if advance, ok := o.controllerLoopAdvanceAllowsAction(&run, loopkernel.LoopActionLocalize, exploreBudget); !ok {
 				// Reject the ACTION, not the run (same pattern as the finish
 				// gate): the controller sees the typed event next turn and can
 				// still plan, replan, finish, or block on its own.
 				lastInnerErr = fmt.Errorf("exploration budget exhausted for %s", batchID)
 				appendControllerProgress(&run, batchID, "exploration_budget_exhausted",
-					"exploration round budget exhausted; choose plan_batch, replan_batch, finish, or block")
+					"loopkernel rejected explore_code with "+firstNonEmptyController(advance.ReasonCode, "loop_budget_units_exhausted")+"; choose plan_batch, replan_batch, finish, or block")
 				o.persistWriteWorkflowRun(&run)
 				continue
 			}
@@ -5655,9 +5660,13 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 				Reason:     "controller repeated an already surfaced typed missing fact; stopping to avoid repeated user interruptions",
 			})
 		}
-		if askUserInterruptionsForBatch(run, batchID) >= defaultWriteWorkflowMaxAskUserPerBatch {
+		askBudget := loopkernel.LoopBudget{
+			MaxApprovals:  defaultWriteWorkflowMaxAskUserPerBatch,
+			ApprovalsUsed: askUserInterruptionsForBatch(run, batchID),
+		}
+		if advance, ok := o.controllerLoopAdvanceAllowsAction(run, loopkernel.LoopActionAskApproval, askBudget); !ok {
 			appendControllerProgress(run, batchID, "ask_user_budget_exhausted",
-				"controller exceeded ask_user interruption budget for this batch")
+				"loopkernel rejected ask_user with "+firstNonEmptyController(advance.ReasonCode, "loop_budget_approvals_exhausted"))
 			return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
 				Action:     writeflow.ActionBlock,
 				ReasonCode: "ask_user_budget_exhausted",
@@ -6275,6 +6284,39 @@ func askUserInterruptionsForBatch(run *types.WriteWorkflowRun, batchID string) i
 		count++
 	}
 	return count
+}
+
+func controllerExplorationRoundBudget(run types.WriteWorkflowRun) int {
+	run = types.NormalizeWriteWorkflowRun(run)
+	if run.Budget.MaxExplorationRounds > 0 {
+		return run.Budget.MaxExplorationRounds
+	}
+	return defaultWriteWorkflowMaxExplorationRounds
+}
+
+func (o *Orchestrator) controllerLoopAdvanceAllowsAction(run *types.WriteWorkflowRun, action loopkernel.LoopRecommendedAction, budget loopkernel.LoopBudget) (loopkernel.LoopAdvanceDecision, bool) {
+	if run == nil {
+		return loopkernel.LoopAdvanceDecision{Allowed: true}, true
+	}
+	ctx := context.Background()
+	if o != nil {
+		ctx = o.CancelContext()
+	}
+	loopRun := loopkernel.LoopRun{
+		RunID:        strings.TrimSpace(run.RunID),
+		Mode:         "write",
+		ActiveUnitID: strings.TrimSpace(run.ActiveBatchID),
+		Budget:       loopkernel.NormalizeLoopBudget(budget),
+	}
+	_, decision := loopRun.Advance(ctx, loopkernel.LoopAdvanceInput{
+		Events:          loopkernel.EventsFromWriteWorkflowRun(*run),
+		RequestedAction: action,
+		Now:             time.Now(),
+	})
+	if decision.ReasonCode == "" && !decision.Allowed {
+		decision.ReasonCode = "loop_budget_rejected"
+	}
+	return decision, decision.Allowed
 }
 
 func repeatedAskUserFactKeys(run *types.WriteWorkflowRun, decision writeflow.WriteWorkflowDecision) []string {

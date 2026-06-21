@@ -4617,6 +4617,50 @@ func TestNormalizeControllerTypedStateDecisionAskUserBudgetBlocksDistinctFacts(t
 	}
 }
 
+func TestControllerLoopAdvanceExploreBudgetBlocksTypedUnit(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: types.NewMutableState("loop budget"), Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-loop-explore",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Budget: types.WriteWorkflowBudget{
+			MaxExplorationRounds: 1,
+		},
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchNeedsExploration,
+		}},
+	}
+	decision, ok := o.controllerLoopAdvanceAllowsAction(run, loopkernel.LoopActionLocalize, loopkernel.LoopBudget{
+		MaxUnits:  controllerExplorationRoundBudget(*run),
+		UnitsUsed: 1,
+	})
+	if ok || decision.ReasonCode != loopkernel.LoopBudgetReasonUnitsExhausted {
+		t.Fatalf("explore budget decision = %+v ok=%v, want unit exhaustion", decision, ok)
+	}
+}
+
+func TestControllerLoopAdvanceAskUserBudgetBlocksTypedApproval(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: types.NewMutableState("loop ask"), Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-loop-ask",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchPendingApproval,
+			PlanID: "plan-1",
+		}},
+	}
+	decision, ok := o.controllerLoopAdvanceAllowsAction(run, loopkernel.LoopActionAskApproval, loopkernel.LoopBudget{
+		MaxApprovals:  defaultWriteWorkflowMaxAskUserPerBatch,
+		ApprovalsUsed: defaultWriteWorkflowMaxAskUserPerBatch,
+	})
+	if ok || decision.ReasonCode != loopkernel.LoopBudgetReasonApprovalsExhausted {
+		t.Fatalf("ask budget decision = %+v ok=%v, want approval exhaustion", decision, ok)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionReplanAfterNoTestsFinishesUnverified(t *testing.T) {
 	mu := types.NewMutableState("no tests replan guard")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
