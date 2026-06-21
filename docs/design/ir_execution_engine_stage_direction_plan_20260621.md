@@ -202,6 +202,12 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 - `internal/types/evidence_closure.go`：NodeExecStatus clone/merge/reset
 - `internal/orchestrator/scheduler_test.go`
 
+本批探索确认：
+- `scheduler.go` 仍有 decision-read 直接消费 `s.status[...]`：ready window、finalize readiness、validation feedback requeue、force-close、stage requeue、all-done。
+- `orchestrator.go` 仍有 retry/finalize helper 直接消费 `state.status[...]`：structurally-empty retry、pending extract lookup、Tier-1 floor retry。
+- `EvidenceClosure.NodeExecStatus` 已具备 typed enum、clone/merge/reset 能力，B1 不新建执行状态 taxonomy，只把现有 typed carrier 提升为承重 authority。
+- B1 不改变 prompt、不解析模型输出散文、不引入用户意图关键字判断；所有行为变化只来自 typed node status accessor。
+
 任务：
 - 新增 `graphState.nodeStatus(id)` / `graphState.setStatus` accessors：attached closure 优先，未 attach 时 fallback 到 local bootstrap map。
 - 改所有 read decision sites 使用 accessor，不直接读 `state.status[...]`。
@@ -369,6 +375,7 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 | 2026-06-21 | Plan refresh | complete | 对 `398a32303b` 复核：v2 大方向成立；补充当前 HEAD 承重矩阵与 A0-D2 可执行任务列表。 |
 | 2026-06-21 | A1 Extract dispatch golden pin | complete | Added golden tests for `extract_input_ready=false` skip-complete and `extract_input_ready=true` StageExtract dispatch using compiler-emitted stage nodes. Focused `go test ./internal/orchestrator -run 'TestE2E_ReadMode_.*Extract|TestStageMappingFirstClassExtractSkip'` and `go test ./internal/analysis/compiler ./internal/analysis/criterion` passed. |
 | 2026-06-21 | A2 Biting ratchet pin | complete | Ratchet pinned to current counts: `evidence_closure.go=2636`, `scheduler.go=799`, `orchestrator.go=9402`; failure message now requires splitting concern-specific code or updating this ledger before expanding budget. `go test ./internal/orchestrator -run TestIRDeliveryHotFileLineRatchet` passed. |
+| 2026-06-21 | B1 NodeExecStatus cutover intake | in_progress | Code exploration confirmed scheduler/orchestrator direct `graphState.status` reads still carry read-loop decisions; implementation must introduce closure-first status accessor, keep schedule-before-attach fallback, and pin closure-over-map behavior with focused tests before any broader read cutover. |
 
 ---
 
