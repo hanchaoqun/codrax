@@ -2,6 +2,7 @@ package types
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -284,6 +285,12 @@ type RepairDirective struct {
 	// context attached without re-parsing summaries.
 	AcceptedEvidence []AcceptedEvidenceRef
 
+	// SourceInventoryCompletionAuthority carries the exact source-inventory
+	// completion blocker that produced this repair. It lets schedulers,
+	// renderers, status cards, and convergence guards consume the same typed
+	// route without parsing Subject/Rationale prose.
+	SourceInventoryCompletionAuthority SourceInventoryCompletionAuthority
+
 	// Stage (A.1+E.1, 2026-05-02) is the explicit stage attribution
 	// for this directive. When non-empty, AddRepair bumps
 	// stats.PerStage[Stage].Repairs and propagates Stage into the
@@ -302,6 +309,7 @@ func NormalizeRepairDirective(r RepairDirective) RepairDirective {
 	r.Tools = uniqueRepairDirectiveTools(r.Tools)
 	r.LineRanges = cloneLineRanges(r.LineRanges)
 	r.AcceptedEvidence = cloneAcceptedEvidenceRefs(r.AcceptedEvidence)
+	r.SourceInventoryCompletionAuthority = NormalizeSourceInventoryCompletionAuthority(r.SourceInventoryCompletionAuthority)
 	return r
 }
 
@@ -317,10 +325,11 @@ func MergeRepairs(in []RepairDirective) []RepairDirective {
 		return []RepairDirective{NormalizeRepairDirective(in[0])}
 	}
 	type key struct {
-		kind     RepairKind
-		subject  string
-		files    string
-		advisory bool
+		kind            RepairKind
+		subject         string
+		files           string
+		advisory        bool
+		sourceInventory string
 	}
 	seen := make(map[key]int, len(in))
 	out := make([]RepairDirective, 0, len(in))
@@ -328,7 +337,13 @@ func MergeRepairs(in []RepairDirective) []RepairDirective {
 		r = NormalizeRepairDirective(r)
 		dup := append([]string(nil), r.Files...)
 		sort.Strings(dup)
-		k := key{kind: r.Kind, subject: r.Subject, files: strings.Join(dup, "\x00"), advisory: r.Advisory}
+		k := key{
+			kind:            r.Kind,
+			subject:         r.Subject,
+			files:           strings.Join(dup, "\x00"),
+			advisory:        r.Advisory,
+			sourceInventory: repairDirectiveSourceInventoryKey(r),
+		}
 		if idx, ok := seen[k]; ok {
 			out[idx].AcceptedEvidence = mergeAcceptedEvidenceRefs(out[idx].AcceptedEvidence, r.AcceptedEvidence)
 			continue
@@ -349,6 +364,9 @@ func RepairDirectiveRequiredTools(r RepairDirective) []string {
 	}
 	if len(r.Tools) > 0 {
 		return uniqueRepairDirectiveTools(r.Tools)
+	}
+	if r.SourceInventoryCompletionAuthority.IsBlocking() {
+		return []string{"repo_map"}
 	}
 	switch r.Kind {
 	case RepairReadFile:
@@ -499,6 +517,9 @@ func (r RepairDirective) Render() string {
 		}
 	case RepairStructuredHandoff:
 		b.WriteString("## Structured Handoff Repair\n")
+		if section := renderSourceInventoryCompletionRepair(r.SourceInventoryCompletionAuthority); section != "" {
+			b.WriteString(section)
+		}
 		if r.Subject != "" {
 			b.WriteString(r.Subject + "\n")
 		}
@@ -531,4 +552,119 @@ func (r RepairDirective) Render() string {
 		// should be the warning, not a render-time panic).
 	}
 	return b.String()
+}
+
+func renderSourceInventoryCompletionRepair(authority SourceInventoryCompletionAuthority) string {
+	authority = NormalizeSourceInventoryCompletionAuthority(authority)
+	if !authority.Blocking {
+		return ""
+	}
+	debt := authority.FollowupDebt
+	if !debt.IsActive() {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Source-inventory completion is blocked by typed reason `")
+	b.WriteString(authority.ReasonCode)
+	b.WriteString("`; continue the exact follow-up route:\n")
+	b.WriteString("- tool: repo_map\n")
+	b.WriteString("- view: source_inventory\n")
+	b.WriteString("- path: ")
+	b.WriteString(strconv.Quote(debt.Query.Path))
+	b.WriteString("\n")
+	if len(debt.Query.Scopes) > 0 {
+		b.WriteString("- scopes: [")
+		b.WriteString(quoteRepairStrings(debt.Query.Scopes))
+		b.WriteString("]\n")
+	}
+	if len(debt.Query.Roles) > 0 {
+		b.WriteString("- roles: [")
+		b.WriteString(joinRepairRoles(debt.Query.Roles))
+		b.WriteString("]\n")
+	}
+	if debt.Query.IncludeCounts {
+		b.WriteString("- include_counts: true\n")
+	}
+	if debt.Query.IncludeAttributes {
+		b.WriteString("- include_attributes: true\n")
+	} else {
+		b.WriteString("- include_attributes: false\n")
+	}
+	if debt.Query.TopN > 0 {
+		b.WriteString("- top_n: ")
+		b.WriteString(strconv.Itoa(debt.Query.TopN))
+		b.WriteString("\n")
+	}
+	if debt.Query.Cursor != "" {
+		b.WriteString("- cursor: ")
+		b.WriteString(strconv.Quote(debt.Query.Cursor))
+		b.WriteString("\n")
+	}
+	if debt.Query.Query != "" {
+		b.WriteString("- query: ")
+		b.WriteString(strconv.Quote(debt.Query.Query))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func repairDirectiveSourceInventoryKey(r RepairDirective) string {
+	a := NormalizeSourceInventoryCompletionAuthority(r.SourceInventoryCompletionAuthority)
+	if !a.Active {
+		return ""
+	}
+	parts := []string{
+		a.ReasonCode,
+		strconv.FormatBool(a.Blocking),
+		strconv.FormatBool(a.AcceptedExactUniverse),
+		strconv.FormatBool(a.RepoWideRequired),
+		strconv.FormatBool(a.LensExecuted),
+		strconv.FormatBool(a.CandidateBudgetTruncated),
+		strconv.FormatBool(a.PageIncomplete),
+		a.NextCursor,
+		quoteRepairStrings(a.Scopes),
+		joinRepairRoles(a.Roles),
+		a.FollowupDebt.ReasonCode,
+		quoteRepairStrings(a.FollowupDebt.Query.Scopes),
+		joinRepairRoles(a.FollowupDebt.Query.Roles),
+		a.FollowupDebt.Query.Cursor,
+	}
+	return strings.Join(parts, "\x00")
+}
+
+func sameRepairDirectiveDedupeKey(a, b RepairDirective) bool {
+	return a.Kind == b.Kind &&
+		a.Subject == b.Subject &&
+		a.Advisory == b.Advisory &&
+		repairDirectiveSourceInventoryKey(a) == repairDirectiveSourceInventoryKey(b) &&
+		sameFileSet(a.Files, b.Files)
+}
+
+func quoteRepairStrings(in []string) string {
+	if len(in) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		out = append(out, strconv.Quote(value))
+	}
+	return strings.Join(out, ", ")
+}
+
+func joinRepairRoles(in []AnswerCandidateRole) string {
+	if len(in) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(in))
+	for _, role := range in {
+		if role == "" || role == AnswerCandidateRoleUnknown {
+			continue
+		}
+		out = append(out, string(role))
+	}
+	return strings.Join(out, ", ")
 }

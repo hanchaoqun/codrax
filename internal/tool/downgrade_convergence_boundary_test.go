@@ -53,6 +53,44 @@ func TestPreCompleteDowngradeConverges_ChangedBlockerResets(t *testing.T) {
 	}
 }
 
+func TestPreCompleteDowngradeConverges_SourceInventoryCompletionDebtDoesNotForceComplete(t *testing.T) {
+	SetDowngradeConvergenceHardThreshold(2)
+	defer SetDowngradeConvergenceHardThreshold(0)
+
+	mut := types.NewMutableState("inventory")
+	bus := &types.BusContext{Mutable: mut}
+	closure := mut.EvidenceClosure()
+	closure.AddRepair(types.RepairDirective{
+		Kind: types.RepairStructuredHandoff,
+		SourceInventoryCompletionAuthority: types.SourceInventoryCompletionAuthority{
+			Active:     true,
+			Blocking:   true,
+			ReasonCode: types.SourceInventoryCompletionReasonFollowupDebt,
+			FollowupDebt: types.SourceInventoryFollowupDebt{
+				Active:     true,
+				ReasonCode: types.SourceInventoryFollowupDebtPagination,
+				Query: types.SourceInventoryLensQuery{
+					Path:              ".",
+					Scopes:            []string{"."},
+					Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+					IncludeCounts:     true,
+					IncludeAttributes: false,
+					Cursor:            "24",
+				},
+			},
+		},
+	})
+
+	for i := 1; i <= 4; i++ {
+		if preCompleteDowngradeConverges(bus, types.DowngradeLaneSourceInventoryCompletion) {
+			t.Fatalf("source-inventory completion debt must not force-complete on attempt %d", i)
+		}
+	}
+	if cv := closure.CompletionCaveats(); len(cv) != 0 {
+		t.Fatalf("source-inventory completion debt must not record force-complete caveat, got %+v", cv)
+	}
+}
+
 func TestPreCompleteDowngradeConverges_NilSafe(t *testing.T) {
 	if preCompleteDowngradeConverges(nil, types.DowngradeLaneContractChain) {
 		t.Fatal("nil ctx must not converge")

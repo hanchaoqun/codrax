@@ -153,3 +153,78 @@ func TestRepairDirectiveRender_DoesNotRenderAcceptedEvidenceCarrier(t *testing.T
 		}
 	}
 }
+
+func TestRepairDirective_SourceInventoryCompletionCarrierSurvivesNormalizeAndRender(t *testing.T) {
+	r := RepairDirective{
+		Kind: RepairStructuredHandoff,
+		SourceInventoryCompletionAuthority: SourceInventoryCompletionAuthority{
+			Active:     true,
+			Blocking:   true,
+			ReasonCode: SourceInventoryCompletionReasonFollowupDebt,
+			FollowupDebt: SourceInventoryFollowupDebt{
+				Active:     true,
+				ReasonCode: SourceInventoryFollowupDebtPagination,
+				Query: SourceInventoryLensQuery{
+					Path:              ".",
+					Scopes:            []string{"src"},
+					Roles:             []AnswerCandidateRole{AnswerCandidateRoleFunction},
+					IncludeCounts:     true,
+					IncludeAttributes: false,
+					TopN:              12,
+					Cursor:            "24",
+				},
+			},
+		},
+	}
+
+	normalized := NormalizeRepairDirective(r)
+	if !normalized.SourceInventoryCompletionAuthority.IsBlocking() {
+		t.Fatalf("source-inventory completion authority was not preserved: %+v", normalized)
+	}
+	if tools := RepairDirectiveRequiredTools(normalized); len(tools) != 1 || tools[0] != "repo_map" {
+		t.Fatalf("required tools = %+v, want repo_map", tools)
+	}
+	rendered := normalized.Render()
+	for _, want := range []string{
+		"Source-inventory completion is blocked",
+		"repo_map",
+		"source_inventory",
+		"cursor: \"24\"",
+		"roles: [function]",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered repair missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestMergeRepairs_DoesNotConflateDifferentSourceInventoryDebt(t *testing.T) {
+	base := RepairDirective{
+		Kind:    RepairStructuredHandoff,
+		Subject: "continue source inventory",
+		SourceInventoryCompletionAuthority: SourceInventoryCompletionAuthority{
+			Active:     true,
+			Blocking:   true,
+			ReasonCode: SourceInventoryCompletionReasonFollowupDebt,
+			FollowupDebt: SourceInventoryFollowupDebt{
+				Active:     true,
+				ReasonCode: SourceInventoryFollowupDebtPagination,
+				Query: SourceInventoryLensQuery{
+					Path:              ".",
+					Scopes:            []string{"src"},
+					Roles:             []AnswerCandidateRole{AnswerCandidateRoleFunction},
+					IncludeCounts:     true,
+					IncludeAttributes: false,
+					Cursor:            "24",
+				},
+			},
+		},
+	}
+	next := base
+	next.SourceInventoryCompletionAuthority.FollowupDebt.Query.Cursor = "48"
+
+	got := MergeRepairs([]RepairDirective{base, next})
+	if len(got) != 2 {
+		t.Fatalf("MergeRepairs conflated distinct source-inventory cursors: %+v", got)
+	}
+}

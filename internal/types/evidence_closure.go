@@ -568,7 +568,7 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 		r = NormalizeRepairDirective(r)
 		duplicate := false
 		for i, existing := range c.repairs {
-			if existing.Kind == r.Kind && existing.Subject == r.Subject && existing.Advisory == r.Advisory && sameFileSet(existing.Files, r.Files) {
+			if sameRepairDirectiveDedupeKey(existing, r) {
 				c.repairs[i].AcceptedEvidence = mergeAcceptedEvidenceRefs(existing.AcceptedEvidence, r.AcceptedEvidence)
 				duplicate = true
 				break
@@ -2010,7 +2010,7 @@ func (c *EvidenceClosure) addRepairLocked(r RepairDirective) {
 		r.AcceptedEvidence = cloneAcceptedEvidenceRefs(c.acceptedEvidence)
 	}
 	for i, existing := range c.repairs {
-		if existing.Kind == r.Kind && existing.Subject == r.Subject && sameFileSet(existing.Files, r.Files) {
+		if sameRepairDirectiveDedupeKey(existing, r) {
 			c.repairs[i].AcceptedEvidence = mergeAcceptedEvidenceRefs(existing.AcceptedEvidence, r.AcceptedEvidence)
 			return
 		}

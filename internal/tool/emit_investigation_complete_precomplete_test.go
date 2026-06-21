@@ -1823,6 +1823,13 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryResolvedRequi
 		!strings.Contains(last.Subject, "cursor=\"50\"") && !strings.Contains(last.Subject, "cursor=50") {
 		t.Fatalf("unexpected source-inventory completion repair directive: %+v", last)
 	}
+	authority := types.NormalizeSourceInventoryCompletionAuthority(last.SourceInventoryCompletionAuthority)
+	if !authority.Blocking || authority.ReasonCode != types.SourceInventoryCompletionReasonFollowupDebt {
+		t.Fatalf("repair must carry blocking source-inventory completion authority, got %+v", authority)
+	}
+	if !authority.FollowupDebt.IsActive() || !authority.FollowupDebt.Query.IncludeCounts || len(authority.FollowupDebt.Query.Roles) == 0 {
+		t.Fatalf("repair must carry exact source-inventory follow-up route, got %+v", authority.FollowupDebt)
+	}
 	if mut.IsInvestigationComplete() {
 		t.Fatal("incomplete source-inventory observation must not close as resolved")
 	}

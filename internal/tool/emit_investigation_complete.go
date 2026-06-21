@@ -2200,6 +2200,11 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 	}
 	blockerKey := types.ComputeDowngradeBlockerKey(closure.PendingReads(), closure.UnverifiedFindings(), closure.ActiveRepairs())
 	decision := closure.RecordDowngradeProgressDelta(lane, blockerKey, downgradeConvergenceHardThreshold)
+	if lane == types.DowngradeLaneSourceInventoryCompletion && sourceInventoryCompletionRepairDebtActive(closure.ActiveRepairs()) {
+		logging.Info("[emit_investigation_complete] source-inventory completion debt remains active; low-delta convergence will not force-complete lane=%s consecutive=%d blocker=%d reason=%s",
+			lane, decision.Delta.Consecutive, blockerKey, decision.ReasonCode)
+		return false
+	}
 	if decision.ShouldReplan {
 		return false
 	}
@@ -3702,24 +3707,15 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 		return ""
 	}
 	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
-	if !observation.IsActive() || !types.SourceInventoryLensExecuted(observation) {
+	authority := sourceInventoryCompletionAuthorityForContext(ctx, observation, aggregateFacts)
+	if !authority.Blocking {
 		return ""
 	}
-	if !sourceInventoryObservationResolvedCompletionIncomplete(observation) {
-		return ""
-	}
-	if SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts) &&
-		!sourceInventoryResolvedCompletionRequiresRepoWideAuthority(ctx, observation) {
-		return ""
-	}
-	roles := sourceInventoryLensExecutionRoleLabels(profile.PrincipalTargetRoles())
+	roles := sourceInventoryLensExecutionRoleLabels(authority.Roles)
 	if len(roles) == 0 {
 		roles = sourceInventoryLensExecutionRoleLabels(sourceInventoryObservationRolesForCompletion(observation))
 	}
-	scopes := sourceInventoryResolvedCompletionRepairScopes(ctx, observation)
-	if len(scopes) == 0 {
-		scopes = []string{"."}
-	}
+	scopes := authority.Scopes
 	repoMapPath, repoMapScopes := sourceInventoryLensExecutionRepoMapCallShape(scopes)
 	nextCursor := sourceInventoryObservationNextCursor(observation)
 	subject := fmt.Sprintf("Continue the incomplete source-inventory lens with path=%q, view=\"source_inventory\", roles=[%s], scopes=[%s], include_counts=true, and include_attributes=false.",
@@ -3732,18 +3728,43 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	}
 	rationale := "A resolved source-inventory closure was attempted while the typed inventory observation is incomplete or budget-truncated. Page or narrow the source_inventory lens by the missing typed family, then hand off a complete principal member_set or an explicit bounded-incomplete scope."
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
-		Kind:      types.RepairStructuredHandoff,
-		Tools:     []string{"repo_map"},
-		Subject:   subject,
-		Rationale: rationale,
-		Origin:    "pre_complete.source_inventory_completion",
-		Stage:     string(types.StageExplore),
+		Kind:                               types.RepairStructuredHandoff,
+		Tools:                              []string{"repo_map"},
+		Subject:                            subject,
+		Rationale:                          rationale,
+		Origin:                             "pre_complete.source_inventory_completion",
+		Stage:                              string(types.StageExplore),
+		SourceInventoryCompletionAuthority: authority,
 	})
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — source-inventory result is still incomplete for a resolved exhaustive answer.\n\n")
 	b.WriteString(sourceInventoryResolvedCompletionSummary(observation, profile) + "\n\n")
 	b.WriteString("Continue with the typed `repo_map(view=\"source_inventory\")` lens using the cursor or a narrower typed family/scope before closing as resolved. Do not replace an incomplete repo-wide inventory with a smaller fixture/support subtree unless the final handoff explicitly declares that bounded scope.\n")
 	return b.String()
+}
+
+func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observation types.SourceInventoryObservation, aggregateFacts []types.AnswerAggregateFact) types.SourceInventoryCompletionAuthority {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return types.SourceInventoryCompletionAuthority{}
+	}
+	acceptedExact := SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts)
+	authority := types.BuildSourceInventoryCompletionAuthority(observation, ctx.AnalysisIR.RequestModel, acceptedExact)
+	if authority.FollowupDebt.IsActive() {
+		debt := authority.FollowupDebt
+		debt.Query.Query = sourceInventoryResolvedCompletionRepairQuery(ctx)
+		authority.FollowupDebt = types.NormalizeSourceInventoryFollowupDebt(debt)
+	}
+	return types.NormalizeSourceInventoryCompletionAuthority(authority)
+}
+
+func sourceInventoryCompletionRepairDebtActive(repairs []types.RepairDirective) bool {
+	for _, repair := range repairs {
+		authority := types.NormalizeSourceInventoryCompletionAuthority(repair.SourceInventoryCompletionAuthority)
+		if authority.Blocking {
+			return true
+		}
+	}
+	return false
 }
 
 func sourceInventoryResolvedCompletionRequiresRepoWideAuthority(ctx *types.BusContext, observation types.SourceInventoryObservation) bool {
