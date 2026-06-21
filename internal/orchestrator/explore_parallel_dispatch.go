@@ -47,6 +47,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 	}
 	laneLabels := o.busCtx.ExploreLanePlan.Labels()
 	lanePlans := scopeExploreLanePlansForWindows(o.busCtx.ExploreLanePlan, windows)
+	baseArtifacts := captureExploreNodeArtifactProjectionSnapshot(o.busCtx, o.busCtx.Mutable)
 	o.emit(render.Event{
 		Kind:               render.EventParallelDispatchStart,
 		Timestamp:          time.Now(),
@@ -212,6 +213,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 				exploreDispatchKeyForWindow(res.window))
 			continue
 		}
+		afterArtifacts := captureExploreNodeArtifactProjectionSnapshot(nil, res.fork)
 		if res.fork != nil {
 			o.busCtx.Mutable.MergeExploreFork(res.fork)
 		}
@@ -219,6 +221,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 			o.applyStageOutput(res.output)
 			mergeExploreParallelOutput(merged, res.output)
 		}
+		o.ingestExploreNodeArtifactsForWindow(res.window, res.output, baseArtifacts, afterArtifacts)
 		if res.err != nil {
 			if earlyConverged && errors.Is(res.err, context.Canceled) {
 				continue

@@ -12,7 +12,10 @@ func (o *Orchestrator) dispatchExploreWindow(window []*types.TaskNode) (*agent.S
 	o.busCtx.ExploreDispatchKey = exploreDispatchKeyForWindow(window)
 	o.busCtx.ExploreDispatchKind = exploreDispatchKindForWindow(window)
 	o.busCtx.ExploreToolSurface = exploreToolSurfaceForWindow(window)
+	beforeArtifacts := captureExploreNodeArtifactProjectionSnapshot(o.busCtx, o.busCtx.Mutable)
 	out, dispatchErr := o.dispatchStage(types.StageExplore)
+	afterArtifacts := captureExploreNodeArtifactProjectionSnapshot(nil, o.busCtx.Mutable)
+	o.ingestExploreNodeArtifactsForWindow(window, out, beforeArtifacts, afterArtifacts)
 	o.busCtx.ExploreDispatchKey = prevDispatchKey
 	o.busCtx.ExploreDispatchKind = prevDispatchKind
 	o.busCtx.ExploreToolSurface = prevToolSurface
