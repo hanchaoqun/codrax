@@ -7190,7 +7190,11 @@ func refreshClosureReadSnapshot(ctx *types.BusContext, closure *types.EvidenceCl
 		changed = true
 	}
 	if changed {
-		closure.SetReadSet(readSet)
+		closure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
+			Class:          types.EvidenceReducerInputStageCoverageSnapshot,
+			ReadSet:        readSet,
+			ReplaceReadSet: true,
+		}, ctx.RepoRoot)
 	}
 	// Sync per-file ranges + totals from the same live history. Every
 	// downstream consumer of MergedReadLines / CoverageRatio /

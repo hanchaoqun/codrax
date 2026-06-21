@@ -5,8 +5,11 @@ type EvidenceReducerInputClass string
 const (
 	EvidenceReducerInputToolResultRound            EvidenceReducerInputClass = "tool_result_round"
 	EvidenceReducerInputStageEvidenceSnapshot      EvidenceReducerInputClass = "stage_evidence_snapshot"
+	EvidenceReducerInputReadCoverageDelta          EvidenceReducerInputClass = "read_coverage_delta"
+	EvidenceReducerInputStageCoverageSnapshot      EvidenceReducerInputClass = "stage_coverage_snapshot"
 	EvidenceReducerInputTurnAHandoffSnapshot       EvidenceReducerInputClass = "turn_a_handoff_snapshot"
 	EvidenceReducerInputSourceInventoryObservation EvidenceReducerInputClass = "source_inventory_observation_snapshot"
+	EvidenceReducerInputForkClosureDelta           EvidenceReducerInputClass = "fork_closure_delta"
 )
 
 type EvidenceReducerInput struct {
@@ -14,7 +17,14 @@ type EvidenceReducerInput struct {
 	ToolResults                []ToolResult
 	EvidenceItems              []EvidenceItem
 	HandoffCarriers            []ToolHandoffCarrier
+	ReadSet                    map[string]bool
+	ReadRanges                 map[string][]LineRange
+	FileTotalLines             map[string]int
+	ReplaceReadSet             bool
+	ReplaceReadRanges          bool
+	ReplaceFileTotalLines      bool
 	SourceInventoryObservation SourceInventoryObservation
+	ForkClosure                *EvidenceClosure
 }
 
 // EvidenceRoundDelta is the typed projection derived from one batch of
@@ -25,6 +35,9 @@ type EvidenceRoundDelta struct {
 	ReadSet                    map[string]bool            `json:"read_set,omitempty"`
 	ReadRanges                 map[string][]LineRange     `json:"read_ranges,omitempty"`
 	FileTotalLines             map[string]int             `json:"file_total_lines,omitempty"`
+	ReplaceReadSet             bool                       `json:"replace_read_set,omitempty"`
+	ReplaceReadRanges          bool                       `json:"replace_read_ranges,omitempty"`
+	ReplaceFileTotalLines      bool                       `json:"replace_file_total_lines,omitempty"`
 	AcceptedEvidence           []AcceptedEvidenceRef      `json:"accepted_evidence,omitempty"`
 	SourceInventoryObservation SourceInventoryObservation `json:"source_inventory_observation,omitempty"`
 }
@@ -54,6 +67,21 @@ func EvidenceRoundDeltaFromReducerInput(input EvidenceReducerInput, repoRoot str
 	case EvidenceReducerInputStageEvidenceSnapshot:
 		return EvidenceRoundDelta{
 			AcceptedEvidence: acceptedEvidenceRefsFromEvidenceItems(input.EvidenceItems),
+		}
+	case EvidenceReducerInputReadCoverageDelta:
+		return EvidenceRoundDelta{
+			ReadSet:        cloneBoolMap(input.ReadSet),
+			ReadRanges:     cloneLineRangeMap(input.ReadRanges),
+			FileTotalLines: cloneIntMap(input.FileTotalLines),
+		}
+	case EvidenceReducerInputStageCoverageSnapshot:
+		return EvidenceRoundDelta{
+			ReadSet:               cloneBoolMap(input.ReadSet),
+			ReadRanges:            cloneLineRangeMap(input.ReadRanges),
+			FileTotalLines:        cloneIntMap(input.FileTotalLines),
+			ReplaceReadSet:        input.ReplaceReadSet,
+			ReplaceReadRanges:     input.ReplaceReadRanges,
+			ReplaceFileTotalLines: input.ReplaceFileTotalLines,
 		}
 	case EvidenceReducerInputTurnAHandoffSnapshot:
 		carriers := NormalizeToolHandoffCarriers(input.HandoffCarriers)
@@ -88,18 +116,38 @@ func (c *EvidenceClosure) IngestRound(results []ToolResult, repoRoot string) Evi
 }
 
 func (c *EvidenceClosure) IngestEvidenceReducerInput(input EvidenceReducerInput, repoRoot string) EvidenceRoundDelta {
+	if input.Class == EvidenceReducerInputForkClosureDelta {
+		if c != nil && input.ForkClosure != nil {
+			c.MergeFrom(input.ForkClosure)
+		}
+		return EvidenceRoundDelta{}
+	}
 	delta := EvidenceRoundDeltaFromReducerInput(input, repoRoot)
 	if c == nil || delta.Empty() {
 		return delta
 	}
 	if len(delta.ReadSet) > 0 {
-		c.AddReadSet(delta.ReadSet)
+		if delta.ReplaceReadSet {
+			c.SetReadSet(delta.ReadSet)
+		} else {
+			c.AddReadSet(delta.ReadSet)
+		}
 	}
 	if len(delta.ReadRanges) > 0 {
-		c.AddReadRanges(delta.ReadRanges)
+		if delta.ReplaceReadRanges {
+			c.SetReadRanges(delta.ReadRanges)
+		} else {
+			c.AddReadRanges(delta.ReadRanges)
+		}
 	}
-	for file, total := range delta.FileTotalLines {
-		c.RecordFileTotalLines(file, total)
+	if len(delta.FileTotalLines) > 0 {
+		if delta.ReplaceFileTotalLines {
+			c.SetFileTotalLines(delta.FileTotalLines)
+		} else {
+			for file, total := range delta.FileTotalLines {
+				c.RecordFileTotalLines(file, total)
+			}
+		}
 	}
 	if len(delta.AcceptedEvidence) > 0 {
 		c.AppendAcceptedEvidenceRefs(delta.AcceptedEvidence)

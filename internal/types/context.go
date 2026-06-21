@@ -1229,7 +1229,10 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	m.mu.Unlock()
 
 	if closure != nil {
-		m.EvidenceClosure().MergeFrom(closure)
+		m.EvidenceClosure().IngestEvidenceReducerInput(EvidenceReducerInput{
+			Class:       EvidenceReducerInputForkClosureDelta,
+			ForkClosure: closure,
+		}, m.repoRoot)
 	}
 	if investigationComplete {
 		m.EvidenceClosure().ClearPendingReads()

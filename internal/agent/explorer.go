@@ -12098,9 +12098,15 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	var cvClosure *types.EvidenceClosure
 	if ctx.Mutable != nil {
 		cvClosure = ctx.Mutable.EvidenceClosure()
-		cvClosure.SetReadSet(cvReadSet)
-		cvClosure.SetReadRanges(cvReadRanges)
-		cvClosure.SetFileTotalLines(cvTotals)
+		cvClosure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
+			Class:                 types.EvidenceReducerInputStageCoverageSnapshot,
+			ReadSet:               cvReadSet,
+			ReadRanges:            cvReadRanges,
+			FileTotalLines:        cvTotals,
+			ReplaceReadSet:        true,
+			ReplaceReadRanges:     true,
+			ReplaceFileTotalLines: true,
+		}, e.repoRoot)
 	}
 	// CGEC B1a: Phase 0 broaden attempts exhausted with 0 file
 	// matches → emit RepairExpandSearch so the next retry's prompt
@@ -17732,11 +17738,14 @@ func preReadRequiredFilesTracked(ctx *types.AgentContext, repoRoot string, files
 			readSet = make(map[string]bool, 1)
 		}
 		readSet[canonicalExplorerPath(file)] = true
-		closure.SetReadSet(readSet)
-		closure.AddReadRanges(map[string][]types.LineRange{
-			file: {{Start: 1, End: readLines}},
-		})
-		closure.RecordFileTotalLines(file, totalLines)
+		closure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
+			Class:   types.EvidenceReducerInputReadCoverageDelta,
+			ReadSet: readSet,
+			ReadRanges: map[string][]types.LineRange{
+				file: {{Start: 1, End: readLines}},
+			},
+			FileTotalLines: map[string]int{file: totalLines},
+		}, repoRoot)
 	})
 }
 

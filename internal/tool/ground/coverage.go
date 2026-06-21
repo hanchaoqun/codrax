@@ -127,12 +127,13 @@ func RefreshClosureCoverage(ctx *types.BusContext, closure *types.EvidenceClosur
 		repoRoot = ctx.RepoRoot
 	}
 	_, readRanges, totals := ExtractReadCoverage(history, repoRoot)
-	if len(readRanges) > 0 {
-		closure.SetReadRanges(readRanges)
-	}
-	if len(totals) > 0 {
-		closure.SetFileTotalLines(totals)
-	}
+	closure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
+		Class:                 types.EvidenceReducerInputStageCoverageSnapshot,
+		ReadRanges:            readRanges,
+		FileTotalLines:        totals,
+		ReplaceReadRanges:     len(readRanges) > 0,
+		ReplaceFileTotalLines: len(totals) > 0,
+	}, repoRoot)
 }
 
 // canonicalCoveragePath canonicalises a banner path with the same

@@ -133,14 +133,14 @@ func (o *Orchestrator) runForcedReads() int {
 		}
 	}
 	// readSet is the canonical-key snapshot. Used at the success-
-	// path bottom (line ~326 closure.SetReadSet(readSet)) to push
-	// the post-forced-read state back to the closure in one shot.
+	// path bottom pushes the post-forced-read state back to the
+	// closure through the typed stage-coverage reducer in one shot.
 	// 2026-05-10 path-canonicalization audit: the per-pending-read
 	// loop check is now closure.HasRead(p.File) (canonicalises at
 	// the boundary) instead of `readSet[p.File]` (raw lookup). The
 	// local snapshot still receives `readSet[p.File] = true` after
-	// each successful forced read so the SetReadSet writeback at
-	// the bottom carries the new files.
+	// each successful forced read so the reducer writeback at the
+	// bottom carries the new files.
 	readSet := closure.ReadSet()
 
 	// A1 bridge: grounder-raised RepairReadFile directives are
@@ -331,7 +331,11 @@ func (o *Orchestrator) runForcedReads() int {
 		}
 	}
 	if success > 0 {
-		closure.SetReadSet(readSet)
+		closure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
+			Class:          types.EvidenceReducerInputStageCoverageSnapshot,
+			ReadSet:        readSet,
+			ReplaceReadSet: true,
+		}, o.busCtx.RepoRoot)
 		// A.1+E.1: when any read carried explicit Stage attribution use
 		// the per-stage bumper for those reads; legacy reads (Stage="")
 		// fall back to the un-attributed global bumper. The total stays

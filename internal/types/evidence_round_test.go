@@ -104,6 +104,84 @@ func TestEvidenceClosureIngestReducerInputStageEvidenceSnapshot(t *testing.T) {
 	}
 }
 
+func TestEvidenceClosureIngestReducerInputReadCoverageDeltaAdds(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.SetReadSet(map[string]bool{"old.go": true})
+	c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class:   EvidenceReducerInputReadCoverageDelta,
+		ReadSet: map[string]bool{"new.go": true},
+		ReadRanges: map[string][]LineRange{
+			"new.go": {{Start: 3, End: 5}},
+		},
+		FileTotalLines: map[string]int{"new.go": 9},
+	}, "")
+
+	if got := c.ReadSet(); !got["old.go"] || !got["new.go"] {
+		t.Fatalf("read coverage delta should add without replacing: %+v", got)
+	}
+	if ranges := c.ReadRanges("new.go"); len(ranges) != 1 || ranges[0].Start != 3 || ranges[0].End != 5 {
+		t.Fatalf("new.go ranges = %+v", ranges)
+	}
+	if total := c.FileTotalLines("new.go"); total != 9 {
+		t.Fatalf("new.go total = %d, want 9", total)
+	}
+}
+
+func TestEvidenceClosureIngestReducerInputStageCoverageSnapshotReplaces(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.SetReadSet(map[string]bool{"old.go": true})
+	c.SetReadRanges(map[string][]LineRange{"old.go": {{Start: 1, End: 2}}})
+	c.SetFileTotalLines(map[string]int{"old.go": 2})
+
+	c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class:   EvidenceReducerInputStageCoverageSnapshot,
+		ReadSet: map[string]bool{"fresh.go": true},
+		ReadRanges: map[string][]LineRange{
+			"fresh.go": {{Start: 10, End: 20}},
+		},
+		FileTotalLines:        map[string]int{"fresh.go": 30},
+		ReplaceReadSet:        true,
+		ReplaceReadRanges:     true,
+		ReplaceFileTotalLines: true,
+	}, "")
+
+	if got := c.ReadSet(); len(got) != 1 || !got["fresh.go"] {
+		t.Fatalf("stage coverage snapshot should replace read set: %+v", got)
+	}
+	if old := c.ReadRanges("old.go"); len(old) != 0 {
+		t.Fatalf("old.go ranges should be replaced, got %+v", old)
+	}
+	if ranges := c.ReadRanges("fresh.go"); len(ranges) != 1 || ranges[0].Start != 10 || ranges[0].End != 20 {
+		t.Fatalf("fresh.go ranges = %+v", ranges)
+	}
+	if total := c.FileTotalLines("fresh.go"); total != 30 {
+		t.Fatalf("fresh.go total = %d, want 30", total)
+	}
+}
+
+func TestEvidenceClosureIngestReducerInputForkClosureDelta(t *testing.T) {
+	parent := NewEvidenceClosure("")
+	fork := NewEvidenceClosure("")
+	fork.SetReadSet(map[string]bool{"fork.go": true})
+	fork.AppendAcceptedEvidenceRefs([]AcceptedEvidenceRef{{ID: "ev-fork", Source: "fork.go", LineStart: 1}})
+	fork.RecordSourceInventoryObservation(evidenceRoundTestSourceInventoryObservation("Fork"))
+
+	parent.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class:       EvidenceReducerInputForkClosureDelta,
+		ForkClosure: fork,
+	}, "")
+
+	if got := parent.ReadSet(); len(got) != 1 || !got["fork.go"] {
+		t.Fatalf("fork closure read set not merged: %+v", got)
+	}
+	if refs := parent.AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-fork" {
+		t.Fatalf("fork accepted refs not merged: %+v", refs)
+	}
+	if got := parent.SourceInventoryObservation(); !got.IsActive() || got.Sets[0].Members[0].Name != "Fork" {
+		t.Fatalf("fork source inventory not merged: %+v", got)
+	}
+}
+
 func TestMutableSetTurnAArtifactsProjectsClosureThroughReducer(t *testing.T) {
 	mut := NewMutableState("q")
 	mut.SetTurnAArtifacts(TurnAArtifacts{
