@@ -97,6 +97,20 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNormalizeReadRunSnapshotPreservesExplicitSchemaVersion(t *testing.T) {
+	zero := NormalizeReadRunSnapshot(ReadRunSnapshot{RunID: "zero-schema"})
+	if zero.SchemaVersion != ReadRunSnapshotSchemaVersion {
+		t.Fatalf("zero schema should default to current, got %d", zero.SchemaVersion)
+	}
+	explicit := NormalizeReadRunSnapshot(ReadRunSnapshot{
+		SchemaVersion: ReadRunSnapshotSchemaVersion + 10,
+		RunID:         "future-schema",
+	})
+	if explicit.SchemaVersion != ReadRunSnapshotSchemaVersion+10 {
+		t.Fatalf("explicit schema mismatch must be preserved for resume validation, got %d", explicit.SchemaVersion)
+	}
+}
+
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil

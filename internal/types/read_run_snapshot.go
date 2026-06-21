@@ -45,7 +45,7 @@ func ReadRunSnapshotFromBusContext(ctx *BusContext, runID string) ReadRunSnapsho
 	}
 	snapshot.RepoRoot = strings.TrimSpace(ctx.RepoRoot)
 	if ctx.AnalysisIR != nil {
-		snapshot.TaskGraphHash = hashReadTaskGraph(ctx.AnalysisIR.TaskGraph)
+		snapshot.TaskGraphHash = ReadTaskGraphHash(ctx.AnalysisIR.TaskGraph)
 		snapshot.TaskNodeCount = len(ctx.AnalysisIR.TaskGraph.Nodes)
 		if snapshot.Request == "" {
 			snapshot.Request = strings.TrimSpace(ctx.AnalysisIR.RequestModel.RawRequest)
@@ -74,7 +74,9 @@ func ReadRunSnapshotFromBusContext(ctx *BusContext, runID string) ReadRunSnapsho
 }
 
 func NormalizeReadRunSnapshot(snapshot ReadRunSnapshot) ReadRunSnapshot {
-	snapshot.SchemaVersion = ReadRunSnapshotSchemaVersion
+	if snapshot.SchemaVersion == 0 {
+		snapshot.SchemaVersion = ReadRunSnapshotSchemaVersion
+	}
 	snapshot.RunID = strings.TrimSpace(snapshot.RunID)
 	snapshot.Request = strings.TrimSpace(snapshot.Request)
 	snapshot.RepoRoot = strings.TrimSpace(snapshot.RepoRoot)
@@ -141,7 +143,7 @@ func LoadReadRunSnapshotFromFile(path string) (*ReadRunSnapshot, error) {
 	return &normalized, nil
 }
 
-func hashReadTaskGraph(graph TaskGraph) string {
+func ReadTaskGraphHash(graph TaskGraph) string {
 	data, err := json.Marshal(graph)
 	if err != nil || len(data) == 0 {
 		return ""

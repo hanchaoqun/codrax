@@ -249,7 +249,7 @@ type Orchestrator struct {
 	planSaver PlanSaver
 
 	readRunSnapshotSaver ReadRunSnapshotSaver
-
+	readRunSnapshotSeed  *types.ReadRunSnapshot
 	// nextPhaseHint is the consume-once carry-over from the
 	// previous phase's acceptance check (NextHint field). The
 	// next phase's seedPlanningHintFromPhase reads this slot
@@ -4686,16 +4686,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	// bounded emit-only dispatch per Run; see
 	// completion_obligation_lane.go).
 	completionLaneFired := false
-
 	// Cross-task reset of the Turn A/B handoff surface. Multi-task runs (REPL turns, batched analysis, task
 	// list with >1 entry) otherwise drag stale state from task N
 	// into task N+1: the previous task's TurnAArtifacts would still
 	// be visible to this task's extractor, the previous task's
 	// answer-symbol slate would still be drained into this task's
 	// StageOutput, and the previous task's hypothesis verdicts would
-	// still populate the finalizer prompt. Each Reset is a no-op
-	// when the buffer is already empty, so it is safe to call
-	// unconditionally at the top of every per-task dispatch.
+	// still populate the finalizer prompt.
 	if o.busCtx.Mutable != nil {
 		o.busCtx.Mutable.ResetTurnAArtifacts()
 		o.busCtx.Mutable.ResetEmittedAnswerSymbols()
@@ -4717,6 +4714,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// "exhausted" verdict from task N would short-circuit task
 		// N+1's first retry round.
 		o.busCtx.Mutable.ResetRepairAttempts()
+	}
+	if !o.applyReadRunSnapshotSeedToTaskState() {
+		return 0
 	}
 	// AnswerSymbolCompleteness is a BusContext field, not a
 	// MutableState field — reset it here too so the applyStageOutput
