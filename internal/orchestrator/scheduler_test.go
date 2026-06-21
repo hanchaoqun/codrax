@@ -55,18 +55,26 @@ func emptyEnv() criterion.Env {
 	return criterion.Env{}
 }
 
-func TestGraphState_ReadyWindow_MergedInitial(t *testing.T) {
+func TestGraphState_ReadyWindowHonorsHardDependencies(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	window, _ := s.readyExplorerWindow(emptyEnv())
-	// Merged-window schedule: every non-finalize node is ready on
-	// round 1 regardless of hard-dep chain.
-	if len(window) != 3 {
-		t.Fatalf("first window: want 3 nodes (merged), got %v", idsOf(window))
+	if got := idsOf(window); strings.Join(got, ",") != "n0" {
+		t.Fatalf("first window: want only root dependency n0, got %v", got)
 	}
-	// Mark all done and verify window empties.
-	for _, n := range window {
-		s.markDone(n.ID)
+	s.markRunning("n0")
+	s.markDone("n0")
+	window, _ = s.readyExplorerWindow(emptyEnv())
+	if got := idsOf(window); strings.Join(got, ",") != "n1" {
+		t.Fatalf("after n0 done: want n1, got %v", got)
 	}
+	s.markRunning("n1")
+	s.markDone("n1")
+	window, _ = s.readyExplorerWindow(emptyEnv())
+	if got := idsOf(window); strings.Join(got, ",") != "n2" {
+		t.Fatalf("after n1 done: want n2, got %v", got)
+	}
+	s.markRunning("n2")
+	s.markDone("n2")
 	window, _ = s.readyExplorerWindow(emptyEnv())
 	if len(window) != 0 {
 		t.Errorf("after marking all done: want empty, got %v", idsOf(window))
@@ -112,10 +120,8 @@ func TestGraphState_ReadyWindowUsesClosureStatus(t *testing.T) {
 	s.status = map[string]nodeStatus{"n0": nodePending}
 
 	window, _ := s.readyExplorerWindow(emptyEnv())
-	for _, n := range window {
-		if n.ID == "n0" {
-			t.Fatalf("ready window used stale bootstrap map instead of closure status; got %v", idsOf(window))
-		}
+	if got := idsOf(window); strings.Join(got, ",") != "n1" {
+		t.Fatalf("ready window must use closure status for hard-dependency readiness; got %v", got)
 	}
 }
 
@@ -147,8 +153,8 @@ func TestGraphState_WindowExcludesFinalize(t *testing.T) {
 func TestGraphState_WindowExcludesExtractStageNode(t *testing.T) {
 	s := newGraphState(chainGraphWithExtract())
 	window, _ := s.readyExplorerWindow(emptyEnv())
-	if got := idsOf(window); strings.Join(got, ",") != "n0,n1" {
-		t.Fatalf("explore window should exclude extract/finalize stage nodes; got %v", got)
+	if got := idsOf(window); strings.Join(got, ",") != "n0" {
+		t.Fatalf("explore window should exclude extract/finalize and honor hard deps; got %v", got)
 	}
 }
 
@@ -257,9 +263,17 @@ func TestGraphState_EntryConditionBlocks(t *testing.T) {
 	}
 	s := newGraphState(g)
 	window, blocked := s.readyExplorerWindow(emptyEnv())
-	// n0, n2 ready (no gate); n1 blocked by entry condition.
-	if len(window) != 2 {
-		t.Errorf("want 2 ready nodes (n0, n2); got %v", idsOf(window))
+	if got := idsOf(window); strings.Join(got, ",") != "n0" {
+		t.Fatalf("hard dependency should dispatch n0 before evaluating downstream entry gates; got %v", got)
+	}
+	if len(blocked) != 0 {
+		t.Fatalf("dependency-waiting downstream nodes must not add blocked noise while n0 is ready: %+v", blocked)
+	}
+	s.markRunning("n0")
+	s.markDone("n0")
+	window, blocked = s.readyExplorerWindow(emptyEnv())
+	if len(window) != 0 {
+		t.Errorf("want no ready nodes while n1 entry gate is false; got %v", idsOf(window))
 	}
 	foundBlocked := false
 	for _, b := range blocked {
@@ -272,8 +286,33 @@ func TestGraphState_EntryConditionBlocks(t *testing.T) {
 	}
 	env := criterion.Env{Signals: types.ExecutionSignals{HasEnoughFacts: true}}
 	window, _ = s.readyExplorerWindow(env)
-	if len(window) != 3 {
-		t.Errorf("after signal: want 3 nodes; got %v", idsOf(window))
+	if got := idsOf(window); strings.Join(got, ",") != "n1" {
+		t.Errorf("after signal: want n1 only; got %v", got)
+	}
+}
+
+func TestGraphState_HardDependencyBlockersSurfaceOnlyWhenNoReadyWindow(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	s.markFailed("n0")
+	window, blocked := s.readyExplorerWindow(emptyEnv())
+	if len(window) != 0 {
+		t.Fatalf("failed hard predecessor should leave no ready window; got %v", idsOf(window))
+	}
+	if len(blocked) == 0 {
+		t.Fatal("dependency blocker should be surfaced when no node is ready")
+	}
+	var found bool
+	for _, b := range blocked {
+		if b.NodeID == "n1" && strings.Join(b.DependencyBlockers, ",") == "n0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("blocked nodes should include n1 waiting for n0; got %+v", blocked)
+	}
+	hint := renderWindowHint(nil, blocked, nil, nil, "", "", nil)
+	if !strings.Contains(hint, "Dependency gate") || !strings.Contains(hint, "n1: waiting for n0") {
+		t.Fatalf("dependency blockers should render as typed dependency gate, got:\n%s", hint)
 	}
 }
 

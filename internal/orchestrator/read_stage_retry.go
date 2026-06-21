@@ -158,12 +158,23 @@ func (c exploreTransientRetryCheckpoint) hasProgress() bool {
 		c.proofGuidance != ""
 }
 
+func mergeCheckpointEvidenceItems(existing []types.EvidenceItem, groups ...[]types.EvidenceItem) []types.EvidenceItem {
+	merged := existing
+	for _, group := range groups {
+		if len(group) == 0 {
+			continue
+		}
+		merged, _ = agent.MergeEvidenceItemsIfChanged(merged, group)
+	}
+	return merged
+}
+
 func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 	if o == nil || o.busCtx == nil {
 		return ""
 	}
+	evidenceItems := mergeCheckpointEvidenceItems(nil, o.busCtx.EvidenceItems)
 	c := exploreTransientRetryCheckpoint{
-		evidenceRows:  len(o.busCtx.EvidenceItems),
 		flowFindings:  len(o.busCtx.FlowFindings),
 		answerChains:  len(o.busCtx.AnswerChains),
 		answerSymbols: len(o.busCtx.AnswerSymbols),
@@ -171,10 +182,10 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 		typedOrigins:  transientRetryTypedObservationSummary(o.busCtx),
 	}
 	if o.busCtx.Mutable != nil {
-		c.evidenceRows += len(o.busCtx.Mutable.EmittedEvidence())
+		evidenceItems = mergeCheckpointEvidenceItems(evidenceItems, o.busCtx.Mutable.EmittedEvidence())
 		c.toolResults += countSuccessfulToolResults(o.busCtx.Mutable.DispatchToolResults())
 		if artifacts := o.busCtx.Mutable.TurnAArtifacts(); artifacts != nil {
-			c.evidenceRows += len(artifacts.EvidenceItems)
+			evidenceItems = mergeCheckpointEvidenceItems(evidenceItems, artifacts.EvidenceItems)
 			c.flowFindings += len(artifacts.FlowFindings)
 			c.aggregateFacts += len(artifacts.AcceptedAggregateFacts)
 			c.readFiles += len(artifacts.ReadFiles)
@@ -194,6 +205,7 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 			c.hasClosure = true
 		}
 	}
+	c.evidenceRows = len(evidenceItems)
 	if !c.hasProgress() {
 		return ""
 	}
@@ -268,8 +280,8 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 	if o == nil || o.busCtx == nil {
 		return ""
 	}
+	evidenceItems := mergeCheckpointEvidenceItems(nil, o.busCtx.EvidenceItems)
 	c := exploreTransientRetryCheckpoint{
-		evidenceRows:  len(o.busCtx.EvidenceItems),
 		flowFindings:  len(o.busCtx.FlowFindings),
 		answerChains:  len(o.busCtx.AnswerChains),
 		answerSymbols: len(o.busCtx.AnswerSymbols),
@@ -277,7 +289,7 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 		typedOrigins:  transientRetryTypedObservationSummary(o.busCtx),
 	}
 	if output != nil {
-		c.evidenceRows += len(output.EvidenceItems)
+		evidenceItems = mergeCheckpointEvidenceItems(evidenceItems, output.EvidenceItems)
 		c.flowFindings += len(output.FlowFindings)
 		c.answerChains += len(output.AnswerChains)
 		c.answerSymbols += len(output.AnswerSymbols)
@@ -286,12 +298,12 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 	var aggregateFacts []types.AnswerAggregateFact
 	var toolResults []types.ToolResult
 	if o.busCtx.Mutable != nil {
-		c.evidenceRows += len(o.busCtx.Mutable.EmittedEvidence())
+		evidenceItems = mergeCheckpointEvidenceItems(evidenceItems, o.busCtx.Mutable.EmittedEvidence())
 		dispatchResults := o.busCtx.Mutable.DispatchToolResults()
 		c.toolResults += countSuccessfulToolResults(dispatchResults)
 		toolResults = append(toolResults, dispatchResults...)
 		if artifacts := o.busCtx.Mutable.TurnAArtifacts(); artifacts != nil {
-			c.evidenceRows += len(artifacts.EvidenceItems)
+			evidenceItems = mergeCheckpointEvidenceItems(evidenceItems, artifacts.EvidenceItems)
 			c.flowFindings += len(artifacts.FlowFindings)
 			c.aggregateFacts += len(artifacts.AcceptedAggregateFacts)
 			c.readFiles += len(artifacts.ReadFiles)
@@ -319,6 +331,7 @@ func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.Stage
 	if output != nil {
 		toolResults = append(toolResults, output.ToolResults...)
 	}
+	c.evidenceRows = len(evidenceItems)
 	if !c.hasProgress() && len(toolResults) == 0 {
 		return ""
 	}

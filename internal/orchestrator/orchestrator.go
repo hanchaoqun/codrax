@@ -5482,11 +5482,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					return stepsUsed
 				}
 				if stalled {
-					// Hard stall — break out of the explore loop and
-					// let the finalize path run with whatever evidence
-					// was gathered.
-					o.busCtx.Mutable.SetTerminationProfile(types.TerminationProfile{Kind: types.TerminationHardStall})
-					state.forceCloseExploreWindow()
+					o.prepareHardStallFinalize(state)
 					continue
 				}
 				stopLocal = o.startSchedulerLocalWork(types.StageExplore, "drain_hypothesis_verdicts")
@@ -8624,6 +8620,9 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	var evidenceChanged, findingsChanged bool
 	o.busCtx.EvidenceItems, evidenceChanged = agent.MergeEvidenceItemsIfChanged(o.busCtx.EvidenceItems, output.EvidenceItems)
 	o.busCtx.FlowFindings, findingsChanged = agent.MergeFlowFindingsIfChanged(o.busCtx.FlowFindings, output.FlowFindings)
+	if len(output.EvidenceItems) > 0 && o.busCtx.Mutable != nil {
+		appendStageOutputEvidenceToMutable(o.busCtx.Mutable, output.EvidenceItems)
+	}
 	if len(output.EvidenceItems) > 0 || len(output.FlowFindings) > 0 {
 		logging.Debug("[orchestrator] applyStageOutput truth merge: evidence_in=%d evidence_total=%d changed=%t flow_in=%d flow_total=%d changed=%t",
 			len(output.EvidenceItems), len(o.busCtx.EvidenceItems), evidenceChanged,

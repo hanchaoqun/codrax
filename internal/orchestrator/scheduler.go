@@ -15,14 +15,9 @@ import (
 // criterion-aware EntryConditions + SuccessCriteria + validation
 // feedback semantics.
 //
-// Single-dispatch window model: non-finalize ready nodes are still
-// collapsed into a single explorer dispatch per round (splitting
-// them would multiply LLM calls), but the membership test for
-// "ready" is tighter than the old model:
-//
-//   - hard_dependency predecessors must all be nodeDone;
-//   - criterion.EvalAll(n.EntryConditions, env) must return allOK;
-//   - node state must be pending or requeued.
+// Ready windows are typed by graph state, hard_dependency predecessors, and
+// criterion.EvalAll(n.EntryConditions, env). Independent ready siblings may
+// still share or split dispatch according to dag_node_dispatch.go.
 //
 // After each dispatch, SuccessCriteria are evaluated per node. A
 // validate node whose SuccessCriteria fail triggers
@@ -153,8 +148,9 @@ type yieldSnapshot struct {
 
 // nodeBlock carries a node's failed criteria into retry hints.
 type nodeBlock struct {
-	NodeID         string
-	FailedCriteria []criterion.Result
+	NodeID             string
+	FailedCriteria     []criterion.Result
+	DependencyBlockers []string
 }
 
 func newGraphState(g types.TaskGraph) *graphState {
@@ -168,15 +164,10 @@ func newGraphState(g types.TaskGraph) *graphState {
 	return s
 }
 
-// readyExplorerWindow collects every explore-family, non-counterfactual
-// node that is still pending or requeued AND whose EntryConditions
-// are all satisfied against env. Hard-dependency edges are NOT
-// honored here: the merged-window schedule dispatches the entire
-// non-finalize subgraph in a single explorer call, and the
-// explorer's ReAct loop walks the declared objective order
-// internally. blocked carries nodes whose entry conditions are not
-// yet met so renderWindowHint can surface which criterion is
-// stalling them.
+// readyExplorerWindow collects pending/requeued explore-family nodes whose
+// hard-dependency predecessors are done and EntryConditions pass. Dependency
+// blockers are surfaced only when no node is ready, avoiding routine wait-state
+// noise while preserving forced-finalize diagnostics.
 func (s *graphState) readyExplorerWindow(env criterion.Env) (ready []*types.TaskNode, blocked []nodeBlock) {
 	ready, blocked, _ = s.readyExplorerWindowContext(context.Background(), env)
 	return ready, blocked
@@ -186,6 +177,7 @@ func (s *graphState) readyExplorerWindowContext(ctx context.Context, env criteri
 	if s == nil || len(s.graph.Nodes) == 0 {
 		return nil, nil, nil
 	}
+	var dependencyBlocked []nodeBlock
 	for i := range s.graph.Nodes {
 		if err := ctx.Err(); err != nil {
 			return ready, blocked, err
@@ -196,6 +188,15 @@ func (s *graphState) readyExplorerWindowContext(ctx context.Context, env criteri
 		}
 		st := s.nodeStatus(n.ID)
 		if st != nodePending && st != nodeRequeued {
+			continue
+		}
+		if blockers := s.hardDependencyBlockersForNode(n.ID); len(blockers) > 0 {
+			if !n.Optional {
+				dependencyBlocked = append(dependencyBlocked, nodeBlock{
+					NodeID:             n.ID,
+					DependencyBlockers: blockers,
+				})
+			}
 			continue
 		}
 		if len(n.EntryConditions) > 0 {
@@ -213,6 +214,9 @@ func (s *graphState) readyExplorerWindowContext(ctx context.Context, env criteri
 	sort.SliceStable(ready, func(i, j int) bool {
 		return declOrder(s.graph, ready[i].ID) < declOrder(s.graph, ready[j].ID)
 	})
+	if len(ready) == 0 && len(dependencyBlocked) > 0 {
+		blocked = append(blocked, dependencyBlocked...)
+	}
 	return ready, blocked, ctx.Err()
 }
 
@@ -712,14 +716,8 @@ func renderWindowHintContext(
 		}
 	}
 	if len(blocks) > 0 {
-		b.WriteString("\nEntry-condition gate: the following nodes are waiting on unmet criteria:\n")
-		for _, bk := range blocks {
-			if err := ctx.Err(); err != nil {
-				return strings.TrimRight(b.String(), "\n"), err
-			}
-			for _, fc := range bk.FailedCriteria {
-				fmt.Fprintf(&b, "  - %s: %s (%s) — %s\n", bk.NodeID, fc.Kind, fc.Expr, fc.Detail)
-			}
+		if err := renderNodeBlocks(ctx, &b, blocks); err != nil {
+			return strings.TrimRight(b.String(), "\n"), err
 		}
 	}
 	return strings.TrimRight(b.String(), "\n"), ctx.Err()

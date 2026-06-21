@@ -508,7 +508,7 @@ func TestTrimExploreWindowToFirstEvidence_EmptyReturnsEmpty(t *testing.T) {
 }
 
 // ============================================================
-// E2E: TaskGraph with N evidence siblings → N explorer dispatches
+// E2E: TaskGraph with N evidence siblings → root probe + N evidence dispatches
 // ============================================================
 
 // dagIRMultiTopic builds an AnalysisIR with N independent evidence
@@ -546,15 +546,19 @@ func dagIRMultiTopic(siblingCount int) *types.AnalysisIR {
 		types.TaskEdge{From: "n2_validate", To: "n3", EdgeType: types.EdgeHardDependency},
 	)
 	critPath := []string{"n0", "n1_evidence_t0", "n2_validate", "n3"}
+	subTopics := make([]types.SubTopic, 0, siblingCount)
+	for i := 0; i < siblingCount; i++ {
+		subTopics = append(subTopics, types.SubTopic{
+			Summary:  "sub-topic " + string(rune('0'+i)),
+			Entities: []string{"e" + string(rune('0'+i))},
+		})
+	}
 	return &types.AnalysisIR{
 		Version: types.AnalysisIRVersion,
 		RequestModel: types.RequestModel{
-			Language: "en",
-			Intent:   types.IntentExplain,
-			SubTopics: []types.SubTopic{
-				{Summary: "sub-topic 0", Entities: []string{"e0"}},
-				{Summary: "sub-topic 1", Entities: []string{"e1"}},
-			},
+			Language:  "en",
+			Intent:    types.IntentExplain,
+			SubTopics: subTopics,
 		},
 		TaskGraph: types.TaskGraph{
 			Nodes:           nodes,
@@ -570,9 +574,8 @@ func dagIRMultiTopic(siblingCount int) *types.AnalysisIR {
 
 // TestRunTaskGraph_PerNodeDispatch_TwoEvidenceSiblings is the E'
 // load-bearing e2e test: when the analyzer produces 2 independent
-// evidence sibling nodes, the explorer MUST be dispatched twice
-// (once per sub-topic) — not once with both objectives merged into
-// the same hint.
+// evidence sibling nodes, the scheduler dispatches the root probe, then
+// each evidence sibling independently, then validation.
 //
 // Forensic anchor: this is the byte-precise regression test for the
 // 08:14 "compare codrax and opencode" run where one explorer instance
@@ -618,22 +621,23 @@ func TestRunTaskGraph_PerNodeDispatch_TwoEvidenceSiblings(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	// E': 2 sibling evidence nodes → 2 explorer dispatches (not 1
-	// merged).
-	if explorerCalls != 2 {
-		t.Errorf("E': expected 2 explorer dispatches (1 per evidence sibling), got %d", explorerCalls)
+	if explorerCalls != 4 {
+		t.Errorf("expected 4 explorer dispatches (probe + 2 evidence + validate), got %d", explorerCalls)
 	}
-	if len(observedExplorerHints) != 2 {
-		t.Fatalf("expected 2 hints, got %d", len(observedExplorerHints))
+	if len(observedExplorerHints) != 4 {
+		t.Fatalf("expected 4 hints, got %d", len(observedExplorerHints))
 	}
 
-	// E': each hint should focus on ONE sub-topic. Parallel dispatch may
+	// E': evidence hints should focus on ONE sub-topic. Parallel dispatch may
 	// invoke the stub in either goroutine order, so assert the set shape
 	// instead of relying on append order.
 	var saw0, saw1 bool
 	for _, hint := range observedExplorerHints {
 		has0 := strings.Contains(hint, "sub-topic 0")
 		has1 := strings.Contains(hint, "sub-topic 1")
+		if !has0 && !has1 {
+			continue
+		}
 		if has0 && has1 {
 			t.Errorf("focused hint must not contain both sub-topics; got %q", hint)
 		}
@@ -649,11 +653,8 @@ func TestRunTaskGraph_PerNodeDispatch_TwoEvidenceSiblings(t *testing.T) {
 	}
 }
 
-// TestRunTaskGraph_SingleEvidenceNode_ByteEquivalent pins the
-// zero-regression guarantee: a single-sub_topic question (the
-// dagIR happy path) MUST behave exactly as before E' — one explorer
-// dispatch covering one evidence node. trimExploreWindowToFirstEvidence
-// must NOT fire here.
+// TestRunTaskGraph_SingleEvidenceNode_ByteEquivalent pins the single-subtopic
+// hard-dependency path: probe, evidence, and validate each dispatch once.
 func TestRunTaskGraph_SingleEvidenceNode_ByteEquivalent(t *testing.T) {
 	var explorerCalls int
 
@@ -686,9 +687,8 @@ func TestRunTaskGraph_SingleEvidenceNode_ByteEquivalent(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	// Single-sub_topic → exactly 1 explorer dispatch (unchanged).
-	if explorerCalls != 1 {
-		t.Errorf("single-sub_topic: expected 1 explorer dispatch (byte-equivalent path), got %d", explorerCalls)
+	if explorerCalls != 3 {
+		t.Errorf("single-sub_topic: expected 3 hard-dependency explorer dispatches, got %d", explorerCalls)
 	}
 }
 
@@ -704,7 +704,7 @@ func TestRunTaskGraph_ParallelDispatch_UsesConfiguredCap(t *testing.T) {
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
 		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-			if ctx.ParallelGroupID == "" || ctx.ExploreDispatchKey == "" {
+			if strings.Contains(ctx.ExploreDispatchKey, "n1_evidence") && (ctx.ParallelGroupID == "" || ctx.ExploreDispatchKey == "") {
 				atomic.AddInt32(&missingParallelGroup, 1)
 			}
 			cur := atomic.AddInt32(&inFlight, 1)
@@ -745,8 +745,8 @@ func TestRunTaskGraph_ParallelDispatch_UsesConfiguredCap(t *testing.T) {
 	if _, err := o.Run("compare A, B, and C", "/tmp/repo", "main"); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if got := atomic.LoadInt32(&calls); got != 3 {
-		t.Fatalf("explorer calls = %d, want 3", got)
+	if got := atomic.LoadInt32(&calls); got != 5 {
+		t.Fatalf("explorer calls = %d, want 5 (probe + 3 evidence + validate)", got)
 	}
 	if got := atomic.LoadInt32(&maxInFlight); got != 2 {
 		t.Fatalf("max concurrent explorer dispatches = %d, want configured cap 2", got)
@@ -787,10 +787,10 @@ func TestRunTaskGraph_ParallelDispatch_CanBeForcedSerial(t *testing.T) {
 			}
 			time.Sleep(10 * time.Millisecond)
 			atomic.AddInt32(&inFlight, -1)
+			evidenceID := "ev-" + strings.ReplaceAll(ctx.ExploreDispatchKey, " ", "_")
 			return &agent.StageOutput{
 				MissingPiece:  types.MissingNone,
-				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
-				EvidenceItems: []types.EvidenceItem{{ID: "ev", Source: "src.go", LineStart: 1}},
+				EvidenceItems: []types.EvidenceItem{{ID: evidenceID, Source: "src.go", LineStart: 1}},
 			}, nil
 		},
 		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
@@ -809,8 +809,8 @@ func TestRunTaskGraph_ParallelDispatch_CanBeForcedSerial(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(dispatchKeys) != 3 {
-		t.Fatalf("dispatch keys = %v, want 3 focused keys", dispatchKeys)
+	if len(dispatchKeys) != 5 {
+		t.Fatalf("dispatch keys = %v, want 5 hard-dependency keys", dispatchKeys)
 	}
 	for _, want := range []string{"n1_evidence_t0", "n1_evidence_t1", "n1_evidence_t2"} {
 		var found bool

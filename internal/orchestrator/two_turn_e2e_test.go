@@ -38,8 +38,8 @@ import (
 // independently drive the validator's β/γ baselines.
 func twoTurnIRWithHypotheses(mustInclude []string, terminalFloor int) *types.AnalysisIR {
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
-		MustInclude:         mustInclude,
+		Language:    "en",
+		MustInclude: mustInclude,
 	})
 	ir.HypothesisSet = []types.Hypothesis{
 		{ID: "H1", Statement: "Foo registers handlers", Status: types.HypUnknown},
@@ -59,9 +59,9 @@ func twoTurnIRWithHypotheses(mustInclude []string, terminalFloor int) *types.Ana
 func mockTurnA(terminalCount int, readFiles []string) func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
 	return func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 		ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
-			UserQuestion:          ctx.Objective,
-			InvestigationNotes:    []string{"mock Turn A investigation note"},
-			ReadFiles:             readFiles,
+			UserQuestion:       ctx.Objective,
+			InvestigationNotes: []string{"mock Turn A investigation note"},
+			ReadFiles:          readFiles,
 			EvidenceItems: []types.EvidenceItem{
 				{Kind: types.EvidenceRegistration, Subject: "Register", Object: "NewFoo", Source: "reg.go", LineStart: 10},
 			},
@@ -141,7 +141,6 @@ func (r *realExtractorEval) ParseOutput(ctx *types.AgentContext, _ []any, _ []an
 
 func TestE2E_TwoTurnFlagOn_CompleteClaim_PassesThrough(t *testing.T) {
 
-
 	ir := twoTurnIRWithHypotheses(nil, 2)
 	syms := []types.AnswerSymbol{
 		{Name: "Foo", File: "a.go", Line: 1, Kind: "function"},
@@ -156,6 +155,7 @@ func TestE2E_TwoTurnFlagOn_CompleteClaim_PassesThrough(t *testing.T) {
 		symCount     int
 		verdictCount int
 		irStatus     types.HypothesisStatus
+		verdicts     []types.HypothesisVerdict
 	}
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -166,7 +166,8 @@ func TestE2E_TwoTurnFlagOn_CompleteClaim_PassesThrough(t *testing.T) {
 			finalizeObserved.completeness = ctx.AnswerSymbolCompleteness
 			finalizeObserved.symCount = len(ctx.AnswerSymbols)
 			if ctx.Mutable != nil {
-				finalizeObserved.verdictCount = len(ctx.Mutable.EmittedHypothesisVerdicts())
+				finalizeObserved.verdicts = ctx.Mutable.EmittedHypothesisVerdicts()
+				finalizeObserved.verdictCount = len(finalizeObserved.verdicts)
 			}
 			if ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 {
 				finalizeObserved.irStatus = ctx.AnalysisIR.HypothesisSet[0].Status
@@ -193,8 +194,17 @@ func TestE2E_TwoTurnFlagOn_CompleteClaim_PassesThrough(t *testing.T) {
 	if finalizeObserved.symCount != 2 {
 		t.Errorf("finalize observed %d symbols, want 2", finalizeObserved.symCount)
 	}
-	if finalizeObserved.verdictCount != 1 {
-		t.Errorf("finalize observed %d verdicts in buffer, want 1", finalizeObserved.verdictCount)
+	verdictByID := map[string]types.HypothesisVerdict{}
+	for _, v := range finalizeObserved.verdicts {
+		verdictByID[v.HypothesisID] = v
+	}
+	if verdictByID["H1"].Status != types.HypConfirmed {
+		t.Errorf("finalize did not retain H1 confirmed verdict: %+v", finalizeObserved.verdicts)
+	}
+	if finalizeObserved.verdictCount > 1 {
+		if verdictByID["H2"].Status != types.HypInconclusive || !strings.Contains(verdictByID["H2"].Rationale, "stuck") {
+			t.Errorf("extra verdicts must only preserve unresolved hypotheses as typed inconclusive: %+v", finalizeObserved.verdicts)
+		}
 	}
 	if finalizeObserved.irStatus != types.HypConfirmed {
 		t.Errorf("Phase 10 drain failed: H1 status = %q, want confirmed",
@@ -203,7 +213,6 @@ func TestE2E_TwoTurnFlagOn_CompleteClaim_PassesThrough(t *testing.T) {
 }
 
 func TestE2E_TwoTurnFlagOn_CompleteShortfall_DowngradedToLowerBound(t *testing.T) {
-
 
 	// β=5 γ=0 baseline = 5. Extractor emits 2 with complete →
 	// downgrade to lower_bound. This is the UNRESOLVED #1 structural
@@ -244,7 +253,6 @@ func TestE2E_TwoTurnFlagOn_CompleteShortfall_DowngradedToLowerBound(t *testing.T
 }
 
 func TestE2E_TwoTurnFlagOn_MustIncludeShortfall_Downgraded(t *testing.T) {
-
 
 	// γ baseline dominates: MustInclude lists 4 names, β=0.
 	// Extractor emits 2 with complete → downgrade.
@@ -289,7 +297,6 @@ func TestE2E_TwoTurnFlagOn_UnknownClaim_DropsSection(t *testing.T) {
 	// builder's three-way branch (tested directly in context/
 	// builder_test.go). Here we verify the plumbing reaches the
 	// finalizer with claim=unknown.
-
 
 	ir := twoTurnIRWithHypotheses(nil, 0)
 	syms := []types.AnswerSymbol{
@@ -342,8 +349,6 @@ func TestE2E_TwoTurnFlagOn_UnknownClaim_DropsSection(t *testing.T) {
 
 func TestRunTaskGraph_ResetsTurnAStateAtEntry(t *testing.T) {
 
-
-
 	// Simulate "previous task" state on Mutable.
 	mu := types.NewMutableState("obj")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{UserQuestion: "stale", TerminalEvidenceCount: 99})
@@ -381,8 +386,8 @@ func TestRunTaskGraph_ResetsTurnAStateAtEntry(t *testing.T) {
 	}
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
-		types.AgentAnalyzer:  dagAnalyzerFn(twoTurnIRWithHypotheses(nil, 0)),
-		types.AgentExplorer:  explorer,
+		types.AgentAnalyzer: dagAnalyzerFn(twoTurnIRWithHypotheses(nil, 0)),
+		types.AgentExplorer: explorer,
 		types.AgentExtractor: func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
 			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
 		},

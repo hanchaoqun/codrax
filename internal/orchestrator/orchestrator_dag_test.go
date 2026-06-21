@@ -14,10 +14,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// orchestrator_dag_test.go covers the runTaskGraph path: end-to-end
-// Run() with an analyzer that produces a real TaskGraph + answer
-// contract, and assertions on the merged-schedule dispatch order,
-// contract-check backtrack, and budget exhaustion.
+// orchestrator_dag_test.go covers the runTaskGraph path: end-to-end Run() with
+// an analyzer that produces a real TaskGraph + answer contract, and assertions
+// on hard-dependency dispatch order, contract-check backtrack, and budget
+// exhaustion.
 
 // dagIR builds a minimal but realistic AnalysisIR with a 4-node
 // chain (probe → evidence → validate → finalize) and a configurable
@@ -101,18 +101,18 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 	if !busCtx.TaskState.IsTerminal {
 		t.Error("want terminal")
 	}
-	// Conservative schedule: exactly 1 explorer dispatch + 1 finalize dispatch.
-	if explorerCalls != 1 {
-		t.Errorf("explorer calls: want 1 (merged window), got %d", explorerCalls)
+	if explorerCalls != 3 {
+		t.Errorf("explorer calls: want 3 hard-dependency windows, got %d", explorerCalls)
 	}
 	if finalizeCalls != 1 {
 		t.Errorf("finalize calls: want 1, got %d", finalizeCalls)
 	}
-	// The explorer's RetryHint should mention every node objective.
+	// The explorer's RetryHints should cover every node objective across the
+	// hard-dependency windows.
 	if len(observedExplorerHints) == 0 {
 		t.Fatal("no hints observed")
 	}
-	hint := observedExplorerHints[0]
+	hint := strings.Join(observedExplorerHints, "\n")
 	for _, want := range []string{"scan repo", "collect evidence", "check chains"} {
 		if !strings.Contains(hint, want) {
 			t.Errorf("hint missing %q\n%s", want, hint)
@@ -289,8 +289,8 @@ func TestRunTaskGraph_AutoCompletesReconcileFromExistingEvidence(t *testing.T) {
 	if !busCtx.TaskState.IsTerminal {
 		t.Fatal("want terminal")
 	}
-	if explorerCalls != 1 {
-		t.Fatalf("explorer calls = %d, want 1; reconcile should not trigger a second explore dispatch", explorerCalls)
+	if explorerCalls != 3 {
+		t.Fatalf("explorer calls = %d, want 3; reconcile should not trigger an extra explore dispatch", explorerCalls)
 	}
 	if extractorCalls != 1 {
 		t.Fatalf("extractor calls = %d, want 1", extractorCalls)
@@ -502,8 +502,8 @@ func TestRunTaskGraph_ExplorerRetryHintRequeuesBeforeExtract(t *testing.T) {
 	if !busCtx.TaskState.IsTerminal {
 		t.Fatal("want terminal")
 	}
-	if explorerCalls != 2 {
-		t.Fatalf("explorer calls = %d, want 2", explorerCalls)
+	if explorerCalls != 4 {
+		t.Fatalf("explorer calls = %d, want 4", explorerCalls)
 	}
 	if extractorCalls != 1 {
 		t.Fatalf("extractor calls = %d, want 1", extractorCalls)
@@ -562,8 +562,8 @@ func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if explorerCalls != 2 {
-		t.Errorf("explorer calls: want 2 (initial + 1 backtrack), got %d", explorerCalls)
+	if explorerCalls != 4 {
+		t.Errorf("explorer calls: want 4 (initial hard-dependency chain + 1 backtrack), got %d", explorerCalls)
 	}
 	if finalizeCalls != 2 {
 		t.Errorf("finalize calls: want 2, got %d", finalizeCalls)
@@ -679,8 +679,8 @@ func TestRunTaskGraph_FinalizeSuccessCriterionFailureBacktracks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if explorerCalls != 2 {
-		t.Errorf("explorer calls: want 2 (initial + 1 backtrack after SC failure), got %d", explorerCalls)
+	if explorerCalls != 4 {
+		t.Errorf("explorer calls: want 4 (initial hard-dependency chain + 1 backtrack after SC failure), got %d", explorerCalls)
 	}
 	if finalizeCalls != 2 {
 		t.Errorf("finalize calls: want 2, got %d", finalizeCalls)
@@ -847,8 +847,8 @@ func TestRunTaskGraph_RetryableExploreErrorRequeuesWindow(t *testing.T) {
 	if busCtx.TaskState.LastError != "" {
 		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
 	}
-	if explorerCalls != 2 {
-		t.Fatalf("explorer calls = %d, want 2", explorerCalls)
+	if explorerCalls != 4 {
+		t.Fatalf("explorer calls = %d, want 4", explorerCalls)
 	}
 	if finalizeCalls != 1 {
 		t.Fatalf("finalize calls = %d, want 1", finalizeCalls)
@@ -911,7 +911,7 @@ func TestRunTaskGraph_RetryableExploreErrorAfterAcceptedClosureDoesNotReexplore(
 
 func TestRunTaskGraph_RetryableExploreErrorAfterEvidenceContinuesFromCheckpoint(t *testing.T) {
 	var explorerCalls, finalizeCalls int
-	var retryHint string
+	var retryHints []string
 
 	ir := dagIR(types.AnswerContract{
 		Language: "en",
@@ -932,7 +932,7 @@ func TestRunTaskGraph_RetryableExploreErrorAfterEvidenceContinuesFromCheckpoint(
 					}},
 				}, &llm.StreamStalledError{IdleFor: 61 * time.Second, Cause: context.Canceled}
 			}
-			retryHint = ctx.RetryHint
+			retryHints = append(retryHints, ctx.RetryHint)
 			return &agent.StageOutput{
 				MissingPiece:  types.MissingFacts,
 				EvidenceItems: []types.EvidenceItem{{ID: "ev-after-checkpoint", Source: "src.go", LineStart: 2}},
@@ -959,8 +959,8 @@ func TestRunTaskGraph_RetryableExploreErrorAfterEvidenceContinuesFromCheckpoint(
 	if busCtx.TaskState.LastError != "" {
 		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
 	}
-	if explorerCalls != 2 {
-		t.Fatalf("explorer calls = %d, want 2", explorerCalls)
+	if explorerCalls != 4 {
+		t.Fatalf("explorer calls = %d, want 4", explorerCalls)
 	}
 	if finalizeCalls != 1 {
 		t.Fatalf("finalize calls = %d, want 1", finalizeCalls)
@@ -972,8 +972,8 @@ func TestRunTaskGraph_RetryableExploreErrorAfterEvidenceContinuesFromCheckpoint(
 		"emit_investigation_complete",
 		"DAG-scheduled investigation window",
 	} {
-		if !strings.Contains(retryHint, want) {
-			t.Fatalf("retry hint missing %q:\n%s", want, retryHint)
+		if !strings.Contains(strings.Join(retryHints, "\n"), want) {
+			t.Fatalf("retry hints missing %q:\n%s", want, strings.Join(retryHints, "\n---\n"))
 		}
 	}
 }
@@ -1025,8 +1025,8 @@ func TestRunTaskGraph_RetryableAnalyzeErrorAfterUsableIRDoesNotReanalyze(t *test
 	if analyzerCalls != 1 {
 		t.Fatalf("analyzer calls = %d, want 1", analyzerCalls)
 	}
-	if explorerCalls != 1 || finalizeCalls != 1 {
-		t.Fatalf("explorer/finalizer calls = %d/%d, want 1/1", explorerCalls, finalizeCalls)
+	if explorerCalls != 3 || finalizeCalls != 1 {
+		t.Fatalf("explorer/finalizer calls = %d/%d, want 3/1", explorerCalls, finalizeCalls)
 	}
 }
 
@@ -1186,8 +1186,8 @@ func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 	if busCtx.TaskState.LastError != "" {
 		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
 	}
-	if explorerCalls != 1 {
-		t.Fatalf("explorer calls = %d, want 1", explorerCalls)
+	if explorerCalls != 3 {
+		t.Fatalf("explorer calls = %d, want 3", explorerCalls)
 	}
 	if finalizeCalls != 2 {
 		t.Fatalf("finalize calls = %d, want 2", finalizeCalls)
@@ -1233,8 +1233,8 @@ func TestRunTaskGraph_ReadFinalizeNoToolStallUsesBudgetNotPlateau(t *testing.T) 
 	if busCtx.TaskState.LastError != "" {
 		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
 	}
-	if explorerCalls != 1 {
-		t.Fatalf("explorer calls = %d, want 1", explorerCalls)
+	if explorerCalls != 3 {
+		t.Fatalf("explorer calls = %d, want 3", explorerCalls)
 	}
 	if finalizeCalls != 3 {
 		t.Fatalf("finalize calls = %d, want 3", finalizeCalls)
@@ -1284,8 +1284,8 @@ func TestRunTaskGraph_RetryableExtractErrorRetriesBeforeFinalize(t *testing.T) {
 	if busCtx.TaskState.LastError != "" {
 		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
 	}
-	if explorerCalls != 1 {
-		t.Fatalf("explorer calls = %d, want 1", explorerCalls)
+	if explorerCalls != 3 {
+		t.Fatalf("explorer calls = %d, want 3", explorerCalls)
 	}
 	if extractorCalls != 2 {
 		t.Fatalf("extractor calls = %d, want 2", extractorCalls)
@@ -1382,10 +1382,9 @@ func TestRunTaskGraph_EvidencePlanBudgetCapsSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	// Expect at most 2 dispatches inside runTaskGraph (1 explore + 1
-	// finalize). One backtrack would push us over the cap.
-	if explorerCalls+finalizeCalls > 2 {
-		t.Errorf("EvidencePlan cap should bound dispatches to ≤2; got explore=%d finalize=%d",
+	// Expect at most 2 investigation dispatches before forced finalize.
+	if explorerCalls > 2 || finalizeCalls != 1 {
+		t.Errorf("EvidencePlan cap should bound investigation dispatches to ≤2 and still finalize once; got explore=%d finalize=%d",
 			explorerCalls, finalizeCalls)
 	}
 }

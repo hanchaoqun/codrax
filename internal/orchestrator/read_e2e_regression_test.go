@@ -173,8 +173,8 @@ func TestE2E_ReadMode_ExtractInputReadyFalseSkipsExtract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if explorerCalls != 1 {
-		t.Fatalf("explorer calls = %d, want 1", explorerCalls)
+	if explorerCalls != 3 {
+		t.Fatalf("explorer calls = %d, want 3 hard-dependency windows", explorerCalls)
 	}
 	if extractorCalls != 0 {
 		t.Fatalf("extractor must be skipped when extract_input_ready=false, got %d calls", extractorCalls)
@@ -235,8 +235,8 @@ func TestE2E_ReadMode_ExtractInputReadyTrueDispatchesExtract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if explorerCalls != 1 {
-		t.Fatalf("explorer calls = %d, want 1", explorerCalls)
+	if explorerCalls != 3 {
+		t.Fatalf("explorer calls = %d, want 3 hard-dependency windows", explorerCalls)
 	}
 	if extractorCalls != 1 {
 		t.Fatalf("extractor must run when extract_input_ready=true, got %d calls", extractorCalls)
@@ -286,8 +286,8 @@ func TestE2E_ReadMode_AnalyzeRefineFalsePathStaysSilent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if explorerCalls != 1 {
-		t.Fatalf("explorer calls = %d, want stable baseline 1", explorerCalls)
+	if explorerCalls != 3 {
+		t.Fatalf("explorer calls = %d, want stable hard-dependency baseline 3", explorerCalls)
 	}
 	if extractorCalls != 0 {
 		t.Fatalf("extractor must still be skipped without typed extract input, got %d calls", extractorCalls)

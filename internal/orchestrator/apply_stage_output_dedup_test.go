@@ -252,6 +252,44 @@ func TestApplyStageOutput_DedupsEvidenceItemsByID(t *testing.T) {
 	}
 }
 
+func TestApplyStageOutput_IngestsEvidenceItemsIntoMutableOnce(t *testing.T) {
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	mut := types.NewMutableState("question")
+	o.busCtx = &types.BusContext{
+		Mutable:       mut,
+		PipelineStage: types.StageExplore,
+		ActiveAgent:   types.AgentExplorer,
+		TaskState:     types.TaskState{Stage: types.StageExplore},
+	}
+
+	ev1 := types.EvidenceItem{
+		Kind: types.EvidenceConcrete, Predicate: "binds",
+		Subject: "A", Object: "B",
+		Source: "a.go", LineStart: 1,
+		Scope: types.ScopeLine,
+	}
+	ev2 := types.EvidenceItem{
+		Kind: types.EvidenceConcrete, Predicate: "calls",
+		Subject: "B", Object: "C",
+		Source: "b.go", LineStart: 2,
+		Scope: types.ScopeLine,
+	}
+	ev1.ID = types.StableEvidenceID(ev1)
+	ev2.ID = types.StableEvidenceID(ev2)
+
+	o.applyStageOutput(&agent.StageOutput{EvidenceItems: []types.EvidenceItem{ev1}})
+	o.applyStageOutput(&agent.StageOutput{EvidenceItems: []types.EvidenceItem{ev1, ev2}})
+	o.applyStageOutput(&agent.StageOutput{EvidenceItems: []types.EvidenceItem{ev1, ev2}})
+
+	if got := len(o.busCtx.EvidenceItems); got != 2 {
+		t.Fatalf("bus evidence len = %d, want 2", got)
+	}
+	if got := len(mut.EmittedEvidence()); got != 2 {
+		t.Fatalf("mutable evidence len = %d, want 2", got)
+	}
+}
+
 // History-style slices (ToolResults, MCPResponses, RepoFacts)
 // should CONTINUE appending even across self-loops. They are
 // per-call logs, not deduplicable "truth" sets. This test locks

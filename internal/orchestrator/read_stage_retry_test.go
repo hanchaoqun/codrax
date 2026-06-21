@@ -73,6 +73,34 @@ func TestBuildExploreTransientRetryCheckpointHintCarriesReadProofGuidance(t *tes
 	}
 }
 
+func TestBuildExploreTransientRetryCheckpointHintDedupsEvidenceViews(t *testing.T) {
+	ev := types.EvidenceItem{
+		Kind:      types.EvidenceConcrete,
+		Subject:   "A",
+		Predicate: "binds",
+		Object:    "B",
+		Source:    "a.go",
+		LineStart: 1,
+		Scope:     types.ScopeLine,
+	}
+	ev.ID = types.StableEvidenceID(ev)
+	mut := types.NewMutableState("dedupe checkpoint evidence")
+	mut.AppendEvidence([]types.EvidenceItem{ev})
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{ev}})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable:       mut,
+		EvidenceItems: []types.EvidenceItem{ev},
+	}}
+
+	got := o.buildExploreTransientRetryCheckpointHint()
+	if !strings.Contains(got, "structured evidence rows=1") {
+		t.Fatalf("checkpoint hint should count one merged evidence row, got:\n%s", got)
+	}
+	if strings.Contains(got, "structured evidence rows=3") {
+		t.Fatalf("checkpoint hint double-counted evidence views:\n%s", got)
+	}
+}
+
 func TestReadLoopNextActionDecisionFromGuidanceWeakProof(t *testing.T) {
 	decision, ok := readLoopNextActionDecisionFromGuidance(loopkernel.ReadProofGuidance{
 		Active:            true,
