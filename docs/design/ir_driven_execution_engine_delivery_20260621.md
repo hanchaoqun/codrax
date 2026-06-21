@@ -15,15 +15,16 @@ Base HEAD: `8269ed6ed docs: IR-driven adaptive execution engine PRD (next-stage 
 | Area | Current evidence | Status | Delivery implication |
 | --- | --- | --- | --- |
 | Write DAG legacy | Production no longer installs `BuildWriteTaskGraph`; legacy `write_scheduler.go` / `write_graph.go` were removed. Shared retry helpers moved to neutral controller/read retry helpers. | Completed M0a/M0b | Continue with TaskNode compatibility cleanup and future controller/loopkernel work; do not restore a linear write TaskGraph. |
-| Read scheduler | `runReadSchedulerLoop` remains the real adaptive read engine; node status is still local `graphState`, not durable EvidenceClosure state. | Open | Fold node execution status into EvidenceClosure behind a thin accessor, with golden trace proving dispatch sequence equivalence. |
+| Read scheduler | `runReadSchedulerLoop` remains the real adaptive read engine. Node execution status is now mirrored through typed EvidenceClosure accessors while preserving scheduler map semantics. | Completed M1b | Continue to guard dispatch equivalence through read scheduler tests and commercial hardening runs. |
 | TaskNode artifact slots | `TaskNode.Inputs` / `Outputs` exist as immutable analyzer-authored declarations; `ExitArtifacts` was removed because runtime artifact IDs do not belong inside immutable AnalysisIR. | Completed M2c | Static contracts are exposed through `TaskArtifactContract`; runtime artifacts stay on EvidenceClosure/reasoning graph surfaces. |
-| ReasoningGraph observer | `Dependencies.ReasoningObserver` and BaseAgent observation helpers exist; tests cover local tool observation. Production orchestration coverage is incomplete and ToolInvocation lacks full params/result replay identity. | Partial | Extend existing observer, not a new system: add invocation identity, params/result refs, construction wiring tests, and replayable audit projection. |
-| Source-class universe | Source inventory now computes repo-wide source-class/language counts and absence gate consumes typed universe via `SourceInventoryExactAbsenceNeedsInventoryProof`. | Partial | Do not duplicate taxonomy. Project the same universe into the grown EvidenceClosure / loopkernel view so read and final report consume one authority. |
-| Tool/result ingestion | Tool outputs are still re-read through scattered recomputation and stage-specific handoff surfaces. | Open | Add `EvidenceClosure.IngestRound` as a shadow reducer first, assert equality against legacy recompute, then cut over only after golden trace is stable. |
-| Progress/replan authority | Existing downgrade convergence and repair directives are typed but spread across emit/precheck/finalize logic. | Open | Add `ProgressDelta` and a single typed replan/continue authority; first cut must preserve existing behavior. |
-| Loopkernel | `LoopEvent`, reducer, authority, proof projection exist; `LoopRun` and `LoopBudget` are still passive data structs. | Open | Lift sourceinventory budget discipline into loopkernel, then make write controller consume `LoopRun.Advance` before read driver changes. |
-| Stage-axis adaptivity | Read TaskGraph node axis is adaptive; stage axis remains mostly hardcoded, and `stageMapping` still collapses read node types to explore. | Open | Analyzer must emit stage nodes first; scheduler must not invent topology at runtime. |
-| Prompt/schema hygiene | Several tools already emit typed repair/handoff, but unsupported-tool and schema repair loops still depend on scattered hints. | Open | Centralize supported JSON surface and accepted evidence carrier; tests must ensure hard logic does not inspect prompt prose. |
+| ReasoningGraph observer | `Dependencies.ReasoningObserver` and BaseAgent observation helpers now carry invocation identity, params/result refs, production wiring, and replay lookup. | Completed M1a | Commercial hardening should verify audit projection remains side-effect-only. |
+| Source-class universe | Source inventory computes repo-wide source-class/language counts, absence gates consume typed universe, EvidenceClosure mirrors the observation, and loopkernel read proof snapshots carry the same source-class authority. | Completed M1e/M2d-B | Keep cross-language source inventory regression broad; do not add parallel taxonomies. |
+| Tool/result ingestion | `EvidenceClosure.IngestRound` exists as a shadow reducer over `types.ToolResult`, and `applyStageOutput` runs it on a cloned closure so production state is not mutated. | Completed M1c shadow | A future cutover from scattered recomputation to the reducer is separate work and must be gated by golden trace equivalence. |
+| Progress/replan authority | `ProgressDelta`, `ProgressDecision`, `ShouldReplan`, and `progress_replan_required` now provide typed low-delta/refine signals through EvidenceClosure and criterion.Env. | Completed M1d/M2d-C | Future analyzer re-entry or IR rewrite must define a new immutable rewrite authority before implementation. |
+| Loopkernel | `LoopBudget`, `LoopRun.Advance`, write projection, semantic routing, shared proof authority, and write repair-budget cutover are implemented. | Completed M3a-M3d | Read remains projection-first; any additional read driver cutover needs a new batch and golden trace proof. |
+| Stage-axis adaptivity | Analyzer/compiler now emits stage nodes, `stageMapping` maps extract, extract readiness is typed, and optional dynamic nodes are analyzer-pre-authored only. | Completed M2a-M2d | Scheduler must continue reading topology rather than inventing runtime nodes. |
+| Prompt/schema hygiene | Hard gates introduced by this PRD consume typed criteria, enums, booleans, paths, and structured artifacts. Existing prompt/schema repair surfaces still need commercial hardening audit to ensure no scattered prose/keyword route regresses. | Needs M4c audit | Add an explicit M4 audit before declaring the PRD commercially complete. |
+| Noise/perf maintainability | PRD requested LOC ratchets for `evidence_closure.go <= 2774` and `scheduler.go <= 945`, but current files are 3003 and 961 lines. | Open M4a | Extract concern-specific helpers into subfiles and add a structural ratchet test so future work does not silently grow the hot files. |
 
 ## Non-Negotiable Invariants
 
@@ -298,6 +299,46 @@ Tests:
 - `TestSingleProofAuthority`
 - Full read golden trace and write controller regression suite.
 
+### Batch M4a: Delivery Audit Sync And LOC Ratchet
+
+Deliverables:
+- Refresh the Current State Audit so it matches actual completed M0-M3 evidence and does not leave stale `Open` / `Partial` rows that imply false progress.
+- Extract concern-specific code out of hot files without changing behavior:
+  - `internal/types/evidence_closure.go` must fall back under the PRD ratchet of 2774 lines.
+  - `internal/orchestrator/scheduler.go` must fall back under the PRD ratchet of 945 lines.
+- Add a structural ratchet test that reads source files and fails if the hot files exceed their documented line budgets.
+- No prompt changes, no scheduler behavior changes, no new hard gates.
+
+Tests:
+- `go test ./internal/types ./internal/orchestrator`
+- Full `go test ./...`
+
+### Batch M4b: Commercial Hardening Evidence Matrix
+
+Deliverables:
+- Run and record the commercial hardening matrix after M0-M4a:
+  - `go test ./...`
+  - `make test`
+  - focused read scheduler / golden-trace package tests
+  - focused write controller / loopkernel package tests
+  - focused source-inventory cross-language absence tests
+- Record any failure as a new batch task before coding.
+
+Tests:
+- The commands above are the evidence.
+
+### Batch M4c: Prompt/Schema/Tool-Noise Audit
+
+Deliverables:
+- Audit prompt/schema repair, unsupported-tool repair, JSON normalization, and tool recommendation surfaces touched by read/write/loopkernel paths.
+- Verify hard logic does not inspect user intent keywords, model rationale, prompt text, final-answer prose, elapsed-time telemetry, ranker scores, or grep counts.
+- Verify efficient typed navigation surfaces (`repo_map`, `trace_query`, source inventory) are represented as scheduler/tool-surface guidance where available instead of repeated broad scans.
+- Record any discovered system gap as a new typed, per-class batch before implementation.
+
+Tests:
+- Focused prompt hygiene and structured-payload compatibility tests.
+- Any new structural tests required by discovered gaps.
+
 ## Verification Matrix
 
 Minimum per batch:
@@ -336,3 +377,6 @@ Commercial hardening before declaring complete:
 | M3b LoopRun.Advance | completed | M3b-A completed: added pure `LoopRun.Advance`, `LoopAdvanceInput`, and `LoopAdvanceDecision`; write workflow event projection now drives typed recommendations for approval, repair, localization, and verification, with budget denial blocking via typed `LoopBudget` reason codes. Missing localization without candidate paths remains soft and does not preempt failed proof/repair. M3b-B completed for stable surfaces: write controller now consumes `LoopRun.Advance` for `explore_code` unit budget and `ask_user` approval budget while preserving the existing “reject explore action, do not poison workflow” behavior. Verified with loopkernel/writeflow/orchestrator focused tests and full `go test ./...`. Replan/repair budget cutover is tracked separately as M3d. |
 | M3c Semantic routing/shared proof | completed | Added pure `LoopToolRoute` projection from `LoopRecommendedAction` to typed tool surfaces/tool suggestions; route decisions are stable under prose-only field changes and do not mutate skill configs at runtime. Read proof snapshots now call `DeriveProofCoverageAuthorityFromArtifacts(nil, ...)`, sharing the same proof-merge entrypoint as write projections. Verified with loopkernel focused tests and full `go test ./...`. |
 | M3d Repair budget cutover | completed | Failed post-apply verify now checks the next repair opportunity through `LoopBudgetSpendRepair`, preserving existing `write_retry_budget` semantics and typed `verify_retry_budget_exhausted` external reason. Verification-unavailable lanes (runner missing/parser/no tests/unavailable rows) still complete as unverified and do not spend repair budget. Verified with loopkernel/writeflow/orchestrator focused tests and full `go test ./...`. |
+| M4a Delivery audit sync / LOC ratchet | in_progress | Current audit found stale top-of-document statuses and PRD LOC ratchet drift: `evidence_closure.go` is 3003 lines and `scheduler.go` is 961 lines, exceeding the documented 2774/945 budgets. This batch will refresh the audit table, extract concern helpers into subfiles, and add a source-line ratchet test before further feature work. |
+| M4b Commercial hardening matrix | pending | Must run after M4a. |
+| M4c Prompt/schema/tool-noise audit | pending | Must run after M4a so audit evidence is not mixed with structural refactor noise. |
