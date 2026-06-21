@@ -1522,6 +1522,76 @@ func TestNormalizePrincipalSupportSurfaceTermSupplement_MaterializesMissingEvide
 	}
 }
 
+func TestNormalizePrincipalSupportSurfaceTermSupplement_SuppressesWhenSourceInventoryOnlyRequestsNameLocation(t *testing.T) {
+	mu := types.NewMutableState("source-inventory name location only")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-index",
+		Producer:     EmitEvidenceProducer,
+		Scope:        types.ScopeLine,
+		Kind:         types.EvidenceRegistration,
+		Subject:      "Index",
+		AnchorSymbol: "Index",
+		Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		LineStart:    7,
+		Snippet:      "@Entry\n@Component\nstruct Index {",
+		SurfaceTerms: []string{"@Entry", "@Component"},
+	}})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFunction,
+				},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+			},
+		}},
+	}
+	plan := &types.AnswerSupportPlan{
+		Family:                  types.QFEnumeration,
+		PrincipalMemberCoverage: types.PrincipalMemberCoveragePolicyRequired,
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{{
+				Text:         "Index @Entry component",
+				Location:     "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:7",
+				ClaimForm:    types.ClaimDefinitionFact,
+				Subject:      "Index",
+				AnchorSymbol: "Index",
+				SurfaceTerms: []string{"@Entry", "@Component"},
+				Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+				LineStart:    7,
+			}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "entry-list",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Text:        "| 组件名 | 文件路径 | 行号 |\n|---|---|---|\n| Index | internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets | 7 |",
+		}},
+	}
+
+	if fixed := normalizePrincipalSupportSurfaceTermSupplement(doc, plan, ctx); fixed != 0 {
+		t.Fatalf("name/location-only source inventory should not add surface-term supplement, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	visible := preEmitVisibleAnswerSurface(doc)
+	if strings.Contains(visible, "系统按已验证证据补充可见标签") || strings.Contains(visible, "@Component") {
+		t.Fatalf("surface-term supplement should stay internal when only name/location were requested:\n%s", visible)
+	}
+}
+
 func TestNormalizeAggregateMemberSetCarriers_DoesNotOverrideSingletonModelCategoryBlock(t *testing.T) {
 	mu := types.NewMutableState("singleton aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

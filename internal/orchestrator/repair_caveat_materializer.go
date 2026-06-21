@@ -478,14 +478,49 @@ func suppressGenericSoftCaveatsForAcceptedSurface(violations []types.Violation, 
 		return violations
 	}
 	intentContract := types.CompileAnswerIntentContract(*rm, answerContract)
+	completeCitedEnumeration := acceptedPrincipalEnumerationFullyCited(ctx, rm)
 	out := make([]types.Violation, 0, len(violations))
 	for _, v := range violations {
-		if genericAcceptedPathCaveatIsTelemetry(v, rm, intentContract) {
+		if genericAcceptedPathCaveatIsTelemetry(v, rm, intentContract) ||
+			(completeCitedEnumeration && enumerationDepthCaveatIsRepairTelemetry(v.Kind)) {
 			continue
 		}
 		out = append(out, v)
 	}
 	return out
+}
+
+func acceptedPrincipalEnumerationFullyCited(ctx *types.BusContext, rm *types.RequestModel) bool {
+	if ctx == nil || rm == nil {
+		return false
+	}
+	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
+	sets := types.CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) == 0 {
+		return false
+	}
+	for _, set := range sets {
+		if len(set.Rows) == 0 {
+			return false
+		}
+		for _, row := range set.Rows {
+			if !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func enumerationDepthCaveatIsRepairTelemetry(kind types.ViolationKind) bool {
+	switch kind {
+	case types.ViolEnumerationLabelUngrounded,
+		types.ViolEnumerationEvidenceUnderspecified,
+		types.ViolEnumerationItemLabelExtractorDrift:
+		return true
+	default:
+		return false
+	}
 }
 
 func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, contract types.AnswerIntentContract) bool {

@@ -935,6 +935,86 @@ func TestAppendSoftContractCaveatsToAnswer_SkipsRichnessRegressionTelemetry(t *t
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswer_SuppressesEnumDepthWhenMemberSetFullyCited(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	mut := types.NewMutableState("列出 Kind 常量")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "ev-symbol-present",
+			Kind:            types.EvidenceDirect,
+			Subject:         "KindSymbolPresent",
+			AnchorSymbol:    "KindSymbolPresent",
+			AnchorKind:      types.AnchorDefinition,
+			Source:          "internal/analysis/criterion/grammar.go",
+			LineStart:       29,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "KindSymbolPresent is defined here.",
+		},
+		{
+			ID:              "ev-no-call-sites",
+			Kind:            types.EvidenceDirect,
+			Subject:         "KindNoCallSites",
+			AnchorSymbol:    "KindNoCallSites",
+			AnchorKind:      types.AnchorDefinition,
+			Source:          "internal/analysis/criterion/grammar.go",
+			LineStart:       30,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "KindNoCallSites is defined here.",
+		},
+	})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "Kind constants",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"KindSymbolPresent",
+			"KindNoCallSites",
+		},
+		SupportRefs: []string{
+			"KindSymbolPresent @ internal/analysis/criterion/grammar.go:29",
+			"KindNoCallSites @ internal/analysis/criterion/grammar.go:30",
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+			},
+		}},
+	}
+
+	out := AppendUserCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind: types.ViolEnumerationLabelUngrounded,
+	}}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("fully cited accepted enumeration should suppress repaired enum-depth caveat:\n%s", out)
+	}
+
+	out = AppendUserCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind: types.ViolEnumerationLabelHallucinated,
+	}}, "zh", ctx)
+	if !strings.Contains(out, "枚举类条目") {
+		t.Fatalf("hallucinated enumeration labels must still display the enum-depth caveat:\n%s", out)
+	}
+}
+
 // TestMaterializeCaveats_NoInternalJargon — output strings must not
 // contain ViolKind names, IR field names, confidence numbers, or
 // orchestration tokens.

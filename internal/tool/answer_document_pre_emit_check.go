@@ -2612,6 +2612,9 @@ func normalizePrincipalSupportSurfaceTermSupplement(doc *types.AnswerDocumentV2,
 	if doc == nil || supportPlan == nil || ctx == nil {
 		return 0
 	}
+	if !principalSupportSurfaceTermSupplementRequested(ctx) {
+		return 0
+	}
 	evidence := modelSurfaceTermEvidence(ctx)
 	if len(evidence) == 0 {
 		return 0
@@ -2649,6 +2652,26 @@ func normalizePrincipalSupportSurfaceTermSupplement(doc *types.AnswerDocumentV2,
 	}
 	doc.Blocks = append(doc.Blocks, block)
 	return len(rows)
+}
+
+func principalSupportSurfaceTermSupplementRequested(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return true
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	if profile == nil || !profile.Active() {
+		return true
+	}
+	if len(profile.RequestedFields) == 0 {
+		return true
+	}
+	for _, field := range profile.RequestedFields {
+		switch field {
+		case types.SourceInventoryFieldSummary, types.SourceInventoryFieldValues:
+			return true
+		}
+	}
+	return false
 }
 
 func principalSupportSurfaceTermRows(
