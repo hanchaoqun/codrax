@@ -749,18 +749,24 @@ Remaining follow-up:
     - True path dispatches exactly once from typed `ProgressDecision`, not from prompt text, model rationale, raw user keywords, elapsed time, or noisy ranker counts.
     - Eval telemetry can flag optional refine/runaway cost for human audit without altering runtime decisions.
 - **D1-F8d read snapshot production writer/resume path**: wire `ReadRunSnapshotStore` into production read-run persistence and then into a typed resume/replay consumer. Keep scaffold/replay one-way; no prose replay.
-  - Current state: `ReadRunSnapshot` and `ReadRunSnapshotStore` exist with typed projection/store tests, but no production `Orchestrator` save point, no runtime-store wiring, no REPL/CLI audit consumer, and no scheduler seed path. This is still scaffold, not read resumability.
+  - Current state: `ReadRunSnapshot` / `ReadRunSnapshotStore` exist with typed projection/store tests, and D1-F8d.1 has added production `Orchestrator` save wiring through CLI/REPL runtime stores. The remaining gap is load-bearing resume/replay: no explicit seed adapter validates and consumes a saved snapshot, no advanced audit command surface lists/shows/resumes snapshots, and no eval/reasoning replay consumes the artifact.
   - Architecture rule: snapshot persistence must be a typed artifact projection from `BusContext` / `EvidenceClosure` / source-inventory authority. It must not include prompt text, model rationale, final answer prose as a routing input, or user-keyword-derived logic.
-  - Batch D1-F8d.1 production writer: **code complete / full regression pending**.
+  - Batch D1-F8d.1 production writer: **complete**.
     1. Add an orchestrator-side `ReadRunSnapshotSaver` interface and setter, parallel to the existing plan/workflow store interfaces, avoiding an orchestrator -> repl import.
     2. Extend `runtimeStores` and `installRuntimeStores` so CLI and REPL wire `repl.NewReadRunSnapshotStore(planDir)` alongside plan/workflow stores.
     3. Persist a read snapshot at read-run exit using `TraceID` as the `RunID`; save best-effort and never fail the user request because audit persistence failed.
     4. Add read E2E/unit tests proving successful read runs save typed node status/read coverage/progress state, write-mode runs do not write read snapshots, and invalid/nil stores remain no-op.
     5. Keep this batch audit-only: it does not alter scheduler decisions, final answer generation, or automatic resume behavior.
-  - Batch D1-F8d.2 explicit resume seed:
-    1. Add a small typed loader/seed adapter that validates repo root, task graph hash, and schema version before seeding `EvidenceClosure.NodeExecStatus`, read ranges, accepted evidence refs, source-inventory observation, and progress decision.
-    2. Expose an advanced audit/recovery command surface for listing/showing read snapshots and explicitly resuming one; routine read path stays automatic and uninterrupted.
-    3. Add golden tests that resume consumes only typed fields and refuses schema/hash/repo mismatches fail-loud without parsing final answer prose.
+  - Batch D1-F8d.2 explicit resume seed: **next architecture-stability batch**.
+    1. Add a typed seed adapter on `Orchestrator` that accepts `ReadRunSnapshot` only through an explicit setter/recovery surface; routine read runs do not auto-consume the latest snapshot.
+    2. Validate `schema_version`, canonical repo root, and `ReadTaskGraphHash(TaskGraph)` after analyzer success and before task scheduling. Mismatch is fail-loud for the explicit recovery path, never silently replayed.
+    3. Seed only structured carriers: `EvidenceClosure.NodeExecStatus`, read set/ranges/file totals, accepted evidence refs, source-inventory observation, and progress decision. Do not seed final answer prose, prompt text, model rationale, raw logs, or user-keyword-derived fields.
+    4. Keep the scheduler generic: it consumes existing closure accessors and typed criteria; the seed adapter only hydrates the closure, it does not append runtime DAG nodes or special-case task names.
+    5. Add golden tests for accepted seed, schema mismatch, repo mismatch, task graph hash mismatch, write-mode no-op, and prompt/prose-free field consumption.
+  - Batch D1-F8d.2b advanced audit/recovery command surface:
+    1. Expose `/read-runs list|show|resume|clear` or an equivalent advanced command family backed by `ReadRunSnapshotStore`; routine read path stays Auto Pilot and uninterrupted.
+    2. `resume` must load by stable run id/path, install the typed seed, and re-run the request against the same repo/graph identity. It must never choose snapshots by fuzzy request wording.
+    3. Status cards should explain resume decisions from typed reason codes (`schema_mismatch`, `repo_mismatch`, `task_graph_mismatch`, `seed_applied`) rather than prose summaries.
   - Batch D1-F8d.3 replay/eval:
     1. Connect the snapshot artifacts to reasoning graph / eval telemetry so read-mode handoff loss, repeated refine loops, and proof coverage changes are auditable across runs.
     2. Run representative read eval cases before marking Stage 1 read resumability commercially closed.
