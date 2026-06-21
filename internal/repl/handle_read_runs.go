@@ -27,6 +27,13 @@ func (r *REPL) handleReadRunsCmd(line string) {
 			return
 		}
 		r.handleReadRunsShow(id)
+	case rest == "resume" || strings.HasPrefix(rest, "resume "):
+		id := readRunCommandID(rest, "resume")
+		if id == "" {
+			r.info("/read-runs resume <run-id>")
+			return
+		}
+		r.handleReadRunsResume(id)
 	case rest == "clear" || strings.HasPrefix(rest, "clear "):
 		id := readRunCommandID(rest, "clear")
 		if id == "" {
@@ -35,7 +42,7 @@ func (r *REPL) handleReadRunsCmd(line string) {
 		}
 		r.handleReadRunsClear(id)
 	default:
-		r.info("/read-runs <list|show <run-id>|clear <run-id>>")
+		r.info("/read-runs <list|show <run-id>|resume <run-id>|clear <run-id>>")
 	}
 }
 
@@ -63,6 +70,68 @@ func (r *REPL) handleReadRunsShow(id string) {
 		return
 	}
 	r.renderBordered(readRunSnapshotMarkdown(*snapshot))
+}
+
+func (r *REPL) handleReadRunsResume(id string) {
+	seedSetter, ok := r.runner.(readRunSnapshotSeedSetter)
+	if !ok {
+		r.info("read-runs resume: runner does not support typed read snapshot seeds")
+		return
+	}
+	snapshot, err := r.readRunSnapshotStore.Load(id)
+	if err != nil {
+		r.errorf("read-runs resume: %v\n", err)
+		return
+	}
+	if snapshot == nil {
+		r.info(fmt.Sprintf("read-runs resume: snapshot %q not found", id))
+		return
+	}
+	request := strings.TrimSpace(snapshot.Request)
+	repoRoot := strings.TrimSpace(snapshot.RepoRoot)
+	if request == "" {
+		r.info(fmt.Sprintf("read-runs resume: snapshot %q has empty request", id))
+		return
+	}
+	if repoRoot == "" {
+		r.info(fmt.Sprintf("read-runs resume: snapshot %q has empty repo root", id))
+		return
+	}
+
+	seedSetter.SetReadRunSnapshotSeed(snapshot)
+	defer seedSetter.SetReadRunSnapshotSeed(nil)
+	if mode, ok := r.runner.(modeSetter); ok {
+		originalMode := r.currentMode
+		mode.SetMode(types.ModeRead)
+		defer mode.SetMode(originalMode)
+	}
+	if transcript, ok := r.runner.(outputTranscriptRequestSetter); ok {
+		transcript.SetOutputTranscriptRequest(request)
+		defer transcript.SetOutputTranscriptRequest("")
+	}
+
+	if r.renderer != nil {
+		r.renderer.SetTotalStages(4)
+		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
+	}
+	busCtx, runErr := r.runInFlightWrap(func() (*types.BusContext, error) {
+		return r.runner.Run(request, repoRoot, r.branch)
+	})
+	if r.renderer != nil {
+		armDockTerminalState(r.renderer, runErr)
+		r.renderer.StopSpinner()
+	}
+	if runErr != nil {
+		r.errorf("read-runs resume: %s\n", friendlyRunError(r.language, runErr))
+		return
+	}
+
+	response := strings.TrimSpace(r.render(busCtx))
+	if response == "" || response == "(no result)" {
+		fmt.Fprintln(r.out, emptyResponseHint(r.language))
+		return
+	}
+	r.renderBordered(response)
 }
 
 func (r *REPL) handleReadRunsClear(id string) {
@@ -142,7 +211,9 @@ func readRunSnapshotMarkdown(snapshot types.ReadRunSnapshot) string {
 	if snapshot.SourceInventory.IsActive() {
 		fmt.Fprintf(&b, "- Source inventory: %s\n", readRunSourceInventorySummary(snapshot.SourceInventory))
 	}
-	b.WriteString("\nAdvanced: `/read-runs clear ")
+	b.WriteString("\nAdvanced: `/read-runs resume ")
+	b.WriteString(snapshot.RunID)
+	b.WriteString("` · `/read-runs clear ")
 	b.WriteString(snapshot.RunID)
 	b.WriteString("`\n")
 	return b.String()

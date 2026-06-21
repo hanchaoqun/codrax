@@ -139,6 +139,13 @@ type outputTranscriptRequestSetter interface {
 	SetOutputTranscriptRequest(string)
 }
 
+// readRunSnapshotSeedSetter is the explicit recovery channel for
+// /read-runs resume. It is intentionally not part of the base Runner
+// surface: routine read turns must never auto-consume the latest snapshot.
+type readRunSnapshotSeedSetter interface {
+	SetReadRunSnapshotSeed(*types.ReadRunSnapshot)
+}
+
 // modeSetter is the optional capability the REPL probes on its
 // Runner to propagate the current pipeline Mode before dispatch.
 // Real orchestrators implement SetMode; test stubs that omit it
