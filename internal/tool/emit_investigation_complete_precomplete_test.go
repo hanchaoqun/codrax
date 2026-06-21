@@ -4443,6 +4443,154 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadHonorsCanonicalR
 	}
 }
 
+func TestRaisePhase1UnreadPendingReads_SourceInventoryScopeSkipsOutOfScopeExactMatches(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 5
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	const (
+		entryFile   = "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"
+		builderFile = "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets"
+		noiseFile   = "internal/skill/defaults.go"
+	)
+	mut := types.NewMutableState("list ArkTS source inventory")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: noiseFile, Score: 95, ExactEntityRank: 3},
+		{Path: entryFile, Score: 90, ExactEntityRank: 3},
+		{Path: builderFile, Score: 89, ExactEntityRank: 3},
+	})
+	setArkTSSourceInventoryObservation(mut, entryFile, builderFile)
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		entryFile:   true,
+		builderFile: true,
+	})
+	bus := sourceInventoryPhase1UnreadTestBus(mut, entryFile, builderFile)
+
+	raisePhase1UnreadPendingReads(bus, closure)
+
+	for _, pending := range closure.PendingReads() {
+		if pending.Origin == "phase1_unread" {
+			t.Fatalf("source-inventory strict scope must not force-read out-of-scope exact matches: %+v", pending)
+		}
+	}
+	if closure.Phase1UnreadFired() {
+		t.Fatal("source-inventory strict scope should not burn the phase1_unread latch when every in-scope file is already read")
+	}
+}
+
+func TestRaisePhase1UnreadPendingReads_SourceInventoryScopeKeepsInScopeUnreadBlocking(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 5
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	const (
+		entryFile   = "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"
+		builderFile = "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets"
+		noiseFile   = "internal/skill/defaults.go"
+	)
+	mut := types.NewMutableState("list ArkTS source inventory")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: noiseFile, Score: 95, ExactEntityRank: 3},
+		{Path: entryFile, Score: 90, ExactEntityRank: 3},
+		{Path: builderFile, Score: 89, ExactEntityRank: 3},
+	})
+	setArkTSSourceInventoryObservation(mut, entryFile, builderFile)
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		entryFile: true,
+	})
+	bus := sourceInventoryPhase1UnreadTestBus(mut, entryFile, builderFile)
+
+	raisePhase1UnreadPendingReads(bus, closure)
+
+	pending := closure.PendingReads()
+	if len(pending) != 1 || pending[0].Origin != "phase1_unread" || pending[0].File != builderFile {
+		t.Fatalf("source-inventory strict scope must keep in-scope unread files blocking and ignore out-of-scope noise, got %+v", pending)
+	}
+}
+
+func setArkTSSourceInventoryObservation(mut *types.MutableState, entryFile, builderFile string) {
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+		Provenance: []string{"repo_lens:tool_query"},
+		Lens:       []string{"source_inventory"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Entry",
+				Key:           entryFile + "::Entry",
+				SupportRef:    "Entry: " + entryFile + ":10",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          entryFile,
+				Line:          10,
+				Language:      "arkts",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}, {
+				Name:          "GlobalCard",
+				Key:           builderFile + "::GlobalCard",
+				SupportRef:    "GlobalCard: " + builderFile + ":26",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          builderFile,
+				Line:          26,
+				Language:      "arkts",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+}
+
+func sourceInventoryPhase1UnreadTestBus(mut *types.MutableState, requiredFiles ...string) *types.BusContext {
+	hints := make([]types.RequiredFileHint, 0, len(requiredFiles))
+	for _, file := range requiredFiles {
+		hints = append(hints, types.RequiredFileHint{Path: file, Confidence: 0.95})
+	}
+	return &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: "",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceScopeProfile: &types.SourceScopeProfile{
+					RequestedScope: types.SourceScopeAll,
+					Confidence:     0.95,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleFunction,
+						types.AnswerCandidateRoleMethod,
+					},
+					RequestedFields: []types.SourceInventoryRequestedField{
+						types.SourceInventoryFieldName,
+						types.SourceInventoryFieldLocation,
+					},
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              string(types.ReqEnumeration),
+					RequiredFileHints: hints,
+				},
+			},
+			EvidencePlan: types.EvidencePlan{
+				RequiredFiles: append([]string(nil), requiredFiles...),
+			},
+		},
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_ConfigMappingMultiAnchorBlocks(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

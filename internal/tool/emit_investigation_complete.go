@@ -7871,11 +7871,13 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 }
 
 type phase1UnreadFilter struct {
-	enabled         bool
-	repoRoot        string
-	graph           *repotypes.Graph
-	readFiles       []string
-	requiredFileSet map[string]bool
+	enabled                    bool
+	repoRoot                   string
+	graph                      *repotypes.Graph
+	readFiles                  []string
+	requiredFileSet            map[string]bool
+	sourceInventoryStrictScope bool
+	sourceInventoryScopeSet    map[string]bool
 }
 
 func newPhase1UnreadFilter(ctx *types.BusContext, closure *types.EvidenceClosure) phase1UnreadFilter {
@@ -7885,6 +7887,10 @@ func newPhase1UnreadFilter(ctx *types.BusContext, closure *types.EvidenceClosure
 	}
 	out.repoRoot = ctx.RepoRoot
 	out.requiredFileSet = phase1UnreadRequiredFileSet(ctx)
+	out.sourceInventoryScopeSet, out.sourceInventoryStrictScope = phase1UnreadSourceInventoryStrictScopeSet(ctx)
+	if out.sourceInventoryStrictScope {
+		out.enabled = true
+	}
 	if g, ok := ctx.Mutable.SearchGraph().(*repotypes.Graph); ok && g != nil && len(g.FileIndex) > 0 {
 		out.graph = g
 	}
@@ -7911,10 +7917,48 @@ func (f phase1UnreadFilter) hasMandatoryReadSignal(ranked types.Phase1RankedFile
 	if file == "" {
 		return false
 	}
+	if f.sourceInventoryStrictScope {
+		return f.sourceInventoryScopeSet != nil && f.sourceInventoryScopeSet[file]
+	}
 	if f.requiredFileSet != nil && f.requiredFileSet[file] {
 		return true
 	}
 	return ranked.ExactEntityRank > 0
+}
+
+func phase1UnreadSourceInventoryStrictScopeSet(ctx *types.BusContext) (map[string]bool, bool) {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return nil, false
+	}
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	if !types.SourceInventoryLensExecuted(observation) || !sourceInventoryObservationCompleteForPhase1Scope(observation) {
+		return nil, false
+	}
+	files := types.BoundedSourceEnumerationScopeFiles(ctx.AnalysisIR.RequestModel, ctx.AnalysisIR.EvidencePlan.RequiredFiles, ctx.RepoRoot)
+	if len(files) == 0 || types.BoundedSourceEnumerationCommonScope(files) == "" {
+		return nil, false
+	}
+	set := make(map[string]bool, len(files))
+	for _, file := range files {
+		canon := phase1UnreadCanonPath(file, ctx.RepoRoot)
+		if canon != "" {
+			set[canon] = true
+		}
+	}
+	if len(set) == 0 {
+		return nil, false
+	}
+	return set, true
+}
+
+func sourceInventoryObservationCompleteForPhase1Scope(observation types.SourceInventoryObservation) bool {
+	if observation.Complete {
+		return true
+	}
+	if observation.Page != nil && observation.Page.Complete {
+		return true
+	}
+	return false
 }
 
 func phase1UnreadRequiredFileSet(ctx *types.BusContext) map[string]bool {
