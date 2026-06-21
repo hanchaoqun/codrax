@@ -665,6 +665,15 @@ func appendUniqueClaimForm(in []ClaimForm, form ClaimForm) []ClaimForm {
 	return append(in, form)
 }
 
+// AnswerDocumentCoversSupportMember reports whether the document already has a
+// principal visible carrier, with a matching typed citation, for this support
+// member. It is intentionally typed artifact based; callers should use it when
+// deciding whether deterministic final-answer repair needs to add more visible
+// surface, instead of re-parsing answer prose.
+func AnswerDocumentCoversSupportMember(doc *AnswerDocumentV2, ob AnswerSupportMemberObligation) bool {
+	return answerDocumentCoversSupportMember(doc, ob)
+}
+
 func answerDocumentCoversSupportMember(doc *AnswerDocumentV2, ob AnswerSupportMemberObligation) bool {
 	return newAnswerSupportDocumentIndex(doc).coversSupportMember(ob)
 }

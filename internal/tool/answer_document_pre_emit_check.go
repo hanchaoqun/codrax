@@ -2733,7 +2733,7 @@ func normalizePrincipalSupportSurfaceTermSupplement(doc *types.AnswerDocumentV2,
 	if strings.TrimSpace(visibleSurface) == "" {
 		return 0
 	}
-	rows := principalSupportSurfaceTermRows(doc, supportPlan, evidence, visibleSurface)
+	rows := principalSupportSurfaceTermRows(doc, supportPlan, ctx, evidence, visibleSurface)
 	if len(rows) == 0 {
 		return 0
 	}
@@ -2787,6 +2787,7 @@ func principalSupportSurfaceTermSupplementRequested(ctx *types.BusContext) bool 
 func principalSupportSurfaceTermRows(
 	doc *types.AnswerDocumentV2,
 	supportPlan *types.AnswerSupportPlan,
+	ctx *types.BusContext,
 	evidence []types.EvidenceItem,
 	visibleSurface string,
 ) []principalSupportSurfaceTermRow {
@@ -2798,6 +2799,9 @@ func principalSupportSurfaceTermRows(
 	seen := make(map[string]bool)
 	var rows []principalSupportSurfaceTermRow
 	for _, ob := range obligations {
+		if principalSupportSurfaceTermCoveredByPrimarySourceInventoryRow(doc, ctx, ob) {
+			continue
+		}
 		if !principalSupportMemberIdentityVisibleForSurfaceTerms(visibleSurface, ob) {
 			continue
 		}
@@ -2814,7 +2818,7 @@ func principalSupportSurfaceTermRows(
 			continue
 		}
 		label := principalSupportMemberItemLabel(ob)
-		location := ob.LocationHint()
+		location := principalSupportSurfaceTermDisplayLocation(ob, cit)
 		key := strings.ToLower(strings.TrimSpace(label)) + "\x00" + strings.ToLower(strings.TrimSpace(location)) + "\x00" + strings.ToLower(strings.Join(missing, "\x00"))
 		if seen[key] {
 			continue
@@ -2831,6 +2835,28 @@ func principalSupportSurfaceTermRows(
 		}
 	}
 	return rows
+}
+
+func principalSupportSurfaceTermCoveredByPrimarySourceInventoryRow(doc *types.AnswerDocumentV2, ctx *types.BusContext, ob types.AnswerSupportMemberObligation) bool {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	return types.AnswerDocumentCoversSupportMember(doc, ob)
+}
+
+func principalSupportSurfaceTermDisplayLocation(ob types.AnswerSupportMemberObligation, cit types.Citation) string {
+	if location := strings.TrimSpace(ob.StableCitationKey()); location != "" {
+		return location
+	}
+	file := strings.TrimSpace(cit.File)
+	if file != "" && cit.Line > 0 {
+		return fmt.Sprintf("%s:%d", file, cit.Line)
+	}
+	return strings.TrimSpace(ob.Location)
 }
 
 func missingSurfaceTermsForSupportObligation(ob types.AnswerSupportMemberObligation, evidence []types.EvidenceItem, visibleSurface string) []string {

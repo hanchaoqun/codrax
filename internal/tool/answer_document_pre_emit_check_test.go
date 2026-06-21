@@ -1691,6 +1691,147 @@ func TestNormalizePrincipalSupportSurfaceTermSupplement_SuppressesWhenSourceInve
 	}
 }
 
+func TestNormalizePrincipalSupportSurfaceTermSupplement_SkipsCoveredSourceInventoryRows(t *testing.T) {
+	mu := types.NewMutableState("source-inventory primary row already covered")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-cart-class",
+		Producer:     EmitEvidenceProducer,
+		Scope:        types.ScopeLine,
+		Kind:         types.EvidenceDirect,
+		Subject:      "Cart",
+		AnchorSymbol: "Cart",
+		Source:       "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+		LineStart:    14,
+		Snippet:      "public class Cart {",
+		SurfaceTerms: []string{"public class"},
+	}})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleType,
+				},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldValues,
+					types.SourceInventoryFieldLocation,
+				},
+			},
+		}},
+	}
+	plan := &types.AnswerSupportPlan{
+		Family:                  types.QFEnumeration,
+		PrincipalMemberCoverage: types.PrincipalMemberCoveragePolicyRequired,
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{{
+				Text:         "Cart public class",
+				Location:     "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+				ClaimForm:    types.ClaimDefinitionFact,
+				Subject:      "Cart",
+				AnchorSymbol: "Cart",
+				SurfaceTerms: []string{"Cart", "public class"},
+				Source:       "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				LineStart:    14,
+			}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 14}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "cangjie-types",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Text:        "| 成员 | 包 | 位置 |\n|---|---|---|\n| Cart | demo.cart | eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14 |",
+			Items: []types.AnswerBlockItem{{
+				ID:          "cart",
+				Label:       "Cart",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizePrincipalSupportSurfaceTermSupplement(doc, plan, ctx); fixed != 0 {
+		t.Fatalf("covered source-inventory primary row should not get a duplicate supplement, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	visible := preEmitVisibleAnswerSurface(doc)
+	if strings.Contains(visible, "系统按已验证证据补充可见标签") || strings.Contains(visible, "public class") {
+		t.Fatalf("source-inventory supplement should not duplicate an already covered primary row:\n%s", visible)
+	}
+}
+
+func TestNormalizePrincipalSupportSurfaceTermSupplement_UsesStableDisplayLocation(t *testing.T) {
+	mu := types.NewMutableState("surface-term stable display location")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-cart-class",
+		Producer:     EmitEvidenceProducer,
+		Scope:        types.ScopeLine,
+		Kind:         types.EvidenceDirect,
+		Subject:      "Cart",
+		AnchorSymbol: "Cart",
+		Source:       "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+		LineStart:    14,
+		Snippet:      "public class Cart {",
+		SurfaceTerms: []string{"public class"},
+	}})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	plan := &types.AnswerSupportPlan{
+		Family:                  types.QFEnumeration,
+		PrincipalMemberCoverage: types.PrincipalMemberCoveragePolicyRequired,
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{{
+				Text:                "Cart public class",
+				Location:            "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14",
+				EquivalentLocations: []string{"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30"},
+				ClaimForm:           types.ClaimDefinitionFact,
+				Subject:             "Cart",
+				AnchorSymbol:        "Cart",
+				SurfaceTerms:        []string{"Cart", "public class"},
+				Source:              "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+				LineStart:           14,
+			}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "cangjie-types",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Text:        "| 成员 | 包 | 位置 |\n|---|---|---|\n| Cart | demo.cart | eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14 |",
+		}},
+	}
+
+	if fixed := normalizePrincipalSupportSurfaceTermSupplement(doc, plan, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1; doc=%+v", fixed, doc.Blocks)
+	}
+	visible := preEmitVisibleAnswerSurface(doc)
+	if !strings.Contains(visible, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14") {
+		t.Fatalf("supplement should render stable support citation location:\n%s", visible)
+	}
+	if strings.Contains(visible, "one of") || strings.Contains(visible, "Cart.cj:30") {
+		t.Fatalf("supplement must not render repair-style equivalent-anchor text:\n%s", visible)
+	}
+}
+
 func TestNormalizeAggregateMemberSetCarriers_DoesNotOverrideSingletonModelCategoryBlock(t *testing.T) {
 	mu := types.NewMutableState("singleton aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
