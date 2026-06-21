@@ -268,6 +268,19 @@ func TestEval_SourceClassUniverseIncomplete_UsesTypedBooleans(t *testing.T) {
 	}
 }
 
+func TestEval_SourceInventoryLensMissing_UsesTypedExecutionState(t *testing.T) {
+	c := types.Criterion{Kind: string(KindSourceInventoryLensMissing)}
+	if r := Eval(c, Env{}); r.Satisfied {
+		t.Fatalf("inactive source-inventory profile must not trigger opt-in node: %s", r.Detail)
+	}
+	if r := Eval(c, Env{SourceInventoryProfileActive: true, SourceInventoryLensExecuted: true}); r.Satisfied {
+		t.Fatalf("executed source-inventory lens must not trigger opt-in node: %s", r.Detail)
+	}
+	if r := Eval(c, Env{SourceInventoryProfileActive: true, SourceInventoryLensExecuted: false}); !r.Satisfied {
+		t.Fatalf("active profile without lens execution should trigger opt-in node: %s", r.Detail)
+	}
+}
+
 func TestEval_ProgressReplanRequired_UsesTypedDecision(t *testing.T) {
 	crit := types.Criterion{Kind: types.CritProgressReplanRequired}
 	if got := Eval(crit, Env{}); got.Satisfied {

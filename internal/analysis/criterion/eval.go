@@ -86,6 +86,8 @@ func dispatch(k Kind, expr string, env Env) Result {
 		return evalExtractInputReady(env)
 	case KindSourceClassUniverseIncomplete:
 		return evalSourceClassUniverseIncomplete(env)
+	case KindSourceInventoryLensMissing:
+		return evalSourceInventoryLensMissing(env)
 	case KindProgressReplanRequired:
 		return evalProgressReplanRequired(env)
 	case KindContainsSymbol:
@@ -789,6 +791,16 @@ func evalSourceClassUniverseIncomplete(env Env) Result {
 		return Result{Satisfied: false, Detail: "source_class_universe_incomplete: universe complete"}
 	}
 	return Result{Satisfied: true, Detail: "source_class_universe_incomplete: active universe incomplete"}
+}
+
+func evalSourceInventoryLensMissing(env Env) Result {
+	if !env.SourceInventoryProfileActive {
+		return Result{Satisfied: false, Detail: "source_inventory_lens_missing: no active source-inventory profile"}
+	}
+	if env.SourceInventoryLensExecuted {
+		return Result{Satisfied: false, Detail: "source_inventory_lens_missing: executable lens already observed"}
+	}
+	return Result{Satisfied: true, Detail: "source_inventory_lens_missing: typed source-inventory profile has no executable lens observation"}
 }
 
 func evalProgressReplanRequired(env Env) Result {

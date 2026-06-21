@@ -1134,6 +1134,7 @@ const (
 	CritCitationCountGE               = "citation_count_ge"
 	CritExtractInputReady             = "extract_input_ready"
 	CritSourceClassUniverseIncomplete = "source_class_universe_incomplete"
+	CritSourceInventoryLensMissing    = "source_inventory_lens_missing"
 	CritProgressReplanRequired        = "progress_replan_required"
 	CritContainsSymbol                = "contains_symbol"
 	CritRegexMatch                    = "regex_match"

@@ -123,6 +123,41 @@ func TestStageExpansionOptInPreciseBoolean(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryLensOptionalNodeIsCompilerAuthoredAndBounded(t *testing.T) {
+	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	var lensProbe, finalize types.TaskNode
+	lensCount := 0
+	for _, n := range out.TaskGraph.Nodes {
+		for _, c := range n.EntryConditions {
+			if c.Kind != types.CritSourceInventoryLensMissing {
+				continue
+			}
+			lensProbe = n
+			lensCount++
+		}
+		if n.Type == types.NodeFinalize {
+			finalize = n
+		}
+	}
+	if lensCount != 1 || lensProbe.ID == "" {
+		t.Fatalf("want exactly one optional source-inventory lens node, count=%d nodes=%+v", lensCount, out.TaskGraph.Nodes)
+	}
+	if lensProbe.Type != types.NodeProbe || !lensProbe.Optional || !lensProbe.OneShot || lensProbe.MaxRetries != 1 {
+		t.Fatalf("source-inventory lens probe should be a bounded optional probe, got %+v", lensProbe)
+	}
+	if !containsString(lensProbe.Outputs, "source_inventory_observation") || !containsString(lensProbe.Outputs, "source_inventory_navigation") {
+		t.Fatalf("source-inventory lens outputs missing typed artifacts: %v", lensProbe.Outputs)
+	}
+	if finalize.ID == "" || !hasEdge(out.TaskGraph, lensProbe.ID, finalize.ID, types.EdgeSoftDependency) {
+		t.Fatalf("source-inventory lens probe should have a soft edge to finalize; edges=%+v", out.TaskGraph.Edges)
+	}
+	for _, id := range out.TaskGraph.ExecutionPolicy.CriticalPath {
+		if id == lensProbe.ID {
+			t.Fatalf("optional source-inventory lens probe must not enter the default critical path: %v", out.TaskGraph.ExecutionPolicy.CriticalPath)
+		}
+	}
+}
+
 func TestAnalyzeRefineOptionalNodeIsCompilerAuthoredAndBounded(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
 	var refine, finalize types.TaskNode
@@ -439,9 +474,10 @@ func TestCompile_MultiTopicCrossComponentTraceKeepsArchitectureTemplate(t *testi
 func TestCompile_UnknownScenarioFallsBackToGeneric(t *testing.T) {
 	out := compileT(sampleRM("no_such_scenario", types.IntentExplain, types.ComplexityModerate))
 	// Generic template has probe/evidence plus compiler-authored optional
-	// source-inventory + analyze-refine nodes, extract, and finalize.
-	if len(out.TaskGraph.Nodes) != 6 {
-		t.Fatalf("unknown scenario should fall back to generic (6 nodes); got %d", len(out.TaskGraph.Nodes))
+	// source-inventory lens/reprobe + analyze-refine nodes, extract, and
+	// finalize.
+	if len(out.TaskGraph.Nodes) != 7 {
+		t.Fatalf("unknown scenario should fall back to generic (7 nodes); got %d", len(out.TaskGraph.Nodes))
 	}
 }
 

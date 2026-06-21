@@ -329,6 +329,31 @@ func TestGraphState_OptionalEntryConditionCanDispatchWhenTypedSignalTrue(t *test
 	}
 }
 
+func TestGraphState_SourceInventoryLensMissingDispatchesWhenTypedSignalTrue(t *testing.T) {
+	g := chainGraphWithExtract()
+	optional := types.TaskNode{
+		ID:       "n_source_inventory_lens",
+		Type:     types.NodeProbe,
+		Optional: true,
+		OneShot:  true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritSourceInventoryLensMissing,
+		}},
+	}
+	g.Nodes = append([]types.TaskNode{optional}, g.Nodes...)
+	s := newGraphState(g)
+	window, blocked := s.readyExplorerWindow(criterion.Env{
+		SourceInventoryProfileActive: true,
+		SourceInventoryLensExecuted:  false,
+	})
+	if len(blocked) != 0 {
+		t.Fatalf("optional source-inventory lens node should not be blocked: %+v", blocked)
+	}
+	if got := idsOf(window); !strings.Contains(strings.Join(got, ","), "n_source_inventory_lens") {
+		t.Fatalf("source-inventory lens node should be ready from typed execution state: %v", got)
+	}
+}
+
 func TestAnalyzeRefineUsesPreAuthoredOptionalNodeOnly(t *testing.T) {
 	g := chainGraphWithExtract()
 	refine := types.TaskNode{

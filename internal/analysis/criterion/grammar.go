@@ -44,6 +44,7 @@ const (
 	KindCitationCountGE               Kind = Kind(types.CritCitationCountGE)
 	KindExtractInputReady             Kind = Kind(types.CritExtractInputReady)
 	KindSourceClassUniverseIncomplete Kind = Kind(types.CritSourceClassUniverseIncomplete)
+	KindSourceInventoryLensMissing    Kind = Kind(types.CritSourceInventoryLensMissing)
 	KindProgressReplanRequired        Kind = Kind(types.CritProgressReplanRequired)
 	KindContainsSymbol                Kind = Kind(types.CritContainsSymbol)
 	KindRegexMatch                    Kind = Kind(types.CritRegexMatch)
@@ -90,6 +91,7 @@ var registered = map[Kind]bool{
 	KindCitationCountGE:               true,
 	KindExtractInputReady:             true,
 	KindSourceClassUniverseIncomplete: true,
+	KindSourceInventoryLensMissing:    true,
 	KindProgressReplanRequired:        true,
 	KindContainsSymbol:                true,
 	KindRegexMatch:                    true,
@@ -128,19 +130,21 @@ var ErrUnknownKind = errors.New("criterion: unknown kind")
 // that are irrelevant to the current call site may be left zero —
 // evaluators document which fields they require.
 type Env struct {
-	IR                          *types.AnalysisIR
-	Evidence                    []types.EvidenceItem
-	AnswerSymbols               []types.AnswerSymbol
-	AnswerChains                []types.AnswerChain
-	AggregateFacts              []types.AnswerAggregateFact
-	ToolResults                 []types.ToolResult
-	PrescanBlob                 string
-	Signals                     types.ExecutionSignals
-	SourceInventoryActive       bool
-	SourceClassUniverseComplete bool
-	ProgressDecision            types.ProgressDecision
-	DraftAnswer                 string
-	DraftCitations              int
+	IR                           *types.AnalysisIR
+	Evidence                     []types.EvidenceItem
+	AnswerSymbols                []types.AnswerSymbol
+	AnswerChains                 []types.AnswerChain
+	AggregateFacts               []types.AnswerAggregateFact
+	ToolResults                  []types.ToolResult
+	PrescanBlob                  string
+	Signals                      types.ExecutionSignals
+	SourceInventoryProfileActive bool
+	SourceInventoryActive        bool
+	SourceInventoryLensExecuted  bool
+	SourceClassUniverseComplete  bool
+	ProgressDecision             types.ProgressDecision
+	DraftAnswer                  string
+	DraftCitations               int
 	// ReactItersUsed is the per-task explore-window iteration count
 	// the scheduler has already spent. Consumed by budget_exhausted.
 	ReactItersUsed int

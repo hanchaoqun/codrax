@@ -390,3 +390,33 @@ func TestSourceInventorySourceClassesCompleteRequiresPositiveKnownClasses(t *tes
 		t.Fatal("positive known complete class should complete the universe")
 	}
 }
+
+func TestSourceInventoryLensExecutedSeparatesClassUniverseSeed(t *testing.T) {
+	classOnly := SourceInventoryObservation{
+		Active: true,
+		Lens:   []string{"source_class_universe", "count"},
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:     SourcePathRoleProduction,
+			Count:    1,
+			Complete: true,
+		}},
+	}
+	if SourceInventoryLensExecuted(classOnly) {
+		t.Fatalf("class-universe-only seed must not count as executable lens: %+v", classOnly)
+	}
+	toolQuery := classOnly
+	toolQuery.Provenance = []string{"repo_lens:tool_query"}
+	if !SourceInventoryLensExecuted(toolQuery) {
+		t.Fatalf("repo_map source_inventory query should count as executable lens: %+v", toolQuery)
+	}
+	withMembers := classOnly
+	withMembers.Sets = []SourceInventoryObservationSet{{
+		Role:     AnswerCandidateRoleFunction,
+		Complete: true,
+		Count:    1,
+		Members:  []SourceInventoryObservationMember{{Name: "Handle"}},
+	}}
+	if !SourceInventoryLensExecuted(withMembers) {
+		t.Fatalf("member-set observation should count as executable lens: %+v", withMembers)
+	}
+}
