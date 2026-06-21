@@ -182,7 +182,7 @@ func Validate(tg types.TaskGraph) []string {
 
 func requiresHypothesis(t types.TaskNodeType) bool {
 	switch t {
-	case types.NodeEvidence, types.NodeValidate, types.NodeReconcile, types.NodeFinalize:
+	case types.NodeEvidence, types.NodeValidate, types.NodeReconcile, types.NodeExtract, types.NodeFinalize:
 		return true
 	}
 	return false

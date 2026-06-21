@@ -32,6 +32,25 @@ func smallChainGraph() types.TaskGraph {
 	}
 }
 
+func chainGraphWithExtract() types.TaskGraph {
+	probe := types.TaskNode{ID: "n0", Type: types.NodeProbe, Objective: "scan"}
+	ev := types.TaskNode{ID: "n1", Type: types.NodeEvidence, Objective: "collect"}
+	extract := types.TaskNode{ID: "n2", Type: types.NodeExtract, Objective: "distill"}
+	final := types.TaskNode{ID: "n3", Type: types.NodeFinalize, Objective: "answer"}
+	return types.TaskGraph{
+		Nodes: []types.TaskNode{probe, ev, extract, final},
+		Edges: []types.TaskEdge{
+			{From: "n0", To: "n1", EdgeType: types.EdgeHardDependency},
+			{From: "n1", To: "n2", EdgeType: types.EdgeHardDependency},
+			{From: "n2", To: "n3", EdgeType: types.EdgeHardDependency},
+		},
+		ExecutionPolicy: types.ExecutionPolicy{
+			MaxParallelism: 1, RetryBudget: 3,
+			CriticalPath: []string{"n0", "n1", "n2", "n3"},
+		},
+	}
+}
+
 func emptyEnv() criterion.Env {
 	return criterion.Env{}
 }
@@ -101,6 +120,29 @@ func TestGraphState_WindowExcludesFinalize(t *testing.T) {
 	}
 }
 
+func TestGraphState_WindowExcludesExtractStageNode(t *testing.T) {
+	s := newGraphState(chainGraphWithExtract())
+	window, _ := s.readyExplorerWindow(emptyEnv())
+	if got := idsOf(window); strings.Join(got, ",") != "n0,n1" {
+		t.Fatalf("explore window should exclude extract/finalize stage nodes; got %v", got)
+	}
+}
+
+func TestGraphState_FinalizeReadinessIgnoresPendingExtractStageNode(t *testing.T) {
+	s := newGraphState(chainGraphWithExtract())
+	for _, id := range []string{"n0", "n1"} {
+		s.markRunning(id)
+		s.markDone(id)
+	}
+	fin := s.firstFinalizeReadyMerged()
+	if fin == nil || fin.ID != "n3" {
+		t.Fatalf("finalize readiness should preserve legacy pre-finalize extract dispatch; got %v", fin)
+	}
+	if s.status["n2"] != nodePending {
+		t.Fatalf("extract node should remain pending for the finalize branch to dispatch; got %s", s.status["n2"])
+	}
+}
+
 func TestGraphState_RetryBudgetExhausted(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	if s.retryBudgetExhausted() {
@@ -161,6 +203,22 @@ func TestGraphState_ForceCloseExploreWindow(t *testing.T) {
 		if s.status[id] != nodeDone {
 			t.Errorf("%s should be forced to done; got %v", id, s.status[id])
 		}
+	}
+	if s.status["n3"] == nodeDone {
+		t.Error("finalize must not be force-closed")
+	}
+}
+
+func TestGraphState_ForceCloseExploreWindowLeavesExtractPending(t *testing.T) {
+	s := newGraphState(chainGraphWithExtract())
+	s.forceCloseExploreWindow()
+	for _, id := range []string{"n0", "n1"} {
+		if s.status[id] != nodeDone {
+			t.Errorf("%s should be forced to done; got %v", id, s.status[id])
+		}
+	}
+	if s.status["n2"] == nodeDone {
+		t.Error("extract must not be force-closed by the explore window")
 	}
 	if s.status["n3"] == nodeDone {
 		t.Error("finalize must not be force-closed")
@@ -452,6 +510,7 @@ func TestStageMapping_AllNodeTypes(t *testing.T) {
 		{types.NodeEvidence, types.StageExplore},
 		{types.NodeValidate, types.StageExplore},
 		{types.NodeReconcile, types.StageExplore},
+		{types.NodeExtract, types.StageExtract},
 		{types.NodeFinalize, types.StageFinalize},
 	}
 	for _, c := range cases {
@@ -463,6 +522,24 @@ func TestStageMapping_AllNodeTypes(t *testing.T) {
 		if got != c.want {
 			t.Errorf("nt=%s: want %s, got %s", c.nt, c.want, got)
 		}
+	}
+}
+
+func TestGraphState_RequeueToStageExtractOnly(t *testing.T) {
+	s := newGraphState(chainGraphWithExtract())
+	for _, id := range []string{"n0", "n1", "n2", "n3"} {
+		s.markRunning(id)
+		s.markDone(id)
+	}
+	requeued := s.requeueToStage(types.StageExtract, false)
+	if got := strings.Join(requeued, ","); got != "n2,n3" {
+		t.Fatalf("extract fallback should requeue extract plus finalize only; got %v", requeued)
+	}
+	if s.status["n0"] != nodeDone || s.status["n1"] != nodeDone {
+		t.Fatalf("explore nodes should remain done; n0=%s n1=%s", s.status["n0"], s.status["n1"])
+	}
+	if s.status["n2"] != nodeRequeued || s.status["n3"] != nodeRequeued {
+		t.Fatalf("extract/finalize should be requeued; n2=%s n3=%s", s.status["n2"], s.status["n3"])
 	}
 }
 

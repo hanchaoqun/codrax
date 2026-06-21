@@ -37,6 +37,7 @@ type Output struct {
 func Compile(rm types.RequestModel, sig budget.BudgetSignals) Output {
 	t := pickTemplate(rm)
 	out := t(rm)
+	EnsureReadStageNodes(&out.TaskGraph)
 	// Adapt citation thresholds to complexity + subtopic count so a
 	// "simple single-lookup" question is not held to the same bar as
 	// a "cross-component architecture survey". See

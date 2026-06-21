@@ -2513,6 +2513,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			counterfactual.Options{Enabled: true, MaxBranches: 1},
 		)
 		out.TaskGraph = expanded
+		compiler.EnsureReadStageNodes(&out.TaskGraph)
 		if len(newIDs) > 0 {
 			if err := binder.BindByRelevance(&out.TaskGraph, hypotheses, binder.Options{}); err != nil {
 				return nil, fmt.Errorf("binder (counterfactual): %w", err)

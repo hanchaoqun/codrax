@@ -4911,6 +4911,45 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		return env
 	}
 
+	findPendingExtractNode := func() *types.TaskNode {
+		for i := range ir.TaskGraph.Nodes {
+			n := &ir.TaskGraph.Nodes[i]
+			if n.Type != types.NodeExtract {
+				continue
+			}
+			st := state.status[n.ID]
+			if st == nodePending || st == nodeRequeued {
+				return n
+			}
+		}
+		return nil
+	}
+	startExtractNode := func(n *types.TaskNode) {
+		if n == nil {
+			return
+		}
+		state.markRunning(n.ID)
+		o.emitNodeStart(n.ID)
+	}
+	finishExtractNode := func(n *types.TaskNode, success bool, msg string) {
+		if n == nil {
+			return
+		}
+		if success {
+			state.markDone(n.ID)
+		} else {
+			state.markFailed(n.ID)
+		}
+		o.emitNodeEnd(n.ID, success, msg)
+	}
+	skipExtractNode := func(n *types.TaskNode, msg string) {
+		if n == nil {
+			return
+		}
+		startExtractNode(n)
+		finishExtractNode(n, true, msg)
+	}
+
 	for stepsUsed < stepBudget && !state.allDone() {
 		// Phase 2 cancel checkpoint at the top of every window-merge
 		// iteration. Pre-this-fix the only cancel-poll was inside
@@ -5558,21 +5597,32 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// valid from the prior iteration. (The skip is one-shot:
 		// we reset the latch immediately so any later non-Finalizer
 		// fallback re-runs extract as before.)
-		if lastFallbackFinalizerOnly && (preFinalizeExtractCompleted || o.hasReusableTurnBSlateForFinalize()) {
+		extractNode := findPendingExtractNode()
+		if preFinalizeExtractCompleted {
+			skipExtractNode(extractNode, "skipped: extract stage already completed")
+			lastFallbackFinalizerOnly = false
+		} else if lastFallbackFinalizerOnly && (preFinalizeExtractCompleted || o.hasReusableTurnBSlateForFinalize()) {
 			logging.Info("[orchestrator] B3-F3 skip pre-finalize extract: prior FinalizerOnly fallback preserved Turn-B state (extract_completed=%t %s)",
 				preFinalizeExtractCompleted, o.reusableTurnBSlateSummary())
+			skipExtractNode(extractNode, "skipped: reusable Turn-B slate")
 			lastFallbackFinalizerOnly = false
 		} else {
 			o.busCtx.PipelineStage = types.StageExtract
 			o.busCtx.TaskState.Stage = types.StageExtract
 			for {
+				startExtractNode(extractNode)
 				if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
 					if o.completeExtractAfterTransientProgress(exErr) {
 						stepsUsed++
 						preFinalizeExtractCompleted = true
+						finishExtractNode(extractNode, true, "completed after transient progress")
 						break
 					}
 					if o.retryReadStandaloneDispatchError(state, types.StageExtract, exErr) {
+						finishExtractNode(extractNode, false, exErr.Error())
+						if extractNode != nil {
+							state.requeue(extractNode.ID)
+						}
 						continue
 					}
 					stepsUsed++
@@ -5593,6 +5643,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 						NoticeKind: render.NoticeProceedingWithoutExtract,
 						Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
 					})
+					finishExtractNode(extractNode, false, exErr.Error())
 					break
 				}
 				stepsUsed++
@@ -5602,6 +5653,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
 					return stepsUsed
 				}
+				finishExtractNode(extractNode, true, "")
 				break
 			}
 			lastFallbackFinalizerOnly = false
@@ -6254,8 +6306,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		//      with caveats).
 		//   3. If FinalizerOnly, just requeue the finalize node —
 		//      keep evidence + extractor state intact.
-		//   4. If BackToExtract, also requeue extract nodes (none
-		//      in read mode today; reserved for future surface).
+		//   4. If BackToExtract, also requeue extract nodes.
 		//   5. If BackToExplore, requeue explore-stage nodes too.
 		//      Cap: maxUpstreamFallbacksPerRun. Reaching the cap
 		//      forces FailLoud on the next iteration so the LLM
@@ -6359,16 +6410,16 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				}
 				populateRetryState(o.busCtx.Mutable, retryRes, prevAttempt)
 			}
-			// Read-mode TaskGraph has no NodeExtract today (extract
-			// is implicit in the explore pass); selective requeue
-			// reduces to FinalizerOnly + extractor state reset.
+			requeued := state.requeueToStage(types.StageExtract, false)
 			state.requeue(fin.ID)
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
 				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetExtract)
+				logging.Info("[orchestrator] selective fallback extract: requeued=%v", requeued)
 			}
 			state.upstreamFallbacksUsed++
 			// extract DID change (we cleared the slate) — next
 			// iteration's pre-finalize extract dispatch is correct.
+			preFinalizeExtractCompleted = false
 			lastFallbackFinalizerOnly = false
 		case FallbackBackToExplore:
 			// R14-c3: populate retry-state BEFORE Mutable reset.
@@ -6380,13 +6431,15 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				populateRetryState(o.busCtx.Mutable, retryRes, prevAttempt)
 			}
 			requeued := state.requeueToStage(types.StageExplore, false)
+			requeuedExtract := state.requeueToStage(types.StageExtract, false)
 			state.requeue(fin.ID)
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
 				cleared := o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetExplore)
-				logging.Info("[orchestrator] selective fallback explore: requeued=%v cleared=%v",
-					requeued, cleared)
+				logging.Info("[orchestrator] selective fallback explore: requeued=%v requeued_extract=%v cleared=%v",
+					requeued, requeuedExtract, cleared)
 			}
 			state.upstreamFallbacksUsed++
+			preFinalizeExtractCompleted = false
 			lastFallbackFinalizerOnly = false
 		default:
 			// Unrecognised target — degrade to FinalizerOnly so
@@ -6488,18 +6541,26 @@ contractFailureBreak:
 			if preFinalizeExtractCompleted || o.hasReusableTurnBSlateForFinalize() {
 				logging.Info("[orchestrator] skip pre-forced-finalize extract: Turn-B state already available (extract_completed=%t %s)",
 					preFinalizeExtractCompleted, o.reusableTurnBSlateSummary())
+				skipExtractNode(findPendingExtractNode(), "skipped: reusable Turn-B slate")
 				lastFallbackFinalizerOnly = false
 			} else {
+				extractNode := findPendingExtractNode()
 				o.busCtx.PipelineStage = types.StageExtract
 				o.busCtx.TaskState.Stage = types.StageExtract
 				for {
+					startExtractNode(extractNode)
 					if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
 						if o.completeExtractAfterTransientProgress(exErr) {
 							stepsUsed++
 							preFinalizeExtractCompleted = true
+							finishExtractNode(extractNode, true, "completed after transient progress")
 							break
 						}
 						if o.retryReadStandaloneDispatchError(state, types.StageExtract, exErr) {
+							finishExtractNode(extractNode, false, exErr.Error())
+							if extractNode != nil {
+								state.requeue(extractNode.ID)
+							}
 							continue
 						}
 						stepsUsed++
@@ -6520,6 +6581,7 @@ contractFailureBreak:
 							NoticeKind: render.NoticeProceedingWithoutExtract,
 							Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
 						})
+						finishExtractNode(extractNode, false, exErr.Error())
 						break
 					}
 					stepsUsed++
@@ -6529,6 +6591,7 @@ contractFailureBreak:
 					if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
 						return stepsUsed
 					}
+					finishExtractNode(extractNode, true, "")
 					break
 				}
 			}

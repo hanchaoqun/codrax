@@ -116,6 +116,42 @@ func TestExpand_InsertsTwoBranchesAndReconcile(t *testing.T) {
 	}
 }
 
+func TestExpand_PreservesExtractStageAsDownstream(t *testing.T) {
+	tg := types.TaskGraph{
+		Nodes: []types.TaskNode{
+			{ID: "n0", Type: types.NodeProbe},
+			{ID: "n1", Type: types.NodeEvidence},
+			{ID: "x", Type: types.NodeExtract},
+			{ID: "f", Type: types.NodeFinalize},
+		},
+		Edges: []types.TaskEdge{
+			{From: "n0", To: "n1", EdgeType: types.EdgeHardDependency},
+			{From: "n1", To: "x", EdgeType: types.EdgeHardDependency},
+			{From: "x", To: "f", EdgeType: types.EdgeHardDependency},
+		},
+	}
+	rm := types.RequestModel{
+		Ambiguities: []types.Ambiguity{{Clause: "owner", Options: []string{"a", "b"}}},
+	}
+	out, _ := Expand(tg, rm, Options{Enabled: true, MaxBranches: 1})
+	reconcile := findFirstNode(out, types.NodeReconcile)
+	if reconcile == "" {
+		t.Fatal("expected reconcile node")
+	}
+	if !edgeExists(out, "n1", reconcile, types.EdgeHardDependency) {
+		t.Fatalf("main evidence should feed reconcile before extract; edges=%+v", out.Edges)
+	}
+	if !edgeExists(out, reconcile, "x", types.EdgeHardDependency) {
+		t.Fatalf("reconcile should feed extract, not bypass it; edges=%+v", out.Edges)
+	}
+	if !edgeExists(out, "x", "f", types.EdgeHardDependency) {
+		t.Fatalf("extract should still feed finalize; edges=%+v", out.Edges)
+	}
+	if edgeExists(out, reconcile, "f", types.EdgeHardDependency) {
+		t.Fatalf("reconcile must not bypass extract when extract exists; edges=%+v", out.Edges)
+	}
+}
+
 func TestExpand_ReusesExistingReconcile(t *testing.T) {
 	tg := types.TaskGraph{
 		Nodes: []types.TaskNode{
@@ -172,4 +208,13 @@ func TestExpand_DoesNotMutateInput(t *testing.T) {
 	if len(tg.Nodes) != originalNodes || len(tg.Edges) != originalEdges {
 		t.Fatal("Expand must not mutate input graph")
 	}
+}
+
+func edgeExists(g types.TaskGraph, from, to string, typ types.EdgeType) bool {
+	for _, e := range g.Edges {
+		if e.From == from && e.To == to && e.EdgeType == typ {
+			return true
+		}
+	}
+	return false
 }

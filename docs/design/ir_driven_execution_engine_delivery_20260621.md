@@ -36,6 +36,15 @@ Base HEAD: `8269ed6ed docs: IR-driven adaptive execution engine PRD (next-stage 
 - Write controller remains the write-mode production path; old write DAG cannot stay as a misleading public architecture.
 - No hard gate may parse user prose, model rationale, prompt text, final-answer narrative, or keyword tables.
 
+## Task Intake Discipline
+
+任何实现过程中识别出的新增系统任务、后续批次或风险项，必须先写入本文档的 Batch Plan 和 Progress Ledger，再继续编码或测试。聊天记录、临时状态更新和 commit message 不能作为唯一任务来源。
+
+新增任务落盘要求：
+- 记录任务归属批次、目标、硬约束和测试面。
+- 标明是否改变当前稳定路径；第一批实现必须优先选择 shadow 或行为保持形态。
+- 明确硬门只消费 typed artifacts、schema/enum、精确布尔/整数或路径/解析结果；不能把用户意图关键词、模型散文、prompt/hint 文本、耗时/ranker/grep count 等噪音信号升级为硬逻辑。
+
 ## Batch Plan
 
 ### Batch D0: Delivery Ledger
@@ -155,7 +164,8 @@ Tests:
 ### Batch M2a: Analyzer-Authored Stage Nodes
 
 Deliverables:
-- Update deterministic TaskGraph builder so Extract, Finalize, and optional AnalyzeRefine are real typed nodes with EntryConditions.
+- Update deterministic TaskGraph builder so Extract and Finalize are real typed nodes with EntryConditions.
+- Use a behavior-preserving typed readiness condition for the first extract node cutover; do not hard-gate on `has_enough_facts` or other signals that are not guaranteed on all stable read paths.
 - Preserve analyzer-sole-writer boundary.
 
 Tests:
@@ -168,11 +178,14 @@ Tests:
 Deliverables:
 - Generalize `stageMapping` so read stage nodes map to their own stage instead of being folded into explore.
 - Promote `requeueToStage` to generic stage transition on typed criteria.
+- Add typed extract readiness generalization as the next step after M2a: replace the initial behavior-preserving extract condition with precise, scheduler-readable criteria derived from `EvidenceClosure` / accepted evidence / proof state, while keeping the default straight-line path equivalent when no skip/retry condition is present.
+- Add optional AnalyzeRefine stage nodes only after the same readiness contract exists; analyzer remains the only topology writer.
 
 Tests:
 - `TestStageMappingFirstClassExtractSkip`
 - `TestStageAxisDefaultEqualsStraightLine`
 - `TestPartialReExecToAnyStage`
+- `TestExtractReadinessDoesNotDependOnNoisySignals`
 
 ### Batch M2c: Execution Tree And Artifact Contracts
 
@@ -258,8 +271,8 @@ Commercial hardening before declaring complete:
 | M1d ProgressDelta authority | completed | Added typed `ProgressDelta`, `ProgressDecision`, and `ShouldReplan`; downgrade low-delta convergence now records a typed progress delta through `EvidenceClosure.RecordDowngradeProgressDelta`, preserves prior threshold behavior, and carries `progress_delta_converged` into completion caveats. Hygiene test pins `ProgressDelta` has no prose routing fields. Verified with focused `go test ./internal/types` and `go test ./internal/tool`. |
 | M1e SourceClassUniverse projection | completed | EvidenceClosure now mirrors typed `SourceInventoryObservation` / `SourceClasses`; MutableState source-inventory setters, TurnA handoff, fork merge, reset, and `SourceInventoryObservationFromMutable` all consume the same closure-backed authority. Loopkernel read proof snapshots now carry `SourceClasses`, `SourceClassUniverseComplete`, source-class evidence refs, and `ProofSnapshotFromReadMutable` / `ReadProofGuidanceFromMutable`; read retry checkpoints and parallel explore convergence consume the mutable view. Verified with source-inventory absence/convergence tests, `go test ./internal/tool/repomap`, and package regression for types/loopkernel/orchestrator/tool. |
 | M1f Read failure memory | completed | Added deterministic typed read failure memory as a fallback into the existing `AnswerTaxonomyStore`; it persists retry/repair classes only as analyzer pitfall soft guidance, skips raw retry prose for routing, avoids duplicate fallback when the LLM answer reviewer emits a pattern, and creates no current-run hard repairs or reviewer violations. Verified with `go test ./internal/orchestrator -run 'TestReadFailureMemory|TestAnswerTaxonomy|TestReviewerRoundTrip|TestAnswerReviewer'`, `go test ./internal/agent -run 'TestPrependAnswerPitfalls|TestAnalyzer'`, package regression, and `go test ./...`. |
-| M2a Stage nodes | not_started | Builder still lacks first-class stage nodes. |
-| M2b Stage mapping/re-exec | not_started | Stage axis still mostly command-style. |
+| M2a Stage nodes | completed | Added typed `NodeExtract` and deterministic `EnsureReadStageNodes` injection in the analyzer/compiler path; counterfactual expansion now routes through extract when present; binder/HDP require extract hypothesis binding; scheduler maps extract to `StageExtract`, excludes it from merged explore windows, and wraps the existing pre-finalize extract dispatch with node start/end/retry status updates. M2a deliberately uses a behavior-preserving typed readiness condition; richer extract readiness and optional AnalyzeRefine nodes are recorded under M2b. Verified with compiler/counterfactual/binder/HDP/types/orchestrator package tests and focused analyzer tests. |
+| M2b Stage mapping/re-exec | not_started | Stage axis still mostly command-style; newly tracked follow-up: typed extract readiness generalization and optional AnalyzeRefine nodes must be implemented here, not hidden inside M2a. |
 | M2c Execution tree/artifacts | not_started | No BranchPoint/artifact contract consumer. |
 | M2d Dynamic expansion/loopkernel shadow | not_started | Loopkernel not yet shadow-driving scheduler decisions. |
 | M3a LoopBudget | not_started | LoopBudget passive. |

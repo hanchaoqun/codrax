@@ -147,7 +147,7 @@ func BindByRelevance(tg *types.TaskGraph, hs []types.Hypothesis, opts Options) e
 
 func requiresHypothesis(t types.TaskNodeType) bool {
 	switch t {
-	case types.NodeEvidence, types.NodeValidate, types.NodeReconcile, types.NodeFinalize:
+	case types.NodeEvidence, types.NodeValidate, types.NodeReconcile, types.NodeExtract, types.NodeFinalize:
 		return true
 	}
 	return false
@@ -226,6 +226,11 @@ func kindAffinity(kind string, nodeType types.TaskNodeType) float64 {
 		return 0.3
 	case types.NodeReconcile:
 		if fam == famCardinality || fam == famAmbiguity {
+			return 1.0
+		}
+		return 0.3
+	case types.NodeExtract:
+		if fam == famInvariant || fam == famFlow || fam == famResolution || fam == famRelation || fam == famCardinality || fam == famAmbiguity {
 			return 1.0
 		}
 		return 0.3

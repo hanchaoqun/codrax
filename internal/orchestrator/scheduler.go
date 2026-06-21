@@ -181,7 +181,7 @@ func (s *graphState) attachEvidenceClosure(closure *types.EvidenceClosure) {
 	}
 }
 
-// readyExplorerWindow collects every non-finalize, non-counterfactual
+// readyExplorerWindow collects every explore-family, non-counterfactual
 // node that is still pending or requeued AND whose EntryConditions
 // are all satisfied against env. Hard-dependency edges are NOT
 // honored here: the merged-window schedule dispatches the entire
@@ -204,7 +204,7 @@ func (s *graphState) readyExplorerWindowContext(ctx context.Context, env criteri
 			return ready, blocked, err
 		}
 		n := &s.graph.Nodes[i]
-		if n.Type == types.NodeFinalize || n.IsCounterfactual {
+		if n.Type == types.NodeExtract || n.Type == types.NodeFinalize || n.IsCounterfactual {
 			continue
 		}
 		st := s.status[n.ID]
@@ -518,7 +518,7 @@ func (s *graphState) firstFinalizeReadyMerged() *types.TaskNode {
 		}
 		allOtherDone := true
 		for _, m := range s.graph.Nodes {
-			if m.ID == n.ID || m.Type == types.NodeFinalize || m.IsCounterfactual {
+			if m.ID == n.ID || m.Type == types.NodeExtract || m.Type == types.NodeFinalize || m.IsCounterfactual {
 				continue
 			}
 			if s.status[m.ID] != nodeDone {
@@ -563,7 +563,7 @@ func (s *graphState) forceCloseExploreWindow() {
 		return
 	}
 	for _, n := range s.graph.Nodes {
-		if n.Type == types.NodeFinalize || n.IsCounterfactual {
+		if n.Type == types.NodeExtract || n.Type == types.NodeFinalize || n.IsCounterfactual {
 			continue
 		}
 		if s.status[n.ID] != nodeDone {
@@ -645,14 +645,17 @@ func (s *graphState) markSuccessCriteriaFailedContext(ctx context.Context, n *ty
 }
 
 // stageMapping returns the pipeline stage for a read TaskNode type. Probe /
-// Evidence / Validate / Reconcile all route to StageExplore because the read
-// scheduler batches them into a single explorer dispatch per round.
+// Evidence / Validate / Reconcile route to StageExplore because the read
+// scheduler batches them into explorer dispatches; Extract and Finalize are
+// first-class stage nodes backed by their own agents.
 func stageMapping(g types.TaskGraph, n *types.TaskNode, writing bool) (types.PipelineStage, error) {
 	_ = g
 	_ = writing
 	switch n.Type {
 	case types.NodeProbe, types.NodeEvidence, types.NodeValidate, types.NodeReconcile:
 		return types.StageExplore, nil
+	case types.NodeExtract:
+		return types.StageExtract, nil
 	case types.NodeFinalize:
 		return types.StageFinalize, nil
 	}

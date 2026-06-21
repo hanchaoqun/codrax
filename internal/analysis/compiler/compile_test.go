@@ -71,6 +71,9 @@ func TestCompile_ArchitectureExplain_HasExplanationContract(t *testing.T) {
 	if countNodeType(out.TaskGraph, types.NodeProbe) != 1 {
 		t.Fatalf("want 1 probe node")
 	}
+	if countNodeType(out.TaskGraph, types.NodeExtract) != 1 {
+		t.Fatalf("want 1 extract stage node")
+	}
 	if countNodeType(out.TaskGraph, types.NodeFinalize) != 1 {
 		t.Fatalf("want 1 finalize node")
 	}
@@ -83,6 +86,43 @@ func TestCompile_ArchitectureExplain_HasExplanationContract(t *testing.T) {
 		if !ids[e.From] || !ids[e.To] {
 			t.Fatalf("dangling edge %+v", e)
 		}
+	}
+}
+
+func TestCompile_ExtractStageNodeWiresBeforeFinalize(t *testing.T) {
+	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	var extract, finalize types.TaskNode
+	for _, n := range out.TaskGraph.Nodes {
+		switch n.Type {
+		case types.NodeExtract:
+			extract = n
+		case types.NodeFinalize:
+			finalize = n
+		}
+	}
+	if extract.ID == "" || finalize.ID == "" {
+		t.Fatalf("missing extract/finalize nodes: %+v", out.TaskGraph.Nodes)
+	}
+	if len(extract.EntryConditions) == 0 {
+		t.Fatal("extract node must carry a typed entry condition")
+	}
+	if !containsString(extract.Outputs, "answer_symbols") || !containsString(extract.Outputs, "hypothesis_verdicts") {
+		t.Fatalf("extract outputs missing answer-ready artifacts: %v", extract.Outputs)
+	}
+	if !hasEdge(out.TaskGraph, extract.ID, finalize.ID, types.EdgeHardDependency) {
+		t.Fatalf("extract must feed finalize; edges=%+v", out.TaskGraph.Edges)
+	}
+	posExtract, posFinalize := -1, -1
+	for i, id := range out.TaskGraph.ExecutionPolicy.CriticalPath {
+		if id == extract.ID {
+			posExtract = i
+		}
+		if id == finalize.ID {
+			posFinalize = i
+		}
+	}
+	if posExtract < 0 || posFinalize < 0 || posExtract > posFinalize {
+		t.Fatalf("critical path must place extract before finalize: %v", out.TaskGraph.ExecutionPolicy.CriticalPath)
 	}
 }
 
@@ -321,9 +361,9 @@ func TestCompile_MultiTopicCrossComponentTraceKeepsArchitectureTemplate(t *testi
 
 func TestCompile_UnknownScenarioFallsBackToGeneric(t *testing.T) {
 	out := compileT(sampleRM("no_such_scenario", types.IntentExplain, types.ComplexityModerate))
-	// Generic template has exactly 3 nodes: probe, evidence, finalize.
-	if len(out.TaskGraph.Nodes) != 3 {
-		t.Fatalf("unknown scenario should fall back to generic (3 nodes); got %d", len(out.TaskGraph.Nodes))
+	// Generic template has probe, evidence, extract, finalize.
+	if len(out.TaskGraph.Nodes) != 4 {
+		t.Fatalf("unknown scenario should fall back to generic (4 nodes); got %d", len(out.TaskGraph.Nodes))
 	}
 }
 
@@ -473,6 +513,9 @@ func TestCompile_AllTemplatesStructurallyValid(t *testing.T) {
 		}
 		if countNodeType(out.TaskGraph, types.NodeFinalize) == 0 {
 			t.Errorf("%s: missing finalize node", sc)
+		}
+		if countNodeType(out.TaskGraph, types.NodeExtract) != 1 {
+			t.Errorf("%s: missing singleton extract node", sc)
 		}
 		if out.EvidencePlan.Budget.MaxFiles == 0 {
 			t.Errorf("%s: empty evidence budget", sc)

@@ -1073,6 +1073,7 @@ const (
 	NodeEvidence  TaskNodeType = "evidence"
 	NodeValidate  TaskNodeType = "validate"
 	NodeReconcile TaskNodeType = "reconcile"
+	NodeExtract   TaskNodeType = "extract"
 	NodeFinalize  TaskNodeType = "finalize"
 
 	// Historical write-mode node types retained for serialized TaskGraph and

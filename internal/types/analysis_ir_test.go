@@ -221,7 +221,7 @@ func TestAnalysisIR_EnumDistinctness(t *testing.T) {
 	// covered by answer_semantic_view_test.go.
 
 	nodeTypes := []TaskNodeType{
-		NodeProbe, NodeEvidence, NodeValidate, NodeReconcile, NodeFinalize,
+		NodeProbe, NodeEvidence, NodeValidate, NodeReconcile, NodeExtract, NodeFinalize,
 	}
 	seenNode := make(map[TaskNodeType]bool, len(nodeTypes))
 	for _, n := range nodeTypes {

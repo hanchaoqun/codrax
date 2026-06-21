@@ -71,6 +71,10 @@ func Expand(tg types.TaskGraph, rm types.RequestModel, opts Options) (types.Task
 	if mainEvidence == "" || finalize == "" {
 		return tg, nil
 	}
+	downstream := findFirstNode(out, types.NodeExtract)
+	if downstream == "" {
+		downstream = finalize
+	}
 
 	// Build a reconcile node that collapses all counterfactual
 	// branches. If the graph already has a reconcile we reuse it so
@@ -85,11 +89,12 @@ func Expand(tg types.TaskGraph, rm types.RequestModel, opts Options) (types.Task
 				{Kind: types.CritCounterfactualBranchesDecided},
 			},
 		})
-		// Rewire finalize: remove any existing direct edge from
-		// mainEvidence → finalize and redirect through reconcile.
-		out.Edges = replaceEdgeTarget(out.Edges, mainEvidence, finalize, reconcileID)
+		// Rewire the main evidence path to flow through reconcile before the
+		// next stage node. Modern read graphs have extract before finalize;
+		// older serialized graphs fall back to finalize as the downstream.
+		out.Edges = replaceEdgeTarget(out.Edges, mainEvidence, downstream, reconcileID)
 		out.Edges = append(out.Edges, types.TaskEdge{
-			From: reconcileID, To: finalize, EdgeType: types.EdgeHardDependency,
+			From: reconcileID, To: downstream, EdgeType: types.EdgeHardDependency,
 		})
 	}
 
