@@ -10,6 +10,7 @@ const (
 	EvidenceReducerInputTurnAHandoffSnapshot       EvidenceReducerInputClass = "turn_a_handoff_snapshot"
 	EvidenceReducerInputSourceInventoryObservation EvidenceReducerInputClass = "source_inventory_observation_snapshot"
 	EvidenceReducerInputForkClosureDelta           EvidenceReducerInputClass = "fork_closure_delta"
+	EvidenceReducerInputReadRunSnapshotSeed        EvidenceReducerInputClass = "read_run_snapshot_seed"
 )
 
 type EvidenceReducerInput struct {
@@ -23,6 +24,10 @@ type EvidenceReducerInput struct {
 	ReplaceReadSet             bool
 	ReplaceReadRanges          bool
 	ReplaceFileTotalLines      bool
+	AcceptedEvidence           []AcceptedEvidenceRef
+	NodeStatuses               map[string]NodeExecStatus
+	ProgressDecision           ProgressDecision
+	HasProgressDecision        bool
 	SourceInventoryObservation SourceInventoryObservation
 	ForkClosure                *EvidenceClosure
 }
@@ -39,6 +44,9 @@ type EvidenceRoundDelta struct {
 	ReplaceReadRanges          bool                       `json:"replace_read_ranges,omitempty"`
 	ReplaceFileTotalLines      bool                       `json:"replace_file_total_lines,omitempty"`
 	AcceptedEvidence           []AcceptedEvidenceRef      `json:"accepted_evidence,omitempty"`
+	NodeStatuses               map[string]NodeExecStatus  `json:"node_statuses,omitempty"`
+	ProgressDecision           ProgressDecision           `json:"progress_decision,omitempty"`
+	HasProgressDecision        bool                       `json:"has_progress_decision,omitempty"`
 	SourceInventoryObservation SourceInventoryObservation `json:"source_inventory_observation,omitempty"`
 }
 
@@ -47,6 +55,8 @@ func (d EvidenceRoundDelta) Empty() bool {
 		len(d.ReadRanges) == 0 &&
 		len(d.FileTotalLines) == 0 &&
 		len(d.AcceptedEvidence) == 0 &&
+		len(d.NodeStatuses) == 0 &&
+		!d.HasProgressDecision &&
 		!d.SourceInventoryObservation.IsActive()
 }
 
@@ -97,6 +107,20 @@ func EvidenceRoundDeltaFromReducerInput(input EvidenceReducerInput, repoRoot str
 		}
 	case EvidenceReducerInputSourceInventoryObservation:
 		return EvidenceRoundDelta{
+			SourceInventoryObservation: CloneSourceInventoryObservation(input.SourceInventoryObservation),
+		}
+	case EvidenceReducerInputReadRunSnapshotSeed:
+		return EvidenceRoundDelta{
+			ReadSet:                    cloneBoolMap(input.ReadSet),
+			ReadRanges:                 cloneLineRangeMap(input.ReadRanges),
+			FileTotalLines:             cloneIntMap(input.FileTotalLines),
+			ReplaceReadSet:             input.ReplaceReadSet,
+			ReplaceReadRanges:          input.ReplaceReadRanges,
+			ReplaceFileTotalLines:      input.ReplaceFileTotalLines,
+			AcceptedEvidence:           normalizeAcceptedEvidenceRefs(input.AcceptedEvidence),
+			NodeStatuses:               cloneNodeExecStatusMap(input.NodeStatuses),
+			ProgressDecision:           input.ProgressDecision,
+			HasProgressDecision:        input.HasProgressDecision,
 			SourceInventoryObservation: CloneSourceInventoryObservation(input.SourceInventoryObservation),
 		}
 	default:
@@ -151,6 +175,12 @@ func (c *EvidenceClosure) IngestEvidenceReducerInput(input EvidenceReducerInput,
 	}
 	if len(delta.AcceptedEvidence) > 0 {
 		c.AppendAcceptedEvidenceRefs(delta.AcceptedEvidence)
+	}
+	for nodeID, status := range delta.NodeStatuses {
+		c.SetNodeExecStatus(nodeID, status)
+	}
+	if delta.HasProgressDecision {
+		c.SetLatestProgressDecision(delta.ProgressDecision)
 	}
 	if delta.SourceInventoryObservation.IsActive() {
 		c.RecordSourceInventoryObservation(delta.SourceInventoryObservation)

@@ -79,24 +79,20 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 		o.busCtx.Mutable.SetRepoRoot(o.busCtx.RepoRoot)
 	}
 	closure := o.busCtx.Mutable.EvidenceClosure()
-	for nodeID, status := range snapshot.NodeStatuses {
-		closure.SetNodeExecStatus(nodeID, status)
-	}
 	closure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
-		Class:                 types.EvidenceReducerInputStageCoverageSnapshot,
-		ReadSet:               readRunSnapshotReadSetMap(snapshot.ReadSet),
-		ReadRanges:            snapshot.ReadRanges,
-		FileTotalLines:        snapshot.FileTotals,
-		ReplaceReadSet:        true,
-		ReplaceReadRanges:     true,
-		ReplaceFileTotalLines: true,
-	}, o.busCtx.RepoRoot)
-	closure.AppendAcceptedEvidenceRefs(snapshot.AcceptedEvidence)
-	closure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
-		Class:                      types.EvidenceReducerInputSourceInventoryObservation,
+		Class:                      types.EvidenceReducerInputReadRunSnapshotSeed,
+		NodeStatuses:               snapshot.NodeStatuses,
+		ReadSet:                    readRunSnapshotReadSetMap(snapshot.ReadSet),
+		ReadRanges:                 snapshot.ReadRanges,
+		FileTotalLines:             snapshot.FileTotals,
+		ReplaceReadSet:             true,
+		ReplaceReadRanges:          true,
+		ReplaceFileTotalLines:      true,
+		AcceptedEvidence:           snapshot.AcceptedEvidence,
 		SourceInventoryObservation: snapshot.SourceInventory,
+		ProgressDecision:           snapshot.ProgressDecision,
+		HasProgressDecision:        true,
 	}, o.busCtx.RepoRoot)
-	closure.SetLatestProgressDecision(snapshot.ProgressDecision)
 	logging.Info("[orchestrator] read run snapshot seed applied: run=%s nodes=%d reads=%d accepted=%d",
 		snapshot.RunID, len(snapshot.NodeStatuses), len(snapshot.ReadSet), len(snapshot.AcceptedEvidence))
 	return nil

@@ -159,6 +159,73 @@ func TestEvidenceClosureIngestReducerInputStageCoverageSnapshotReplaces(t *testi
 	}
 }
 
+func TestEvidenceClosureIngestReducerInputReadRunSnapshotSeed(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.SetReadSet(map[string]bool{"old.go": true})
+	c.SetNodeExecStatus("explore", NodeExecFailed)
+	observation := evidenceRoundTestSourceInventoryObservation("Resume")
+	decision := ProgressDecision{
+		ShouldReplan: true,
+		ReasonCode:   ProgressReasonContinue,
+		Delta: ProgressDelta{
+			Kind:          ProgressDeltaDowngradeBlocker,
+			DowngradeLane: DowngradeLaneContractChain,
+			BlockerKey:    17,
+			Consecutive:   2,
+		},
+	}
+
+	delta := c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class: EvidenceReducerInputReadRunSnapshotSeed,
+		NodeStatuses: map[string]NodeExecStatus{
+			"explore": NodeExecDone,
+			"extract": NodeExecPending,
+		},
+		ReadSet: map[string]bool{"fresh.go": true},
+		ReadRanges: map[string][]LineRange{
+			"fresh.go": {{Start: 3, End: 8}},
+		},
+		FileTotalLines:             map[string]int{"fresh.go": 20},
+		ReplaceReadSet:             true,
+		ReplaceReadRanges:          true,
+		ReplaceFileTotalLines:      true,
+		AcceptedEvidence:           []AcceptedEvidenceRef{{ID: "ev-resume", Source: "fresh.go", LineStart: 4}},
+		SourceInventoryObservation: observation,
+		ProgressDecision:           decision,
+		HasProgressDecision:        true,
+	}, "")
+
+	if delta.Empty() || len(delta.NodeStatuses) != 2 || !delta.HasProgressDecision {
+		t.Fatalf("snapshot seed delta = %+v, want node/progress carriers", delta)
+	}
+	if got := c.ReadSet(); len(got) != 1 || !got["fresh.go"] {
+		t.Fatalf("snapshot seed should replace read set: %+v", got)
+	}
+	if got := c.NodeExecStatus("explore"); got != NodeExecDone {
+		t.Fatalf("explore status = %s, want done", got)
+	}
+	if got := c.NodeExecStatus("extract"); got != NodeExecPending {
+		t.Fatalf("extract status = %s, want pending", got)
+	}
+	if refs := c.AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-resume" {
+		t.Fatalf("accepted evidence refs = %+v", refs)
+	}
+	if got := c.LatestProgressDecision(); !got.ShouldReplan || got.ReasonCode != ProgressReasonContinue || got.Delta.BlockerKey != 17 {
+		t.Fatalf("latest progress decision = %+v", got)
+	}
+	if got := c.SourceInventoryObservation(); !got.IsActive() || got.Sets[0].Members[0].Name != "Resume" {
+		t.Fatalf("source inventory not ingested: %+v", got)
+	}
+
+	c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class:            EvidenceReducerInputReadRunSnapshotSeed,
+		AcceptedEvidence: []AcceptedEvidenceRef{{ID: "ev-resume", Source: "fresh.go", LineStart: 4}},
+	}, "")
+	if refs := c.AcceptedEvidenceRefs(); len(refs) != 1 {
+		t.Fatalf("repeated snapshot seed must not duplicate accepted refs: %+v", refs)
+	}
+}
+
 func TestEvidenceClosureIngestReducerInputForkClosureDelta(t *testing.T) {
 	parent := NewEvidenceClosure("")
 	fork := NewEvidenceClosure("")
