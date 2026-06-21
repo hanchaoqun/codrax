@@ -1082,6 +1082,53 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceInventoryDemotesOut
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceInventoryMissingScopeDoesNotDemoteRootInventory(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "public class",
+		Value: "3",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Bridge @ bridge/Bridge.cj:15",
+			"Cart @ cart/Cart.cj:14",
+			"App @ main.cj:11",
+		},
+		SupportRefs: []string{
+			"Bridge: bridge/Bridge.cj:15",
+			"Cart: cart/Cart.cj:14",
+			"App: main.cj:11",
+		},
+	}}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{
+				{Path: "bridge/Bridge.cj", Confidence: 0.9},
+				{Path: "cart/Cart.cj", Confidence: 0.9},
+			},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleFunction},
+		},
+	}
+
+	got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)
+	if len(got) != 1 || got[0].Index != 0 {
+		t.Fatalf("repo-wide source inventory must keep root-level member sets principal, got %+v", got)
+	}
+	normalized := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if role := NormalizeAnswerAggregateRole(normalized[0].Role); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("missing source scope must not let RequiredFiles demote principal inventory, role=%q fact=%+v", role, normalized[0])
+	}
+	if strings.Contains(normalized[0].Provenance, "outside_requested_source_inventory_scope") {
+		t.Fatalf("unexpected out-of-scope provenance: %+v", normalized[0])
+	}
+}
+
 func TestPrincipalAggregateMemberSetFactRefsForRequest_ExhaustiveHandoffSurvivesTruncatedSourceInventoryScopes(t *testing.T) {
 	entities := []string{
 		"aggregator", "amplifier", "axis", "binder", "budget",

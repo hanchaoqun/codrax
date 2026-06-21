@@ -2571,6 +2571,9 @@ func aggregateRequestedSourceInventoryScopes(rm *RequestModel) []string {
 		sort.Strings(out)
 		return out
 	}
+	if SourceInventoryRequiresRepoWideLens(*rm) {
+		return nil
+	}
 	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
 		add(hint.Path)
 	}
