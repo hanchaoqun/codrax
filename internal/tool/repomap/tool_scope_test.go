@@ -897,6 +897,108 @@ func TestRepoMapSourceInventoryRootTypedLaneProjectsAuxiliaryCorpus(t *testing.T
 	}
 }
 
+func TestRepoMapSourceInventoryAuxiliaryProjectionUsesGitTrackedUniverse(t *testing.T) {
+	repo := t.TempDir()
+	for rel, body := range map[string]string{
+		"internal/app/main.go": "package app\nfunc Run() {}\n",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/tracked_class.cj":   "package demo.tracked\npublic class TrackedGreeter {}\n",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/untracked_noise.cj": "package demo.noise\npublic class UntrackedNoise {}\n",
+	} {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGitForRepoMapSourceInventoryTest(t, repo, "init")
+	runGitForRepoMapSourceInventoryTest(t, repo, "add",
+		"internal/app/main.go",
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/tracked_class.cj",
+	)
+
+	graph := &Graph{
+		Root:       repo,
+		Files:      []*FileInfo{},
+		FileIndex:  map[string]*FileInfo{},
+		SymbolDefs: map[string][]*Symbol{},
+	}
+	addFile := func(fi *FileInfo) {
+		graph.Files = append(graph.Files, fi)
+		graph.FileIndex[fi.RelPath] = fi
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			if sym.File == "" {
+				sym.File = fi.RelPath
+			}
+			graph.SymbolDefs[sym.Name] = append(graph.SymbolDefs[sym.Name], sym)
+		}
+	}
+	addFile(&FileInfo{
+		RelPath:  "internal/app/main.go",
+		Language: LangGo,
+		Package:  "app",
+		Symbols: []Symbol{{
+			Name:     "Run",
+			Kind:     "function",
+			File:     "internal/app/main.go",
+			Line:     2,
+			Exported: true,
+		}},
+	})
+
+	mut := types.NewMutableState("source inventory git-tracked auxiliary projection")
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"public class"},
+				Confidence:        0.95,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"query": "public class",
+		"scope": ".",
+		"roles": ["type"],
+		"include_counts": true,
+		"include_attributes": false,
+		"top_n": 8
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"repo_lens:auxiliary_projection",
+		"source_classes:",
+		"thirdparty:1",
+		"`TrackedGreeter`",
+		"package=demo.tracked",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("git-tracked auxiliary projection missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "UntrackedNoise") || strings.Contains(res.Summary, "untracked_noise.cj") {
+		t.Fatalf("untracked auxiliary source entered projection:\n%s", res.Summary)
+	}
+}
+
 func TestRepoMapSourceInventoryRootTypedLaneSamplesSourceClassFamiliesBeforeBudget(t *testing.T) {
 	repo := t.TempDir()
 	files := map[string]string{
@@ -979,6 +1081,16 @@ func TestRepoMapSourceInventoryRootTypedLaneSamplesSourceClassFamiliesBeforeBudg
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("mixed source-class source_inventory missing %q:\n%s", want, res.Summary)
 		}
+	}
+}
+
+func runGitForRepoMapSourceInventoryTest(t *testing.T, repo string, args ...string) {
+	t.Helper()
+	cmd, cancel := tool.NewGitCommand(nil, args...)
+	defer cancel()
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
 }
 

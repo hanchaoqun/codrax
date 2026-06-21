@@ -3,7 +3,6 @@ package repomap
 import (
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -819,7 +818,7 @@ func sourceInventoryGraphWithAuxiliaryProjection(ctx *ctypes.BusContext, repoRoo
 	if ctx == nil || ctx.Mutable == nil || graph == nil || !sourceInventoryShouldProjectAuxiliary(ctx, p, scopes) {
 		return graph, nil, false
 	}
-	entries := sourceInventoryAuxiliaryProjectionEntries(repoRoot, graph, scopes)
+	entries := sourceInventoryAuxiliaryProjectionEntries(repoRoot, graph, p, scopes)
 	if len(entries) == 0 {
 		return graph, nil, false
 	}
@@ -1335,7 +1334,7 @@ func sourceInventoryScopesContainRoot(scopes []string) bool {
 	return false
 }
 
-func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, scopes []string) []index.FileEntry {
+func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, p repoMapParams, scopes []string) []index.FileEntry {
 	repoRoot = strings.TrimSpace(repoRoot)
 	if repoRoot == "" || graph == nil {
 		return nil
@@ -1344,51 +1343,27 @@ func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, sc
 	for rel := range graph.FileIndex {
 		seen[strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")] = true
 	}
-	var entries []index.FileEntry
-	_ = filepath.WalkDir(repoRoot, func(abs string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	tracked, _ := tool.SourceInventoryTrackedSourceFilesForLens(repoRoot, ctypes.SourceInventoryLensQuery{
+		Path:   p.Path,
+		Scopes: append([]string(nil), scopes...),
+	})
+	entries := make([]index.FileEntry, 0, len(tracked))
+	for _, file := range tracked {
+		rel := strings.Trim(strings.ReplaceAll(file.Path, `\`, `/`), "/")
+		if rel == "" || seen[rel] || !ctypes.SourcePathRoleIsAuxiliary(file.Role) {
+			continue
 		}
-		name := strings.TrimSpace(d.Name())
-		if name == "" || tool.IsWindowsReservedDevicePath(name) {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
+		if tool.IsWindowsReservedDevicePath(filepath.Base(rel)) {
+			continue
 		}
-		if abs == repoRoot {
-			return nil
-		}
-		rel, relErr := filepath.Rel(repoRoot, abs)
-		if relErr != nil {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel = strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")
-		if rel == "" {
-			return nil
-		}
-		if d.IsDir() {
-			if sourceInventoryAuxiliaryProjectionSkipDir(rel, name) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if seen[rel] || !sourceInventoryAuxiliaryProjectionInScopes(rel, scopes) || !sourceInventoryAuxiliaryPathHasSourceClass(rel) {
-			return nil
-		}
-		info, statErr := d.Info()
+		abs := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		info, statErr := os.Stat(abs)
 		if statErr != nil || info.IsDir() || info.Size() > sourceInventoryAuxProjectionMaxFileBytes {
-			return nil
+			continue
 		}
-		lang := rmtypes.DetectLanguage(rel)
-		if lang == rmtypes.LangTypeScript && rmtypes.IsArkTSProject(repoRoot, rel) {
-			lang = rmtypes.LangArkTS
-		}
+		lang := strings.TrimSpace(file.Language)
 		if lang == "" || !rmtypes.IsSupportedReadLanguage(lang) {
-			return nil
+			continue
 		}
 		entries = append(entries, index.FileEntry{
 			RelPath:  rel,
@@ -1398,50 +1373,10 @@ func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, sc
 		})
 		seen[rel] = true
 		if len(entries) >= sourceInventoryAuxProjectionMaxFiles {
-			return filepath.SkipAll
+			break
 		}
-		return nil
-	})
+	}
 	return entries
-}
-
-func sourceInventoryAuxiliaryProjectionSkipDir(rel, base string) bool {
-	base = strings.ToLower(strings.TrimSpace(base))
-	if base == "" {
-		return true
-	}
-	switch base {
-	case ".git", ".hg", ".svn", ".codrax", "node_modules", ".tox", ".venv", "venv", ".mypy_cache", ".pytest_cache", ".idea", ".vscode", ".vs", "target", "dist", "build", ".gradle", ".cargo", ".next", ".nuxt", ".turbo", ".pnpm-store":
-		return true
-	case "vendor":
-		return !sourceInventoryAuxiliaryPathHasSourceClass(rel)
-	default:
-		return false
-	}
-}
-
-func sourceInventoryAuxiliaryProjectionInScopes(rel string, scopes []string) bool {
-	rel = strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")
-	if rel == "" {
-		return false
-	}
-	if len(scopes) == 0 {
-		return true
-	}
-	for _, raw := range scopes {
-		scope := strings.Trim(strings.ReplaceAll(raw, `\`, `/`), "/")
-		if scope == "" || scope == "." {
-			return true
-		}
-		if rel == scope || strings.HasPrefix(rel, scope+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-func sourceInventoryAuxiliaryPathHasSourceClass(rel string) bool {
-	return ctypes.SourcePathRoleIsAuxiliary(ctypes.ClassifySourcePathRole(rel))
 }
 
 func repoMapSourceInventoryApplyBudgetGuard(p *repoMapParams, fileCount int) []string {

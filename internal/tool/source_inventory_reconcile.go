@@ -527,26 +527,16 @@ func sourceInventorySourceClassUniverseForLens(ctx *types.BusContext, query type
 	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
 		return nil
 	}
-	scopes := sourceInventorySourceClassUniverseScopes(query)
-	files, complete := sourceInventoryTrackedRepoFiles(ctx.RepoRoot)
+	files, complete := SourceInventoryTrackedSourceFilesForLens(ctx.RepoRoot, query)
 	if len(files) == 0 {
 		return nil
 	}
 	counts := map[types.SourcePathRole]int{}
-	for _, rel := range files {
-		rel = strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")
-		if rel == "" || !sourceInventoryFileInScopes(rel, scopes) {
+	for _, file := range files {
+		if strings.TrimSpace(file.Path) == "" || file.Role == types.SourcePathRoleUnknown || strings.TrimSpace(file.Language) == "" {
 			continue
 		}
-		lang := repotypes.DetectLanguage(rel)
-		if lang == "" || !repotypes.IsSupportedReadLanguage(lang) {
-			continue
-		}
-		role := types.ClassifySourcePathRole(rel)
-		if role == types.SourcePathRoleUnknown {
-			continue
-		}
-		counts[role]++
+		counts[file.Role]++
 	}
 	if len(counts) == 0 {
 		return nil
