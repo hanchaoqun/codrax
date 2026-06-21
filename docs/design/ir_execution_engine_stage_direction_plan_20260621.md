@@ -367,6 +367,7 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 | Date | Batch | Status | Evidence / note |
 |---|---|---|---|
 | 2026-06-21 | Plan refresh | complete | 对 `398a32303b` 复核：v2 大方向成立；补充当前 HEAD 承重矩阵与 A0-D2 可执行任务列表。 |
+| 2026-06-21 | A1 Extract dispatch golden pin | in_progress | 代码探索完成：现有 `read_e2e_regression_test.go` 的 stub-agent harness 可覆盖当前行为；新增测试应同时 pin `extract_input_ready=false` 的 skip-complete 路径与 `extract_input_ready=true` 的 StageExtract dispatch 路径，断言只消费 typed evidence/chains/facts/observations，不依赖模型散文或 prompt。 |
 
 ---
 
