@@ -6,6 +6,7 @@ Base HEAD: `398a32303b`（2026-06-21 复核基线；v2 修订基线为 `2b5c4ba0
 D1-F9b.1 implementation baseline: `2828ef965`（2026-06-22 NodeArtifactLedger substrate planned baseline；D1-F9a.3 code cutover at `b0ef64be6`）
 Latest external staged-gap prompt re-audit baseline: `64dbcab0`（2026-06-22，D1-F9g.3 selective replay transition table 后；工作树干净）
 D1-F9g.4a replay-audit consumer planning baseline: `3eb411cab`（2026-06-22，external gap prompt 已复核入账；工作树干净）
+D1-F9g.4b compact replay-audit card planning baseline: `f8312e0af`（2026-06-22，typed replay audit + ReasoningGraph projection 已推送；工作树干净）
 
 > 本文与两份既有文档**互补、不重复**：
 > - `ir_driven_execution_engine_prd_20260621.md` —— 架构 PRD（5 个关键问题裁定、Stage 0–3 设计）。
@@ -1259,6 +1260,14 @@ Remaining follow-up:
      1. D1-F9g.4b eval/REPL consumption: surface compact replay-audit cards through existing `/read-runs show` or eval summary without adding routine user commands.
      2. Representative eval/manual audit: source-inventory, multi-subtopic, add-proof retry, AnalyzeRefine true path, and interrupted/resumed read-run fixture.
      3. Routine auto-resume remains blocked until replay audit is proven stable by representative eval and a new doc-first batch defines precise typed entry conditions.
+   - **D1-F9g.4b implementation slice（compact existing-surface replay audit card；当前 HEAD `f8312e0af`）**:
+     1. Code facts from pre-implementation audit: `/read-runs show <id>` already renders a compact advanced audit view; `ReadRunSnapshotStore.List/Load` can find prior snapshots deterministically; adding a new command would increase user mental load; eval summaries still parse logs and should not become the first typed replay consumer in this batch.
+     2. Add a store-local helper that finds the newest comparable prior snapshot for a shown run using only precise typed equality: same `request_hash`, same `task_graph_hash`, same normalized `repo_root`, different `run_id`, and older modification time. Do not fuzzy-match request text, branch names, prompts, rendered answer text, or logs.
+     3. Enrich `/read-runs show <id>` with a compact replay-audit card only when a comparable prior snapshot exists. The card consumes `types.BuildReadRunReplayAudit` and renders typed fields: baseline id, task/request/repo match states, status/replay rollup counts, accepted evidence delta, read-set delta, node-artifact delta, source-inventory delta, and active-state before/after.
+     4. If no comparable baseline exists, keep the current concise show output and do not print noisy caveats. The absence of a baseline is not a user-facing warning and must not block resume or normal read mode.
+     5. Tests: store comparable-prior selection is deterministic and rejects nonmatching request/hash/repo; `/read-runs show` renders replay card for comparable snapshots; show output does not expose raw request prose beyond the existing compact request line and does not expose retry hint bodies/model prose/log text.
+     6. Validation target: `go test ./internal/repl -run 'ReadRuns|ReadRunSnapshot' -count=1`; `go test ./internal/types ./internal/reasoninggraph ./internal/repl -run 'ReadRunReplay|ReadRunSnapshot|ReadRuns|ReasoningGraph' -count=1`; then `go test ./...` and `make`.
+     7. Non-goals for 4b: no scheduler behavior change, no routine auto-resume, no eval verdict change, no new user command, no hard gate from audit deltas. Representative eval remains the next D2 batch after this compact operator surface lands.
 8. **D1-F9h AnalyzeRefine commercial guard**：用代表性 eval 和 status-card audit 验证 optional refine 不引入重复“验证还不够稳”噪音、宽泛重探索或 runaway context；补 typed telemetry for extra rounds/tool calls/context estimate/duplicate read ratio，只做 eval/assertion 或 typed budget，不用 noisy signal hard gate。
    - Detailed tasks:
      1. Project `analysis_refinement_handoff` into the canonical runtime artifact ledger using a closed artifact kind or registered typed handoff ref. The payload remains in existing typed carriers; the ledger stores only refs/lineage.
