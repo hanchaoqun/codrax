@@ -9108,11 +9108,10 @@ func citationGradeAnchorCapacity(bus *types.BusContext) int {
 	return len(citationGradeAnchorKeys(bus))
 }
 
-// runAnswerReviewerOnSuccess dispatches the end-of-Run
-// answer-taxonomy reviewer when (a) it's a successful read-mode
-// Run, (b) the reviewer is wired, (c) the store is wired, (d)
-// the Run accumulated at least one retry event. Distilled
-// patterns are persisted via store.Append (which dedups + decays).
+// runAnswerReviewerOnSuccess dispatches read-mode end-of-Run learning.
+// The optional LLM reviewer gets first chance to distill a richer
+// answer-quality pattern when wired. If it is absent, skips, or fails,
+// a deterministic typed soft-memory row persists the retry/repair class.
 //
 // All failure modes are non-fatal and intentionally swallowed —
 // the user's answer has already been computed, and a reviewer
@@ -9131,6 +9130,7 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 		return
 	}
 	if o.answerReviewer == nil || o.answerTaxonomyStore == nil {
+		o.persistReadFailureMemorySoftly()
 		return
 	}
 	if !o.answerTaxonomyStore.Enabled() {
@@ -9167,6 +9167,7 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 	}
 	const softViolationLearnFloor = 2
 	if len(events) == 0 && closureViolationCount < softViolationLearnFloor {
+		o.persistReadFailureMemorySoftly()
 		return
 	}
 
@@ -9239,6 +9240,7 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 	if err != nil {
 		if isReviewerNoToolCallError(err) {
 			logging.Info("[answer_reviewer] skipped: reviewer returned prose without the required tool_call")
+			o.persistReadFailureMemorySoftly()
 			return
 		}
 		// Commit 59 Batch E.1 (audit HIGH #12): record + log; the
@@ -9246,10 +9248,12 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 		// learning chain health.
 		mu.AppendLearningFailure("answer_reviewer", err.Error())
 		logging.Warning("[answer_reviewer] dispatch failed (non-fatal): %v", err)
+		o.persistReadFailureMemorySoftly()
 		return
 	}
 	if pattern == nil {
 		// Reviewer judged the difficulty too specific to abstract.
+		o.persistReadFailureMemorySoftly()
 		return
 	}
 	if _, err := o.answerTaxonomyStore.Append(pattern); err != nil {
