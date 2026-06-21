@@ -53,24 +53,6 @@ func HasBoundedSourceEnumerationScope(rm RequestModel, requiredFiles []string, r
 	return BoundedSourceEnumerationCommonScope(files) != ""
 }
 
-// IsTypedSourceEnumerationShape reports whether the request model describes a
-// source-inventory-like enumeration shape without relying on raw request text.
-// Callers must still prove a bounded scope separately, either through
-// RequiredFiles or graph-resolved source entities.
-func IsTypedSourceEnumerationShape(rm RequestModel) bool {
-	if rm.Intent != IntentEnumerate || !rm.Predicates.IsCategoryEnumeration {
-		return false
-	}
-	if rm.Predicates.IsScalarAnswer ||
-		rm.Predicates.IsRoleLocateLookup ||
-		rm.Predicates.IsCountQuestion ||
-		rm.Predicates.IsHistoryLookup ||
-		rm.Predicates.IsDiagnosticQuestion {
-		return false
-	}
-	return true
-}
-
 func boundedSourceEnumerationPathAllowed(rm RequestModel, rel string) bool {
 	rel = strings.TrimSpace(strings.ReplaceAll(rel, `\`, `/`))
 	if rel == "" || rel == "." || strings.HasSuffix(rel, "/") {

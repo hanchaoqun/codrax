@@ -1509,7 +1509,10 @@ func synthesizeSourceInventoryProfileForTypedEnumeration(rm *types.RequestModel)
 	if !types.IsTypedSourceEnumerationShape(*rm) {
 		return ""
 	}
-	if types.SourceInventoryProfileConflictsWithRelationFlow(*rm) {
+	if types.HasTypedRelationMemberSetShape(*rm) {
+		return ""
+	}
+	if types.SourceInventoryLaneConflictsWithRelationFlow(*rm) {
 		return ""
 	}
 	if rm.HasObservationOnlyRuntimeArtifact() {
@@ -4221,6 +4224,10 @@ func projectAnalyzerPrescanRequiredFileHints(ctx *types.BusContext, rm *types.Re
 	if maxProjected <= 0 {
 		return 0
 	}
+	candidates := analyzerPrescanRequiredFileCandidates(ctx, *rm, maxProjected*2)
+	if !sourceInventoryPrescanRequiredFileProjectionAllowed(ctx, *rm, candidates) {
+		return 0
+	}
 	seen := make(map[string]bool, len(rm.AnalyzerHints.RequiredFileHints))
 	highConfidence := 0
 	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
@@ -4236,7 +4243,6 @@ func projectAnalyzerPrescanRequiredFileHints(ctx *types.BusContext, rm *types.Re
 	if highConfidence >= maxProjected || len(rm.AnalyzerHints.RequiredFileHints) >= requiredFileHintsMax {
 		return 0
 	}
-	candidates := analyzerPrescanRequiredFileCandidates(ctx, *rm, maxProjected*2)
 	added := 0
 	for _, candidate := range candidates {
 		if highConfidence >= maxProjected || len(rm.AnalyzerHints.RequiredFileHints) >= requiredFileHintsMax {
@@ -4262,19 +4268,54 @@ func projectAnalyzerPrescanRequiredFileHints(ctx *types.BusContext, rm *types.Re
 	return added
 }
 
+func sourceInventoryPrescanRequiredFileProjectionAllowed(ctx *types.BusContext, rm types.RequestModel, candidates []string) bool {
+	profile := rm.SourceInventoryProfile
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	if profile.Confidence >= 0.6 {
+		return true
+	}
+	files := types.BoundedSourceEnumerationScopeFiles(rm, nil, "")
+	if ctx != nil {
+		files = types.BoundedSourceEnumerationScopeFiles(rm, nil, ctx.RepoRoot)
+	}
+	if len(files) > 0 && types.BoundedSourceEnumerationCommonScope(files) != "" {
+		return true
+	}
+	files = analyzerPrescanBoundedRequiredFileCandidates(ctx, rm, candidates)
+	return len(files) >= types.BoundedSourceEnumerationMinFiles &&
+		types.BoundedSourceEnumerationCommonScope(files) != ""
+}
+
+func analyzerPrescanBoundedRequiredFileCandidates(ctx *types.BusContext, rm types.RequestModel, candidates []string) []string {
+	seen := make(map[string]bool, len(candidates))
+	files := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		canon, ok := analyzerPrescanRequiredFileCandidate(ctx, rm, candidate)
+		if !ok || seen[canon] {
+			continue
+		}
+		seen[canon] = true
+		files = append(files, canon)
+	}
+	return files
+}
+
 func analyzerPrescanRequiredFileCandidates(ctx *types.BusContext, rm types.RequestModel, limit int) []string {
 	if ctx == nil || ctx.Mutable == nil || limit <= 0 {
 		return nil
 	}
 	seen := make(map[string]bool)
-	var out []string
-	add := func(raw string) {
+	var listCandidates []string
+	var grepCandidates []string
+	add := func(dst *[]string, raw string) {
 		raw = strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
 		if raw == "" || strings.HasPrefix(raw, "[") || seen[raw] {
 			return
 		}
 		seen[raw] = true
-		out = append(out, raw)
+		*dst = append(*dst, raw)
 	}
 	for _, result := range ctx.Mutable.DispatchToolResults() {
 		if !result.Success {
@@ -4287,7 +4328,7 @@ func analyzerPrescanRequiredFileCandidates(ctx *types.BusContext, rm types.Reque
 			}
 			for _, line := range strings.Split(result.Summary, "\n") {
 				if path, ok := grepOutputLinePath(line, true); ok {
-					add(path)
+					add(&grepCandidates, path)
 				}
 			}
 		case "list_files":
@@ -4297,14 +4338,22 @@ func analyzerPrescanRequiredFileCandidates(ctx *types.BusContext, rm types.Reque
 			}
 			for _, line := range strings.Split(result.Summary, "\n") {
 				if path, ok := grepOutputLinePath(line, true); ok {
-					add(path)
+					add(&listCandidates, path)
 				}
 			}
 		}
-		if len(out) >= limit {
-			break
+	}
+	out := make([]string, 0, limit)
+	appendLimited := func(in []string) {
+		for _, candidate := range in {
+			if len(out) >= limit {
+				return
+			}
+			out = append(out, candidate)
 		}
 	}
+	appendLimited(listCandidates)
+	appendLimited(grepCandidates)
 	return out
 }
 
@@ -4313,7 +4362,7 @@ func analyzerPrescanRequiredFileCandidate(ctx *types.BusContext, rm types.Reques
 	if !ok || canon == "" || !types.HasCodeOrConfigPathSuffix(canon) {
 		return "", false
 	}
-	profile := emitAnalysisEffectiveInventoryScopeProfile(rm.SourceScopeProfile)
+	profile := emitAnalysisEffectiveInventoryScopeProfileForPrescanProjection(rm)
 	if !emitAnalysisPrincipalSourcePathAllowed(ctx, canon, profile) {
 		return "", false
 	}
@@ -4738,6 +4787,27 @@ func emitAnalysisEffectiveInventoryScopeProfile(profile *types.SourceScopeProfil
 		return nil
 	}
 	if profile.RequestedScope == types.SourceScopeProduction && len(profile.SourceQuotes) == 0 {
+		return nil
+	}
+	return profile
+}
+
+func emitAnalysisEffectiveInventoryScopeProfileForPrescanProjection(rm types.RequestModel) *types.SourceScopeProfile {
+	if rm.SourceScopeProfile != nil &&
+		rm.SourceScopeProfile.RequestedScope == types.SourceScopeProduction &&
+		rm.SourceInventoryProfile != nil &&
+		rm.SourceInventoryProfile.Active() &&
+		SourceInventoryHasExplicitAuxiliaryExclusion(rm) {
+		return rm.SourceScopeProfile
+	}
+	profile := emitAnalysisEffectiveInventoryScopeProfile(rm.SourceScopeProfile)
+	if profile == nil {
+		return nil
+	}
+	if profile.RequestedScope == types.SourceScopeProduction &&
+		rm.SourceInventoryProfile != nil &&
+		rm.SourceInventoryProfile.Active() &&
+		!SourceInventoryHasExplicitAuxiliaryExclusion(rm) {
 		return nil
 	}
 	return profile

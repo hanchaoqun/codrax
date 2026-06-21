@@ -137,7 +137,7 @@ func SourceInventoryLensExecutionGapForContext(ctx *types.BusContext) SourceInve
 	} else {
 		return SourceInventoryLensExecutionGap{}
 	}
-	observation := ctx.Mutable.SourceInventoryObservation()
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
 	gap := SourceInventoryLensExecutionGap{
 		Roles:       sourceInventoryLensExecutionRoles(roles),
 		Scopes:      sourceInventoryLensExecutionScopes(advisory, observation),

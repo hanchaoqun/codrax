@@ -1111,6 +1111,60 @@ func TestSourceInventoryLensExecutionGap_TypedQueryAdvisoryRequiresLens(t *testi
 	}
 }
 
+func TestSourceInventoryLensExecutionGap_SatisfiedByClosureOnlyLensMarker(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"."},
+		Provenance: []string{
+			"request_traits:typed_source_enumeration_query",
+			"pre_explore_typed_request",
+			"repomap_graph",
+		},
+		Sets: []types.SourceInventoryAdvisorySet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Candidates: []types.SourceInventoryAdvisoryCandidate{{
+				Member:     "GlobalCard",
+				Key:        "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets::GlobalCard",
+				SupportRef: "GlobalCard: internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:26",
+				Role:       types.AnswerCandidateRoleFunction,
+				File:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+				Line:       26,
+				Language:   "arkts",
+			}},
+		}},
+	})
+	mut.EvidenceClosure().RecordSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"."},
+		Provenance:   []string{"repo_lens:tool_query", "repo_lens:roles", "repo_lens:scopes"},
+		Lens:         []string{"source_class_universe", "count"},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role:     types.SourcePathRoleThirdParty,
+			Count:    6,
+			Complete: true,
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+
+	if satisfied := SourceInventoryLensExecutionGapForContext(ctx); satisfied.Blocking {
+		t.Fatalf("closure-carried repo_lens marker should satisfy source_inventory lens execution, got %+v", satisfied)
+	}
+}
+
 func TestSourceInventoryLensExecutionGap_SatisfiedByRepoLensAdvisoryProvenance(t *testing.T) {
 	mut := types.NewMutableState("source inventory")
 	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{

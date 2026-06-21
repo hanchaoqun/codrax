@@ -4516,6 +4516,54 @@ func TestRaisePhase1UnreadPendingReads_SourceInventoryScopeKeepsInScopeUnreadBlo
 	}
 }
 
+func TestRaisePhase1UnreadPendingReads_SourceInventoryScopeUsesCompleteSourceClassUniverse(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 5
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	const (
+		entryFile   = "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"
+		builderFile = "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets"
+		noiseFile   = "internal/types/comment_extract.go"
+	)
+	mut := types.NewMutableState("list ArkTS source inventory")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: noiseFile, Score: 95, ExactEntityRank: 3},
+		{Path: entryFile, Score: 90, ExactEntityRank: 3},
+		{Path: builderFile, Score: 89, ExactEntityRank: 3},
+	})
+	setArkTSSourceInventoryObservation(mut, entryFile, builderFile)
+	observation := mut.SourceInventoryObservation()
+	observation.Complete = false
+	observation.Page = nil
+	observation.SourceClasses = []types.SourceInventorySourceClassCount{{
+		Role:     types.SourcePathRoleThirdParty,
+		Count:    6,
+		Complete: true,
+	}}
+	mut.SetSourceInventoryObservation(observation)
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		entryFile:   true,
+		builderFile: true,
+	})
+	bus := sourceInventoryPhase1UnreadTestBus(mut, entryFile, builderFile)
+
+	raisePhase1UnreadPendingReads(bus, closure)
+
+	for _, pending := range closure.PendingReads() {
+		if pending.Origin == "phase1_unread" {
+			t.Fatalf("complete source-class universe should bound phase1_unread to source-inventory scope, got %+v", pending)
+		}
+	}
+	if closure.Phase1UnreadFired() {
+		t.Fatal("out-of-scope noise must not burn the phase1_unread latch")
+	}
+}
+
 func setArkTSSourceInventoryObservation(mut *types.MutableState, entryFile, builderFile string) {
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
 		Active:     true,

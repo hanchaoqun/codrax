@@ -70,3 +70,22 @@ func TestIsTypedSourceEnumerationShape_ExcludesLookupScalars(t *testing.T) {
 		t.Fatal("count questions must not activate source enumeration shape")
 	}
 }
+
+func TestIsTypedSourceEnumerationShape_SourceScopeBacksInventoryLane(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentEnumerate,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeAll,
+			Confidence:     0.9,
+		},
+	}
+	if !IsTypedSourceEnumerationShape(rm) {
+		t.Fatal("source-scope-backed enumeration should preserve the inventory lane even when category predicate is missing")
+	}
+
+	rm.Predicates.IsRoleLocateLookup = true
+	if IsTypedSourceEnumerationShape(rm) {
+		t.Fatal("role lookup should not become a source-inventory lane")
+	}
+}

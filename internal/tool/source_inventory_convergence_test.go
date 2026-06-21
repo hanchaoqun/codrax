@@ -56,6 +56,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_observation_page.go": 41,
 	"../types/source_inventory_profile.go":          229,
 	"../types/source_inventory_scope.go":            117,
+	"../types/source_inventory_shape.go":            30,
 }
 
 const sourceInventoryNewFileLOCCeiling = 1500

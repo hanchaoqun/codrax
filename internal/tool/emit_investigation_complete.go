@@ -7958,6 +7958,9 @@ func sourceInventoryObservationCompleteForPhase1Scope(observation types.SourceIn
 	if observation.Page != nil && observation.Page.Complete {
 		return true
 	}
+	if types.SourceInventorySourceClassesComplete(observation.SourceClasses) {
+		return true
+	}
 	return false
 }
 

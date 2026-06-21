@@ -408,6 +408,8 @@ Gap IDs:
 - D1-G6: `arkts_repomap` now passes correctness with zero contract violations, but still shows a finalizer retry caused by a malformed JSON block fragment (`id` missing after tool-param compatibility repair). This is a JSON/repair-layer UX/perf gap, not a source-inventory correctness failure; it must be handled by the unified structured repair layer rather than prompt keyword tuning.
 - D1-G7: Principal enumeration answers can carry duplicate user-visible member carriers after deterministic row normalization when the model emits both rich sections and separate list rows for the same accepted member set. This creates redundant output and soft `answer_facet_coverage` noise even when the functional answer is correct. Status: open.
 - D1-G8: Source-inventory root-scope runs can still force-read false-positive production files after the source-inventory lens already proved the exact `.ets` corpus universe. The forced-read authority must consume typed source-class/language/lens coverage and avoid re-reading unrelated string/comment matches as hard blockers. Status: complete in D1-F1h.
+- D1-G9: Analyzer prescan can still start with broad text grep for source-inventory shapes and then recover via `list_files` / `repo_map`; this is correct but noisy. The next cutover should make typed source-inventory navigation (`list_files` / `repo_map(view=source_inventory)`) the low-friction default when the analyzer has already emitted a source inventory lane, without banning grep where it is the precise location tool. Status: open.
+- D1-G10: Pre-finalize Tier-1 localization can over-apply to incidental support files after the principal source-inventory member slate is complete. In the ArkTS recheck, a support read of `extract_arkts.go` triggered repeated "verification not stable enough" loops even though all requested principal `.ets` members were already grounded. The fix must introduce a typed principal/support localization authority, not a path-specific exception. Status: open.
 
 Tasks:
 - Explore `SourceInventoryLensExecutionGapForContext`, `PublishSourceInventoryObservationFromTypedRequest`, source-inventory optional nodes, read retry hints, and final answer caveat materialization before editing.
@@ -419,6 +421,10 @@ Tasks:
 - Add a follow-up design task for JSON/repair-layer normalization: malformed object fragments that can be repaired deterministically should be normalized once with typed repair telemetry; unsupported fragments should fail fast with a single precise hint.
 - Add a follow-up design task for duplicate principal carrier collapse: when multiple principal blocks cover the same accepted enumeration member set, keep the richest carrier and demote/drop mechanically duplicated rows without deleting unique citations or user-requested dimensions.
 - Complete forced-read gating for typed source-inventory scopes: when a source-inventory lens has executed and yielded a complete bounded source scope, `phase1_unread` treats only files inside that typed scope as completion-blocking; unrelated grep/list_files matches stay advisory.
+- Complete source-scope-backed inventory normalization: when a typed source-scope enumeration is present but category predicates are incomplete, synthesize the missing source-inventory lane only if typed relation/call-chain surfaces do not own the answer shape.
+- Complete bounded analyzer prescan projection: low-confidence synthesized source-inventory lanes may only project required_files from bounded same-scope candidates, and deterministic `list_files` candidates outrank grep matches.
+- Complete closure-carried lens marker consumption: lens execution checks must read the unified typed observation from mutable/TurnA/closure rather than only the local mutable observation.
+- Design the next principal/support localization cutover: pre-finalize source localization floors should hard-block only unresolved principal answer surfaces, while support/navigation files stay advisory unless a typed answer obligation consumes them.
 - Add tests proving exact source-inventory enumerations do not show generic weak evidence notes once direct citations cover every listed member.
 
 Validation:
@@ -441,7 +447,7 @@ Validation:
 | 2026-06-21 | C2 AnalyzeRefine optional node cutover | complete | Compiler now emits a bounded optional one-shot `NodeProbe` gated by typed `progress_replan_required`, with immutable `analysis_refinement_handoff` output. Scheduler behavior stays generic: it only consumes analyzer-authored optional topology and typed criterion env; no runtime DAG append, no prompt/prose hard routing, no new TaskNodeType. `go test ./internal/analysis/compiler ./internal/analysis/criterion ./internal/orchestrator -run 'AnalyzeRefine|ProgressReplan|Optional|StageExpansion'` and full affected package tests passed. |
 | 2026-06-21 | D1 Source-inventory correctness eval intake | complete | Explored current source-class universe, repo-truth absence wrapper, bounded source-inventory kernel, convergence tripwire, ArkTS/Cangjie tool tests, and harmony eval cases. Focused `go test ./internal/types ./internal/tool ./internal/tool/repomap ./internal/orchestrator -run 'SourceInventory|SourceClass|RepoMapSourceInventory|AbsenceRepoTruth|ClassUniverse|Convergence'` passed. |
 | 2026-06-21 | D1 Source-inventory correctness eval recheck | complete | `CODRAX_BIN=/Users/han/opt/codrax/codrax CASES='eval/cases/harmony/arkts_repomap.case eval/cases/harmony/cangjie_repomap.case eval/cases/harmony/cangjie_repomap_fixture.case' PARALLEL=2 RUNS=1 TIMEOUT=1800 SUMMARY=eval/results/ir_engine_d1_source_inventory_20260621_summary.md bash eval/convergence_audit.sh` passed 3/3. Fresh evidence closes the stale "repo_map=0/advisory" failure label, but not the routine-path UX/perf gap: `arkts_repomap` took 305s, 14 explorer iterations, 6 midloop injections, 7 reads, 3 list_files, and displayed a generic weak-evidence caveat; `cangjie_repomap` took 16 explorer iterations, 8 midloop injections, and used broad `exec_command find`; `cangjie_repomap_fixture` passed but still showed generic weak-evidence caveat after direct citations. |
-| 2026-06-21 | D1-F1 source-inventory routine-path noise reduction | mostly complete / D1-G1,D1-G7 open | Follow-up split from D1: typed source-inventory next-action guidance, broad file-discovery shell guard, final enum caveat severity split, carrier unification, dimension preservation, orphan annotation repair, and forced-read false-positive gating have landed. Remaining open gaps before D2 clean baseline: D1-G1 lens can still be first attempted after one completion downgrade, and D1-G7 duplicate principal carrier collapse is still open. |
+| 2026-06-21 | D1-F1 source-inventory routine-path noise reduction | mostly complete / D1-G7,D1-G9,D1-G10 open | Follow-up split from D1: typed source-inventory next-action guidance, broad file-discovery shell guard, final enum caveat severity split, carrier unification, dimension preservation, orphan annotation repair, forced-read false-positive gating, source-scope inventory normalization, bounded prescan projection, and closure-carried lens markers have landed. Remaining open gaps before D2 clean baseline: D1-G7 duplicate principal carrier collapse, D1-G9 analyzer broad-grep-first noise, and D1-G10 pre-finalize principal/support localization overreach. |
 | 2026-06-21 | D1-F1a final enum surface noise | complete | Suppresses repaired/audit-only enum-depth caveats only when compiled principal enumeration rows all have direct citations, while keeping true hallucination/omission/count-drift caveats. Source-inventory requests for name/location/count no longer receive deterministic surface-term supplements such as tag labels unless typed requested fields include `summary` or `values`. Focused `go test ./internal/orchestrator ./internal/tool -run 'Caveat|PrincipalSupportSurfaceTerm|AnswerDocument|Enumeration'` passed. |
 | 2026-06-21 | D1-F1b exec_command file-discovery repair | complete | Read-mode `exec_command` now refuses broad repo-local `find` path enumeration before execution and emits typed repair `exec_command_file_discovery_use_typed_tools`, steering source-inventory lanes to `repo_map(view=source_inventory)` or bounded `list_files`. Deterministic count/measurement commands such as `find . -name "*.go" \| wc -l` remain allowed. Focused `go test ./internal/tool -run 'ExecCommandFind|ExecCommand_ReadModeShellWriteGate|ExecCommand$|DecideWriteModeExecPermission'` passed. |
 | 2026-06-21 | D1-F1c source-inventory lens-first probe | complete | Added typed criterion `source_inventory_lens_missing`, durable `SourceInventoryLensExecuted` observation authority, and a compiler-authored bounded optional probe so active source-inventory profiles get an early source-inventory lens objective when pre-explore auto-publish did not already execute one. This distinguishes class-universe-only absence seeds from executable repo lenses and keeps false optional nodes out of finalize blocking. Affected package tests passed: `go test ./internal/types ./internal/analysis/criterion ./internal/analysis/compiler ./internal/analysis/gate ./internal/orchestrator ./internal/tool`. |
@@ -450,6 +456,60 @@ Validation:
 | 2026-06-21 | D1-F1f relation dimension label carrier | complete | Accepted relation/member dimensions now get a deterministic structured carrier when rows are otherwise covered but the dimension label would be lost. The carrier consumes typed aggregate facts and normalized label keys, not user/request prose or model rationale. Harmony recheck passed 2/2: `arkts_repomap` PASS and `cangjie_repomap_fixture` PASS via `eval/results/ir_engine_d1_f1_dimension_label_recheck_20260621_summary.md`; Cangjie has no `contract_warning`, ArkTS still has a `finalizer` flag from one JSON-shape retry and is tracked as D1-G6. |
 | 2026-06-21 | D1-F1g orphan annotation repair | complete | `emit_answer_document` now merges annotation-only orphan blocks into the previous complete block, preserving `claim_uses` / `facet_ids` / `surface_role` while still rejecting visible missing-identity blocks. Focused tests passed: `go test ./internal/tool -run 'EmitAnswerDocumentV2_.*(Orphan|MissingBlockID|InvalidBlockKind|Nested|String|Blocks)'`; package regression passed: `go test ./internal/tool ./internal/orchestrator`. ArkTS recheck `eval/results/ir_engine_d1_g6_arkts_recheck_20260621_summary.md` passed and reduced finalizer retries to zero (`fin_it=1`, `fin_reject=0`), but exposed D1-G7 duplicate-carrier noise and D1-G8 forced-read false-positive noise. |
 | 2026-06-21 | D1-F1h source-inventory forced-read scope gate | complete | `phase1_unread` now consumes the existing typed source-inventory lens/scope authority: after `SourceInventoryLensExecuted` and a complete bounded `BoundedSourceEnumerationScopeFiles` universe, only in-scope files can become hard forced-read blockers; out-of-scope exact-rank string/comment matches remain advisory. Focused tests passed: `go test ./internal/tool -run 'Phase1Unread|SourceInventory'`, `go test ./internal/types -run 'SourceInventory|SourceScope|RequiredFile'`, and `go test ./internal/tool ./internal/orchestrator`; `make` passed. ArkTS recheck `eval/results/ir_engine_d1_g8_arkts_recheck_20260621_summary.md` passed with flags 0/1, `read_file=3` (down from 11), `explorer_iters=8` (down from 19), `finalizer_rejects=0`, and no post-lens `phase1_unread` forced reads of false-positive production Go files. One early `source-inventory lens has not run` downgrade remains tracked under D1-G1. |
+| 2026-06-21 | D1-F1i source-scope inventory normalization + bounded prescan projection | complete | Analyzer normalization now reuses typed `IsTypedSourceEnumerationShape`, `SourceInventoryLaneConflictsWithRelationFlow`, and existing `SourceScopeProfile` instead of adding a new taxonomy. Low-confidence synthesized source-inventory lanes project required_files only from bounded same-scope candidates; deterministic `list_files` candidates are consumed before grep noise; explicit auxiliary exclusions continue to block fixture/corpus projection. Lens execution checks now consume `SourceInventoryObservationFromMutable`, so closure-carried repo-lens markers satisfy the gate. `phase1_unread` accepts a complete typed source-class universe as source-inventory scope coverage. Focused `go test ./internal/tool ./internal/orchestrator ./internal/types` and `make` passed before eval. Recheck `eval/results/arkts_repomap-20260621-132809/summary.md` passed 1/1 with `repo_map=1`, `list_files=3`, `source_lens=1`, zero contract/finalizer flags. Manual log audit still found D1-G9/D1-G10: broad analyzer grep came before typed file discovery, and support-file localization caused repeated pre-finalize "验证还不够稳" loops despite principal answer correctness. |
+
+### Batch D1-F2: Principal/Support Localization Authority
+
+目标：
+- Stop pre-finalize localization floors from treating incidental support/navigation files as principal blockers after the requested member set is complete.
+- Preserve correctness for true principal localization gaps: if a requested answer member lacks an owner/evidence anchor, the read loop must still continue.
+
+代码探索点：
+- `internal/orchestrator/contract_check_block.go`
+- `internal/tool/emit_investigation_complete.go`
+- `internal/types/evidence_closure.go`
+- principal enumeration carrier helpers in `internal/types` / `internal/tool`
+- latest ArkTS logs around `pre-finalize Tier-1 floor failed`
+
+任务：
+- Add a typed `LocalizationObligation` projection that tags obligations as `principal`, `support`, or `navigation` from existing structured carriers: `aggregate_facts.role`, accepted evidence role, answer block surface role, source-inventory profile, and required file obligations.
+- Make Tier-1 pre-finalize floors consume only unresolved `principal` obligations as hard blocks. `support` and `navigation` obligations may produce soft guidance/status-card notes but must not restart exploration when principal coverage is complete.
+- Keep the rule schema-only: no RawRequest matching, no model rationale parsing, no file-name exceptions.
+- Add a regression where a source-inventory answer has complete principal `.ets` members plus an incidental support file; the run must proceed to finalize without repeated pre-finalize loops.
+- Add a counter-regression where a principal member lacks a read/file anchor; the loop must still block or re-explore.
+
+验证：
+- `go test ./internal/types ./internal/tool ./internal/orchestrator -run 'Localization|SourceInventory|Principal|PreFinalize|Tier'`
+- Rerun `arkts_repomap` and confirm user-visible repeated "验证还不够稳" loops disappear without reducing principal answer correctness.
+
+退出标准：
+- Principal localization hard gates are load-bearing and typed.
+- Support/navigation localization gaps are visible to audit/status cards but do not restart the read loop after principal coverage is complete.
+
+### Batch D1-F3: Analyzer Source-Inventory Navigation Priority
+
+目标：
+- Reduce source-inventory routine-path noise by making bounded typed navigation the default after the analyzer owns a source-inventory lane.
+- Avoid converting this into a hard ban on grep; grep remains valid when the typed lane says literal existence/location is the precise tool.
+
+代码探索点：
+- `internal/tool/emit_analysis.go`
+- analyzer pre-scan prompt/tool policy surfaces
+- `types.RepoMapNavigationPolicy`
+- source-inventory optional probe and pre-explore auto-observation
+
+任务：
+- Introduce a typed navigation-priority view for analyzer prescan: `source_inventory_lane_active`, `bounded_scope_known`, `literal_presence_needed`, and `candidate_universe_missing`.
+- Prefer `list_files` / `repo_map(view=source_inventory)` guidance when `candidate_universe_missing` is true; keep `grep(files_only=true)` as a second-stage literal confirmation tool.
+- Record telemetry when broad grep runs before typed source-inventory navigation, so eval dashboards can track improvement without making noisy counts a hard gate.
+- Add tests proving relation/call-chain shapes still prefer relation/navigation tools and are not rewritten into source inventory.
+
+验证：
+- Analyzer focused tests plus ArkTS/Cangjie source-inventory evals.
+- Success metric is fewer analyzer iterations and less Go/string-literal noise; correctness remains the hard acceptance criterion.
+
+退出标准：
+- Source-inventory lanes routinely discover the typed file universe before broad string matches, with no user/prose keyword routing.
 
 ---
 

@@ -219,6 +219,231 @@ func TestValidateAndBuildRequiredFileHints_DropsUnresolvableContextPath(t *testi
 	}
 }
 
+func TestProjectAnalyzerPrescanRequiredFileHints_SkipsLowConfidenceUnboundedInventory(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{
+		"internal/tool/builtin.go",
+		"internal/skill/defaults.go",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte("package sample\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[grep: 2 matching files]",
+			"[grep params: pattern=.ets include=* files_only=true]",
+			"./internal/tool/builtin.go",
+			"./internal/skill/defaults.go",
+		}, "\n"),
+	})
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			Confidence:        0.45,
+		},
+	}
+	ctx := &types.BusContext{Mutable: mut, RepoRoot: root}
+
+	if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, nil); added != 0 {
+		t.Fatalf("low-confidence unbounded source-inventory prescan must not project required files, added=%d hints=%+v", added, rm.AnalyzerHints.RequiredFileHints)
+	}
+	if len(rm.AnalyzerHints.RequiredFileHints) != 0 {
+		t.Fatalf("required_file hints should stay empty, got %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+}
+
+func TestProjectAnalyzerPrescanRequiredFileHints_LowConfidenceUsesBoundedListFilesBeforeGrepNoise(t *testing.T) {
+	root := t.TempDir()
+	noiseFiles := []string{
+		"internal/tool/builtin.go",
+		"internal/skill/defaults.go",
+		"internal/orchestrator/topology.go",
+		"internal/types/comment_extract.go",
+	}
+	corpusFiles := []string{
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/06_entry_ability_stage_model.ets",
+	}
+	for _, rel := range append(append([]string{}, noiseFiles...), corpusFiles...) {
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte("sample\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: strings.Join(append([]string{
+			"[grep: 4 matching files]",
+			"[grep params: pattern=@Entry files_only=true]",
+		}, noiseFiles...), "\n"),
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary: strings.Join(append([]string{
+			"[list_files: path=. recursive=true include=*.ets include_auxiliary=true]",
+		}, corpusFiles...), "\n"),
+	})
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			Confidence:        0.45,
+		},
+		SourceScopeProfile: &types.SourceScopeProfile{
+			RequestedScope: types.SourceScopeProduction,
+			SourceQuotes:   []string{"仓库里有哪些 @Entry 标记的 ArkTS 页面入口"},
+			Confidence:     0.95,
+		},
+	}
+	ctx := &types.BusContext{Mutable: mut, RepoRoot: root}
+
+	if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, nil); added != len(corpusFiles) {
+		t.Fatalf("bounded list_files source universe should project before grep noise, added=%d hints=%+v", added, rm.AnalyzerHints.RequiredFileHints)
+	}
+	for i, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if hint.Path != corpusFiles[i] {
+			t.Fatalf("hint[%d]=%q, want %q (all hints=%+v)", i, hint.Path, corpusFiles[i], rm.AnalyzerHints.RequiredFileHints)
+		}
+	}
+}
+
+func TestProjectAnalyzerPrescanRequiredFileHints_ExplicitAuxiliaryExclusionBlocksCorpusProjection(t *testing.T) {
+	root := t.TempDir()
+	corpusFiles := []string{
+		"fixtures/arkts/entry.ets",
+		"fixtures/arkts/builder.ets",
+		"fixtures/arkts/state.ets",
+		"fixtures/arkts/styles.ets",
+		"fixtures/arkts/list.ets",
+		"fixtures/arkts/ability.ets",
+	}
+	for _, rel := range corpusFiles {
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte("sample\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("production source inventory")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary: strings.Join(append([]string{
+			"[list_files: path=. recursive=true include=*.ets include_auxiliary=true]",
+		}, corpusFiles...), "\n"),
+	})
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+		SourceScopeProfile: &types.SourceScopeProfile{
+			RequestedScope: types.SourceScopeProduction,
+			Confidence:     0.95,
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			Confidence:        0.95,
+		},
+		AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+			IsExclusionRequested: true,
+			ExcludedCandidateRoles: []types.AnswerCandidateRole{
+				types.AnswerCandidateRoleFixture,
+				types.AnswerCandidateRoleExample,
+			},
+			SourceQuotes: []string{"fixtures"},
+			Confidence:   0.95,
+		},
+	}
+	ctx := &types.BusContext{Mutable: mut, RepoRoot: root}
+
+	if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, nil); added != 0 {
+		t.Fatalf("explicit auxiliary exclusion must block corpus projection, added=%d hints=%+v", added, rm.AnalyzerHints.RequiredFileHints)
+	}
+}
+
+func TestProjectAnalyzerPrescanRequiredFileHints_AllowsBoundedInventorySupplement(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{
+		"src/pages/a.ets",
+		"src/pages/b.ets",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte("@Entry\nstruct Page {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mut := types.NewMutableState("source inventory")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[grep: 2 matching files]",
+			"[grep params: pattern=@Entry include=*.ets files_only=true]",
+			"./src/pages/a.ets",
+			"./src/pages/b.ets",
+		}, "\n"),
+	})
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqEnumeration),
+			RequiredFileHints: []types.RequiredFileHint{{
+				Path:       "src/pages/a.ets",
+				Confidence: 0.95,
+			}},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			Confidence:        0.45,
+		},
+	}
+	ctx := &types.BusContext{Mutable: mut, RepoRoot: root}
+
+	if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, nil); added != 1 {
+		t.Fatalf("bounded source-inventory prescan should supplement one peer file, added=%d hints=%+v", added, rm.AnalyzerHints.RequiredFileHints)
+	}
+	if len(rm.AnalyzerHints.RequiredFileHints) != 2 || rm.AnalyzerHints.RequiredFileHints[1].Path != "src/pages/b.ets" {
+		t.Fatalf("required_file hints = %+v, want src/pages/b.ets appended", rm.AnalyzerHints.RequiredFileHints)
+	}
+}
+
 func TestValidateAndBuildRequiredFileHints_PreservesRuntimeArtifactPath(t *testing.T) {
 	root := t.TempDir()
 	val := &analysisValidationResult{}

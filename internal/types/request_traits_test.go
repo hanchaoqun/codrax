@@ -1362,6 +1362,28 @@ func TestSourceInventoryProfileConflictsWithRelationFlow_TypedBoundary(t *testin
 	}
 }
 
+func TestSourceInventoryLaneConflictsWithRelationFlow_BeforeProfileSynthesis(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)},
+	}
+	if !SourceInventoryLaneConflictsWithRelationFlow(rm) {
+		t.Fatal("call-chain trace should block synthesized source inventory before a profile exists")
+	}
+
+	rm.Intent = IntentEnumerate
+	rm.PredicateAxis = AxisDefine
+	rm.AnalyzerHints.Kind = string(ReqEnumeration)
+	rm.SourceScopeProfile = &SourceScopeProfile{
+		RequestedScope: SourceScopeAll,
+		Confidence:     0.9,
+	}
+	if SourceInventoryLaneConflictsWithRelationFlow(rm) {
+		t.Fatal("source-scope-backed enumeration should allow synthesized source inventory")
+	}
+}
+
 func TestArchitectureNarrativeExplanation_TypedBoundary(t *testing.T) {
 	rm := RequestModel{
 		Intent:     IntentExplain,

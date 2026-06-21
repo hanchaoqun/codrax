@@ -150,6 +150,16 @@ func SourceInventoryProfileConflictsWithRelationFlow(rm RequestModel) bool {
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false
 	}
+	return SourceInventoryLaneConflictsWithRelationFlow(rm)
+}
+
+// SourceInventoryLaneConflictsWithRelationFlow reports whether synthesizing or
+// preserving a source-inventory lane would fight the typed principal-answer
+// shape. Unlike SourceInventoryProfileConflictsWithRelationFlow, this can be
+// used before a SourceInventoryProfile exists, so analyzer normalization can
+// safely recover missing inventory lanes without upgrading call-chain / trace
+// walkthroughs into member lists.
+func SourceInventoryLaneConflictsWithRelationFlow(rm RequestModel) bool {
 	if rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsRelationalLookup ||
 		rm.Predicates.IsCountQuestion {
