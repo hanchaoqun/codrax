@@ -9,6 +9,8 @@ import (
 const (
 	RuntimeArtifactConsumerExtract = "extract"
 
+	RuntimeArtifactReasonReadinessConsumed = "artifact_readiness_resolved_ref_consumed"
+
 	taskArtifactInputEvidenceItems  = "evidence_items"
 	taskArtifactInputAnswerChains   = "answer_chains"
 	taskArtifactInputAggregateFacts = "aggregate_facts"
@@ -203,6 +205,9 @@ func artifactReadinessRelevantRecords(ledger NodeArtifactLedger, consumer string
 	}
 	var out []NodeArtifactRecord
 	for _, record := range records {
+		if record.Direction == RuntimeArtifactConsumed {
+			continue
+		}
 		recordConsumer := strings.TrimSpace(record.Consumer)
 		if consumer != "" && recordConsumer != "" && recordConsumer != consumer {
 			continue
@@ -210,6 +215,28 @@ func artifactReadinessRelevantRecords(ledger NodeArtifactLedger, consumer string
 		out = append(out, record)
 	}
 	return out
+}
+
+func ConsumedNodeArtifactRecordsFromReadiness(consumerNodeID string, view ArtifactReadinessView) []NodeArtifactRecord {
+	consumerNodeID = strings.TrimSpace(consumerNodeID)
+	if consumerNodeID == "" || !view.Ready || len(view.ResolvedRefs) == 0 {
+		return nil
+	}
+	records := make([]NodeArtifactRecord, 0, len(view.ResolvedRefs))
+	for _, record := range view.ResolvedRefs {
+		record = NormalizeNodeArtifactRecord(record)
+		if !record.Valid || record.Direction == RuntimeArtifactConsumed {
+			continue
+		}
+		record.Direction = RuntimeArtifactConsumed
+		record.ConsumerNodeID = consumerNodeID
+		if strings.TrimSpace(record.Consumer) == "" {
+			record.Consumer = strings.TrimSpace(view.Consumer)
+		}
+		record.ReasonCode = RuntimeArtifactReasonReadinessConsumed
+		records = append(records, record)
+	}
+	return NormalizeNodeArtifactRecords(records)
 }
 
 func artifactReadinessSupportedKind(kind RuntimeArtifactKind) bool {

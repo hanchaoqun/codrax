@@ -90,6 +90,49 @@ func TestBuildArtifactReadinessViewBlocksUnsupportedExtractLedgerKind(t *testing
 	}
 }
 
+func TestBuildArtifactReadinessViewIgnoresConsumedRecords(t *testing.T) {
+	view := BuildArtifactReadinessView(ArtifactReadinessInput{
+		Contracts: extractArtifactContractsFixture(),
+		Ledger: NodeArtifactLedger{Records: []NodeArtifactRecord{{
+			Direction:      RuntimeArtifactConsumed,
+			ProducerNodeID: "explore",
+			ConsumerNodeID: "extract",
+			Consumer:       RuntimeArtifactConsumerExtract,
+			Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-consumed"},
+		}}},
+		EvidenceItems: []EvidenceItem{{ID: "ev-consumed"}},
+		Consumer:      RuntimeArtifactConsumerExtract,
+	})
+	if !view.Ready || view.ResolvedRefCount != 0 || view.HasBlockingLedgerIssue() {
+		t.Fatalf("view = %+v, want payload fallback ready without consumed refs", view)
+	}
+}
+
+func TestConsumedNodeArtifactRecordsFromReadiness(t *testing.T) {
+	view := BuildArtifactReadinessView(ArtifactReadinessInput{
+		Contracts: extractArtifactContractsFixture(),
+		Ledger: NodeArtifactLedger{Records: []NodeArtifactRecord{{
+			ProducerNodeID: "explore",
+			Consumer:       RuntimeArtifactConsumerExtract,
+			Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-ready"},
+		}}},
+		EvidenceItems: []EvidenceItem{{ID: "ev-ready"}},
+		Consumer:      RuntimeArtifactConsumerExtract,
+	})
+	records := ConsumedNodeArtifactRecordsFromReadiness("extract", view)
+	if len(records) != 1 {
+		t.Fatalf("consumed records = %+v, want 1", records)
+	}
+	got := records[0]
+	if got.Direction != RuntimeArtifactConsumed ||
+		got.ProducerNodeID != "explore" ||
+		got.ConsumerNodeID != "extract" ||
+		got.ReasonCode != RuntimeArtifactReasonReadinessConsumed ||
+		got.Artifact.ID != "ev-ready" {
+		t.Fatalf("consumed record = %+v", got)
+	}
+}
+
 func TestBuildArtifactReadinessViewUsesTypedPayloadFallbackWithoutLedger(t *testing.T) {
 	view := BuildArtifactReadinessView(ArtifactReadinessInput{
 		Contracts:     extractArtifactContractsFixture(),

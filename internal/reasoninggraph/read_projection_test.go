@@ -43,6 +43,24 @@ func TestEventsFromReadAnswerDocumentProjectsTypedEvidenceShadow(t *testing.T) {
 			}},
 		},
 	})
+	mu.EvidenceClosure().AppendNodeArtifactRecords([]types.NodeArtifactRecord{
+		{
+			ProducerNodeID: "n1",
+			Consumer:       types.RuntimeArtifactConsumerExtract,
+			EvidenceID:     "ev-run-entry",
+			ReasonCode:     "explore_stage_output_evidence_item",
+			Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-run-entry", Path: "internal/agent/subagent_runtime.go", LineStart: 218},
+		},
+		{
+			Direction:      types.RuntimeArtifactConsumed,
+			ProducerNodeID: "n1",
+			ConsumerNodeID: "extract",
+			Consumer:       types.RuntimeArtifactConsumerExtract,
+			EvidenceID:     "ev-run-entry",
+			ReasonCode:     types.RuntimeArtifactReasonReadinessConsumed,
+			Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-run-entry", Path: "internal/agent/subagent_runtime.go", LineStart: 218},
+		},
+	})
 	ctx := &types.BusContext{
 		TraceID: "trace-read-1",
 		Mutable: mu,
@@ -101,6 +119,7 @@ func TestEventsFromReadAnswerDocumentProjectsTypedEvidenceShadow(t *testing.T) {
 	}
 	if !reasoningGraphViewHasKind(view, ReasoningEventReadAnswerProjected) ||
 		!reasoningGraphViewHasKind(view, ReasoningEventReadNavigationProjected) ||
+		!reasoningGraphViewHasKind(view, ReasoningEventReadArtifactProjected) ||
 		!reasoningGraphViewHasKind(view, ReasoningEventAuthorityProjected) {
 		t.Fatalf("read event kinds missing: %+v", view.EventKindCounts)
 	}

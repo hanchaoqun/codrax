@@ -84,12 +84,22 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 	}
 	for _, artifact := range snapshot.NodeArtifacts {
 		nodeID := strings.TrimSpace(artifact.ProducerNodeID)
-		if nodeID == "" {
-			continue
+		if nodeID != "" {
+			if _, ok := knownNodes[nodeID]; !ok {
+				return readRunSnapshotSeedError(readRunSnapshotSeedReasonNodeArtifactMismatch,
+					"snapshot node artifact references unknown producer node %q", nodeID)
+			}
 		}
-		if _, ok := knownNodes[nodeID]; !ok {
+		consumerNodeID := strings.TrimSpace(artifact.ConsumerNodeID)
+		if consumerNodeID != "" {
+			if _, ok := knownNodes[consumerNodeID]; !ok {
+				return readRunSnapshotSeedError(readRunSnapshotSeedReasonNodeArtifactMismatch,
+					"snapshot node artifact references unknown consumer node %q", consumerNodeID)
+			}
+		}
+		if artifact.Direction == types.RuntimeArtifactConsumed && consumerNodeID == "" {
 			return readRunSnapshotSeedError(readRunSnapshotSeedReasonNodeArtifactMismatch,
-				"snapshot node artifact references unknown producer node %q", nodeID)
+				"snapshot node artifact consumed record is missing consumer node")
 		}
 	}
 	if o.busCtx.Mutable == nil {

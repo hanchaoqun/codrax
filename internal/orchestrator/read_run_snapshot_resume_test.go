@@ -22,6 +22,12 @@ func TestReadRunSnapshotSeedAppliesTypedFields(t *testing.T) {
 		ProducerNodeID: exploreID,
 		ProducerStage:  types.StageExplore,
 		Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-seed"},
+	}, {
+		Direction:      types.RuntimeArtifactConsumed,
+		ProducerNodeID: exploreID,
+		ConsumerNodeID: firstReadNodeIDByType(t, ir, types.NodeExtract),
+		ProducerStage:  types.StageExplore,
+		Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-seed"},
 	}}
 
 	o := &Orchestrator{
@@ -60,8 +66,11 @@ func TestReadRunSnapshotSeedAppliesTypedFields(t *testing.T) {
 	if refs := closure.AcceptedEvidenceRefs(); len(refs) != 1 || refs[0].ID != "ev-seed" {
 		t.Fatalf("accepted evidence refs = %+v", refs)
 	}
-	if artifacts := closure.NodeArtifactRecords(); len(artifacts) != 1 || artifacts[0].ProducerNodeID != exploreID {
+	if artifacts := closure.NodeArtifactRecords(); len(artifacts) != 2 || artifacts[0].ProducerNodeID != exploreID {
 		t.Fatalf("node artifacts = %+v", artifacts)
+	}
+	if consumed := closure.NodeArtifactLedger().RecordsByConsumerNode(firstReadNodeIDByType(t, ir, types.NodeExtract)); len(consumed) != 1 {
+		t.Fatalf("consumed node artifacts = %+v", consumed)
 	}
 	if obs := closure.SourceInventoryObservation(); !obs.IsActive() || len(obs.SourceClasses) != 1 {
 		t.Fatalf("source inventory observation = %+v", obs)
@@ -121,6 +130,19 @@ func TestReadRunSnapshotSeedRejectsMismatches(t *testing.T) {
 			mutate: func(s *types.ReadRunSnapshot) {
 				s.NodeArtifacts = []types.NodeArtifactRecord{{
 					ProducerNodeID: "missing-node",
+					Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-missing"},
+				}}
+			},
+			wantReason: readRunSnapshotSeedReasonNodeArtifactMismatch,
+		},
+		{
+			name: "node_artifact_consumer",
+			mutate: func(s *types.ReadRunSnapshot) {
+				exploreID := firstReadNodeIDByType(t, ir, types.NodeEvidence)
+				s.NodeArtifacts = []types.NodeArtifactRecord{{
+					Direction:      types.RuntimeArtifactConsumed,
+					ProducerNodeID: exploreID,
+					ConsumerNodeID: "missing-consumer",
 					Artifact:       types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "ev-missing"},
 				}}
 			},

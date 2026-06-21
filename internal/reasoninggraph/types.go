@@ -70,6 +70,7 @@ const (
 	ReasoningEventReadAnalysisProjected      ReasoningEventKind = "read_analysis_projected"
 	ReasoningEventReadEvidenceProjected      ReasoningEventKind = "read_evidence_projected"
 	ReasoningEventReadAggregateProjected     ReasoningEventKind = "read_aggregate_projected"
+	ReasoningEventReadArtifactProjected      ReasoningEventKind = "read_artifact_projected"
 	ReasoningEventReadLocalizationProjected  ReasoningEventKind = "read_localization_projected"
 	ReasoningEventReadNavigationProjected    ReasoningEventKind = "read_navigation_projected"
 	ReasoningEventReadAnswerProjected        ReasoningEventKind = "read_answer_projected"
@@ -470,6 +471,7 @@ func IsReadObservationKind(kind ReasoningEventKind) bool {
 	case ReasoningEventReadAnalysisProjected,
 		ReasoningEventReadEvidenceProjected,
 		ReasoningEventReadAggregateProjected,
+		ReasoningEventReadArtifactProjected,
 		ReasoningEventReadLocalizationProjected,
 		ReasoningEventReadNavigationProjected,
 		ReasoningEventReadAnswerProjected:

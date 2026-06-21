@@ -4961,30 +4961,6 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		startExtractNode(n)
 		finishExtractNode(n, true, msg)
 	}
-	summarizeCriterionFailures := func(failed []criterion.Result) string {
-		if len(failed) == 0 {
-			return "entry conditions not satisfied"
-		}
-		const maxFailures = 3
-		parts := make([]string, 0, min(len(failed), maxFailures))
-		for i, f := range failed {
-			if i >= maxFailures {
-				break
-			}
-			label := string(f.Kind)
-			if f.Expr != "" {
-				label += " " + f.Expr
-			}
-			if f.Detail != "" {
-				label += ": " + f.Detail
-			}
-			parts = append(parts, label)
-		}
-		if len(failed) > maxFailures {
-			parts = append(parts, fmt.Sprintf("+%d more", len(failed)-maxFailures))
-		}
-		return strings.Join(parts, "; ")
-	}
 	extractEntryReady := func(n *types.TaskNode) (bool, string) {
 		if n == nil || len(n.EntryConditions) == 0 {
 			return true, ""
@@ -5650,11 +5626,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.busCtx.PipelineStage = types.StageExtract
 			o.busCtx.TaskState.Stage = types.StageExtract
 			for {
+				extractReadiness := o.buildArtifactReadinessView(ir)
 				startExtractNode(extractNode)
 				if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
 					if o.completeExtractAfterTransientProgress(exErr) {
 						stepsUsed++
 						preFinalizeExtractCompleted = true
+						o.ingestExtractConsumedArtifacts(extractNode, extractReadiness)
 						finishExtractNode(extractNode, true, "completed after transient progress")
 						break
 					}
@@ -5688,6 +5666,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				}
 				stepsUsed++
 				preFinalizeExtractCompleted = true
+				o.ingestExtractConsumedArtifacts(extractNode, extractReadiness)
 				stopLocal = o.startSchedulerLocalWork(types.StageExtract, "drain_hypothesis_verdicts")
 				o.drainHypothesisVerdicts()
 				if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
@@ -6592,11 +6571,13 @@ contractFailureBreak:
 					o.busCtx.PipelineStage = types.StageExtract
 					o.busCtx.TaskState.Stage = types.StageExtract
 					for {
+						extractReadiness := o.buildArtifactReadinessView(ir)
 						startExtractNode(extractNode)
 						if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
 							if o.completeExtractAfterTransientProgress(exErr) {
 								stepsUsed++
 								preFinalizeExtractCompleted = true
+								o.ingestExtractConsumedArtifacts(extractNode, extractReadiness)
 								finishExtractNode(extractNode, true, "completed after transient progress")
 								break
 							}
@@ -6630,6 +6611,7 @@ contractFailureBreak:
 						}
 						stepsUsed++
 						preFinalizeExtractCompleted = true
+						o.ingestExtractConsumedArtifacts(extractNode, extractReadiness)
 						stopLocal := o.startSchedulerLocalWork(types.StageExtract, "drain_hypothesis_verdicts")
 						o.drainHypothesisVerdicts()
 						if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {

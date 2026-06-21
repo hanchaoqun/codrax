@@ -70,6 +70,10 @@ func EventsFromReadAnswerDocument(ctx *types.BusContext, doc *types.AnswerDocume
 		}
 	}
 
+	if payload, refs := readNodeArtifactProjection(ctx); len(refs) > 0 {
+		add(ReasoningEventReadArtifactProjected, "read:artifacts", ReasoningNodeEvidence, "node_artifact_lineage_projected", payload, refs)
+	}
+
 	if doc != nil {
 		if types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
 			review := types.NormalizeSourceLocalizationReview(*doc.ReadSourceLocalization)
@@ -156,6 +160,36 @@ func readReasoningTurnA(ctx *types.BusContext) *types.TurnAArtifacts {
 		return nil
 	}
 	return ctx.Mutable.TurnAArtifacts()
+}
+
+func readNodeArtifactProjection(ctx *types.BusContext) (map[string]any, []ReasoningEvidenceRef) {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil, nil
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return nil, nil
+	}
+	records := types.NormalizeNodeArtifactRecords(closure.NodeArtifactRecords())
+	if len(records) == 0 {
+		return nil, nil
+	}
+	payload := map[string]any{
+		"node_artifact_count": len(records),
+	}
+	kindCounts := map[string]int{}
+	directionCounts := map[string]int{}
+	for _, record := range records {
+		kindCounts[string(record.Artifact.Kind)]++
+		directionCounts[string(record.Direction)]++
+	}
+	if len(kindCounts) > 0 {
+		payload["kind_counts"] = kindCounts
+	}
+	if len(directionCounts) > 0 {
+		payload["direction_counts"] = directionCounts
+	}
+	return payload, readEvidenceRefsFromNodeArtifactRecords(records, readReasoningGraphEventRefLimit)
 }
 
 func readLocalizationReason(review types.SourceLocalizationReview) string {
@@ -252,6 +286,48 @@ func readEvidenceRefsFromReadProofSnapshot(snapshot loopkernel.ProofSnapshot, no
 		})
 	}
 	return out
+}
+
+func readEvidenceRefsFromNodeArtifactRecords(records []types.NodeArtifactRecord, limit int) []ReasoningEvidenceRef {
+	records = types.NormalizeNodeArtifactRecords(records)
+	if limit <= 0 || limit > len(records) {
+		limit = len(records)
+	}
+	out := make([]ReasoningEvidenceRef, 0, limit)
+	for i, record := range records {
+		if i >= limit {
+			break
+		}
+		nodeID := record.ProducerNodeID
+		consumer := firstNonEmpty(record.ConsumerNodeID, record.Consumer)
+		reason := firstNonEmpty(record.ReasonCode, "node_artifact_lineage")
+		if record.Direction == types.RuntimeArtifactConsumed && record.ConsumerNodeID != "" {
+			nodeID = record.ConsumerNodeID
+		}
+		out = append(out, ReasoningEvidenceRef{
+			ID:          record.Artifact.ID,
+			Kind:        string(record.Artifact.Kind),
+			NodeID:      nodeID,
+			Priority:    readNodeArtifactPriority(record),
+			Confidence:  "high",
+			SourceStage: firstNonEmpty(string(record.SourceStage), string(record.ProducerStage)),
+			Consumer:    consumer,
+			ReasonCode:  reason,
+			ArtifactRef: loopkernel.ArtifactRef{
+				Kind: string(record.Artifact.Kind),
+				ID:   record.Artifact.ID,
+				Path: strings.TrimSpace(record.Artifact.Path),
+			},
+		})
+	}
+	return NormalizeEvidenceRefs(out)
+}
+
+func readNodeArtifactPriority(record types.NodeArtifactRecord) string {
+	if record.Direction == types.RuntimeArtifactConsumed {
+		return "p0"
+	}
+	return "p1"
 }
 
 func readProofSnapshotConfidence(authority loopkernel.ProofCoverageAuthorityView) string {

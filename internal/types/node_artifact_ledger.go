@@ -22,6 +22,16 @@ const (
 	RuntimeArtifactProof          RuntimeArtifactKind = "proof"
 )
 
+// RuntimeArtifactDirection is the closed lineage edge direction for one
+// artifact record. Produced records say which node created a typed ref;
+// consumed records say which downstream node consumed that resolved ref.
+type RuntimeArtifactDirection string
+
+const (
+	RuntimeArtifactProduced RuntimeArtifactDirection = "produced"
+	RuntimeArtifactConsumed RuntimeArtifactDirection = "consumed"
+)
+
 // RuntimeArtifactRef identifies an artifact payload that already lives in an
 // existing typed carrier. The ledger stores references only; raw payloads,
 // rendered answers, prompt text, and model rationale stay out of this surface.
@@ -36,16 +46,20 @@ type RuntimeArtifactRef struct {
 }
 
 // NodeArtifactRecord records one producer/consumer edge for a runtime artifact.
-// ProducerNodeID is required for records that should survive normalization.
+// ProducerNodeID is required for produced records. Consumed records additionally
+// require ConsumerNodeID so replay/final audit can prove which node consumed the
+// resolved ref without parsing model prose or rendered answers.
 type NodeArtifactRecord struct {
-	Artifact       RuntimeArtifactRef `json:"artifact,omitempty"`
-	ProducerNodeID string             `json:"producer_node_id,omitempty"`
-	ProducerStage  PipelineStage      `json:"producer_stage,omitempty"`
-	SourceStage    PipelineStage      `json:"source_stage,omitempty"`
-	Consumer       string             `json:"consumer,omitempty"`
-	EvidenceID     string             `json:"evidence_id,omitempty"`
-	Valid          bool               `json:"valid,omitempty"`
-	ReasonCode     string             `json:"reason_code,omitempty"`
+	Direction      RuntimeArtifactDirection `json:"direction,omitempty"`
+	Artifact       RuntimeArtifactRef       `json:"artifact,omitempty"`
+	ProducerNodeID string                   `json:"producer_node_id,omitempty"`
+	ConsumerNodeID string                   `json:"consumer_node_id,omitempty"`
+	ProducerStage  PipelineStage            `json:"producer_stage,omitempty"`
+	SourceStage    PipelineStage            `json:"source_stage,omitempty"`
+	Consumer       string                   `json:"consumer,omitempty"`
+	EvidenceID     string                   `json:"evidence_id,omitempty"`
+	Valid          bool                     `json:"valid,omitempty"`
+	ReasonCode     string                   `json:"reason_code,omitempty"`
 }
 
 // NodeArtifactLedger is the run-local artifact lineage carrier. It is outside
@@ -78,6 +92,17 @@ func NormalizeRuntimeArtifactKind(kind RuntimeArtifactKind) RuntimeArtifactKind 
 	}
 }
 
+func NormalizeRuntimeArtifactDirection(direction RuntimeArtifactDirection) RuntimeArtifactDirection {
+	switch RuntimeArtifactDirection(strings.ToLower(strings.TrimSpace(string(direction)))) {
+	case RuntimeArtifactConsumed:
+		return RuntimeArtifactConsumed
+	case RuntimeArtifactProduced, "":
+		return RuntimeArtifactProduced
+	default:
+		return RuntimeArtifactProduced
+	}
+}
+
 func NormalizeRuntimeArtifactRef(ref RuntimeArtifactRef) RuntimeArtifactRef {
 	ref.Kind = NormalizeRuntimeArtifactKind(ref.Kind)
 	ref.ID = strings.TrimSpace(ref.ID)
@@ -99,8 +124,10 @@ func NormalizeRuntimeArtifactRef(ref RuntimeArtifactRef) RuntimeArtifactRef {
 }
 
 func NormalizeNodeArtifactRecord(record NodeArtifactRecord) NodeArtifactRecord {
+	record.Direction = NormalizeRuntimeArtifactDirection(record.Direction)
 	record.Artifact = NormalizeRuntimeArtifactRef(record.Artifact)
 	record.ProducerNodeID = strings.TrimSpace(record.ProducerNodeID)
+	record.ConsumerNodeID = strings.TrimSpace(record.ConsumerNodeID)
 	record.ProducerStage = PipelineStage(strings.TrimSpace(string(record.ProducerStage)))
 	record.SourceStage = PipelineStage(strings.TrimSpace(string(record.SourceStage)))
 	record.Consumer = strings.TrimSpace(record.Consumer)
@@ -117,9 +144,15 @@ func NormalizeNodeArtifactRecord(record NodeArtifactRecord) NodeArtifactRecord {
 }
 
 func ValidNodeArtifactRecord(record NodeArtifactRecord) bool {
+	record.Direction = NormalizeRuntimeArtifactDirection(record.Direction)
 	record.Artifact = NormalizeRuntimeArtifactRef(record.Artifact)
-	return strings.TrimSpace(record.ProducerNodeID) != "" &&
-		strings.TrimSpace(record.Artifact.ID) != ""
+	if strings.TrimSpace(record.Artifact.ID) == "" || strings.TrimSpace(record.ProducerNodeID) == "" {
+		return false
+	}
+	if record.Direction == RuntimeArtifactConsumed && strings.TrimSpace(record.ConsumerNodeID) == "" {
+		return false
+	}
+	return true
 }
 
 func NormalizeNodeArtifactRecords(records []NodeArtifactRecord) []NodeArtifactRecord {
@@ -191,15 +224,31 @@ func (l NodeArtifactLedger) RecordsByProducer(nodeID string) []NodeArtifactRecor
 	return out
 }
 
+func (l NodeArtifactLedger) RecordsByConsumerNode(nodeID string) []NodeArtifactRecord {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return nil
+	}
+	var out []NodeArtifactRecord
+	for _, record := range NormalizeNodeArtifactRecords(l.Records) {
+		if record.ConsumerNodeID == nodeID {
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
 func NodeArtifactRecordKey(record NodeArtifactRecord) string {
 	record = NormalizeNodeArtifactRecord(record)
 	if !record.Valid {
 		return ""
 	}
 	parts := []string{
+		string(record.Direction),
 		string(record.Artifact.Kind),
 		record.Artifact.ID,
 		record.ProducerNodeID,
+		record.ConsumerNodeID,
 		string(record.ProducerStage),
 		string(record.SourceStage),
 		record.Consumer,

@@ -248,6 +248,12 @@ func TestE2E_ReadMode_ExtractInputReadyTrueDispatchesExtract(t *testing.T) {
 	if got := busCtx.Mutable.EvidenceClosure().NodeExecStatus(extractID); got != types.NodeExecDone {
 		t.Fatalf("extract node status = %q, want %q", got, types.NodeExecDone)
 	}
+	consumed := busCtx.Mutable.EvidenceClosure().NodeArtifactLedger().RecordsByConsumerNode(extractID)
+	if len(consumed) != 1 ||
+		consumed[0].Direction != types.RuntimeArtifactConsumed ||
+		consumed[0].Artifact.ID != "ev-typed-extract-input" {
+		t.Fatalf("extract consumed artifacts = %+v", consumed)
+	}
 }
 
 func TestE2E_ReadMode_AnalyzeRefineFalsePathStaysSilent(t *testing.T) {
