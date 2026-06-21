@@ -17,7 +17,18 @@ func TestReadRunsListShowClear(t *testing.T) {
 		RunID:         "read-audit-1",
 		CreatedAt:     time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC),
 		Request:       "which agent can call subagents",
+		RequestHash:   types.ReadRunRequestHash("which agent can call subagents"),
 		RepoRoot:      "/tmp/repo",
+		RepoFingerprint: types.ReadRunRepoFingerprint{
+			Kind:       types.ReadRunRepoFingerprintKindGitHead,
+			Available:  true,
+			Head:       "abcdef1234567890",
+			StatusHash: "123456abcdef",
+		},
+		Attachments: []types.ReadRunAttachmentFingerprint{
+			types.ReadRunAttachmentFingerprintFromPayload(types.ReadRunAttachmentKindLog, "panic: sample\n", ""),
+			types.ReadRunAttachmentFingerprintFromPayload(types.ReadRunAttachmentKindTrace, "sched_switch\n", "android_atrace"),
+		},
 		TaskGraphHash: strings.Repeat("a", 64),
 		TaskNodeCount: 3,
 		NodeStatuses: map[string]types.NodeExecStatus{
@@ -74,6 +85,13 @@ func TestReadRunsListShowClear(t *testing.T) {
 		"Read run `read-audit-1`",
 		fmt.Sprintf("Schema: `%d`", types.ReadRunSnapshotSchemaVersion),
 		"Repo: `/tmp/repo`",
+		"Request fingerprint:",
+		"Repo fingerprint: kind=`git_head`",
+		"head=`abcdef123456`",
+		"Attachment fingerprints:",
+		"log=",
+		"trace=",
+		"source=android_atrace",
 		"Task graph: hash=`aaaaaaaaaaaa` nodes=3",
 		"Node statuses: pending=1 done=1",
 		"Read files: 2",
@@ -86,6 +104,16 @@ func TestReadRunsListShowClear(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("show output missing %q:\n%s", want, got)
+		}
+	}
+	rawMarkdown := readRunSnapshotMarkdown(types.NormalizeReadRunSnapshot(*snapshot))
+	for _, want := range []string{
+		"Repo fingerprint: kind=`git_head` head=`abcdef123456` status=`123456abcdef`",
+		"Attachment fingerprints: log=",
+		"trace=421d10005960/13B source=android_atrace",
+	} {
+		if !strings.Contains(rawMarkdown, want) {
+			t.Fatalf("raw markdown missing %q:\n%s", want, rawMarkdown)
 		}
 	}
 

@@ -40,8 +40,11 @@ func TestReadRunSnapshotFromBusContextCarriesTypedState(t *testing.T) {
 	closure.RecordDowngradeProgressDelta(DowngradeLaneContractChain, 42, 3)
 
 	ctx := &BusContext{
-		RepoRoot: "/repo",
-		Mutable:  mut,
+		RepoRoot:              "/repo",
+		Mutable:               mut,
+		AttachedLog:           "panic: sample\n",
+		AttachedHitrace:       "sched_switch prev=app next=ui\n",
+		AttachedHitraceSource: "android_atrace",
 		AnalysisIR: &AnalysisIR{
 			RequestModel: RequestModel{RawRequest: "which agent calls subagents"},
 			TaskGraph: TaskGraph{Nodes: []TaskNode{
@@ -57,6 +60,15 @@ func TestReadRunSnapshotFromBusContextCarriesTypedState(t *testing.T) {
 	}
 	if snapshot.TaskGraphHash == "" || snapshot.TaskNodeCount != 2 {
 		t.Fatalf("task graph identity missing: hash=%q nodes=%d", snapshot.TaskGraphHash, snapshot.TaskNodeCount)
+	}
+	if snapshot.RequestHash == "" || snapshot.RequestHash != ReadRunRequestHash("which agent calls subagents") {
+		t.Fatalf("request hash = %q", snapshot.RequestHash)
+	}
+	if logFP, ok := ReadRunAttachmentFingerprintByKind(snapshot.Attachments, ReadRunAttachmentKindLog); !ok || !logFP.Present || logFP.Bytes == 0 || logFP.Hash == "" {
+		t.Fatalf("log attachment fingerprint missing: %+v", snapshot.Attachments)
+	}
+	if traceFP, ok := ReadRunAttachmentFingerprintByKind(snapshot.Attachments, ReadRunAttachmentKindTrace); !ok || !traceFP.Present || traceFP.Source != "android_atrace" || traceFP.Hash == "" {
+		t.Fatalf("trace attachment fingerprint missing: %+v", snapshot.Attachments)
 	}
 	if snapshot.NodeStatuses["explore"] != NodeExecDone {
 		t.Fatalf("node statuses = %+v, want explore done", snapshot.NodeStatuses)
@@ -90,8 +102,18 @@ func TestReadRunSnapshotFromBusContextCarriesTypedState(t *testing.T) {
 func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "read-1.json")
 	original := &ReadRunSnapshot{
-		RunID:        "read-1",
-		Request:      "where is agent runtime",
+		RunID:   "read-1",
+		Request: "where is agent runtime",
+		RepoFingerprint: ReadRunRepoFingerprint{
+			Kind:       ReadRunRepoFingerprintKindGitHead,
+			Available:  true,
+			Head:       "abcdef",
+			StatusHash: "123456",
+		},
+		Attachments: []ReadRunAttachmentFingerprint{
+			ReadRunAttachmentFingerprintFromPayload(ReadRunAttachmentKindLog, "panic: one\n", ""),
+			ReadRunAttachmentFingerprintFromPayload(ReadRunAttachmentKindTrace, "sched_switch\n", "harmony_hitrace"),
+		},
 		NodeStatuses: map[string]NodeExecStatus{"explore": NodeExecDone},
 		NodeAttempts: map[string]int{"explore": 2, "zero": 0},
 		NodeArtifacts: []NodeArtifactRecord{
@@ -117,6 +139,15 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 	}
 	if loaded == nil || loaded.RunID != "read-1" || len(loaded.ReadSet) != 2 || loaded.ReadSet[0] != "a.go" {
 		t.Fatalf("loaded snapshot = %+v", loaded)
+	}
+	if loaded.RequestHash != ReadRunRequestHash("where is agent runtime") {
+		t.Fatalf("loaded request hash = %q", loaded.RequestHash)
+	}
+	if !loaded.RepoFingerprint.Available || loaded.RepoFingerprint.Head != "abcdef" {
+		t.Fatalf("loaded repo fingerprint = %+v", loaded.RepoFingerprint)
+	}
+	if traceFP, ok := ReadRunAttachmentFingerprintByKind(loaded.Attachments, ReadRunAttachmentKindTrace); !ok || traceFP.Source != "harmony_hitrace" || traceFP.Hash == "" {
+		t.Fatalf("loaded attachments = %+v", loaded.Attachments)
 	}
 	if loaded.NodeAttempts["explore"] != 2 || loaded.NodeAttempts["zero"] != 0 {
 		t.Fatalf("loaded node attempts = %+v", loaded.NodeAttempts)

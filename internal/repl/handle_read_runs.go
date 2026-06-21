@@ -190,6 +190,15 @@ func readRunSnapshotMarkdown(snapshot types.ReadRunSnapshot) string {
 	if strings.TrimSpace(snapshot.Request) != "" {
 		fmt.Fprintf(&b, "- Request: %s\n", readRunCompact(snapshot.Request, 160))
 	}
+	if strings.TrimSpace(snapshot.RequestHash) != "" {
+		fmt.Fprintf(&b, "- Request fingerprint: `%s`\n", readRunShortHash(snapshot.RequestHash))
+	}
+	if repo := readRunRepoFingerprintSummary(snapshot.RepoFingerprint); repo != "" {
+		fmt.Fprintf(&b, "- Repo fingerprint: %s\n", repo)
+	}
+	if attachments := readRunAttachmentFingerprintSummary(snapshot.Attachments); attachments != "" {
+		fmt.Fprintf(&b, "- Attachment fingerprints: %s\n", attachments)
+	}
 	fmt.Fprintf(&b, "- Task graph: hash=`%s` nodes=%d\n", readRunShortHash(snapshot.TaskGraphHash), snapshot.TaskNodeCount)
 	if len(snapshot.NodeStatuses) > 0 {
 		fmt.Fprintf(&b, "- Node statuses: %s\n", readRunNodeStatusSummary(snapshot.NodeStatuses))
@@ -264,6 +273,49 @@ func readRunSourceInventorySummary(obs types.SourceInventoryObservation) string 
 		return "active=true"
 	}
 	return strings.Join(parts, " · ")
+}
+
+func readRunRepoFingerprintSummary(fp types.ReadRunRepoFingerprint) string {
+	fp = types.NormalizeReadRunRepoFingerprint(fp)
+	if fp.Kind == "" {
+		return ""
+	}
+	if !fp.Available {
+		reason := strings.TrimSpace(fp.ReasonCode)
+		if reason == "" {
+			reason = "unavailable"
+		}
+		return fmt.Sprintf("kind=`%s` unavailable reason=`%s`", fp.Kind, reason)
+	}
+	parts := []string{fmt.Sprintf("kind=`%s` head=`%s`", fp.Kind, readRunShortHash(fp.Head))}
+	if strings.TrimSpace(fp.StatusHash) != "" {
+		parts = append(parts, fmt.Sprintf("status=`%s`", readRunShortHash(fp.StatusHash)))
+	}
+	return strings.Join(parts, " ")
+}
+
+func readRunAttachmentFingerprintSummary(items []types.ReadRunAttachmentFingerprint) string {
+	items = types.NormalizeReadRunAttachmentFingerprints(items)
+	if len(items) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, item := range items {
+		if item.Present {
+			part := fmt.Sprintf("%s=%s/%dB", item.Kind, readRunShortHash(item.Hash), item.Bytes)
+			if strings.TrimSpace(item.Source) != "" {
+				part += " source=" + item.Source
+			}
+			parts = append(parts, part)
+			continue
+		}
+		reason := strings.TrimSpace(item.ReasonCode)
+		if reason == "" {
+			reason = "unavailable"
+		}
+		parts = append(parts, fmt.Sprintf("%s=unavailable(%s)", item.Kind, reason))
+	}
+	return strings.Join(parts, " ")
 }
 
 func readRunShortHash(hash string) string {

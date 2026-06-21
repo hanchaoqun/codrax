@@ -18,22 +18,25 @@ const ReadRunSnapshotSchemaVersion = 3
 // It records durable structured artifacts only; no scheduler gate may consume
 // rendered answer prose, model rationale, or prompt text from this surface.
 type ReadRunSnapshot struct {
-	SchemaVersion    int                        `json:"schema_version"`
-	RunID            string                     `json:"run_id"`
-	CreatedAt        time.Time                  `json:"created_at,omitempty"`
-	Request          string                     `json:"request,omitempty"`
-	RepoRoot         string                     `json:"repo_root,omitempty"`
-	TaskGraphHash    string                     `json:"task_graph_hash,omitempty"`
-	TaskNodeCount    int                        `json:"task_node_count,omitempty"`
-	NodeStatuses     map[string]NodeExecStatus  `json:"node_statuses,omitempty"`
-	NodeAttempts     map[string]int             `json:"node_attempts,omitempty"`
-	ReadSet          []string                   `json:"read_set,omitempty"`
-	ReadRanges       map[string][]LineRange     `json:"read_ranges,omitempty"`
-	FileTotals       map[string]int             `json:"file_totals,omitempty"`
-	AcceptedEvidence []AcceptedEvidenceRef      `json:"accepted_evidence,omitempty"`
-	NodeArtifacts    []NodeArtifactRecord       `json:"node_artifacts,omitempty"`
-	SourceInventory  SourceInventoryObservation `json:"source_inventory,omitempty"`
-	ProgressDecision ProgressDecision           `json:"progress_decision,omitempty"`
+	SchemaVersion    int                            `json:"schema_version"`
+	RunID            string                         `json:"run_id"`
+	CreatedAt        time.Time                      `json:"created_at,omitempty"`
+	Request          string                         `json:"request,omitempty"`
+	RequestHash      string                         `json:"request_hash,omitempty"`
+	RepoRoot         string                         `json:"repo_root,omitempty"`
+	RepoFingerprint  ReadRunRepoFingerprint         `json:"repo_fingerprint,omitempty"`
+	Attachments      []ReadRunAttachmentFingerprint `json:"attachments,omitempty"`
+	TaskGraphHash    string                         `json:"task_graph_hash,omitempty"`
+	TaskNodeCount    int                            `json:"task_node_count,omitempty"`
+	NodeStatuses     map[string]NodeExecStatus      `json:"node_statuses,omitempty"`
+	NodeAttempts     map[string]int                 `json:"node_attempts,omitempty"`
+	ReadSet          []string                       `json:"read_set,omitempty"`
+	ReadRanges       map[string][]LineRange         `json:"read_ranges,omitempty"`
+	FileTotals       map[string]int                 `json:"file_totals,omitempty"`
+	AcceptedEvidence []AcceptedEvidenceRef          `json:"accepted_evidence,omitempty"`
+	NodeArtifacts    []NodeArtifactRecord           `json:"node_artifacts,omitempty"`
+	SourceInventory  SourceInventoryObservation     `json:"source_inventory,omitempty"`
+	ProgressDecision ProgressDecision               `json:"progress_decision,omitempty"`
 }
 
 func ReadRunSnapshotFromBusContext(ctx *BusContext, runID string) ReadRunSnapshot {
@@ -53,7 +56,9 @@ func ReadRunSnapshotFromBusContext(ctx *BusContext, runID string) ReadRunSnapsho
 			snapshot.Request = strings.TrimSpace(ctx.AnalysisIR.RequestModel.RawRequest)
 		}
 	}
+	snapshot.Attachments = ReadRunAttachmentFingerprintsFromBusContext(ctx)
 	if ctx.Mutable == nil {
+		snapshot.RequestHash = ReadRunRequestHash(snapshot.Request)
 		return NormalizeReadRunSnapshot(snapshot)
 	}
 	if snapshot.RepoRoot == "" {
@@ -62,6 +67,7 @@ func ReadRunSnapshotFromBusContext(ctx *BusContext, runID string) ReadRunSnapsho
 	if snapshot.Request == "" {
 		snapshot.Request = strings.TrimSpace(ctx.Mutable.Objective())
 	}
+	snapshot.RequestHash = ReadRunRequestHash(snapshot.Request)
 	closure := ctx.Mutable.EvidenceClosure()
 	if closure != nil {
 		snapshot.NodeStatuses = closure.NodeExecStatuses()
@@ -83,7 +89,13 @@ func NormalizeReadRunSnapshot(snapshot ReadRunSnapshot) ReadRunSnapshot {
 	}
 	snapshot.RunID = strings.TrimSpace(snapshot.RunID)
 	snapshot.Request = strings.TrimSpace(snapshot.Request)
+	snapshot.RequestHash = strings.TrimSpace(snapshot.RequestHash)
+	if snapshot.RequestHash == "" && strings.TrimSpace(snapshot.Request) != "" {
+		snapshot.RequestHash = ReadRunRequestHash(snapshot.Request)
+	}
 	snapshot.RepoRoot = strings.TrimSpace(snapshot.RepoRoot)
+	snapshot.RepoFingerprint = NormalizeReadRunRepoFingerprint(snapshot.RepoFingerprint)
+	snapshot.Attachments = NormalizeReadRunAttachmentFingerprints(snapshot.Attachments)
 	snapshot.TaskGraphHash = strings.TrimSpace(snapshot.TaskGraphHash)
 	snapshot.NodeStatuses = cloneNodeExecStatusMap(snapshot.NodeStatuses)
 	snapshot.NodeAttempts = cloneNodeExecAttemptMap(snapshot.NodeAttempts)

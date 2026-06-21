@@ -10,13 +10,16 @@ import (
 )
 
 const (
-	readRunSnapshotSeedReasonSchemaMismatch       = "schema_mismatch"
-	readRunSnapshotSeedReasonRepoMismatch         = "repo_mismatch"
-	readRunSnapshotSeedReasonTaskGraphMismatch    = "task_graph_mismatch"
-	readRunSnapshotSeedReasonNodeMismatch         = "node_status_mismatch"
-	readRunSnapshotSeedReasonNodeAttemptMismatch  = "node_attempt_mismatch"
-	readRunSnapshotSeedReasonNodeArtifactMismatch = "node_artifact_mismatch"
-	readRunSnapshotSeedReasonNoAnalysisIR         = "analysis_ir_missing"
+	readRunSnapshotSeedReasonSchemaMismatch        = "schema_mismatch"
+	readRunSnapshotSeedReasonRepoMismatch          = "repo_mismatch"
+	readRunSnapshotSeedReasonTaskGraphMismatch     = "task_graph_mismatch"
+	readRunSnapshotSeedReasonNodeMismatch          = "node_status_mismatch"
+	readRunSnapshotSeedReasonNodeAttemptMismatch   = "node_attempt_mismatch"
+	readRunSnapshotSeedReasonNodeArtifactMismatch  = "node_artifact_mismatch"
+	readRunSnapshotSeedReasonRequestFingerprint    = "request_fingerprint_mismatch"
+	readRunSnapshotSeedReasonRepoFingerprint       = "repo_fingerprint_mismatch"
+	readRunSnapshotSeedReasonAttachmentFingerprint = "attachment_fingerprint_mismatch"
+	readRunSnapshotSeedReasonNoAnalysisIR          = "analysis_ir_missing"
 )
 
 // SetReadRunSnapshotSeed installs a one-shot typed resume seed. The seed is
@@ -63,6 +66,9 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 	if !sameReadRunSnapshotRepoRoot(snapshot.RepoRoot, o.busCtx.RepoRoot) {
 		return readRunSnapshotSeedError(readRunSnapshotSeedReasonRepoMismatch,
 			"snapshot repo %q does not match current repo %q", snapshot.RepoRoot, o.busCtx.RepoRoot)
+	}
+	if err := o.validateReadRunSnapshotFingerprints(snapshot); err != nil {
+		return err
 	}
 	expectedHash := types.ReadTaskGraphHash(o.busCtx.AnalysisIR.TaskGraph)
 	if expectedHash == "" || strings.TrimSpace(snapshot.TaskGraphHash) != expectedHash {
@@ -126,6 +132,52 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 	logging.Info("[orchestrator] read run snapshot seed applied: run=%s nodes=%d attempts=%d artifacts=%d reads=%d accepted=%d",
 		snapshot.RunID, len(snapshot.NodeStatuses), len(snapshot.NodeAttempts), len(snapshot.NodeArtifacts), len(snapshot.ReadSet), len(snapshot.AcceptedEvidence))
 	return nil
+}
+
+func (o *Orchestrator) validateReadRunSnapshotFingerprints(snapshot types.ReadRunSnapshot) error {
+	if o == nil || o.busCtx == nil {
+		return nil
+	}
+	if strings.TrimSpace(snapshot.RequestHash) != "" {
+		currentRequest := currentReadRunSnapshotRequest(o.busCtx)
+		currentHash := types.ReadRunRequestHash(currentRequest)
+		if currentHash == "" || currentHash != strings.TrimSpace(snapshot.RequestHash) {
+			return readRunSnapshotSeedError(readRunSnapshotSeedReasonRequestFingerprint,
+				"snapshot request hash %q does not match current request hash %q", snapshot.RequestHash, currentHash)
+		}
+	}
+	currentRepo := readRunCurrentRepoFingerprint(o.busCtx.RepoRoot)
+	if !types.ReadRunRepoFingerprintsEqual(snapshot.RepoFingerprint, currentRepo) {
+		return readRunSnapshotSeedError(readRunSnapshotSeedReasonRepoFingerprint,
+			"snapshot repo fingerprint %+v does not match current %+v", snapshot.RepoFingerprint, currentRepo)
+	}
+	currentAttachments := types.ReadRunAttachmentFingerprintsFromBusContext(o.busCtx)
+	for _, snapAttachment := range types.NormalizeReadRunAttachmentFingerprints(snapshot.Attachments) {
+		if !snapAttachment.Present {
+			continue
+		}
+		currentAttachment, ok := types.ReadRunAttachmentFingerprintByKind(currentAttachments, snapAttachment.Kind)
+		if !ok || !types.ReadRunAttachmentFingerprintsEqual(snapAttachment, currentAttachment) {
+			return readRunSnapshotSeedError(readRunSnapshotSeedReasonAttachmentFingerprint,
+				"snapshot attachment fingerprint kind=%q does not match current attachment", snapAttachment.Kind)
+		}
+	}
+	return nil
+}
+
+func currentReadRunSnapshotRequest(ctx *types.BusContext) string {
+	if ctx == nil {
+		return ""
+	}
+	if ctx.AnalysisIR != nil {
+		if request := strings.TrimSpace(ctx.AnalysisIR.RequestModel.RawRequest); request != "" {
+			return request
+		}
+	}
+	if ctx.Mutable != nil {
+		return strings.TrimSpace(ctx.Mutable.Objective())
+	}
+	return ""
 }
 
 func readRunSnapshotSeedError(reason string, format string, args ...any) error {

@@ -1,6 +1,9 @@
 package orchestrator
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -112,6 +115,22 @@ func TestReadRunSnapshotSeedRejectsMismatches(t *testing.T) {
 			wantReason: readRunSnapshotSeedReasonTaskGraphMismatch,
 		},
 		{
+			name: "request_fingerprint",
+			mutate: func(s *types.ReadRunSnapshot) {
+				s.RequestHash = types.ReadRunRequestHash("different request")
+			},
+			wantReason: readRunSnapshotSeedReasonRequestFingerprint,
+		},
+		{
+			name: "attachment_fingerprint",
+			mutate: func(s *types.ReadRunSnapshot) {
+				s.Attachments = []types.ReadRunAttachmentFingerprint{
+					types.ReadRunAttachmentFingerprintFromPayload(types.ReadRunAttachmentKindLog, "panic: saved\n", ""),
+				}
+			},
+			wantReason: readRunSnapshotSeedReasonAttachmentFingerprint,
+		},
+		{
 			name: "node",
 			mutate: func(s *types.ReadRunSnapshot) {
 				s.NodeStatuses = map[string]types.NodeExecStatus{"missing-node": types.NodeExecDone}
@@ -172,6 +191,62 @@ func TestReadRunSnapshotSeedRejectsMismatches(t *testing.T) {
 				t.Fatal("rejected snapshot must not hydrate read coverage")
 			}
 		})
+	}
+}
+
+func TestReadRunSnapshotSeedRejectsRepoFingerprintMismatch(t *testing.T) {
+	repoRoot := initReadRunSnapshotGitRepo(t)
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+	snapshot := readRunSnapshotSeedFixture(t, ir, repoRoot)
+	snapshot.RepoFingerprint = types.ReadRunRepoFingerprint{
+		Kind:      types.ReadRunRepoFingerprintKindGitHead,
+		Available: true,
+		Head:      "deadbeef",
+	}
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			Mode:       types.ModeRead,
+			RepoRoot:   repoRoot,
+			AnalysisIR: ir,
+			Mutable:    types.NewMutableState("resume typed snapshot"),
+		},
+	}
+	o.busCtx.Mutable.SetRepoRoot(repoRoot)
+	o.SetReadRunSnapshotSeed(&snapshot)
+	err := o.applyReadRunSnapshotSeed()
+	if err == nil || !strings.Contains(err.Error(), readRunSnapshotSeedReasonRepoFingerprint) {
+		t.Fatalf("applyReadRunSnapshotSeed error = %v, want repo fingerprint mismatch", err)
+	}
+	if o.busCtx.Mutable.EvidenceClosure().HasRead("seeded.go") {
+		t.Fatal("repo fingerprint mismatch must not hydrate read coverage")
+	}
+}
+
+func TestReadRunSnapshotSeedAcceptsMatchingAttachmentFingerprint(t *testing.T) {
+	repoRoot := "/tmp/codrax-read-seed"
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+	snapshot := readRunSnapshotSeedFixture(t, ir, repoRoot)
+	snapshot.Attachments = []types.ReadRunAttachmentFingerprint{
+		types.ReadRunAttachmentFingerprintFromPayload(types.ReadRunAttachmentKindLog, "panic: saved\n", ""),
+	}
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			Mode:        types.ModeRead,
+			RepoRoot:    repoRoot,
+			AnalysisIR:  ir,
+			Mutable:     types.NewMutableState("resume typed snapshot"),
+			AttachedLog: "panic: saved\n",
+		},
+	}
+	o.busCtx.Mutable.SetRepoRoot(repoRoot)
+	o.SetReadRunSnapshotSeed(&snapshot)
+	if err := o.applyReadRunSnapshotSeed(); err != nil {
+		t.Fatalf("applyReadRunSnapshotSeed: %v", err)
+	}
+	if !o.busCtx.Mutable.EvidenceClosure().HasRead("seeded.go") {
+		t.Fatal("matching attachment fingerprint should allow hydration")
 	}
 }
 
@@ -313,5 +388,28 @@ func readRunSnapshotSeedFixture(t *testing.T, ir *types.AnalysisIR, repoRoot str
 				HardThreshold: 3,
 			},
 		},
+	}
+}
+
+func initReadRunSnapshotGitRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	runReadRunSnapshotGit(t, repo, "init", "--initial-branch=main")
+	runReadRunSnapshotGit(t, repo, "config", "user.email", "test@example.com")
+	runReadRunSnapshotGit(t, repo, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runReadRunSnapshotGit(t, repo, "add", "README.md")
+	runReadRunSnapshotGit(t, repo, "commit", "-m", "seed")
+	return repo
+}
+
+func runReadRunSnapshotGit(t *testing.T, repo string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
