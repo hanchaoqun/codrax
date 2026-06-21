@@ -13,8 +13,9 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		path     string
 		maxLines int
 	}{
-		{path: filepath.Join("..", "types", "evidence_closure.go"), maxLines: 2774},
-		{path: "scheduler.go", maxLines: 945},
+		{path: filepath.Join("..", "types", "evidence_closure.go"), maxLines: 2636},
+		{path: "scheduler.go", maxLines: 799},
+		{path: "orchestrator.go", maxLines: 9402},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -29,7 +30,7 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 				lines++
 			}
 			if lines > tc.maxLines {
-				t.Fatalf("%s has %d lines; PRD ratchet allows at most %d", tc.path, lines, tc.maxLines)
+				t.Fatalf("%s has %d lines; IR delivery ratchet allows at most %d. Split concern-specific code or update the delivery ledger before expanding this budget.", tc.path, lines, tc.maxLines)
 			}
 		})
 	}
