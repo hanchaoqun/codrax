@@ -253,11 +253,14 @@ Tests:
 ### Batch M3b: LoopRun.Advance Write-Side Cutover
 
 Deliverables:
-- Implement `LoopRun.Advance`.
-- Make write controller append events and consume loopkernel budget/authority for next action.
-- Keep read path projection-only in this batch.
+- M3b-A: implement pure `LoopRun.Advance` over typed loop events, authority projection, and `LoopBudget` spend decisions. It must not import writeflow or parse controller prose.
+- M3b-A: prove `EventsFromWriteWorkflowRun -> ReduceEvents -> LoopRun.Advance` can recommend approval/repair/verify/localize actions and block on typed budget exhaustion.
+- M3b-B: make write controller append events and consume loopkernel budget/authority for next action.
+- Keep read path projection-only in M3b.
 
 Tests:
+- `TestLoopRunAdvanceFromWriteWorkflowProjection`
+- `TestLoopRunAdvanceBlocksOnTypedBudget`
 - `TestLoopRunDrivesWriteController`
 - `TestReadPathLoopkernelProjectionOnly`
 - Write controller resume/approval/verify tests.
@@ -309,5 +312,5 @@ Commercial hardening before declaring complete:
 | M2c Execution tree/artifacts | completed | Removed misleading `TaskNode.ExitArtifacts`; added typed `TaskArtifactContract`, `BranchPoint`, `ValidationFeedbackBranchPoints`, and `ValidationFeedbackTargets`; scheduler validation-feedback backtrack now consumes the shared typed helper. Tests pin immutable contract projection, execution-tree backtrack grouping/deduplication, and the upgraded TaskNode slot guard. |
 | M2d Dynamic expansion/loopkernel shadow | in_progress | M2d-A completed: added typed `ReadLoopShadowComparison` and first read retry checkpoint consumer so loopkernel recommended action can be compared with the imperative retry action without changing scheduler behavior. M2d-B completed: added `TaskNode.Optional`, typed `source_class_universe_incomplete`, compiler-emitted optional source-inventory re-probe node, source-class completeness helper, and scheduler handling so optional nodes do not create blocked noise or prevent finalize when their typed condition is false. Verified with focused compiler/criterion/types/orchestrator/loopkernel/tool/agent tests and full `go test ./...`. Remaining later M2d work: optional AnalyzeRefine through analyzer-pre-authored topology. |
 | M3a LoopBudget | completed | Added serializable `LoopBudget` deadline/interruption fields plus side-effect-free `NewLoopBudget`, `NormalizeLoopBudget`, `Check`, and typed spend APIs for unit/repair/approval. Deadline/cancel decisions carry typed reason codes, spend caps do not increment on denial, and unknown interrupted-reason prose is dropped during normalization. Controller/read scheduler cutover remains intentionally in M3b. Verified with loopkernel/sourceinventory focused tests and full `go test ./...`. |
-| M3b LoopRun.Advance | not_started | LoopRun passive; write controller not cut over. |
+| M3b LoopRun.Advance | in_progress | M3b-A completed: added pure `LoopRun.Advance`, `LoopAdvanceInput`, and `LoopAdvanceDecision`; write workflow event projection now drives typed recommendations for approval, repair, localization, and verification, with budget denial blocking via typed `LoopBudget` reason codes. Missing localization without candidate paths remains soft and does not preempt failed proof/repair. Verified with loopkernel/writeflow/orchestrator focused tests and full `go test ./...`. Remaining M3b-B work: write controller consumes `LoopRun.Advance` for next-action budget/authority cutover while read path stays projection-only. |
 | M3c Semantic routing/shared proof | not_started | Tool routing not yet authority-driven end-to-end. |
