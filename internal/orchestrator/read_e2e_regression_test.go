@@ -250,6 +250,121 @@ func TestE2E_ReadMode_ExtractInputReadyTrueDispatchesExtract(t *testing.T) {
 	}
 }
 
+func TestE2E_ReadMode_AnalyzeRefineFalsePathStaysSilent(t *testing.T) {
+	explorerCalls := 0
+	extractorCalls := 0
+	finalizeCalls := 0
+	var dispatchKeys []string
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+	refineID := firstReadNodeIDByCriterion(t, ir, types.CritProgressReplanRequired)
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			dispatchKeys = append(dispatchKeys, ctx.ExploreDispatchKey)
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			extractorCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "- `No refine` (README.md:1)",
+			}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain without typed progress delta", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if explorerCalls != 1 {
+		t.Fatalf("explorer calls = %d, want stable baseline 1", explorerCalls)
+	}
+	if extractorCalls != 0 {
+		t.Fatalf("extractor must still be skipped without typed extract input, got %d calls", extractorCalls)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", finalizeCalls)
+	}
+	if dispatchKeyContainsNodeID(dispatchKeys, refineID) {
+		t.Fatalf("analyze-refine optional node must stay silent without typed progress decision; dispatch keys=%v refine=%s", dispatchKeys, refineID)
+	}
+	if got := busCtx.Mutable.EvidenceClosure().NodeExecStatus(refineID); got != types.NodeExecPending {
+		t.Fatalf("refine node status = %q, want %q", got, types.NodeExecPending)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("read run should stay clean, LastError=%q", busCtx.TaskState.LastError)
+	}
+}
+
+func TestE2E_ReadMode_AnalyzeRefineTruePathDispatchesOnce(t *testing.T) {
+	explorerCalls := 0
+	finalizeCalls := 0
+	progressSeeded := false
+	var dispatchKeys []string
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+	refineID := firstReadNodeIDByCriterion(t, ir, types.CritProgressReplanRequired)
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			dispatchKeys = append(dispatchKeys, ctx.ExploreDispatchKey)
+			if !progressSeeded && !dispatchKeyHasNodeID(ctx.ExploreDispatchKey, refineID) {
+				progressSeeded = true
+				ctx.Mutable.EvidenceClosure().RecordDowngradeProgressDelta(types.DowngradeLaneContractChain, 42, 3)
+			}
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "- `Refined once` (README.md:1)",
+			}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain with typed progress delta", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !progressSeeded {
+		t.Fatal("test did not seed typed progress decision")
+	}
+	if got := dispatchKeyNodeIDCount(dispatchKeys, refineID); got != 1 {
+		t.Fatalf("analyze-refine optional node dispatch count = %d, want 1; dispatch keys=%v refine=%s", got, dispatchKeys, refineID)
+	}
+	if explorerCalls > 4 {
+		t.Fatalf("analyze-refine true path should stay bounded, explorer calls=%d dispatch keys=%v", explorerCalls, dispatchKeys)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", finalizeCalls)
+	}
+	if got := busCtx.Mutable.EvidenceClosure().NodeExecStatus(refineID); got != types.NodeExecDone {
+		t.Fatalf("refine node status = %q, want %q", got, types.NodeExecDone)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("read run should stay clean, LastError=%q", busCtx.TaskState.LastError)
+	}
+}
+
 // TestE2E_ReadMode_NoWriteSideEffects verifies that a read-mode Run
 // leaves all write-mode state slots empty: ChangePlan, ChangeReport,
 // BaselineReport, WriteClosure.AppliedSet should all be zero-value.
@@ -467,6 +582,45 @@ func firstReadNodeIDByType(t *testing.T, ir *types.AnalysisIR, typ types.TaskNod
 	}
 	t.Fatalf("node type %q not found in TaskGraph", typ)
 	return ""
+}
+
+func firstReadNodeIDByCriterion(t *testing.T, ir *types.AnalysisIR, kind string) string {
+	t.Helper()
+	if ir == nil {
+		t.Fatal("AnalysisIR is nil")
+	}
+	for _, node := range ir.TaskGraph.Nodes {
+		for _, criterion := range node.EntryConditions {
+			if criterion.Kind == kind {
+				return node.ID
+			}
+		}
+	}
+	t.Fatalf("node with entry criterion %q not found in TaskGraph", kind)
+	return ""
+}
+
+func dispatchKeyContainsNodeID(keys []string, nodeID string) bool {
+	return dispatchKeyNodeIDCount(keys, nodeID) > 0
+}
+
+func dispatchKeyNodeIDCount(keys []string, nodeID string) int {
+	count := 0
+	for _, key := range keys {
+		if dispatchKeyHasNodeID(key, nodeID) {
+			count++
+		}
+	}
+	return count
+}
+
+func dispatchKeyHasNodeID(key string, nodeID string) bool {
+	for _, part := range strings.Split(key, "+") {
+		if strings.TrimSpace(part) == nodeID {
+			return true
+		}
+	}
+	return false
 }
 
 // TestE2E_ReadMode_AnalyzeRetrySuccessClearsLastError verifies the
