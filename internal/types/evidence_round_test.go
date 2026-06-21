@@ -305,6 +305,127 @@ func TestEvidenceClosureIngestReducerInputForkClosureDelta(t *testing.T) {
 	}
 }
 
+func TestEvidenceReducerOwnershipBehaviorReadRunSnapshotSeedConflicts(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.SetReadSet(map[string]bool{"old.go": true})
+	c.SetReadRanges(map[string][]LineRange{"old.go": {{Start: 1, End: 2}}})
+	c.RecordFileTotalLines("old.go", 200)
+	c.SetNodeExecStatus("explore", NodeExecFailed)
+	c.SetNodeExecStatus("untouched", NodeExecDone)
+	c.SetNodeExecAttempts(map[string]int{"old": 7, "explore": 3})
+	c.SetLatestProgressDecision(ProgressDecision{
+		ShouldReplan: true,
+		ReasonCode:   ProgressReasonContinue,
+		Delta:        ProgressDelta{Kind: ProgressDeltaDowngradeBlocker, BlockerKey: 11},
+	})
+	c.AppendNodeArtifactRecords([]NodeArtifactRecord{{
+		ProducerNodeID: "old",
+		ProducerStage:  StageExplore,
+		Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-old"},
+	}})
+
+	c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class: EvidenceReducerInputReadRunSnapshotSeed,
+		NodeStatuses: map[string]NodeExecStatus{
+			"explore": NodeExecDone,
+		},
+		NodeAttempts: map[string]int{"explore": 1},
+		NodeArtifacts: []NodeArtifactRecord{
+			{
+				ProducerNodeID: "explore",
+				ProducerStage:  StageExplore,
+				Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-fresh"},
+			},
+			{
+				ProducerNodeID: "explore",
+				ProducerStage:  StageExplore,
+				Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: "ev-fresh"},
+			},
+		},
+		ReadSet:               map[string]bool{"fresh.go": true},
+		ReadRanges:            map[string][]LineRange{"fresh.go": {{Start: 3, End: 5}}},
+		FileTotalLines:        map[string]int{"fresh.go": 40},
+		ReplaceReadSet:        true,
+		ReplaceReadRanges:     true,
+		ReplaceFileTotalLines: true,
+		ProgressDecision: ProgressDecision{
+			ShouldReplan: false,
+			ReasonCode:   ProgressReasonConverged,
+			Delta:        ProgressDelta{Kind: ProgressDeltaDowngradeBlocker, BlockerKey: 99},
+		},
+		HasProgressDecision: true,
+	}, "")
+
+	if got := c.ReadSet(); len(got) != 1 || !got["fresh.go"] {
+		t.Fatalf("snapshot seed should replace read set: %+v", got)
+	}
+	if got := c.ReadRanges("old.go"); len(got) != 0 {
+		t.Fatalf("snapshot seed should replace read ranges, old.go=%+v", got)
+	}
+	if got := c.FileTotalLines("old.go"); got != 0 {
+		t.Fatalf("snapshot seed should replace file totals, old.go total=%d", got)
+	}
+	if got := c.NodeExecStatus("explore"); got != NodeExecDone {
+		t.Fatalf("node status latest-authority failed, got %s", got)
+	}
+	if got := c.NodeExecStatus("untouched"); got != NodeExecDone {
+		t.Fatalf("snapshot seed must not erase statuses outside its typed payload, got %s", got)
+	}
+	if attempts := c.NodeExecAttempts(); len(attempts) != 1 || attempts["explore"] != 1 {
+		t.Fatalf("snapshot seed should replace node attempts map: %+v", attempts)
+	}
+	if got := c.LatestProgressDecision(); got.ReasonCode != ProgressReasonConverged || got.Delta.BlockerKey != 99 || got.ShouldReplan {
+		t.Fatalf("progress decision latest-authority failed: %+v", got)
+	}
+	if artifacts := c.NodeArtifactRecords(); len(artifacts) != 2 || !nodeArtifactRecordKeysContain(artifacts, "produced\x00evidence_item\x00ev-old\x00old") || !nodeArtifactRecordKeysContain(artifacts, "produced\x00evidence_item\x00ev-fresh\x00explore") {
+		t.Fatalf("node artifacts should use normalized identity dedup without dropping existing refs: %+v", artifacts)
+	}
+}
+
+func TestEvidenceReducerOwnershipBehaviorForkClosureDeltaStableAndIdempotent(t *testing.T) {
+	forkA := evidenceRoundOwnershipFork("a.go", "ev-a", "MemberA", "node-a", 1)
+	forkB := evidenceRoundOwnershipFork("b.go", "ev-b", "MemberB", "node-b", 3)
+
+	parentAB := NewEvidenceClosure("")
+	parentAB.IngestEvidenceReducerInput(EvidenceReducerInput{Class: EvidenceReducerInputForkClosureDelta, ForkClosure: forkA}, "")
+	parentAB.IngestEvidenceReducerInput(EvidenceReducerInput{Class: EvidenceReducerInputForkClosureDelta, ForkClosure: forkA}, "")
+	parentAB.IngestEvidenceReducerInput(EvidenceReducerInput{Class: EvidenceReducerInputForkClosureDelta, ForkClosure: forkB}, "")
+
+	parentBA := NewEvidenceClosure("")
+	parentBA.IngestEvidenceReducerInput(EvidenceReducerInput{Class: EvidenceReducerInputForkClosureDelta, ForkClosure: forkB}, "")
+	parentBA.IngestEvidenceReducerInput(EvidenceReducerInput{Class: EvidenceReducerInputForkClosureDelta, ForkClosure: forkA}, "")
+
+	assertReadSetKeys(t, parentAB.ReadSet(), "a.go", "b.go")
+	assertReadSetKeys(t, parentBA.ReadSet(), "a.go", "b.go")
+	assertAcceptedEvidenceKeys(t, parentAB.AcceptedEvidenceRefs(), "ev-a:a.go:1:0", "ev-b:b.go:1:0")
+	assertAcceptedEvidenceKeys(t, parentBA.AcceptedEvidenceRefs(), "ev-a:a.go:1:0", "ev-b:b.go:1:0")
+	assertNodeArtifactIDs(t, parentAB.NodeArtifactRecords(), "ev-a", "ev-b")
+	assertNodeArtifactIDs(t, parentBA.NodeArtifactRecords(), "ev-a", "ev-b")
+	if got := parentAB.NodeExecAttempt("shared"); got != 3 {
+		t.Fatalf("fork attempts should merge by max, got %d", got)
+	}
+	if got := parentBA.NodeExecAttempt("shared"); got != 3 {
+		t.Fatalf("fork attempts should be order-independent max, got %d", got)
+	}
+	assertSourceInventoryMemberNames(t, parentAB.SourceInventoryObservation(), "MemberA", "MemberB")
+	assertSourceInventoryMemberNames(t, parentBA.SourceInventoryObservation(), "MemberA", "MemberB")
+}
+
+func TestEvidenceReducerOwnershipBehaviorNodeStatusLatestAuthority(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class:        EvidenceReducerInputReadRunSnapshotSeed,
+		NodeStatuses: map[string]NodeExecStatus{"n1": NodeExecDone},
+	}, "")
+	c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class:        EvidenceReducerInputReadRunSnapshotSeed,
+		NodeStatuses: map[string]NodeExecStatus{"n1": NodeExecRequeued},
+	}, "")
+	if got := c.NodeExecStatus("n1"); got != NodeExecRequeued {
+		t.Fatalf("node status latest-authority conflict policy = %s, want requeued", got)
+	}
+}
+
 func TestMutableSetTurnAArtifactsProjectsClosureThroughReducer(t *testing.T) {
 	mut := NewMutableState("q")
 	mut.SetTurnAArtifacts(TurnAArtifacts{
@@ -363,6 +484,94 @@ func TestEvidenceRoundDeltaMatchesExtractReadCoverage(t *testing.T) {
 	if delta.FileTotalLines["a.go"] != totals["a.go"] {
 		t.Fatalf("delta totals = %+v, want %+v", delta.FileTotalLines, totals)
 	}
+}
+
+func evidenceRoundOwnershipFork(file, evidenceID, memberName, producerNodeID string, sharedAttempts int) *EvidenceClosure {
+	c := NewEvidenceClosure("")
+	c.SetReadSet(map[string]bool{file: true})
+	c.AddReadRanges(map[string][]LineRange{file: {{Start: 1, End: 3}}})
+	c.RecordFileTotalLines(file, 80)
+	c.AppendAcceptedEvidenceRefs([]AcceptedEvidenceRef{{ID: evidenceID, Source: file, LineStart: 1}})
+	c.RecordSourceInventoryObservation(evidenceRoundTestSourceInventoryObservation(memberName))
+	c.SetNodeExecAttempts(map[string]int{"shared": sharedAttempts})
+	c.AppendNodeArtifactRecords([]NodeArtifactRecord{{
+		ProducerNodeID: producerNodeID,
+		ProducerStage:  StageExplore,
+		Artifact:       RuntimeArtifactRef{Kind: RuntimeArtifactEvidenceItem, ID: evidenceID, Path: file, LineStart: 1},
+	}})
+	return c
+}
+
+func assertReadSetKeys(t *testing.T, got map[string]bool, want ...string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("read set = %+v, want %v", got, want)
+	}
+	for _, file := range want {
+		if !got[file] {
+			t.Fatalf("read set = %+v, missing %s", got, file)
+		}
+	}
+}
+
+func assertAcceptedEvidenceKeys(t *testing.T, got []AcceptedEvidenceRef, want ...string) {
+	t.Helper()
+	keys := map[string]bool{}
+	for _, ref := range got {
+		keys[ref.ID+":"+ref.Source+":"+itoa(ref.LineStart)+":"+itoa(ref.LineEnd)] = true
+	}
+	if len(keys) != len(want) {
+		t.Fatalf("accepted evidence = %+v, want keys %v", got, want)
+	}
+	for _, key := range want {
+		if !keys[key] {
+			t.Fatalf("accepted evidence = %+v, missing key %s", got, key)
+		}
+	}
+}
+
+func assertNodeArtifactIDs(t *testing.T, got []NodeArtifactRecord, want ...string) {
+	t.Helper()
+	ids := map[string]bool{}
+	for _, record := range got {
+		ids[record.Artifact.ID] = true
+	}
+	if len(ids) != len(want) {
+		t.Fatalf("node artifacts = %+v, want ids %v", got, want)
+	}
+	for _, id := range want {
+		if !ids[id] {
+			t.Fatalf("node artifacts = %+v, missing id %s", got, id)
+		}
+	}
+}
+
+func assertSourceInventoryMemberNames(t *testing.T, got SourceInventoryObservation, want ...string) {
+	t.Helper()
+	names := map[string]bool{}
+	for _, set := range got.Sets {
+		for _, member := range set.Members {
+			names[member.Name] = true
+		}
+	}
+	if len(names) != len(want) {
+		t.Fatalf("source inventory = %+v, want member names %v", got, want)
+	}
+	for _, name := range want {
+		if !names[name] {
+			t.Fatalf("source inventory = %+v, missing member %s", got, name)
+		}
+	}
+}
+
+func nodeArtifactRecordKeysContain(records []NodeArtifactRecord, prefix string) bool {
+	for _, record := range records {
+		key := NodeArtifactRecordKey(record)
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
 }
 
 func evidenceRoundTestSourceInventoryObservation(name string) SourceInventoryObservation {
