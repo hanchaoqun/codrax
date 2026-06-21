@@ -4,7 +4,7 @@ Date: 2026-06-21
 Base branch: `main`
 Base HEAD: `398a32303b`（2026-06-21 复核基线；v2 修订基线为 `2b5c4ba0`，v1 基于 `fa08860d`）
 D1-F9b.1 implementation baseline: `2828ef965`（2026-06-22 NodeArtifactLedger substrate planned baseline；D1-F9a.3 code cutover at `b0ef64be6`）
-Latest external staged-gap prompt re-audit baseline: `f7db6f6d2`（2026-06-22，D1-F9e ExecutionPolicy first-slice cutover 后）
+Latest external staged-gap prompt re-audit baseline: `3b636c0b9`（2026-06-22，D1-F9f.1 reducer ownership matrix first slice 后；工作树干净）
 
 > 本文与两份既有文档**互补、不重复**：
 > - `ir_driven_execution_engine_prd_20260621.md` —— 架构 PRD（5 个关键问题裁定、Stage 0–3 设计）。
@@ -903,9 +903,9 @@ Remaining follow-up:
 
 新增记录纪律：后续任何同事审计、eval 日志或人工审计发现的 gap，先写入本节或 §8/§9 对应任务/ledger，再开始编码；不得用「已修附近问题」代替明确的 scaffold/load-bearing 状态。
 
-## 13. 外部 staged-execution gap prompt 逐项复核（2026-06-22，HEAD `f7db6f6d2`）
+## 13. 外部 staged-execution gap prompt 逐项复核（2026-06-22，HEAD `3b636c0b9`）
 
-复核来源：`/Users/han/opt/codrax_ir_staged_execution_gap_fix_prompt.md`。本节只记录对当前代码仍成立或部分成立的 gap；已过期的说法必须标明当前替代事实，避免重复修复已完成项。2026-06-22 续读时已重新对照 `f7db6f6d2`，补齐或刷新外部 prompt 子要求中仍未显式跟踪的 dispatch-policy path scope、snapshot fingerprint/action state、AnalyzeRefine handoff ledger、ExecutionPolicy critical-path audit warning、reducer merge ownership 等任务。
+复核来源：`/Users/han/opt/codrax_ir_staged_execution_gap_fix_prompt.md`。本节只记录对当前代码仍成立或部分成立的 gap；已过期的说法必须标明当前替代事实，避免重复修复已完成项。2026-06-22 续读时已重新对照 `3b636c0b9`，补齐或刷新外部 prompt 子要求中仍未显式跟踪的 dispatch-policy trace/data path scope、snapshot fingerprint/action state、AnalyzeRefine handoff ledger、ExecutionPolicy eval/status-card audit、reducer merge ownership 等任务。
 
 | External gap | 当前事实判定 | 当前代码证据 | 跟踪任务 |
 |---|---|---|---|
@@ -934,12 +934,12 @@ Remaining follow-up:
 
 外部 prompt 全量要求映射（用于防止遗漏；同一问题只保留一个跟踪任务，不重复开分支）：
 
-| Prompt requirement | 当前 `f7db6f6d2` 判定 | 处置 |
+| Prompt requirement | 当前 `3b636c0b9` 判定 | 处置 |
 |---|---|---|
 | 生成事实矩阵，区分 type / production writer / production reader / decision / E2E / eval | **部分完成**。§6/§13 已按 load-bearing 语义复核，但 D1-F9b.4、D1-F9c、D1-F9e、D1-F9f、D1-F9g、D1-F9h 还需在各自批次补充更细的 exit-status 列。 | 纳入每批 ledger 模板；新增项先落盘再编码。 |
 | GAP-1 hard dependency readiness 统一入口 | **dispatch correctness complete；public view polish open**。`evaluateNodeReadinessContext` 是当前唯一调度判定入口，但还不是 status-card/replay 可复用公共 API。 | D1-F9a.4 future polish，不影响当前优先级。 |
 | GAP-2 Inputs/Outputs runtime dataflow | **partial**。`ArtifactReadinessView`、produced refs、consumed refs、snapshot/resume validation 和 read ReasoningGraph projection 已承重；replay/final-audit/eval 更广消费 open。 | D1-F9f/D1-F9g/D2。 |
-| GAP-3 typed next-action actuator | **partial**。tool schema、tool boundary、budget policy 已承重；path-scope argument enforcement 仍 open。 | D1-F9c.2。 |
+| GAP-3 typed next-action actuator | **partial**。tool schema、tool boundary、budget policy、首批结构化 repo path 参数 scope gate 已承重；trace/data reader 是否存在等价结构化 repo path 参数仍需复核并接入同一 validator。 | D1-F9c.3。 |
 | GAP-4 StageRunner seam | **partial / P2**。serial explore seam 和 parallel explore worker seam 已完成；extract/finalize-adjacent seam open。 | D1-F9d.3 / D2 eval。 |
 | GAP-5 snapshot resume selective replay | **partial**。生产 writer/store/显式 resume 已有；fingerprint、active action state、selective replay、eval/reasoning replay open。 | D1-F9g。 |
 | GAP-6 ExecutionPolicy MaxParallelism/CriticalPath | **partial**。`RetryBudget` 承重；D1-F9e first slice 已让 runtime fan-out 消费 `MaxParallelism` 的 operator/IR 安全集合，并让 ready ordering 消费 `CriticalPath`；D1-F9e.2 已补 invalid/stale/duplicate critical-path typed audit warning。代表性 eval/UX 验证仍 open。 | D2 eval/status-card audit。 |
@@ -1137,6 +1137,14 @@ Remaining follow-up:
      2. Encode node-status state-machine transition and progress latest-authority conflict policies as typed tests rather than comments.
      3. Feed selective replay hydration design in D1-F9g from this matrix rather than re-inventing replay ownership rules.
      4. Add parallel-fork tests for order independence, canceled sibling exclusion, duplicate accepted evidence, source-inventory scope preservation, and artifact delta idempotency.
+   - **D1-F9f.2 doc-first task list**（从外部 prompt GAP-8 续读后确认，当前 HEAD `3b636c0b9`）:
+     1. Audit the current reducer/merge implementation before coding: `EvidenceClosure.IngestEvidenceReducerInput`, `EvidenceClosure.MergeFrom`, `MutableState.MergeExploreFork`, node-status/attempt/progress setters, node-artifact ledger merge, and existing parallel explore skipped-sibling tests.
+     2. Add behavior tests that bind the ownership matrix to real reducer outcomes, not comments: read snapshot seed replacement, progress latest-authority overwrite, node-attempt snapshot replace, node-artifact normalized identity dedup, and accepted-evidence stable identity dedup.
+     3. Add fork merge behavior tests for order independence and duplicate-delta idempotency. If current semantics are intentionally additive, pin them explicitly; if a conflict is silent and unsafe, fix through reducer-owned merge logic rather than adding a per-call guard.
+     4. Add orchestrator-level parallel skipped/canceled sibling isolation tests only where type-level merge tests cannot observe production branch acceptance. Reuse existing `explore_node_artifact_projection_test.go` seams instead of inventing a second fork merge path.
+     5. Define the first node-status conflict policy test around current commercial behavior: read-run snapshot seed may hydrate statuses through the reducer, while scheduler-owned status transitions remain the dispatch authority. If a stricter state-machine transition is needed, record D1-F9f.3 before changing behavior.
+     6. Do not parse prompt text, retry hints, model rationale, or user wording. All assertions consume typed reducer inputs, node IDs, artifact refs, accepted-evidence IDs, source-inventory scope identities, and closed reason/merge enums.
+     7. Validation target: focused `go test ./internal/types -run 'EvidenceReducerOwnership|EvidenceClosureIngestReducerInput|MergeFrom|NodeArtifact' -count=1`, orchestrator skipped-sibling focused tests if touched, then `go test ./...` and `make`.
 7. **D1-F9g read snapshot commercial resume**：在 D1-F8d.3 基础上补 repo HEAD/content fingerprint、attached log/htrace fingerprint、active retry/action state、selective replay transition table、snapshot mismatch typed reasons、reasoning/eval replay consumer。先保持显式 `/read-runs resume`，不要直接 auto-resume routine read turns。
    - Detailed tasks:
      1. Add repo fingerprint fields covering HEAD/content identity where available, plus request and attached runtime artifact fingerprints for log/htrace/atrace inputs.
