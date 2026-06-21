@@ -4901,6 +4901,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			sourceInventoryObservation := types.SourceInventoryObservationFromMutable(o.busCtx.Mutable)
 			env.SourceInventoryActive = sourceInventoryObservation.IsActive()
 			env.SourceClassUniverseComplete = types.SourceInventorySourceClassesComplete(sourceInventoryObservation.SourceClasses)
+			if closure := o.busCtx.Mutable.EvidenceClosure(); closure != nil {
+				env.ProgressDecision = closure.LatestProgressDecision()
+			}
 			if ta := o.busCtx.Mutable.TurnAArtifacts(); ta != nil {
 				env.ObservationOnlyCompletion = ta.RuntimeObservationOnlyCompletion
 				if len(o.busCtx.MCPResponses) == 0 {

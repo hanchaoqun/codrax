@@ -86,6 +86,8 @@ func dispatch(k Kind, expr string, env Env) Result {
 		return evalExtractInputReady(env)
 	case KindSourceClassUniverseIncomplete:
 		return evalSourceClassUniverseIncomplete(env)
+	case KindProgressReplanRequired:
+		return evalProgressReplanRequired(env)
 	case KindContainsSymbol:
 		return evalContainsSymbol(expr, env)
 	case KindRegexMatch:
@@ -787,6 +789,17 @@ func evalSourceClassUniverseIncomplete(env Env) Result {
 		return Result{Satisfied: false, Detail: "source_class_universe_incomplete: universe complete"}
 	}
 	return Result{Satisfied: true, Detail: "source_class_universe_incomplete: active universe incomplete"}
+}
+
+func evalProgressReplanRequired(env Env) Result {
+	decision := env.ProgressDecision
+	if decision.ReasonCode == "" && decision.Delta.Kind == "" {
+		return Result{Satisfied: false, Detail: "progress_replan_required: no typed progress decision"}
+	}
+	if !decision.ShouldReplan {
+		return Result{Satisfied: false, Detail: "progress_replan_required: progress decision converged"}
+	}
+	return Result{Satisfied: true, Detail: "progress_replan_required: typed progress decision requires another refinement"}
 }
 
 func externalRuntimeEvidenceFloorWaived(env Env) (count int, waived bool) {

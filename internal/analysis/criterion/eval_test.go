@@ -268,6 +268,29 @@ func TestEval_SourceClassUniverseIncomplete_UsesTypedBooleans(t *testing.T) {
 	}
 }
 
+func TestEval_ProgressReplanRequired_UsesTypedDecision(t *testing.T) {
+	crit := types.Criterion{Kind: types.CritProgressReplanRequired}
+	if got := Eval(crit, Env{}); got.Satisfied {
+		t.Fatalf("empty progress decision should not satisfy criterion: %+v", got)
+	}
+	decision := types.ShouldReplan(types.ProgressDelta{
+		Kind:          types.ProgressDeltaDowngradeBlocker,
+		Consecutive:   1,
+		HardThreshold: 3,
+	})
+	if got := Eval(crit, Env{ProgressDecision: decision}); !got.Satisfied {
+		t.Fatalf("continue progress decision should satisfy criterion: %+v", got)
+	}
+	decision = types.ShouldReplan(types.ProgressDelta{
+		Kind:          types.ProgressDeltaDowngradeBlocker,
+		Consecutive:   3,
+		HardThreshold: 3,
+	})
+	if got := Eval(crit, Env{ProgressDecision: decision}); got.Satisfied {
+		t.Fatalf("converged progress decision should not satisfy criterion: %+v", got)
+	}
+}
+
 func TestEval_CitationCountGE_ExternalSourceLogWaivesFloor(t *testing.T) {
 	env := Env{
 		LogTriage: &types.LogBundle{

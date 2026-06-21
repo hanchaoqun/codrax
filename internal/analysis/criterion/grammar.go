@@ -44,6 +44,7 @@ const (
 	KindCitationCountGE               Kind = Kind(types.CritCitationCountGE)
 	KindExtractInputReady             Kind = Kind(types.CritExtractInputReady)
 	KindSourceClassUniverseIncomplete Kind = Kind(types.CritSourceClassUniverseIncomplete)
+	KindProgressReplanRequired        Kind = Kind(types.CritProgressReplanRequired)
 	KindContainsSymbol                Kind = Kind(types.CritContainsSymbol)
 	KindRegexMatch                    Kind = Kind(types.CritRegexMatch)
 	KindCounterfactualBranchesDecided Kind = Kind(types.CritCounterfactualBranchesDecided)
@@ -89,6 +90,7 @@ var registered = map[Kind]bool{
 	KindCitationCountGE:               true,
 	KindExtractInputReady:             true,
 	KindSourceClassUniverseIncomplete: true,
+	KindProgressReplanRequired:        true,
 	KindContainsSymbol:                true,
 	KindRegexMatch:                    true,
 	KindCounterfactualBranchesDecided: true,
@@ -136,6 +138,7 @@ type Env struct {
 	Signals                     types.ExecutionSignals
 	SourceInventoryActive       bool
 	SourceClassUniverseComplete bool
+	ProgressDecision            types.ProgressDecision
 	DraftAnswer                 string
 	DraftCitations              int
 	// ReactItersUsed is the per-task explore-window iteration count

@@ -62,6 +62,17 @@ func TestProgressDeltaConvergesLikeDowngradeFingerprint(t *testing.T) {
 	if !reset.ShouldReplan || reset.Delta.Consecutive != 1 {
 		t.Fatalf("changed blocker should reset progress decision: %+v", reset)
 	}
+	if latest := c.LatestProgressDecision(); latest.Delta.BlockerKey != 222 || !latest.ShouldReplan {
+		t.Fatalf("latest progress decision not retained: %+v", latest)
+	}
+	clone := c.Clone()
+	if latest := clone.LatestProgressDecision(); latest.Delta.BlockerKey != 222 || !latest.ShouldReplan {
+		t.Fatalf("clone should retain latest progress decision: %+v", latest)
+	}
+	c.Reset()
+	if latest := c.LatestProgressDecision(); latest.ReasonCode != "" || latest.Delta.Kind != "" {
+		t.Fatalf("reset should clear latest progress decision: %+v", latest)
+	}
 }
 
 func TestAppendCompletionCaveat_DedupByLane(t *testing.T) {

@@ -158,6 +158,12 @@ type EvidenceClosure struct {
 	// Bounded to keep memory flat under a runaway.
 	downgradeFingerprints []DowngradeFingerprint
 
+	// latestProgressDecision is the typed, prose-free result of the most recent
+	// low-delta progress check. Optional analyzer-authored refine nodes consume
+	// this through criterion.Env; scheduler code must not infer it from retry
+	// hints or final-answer narrative.
+	latestProgressDecision ProgressDecision
+
 	// completionCaveats records lanes the convergence boundary
 	// force-completed without resolving the blocker, for downstream
 	// answer-caveat / telemetry consumers. Deduped by lane.
@@ -442,6 +448,8 @@ func (c *EvidenceClosure) Clone() *EvidenceClosure {
 	out.unverifiedFinds = append([]UnverifiedFinding(nil), c.unverifiedFinds...)
 	out.subjectMatches = cloneFloatMap(c.subjectMatches)
 	out.fingerprints = append([]ClosureFingerprint(nil), c.fingerprints...)
+	out.downgradeFingerprints = append([]DowngradeFingerprint(nil), c.downgradeFingerprints...)
+	out.latestProgressDecision = c.latestProgressDecision
 	out.repairs = cloneRepairDirectives(c.repairs)
 	out.nodeExecStatus = cloneNodeExecStatusMap(c.nodeExecStatus)
 	out.sourceInventoryObservation = CloneSourceInventoryObservation(c.sourceInventoryObservation)
@@ -1869,13 +1877,28 @@ func (c *EvidenceClosure) AppendDowngradeFingerprint(fp DowngradeFingerprint) in
 
 func (c *EvidenceClosure) RecordDowngradeProgressDelta(lane DowngradeLane, blockerKey uint32, hardThreshold int) ProgressDecision {
 	consecutive := c.AppendDowngradeFingerprint(DowngradeFingerprint{Lane: lane, BlockerKey: blockerKey})
-	return ShouldReplan(ProgressDelta{
+	decision := ShouldReplan(ProgressDelta{
 		Kind:          ProgressDeltaDowngradeBlocker,
 		DowngradeLane: lane,
 		BlockerKey:    blockerKey,
 		Consecutive:   consecutive,
 		HardThreshold: hardThreshold,
 	})
+	if c != nil {
+		c.mu.Lock()
+		c.latestProgressDecision = decision
+		c.mu.Unlock()
+	}
+	return decision
+}
+
+func (c *EvidenceClosure) LatestProgressDecision() ProgressDecision {
+	if c == nil {
+		return ProgressDecision{}
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.latestProgressDecision
 }
 
 // AppendCompletionCaveat records, deduped by lane, that the convergence boundary
@@ -2498,6 +2521,8 @@ func (c *EvidenceClosure) Reset() {
 	c.unverifiedFinds = nil
 	c.subjectMatches = make(map[string]float64)
 	c.fingerprints = nil
+	c.downgradeFingerprints = nil
+	c.latestProgressDecision = ProgressDecision{}
 	c.repairs = nil
 	c.nodeExecStatus = make(map[string]NodeExecStatus)
 	c.sourceInventoryObservation = SourceInventoryObservation{}

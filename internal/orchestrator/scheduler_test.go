@@ -305,6 +305,43 @@ func TestGraphState_OptionalEntryConditionCanDispatchWhenTypedSignalTrue(t *test
 	}
 }
 
+func TestAnalyzeRefineUsesPreAuthoredOptionalNodeOnly(t *testing.T) {
+	g := chainGraphWithExtract()
+	refine := types.TaskNode{
+		ID:        "n_refine",
+		Type:      types.NodeProbe,
+		Objective: "Refine analysis scope using typed progress delta.",
+		Optional:  true,
+		OneShot:   true,
+		EntryConditions: []types.Criterion{{
+			Kind: types.CritProgressReplanRequired,
+		}},
+	}
+	g.Nodes = append([]types.TaskNode{refine}, g.Nodes...)
+	s := newGraphState(g)
+	window, blocked := s.readyExplorerWindow(emptyEnv())
+	if got := idsOf(window); strings.Contains(strings.Join(got, ","), "n_refine") {
+		t.Fatalf("preauthored refine node must stay quiet without typed progress decision: %v", got)
+	}
+	for _, b := range blocked {
+		if b.NodeID == "n_refine" {
+			t.Fatalf("preauthored optional refine must not add blocked noise: %+v", blocked)
+		}
+	}
+	env := criterion.Env{ProgressDecision: types.ShouldReplan(types.ProgressDelta{
+		Kind:          types.ProgressDeltaDowngradeBlocker,
+		Consecutive:   1,
+		HardThreshold: 3,
+	})}
+	window, blocked = s.readyExplorerWindow(env)
+	if len(blocked) != 0 {
+		t.Fatalf("typed refine node should not be blocked: %+v", blocked)
+	}
+	if got := idsOf(window); !strings.Contains(strings.Join(got, ","), "n_refine") {
+		t.Fatalf("preauthored refine node should be ready when typed progress requires replan: %v", got)
+	}
+}
+
 // ── envShape fingerprint tests ──────────────────────────────────
 
 // TestEnvShape_EmptyInput_IsZero verifies the baseline: zero Env,
