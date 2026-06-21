@@ -26,6 +26,7 @@ var (
 	braceFunctionRE2  = regexp.MustCompile(`^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	braceMethodRE     = regexp.MustCompile(`^\s*(?:public\s+|private\s+|protected\s+|static\s+|async\s+|final\s+|override\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:[:A-Za-z0-9_<>,.? \t]*)?\{?\s*$`)
 	braceMethodHeadRE = regexp.MustCompile(`^\s*(?:public\s+|private\s+|protected\s+|static\s+|async\s+|final\s+|override\s+|open\s+|sealed\s+|internal\s+|abstract\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	braceReturnFuncRE = regexp.MustCompile(`^\s*(?:template\s*<[^>]*>\s*)?(?:[A-Za-z_][A-Za-z0-9_:<>~*&,\[\]]*[\s*&]+)+([~A-Za-z_][A-Za-z0-9_:~]*|operator\s*[^\s(]+)\s*\(`)
 	rubyClassRE       = regexp.MustCompile(`^\s*class\s+([A-Za-z_][A-Za-z0-9_:]*)\b`)
 	rubyDefRE         = regexp.MustCompile(`^\s*def\s+(?:self\.)?([A-Za-z_][A-Za-z0-9_?!]*)\b`)
 )
@@ -262,6 +263,11 @@ func findBraceOwner(path string, lines []string, line int) (Anchor, bool) {
 				updateDepth()
 				continue
 			}
+			if member, ok := braceReturnFunctionName(raw); ok {
+				owner, anchor = qualifyBraceOwner(className, member)
+				updateDepth()
+				continue
+			}
 			if className != "" && depthBefore == classDepth {
 				if m := braceMethodHeadRE.FindStringSubmatch(raw); len(m) == 2 {
 					owner, anchor = qualifyOwner(className, m[1]), m[1]
@@ -274,6 +280,73 @@ func findBraceOwner(path string, lines []string, line int) (Anchor, bool) {
 		return Anchor{}, false
 	}
 	return Anchor{Path: filepath.ToSlash(path), Line: line, OwnerSymbol: owner, AnchorSymbol: anchor}, true
+}
+
+func braceReturnFunctionName(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || braceLineIsNonOwnerCall(raw) {
+		return "", false
+	}
+	m := braceReturnFuncRE.FindStringSubmatch(raw)
+	if len(m) != 2 {
+		return "", false
+	}
+	name := strings.TrimSpace(m[1])
+	if name == "" {
+		return "", false
+	}
+	name = strings.Join(strings.Fields(name), " ")
+	return name, true
+}
+
+func braceLineIsNonOwnerCall(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return true
+	}
+	lower := strings.ToLower(trimmed)
+	for _, prefix := range []string{
+		"if ", "for ", "while ", "switch ", "catch ", "return ", "throw ",
+		"case ", "using ", "typedef ", "static_assert", "sizeof", "new ",
+		"delete ", "#",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	if strings.HasPrefix(lower, "else if ") {
+		return true
+	}
+	open := strings.Index(trimmed, "(")
+	if open <= 0 {
+		return true
+	}
+	head := trimmed[:open]
+	if strings.ContainsAny(head, "=.;") {
+		return true
+	}
+	if strings.HasSuffix(trimmed, ";") && !strings.Contains(trimmed, "{") {
+		return true
+	}
+	return false
+}
+
+func qualifyBraceOwner(className, member string) (string, string) {
+	member = strings.TrimSpace(member)
+	member = strings.ReplaceAll(member, " :: ", "::")
+	member = strings.ReplaceAll(member, " ::", "::")
+	member = strings.ReplaceAll(member, ":: ", "::")
+	anchor := member
+	if idx := strings.LastIndex(anchor, "::"); idx >= 0 && idx+2 < len(anchor) {
+		anchor = anchor[idx+2:]
+	}
+	if strings.HasPrefix(member, "operator ") {
+		anchor = member
+	}
+	if strings.Contains(member, "::") {
+		return member, anchor
+	}
+	return qualifyOwner(className, member), anchor
 }
 
 func qualifyOwner(className, member string) string {

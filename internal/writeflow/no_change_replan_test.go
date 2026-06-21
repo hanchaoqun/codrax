@@ -61,6 +61,77 @@ func TestQualifyNoChangeReplanSentinelRejectsBuildFailure(t *testing.T) {
 	}
 }
 
+func TestQualifyNoChangeReplanSentinelAllowsUnavailableBuildRunnerAfterPassedProbe(t *testing.T) {
+	q := QualifyNoChangeReplanSentinel(NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: &types.VerifyFailureHandoff{
+			PlanID:      "plan-1",
+			FailureKind: types.FailureKindBuildFailure,
+			Executed: []types.ExecutedCommand{{
+				Runner:  "cmake",
+				Outcome: "not_configured",
+			}},
+			Diagnostics: []types.VerificationDiagnostic{{
+				Source:   "test_surface_default",
+				Category: "environment",
+				Severity: "warning",
+				Runner:   "cmake",
+				Outcome:  "not_configured",
+			}},
+		},
+		PriorPlan: &types.ChangePlan{AppliedCommitSHA: "abc123"},
+		PlannerProbeReports: []*types.ChangeReport{{
+			PlanID:             "plan-1",
+			Channel:            types.ChangeReportChannelPlannerProbe,
+			VerificationStatus: types.VerificationStatusPassed,
+			Passed:             true,
+			TestResults: []types.TestResult{{
+				AssertionID: "probe",
+				Kind:        types.TestResultKindUnit,
+				Passed:      true,
+			}},
+		}},
+		RequireAppliedWork: true,
+	})
+	if !q.Allowed {
+		t.Fatalf("unavailable local build runner should be probe-resolvable, reason=%s detail=%s", q.ReasonCode, q.Detail)
+	}
+}
+
+func TestQualifyNoChangeReplanSentinelRejectsRealBuildDiagnostic(t *testing.T) {
+	q := QualifyNoChangeReplanSentinel(NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: &types.VerifyFailureHandoff{
+			PlanID:      "plan-1",
+			FailureKind: types.FailureKindBuildFailure,
+			Diagnostics: []types.VerificationDiagnostic{{
+				Source:     "compiler",
+				Category:   "build",
+				Severity:   "error",
+				Outcome:    "failed",
+				ReasonCode: "build_failed",
+			}},
+		},
+		PriorPlan: &types.ChangePlan{AppliedCommitSHA: "abc123"},
+		PlannerProbeReports: []*types.ChangeReport{{
+			PlanID:             "plan-1",
+			Channel:            types.ChangeReportChannelPlannerProbe,
+			VerificationStatus: types.VerificationStatusPassed,
+			Passed:             true,
+			TestResults: []types.TestResult{{
+				AssertionID: "probe",
+				Kind:        types.TestResultKindUnit,
+				Passed:      true,
+			}},
+		}},
+		RequireAppliedWork: true,
+	})
+	if q.Allowed {
+		t.Fatalf("real build diagnostic must require replacement replan: %+v", q)
+	}
+	if q.ReasonCode != "verify_failure_kind_not_probe_resolvable" {
+		t.Fatalf("ReasonCode=%q", q.ReasonCode)
+	}
+}
+
 func TestQualifyNoChangeReplanSentinelRejectsPatchReviewHardFailure(t *testing.T) {
 	q := QualifyNoChangeReplanSentinel(NoChangeReplanQualificationInput{
 		VerifyFailureHandoff: &types.VerifyFailureHandoff{

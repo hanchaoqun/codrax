@@ -1115,6 +1115,8 @@ func FailureReasonCodeIndicatesVerificationUnavailable(raw string) bool {
 			string(FailureKindRunnerMissing),
 			string(FailureKindParserError),
 			string(FailureKindPreexistingBuildFailure),
+			"not_configured",
+			"project_runner_unavailable",
 			"skip_verify",
 			"accepted_without_local_verify",
 			"make_dependency_file_missing",
@@ -1124,6 +1126,7 @@ func FailureReasonCodeIndicatesVerificationUnavailable(raw string) bool {
 			"unittest_loader_import_error",
 			"verification_probe_import_error",
 			"verification_probe_module_not_found",
+			"verification_probe_runner_missing",
 			"verification_probe_syntax_error":
 			continue
 		default:
@@ -1277,6 +1280,13 @@ func executedCommandUnavailableReasonCode(cmd ExecutedCommand) string {
 	default:
 		return ""
 	}
+}
+
+// ExecutedCommandUnavailableReasonCode exposes the same typed unavailable
+// classification used by ChangeReport normalization. Cross-package workflow
+// policy code uses this instead of re-parsing command summaries.
+func ExecutedCommandUnavailableReasonCode(cmd ExecutedCommand) string {
+	return executedCommandUnavailableReasonCode(cmd)
 }
 
 func executedCommandFailed(cmd ExecutedCommand) bool {

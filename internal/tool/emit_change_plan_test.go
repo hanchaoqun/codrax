@@ -1574,6 +1574,63 @@ func TestEmitChangePlan_EmptyChangesRejectedForBuildFailureHandoff(t *testing.T)
 	}
 }
 
+func TestEmitChangePlan_EmptyChangesAllowedForUnavailableBuildFailureAfterProbe(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	ctx.Mode = types.ModeApply
+	ctx.PipelineStage = types.StagePlan
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-applied",
+		BatchID:     "batch-1",
+		Attempt:     1,
+		FailureKind: types.FailureKindBuildFailure,
+		Executed: []types.ExecutedCommand{{
+			Runner:  "cmake",
+			Outcome: "not_configured",
+		}},
+		Diagnostics: []types.VerificationDiagnostic{{
+			Source:   "test_surface_default",
+			Category: "environment",
+			Severity: "warning",
+			Runner:   "cmake",
+			Outcome:  "not_configured",
+		}},
+	})
+	ctx.Mutable.AppendPlanStageProbeReport(&types.ChangeReport{
+		PlanID:             "plan-applied",
+		Channel:            types.ChangeReportChannelPlannerProbe,
+		VerificationStatus: types.VerificationStatusPassed,
+		Passed:             true,
+		TestResults: []types.TestResult{{
+			AssertionID: "probe",
+			Kind:        types.TestResultKindUnit,
+			Passed:      true,
+		}},
+	})
+	params := json.RawMessage(`{
+		"request": "replan after verify failure",
+		"summary": "The prior local build runner was unavailable, and the scoped typed probe now passes against the already-applied worktree.",
+		"changes": []
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected unavailable verifier no-change sentinel to be accepted, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		t.Fatal("expected no-change sentinel plan installed on Mutable")
+	}
+	if plan.Status != types.PlanStatusNoChangeRequired {
+		t.Fatalf("status = %q, want %q", plan.Status, types.PlanStatusNoChangeRequired)
+	}
+	if len(plan.Changes) != 0 || len(plan.TargetPaths) != 0 {
+		t.Fatalf("no-change sentinel must not enqueue file changes, got changes=%d target_paths=%d", len(plan.Changes), len(plan.TargetPaths))
+	}
+}
+
 func TestEmitChangePlan_ReplanNoOpStructuredEditPointsToTypedProbeSentinel(t *testing.T) {
 	tool := &EmitChangePlan{}
 	root := t.TempDir()

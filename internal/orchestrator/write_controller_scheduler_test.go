@@ -1954,6 +1954,148 @@ func TestOwnerLocalizationAuthorityGateAllowsPlanEditStructuralOwner(t *testing.
 	}
 }
 
+func TestOwnerLocalizationAuthorityGateAllowsCppHeaderPlanEditStructuralOwner(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "include"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	source := `#include <string>
+
+struct tm_parts {
+    long long year_offset;
+};
+
+inline std::string render_year(long long calendar_year) {
+    return std::to_string(calendar_year);
+}
+
+inline std::string format_tm_year(const tm_parts& parts) {
+    int calendar_year = parts.year_offset + 1900;
+    return render_year(calendar_year);
+}
+`
+	if err := os.WriteFile(filepath.Join(repo, "include", "tmfmt.hpp"), []byte(source), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("owner structural satisfied for C++ header")
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-owner-authority-cpp-structural",
+		Goal:          "repair C++ header overflow",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair C++ header overflow",
+			Status: types.WriteWorkflowBatchPlanned,
+			Slices: []types.WriteWorkflowSlice{{ID: "slice-001", Status: types.ChangePlanSlicePending}},
+		}},
+		ContextPacks: []types.WriteContextPack{
+			testSupportingLocalizationContextPack("batch-1", "include/tmfmt.hpp", "scope"),
+		},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_depth_replan_requested",
+		}, {
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_requirement_explored",
+		}, {
+			BatchID:    "batch-1",
+			ReasonCode: "owner_localization_authority_replan_requested",
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-cpp-structural-owner",
+		Status:      types.PlanStatusPending,
+		Summary:     "repair C++ header overflow",
+		TargetPaths: []string{"include/tmfmt.hpp"},
+		Changes: []types.FileChange{{
+			Path: "include/tmfmt.hpp",
+			Kind: "patch",
+			Edits: []types.StructuredEdit{{
+				Kind:      "replace",
+				StartLine: 12,
+				Content:   "    long long calendar_year = parts.year_offset + 1900;",
+				OldText:   "    int calendar_year = parts.year_offset + 1900;",
+			}},
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetWriteWorkflowRun(run)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: repo, AnalysisIR: &types.AnalysisIR{}}}
+	steps := 0
+
+	outcome, handled, err := o.runOwnerLocalizationAuthorityGateBeforeApply(run, plan, &steps)
+	if err != nil || handled || outcome != "" {
+		t.Fatalf("C++ plan edit structural owner should pass gate, outcome=%q handled=%v err=%v", outcome, handled, err)
+	}
+	if !workflowRunContextContains(run, "localization_anchor", "owner=format_tm_year") {
+		t.Fatalf("C++ structural owner anchor not synced to run: %+v", run.ContextPacks)
+	}
+	if mu.ChangePlan() == nil {
+		t.Fatalf("satisfied structural owner should not reset plan")
+	}
+}
+
+func TestLocalizationOwnerDepthReplanHintSkipsBoundedPlanWithStructuralOwner(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "include"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	source := `#include <string>
+
+inline std::string format_tm_year(const tm_parts& parts) {
+    int calendar_year = parts.year_offset + 1900;
+    return render_year(calendar_year);
+}
+`
+	if err := os.WriteFile(filepath.Join(repo, "include", "tmfmt.hpp"), []byte(source), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("bounded structural owner")
+	run := &types.WriteWorkflowRun{
+		RunID:         "run-bounded-structural-owner",
+		Goal:          "repair C++ header overflow",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Goal:   "repair C++ header overflow",
+			Status: types.WriteWorkflowBatchPlanned,
+			Slices: []types.WriteWorkflowSlice{{ID: "slice-001", Status: types.ChangePlanSlicePending}},
+		}},
+		ContextPacks: []types.WriteContextPack{
+			testSupportingLocalizationContextPack("batch-1", "include/tmfmt.hpp", "scope"),
+		},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-bounded-structural-owner",
+		Status:      types.PlanStatusPending,
+		Summary:     "repair C++ header overflow",
+		TargetPaths: []string{"include/tmfmt.hpp"},
+		Changes: []types.FileChange{{
+			Path: "include/tmfmt.hpp",
+			Kind: "patch",
+			Edits: []types.StructuredEdit{{
+				Kind:      "replace",
+				StartLine: 4,
+				Content:   "    long long calendar_year = parts.year_offset + 1900;",
+				OldText:   "    int calendar_year = parts.year_offset + 1900;",
+			}},
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetWriteWorkflowRun(run)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: repo, AnalysisIR: &types.AnalysisIR{}}}
+
+	hint, paths := o.localizationOwnerDepthReplanHint(plan)
+	if hint != "" || len(paths) != 0 {
+		t.Fatalf("bounded structural owner plan should not request replan, hint=%q paths=%+v", hint, paths)
+	}
+	if got := mu.WriteWorkflowRun(); got == nil || !workflowRunContextContains(got, "localization_anchor", "owner=format_tm_year") {
+		t.Fatalf("bounded structural owner anchor not synced to run: %+v", got)
+	}
+}
+
 func TestPlannerSoftCapForCompletedExplorationAppliesSynthesisFloor(t *testing.T) {
 	cases := []struct {
 		name             string

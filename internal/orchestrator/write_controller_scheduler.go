@@ -1354,6 +1354,11 @@ func (o *Orchestrator) localizationOwnerDepthReplanHint(plan *types.ChangePlan) 
 	if ir != nil && (ir.Request.Risk.ChangesBuildSystem || ir.Request.Task.Kind == types.WriteTaskConfig) {
 		return "", nil
 	}
+	if changePlanHasBoundedSourceEditSurface(plan, 2, 6) {
+		if run := o.busCtx.Mutable.WriteWorkflowRun(); run != nil {
+			o.syncPlanEditOwnerAnchorsToRun(run, plan)
+		}
+	}
 	requirements := types.LocalizationRequirementsFromWritePlanContext("", "", types.WriteConsumerPlanner, o.localizationRequirementPriorContextPacks(), plan, 0)
 	missing := requirements.MissingOwnerAnchorPaths
 	if len(missing) == 0 {
@@ -1380,6 +1385,40 @@ func (o *Orchestrator) localizationOwnerDepthReplanHint(plan *types.ChangePlan) 
 	}
 	b.WriteString("\nIf the path remains correct, preserve the patch and add exact current-repo read/repomap evidence for the enclosing owner symbol before re-emitting the bounded ChangePlan. If owner evidence points elsewhere, move or split the fix accordingly. If this remains unresolved after bounded owner exploration, apply pauses before mutating the worktree.")
 	return strings.TrimSpace(b.String()), missing
+}
+
+func changePlanHasBoundedSourceEditSurface(plan *types.ChangePlan, maxPaths, maxEdits int) bool {
+	if plan == nil {
+		return false
+	}
+	if maxPaths <= 0 {
+		maxPaths = 1
+	}
+	if maxEdits <= 0 {
+		maxEdits = 1
+	}
+	paths := map[string]struct{}{}
+	editCount := 0
+	for _, change := range plan.Changes {
+		p := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if p == "" || strings.Contains(p, "..") || filepath.IsAbs(p) {
+			return false
+		}
+		role := types.ClassifySourcePathRole(p)
+		if types.SourcePathRoleIsAuxiliary(role) {
+			continue
+		}
+		paths[p] = struct{}{}
+		if len(change.Edits) == 0 {
+			editCount++
+		} else {
+			editCount += len(change.Edits)
+		}
+		if len(paths) > maxPaths || editCount > maxEdits {
+			return false
+		}
+	}
+	return len(paths) > 0 && editCount > 0
 }
 
 func (o *Orchestrator) localizationRequirementPriorContextPacks() []types.WriteContextPack {

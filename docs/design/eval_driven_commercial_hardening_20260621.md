@@ -92,6 +92,7 @@ the same lane family only after documenting the substitution.
 | EDH-6 | P0 | Write-mode symptom-driven localization and proof confidence remain the main SWE/eval correctness risk. | Use write evals and SWE artifacts to decide whether the bug is localization, impact analysis, patch critic, verifier scope, or handoff loss before implementing. |
 | EDH-7 | P0 | Verify-failure replan can produce the correct small patch but still block on stale or under-integrated source-owner localization state. | Make write apply gating consume the latest batch plan, actual-diff owner anchors, failed-verification observation, and approval state as one typed authority snapshot. Do not block a replan whose changed lines have structural owner anchors. |
 | EDH-8 | P0 | Micro write tasks can duplicate planning after a valid plan because path-only localization is treated as unresolved even when the patch itself is a bounded single-owner edit. | Add a typed micro-plan acceptance path based on normalized paths, actual diff hunks, owner anchors, and risk policy. This must be language-neutral and not infer intent from request text. |
+| EDH-13 | P0 | After a patch is already applied and a typed planner probe passes, an unavailable native verifier can still keep the run in replan mode because empty `changes` is rejected and the model is forced into no-op patch retries. | Extend the no-change sentinel authority to distinguish real build/source failures from typed verifier-unavailable evidence. Accept `changes: []` only when the prior worktree was applied, the latest planner probe passed with complete assertions, and the failed verifier evidence is unavailable/environmental rather than a real build diagnostic. |
 | EDH-9 | P0 | Read final answers can show repaired/audit-only contract warnings and system supplements after exact evidence already satisfies the answer. | Split final-answer contract states into blocking, repaired, audit-only, and displayable states. Routine exact answers must not show low-confidence caveats created by already-repaired obligations. |
 | EDH-10 | P0 | `repo_map(source_inventory)` can under-project members for ArkTS/decorator/facet-heavy files even when `read_file` evidence has exact symbols. | Extend the SourceInventoryMemberProjection authority so source inventory and direct read evidence share a typed member/facet projection. Keep it cross-language and class-aware. |
 | EDH-11 | P1 | Trace/read final answers can over-render raw structured observations and duplicate metric sections, while citation accounting may report zero citations for artifact-backed facts. | Add a trace observation projection for final-answer consumption: principal causal facts first, supporting artifact refs second, bulky diagnostics behind audit/detail surfaces. |
@@ -179,7 +180,7 @@ Validation:
 
 ### Batch E3: Write Replan Authority And State Convergence
 
-Gap IDs: EDH-7, EDH-8.
+Gap IDs: EDH-7, EDH-8, EDH-13.
 
 Tasks:
 - Explore the write controller state machine, owner-localization gate,
@@ -191,11 +192,20 @@ Tasks:
 - Allow bounded replan application when every edited hunk has a normalized path
   and structural owner anchor, even if earlier plan-context localization was
   path-only or stale.
+- Extend source-owner extraction for brace languages so C/C++ header inline
+  functions and qualified definitions produce owner anchors without adding
+  language-specific intent routing.
+- Accept a `no_change_required` replan sentinel when all hard typed conditions
+  show the worktree already contains the patch: prior plan applied, latest
+  planner probe passed with complete assertions, and the post-apply verifier
+  failure is typed unavailable/environmental rather than a real compiler/test
+  diagnostic.
 - Reject contradictory states deterministically: a batch cannot be both
   `needs_replan` and applying an older plan, and a replaced plan cannot carry
   forward approval for a changed fingerprint.
 - Add focused tests for verify-failure replan, micro single-line C/C++ patch,
-  stale owner-localization requirement, and approval fingerprint mismatch.
+  stale owner-localization requirement, unavailable native verifier no-change
+  sentinel, real build diagnostic rejection, and approval fingerprint mismatch.
 
 Validation:
 - Focused `go test` for write controller scheduler.
@@ -280,7 +290,7 @@ Validation:
 | E0 | done | Ledger created and pushed in commit `b45f02dc7`. |
 | E1 | done | Six representative cases ran under `eval/results/eval-driven-20260621-batch1b` with two-way parallelism. |
 | E2 | done | Manual audit completed and gap IDs EDH-7 through EDH-12 added before code changes. |
-| E3 | in_progress | Start with write replan authority/state convergence because it caused the only batch harness failure. |
+| E3 | in_progress | Source-owner C/C++ structural anchors and bounded micro-plan sync have focused tests passing. Rerun exposed EDH-13: unavailable native verifier plus passed typed planner probe still forced no-op patch retries, so the same batch now includes no-change sentinel authority convergence. |
 | E4 | pending | Read contract severity and noise convergence. |
 | E5 | pending | Cross-language source inventory projection. |
 | E6 | pending | Trace projection and citation surface. |

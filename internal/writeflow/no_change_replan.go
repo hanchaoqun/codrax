@@ -32,8 +32,8 @@ func QualifyNoChangeReplanSentinel(in NoChangeReplanQualificationInput) NoChange
 	if in.RequireAppliedWork && !changePlanHasAppliedWork(in.PriorPlan) {
 		return noChangeReplanDenied("prior_plan_not_applied", "no applied prior plan is available for the no-change sentinel")
 	}
-	if handoff.FailureKind != "" && handoff.FailureKind != types.FailureKindTestsFailed {
-		return noChangeReplanDenied("verify_failure_kind_not_probe_resolvable", "the previous verify failure was not a normal test failure and requires a real replan or environment resolution")
+	if reason := verifyFailureHandoffProbeResolvableReason(handoff); reason != "" {
+		return noChangeReplanDenied(reason, "the previous verify failure requires a real replan or environment resolution")
 	}
 	if reason := VerifyFailureRequiresReplacementPatch(handoff); reason != "" {
 		return noChangeReplanDenied(reason, "the previous verify failure is a typed patch-review hard failure and requires a replacement patch, not a no-change probe sentinel")
@@ -58,6 +58,99 @@ func QualifyNoChangeReplanSentinel(in NoChangeReplanQualificationInput) NoChange
 		Detail:      "latest typed planner probe passed against an already-applied worktree",
 		ProbePlanID: strings.TrimSpace(report.PlanID),
 	}
+}
+
+func verifyFailureHandoffProbeResolvableReason(handoff *types.VerifyFailureHandoff) string {
+	if handoff == nil {
+		return "verify_failure_handoff_missing"
+	}
+	switch handoff.FailureKind {
+	case "", types.FailureKindTestsFailed,
+		types.FailureKindRunnerMissing,
+		types.FailureKindParserError,
+		types.FailureKindNoTests,
+		types.FailureKindPreexistingBuildFailure:
+		return ""
+	case types.FailureKindBuildFailure:
+		if types.FailureReasonCodeIndicatesVerificationUnavailable(handoff.FailureReasonCode) ||
+			verifyFailureHandoffHasOnlyUnavailableVerifierEvidence(handoff) {
+			return ""
+		}
+		return "verify_failure_kind_not_probe_resolvable"
+	default:
+		return "verify_failure_kind_not_probe_resolvable"
+	}
+}
+
+func verifyFailureHandoffHasOnlyUnavailableVerifierEvidence(handoff *types.VerifyFailureHandoff) bool {
+	if handoff == nil {
+		return false
+	}
+	seenUnavailable := false
+	for _, cmd := range handoff.Executed {
+		if code := types.ExecutedCommandUnavailableReasonCode(cmd); code != "" {
+			seenUnavailable = true
+			continue
+		}
+		if verifyFailureCommandLooksFailed(cmd) {
+			return false
+		}
+	}
+	for _, diag := range handoff.Diagnostics {
+		if code := verifyFailureDiagnosticUnavailableReasonCode(diag); code != "" {
+			seenUnavailable = true
+			continue
+		}
+		if verifyFailureDiagnosticLooksFailed(diag) {
+			return false
+		}
+	}
+	for _, rec := range handoff.Confidence {
+		if strings.TrimSpace(rec.Status) != "unavailable" {
+			continue
+		}
+		if types.FailureReasonCodeIndicatesVerificationUnavailable(rec.ReasonCode) {
+			seenUnavailable = true
+			continue
+		}
+	}
+	if len(handoff.FailingTests) > 0 || len(handoff.BuildErrors) > 0 {
+		return false
+	}
+	return seenUnavailable
+}
+
+func verifyFailureCommandLooksFailed(cmd types.ExecutedCommand) bool {
+	switch strings.TrimSpace(cmd.Outcome) {
+	case "", "executed", "syntax_preflight", "syntax_check_fallback", "suite_continued", "suite_skipped":
+		return cmd.ExitCode != 0
+	case "synthetic_no_tests", "zero_tests":
+		return false
+	default:
+		return true
+	}
+}
+
+func verifyFailureDiagnosticUnavailableReasonCode(diag types.VerificationDiagnostic) string {
+	if types.FailureReasonCodeIndicatesVerificationUnavailable(diag.ReasonCode) {
+		return strings.TrimSpace(diag.ReasonCode)
+	}
+	switch strings.TrimSpace(diag.Outcome) {
+	case "not_configured", "runner_missing", "parser_error", "suite_skipped":
+		return strings.TrimSpace(diag.Outcome)
+	}
+	return ""
+}
+
+func verifyFailureDiagnosticLooksFailed(diag types.VerificationDiagnostic) bool {
+	switch strings.TrimSpace(diag.Outcome) {
+	case "", "passed", "available", "suite_skipped":
+		return false
+	case "not_configured", "runner_missing", "parser_error":
+		return false
+	}
+	return strings.TrimSpace(diag.Severity) == "error" ||
+		strings.TrimSpace(diag.Outcome) == "failed"
 }
 
 func VerifyFailureRequiresReplacementPatch(handoff *types.VerifyFailureHandoff) string {

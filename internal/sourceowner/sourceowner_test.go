@@ -181,6 +181,53 @@ func TestFindEnclosingOwnerBraceMultilineFunctionAndMethod(t *testing.T) {
 	})
 }
 
+func TestFindEnclosingOwnerCppHeaderInlineFunction(t *testing.T) {
+	src := []byte(`#include <string>
+
+inline std::string render_year(long long calendar_year) {
+    return std::to_string(calendar_year);
+}
+
+inline std::string format_tm_year(const tm_parts& parts) {
+    long long calendar_year = parts.year_offset + 1900;
+    return render_year(calendar_year);
+}
+`)
+	got, ok := FindEnclosingOwner("include/tmfmt.hpp", src, 8)
+	if !ok {
+		t.Fatal("expected owner for C++ inline header function")
+	}
+	if got.OwnerSymbol != "format_tm_year" || got.AnchorSymbol != "format_tm_year" {
+		t.Fatalf("owner=%+v, want format_tm_year", got)
+	}
+
+	got, ok = FindEnclosingOwner("include/tmfmt.hpp", src, 9)
+	if !ok {
+		t.Fatal("expected owner to remain enclosing function on return call")
+	}
+	if got.OwnerSymbol != "format_tm_year" || got.AnchorSymbol != "format_tm_year" {
+		t.Fatalf("return call should not replace owner, got %+v", got)
+	}
+}
+
+func TestFindEnclosingOwnerCppQualifiedFunction(t *testing.T) {
+	src := []byte(`namespace parser {
+
+std::string Parser::Parse(
+    std::string_view input
+) const {
+    return std::string(input);
+}
+}`)
+	got, ok := FindEnclosingOwner("src/parser.cpp", src, 6)
+	if !ok {
+		t.Fatal("expected owner for qualified C++ function")
+	}
+	if got.OwnerSymbol != "Parser::Parse" || got.AnchorSymbol != "Parse" {
+		t.Fatalf("owner=%+v, want Parser::Parse", got)
+	}
+}
+
 func TestFindEnclosingOwnerRubyMultilineMethod(t *testing.T) {
 	src := []byte(`class Renderer
   def call(
