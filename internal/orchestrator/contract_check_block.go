@@ -14,6 +14,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -1888,7 +1889,8 @@ func validateSourceInventoryExactAbsenceBound(doc *types.AnswerDocumentV2, bus *
 		bus == nil || bus.AnalysisIR == nil || bus.Mutable == nil {
 		return nil
 	}
-	summary, blocked := types.SourceInventoryExactAbsenceNeedsInventoryProof(
+	summary, blocked := tool.SourceInventoryExactAbsenceNeedsInventoryProofRepoTruth(
+		bus,
 		bus.AnalysisIR.RequestModel.SourceInventoryProfile,
 		types.SourceInventoryObservationFromMutable(bus.Mutable),
 	)

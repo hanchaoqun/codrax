@@ -32,6 +32,7 @@ import (
 // execution kernel instead of accreting here. A NEW cluster file must add an
 // explicit ceiling below so it cannot inherit broad default slack unnoticed.
 var sourceInventoryFileLOCCeiling = map[string]int{
+	"source_inventory_absence_repo_truth.go":        30,
 	"source_inventory_reconcile.go":                 3928,
 	"source_inventory_render.go":                    1308,
 	"source_inventory_render_paging.go":             17,

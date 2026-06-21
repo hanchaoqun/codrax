@@ -5154,7 +5154,8 @@ func preCheckSourceInventoryExactAbsenceBound(ctxOpt ...*types.BusContext) (stri
 		return "", false
 	}
 	ctx := ctxOpt[0]
-	return types.SourceInventoryExactAbsenceNeedsInventoryProof(
+	return SourceInventoryExactAbsenceNeedsInventoryProofRepoTruth(
+		ctx,
 		ctx.AnalysisIR.RequestModel.SourceInventoryProfile,
 		types.SourceInventoryObservationFromMutable(ctx.Mutable),
 	)

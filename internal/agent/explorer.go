@@ -6675,10 +6675,17 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 		return nil
 	}
 	if e.midLoopEvidenceRepairSent && e.midLoopEvidenceRepairResultsLen > 0 {
+		// Merge active-repair required tools (e.g. a repo_map demand from the
+		// source-class absence downgrade) onto the evidence-repair surface, the
+		// same way the no-emit-push lane below does. Without this, a repo_map
+		// repair is shadowed here ("repo_map not in current tool schema") so the
+		// model cannot satisfy a source-class-universe demand while an evidence
+		// repair is also pending — RNE-C61's restricted-surface arm. The merge is
+		// a no-op when no active repair requires extra tools.
 		if e.midLoopEvidenceRepairEmitOnly {
-			return completionProgressToolNames
+			return mergeRestrictedToolSurfaceWithActiveRepairs(completionProgressToolNames, ctx)
 		}
-		return evidenceRepairToolNames
+		return mergeRestrictedToolSurfaceWithActiveRepairs(evidenceRepairToolNames, ctx)
 	}
 	if e.midLoopNoEmitPushSent && e.midLoopNoEmitEscalated {
 		if e.originSpecificObservationLaneActive() {

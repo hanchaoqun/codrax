@@ -3654,7 +3654,8 @@ func sourceInventoryClassUniverseAbsenceDowngrade(ctx *types.BusContext, resultK
 	if !strings.EqualFold(strings.TrimSpace(resultKind), "absence") {
 		return ""
 	}
-	summary, blocked := types.SourceInventoryExactAbsenceNeedsInventoryProof(
+	summary, blocked := SourceInventoryExactAbsenceNeedsInventoryProofRepoTruth(
+		ctx,
 		ctx.AnalysisIR.RequestModel.SourceInventoryProfile,
 		types.SourceInventoryObservationFromMutable(ctx.Mutable),
 	)
