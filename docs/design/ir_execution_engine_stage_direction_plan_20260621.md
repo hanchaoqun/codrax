@@ -326,6 +326,12 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 - `internal/types/progress_delta.go`
 - `internal/orchestrator/scheduler.go`
 
+本批探索确认：
+- `CritProgressReplanRequired` 和 evaluator 已存在，并且只消费 typed `criterion.Env.ProgressDecision`；不会解析 retry prose、prompt text 或模型 rationale。
+- scheduler 已支持 analyzer-pre-authored optional nodes：false EntryCondition 不制造 blocked 噪音，true typed signal 会进入 ready window；现有测试已覆盖 pre-authored refine node 行为。
+- 不新增 `TaskNodeType`，避免扩大 stageMapping 面；C2 使用 optional one-shot `NodeProbe` 作为 AnalyzeRefine actuator carrier，输出 immutable `analysis_refinement_handoff` / `progress_decision`。
+- compiler 是唯一写入点；运行时 scheduler 不 append、不 mutate AnalysisIR。
+
 任务：
 - compiler emit 一个 optional AnalyzeRefine node，EntryCondition 挂 `CritProgressReplanRequired`。
 - scheduler 不得 runtime append/modify AnalysisIR；只能读取 analyzer-authored optional node。
@@ -397,6 +403,7 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 | 2026-06-21 | B3 IngestRound production reducer cutover | complete | `applyStageOutput` now calls production `ingestEvidenceRound`, mutating the real closure via typed `EvidenceClosure.IngestRound` while preserving `ToolResults` history append semantics. Tests cover production read coverage, accepted-evidence carrier idempotence, and existing truth-set merge behavior. `go test ./internal/types ./internal/tool/ground ./internal/orchestrator -run 'IngestRound|ApplyStageOutput|ReadCoverage|AcceptedEvidence'` passed. |
 | 2026-06-21 | B2 Read run snapshot substrate | complete | Added typed `ReadRunSnapshot` projection/persistence plus `ReadRunSnapshotStore` under `<planDir>/read_runs/`. Snapshot carries TaskGraph identity, node exec statuses, read coverage, accepted-evidence refs, source-inventory authority, and progress decision from typed carriers only. Automatic resume remains explicitly out of batch. `go test ./internal/types ./internal/repl -run 'ReadRunSnapshot|EvidenceClosure.*Snapshot'` and `go test ./internal/types ./internal/repl` passed. |
 | 2026-06-21 | C1 Read loopkernel add-proof action cutover | complete | `LoopActionAddProof` is now the first read-side load-bearing loopkernel action: weak proof guidance selects a typed narrow proof follow-up continuation summary, while covered/continue proof emits no add-proof action and hard block/finish semantics remain unchanged. `go test ./internal/loopkernel ./internal/orchestrator -run 'ReadProofGuidance|ReadLoopShadow|ExploreTransientRetryCheckpoint|ReadLoopAddProof'` and `go test ./internal/loopkernel ./internal/orchestrator` passed. |
+| 2026-06-21 | C2 AnalyzeRefine optional node intake | in_progress | Code exploration confirmed criterion/scheduler support already exists. Implementation will add a compiler-authored optional one-shot `NodeProbe` with `progress_replan_required`; no runtime DAG append, no prompt/prose hard routing, no new TaskNodeType. |
 
 ---
 
