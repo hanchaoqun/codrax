@@ -36,12 +36,14 @@ type LoopRun struct {
 }
 
 type LoopBudget struct {
-	MaxUnits      int `json:"max_units,omitempty"`
-	MaxRepairs    int `json:"max_repairs,omitempty"`
-	MaxApprovals  int `json:"max_approvals,omitempty"`
-	UnitsUsed     int `json:"units_used,omitempty"`
-	RepairsUsed   int `json:"repairs_used,omitempty"`
-	ApprovalsUsed int `json:"approvals_used,omitempty"`
+	MaxUnits          int       `json:"max_units,omitempty"`
+	MaxRepairs        int       `json:"max_repairs,omitempty"`
+	MaxApprovals      int       `json:"max_approvals,omitempty"`
+	UnitsUsed         int       `json:"units_used,omitempty"`
+	RepairsUsed       int       `json:"repairs_used,omitempty"`
+	ApprovalsUsed     int       `json:"approvals_used,omitempty"`
+	DeadlineAt        time.Time `json:"deadline_at,omitempty"`
+	InterruptedReason string    `json:"interrupted_reason,omitempty"`
 }
 
 type LoopEventKind string

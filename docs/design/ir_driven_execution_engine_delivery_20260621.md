@@ -241,10 +241,13 @@ M2d-B scoped implementation:
 
 Deliverables:
 - Lift sourceinventory budget discipline into `LoopBudget`: unit spend, deadline, cancellation, interrupted reason.
+- Add a side-effect-free budget spend API (`unit` / `repair` / `approval`) that returns typed allow/deny decisions and an updated serializable budget.
+- Keep controller/read scheduler cutover out of M3a; M3b will consume this API from `LoopRun.Advance`.
 - Keep noisy elapsed telemetry out of hard gates.
 
 Tests:
 - `TestLoopBudgetEnforcesDeadlineLikeSourceInventory`
+- `TestLoopBudgetSpendCapsArePreciseAndSerializable`
 - Source inventory budget regression tests.
 
 ### Batch M3b: LoopRun.Advance Write-Side Cutover
@@ -305,6 +308,6 @@ Commercial hardening before declaring complete:
 | M2b Stage mapping/re-exec | completed | Added registered `extract_input_ready`, compiler now emits it on `NodeExtract`, and the read scheduler evaluates extract `EntryConditions` immediately before StageExtract dispatch. When no structured extract input exists, the extractor is skipped as a typed stage-skip and finalize still owns the answer contract. Tests pin that readiness uses typed evidence/chains/aggregate facts/external observations only, not `HasEnoughFacts`, raw tool prose, prompt text, or noisy telemetry. Scope correction: optional AnalyzeRefine moved to M2d because it crosses the analyzer/IR rewrite boundary. |
 | M2c Execution tree/artifacts | completed | Removed misleading `TaskNode.ExitArtifacts`; added typed `TaskArtifactContract`, `BranchPoint`, `ValidationFeedbackBranchPoints`, and `ValidationFeedbackTargets`; scheduler validation-feedback backtrack now consumes the shared typed helper. Tests pin immutable contract projection, execution-tree backtrack grouping/deduplication, and the upgraded TaskNode slot guard. |
 | M2d Dynamic expansion/loopkernel shadow | in_progress | M2d-A completed: added typed `ReadLoopShadowComparison` and first read retry checkpoint consumer so loopkernel recommended action can be compared with the imperative retry action without changing scheduler behavior. M2d-B completed: added `TaskNode.Optional`, typed `source_class_universe_incomplete`, compiler-emitted optional source-inventory re-probe node, source-class completeness helper, and scheduler handling so optional nodes do not create blocked noise or prevent finalize when their typed condition is false. Verified with focused compiler/criterion/types/orchestrator/loopkernel/tool/agent tests and full `go test ./...`. Remaining later M2d work: optional AnalyzeRefine through analyzer-pre-authored topology. |
-| M3a LoopBudget | not_started | LoopBudget passive. |
+| M3a LoopBudget | completed | Added serializable `LoopBudget` deadline/interruption fields plus side-effect-free `NewLoopBudget`, `NormalizeLoopBudget`, `Check`, and typed spend APIs for unit/repair/approval. Deadline/cancel decisions carry typed reason codes, spend caps do not increment on denial, and unknown interrupted-reason prose is dropped during normalization. Controller/read scheduler cutover remains intentionally in M3b. Verified with loopkernel/sourceinventory focused tests and full `go test ./...`. |
 | M3b LoopRun.Advance | not_started | LoopRun passive; write controller not cut over. |
 | M3c Semantic routing/shared proof | not_started | Tool routing not yet authority-driven end-to-end. |
