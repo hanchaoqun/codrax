@@ -45,6 +45,25 @@ func TestReadRunsListShowClear(t *testing.T) {
 			ShouldReplan: true,
 			ReasonCode:   types.ProgressReasonContinue,
 		},
+		ActiveState: types.ReadRunActiveState{
+			TransientRetryPending:    true,
+			TransientRetryReasonCode: types.ReadRunTransientRetryReasonCheckpoint,
+			TransientRetryHintHash:   strings.Repeat("c", 64),
+			TransientRetryHintBytes:  72,
+			ReadLoopNextAction: types.ReadRunNextActionState{
+				Active:     true,
+				Action:     types.ReadDispatchPolicyActionAddProof,
+				ReasonCode: "proof_weak",
+			},
+			ReadDispatchPolicy: types.ReadDispatchPolicy{
+				Active:       true,
+				Action:       types.ReadDispatchPolicyActionAddProof,
+				AllowedTools: []string{"read_file", "emit_evidence"},
+				ScopePaths:   []string{"internal/agent/subagent_runtime.go"},
+				MaxToolCalls: 2,
+				OneShot:      true,
+			},
+		},
 		SourceInventory: types.SourceInventoryObservation{
 			Active:   true,
 			Complete: true,
@@ -98,6 +117,10 @@ func TestReadRunsListShowClear(t *testing.T) {
 		"Accepted evidence refs: 1",
 		"Progress: reason=`progress_delta_continue`",
 		"should_replan=t",
+		"Active state:",
+		"transient_retry=present",
+		"hint_hash=`cccccccccccc`",
+		"policy=active",
 		"Source inventory: complete=true",
 		"classes: production=2",
 		"Advanced: `/read-runs resume read-audit-1`",
@@ -111,10 +134,14 @@ func TestReadRunsListShowClear(t *testing.T) {
 		"Repo fingerprint: kind=`git_head` head=`abcdef123456` status=`123456abcdef`",
 		"Attachment fingerprints: log=",
 		"trace=421d10005960/13B source=android_atrace",
+		"Active state: transient_retry=present reason=`transient_retry_checkpoint` hint_hash=`cccccccccccc` hint_bytes=72",
 	} {
 		if !strings.Contains(rawMarkdown, want) {
 			t.Fatalf("raw markdown missing %q:\n%s", want, rawMarkdown)
 		}
+	}
+	if strings.Contains(rawMarkdown, "raw retry hint") {
+		t.Fatalf("read-runs show must not expose raw retry hint text:\n%s", rawMarkdown)
 	}
 
 	out.Reset()

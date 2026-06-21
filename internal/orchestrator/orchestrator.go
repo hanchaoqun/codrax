@@ -250,6 +250,8 @@ type Orchestrator struct {
 
 	readRunSnapshotSaver ReadRunSnapshotSaver
 	readRunSnapshotSeed  *types.ReadRunSnapshot
+	readRunActiveState   types.ReadRunActiveState
+	readRunActiveSeed    types.ReadRunActiveState
 	// nextPhaseHint is the consume-once carry-over from the
 	// previous phase's acceptance check (NextHint field). The
 	// next phase's seedPlanningHintFromPhase reads this slot
@@ -1708,6 +1710,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.nextPhaseHint = ""
 	o.advisoryDebtNoticeEmitted = false
 	o.continuationClassification = nil
+	o.readRunActiveState = types.ReadRunActiveState{}
+	o.readRunActiveSeed = types.ReadRunActiveState{}
 	presentationDirective := strings.TrimSpace(o.presentationDirective)
 	o.presentationDirective = ""
 	turnRouteHint := o.turnRouteHint
@@ -4727,6 +4731,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 
 	state := newGraphState(ir.TaskGraph)
 	state.attachEvidenceClosure(o.busCtx.Mutable.EvidenceClosure())
+	defer o.captureReadRunActiveStateFromGraphState(state)
+	if o.readRunActiveSeed.IsActive() {
+		state.applyReadRunActiveStateSeed(o.readRunActiveSeed)
+		o.readRunActiveSeed = types.ReadRunActiveState{}
+	}
 	resolveSurface := termSurfaceLookup(ir)
 
 	// Install the ExploreBudget derived from the analyzer's

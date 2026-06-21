@@ -3,6 +3,7 @@ package types
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -129,6 +130,27 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 			},
 		},
 		ReadSet: []string{"b.go", "a.go", "a.go"},
+		ActiveState: ReadRunActiveState{
+			TransientRetryPending:    true,
+			TransientRetryReasonCode: ReadRunTransientRetryReasonCheckpoint,
+			TransientRetryHintHash:   strings.Repeat("a", 64),
+			TransientRetryHintBytes:  128,
+			ReadLoopNextAction: ReadRunNextActionState{
+				Active:      true,
+				Action:      ReadDispatchPolicyActionAddProof,
+				ReasonCode:  "proof_weak",
+				ProofState:  "weak",
+				TruthAction: TruthActionAddProof,
+			},
+			ReadDispatchPolicy: ReadDispatchPolicy{
+				Active:       true,
+				Action:       ReadDispatchPolicyActionAddProof,
+				AllowedTools: []string{"read_file", "emit_evidence"},
+				ScopePaths:   []string{"pkg/a.py"},
+				MaxToolCalls: 2,
+				OneShot:      true,
+			},
+		},
 	}
 	if err := WriteReadRunSnapshotToFile(original, path); err != nil {
 		t.Fatalf("WriteReadRunSnapshotToFile: %v", err)
@@ -155,8 +177,86 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 	if len(loaded.NodeArtifacts) != 1 || loaded.NodeArtifacts[0].Artifact.ID != "ev-1" {
 		t.Fatalf("loaded node artifacts = %+v", loaded.NodeArtifacts)
 	}
+	if !loaded.ActiveState.IsActive() || loaded.ActiveState.ReadLoopNextAction.Action != ReadDispatchPolicyActionAddProof || loaded.ActiveState.TransientRetryHintHash == "" {
+		t.Fatalf("loaded active state = %+v", loaded.ActiveState)
+	}
 	if tmp := path + ".tmp"; fileExists(tmp) {
 		t.Fatalf("tmp file should not remain: %s", tmp)
+	}
+}
+
+func TestValidateReadRunActiveState(t *testing.T) {
+	base := ReadRunActiveState{
+		ReadLoopNextAction: ReadRunNextActionState{
+			Active:      true,
+			Action:      ReadDispatchPolicyActionAddProof,
+			ReasonCode:  "proof_weak",
+			ProofState:  "weak",
+			TruthAction: TruthActionAddProof,
+		},
+		ReadDispatchPolicy: ReadDispatchPolicy{
+			Active:       true,
+			Action:       ReadDispatchPolicyActionAddProof,
+			AllowedTools: []string{"read_file"},
+			ScopePaths:   []string{"pkg"},
+			MaxToolCalls: 1,
+			OneShot:      true,
+		},
+	}
+	if got := ValidateReadRunActiveState(base, "/repo"); !got.Valid || got.ReasonCode != ReadRunActiveStateValid {
+		t.Fatalf("valid active state rejected: %+v", got)
+	}
+	cases := []struct {
+		name       string
+		mutate     func(*ReadRunActiveState)
+		wantReason string
+	}{
+		{
+			name: "unsupported_action",
+			mutate: func(s *ReadRunActiveState) {
+				s.ReadLoopNextAction.Action = "repair"
+			},
+			wantReason: ReadRunActiveStateUnsupportedAction,
+		},
+		{
+			name: "invalid_proof_state",
+			mutate: func(s *ReadRunActiveState) {
+				s.ReadLoopNextAction.ProofState = "maybe"
+			},
+			wantReason: ReadRunActiveStateUnsupportedProofState,
+		},
+		{
+			name: "policy_mismatch",
+			mutate: func(s *ReadRunActiveState) {
+				s.ReadDispatchPolicy.Action = "verify"
+			},
+			wantReason: ReadRunActiveStatePolicyMismatch,
+		},
+		{
+			name: "invalid_truth_action",
+			mutate: func(s *ReadRunActiveState) {
+				s.ReadLoopNextAction.TruthAction = TruthRecommendedAction("maybe")
+			},
+			wantReason: ReadRunActiveStateUnsupportedTruthAction,
+		},
+		{
+			name: "malformed_scope",
+			mutate: func(s *ReadRunActiveState) {
+				s.ReadDispatchPolicy.ScopePaths = []string{"../escape"}
+			},
+			wantReason: ReadRunActiveStateMalformedScope,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			state := base
+			tc.mutate(&state)
+			got := ValidateReadRunActiveState(state, "/repo")
+			if got.Valid || got.ReasonCode != tc.wantReason {
+				t.Fatalf("ValidateReadRunActiveState = %+v, want %q", got, tc.wantReason)
+			}
+		})
 	}
 }
 

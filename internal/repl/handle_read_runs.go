@@ -217,6 +217,9 @@ func readRunSnapshotMarkdown(snapshot types.ReadRunSnapshot) string {
 		fmt.Fprintf(&b, "- Progress: reason=`%s` should_replan=%t\n",
 			snapshot.ProgressDecision.ReasonCode, snapshot.ProgressDecision.ShouldReplan)
 	}
+	if active := readRunActiveStateSummary(snapshot.ActiveState); active != "" {
+		fmt.Fprintf(&b, "- Active state: %s\n", active)
+	}
 	if snapshot.SourceInventory.IsActive() {
 		fmt.Fprintf(&b, "- Source inventory: %s\n", readRunSourceInventorySummary(snapshot.SourceInventory))
 	}
@@ -226,6 +229,27 @@ func readRunSnapshotMarkdown(snapshot types.ReadRunSnapshot) string {
 	b.WriteString(snapshot.RunID)
 	b.WriteString("`\n")
 	return b.String()
+}
+
+func readRunActiveStateSummary(state types.ReadRunActiveState) string {
+	state = types.NormalizeReadRunActiveState(state)
+	if !state.IsActive() {
+		return ""
+	}
+	var parts []string
+	if state.TransientRetryPending {
+		parts = append(parts, fmt.Sprintf("transient_retry=present reason=`%s` hint_hash=`%s` hint_bytes=%d",
+			state.TransientRetryReasonCode, readRunShortHash(state.TransientRetryHintHash), state.TransientRetryHintBytes))
+	}
+	if state.ReadLoopNextAction.Active {
+		parts = append(parts, fmt.Sprintf("next_action=`%s` reason=`%s`",
+			state.ReadLoopNextAction.Action, state.ReadLoopNextAction.ReasonCode))
+	}
+	if state.ReadDispatchPolicy.IsActive() {
+		parts = append(parts, fmt.Sprintf("policy=active tools=%d scopes=%d max_calls=%d",
+			len(state.ReadDispatchPolicy.AllowedTools), len(state.ReadDispatchPolicy.ScopePaths), state.ReadDispatchPolicy.MaxToolCalls))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func readRunNodeStatusSummary(statuses map[string]types.NodeExecStatus) string {

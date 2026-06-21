@@ -85,6 +85,45 @@ func ValidateReadDispatchPolicyPathScope(policy ReadDispatchPolicy, toolName str
 	return ReadDispatchPathScopeDecision{Allowed: true, ReasonCode: ReadDispatchPathScopeAllowed, ToolName: toolName, ScopePaths: scopes}
 }
 
+// ValidateReadDispatchPolicyScopePaths validates the policy's own scope list.
+// Consumers use this before persisting or replaying a policy so malformed scope
+// paths do not silently collapse into an unconstrained no-path policy.
+func ValidateReadDispatchPolicyScopePaths(policy ReadDispatchPolicy, repoRoot string) ReadDispatchPathScopeDecision {
+	policy = NormalizeReadDispatchPolicy(policy)
+	if !policy.Active {
+		return ReadDispatchPathScopeDecision{Allowed: true, ReasonCode: ReadDispatchPathScopeInactive}
+	}
+	if len(policy.ScopePaths) == 0 {
+		return ReadDispatchPathScopeDecision{Allowed: true, ReasonCode: ReadDispatchPathScopeNoPaths}
+	}
+	var scopes []string
+	seen := map[string]bool{}
+	for _, raw := range policy.ScopePaths {
+		normalized, structural, malformed := normalizeReadDispatchStructuralPath(raw, repoRoot)
+		if !structural {
+			continue
+		}
+		if malformed {
+			return ReadDispatchPathScopeDecision{
+				Allowed:        false,
+				ReasonCode:     ReadDispatchPathScopeMalformed,
+				Field:          "scope_paths",
+				Value:          raw,
+				NormalizedPath: normalized,
+				ScopePaths:     policy.ScopePaths,
+			}
+		}
+		if !seen[normalized] {
+			seen[normalized] = true
+			scopes = append(scopes, normalized)
+		}
+	}
+	if len(scopes) == 0 {
+		return ReadDispatchPathScopeDecision{Allowed: true, ReasonCode: ReadDispatchPathScopeNoPaths}
+	}
+	return ReadDispatchPathScopeDecision{Allowed: true, ReasonCode: ReadDispatchPathScopeAllowed, ScopePaths: scopes}
+}
+
 type readDispatchPathField struct {
 	Field string
 	Value string

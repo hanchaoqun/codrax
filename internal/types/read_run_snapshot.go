@@ -37,6 +37,7 @@ type ReadRunSnapshot struct {
 	NodeArtifacts    []NodeArtifactRecord           `json:"node_artifacts,omitempty"`
 	SourceInventory  SourceInventoryObservation     `json:"source_inventory,omitempty"`
 	ProgressDecision ProgressDecision               `json:"progress_decision,omitempty"`
+	ActiveState      ReadRunActiveState             `json:"active_state,omitempty"`
 }
 
 func ReadRunSnapshotFromBusContext(ctx *BusContext, runID string) ReadRunSnapshot {
@@ -105,6 +106,7 @@ func NormalizeReadRunSnapshot(snapshot ReadRunSnapshot) ReadRunSnapshot {
 	snapshot.AcceptedEvidence = cloneAcceptedEvidenceRefs(snapshot.AcceptedEvidence)
 	snapshot.NodeArtifacts = NormalizeNodeArtifactRecords(snapshot.NodeArtifacts)
 	snapshot.SourceInventory = CloneSourceInventoryObservation(snapshot.SourceInventory)
+	snapshot.ActiveState = NormalizeReadRunActiveState(snapshot.ActiveState)
 	if snapshot.CreatedAt.IsZero() {
 		snapshot.CreatedAt = time.Now().UTC()
 	} else {

@@ -83,6 +83,66 @@ func TestReadRunSnapshotSeedAppliesTypedFields(t *testing.T) {
 	}
 }
 
+func TestReadRunSnapshotSeedInstallsActiveStateSeed(t *testing.T) {
+	repoRoot := "/tmp/codrax-read-seed"
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+	snapshot := readRunSnapshotSeedFixture(t, ir, repoRoot)
+	snapshot.ActiveState = types.ReadRunActiveState{
+		TransientRetryPending:    true,
+		TransientRetryReasonCode: types.ReadRunTransientRetryReasonCheckpoint,
+		TransientRetryHintHash:   strings.Repeat("b", 64),
+		TransientRetryHintBytes:  64,
+		ReadLoopNextAction: types.ReadRunNextActionState{
+			Active:          true,
+			Action:          types.ReadDispatchPolicyActionAddProof,
+			ReasonCode:      "proof_weak",
+			ProofState:      "weak",
+			TruthAction:     types.TruthActionAddProof,
+			RouteSurface:    types.ReadDispatchPolicySurfaceVerify,
+			RouteReasonCode: "loop_tool_route_verification",
+			ToolSuggestions: []string{"run_tests"},
+		},
+		ReadDispatchPolicy: types.ReadDispatchPolicy{
+			Active:       true,
+			Action:       types.ReadDispatchPolicyActionAddProof,
+			AllowedTools: []string{"read_file", "emit_evidence"},
+			ScopePaths:   []string{"seeded.go"},
+			MaxToolCalls: 2,
+			OneShot:      true,
+		},
+	}
+
+	o := &Orchestrator{
+		readRunSnapshotSeed: &snapshot,
+		busCtx: &types.BusContext{
+			Mode:       types.ModeRead,
+			RepoRoot:   repoRoot,
+			AnalysisIR: ir,
+			Mutable:    types.NewMutableState("resume typed snapshot"),
+		},
+	}
+	o.busCtx.Mutable.SetRepoRoot(repoRoot)
+	if err := o.applyReadRunSnapshotSeed(); err != nil {
+		t.Fatalf("applyReadRunSnapshotSeed: %v", err)
+	}
+	if !o.readRunActiveSeed.IsActive() {
+		t.Fatalf("active seed missing: %+v", o.readRunActiveSeed)
+	}
+	state := newGraphState(ir.TaskGraph)
+	state.applyReadRunActiveStateSeed(o.readRunActiveSeed)
+	policy, ok := applyReadLoopNextActionHint(state, nil, nil)
+	if !ok || !policy.IsActive() || policy.Action != types.ReadDispatchPolicyActionAddProof {
+		t.Fatalf("next action policy = %+v ok=%t", policy, ok)
+	}
+	if _, ok := applyReadLoopNextActionHint(state, nil, nil); ok {
+		t.Fatal("resumed read-loop next action must remain one-shot")
+	}
+	if hint := state.consumeTransientRetryHint(); !strings.Contains(hint, "hint_hash="+strings.Repeat("b", 64)) || strings.Contains(hint, "raw retry") {
+		t.Fatalf("transient retry resume hint should be typed/hash-only, got %q", hint)
+	}
+}
+
 func TestReadRunSnapshotSeedRejectsMismatches(t *testing.T) {
 	repoRoot := "/tmp/codrax-read-seed"
 	ir := dagIR(types.AnswerContract{Language: "en"})
@@ -166,6 +226,22 @@ func TestReadRunSnapshotSeedRejectsMismatches(t *testing.T) {
 				}}
 			},
 			wantReason: readRunSnapshotSeedReasonNodeArtifactMismatch,
+		},
+		{
+			name: "active_state",
+			mutate: func(s *types.ReadRunSnapshot) {
+				s.ActiveState = types.ReadRunActiveState{
+					ReadLoopNextAction: types.ReadRunNextActionState{
+						Active: true,
+						Action: "repair",
+					},
+					ReadDispatchPolicy: types.ReadDispatchPolicy{
+						Active: true,
+						Action: "repair",
+					},
+				}
+			},
+			wantReason: readRunSnapshotSeedReasonActiveStateMismatch,
 		},
 	}
 	for _, tc := range cases {

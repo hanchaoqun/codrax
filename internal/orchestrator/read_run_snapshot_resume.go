@@ -19,6 +19,7 @@ const (
 	readRunSnapshotSeedReasonRequestFingerprint    = "request_fingerprint_mismatch"
 	readRunSnapshotSeedReasonRepoFingerprint       = "repo_fingerprint_mismatch"
 	readRunSnapshotSeedReasonAttachmentFingerprint = "attachment_fingerprint_mismatch"
+	readRunSnapshotSeedReasonActiveStateMismatch   = "active_state_mismatch"
 	readRunSnapshotSeedReasonNoAnalysisIR          = "analysis_ir_missing"
 )
 
@@ -69,6 +70,11 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 	}
 	if err := o.validateReadRunSnapshotFingerprints(snapshot); err != nil {
 		return err
+	}
+	activeState := types.NormalizeReadRunActiveState(snapshot.ActiveState)
+	if decision := types.ValidateReadRunActiveState(activeState, o.busCtx.RepoRoot); !decision.Valid {
+		return readRunSnapshotSeedError(readRunSnapshotSeedReasonActiveStateMismatch,
+			"snapshot active state invalid: reason=%s field=%s detail=%s", decision.ReasonCode, decision.Field, decision.Detail)
 	}
 	expectedHash := types.ReadTaskGraphHash(o.busCtx.AnalysisIR.TaskGraph)
 	if expectedHash == "" || strings.TrimSpace(snapshot.TaskGraphHash) != expectedHash {
@@ -131,6 +137,7 @@ func (o *Orchestrator) applyReadRunSnapshotSeed() error {
 	}, o.busCtx.RepoRoot)
 	logging.Info("[orchestrator] read run snapshot seed applied: run=%s nodes=%d attempts=%d artifacts=%d reads=%d accepted=%d",
 		snapshot.RunID, len(snapshot.NodeStatuses), len(snapshot.NodeAttempts), len(snapshot.NodeArtifacts), len(snapshot.ReadSet), len(snapshot.AcceptedEvidence))
+	o.readRunActiveSeed = activeState
 	return nil
 }
 

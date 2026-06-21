@@ -30,6 +30,7 @@ func (o *Orchestrator) persistReadRunSnapshot() {
 	}
 	snapshot := types.ReadRunSnapshotFromBusContext(o.busCtx, runID)
 	snapshot.RepoFingerprint = readRunCurrentRepoFingerprint(o.busCtx.RepoRoot)
+	snapshot.ActiveState = types.NormalizeReadRunActiveState(o.readRunActiveState)
 	path, err := o.readRunSnapshotSaver.Save(&snapshot)
 	if err != nil {
 		logging.Warning("[orchestrator] read run snapshot save failed: %v", err)

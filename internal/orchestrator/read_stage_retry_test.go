@@ -193,6 +193,41 @@ func TestGraphStateReadLoopNextActionIsOneShot(t *testing.T) {
 	}
 }
 
+func TestReadRunActiveStateFromGraphStateOmitsRawRetryHint(t *testing.T) {
+	state := &graphState{}
+	rawHint := "raw retry hint with model-facing checkpoint body"
+	state.setTransientRetryHint(rawHint)
+	state.setReadLoopNextAction(readLoopNextActionDecision{
+		Active:          true,
+		Action:          loopkernel.LoopActionAddProof,
+		ReasonCode:      "proof_weak",
+		ProofState:      loopkernel.ProofCoverageWeak,
+		TruthAction:     types.TruthActionAddProof,
+		RouteSurface:    loopkernel.LoopToolSurfaceVerification,
+		RouteReasonCode: "loop_tool_route_verification",
+		ToolSuggestions: []string{"run_tests"},
+		Policy: types.ReadDispatchPolicy{
+			Active:       true,
+			Action:       types.ReadDispatchPolicyActionAddProof,
+			AllowedTools: []string{"read_file", "emit_evidence"},
+			ScopePaths:   []string{"pkg/a.py"},
+			MaxToolCalls: 2,
+			OneShot:      true,
+		},
+	})
+	active := readRunActiveStateFromGraphState(state)
+	if !active.IsActive() || !active.TransientRetryPending || active.TransientRetryHintHash == "" || active.TransientRetryHintBytes != len([]byte(rawHint)) {
+		t.Fatalf("active state missing typed retry audit: %+v", active)
+	}
+	if strings.Contains(active.TransientRetryHintHash, "raw retry") {
+		t.Fatalf("active state must not store raw retry hint: %+v", active)
+	}
+	if active.ReadLoopNextAction.Action != types.ReadDispatchPolicyActionAddProof ||
+		active.ReadDispatchPolicy.Action != types.ReadDispatchPolicyActionAddProof {
+		t.Fatalf("active next-action/policy = %+v", active)
+	}
+}
+
 func TestReadDispatchPolicyForNextActionCarriesAcceptedEvidenceScopes(t *testing.T) {
 	mut := types.NewMutableState("weak proof with accepted evidence")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
