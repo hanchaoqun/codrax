@@ -5039,19 +5039,48 @@ func validateExplorerReadDispatchPolicyToolCall(ctx *types.AgentContext, tc llm.
 		return nil
 	}
 	policy := types.NormalizeReadDispatchPolicy(ctx.ReadDispatchPolicy)
-	if !policy.Active || policy.AllowsTool(tc.Name) {
+	if !policy.Active {
 		return nil
 	}
-	reason := fmt.Sprintf("tool %q is outside the current scheduler-owned read dispatch policy; available tools here: %s", tc.Name, strings.Join(policy.AllowedTools, ", "))
-	if len(policy.ScopePaths) > 0 {
-		reason += fmt.Sprintf("; proof scope paths: %s", strings.Join(policy.ScopePaths, ", "))
+	if !policy.AllowsTool(tc.Name) {
+		reason := fmt.Sprintf("tool %q is outside the current scheduler-owned read dispatch policy; available tools here: %s", tc.Name, strings.Join(policy.AllowedTools, ", "))
+		if len(policy.ScopePaths) > 0 {
+			reason += fmt.Sprintf("; proof scope paths: %s", strings.Join(policy.ScopePaths, ", "))
+		}
+		logging.Warning("[explorer] tool %q rejected by read dispatch policy: %s", tc.Name, reason)
+		return &types.ToolResult{
+			ToolName:  tc.Name,
+			Success:   false,
+			Summary:   reason,
+			Repair:    &types.ToolRepair{Code: explorerReadDispatchPolicyCode, Hint: reason},
+			Timestamp: time.Now(),
+		}
 	}
-	logging.Warning("[explorer] tool %q rejected by read dispatch policy: %s", tc.Name, reason)
+	decision := types.ValidateReadDispatchPolicyPathScope(policy, tc.Name, tc.Params, ctx.RepoRoot)
+	if !decision.Blocked() {
+		return nil
+	}
+	reason := fmt.Sprintf("tool %q field %q path %q is outside the current scheduler-owned proof scope; proof scope paths: %s", tc.Name, decision.Field, decision.Value, strings.Join(decision.ScopePaths, ", "))
+	if decision.ReasonCode == types.ReadDispatchPathScopeMalformed {
+		reason = fmt.Sprintf("tool %q field %q path %q is not a valid repo-relative proof path; proof scope paths: %s", tc.Name, decision.Field, decision.Value, strings.Join(decision.ScopePaths, ", "))
+	}
+	logging.Warning("[explorer] tool %q rejected by read dispatch policy path scope: %s", tc.Name, reason)
 	return &types.ToolResult{
-		ToolName:  tc.Name,
-		Success:   false,
-		Summary:   reason,
-		Repair:    &types.ToolRepair{Code: explorerReadDispatchPolicyCode, Hint: reason},
+		ToolName: tc.Name,
+		Success:  false,
+		Summary:  reason,
+		Repair: &types.ToolRepair{
+			Code:   explorerReadDispatchPolicyCode,
+			Hint:   reason,
+			Fields: []string{decision.Field},
+			Metadata: map[string]string{
+				"reason_code":     decision.ReasonCode,
+				"field":           decision.Field,
+				"path":            decision.Value,
+				"normalized_path": decision.NormalizedPath,
+				"scope_paths":     strings.Join(decision.ScopePaths, ","),
+			},
+		},
 		Timestamp: time.Now(),
 	}
 }

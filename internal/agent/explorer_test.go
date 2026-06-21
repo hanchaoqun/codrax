@@ -4342,7 +4342,21 @@ func TestExplorer_RuntimeBoundary_ReadDispatchPolicy(t *testing.T) {
 	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"pkg/a.py"}`)}); got != nil {
 		t.Fatalf("read_file should be allowed by read dispatch policy, got %+v", got)
 	}
-	got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "exec_command", Params: json.RawMessage(`{"cmd":"find . -type f"}`)})
+	got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"pkg/b.py"}`)})
+	if got == nil || got.Success {
+		t.Fatalf("out-of-scope read_file should be rejected by read dispatch policy, got %+v", got)
+	}
+	if got.Repair == nil || got.Repair.Code != explorerReadDispatchPolicyCode ||
+		got.Repair.Metadata["reason_code"] != types.ReadDispatchPathScopeOutside {
+		t.Fatalf("path-scope rejection should carry policy repair metadata, got %+v", got.Repair)
+	}
+	if !strings.Contains(got.Summary, "pkg/a.py") || !strings.Contains(got.Summary, "pkg/b.py") {
+		t.Fatalf("path-scope rejection should name requested path and proof scope, got %q", got.Summary)
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"blob://tool-output/grep.txt"}`)}); got != nil {
+		t.Fatalf("virtual blob refs should not be blocked by repo path-scope gate, got %+v", got)
+	}
+	got = validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "exec_command", Params: json.RawMessage(`{"cmd":"find . -type f"}`)})
 	if got == nil || got.Success {
 		t.Fatalf("exec_command should be rejected by read dispatch policy, got %+v", got)
 	}
