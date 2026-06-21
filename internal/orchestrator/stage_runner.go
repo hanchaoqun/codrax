@@ -40,6 +40,13 @@ func newExploreStageExecutionRequest(window []*types.TaskNode) StageExecutionReq
 	}
 }
 
+func newParallelExploreStageExecutionRequest(window []*types.TaskNode, retryHint string) StageExecutionRequest {
+	req := newExploreStageExecutionRequest(window)
+	req.RetryHint = retryHint
+	req.ReasonCode = "read_dag_parallel_explore_window"
+	return req
+}
+
 func (o *Orchestrator) executeStageRequest(req StageExecutionRequest) StageExecutionResult {
 	start := time.Now()
 	if o == nil || o.busCtx == nil {

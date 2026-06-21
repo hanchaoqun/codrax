@@ -95,6 +95,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 				if i < len(hints) {
 					hint = hints[i]
 				}
+				req := newParallelExploreStageExecutionRequest(windows[i], hint)
 				fork := o.busCtx.Mutable.ForkForExploreDispatch()
 				unitID := unitIDs[i]
 				var lanePlan types.ExploreLanePlan
@@ -112,7 +113,8 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 					Parallelism:        parallelism,
 					ParallelLaneLabels: lanePlan.Labels(),
 				})
-				out, err := o.runExploreAgentOnFork(runCtx, fork, hint, unitID, groupID, exploreDispatchKindForWindow(windows[i]), exploreToolSurfaceForWindow(windows[i]), lanePlan)
+				result := o.runExploreAgentOnFork(runCtx, fork, req, groupID, lanePlan)
+				out, err := result.Output, result.Err
 				unitErr := ""
 				if err != nil {
 					unitErr = err.Error()
@@ -248,30 +250,34 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 func (o *Orchestrator) runExploreAgentOnFork(
 	runCtx context.Context,
 	mut *types.MutableState,
-	hint string,
-	dispatchKey string,
+	req StageExecutionRequest,
 	parallelGroupID string,
-	dispatchKind types.TaskNodeType,
-	toolSurface types.ExploreToolSurface,
 	lanePlan types.ExploreLanePlan,
-) (*agent.StageOutput, error) {
-	stage := types.StageExplore
+) StageExecutionResult {
+	start := time.Now()
+	stage := req.Stage
+	if stage == "" {
+		stage = types.StageExplore
+	}
+	if stage != types.StageExplore {
+		return StageExecutionResult{Stage: stage, Err: fmt.Errorf("parallel explore worker requires explore stage, got %s", stage), Elapsed: time.Since(start)}
+	}
 	if err := o.checkCanceled(string(stage), 0); err != nil {
-		return nil, err
+		return StageExecutionResult{Stage: stage, Err: err, Elapsed: time.Since(start)}
 	}
 	info, ok := pipelineTopology[stage]
 	if !ok {
-		return nil, fmt.Errorf("unknown pipeline stage: %s", stage)
+		return StageExecutionResult{Stage: stage, Err: fmt.Errorf("unknown pipeline stage: %s", stage), Elapsed: time.Since(start)}
 	}
 	agentName := info.Agent
 	skillName := info.Skill
 	ag, err := o.agents.Get(agentName)
 	if err != nil {
-		return nil, fmt.Errorf("get agent %s: %w", agentName, err)
+		return StageExecutionResult{Stage: stage, Err: fmt.Errorf("get agent %s: %w", agentName, err), Elapsed: time.Since(start)}
 	}
 	sk, err := o.skills.Get(skillName)
 	if err != nil {
-		return nil, fmt.Errorf("get skill %s: %w", skillName, err)
+		return StageExecutionResult{Stage: stage, Err: fmt.Errorf("get skill %s: %w", skillName, err), Elapsed: time.Since(start)}
 	}
 
 	// Field-level shallow clone (NOT `*o.busCtx`): the value copy
@@ -285,14 +291,14 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	workerBus.Ctx = runCtx
 	workerBus.ActiveAgent = agentName
 	workerBus.PipelineStage = stage
-	workerBus.ExploreDispatchKey = dispatchKey
-	workerBus.ExploreDispatchKind = dispatchKind
-	workerBus.ExploreToolSurface = toolSurface
+	workerBus.ExploreDispatchKey = req.ExploreDispatchKey
+	workerBus.ExploreDispatchKind = req.ExploreDispatchKind
+	workerBus.ExploreToolSurface = req.ExploreToolSurface
 	if !lanePlan.Empty() {
 		workerBus.ExploreLanePlan = lanePlan
 	}
 	workerBus.TaskState.Stage = stage
-	workerBus.TaskState.RetryHint = hint
+	workerBus.TaskState.RetryHint = req.RetryHint
 	workerBus.TaskState.RetryHintStage = stage
 	workerBus.TaskState.LastError = ""
 	agentCtx := ctxbuilder.BuildAgentContext(workerBus, agentName, stage)
@@ -305,20 +311,20 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	agentCtx.PriorConvHidden = !priorVisible
 	o.applyExploreIterationScaling(agentCtx)
 
-	logging.Info("[orchestrator] parallel explore dispatch key=%s skill=%s", dispatchKey, skillName)
+	logging.Info("[orchestrator] parallel explore dispatch key=%s skill=%s", req.ExploreDispatchKey, skillName)
 	output, err := ag.Execute(agentCtx, sk)
 	if err != nil {
-		return output, fmt.Errorf("agent %s execution: %w", agentName, err)
+		return StageExecutionResult{Stage: stage, Output: output, Err: fmt.Errorf("agent %s execution: %w", agentName, err), Elapsed: time.Since(start)}
 	}
 	if proposal := extractSubAgentProposal(output, agentName); proposal != nil {
 		logging.Info("[orchestrator] parallel explore sub-agent proposal: %s (%d sub_tasks)", proposal.Reason, len(proposal.SubTasks))
 		merged, runErr := o.subRuntime.Run(workerBus, proposal)
 		if runErr != nil {
-			return output, runErr
+			return StageExecutionResult{Stage: stage, Output: output, Err: runErr, Elapsed: time.Since(start)}
 		}
 		output = merged
 	}
-	return output, nil
+	return StageExecutionResult{Stage: stage, Output: output, Elapsed: time.Since(start)}
 }
 
 func scopeExploreLanePlansForWindows(plan types.ExploreLanePlan, windows [][]*types.TaskNode) []types.ExploreLanePlan {
