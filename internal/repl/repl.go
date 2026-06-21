@@ -365,6 +365,11 @@ type Config struct {
 	// provider workflows unchanged.
 	WriteWorkflowRunStore *WriteWorkflowRunStore
 
+	// ReadRunSnapshotStore persists typed read-mode execution snapshots
+	// under <runtime-anchor>/plans/read_runs/. Nil disables the advanced
+	// /read-runs audit command family.
+	ReadRunSnapshotStore *ReadRunSnapshotStore
+
 	// FailureTaxonomy is the stage-3 reader interface for
 	// /pitfalls inspection. The REPL only reads (list / clear);
 	// the orchestrator owns Append. Nil = /pitfalls reports
@@ -741,6 +746,10 @@ type REPL struct {
 	// PlanID when the operator did not pass a plan id explicitly.
 	writeWorkflowRunStore *WriteWorkflowRunStore
 
+	// readRunSnapshotStore backs the advanced /read-runs audit command.
+	// Routine read mode does not auto-resume from this store.
+	readRunSnapshotStore *ReadRunSnapshotStore
+
 	// failureTaxonomy is the read-side handle for /pitfalls.
 	// Same interface the orchestrator's FailureTaxonomyStore
 	// satisfies; REPL only reads (list / clear).
@@ -851,6 +860,7 @@ func New(cfg Config) *REPL {
 		planStore:             cfg.PlanStore,
 		planGroupStore:        cfg.PlanGroupStore,
 		writeWorkflowRunStore: cfg.WriteWorkflowRunStore,
+		readRunSnapshotStore:  cfg.ReadRunSnapshotStore,
 		failureTaxonomy:       cfg.FailureTaxonomy,
 		attachedLogMaxBytes:   cfg.AttachedLogMaxBytes,
 		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
@@ -7198,6 +7208,9 @@ func (r *REPL) handleSlash(line string) bool {
 		return false
 	case "/workflow":
 		r.handleWorkflowCmd(line)
+		return false
+	case "/read-runs":
+		r.handleReadRunsCmd(line)
 		return false
 	case "/verify":
 		r.handleVerifyCmd(line)
