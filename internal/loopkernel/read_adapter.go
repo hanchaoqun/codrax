@@ -136,7 +136,7 @@ func ReadProofGuidanceFromSnapshot(snapshot ProofSnapshot) (ReadProofGuidance, b
 }
 
 func DeriveProofCoverageAuthorityFromSnapshot(snapshot ProofSnapshot) ProofCoverageAuthorityView {
-	return DeriveProofCoverageAuthority(&snapshot.Profile, &snapshot.Ledger)
+	return DeriveProofCoverageAuthorityFromArtifacts(nil, &snapshot.Profile, &snapshot.Ledger)
 }
 
 func EventsFromReadProofSnapshot(runID string, snapshot ProofSnapshot) []LoopEvent {
@@ -345,7 +345,7 @@ func normalizeProofSnapshot(snapshot ProofSnapshot) ProofSnapshot {
 	snapshot.Ledger = types.NormalizeVerificationProofLedger(snapshot.Ledger)
 	snapshot.Authority = normalizeProofCoverageAuthorityView(snapshot.Authority)
 	if snapshot.Authority.State == "" {
-		snapshot.Authority = DeriveProofCoverageAuthority(&snapshot.Profile, &snapshot.Ledger)
+		snapshot.Authority = DeriveProofCoverageAuthorityFromArtifacts(nil, &snapshot.Profile, &snapshot.Ledger)
 	}
 	snapshot.Truth = types.NormalizeTruthLedger(snapshot.Truth)
 	if snapshot.Truth.State == types.TruthLedgerUnknown {
