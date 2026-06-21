@@ -5,6 +5,7 @@ Base branch: `main`
 Base HEAD: `398a32303b`（2026-06-21 复核基线；v2 修订基线为 `2b5c4ba0`，v1 基于 `fa08860d`）
 D1-F9b.1 implementation baseline: `2828ef965`（2026-06-22 NodeArtifactLedger substrate planned baseline；D1-F9a.3 code cutover at `b0ef64be6`）
 Latest external staged-gap prompt re-audit baseline: `64dbcab0`（2026-06-22，D1-F9g.3 selective replay transition table 后；工作树干净）
+D1-F9g.4a replay-audit consumer planning baseline: `3eb411cab`（2026-06-22，external gap prompt 已复核入账；工作树干净）
 
 > 本文与两份既有文档**互补、不重复**：
 > - `ir_driven_execution_engine_prd_20260621.md` —— 架构 PRD（5 个关键问题裁定、Stage 0–3 设计）。
@@ -1240,6 +1241,14 @@ Remaining follow-up:
      7. Add one REPL or CLI audit surface only if it reduces operator burden without expanding routine command mental load. Preferred shape: enrich `/read-runs show <id>` or eval summary with a compact typed replay-audit card rather than adding another required user command.
      8. Representative eval must run after code: at least one source-inventory case, one multi-subtopic read case, one add-proof retry case, one AnalyzeRefine true-path case, and one interrupted/resumed read-run fixture. Audit tool usage (`repo_map`, `tracequery` where applicable), round count, wall time, status-card noise, and final-answer evidence retention.
      9. Routine auto-resume remains blocked until D1-F9g.4 produces stable replay evidence and a later doc-first batch defines precise auto-resume entry conditions. No fuzzy request matching or "latest similar snapshot" selection is allowed.
+   - **D1-F9g.4a implementation slice（typed replay-audit substrate + ReasoningGraph consumer；当前 HEAD `3eb411cab`）**:
+     1. Code facts from pre-implementation audit: `types.ReadRunReplayTransition` already provides closed typed resume-transition reasons; `ReadRunSnapshot` schema v3 persists node status/attempts/read coverage/accepted evidence/source-inventory/active-state/node-artifact refs; `reasoninggraph.EventsFromReadAnswerDocument` already projects read artifacts into append-only graph events; eval telemetry still primarily parses log text and has no typed read-run replay projection.
+     2. Add an import-cycle-safe `types.ReadRunReplayAudit` view derived from two normalized `ReadRunSnapshot` values plus optional `ReadRunReplayTransition` rows. It must carry only typed counts/deltas/reason codes: run ids, schema versions, task-graph hash match, request/repo fingerprint match state, status before/after counts, replay reason counts, accepted-evidence/read-set/read-range/file-total/source-inventory/node-artifact deltas, active-state presence, and bounded changed-path/ref samples.
+     3. Normalize/dedupe/sort all audit fields deterministically. Deltas must be signed counts or bounded sorted sets from typed carriers; no raw prompt text, final-answer prose, model rationale, rendered retry hint, visible thinking log, or user-intent keyword may enter the audit.
+     4. Project the audit into ReasoningGraph as a new read event kind such as `read_replay_audit_projected`. The projection is one-way (`ReadRunSnapshot`/transition table -> graph event/view) and must not mutate `EvidenceClosure`, scheduler state, task graph, or read-run store.
+     5. Add focused tests for snapshot compare determinism, empty/nil snapshot behavior, replay reason count projection, accepted-evidence/read-set/node-artifact/source-inventory deltas, ReasoningGraph reduction into `ReadEvents`, and absence of prose-field consumption.
+     6. Validation target for this first slice: `go test ./internal/types -run 'ReadRunReplay|ReadRunSnapshot' -count=1`; `go test ./internal/reasoninggraph -run 'ReadRunReplay|ReadReplay|ReadProjection|ReasoningGraph' -count=1`; then `go test ./internal/types ./internal/reasoninggraph`.
+     7. Non-goals for 4a: no routine auto-resume, no scheduler decision consumption, no eval batch claims, no new REPL command. D1-F9g.4b will wire compact eval/REPL status-card consumption after 4a proves deterministic.
 8. **D1-F9h AnalyzeRefine commercial guard**：用代表性 eval 和 status-card audit 验证 optional refine 不引入重复“验证还不够稳”噪音、宽泛重探索或 runaway context；补 typed telemetry for extra rounds/tool calls/context estimate/duplicate read ratio，只做 eval/assertion 或 typed budget，不用 noisy signal hard gate。
    - Detailed tasks:
      1. Project `analysis_refinement_handoff` into the canonical runtime artifact ledger using a closed artifact kind or registered typed handoff ref. The payload remains in existing typed carriers; the ledger stores only refs/lineage.
