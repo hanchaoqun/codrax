@@ -142,8 +142,7 @@ func PublishSourceInventoryObservationFromTypedRequest(ctx *types.BusContext) bo
 	if len(query.Roles) == 0 {
 		return false
 	}
-	obs := PublishSourceInventoryObservationFromLens(ctx, query)
-	return obs.IsActive()
+	return publishAndPersistSourceInventoryObservationFromLens(ctx, query)
 }
 
 // PublishSourceInventoryAdvisoryFromToolObservation publishes the same
