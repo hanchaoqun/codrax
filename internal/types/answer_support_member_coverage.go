@@ -8,11 +8,11 @@ import (
 
 const definitionSupportMemberCitationWindow = 5
 
-// AnswerSupportMemberObligation is a principal support-lane member
-// that must survive into an enumeration answer's principal list/table
-// surface. It is derived from typed support entries, not from raw
-// request text, so the finalizer cannot silently drop answer-grade
-// evidence that the explorer already structured.
+// AnswerSupportMemberObligation is a principal support-lane member that must
+// survive into an enumeration answer's principal structured item surface. It is
+// derived from typed support entries, not from raw request text, so the
+// finalizer cannot silently drop answer-grade evidence that the explorer
+// already structured.
 type AnswerSupportMemberObligation struct {
 	EvidenceID   string
 	Location     string
@@ -76,10 +76,9 @@ func (ob AnswerSupportMemberObligation) LocationHint() string {
 }
 
 // StableItemID is a deterministic item-id suggestion for the finalizer's
-// principal list/table row. It is a handoff aid, not an answer fact: the
-// model still owns the visible prose, while validators and normalizers can
-// share one stable id surface instead of re-deriving different ids from the
-// same member.
+// principal structured item. It is a handoff aid, not an answer fact: the model
+// still owns the visible prose, while validators and normalizers can share one
+// stable id surface instead of re-deriving different ids from the same member.
 func (ob AnswerSupportMemberObligation) StableItemID() string {
 	label := strings.TrimSpace(ob.Label)
 	if label == "" && len(ob.SurfaceTerms) > 0 {
@@ -126,13 +125,12 @@ func sanitizeAnswerSupportStableID(label string) string {
 	return strings.Trim(b.String(), "_")
 }
 
-// PrincipalSupportMemberObligations returns the answer-grade
-// principal evidence entries whose locations should appear as
-// cited list/table items in QFEnumeration answers when the support plan
-// explicitly treats the lane as a member slate. Other families, and
-// enumeration-shaped fallbacks with enrichment-only policy, can use
-// principal support lanes for grounded context; forcing all entries there
-// to render as one item each would be too strict.
+// PrincipalSupportMemberObligations returns the answer-grade principal
+// evidence entries whose locations should appear as cited structured principal
+// items in QFEnumeration answers when the support plan explicitly treats the
+// lane as a member slate. Other families, and enumeration-shaped fallbacks with
+// enrichment-only policy, can use principal support lanes for grounded context;
+// forcing all entries there to render as one item each would be too strict.
 func PrincipalSupportMemberObligations(plan *AnswerSupportPlan) []AnswerSupportMemberObligation {
 	if plan == nil || plan.Family != QFEnumeration {
 		return nil
@@ -424,9 +422,9 @@ func principalMemberSurfaceForSupportEntry(entry AnswerSupportEntry) AnswerPrinc
 	return PrincipalMemberSurfaceUnknown
 }
 
-// MissingPrincipalSupportMembers returns the member obligations that
-// are not represented by any principal list/table row item with a
-// citation to the same typed support-entry location.
+// MissingPrincipalSupportMembers returns the member obligations that are not
+// represented by any principal structured item with a citation to the same
+// typed support-entry location.
 func MissingPrincipalSupportMembers(doc *AnswerDocumentV2, plan *AnswerSupportPlan) []AnswerSupportMemberObligation {
 	if doc == nil {
 		return nil
@@ -762,9 +760,7 @@ func supportIndexedItemKey(entry answerSupportIndexedItem) string {
 }
 
 func answerBlockCanCarryPrincipalMember(block AnswerBlock) bool {
-	switch block.Kind {
-	case BlockOrderedList, BlockBulletList, BlockTable:
-	default:
+	if !AnswerBlockKindRendersStructuredItems(block.Kind) {
 		return false
 	}
 	if block.SurfaceRole == SurfacePrincipal {
@@ -779,6 +775,9 @@ func answerBlockCanCarryPrincipalMember(block AnswerBlock) bool {
 		if strings.TrimSpace(cu.FacetID) == string(FacetEnumerationItem) {
 			return true
 		}
+	}
+	if block.Kind == BlockSection {
+		return false
 	}
 	// Enumeration answers frequently use the principal list/table
 	// block before all annotations are filled in. Treat the block

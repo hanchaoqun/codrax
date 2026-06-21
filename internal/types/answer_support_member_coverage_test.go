@@ -88,3 +88,47 @@ func TestPrincipalSupportMemberObligations_StripsAggregateCitationQualifier(t *t
 		t.Fatalf("real file:line citation should satisfy coalesced aggregate member, got %+v", missing)
 	}
 }
+
+func TestMissingPrincipalSupportMembers_AcceptsPrincipalSectionItems(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{{
+				Text:          "Cart extend block",
+				Location:      "cart/Cart.cj:30",
+				Source:        "cart/Cart.cj",
+				LineStart:     30,
+				ClaimForm:     ClaimDefinitionFact,
+				Subject:       "Cart",
+				SurfaceTerms:  []string{"Cart"},
+				LabelSurface:  ClaimLabelSurfaceSymbolLike,
+				MemberSurface: PrincipalMemberSurfaceSymbolLike,
+			}},
+		}},
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "cart/Cart.cj", Line: 30}},
+		Blocks: []AnswerBlock{{
+			ID:          "extend",
+			Kind:        BlockSection,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				ID:          "cart",
+				Label:       "Cart",
+				Text:        "extend block",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if missing := MissingPrincipalSupportMembers(doc, plan); len(missing) != 0 {
+		t.Fatalf("principal section items should satisfy structured member coverage, got %+v", missing)
+	}
+
+	doc.Blocks[0].SurfaceRole = ""
+	doc.Blocks[0].FacetIDs = nil
+	if missing := MissingPrincipalSupportMembers(doc, plan); len(missing) != 1 {
+		t.Fatalf("unannotated section items should not become principal carriers, got %+v", missing)
+	}
+}

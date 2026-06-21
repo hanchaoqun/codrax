@@ -1092,12 +1092,7 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 }
 
 func preEmitBlockRendersItemSurface(kind types.AnswerBlockKind) bool {
-	switch kind {
-	case types.BlockSection, types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
-		return true
-	default:
-		return false
-	}
+	return types.AnswerBlockKindRendersStructuredItems(kind)
 }
 
 func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
@@ -1811,7 +1806,7 @@ func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt 
 	}
 	return []emitFixHint{{
 		Field: "blocks[].items[].citation_ref",
-		ExpectedShape: "include one principal ordered_list / bullet_list / table item for each principal support evidence member, citing a matching typed file:line: " +
+		ExpectedShape: "include one principal structured item for each principal support evidence member, citing a matching typed file:line: " +
 			strings.Join(parts, "; "),
 		Reason: "the investigation already emitted these as answer-grade principal evidence; the final answer must preserve the members or add a cited caveat item for a real exclusion instead of relying on system-added caveats.",
 	}}
@@ -1884,66 +1879,94 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 	}
 	visibleSurface := preEmitVisibleAnswerSurface(doc)
 	displayRows := aggregateMemberSetDisplayRowsByFactIndex(ctx)
+	relationLabelRefs := preEmitRelationMemberSetLabelCarrierRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
 	zh := principalEnumerationPrefersZH(ctx)
 	fixed := 0
 	for _, ref := range refs {
 		fact := ref.Fact
 		rows := displayRows[ref.Index]
+		covered := preEmitAnswerDocumentCoversAggregateMemberSetFact(doc, ctx, fact, visibleSurface) ||
+			preEmitAnswerDocumentCoversEnumerationDisplayRows(doc, rows) ||
+			preEmitAnswerDocumentHasAuthoredEnumerationCarrier(doc, rows)
 		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) ||
 			len(fact.Members) == 0 ||
-			preEmitAnswerDocumentCoversAggregateMemberSetFact(doc, ctx, fact, visibleSurface) ||
-			preEmitAnswerDocumentCoversEnumerationDisplayRows(doc, rows) ||
-			preEmitAnswerDocumentHasAuthoredEnumerationCarrier(doc, rows) {
+			covered {
+			if covered && relationLabelRefs[ref.Index] &&
+				!preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
+				fixed += appendAggregateMemberSetCarrier(doc, ctx, ref.Index, fact, rows, aggregateMemberSetLabelCarrierTitle(fact, zh), aggregateMemberSetLabelCarrierText(fact.Label, zh))
+			}
 			continue
 		}
 		if len(fact.Members) == 1 && preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
 			continue
 		}
-		blockIdx := appendAggregateMemberSetCarrierBlock(doc, ref.Index, aggregateMemberSetCarrierTitle(fact, zh))
-		if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
+		fixed += appendAggregateMemberSetCarrier(doc, ctx, ref.Index, fact, rows, aggregateMemberSetCarrierTitle(fact, zh), aggregateMemberSetCarrierText(fact.Label, zh))
+	}
+	return fixed
+}
+
+func preEmitRelationMemberSetLabelCarrierRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) map[int]bool {
+	out := map[int]bool{}
+	for _, ref := range preEmitPrincipalRelationShapeMemberSetFactRefs(ctx, facts) {
+		out[ref.Index] = true
+	}
+	return out
+}
+
+func appendAggregateMemberSetCarrier(
+	doc *types.AnswerDocumentV2,
+	ctx *types.BusContext,
+	factIdx int,
+	fact types.AnswerAggregateFact,
+	rows []types.EnumerationDisplayRow,
+	title string,
+	text string,
+) int {
+	blockIdx := appendAggregateMemberSetCarrierBlock(doc, factIdx, title)
+	if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
+		return 0
+	}
+	block := &doc.Blocks[blockIdx]
+	block.SurfaceRole = types.SurfacePrincipal
+	block.FacetIDs = mergeStringSet(block.FacetIDs, []string{string(types.FacetEnumerationItem)})
+	block.ClaimUses = append(block.ClaimUses, types.RenderedClaimUse{
+		FacetID:   string(types.FacetEnumerationItem),
+		ClaimForm: types.ClaimDefinitionFact,
+	})
+	block.Text = text
+	fixed := 0
+	for memberIdx, member := range fact.Members {
+		member = strings.TrimSpace(member)
+		if member == "" {
 			continue
 		}
-		block := &doc.Blocks[blockIdx]
-		block.SurfaceRole = types.SurfacePrincipal
-		block.FacetIDs = mergeStringSet(block.FacetIDs, []string{string(types.FacetEnumerationItem)})
-		block.ClaimUses = append(block.ClaimUses, types.RenderedClaimUse{
-			FacetID:   string(types.FacetEnumerationItem),
-			ClaimForm: types.ClaimDefinitionFact,
-		})
-		block.Text = aggregateMemberSetCarrierText(fact.Label, zh)
-		for memberIdx, member := range fact.Members {
-			member = strings.TrimSpace(member)
-			if member == "" {
-				continue
-			}
-			var row types.EnumerationDisplayRow
-			if memberIdx < len(rows) {
-				row = rows[memberIdx]
-			}
-			citationRef := -1
-			if row.HasCitation && strings.TrimSpace(row.Source) != "" && row.LineStart > 0 {
-				citationRef = appendOrReusePreEmitCitation(doc, types.Citation{File: row.Source, Line: row.LineStart})
-			} else if cit, ok := citationForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
-				citationRef = appendOrReusePreEmitCitation(doc, cit)
-			}
-			itemText := ""
-			if strings.TrimSpace(row.Note) != "" {
-				itemText = strings.TrimSpace(row.Note)
-			} else if ev, ok := evidenceForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
-				itemText = aggregateMemberSetEvidenceSummaryText(ev)
-			}
-			itemLabel := aggregateMemberSetCarrierLabel(member)
-			if strings.TrimSpace(row.DisplayLabel) != "" {
-				itemLabel = strings.TrimSpace(row.DisplayLabel)
-			}
-			block.Items = append(block.Items, types.AnswerBlockItem{
-				ID:          aggregateMemberSetCarrierItemID(block.ID, memberIdx, member),
-				Label:       itemLabel,
-				Text:        itemText,
-				CitationRef: citationRef,
-			})
-			fixed++
+		var row types.EnumerationDisplayRow
+		if memberIdx < len(rows) {
+			row = rows[memberIdx]
 		}
+		citationRef := -1
+		if row.HasCitation && strings.TrimSpace(row.Source) != "" && row.LineStart > 0 {
+			citationRef = appendOrReusePreEmitCitation(doc, types.Citation{File: row.Source, Line: row.LineStart})
+		} else if cit, ok := citationForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
+			citationRef = appendOrReusePreEmitCitation(doc, cit)
+		}
+		itemText := ""
+		if strings.TrimSpace(row.Note) != "" {
+			itemText = strings.TrimSpace(row.Note)
+		} else if ev, ok := evidenceForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
+			itemText = aggregateMemberSetEvidenceSummaryText(ev)
+		}
+		itemLabel := aggregateMemberSetCarrierLabel(member)
+		if strings.TrimSpace(row.DisplayLabel) != "" {
+			itemLabel = strings.TrimSpace(row.DisplayLabel)
+		}
+		block.Items = append(block.Items, types.AnswerBlockItem{
+			ID:          aggregateMemberSetCarrierItemID(block.ID, memberIdx, member),
+			Label:       itemLabel,
+			Text:        itemText,
+			CitationRef: citationRef,
+		})
+		fixed++
 	}
 	return fixed
 }
@@ -2047,12 +2070,13 @@ func preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc *types.AnswerDoc
 		return false
 	}
 	for _, block := range doc.Blocks {
-		switch block.Kind {
-		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
-		default:
+		if !types.AnswerBlockKindRendersStructuredItems(block.Kind) {
 			continue
 		}
-		if block.SurfaceRole != types.SurfacePrincipal || len(block.Items) == 0 {
+		if block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		if len(block.Items) == 0 && strings.TrimSpace(block.Text) == "" {
 			continue
 		}
 		if !preEmitBlockSharesFacet(block, []string{string(types.FacetEnumerationItem)}) {
@@ -2065,7 +2089,47 @@ func preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc *types.AnswerDoc
 		if surface == "" {
 			continue
 		}
-		if strings.Contains(strings.ToLower(surface), strings.ToLower(label)) {
+		if preEmitAggregateLabelAppearsInSurface(label, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitAggregateLabelAppearsInSurface(label, surface string) bool {
+	label = strings.TrimSpace(label)
+	surface = strings.TrimSpace(surface)
+	if label == "" || surface == "" {
+		return false
+	}
+	surfaceKey := principalEnumerationLabelKey(surface)
+	if surfaceKey == "" {
+		return false
+	}
+	candidates := []string{label}
+	appendCandidate := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
+		for _, existing := range candidates {
+			if existing == candidate {
+				return
+			}
+		}
+		candidates = append(candidates, candidate)
+	}
+	for _, sep := range []string{" ", "\t", "：", ":", "—", "-", "->", "→"} {
+		if idx := strings.LastIndex(label, sep); idx >= 0 && idx+len(sep) < len(label) {
+			appendCandidate(label[idx+len(sep):])
+		}
+	}
+	for _, candidate := range candidates {
+		key := principalEnumerationLabelKey(candidate)
+		if key == "" {
+			continue
+		}
+		if surfaceKey == key || strings.HasSuffix(surfaceKey, key) || strings.HasSuffix(key, surfaceKey) {
 			return true
 		}
 	}
@@ -2136,6 +2200,26 @@ func aggregateMemberSetCarrierTitle(fact types.AnswerAggregateFact, zh bool) str
 		label = fmt.Sprintf("%s (%d)", label, n)
 	}
 	return "System-verified member supplement: " + label
+}
+
+func aggregateMemberSetLabelCarrierTitle(fact types.AnswerAggregateFact, zh bool) string {
+	label := strings.TrimSpace(fact.Label)
+	if label == "" {
+		if zh {
+			label = "成员维度"
+		} else {
+			label = "member dimension"
+		}
+	}
+	n := len(fact.Members)
+	if n > 0 && !strings.Contains(label, strconv.Itoa(n)) {
+		if zh {
+			label = fmt.Sprintf("%s（%d）", label, n)
+		} else {
+			label = fmt.Sprintf("%s (%d)", label, n)
+		}
+	}
+	return label
 }
 
 func aggregateMemberSetCarrierItemID(blockID string, idx int, member string) string {
@@ -2215,6 +2299,20 @@ func aggregateMemberSetCarrierText(factLabel string, zh bool) string {
 		return "以下成员来自已验收的结构化调查清单；系统保留该清单以确保完整枚举。"
 	}
 	return "以下成员来自已验收的结构化调查清单，分组为：" + factLabel + "；系统保留该清单以确保完整枚举。"
+}
+
+func aggregateMemberSetLabelCarrierText(factLabel string, zh bool) string {
+	factLabel = strings.TrimSpace(factLabel)
+	if !zh {
+		if factLabel == "" {
+			return "This dimension comes from the accepted structured investigation checklist."
+		}
+		return factLabel + " comes from the accepted structured investigation checklist."
+	}
+	if factLabel == "" {
+		return "该维度来自已验收的结构化调查清单。"
+	}
+	return factLabel + " 来自已验收的结构化调查清单。"
 }
 
 func citationForAggregateMemberSetMember(fact types.AnswerAggregateFact, memberIdx int, member string, ctx *types.BusContext) (types.Citation, bool) {
@@ -4054,8 +4152,8 @@ func preCheckRelationMemberSetAnswerShape(doc *types.AnswerDocumentV2, ctxOpt ..
 		return nil
 	}
 	return []emitFixHint{{
-		Field: "blocks[kind=ordered_list|bullet_list|table].items[]",
-		ExpectedShape: "render every principal relation member_set as direct list/table rows before mechanism explanation: " +
+		Field: "blocks[].items[]",
+		ExpectedShape: "render every principal relation member_set as direct structured rows before mechanism explanation: " +
 			strings.Join(missing, "; "),
 		Reason: "relation lookups ask for qualifying members plus proof; a mechanism-only paragraph or compressed prose can hide members and recreate the original off-topic architecture answer.",
 	}}
@@ -4371,9 +4469,7 @@ func preEmitStructuredMemberBlockCoversFact(doc *types.AnswerDocumentV2, fact ty
 	}
 	matched := make(map[int]bool, len(fact.Members))
 	for _, block := range doc.Blocks {
-		switch block.Kind {
-		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
-		default:
+		if !preEmitStructuredMemberSetBlockCanCarry(block) {
 			continue
 		}
 		for idx, member := range fact.Members {
@@ -4389,6 +4485,19 @@ func preEmitStructuredMemberBlockCoversFact(doc *types.AnswerDocumentV2, fact ty
 		}
 	}
 	return false
+}
+
+func preEmitStructuredMemberSetBlockCanCarry(block types.AnswerBlock) bool {
+	if !types.AnswerBlockKindRendersStructuredItems(block.Kind) {
+		return false
+	}
+	if block.Kind != types.BlockSection {
+		return true
+	}
+	if block.SurfaceRole == types.SurfacePrincipal {
+		return true
+	}
+	return preEmitBlockSharesFacet(block, []string{string(types.FacetEnumerationItem)})
 }
 
 func preEmitStructuredBlockCoversAggregateMember(block types.AnswerBlock, member string) bool {

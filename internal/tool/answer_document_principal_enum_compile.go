@@ -729,12 +729,7 @@ func principalEnumerationItemCitationFileCompatible(item types.AnswerBlockItem, 
 }
 
 func principalEnumerationBlockCanCarryRows(block types.AnswerBlock) bool {
-	switch block.Kind {
-	case types.BlockSection, types.BlockTable, types.BlockOrderedList, types.BlockBulletList:
-		return true
-	default:
-		return false
-	}
+	return types.AnswerBlockKindRendersStructuredItems(block.Kind)
 }
 
 func principalEnumerationBlockSetScore(block types.AnswerBlock, set types.EnumerationDisplaySet) int {

@@ -1070,6 +1070,49 @@ func TestPreCheckRelationMemberSetAnswerShape_RequiresSingletonCarrierForTypedRe
 	}
 }
 
+func TestPreCheckRelationMemberSetAnswerShape_AcceptsPrincipalSectionItems(t *testing.T) {
+	mu := types.NewMutableState("which packages declare sources")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "package declarations",
+		Value:   "2",
+		Members: []string{"demo.app", "demo.cart"},
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+	}})
+	mu.SetInvestigationComplete("package declaration set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "packages",
+		Kind:        types.BlockSection,
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		Title:       "package declarations",
+		Items: []types.AnswerBlockItem{
+			{ID: "app", Label: "demo.app"},
+			{ID: "cart", Label: "demo.cart"},
+		},
+	}}}
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) != 0 {
+		t.Fatalf("principal section items should satisfy relation member-set shape, got %+v", got)
+	}
+
+	doc.Blocks[0].SurfaceRole = ""
+	doc.Blocks[0].FacetIDs = nil
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) == 0 {
+		t.Fatal("unannotated section items should not satisfy relation member-set shape")
+	}
+}
+
 func TestPreCheckRelationMemberSetAnswerShape_SkipsMechanismOnlyPlainMemberSet(t *testing.T) {
 	mu := types.NewMutableState("explain how workers invoke capability Y")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -1398,6 +1441,62 @@ func TestNormalizeAggregateMemberSetCarriers_MaterializesExhaustiveEnumerationRo
 	if !strings.Contains(block.Title, "系统按已验证证据补充成员") ||
 		!strings.Contains(block.Text, "结构化调查清单") {
 		t.Fatalf("zh system supplement should be clearly marked and localized: %+v", block)
+	}
+}
+
+func TestNormalizeAggregateMemberSetCarriers_PreservesRelationDimensionLabel(t *testing.T) {
+	mu := types.NewMutableState("list classes and package declarations")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "package declarations",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"demo.app", "demo.cart"},
+		SupportRefs: []string{
+			"demo.app @ main.cj:6",
+			"demo.cart @ cart/Cart.cj:4",
+		},
+	}})
+	mu.SetInvestigationComplete("relation dimension handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "classes",
+		Kind:        types.BlockTable,
+		Title:       "public classes",
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		Text: strings.Join([]string{
+			"| symbol | file | package |",
+			"|---|---|---|",
+			"| App | main.cj:11 | demo.app |",
+			"| Cart | cart/Cart.cj:14 | demo.cart |",
+		}, "\n"),
+	}}}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 2 {
+		t.Fatalf("fixed=%d, want 2", fixed)
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("expected one relation label carrier, got %+v", doc.Blocks)
+	}
+	block := doc.Blocks[1]
+	if block.Title != "package declarations（2）" {
+		t.Fatalf("relation label carrier should preserve typed label, got %+v", block)
+	}
+	if strings.Contains(block.Title+block.Text, "系统按已验证证据补充成员") {
+		t.Fatalf("label carrier should not use noisy system supplement copy: %+v", block)
+	}
+	if len(block.Items) != 2 || block.Items[0].Label != "demo.app" || block.Items[1].Label != "demo.cart" {
+		t.Fatalf("label carrier items did not preserve relation members: %+v", block.Items)
 	}
 }
 

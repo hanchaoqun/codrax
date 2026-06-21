@@ -112,10 +112,5 @@ func answerPrincipalBlockCarriesEnumeration(block AnswerBlock) bool {
 }
 
 func answerPrincipalBlockKindRendersItems(kind AnswerBlockKind) bool {
-	switch kind {
-	case BlockSection, BlockOrderedList, BlockBulletList, BlockTable:
-		return true
-	default:
-		return false
-	}
+	return AnswerBlockKindRendersStructuredItems(kind)
 }

@@ -8,8 +8,9 @@ package types
 //
 //	1× BlockSummary           — describe what the list enumerates +
 //	                            the terminal criterion used to pick.
-//	≥1× BlockOrderedList OR BlockTable OR BlockBulletList — the actual
-//	                            enumeration. The OR is enforced at
+//	≥1× BlockOrderedList OR BlockTable OR BlockBulletList OR BlockSection
+//	                            with items — the actual enumeration.
+//	                            The OR is enforced at
 //	                            B4 validator level via "at least one
 //	                            principal-list block" rule.
 //	                            MaxCount=0 (no bucket-count assumption).
@@ -56,14 +57,14 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 				"so the reader understands what kind of item each row is and why these belong (and none of the others)."),
 		{
 			Kind:                 BlockOrderedList,
-			AlternativeKinds:     []AnswerBlockKind{BlockTable, BlockBulletList},
+			AlternativeKinds:     []AnswerBlockKind{BlockTable, BlockBulletList, BlockSection},
 			MinCount:             1,
 			MaxCount:             0, // no bucket / member count assumption
 			Required:             true,
 			FacetIDs:             []string{string(FacetEnumerationItem)},
 			AcceptableClaimForms: acceptableClaimForms,
 			Rationale: "The enumeration itself. Each item names the member with its authoritative " +
-				"file:line. Use an ordered_list, table, or bullet_list depending on which is clearest; " +
+				"file:line. Use an ordered_list, table, bullet_list, or section with items depending on which is clearest; " +
 				"a table is preferred when members have multiple attributes. Order is alphabetic OR " +
 				"meaningful (e.g. precedence) — describe which in the summary block.",
 			SurfaceRoleHint: SurfacePrincipal,

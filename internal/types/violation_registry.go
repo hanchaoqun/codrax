@@ -995,7 +995,7 @@ func init() {
 		Kind: ViolPrincipalSupportMemberOmitted, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
-		SchemaDescriptionFragment: "For enumeration answers, every entry in the Principal evidence support lane MUST be represented by a cited ordered_list / bullet_list / table item unless the answer explicitly caveats why that member is out of scope.",
+		SchemaDescriptionFragment: "For enumeration answers, every entry in the Principal evidence support lane MUST be represented by a cited principal structured item unless the answer explicitly caveats why that member is out of scope.",
 		FixableByAgents:           []AgentName{AgentFinalizer},
 	})
 

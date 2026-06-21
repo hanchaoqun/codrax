@@ -847,8 +847,8 @@ const (
 	// ViolPrincipalSupportMemberOmitted fires when QFEnumeration's
 	// typed principal_evidence support lane contains an answer-grade
 	// member, but the final AnswerDocumentV2 has no principal
-	// ordered_list / bullet_list / table item citing that member's
-	// location. This catches the class where exploration already
+	// structured item citing that member's location. This catches the class
+	// where exploration already
 	// emitted the correct import/path/route/macro/symbol member, but
 	// finalization compresses the answer and silently drops one row.
 	//

@@ -100,7 +100,7 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
           "columns": {"type": "array", "items": {"type": "string"}, "description": "Optional table header row for kind=table when using structured multi-column rows. Do not use when block.text already contains the markdown table. Omit rather than force headers if unknown; the renderer can synthesize neutral headers."},
           "items": {
             "type": "array",
-            "description": "Block items for ordered_list / bullet_list / table. For tables, each item may use cells[] for a structured multi-column row, or label/text for a simple two-column fallback. If the table is already a markdown table in block.text, leave items empty unless the row needs a citation_ref carrier.",
+            "description": "Block items for section / ordered_list / bullet_list / table. Section/list items use label/text; table items may use cells[] for a structured multi-column row, or label/text for a simple two-column fallback. If the table is already a markdown table in block.text, leave items empty unless the row needs a citation_ref carrier.",
             "items": {
               "type": "object",
               "properties": {
