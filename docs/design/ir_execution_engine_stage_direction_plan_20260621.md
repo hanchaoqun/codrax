@@ -4,6 +4,7 @@ Date: 2026-06-21
 Base branch: `main`
 Base HEAD: `398a32303b`（2026-06-21 复核基线；v2 修订基线为 `2b5c4ba0`，v1 基于 `fa08860d`）
 D1-F9b.1 implementation baseline: `2828ef965`（2026-06-22 NodeArtifactLedger substrate planned baseline；D1-F9a.3 code cutover at `b0ef64be6`）
+Latest external staged-gap prompt re-audit baseline: `b29fecf55`（2026-06-22，D1-F9b.3 artifact readiness cutover 后）
 
 > 本文与两份既有文档**互补、不重复**：
 > - `ir_driven_execution_engine_prd_20260621.md` —— 架构 PRD（5 个关键问题裁定、Stage 0–3 设计）。
@@ -886,9 +887,9 @@ Remaining follow-up:
 
 新增记录纪律：后续任何同事审计、eval 日志或人工审计发现的 gap，先写入本节或 §8/§9 对应任务/ledger，再开始编码；不得用「已修附近问题」代替明确的 scaffold/load-bearing 状态。
 
-## 13. 外部 staged-execution gap prompt 逐项复核（2026-06-22，HEAD `591ed9ddf`）
+## 13. 外部 staged-execution gap prompt 逐项复核（2026-06-22，HEAD `b29fecf55`）
 
-复核来源：`/Users/han/opt/codrax_ir_staged_execution_gap_fix_prompt.md`。本节只记录对当前代码仍成立或部分成立的 gap；已过期的说法必须标明当前替代事实，避免重复修复已完成项。2026-06-22 续读时已重新对照 `591ed9ddf`，补齐外部 prompt 子要求中仍未显式跟踪的 consumed artifact refs、snapshot fingerprint/action state、AnalyzeRefine handoff ledger、ExecutionPolicy cap/critical-path actuator、reducer merge ownership 等任务。
+复核来源：`/Users/han/opt/codrax_ir_staged_execution_gap_fix_prompt.md`。本节只记录对当前代码仍成立或部分成立的 gap；已过期的说法必须标明当前替代事实，避免重复修复已完成项。2026-06-22 续读时已重新对照 `b29fecf55`，补齐外部 prompt 子要求中仍未显式跟踪的 consumed artifact refs、snapshot fingerprint/action state、AnalyzeRefine handoff ledger、ExecutionPolicy cap/critical-path actuator、reducer merge ownership 等任务。
 
 | External gap | 当前事实判定 | 当前代码证据 | 跟踪任务 |
 |---|---|---|---|
@@ -914,6 +915,22 @@ Remaining follow-up:
 | D1-G59a | `ExecutionPolicy.MaxParallelism` / `CriticalPath` 已由 compiler 填充，但 runtime parallelism 仍只消费 operator cap，ready ordering 仍用 declaration order。 | D1-F9e |
 | D1-G60a | AnalyzeRefine `analysis_refinement_handoff` 是 IR output 声明，但没有 runtime ledger projection；代表性 eval 也还未验证 handoff 是否减少后续探索噪音。 | D1-F9h |
 | D1-G61a | Reducer ownership 缺少一张 machine-checkable matrix 覆盖 read set/range/file totals/accepted evidence/source inventory/progress decision/node status/node attempts/node artifacts/fork/snapshot seed；merge 冲突和 latest-authority policy仍散落在实现与测试里。 | D1-F9f |
+
+外部 prompt 全量要求映射（用于防止遗漏；同一问题只保留一个跟踪任务，不重复开分支）：
+
+| Prompt requirement | 当前 `b29fecf55` 判定 | 处置 |
+|---|---|---|
+| 生成事实矩阵，区分 type / production writer / production reader / decision / E2E / eval | **部分完成**。§6/§13 已按 load-bearing 语义复核，但 D1-F9b.4、D1-F9c、D1-F9e、D1-F9f、D1-F9g、D1-F9h 还需在各自批次补充更细的 exit-status 列。 | 纳入每批 ledger 模板；新增项先落盘再编码。 |
+| GAP-1 hard dependency readiness 统一入口 | **dispatch correctness complete；public view polish open**。`evaluateNodeReadinessContext` 是当前唯一调度判定入口，但还不是 status-card/replay 可复用公共 API。 | D1-F9a.4 future polish，不影响当前优先级。 |
+| GAP-2 Inputs/Outputs runtime dataflow | **extract readiness load-bearing；consumption/final audit open**。`ArtifactReadinessView` 已承重，但 ledger record 仍以 produced ref + `Consumer` 字符串为主。 | D1-F9b.4 当前优先。 |
+| GAP-3 typed next-action actuator | **open**。当前 next-action 仍通过 directive 影响 retry，没有 deterministic tool/schema/scope/budget policy。 | D1-F9c。 |
+| GAP-4 StageRunner seam | **open / P2**。先守住主循环行为，再小步搬迁，不引入通用 GraphExecutor。 | D1-F9d。 |
+| GAP-5 snapshot resume selective replay | **partial**。生产 writer/store/显式 resume 已有；fingerprint、active action state、selective replay、eval/reasoning replay open。 | D1-F9g。 |
+| GAP-6 ExecutionPolicy MaxParallelism/CriticalPath | **open**。`RetryBudget` 承重；parallelism 仍只读 operator cap，ready ordering 仍是 declaration order。 | D1-F9e。 |
+| GAP-7 AnalyzeRefine golden/runaway guard | **partial**。false/true E2E golden 已有；handoff ledger、representative eval、status-noise/runaway telemetry open。 | D1-F9h / D2 eval。 |
+| GAP-8 reducer ownership | **partial**。生产 direct writes 已收敛到 reducer guard；ownership matrix、merge conflict/state-machine/selective replay semantics open。 | D1-F9f。 |
+| 禁止 prompt/prose/user keyword hard routing | **持续红线**。本批复核未发现新增 hard route 依赖 prompt/prose；后续 D1-F9c/F9h 尤其要守住。 | 所有批次的 structural/hygiene guard。 |
+| 每个行为 cutover 先 golden/E2E，再改行为 | **持续纪律**。D1-F9b.4 是 lineage/audit cutover，仍需先补 consumed-ref/snapshot/reasoninggraph tests；D1-F9c/F9e/F9g 必须先加 focused/golden。 | 每批任务列表强制写入。 |
 
 ### Batch D1-F9: Staged Execution Kernel Cutover Follow-ups
 
@@ -984,9 +1001,10 @@ Remaining follow-up:
 2. **D1-F9b NodeArtifactLedger substrate**：从现有 `EvidenceReducerInput`、`ToolInvocation`、`ReasoningGraph`、`ReadRunSnapshot` 投影 node-scoped artifact refs，记录 produced/consumed refs、source stage、evidence id、file/range、consumer。不得回写 `AnalysisIR.TaskNode`。
    - Current code facts:
      1. `TaskNode.Inputs` / `Outputs` are immutable declarations only. Runtime code is intentionally blocked from directly reading `n.Inputs` / `n.Outputs` by `TestTaskNodeExecSlotsHaveOnlyExplicitContractConsumers`; the first consumer must be `TaskArtifactContract` or a derived runtime contract, not ad hoc scheduler reads.
-     2. `loopkernel.ArtifactRef` and `reasoninggraph.ReasoningEvidenceRef` already model artifact/evidence references, but `loopkernel` imports `internal/types`, so a ledger stored in `types` cannot import `loopkernel` without an import cycle. D1-F9b must resolve this package boundary before implementation: either promote the canonical runtime artifact-ref shape to `types` and alias/adapt `loopkernel.ArtifactRef`, or keep the ledger in a higher package and persist only normalized refs through typed adapters. It must not introduce a parallel string taxonomy.
-     3. `StageOutput` carries `EvidenceItems`, `AnswerChains`, `ToolResults`, and investigation notes; `TurnAArtifacts` / `MutableState` carry accepted aggregate facts and handoff carriers. `applyStageOutput` has no node/window identity, so node-scoped projection must happen at dispatch sites that still know the ready window (`dispatchExploreWindow` and parallel `res.window`) or through a typed result wrapper.
-     4. `evalExtractInputReady` currently checks global typed payload counts (`Evidence`, `AnswerChains`, `AggregateFacts`, external observations). It does not verify producer lineage or artifact validity. The first load-bearing cutover must not let a dangling ledger ref satisfy extract readiness without a resolvable payload carrier.
+     2. The import-cycle boundary has been resolved by promoting canonical `RuntimeArtifactKind` / `RuntimeArtifactRef` / `NodeArtifactRecord` into `internal/types`; `loopkernel` and `reasoninggraph` must adapt to that shape rather than mint new artifact ID taxonomies.
+     3. `StageOutput` carries `EvidenceItems`, `AnswerChains`, `ToolResults`, and investigation notes; `TurnAArtifacts` / `MutableState` carry accepted aggregate facts and handoff carriers. Node-scoped produced projection now happens at dispatch sites that know the ready window, not in generic `applyStageOutput`.
+     4. `evalExtractInputReady` now consumes `ArtifactReadinessView` derived from `TaskArtifactContract` + `NodeArtifactLedger` + current typed payload carriers. A dangling active ledger ref blocks before fallback payload counts; raw prompt/model prose never satisfies readiness.
+     5. Remaining `b29fecf55` gap: `NodeArtifactRecord` has `ProducerNodeID` plus a `Consumer` string, but no first-class `direction`/`consumer_node_id` or separate consumed record. Snapshot resume validates producer node IDs only; final audit/reasoninggraph cannot yet prove which Extract/Finalize node consumed which resolved refs.
    - Detailed task list:
      1. Add a canonical `RuntimeArtifactRef` / `NodeArtifactRecord` design in `internal/types` or an import-cycle-safe shared package. Fields must be closed/typed enough for hard gates: `kind`, `id`, `producer_node_id`, `producer_stage`, `consumer`, `source_stage`, `evidence_id`, `path`, `line_start`, `line_end`, `content_hash`, `version`, `valid`, `reason_code`.
      2. Add `NodeArtifactLedger` with deterministic indexes by id/kind/producer and idempotent merge. It stores references only, never model prose, raw payloads, or rendered answer text.
@@ -1021,10 +1039,12 @@ Remaining follow-up:
      5. Focused tests cover evidence→extract readiness with resolvable refs, dangling ledger ref blockers, unsupported artifact kind blockers, global payload fallback when no blocking ledger issue exists, aggregate-fact ID resolver parity, and orchestrator env projection from closure ledger.
      6. Final audit consumption was intentionally split to D1-F9b.4 because it should share the consumed-ref model rather than grow a second audit-only lineage surface.
    - **D1-F9b.4 queued after readiness view**:
-     1. Add first-class consumed artifact records or a typed consumption ledger derived from `TaskArtifactContract` + readiness/final audit decisions. A `Consumer` string on produced refs is not enough for replay; the system must know which Extract/Finalize node consumed which resolved refs.
-     2. Project ToolInvocation / ReasoningGraph runtime artifact references from the canonical `types.RuntimeArtifactRef` shape. ReasoningGraph remains an append-only/audit projection, never a second write authority.
-     3. Add consumed-ref snapshot/resume coverage and deterministic fork/parallel merge tests. Skipped/canceled siblings must not create consumed records.
-     4. Keep raw tool output, prompt text, model reasoning, and rendered final answer out of hard-gate lineage surfaces.
+     1. Add first-class consumed artifact lineage without creating a second payload authority. Preferred shape: extend `NodeArtifactRecord` with a closed `direction` enum (`produced` / `consumed`) and `consumer_node_id`, or add an equivalent typed consumption record in `internal/types`; the hard-gate surface must still store refs only.
+     2. Derive consumed records from `TaskArtifactContract` + `ArtifactReadinessView.ResolvedRefs` at actual Extract dispatch/success boundaries. Skipped extract, canceled branches, and unready nodes must not create consumed records. Finalize consumption should be added only when the finalizer consumes a typed answer/final-audit carrier, not from rendered prose.
+     3. Update normalization, dedupe keys, `RecordsByConsumerNode`, snapshot schema/resume validation, and fork merge tests so consumed records survive explicit resume and reject unknown consumer node IDs just as producer node IDs are rejected today.
+     4. Project canonical `types.RuntimeArtifactRef` records into ReasoningGraph / final-audit summaries as append-only evidence of lineage. The projection must be one-way (`EvidenceClosure` / ledger → graph/report), never a decision authority and never a rewrite path into `AnalysisIR`.
+     5. Add tests for produced default compatibility, consumed normalization, unknown consumer-node snapshot rejection, extract-consumed record ingestion, skipped/canceled sibling exclusion, deterministic parallel merge, and reasoninggraph projection from canonical refs.
+     6. Keep raw tool output, prompt text, model reasoning, retry hints, stage reports, and rendered final answer out of hard-gate lineage surfaces.
 3. **D1-F9c ReadDispatchPolicy actuator**：把 `readLoopNextActionDecision` 扩展为 one-shot policy，包含 allowed tools、denied tools、preferred tools、scope paths、budget、reason code。Agent prompt 只渲染 policy 说明；工具/schema过滤与调度必须消费 typed policy。
    - First load-bearing slice: `LoopActionAddProof` only. Reuse `ToolSchemaFilter`, `ExploreToolSurface`, and `ExploreBudget`; keep shadow comparison telemetry and do not parse rendered retry directives.
 4. **D1-F9d lightweight StageRunner seam**：抽取 `StageExecutionRequest` / `StageExecutionResult`，先覆盖 Explore retry/finalize-adjacent路径，保持 BaseAgent 和 stage topology 不变。
