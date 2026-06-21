@@ -1,6 +1,10 @@
 package types
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestNormalizeNodeArtifactRecordsDedupsAndIndexes(t *testing.T) {
 	records := []NodeArtifactRecord{
@@ -136,5 +140,53 @@ func TestMergeNodeArtifactLedgersIsStableAndDeduped(t *testing.T) {
 	}
 	if merged.Records[0].ProducerNodeID != "n1" || merged.Records[1].ProducerNodeID != "n2" {
 		t.Fatalf("merged records not sorted deterministically: %+v", merged.Records)
+	}
+}
+
+func TestRuntimeArtifactAnalysisRefinementHandoffKindAndID(t *testing.T) {
+	if got := NormalizeRuntimeArtifactKind(RuntimeArtifactKind(" analysis_refinement_handoff ")); got != RuntimeArtifactAnalysisRefinementHandoff {
+		t.Fatalf("normalize analysis-refinement kind = %q", got)
+	}
+	decision := ProgressDecision{
+		ShouldReplan: true,
+		ReasonCode:   "raw user words must hash only",
+		Delta: ProgressDelta{
+			Kind:          ProgressDeltaDowngradeBlocker,
+			DowngradeLane: DowngradeLaneContractChain,
+			BlockerKey:    42,
+			Consecutive:   1,
+			HardThreshold: 3,
+		},
+	}
+	id := RuntimeArtifactIDForAnalysisRefinementHandoff(" n-refine ", decision)
+	if id == "" || !strings.HasPrefix(id, "analysis_refinement_handoff:") {
+		t.Fatalf("handoff artifact id = %q", id)
+	}
+	if id != RuntimeArtifactIDForAnalysisRefinementHandoff("n-refine", decision) {
+		t.Fatalf("handoff artifact id is not stable")
+	}
+	if got := RuntimeArtifactIDForAnalysisRefinementHandoff("n-refine", ProgressDecision{}); got != "" {
+		t.Fatalf("empty progress decision should not create a handoff artifact id, got %q", got)
+	}
+	record := NormalizeNodeArtifactRecord(NodeArtifactRecord{
+		ProducerNodeID: "n-refine",
+		ProducerStage:  StageExplore,
+		Consumer:       RuntimeArtifactConsumerAnalysisRefinement,
+		ReasonCode:     "explore_analysis_refinement_handoff",
+		Artifact: RuntimeArtifactRef{
+			Kind:        RuntimeArtifactAnalysisRefinementHandoff,
+			ID:          id,
+			ContentHash: RuntimeArtifactHashForProgressDecision(decision),
+		},
+	})
+	if !record.Valid || record.Artifact.Kind != RuntimeArtifactAnalysisRefinementHandoff {
+		t.Fatalf("normalized handoff record = %+v", record)
+	}
+	raw, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal handoff record: %v", err)
+	}
+	if strings.Contains(string(raw), "raw user words") {
+		t.Fatalf("handoff artifact JSON leaked progress reason prose: %s", raw)
 	}
 }

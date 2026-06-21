@@ -7,13 +7,15 @@ import (
 )
 
 const (
-	RuntimeArtifactConsumerExtract = "extract"
+	RuntimeArtifactConsumerExtract            = "extract"
+	RuntimeArtifactConsumerAnalysisRefinement = "analysis_refinement"
 
 	RuntimeArtifactReasonReadinessConsumed = "artifact_readiness_resolved_ref_consumed"
 
-	taskArtifactInputEvidenceItems  = "evidence_items"
-	taskArtifactInputAnswerChains   = "answer_chains"
-	taskArtifactInputAggregateFacts = "aggregate_facts"
+	taskArtifactInputEvidenceItems             = "evidence_items"
+	taskArtifactInputAnswerChains              = "answer_chains"
+	taskArtifactInputAggregateFacts            = "aggregate_facts"
+	taskArtifactInputAnalysisRefinementHandoff = "analysis_refinement_handoff"
 )
 
 // ArtifactReadinessReasonCode is a closed structural reason family for

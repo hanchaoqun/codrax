@@ -213,6 +213,8 @@ func readRunReplaySupportedOutputKinds(outputs []string) map[RuntimeArtifactKind
 			required[RuntimeArtifactAnswerChain] = true
 		case taskArtifactInputAggregateFacts:
 			required[RuntimeArtifactAggregateFact] = true
+		case taskArtifactInputAnalysisRefinementHandoff:
+			required[RuntimeArtifactAnalysisRefinementHandoff] = true
 		}
 	}
 	if len(required) == 0 {

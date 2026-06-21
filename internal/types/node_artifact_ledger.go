@@ -12,14 +12,15 @@ import (
 type RuntimeArtifactKind string
 
 const (
-	RuntimeArtifactUnknown        RuntimeArtifactKind = "unknown"
-	RuntimeArtifactEvidenceItem   RuntimeArtifactKind = "evidence_item"
-	RuntimeArtifactAnswerChain    RuntimeArtifactKind = "answer_chain"
-	RuntimeArtifactAggregateFact  RuntimeArtifactKind = "aggregate_fact"
-	RuntimeArtifactSource         RuntimeArtifactKind = "source"
-	RuntimeArtifactToolInvocation RuntimeArtifactKind = "tool_invocation"
-	RuntimeArtifactRepoMap        RuntimeArtifactKind = "repo_map"
-	RuntimeArtifactProof          RuntimeArtifactKind = "proof"
+	RuntimeArtifactUnknown                   RuntimeArtifactKind = "unknown"
+	RuntimeArtifactEvidenceItem              RuntimeArtifactKind = "evidence_item"
+	RuntimeArtifactAnswerChain               RuntimeArtifactKind = "answer_chain"
+	RuntimeArtifactAggregateFact             RuntimeArtifactKind = "aggregate_fact"
+	RuntimeArtifactSource                    RuntimeArtifactKind = "source"
+	RuntimeArtifactToolInvocation            RuntimeArtifactKind = "tool_invocation"
+	RuntimeArtifactRepoMap                   RuntimeArtifactKind = "repo_map"
+	RuntimeArtifactProof                     RuntimeArtifactKind = "proof"
+	RuntimeArtifactAnalysisRefinementHandoff RuntimeArtifactKind = "analysis_refinement_handoff"
 )
 
 // RuntimeArtifactDirection is the closed lineage edge direction for one
@@ -85,6 +86,8 @@ func NormalizeRuntimeArtifactKind(kind RuntimeArtifactKind) RuntimeArtifactKind 
 		return RuntimeArtifactRepoMap
 	case RuntimeArtifactProof:
 		return RuntimeArtifactProof
+	case RuntimeArtifactAnalysisRefinementHandoff:
+		return RuntimeArtifactAnalysisRefinementHandoff
 	case RuntimeArtifactUnknown:
 		return RuntimeArtifactUnknown
 	default:

@@ -10,9 +10,10 @@ import (
 const (
 	exploreNodeArtifactConsumerExtract = "extract"
 
-	exploreNodeArtifactReasonEvidenceItem  = "explore_stage_output_evidence_item"
-	exploreNodeArtifactReasonAnswerChain   = "explore_stage_output_answer_chain"
-	exploreNodeArtifactReasonAggregateFact = "explore_accepted_aggregate_fact"
+	exploreNodeArtifactReasonEvidenceItem              = "explore_stage_output_evidence_item"
+	exploreNodeArtifactReasonAnswerChain               = "explore_stage_output_answer_chain"
+	exploreNodeArtifactReasonAggregateFact             = "explore_accepted_aggregate_fact"
+	exploreNodeArtifactReasonAnalysisRefinementHandoff = "explore_analysis_refinement_handoff"
 )
 
 type exploreNodeArtifactProjectionSnapshot struct {
@@ -20,6 +21,7 @@ type exploreNodeArtifactProjectionSnapshot struct {
 	answerChainIDs    map[string]bool
 	aggregateFactIDs  map[string]bool
 	aggregateFactList []types.AnswerAggregateFact
+	progressDecision  types.ProgressDecision
 }
 
 func captureExploreNodeArtifactProjectionSnapshot(bus *types.BusContext, mut *types.MutableState) exploreNodeArtifactProjectionSnapshot {
@@ -52,6 +54,9 @@ func captureExploreNodeArtifactProjectionSnapshot(bus *types.BusContext, mut *ty
 				snap.aggregateFactIDs[id] = true
 			}
 		}
+		if closure := mut.EvidenceClosure(); closure != nil {
+			snap.progressDecision = closure.LatestProgressDecision()
+		}
 	}
 	return snap
 }
@@ -71,6 +76,7 @@ func (o *Orchestrator) ingestExploreNodeArtifactsForWindow(
 	}
 	records := exploreNodeArtifactRecordsForOutput(producers, output, before)
 	records = append(records, exploreNodeArtifactRecordsForAggregateFacts(producers, before, after)...)
+	records = append(records, exploreNodeArtifactRecordsForAnalysisRefinementHandoff(window, after.progressDecision)...)
 	if len(records) == 0 {
 		return
 	}
@@ -156,6 +162,55 @@ func exploreNodeArtifactRecordsForOutput(
 		}
 	}
 	return records
+}
+
+func exploreNodeArtifactRecordsForAnalysisRefinementHandoff(
+	window []*types.TaskNode,
+	decision types.ProgressDecision,
+) []types.NodeArtifactRecord {
+	if len(window) == 0 {
+		return nil
+	}
+	var records []types.NodeArtifactRecord
+	for _, node := range window {
+		if node == nil || !exploreNodeDeclaresOutput(node, "analysis_refinement_handoff") {
+			continue
+		}
+		producer := strings.TrimSpace(node.ID)
+		id := types.RuntimeArtifactIDForAnalysisRefinementHandoff(producer, decision)
+		if producer == "" || id == "" {
+			continue
+		}
+		records = append(records, types.NodeArtifactRecord{
+			ProducerNodeID: producer,
+			ProducerStage:  types.StageExplore,
+			SourceStage:    types.StageExplore,
+			Consumer:       types.RuntimeArtifactConsumerAnalysisRefinement,
+			ReasonCode:     exploreNodeArtifactReasonAnalysisRefinementHandoff,
+			Artifact: types.RuntimeArtifactRef{
+				Kind:        types.RuntimeArtifactAnalysisRefinementHandoff,
+				ID:          id,
+				ContentHash: types.RuntimeArtifactHashForProgressDecision(decision),
+			},
+		})
+	}
+	return records
+}
+
+func exploreNodeDeclaresOutput(node *types.TaskNode, output string) bool {
+	if node == nil {
+		return false
+	}
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return false
+	}
+	for _, raw := range node.Outputs {
+		if strings.TrimSpace(raw) == output {
+			return true
+		}
+	}
+	return false
 }
 
 func exploreNodeArtifactRecordsForAggregateFacts(

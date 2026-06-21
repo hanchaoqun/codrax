@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"hash/fnv"
+	"strconv"
 	"strings"
 )
 
@@ -48,6 +49,59 @@ func RuntimeArtifactIDForAggregateFactIdentity(identity string) string {
 		return ""
 	}
 	return "aggregate_fact:" + RuntimeArtifactHashString(identity)
+}
+
+// RuntimeArtifactIdentityForAnalysisRefinementHandoff returns the typed,
+// prose-free identity for a compiler-authored AnalyzeRefine handoff. The
+// payload remains the current ProgressDecision carrier; the artifact ledger
+// stores only this stable lineage ref.
+func RuntimeArtifactIdentityForAnalysisRefinementHandoff(producerNodeID string, decision ProgressDecision) string {
+	producerNodeID = strings.TrimSpace(producerNodeID)
+	if producerNodeID == "" || progressDecisionEmpty(decision) {
+		return ""
+	}
+	delta := decision.Delta
+	parts := []string{
+		producerNodeID,
+		strconv.FormatBool(decision.ShouldReplan),
+		strings.TrimSpace(decision.ReasonCode),
+		strings.TrimSpace(string(delta.Kind)),
+		strings.TrimSpace(string(delta.DowngradeLane)),
+		strconv.FormatUint(uint64(delta.BlockerKey), 10),
+		strconv.Itoa(delta.Consecutive),
+		strconv.Itoa(delta.HardThreshold),
+	}
+	return strings.Join(parts, "\x1f")
+}
+
+// RuntimeArtifactIDForAnalysisRefinementHandoff returns the stable ledger ID
+// for a typed AnalyzeRefine handoff. It hashes the identity so rendered user
+// text or prompt fragments cannot leak into artifact refs.
+func RuntimeArtifactIDForAnalysisRefinementHandoff(producerNodeID string, decision ProgressDecision) string {
+	identity := RuntimeArtifactIdentityForAnalysisRefinementHandoff(producerNodeID, decision)
+	if identity == "" {
+		return ""
+	}
+	return "analysis_refinement_handoff:" + RuntimeArtifactHashString(identity)
+}
+
+func RuntimeArtifactHashForProgressDecision(decision ProgressDecision) string {
+	identity := RuntimeArtifactIdentityForAnalysisRefinementHandoff("progress_decision", decision)
+	if identity == "" {
+		return ""
+	}
+	return RuntimeArtifactHashString(identity)
+}
+
+func progressDecisionEmpty(decision ProgressDecision) bool {
+	delta := decision.Delta
+	return !decision.ShouldReplan &&
+		strings.TrimSpace(decision.ReasonCode) == "" &&
+		strings.TrimSpace(string(delta.Kind)) == "" &&
+		strings.TrimSpace(string(delta.DowngradeLane)) == "" &&
+		delta.BlockerKey == 0 &&
+		delta.Consecutive == 0 &&
+		delta.HardThreshold == 0
 }
 
 // RuntimeArtifactHashString is the stable short hash used inside runtime

@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -50,6 +51,87 @@ func TestDispatchExploreWindowProjectsNodeArtifacts(t *testing.T) {
 	}
 	if got := len(o.busCtx.Mutable.EvidenceClosure().NodeArtifactLedger().RecordsByProducer("explore-serial")); got != 3 {
 		t.Fatalf("self-loop re-emit should not duplicate node artifacts, got %d", got)
+	}
+}
+
+func TestDispatchExploreWindowProjectsAnalysisRefinementHandoff(t *testing.T) {
+	decision := types.ProgressDecision{
+		ShouldReplan: true,
+		ReasonCode:   "raw user words must not leak",
+		Delta: types.ProgressDelta{
+			Kind:          types.ProgressDeltaDowngradeBlocker,
+			DowngradeLane: types.DowngradeLaneContractChain,
+			BlockerKey:    42,
+			Consecutive:   1,
+			HardThreshold: 3,
+		},
+	}
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			ctx.Mutable.EvidenceClosure().SetLatestProgressDecision(decision)
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+	})
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.busCtx = projectionBusContext("analysis refine projection")
+	window := []*types.TaskNode{{
+		ID:      "n_refine",
+		Type:    types.NodeProbe,
+		Outputs: []string{"analysis_refinement_handoff", "progress_decision"},
+	}}
+
+	if _, err := o.dispatchExploreWindow(window); err != nil {
+		t.Fatalf("dispatchExploreWindow: %v", err)
+	}
+	records := o.busCtx.Mutable.EvidenceClosure().NodeArtifactLedger().RecordsByProducer("n_refine")
+	if len(records) != 1 {
+		t.Fatalf("handoff records = %+v, want exactly one", records)
+	}
+	record := records[0]
+	wantID := types.RuntimeArtifactIDForAnalysisRefinementHandoff("n_refine", decision)
+	if record.Artifact.Kind != types.RuntimeArtifactAnalysisRefinementHandoff ||
+		record.Artifact.ID != wantID ||
+		record.Artifact.ContentHash != types.RuntimeArtifactHashForProgressDecision(decision) ||
+		record.Consumer != types.RuntimeArtifactConsumerAnalysisRefinement {
+		t.Fatalf("unexpected handoff record: %+v want_id=%q", record, wantID)
+	}
+	raw, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal handoff record: %v", err)
+	}
+	if strings.Contains(string(raw), "raw user words") {
+		t.Fatalf("handoff record leaked progress reason prose: %s", raw)
+	}
+
+	if _, err := o.dispatchExploreWindow(window); err != nil {
+		t.Fatalf("second dispatchExploreWindow: %v", err)
+	}
+	if got := len(o.busCtx.Mutable.EvidenceClosure().NodeArtifactLedger().RecordsByProducer("n_refine")); got != 1 {
+		t.Fatalf("second dispatch should dedupe handoff artifact, got %d", got)
+	}
+	snapshot := types.ReadRunSnapshotFromBusContext(o.busCtx, "analysis-refine-projection")
+	if got := len(snapshot.NodeArtifacts); got != 1 || snapshot.NodeArtifacts[0].Artifact.Kind != types.RuntimeArtifactAnalysisRefinementHandoff {
+		t.Fatalf("snapshot handoff artifacts = %+v", snapshot.NodeArtifacts)
+	}
+}
+
+func TestDispatchExploreWindowSkipsAnalysisRefinementHandoffWithoutTypedProgress(t *testing.T) {
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+	})
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.busCtx = projectionBusContext("analysis refine false projection")
+	if _, err := o.dispatchExploreWindow([]*types.TaskNode{{
+		ID:      "n_refine",
+		Type:    types.NodeProbe,
+		Outputs: []string{"analysis_refinement_handoff"},
+	}}); err != nil {
+		t.Fatalf("dispatchExploreWindow: %v", err)
+	}
+	if got := o.busCtx.Mutable.EvidenceClosure().NodeArtifactLedger().RecordsByProducer("n_refine"); len(got) != 0 {
+		t.Fatalf("handoff without progress decision should stay absent: %+v", got)
 	}
 }
 
