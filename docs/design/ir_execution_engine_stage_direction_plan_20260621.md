@@ -591,6 +591,37 @@ Remaining follow-up:
 
 ---
 
+### Batch D1-F6: Source-Inventory Dimension And Support-Loop Closure
+
+目标：
+- Close the remaining source-inventory commercial gaps surfaced by D1-F5 without weakening correctness: analyzer prescan noise, requested-dimension presentation, principal/support coverage warnings, and repeated support/navigation validation loops.
+- Preserve the project red line: no hard routing from user intent keywords, prompt prose, model rationale, rendered answer text, or noisy grep/ranker counts.
+
+代码探索点：
+- Analyzer prescan and post-analysis normalization surfaces: `internal/tool/emit_analysis.go`, `internal/orchestrator/analyzer_autocorrect_rebuild.go`, `internal/types/requested_answer_dimensions*`, `internal/types/answer_evidence_origin.go`.
+- Requested-dimension and carrier surfaces: `AnswerAggregateFact.Dimensions`, `AnswerBlockItem.Cells`, `Principal Enumeration Rows`, `types.AnswerSupportPlan`, pre-emit/document normalization helpers.
+- Support-loop and navigation severity surfaces: `checkTier1Floor`, `SourceLocalizationReview`, `RepoMapNavigationPolicy`, `read_localizer_navigation_missing`, source-inventory `SourceInventoryObservationFromMutable`, and required-file forced-read gates.
+- Eval harness dimension scoring for source-inventory cases, especially `missing_section:package`.
+
+任务：
+- **D1-F6a requested-dimension carrier**: derive a typed per-member dimension projection from accepted evidence/aggregate facts and requested-answer dimensions. For package/module/namespace-like dimensions, preserve values as table columns/cells or structured item detail when the principal member rows are otherwise covered. This must consume typed dimensions, evidence `SurfaceTerms`, member notes, or source parser fields; it must not parse final prose for route decisions.
+- **D1-F6b eval adapter audit**: update eval scoring to distinguish semantic dimension satisfaction from section-label coupling. A case should not fail `missing_section:package` when every listed member visibly carries a package path. Keep strict failure for real missing package values.
+- **D1-F6c analyzer navigation priority ledger**: implement a typed analyzer-prescan telemetry/priority view after `emit_analysis`, not a RawRequest keyword gate. The first implementation may only demote broad grep-derived required files behind deterministic list/repo-map candidates after a typed source-inventory lane exists; pre-analysis prompt freedom remains soft until a typed contract exists.
+- **D1-F6d support/navigation loop severity**: when source-inventory principal member sets are complete and all requested dimensions are visible, downgrade missing optional navigation lenses (for example `relation_map`) and documentation/support-file obligations to status-card/audit surfaces unless a typed principal obligation consumes them.
+- **D1-F6e coverage-noise unification**: make principal-support coverage consume the same normalized rich member carrier used by answer-document normalization, so correct source-inventory answers do not ship `contract_warning` solely because the model used a summary/table split.
+
+验证：
+- Focused unit tests for dimension carrier, eval adapter scoring, analyzer required-file demotion, and support/navigation severity.
+- `go test ./internal/types ./internal/tool ./internal/orchestrator ./eval/telemetry`
+- `go test ./...`
+- Re-run `arkts_repomap`, `cangjie_repomap`, and `cangjie_repomap_fixture` with `PARALLEL=2`; target: all functionally correct, no false `missing_section:package`, no repeated validation loop after complete principal coverage, and no generic contract warning for correctly covered source-inventory rows.
+
+退出标准：
+- D1-G7/D1-G14/D1-G15 have explicit pass/fail evidence in the ledger.
+- Any remaining analyzer broad prescan work is recorded as telemetry-only unless a typed post-analysis contract can safely carry a deterministic demotion.
+
+---
+
 ## 10. v2 修订记录（团队复核逐条核实结果）
 
 | v1 表述 | 复核结论 | v2 修正 |
