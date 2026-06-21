@@ -572,7 +572,7 @@ func newAnswerSupportDocumentIndex(doc *AnswerDocumentV2) *answerSupportDocument
 			}
 			entry := answerSupportIndexedItem{
 				item:      item,
-				blockText: block.Text,
+				blockText: AnswerBlockVisibleSurface(block),
 				citation:  doc.Citations[item.CitationRef],
 			}
 			if principal {
@@ -680,7 +680,9 @@ func (index *answerSupportDocumentIndex) coversSupportMember(ob AnswerSupportMem
 		if !citationCoversSupportMember(entry.citation, ob) {
 			continue
 		}
-		if len(ob.SurfaceTerms) == 0 || answerItemSurfaceMentionsSupportMember(entry.item, ob) {
+		if len(ob.SurfaceTerms) == 0 ||
+			answerItemSurfaceMentionsSupportMember(entry.item, ob) ||
+			answerTextMentionsSupportMember(entry.blockText, ob) {
 			return true
 		}
 	}

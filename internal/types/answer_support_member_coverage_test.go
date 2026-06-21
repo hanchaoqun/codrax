@@ -132,3 +132,64 @@ func TestMissingPrincipalSupportMembers_AcceptsPrincipalSectionItems(t *testing.
 		t.Fatalf("unannotated section items should not become principal carriers, got %+v", missing)
 	}
 }
+
+func TestMissingPrincipalSupportMembers_AcceptsBlockTextWithCitationSidecars(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{
+				{
+					EvidenceID:    "aggregate_fact:member_set:0:0",
+					Text:          "extend Cart",
+					Location:      "cart/Cart.cj:30",
+					Source:        "cart/Cart.cj",
+					LineStart:     30,
+					ClaimForm:     ClaimDefinitionFact,
+					Subject:       "extend Cart",
+					SurfaceTerms:  []string{"extend Cart", "Cart"},
+					LabelSurface:  ClaimLabelSurfaceSymbolLike,
+					MemberSurface: PrincipalMemberSurfaceSymbolLike,
+				},
+				{
+					EvidenceID:    "aggregate_fact:member_set:1:0",
+					Text:          "native_add",
+					Location:      "bridge/Bridge.cj:6",
+					Source:        "bridge/Bridge.cj",
+					LineStart:     6,
+					ClaimForm:     ClaimDefinitionFact,
+					Subject:       "native_add",
+					SurfaceTerms:  []string{"native_add"},
+					LabelSurface:  ClaimLabelSurfaceSymbolLike,
+					MemberSurface: PrincipalMemberSurfaceSymbolLike,
+				},
+			},
+		}},
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{
+			{File: "cart/Cart.cj", Line: 30},
+			{File: "bridge/Bridge.cj", Line: 6},
+		},
+		Blocks: []AnswerBlock{{
+			ID:          "table",
+			Kind:        BlockTable,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Text:        "| 维度 | 符号名 | 文件路径 |\n|---|---|---|\n| extend 块 | extend Cart | cart/Cart.cj:30 |\n| foreign func 声明 | native_add | bridge/Bridge.cj:6 |",
+			Items: []AnswerBlockItem{
+				{ID: "cart-cite", CitationRef: 0},
+				{ID: "native-cite", CitationRef: 1},
+			},
+		}},
+	}
+	if missing := MissingPrincipalSupportMembers(doc, plan); len(missing) != 0 {
+		t.Fatalf("block text plus matching citation sidecars should satisfy support-member coverage, got %+v", missing)
+	}
+
+	doc.Blocks[0].Text = "| 维度 | 符号名 | 文件路径 |\n|---|---|---|\n| extend 块 | extend Cart | cart/Cart.cj:30 |"
+	missing := MissingPrincipalSupportMembers(doc, plan)
+	if len(missing) != 1 || missing[0].Label != "native_add" {
+		t.Fatalf("citation sidecar without visible member text must still be missing, got %+v", missing)
+	}
+}
