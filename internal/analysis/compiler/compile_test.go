@@ -123,6 +123,49 @@ func TestStageExpansionOptInPreciseBoolean(t *testing.T) {
 	}
 }
 
+func TestAnalyzeRefineOptionalNodeIsCompilerAuthoredAndBounded(t *testing.T) {
+	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	var refine, finalize types.TaskNode
+	refineCount := 0
+	for _, n := range out.TaskGraph.Nodes {
+		for _, c := range n.EntryConditions {
+			if c.Kind != types.CritProgressReplanRequired {
+				continue
+			}
+			refine = n
+			refineCount++
+		}
+		if n.Type == types.NodeFinalize {
+			finalize = n
+		}
+	}
+	if refineCount != 1 || refine.ID == "" {
+		t.Fatalf("want exactly one optional analyze-refine node, count=%d nodes=%+v", refineCount, out.TaskGraph.Nodes)
+	}
+	if refine.Type != types.NodeProbe || !refine.Optional || !refine.OneShot || refine.MaxRetries != 1 {
+		t.Fatalf("refine node should be bounded optional probe, got %+v", refine)
+	}
+	if !containsString(refine.Inputs, "progress_decision") || !containsString(refine.Outputs, "analysis_refinement_handoff") {
+		t.Fatalf("refine artifact contract missing: inputs=%v outputs=%v", refine.Inputs, refine.Outputs)
+	}
+	if finalize.ID == "" || !hasEdge(out.TaskGraph, refine.ID, finalize.ID, types.EdgeSoftDependency) {
+		t.Fatalf("refine should have a soft edge to finalize; edges=%+v", out.TaskGraph.Edges)
+	}
+
+	EnsureReadStageNodes(&out.TaskGraph)
+	refineCount = 0
+	for _, n := range out.TaskGraph.Nodes {
+		for _, c := range n.EntryConditions {
+			if c.Kind == types.CritProgressReplanRequired {
+				refineCount++
+			}
+		}
+	}
+	if refineCount != 1 {
+		t.Fatalf("EnsureReadStageNodes should be idempotent for analyze-refine; count=%d", refineCount)
+	}
+}
+
 func TestCompile_ExtractStageNodeWiresBeforeFinalize(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
 	var extract, finalize types.TaskNode
@@ -395,10 +438,10 @@ func TestCompile_MultiTopicCrossComponentTraceKeepsArchitectureTemplate(t *testi
 
 func TestCompile_UnknownScenarioFallsBackToGeneric(t *testing.T) {
 	out := compileT(sampleRM("no_such_scenario", types.IntentExplain, types.ComplexityModerate))
-	// Generic template has probe, evidence, optional source-inventory reprobe,
-	// extract, finalize.
-	if len(out.TaskGraph.Nodes) != 5 {
-		t.Fatalf("unknown scenario should fall back to generic (5 nodes); got %d", len(out.TaskGraph.Nodes))
+	// Generic template has probe/evidence plus compiler-authored optional
+	// source-inventory + analyze-refine nodes, extract, and finalize.
+	if len(out.TaskGraph.Nodes) != 6 {
+		t.Fatalf("unknown scenario should fall back to generic (6 nodes); got %d", len(out.TaskGraph.Nodes))
 	}
 }
 

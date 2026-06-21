@@ -16,6 +16,7 @@ func EnsureReadStageNodes(g *types.TaskGraph) {
 		return
 	}
 	ensureSourceInventoryReprobeNode(g)
+	ensureAnalyzeRefineNode(g)
 	if hasNodeType(*g, types.NodeExtract) {
 		return
 	}
@@ -98,6 +99,40 @@ func ensureSourceInventoryReprobeNode(g *types.TaskGraph) {
 	}
 }
 
+func ensureAnalyzeRefineNode(g *types.TaskGraph) {
+	if g == nil || hasAnalyzeRefineNode(*g) {
+		return
+	}
+	finalIdx := firstNodeIndexByType(*g, types.NodeFinalize)
+	if finalIdx < 0 {
+		return
+	}
+	finalID := g.Nodes[finalIdx].ID
+	refine := types.TaskNode{
+		ID:        uniqueAnalyzeRefineNodeID(*g, finalID),
+		Type:      types.NodeProbe,
+		Objective: "Refine the active analysis scope from typed progress-delta state when another bounded pass can add information.",
+		Inputs:    []string{"progress_decision", "evidence_closure"},
+		Outputs:   []string{"analysis_refinement_handoff", "progress_decision"},
+		EntryConditions: []types.Criterion{
+			{Kind: types.CritProgressReplanRequired},
+		},
+		Optional:   true,
+		OneShot:    true,
+		MaxRetries: 1,
+	}
+	g.Nodes = append(g.Nodes, types.TaskNode{})
+	copy(g.Nodes[finalIdx+1:], g.Nodes[finalIdx:])
+	g.Nodes[finalIdx] = refine
+	if !taskGraphHasEdge(*g, refine.ID, finalID, types.EdgeSoftDependency) {
+		g.Edges = append(g.Edges, types.TaskEdge{
+			From:     refine.ID,
+			To:       finalID,
+			EdgeType: types.EdgeSoftDependency,
+		})
+	}
+}
+
 func hasSourceInventoryReprobeNode(g types.TaskGraph) bool {
 	for _, n := range g.Nodes {
 		if !n.Optional || n.Type != types.NodeProbe {
@@ -105,6 +140,20 @@ func hasSourceInventoryReprobeNode(g types.TaskGraph) bool {
 		}
 		for _, c := range n.EntryConditions {
 			if c.Kind == types.CritSourceClassUniverseIncomplete {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasAnalyzeRefineNode(g types.TaskGraph) bool {
+	for _, n := range g.Nodes {
+		if !n.Optional || n.Type != types.NodeProbe {
+			continue
+		}
+		for _, c := range n.EntryConditions {
+			if c.Kind == types.CritProgressReplanRequired {
 				return true
 			}
 		}
@@ -155,6 +204,27 @@ func uniqueSourceInventoryReprobeNodeID(g types.TaskGraph, finalID string) strin
 		base = base + "_source_inventory_reprobe"
 	default:
 		base = "n_source_inventory_reprobe"
+	}
+	if !nodeIDExists(g, base) {
+		return base
+	}
+	for i := 0; ; i++ {
+		candidate := base + "_" + strconv.Itoa(i)
+		if !nodeIDExists(g, candidate) {
+			return candidate
+		}
+	}
+}
+
+func uniqueAnalyzeRefineNodeID(g types.TaskGraph, finalID string) string {
+	base := strings.TrimSpace(finalID)
+	switch {
+	case strings.HasSuffix(base, "finalize"):
+		base = strings.TrimSuffix(base, "finalize") + "analyze_refine"
+	case base != "":
+		base = base + "_analyze_refine"
+	default:
+		base = "n_analyze_refine"
 	}
 	if !nodeIDExists(g, base) {
 		return base
