@@ -523,7 +523,7 @@ Remaining gap:
 
 #### Batch 6B: Root-Cause Evidence Parity Matrix
 
-Status: in progress on 2026-06-23.
+Status: delivered first executable slice on 2026-06-23.
 
 Exploration notes:
 
@@ -617,6 +617,27 @@ Out of scope for Batch 6B and queued for Batch 6C+:
   representative customer `.sys` captures. Those families remain required
   before retiring the built-in sys parser; they are not hidden by the first
   matrix slice.
+
+Delivered notes:
+
+- Added `TestConvertFileNoPerfTraceRootCauseEvidenceParityMatrix`, which runs
+  the same compact no-perf root-cause evidence fixture through explicit
+  `builtin` and explicit `trace_streamer` engines, then validates the bounded
+  semantic projection that `trace_query` exposes to downstream answer stages.
+- The first executable slice now covers scheduler state reconstruction,
+  wakeup/waking anchors, CPU frequency/idle, clock rates, B/E/C trace markers,
+  frame-like spans, IRQ, softirq, provider decisions, trace DB artifacts, and
+  SQL coverage records.
+- The test found and fixed two reusable gaps:
+  - `irqName` no longer misreads offset `0` as an event-id-backed string when an
+    IRQ format uses `char name[N]`;
+  - SQL-exported integer tracepoint counters now use integer text for
+    `cpu_idle`, `cpu_frequency`, `cpu_frequency_limits`, and
+    `clock_set_rate`, so `trace_query` consumes the same typed fields as the
+    built-in path.
+- Verification for this slice:
+  - `go test ./internal/hitraceconv -run TestConvertFileNoPerfTraceRootCauseEvidenceParityMatrix -count=1 -v`
+  - `go test ./internal/hitraceconv ./internal/tracequery`
 
 Exit criteria:
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -681,7 +682,7 @@ func exportTraceDBCPUMeasures(ctx context.Context, tdb *traceDB, sink *traceDBRo
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		valueText := traceDBAnyText(value, "0")
+		valueText := traceDBIntegerText(value, "0")
 		body := ""
 		switch name {
 		case "cpu_idle":
@@ -729,7 +730,7 @@ func exportTraceDBClockRates(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		if err := addTraceDBInstantRow(sink, ts, "<kworker>", 0, 0, 0, fmt.Sprintf("clock_set_rate: %s state=%s cpu_id=0", name, traceDBAnyText(value, "0"))); err != nil {
+		if err := addTraceDBInstantRow(sink, ts, "<kworker>", 0, 0, 0, fmt.Sprintf("clock_set_rate: %s state=%s cpu_id=0", name, traceDBIntegerText(value, "0"))); err != nil {
 			return coverage, err
 		}
 		coverage.RowsEmitted++
@@ -1043,6 +1044,53 @@ func traceDBInt64FromAny(value any, fallback int64) int64 {
 		return int64(f)
 	}
 	return fallback
+}
+
+func traceDBIntegerText(value any, fallback string) string {
+	switch v := value.(type) {
+	case nil:
+		return fallback
+	case []byte:
+		return traceDBIntegerString(string(v), fallback)
+	case string:
+		return traceDBIntegerString(v, fallback)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case int:
+		return strconv.Itoa(v)
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return fallback
+		}
+		return strconv.FormatInt(int64(math.Round(v)), 10)
+	case sql.NullString:
+		if v.Valid {
+			return traceDBIntegerString(v.String, fallback)
+		}
+	case sql.NullInt64:
+		if v.Valid {
+			return strconv.FormatInt(v.Int64, 10)
+		}
+	case sql.NullFloat64:
+		if v.Valid && !math.IsNaN(v.Float64) && !math.IsInf(v.Float64, 0) {
+			return strconv.FormatInt(int64(math.Round(v.Float64)), 10)
+		}
+	}
+	return fallback
+}
+
+func traceDBIntegerString(text, fallback string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return fallback
+	}
+	if i, err := strconv.ParseInt(text, 10, 64); err == nil {
+		return strconv.FormatInt(i, 10)
+	}
+	if f, err := strconv.ParseFloat(text, 64); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
+		return strconv.FormatInt(int64(math.Round(f)), 10)
+	}
+	return text
 }
 
 func traceDBPerfLabel(raw string) string {

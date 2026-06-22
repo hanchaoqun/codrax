@@ -647,14 +647,14 @@ func blockedCaller(ev decodedEvent) string {
 }
 
 func irqName(ev decodedEvent, content []byte) string {
-	if s := dataLocStringByCleanName(ev, content, "name"); s != "" {
+	if s := stringByCleanName(ev, content, "name"); s != "" {
 		return s
 	}
 	if s := strField(ev, "name[32]"); s != "" {
 		return s
 	}
 	pos := int(intField(ev, "name", false) & 0xffff)
-	if pos >= 0 && pos < len(content) {
+	if pos > 0 && pos < len(content) {
 		b := content[pos:]
 		if i := strings.IndexByte(string(b), 0); i >= 0 {
 			b = b[:i]
