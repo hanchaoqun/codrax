@@ -851,9 +851,14 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
 	memberLabel := aggregateMemberSupportSurfaceLabel(member)
+	type indexedLocation struct {
+		index    int
+		location AnswerSourceLocationSurface
+	}
+	var concreteRefs []indexedLocation
 	var bareRefs []AnswerSourceLocationSurface
 	var genericRefs []AnswerSourceLocationSurface
-	for _, ref := range fact.SupportRefs {
+	for refIdx, ref := range fact.SupportRefs {
 		refMember, refLocation, ok := aggregateSupportRefMemberLocation(ref)
 		if !ok {
 			continue
@@ -868,8 +873,20 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 		}
 		if strings.ToLower(refMember) == memberKey ||
 			aggregateSupportRefCanDescribeMember(refMember, memberLabel) {
-			return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
+			concreteRefs = append(concreteRefs, indexedLocation{index: refIdx, location: refLocation})
 		}
+	}
+	if memberIdx >= 0 {
+		for _, ref := range concreteRefs {
+			if ref.index == memberIdx {
+				refLocation := ref.location
+				return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
+			}
+		}
+	}
+	if len(concreteRefs) == 1 {
+		refLocation := concreteRefs[0].location
+		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 	}
 	if len(genericRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(genericRefs) {
 		refLocation := genericRefs[memberIdx]

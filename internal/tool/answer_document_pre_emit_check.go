@@ -280,9 +280,6 @@ func preEmitHintHardByDefault(hint emitFixHint) bool {
 		// user-requested surface even though the correction is local.
 		return true
 	}
-	if hint.Kind == types.ViolCitation && preEmitCitationHintRequiresSameTurnRetry(hint) {
-		return true
-	}
 	if spec, ok := types.ViolKindSpecFor(hint.Kind); ok {
 		return !spec.SoftByDefault
 	}
@@ -297,12 +294,12 @@ func preEmitMissingBlockRequiresSameTurnRetry(hint emitFixHint) bool {
 }
 
 func preEmitCitationHintRequiresSameTurnRetry(hint emitFixHint) bool {
-	switch strings.TrimSpace(hint.Field) {
-	case "citations[]", "blocks[].items[].citation_ref":
-		return true
-	default:
-		return false
-	}
+	// Citation carriers are presentation-layer anchors. The content path
+	// already has validated evidence items and principal member/count gates;
+	// finalization should repair, detach, or disclose citation drift instead
+	// of forcing another answer rewrite solely because a file:line suffix was
+	// missing or misaligned.
+	return false
 }
 
 func logSoftPreEmitAdvisory(toolName, label string, hints []emitFixHint) {

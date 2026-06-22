@@ -283,6 +283,71 @@ func TestCompileEnumerationDisplaySets_UsesCanonicalMembersAndSupportRefs(t *tes
 	}
 }
 
+func TestCompileEnumerationDisplaySets_PreservesSameLabelDistinctSourceLocations(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	facts, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "foreign declarations",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Unit:  "symbol",
+		Members: []string{
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts returned error: %v", err)
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: facts,
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "ev-ffi",
+				Kind:            EvidenceDirect,
+				Subject:         "native_add",
+				AnchorSymbol:    "native_add",
+				AnchorKind:      AnchorDefinition,
+				Source:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+				LineStart:       6,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				Summary:         "foreign func native_add is declared in package demo.ffi.",
+			},
+			{
+				ID:              "ev-bridge",
+				Kind:            EvidenceDirect,
+				Subject:         "native_add",
+				AnchorSymbol:    "native_add",
+				AnchorKind:      AnchorDefinition,
+				Source:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+				LineStart:       6,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				Summary:         "foreign func native_add is declared in package demo.bridge.",
+			},
+		},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("same-label members at distinct locations must produce two rows, got %+v", sets)
+	}
+	if sets[0].Value != "2" || sets[0].Rows[0].DisplayLabel != "native_add" || sets[0].Rows[1].DisplayLabel != "native_add" {
+		t.Fatalf("row display labels/count drifted: %+v", sets[0])
+	}
+	gotLocations := []string{sets[0].Rows[0].Location, sets[0].Rows[1].Location}
+	if !stringSliceContains(gotLocations, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6") ||
+		!stringSliceContainsFold(gotLocations, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6") {
+		t.Fatalf("rows should keep both source locations, got %+v", gotLocations)
+	}
+}
+
 func TestCompileEnumerationDisplaySets_ImportPathSuffixDisambiguatesSameTail(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

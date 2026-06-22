@@ -98,6 +98,34 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DemotesIncompleteMo
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_IgnoresIncompleteObservation(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "Run", Role: AnswerCandidateRoleFunction, File: "thirdparty/cangjie/run.cj", Line: 7, Language: "cangjie"},
+		SourceInventoryObservationMember{Name: "command_count", Role: AnswerCandidateRoleFunction, File: "eval/fixtures/c-macro-platform/src/dispatch.c", Line: 18, Language: "c"},
+	)
+	obs.Complete = false
+	obs.Sets[0].Complete = false
+	obs.Sets[0].Count = 110
+	existing := AnswerAggregateFact{
+		Kind:        AnswerAggregateMemberSet,
+		Label:       "requested cangjie inventory",
+		Value:       "1",
+		Role:        AnswerAggregateRolePrincipalAnswer,
+		Provenance:  "explorer",
+		Members:     []string{"Run"},
+		SupportRefs: []string{"Run @ thirdparty/cangjie/run.cj:7"},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{existing}, obs, rm)
+	if len(got) != 1 {
+		t.Fatalf("incomplete observations must not synthesize required all-inventory facts, got %+v", got)
+	}
+	if got[0].Provenance != "explorer" || strings.Join(got[0].Members, ",") != "Run" {
+		t.Fatalf("existing requested aggregate should remain authoritative, got %+v", got[0])
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ProductionScopeExcludesAuxiliaryRows(t *testing.T) {
 	scope := SourceScopeProduction
 	rm := sourceInventoryProjectionRequestModel(&scope)

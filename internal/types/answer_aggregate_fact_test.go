@@ -1347,6 +1347,37 @@ func TestNormalizeAnswerAggregateFacts_SeparatesMemberIdentityFromSupportLocatio
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_PreservesSameLabelDistinctSourceLocations(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "external declarations",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Unit:  "symbol",
+		Members: []string{
+			"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("same-label distinct source locations should normalize: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d facts, want 1: %+v", len(got), got)
+	}
+	if got[0].Value != "2" || len(got[0].Members) != 2 {
+		t.Fatalf("same-label declarations at distinct locations must remain distinct members: %+v", got[0])
+	}
+	if got[0].Members[0] != "native_add" || got[0].Members[1] != "native_add" {
+		t.Fatalf("member display labels should be location-free but row-aligned: %+v", got[0].Members)
+	}
+	if len(got[0].SupportRefs) != 2 ||
+		got[0].SupportRefs[0] != "native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6" ||
+		got[0].SupportRefs[1] != "native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/bridge.cj:6" {
+		t.Fatalf("distinct support refs should remain aligned: %+v", got[0].SupportRefs)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_DedupesQualifiedRelationMemberSetVariants(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
 		{

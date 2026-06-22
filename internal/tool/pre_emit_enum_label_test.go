@@ -48,6 +48,30 @@ func (g preEmitActiveSetAliasGater) ResolveActiveSetCommand(_ *types.BusContext,
 	return types.ActiveSetGateResult{Allowed: true}
 }
 
+func TestPreEmitHintGate_CitationCarriersRemainAdvisory(t *testing.T) {
+	hints := tagPreEmitHints(types.ViolCitation, []emitFixHint{
+		{
+			Field:         "citations[]",
+			ExpectedShape: "preserve a citation pool",
+			Reason:        "citation pool is a presentation carrier.",
+		},
+		{
+			Field:         "blocks[].items[].citation_ref",
+			ExpectedShape: "align item citation_ref",
+			Reason:        "citation_ref points at a display anchor.",
+		},
+	})
+	hard, advisory := splitPreEmitHintsByGate(hints)
+	if len(hard) != 0 || len(advisory) != 2 {
+		t.Fatalf("citation carriers must not become same-turn hard gates, hard=%+v advisory=%+v", hard, advisory)
+	}
+	for _, hint := range hints {
+		if preEmitCitationHintRequiresSameTurnRetry(hint) {
+			t.Fatalf("citation carrier %q unexpectedly requires same-turn retry", hint.Field)
+		}
+	}
+}
+
 // === preEmitLabelLeadingIdentifier ===
 
 func TestPreEmitLabelLeadingIdentifier_Empty(t *testing.T) {
@@ -570,8 +594,8 @@ func TestPreCheckItemCitationAlignment_AggregateMemberSetPackageLabelRejectsCita
 		t.Fatalf("hint should name the drifting label, got %+v", hints[0])
 	}
 	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCitation, hints))
-	if len(hard) != 1 || len(advisory) != 0 {
-		t.Fatalf("principal item citation drift must be hard at pre-emit, hard=%+v advisory=%+v", hard, advisory)
+	if len(hard) != 0 || len(advisory) != 1 {
+		t.Fatalf("principal item citation drift should be presentation-layer advisory at pre-emit, hard=%+v advisory=%+v", hard, advisory)
 	}
 	if hints := preCheckEnumerationLabelGrounding(doc, &stubOracle{known: map[string]int{}}, ctx); hints != nil {
 		t.Fatalf("label grounding should not misclassify typed aggregate display labels as fabricated, got %v", hints)

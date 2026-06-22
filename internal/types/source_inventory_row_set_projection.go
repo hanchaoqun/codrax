@@ -16,7 +16,7 @@ const SourceInventoryPrincipalRowSetAggregateProvenance = "system:source_invento
 // prose, grep counts, or elapsed-time narratives.
 func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregateFact, observation SourceInventoryObservation, rm RequestModel) []AnswerAggregateFact {
 	out := cloneAnswerAggregateFacts(facts)
-	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() || HasTypedRelationMemberSetShape(rm) {
+	if sourceInventoryPrincipalRowSetProjectionDisabled(observation, rm) {
 		return out
 	}
 	rowSet := BuildSourceInventoryPrincipalRowSet(SourceInventoryPrincipalRowSetInput{
