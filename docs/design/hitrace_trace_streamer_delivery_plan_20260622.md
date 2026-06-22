@@ -803,6 +803,70 @@ Delivered slice on 2026-06-23:
   built-in-vs-SQL raw-ftrace parity fixture and representative customer `.sys`
   validation are still required.
 
+Next slice: Batch 6C2 raw-ftrace cross-engine parity guard.
+
+Status: planned on 2026-06-23.
+
+Reference audit:
+
+- The local hmtrace reference checkout at `/tmp/codrax-ref-hmtrace` keeps the
+  production path centered on `trace_streamer` SQLite output, then runs native
+  extractors over DB tables. Its Rust/Python golden tests compare raw systrace
+  output from DB fixtures instead of re-parsing the original binary trace body.
+- Codrax should follow the same class-level contract for no-perf pure trace:
+  production conversion uses exactly the user-selected engine, with SQL as the
+  default, while tests may run both explicit engines against equivalent
+  fixtures to prove commercial parity.
+- The SQL raw-ftrace exporter delivered in the previous slice already proves
+  DB rows alone can feed `trace_query`. The missing proof is that the same
+  evidence classes are semantically equivalent to the guarded built-in sys
+  binary path for pure trace captures.
+
+Tasks:
+
+- Add `TestConvertFileNoPerfTraceRawFtraceRootCauseParityMatrix` beside the
+  existing scheduler/CPU parity matrix.
+- Build one synthetic no-perf sys-binary fixture through existing official
+  event-format helpers, covering these classes:
+  - binder transaction/receive/allocation buffer;
+  - android_fs start/end inode IO;
+  - page-cache add/delete by inode;
+  - block request issue/complete and SCSI start/done;
+  - workqueue execute start/end;
+  - DMA fence signaled.
+- Build an equivalent trace_streamer SQLite fixture using `raw`, `args`,
+  `data_dict`, `thread`, `process`, and `thread_state`; do not depend on
+  filename suffixes or user-prose signals.
+- Run explicit `TraceEngine=builtin` and explicit `TraceEngine=trace_streamer`
+  through `ConvertFile` with the existing fake trace_streamer fixture copier.
+- Assert bounded semantic projections from `trace_query`, not full text:
+  - binder IPC edge transaction, peer thread, and flags;
+  - `file_io_by_inode` bytes and inode identity;
+  - `page_cache_by_inode` churn for the same inode;
+  - `storage_latency_by_layer` paired latency for block/SCSI style rows;
+  - `io_pressure_summary` top inode;
+  - `workqueue_activity` paired work item;
+  - queryable DMA-fence event.
+- Assert provider and coverage provenance:
+  - built-in path reports `codrax_builtin_sys_binary`;
+  - SQL path reports `trace_streamer_db`, a trace DB artifact, raw-ftrace class
+    coverage, and trace_query cross-validation coverage.
+- Keep performance/memory properties:
+  - write fixtures through the production conversion path and spillable row
+    sink;
+  - compare bounded semantic summaries only;
+  - keep raw argset loading shared with the production resolver.
+
+Exit criteria for Batch 6C2:
+
+- The same raw-ftrace root-cause classes are protected by a cross-engine
+  semantic parity test for pure no-perf trace.
+- The parity guard remains test-only and does not introduce a production
+  dual-run or automatic fallback.
+- No model tool-call input fields are added; no JSON repair aliases are needed.
+- Any failures expose structured coverage/provenance gaps rather than prompt
+  guidance or keyword patches.
+
 Verification for delivered slice:
 
 - `go test ./internal/hitraceconv -run 'TestExportTraceDBRawFtrace' -count=1 -v`
