@@ -256,6 +256,75 @@ func TestE2E_ReadMode_ExtractInputReadyTrueDispatchesExtract(t *testing.T) {
 	}
 }
 
+func TestE2E_ReadMode_ExtractInputReadyRequiresExploreProducerLineage(t *testing.T) {
+	explorerCalls := 0
+	extractorCalls := 0
+	finalizeCalls := 0
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+	analyzerEvidence := types.EvidenceItem{
+		ID:        "ev-analyzer-only",
+		Predicate: "definition",
+		Subject:   "AnalyzerOnly",
+		Object:    "exists",
+		Summary:   "Analyzer-only evidence exists",
+		Source:    "analyzer.go",
+		LineStart: 1,
+	}
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingFacts,
+				AnalysisIR:    ir,
+				EvidenceItems: []types.EvidenceItem{analyzerEvidence},
+			}, nil
+		},
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			extractorCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "- `AnalyzerOnly` (analyzer.go:1)",
+			}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain analyzer-only evidence", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if explorerCalls != 3 {
+		t.Fatalf("explorer calls = %d, want 3 hard-dependency windows", explorerCalls)
+	}
+	if extractorCalls != 0 {
+		t.Fatalf("extractor must be skipped when typed payload lacks explore producer lineage, got %d calls", extractorCalls)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", finalizeCalls)
+	}
+	extractID := firstReadNodeIDByType(t, busCtx.AnalysisIR, types.NodeExtract)
+	if got := busCtx.Mutable.EvidenceClosure().NodeExecStatus(extractID); got != types.NodeExecDone {
+		t.Fatalf("extract node status = %q, want %q", got, types.NodeExecDone)
+	}
+	if consumed := busCtx.Mutable.EvidenceClosure().NodeArtifactLedger().RecordsByConsumerNode(extractID); len(consumed) != 0 {
+		t.Fatalf("extract must not consume analyzer-only payload without producer lineage: %+v", consumed)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("read run should stay clean after lineage-missing extract skip, LastError=%q", busCtx.TaskState.LastError)
+	}
+}
+
 func TestE2E_ReadMode_AnalyzeRefineFalsePathStaysSilent(t *testing.T) {
 	explorerCalls := 0
 	extractorCalls := 0

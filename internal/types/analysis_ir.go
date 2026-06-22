@@ -1023,14 +1023,13 @@ type TaskNode struct {
 	Type      TaskNodeType `json:"type"`
 	Objective string       `json:"objective"`
 
-	// pending(artifact-exchange): declared input artifact type slots
-	// for a future per-node typed data-flow contract. Compiler
-	// templates fill them with snake_case identifiers so the values
-	// remain human-readable, but no runtime consumer reads this
-	// field today. Gate's pending_fields_wellformed check enforces
-	// the identifier shape; criterion_resolvable does not scan this
-	// field because it is not a Criterion. See
-	// docs/design/ir_driven_execution_engine_delivery_20260621.md M0c/M2c.
+	// declared input artifact type slots for the per-node typed data-flow
+	// contract. Runtime consumers must read them through TaskArtifactContract
+	// projections, never as mutable runtime payload. Gate's
+	// pending_fields_wellformed check enforces the identifier shape;
+	// criterion_resolvable does not scan this field because it is not a
+	// Criterion. See docs/design/ir_driven_execution_engine_delivery_20260621.md
+	// M0c/M2c.
 	Inputs []string `json:"inputs,omitempty"`
 
 	// pending(artifact-exchange): declared output artifact type

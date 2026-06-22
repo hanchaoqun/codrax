@@ -90,7 +90,7 @@ func TestBuildArtifactReadinessViewBlocksUnsupportedExtractLedgerKind(t *testing
 	}
 }
 
-func TestBuildArtifactReadinessViewIgnoresConsumedRecords(t *testing.T) {
+func TestBuildArtifactReadinessViewConsumedRecordsDoNotProveProducerLineage(t *testing.T) {
 	view := BuildArtifactReadinessView(ArtifactReadinessInput{
 		Contracts: extractArtifactContractsFixture(),
 		Ledger: NodeArtifactLedger{Records: []NodeArtifactRecord{{
@@ -103,8 +103,8 @@ func TestBuildArtifactReadinessViewIgnoresConsumedRecords(t *testing.T) {
 		EvidenceItems: []EvidenceItem{{ID: "ev-consumed"}},
 		Consumer:      RuntimeArtifactConsumerExtract,
 	})
-	if !view.Ready || view.ResolvedRefCount != 0 || view.HasBlockingLedgerIssue() {
-		t.Fatalf("view = %+v, want payload fallback ready without consumed refs", view)
+	if view.Ready || view.ResolvedRefCount != 0 || !view.BlocksTypedPayloadFallback() || view.ReasonCode != ArtifactReadinessProducerLineageMiss {
+		t.Fatalf("consumed refs must not prove producer lineage: %+v", view)
 	}
 }
 
@@ -133,14 +133,14 @@ func TestConsumedNodeArtifactRecordsFromReadiness(t *testing.T) {
 	}
 }
 
-func TestBuildArtifactReadinessViewUsesTypedPayloadFallbackWithoutLedger(t *testing.T) {
+func TestBuildArtifactReadinessViewBlocksPayloadWithoutProducerLineage(t *testing.T) {
 	view := BuildArtifactReadinessView(ArtifactReadinessInput{
 		Contracts:     extractArtifactContractsFixture(),
 		EvidenceItems: []EvidenceItem{{ID: "ev-present"}},
 		Consumer:      RuntimeArtifactConsumerExtract,
 	})
-	if !view.Ready || view.HasBlockingLedgerIssue() || view.ReasonCode != ArtifactReadinessReady {
-		t.Fatalf("typed payload fallback should be ready: %+v", view)
+	if view.Ready || !view.BlocksTypedPayloadFallback() || view.ReasonCode != ArtifactReadinessProducerLineageMiss {
+		t.Fatalf("payload without producer lineage should block readiness: %+v", view)
 	}
 }
 

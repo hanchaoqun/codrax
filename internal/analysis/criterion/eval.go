@@ -774,7 +774,7 @@ func evalExtractInputReady(env Env) Result {
 		if env.ArtifactReadiness.Ready {
 			return Result{Satisfied: true, Detail: env.ArtifactReadiness.Detail()}
 		}
-		if env.ArtifactReadiness.HasBlockingLedgerIssue() {
+		if env.ArtifactReadiness.BlocksTypedPayloadFallback() {
 			return Result{Satisfied: false, Detail: env.ArtifactReadiness.Detail()}
 		}
 	}

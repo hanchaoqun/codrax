@@ -241,6 +241,14 @@ func TestEval_ExtractInputReady_UsesTypedInputsOnly(t *testing.T) {
 	if r := Eval(c, Env{AggregateFacts: []types.AnswerAggregateFact{{Kind: types.AnswerAggregateMemberSet, Label: "agents"}}}); !r.Satisfied {
 		t.Fatalf("aggregate facts should make extract ready: %s", r.Detail)
 	}
+	lineageMissingView := types.BuildArtifactReadinessView(types.ArtifactReadinessInput{
+		Contracts:     []types.TaskArtifactContract{{NodeID: "extract", Inputs: []string{"evidence_items"}}},
+		EvidenceItems: []types.EvidenceItem{{ID: "ev-present"}},
+		Consumer:      types.RuntimeArtifactConsumerExtract,
+	})
+	if r := Eval(c, Env{ArtifactReadiness: &lineageMissingView, Evidence: []types.EvidenceItem{{ID: "ev-present"}}}); r.Satisfied {
+		t.Fatalf("producer-lineage-missing readiness must block global evidence fallback: %s", r.Detail)
+	}
 	resolvedView := types.BuildArtifactReadinessView(types.ArtifactReadinessInput{
 		Contracts: []types.TaskArtifactContract{{NodeID: "extract", Inputs: []string{"evidence_items"}}},
 		Ledger: types.NodeArtifactLedger{Records: []types.NodeArtifactRecord{{

@@ -28,6 +28,7 @@ const (
 	ArtifactReadinessNoTypedPayload       ArtifactReadinessReasonCode = "no_typed_payload"
 	ArtifactReadinessPayloadMissing       ArtifactReadinessReasonCode = "artifact_payload_missing"
 	ArtifactReadinessKindUnsupported      ArtifactReadinessReasonCode = "artifact_kind_unsupported"
+	ArtifactReadinessProducerLineageMiss  ArtifactReadinessReasonCode = "producer_lineage_missing"
 	ArtifactReadinessRequiredInputMissing ArtifactReadinessReasonCode = "contract_required_input_missing"
 )
 
@@ -68,6 +69,15 @@ type ArtifactReadinessView struct {
 // structural problems that must block readiness before fallback evidence floors.
 func (v ArtifactReadinessView) HasBlockingLedgerIssue() bool {
 	return v.UnresolvedRefCount > 0 || v.UnsupportedRefCount > 0
+}
+
+// BlocksTypedPayloadFallback reports whether the readiness gate must refuse the
+// legacy global-payload fallback. This stays narrower than "not ready": empty
+// payloads may still be satisfied by runtime-observation-only questions, but a
+// source payload with missing producer lineage or dangling refs must not prove
+// extract readiness.
+func (v ArtifactReadinessView) BlocksTypedPayloadFallback() bool {
+	return v.HasBlockingLedgerIssue() || v.ReasonCode == ArtifactReadinessProducerLineageMiss
 }
 
 func (v ArtifactReadinessView) Detail() string {
@@ -135,6 +145,9 @@ func BuildArtifactReadinessView(input ArtifactReadinessInput) ArtifactReadinessV
 	case view.UnresolvedRefCount > 0:
 		view.Ready = false
 		view.ReasonCode = ArtifactReadinessPayloadMissing
+	case view.PayloadCount > 0 && len(records) == 0:
+		view.Ready = false
+		view.ReasonCode = ArtifactReadinessProducerLineageMiss
 	case view.PayloadCount > 0:
 		view.Ready = true
 		view.ReasonCode = ArtifactReadinessReady
@@ -201,20 +214,38 @@ func (idx runtimeArtifactPayloadIndex) has(kind RuntimeArtifactKind, id string) 
 }
 
 func artifactReadinessRelevantRecords(ledger NodeArtifactLedger, consumer string) []NodeArtifactRecord {
-	records := NormalizeNodeArtifactRecords(ledger.Records)
-	if len(records) == 0 {
+	ledger = NormalizeNodeArtifactLedger(ledger)
+	if len(ledger.Records) == 0 {
 		return nil
 	}
+	producerSeen := map[string]bool{}
+	producers := make([]string, 0)
+	for _, record := range ledger.Records {
+		producer := strings.TrimSpace(record.ProducerNodeID)
+		if producer == "" || producerSeen[producer] {
+			continue
+		}
+		producerSeen[producer] = true
+		producers = append(producers, producer)
+	}
 	var out []NodeArtifactRecord
-	for _, record := range records {
-		if record.Direction == RuntimeArtifactConsumed {
-			continue
+	seen := map[string]bool{}
+	for _, producer := range producers {
+		for _, record := range ledger.RecordsByProducer(producer) {
+			if record.Direction == RuntimeArtifactConsumed {
+				continue
+			}
+			recordConsumer := strings.TrimSpace(record.Consumer)
+			if consumer != "" && recordConsumer != "" && recordConsumer != consumer {
+				continue
+			}
+			key := NodeArtifactRecordKey(record)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, record)
 		}
-		recordConsumer := strings.TrimSpace(record.Consumer)
-		if consumer != "" && recordConsumer != "" && recordConsumer != consumer {
-			continue
-		}
-		out = append(out, record)
 	}
 	return out
 }
