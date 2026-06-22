@@ -303,6 +303,79 @@ func TestConvertFileNoPerfTraceRootCauseEvidenceParityMatrix(t *testing.T) {
 	assertRootCauseEvidenceMatrix(t, "sql", sqlIdx)
 }
 
+func TestConvertFileNoPerfTraceRawFtraceRootCauseParityMatrix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "raw-ftrace-root-cause.sys")
+	if err := os.WriteFile(input, syntheticRawFtraceRootCauseSysBinary(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	builtinOutput := filepath.Join(dir, "raw-ftrace-builtin.systrace")
+	builtin, err := ConvertFile(context.Background(), Options{
+		InputPath:   input,
+		OutputPath:  builtinOutput,
+		TraceEngine: traceEngineBuiltin,
+	})
+	if err != nil {
+		t.Fatalf("convert built-in raw-ftrace root-cause fixture: %v", err)
+	}
+	if !hasTraceDecision(builtin.TraceDecisions, traceProviderNameBuiltinSys, true) || builtin.UnknownEventCount != 0 {
+		t.Fatalf("built-in raw-ftrace provider or renderer regressed: result=%+v decisions=%+v", builtin, builtin.TraceDecisions)
+	}
+
+	fixtureDB := createTraceDBFixture(t, rawFtraceRootCauseFixtureStatements())
+	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
+	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+
+	sqlOutput := filepath.Join(dir, "raw-ftrace-sql.systrace")
+	sqlResult, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		OutputPath:        sqlOutput,
+		TraceEngine:       "trace_streamer",
+		TraceStreamerPath: traceStreamer,
+		KeepTraceDB:       true,
+	})
+	if err != nil {
+		t.Fatalf("convert SQL raw-ftrace root-cause fixture: %v", err)
+	}
+	if !hasTraceDecision(sqlResult.TraceDecisions, traceProviderNameTraceStreamer, true) || !hasArtifact(sqlResult.Artifacts, ArtifactTraceDB) {
+		t.Fatalf("trace_streamer raw-ftrace provider decision or DB artifact missing: decisions=%+v artifacts=%+v", sqlResult.TraceDecisions, sqlResult.Artifacts)
+	}
+	for _, cov := range []struct {
+		table string
+		min   int
+	}{
+		{"binder", 3},
+		{"block_storage", 4},
+		{"file_io", 2},
+		{"page_cache", 2},
+		{"workqueue", 2},
+		{"dma_fence", 1},
+	} {
+		if !coverageHasEmitted(sqlResult.TraceDBCoverage, "raw_ftrace", cov.table, cov.min) {
+			t.Fatalf("SQL raw-ftrace coverage missing %s >= %d: %+v", cov.table, cov.min, sqlResult.TraceDBCoverage)
+		}
+	}
+	if !coverageHasEmitted(sqlResult.TraceCoverage, "trace_cross_validation", "tracequery_build_index", 1) {
+		t.Fatalf("SQL raw-ftrace cross-validation coverage missing: %+v", sqlResult.TraceCoverage)
+	}
+
+	builtinIdx, err := tracequery.BuildIndex(context.Background(), builtinOutput)
+	if err != nil {
+		t.Fatalf("tracequery parse built-in raw-ftrace output: %v", err)
+	}
+	sqlIdx, err := tracequery.BuildIndex(context.Background(), sqlOutput)
+	if err != nil {
+		t.Fatalf("tracequery parse SQL raw-ftrace output: %v", err)
+	}
+	builtinSummary := collectRawFtraceRootCauseEvidence(t, "built-in", builtinIdx)
+	sqlSummary := collectRawFtraceRootCauseEvidence(t, "sql", sqlIdx)
+	assertRawFtraceRootCauseParity(t, builtinSummary, sqlSummary)
+}
+
 func TestConvertFileTraceStreamerExplicitNoRowsProducesPartialBundle(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
@@ -729,6 +802,265 @@ func syntheticRootCauseMatrixSysBinary(t *testing.T) []byte {
 	return b.Bytes()
 }
 
+func syntheticRawFtraceRootCauseSysBinary(t *testing.T) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	writeFileHeader(&b, 1)
+	writeSegment(&b, segmentEventsFormat, []byte(syntheticRawFtraceRootCauseEventFormat()))
+	writeSegment(&b, segmentCmdlines, []byte("500 MainApp\n700 BinderPeer\n800 IOThread\n"))
+	writeSegment(&b, segmentTGIDs, []byte("500 500\n700 500\n800 500\n"))
+	writeSegment(&b, segmentRawTrace, syntheticRawPageEvents([]syntheticRawEvent{
+		{EventID: 101, OffsetNS: 1_000_000, Content: syntheticRawFtraceBinderTransactionContent()},
+		{EventID: 102, OffsetNS: 1_200_000, Content: syntheticRawFtraceBinderReceivedContent()},
+		{EventID: 103, OffsetNS: 1_300_000, Content: syntheticRawFtraceBinderAllocBufContent()},
+		{EventID: 104, OffsetNS: 3_000_000, Content: syntheticRawFtraceAndroidFSContent(104, false)},
+		{EventID: 105, OffsetNS: 3_600_000, Content: syntheticRawFtraceAndroidFSContent(105, true)},
+		{EventID: 106, OffsetNS: 3_900_000, Content: syntheticRawFtracePageCacheContent(106, 0)},
+		{EventID: 107, OffsetNS: 4_000_000, Content: syntheticRawFtracePageCacheContent(107, 0)},
+		{EventID: 108, OffsetNS: 5_000_000, Content: syntheticRawFtraceBlockContent(108, false)},
+		{EventID: 109, OffsetNS: 9_000_000, Content: syntheticRawFtraceBlockContent(109, true)},
+		{EventID: 110, OffsetNS: 6_000_000, Content: syntheticRawFtraceSCSIContent(110, false)},
+		{EventID: 111, OffsetNS: 9_600_000, Content: syntheticRawFtraceSCSIContent(111, true)},
+		{EventID: 112, OffsetNS: 10_000_000, Content: syntheticRawFtraceWorkqueueContent(112)},
+		{EventID: 113, OffsetNS: 15_000_000, Content: syntheticRawFtraceWorkqueueContent(113)},
+		{EventID: 114, OffsetNS: 16_000_000, Content: syntheticRawFtraceDMAFenceContent()},
+	}))
+	return b.Bytes()
+}
+
+func syntheticRawFtraceRootCauseEventFormat() string {
+	var lines []string
+	lines = append(lines, syntheticFormatBlock("binder_transaction", 101, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("int", "transaction", 8, 4, true),
+		syntheticField("int", "dest_node", 12, 4, true),
+		syntheticField("int", "dest_proc", 16, 4, true),
+		syntheticField("int", "dest_thread", 20, 4, true),
+		syntheticField("int", "reply", 24, 4, true),
+		syntheticField("unsigned int", "flags", 28, 4, false),
+		syntheticField("unsigned int", "code", 32, 4, false),
+	})...)
+	lines = append(lines, syntheticFormatBlock("binder_transaction_received", 102, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("int", "transaction", 8, 4, true),
+	})...)
+	lines = append(lines, syntheticFormatBlock("binder_transaction_alloc_buf", 103, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("int", "transaction", 8, 4, true),
+		syntheticField("int", "debug_id", 12, 4, true),
+		syntheticField("unsigned long", "data_size", 16, 8, false),
+		syntheticField("unsigned int", "offsets_size", 24, 4, false),
+		syntheticField("unsigned int", "extra_buffers_size", 28, 4, false),
+	})...)
+	for _, spec := range []struct {
+		name string
+		id   int
+	}{
+		{"android_fs_dataread_start", 104},
+		{"android_fs_dataread_end", 105},
+	} {
+		lines = append(lines, syntheticFormatBlock(spec.name, spec.id, []string{
+			syntheticField("int", "common_pid", 4, 4, true),
+			syntheticField("unsigned long", "dev", 8, 8, false),
+			syntheticField("unsigned long", "ino", 16, 8, false),
+			syntheticField("char", "entry_name[16]", 24, 16, false),
+			syntheticField("long", "offset", 40, 8, true),
+			syntheticField("unsigned long", "bytes", 48, 8, false),
+			syntheticField("char", "rw[8]", 56, 8, false),
+			syntheticField("int", "ret", 64, 4, true),
+			syntheticField("unsigned int", "latency_us", 68, 4, false),
+		})...)
+	}
+	for _, spec := range []struct {
+		name string
+		id   int
+	}{
+		{"mm_filemap_add_to_page_cache", 106},
+		{"mm_filemap_delete_from_page_cache", 107},
+	} {
+		lines = append(lines, syntheticFormatBlock(spec.name, spec.id, []string{
+			syntheticField("int", "common_pid", 4, 4, true),
+			syntheticField("unsigned long", "s_dev", 8, 8, false),
+			syntheticField("unsigned long", "i_ino", 16, 8, false),
+			syntheticField("unsigned long", "index", 24, 8, false),
+			syntheticField("unsigned long", "pfn", 32, 8, false),
+			syntheticField("unsigned long", "pg", 40, 8, false),
+		})...)
+	}
+	for _, spec := range []struct {
+		name string
+		id   int
+	}{
+		{"block_rq_issue", 108},
+		{"block_rq_complete", 109},
+	} {
+		lines = append(lines, syntheticFormatBlock(spec.name, spec.id, []string{
+			syntheticField("int", "common_pid", 4, 4, true),
+			syntheticField("unsigned long", "dev", 8, 8, false),
+			syntheticField("char", "rwbs[8]", 16, 8, false),
+			syntheticField("char", "cmd[16]", 24, 16, false),
+			syntheticField("unsigned long", "sector", 40, 8, false),
+			syntheticField("unsigned int", "nr_sector", 48, 4, false),
+			syntheticField("unsigned int", "bytes", 52, 4, false),
+			syntheticField("char", "comm[16]", 56, 16, false),
+			syntheticField("int", "error", 72, 4, true),
+		})...)
+	}
+	for _, spec := range []struct {
+		name string
+		id   int
+	}{
+		{"scsi_dispatch_cmd_start", 110},
+		{"scsi_dispatch_cmd_done", 111},
+	} {
+		lines = append(lines, syntheticFormatBlock(spec.name, spec.id, []string{
+			syntheticField("int", "common_pid", 4, 4, true),
+			syntheticField("int", "tag", 8, 4, true),
+			syntheticField("unsigned long", "dev", 12, 8, false),
+			syntheticField("unsigned long", "lba", 20, 8, false),
+			syntheticField("unsigned int", "len", 28, 4, false),
+			syntheticField("char", "opcode[16]", 32, 16, false),
+			syntheticField("int", "ret", 48, 4, true),
+			syntheticField("unsigned int", "latency_us", 52, 4, false),
+		})...)
+	}
+	for _, spec := range []struct {
+		name string
+		id   int
+	}{
+		{"workqueue_execute_start", 112},
+		{"workqueue_execute_end", 113},
+	} {
+		lines = append(lines, syntheticFormatBlock(spec.name, spec.id, []string{
+			syntheticField("int", "common_pid", 4, 4, true),
+			syntheticField("unsigned long", "work", 8, 8, false),
+			syntheticField("unsigned long", "function", 16, 8, false),
+		})...)
+	}
+	lines = append(lines, syntheticFormatBlock("dma_fence_signaled", 114, []string{
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("char", "driver[16]", 8, 16, false),
+		syntheticField("char", "timeline[16]", 24, 16, false),
+		syntheticField("unsigned int", "context", 40, 4, false),
+		syntheticField("unsigned int", "seqno", 44, 4, false),
+	})...)
+	return strings.Join(lines, "\n")
+}
+
+func syntheticRawFtraceBinderTransactionContent() []byte {
+	content := make([]byte, 36)
+	binary.LittleEndian.PutUint16(content[0:2], 101)
+	binary.LittleEndian.PutUint32(content[4:8], 500)
+	binary.LittleEndian.PutUint32(content[8:12], 42)
+	binary.LittleEndian.PutUint32(content[12:16], 9)
+	binary.LittleEndian.PutUint32(content[16:20], 500)
+	binary.LittleEndian.PutUint32(content[20:24], 700)
+	binary.LittleEndian.PutUint32(content[24:28], 0)
+	binary.LittleEndian.PutUint32(content[28:32], 0x12)
+	binary.LittleEndian.PutUint32(content[32:36], 0x4)
+	return content
+}
+
+func syntheticRawFtraceBinderReceivedContent() []byte {
+	content := make([]byte, 12)
+	binary.LittleEndian.PutUint16(content[0:2], 102)
+	binary.LittleEndian.PutUint32(content[4:8], 700)
+	binary.LittleEndian.PutUint32(content[8:12], 42)
+	return content
+}
+
+func syntheticRawFtraceBinderAllocBufContent() []byte {
+	content := make([]byte, 32)
+	binary.LittleEndian.PutUint16(content[0:2], 103)
+	binary.LittleEndian.PutUint32(content[4:8], 500)
+	binary.LittleEndian.PutUint32(content[8:12], 42)
+	binary.LittleEndian.PutUint32(content[12:16], 42)
+	binary.LittleEndian.PutUint64(content[16:24], 128)
+	binary.LittleEndian.PutUint32(content[24:28], 16)
+	binary.LittleEndian.PutUint32(content[28:32], 0)
+	return content
+}
+
+func syntheticRawFtraceAndroidFSContent(eventID uint16, done bool) []byte {
+	content := make([]byte, 72)
+	binary.LittleEndian.PutUint16(content[0:2], eventID)
+	binary.LittleEndian.PutUint32(content[4:8], 800)
+	binary.LittleEndian.PutUint64(content[8:16], syntheticDev(260, 136))
+	binary.LittleEndian.PutUint64(content[16:24], 12345)
+	copy(content[24:40], []byte("foo.db"))
+	binary.LittleEndian.PutUint64(content[40:48], 0)
+	binary.LittleEndian.PutUint64(content[48:56], 4096)
+	copy(content[56:64], []byte("read"))
+	if done {
+		binary.LittleEndian.PutUint32(content[64:68], 0)
+		binary.LittleEndian.PutUint32(content[68:72], 800)
+	}
+	return content
+}
+
+func syntheticRawFtracePageCacheContent(eventID uint16, index uint64) []byte {
+	content := make([]byte, 48)
+	binary.LittleEndian.PutUint16(content[0:2], eventID)
+	binary.LittleEndian.PutUint32(content[4:8], 800)
+	binary.LittleEndian.PutUint64(content[8:16], syntheticDev(260, 136))
+	binary.LittleEndian.PutUint64(content[16:24], 12345)
+	binary.LittleEndian.PutUint64(content[24:32], index)
+	binary.LittleEndian.PutUint64(content[32:40], 3062260)
+	return content
+}
+
+func syntheticRawFtraceBlockContent(eventID uint16, complete bool) []byte {
+	content := make([]byte, 80)
+	binary.LittleEndian.PutUint16(content[0:2], eventID)
+	binary.LittleEndian.PutUint32(content[4:8], 800)
+	binary.LittleEndian.PutUint64(content[8:16], syntheticDev(8, 0))
+	copy(content[16:24], []byte("R"))
+	copy(content[24:40], []byte("READ"))
+	binary.LittleEndian.PutUint64(content[40:48], 128)
+	binary.LittleEndian.PutUint32(content[48:52], 8)
+	copy(content[56:72], []byte("IOThread"))
+	if complete {
+		binary.LittleEndian.PutUint32(content[72:76], 0)
+	}
+	return content
+}
+
+func syntheticRawFtraceSCSIContent(eventID uint16, done bool) []byte {
+	content := make([]byte, 56)
+	binary.LittleEndian.PutUint16(content[0:2], eventID)
+	binary.LittleEndian.PutUint32(content[4:8], 800)
+	binary.LittleEndian.PutUint32(content[8:12], 7)
+	binary.LittleEndian.PutUint64(content[12:20], syntheticDev(8, 0))
+	binary.LittleEndian.PutUint64(content[20:28], 4096)
+	binary.LittleEndian.PutUint32(content[28:32], 8)
+	copy(content[32:48], []byte("READ_10"))
+	if done {
+		binary.LittleEndian.PutUint32(content[48:52], 0)
+		binary.LittleEndian.PutUint32(content[52:56], 900)
+	}
+	return content
+}
+
+func syntheticRawFtraceWorkqueueContent(eventID uint16) []byte {
+	content := make([]byte, 24)
+	binary.LittleEndian.PutUint16(content[0:2], eventID)
+	binary.LittleEndian.PutUint32(content[4:8], 800)
+	binary.LittleEndian.PutUint64(content[8:16], 0xabc)
+	binary.LittleEndian.PutUint64(content[16:24], 0xdef)
+	return content
+}
+
+func syntheticRawFtraceDMAFenceContent() []byte {
+	content := make([]byte, 48)
+	binary.LittleEndian.PutUint16(content[0:2], 114)
+	binary.LittleEndian.PutUint32(content[4:8], 800)
+	copy(content[8:24], []byte("drv"))
+	copy(content[24:40], []byte("tl"))
+	binary.LittleEndian.PutUint32(content[40:44], 1)
+	binary.LittleEndian.PutUint32(content[44:48], 2)
+	return content
+}
+
 func syntheticRootCauseMatrixEventFormat() string {
 	var lines []string
 	lines = append(lines, syntheticFormatBlock("sched_switch", 90, []string{
@@ -934,6 +1266,124 @@ func assertRootCauseEvidenceMatrix(t *testing.T, label string, idx *tracequery.I
 	assertEventExists(t, label, idx, "softirq exit", func(ev tracequery.Event) bool {
 		return ev.Type == tracequery.EventSoftIRQ && ev.Name == "softirq_exit" && ev.IRQID == 9
 	})
+}
+
+type rawFtraceRootCauseEvidenceSummary struct {
+	BinderTransactionID int
+	BinderDestThread    int
+	BinderFlagsValue    int64
+	FileInodeValue      int64
+	FileBytes           int64
+	PageCacheInode      int64
+	StoragePaired       int
+	StorageMaxLatency   float64
+	PressureTopInode    int64
+	WorkqueuePaired     int
+	HasDMAFence         bool
+}
+
+func collectRawFtraceRootCauseEvidence(t *testing.T, label string, idx *tracequery.Index) rawFtraceRootCauseEvidenceSummary {
+	t.Helper()
+	if idx == nil {
+		t.Fatalf("%s index is nil", label)
+	}
+	ipc := tracequery.BuildIPCGraph(idx, tracequery.Query{})
+	var summary rawFtraceRootCauseEvidenceSummary
+	for _, edge := range ipc.Edges {
+		if edge.TransactionID == 42 {
+			summary.BinderTransactionID = edge.TransactionID
+			summary.BinderDestThread = edge.DestThread
+			summary.BinderFlagsValue = parseTraceNumberForTest(edge.Flags)
+			break
+		}
+	}
+	if summary.BinderTransactionID == 0 || summary.BinderDestThread != 700 || summary.BinderFlagsValue != 0x12 {
+		t.Fatalf("%s missing binder IPC edge semantics: summary=%+v ipc=%+v", label, summary, ipc)
+	}
+
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{})
+	for _, item := range stats.FileIOByInode {
+		inode := parseTraceNumberForTest(item.Inode)
+		if inode == 12345 && item.Bytes >= 4096 {
+			summary.FileInodeValue = inode
+			summary.FileBytes = item.Bytes
+			break
+		}
+	}
+	if summary.FileInodeValue != 12345 || summary.FileBytes < 4096 {
+		t.Fatalf("%s missing file_io_by_inode semantics: summary=%+v file_io=%+v", label, summary, stats.FileIOByInode)
+	}
+	for _, item := range stats.PageCacheByInode {
+		inode := parseTraceNumberForTest(item.Inode)
+		if inode == 12345 && item.Churn >= 2 {
+			summary.PageCacheInode = inode
+			break
+		}
+	}
+	if summary.PageCacheInode != 12345 {
+		t.Fatalf("%s missing page_cache_by_inode semantics: summary=%+v page_cache=%+v", label, summary, stats.PageCacheByInode)
+	}
+	for _, item := range stats.StorageLatencyByLayer {
+		summary.StoragePaired += item.PairedCount
+		if item.MaxLatencyMs > summary.StorageMaxLatency {
+			summary.StorageMaxLatency = item.MaxLatencyMs
+		}
+	}
+	if summary.StoragePaired == 0 || summary.StorageMaxLatency <= 0 {
+		t.Fatalf("%s missing storage_latency_by_layer semantics: summary=%+v storage=%+v", label, summary, stats.StorageLatencyByLayer)
+	}
+	if stats.IOPressureSummary != nil {
+		summary.PressureTopInode = parseTraceNumberForTest(stats.IOPressureSummary.TopInode)
+	}
+	if summary.PressureTopInode != 12345 {
+		t.Fatalf("%s missing io_pressure_summary hot inode: summary=%+v pressure=%+v", label, summary, stats.IOPressureSummary)
+	}
+	for _, item := range stats.WorkqueueActivity {
+		summary.WorkqueuePaired += item.PairedCount
+	}
+	if summary.WorkqueuePaired == 0 {
+		t.Fatalf("%s missing workqueue_activity pairing: summary=%+v workqueue=%+v", label, summary, stats.WorkqueueActivity)
+	}
+	for _, ev := range idx.Events {
+		if ev.Type == tracequery.EventDMAFence && ev.Name == "dma_fence_signaled" {
+			summary.HasDMAFence = true
+			break
+		}
+	}
+	if !summary.HasDMAFence {
+		t.Fatalf("%s missing queryable DMA fence event: summary=%+v events=%+v", label, summary, idx.Events)
+	}
+	return summary
+}
+
+func assertRawFtraceRootCauseParity(t *testing.T, builtin, sql rawFtraceRootCauseEvidenceSummary) {
+	t.Helper()
+	if builtin.BinderTransactionID != sql.BinderTransactionID ||
+		builtin.BinderDestThread != sql.BinderDestThread ||
+		builtin.BinderFlagsValue != sql.BinderFlagsValue ||
+		builtin.FileInodeValue != sql.FileInodeValue ||
+		builtin.FileBytes != sql.FileBytes ||
+		builtin.PageCacheInode != sql.PageCacheInode ||
+		builtin.PressureTopInode != sql.PressureTopInode ||
+		builtin.WorkqueuePaired == 0 || sql.WorkqueuePaired == 0 ||
+		builtin.StoragePaired == 0 || sql.StoragePaired == 0 ||
+		!builtin.HasDMAFence || !sql.HasDMAFence {
+		t.Fatalf("raw-ftrace semantic parity mismatch:\nbuiltin=%+v\nsql=%+v", builtin, sql)
+	}
+}
+
+func parseTraceNumberForTest(raw string) int64 {
+	raw = strings.Trim(strings.TrimSpace(raw), "[](),")
+	if raw == "" {
+		return 0
+	}
+	base := 10
+	if strings.HasPrefix(strings.ToLower(raw), "0x") {
+		raw = raw[2:]
+		base = 16
+	}
+	value, _ := strconv.ParseInt(raw, base, 64)
+	return value
 }
 
 func assertEventExists(t *testing.T, label string, idx *tracequery.Index, want string, match func(tracequery.Event) bool) {

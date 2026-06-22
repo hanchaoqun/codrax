@@ -133,9 +133,13 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 	case "mm_filemap_add_to_page_cache", "mm_filemap_delete_from_page_cache":
 		return renderMMFilemapPageCache(ev), true
 	case "binder_transaction":
-		return renderKV(ev, "transaction", "dest_node", "dest_proc", "dest_thread", "reply", "flags", "code"), true
+		return renderBinderTransaction(ev), true
 	case "binder_transaction_received":
 		return renderKV(ev, "transaction"), true
+	case "binder_transaction_alloc_buf", "binder_alloc_buf":
+		return renderKV(ev, "transaction", "debug_id", "data_size", "offsets_size", "extra_buffers_size"), true
+	case "binder_transaction_reply", "binder_reply", "binder_transaction_lock", "binder_lock", "binder_transaction_locked", "binder_locked", "binder_transaction_unlock", "binder_unlock":
+		return renderKV(ev, "transaction", "debug_id", "tag"), true
 	case "irq_handler_entry":
 		return fmt.Sprintf("irq=%d name=%s", intField(ev, "irq", true), irqName(ev, content)), true
 	case "irq_handler_exit":
@@ -315,6 +319,25 @@ func renderKV(ev decodedEvent, names ...string) string {
 		} else {
 			parts = append(parts, fmt.Sprintf("%s=%d", cleanFieldName(name), intField(ev, name, false)))
 		}
+	}
+	if len(parts) == 0 {
+		return genericFields(ev, nil)
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderBinderTransaction(ev decodedEvent) string {
+	var parts []string
+	for _, name := range []string{"transaction", "dest_node", "dest_proc", "dest_thread", "reply"} {
+		if hasField(ev, name) {
+			parts = append(parts, fmt.Sprintf("%s=%d", name, intField(ev, name, false)))
+		}
+	}
+	if hasField(ev, "flags") {
+		parts = append(parts, fmt.Sprintf("flags=0x%x", intField(ev, "flags", false)))
+	}
+	if hasField(ev, "code") {
+		parts = append(parts, fmt.Sprintf("code=0x%x", intField(ev, "code", false)))
 	}
 	if len(parts) == 0 {
 		return genericFields(ev, nil)

@@ -185,7 +185,7 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, boo
 		return fmt.Sprintf("mm_id=%d curr=%d member=%d size=%d", intByCleanName(ev, "mm_id", false),
 			intByCleanName(ev, "curr", false), intByCleanName(ev, "member", true), intByCleanName(ev, "size", true)), true
 	case strings.HasPrefix(name, "workqueue_execute"):
-		return fmt.Sprintf("work struct 0x%x: function 0x%x", intByCleanName(ev, "work", false), intByCleanName(ev, "function", false)), true
+		return fmt.Sprintf("work=0x%x function=0x%x", intByCleanName(ev, "work", false), intByCleanName(ev, "function", false)), true
 	case strings.HasPrefix(name, "thermal_power_allocator_pid"):
 		return fmt.Sprintf("thermal_zone_id=%d err=%d err_integral=%d p=%d i=%d d=%d output=%d",
 			intByCleanName(ev, "tz_id", true), intByCleanName(ev, "err", true), intByCleanName(ev, "err_integral", true),

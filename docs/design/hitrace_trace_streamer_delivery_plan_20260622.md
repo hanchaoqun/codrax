@@ -650,9 +650,9 @@ Exit criteria:
 
 #### Batch 6C: Raw Ftrace Root-Cause Evidence Parity
 
-Status: in progress on 2026-06-23; raw-ftrace SQL exporter slice delivered,
-with explicit built-in-vs-SQL parity and representative customer `.sys`
-fixtures still pending.
+Status: in progress on 2026-06-23; raw-ftrace SQL exporter and cross-engine
+parity guard slices delivered, with representative customer `.sys` fixtures
+still pending.
 
 Exploration notes:
 
@@ -805,7 +805,7 @@ Delivered slice on 2026-06-23:
 
 Next slice: Batch 6C2 raw-ftrace cross-engine parity guard.
 
-Status: planned on 2026-06-23.
+Status: delivered on 2026-06-23.
 
 Reference audit:
 
@@ -866,6 +866,31 @@ Exit criteria for Batch 6C2:
 - No model tool-call input fields are added; no JSON repair aliases are needed.
 - Any failures expose structured coverage/provenance gaps rather than prompt
   guidance or keyword patches.
+
+Delivered Batch 6C2 on 2026-06-23:
+
+- Added `TestConvertFileNoPerfTraceRawFtraceRootCauseParityMatrix`, which runs
+  equivalent raw-ftrace root-cause evidence through explicit `builtin` and
+  explicit `trace_streamer` engines, then compares bounded semantic summaries
+  from `trace_query`.
+- The parity guard covers binder IPC, inode file IO, page-cache churn,
+  block/SCSI storage latency, IO pressure summary, workqueue pairing, and
+  DMA-fence events.
+- Normalized the built-in sys renderer output for shared trace_query-facing
+  fields:
+  - binder `flags` and `code` now render as hexadecimal values, matching SQL
+    raw-ftrace output and existing binder query expectations;
+  - workqueue events now render as `work=... function=...`, matching the
+    stable field schema already emitted by the SQL path.
+- The guard is test-only. Production pure-trace conversion still uses exactly
+  the user-selected engine, defaulting to SQL, and trace+perf remains SQL-only.
+- This does not yet close Batch 6 because representative customer `.sys`
+  captures still need conversion and trace_query round-trip validation.
+
+Verification for Batch 6C2:
+
+- `go test ./internal/hitraceconv -run TestConvertFileNoPerfTraceRawFtraceRootCauseParityMatrix -count=1 -v`
+- `go test ./internal/hitraceconv ./internal/tracequery`
 
 Verification for delivered slice:
 
