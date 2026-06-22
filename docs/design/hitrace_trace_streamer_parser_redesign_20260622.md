@@ -2,6 +2,8 @@
 
 Date: 2026-06-22
 
+Reference: https://gitcode.com/diting/hmtrace/tree/main
+
 ## Goal
 
 Modern Harmony/OpenHarmony `.htrace` conversion must follow the same high-coverage
@@ -42,6 +44,45 @@ layout. In that case Codrax can extract `perf.data`, but systrace generation
 fails with errors such as `invalid segment type=... at offset=...`. Treating this
 as a recoverable "old-format parse miss" leaves the user with partial artifacts
 and no queryable scheduler trace.
+
+## hmtrace Reference Model
+
+The design follows the public `hmtrace` implementation pattern rather than the
+old Codrax event-segment parser.
+
+Observed `hmtrace` model:
+
+- It embeds platform-specific `trace_streamer` binaries in the release artifact.
+- At runtime it extracts the embedded binary into a versioned cache directory and
+  chmods it executable on Unix platforms.
+- `export-db` invokes `trace_streamer <input> -e <output.db>`, with optional
+  native symbol directories passed through to `trace_streamer`.
+- `convert-db` opens the resulting SQLite DB and runs a set of table-specific
+  extractors. It does not rely on old binary event-format segments.
+- Extractors are keyed by DB tables such as `thread`, `sched_slice`, `instant`,
+  `irq`, `cpu_measure_filter`, `measure_filter`, `process_measure`,
+  `frame_slice`, `diskio`, `network`, `log`, `hisys_all_event`,
+  `xpower_measure`, `perf_sample`, and `perf_callchain`.
+- Perf support is DB-first: `perf.data` can be exported into its own DB,
+  perf-related tables can be merged into the trace DB, and symbol enhancement can
+  create an additional `hmtrace_perf_symbolized_frame` table consumed by later
+  exporters.
+
+Codrax should keep the same ingestion skeleton but adapt the output contract:
+
+- `trace_streamer` remains responsible for the highest-coverage raw
+  `.htrace`/`perf.data` decoding.
+- Codrax owns the DB-to-queryable-artifact export because `trace_query` needs
+  stable ftrace-compatible rows and normalized `perf_sample:` rows.
+- Perf samples should not be consumed only through visual systrace spans like
+  `tracing_mark_write: B|pid|hiperf:...`. Those spans are useful for UI
+  timelines, but model-side root-cause analysis needs `.perftrace` rows that
+  preserve timestamp, CPU, tid/pid, event, period/count, DSO, symbol, callchain,
+  symbolization quality, and source provenance.
+- Embedded `trace_streamer` is a valid long-term UX target, but Codrax should
+  first land external discovery/configuration and only embed a fixed binary after
+  validating license, platform coverage, hash/version provenance, and release
+  size.
 
 ## New Compatibility Contract
 
