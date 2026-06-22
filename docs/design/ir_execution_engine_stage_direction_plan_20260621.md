@@ -146,6 +146,12 @@ P1 / D2 后继续闭环：
 11. **D1-F9g.5: read run routine auto-resume / dependency identity**。显式 `/read-runs resume` 已有，商用 routine path 仍需 typed entry condition 和 environment/dependency fingerprint，防止错误自动续跑。
 12. **D1-G88: 客户仓噪音根配置化与工具参数软引导**。当前工具层已有通用结构噪音、typed source scope 和 source-inventory 自动收窄，但客户私有仓可能把 `out/`、`bazel-bin/`、`reports/`、`eval/results/` 等定义为 runtime/generated/dependency roots。下一批需要把这些根接入 `codrax.yaml` typed runtime/search exclude 配置，并让工具返回结构化 `universe_excluded_reason` / `suggested_refinement`，供模型通过 `path`、`file_type`、`source_scope`、`include_auxiliary`、cursor/page 参数自主收窄。模型参数过滤只能作为软路径；hard gate 只消费 schema 参数、typed path role/source scope、配置化 roots 和工具返回的 truncation/budget enum。
 13. **D1-G89: 过宽/截断工具结果的统一 typed refinement carrier**。`grep` retrieval governor 和 source-inventory `candidate_budget_truncated` 已有局部提示，但还没有统一 carrier。需要把 `result_truncated`、`candidate_budget_truncated`、`skipped_large_candidates`、`next_cursor`、`top_source_classes`、`preferred_next_tool`、`preferred_params` 归一成工具结果 handoff，使 planner/explorer 不靠散文理解“扫太宽了”，而是用参数化下一步继续收敛。
+   - D1-F10g.23 doc-first task list（当前 HEAD `40781994c`）：
+     1. 扩展现有 `ToolHandoffCarrier`，新增闭合的 `ToolRefinementHint` typed 字段；字段只允许来自工具执行时的结构化事实：truncation/budget enum、cursor、source class/role、path/file_type/include/source_scope 等 schema 参数，不从用户原文、模型 rationale、prompt 或工具 summary prose 解析。
+     2. 先接入 `grep` 两个已证明高价值的通用形态：broad result compaction 与 skipped-large no-match。工具继续渲染人类可读摘要，但同一结果必须附带 `refinement.reason_code`、`result_truncated` 或 `skipped_large_candidates`、`preferred_next_tool`、`preferred_params`，供 explorer/planner/reasoning graph/status card 消费。
+     3. 在 `ToolHandoffCarrier` normalize/merge/key/context projection 中保留 refinement；去重按 tool+reason+preferred tool/params 做稳定键，避免重复探索把 carrier 放大成噪音。
+     4. focused tests：carrier normalize/merge；`grep` broad compaction 生成 `result_truncated` refinement；large-file skip 生成 single-file grep 参数建议；write context pack 能消费该 carrier；full `go test ./...` 与 `make` 后再提交推送。
+     5. 后续切片再把 source-inventory `candidate_budget_truncated` / `next_cursor` / top source classes 投影进同一 carrier，并把 D1-G88 的客户仓 runtime/generated roots 配置接入 `universe_excluded_reason`，不得为单仓目录名打补丁。
 
 P2 / 不阻塞当前商用稳定性：
 
