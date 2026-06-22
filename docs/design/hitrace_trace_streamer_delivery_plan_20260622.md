@@ -159,7 +159,24 @@ Boundary that remains for Batch 2:
 
 ### Batch 2: trace_streamer Provider Invocation
 
-Status: planned.
+Status: detailed plan landed; implementation next.
+
+Exploration notes:
+
+- hmtrace invokes `trace_streamer` as:
+
+```text
+trace_streamer <input> -e <output.db> [--So_dir <dir>]
+```
+
+- Codrax already has reusable primitives for this batch:
+  - `traceSidecarBase` and `numberedSidecarPath` for sidecar naming.
+  - `ensureOutputDoesNotExist` for no-overwrite behavior.
+  - `boundedCommandOutput` for bounded external-tool diagnostics.
+  - perf adapter `exec.CommandContext` patterns for cancellation.
+- Batch 1 added `TraceProviderDecision`, `ArtifactTraceDB`, trace engine
+  validation, and `BuildTraceToolStatus`, so Batch 2 must not create another
+  provenance channel.
 
 Tasks:
 
@@ -181,6 +198,49 @@ Tasks:
   - explicit mode fail-fast.
   - auto mode records failure and chooses modern fallback.
   - DB cleanup vs keep behavior.
+
+Detailed implementation checklist:
+
+- Add `trace_streamer_provider.go`.
+- Add DB output path derivation:
+  - explicit `TraceDBOutputPath` wins;
+  - otherwise derive from `traceSidecarBase(input, output)` plus `.trace.db`;
+  - temporary DBs use a temp dir when `KeepTraceDB=false`.
+- Add provider command builder:
+  - args must be `<input> -e <db>`.
+  - append `--So_dir <dir>` once for each configured `TraceStreamerSoDirs`.
+  - do not shell-concatenate paths.
+- Add runner behavior:
+  - validate executable with the existing trace tool discovery result;
+  - fail before running if selected `trace_streamer` is unavailable;
+  - use `exec.CommandContext`;
+  - capture combined output through the same bounded diagnostic policy as perf
+    adapters;
+  - verify the DB file exists and is non-empty after success.
+- Add conversion selection:
+  - `--trace-engine=trace_streamer`: run provider or hard fail.
+  - `--trace-engine=auto`: try provider when available; if provider fails,
+    record a failed trace provider decision and continue only to
+    `builtin_modern_profiler` / perf-only partial output.
+  - `--trace-engine=builtin`: skip trace_streamer provider with an explicit
+    skipped decision.
+- Add artifact behavior:
+  - when `KeepTraceDB=true`, retain the DB as `ArtifactTraceDB`.
+  - when `KeepTraceDB=false`, remove temporary DB after DB export is implemented;
+    until Batch 3, do not delete a successful explicit trace_streamer DB because
+    it is the only produced trace artifact.
+- Add test fixtures:
+  - fake shell trace_streamer script writing `sqlite-like` bytes and an args log;
+  - fake failing trace_streamer script with stderr;
+  - explicit missing tool;
+  - auto fallback to profiler text rows;
+  - tracebundle contains trace provider decisions and DB artifact when kept.
+
+Performance/memory notes for this batch:
+
+- No full `.htrace` or DB load is allowed.
+- External process output remains bounded.
+- DB artifact validation uses `os.Stat`; no DB parsing yet.
 
 Exit criteria:
 
