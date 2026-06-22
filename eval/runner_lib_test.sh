@@ -343,6 +343,31 @@ if command -v python3 >/dev/null 2>&1; then
   fi
 fi
 
+partial_dir="$tmp/partial-results/arkts_repomap-20260622-101305"
+mkdir -p "$partial_dir/run-1.logs"
+cat >"$partial_dir/run-1.logs/codrax-20260622-101306-000-1.log" <<'LOG'
+2026-06-22T10:13:06.000 DEBUG [diag analyzer] DISPATCH stage=analyze attempt=1
+2026-06-22T10:13:07.000 DEBUG [diag explorer] DISPATCH stage=explore attempt=1
+2026-06-22T10:13:08.000 DEBUG [diag explorer] iter=0 ASSISTANT content_len=12
+2026-06-22T10:13:09.000 DEBUG [diag explorer] phase=toolcall tool=repo_map params={"view":"source_inventory","scope":"internal/thirdparty/tree-sitter-arkts/corpus/sources"}
+2026-06-22T10:13:10.000 DEBUG [diag explorer] phase=toolcall tool=read_file params={"path":"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"}
+2026-06-22T10:13:11.000 DEBUG [diag explorer] phase=midloop_inject key="explorer.mid-loop.source-inventory"
+LOG
+eval_materialize_partial_run_result "$partial_dir" 1 124 901 "eval_worker_incomplete"
+assert_eq "$(head -1 "$partial_dir/run-1.verdict")" "TIMEOUT eval_worker_incomplete" "partial timeout verdict"
+assert_eq "$(cat "$partial_dir/run-1.wall")" "901" "partial timeout wall"
+if [[ ! -s "$partial_dir/run-1.logs.all.log" ]]; then
+  fail "partial timeout did not aggregate logs"
+fi
+assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" partial_result)" "1" "partial timeout metric marker"
+assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" exit_code)" "124" "partial timeout exit metric"
+assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" tool_repo_map)" "1" "partial timeout repo_map metric"
+assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" source_inventory_lens)" "1" "partial timeout source lens metric"
+assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" tool_read_file)" "1" "partial timeout read metric"
+assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" analyzer_dispatches)" "1" "partial timeout analyzer dispatch metric"
+assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" explorer_iters)" "1" "partial timeout explorer iter metric"
+assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" midloop_inject)" "1" "partial timeout midloop metric"
+
 true_bin="$(command -v true || true)"
 if [[ -n "$true_bin" && -x "$true_bin" ]]; then
   case_file="$tmp/runner_contract.case"

@@ -69,11 +69,22 @@ case_id_for_file() {
 
 run_case() {
   local case_file="$1"
+  local case_id start_ts end_ts elapsed rc dir
+  case_id="$(case_id_for_file "$case_file")"
+  start_ts="$(date +%s)"
   eval_run_with_timeout "$TIMEOUT" env \
     EVAL_RESULTS_ROOT="$RESULTS_ROOT" \
     CODRAX_BIN="$CODRAX_BIN" \
     CODRAX_PROVIDER_ARGS_RAW="${CODRAX_PROVIDER_ARGS_RAW:-}" \
     eval/run.sh "$case_file" "$RUNS"
+  rc=$?
+  end_ts="$(date +%s)"
+  elapsed=$((end_ts - start_ts))
+  dir="$(eval_latest_result_dir "$RESULTS_ROOT" "$case_id" "$SWEEP_START" 2>/dev/null || true)"
+  if [[ -n "$dir" && ( "$rc" -ne 0 || ! -f "$dir/run-1.metrics.txt" || ! -f "$dir/run-1.verdict" ) ]]; then
+    eval_materialize_partial_run_result "$dir" 1 "$rc" "$elapsed" "eval_worker_incomplete"
+  fi
+  return "$rc"
 }
 
 if [[ ! -x "${CODRAX_BIN:-}" ]]; then

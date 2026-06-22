@@ -124,6 +124,9 @@ run_one() {
   # start (don't read stale dirs from previous sweeps).
   local dir=""
   dir=$(eval_latest_result_dir "$RESULTS_ROOT" "$case_id" "$SWEEP_START" 2>/dev/null || true)
+  if [[ -n "$dir" && ( "$rc" -ne 0 || ! -f "$dir/run-1.metrics.txt" || ! -f "$dir/run-1.verdict" ) ]]; then
+    eval_materialize_partial_run_result "$dir" 1 "$rc" "$elapsed" "eval_worker_incomplete"
+  fi
   if [[ -n "$dir" && -f "$dir/run-1.verdict" ]]; then
     local first_line
     first_line=$(head -1 "$dir/run-1.verdict")

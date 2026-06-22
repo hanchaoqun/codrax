@@ -838,6 +838,125 @@ eval_detect_provider_blocked() {
   echo "$reasons"
 }
 
+eval_materialize_partial_run_result() {
+  local dir="$1"
+  local run_id="${2:-1}"
+  local rc="${3:-1}"
+  local elapsed="${4:-0}"
+  local reason="${5:-worker_exit}"
+  if [[ -z "$dir" || ! -d "$dir" ]]; then
+    return 0
+  fi
+  case "$elapsed" in
+    ''|*[!0-9]*) elapsed=0 ;;
+  esac
+  local logdir="$dir/run-${run_id}.logs"
+  local all_log="$dir/run-${run_id}.logs.all.log"
+  local log=""
+  if [[ -d "$logdir" ]]; then
+    if [[ ! -s "$all_log" ]]; then
+      : >"$all_log"
+      local lf found=0
+      for lf in "$logdir"/codrax-*.log; do
+        [[ -f "$lf" ]] || continue
+        found=1
+        {
+          echo
+          echo "===== $lf ====="
+          cat "$lf"
+        } >>"$all_log"
+      done
+      if [[ "$found" -ne 1 ]]; then
+        rm -f "$all_log"
+      fi
+    fi
+  fi
+  if [[ -f "$all_log" ]]; then
+    log="$all_log"
+  else
+    log="$(ls -t "$logdir"/codrax-*.log 2>/dev/null | head -1)"
+  fi
+  if [[ ! -f "$dir/run-${run_id}.wall" ]]; then
+    echo "$elapsed" >"$dir/run-${run_id}.wall"
+  fi
+  if [[ ! -f "$dir/run-${run_id}.metrics.txt" ]]; then
+    {
+      echo "exit_code=$rc"
+      echo "log_file=$log"
+      echo "partial_result=1"
+      echo "partial_reason=$reason"
+      echo "data_terminal_path="
+      echo "data_terminal_status="
+      echo "data_rounds=0"
+      echo "data_repair_rounds=0"
+      echo "data_record_count=0"
+      echo "data_action_failed=0"
+      echo "data_answer_len=0"
+      echo "data_result_summary="
+      echo "tool_read_file=$(eval_count_tool_calls "$log" read_file)"
+      echo "tool_repo_map=$(eval_count_tool_calls "$log" repo_map)"
+      echo "tool_list_files=$(eval_count_tool_calls "$log" list_files)"
+      echo "tool_trace_query=$(eval_count_tool_calls "$log" trace_query)"
+      echo "tool_mcp_read_resource=$(eval_count_tool_calls "$log" mcp_read_resource)"
+      echo "repeated_mcp_resource_reads=$(eval_count_repeated_mcp_resource_reads "$log")"
+      echo "mcp_tool_calls=$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=toolcall [^:]*tool=[A-Za-z0-9_-]+__[A-Za-z0-9_-]+' "$log")"
+      echo "source_inventory_lens=$(eval_count_source_inventory_tool_calls "$log")"
+      echo "repo_lens_discovery_hints=$(eval_count_repo_lens_discovery_hints "$log")"
+      echo "transient_retry_checkpoints=$(eval_count_transient_retry_checkpoints "$log")"
+      echo "unavailable_tool_attempts=$(eval_count_unavailable_tool_attempts "$log")"
+      echo "checkpoint_continuation_broad_hint=$(eval_count_checkpoint_continuation_broad_hint "$log")"
+      echo "closure_only_repeated=$(eval_count_closure_only_repeated "$log")"
+      echo "mermaid_source_repair_applied=$(eval_count_mermaid_source_repairs "$log")"
+      echo "repair_debt_checkpoints=$(eval_count_repair_debt_checkpoints "$log")"
+      echo "repair_debt_close_ready_filters=$(eval_count_repair_debt_close_ready_filters "$log")"
+      echo "repair_debt_principal_blocking_max=$(eval_max_repair_debt_checkpoint_class "$log" principal_blocking)"
+      echo "repair_debt_surgical_grounding_max=$(eval_max_repair_debt_checkpoint_class "$log" surgical_grounding)"
+      echo "repair_debt_advisory_max=$(eval_max_repair_debt_checkpoint_class "$log" advisory)"
+      echo "tool_history_prunes=$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=prune TOOL HISTORY PRUNED' "$log")"
+      echo "max_context_tokens_est=$(eval_max_context_tokens_estimate "$log")"
+      echo "max_context_window=$(eval_max_context_window_tokens "$log")"
+      echo "max_context_window_pct=$(eval_max_context_window_pct "$log")"
+      echo "answer_contract_violations=$(eval_sum_answer_contract_violations "$log")"
+      echo "answer_contract_lane_block_kind_violations=$(eval_sum_answer_contract_violations_for_section "$log" lane_block_kind)"
+      echo "midloop_inject=$(eval_count_midloop_injects "$log")"
+      echo "parallel_sibling_skips=$(eval_count_pattern 'skipping non-winning parallel explore sibling' "$log")"
+      echo "mixed_origin_autocomplete_blocks=$(eval_count_pattern 'accepted investigation closure cannot auto-complete mixed-origin explore window' "$log")"
+      echo "finalizer_rejects=$(eval_count_finalizer_rejects "$log")"
+      echo "wall_seconds=$(cat "$dir/run-${run_id}.wall" 2>/dev/null || echo 0)"
+      echo "pipeline_dispatches=$(eval_count_control_pattern 'DEBUG \[diag [^]]+\] DISPATCH stage=' "$log")"
+      echo "investigation_complete_calls=$(eval_count_tool_calls "$log" emit_investigation_complete)"
+      echo "investigation_complete_rejects=$(eval_count_tool_rejects "$log" emit_investigation_complete)"
+      echo "hypothesis_verdict_rejects=$(eval_count_tool_rejects "$log" emit_hypothesis_verdict)"
+      echo "finalizer_rewrites=$(eval_count_finalizer_rewrites "$log")"
+      echo "analyzer_iters=$(eval_count_agent_iterations "$log" analyzer)"
+      echo "explorer_iters=$(eval_count_agent_iterations "$log" explorer)"
+      echo "extractor_iters=$(eval_count_agent_iterations "$log" extractor)"
+      echo "finalizer_iters=$(eval_count_agent_iterations "$log" finalizer)"
+      echo "analyzer_dispatches=$(eval_count_agent_dispatches "$log" analyzer)"
+      echo "explorer_dispatches=$(eval_count_agent_dispatches "$log" explorer)"
+      echo "extractor_dispatches=$(eval_count_agent_dispatches "$log" extractor)"
+      echo "finalizer_dispatches=$(eval_count_agent_dispatches "$log" finalizer)"
+      echo "repair_plan_lines=$(eval_count_pattern 'repair_plan: ' "$log")"
+      echo "repair_exec_lines=$(eval_count_pattern 'repair_exec: ' "$log")"
+      echo "repair_exec_promote=$(eval_count_pattern 'repair_exec: .*remaining=[1-9].*budget_downgrade=true' "$log")"
+      echo "repair_exec_failloud=$(eval_count_pattern 'repair_exec: .*fail_loud=true' "$log")"
+      echo "semantic_quality_dispatches=$(eval_count_semantic_quality_dispatches "$log")"
+      echo "semantic_quality_concerns=$(eval_count_semantic_quality_concerns "$log")"
+      echo "self_consistency_concerns=$(eval_count_self_consistency_concerns "$log")"
+      echo "strict_decode_remap_events=$(eval_count_pattern 'strict_decode_remap.*misplaced field' "$log")"
+      echo "strict_decode_carrier_events=$(eval_count_pattern 'strict_decode_remap. string-carrier field' "$log")"
+      echo "strict_decode_element_shape_events=$(eval_count_pattern 'strict_decode_remap. array-element shape field' "$log")"
+    } >"$dir/run-${run_id}.metrics.txt"
+  fi
+  if [[ ! -f "$dir/run-${run_id}.verdict" ]]; then
+    if [[ "$rc" -eq 124 ]]; then
+      printf 'TIMEOUT %s\n' "$reason" >"$dir/run-${run_id}.verdict"
+    else
+      printf 'FAIL %s rc=%s\n' "$reason" "$rc" >"$dir/run-${run_id}.verdict"
+    fi
+  fi
+}
+
 eval_provider_preflight() {
   local codrax_bin="$1"
   local repo_root="$2"
