@@ -814,6 +814,85 @@ func TestExecCommandFindCountMeasurementAllowed(t *testing.T) {
 	}
 }
 
+func TestExecCommandFindCountMeasurementBlockedDuringSourceInventoryDebt(t *testing.T) {
+	ctx := newBusContext()
+	ctx.RepoRoot = t.TempDir()
+	ctx.Mode = types.ModeRead
+	ctx.PipelineStage = types.StageExplore
+	ctx.Mutable = types.NewMutableState("source inventory debt")
+	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Execution: &types.SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: false,
+			Count:    1,
+			Total:    20,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "observed",
+				Key:           "observed",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "internal/tool/builtin.go",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			Confidence:        0.9,
+		},
+	}}
+
+	tool := &ExecCommand{}
+	params, _ := json.Marshal(execCommandParams{Command: `find . -type f -name "*.go" | wc -l`})
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("active source-inventory debt should refuse shell file-set count, got %q", result.Summary)
+	}
+	if result.Repair == nil || result.Repair.Code != "exec_command_source_inventory_debt_use_typed_inventory" {
+		t.Fatalf("expected source-inventory debt repair, got %+v", result.Repair)
+	}
+	if !strings.Contains(result.Summary, "repo_map") || !strings.Contains(result.Summary, "source_inventory") {
+		t.Fatalf("repair should steer to typed source inventory route, got %q", result.Summary)
+	}
+}
+
+func TestExecCommandFileSetMeasurementClassifier(t *testing.T) {
+	cases := []string{
+		`find . -type f -name "*.go" | wc -l`,
+		`git ls-files '*.go' | wc -l`,
+		`rg --files -g '*.ets' | wc -l`,
+		`ls internal/tool | wc -l`,
+	}
+	for _, command := range cases {
+		if !execCommandLooksLikeFileSetMeasurement(command) {
+			t.Fatalf("expected file-set measurement classification for %q", command)
+		}
+	}
+	for _, command := range []string{
+		`grep -R "needle" internal/tool | wc -l`,
+		`printf '7\n'`,
+		`git log --oneline -5 | wc -l`,
+	} {
+		if execCommandLooksLikeFileSetMeasurement(command) {
+			t.Fatalf("did not expect file-set measurement classification for %q", command)
+		}
+	}
+}
+
 func TestExecCommand(t *testing.T) {
 	t.Run("echo hello", func(t *testing.T) {
 		tool := &ExecCommand{}

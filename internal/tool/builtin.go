@@ -506,6 +506,10 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 			result.Timestamp = time.Now()
 			return result, nil
 		}
+		if result := readModeExecSourceInventoryDebtRepair(ctx, command); result != nil {
+			result.Timestamp = time.Now()
+			return *result, nil
+		}
 		if result := readModeExecFileDiscoveryRepair(ctx, command); result != nil {
 			result.Timestamp = time.Now()
 			return *result, nil
@@ -682,6 +686,30 @@ func readModeExecFileDiscoveryRepair(ctx *types.BusContext, command string) *typ
 	}
 }
 
+func readModeExecSourceInventoryDebtRepair(ctx *types.BusContext, command string) *types.ToolResult {
+	if !execCommandActiveSourceInventoryDebt(ctx) || !execCommandLooksLikeFileSetMeasurement(command) {
+		return nil
+	}
+	hint := "Use repo_map with view=source_inventory and the scheduler/requested typed scope to close source-inventory debt; file-set shell counts do not prove membership coverage."
+	return &types.ToolResult{
+		ToolName: "exec_command",
+		Success:  false,
+		Summary: fmt.Sprintf(
+			"exec_command refused: active source-inventory completion debt requires typed inventory coverage, not broad shell file-set measurement. %s The rejected command was: %s",
+			hint, sanitizeForBanner(command)),
+		Repair: &types.ToolRepair{
+			Code:   "exec_command_source_inventory_debt_use_typed_inventory",
+			Hint:   hint,
+			Fields: []string{"view", "scope", "scopes", "roles", "include_counts"},
+			Metadata: map[string]string{
+				"reason_code":    "source_inventory_debt_command_measurement",
+				"preferred_tool": "repo_map",
+				"preferred_view": "source_inventory",
+			},
+		},
+	}
+}
+
 func readModeExecFileDiscoveryShouldRepair(command string) bool {
 	if !execCommandLooksLikeFindDiscovery(command) {
 		return false
@@ -699,11 +727,57 @@ func execCommandActiveSourceInventoryProfile(ctx *types.BusContext) bool {
 		ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active()
 }
 
+func execCommandActiveSourceInventoryDebt(ctx *types.BusContext) bool {
+	if !execCommandActiveSourceInventoryProfile(ctx) {
+		return false
+	}
+	if types.NormalizeSourceInventoryFollowupDebt(ctx.SourceInventoryFollowupDebt).IsActive() {
+		return true
+	}
+	if ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	if !observation.IsActive() {
+		return false
+	}
+	authority := types.BuildSourceInventoryCompletionAuthority(observation, ctx.AnalysisIR.RequestModel, false)
+	return authority.IsBlocking()
+}
+
 func execCommandLooksLikeFindDiscovery(command string) bool {
 	for _, segment := range shellCommandSegments(command) {
 		for _, token := range shellWordsForOrigin(segment) {
 			if path.Base(strings.ToLower(token)) == "find" {
 				return true
+			}
+		}
+	}
+	return false
+}
+
+func execCommandLooksLikeFileSetMeasurement(command string) bool {
+	if !execCommandLooksLikeCountOnly(command) {
+		return false
+	}
+	for _, segment := range shellCommandSegments(command) {
+		tokens := shellWordsForOrigin(segment)
+		if len(tokens) == 0 {
+			continue
+		}
+		cmd := path.Base(strings.ToLower(tokens[0]))
+		switch cmd {
+		case "find", "ls":
+			return true
+		case "git":
+			if firstGitSubcommand(tokens[1:]) == "ls-files" {
+				return true
+			}
+		case "rg":
+			for _, token := range tokens[1:] {
+				if token == "--files" {
+					return true
+				}
 			}
 		}
 	}
