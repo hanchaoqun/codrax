@@ -569,6 +569,48 @@ Exit criteria:
 - CLI, markdown, and HTML runtime-artifact summaries now expand tracebundle
   provider/coverage details for both attachment bodies and request-named paths.
 
+#### Batch 7B: Request-Named Artifact Routing and Prompt Teaching
+
+Status: delivered on 2026-06-23.
+
+Gap:
+
+- Customers often do not attach artifacts first; they name one or more readable
+  trace/log/perf paths in the question.
+- The system must support that UX without turning file suffixes or prose
+  keywords into hard intent gates.
+- The `trace_query` tool prompt taught perf tracebundle caveats, but did not
+  yet teach trace provider/DB coverage/cross-validation caveats.
+
+Tasks:
+
+- Keep both customer entry modes supported:
+  - attached artifact bodies;
+  - request text that names one or more readable artifact paths.
+- Tighten analyze-stage runtime-artifact hard gates so a missing token with a
+  trace-like suffix does not disable source pre-scan by itself.
+- Preserve the fast artifact lane for readable paths whose content or resolved
+  path identifies a runtime artifact.
+- Teach `trace_query` schema/result guidance that:
+  - `tracebundle_trace_provider` describes conversion engine/readiness;
+  - `tracebundle_trace_db_coverage` describes SQL table export coverage;
+  - `tracebundle_trace_coverage` describes generated trace and cross-validation
+    coverage;
+  - these caveats qualify reliability and completeness, not direct runtime root
+    causes.
+- Add tests for:
+  - missing trace-like suffix tokens not triggering hard analyzer routing;
+  - readable request-named systrace/perftrace/tracebundle paths exposing
+    `trace_query`;
+  - prompt/schema snapshot coverage for the new tracebundle caveats.
+
+Exit criteria:
+
+- A request-named readable trace/log/perf artifact gets the same analysis lane
+  and report transparency as an attachment.
+- A non-readable suffix-shaped token remains normal model-classified text and
+  does not become a deterministic hard runtime route.
+
 Tasks:
 
 - Prompt/hint updates:

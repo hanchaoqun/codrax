@@ -468,11 +468,17 @@ func TestAnalyzerPrompt_ExternalObservationTurnHintSkipsRepoOverview(t *testing.
 }
 
 func TestAnalyzerPrompt_ExplicitTracePathDoesNotSuppressSourceByDefault(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "record_trace_20260526174055.systrace")
+	if err := os.WriteFile(tracePath, []byte("app-1 (1) [000] .... 2942.124416: sched_switch: prev_comm=app prev_pid=1 prev_state=S ==> next_comm=idle next_pid=0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	ac := &types.AgentContext{
 		AgentName: types.AgentAnalyzer,
 		Stage:     types.StageAnalyze,
-		Objective: `这个trace里面 "record_trace_20260526174055.systrace", "com.tencent.mm-36379" 从 2942.124416 到 2942.260210 sleep 的原因`,
-		RepoRoot:  ".",
+		Objective: `这个trace里面 "` + tracePath + `", "com.tencent.mm-36379" 从 2942.124416 到 2942.260210 sleep 的原因`,
+		RepoRoot:  dir,
+		WorkDir:   dir,
 	}
 	sk := skill.BuildAnalysisSkill()
 
@@ -497,10 +503,17 @@ func TestAnalyzerPrompt_ExplicitTracePathDoesNotSuppressSourceByDefault(t *testi
 }
 
 func TestAnalyzerPrompt_ExplicitTracePathWithCurrentSourceCueKeepsSourceLane(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "record_trace_20260526174055.systrace")
+	if err := os.WriteFile(tracePath, []byte("app-1 (1) [000] .... 2942.124416: sched_switch: prev_comm=app prev_pid=1 prev_state=S ==> next_comm=idle next_pid=0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	ac := &types.AgentContext{
 		AgentName: types.AgentAnalyzer,
 		Stage:     types.StageAnalyze,
-		Objective: `结合当前源码分析 record_trace_20260526174055.systrace 里的 com.tencent.mm-36379 sleep 原因`,
+		Objective: `结合当前源码分析 ` + tracePath + ` 里的 com.tencent.mm-36379 sleep 原因`,
+		RepoRoot:  dir,
+		WorkDir:   dir,
 	}
 	sk := skill.BuildAnalysisSkill()
 

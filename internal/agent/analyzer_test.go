@@ -1141,9 +1141,16 @@ func TestAnalyzer_FilterToolSchemas_EmitOnlyAfterPrescanLimit(t *testing.T) {
 }
 
 func TestAnalyzer_FilterToolSchemas_ExplicitRuntimeArtifactPathEmitOnly(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "runtime_path_panic.log")
+	if err := os.WriteFile(logPath, []byte("panic: boom\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	ctx := &types.AgentContext{
 		Stage:     types.StageAnalyze,
-		Objective: "只分析 eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码。",
+		RepoRoot:  dir,
+		WorkDir:   dir,
+		Objective: "只分析 " + logPath + " 这个日志文件，不分析代码。",
 	}
 	schemas := []llm.ToolSchema{
 		{Name: "emit_analysis"},

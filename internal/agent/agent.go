@@ -4759,13 +4759,14 @@ func analyzerRuntimeArtifactPathKind(ctx *types.AgentContext, path string) strin
 	if lowerBase == "perf.data" && !analyzerRuntimeArtifactPathHasLocator(path) && !analyzerRuntimeArtifactPathExists(ctx, path) {
 		return ""
 	}
-	if kind := types.RuntimeArtifactPathKind(path); kind != "" {
-		return kind
-	}
-	if !analyzerRuntimeArtifactPathHasLocator(path) && !analyzerRuntimeArtifactPathExists(ctx, path) {
+	resolved := analyzerRuntimeArtifactResolvedPath(ctx, path)
+	if resolved == "" {
 		return ""
 	}
-	return analyzerRuntimeArtifactContentKind(ctx, path)
+	if kind := analyzerRuntimeArtifactContentKind(ctx, path); kind != "" {
+		return kind
+	}
+	return types.RuntimeArtifactPathKind(path)
 }
 
 func analyzerRuntimeArtifactPathHasLocator(path string) bool {

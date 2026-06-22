@@ -846,14 +846,21 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 	})
 
 	t.Run("explicit runtime artifact path blocks artifact prescan", func(t *testing.T) {
+		dir := t.TempDir()
+		logPath := filepath.Join(dir, "runtime_path_panic.log")
+		if err := os.WriteFile(logPath, []byte("panic: boom\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		ctx := &types.AgentContext{
 			Stage:     types.StageAnalyze,
-			Objective: "只分析 /Users/han/opt/codrax/eval/fixtures/runtime_path_panic.log 这个日志文件，不分析代码。",
+			RepoRoot:  dir,
+			WorkDir:   dir,
+			Objective: "只分析 " + logPath + " 这个日志文件，不分析代码。",
 		}
 		calls := []llm.ToolCall{
-			{Name: "repo_map", Params: json.RawMessage(`{"path":"/Users/han/opt/codrax/eval/fixtures","view":"file_map"}`)},
-			{Name: "list_files", Params: json.RawMessage(`{"path":"/Users/han/opt/codrax/eval/fixtures"}`)},
-			{Name: "grep", Params: json.RawMessage(`{"pattern":"runtime_path_panic.log","path":"/Users/han/opt/codrax/eval/fixtures","files_only":true}`)},
+			{Name: "repo_map", Params: json.RawMessage(`{"path":".","view":"file_map"}`)},
+			{Name: "list_files", Params: json.RawMessage(`{"path":"."}`)},
+			{Name: "grep", Params: json.RawMessage(`{"pattern":"runtime_path_panic.log","path":".","files_only":true}`)},
 		}
 		for _, tc := range calls {
 			got := validateAnalyzerPrescanToolCall(ctx, tc)
@@ -874,9 +881,16 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 	})
 
 	t.Run("explicit runtime artifact path blocks generic prescan params", func(t *testing.T) {
+		dir := t.TempDir()
+		logPath := filepath.Join(dir, "runtime_path_panic.log")
+		if err := os.WriteFile(logPath, []byte("panic: boom\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		ctx := &types.AgentContext{
 			Stage:     types.StageAnalyze,
-			Objective: "根据 eval/fixtures/runtime_path_panic.log 总结 panic 类型和关键栈。",
+			RepoRoot:  dir,
+			WorkDir:   dir,
+			Objective: "根据 " + logPath + " 总结 panic 类型和关键栈。",
 		}
 		for _, tc := range []llm.ToolCall{
 			{Name: "repo_map", Params: json.RawMessage(`{"path":".","view":"task_map","query":"panic"}`)},
@@ -901,6 +915,19 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		tc := llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"path":".","view":"task_map","query":"log path"}`)}
 		if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
 			t.Fatalf("bare .log extension should not trigger runtime-artifact-path gate, got %+v", got)
+		}
+	})
+
+	t.Run("missing suffix path keeps normal prescan", func(t *testing.T) {
+		ctx := &types.AgentContext{
+			Stage:     types.StageAnalyze,
+			RepoRoot:  t.TempDir(),
+			WorkDir:   t.TempDir(),
+			Objective: "分析 missing_capture.systrace 这种路径识别代码怎么处理",
+		}
+		tc := llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"path":".","view":"task_map","query":"systrace path"}`)}
+		if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
+			t.Fatalf("missing suffix path should not trigger runtime-artifact-path hard gate, got %+v", got)
 		}
 	})
 
