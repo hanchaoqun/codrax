@@ -79,6 +79,96 @@ func TestEnumerationItemLabelHallucination_AllRealSymbolsPass(t *testing.T) {
 	}
 }
 
+func TestEnumerationItemLabelHallucination_RuntimeAggregateTraceEventsPass(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{ID: "e1", AnchorSymbol: "unrelatedAnchor"}})
+	mut.SetRequestModel(types.RequestModel{
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+		},
+	})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:       types.AnswerAggregateMemberSet,
+			Label:      "关键唤醒链路节点",
+			Value:      "4",
+			Role:       types.AnswerAggregateRoleSupportingCoverage,
+			Provenance: "trace_query:evidence_pack",
+			Dimensions: []types.AnswerAggregateDimension{{
+				Name:  "origin",
+				Value: string(types.AnswerEvidenceOriginRuntimeArtifact),
+			}},
+			Members: []string{
+				"sched_waking @168758.662877: ACCS0→Binder:924_3 target_cpu=001",
+				"sched_switch @168758.663017: swapper/1→Binder:924_3 (cpu1 调度运行)",
+				"sched_waking @168758.663312: Binder:924_3→ACCS0 target_cpu=000",
+				"sched_switch @168758.663329: HeapTaskDaemon→ACCS0 (cpu0 恢复运行)",
+			},
+		},
+		{
+			Kind:       types.AnswerAggregateScalar,
+			Label:      "Binder:924_3 CPU1 实际调度延迟",
+			Value:      "0.119",
+			Unit:       "ms",
+			Role:       types.AnswerAggregateRoleSupportingCoverage,
+			Provenance: "trace_query:scheduler_latency_stats",
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginRuntimeArtifact)},
+				{Name: "start", Value: "168758.662898s sched_wakeup"},
+				{Name: "end", Value: "168758.663017s sched_switch(idle→Binder:924_3)"},
+			},
+		},
+	})
+	mut.SetInvestigationComplete("runtime trace aggregate facts accepted")
+	doc := docWithEnumItems("hops",
+		"sched_waking @ 168758.662877s",
+		"sched_wakeup @ 168758.662898s",
+		"sched_switch @ 168758.663017s",
+		"sched_waking @ 168758.663312s",
+		"sched_switch @ 168758.663329s",
+	)
+	doc.Blocks[0].ClaimUses = []types.RenderedClaimUse{{
+		ClaimForm: types.ClaimCallEdge,
+		FacetID:   string(types.FacetPrincipalPathEdge),
+	}}
+	oracle := &stubOracleFixB{}
+
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("runtime trace aggregate labels should satisfy grounding, got %+v", vs)
+	}
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut); len(vs) != 0 {
+		t.Fatalf("runtime trace aggregate labels must not be treated as current-source hallucinations, got %+v", vs)
+	}
+}
+
+func TestEnumerationItemLabelHallucination_RuntimeAggregateDoesNotCoverUnrelatedCodeEvent(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{ID: "e1", AnchorSymbol: "unrelatedAnchor"}})
+	mut.SetRequestModel(types.RequestModel{
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly,
+			CurrentSourceMode:    types.ExternalObservationCurrentSourceDefault,
+		},
+	})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "关键唤醒链路节点",
+		Provenance: "trace_query:evidence_pack",
+		Dimensions: []types.AnswerAggregateDimension{{
+			Name:  "origin",
+			Value: string(types.AnswerEvidenceOriginRuntimeArtifact),
+		}},
+		Members: []string{"sched_waking @168758.662877: ACCS0→Binder:924_3 target_cpu=001"},
+	}})
+	mut.SetInvestigationComplete("runtime trace aggregate facts accepted")
+	doc := docWithEnumItems("hops", "checkCoverage @ 168758.662877s")
+	oracle := &stubOracleFixB{}
+
+	vs := validateEnumerationItemLabelHallucination(doc, oracle, nil, mut)
+	if len(vs) != 1 || vs[0].Kind != types.ViolEnumerationLabelHallucinated {
+		t.Fatalf("unrelated current-source-shaped label should still fire, got %+v", vs)
+	}
+}
+
 func TestEnumerationItemLabelHallucination_PackageQualifiedCitedEvidencePasses(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

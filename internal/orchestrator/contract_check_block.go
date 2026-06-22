@@ -2942,6 +2942,9 @@ func runtimeAggregateSurfaceSupportsLabel(surface, label string) bool {
 	if typedLabelTokenSupportsLabel(surface, label) || typedLabelTokenSupportsLabel(label, surface) {
 		return true
 	}
+	if runtimeAggregateSurfaceTokenSetSupportsLabel(surface, label) {
+		return true
+	}
 	surfaceKey := asciiCodeSupportKey(surface)
 	labelKey := asciiCodeSupportKey(label)
 	if surfaceKey == "" || labelKey == "" {
