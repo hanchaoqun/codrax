@@ -2262,6 +2262,70 @@ func TestPreCheckAggregateMemberSetCoverage_PathSetsAreCoverageForArchitecture(t
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_UsesProjectedSourceInventoryRowSet(t *testing.T) {
+	mu := types.NewMutableState("source inventory principal row-set projection")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "partial source inventory",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Run"},
+		SupportRefs: []string{"Run @ thirdparty/cangjie/run.cj:7"},
+	}})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Complete: true,
+		Scopes:   []string{"."},
+		SourceClasses: []types.SourceInventorySourceClassCount{
+			{Role: types.SourcePathRoleProduction, Count: 1, Complete: true},
+			{Role: types.SourcePathRoleThirdParty, Count: 1, Complete: true},
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Run", Role: types.AnswerCandidateRoleFunction, File: "thirdparty/cangjie/run.cj", Line: 7, Language: "cangjie", CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "Serve", Role: types.AnswerCandidateRoleFunction, File: "src/serve.cj", Line: 12, Language: "cangjie", CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	})
+	mu.SetInvestigationComplete("source inventory closed")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "当前 source inventory 只有 Run。",
+	}}}
+
+	hints := preCheckAggregateMemberSetCoverage(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("projected row-set missing member should be enforced, got %+v", hints)
+	}
+	if !hints[0].ForceHard || !strings.Contains(hints[0].ExpectedShape, `member="Serve"`) ||
+		!strings.Contains(hints[0].ExpectedShape, `label="source inventory principal rows"`) {
+		t.Fatalf("hint should be hard and reference projected source-inventory row-set, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Text = "当前 source inventory 包含 Run 和 Serve。"
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("complete visible row-set should satisfy projected coverage, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_TotalCountPathMembersAreCoverageForArchitecture(t *testing.T) {
 	mu := types.NewMutableState("architecture count coverage aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

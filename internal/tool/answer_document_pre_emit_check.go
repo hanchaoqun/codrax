@@ -1912,13 +1912,13 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 	if answerDocumentRuntimeObservationOnly(ctx) {
 		return 0
 	}
-	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
+	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, preEmitStableAggregateFacts(ctx))
 	if len(refs) == 0 {
 		return 0
 	}
 	visibleSurface := preEmitVisibleAnswerSurface(doc)
 	displayRows := aggregateMemberSetDisplayRowsByFactIndex(ctx)
-	relationLabelRefs := preEmitRelationMemberSetLabelCarrierRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
+	relationLabelRefs := preEmitRelationMemberSetLabelCarrierRefs(ctx, preEmitStableAggregateFacts(ctx))
 	zh := principalEnumerationPrefersZH(ctx)
 	fixed := 0
 	for _, ref := range refs {
@@ -3182,7 +3182,7 @@ func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ..
 	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
 		return nil
 	}
-	facts := ctxOpt[0].Mutable.StableInvestigationAggregateFacts()
+	facts := preEmitStableAggregateFacts(ctxOpt[0])
 	if len(facts) == 0 {
 		return nil
 	}
@@ -3355,7 +3355,7 @@ func normalizeAggregateNegativeProofSupplement(doc *types.AnswerDocumentV2, ctx 
 	if doc == nil || ctx == nil || ctx.Mutable == nil || len(doc.Blocks) >= maxBlocksPerDoc {
 		return 0
 	}
-	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	facts := preEmitStableAggregateFacts(ctx)
 	if len(facts) == 0 {
 		return 0
 	}
@@ -3843,7 +3843,7 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	if answerDocumentRuntimeObservationOnly(ctx) {
 		return nil
 	}
-	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	facts := preEmitStableAggregateFacts(ctx)
 	if len(facts) == 0 {
 		return nil
 	}
@@ -3926,7 +3926,7 @@ func preCheckSourceInventoryCandidateUniverseCoverage(doc *types.AnswerDocumentV
 	if view == nil || view.Family != types.QFEnumeration || !view.NeedsEnumerationSlate() {
 		return nil
 	}
-	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
+	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, preEmitStableAggregateFacts(ctx))
 	if !gap.Blocking {
 		return nil
 	}
@@ -4008,6 +4008,19 @@ func preEmitDocumentHasExplicitCaveat(doc *types.AnswerDocumentV2) bool {
 	return false
 }
 
+func preEmitStableAggregateFacts(ctx *types.BusContext) []types.AnswerAggregateFact {
+	if ctx == nil {
+		return nil
+	}
+	if plan := answerSurfacePlan(ctx); plan != nil && len(plan.StableAggregateFacts) > 0 {
+		return plan.StableAggregateFacts
+	}
+	if ctx.Mutable == nil {
+		return nil
+	}
+	return ctx.Mutable.StableInvestigationAggregateFacts()
+}
+
 func preEmitAggregateMemberSetIsScalarCountSupport(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
@@ -4023,7 +4036,7 @@ func preEmitAggregateMemberSetCoverageHardGate(ctxOpt ...*types.BusContext) bool
 	ctx := ctxOpt[0]
 	rm := ctx.AnalysisIR.RequestModel
 	if ctx.Mutable != nil {
-		facts := ctx.Mutable.StableInvestigationAggregateFacts()
+		facts := preEmitStableAggregateFacts(ctx)
 		if preEmitHasExplicitPrincipalMemberSetForRequest(ctx, facts) {
 			return true
 		}
@@ -4074,7 +4087,7 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 	if answerDocumentRuntimeObservationOnly(ctx) {
 		return nil
 	}
-	refs := preEmitAggregateCardinalityFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
+	refs := preEmitAggregateCardinalityFactRefs(ctx, preEmitStableAggregateFacts(ctx))
 	if len(refs) == 0 {
 		return nil
 	}
@@ -4252,7 +4265,7 @@ func preCheckRelationMemberSetAnswerShape(doc *types.AnswerDocumentV2, ctxOpt ..
 		return nil
 	}
 	ctx := ctxOpt[0]
-	refs := preEmitPrincipalRelationShapeMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
+	refs := preEmitPrincipalRelationShapeMemberSetFactRefs(ctx, preEmitStableAggregateFacts(ctx))
 	if len(refs) == 0 {
 		return nil
 	}
@@ -5892,7 +5905,7 @@ func preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx *preEmitC
 		seen[key] = true
 		out = append(out, loc)
 	}
-	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts()) {
+	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, preEmitStableAggregateFacts(ctx)) {
 		fact := ref.Fact
 		for idx, member := range fact.Members {
 			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
@@ -5934,7 +5947,7 @@ func preEmitCitationSupportsAggregateItemWithContext(pctx *preEmitCheckContext, 
 	if label == "" || text == "" {
 		return false
 	}
-	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts()) {
+	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, preEmitStableAggregateFacts(ctx)) {
 		fact := ref.Fact
 		for idx, member := range fact.Members {
 			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
@@ -6873,7 +6886,7 @@ func preEmitLabelSupportedByAggregateMemberSet(label string, item types.AnswerBl
 	if label == "" {
 		return false
 	}
-	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	facts := preEmitStableAggregateFacts(ctx)
 	if len(facts) == 0 {
 		return false
 	}
@@ -6964,7 +6977,7 @@ func preEmitItemMatchesPrincipalAggregateMemberWithContext(pctx *preEmitCheckCon
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return false
 	}
-	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(pctx.ctx, pctx.ctx.Mutable.StableInvestigationAggregateFacts()) {
+	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(pctx.ctx, preEmitStableAggregateFacts(pctx.ctx)) {
 		for _, member := range ref.Fact.Members {
 			if preEmitAggregateMemberLabelTextMatches(label, text, member) {
 				return true
