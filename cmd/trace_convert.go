@@ -258,10 +258,10 @@ func traceConvertTraceMessageZh(message string) string {
 	switch {
 	case trimmed == "":
 		return ""
-	case strings.Contains(lower, "trace_streamer discovery is available"):
-		return "已支持 trace_streamer 发现；DB provider 执行会在 trace_streamer 转换批次中启用"
+	case strings.Contains(lower, "trace_streamer db export is available"):
+		return "trace_streamer DB export 已可用；systrace/perftrace DB exporter 由后续批次交付"
 	case strings.Contains(lower, "trace_streamer was discovered"):
-		return "已发现 trace_streamer；当前 auto 转换仍使用内置 fallback，直到 DB provider 执行启用"
+		return "已发现 trace_streamer；auto 转换会先尝试 trace_streamer DB export，再回退到内置 fallback"
 	case strings.Contains(lower, "trace_streamer was not discovered"):
 		return "未发现 trace_streamer；当前 auto 转换使用内置 fallback"
 	case strings.Contains(lower, "trace_streamer engine was selected but"):

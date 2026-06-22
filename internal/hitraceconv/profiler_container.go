@@ -117,7 +117,7 @@ type profilerFtraceClockDetail struct {
 	HasRes   bool
 }
 
-func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision) (Result, bool, error) {
+func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision) (Result, bool, error) {
 	extracted, err := extractProfilerContainerSystraceRows(ctx, opts.InputPath, inputSize)
 	if err != nil {
 		return Result{}, false, err
@@ -130,7 +130,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		InputBytes:         inputSize,
 		Artifacts:          append([]Artifact(nil), standaloneArtifacts...),
 		ProviderDecisions:  append([]PerfProviderDecision(nil), standaloneDecisions...),
-		TraceDecisions:     nil,
+		TraceDecisions:     append([]TraceProviderDecision(nil), initialTraceDecisions...),
 		Caveats:            append([]string(nil), extracted.Caveats...),
 		MissingFormatCount: 0,
 		UnknownEventCount:  extracted.StructuredFtrace,

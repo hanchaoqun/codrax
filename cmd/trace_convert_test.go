@@ -160,7 +160,7 @@ func TestTraceConvertResultLinesIncludeProviderDecisions(t *testing.T) {
 func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 	status := hitraceconv.TraceToolStatus{
 		EngineMode:     "auto",
-		SelectedEngine: "builtin",
+		SelectedEngine: "trace_streamer",
 		TraceStreamer: hitraceconv.TraceToolProviderStatus{
 			Name:            "trace_streamer_db",
 			Kind:            "official_trace_db",
@@ -171,7 +171,7 @@ func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 			AuxiliaryChecks: []string{"so_dir=/symbols check=test -d /symbols", "db_output=/tmp/trace.db check=parent_writable"},
 			InstallCommand:  "Install OpenHarmony/SmartPerf trace_streamer",
 			DocsURL:         "https://gitcode.com/diting/hmtrace/tree/main",
-			Caveats:         []string{"trace_streamer discovery is available; DB provider execution will be enabled by the trace_streamer conversion batch"},
+			Caveats:         []string{"trace_streamer DB export is available; systrace/perftrace DB exporters are delivered by later batches"},
 		},
 		BuiltinModern: hitraceconv.TraceToolProviderStatus{
 			Name:           "codrax_builtin_modern_profiler",
@@ -182,21 +182,21 @@ func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 			InstallCommand: "built-in",
 			Caveats:        []string{"built-in modern parser is the current trace-body fallback while trace_streamer DB execution is being delivered"},
 		},
-		Caveats: []string{"trace_streamer was discovered; current auto conversion still uses built-in fallback until DB provider execution is enabled"},
+		Caveats: []string{"trace_streamer was discovered; auto conversion tries trace_streamer DB export before built-in fallback"},
 	}
 	en := strings.Join(traceConvertTraceToolStatusLines("en", status), "\n")
-	for _, want := range []string{"trace_engine: auto", "selected_engine: builtin", "trace_provider[official_trace_db/trace_streamer_db]", "state=available", "/tmp/trace_streamer", "aux_check=so_dir=/symbols", "docs=https://gitcode.com/diting/hmtrace/tree/main", "trace_provider[builtin_modern/codrax_builtin_modern_profiler]"} {
+	for _, want := range []string{"trace_engine: auto", "selected_engine: trace_streamer", "trace_provider[official_trace_db/trace_streamer_db]", "state=available", "/tmp/trace_streamer", "aux_check=so_dir=/symbols", "docs=https://gitcode.com/diting/hmtrace/tree/main", "trace_provider[builtin_modern/codrax_builtin_modern_profiler]"} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("trace status lines missing %q:\n%s", want, en)
 		}
 	}
 	zh := strings.Join(traceConvertTraceToolStatusLines("zh", status), "\n")
-	for _, want := range []string{"trace 解析引擎：auto", "当前选择：builtin", "状态=可用", "来源=已配置 trace_streamer", "辅助检查=so_dir=/symbols", "文档=https://gitcode.com/diting/hmtrace/tree/main", "注意=已支持 trace_streamer 发现", "提示：已发现 trace_streamer"} {
+	for _, want := range []string{"trace 解析引擎：auto", "当前选择：trace_streamer", "状态=可用", "来源=已配置 trace_streamer", "辅助检查=so_dir=/symbols", "文档=https://gitcode.com/diting/hmtrace/tree/main", "注意=trace_streamer DB export 已可用", "提示：已发现 trace_streamer"} {
 		if !strings.Contains(zh, want) {
 			t.Fatalf("zh trace status lines missing %q:\n%s", want, zh)
 		}
 	}
-	for _, leak := range []string{"trace_streamer discovery is available", "trace_streamer was discovered; current auto conversion"} {
+	for _, leak := range []string{"trace_streamer DB export is available", "trace_streamer was discovered; auto conversion"} {
 		if strings.Contains(zh, leak) {
 			t.Fatalf("zh trace status leaked English detail %q:\n%s", leak, zh)
 		}

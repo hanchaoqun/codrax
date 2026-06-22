@@ -51,7 +51,7 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			InstallCommand:  "Install OpenHarmony/SmartPerf trace_streamer, or use an hmtrace-style embedded trace_streamer binary once Codrax embedding is enabled.",
 			DocsURL:         "https://gitcode.com/diting/hmtrace/tree/main",
 			InstallHint:     "Pass --trace-streamer /path/to/trace_streamer or set CODRAX_TRACE_STREAMER; verify it can run `trace_streamer --help` and export DBs with `trace_streamer <input> -e <output.db>`.",
-			Caveats:         []string{"trace_streamer discovery is available; DB provider execution will be enabled by the trace_streamer conversion batch"},
+			Caveats:         []string{"trace_streamer DB export is available; systrace/perftrace DB exporters are delivered by later batches"},
 		},
 		BuiltinModern: TraceToolProviderStatus{
 			Name:           traceProviderNameBuiltinModern,
@@ -78,10 +78,11 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 	case traceEngineBuiltin:
 		status.SelectedEngine = traceEngineBuiltin
 	case traceEngineAuto:
-		status.SelectedEngine = traceEngineBuiltin
 		if status.TraceStreamer.Available {
-			status.Caveats = append(status.Caveats, "trace_streamer was discovered; current auto conversion still uses built-in fallback until DB provider execution is enabled")
+			status.SelectedEngine = traceEngineTraceStreamer
+			status.Caveats = append(status.Caveats, "trace_streamer was discovered; auto conversion tries trace_streamer DB export before built-in fallback")
 		} else {
+			status.SelectedEngine = traceEngineBuiltin
 			status.Caveats = append(status.Caveats, "trace_streamer was not discovered; current auto conversion uses built-in fallback")
 		}
 	}

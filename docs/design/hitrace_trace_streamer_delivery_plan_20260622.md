@@ -159,7 +159,7 @@ Boundary that remains for Batch 2:
 
 ### Batch 2: trace_streamer Provider Invocation
 
-Status: detailed plan landed; implementation next.
+Status: delivered on 2026-06-22.
 
 Exploration notes:
 
@@ -244,8 +244,26 @@ Performance/memory notes for this batch:
 
 Exit criteria:
 
-- A modern `.htrace` can be normalized into a DB artifact through an external
-  trace_streamer path in tests.
+- Delivered: a modern `.htrace` can be normalized into a DB artifact through an
+  external trace_streamer path in tests.
+- Delivered: explicit `--trace-engine=trace_streamer` fails fast when the tool is
+  missing or the command fails.
+- Delivered: `auto` tries trace_streamer DB export when available, records
+  provider success/failure, and falls through to the current modern profiler
+  fallback.
+- Delivered: `KeepTraceDB` and explicit `TraceDBOutputPath` retain
+  `ArtifactTraceDB` in tracebundle; temporary auto DBs are cleaned when not kept.
+- Verified with:
+
+```bash
+go test ./internal/hitraceconv ./cmd ./internal/repl
+```
+
+Boundary that remains for Batch 3/4:
+
+- The DB is not parsed yet. Explicit trace_streamer conversion currently returns
+  a DB-only tracebundle with a caveat that systrace/perftrace DB exporters are
+  delivered by later batches.
 
 ### Batch 3: DB Exporter MVP
 

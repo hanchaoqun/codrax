@@ -51,7 +51,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, err
 	}
 	if normalizeTraceEngineMode(opts.TraceEngine) == traceEngineTraceStreamer {
-		return Result{}, fmt.Errorf("trace_streamer trace engine provider execution is not enabled yet; run codrax trace convert --trace-tools-status to inspect trace_streamer availability")
+		return convertTraceStreamerOnly(ctx, opts, input, info.Size(), output)
 	}
 	if result, ok, err := maybeConvertDirectSimpleperfPerfData(ctx, opts, input, info.Size(), output); ok || err != nil {
 		return result, err
@@ -59,11 +59,29 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if err := ensureOutputDoesNotExist(output); err != nil {
 		return Result{}, err
 	}
+	traceStreamerExport, err := maybeRunTraceStreamerAuto(ctx, opts, input, output)
+	if err != nil {
+		return Result{}, err
+	}
+	var initialArtifacts []Artifact
+	var initialCaveats []string
+	var initialTraceDecisions []TraceProviderDecision
+	if traceStreamerExport.Decision.ProviderName != "" {
+		initialTraceDecisions = append(initialTraceDecisions, traceStreamerExport.Decision)
+	}
+	if traceStreamerExport.Artifact.Path != "" && (opts.KeepTraceDB || strings.TrimSpace(opts.TraceDBOutputPath) != "") {
+		initialArtifacts = append(initialArtifacts, traceStreamerExport.Artifact)
+		initialCaveats = append(initialCaveats, traceStreamerExport.Caveats...)
+	} else if traceStreamerExport.Cleanup != nil {
+		defer traceStreamerExport.Cleanup()
+	}
 	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifacts(ctx, opts, info.Size(), output)
 	if err != nil {
 		return Result{}, err
 	}
-	if result, ok, err := tryConvertProfilerContainer(ctx, opts, info.Size(), output, standaloneArtifacts, standaloneCaveats, standaloneDecisions); ok || err != nil {
+	standaloneArtifacts = append(initialArtifacts, standaloneArtifacts...)
+	standaloneCaveats = append(initialCaveats, standaloneCaveats...)
+	if result, ok, err := tryConvertProfilerContainer(ctx, opts, info.Size(), output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions); ok || err != nil {
 		return result, err
 	}
 	meta, err := scanMetadata(ctx, input, info.Size())
@@ -75,13 +93,13 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 				Artifacts:  append([]Artifact(nil), standaloneArtifacts...),
 				ProviderDecisions: append([]PerfProviderDecision(nil),
 					standaloneDecisions...),
-				TraceDecisions: []TraceProviderDecision{
+				TraceDecisions: append(initialTraceDecisions,
 					traceProviderFailure(
 						newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameLegacySegment), opts, input, output),
 						"unsupported_legacy_event_segment_container",
 						fmt.Sprintf("legacy event-format segment parser could not render the trace body: %v", err),
 					),
-				},
+				),
 				Caveats: append(standaloneCaveats,
 					fmt.Sprintf("systrace output was not produced because the input did not match the supported binary hitrace event-format container: %v", err)),
 			}
@@ -134,12 +152,12 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 			Bytes:     outInfo.Size(),
 			Converter: converterVersion,
 		}},
-		TraceDecisions: []TraceProviderDecision{
+		TraceDecisions: append(initialTraceDecisions,
 			traceProviderSuccess(
 				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameLegacySegment), opts, input, output),
 				Artifact{Type: ArtifactSystrace, Path: output},
 			),
-		},
+		),
 		EventsWritten:      len(rows),
 		MissingFormatCount: missing,
 		UnknownEventCount:  unknown,

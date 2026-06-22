@@ -263,7 +263,7 @@ func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []
 	meta := traceBundleMetadata{
 		Version:             converterVersion,
 		InputPath:           input,
-		Systrace:            outputPath,
+		Systrace:            traceBundleSystracePath(outputPath, artifacts),
 		Artifacts:           artifacts,
 		ProviderDecisions:   decisions,
 		TraceDecisions:      traceDecisions,
@@ -283,6 +283,15 @@ func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []
 		return Artifact{}, err
 	}
 	return Artifact{Type: ArtifactTraceBundle, Path: path, Bytes: info.Size(), Converter: converterVersion}, nil
+}
+
+func traceBundleSystracePath(outputPath string, artifacts []Artifact) string {
+	for _, artifact := range artifacts {
+		if artifact.Type == ArtifactSystrace && strings.TrimSpace(artifact.Path) != "" {
+			return artifact.Path
+		}
+	}
+	return ""
 }
 
 func perfClockAlignmentsForArtifacts(artifacts []Artifact) []PerfClockAlignment {
