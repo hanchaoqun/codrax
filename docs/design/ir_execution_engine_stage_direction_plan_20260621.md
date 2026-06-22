@@ -7,6 +7,7 @@ D1-F9b.1 implementation baseline: `2828ef965`（2026-06-22 NodeArtifactLedger su
 Latest external staged-gap prompt re-audit baseline: `b279fe325`（2026-06-22，D1-F9d.3 extract/finalize seam 与 D1-F9c.3 trace/data path-scope 审计后；外部 staged-execution prompt 的 GAP-1..8 已全部映射到现有 D1-G/D1-F/D2 跟踪项，无新增未登记 gap）
 D1-F9g.4a replay-audit consumer planning baseline: `3eb411cab`（2026-06-22，external gap prompt 已复核入账；工作树干净）
 D1-F9g.4b compact replay-audit card planning baseline: `f8312e0af`（2026-06-22，typed replay audit + ReasoningGraph projection 已推送；工作树干净）
+D1-F10g.16 post-eval re-audit baseline: `a44f5af7e`（2026-06-22，read-status no-progress debounce 已推送；D2-F10g16 六例代表批 6/6 PASS，但 finalizer patch citation-pool、count-claim scope、ArkTS/trace residual contract warning 仍需按商用收敛质量继续修复）
 
 > 本文与两份既有文档**互补、不重复**：
 > - `ir_driven_execution_engine_prd_20260621.md` —— 架构 PRD（5 个关键问题裁定、Stage 0–3 设计）。
@@ -94,9 +95,11 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 
 ---
 
-## 7. 当前 HEAD 复核摘要（`b279fe325`）
+## 7. 当前 HEAD 复核摘要（`a44f5af7e`）
 
 本次复核对照当前 `main` 代码，不沿用旧审计口径。结论：v2 方向仍合理，但需要把"完成"拆成 scaffold 与 load-bearing 两个维度，否则后续 dashboard 会继续把 shadow 误读为承重。
+
+2026-06-22 在 `a44f5af7e` 重新复核后，`b279fe325` 小结需要刷新：D1-F10g.16 的 read-status debounce 已真实落地并通过全量 `go test ./...` / `make`；代表性 D2-F10g16 eval（2 并行、6 case）结果为 6/6 PASS，证明 source-inventory correctness 和 trace/runtime warning 主路径继续收敛。但该批次也证明"功能 PASS"不等于"商用收敛质量关闭"：Cangjie case 出现 `finalizer_iters=13` / `finalizer_rejects=26` / `tool_history_prunes=1`，ArkTS 和 trace case 仍有 residual `contract_warning`。因此本节排序从"是否能答对"升级为"是否能稳定、低噪、少轮次地答对"。
 
 | Kernel / surface | scaffold-complete | load-bearing-complete | 代码复核结论 |
 |---|---:|---:|---|
@@ -114,7 +117,29 @@ source-inventory 跨语言 absence 是**正确性问题不是引擎架构**，�
 | Runtime artifact ledger / extract consumption | yes | partial | D1-F9b.1-F9b.4 已建立 `NodeArtifactLedger`、produced/consumed `RuntimeArtifactRef`、extract readiness consumption、read snapshot carriage、resume validation 和 read ReasoningGraph projection；D1-F9h.1 已补 `analysis_refinement_handoff` 产物 lineage 和 explicit replay validation。剩余主要是代表性 eval/UX 与更广 final-audit/replay consumer 消费，不是 TaskGraph mutation。 |
 | StageRunner seam | yes | partial | D1-F9d first slice 已增加 `StageExecutionRequest` / `StageExecutionResult`，serial explore dispatch 通过 seam 安装/恢复 typed dispatch fields。D1-F9d.2 已让 parallel explore worker 消费同一 request/result shape。D1-F9d.3 已让 extract/finalize-adjacent dispatch 进入同一 request/result envelope。剩余：更大的 orchestrator 拆分与代表性 eval/status-noise 审计仍未完成。 |
 | ExecutionPolicy runtime | yes | partial | D1-F9e first slice 已让 runtime fan-out 消费 `ExecutionPolicy.MaxParallelism`，ready ordering 消费 `CriticalPath`。D1-F9e.2 已补 invalid/stale/duplicate critical-path typed audit warning surface。剩余：代表性 eval/status-card 验证仍 open。 |
+| Read status debounce | yes | partial | D1-F10g.16 已在 `SetEmitter` 安装 read-mode typed status debouncer：按 event kind / notice kind / node kind / pipeline stage / typed progress cursor 抑制无进展重复状态，不读取本地化展示文本、用户原文、prompt、模型 rationale 或最终答案散文。D2-F10g16 已证明批次完成且没有影响正确性；剩余 open 是对真实 REPL 日志做去重效果审计，以及决定是否需要 typed attempt-count 状态卡替代多行重复通知。 |
+| Finalizer patch citation pool | yes | partial | D2-F10g16 Cangjie 暴露 patch 模式的承重缺口：`emit_answer_document_patch` 继承 previous rejected draft citation pool，replacement block 的 `citation_ref` 仍按模型本轮 pool 心智解释，导致同一 `citation_ref=5/6` 在系统侧映射到旧 TS/Go 引用，触发 26 次重复 reject。这是 patch mutation / typed repair carrier 的通用 gap，不是 Cangjie 特例。 |
+| Aggregate count-claim scope | yes | partial | D2-F10g16 同时暴露 count consistency 绑定过宽：caveat 中的 "11 个 .cj 文件" 被误归因为 `public class` member_set 的可见数量，因为当前逻辑在块内出现 aggregate label 后扫描整块所有数字。需改为结构化局部绑定，只消费与 aggregate label/member carrier 同一局部范围内的 count claim。 |
 | LOC ratchet | yes | yes | A2/D1-F8a 已 pin，D1-F9d.3 后重新收到当前实际值：`evidence_closure.go=2630`、`scheduler.go=743`、`orchestrator.go=9395`；后续超过预算必须先拆 concern 文件或刷新 ledger 说明。 |
+
+### 7.1 `a44f5af7e` 后 gap 重排（先稳定架构，再收敛正确性/UX）
+
+P0 / 当前优先修复：
+
+1. **D1-G82: finalizer patch citation-pool 重绑定缺失**。证据：D2-F10g16 Cangjie `finalizer_rejects=26`，日志显示 replacement block 已携带正确 file:line 文本和 typed candidate citations，但 patch 继承旧 citation pool 后没有把 `citation_ref` 重映射到 merged citation pool。任务：在 `emit_answer_document_patch` 的 mutation 前增加 typed citation rebinding，消费 replacement/add blocks 的结构化 item label/text、typed evidence/candidate citation、prev/append/replace citation pool；不得解析用户意图、模型 rationale、prompt 或最终答案散文做路由。
+2. **D1-G83: aggregate count-claim 局部范围绑定过宽**。证据：同一 Cangjie 日志把 caveat 范围说明的 "11 个 .cj 文件" 误判为 `public class` 计数 11。任务：把 `preCheckAggregateCardinalityConsistency` 的数字扫描缩到 label/member 局部片段或 principal structured block，不再因为同一 caveat 块包含 aggregate label 就扫描整块所有数字；明确 label 同句/同结构绑定仍要硬拒绝错误成员数。
+
+P1 / D2 后继续闭环：
+
+3. **D1-G81: read status debounce 商用验证**。D1-F10g.16 已 code-complete，D2-F10g16 仍需人工读取 REPL/log 证明 `已完成证据收集` / `正在收集证据` / `验证还不够稳` 重复行显著减少且不遮蔽真实进展；如果仍噪音高，下一批实现 typed attempt-count 状态卡。
+4. **D1-G21/D1-G23/D1-G35/D1-G47: source-inventory principal carrier/accounting residuals**。ArkTS D2-F10g16 PASS 但 `answer_contract_violations=119` 且 flags=`finalizer contract_warning`，说明 principal row-set 与 principal-support/facet accounting 仍有 residual 对齐问题。任务：优先消费单一 `SourceInventoryPrincipalRowSet` / `AnswerSurfacePlan`，避免 finalizer prompt、pre-emit、post-emit 各自维护不同 carrier。
+5. **D1-F8b/D1-F9c: read loopkernel add-proof live UX/eval**。代码已承重到 one-shot next-action 和 `ReadDispatchPolicy`，仍缺 representative eval 证明它减少重复探索且不引入宽泛补读。
+6. **D1-F8c/D1-F9h: AnalyzeRefine optional actuator live UX/eval**。生产 topology 与 runtime artifact ledger 已有，仍缺 runaway-cost、status-noise、handoff effectiveness 审计。
+7. **D1-F9g.5: read run routine auto-resume / dependency identity**。显式 `/read-runs resume` 已有，商用 routine path 仍需 typed entry condition 和 environment/dependency fingerprint，防止错误自动续跑。
+
+P2 / 不阻塞当前商用稳定性：
+
+8. **StageRunner / ExecutionPolicy 更大拆分**。当前 seam 和 runtime policy 已 partial 承重，后续应按 hot-file/LOC ratchet 和 eval 证据拆，而不是为单 case 继续扩大 orchestrator。
 
 红线复核：
 - 本计划不允许新增用户意图关键词、模型散文、prompt/hint 文本、ranker/grep count、elapsed time 作为 hard route。
