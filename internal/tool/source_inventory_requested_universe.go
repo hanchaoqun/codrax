@@ -6,32 +6,32 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// SourceInventoryAcceptedClosureCoversRequestedUniverse reports whether a
-// repo-wide source-inventory lane has a narrower typed requested universe that
-// is already closed by exact source-inventory rows and structured aggregate
+// SourceInventoryAcceptedClosureCoversRequestedUniverse reports whether a broad
+// source-inventory observation has a narrower typed requested universe that is
+// already closed by exact source-inventory rows and structured aggregate
 // member_set coverage. It is intentionally stricter than
 // SourceInventoryAcceptedClosureCoversExactUniverse: a single bounded exact
-// scope does not close a repo-wide request while the typed census still exposes
+// scope does not close a broader request while the typed census still exposes
 // uncovered same-family source classes.
 func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || len(facts) == 0 {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if !types.SourceInventoryRequiresRepoWideLens(rm) {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false
 	}
 	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	aggregateFamily := sourceInventoryAggregatePrincipalSourceFamily(facts, &rm)
 	universes := sourceInventoryExactUniverseSets(observation)
 	if len(universes) == 0 {
-		return false
+		return sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation, aggregateFamily)
 	}
 	included, excluded := sourceInventoryAggregateCoverageKeys(facts, &rm)
 	if len(included) == 0 {
-		return false
+		return sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation, aggregateFamily)
 	}
 	roleSet := sourceInventoryRequestedUniverseRoleSet(rm, observation)
-	aggregateFamily := sourceInventoryAggregatePrincipalSourceFamily(facts, &rm)
 	covered := sourceInventoryRequestedUniverseFamily{
 		languages: map[string]bool{},
 		classes:   map[types.SourcePathRole]bool{},

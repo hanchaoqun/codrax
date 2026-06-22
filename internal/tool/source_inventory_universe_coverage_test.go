@@ -1680,6 +1680,86 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_PrincipalAggregat
 	}
 }
 
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ProductionScopeStillUsesPrincipalFamily(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMemberWithLanguage("runRoot", types.AnswerCandidateRoleFunction, "cmd/root.go", 10, "go"),
+		sourceInventoryRequestedUniverseMemberWithLanguage("parseCangjie", types.AnswerCandidateRoleFunction, "internal/tool/repomap/index/cangjie_parser.go", 20, "go"),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   3,
+		Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"},
+	}, {
+		Role:    types.SourcePathRoleThirdParty,
+		Count:   8,
+		Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"},
+	}, {
+		Role:    types.SourcePathRoleProduction,
+		Count:   155,
+		Samples: []string{"cmd/root.go"},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceScopeProfile = &types.SourceScopeProfile{
+		RequestedScope: types.SourceScopeProduction,
+		Confidence:     0.9,
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"runOnMainThread @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:12",
+		},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("production-scope request model must not bypass typed principal source-family coverage")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_AggregateFamilyCanCloseWithoutExactUniverseRows(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   3,
+		Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"},
+	}, {
+		Role:    types.SourcePathRoleThirdParty,
+		Count:   8,
+		Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"},
+	}, {
+		Role:    types.SourcePathRoleProduction,
+		Count:   155,
+		Samples: []string{"cmd/root.go"},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceScopeProfile = &types.SourceScopeProfile{
+		RequestedScope: types.SourceScopeProduction,
+		Confidence:     0.9,
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"runOnMainThread @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:12",
+		},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("principal source-family coverage plus source-class census should close even when repo_map rows are not exact-universe carriers")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_AggregateFamilyRequiresSourceClassCensus(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, nil)
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		},
+	}}
+	if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("aggregate source locations alone must not close requested universe without a typed source-class census")
+	}
+}
+
 func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_PrincipalAggregateFamilyBlocksMissingSameLanguageClass(t *testing.T) {
 	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
 		sourceInventoryRequestedUniverseMemberWithLanguage("runRoot", types.AnswerCandidateRoleFunction, "cmd/root.go", 10, "go"),

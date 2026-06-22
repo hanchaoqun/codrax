@@ -10,6 +10,9 @@ func sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation typ
 	if len(covered.languages) == 0 && len(covered.classes) == 0 {
 		return false
 	}
+	if len(observation.SourceClasses) == 0 {
+		return false
+	}
 	return !sourceInventoryRequestedUniverseCensusMissing(observation, covered)
 }
 
