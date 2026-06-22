@@ -2,6 +2,13 @@ package orchestrator
 
 import (
 	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -63,6 +70,30 @@ func TestNewParallelExploreStageExecutionRequestCarriesRetryHint(t *testing.T) {
 	}
 }
 
+func TestNewExtractFinalizeStageExecutionRequestsCarryTypedNodeAndReason(t *testing.T) {
+	node := &types.TaskNode{ID: "extract", Type: types.NodeExtract}
+	extractReq := newExtractStageExecutionRequest(node, "read_dag_pre_finalize_extract")
+	if extractReq.Stage != types.StageExtract ||
+		extractReq.ReasonCode != "read_dag_pre_finalize_extract" ||
+		len(extractReq.Window) != 1 ||
+		extractReq.Window[0] != node {
+		t.Fatalf("unexpected extract request: %+v", extractReq)
+	}
+	if extractReq.ExploreDispatchKey != "" ||
+		extractReq.ExploreDispatchKind != "" ||
+		extractReq.ExploreToolSurface != "" ||
+		extractReq.RetryHint != "" {
+		t.Fatalf("extract request should not carry explore-only fields: %+v", extractReq)
+	}
+
+	finalizeReq := newFinalizeStageExecutionRequest(nil, "")
+	if finalizeReq.Stage != types.StageFinalize ||
+		finalizeReq.ReasonCode != "read_dag_finalize" ||
+		len(finalizeReq.Window) != 0 {
+		t.Fatalf("unexpected finalize request: %+v", finalizeReq)
+	}
+}
+
 func TestStageExecutionRequestInstallsAndRestoresExploreDispatchFields(t *testing.T) {
 	var seenKey string
 	var seenKind types.TaskNodeType
@@ -99,6 +130,54 @@ func TestStageExecutionRequestInstallsAndRestoresExploreDispatchFields(t *testin
 		o.busCtx.ExploreDispatchKind != types.NodeValidate ||
 		o.busCtx.ExploreToolSurface != types.ExploreToolSurfaceSourceInventoryLens {
 		t.Fatalf("dispatch fields not restored: key=%q kind=%q surface=%q",
+			o.busCtx.ExploreDispatchKey, o.busCtx.ExploreDispatchKind, o.busCtx.ExploreToolSurface)
+	}
+}
+
+func TestStageExecutionRequestDispatchesExtractFinalizeWithoutExploreMutation(t *testing.T) {
+	wantErr := errors.New("extract failed")
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExtractor: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{Error: "partial extract"}, wantErr
+		},
+		types.AgentFinalizer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{FinalAnswer: "final"}, nil
+		},
+	})
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		Mutable:             types.NewMutableState("stage runner non-explore"),
+		ExploreDispatchKey:  "prev-key",
+		ExploreDispatchKind: types.NodeValidate,
+		ExploreToolSurface:  types.ExploreToolSurfaceSourceInventoryLens,
+		TaskState:           types.TaskState{Stage: types.StageExtract},
+	}
+
+	extractResult := o.executeStageRequest(newExtractStageExecutionRequest(&types.TaskNode{ID: "x", Type: types.NodeExtract}, "read_dag_pre_finalize_extract"))
+	if !errors.Is(extractResult.Err, wantErr) {
+		t.Fatalf("extract err = %v, want %v", extractResult.Err, wantErr)
+	}
+	if extractResult.Stage != types.StageExtract ||
+		extractResult.Output == nil ||
+		extractResult.Output.Error != "partial extract" ||
+		extractResult.Elapsed <= 0 {
+		t.Fatalf("unexpected extract result: %+v", extractResult)
+	}
+
+	finalizeResult := o.executeStageRequest(newFinalizeStageExecutionRequest(&types.TaskNode{ID: "f", Type: types.NodeFinalize}, "read_dag_finalize"))
+	if finalizeResult.Err != nil {
+		t.Fatalf("finalize err = %v", finalizeResult.Err)
+	}
+	if finalizeResult.Stage != types.StageFinalize ||
+		finalizeResult.Output == nil ||
+		finalizeResult.Output.FinalAnswer != "final" ||
+		finalizeResult.Elapsed <= 0 {
+		t.Fatalf("unexpected finalize result: %+v", finalizeResult)
+	}
+	if o.busCtx.ExploreDispatchKey != "prev-key" ||
+		o.busCtx.ExploreDispatchKind != types.NodeValidate ||
+		o.busCtx.ExploreToolSurface != types.ExploreToolSurfaceSourceInventoryLens {
+		t.Fatalf("non-explore requests mutated explore fields: key=%q kind=%q surface=%q",
 			o.busCtx.ExploreDispatchKey, o.busCtx.ExploreDispatchKind, o.busCtx.ExploreToolSurface)
 	}
 }
@@ -199,5 +278,47 @@ func TestParallelStageExecutionRequestProjectsWorkerFields(t *testing.T) {
 	}
 	if plain.parallelGroup == "" {
 		t.Fatalf("plain worker should receive parallel group: %+v", plain)
+	}
+}
+
+func TestStageExecutionRequestOwnsExtractFinalizeDispatch(t *testing.T) {
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", func(info os.FileInfo) bool {
+		name := info.Name()
+		return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatalf("parse orchestrator package: %v", err)
+	}
+	var offenders []string
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			ast.Inspect(file, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "dispatchStage" || len(call.Args) != 1 {
+					return true
+				}
+				arg, ok := call.Args[0].(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				x, ok := arg.X.(*ast.Ident)
+				if !ok || x.Name != "types" {
+					return true
+				}
+				if arg.Sel.Name == "StageExtract" || arg.Sel.Name == "StageFinalize" {
+					pos := fset.Position(call.Pos())
+					offenders = append(offenders, fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line))
+				}
+				return true
+			})
+		}
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("extract/finalize dispatch must go through StageExecutionRequest seam, found direct calls: %v", offenders)
 	}
 }

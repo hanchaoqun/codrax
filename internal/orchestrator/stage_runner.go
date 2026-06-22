@@ -47,6 +47,28 @@ func newParallelExploreStageExecutionRequest(window []*types.TaskNode, retryHint
 	return req
 }
 
+func newExtractStageExecutionRequest(node *types.TaskNode, reasonCode string) StageExecutionRequest {
+	return newNodeStageExecutionRequest(types.StageExtract, node, reasonCode, "read_dag_extract")
+}
+
+func newFinalizeStageExecutionRequest(node *types.TaskNode, reasonCode string) StageExecutionRequest {
+	return newNodeStageExecutionRequest(types.StageFinalize, node, reasonCode, "read_dag_finalize")
+}
+
+func newNodeStageExecutionRequest(stage types.PipelineStage, node *types.TaskNode, reasonCode, fallbackReasonCode string) StageExecutionRequest {
+	if reasonCode == "" {
+		reasonCode = fallbackReasonCode
+	}
+	req := StageExecutionRequest{
+		Stage:      stage,
+		ReasonCode: reasonCode,
+	}
+	if node != nil {
+		req.Window = []*types.TaskNode{node}
+	}
+	return req
+}
+
 func (o *Orchestrator) executeStageRequest(req StageExecutionRequest) StageExecutionResult {
 	start := time.Now()
 	if o == nil || o.busCtx == nil {

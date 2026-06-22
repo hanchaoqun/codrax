@@ -5642,7 +5642,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			for {
 				extractReadiness := o.buildArtifactReadinessView(ir)
 				startExtractNode(extractNode)
-				if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+				if exErr := o.executeStageRequest(newExtractStageExecutionRequest(extractNode, "read_dag_pre_finalize_extract")).Err; exErr != nil {
 					if o.completeExtractAfterTransientProgress(exErr) {
 						stepsUsed++
 						preFinalizeExtractCompleted = true
@@ -5727,7 +5727,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			NoticeKind: render.NoticeFinalizing,
 			Reasoning:  softFinalizingMessage(o.busCtx.Language),
 		})
-		out, err = o.dispatchStage(types.StageFinalize)
+		finalizeResult := o.executeStageRequest(newFinalizeStageExecutionRequest(fin, "read_dag_finalize"))
+		out, err = finalizeResult.Output, finalizeResult.Err
 		if err != nil {
 			if o.canUseFinalizerOutputAfterTransientProgress(out, err) {
 				logging.Warning("[orchestrator] finalize transient dispatch error after usable answer document; preserving structured answer and continuing checks: %v", err)
@@ -6587,7 +6588,7 @@ contractFailureBreak:
 					for {
 						extractReadiness := o.buildArtifactReadinessView(ir)
 						startExtractNode(extractNode)
-						if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+						if exErr := o.executeStageRequest(newExtractStageExecutionRequest(extractNode, "read_dag_pre_forced_finalize_extract")).Err; exErr != nil {
 							if o.completeExtractAfterTransientProgress(exErr) {
 								stepsUsed++
 								preFinalizeExtractCompleted = true
@@ -6682,7 +6683,8 @@ contractFailureBreak:
 			if o.busCtx.Mutable != nil {
 				o.busCtx.Mutable.ResetActiveAnswerDocumentV2ForFinalizeDispatch()
 			}
-			out, err = o.dispatchStage(types.StageFinalize)
+			finalizeResult := o.executeStageRequest(newFinalizeStageExecutionRequest(nil, "read_dag_forced_finalize"))
+			out, err = finalizeResult.Output, finalizeResult.Err
 			if err == nil {
 				stepsUsed++
 				break
