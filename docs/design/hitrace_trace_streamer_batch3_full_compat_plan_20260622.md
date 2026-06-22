@@ -219,25 +219,37 @@ go test ./internal/hitraceconv ./cmd ./internal/repl
 
 ### Batch 3E: ConvertFile Integration
 
+Status: delivered on 2026-06-22.
+
 Tasks:
 
-- When trace_streamer DB export succeeds, run DB exporter before deciding result.
+- Delivered: when trace_streamer DB export succeeds, Codrax runs the DB exporter
+  before deciding result.
 - If systrace rows are emitted:
-  - write `.systrace`,
-  - include `.trace_db` when requested,
-  - include tracebundle coverage,
-  - mark trace_streamer provider `trace_query_ready=true` through systrace
+  - delivered `.systrace` output,
+  - delivered `.trace_db` preservation when requested,
+  - delivered tracebundle coverage handoff,
+  - delivered trace_streamer provider `trace_query_ready=true` through systrace
     artifact readiness.
 - If no systrace rows are emitted:
-  - return partial bundle with coverage explaining why,
-  - do not claim trace_query scheduler readiness.
-- Keep explicit `--trace-engine=trace_streamer` fail-fast for unavailable tool.
-- Keep `auto` fallback behavior transparent in provider decisions.
-- Tests:
+  - delivered partial bundle with coverage explaining why,
+  - delivered no `trace_query_ready` scheduler claim for no-row DBs.
+- Delivered explicit `--trace-engine=trace_streamer` fail-fast for unavailable
+  tool.
+- Delivered transparent `auto` fallback behavior in provider decisions, carrying
+  trace DB coverage into fallback bundles.
+- Delivered tests:
   - fake trace_streamer writes a real SQLite fixture DB;
   - conversion emits systrace and tracebundle coverage;
   - DB-only no-row output is explicit partial result;
-  - generated systrace merges with perftrace sidecars through tracebundle.
+  - generated systrace merges with perftrace sidecars through tracebundle;
+  - generated systrace round trips through `tracequery.BuildIndex`.
+
+Verified with:
+
+```bash
+go test ./internal/hitraceconv ./cmd ./internal/repl
+```
 
 ### Batch 3F: hmtrace-Like Compatibility Matrix
 

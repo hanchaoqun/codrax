@@ -32,7 +32,7 @@ var traceProviderRegistry = []traceProviderSpec{
 	{
 		Kind:        traceProviderKindOfficialDB,
 		Name:        traceProviderNameTraceStreamer,
-		Implemented: false,
+		Implemented: true,
 	},
 	{
 		Kind:        traceProviderKindBuiltin,

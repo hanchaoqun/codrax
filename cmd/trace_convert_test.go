@@ -171,7 +171,7 @@ func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 			AuxiliaryChecks: []string{"so_dir=/symbols check=test -d /symbols", "db_output=/tmp/trace.db check=parent_writable"},
 			InstallCommand:  "Install OpenHarmony/SmartPerf trace_streamer",
 			DocsURL:         "https://gitcode.com/diting/hmtrace/tree/main",
-			Caveats:         []string{"trace_streamer DB export is available; systrace/perftrace DB exporters are delivered by later batches"},
+			Caveats:         []string{"trace_streamer DB export can be normalized to systrace with tracebundle coverage for trace_query"},
 		},
 		BuiltinModern: hitraceconv.TraceToolProviderStatus{
 			Name:           "codrax_builtin_modern_profiler",
@@ -180,7 +180,7 @@ func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 			Source:         "built-in",
 			CheckCommand:   "codrax trace convert --trace-engine=builtin",
 			InstallCommand: "built-in",
-			Caveats:        []string{"built-in modern parser is the current trace-body fallback while trace_streamer DB execution is being delivered"},
+			Caveats:        []string{"built-in modern/sys parser remains the fallback when trace_streamer is unavailable, fails, or emits no systrace rows"},
 		},
 		Caveats: []string{"trace_streamer was discovered; auto conversion tries trace_streamer DB export before built-in fallback"},
 	}
@@ -191,12 +191,12 @@ func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 		}
 	}
 	zh := strings.Join(traceConvertTraceToolStatusLines("zh", status), "\n")
-	for _, want := range []string{"trace 解析引擎：auto", "当前选择：trace_streamer", "状态=可用", "来源=已配置 trace_streamer", "辅助检查=so_dir=/symbols", "文档=https://gitcode.com/diting/hmtrace/tree/main", "注意=trace_streamer DB export 已可用", "提示：已发现 trace_streamer"} {
+	for _, want := range []string{"trace 解析引擎：auto", "当前选择：trace_streamer", "状态=可用", "来源=已配置 trace_streamer", "辅助检查=so_dir=/symbols", "文档=https://gitcode.com/diting/hmtrace/tree/main", "注意=trace_streamer DB export 可转换为 systrace", "提示：已发现 trace_streamer"} {
 		if !strings.Contains(zh, want) {
 			t.Fatalf("zh trace status lines missing %q:\n%s", want, zh)
 		}
 	}
-	for _, leak := range []string{"trace_streamer DB export is available", "trace_streamer was discovered; auto conversion"} {
+	for _, leak := range []string{"trace_streamer DB export can be normalized", "trace_streamer was discovered; auto conversion"} {
 		if strings.Contains(zh, leak) {
 			t.Fatalf("zh trace status leaked English detail %q:\n%s", leak, zh)
 		}

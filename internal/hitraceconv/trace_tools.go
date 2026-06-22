@@ -51,7 +51,7 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			InstallCommand:  "Install OpenHarmony/SmartPerf trace_streamer, or use an hmtrace-style embedded trace_streamer binary once Codrax embedding is enabled.",
 			DocsURL:         "https://gitcode.com/diting/hmtrace/tree/main",
 			InstallHint:     "Pass --trace-streamer /path/to/trace_streamer or set CODRAX_TRACE_STREAMER; verify it can run `trace_streamer --help` and export DBs with `trace_streamer <input> -e <output.db>`.",
-			Caveats:         []string{"trace_streamer DB export is available; systrace/perftrace DB exporters are delivered by later batches"},
+			Caveats:         []string{"trace_streamer DB export can be normalized to systrace with tracebundle coverage for trace_query"},
 		},
 		BuiltinModern: TraceToolProviderStatus{
 			Name:           traceProviderNameBuiltinModern,
@@ -60,8 +60,8 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			Source:         "built-in",
 			CheckCommand:   "codrax trace convert --trace-engine=builtin",
 			InstallCommand: "built-in",
-			InstallHint:    "Built into Codrax; currently handles modern profiler/session text payloads and will share the DB exporter schema as the built-in parser is completed.",
-			Caveats:        []string{"built-in modern parser is the current trace-body fallback while trace_streamer DB execution is being delivered"},
+			InstallHint:    "Built into Codrax; handles modern profiler/session text payloads and the sys binary fallback when trace_streamer is unavailable or emits no systrace rows.",
+			Caveats:        []string{"built-in modern/sys parser remains the fallback when trace_streamer is unavailable, fails, or emits no systrace rows"},
 		},
 	}
 	if tool, source := resolveTraceStreamerTool(opts); tool != "" {

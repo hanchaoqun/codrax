@@ -117,7 +117,7 @@ type profilerFtraceClockDetail struct {
 	HasRes   bool
 }
 
-func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision) (Result, bool, error) {
+func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage) (Result, bool, error) {
 	extracted, err := extractProfilerContainerSystraceRows(ctx, opts.InputPath, inputSize)
 	if err != nil {
 		return Result{}, false, err
@@ -131,6 +131,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		Artifacts:          append([]Artifact(nil), standaloneArtifacts...),
 		ProviderDecisions:  append([]PerfProviderDecision(nil), standaloneDecisions...),
 		TraceDecisions:     append([]TraceProviderDecision(nil), initialTraceDecisions...),
+		TraceDBCoverage:    append([]TraceDBCoverage(nil), initialTraceDBCoverage...),
 		Caveats:            append([]string(nil), extracted.Caveats...),
 		MissingFormatCount: 0,
 		UnknownEventCount:  extracted.StructuredFtrace,
@@ -199,7 +200,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 			),
 		)
 	}
-	if bundleArtifact, err := writeTraceBundle(opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions); err != nil {
+	if bundleArtifact, err := writeTraceBundleWithCoverage(opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage); err != nil {
 		return Result{}, true, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path

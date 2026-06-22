@@ -19,6 +19,8 @@ type traceDBRowSortStats struct {
 	PeakBufferedRows int
 	SpillChunks      int
 	TempBytes        int64
+	FirstTSNS        uint64
+	LastTSNS         uint64
 }
 
 func (s traceDBRowSortStats) coverage() TraceDBCoverage {
@@ -60,6 +62,12 @@ func newTraceDBRowSink(tempDir string, threshold int) (*traceDBRowSink, error) {
 }
 
 func (s *traceDBRowSink) add(row renderedRow) error {
+	if s.stats.RowsAccepted == 0 || row.tsNS < s.stats.FirstTSNS {
+		s.stats.FirstTSNS = row.tsNS
+	}
+	if row.tsNS > s.stats.LastTSNS {
+		s.stats.LastTSNS = row.tsNS
+	}
 	s.rows = append(s.rows, row)
 	s.stats.RowsAccepted++
 	if len(s.rows) > s.stats.PeakBufferedRows {

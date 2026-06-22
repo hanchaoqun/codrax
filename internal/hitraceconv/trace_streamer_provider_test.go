@@ -1,16 +1,20 @@
 package hitraceconv
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
-func TestConvertFileTraceStreamerExplicitProducesTraceDBBundle(t *testing.T) {
+func TestConvertFileTraceStreamerExplicitProducesSystraceTraceDBBundle(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
@@ -19,9 +23,11 @@ func TestConvertFileTraceStreamerExplicitProducesTraceDBBundle(t *testing.T) {
 	if err := os.WriteFile(input, []byte("modern profiler payload"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	fixtureDB := createTraceDBFixture(t, traceStreamerIntegrationDBStatements())
 	argsLog := filepath.Join(dir, "args.log")
 	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
 	t.Setenv("TRACE_STREAMER_ARGS_LOG", argsLog)
+	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
 
 	output := filepath.Join(dir, "capture.systrace")
 	result, err := ConvertFile(context.Background(), Options{
@@ -34,15 +40,21 @@ func TestConvertFileTraceStreamerExplicitProducesTraceDBBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("convert trace_streamer explicit: %v", err)
 	}
-	if result.OutputPath != "" || result.EventsWritten != 0 {
-		t.Fatalf("trace_streamer DB-only batch should not claim systrace rows: %+v", result)
+	if result.OutputPath != output || result.EventsWritten == 0 || result.OutputBytes == 0 {
+		t.Fatalf("trace_streamer should emit systrace rows: %+v", result)
 	}
 	var db Artifact
+	var systrace Artifact
 	for _, artifact := range result.Artifacts {
-		if artifact.Type == ArtifactTraceDB {
+		switch artifact.Type {
+		case ArtifactTraceDB:
 			db = artifact
-			break
+		case ArtifactSystrace:
+			systrace = artifact
 		}
+	}
+	if systrace.Path != output || systrace.Bytes == 0 || !strings.Contains(systrace.Converter, "trace-streamer-db") {
+		t.Fatalf("missing systrace artifact: %+v artifacts=%+v", systrace, result.Artifacts)
 	}
 	if db.Path != strings.TrimSuffix(output, defaultOutputSuffix)+".trace.db" || db.Bytes == 0 {
 		t.Fatalf("missing trace DB artifact: %+v artifacts=%+v", db, result.Artifacts)
@@ -56,21 +68,76 @@ func TestConvertFileTraceStreamerExplicitProducesTraceDBBundle(t *testing.T) {
 			t.Fatalf("trace_streamer args missing %q:\n%s", want, args)
 		}
 	}
+	idx, err := tracequery.BuildIndex(context.Background(), output)
+	if err != nil {
+		t.Fatalf("tracequery parse trace_streamer systrace: %v", err)
+	}
+	if len(idx.Events) == 0 {
+		t.Fatalf("tracequery should see scheduler rows from trace_streamer systrace")
+	}
 	bundle, err := os.ReadFile(result.BundlePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"type": "trace_db"`, `"trace_provider_decisions"`, `"provider_name": "trace_streamer_db"`} {
+	for _, want := range []string{`"type": "systrace"`, `"type": "trace_db"`, `"trace_provider_decisions"`, `"provider_name": "trace_streamer_db"`, `"trace_query_ready": true`, `"trace_db_coverage"`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("bundle missing %q:\n%s", want, bundle)
 		}
 	}
-	if strings.Contains(string(bundle), `"systrace"`) {
-		t.Fatalf("DB-only bundle must not claim nonexistent systrace output:\n%s", bundle)
+	var parsed struct {
+		Coverage []TraceDBCoverage `json:"trace_db_coverage"`
+	}
+	if err := json.Unmarshal(bundle, &parsed); err != nil {
+		t.Fatalf("parse tracebundle: %v\n%s", err, bundle)
+	}
+	assertCoverageEmitted(t, parsed.Coverage, "scheduler", "sched_slice", 1)
+	assertCoverageEmitted(t, parsed.Coverage, "sorter", "__systrace_rows__", result.EventsWritten)
+}
+
+func TestConvertFileTraceStreamerExplicitNoRowsProducesPartialBundle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "empty.htrace")
+	if err := os.WriteFile(input, []byte("modern profiler payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtureDB := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+	})
+	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
+	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+
+	output := filepath.Join(dir, "empty.systrace")
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		OutputPath:        output,
+		TraceEngine:       "trace_streamer",
+		TraceStreamerPath: traceStreamer,
+	})
+	if err != nil {
+		t.Fatalf("convert trace_streamer no-row DB: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 {
+		t.Fatalf("no-row DB must not claim systrace output: %+v", result)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("no-row DB should not create systrace file, stat err=%v", err)
+	}
+	if !hasArtifact(result.Artifacts, ArtifactTraceDB) || hasArtifact(result.Artifacts, ArtifactSystrace) {
+		t.Fatalf("partial bundle should preserve DB only: %+v", result.Artifacts)
+	}
+	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameTraceStreamer, "trace_db_no_rows") {
+		t.Fatalf("no-row decision missing: %+v", result.TraceDecisions)
+	}
+	if !coverageHasSkipped(result.TraceDBCoverage, "scheduler", "sched_slice", "missing table") {
+		t.Fatalf("coverage should explain missing scheduler rows: %+v", result.TraceDBCoverage)
 	}
 }
 
-func TestConvertFileTraceStreamerAutoKeepsDBAndFallsThroughToProfiler(t *testing.T) {
+func TestConvertFileTraceStreamerAutoPrefersDBSystraceAndKeepsDB(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
@@ -80,7 +147,9 @@ func TestConvertFileTraceStreamerAutoKeepsDBAndFallsThroughToProfiler(t *testing
 	if err := os.WriteFile(input, syntheticProfilerTraceFile(syntheticProfilerPluginData("bytrace_plugin", []byte(textTrace))), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	fixtureDB := createTraceDBFixture(t, traceStreamerIntegrationDBStatements())
 	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
+	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
 
 	output := filepath.Join(dir, "out.systrace")
 	result, err := ConvertFile(context.Background(), Options{
@@ -92,15 +161,52 @@ func TestConvertFileTraceStreamerAutoKeepsDBAndFallsThroughToProfiler(t *testing
 	if err != nil {
 		t.Fatalf("convert auto trace_streamer+profiler: %v", err)
 	}
-	if result.OutputPath != output || result.EventsWritten != 1 {
-		t.Fatalf("auto should keep profiler systrace output: %+v", result)
+	if result.OutputPath != output || result.EventsWritten <= 1 {
+		t.Fatalf("auto should use trace_streamer DB systrace before profiler fallback: %+v", result)
 	}
 	if !hasArtifact(result.Artifacts, ArtifactTraceDB) {
 		t.Fatalf("keep-trace-db should retain DB artifact: %+v", result.Artifacts)
 	}
 	if !hasTraceDecision(result.TraceDecisions, traceProviderNameTraceStreamer, true) ||
-		!hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
-		t.Fatalf("expected trace_streamer and builtin decisions: %+v", result.TraceDecisions)
+		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
+		t.Fatalf("expected trace_streamer success without builtin fallback success: %+v", result.TraceDecisions)
+	}
+}
+
+func TestConvertFileTraceStreamerAutoMergesPerfSidecarsIntoTraceBundle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "trace-with-perf.htrace")
+	body := append([]byte("prefix"), syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.02", syntheticRawPerfData())...)
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtureDB := createTraceDBFixture(t, traceStreamerIntegrationDBStatements())
+	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
+	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+
+	output := filepath.Join(dir, "merged.systrace")
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		OutputPath:        output,
+		TraceStreamerPath: traceStreamer,
+	})
+	if err != nil {
+		t.Fatalf("convert trace_streamer+perf sidecar: %v", err)
+	}
+	if result.OutputPath != output || !hasArtifact(result.Artifacts, ArtifactPerfData) || !hasArtifact(result.Artifacts, ArtifactPerfTrace) {
+		t.Fatalf("trace_streamer systrace should merge perf sidecars: %+v", result)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range [][]byte{[]byte(`"systrace": "`), []byte(`"type": "perf_data"`), []byte(`"type": "perftrace"`), []byte(`"perf_clock_alignments"`), []byte(`"trace_db_coverage"`)} {
+		if !bytes.Contains(bundle, want) {
+			t.Fatalf("merged tracebundle missing %q:\n%s", want, bundle)
+		}
 	}
 }
 
@@ -169,12 +275,50 @@ if [ ` + strconv.Itoa(exitCode) + ` -ne 0 ]; then
   echo "fake trace_streamer failed" >&2
   exit ` + strconv.Itoa(exitCode) + `
 fi
-printf 'SQLite format 3\000fake-db\n' > "$out"
+if [ -n "$TRACE_STREAMER_FIXTURE_DB" ]; then
+  cp "$TRACE_STREAMER_FIXTURE_DB" "$out"
+else
+  printf 'SQLite format 3\000fake-db\n' > "$out"
+fi
 `
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func traceStreamerIntegrationDBStatements() []string {
+	return []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (100)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 200, 'proc')",
+		"INSERT INTO process VALUES (2, 300, 'waker_proc')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 200, 1, 'MainApp', 100, 1, 1)",
+		"INSERT INTO thread VALUES (2, 201, 1, 'WorkerThread', 100, 0, 1)",
+		"INSERT INTO thread VALUES (3, 301, 2, 'Waker', 100, 1, 1)",
+		"CREATE TABLE sched_slice (ts INT, dur INT, cpu INT, end_state TEXT, priority INT, itid INT)",
+		"INSERT INTO sched_slice VALUES (1000000, 200000, 1, 'S', 42, 2)",
+		"INSERT INTO sched_slice VALUES (1300000, 100000, 1, 'R', 20, 3)",
+		"CREATE TABLE instant (ts INT, name TEXT, ref INT, wakeup_from INT, ref_type TEXT, value REAL)",
+		"INSERT INTO instant VALUES (900000, 'sched_wakeup', 2, 3, 'itid', NULL)",
+		"CREATE TABLE raw (ts INT, name TEXT, cpu INT, itid INT)",
+		"INSERT INTO raw VALUES (900000, 'sched_wakeup', 7, 2)",
+		"CREATE TABLE data_dict (id INT, data TEXT)",
+		"INSERT INTO data_dict VALUES (1, 'irq')",
+		"INSERT INTO data_dict VALUES (2, 'irq_ret')",
+		"INSERT INTO data_dict VALUES (3, 'handled')",
+		"INSERT INTO data_dict VALUES (4, 'vec')",
+		"CREATE TABLE args (argset INT, key INT, datatype INT, value INT)",
+		"INSERT INTO args VALUES (10, 1, 0, 32)",
+		"INSERT INTO args VALUES (10, 2, 1, 3)",
+		"INSERT INTO args VALUES (20, 4, 0, 9)",
+		"CREATE TABLE irq (ts INT, dur INT, callid INT, cat TEXT, name TEXT, argsetid INT)",
+		"INSERT INTO irq VALUES (1500000, 10000, 4, 'irq', 'uart', 10)",
+		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, cat TEXT, depth INT, cookie INT, itid INT)",
+		"INSERT INTO callstack VALUES (1, 1700000, 40000, 100, 'DoWork', 'slice', 0, NULL, 2)",
+	}
 }
 
 func hasArtifact(artifacts []Artifact, typ string) bool {
@@ -189,6 +333,15 @@ func hasArtifact(artifacts []Artifact, typ string) bool {
 func hasTraceDecision(decisions []TraceProviderDecision, name string, succeeded bool) bool {
 	for _, decision := range decisions {
 		if decision.ProviderName == name && decision.Succeeded == succeeded {
+			return true
+		}
+	}
+	return false
+}
+
+func hasTraceDecisionReason(decisions []TraceProviderDecision, name, reason string) bool {
+	for _, decision := range decisions {
+		if decision.ProviderName == name && decision.Reason == reason {
 			return true
 		}
 	}

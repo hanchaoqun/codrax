@@ -12,17 +12,37 @@ import (
 const traceStreamerConverter = converterVersion + "+trace-streamer-db"
 
 type traceStreamerExportResult struct {
-	Artifact Artifact
-	Decision TraceProviderDecision
-	Caveats  []string
-	Cleanup  func()
-	Ran      bool
+	Artifact          Artifact
+	SystraceArtifact  Artifact
+	Decision          TraceProviderDecision
+	Coverage          []TraceDBCoverage
+	Caveats           []string
+	Cleanup           func()
+	Ran               bool
+	EventsWritten     int
+	OutputBytes       int64
+	FirstTimestampSec float64
+	LastTimestampSec  float64
 }
 
 func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, inputBytes int64, output string) (Result, error) {
+	if err := ensureOutputDoesNotExist(output); err != nil {
+		return Result{}, err
+	}
 	export, err := runTraceStreamerExport(ctx, opts, input, output, true)
 	if err != nil {
 		return Result{}, err
+	}
+	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifacts(ctx, opts, inputBytes, output)
+	if err != nil {
+		if export.SystraceArtifact.Path != "" {
+			_ = os.Remove(export.SystraceArtifact.Path)
+		}
+		return Result{}, err
+	}
+	artifacts := append([]Artifact(nil), standaloneArtifacts...)
+	if export.SystraceArtifact.Path != "" {
+		artifacts = append([]Artifact{export.SystraceArtifact}, artifacts...)
 	}
 	if export.Artifact.Path == "" {
 		if export.Decision.Caveat != "" {
@@ -30,19 +50,26 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, i
 		}
 		return Result{}, fmt.Errorf("trace_streamer did not produce a trace DB artifact")
 	}
+	artifacts = append(artifacts, export.Artifact)
+	caveats := append([]string(nil), export.Caveats...)
+	caveats = append(caveats, standaloneCaveats...)
 	result := Result{
-		InputPath:         input,
-		InputBytes:        inputBytes,
-		Artifacts:         []Artifact{export.Artifact},
-		TraceDecisions:    []TraceProviderDecision{export.Decision},
-		Caveats:           append([]string(nil), export.Caveats...),
-		EventsWritten:     0,
-		OutputPath:        "",
-		OutputBytes:       0,
-		FirstTimestampSec: 0,
-		LastTimestampSec:  0,
+		InputPath:          input,
+		InputBytes:         inputBytes,
+		OutputPath:         export.SystraceArtifact.Path,
+		OutputBytes:        export.OutputBytes,
+		Artifacts:          artifacts,
+		ProviderDecisions:  append([]PerfProviderDecision(nil), standaloneDecisions...),
+		TraceDecisions:     []TraceProviderDecision{export.Decision},
+		TraceDBCoverage:    append([]TraceDBCoverage(nil), export.Coverage...),
+		Caveats:            caveats,
+		EventsWritten:      export.EventsWritten,
+		FirstTimestampSec:  export.FirstTimestampSec,
+		LastTimestampSec:   export.LastTimestampSec,
+		MissingFormatCount: 0,
+		UnknownEventCount:  0,
 	}
-	if bundleArtifact, err := writeTraceBundle(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions); err != nil {
+	if bundleArtifact, err := writeTraceBundleWithCoverage(input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage); err != nil {
 		return Result{}, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path
@@ -131,21 +158,68 @@ func runTraceStreamerExport(ctx context.Context, opts Options, input, output str
 			Ran:      true,
 		}, nil
 	}
-	artifact := Artifact{
+	dbArtifact := Artifact{
 		Type:      ArtifactTraceDB,
 		Path:      dbPath,
 		Bytes:     info.Size(),
 		Converter: traceStreamerConverter,
-		Caveats:   []string{"trace_streamer DB exported; systrace/perftrace DB exporters are delivered by later batches"},
+		Caveats:   []string{"trace_streamer SQLite DB preserved as conversion provenance"},
 	}
-	success := traceProviderSuccess(decision, artifact)
-	success.DBPath = dbPath
+	systraceExport, systraceErr := exportTraceDBToSystrace(ctx, dbPath, output)
+	if systraceErr != nil {
+		if cleanup != nil && !keepDB {
+			cleanup()
+			cleanup = nil
+		}
+		caveat := fmt.Sprintf("trace_streamer DB export succeeded, but Codrax could not normalize the DB to systrace: %v", systraceErr)
+		return traceStreamerExportResult{
+			Artifact: dbArtifact,
+			Decision: traceProviderFailure(
+				decision,
+				"trace_db_normalize_failed",
+				caveat,
+			),
+			Coverage: systraceExport.Coverage,
+			Caveats:  []string{caveat},
+			Cleanup:  cleanup,
+			Ran:      true,
+		}, nil
+	}
+	if systraceExport.Artifact.Path == "" {
+		if cleanup != nil && !keepDB {
+			cleanup()
+			cleanup = nil
+		}
+		caveat := "trace_streamer DB export succeeded, but no systrace-compatible rows were emitted; inspect trace_db_coverage for missing or empty tables"
+		return traceStreamerExportResult{
+			Artifact: dbArtifact,
+			Decision: traceProviderFailure(
+				decision,
+				"trace_db_no_rows",
+				caveat,
+			),
+			Coverage: systraceExport.Coverage,
+			Caveats:  []string{caveat},
+			Cleanup:  cleanup,
+			Ran:      true,
+		}, nil
+	}
+	success := traceProviderSuccess(decision, systraceExport.Artifact)
+	if keepDB || strings.TrimSpace(opts.TraceDBOutputPath) != "" {
+		success.DBPath = dbPath
+	}
 	return traceStreamerExportResult{
-		Artifact: artifact,
-		Decision: success,
-		Caveats:  []string{"trace_streamer DB export succeeded; systrace/perftrace DB exporters are delivered by later batches"},
-		Cleanup:  cleanup,
-		Ran:      true,
+		Artifact:          dbArtifact,
+		SystraceArtifact:  systraceExport.Artifact,
+		Decision:          success,
+		Coverage:          systraceExport.Coverage,
+		Caveats:           []string{"trace_streamer DB export succeeded and was normalized to systrace for trace_query"},
+		Cleanup:           cleanup,
+		Ran:               true,
+		EventsWritten:     systraceExport.EventsWritten,
+		OutputBytes:       systraceExport.OutputBytes,
+		FirstTimestampSec: systraceExport.FirstTimestampSec,
+		LastTimestampSec:  systraceExport.LastTimestampSec,
 	}, nil
 }
 

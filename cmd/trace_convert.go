@@ -258,16 +258,18 @@ func traceConvertTraceMessageZh(message string) string {
 	switch {
 	case trimmed == "":
 		return ""
-	case strings.Contains(lower, "trace_streamer db export is available"):
-		return "trace_streamer DB export 已可用；systrace/perftrace DB exporter 由后续批次交付"
+	case strings.Contains(lower, "trace_streamer db export can be normalized"):
+		return "trace_streamer DB export 可转换为 systrace，并将 coverage 写入 tracebundle 供 trace_query 使用"
 	case strings.Contains(lower, "trace_streamer was discovered"):
 		return "已发现 trace_streamer；auto 转换会先尝试 trace_streamer DB export，再回退到内置 fallback"
 	case strings.Contains(lower, "trace_streamer was not discovered"):
 		return "未发现 trace_streamer；当前 auto 转换使用内置 fallback"
 	case strings.Contains(lower, "trace_streamer engine was selected but"):
 		return "已选择 trace_streamer 引擎，但 trace_streamer 当前不可用"
+	case strings.Contains(lower, "built-in modern/sys parser remains"):
+		return "trace_streamer 不可用、失败或未导出 systrace 行时，内置 modern/sys parser 继续保底"
 	case strings.Contains(lower, "built-in modern parser"):
-		return "内置 modern parser 是当前 trace body fallback，trace_streamer DB 执行交付期间继续保底"
+		return "内置 modern parser 是 trace body fallback"
 	case strings.Contains(lower, "built into codrax"):
 		return "Codrax 内置；当前处理 modern profiler/session 文本载荷，内置 parser 完成后会共享 DB exporter schema"
 	case strings.Contains(lower, "pass --trace-streamer"):
