@@ -27,6 +27,7 @@ type NativeGrepOpts struct {
 	LineStart    int      // 1-based inclusive line window start; 0 means beginning
 	LineEnd      int      // 1-based inclusive line window end; 0 means EOF
 	Include      string   // glob filter against basename (filepath.Match syntax, e.g. "*.go")
+	IncludeGlobs []string // optional glob filters against basename or repo-relative path; any match includes the file
 	ExcludeDirs  []string // directory names to skip at any depth
 	ShouldSkip   func(path string, d fs.DirEntry) bool
 	MaxFileBytes int // directory search: 0 = default cap, <0 = no limit; explicit single-file roots default to no limit
@@ -154,9 +155,9 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 			res.Truncated = true
 			return filepath.SkipAll
 		}
-		if opts.Include != "" {
-			matched, mErr := filepath.Match(opts.Include, d.Name())
-			if mErr != nil || !matched {
+		rel := relPathForDisplayRoot(opts.DisplayRoot, root, path)
+		if opts.Include != "" || len(opts.IncludeGlobs) > 0 {
+			if !nativeGrepIncludeMatches(opts, d.Name(), rel) {
 				return nil
 			}
 		}
@@ -164,7 +165,6 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 		if infoErr != nil {
 			return nil
 		}
-		rel := relPathForDisplayRoot(opts.DisplayRoot, root, path)
 		if maxBytes > 0 && info.Size() > int64(maxBytes) {
 			res.SkippedLargeFiles++
 			if len(res.SkippedLargeFilePaths) < 5 {
@@ -267,6 +267,31 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 	res.Output = out.String()
 	res.Files = len(matchedFiles)
 	return res, nil
+}
+
+func nativeGrepIncludeMatches(opts NativeGrepOpts, base, rel string) bool {
+	var globs []string
+	if opts.Include != "" {
+		globs = append(globs, opts.Include)
+	}
+	globs = append(globs, opts.IncludeGlobs...)
+	base = strings.ReplaceAll(base, `\`, `/`)
+	rel = strings.ReplaceAll(rel, `\`, `/`)
+	for _, raw := range globs {
+		glob := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+		if glob == "" {
+			continue
+		}
+		if matched, err := filepath.Match(glob, base); err == nil && matched {
+			return true
+		}
+		if strings.Contains(glob, "/") {
+			if matched, err := filepath.Match(glob, rel); err == nil && matched {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func nativeGrepLineMatches(line, fixedPattern string, re *regexp.Regexp, fixed, ignoreCase bool) bool {

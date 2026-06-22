@@ -632,6 +632,9 @@ func TestListFiles_FileTypeAutoIncludesAuxiliaryForTypedSourceInventory(t *testi
 	repo := t.TempDir()
 	paths := []string{
 		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		"vendor/harmony/runtime_component.ets",
+		"eval/fixtures/testdata/harmony/fixture_component.ets",
+		"eval/results/run-1.repo/harmony/result_noise.ets",
 		"node_modules/pkg/noise.ets",
 		".codrax/output/noise.ets",
 	}
@@ -671,7 +674,19 @@ func TestListFiles_FileTypeAutoIncludesAuxiliaryForTypedSourceInventory(t *testi
 	if !strings.Contains(result.Summary, "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets") {
 		t.Fatalf("typed source inventory should auto-include repo-owned auxiliary sources:\n%s", result.Summary)
 	}
-	for _, noise := range []string{"node_modules/pkg/noise.ets", ".codrax/output/noise.ets"} {
+	for _, want := range []string{
+		"vendor/harmony/runtime_component.ets",
+		"eval/fixtures/testdata/harmony/fixture_component.ets",
+	} {
+		if !strings.Contains(result.Summary, want) {
+			t.Fatalf("typed source inventory should include auxiliary source class %q:\n%s", want, result.Summary)
+		}
+	}
+	for _, noise := range []string{
+		"eval/results/run-1.repo/harmony/result_noise.ets",
+		"node_modules/pkg/noise.ets",
+		".codrax/output/noise.ets",
+	} {
 		if strings.Contains(result.Summary, noise) {
 			t.Fatalf("auto auxiliary inclusion must not reopen dependency/cache noise %q:\n%s", noise, result.Summary)
 		}
@@ -727,6 +742,68 @@ func TestListFiles_FileTypeDoesNotAutoIncludeAuxiliaryWithExplicitExclusion(t *t
 	}
 	if strings.Contains(result.Summary, "include_auxiliary=true") {
 		t.Fatalf("banner must not claim auto auxiliary inclusion when explicit exclusion blocks it:\n%s", result.Summary)
+	}
+}
+
+func TestGrep_FileTypeAutoIncludesAuxiliaryForTypedSourceInventory(t *testing.T) {
+	repo := t.TempDir()
+	paths := []string{
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/entry_component.ets",
+		"vendor/harmony/runtime_component.ets",
+		"eval/fixtures/testdata/harmony/fixture_component.ets",
+		"eval/results/run-1.repo/harmony/result_noise.ets",
+		"node_modules/pkg/noise.ets",
+		".codrax/output/noise.ets",
+	}
+	for _, pathValue := range paths {
+		full := filepath.Join(repo, filepath.FromSlash(pathValue))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", pathValue, err)
+		}
+		if err := os.WriteFile(full, []byte("@Entry\n@Component\nstruct Demo {}\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", pathValue, err)
+		}
+	}
+
+	bus := &types.BusContext{
+		RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				Confidence:        0.9,
+			},
+		}},
+	}
+
+	result, err := (&GrepTool{}).Execute(bus, json.RawMessage(`{"path":".","file_type":"arkts","pattern":"@Entry","files_only":true}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	for _, want := range []string{
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/entry_component.ets",
+		"vendor/harmony/runtime_component.ets",
+		"eval/fixtures/testdata/harmony/fixture_component.ets",
+	} {
+		if !strings.Contains(result.Summary, want) {
+			t.Fatalf("typed source inventory grep should include auxiliary source %q:\n%s", want, result.Summary)
+		}
+	}
+	for _, noise := range []string{
+		"eval/results/run-1.repo/harmony/result_noise.ets",
+		"node_modules/pkg/noise.ets",
+		".codrax/output/noise.ets",
+	} {
+		if strings.Contains(result.Summary, noise) {
+			t.Fatalf("typed source inventory grep must not reopen runtime/dependency noise %q:\n%s", noise, result.Summary)
+		}
 	}
 }
 

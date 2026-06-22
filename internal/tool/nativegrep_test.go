@@ -191,6 +191,43 @@ func TestNativeGrep_Include(t *testing.T) {
 	}
 }
 
+func TestNativeGrep_IncludeGlobsMatchAnyExtension(t *testing.T) {
+	root := t.TempDir()
+	for rel, body := range map[string]string{
+		"src/a.cpp": "Needle\n",
+		"src/b.hpp": "Needle\n",
+		"src/c.cxx": "Needle\n",
+		"src/d.txt": "Needle\n",
+	} {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	res, err := NativeGrep(context.Background(), NativeGrepOpts{
+		Pattern:      "Needle",
+		Root:         root,
+		FilesOnly:    true,
+		IncludeGlobs: []string{"*.cpp", "*.hpp", "*.cxx"},
+		DisplayRoot:  root,
+	})
+	if err != nil {
+		t.Fatalf("NativeGrep include globs: %v", err)
+	}
+	for _, want := range []string{"src/a.cpp", "src/b.hpp", "src/c.cxx"} {
+		if !strings.Contains(res.Output, want) {
+			t.Fatalf("include globs should include %s:\n%s", want, res.Output)
+		}
+	}
+	if strings.Contains(res.Output, "src/d.txt") {
+		t.Fatalf("include globs should exclude txt noise:\n%s", res.Output)
+	}
+}
+
 func TestNativeGrep_ExplicitLargeTraceFileScansPastDefaultCap(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "record_trace_20260526170756@929-448250782.systrace")

@@ -218,9 +218,21 @@ func IsExcludedRelativePath(relPath string) bool {
 // in. This lets broad discovery skip structural noise while still
 // honoring deliberate user/tool targets like `grep(path="dist")`.
 type SearchDirFilter struct {
-	targetDirRel     string
-	anyLevelPatterns []string
-	rootOnlySet      map[string]bool
+	targetDirRel           string
+	anyLevelPatterns       []string
+	rootOnlySet            map[string]bool
+	includeAuxiliarySource bool
+	runtimeArtifactRoots   map[string]bool
+}
+
+// SearchDirFilterOptions tunes the central search exclusion policy without
+// creating a second source-class taxonomy. IncludeAuxiliarySource is used only
+// by typed source-enumeration lanes that already have structured scope
+// authority; it reopens repo-owned auxiliary source trees while keeping
+// dependency/cache/runtime artifacts excluded.
+type SearchDirFilterOptions struct {
+	IncludeAuxiliarySource bool
+	RuntimeArtifactRoots   []string
 }
 
 // NewSearchDirFilter builds a reusable exclusion policy for searches
@@ -232,12 +244,24 @@ type SearchDirFilter struct {
 // subtree, that exact target subtree is exempted so explicit requests
 // are not silently filtered away.
 func NewSearchDirFilter(repoRoot, targetPath string) SearchDirFilter {
+	return NewSearchDirFilterWithOptions(repoRoot, targetPath, SearchDirFilterOptions{})
+}
+
+// NewSearchDirFilterWithOptions builds a reusable exclusion policy for searches
+// rooted at targetPath inside repoRoot, with optional typed source-scope
+// inclusion.
+func NewSearchDirFilterWithOptions(repoRoot, targetPath string, opts SearchDirFilterOptions) SearchDirFilter {
 	filter := SearchDirFilter{
-		anyLevelPatterns: append([]string(nil), ExcludeDirPatternsAnyLevel...),
-		rootOnlySet:      make(map[string]bool, len(ExcludeDirsRootOnly)),
+		anyLevelPatterns:       append([]string(nil), ExcludeDirPatternsAnyLevel...),
+		rootOnlySet:            make(map[string]bool, len(ExcludeDirsRootOnly)),
+		includeAuxiliarySource: opts.IncludeAuxiliarySource,
+		runtimeArtifactRoots:   normalizeSearchRuntimeArtifactRoots(opts.RuntimeArtifactRoots),
 	}
 	for _, name := range ExcludeDirsRootOnly {
 		filter.rootOnlySet[name] = true
+	}
+	if filter.includeAuxiliarySource {
+		filter.removeAuxiliarySourceExcludes()
 	}
 
 	targetDirRel := repoRelativeSearchDir(repoRoot, targetPath)
@@ -266,6 +290,19 @@ func NewSearchDirFilter(repoRoot, targetPath string) SearchDirFilter {
 	return filter
 }
 
+func (f *SearchDirFilter) removeAuxiliarySourceExcludes() {
+	filtered := make([]string, 0, len(f.anyLevelPatterns))
+	for _, pattern := range f.anyLevelPatterns {
+		switch strings.ToLower(strings.TrimSpace(pattern)) {
+		case "thirdparty", "third_party", "third-party", "vendor":
+			continue
+		default:
+			filtered = append(filtered, pattern)
+		}
+	}
+	f.anyLevelPatterns = filtered
+}
+
 // AnyLevelPatterns returns the any-depth exclude patterns after
 // applying explicit-target exemptions.
 func (f SearchDirFilter) AnyLevelPatterns() []string {
@@ -285,6 +322,11 @@ func (f SearchDirFilter) RipgrepGlobs() []string {
 			out = append(out, "!/"+name+"/**")
 		}
 	}
+	if f.includeAuxiliarySource {
+		for rel := range f.runtimeArtifactRoots {
+			out = append(out, "!/"+rel+"/**")
+		}
+	}
 	return out
 }
 
@@ -301,6 +343,25 @@ func (f SearchDirFilter) ExcludesRepoRelativePath(relPath string) bool {
 	if f.targetDirRel != "" && (normalized == f.targetDirRel || strings.HasPrefix(normalized, f.targetDirRel+"/")) {
 		return false
 	}
+	if f.includeAuxiliarySource {
+		if searchAuxiliarySourceHardExcludedRel(normalized) {
+			return true
+		}
+		if f.runtimeArtifactRoots[normalized] {
+			return true
+		}
+		for root := range f.runtimeArtifactRoots {
+			if strings.HasPrefix(normalized, root+"/") {
+				return true
+			}
+		}
+		if searchAuxiliarySourceRelAllowed(normalized) {
+			return false
+		}
+		if searchAuxiliarySourceContainerRelAllowed(normalized) {
+			return false
+		}
+	}
 	parts := strings.Split(normalized, "/")
 	if len(parts) > 0 && f.rootOnlySet[parts[0]] {
 		return true
@@ -311,6 +372,54 @@ func (f SearchDirFilter) ExcludesRepoRelativePath(relPath string) bool {
 		}
 	}
 	return false
+}
+
+func searchAuxiliarySourceHardExcludedRel(rel string) bool {
+	rel = strings.Trim(strings.ToLower(strings.ReplaceAll(rel, `\`, `/`)), "/")
+	if rel == "" {
+		return false
+	}
+	if rel == ".codrax" || strings.HasPrefix(rel, ".codrax/") {
+		return true
+	}
+	return false
+}
+
+func searchAuxiliarySourceRelAllowed(rel string) bool {
+	rel = strings.Trim(strings.ToLower(strings.ReplaceAll(rel, `\`, `/`)), "/")
+	if rel == "" {
+		return false
+	}
+	for _, part := range strings.Split(rel, "/") {
+		switch part {
+		case "thirdparty", "third_party", "third-party", "vendor",
+			"test", "tests", "__tests__", "testdata", "fixtures", "examples":
+			return true
+		}
+	}
+	return false
+}
+
+func searchAuxiliarySourceContainerRelAllowed(rel string) bool {
+	rel = strings.Trim(strings.ToLower(strings.ReplaceAll(rel, `\`, `/`)), "/")
+	switch rel {
+	case "eval":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeSearchRuntimeArtifactRoots(in []string) map[string]bool {
+	out := map[string]bool{}
+	for _, raw := range in {
+		rel := strings.Trim(strings.ToLower(strings.ReplaceAll(raw, `\`, `/`)), "/")
+		if rel == "" || rel == "." {
+			continue
+		}
+		out[rel] = true
+	}
+	return out
 }
 
 func repoRelativePathWithinRoot(repoRoot, targetPath string) (string, bool) {

@@ -1675,7 +1675,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}, nil
 		}
 	}
-	dirFilter := NewSearchDirFilter(ctx.RepoRoot, searchPath)
+	dirFilter := NewSearchDirFilterWithOptions(ctx.RepoRoot, searchPath, SearchDirFilterOptions{
+		IncludeAuxiliarySource: grepShouldAutoIncludeAuxiliary(ctx, p),
+	})
 	commandDir := ""
 	commandSearchPath := searchPath
 	if ctx != nil && ctx.RepoRoot != "" {
@@ -1731,6 +1733,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// banner + params banner wrapper works unchanged below.
 	searchBackend := SearchCommand()
 	useNativeBackend := grepShouldUseNativeBackend(searchBackend, ctx != nil && ctx.RepoRoot != "", searchPathIsFile)
+	if grepShouldAutoIncludeAuxiliary(ctx, p) {
+		useNativeBackend = true
+	}
 	if lineWindow {
 		useNativeBackend = true
 	}
@@ -1745,13 +1750,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				return ok && dirFilter.ExcludesRepoRelativePath(rel)
 			}
 		}
-		include := p.Include
-		if include == "" && p.FileType != "" {
-			// Best-effort: native scan applies the first glob only —
-			// keeps parity with single-glob Include semantics.
-			if globs := fileTypeToGlobs(p.FileType); len(globs) > 0 {
-				include = globs[0]
-			}
+		var includeGlobs []string
+		if strings.TrimSpace(p.FileType) != "" {
+			includeGlobs = fileTypeToGlobs(p.FileType)
 		}
 		nres, nerr := NativeGrep(searchCtx, NativeGrepOpts{
 			Pattern:      p.Pattern,
@@ -1762,7 +1763,8 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			ContextLines: contextLines,
 			LineStart:    p.LineStart,
 			LineEnd:      p.LineEnd,
-			Include:      include,
+			Include:      p.Include,
+			IncludeGlobs: includeGlobs,
 			ExcludeDirs:  dirFilter.AnyLevelPatterns(),
 			ShouldSkip:   shouldSkip,
 			DisplayRoot:  ctxRepoRoot(ctx),
@@ -3928,7 +3930,9 @@ func listFilesCollect(ctx *types.BusContext, fsPath, displayPath string, p listF
 	if ctx != nil {
 		repoRoot = ctx.RepoRoot
 	}
-	dirFilter := NewSearchDirFilter(repoRoot, fsPath)
+	dirFilter := NewSearchDirFilterWithOptions(repoRoot, fsPath, SearchDirFilterOptions{
+		IncludeAuxiliarySource: p.IncludeAuxiliary,
+	})
 	filter := listFilesFilter{
 		ctx:              ctx,
 		dirFilter:        dirFilter,
@@ -4018,6 +4022,26 @@ func listFilesCollect(ctx *types.BusContext, fsPath, displayPath string, p listF
 
 func listFilesShouldAutoIncludeAuxiliary(ctx *types.BusContext, p listFilesParams) bool {
 	if ctx == nil || ctx.AnalysisIR == nil || !p.Recursive {
+		return false
+	}
+	if strings.TrimSpace(p.Include) == "" && strings.TrimSpace(p.FileType) == "" {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if SourceInventoryHasExplicitAuxiliaryExclusion(rm) {
+		return false
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return true
+	}
+	if rm.SourceScopeProfile != nil && rm.SourceScopeProfile.AllowsAuxiliaryPrincipal() {
+		return true
+	}
+	return types.IsTypedSourceEnumerationShape(rm)
+}
+
+func grepShouldAutoIncludeAuxiliary(ctx *types.BusContext, p grepToolParams) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
 	if strings.TrimSpace(p.Include) == "" && strings.TrimSpace(p.FileType) == "" {
@@ -4160,25 +4184,11 @@ func listFilesGlobMatches(glob, base, rel string) bool {
 }
 
 func listFilesAuxiliaryDirAllowed(rel string) bool {
-	rel = strings.Trim(strings.ToLower(strings.ReplaceAll(rel, `\`, `/`)), "/")
-	if rel == "" {
-		return false
-	}
-	for _, part := range strings.Split(rel, "/") {
-		if listFilesAuxiliaryDirNameAllowed(part) {
-			return true
-		}
-	}
-	return false
+	return searchAuxiliarySourceRelAllowed(rel) && !searchAuxiliarySourceHardExcludedRel(rel)
 }
 
 func listFilesAuxiliaryDirNameAllowed(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "thirdparty", "third_party", "third-party":
-		return true
-	default:
-		return false
-	}
+	return searchAuxiliarySourceRelAllowed(name) && !searchAuxiliarySourceHardExcludedRel(name)
 }
 
 // ---------------------------------------------------------------------------
