@@ -3711,11 +3711,8 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 	if !authority.Blocking {
 		return ""
 	}
-	roles := sourceInventoryLensExecutionRoleLabels(authority.Roles)
-	if len(roles) == 0 {
-		roles = sourceInventoryLensExecutionRoleLabels(sourceInventoryObservationRolesForCompletion(observation))
-	}
-	scopes := authority.Scopes
+	roles := sourceInventoryCompletionRepairRoleLabels(authority, observation)
+	scopes := sourceInventoryCompletionRepairScopes(authority)
 	repoMapPath, repoMapScopes := sourceInventoryLensExecutionRepoMapCallShape(scopes)
 	nextCursor := sourceInventoryObservationNextCursor(observation)
 	subject := fmt.Sprintf("Continue the incomplete source-inventory lens with path=%q, view=\"source_inventory\", roles=[%s], scopes=[%s], include_counts=true, and include_attributes=false.",
@@ -3753,6 +3750,12 @@ func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observa
 		AcceptedExactUniverse:     acceptedExact,
 		AcceptedRequestedUniverse: acceptedRequested,
 	})
+	if authority.Blocking && !acceptedRequested {
+		if debt := sourceInventoryRequestedUniverseFollowupDebt(observation, ctx.AnalysisIR.RequestModel, aggregateFacts); debt.IsActive() {
+			authority.FollowupDebt = debt
+			authority.ReasonCode = types.SourceInventoryCompletionReasonFollowupDebt
+		}
+	}
 	if authority.FollowupDebt.IsActive() {
 		debt := authority.FollowupDebt
 		debt.Query.Query = sourceInventoryResolvedCompletionRepairQuery(ctx)

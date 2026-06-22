@@ -96,35 +96,6 @@ func (f sourceInventoryRequestedUniverseFamily) intersectsUniverse(universe sour
 	return false
 }
 
-func sourceInventoryRequestedUniverseCensusMissing(observation types.SourceInventoryObservation, covered sourceInventoryRequestedUniverseFamily) bool {
-	for _, class := range observation.SourceClasses {
-		if class.Role == types.SourcePathRoleUnknown || class.Count <= 0 || covered.classes[class.Role] {
-			continue
-		}
-		if len(covered.languages) == 0 {
-			return true
-		}
-		if sourceInventoryClassSamplesIntersectLanguages(class.Samples, covered.languages) {
-			return true
-		}
-		if len(class.Samples) == 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func sourceInventoryClassSamplesIntersectLanguages(samples []string, languages map[string]bool) bool {
-	for _, sample := range samples {
-		for _, lang := range sourceInventoryPathLanguages(sample) {
-			if languages[lang] {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func sourceInventoryRequestedUniverseRoleSet(rm types.RequestModel, observation types.SourceInventoryObservation) map[types.AnswerCandidateRole]bool {
 	roles := []types.AnswerCandidateRole{}
 	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {

@@ -2,16 +2,12 @@ package types
 
 import "strings"
 
-// SourceInventoryLanguageCount is a repo-wide language census row attached to
-// source-inventory observations. Unlike SourceClasses (path-role partitioned
-// and limited to the lens query scope), this census is computed over the WHOLE
-// repo's tracked source files, so the model can see that source files of a
-// language exist even when its current navigation scope — frequently a
-// grep-derived candidate list — surfaces none of them. It is the precise
-// repomap language classification used purely as SOFT navigation guidance: it
-// never gates an answer and never participates in the candidate-universe
-// coverage comparison. Samples are a bounded set of representative repo-relative
-// paths so the model can open the real files instead of inferring absence.
+// SourceInventoryLanguageCount is a typed language-count row attached to a
+// source-inventory observation. At the observation root it is repo-wide
+// navigation guidance; inside SourceInventorySourceClassCount it is the
+// class-local language matrix consumed by source-inventory completion authority.
+// Samples are a bounded set of representative repo-relative paths so the model
+// can open real files instead of inferring absence.
 type SourceInventoryLanguageCount struct {
 	Language string `json:"language,omitempty"`
 	Count    int    `json:"count,omitempty"`

@@ -528,61 +528,7 @@ func sourceInventorySourceClassUniverseForLens(ctx *types.BusContext, query type
 		return nil
 	}
 	files, complete := SourceInventoryTrackedSourceFilesForLens(ctx.RepoRoot, query)
-	if len(files) == 0 {
-		return nil
-	}
-	const sourceInventorySourceClassSampleLimit = 4
-	counts := map[types.SourcePathRole]int{}
-	samples := map[types.SourcePathRole][]string{}
-	for _, file := range files {
-		if strings.TrimSpace(file.Path) == "" || file.Role == types.SourcePathRoleUnknown || strings.TrimSpace(file.Language) == "" {
-			continue
-		}
-		counts[file.Role]++
-		if len(samples[file.Role]) < sourceInventorySourceClassSampleLimit {
-			samples[file.Role] = append(samples[file.Role], file.Path)
-		}
-	}
-	if len(counts) == 0 {
-		return nil
-	}
-	order := []types.SourcePathRole{
-		types.SourcePathRoleProduction,
-		types.SourcePathRoleTest,
-		types.SourcePathRoleFixture,
-		types.SourcePathRoleExample,
-		types.SourcePathRoleDocumentation,
-		types.SourcePathRolePromptSupport,
-		types.SourcePathRoleThirdParty,
-		types.SourcePathRoleVendor,
-		types.SourcePathRoleGenerated,
-	}
-	var out []types.SourceInventorySourceClassCount
-	for _, role := range order {
-		if count := counts[role]; count > 0 {
-			out = append(out, types.SourceInventorySourceClassCount{
-				Role:       role,
-				Count:      count,
-				Complete:   complete,
-				Samples:    append([]string(nil), samples[role]...),
-				Provenance: []string{"source_class_universe:git_tracked_or_filesystem"},
-			})
-		}
-		delete(counts, role)
-	}
-	for role, count := range counts {
-		if count <= 0 {
-			continue
-		}
-		out = append(out, types.SourceInventorySourceClassCount{
-			Role:       role,
-			Count:      count,
-			Complete:   complete,
-			Samples:    append([]string(nil), samples[role]...),
-			Provenance: []string{"source_class_universe:git_tracked_or_filesystem"},
-		})
-	}
-	return out
+	return sourceInventorySourceClassUniverseForTrackedFiles(files, complete)
 }
 
 func sourceInventorySourceClassUniverseScopes(query types.SourceInventoryLensQuery) []string {

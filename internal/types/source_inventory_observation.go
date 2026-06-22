@@ -2,9 +2,8 @@ package types
 
 import "strings"
 
-// SourceInventoryCoverageState describes how a source-inventory row should be
-// consumed. It is deliberately structural: callers should not infer semantic
-// answer intent from these values.
+// SourceInventoryCoverageState describes how a source-inventory row should be consumed.
+// It is structural: callers must not infer semantic answer intent from it.
 type SourceInventoryCoverageState string
 
 const (
@@ -63,11 +62,12 @@ type SourceInventoryExecutionState struct {
 // production sources or also repo-owned auxiliary classes such as fixtures,
 // generated files, vendored code, and third-party corpora.
 type SourceInventorySourceClassCount struct {
-	Role       SourcePathRole `json:"role,omitempty"`
-	Count      int            `json:"count,omitempty"`
-	Complete   bool           `json:"complete,omitempty"`
-	Samples    []string       `json:"samples,omitempty"`
-	Provenance []string       `json:"provenance,omitempty"`
+	Role       SourcePathRole                 `json:"role,omitempty"`
+	Count      int                            `json:"count,omitempty"`
+	Complete   bool                           `json:"complete,omitempty"`
+	Samples    []string                       `json:"samples,omitempty"`
+	Languages  []SourceInventoryLanguageCount `json:"languages,omitempty"`
+	Provenance []string                       `json:"provenance,omitempty"`
 }
 
 // SourceInventoryLensQuery is the model/tool-facing query surface for an

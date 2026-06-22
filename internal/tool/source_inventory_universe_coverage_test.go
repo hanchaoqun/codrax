@@ -1760,6 +1760,146 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_AggregateFamilyRe
 	}
 }
 
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ClassLanguageMatrixIgnoresUnrelatedClasses(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleProduction,
+		Count:     923,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 900}, {Language: "python", Count: 23}},
+	}, {
+		Role:      types.SourcePathRoleTest,
+		Count:     992,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 980}, {Language: "typescript", Count: 12}},
+	}, {
+		Role:      types.SourcePathRoleFixture,
+		Count:     88,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 3}, {Language: "json", Count: 85}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     14,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 8}, {Language: "c", Count: 6}},
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"runOnMainThread @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:12",
+		},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("class-language matrix should not treat unrelated production/test languages as same-family debt")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ClassLanguageMatrixBlocksMissingSameLanguageClass(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleFixture,
+		Count:     3,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 3}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     8,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 8}},
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		},
+	}}
+	if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("missing same-language thirdparty class should still block requested-universe closure")
+	}
+}
+
+func TestSourceInventoryCompletionAuthorityForContext_UsesMissingClassLanguageScopes(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMemberWithLanguage("RootType", types.AnswerCandidateRoleType, "cmd/root.go", 10, "go"),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleFixture,
+		Count:     3,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 3, Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"}}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     8,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 8, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"}}},
+	}, {
+		Role:      types.SourcePathRoleProduction,
+		Count:     923,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 923, Samples: []string{"cmd/root.go"}}},
+	}})
+	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	obs.Lens = []string{"members", "source_class_universe", "repo_languages"}
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend String @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+		},
+	}}
+	authority := sourceInventoryCompletionAuthorityForContext(ctx, types.SourceInventoryObservationFromMutable(ctx.Mutable), facts)
+	if !authority.Blocking || !authority.FollowupDebt.IsActive() {
+		t.Fatalf("authority should block with missing same-language class debt, got %+v", authority)
+	}
+	if !sourceInventoryTestStringSliceContains(authority.FollowupDebt.Query.Scopes, "eval/fixtures/testdata/cangjie_minimal/bridge") {
+		t.Fatalf("follow-up scopes should target missing fixture cangjie scope, got %+v", authority.FollowupDebt.Query.Scopes)
+	}
+	if sourceInventoryTestStringSliceContains(authority.FollowupDebt.Query.Scopes, ".") {
+		t.Fatalf("follow-up scopes should not fall back to repo root when class-language samples exist: %+v", authority.FollowupDebt.Query.Scopes)
+	}
+}
+
+func TestSourceInventoryResolvedCompletionDowngrade_RendersFollowupDebtScope(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMemberWithLanguage("RootType", types.AnswerCandidateRoleType, "cmd/root.go", 10, "go"),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleFixture,
+		Count:     3,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 3, Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"}}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     8,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 8, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"}}},
+	}})
+	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	obs.Lens = []string{"members", "source_class_universe", "repo_languages"}
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend String @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+		},
+	}}
+	if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts); downgrade == "" {
+		t.Fatal("expected downgrade for missing same-language fixture class")
+	}
+	repairs := ctx.Mutable.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 {
+		t.Fatal("downgrade should add a repair directive")
+	}
+	subject := repairs[len(repairs)-1].Subject
+	if !strings.Contains(subject, `scopes=["eval/fixtures/testdata/cangjie_minimal/bridge"]`) {
+		t.Fatalf("repair should render narrowed follow-up scope, got %q", subject)
+	}
+	if strings.Contains(subject, `scopes=["."]`) {
+		t.Fatalf("repair should not preserve stale root scope when follow-up debt is narrower: %q", subject)
+	}
+}
+
+func sourceInventoryTestStringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_PrincipalAggregateFamilyBlocksMissingSameLanguageClass(t *testing.T) {
 	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
 		sourceInventoryRequestedUniverseMemberWithLanguage("runRoot", types.AnswerCandidateRoleFunction, "cmd/root.go", 10, "go"),

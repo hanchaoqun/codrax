@@ -1177,58 +1177,6 @@ func renderSourceInventoryLanguageCounts(counts map[string]int) string {
 	return strings.Join(parts, ",")
 }
 
-func renderSourceInventorySourceClassCounts(classes []types.SourceInventorySourceClassCount) string {
-	if len(classes) == 0 {
-		return ""
-	}
-	order := []types.SourcePathRole{
-		types.SourcePathRoleProduction,
-		types.SourcePathRoleTest,
-		types.SourcePathRoleFixture,
-		types.SourcePathRoleExample,
-		types.SourcePathRoleDocumentation,
-		types.SourcePathRolePromptSupport,
-		types.SourcePathRoleThirdParty,
-		types.SourcePathRoleVendor,
-		types.SourcePathRoleGenerated,
-	}
-	byRole := make(map[types.SourcePathRole]types.SourceInventorySourceClassCount, len(classes))
-	for _, class := range classes {
-		if class.Role == types.SourcePathRoleUnknown || class.Count <= 0 {
-			continue
-		}
-		byRole[class.Role] = class
-	}
-	var parts []string
-	for _, role := range order {
-		class, ok := byRole[role]
-		if !ok {
-			continue
-		}
-		delete(byRole, role)
-		parts = append(parts, renderSourceInventorySourceClassCount(class))
-	}
-	if len(byRole) > 0 {
-		var rest []string
-		for role := range byRole {
-			rest = append(rest, string(role))
-		}
-		sort.Strings(rest)
-		for _, role := range rest {
-			parts = append(parts, renderSourceInventorySourceClassCount(byRole[types.SourcePathRole(role)]))
-		}
-	}
-	return strings.Join(parts, ",")
-}
-
-func renderSourceInventorySourceClassCount(class types.SourceInventorySourceClassCount) string {
-	item := fmt.Sprintf("%s:%d", class.Role, class.Count)
-	if !class.Complete {
-		item += "(partial)"
-	}
-	return item
-}
-
 func sourceInventoryLensQueryOffset(query types.SourceInventoryLensQuery) int {
 	return sourceinventory.CursorOffset(query.Offset, query.Cursor)
 }
