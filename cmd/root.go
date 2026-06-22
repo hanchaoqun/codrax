@@ -2034,6 +2034,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to load runtime settings from %s: %w", settingsPath, err)
 		}
 	}
+	tool.SetSearchRuntimeArtifactRoots(nil)
 	if rs != nil {
 		// L2 fail-safe: if the operator left write_enabled unset but a
 		// stray key looks like a misspelled write_enabled, treat the kill
@@ -2113,6 +2114,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.CacheDir != nil {
 			mergedCacheDir = *rs.CacheDir
+		}
+		if len(rs.SearchExcludeRoots) > 0 {
+			tool.SetSearchRuntimeArtifactRoots(rs.SearchExcludeRoots)
 		}
 		if rs.Lang != nil {
 			mergedLang = *rs.Lang

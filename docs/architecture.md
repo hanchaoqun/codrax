@@ -2587,7 +2587,7 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 
 | 前缀 | 用途 | 关键字段 |
 |------|------|---------|
-| 裸 key | 进程级 UX | `log_dir` / `log_level` / `log_stdout` / `thinking_truncate`（false，CLI/REPL thinking 默认完整打印）/ `memory_dir` / `cache_dir` / `lang` / `repo` / `branch` / `providers_config` |
+| 裸 key | 进程级 UX | `log_dir` / `log_level` / `log_stdout` / `thinking_truncate`（false，CLI/REPL thinking 默认完整打印）/ `memory_dir` / `cache_dir` / `search_exclude_roots`（客户仓生成/运行/报告 root 的宽扫排除；显式 target 仍可读）/ `lang` / `repo` / `branch` / `providers_config` |
 | `log_*` | 日志保留 | `log_max_files`（7） |
 | `blob_*` | Tool 输出 offload | `blob_max_inline_bytes`（32 KB）/ `blob_preview_head_bytes` / `blob_preview_tail_bytes` / `blob_max_sessions`（7）/ `blob_max_inline_fraction`（占比形式，优先于 bytes） |
 | `readfile_*` | read_file 懒惰 limit 保护 | `readfile_small_limit_threshold`（100） |

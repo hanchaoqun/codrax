@@ -104,3 +104,48 @@ func TestSearchDirFilter_IncludeAuxiliarySourceKeepsRuntimeNoiseExcluded(t *test
 		t.Fatalf("configured runtime artifact root should be rendered for shell backends:\n%s", runtimeGlobs)
 	}
 }
+
+func TestSearchDirFilter_ConfiguredSearchExcludeRoots(t *testing.T) {
+	oldRoots := SearchRuntimeArtifactRoots()
+	SetSearchRuntimeArtifactRoots([]string{"out", "reports/html", "../ignored", ".", "out"})
+	t.Cleanup(func() { SetSearchRuntimeArtifactRoots(oldRoots) })
+
+	repo := t.TempDir()
+	filter := NewSearchDirFilter(repo, repo)
+	for _, rel := range []string{
+		"out/generated/app.js",
+		"reports/html/index.html",
+	} {
+		if !filter.ExcludesRepoRelativePath(rel) {
+			t.Fatalf("configured broad-search root should exclude %s", rel)
+		}
+		if !IsExcludedRelativePath(rel) {
+			t.Fatalf("configured broad-search root should affect repo scanner path filter for %s", rel)
+		}
+	}
+	if filter.ExcludesRepoRelativePath("pkg/out/source.go") {
+		t.Fatal("configured root-relative out/ should not exclude nested pkg/out")
+	}
+	if IsExcludedRelativePath("pkg/reports/html/source.go") {
+		t.Fatal("configured reports/html root should not exclude nested pkg/reports/html")
+	}
+
+	globs := strings.Join(filter.RipgrepGlobs(), "\n")
+	for _, want := range []string{"!/out/**", "!/reports/html/**"} {
+		if !strings.Contains(globs, want) {
+			t.Fatalf("configured root missing ripgrep glob %q:\n%s", want, globs)
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Join(repo, "out", "generated"), 0o755); err != nil {
+		t.Fatalf("seed out: %v", err)
+	}
+	explicit := NewSearchDirFilter(repo, filepath.Join(repo, "out"))
+	if explicit.ExcludesRepoRelativePath("out/generated/app.js") {
+		t.Fatal("explicit target under configured search_exclude_roots should remain searchable")
+	}
+	explicitGlobs := strings.Join(explicit.RipgrepGlobs(), "\n")
+	if strings.Contains(explicitGlobs, "!/out/**") {
+		t.Fatalf("explicit target should suppress its configured root glob:\n%s", explicitGlobs)
+	}
+}

@@ -91,6 +91,21 @@
 #   集中于此。相对路径锚定到 <CWD>/.codrax/(改为按工作区缓存)。
 # cache_dir:
 
+# search_exclude_roots — repo-relative roots excluded from broad repository
+#   search/list/repo_map scans. Use this for customer-specific generated,
+#   runtime, report, or build-output directories that are not useful for
+#   source investigation, e.g. out/, bazel-bin/, reports/, eval/results/.
+#   Explicit tool calls that target one of these roots still work; this only
+#   reduces accidental broad-scan noise. Default empty.
+#   仓库相对路径根,用于从宽泛的 search/list/repo_map 扫描中排除客户仓特有的
+#   生成目录、运行产物、报告或构建输出,例如 out/、bazel-bin/、reports/、
+#   eval/results/。显式把工具 path 指向这些目录时仍可读取;该配置只降低
+#   意外宽扫噪音。默认空。
+# search_exclude_roots:
+#   - out
+#   - bazel-bin
+#   - reports
+
 # ---------------------------------------------------------------------------
 # Large-repo memory resilience  ·  大仓内存韧性
 # ---------------------------------------------------------------------------

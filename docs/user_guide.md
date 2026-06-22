@@ -2272,6 +2272,7 @@ agents:
 | `log_max_files` | 7 | 日志轮转保留份数 |
 | `memory_dir` | `<CWD>/.codrax/memory/<repo>-<hash>` | 多轮对话记忆 |
 | `cache_dir` | 平台默认 cache 目录 | repomap 索引缓存 |
+| `search_exclude_roots` | 空 | 仓库相对 root 列表,从宽泛 search/list/repo_map 扫描中排除客户仓生成目录、运行产物或报告目录;显式 target 仍可读取 |
 | `output_dump_enabled` | `true` | 每次 read 模式答案落盘到 `<CWD>/.codrax/output/<时间戳>-<pid>.md`,并生成同名 `.html` 自包含预览;Markdown 两段 `# 问题` / `# 回答`,模型原文轻度排版 |
 | `output_max_files` | 10 | output 目录按 Markdown 保留最近 N 份,旧 `.md` 及同名 `.html` 按 mtime 自动删 |
 | `markdown_preview_server` | `auto` | REPL 在答案落盘后懒启动本地 Markdown 预览服务并显示浏览器 URL;`off` 关闭 |

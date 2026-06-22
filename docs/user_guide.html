@@ -2632,6 +2632,11 @@ mcp_servers:
 <td>repomap 索引缓存</td>
 </tr>
 <tr>
+<td><code>search_exclude_roots</code></td>
+<td>空</td>
+<td>仓库相对 root 列表,从宽泛 search/list/repo_map 扫描中排除客户仓生成目录、运行产物或报告目录;显式 target 仍可读取</td>
+</tr>
+<tr>
 <td><code>output_dump_enabled</code></td>
 <td><code>true</code></td>
 <td>每次 read 模式答案落盘到 <code>&lt;CWD&gt;/.codrax/output/&lt;时间戳&gt;-&lt;pid&gt;.md</code>,并生成同名 <code>.html</code> 自包含预览;Markdown 两段 <code># 问题</code> / <code># 回答</code>,模型原文轻度排版</td>

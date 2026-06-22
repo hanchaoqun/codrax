@@ -153,6 +153,30 @@ var ExcludeDirsRootOnlySet = func() map[string]bool {
 	return m
 }()
 
+var (
+	searchRuntimeArtifactRootsMu sync.RWMutex
+	searchRuntimeArtifactRoots   []string
+)
+
+// SetSearchRuntimeArtifactRoots installs repo-relative broad-search exclusion
+// roots from runtime configuration. These are customer/workspace-specific
+// generated/runtime/report directories, not a source taxonomy. Explicit tool
+// targets under such a root are still honored by SearchDirFilter.
+func SetSearchRuntimeArtifactRoots(roots []string) {
+	normalized := normalizeSearchRuntimeArtifactRootSlice(roots)
+	searchRuntimeArtifactRootsMu.Lock()
+	defer searchRuntimeArtifactRootsMu.Unlock()
+	searchRuntimeArtifactRoots = normalized
+}
+
+// SearchRuntimeArtifactRoots returns the currently configured repo-relative
+// broad-search exclusion roots.
+func SearchRuntimeArtifactRoots() []string {
+	searchRuntimeArtifactRootsMu.RLock()
+	defer searchRuntimeArtifactRootsMu.RUnlock()
+	return append([]string(nil), searchRuntimeArtifactRoots...)
+}
+
 // DirNameMatchesExcludePattern reports whether name matches any exact
 // or glob-style directory exclude pattern. Patterns are the same ones
 // passed to grep/rg (`node_modules`, `.gotmp*`, ...), so shell-backed
@@ -196,6 +220,9 @@ func IsExcludedRelativePath(relPath string) bool {
 	normalized := strings.TrimSpace(strings.ReplaceAll(relPath, `\`, `/`))
 	if normalized == "" {
 		return false
+	}
+	if configuredSearchRuntimeArtifactRootMatches(normalized) {
+		return true
 	}
 	parts := strings.Split(normalized, "/")
 	if len(parts) > 0 && ExcludeDirsRootOnlySet[parts[0]] {
@@ -255,7 +282,7 @@ func NewSearchDirFilterWithOptions(repoRoot, targetPath string, opts SearchDirFi
 		anyLevelPatterns:       append([]string(nil), ExcludeDirPatternsAnyLevel...),
 		rootOnlySet:            make(map[string]bool, len(ExcludeDirsRootOnly)),
 		includeAuxiliarySource: opts.IncludeAuxiliarySource,
-		runtimeArtifactRoots:   normalizeSearchRuntimeArtifactRoots(opts.RuntimeArtifactRoots),
+		runtimeArtifactRoots:   normalizeSearchRuntimeArtifactRoots(append(SearchRuntimeArtifactRoots(), opts.RuntimeArtifactRoots...)),
 	}
 	for _, name := range ExcludeDirsRootOnly {
 		filter.rootOnlySet[name] = true
@@ -269,6 +296,11 @@ func NewSearchDirFilterWithOptions(repoRoot, targetPath string, opts SearchDirFi
 		return filter
 	}
 	filter.targetDirRel = targetDirRel
+	for root := range filter.runtimeArtifactRoots {
+		if targetDirRel == root || strings.HasPrefix(targetDirRel, root+"/") {
+			delete(filter.runtimeArtifactRoots, root)
+		}
+	}
 	segments := strings.Split(targetDirRel, "/")
 	if len(segments) > 0 {
 		delete(filter.rootOnlySet, segments[0])
@@ -322,10 +354,8 @@ func (f SearchDirFilter) RipgrepGlobs() []string {
 			out = append(out, "!/"+name+"/**")
 		}
 	}
-	if f.includeAuxiliarySource {
-		for rel := range f.runtimeArtifactRoots {
-			out = append(out, "!/"+rel+"/**")
-		}
+	for rel := range f.runtimeArtifactRoots {
+		out = append(out, "!/"+rel+"/**")
 	}
 	return out
 }
@@ -343,17 +373,12 @@ func (f SearchDirFilter) ExcludesRepoRelativePath(relPath string) bool {
 	if f.targetDirRel != "" && (normalized == f.targetDirRel || strings.HasPrefix(normalized, f.targetDirRel+"/")) {
 		return false
 	}
+	if searchRuntimeArtifactRootMatches(normalized, searchRuntimeArtifactRootMapKeys(f.runtimeArtifactRoots)) {
+		return true
+	}
 	if f.includeAuxiliarySource {
 		if searchAuxiliarySourceHardExcludedRel(normalized) {
 			return true
-		}
-		if f.runtimeArtifactRoots[normalized] {
-			return true
-		}
-		for root := range f.runtimeArtifactRoots {
-			if strings.HasPrefix(normalized, root+"/") {
-				return true
-			}
 		}
 		if searchAuxiliarySourceRelAllowed(normalized) {
 			return false
@@ -412,12 +437,53 @@ func searchAuxiliarySourceContainerRelAllowed(rel string) bool {
 
 func normalizeSearchRuntimeArtifactRoots(in []string) map[string]bool {
 	out := map[string]bool{}
+	for _, rel := range normalizeSearchRuntimeArtifactRootSlice(in) {
+		out[rel] = true
+	}
+	return out
+}
+
+func normalizeSearchRuntimeArtifactRootSlice(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
 	for _, raw := range in {
 		rel := strings.Trim(strings.ToLower(strings.ReplaceAll(raw, `\`, `/`)), "/")
-		if rel == "" || rel == "." {
+		if rel == "" || rel == "." || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
 			continue
 		}
-		out[rel] = true
+		if seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		out = append(out, rel)
+	}
+	return out
+}
+
+func searchRuntimeArtifactRootMatches(rel string, roots []string) bool {
+	rel = strings.Trim(strings.ToLower(strings.ReplaceAll(rel, `\`, `/`)), "/")
+	for _, root := range roots {
+		root = strings.Trim(root, "/")
+		if root == "" {
+			continue
+		}
+		if rel == root || strings.HasPrefix(rel, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func configuredSearchRuntimeArtifactRootMatches(rel string) bool {
+	searchRuntimeArtifactRootsMu.RLock()
+	defer searchRuntimeArtifactRootsMu.RUnlock()
+	return searchRuntimeArtifactRootMatches(rel, searchRuntimeArtifactRoots)
+}
+
+func searchRuntimeArtifactRootMapKeys(in map[string]bool) []string {
+	out := make([]string, 0, len(in))
+	for root := range in {
+		out = append(out, root)
 	}
 	return out
 }

@@ -51,6 +51,12 @@ type RuntimeSettings struct {
 	Branch   *string `yaml:"branch"`
 	CacheDir *string `yaml:"cache_dir"`
 
+	// SearchExcludeRoots are repo-relative roots to exclude from broad
+	// repository search/list/repomap scans. They are for customer-specific
+	// generated/runtime/report directories such as out/, bazel-bin/, or
+	// reports/. Explicit tool targets under these roots are still honored.
+	SearchExcludeRoots []string `yaml:"search_exclude_roots"`
+
 	// MCP server integration. Empty by default, which keeps read/write
 	// pipeline prompts, tool schemas, dispatch, and observation ledger
 	// behavior identical to a build without MCP producer support.
