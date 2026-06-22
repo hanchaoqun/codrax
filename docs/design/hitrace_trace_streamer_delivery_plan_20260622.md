@@ -892,6 +892,62 @@ Verification for Batch 6C2:
 - `go test ./internal/hitraceconv -run TestConvertFileNoPerfTraceRawFtraceRootCauseParityMatrix -count=1 -v`
 - `go test ./internal/hitraceconv ./internal/tracequery`
 
+Next slice: Batch 6C3 representative capture closure gate.
+
+Status: planned on 2026-06-23.
+
+Current resource audit:
+
+- The local repository and `/Users/han/opt` currently expose synthetic sys
+  fixtures and text systrace artifacts, but no committed or workspace-local
+  real no-perf `.sys` capture that can be used as a stable conversion fixture.
+- `/Users/han/opt/customlogs/xxx_all.systrace` is a valuable customer-scale
+  Donghu text trace and is already covered by trace_query eval cases such as
+  `trace_query_donghu_real_frame_multicausal`,
+  `trace_query_donghu_real_short_runnable`, and request-named path cases.
+- Those text-trace evals protect downstream root-cause behavior and path
+  routing, but they cannot prove `trace_streamer` DB conversion parity for
+  binary no-perf `.sys` captures.
+- The synthetic built-in-vs-SQL parity guards delivered in Batch 6A/6B/6C2 are
+  necessary but not sufficient evidence to delete or isolate the old sys binary
+  parser from production.
+
+Tasks:
+
+- Add a small representative-capture manifest document or testdata README that
+  records required evidence for any future real `.sys` fixture:
+  - capture provenance and redistribution status;
+  - whether it is no-perf pure trace or trace+perf;
+  - expected conversion engine (`trace_streamer` default, built-in explicit
+    only for pure trace);
+  - minimum trace_query views to verify after conversion;
+  - expected coverage families and caveats.
+- Add a deterministic test helper for future representative `.sys` fixtures
+  that can run:
+  - explicit SQL conversion;
+  - optional explicit built-in conversion only for no-perf pure trace;
+  - trace_query round-trip semantic projections;
+  - bounded coverage/provenance assertions.
+- Keep the helper fixture-driven and disabled only by absence of an explicitly
+  committed fixture. It must not look in `/Users/han/opt/customlogs` or any
+  developer-local absolute path during normal `go test`.
+- Keep existing Donghu text systrace evals as downstream guards and document
+  that they do not satisfy the converter retirement gate.
+- After at least one redistributable real no-perf `.sys` fixture passes SQL
+  conversion and trace_query semantic parity, decide whether to:
+  - retire production legacy sys parsing, or
+  - keep it as an explicit built-in lane with documented `TraceDBCoverage`
+    gaps.
+
+Exit criteria for Batch 6C3:
+
+- Future representative `.sys` captures have a clear manifest, helper, and
+  required assertion matrix.
+- Existing customer text trace evals remain classified as downstream tracequery
+  validation, not converter parity proof.
+- Batch 6 remains open until a real redistributable no-perf `.sys` fixture is
+  available and passes the helper.
+
 Verification for delivered slice:
 
 - `go test ./internal/hitraceconv -run 'TestExportTraceDBRawFtrace' -count=1 -v`
