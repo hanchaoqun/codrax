@@ -3911,6 +3911,17 @@ func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
 	if !observation.IsActive() {
 		return ""
 	}
+	var rm types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = ctx.AnalysisIR.RequestModel
+	}
+	rowSet := types.BuildSourceInventoryPrincipalRowSet(types.SourceInventoryPrincipalRowSetInput{
+		Observation:      observation,
+		RequestModel:     rm,
+		MaxPrincipalRows: 36,
+		MaxSupportRows:   8,
+		MaxAuditRows:     4,
+	})
 	var b strings.Builder
 	b.WriteString("## Repo Lens Candidate Universe Handoff\n\n")
 	b.WriteString("- This section comes from `repo_map(view=\"source_inventory\")` / source-inventory observations. It verifies navigation facts such as scopes, files, candidate members, attributes, languages, support refs, and `count == len(members)`.\n")
@@ -3921,6 +3932,10 @@ func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
 	}
 	if len(observation.Provenance) > 0 {
 		fmt.Fprintf(&b, "- provenance: `%s`\n", strings.Join(observation.Provenance, "`, `"))
+	}
+	if rowSet.Active {
+		renderAnswerDocSourceInventoryRowSet(&b, rowSet)
+		return b.String()
 	}
 	const maxRows = 24
 	emitted := 0
@@ -3966,6 +3981,108 @@ func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderAnswerDocSourceInventoryRowSet(b *strings.Builder, rowSet types.SourceInventoryPrincipalRowSet) {
+	if b == nil || !rowSet.Active {
+		return
+	}
+	if len(rowSet.PrincipalRoles) > 0 {
+		roles := make([]string, 0, len(rowSet.PrincipalRoles))
+		for _, role := range rowSet.PrincipalRoles {
+			roles = append(roles, string(role))
+		}
+		fmt.Fprintf(b, "- principal_roles: `%s`\n", strings.Join(roles, "`, `"))
+	}
+	if rowSet.PrincipalScope != "" {
+		fmt.Fprintf(b, "- principal_scope: `%s`", rowSet.PrincipalScope)
+		if rowSet.RepoWidePrincipal {
+			b.WriteString(" (repo-wide typed inventory)")
+		}
+		b.WriteByte('\n')
+	}
+	if len(rowSet.SourceClasses) > 0 {
+		parts := make([]string, 0, len(rowSet.SourceClasses))
+		for _, class := range rowSet.SourceClasses {
+			parts = append(parts, fmt.Sprintf("%s:%d", class.Role, class.Count))
+		}
+		fmt.Fprintf(b, "- source_classes: %s\n", strings.Join(parts, ", "))
+	}
+	fmt.Fprintf(b, "- row_lanes: principal=%d", rowSet.PrincipalTotal)
+	if rowSet.PrincipalHiddenCount > 0 {
+		fmt.Fprintf(b, " (+%d hidden)", rowSet.PrincipalHiddenCount)
+	}
+	fmt.Fprintf(b, ", support=%d", rowSet.SupportTotal)
+	if rowSet.SupportHiddenCount > 0 {
+		fmt.Fprintf(b, " (+%d hidden)", rowSet.SupportHiddenCount)
+	}
+	fmt.Fprintf(b, ", audit=%d", rowSet.AuditTotal)
+	if rowSet.AuditHiddenCount > 0 {
+		fmt.Fprintf(b, " (+%d hidden)", rowSet.AuditHiddenCount)
+	}
+	b.WriteString("\n\n")
+	b.WriteString("### Principal candidate rows\n\n")
+	b.WriteString("These rows are selected from the full typed observation before prompt row limits, balanced by role/source-class/language family. Treat them as the candidate universe handoff, not as final prose.\n\n")
+	renderAnswerDocSourceInventoryRows(b, rowSet.PrincipalRows, false)
+	if rowSet.PrincipalHiddenCount > 0 {
+		fmt.Fprintf(b, "- ... %d additional principal row(s) are preserved in the typed observation but omitted from this bounded prompt view.\n", rowSet.PrincipalHiddenCount)
+	}
+	b.WriteString("\n")
+	if rowSet.SupportTotal > 0 {
+		b.WriteString("### Support/navigation rows\n\n")
+		b.WriteString("These rows are outside the principal scope or lack direct source location; use them for navigation or qualification only, not as replacement answer members.\n\n")
+		renderAnswerDocSourceInventoryRows(b, rowSet.SupportRows, true)
+		if rowSet.SupportHiddenCount > 0 {
+			fmt.Fprintf(b, "- ... %d additional support row(s) omitted from this bounded prompt view.\n", rowSet.SupportHiddenCount)
+		}
+		b.WriteString("\n")
+	}
+	if rowSet.AuditTotal > 0 {
+		b.WriteString("### Audit-only rows\n\n")
+		b.WriteString("These rows are non-principal roles under the current typed source-inventory profile. Keep them out of the answer slate unless another typed carrier makes them principal.\n\n")
+		renderAnswerDocSourceInventoryRows(b, rowSet.AuditRows, true)
+		if rowSet.AuditHiddenCount > 0 {
+			fmt.Fprintf(b, "- ... %d additional audit row(s) omitted from this bounded prompt view.\n", rowSet.AuditHiddenCount)
+		}
+		b.WriteString("\n")
+	}
+}
+
+func renderAnswerDocSourceInventoryRows(b *strings.Builder, rows []types.SourceInventoryRow, includeReason bool) {
+	for _, row := range rows {
+		member := row.Member
+		name := strings.TrimSpace(member.Name)
+		if name == "" {
+			name = strings.TrimSpace(member.Key)
+		}
+		if name == "" {
+			continue
+		}
+		fmt.Fprintf(b, "- member=`%s`, role=%s", name, row.Role)
+		if row.SourceClass != "" {
+			fmt.Fprintf(b, ", source_class=%s", row.SourceClass)
+		}
+		if lang := strings.TrimSpace(row.Language); lang != "" {
+			fmt.Fprintf(b, ", language=%s", lang)
+		}
+		if file := strings.TrimSpace(member.File); file != "" {
+			if member.Line > 0 {
+				fmt.Fprintf(b, ", location=`%s:%d`", file, member.Line)
+			} else {
+				fmt.Fprintf(b, ", location=`%s`", file)
+			}
+		}
+		if state := strings.TrimSpace(string(member.CoverageState)); state != "" {
+			fmt.Fprintf(b, ", coverage_state=%s", state)
+		}
+		if len(member.Attributes) > 0 {
+			fmt.Fprintf(b, ", attributes=%d", len(member.Attributes))
+		}
+		if includeReason && strings.TrimSpace(row.ReasonCode) != "" {
+			fmt.Fprintf(b, ", lane=%s reason=%s", row.Lane, row.ReasonCode)
+		}
+		b.WriteByte('\n')
+	}
 }
 
 func answerDocSourceInventoryObservation(ctx *types.AgentContext) types.SourceInventoryObservation {

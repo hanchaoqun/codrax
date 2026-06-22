@@ -374,9 +374,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersSourceInventoryH
 		"verifies navigation facts",
 		"not final answer text and not a semantic source citation",
 		"model-selected slate",
-		"role `package` (package/directory/module scope): count=2 len(members)=2 complete=true",
-		"member=`billing` @ `services/billing/index.ts:12`, language=typescript, coverage_state=observed, attributes=1",
-		"member=`identity` @ `services/identity/main.py:7`, language=python, coverage_state=observed",
+		"principal_roles: `package`",
+		"row_lanes: principal=2, support=0, audit=0",
+		"### Principal candidate rows",
+		"member=`billing`, role=package, source_class=production, language=typescript, location=`services/billing/index.ts:12`, coverage_state=observed, attributes=1",
+		"member=`identity`, role=package, source_class=production, language=python, location=`services/identity/main.py:7`, coverage_state=observed",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("source-inventory handoff missing %q:\n%s", want, prompt)
@@ -488,8 +490,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTurnASourceInven
 		"## Repo Lens Candidate Universe Handoff",
 		"scopes: `routes`",
 		"provenance: `repo_lens:tool_query`",
-		"role `route` (route): count=1 len(members)=1 complete=true",
-		"member=`GET /v1/users` @ `routes/users.ts:42`, language=typescript, coverage_state=observed",
+		"principal_roles: `route`",
+		"row_lanes: principal=1, support=0, audit=0",
+		"member=`GET /v1/users`, role=route, source_class=production, language=typescript, location=`routes/users.ts:42`, coverage_state=observed",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("TurnA source-inventory advisory handoff missing %q:\n%s", want, prompt)
