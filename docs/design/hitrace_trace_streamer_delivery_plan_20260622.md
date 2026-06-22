@@ -280,6 +280,9 @@ Boundary that remains for Batch 3/4:
 
 Status: dependency/algorithm plan in progress.
 
+Detailed execution plan:
+`docs/design/hitrace_trace_streamer_batch3_full_compat_plan_20260622.md`
+
 Exploration notes:
 
 - Current Go module has no SQLite dependency and no existing `database/sql`
