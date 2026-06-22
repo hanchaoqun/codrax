@@ -146,6 +146,27 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		}
 		return result, nil
 	}
+	if selectedTraceEngineMode(opts.TraceEngine) == traceEngineTraceStreamer {
+		result := Result{
+			InputPath:         input,
+			InputBytes:        info.Size(),
+			Artifacts:         append([]Artifact(nil), standaloneArtifacts...),
+			ProviderDecisions: append([]PerfProviderDecision(nil), standaloneDecisions...),
+			TraceDecisions:    append([]TraceProviderDecision(nil), initialTraceDecisions...),
+			TraceDBCoverage:   append([]TraceDBCoverage(nil), initialTraceDBCoverage...),
+			TraceCoverage:     append([]TraceDBCoverage(nil), initialTraceCoverage...),
+			Caveats:           append(append([]string(nil), initialCaveats...), standaloneCaveats...),
+		}
+		result.Artifacts = append(initialArtifacts, result.Artifacts...)
+		result.Caveats = append(result.Caveats, "systrace output was not produced because selected trace_streamer/SQLite trace conversion did not produce trace_query-ready rows; pass --trace-engine=builtin to use the built-in trace-only converter")
+		if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
+			return Result{}, err
+		} else if bundleArtifact.Path != "" {
+			result.BundlePath = bundleArtifact.Path
+			result.Artifacts = append(result.Artifacts, bundleArtifact)
+		}
+		return result, nil
+	}
 	if result, ok, err := tryConvertProfilerContainer(ctx, opts, info.Size(), output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage); ok || err != nil {
 		return result, err
 	}

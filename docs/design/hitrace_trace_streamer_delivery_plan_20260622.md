@@ -55,11 +55,12 @@ Observed hmtrace model:
 
 ## Delivery Rules
 
-- No silent production fallback from modern profiler `.htrace` failures to the
-  sys binary parser.
-- No-perf Harmony/Donghu `.sys` binary conversion remains supported until
-  trace_streamer DB parity is proven. Once parity is proven, backward
-  compatibility for the old parser is not required.
+- No silent production fallback between trace-body engines. Pure trace
+  conversion is a user-visible engine choice: default `trace_streamer`/SQL, or
+  explicit `--trace-engine=builtin` for the built-in trace-only parser.
+- No-perf Harmony/Donghu `.sys` binary conversion remains supported through the
+  explicit built-in engine until trace_streamer DB parity is proven. Once parity
+  is proven, backward compatibility for the old parser is not required.
 - No file-suffix or keyword intent routing for user requests. Deterministic code
   may validate selected artifacts and inspect content, but model/request routing
   remains outside converter internals.
@@ -197,15 +198,16 @@ Tasks:
   - provider decisions for selected/attempted/succeeded/fallback/reason.
 - In `--trace-engine=trace_streamer`, fail fast if trace_streamer is missing or
   returns non-zero.
-- In `auto`, prefer trace_streamer. If it fails, fall back to
-  `builtin_modern_profiler`, perf-only partial output, or the built-in sys
-  binary parser only when the input structurally matches the no-perf sys binary
-  container and the parity gate has not been closed.
+- In default/`auto`, select trace_streamer/SQL. If SQL does not produce
+  query-ready rows, return an explicit partial tracebundle and tell users to
+  select `--trace-engine=builtin` when they want the built-in trace-only parser.
+  Do not silently fall back to `builtin_modern_profiler` or the sys binary
+  parser.
 - Add DB artifact to tracebundle when `KeepTraceDB` is enabled.
 - Tests:
   - fake trace_streamer writes a DB file and records args.
   - explicit mode fail-fast.
-  - auto mode records failure and chooses modern fallback.
+  - default/auto mode records SQL failure without choosing a built-in fallback.
   - DB cleanup vs keep behavior.
 
 Detailed implementation checklist:
@@ -228,13 +230,11 @@ Detailed implementation checklist:
   - verify the DB file exists and is non-empty after success.
 - Add conversion selection:
   - `--trace-engine=trace_streamer`: run provider or hard fail.
-  - `--trace-engine=auto`: try provider when available; if provider fails,
-    record a failed trace provider decision and continue to
-    `builtin_modern_profiler`, perf-only partial output, or the sys binary
-    parser for structurally matching no-perf `.sys` captures while parity is
-    incomplete.
-  - `--trace-engine=builtin`: skip trace_streamer provider with an explicit
-    skipped decision.
+  - default/`--trace-engine=auto`: select trace_streamer/SQL. If the tool is not
+    discovered or SQL emits no query-ready rows, record a trace provider decision
+    and return an explicit partial tracebundle instead of changing engines.
+  - `--trace-engine=builtin`: skip trace_streamer provider and run the explicit
+    built-in trace-only parser.
 - Add artifact behavior:
   - when `KeepTraceDB=true`, retain the DB as `ArtifactTraceDB`.
   - when `KeepTraceDB=false`, remove temporary DB after DB export is implemented;
@@ -244,7 +244,7 @@ Detailed implementation checklist:
   - fake shell trace_streamer script writing `sqlite-like` bytes and an args log;
   - fake failing trace_streamer script with stderr;
   - explicit missing tool;
-  - auto fallback to profiler text rows;
+  - default SQL failure without built-in profiler fallback;
   - tracebundle contains trace provider decisions and DB artifact when kept.
 
 Performance/memory notes for this batch:
@@ -259,9 +259,9 @@ Exit criteria:
   external trace_streamer path in tests.
 - Delivered: explicit `--trace-engine=trace_streamer` fails fast when the tool is
   missing or the command fails.
-- Delivered: `auto` tries trace_streamer DB export when available, records
-  provider success/failure, and falls through to the current modern profiler
-  fallback.
+- Delivered: `auto` is accepted as a compatibility alias for trace_streamer/SQL;
+  it records provider success/failure and does not fall through to the built-in
+  parser.
 - Delivered: `KeepTraceDB` and explicit `TraceDBOutputPath` retain
   `ArtifactTraceDB` in tracebundle; temporary auto DBs are cleaned when not kept.
 - Verified with:
@@ -480,8 +480,9 @@ Exit criteria:
 - Delivered guard: trace+perf inputs no longer use the legacy built-in trace
   body parser as a fallback. They use the SQL/trace_streamer lane when
   available, otherwise produce explicit partial artifacts and provider decisions.
-- Delivered guard: pure no-perf trace inputs keep the protected dual path while
-  sys-binary DB parity remains open.
+- Delivered guard: pure no-perf trace inputs keep two selectable engines while
+  sys-binary DB parity remains open; default SQL never silently changes to the
+  built-in engine.
 - Delivered guard: SQL-generated trace text is cross-validated through
   `trace_query` and recorded as `trace_cross_validation` coverage.
 
@@ -495,7 +496,8 @@ Status: delivered on 2026-06-23.
 
 Scope:
 
-- Added the first executable no-perf `.sys` parity guard comparing:
+- Added the first executable no-perf `.sys` parity guard comparing two explicit
+  engine choices:
   - the protected built-in sys-binary conversion lane;
   - the explicit `trace_streamer`/SQLite conversion lane.
 - The guard uses equivalent scheduler data and verifies that both converted
@@ -544,7 +546,8 @@ Exploration notes:
 
 Tasks:
 
-- Add a reusable parity harness that converts:
+- Add a reusable parity harness that converts both explicit engines for test
+  validation only:
   - a synthetic no-perf sys-binary fixture through the guarded built-in lane;
   - an equivalent trace_streamer SQLite fixture through the SQL lane.
 - Compare the resulting `trace_query` events semantically rather than comparing
@@ -562,6 +565,9 @@ Tasks:
   - key typed fields are preserved;
   - SQL coverage records the relevant table/family;
   - provider decisions distinguish built-in sys from trace_streamer DB.
+- Document that this cross-engine parity harness is not a production fallback
+  mechanism. Production pure-trace conversion runs only the selected engine,
+  with SQL as the default.
 - Keep performance/memory guards:
   - fixtures must use the production spillable row sink path;
   - tests must not introduce unbounded in-memory comparison of full trace text;
@@ -577,14 +583,14 @@ Exit criteria:
 - The first root-cause evidence matrix is covered by an executable parity test.
 - Any remaining event-family gaps are documented as Batch 6C+ work, not hidden
   behind the single wakeup parity guard.
-- The no-perf sys lane remains guarded until representative captures prove all
-  required families, but the SQL lane has explicit evidence for the core timing
-  and CPU-supply families.
+- The explicit no-perf sys lane remains guarded until representative captures
+  prove all required families, but the default SQL lane has explicit evidence
+  for the core timing and CPU-supply families.
 
 Tasks:
 
-- Build parity cases comparing built-in sys binary output with trace_streamer DB
-  export for representative no-perf Harmony/Donghu captures.
+- Build parity cases comparing explicit built-in sys binary output with
+  trace_streamer DB export for representative no-perf Harmony/Donghu captures.
 - Verify both outputs round-trip through `trace_query` and preserve scheduler,
   wakeup, CPU, binder, IRQ, IO, trace marker, and frame evidence.
 - If parity is complete, remove production call to `scanMetadata` and delete or
@@ -593,16 +599,18 @@ Tasks:
   - `parseEventFormats`,
   - raw page event-id rendering,
   - header-only unknown event output.
-- If parity is incomplete, keep the sys binary parser as a guarded production
-  lane and document missing DB event families in `TraceDBCoverage` caveats.
+- If parity is incomplete, keep the sys binary parser as an explicit guarded
+  production lane and document missing DB event families in `TraceDBCoverage`
+  caveats.
 - Rewrite old tests into DB/profiler fixtures only after parity is complete.
 - Update CLI/REPL wording so sys binary counters are transparent and not
   confused with modern profiler coverage.
 
 Exit criteria:
 
-- No-perf `.sys` conversion is either DB-backed with full parity, or guarded by
-  the built-in sys binary parser with explicit provenance and tests.
+- No-perf `.sys` conversion is either default DB-backed with full parity, or
+  explicitly selected through the built-in sys binary parser with provenance and
+  tests.
 
 ### Batch 7: Prompt, Handoff, JSON Repair, and UX Closure
 
@@ -655,9 +663,9 @@ Exit criteria:
 - Verified in `internal/tracequery`: trace provider decisions, DB coverage, and
   trace cross-validation coverage now flow into both `Index.Caveats` and
   `Result.Caveats`; coverage fan-out is bounded with a compacted summary.
-- Trace+perf old built-in parsing remains removed from the production fallback
-  decision. Any remaining legacy parser code is only reachable through the
-  protected pure-trace/no-perf lane until Batch 6 parity is closed.
+- Trace+perf old built-in parsing remains removed from production. Any remaining
+  legacy parser code is only reachable through the explicit pure-trace/no-perf
+  built-in engine until Batch 6 parity is closed.
 - CLI, markdown, and HTML runtime-artifact summaries now expand tracebundle
   provider/coverage details for both attachment bodies and request-named paths.
 

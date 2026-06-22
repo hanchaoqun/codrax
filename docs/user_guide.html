@@ -233,7 +233,7 @@
         <a href="#24-中断-取消">2.4 中断 / 取消</a>
         <div class="toc-group">3. 进阶能力</div>
         <a href="#31-附加运行时日志panic-异常-traceback">3.1 附加运行时日志(panic / 异常 / traceback)</a>
-        <a href="#32-附加性能-tracehitrace-atrace-systrace-perfetto">3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto)</a>
+        <a href="#32-附加性能-tracehitrace-atrace-systrace-perfetto-perf-sample">3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto / perf sample)</a>
         <a href="#33-闲聊与本地转换">3.3 闲聊与本地转换</a>
         <a href="#34-记忆与会话">3.4 记忆与会话</a>
         <a href="#35-一台机器多仓库">3.5 一台机器多仓库</a>
@@ -690,7 +690,7 @@ codrax --log-text &quot;$(cat panic.txt)&quot; -r &quot;...&quot;
 <p>附加日志 size 上限:512 MiB(<code>log_attach_max_bytes</code>),超过自动尾部截断 + 警告。</p>
 <p><strong>自动检测</strong>:如果你在普通问题里直接粘贴包含 panic/stack-frame 行的文本,REPL 会<strong>一次性</strong>自动把它转成附加日志(打印一行 <code>auto-attached log: N bytes</code>),只对当前这轮生效,不影响下轮。如果想阻止自动,先 <code>/log clear</code> 把粘性 log 占位即可。</p>
 <p><strong>C/C++ 编译路径前缀</strong>:CI build 出来的 stack frame 路径常是 <code>/build/src/foo.cpp:42</code>,你的 repo 是 <code>~/repo/foo.cpp:42</code>。用 <code>--log-source-prefix /build/src/</code> 让 codrax 把前缀剥掉再去仓库找文件。</p>
-<h2 id="32-附加性能-tracehitrace-atrace-systrace-perfetto">3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto)</h2>
+<h2 id="32-附加性能-tracehitrace-atrace-systrace-perfetto-perf-sample">3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto / perf sample)</h2>
 <p>性能问题、卡顿、ANR、冷启动慢 — 把 ftrace 兼容的文本 trace 作为附件喂给 codrax,触发 <code>perf_triage</code> 预阶段抽出 frame / jank / stall / startup 信息:</p>
 <pre><code class="language-bash"># HiTrace(HarmonyOS / OpenHarmony)
 hdc shell hitrace -t 5 graphic &gt; /tmp/htrace.txt
@@ -704,8 +704,14 @@ codrax --atrace /tmp/atrace.txt -r &quot;ListView 滑动卡顿哪里出问题?&q
 codrax --htrace /tmp/perfetto.txt -r &quot;...&quot;
 
 # 二进制 HiTrace 需要先手动转换;不会自动附加
+# 纯 trace 默认走 trace_streamer/SQL;需要内置纯 trace 转换时显式加 --trace-engine=builtin
+codrax trace convert --trace-tools-status
 codrax trace convert --input /tmp/capture.htrace.bin
+codrax trace convert --input /tmp/donghu.sys --trace-engine=builtin
 codrax --htrace /tmp/capture.htrace.bin.systrace -r &quot;分析这段卡顿&quot;
+
+# 先看本机 perf.data 解析能力和缺什么官方工具
+codrax trace convert --perf-tools-status
 
 # 多文件比对
 codrax --htrace before.trace --htrace after.trace -r &quot;对比启动耗时差在哪&quot;
@@ -723,7 +729,7 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
   ✓ converted hitrace: /tmp/capture.htrace.bin.systrace (N events)
   · next: /htrace /tmp/capture.htrace.bin.systrace
 </code></pre>
-<p>如果没有指定输出文件,默认写到 <code>&lt;原文件名&gt;.systrace</code>。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。</p>
+<p>如果没有指定输出文件,默认写到 <code>&lt;原文件名&gt;.systrace</code>。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。纯 trace 有两个转换引擎,但一次只会运行一个:默认 <code>trace_streamer</code>/SQL;只有你显式传 <code>--trace-engine=builtin</code> 时才使用 Codrax 内置纯 trace 转换器。<code>auto</code> 仍作为兼容别名接受,含义等同默认 SQL,不会在 SQL 失败时悄悄回退到内置转换。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。</p>
 <h3 id="转换后如何分析-trace--perf-混合文件">转换后如何分析 trace + perf 混合文件</h3>
 <p>OpenHarmony / HarmonyOS 的 HiProfiler 文件可能同时带 ftrace/bytrace 文本、<code>hiperf-plugin</code> 的 standalone <code>perf.data</code>,以及转换器生成的 <code>.perftrace</code>。这种场景优先使用 <code>.tracebundle.json</code>,因为它会把 systrace、perftrace、raw perf.data provenance 和 converter caveats 作为一组产物交给 <code>trace_query</code>。</p>
 <p>推荐 attach 方式:</p>
@@ -3541,7 +3547,7 @@ mcp_servers:
 </tr>
 <tr>
 <td><code>/htrace convert &lt;binary&gt; [out.systrace]</code></td>
-<td>手动把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;默认输出 <code>&lt;binary&gt;.systrace</code>,不自动附加</td>
+<td>手动把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;纯 trace 默认 SQL,内置转换需 CLI <code>--trace-engine=builtin</code>;默认输出 <code>&lt;binary&gt;.systrace</code>,不自动附加</td>
 </tr>
 <tr>
 <td><code>/htrace append</code> / <code>/htrace show</code> / <code>/htrace clear</code></td>

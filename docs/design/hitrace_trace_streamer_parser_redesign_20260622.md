@@ -11,11 +11,13 @@ shape as `hmtrace`: first normalize the capture through `trace_streamer` into a
 structured database, then export Codrax-native `.systrace`, `.perftrace`, and
 `.tracebundle.json` artifacts for `trace_query`.
 
-This redesign makes `trace_streamer` DB export the primary conversion engine for
-modern `.htrace` and `perf.data` captures. The existing
-`SEGMENT_EVENTS_FORMAT` + `SEGMENT_RAW_TRACE` parser remains a protected
-transition lane for no-perf Harmony/Donghu `.sys`-style binary captures until
-the DB engine proves full parity for that shape. Once parity is proven by
+This redesign makes `trace_streamer` DB export the default conversion engine for
+modern `.htrace`, no-perf trace, and `perf.data` captures. The existing
+`SEGMENT_EVENTS_FORMAT` + `SEGMENT_RAW_TRACE` parser remains an explicitly
+selectable transition lane for no-perf Harmony/Donghu `.sys`-style binary
+captures until the DB engine proves full parity for that shape. Runtime
+conversion must choose exactly one trace-body engine: default SQL/trace_streamer,
+or user-selected built-in for trace-only captures. Once parity is proven by
 round-trip tests and customer-style fixtures, Codrax can retire the built-in sys
 binary lane without keeping backward compatibility solely for its own sake.
 
@@ -90,32 +92,31 @@ Codrax should keep the same ingestion skeleton but adapt the output contract:
 
 ## Compatibility and Retirement Contract
 
-The new contract is DB-first, with a measured retirement gate for the built-in
-sys binary parser.
+The new contract is DB-first by default, with a measured retirement gate for the
+explicit built-in sys binary parser.
 
 - Production conversion supports modern profiler/trace_streamer-compatible
   `.htrace`, `perf.data`, and generated DB surfaces.
-- Existing no-perf Harmony/Donghu `.sys` binary conversion remains supported by
-  the built-in sys binary parser until `trace_streamer` DB export demonstrates
-  equivalent or stronger coverage for the same inputs.
+- Existing no-perf Harmony/Donghu `.sys` binary conversion remains supported
+  through explicit `--trace-engine=builtin` until `trace_streamer` DB export
+  demonstrates equivalent or stronger coverage for the same inputs.
 - The built-in parser targets the same semantic model as `trace_streamer`, not
   a second public schema. Sys binary fixtures are parity guards, not the
   long-term canonical format.
 - Unknown modern DB/profiler surfaces are reported as structured coverage
   caveats, not emitted as header-only systrace rows.
-- If neither `trace_streamer` nor the redesigned built-in parser can decode the
-  trace body, the converter should fail or return an explicitly partial
-  tracebundle. It must not imply that the sys binary parser is the expected
-  fallback for modern profiler captures.
+- If the selected engine cannot decode the trace body, the converter should fail
+  or return an explicitly partial tracebundle. It must not silently try the
+  other trace-body engine, and it must not imply that the sys binary parser is
+  the expected fallback for modern profiler captures.
 
 ## Engine Architecture
 
 ```text
 .htrace / perf.data
   -> engine selection
-      -> trace_streamer DB engine       primary
-      -> built-in modern parser         offline fallback
-      -> built-in sys binary parser     no-perf .sys parity lane
+      -> trace_streamer DB engine       default trace-body engine
+      -> built-in modern/sys parser     explicit trace-only engine
       -> raw perf.data parser           perf-only fallback
   -> exporters
       -> systrace text
@@ -140,10 +141,11 @@ Then a Codrax DB exporter reads the generated SQLite database and emits:
 - A tracebundle containing all artifacts, provider decisions, tool provenance,
   DB coverage stats, caveats, and perf/trace clock quality.
 
-### Built-in Parser: Modern Shape Only
+### Built-in Parser: Explicit Trace-Only Engine
 
-The built-in parser should be redesigned around modern profiler payloads and the
-same semantic event families exported from the DB engine:
+The built-in parser should be selectable only for trace-only conversion. It
+should be redesigned around modern profiler payloads and the same semantic event
+families exported from the DB engine:
 
 - profiler session/package metadata
 - ftrace plugin metadata and structured event payloads
@@ -161,17 +163,20 @@ so downstream `trace_query` sees one schema regardless of the engine.
 
 ### Built-in Sys Binary Parser: Parity-Gated Lane
 
-The current `SEGMENT_EVENTS_FORMAT` + raw trace page parser is kept only for the
-existing no-perf Harmony/Donghu `.sys` binary capability. It must emit the same
-systrace fields and tracebundle provenance as the DB exporter, and it must be
-covered by round-trip tests. It can be removed after these gates pass:
+The current `SEGMENT_EVENTS_FORMAT` + raw trace page parser is kept only as an
+explicit built-in engine for the existing no-perf Harmony/Donghu `.sys` binary
+capability. It must emit the same systrace fields and tracebundle provenance as
+the DB exporter, and it must be covered by round-trip tests. It can be removed
+after these gates pass:
 
 - `trace_streamer` DB engine accepts representative no-perf `.sys` captures.
 - DB exporter emits all event families currently rendered by the sys binary
   parser.
 - Generated systrace round-trips through `trace_query` with no loss in scheduler,
   wakeup, CPU, binder, IRQ, and IO evidence used by root-cause analysis.
-- User-facing output and tracebundle provenance make the engine switch explicit.
+- User-facing output and tracebundle provenance make the engine selection
+  explicit. Parity tests may run both engines, but production conversion must
+  not run both or silently fall back between them.
 
 Do not keep a second public schema for raw segment field offsets. While the sys
 binary lane exists, it is a compatibility implementation detail behind stable
@@ -189,22 +194,24 @@ systrace/perftrace/tracebundle artifacts.
   - `builtin_modern_profiler`
   - `builtin_sys_binary`
   - `raw_perfdata_fallback`
-- Ensure user-facing output presents `builtin_sys_binary` only as the no-perf
-  sys binary lane or parity fallback, never as the expected parser for modern
-  profiler packages.
+- Ensure user-facing output presents `builtin_sys_binary` only as the explicit
+  no-perf sys binary lane, never as an automatic fallback or the expected parser
+  for modern profiler packages.
 
 ### Batch B: Add trace_streamer Provider
 
 - Add options and CLI flags:
-  - `--trace-engine auto|trace_streamer|builtin`
+  - `--trace-engine trace_streamer|builtin` (`auto` remains accepted as an
+    alias for `trace_streamer`)
   - `--trace-streamer <path>`
   - `--keep-db`
   - `--db-output <path>`
   - `--trace-tools-status`
 - Discover `trace_streamer` through explicit flag, environment variable, `PATH`,
   and known OpenHarmony/SmartPerf locations.
-- In `auto`, prefer `trace_streamer`; in explicit `trace_streamer`, fail fast on
-  provider failure.
+- The default/`auto` engine is `trace_streamer`; explicit `trace_streamer` fails
+  fast on provider failure. Built-in trace-only conversion requires explicit
+  `--trace-engine=builtin`.
 
 ### Batch C: DB Exporter
 
@@ -218,7 +225,7 @@ systrace/perftrace/tracebundle artifacts.
 ### Batch D: Built-in Modern Parser
 
 - Refactor converter entrypoint so old `scanMetadata` is no longer the automatic
-  fallback.
+  fallback and only runs when `--trace-engine=builtin` is selected.
 - Parse modern profiler/session containers and ftrace plugin payload metadata as
   first-class sources.
 - Add targeted structured event renderers only for event families consumed by

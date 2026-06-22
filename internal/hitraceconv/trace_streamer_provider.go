@@ -81,7 +81,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, i
 }
 
 func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, input string, inputBytes int64, output string) (traceStreamerExportResult, error) {
-	if normalizeTraceEngineMode(opts.TraceEngine) != traceEngineAuto && normalizeTraceEngineMode(opts.TraceEngine) != "" {
+	if selectedTraceEngineMode(opts.TraceEngine) != traceEngineTraceStreamer {
 		return traceStreamerExportResult{}, nil
 	}
 	status, err := BuildTraceToolStatus(opts)
@@ -93,7 +93,7 @@ func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, input string, 
 		return traceStreamerExportResult{}, err
 	}
 	if !status.TraceStreamer.Available {
-		caveat := "trace_streamer was not discovered; auto conversion uses built-in fallback"
+		caveat := "trace_streamer was not discovered; selected SQL trace conversion cannot produce systrace; pass --trace-engine=builtin to use the built-in trace-only converter"
 		if hasTracePerfSidecar {
 			caveat = "trace_streamer was not discovered; trace+perf htrace requires trace_streamer/SQLite trace conversion"
 		}
@@ -103,7 +103,7 @@ func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, input string, 
 			"trace_streamer_unavailable",
 			caveat,
 		)
-		return traceStreamerExportResult{Decision: decision}, nil
+		return traceStreamerExportResult{Decision: decision, Caveats: []string{caveat}}, nil
 	}
 	return runTraceStreamerExport(ctx, opts, input, output, opts.KeepTraceDB || hasTracePerfSidecar)
 }

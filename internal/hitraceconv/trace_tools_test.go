@@ -28,7 +28,7 @@ func TestBuildTraceToolStatusReportsConfiguredTraceStreamer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build status: %v", err)
 	}
-	if status.EngineMode != traceEngineAuto || status.SelectedEngine != traceEngineTraceStreamer {
+	if status.EngineMode != traceEngineTraceStreamer || status.SelectedEngine != traceEngineTraceStreamer {
 		t.Fatalf("unexpected engine status: %+v", status)
 	}
 	if !status.TraceStreamer.Available || status.TraceStreamer.Path != traceStreamer || !strings.Contains(status.TraceStreamer.Source, "configured") {
@@ -40,8 +40,8 @@ func TestBuildTraceToolStatusReportsConfiguredTraceStreamer(t *testing.T) {
 	if !status.BuiltinModern.Available || status.BuiltinModern.Source != "built-in" {
 		t.Fatalf("builtin modern status should be available: %+v", status.BuiltinModern)
 	}
-	if !strings.Contains(strings.Join(status.Caveats, " "), "tries trace_streamer DB export") {
-		t.Fatalf("auto mode should explain discovered trace_streamer readiness: %+v", status.Caveats)
+	if !strings.Contains(strings.Join(status.Caveats, " "), "trace-only conversion uses SQL by default") {
+		t.Fatalf("default mode should explain selected trace_streamer readiness: %+v", status.Caveats)
 	}
 }
 

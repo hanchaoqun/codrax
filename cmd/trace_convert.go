@@ -51,7 +51,9 @@ possible. Use --trace-tools-status to inspect trace_streamer discovery and
 trace-engine selection. Use --perf-tools-status to inspect discovered perf
 tools, selected parser, raw fallback status, and install hints. Use
 --perf-parser=official to require official tooling or --perf-parser=raw for the
-built-in fallback only.
+built-in fallback only. Trace body conversion defaults to trace_streamer/SQL;
+use --trace-engine=builtin only when you explicitly want the built-in trace-only
+converter.
 
 The command is intentionally manual and does not attach the generated file.
 When --output is omitted, Codrax writes <input>.systrace. Existing output files
@@ -260,16 +262,18 @@ func traceConvertTraceMessageZh(message string) string {
 		return ""
 	case strings.Contains(lower, "trace_streamer db export is the required trace body path"):
 		return "trace_streamer DB export 是 trace+perf htrace 的必需 trace body 路径，也可把纯 trace 转成 systrace，并将 coverage 写入 tracebundle 供 trace_query 使用"
-	case strings.Contains(lower, "trace_streamer was discovered"):
-		return "已发现 trace_streamer；纯 trace 的 auto 转换会先尝试 trace_streamer DB export，再回退到内置 fallback；trace+perf htrace 保持 SQL 路径"
+	case strings.Contains(lower, "trace_streamer is selected"):
+		return "已选择 trace_streamer；纯 trace 默认走 SQL 转换；如需内置纯 trace 转换，请显式使用 --trace-engine=builtin"
 	case strings.Contains(lower, "trace_streamer was not discovered"):
-		return "未发现 trace_streamer；纯 trace 的 auto 转换使用内置 fallback；trace+perf htrace 会先生成 sidecar/tracebundle，直到配置 trace_streamer"
+		return "未发现 trace_streamer；当前选择的 SQL trace 转换无法生成 systrace；如需内置纯 trace 转换，请显式使用 --trace-engine=builtin"
 	case strings.Contains(lower, "trace_streamer engine was selected but"):
 		return "已选择 trace_streamer 引擎，但 trace_streamer 当前不可用"
 	case strings.Contains(lower, "built-in modern/sys parser remains"):
-		return "内置 modern/sys parser 是纯 trace 兼容路径；纯 trace 在 trace_streamer 不可用、失败或未导出 systrace 行时可继续保底；trace+perf htrace 需要 trace_streamer/SQLite"
+		return "内置 modern/sys parser 是需要显式选择的纯 trace 引擎；不会作为自动 fallback，也不用于 trace+perf htrace"
+	case strings.Contains(lower, "built-in modern/sys parser is an explicit trace-only engine"):
+		return "内置 modern/sys parser 是需要显式选择的纯 trace 引擎；不会作为自动 fallback，也不用于 trace+perf htrace"
 	case strings.Contains(lower, "built-in modern parser"):
-		return "内置 modern parser 是 trace body fallback"
+		return "内置 modern parser 是需要显式选择的纯 trace 引擎"
 	case strings.Contains(lower, "built into codrax"):
 		return "Codrax 内置；支持纯 trace 的 modern profiler/session 文本载荷和 sys binary 转换；不用于 trace+perf htrace 的 trace body 转换"
 	case strings.Contains(lower, "pass --trace-streamer"):
@@ -972,7 +976,7 @@ func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertSPPython, "simpleperf-python", "", "python executable used for report_sample.py; default discovers python3/python")
 	traceConvertCmd.Flags().StringVar(&traceConvertSPSymfs, "simpleperf-symfs", "", "symfs directory passed to simpleperf report_sample.py --symfs")
 	traceConvertCmd.Flags().StringVar(&traceConvertSPKallsyms, "simpleperf-kallsyms", "", "kallsyms file passed to simpleperf report_sample.py --kallsyms")
-	traceConvertCmd.Flags().StringVar(&traceConvertTraceEngine, "trace-engine", "auto", "trace body conversion engine: auto, trace_streamer, or builtin")
+	traceConvertCmd.Flags().StringVar(&traceConvertTraceEngine, "trace-engine", "auto", "trace body conversion engine: trace_streamer or builtin; auto is accepted as an alias for trace_streamer")
 	traceConvertCmd.Flags().StringVar(&traceConvertTraceStreamer, "trace-streamer", "", "OpenHarmony/SmartPerf trace_streamer executable used to export .htrace/perf.data into SQLite DB")
 	traceConvertCmd.Flags().StringVar(&traceConvertTraceDBOutput, "trace-db-output", "", "trace_streamer SQLite DB output path; default is derived from --output or input when DB export is enabled")
 	traceConvertCmd.Flags().BoolVar(&traceConvertKeepTraceDB, "keep-trace-db", false, "keep generated trace_streamer SQLite DB artifact in the tracebundle")

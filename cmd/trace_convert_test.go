@@ -175,7 +175,7 @@ func TestTraceConvertResultLinesIncludeProviderDecisions(t *testing.T) {
 
 func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 	status := hitraceconv.TraceToolStatus{
-		EngineMode:     "auto",
+		EngineMode:     "trace_streamer",
 		SelectedEngine: "trace_streamer",
 		TraceStreamer: hitraceconv.TraceToolProviderStatus{
 			Name:            "trace_streamer_db",
@@ -196,23 +196,23 @@ func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 			Source:         "built-in",
 			CheckCommand:   "codrax trace convert --trace-engine=builtin",
 			InstallCommand: "built-in",
-			Caveats:        []string{"built-in modern/sys parser remains a trace-only compatibility path and fallback when trace_streamer is unavailable, fails, or emits no systrace rows for trace-only captures; trace+perf htrace requires trace_streamer/SQLite"},
+			Caveats:        []string{"built-in modern/sys parser is an explicit trace-only engine selected with --trace-engine=builtin; it is not an automatic fallback and is not used for trace+perf htrace"},
 		},
-		Caveats: []string{"trace_streamer was discovered; auto conversion tries trace_streamer DB export before built-in fallback for trace-only captures; trace+perf htrace stays on the SQL path"},
+		Caveats: []string{"trace_streamer is selected; trace-only conversion uses SQL by default, and --trace-engine=builtin must be selected explicitly for the built-in trace-only converter"},
 	}
 	en := strings.Join(traceConvertTraceToolStatusLines("en", status), "\n")
-	for _, want := range []string{"trace_engine: auto", "selected_engine: trace_streamer", "trace_provider[official_trace_db/trace_streamer_db]", "state=available", "/tmp/trace_streamer", "aux_check=so_dir=/symbols", "docs=https://gitcode.com/diting/hmtrace/tree/main", "trace_provider[builtin_modern/codrax_builtin_modern_profiler]"} {
+	for _, want := range []string{"trace_engine: trace_streamer", "selected_engine: trace_streamer", "trace_provider[official_trace_db/trace_streamer_db]", "state=available", "/tmp/trace_streamer", "aux_check=so_dir=/symbols", "docs=https://gitcode.com/diting/hmtrace/tree/main", "trace_provider[builtin_modern/codrax_builtin_modern_profiler]"} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("trace status lines missing %q:\n%s", want, en)
 		}
 	}
 	zh := strings.Join(traceConvertTraceToolStatusLines("zh", status), "\n")
-	for _, want := range []string{"trace 解析引擎：auto", "当前选择：trace_streamer", "状态=可用", "来源=已配置 trace_streamer", "辅助检查=so_dir=/symbols", "文档=https://gitcode.com/diting/hmtrace/tree/main", "注意=trace_streamer DB export 是 trace+perf htrace 的必需 trace body 路径", "提示：已发现 trace_streamer"} {
+	for _, want := range []string{"trace 解析引擎：trace_streamer", "当前选择：trace_streamer", "状态=可用", "来源=已配置 trace_streamer", "辅助检查=so_dir=/symbols", "文档=https://gitcode.com/diting/hmtrace/tree/main", "注意=trace_streamer DB export 是 trace+perf htrace 的必需 trace body 路径", "提示：已选择 trace_streamer"} {
 		if !strings.Contains(zh, want) {
 			t.Fatalf("zh trace status lines missing %q:\n%s", want, zh)
 		}
 	}
-	for _, leak := range []string{"trace_streamer DB export is the required", "trace_streamer was discovered; auto conversion"} {
+	for _, leak := range []string{"trace_streamer DB export is the required", "trace_streamer is selected; trace-only conversion"} {
 		if strings.Contains(zh, leak) {
 			t.Fatalf("zh trace status leaked English detail %q:\n%s", leak, zh)
 		}

@@ -285,7 +285,7 @@ func TestConvertFileDoesNotTreatArbitraryInputAsPerfBecauseSimpleperfConfigured(
 		t.Fatal(err)
 	}
 
-	_, err := ConvertFile(context.Background(), Options{InputPath: input, SimpleperfReportPath: toolPath})
+	_, err := ConvertFile(context.Background(), Options{InputPath: input, SimpleperfReportPath: toolPath, TraceEngine: traceEngineBuiltin})
 	if err == nil || strings.Contains(err.Error(), "simpleperf") {
 		t.Fatalf("arbitrary non-perf input should fall through to hitrace validation, got %v", err)
 	}

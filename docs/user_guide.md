@@ -379,7 +379,10 @@ codrax --atrace /tmp/atrace.txt -r "ListView 滑动卡顿哪里出问题?"
 codrax --htrace /tmp/perfetto.txt -r "..."
 
 # 二进制 HiTrace 需要先手动转换;不会自动附加
+# 纯 trace 默认走 trace_streamer/SQL;需要内置纯 trace 转换时显式加 --trace-engine=builtin
+codrax trace convert --trace-tools-status
 codrax trace convert --input /tmp/capture.htrace.bin
+codrax trace convert --input /tmp/donghu.sys --trace-engine=builtin
 codrax --htrace /tmp/capture.htrace.bin.systrace -r "分析这段卡顿"
 
 # 先看本机 perf.data 解析能力和缺什么官方工具
@@ -408,7 +411,7 @@ REPL 里 `/htrace` 和 `/atrace` 是同义命令,子命令同 `/log`:
   · next: /htrace /tmp/capture.htrace.bin.systrace
 ```
 
-如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。
+如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。纯 trace 有两个转换引擎,但一次只会运行一个:默认 `trace_streamer`/SQL;只有你显式传 `--trace-engine=builtin` 时才使用 Codrax 内置纯 trace 转换器。`auto` 仍作为兼容别名接受,含义等同默认 SQL,不会在 SQL 失败时悄悄回退到内置转换。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。
 
 ### 转换后如何分析 trace + perf 混合文件
 
@@ -2685,7 +2688,7 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/log show` / `/log clear` | 查看 / 清除 |
 | `/log` | 进粘贴模式,贴完 `/end` |
 | `/htrace <path>` / `/atrace <path>` | 同 `/log` 但走 perf 通道 |
-| `/htrace convert <binary> [out.systrace]` | 手动把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;默认输出 `<binary>.systrace`,不自动附加 |
+| `/htrace convert <binary> [out.systrace]` | 手动把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;纯 trace 默认 SQL,内置转换需 CLI `--trace-engine=builtin`;默认输出 `<binary>.systrace`,不自动附加 |
 | `/htrace append` / `/htrace show` / `/htrace clear` | 同 `/log` 子命令 |
 | `/paste` | bracketed paste 被 SSH/tmux 吞掉时的 fallback;贴完 `/end` |
 | `/chat <message>` | 强制走闲聊路径,不读仓库,不调工具 |

@@ -142,6 +142,38 @@ func TestConvertFileNoPerfTraceKeepsBuiltinAndTraceStreamerPaths(t *testing.T) {
 	}
 }
 
+func TestConvertFileNoPerfTraceDefaultSQLDoesNotFallbackToBuiltin(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "donghu-no-perf.sys")
+	if err := os.WriteFile(input, syntheticBinaryHitrace(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "default.systrace")
+
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		OutputPath:        output,
+		TraceStreamerPath: filepath.Join(dir, "missing_trace_streamer"),
+	})
+	if err != nil {
+		t.Fatalf("default SQL trace conversion should return a diagnostic bundle, not fall through to built-in: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 {
+		t.Fatalf("default SQL conversion must not claim built-in systrace output: %+v", result)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("default SQL conversion should not write built-in systrace output, stat err=%v", err)
+	}
+	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameTraceStreamer, "trace_streamer_unavailable") ||
+		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) ||
+		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
+		t.Fatalf("expected selected SQL diagnostic without built-in fallback: %+v", result.TraceDecisions)
+	}
+	if !containsString(result.Caveats, "pass --trace-engine=builtin") || result.BundlePath == "" {
+		t.Fatalf("default SQL diagnostic should explain explicit built-in opt-in and emit bundle: %+v", result)
+	}
+}
+
 func TestConvertFileNoPerfTraceBuiltinAndTraceStreamerWakeupParity(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
@@ -264,14 +296,14 @@ func TestConvertFileTraceStreamerAutoPrefersDBSystraceAndKeepsDB(t *testing.T) {
 		t.Fatalf("convert auto trace_streamer+profiler: %v", err)
 	}
 	if result.OutputPath != output || result.EventsWritten <= 1 {
-		t.Fatalf("auto should use trace_streamer DB systrace before profiler fallback: %+v", result)
+		t.Fatalf("default SQL should use trace_streamer DB systrace: %+v", result)
 	}
 	if !hasArtifact(result.Artifacts, ArtifactTraceDB) {
 		t.Fatalf("keep-trace-db should retain DB artifact: %+v", result.Artifacts)
 	}
 	if !hasTraceDecision(result.TraceDecisions, traceProviderNameTraceStreamer, true) ||
 		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
-		t.Fatalf("expected trace_streamer success without builtin fallback success: %+v", result.TraceDecisions)
+		t.Fatalf("expected trace_streamer success without builtin success: %+v", result.TraceDecisions)
 	}
 }
 
@@ -391,7 +423,7 @@ func TestConvertFileTracePerfBuiltinEngineDoesNotUseLegacyTraceBody(t *testing.T
 	}
 }
 
-func TestConvertFileTraceStreamerAutoFailureFallsBackToProfiler(t *testing.T) {
+func TestConvertFileTraceStreamerAutoFailureDoesNotFallbackToProfiler(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
@@ -410,14 +442,20 @@ func TestConvertFileTraceStreamerAutoFailureFallsBackToProfiler(t *testing.T) {
 		TraceStreamerPath: traceStreamer,
 	})
 	if err != nil {
-		t.Fatalf("auto trace_streamer failure should fall back to profiler: %v", err)
+		t.Fatalf("auto trace_streamer failure should return a diagnostic bundle: %v", err)
 	}
-	if result.OutputPath != output || result.EventsWritten != 1 {
-		t.Fatalf("auto fallback should keep profiler systrace output: %+v", result)
+	if result.OutputPath != "" || result.EventsWritten != 0 {
+		t.Fatalf("auto trace_streamer failure must not claim profiler systrace output: %+v", result)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("auto trace_streamer failure should not write built-in profiler systrace, stat err=%v", err)
 	}
 	if !hasTraceDecision(result.TraceDecisions, traceProviderNameTraceStreamer, false) ||
-		!hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
-		t.Fatalf("expected failed trace_streamer and successful builtin decisions: %+v", result.TraceDecisions)
+		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
+		t.Fatalf("expected failed trace_streamer and no successful built-in decisions: %+v", result.TraceDecisions)
+	}
+	if !containsString(result.Caveats, "pass --trace-engine=builtin") || result.BundlePath == "" {
+		t.Fatalf("diagnostic bundle should guide explicit built-in opt-in: caveats=%+v bundle=%q", result.Caveats, result.BundlePath)
 	}
 }
 

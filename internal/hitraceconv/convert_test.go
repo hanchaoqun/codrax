@@ -27,7 +27,7 @@ func TestConvertFileWritesTextSystraceAndRefusesOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := ConvertFile(context.Background(), Options{InputPath: input})
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, TraceEngine: traceEngineBuiltin})
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestConvertFileWritesTextSystraceAndRefusesOverwrite(t *testing.T) {
 		t.Fatalf("converted output did not round-trip through tracequery: %+v", idx.Events)
 	}
 
-	if _, err := ConvertFile(context.Background(), Options{InputPath: input}); err == nil ||
+	if _, err := ConvertFile(context.Background(), Options{InputPath: input, TraceEngine: traceEngineBuiltin}); err == nil ||
 		!strings.Contains(err.Error(), "output file already exists") {
 		t.Fatalf("expected existing output refusal, got %v", err)
 	}
@@ -292,7 +292,7 @@ func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
 	}
 
 	output := filepath.Join(dir, "out.systrace")
-	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin})
 	if err != nil {
 		t.Fatalf("convert official profiler trace file: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testin
 		t.Fatal(err)
 	}
 
-	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: filepath.Join(dir, "out.systrace")})
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: filepath.Join(dir, "out.systrace"), TraceEngine: traceEngineBuiltin})
 	if err != nil {
 		t.Fatalf("convert structured profiler trace file: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestConvertFileKeepsUnknownStructuredFtraceAsCoverageOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: filepath.Join(dir, "out.systrace")})
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: filepath.Join(dir, "out.systrace"), TraceEngine: traceEngineBuiltin})
 	if err != nil {
 		t.Fatalf("convert unknown structured profiler trace file: %v", err)
 	}
@@ -545,7 +545,7 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	}
 
 	output := filepath.Join(dir, "session.systrace")
-	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin})
 	if err != nil {
 		t.Fatalf("convert SessionJSON package: %v", err)
 	}
@@ -642,7 +642,7 @@ func TestConvertFileSkipsMissingFormatRows(t *testing.T) {
 	}
 
 	output := filepath.Join(dir, "out.systrace")
-	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin})
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestConvertFileWritesHeaderOnlyRowsWithoutOfficialRenderer(t *testing.T) {
 	}
 
 	output := filepath.Join(dir, "out.systrace")
-	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin})
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -1225,7 +1225,7 @@ func TestConvertFileRoundTripsInodeIOThroughTraceQuery(t *testing.T) {
 	}
 
 	output := filepath.Join(dir, "out.systrace")
-	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin})
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
