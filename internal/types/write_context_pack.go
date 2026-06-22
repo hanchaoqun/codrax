@@ -1015,6 +1015,12 @@ func renderToolHandoffCarrierContext(carrier ToolHandoffCarrier) string {
 		if refinement.CandidateBudgetTruncated {
 			parts = append(parts, "candidate_budget_truncated=true")
 		}
+		if refinement.UniverseExcludedReason != "" {
+			parts = append(parts, "universe_excluded_reason="+refinement.UniverseExcludedReason)
+		}
+		if len(refinement.ExcludedRoots) > 0 {
+			parts = append(parts, "excluded_roots="+strconv.Itoa(len(refinement.ExcludedRoots)))
+		}
 		if refinement.PreferredNextTool != "" {
 			parts = append(parts, "preferred_next_tool="+refinement.PreferredNextTool)
 		}
@@ -1062,9 +1068,11 @@ func toolHandoffContextRefinementKey(carrier ToolHandoffCarrier) string {
 	parts := []string{
 		refinement.ReasonCode,
 		refinement.PreferredNextTool,
+		refinement.UniverseExcludedReason,
 		strconv.FormatBool(refinement.ResultTruncated),
 		strconv.FormatBool(refinement.CandidateBudgetTruncated),
 		strconv.Itoa(len(refinement.SkippedLargeCandidates)),
+		strconv.Itoa(len(refinement.ExcludedRoots)),
 		strconv.Itoa(len(refinement.PreferredParams)),
 		strings.Join(refinement.RequiredFields, ","),
 	}

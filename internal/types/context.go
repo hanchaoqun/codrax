@@ -5331,6 +5331,8 @@ type ToolRefinementHint struct {
 	ResultTruncated          bool              `json:"result_truncated,omitempty"`
 	CandidateBudgetTruncated bool              `json:"candidate_budget_truncated,omitempty"`
 	SkippedLargeCandidates   []string          `json:"skipped_large_candidates,omitempty"`
+	UniverseExcludedReason   string            `json:"universe_excluded_reason,omitempty"`
+	ExcludedRoots            []string          `json:"excluded_roots,omitempty"`
 	NextCursor               string            `json:"next_cursor,omitempty"`
 	TopSourceClasses         []SourcePathRole  `json:"top_source_classes,omitempty"`
 	PreferredNextTool        string            `json:"preferred_next_tool,omitempty"`

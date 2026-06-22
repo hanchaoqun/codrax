@@ -684,9 +684,11 @@ func TestWriteContextPackFromPlannerToolResultsProjectsToolRefinement(t *testing
 		ToolName: "grep",
 		Success:  true,
 		Refinement: &ToolRefinementHint{
-			ReasonCode:        "grep_result_truncated",
-			ResultTruncated:   true,
-			PreferredNextTool: "grep",
+			ReasonCode:             "grep_result_truncated",
+			ResultTruncated:        true,
+			UniverseExcludedReason: "configured_search_exclude_roots",
+			ExcludedRoots:          []string{".codrax", "dist"},
+			PreferredNextTool:      "grep",
 			PreferredParams: map[string]string{
 				"path":          "pkg/owner.py",
 				"context_lines": "3",
@@ -698,6 +700,8 @@ func TestWriteContextPackFromPlannerToolResultsProjectsToolRefinement(t *testing
 	view := pack.View(WriteConsumerPlanner, 10)
 	if !writeContextViewContains(view, "tool_refinement", "reason=grep_result_truncated") ||
 		!writeContextViewContains(view, "tool_refinement", "result_truncated=true") ||
+		!writeContextViewContains(view, "tool_refinement", "universe_excluded_reason=configured_search_exclude_roots") ||
+		!writeContextViewContains(view, "tool_refinement", "excluded_roots=2") ||
 		!writeContextViewContains(view, "tool_refinement", "preferred_next_tool=grep") ||
 		!writeContextViewContains(view, "tool_refinement", "required_fields=pattern") {
 		t.Fatalf("tool refinement carrier not projected into planner context: %+v", view.Items)

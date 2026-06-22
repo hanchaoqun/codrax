@@ -4162,6 +4162,76 @@ func TestGrep_ResolvesAgainstRepoRoot(t *testing.T) {
 	}
 }
 
+func TestConfiguredSearchExcludeRoots_SurfaceTypedRefinementForBroadTools(t *testing.T) {
+	oldRoots := SearchRuntimeArtifactRoots()
+	SetSearchRuntimeArtifactRoots([]string{"out"})
+	t.Cleanup(func() { SetSearchRuntimeArtifactRoots(oldRoots) })
+
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoRoot, "out", "generated"), 0o755); err != nil {
+		t.Fatalf("seed generated dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "out", "generated", "app.js"), []byte("CONFIGURED_ONLY_TOKEN\n"), 0o644); err != nil {
+		t.Fatalf("seed generated file: %v", err)
+	}
+
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	grepTool := &GrepTool{}
+	broadGrep, err := grepTool.Execute(ctx, json.RawMessage(`{"pattern":"CONFIGURED_ONLY_TOKEN","path":"."}`))
+	if err != nil {
+		t.Fatalf("broad grep: %v", err)
+	}
+	if !broadGrep.Success {
+		t.Fatalf("broad grep failed: %s", broadGrep.Summary)
+	}
+	if strings.Contains(broadGrep.Summary, "out/generated/app.js") {
+		t.Fatalf("broad grep should honor configured exclusion:\n%s", broadGrep.Summary)
+	}
+	if broadGrep.Refinement == nil ||
+		broadGrep.Refinement.UniverseExcludedReason != "configured_search_exclude_roots" ||
+		len(broadGrep.Refinement.ExcludedRoots) != 1 ||
+		broadGrep.Refinement.ExcludedRoots[0] != "out" {
+		t.Fatalf("broad grep should expose typed excluded-universe refinement: %+v", broadGrep.Refinement)
+	}
+
+	explicitGrep, err := grepTool.Execute(ctx, json.RawMessage(`{"pattern":"CONFIGURED_ONLY_TOKEN","path":"out"}`))
+	if err != nil {
+		t.Fatalf("explicit grep: %v", err)
+	}
+	if !explicitGrep.Success || !strings.Contains(explicitGrep.Summary, "out/generated/app.js") {
+		t.Fatalf("explicit target under configured root should remain searchable:\n%s", explicitGrep.Summary)
+	}
+	if explicitGrep.Refinement != nil && explicitGrep.Refinement.UniverseExcludedReason != "" {
+		t.Fatalf("explicit target should not expose broad-root excluded-universe refinement: %+v", explicitGrep.Refinement)
+	}
+
+	listTool := &ListFiles{}
+	broadList, err := listTool.Execute(ctx, json.RawMessage(`{"path":".","recursive":true}`))
+	if err != nil {
+		t.Fatalf("broad list_files: %v", err)
+	}
+	if broadList.Refinement == nil ||
+		broadList.Refinement.UniverseExcludedReason != "configured_search_exclude_roots" ||
+		len(broadList.Refinement.ExcludedRoots) != 1 ||
+		broadList.Refinement.ExcludedRoots[0] != "out" {
+		t.Fatalf("broad list_files should expose typed excluded-universe refinement: %+v", broadList.Refinement)
+	}
+
+	explicitList, err := listTool.Execute(ctx, json.RawMessage(`{"path":"out","recursive":true}`))
+	if err != nil {
+		t.Fatalf("explicit list_files: %v", err)
+	}
+	if !explicitList.Success || !strings.Contains(explicitList.Summary, "out/generated/app.js") {
+		t.Fatalf("explicit list_files should show configured root contents:\n%s", explicitList.Summary)
+	}
+	if explicitList.Refinement != nil && explicitList.Refinement.UniverseExcludedReason != "" {
+		t.Fatalf("explicit list_files should not expose broad-root excluded-universe refinement: %+v", explicitList.Refinement)
+	}
+}
+
 // TestListFiles_NoiseDirsFilteredInBothModes pins the contract that
 // list_files skips the central tool.ExcludeDirsAnyLevelSet noise
 // dirs (.git, .codrax, node_modules, vendor, target, dist, build,

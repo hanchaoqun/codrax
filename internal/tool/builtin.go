@@ -1564,6 +1564,86 @@ func grepCountBanner(entries int, filesOnly bool, contextLines int) string {
 	return fmt.Sprintf("[grep: %d %s]\n", entries, unit)
 }
 
+func configuredSearchExcludeRootsRefinement(ctx *types.BusContext, targetPath, preferredTool string) *types.ToolRefinementHint {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return nil
+	}
+	roots := SearchRuntimeArtifactRoots()
+	if len(roots) == 0 {
+		return nil
+	}
+	rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, targetPath)
+	if !ok || rel != "" {
+		return nil
+	}
+	hint := types.NormalizeToolRefinementHint(types.ToolRefinementHint{
+		UniverseExcludedReason: "configured_search_exclude_roots",
+		ExcludedRoots:          roots,
+		PreferredNextTool:      preferredTool,
+		RequiredFields:         []string{"path"},
+	})
+	if hint.Empty() {
+		return nil
+	}
+	return &hint
+}
+
+func mergeToolRefinementHints(a, b *types.ToolRefinementHint) *types.ToolRefinementHint {
+	switch {
+	case a == nil && b == nil:
+		return nil
+	case a == nil:
+		out := types.NormalizeToolRefinementHint(*b)
+		if out.Empty() {
+			return nil
+		}
+		return &out
+	case b == nil:
+		out := types.NormalizeToolRefinementHint(*a)
+		if out.Empty() {
+			return nil
+		}
+		return &out
+	}
+	left := types.NormalizeToolRefinementHint(*a)
+	right := types.NormalizeToolRefinementHint(*b)
+	if left.ReasonCode == "" {
+		left.ReasonCode = right.ReasonCode
+	}
+	left.ResultTruncated = left.ResultTruncated || right.ResultTruncated
+	left.CandidateBudgetTruncated = left.CandidateBudgetTruncated || right.CandidateBudgetTruncated
+	if left.UniverseExcludedReason == "" {
+		left.UniverseExcludedReason = right.UniverseExcludedReason
+	}
+	left.SkippedLargeCandidates = append(left.SkippedLargeCandidates, right.SkippedLargeCandidates...)
+	left.ExcludedRoots = append(left.ExcludedRoots, right.ExcludedRoots...)
+	left.TopSourceClasses = append(left.TopSourceClasses, right.TopSourceClasses...)
+	if left.NextCursor == "" {
+		left.NextCursor = right.NextCursor
+	}
+	if left.PreferredNextTool == "" {
+		left.PreferredNextTool = right.PreferredNextTool
+	}
+	if left.PreferredParams == nil && len(right.PreferredParams) > 0 {
+		left.PreferredParams = map[string]string{}
+	}
+	for k, v := range right.PreferredParams {
+		if _, ok := left.PreferredParams[k]; !ok {
+			left.PreferredParams[k] = v
+		}
+	}
+	left.RequiredFields = append(left.RequiredFields, right.RequiredFields...)
+	out := types.NormalizeToolRefinementHint(left)
+	if out.Empty() {
+		return nil
+	}
+	return &out
+}
+
+func grepNoMatchRefinement(ctx *types.BusContext, params grepToolParams, searchPath string, base *types.ToolRefinementHint) *types.ToolRefinementHint {
+	return mergeToolRefinementHints(base, configuredSearchExcludeRootsRefinement(ctx, searchPath, "grep"))
+}
+
 func (t *GrepTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
@@ -1807,10 +1887,11 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		if searchCtx.Err() == context.DeadlineExceeded {
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   paramsBanner + "grep timed out after 60s — pattern may be too broad or repo too large",
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    false,
+				Summary:    paramsBanner + "grep timed out after 60s — pattern may be too broad or repo too large",
+				Refinement: configuredSearchExcludeRootsRefinement(ctx, searchPath, "grep"),
+				Timestamp:  time.Now(),
 			}, nil
 		}
 		if nres.Matches == 0 {
@@ -1820,6 +1901,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				suffix = grepSkippedLargeFilesNoMatchBody(nres.SkippedLargeFilePaths, nres.SkippedLargeFiles)
 				refinement = grepSkippedLargeRefinement(nres.SkippedLargeFilePaths, nres.SkippedLargeFiles)
 			}
+			refinement = grepNoMatchRefinement(ctx, p, searchPath, refinement)
 			return types.ToolResult{
 				ToolName:   t.Name(),
 				Success:    true,
@@ -1961,19 +2043,21 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 		if searchCtx.Err() == context.DeadlineExceeded {
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   paramsBanner + "grep timed out after 60s — pattern may be too broad or repo too large",
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    false,
+				Summary:    paramsBanner + "grep timed out after 60s — pattern may be too broad or repo too large",
+				Refinement: configuredSearchExcludeRootsRefinement(ctx, searchPath, "grep"),
+				Timestamp:  time.Now(),
 			}, nil
 		}
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   true,
-					Summary:   paramsBanner + grepNoMatchBody(ctx, p),
-					Timestamp: time.Now(),
+					ToolName:   t.Name(),
+					Success:    true,
+					Summary:    paramsBanner + grepNoMatchBody(ctx, p),
+					Refinement: grepNoMatchRefinement(ctx, p, searchPath, nil),
+					Timestamp:  time.Now(),
 				}, nil
 			}
 			return types.ToolResult{
@@ -1985,10 +2069,11 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		if capture.Lines == 0 {
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   true,
-				Summary:   paramsBanner + grepNoMatchBody(ctx, p),
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    true,
+				Summary:    paramsBanner + grepNoMatchBody(ctx, p),
+				Refinement: grepNoMatchRefinement(ctx, p, searchPath, nil),
+				Timestamp:  time.Now(),
 			}, nil
 		}
 		countBanner := grepCountBanner(capture.Lines, false, contextLines)
@@ -2025,10 +2110,11 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// Timeout produces a context.DeadlineExceeded — surface it clearly.
 	if searchCtx.Err() == context.DeadlineExceeded {
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   paramsBanner + "grep timed out after 60s — pattern may be too broad or repo too large",
-			Timestamp: time.Now(),
+			ToolName:   t.Name(),
+			Success:    false,
+			Summary:    paramsBanner + "grep timed out after 60s — pattern may be too broad or repo too large",
+			Refinement: configuredSearchExcludeRootsRefinement(ctx, searchPath, "grep"),
+			Timestamp:  time.Now(),
 		}, nil
 	}
 
@@ -2036,10 +2122,11 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   true,
-				Summary:   paramsBanner + grepNoMatchBody(ctx, p),
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    true,
+				Summary:    paramsBanner + grepNoMatchBody(ctx, p),
+				Refinement: grepNoMatchRefinement(ctx, p, searchPath, nil),
+				Timestamp:  time.Now(),
 			}, nil
 		}
 		return types.ToolResult{
@@ -2097,7 +2184,9 @@ type grepLineWindow struct {
 func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner, rawOutput string) (summary, ref string, refinement *types.ToolRefinementHint) {
 	annotated := annotateGrepOutputByRelevance(ctx, params, rawOutput)
 	if compacted, rawRef, ok := compactBroadGrepOutput(ctx, params, countBanner, paramsBanner, rawOutput, annotated); ok {
-		return compacted, rawRef, grepBroadResultRefinement(ctx, params, rawOutput)
+		refinement := grepBroadResultRefinement(ctx, params, rawOutput)
+		refinement = mergeToolRefinementHints(refinement, configuredSearchExcludeRootsRefinement(ctx, resolveToolPath(ctx, params.Path), "grep"))
+		return compacted, rawRef, refinement
 	}
 	payload := countBanner + paramsBanner
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
@@ -4014,11 +4103,12 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	banner := listFilesBanner(p)
 	summary, ref := StoreBlob(ctx, t.Name(), banner+strings.Join(files, "\n"))
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   summary,
-		RawRef:    ref,
-		Timestamp: time.Now(),
+		ToolName:   t.Name(),
+		Success:    true,
+		Summary:    summary,
+		RawRef:     ref,
+		Refinement: configuredSearchExcludeRootsRefinement(ctx, fsPath, t.Name()),
+		Timestamp:  time.Now(),
 	}, nil
 }
 

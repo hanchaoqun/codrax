@@ -88,9 +88,11 @@ func TestToolHandoffCarrierFromToolResultUsesTypedRefinement(t *testing.T) {
 		ToolName: "grep",
 		Success:  true,
 		Refinement: &ToolRefinementHint{
-			ReasonCode:        "grep_result_truncated",
-			ResultTruncated:   true,
-			PreferredNextTool: "grep",
+			ReasonCode:             "grep_result_truncated",
+			ResultTruncated:        true,
+			UniverseExcludedReason: "configured_search_exclude_roots",
+			ExcludedRoots:          []string{".codrax", "dist"},
+			PreferredNextTool:      "grep",
 			PreferredParams: map[string]string{
 				"path":          "internal/app/main.py",
 				"context_lines": "3",
@@ -107,6 +109,10 @@ func TestToolHandoffCarrierFromToolResultUsesTypedRefinement(t *testing.T) {
 	refinement := result.Handoff.Refinement
 	if !refinement.ResultTruncated || refinement.PreferredNextTool != "grep" {
 		t.Fatalf("refinement not carried: %+v", refinement)
+	}
+	if refinement.UniverseExcludedReason != "configured_search_exclude_roots" ||
+		len(refinement.ExcludedRoots) != 2 {
+		t.Fatalf("excluded universe refinement not carried: %+v", refinement)
 	}
 	if got := refinement.PreferredParams["path"]; got != "internal/app/main.py" {
 		t.Fatalf("preferred path = %q", got)

@@ -275,9 +275,11 @@ func (c ToolHandoffCarrier) Empty() bool {
 
 func NormalizeToolRefinementHint(in ToolRefinementHint) ToolRefinementHint {
 	in.ReasonCode = trimToolHandoffText(in.ReasonCode)
+	in.UniverseExcludedReason = trimToolHandoffText(in.UniverseExcludedReason)
 	in.NextCursor = trimToolHandoffText(in.NextCursor)
 	in.PreferredNextTool = trimToolHandoffText(in.PreferredNextTool)
 	in.SkippedLargeCandidates = normalizeToolHandoffStrings(in.SkippedLargeCandidates, toolHandoffMaxRefinementItems, 180)
+	in.ExcludedRoots = normalizeToolHandoffStrings(in.ExcludedRoots, toolHandoffMaxRefinementItems, 180)
 	in.TopSourceClasses = normalizeToolRefinementSourceClasses(in.TopSourceClasses)
 	in.RequiredFields = normalizeToolHandoffStrings(in.RequiredFields, toolHandoffMaxFields, 160)
 	for k, v := range in.PreferredParams {
@@ -306,6 +308,8 @@ func NormalizeToolRefinementHint(in ToolRefinementHint) ToolRefinementHint {
 			in.ReasonCode = "candidate_budget_truncated"
 		case len(in.SkippedLargeCandidates) > 0:
 			in.ReasonCode = "skipped_large_candidates"
+		case in.UniverseExcludedReason != "":
+			in.ReasonCode = in.UniverseExcludedReason
 		case in.NextCursor != "":
 			in.ReasonCode = "next_cursor"
 		}
@@ -318,6 +322,8 @@ func (h ToolRefinementHint) Empty() bool {
 		!h.ResultTruncated &&
 		!h.CandidateBudgetTruncated &&
 		len(h.SkippedLargeCandidates) == 0 &&
+		h.UniverseExcludedReason == "" &&
+		len(h.ExcludedRoots) == 0 &&
 		h.NextCursor == "" &&
 		len(h.TopSourceClasses) == 0 &&
 		h.PreferredNextTool == "" &&
@@ -539,6 +545,9 @@ func mergeToolRefinementHint(a, b ToolRefinementHint) ToolRefinementHint {
 	}
 	a.ResultTruncated = a.ResultTruncated || b.ResultTruncated
 	a.CandidateBudgetTruncated = a.CandidateBudgetTruncated || b.CandidateBudgetTruncated
+	if a.UniverseExcludedReason == "" {
+		a.UniverseExcludedReason = b.UniverseExcludedReason
+	}
 	if a.NextCursor == "" {
 		a.NextCursor = b.NextCursor
 	}
@@ -546,6 +555,7 @@ func mergeToolRefinementHint(a, b ToolRefinementHint) ToolRefinementHint {
 		a.PreferredNextTool = b.PreferredNextTool
 	}
 	a.SkippedLargeCandidates = normalizeToolHandoffStrings(append(a.SkippedLargeCandidates, b.SkippedLargeCandidates...), toolHandoffMaxRefinementItems, 180)
+	a.ExcludedRoots = normalizeToolHandoffStrings(append(a.ExcludedRoots, b.ExcludedRoots...), toolHandoffMaxRefinementItems, 180)
 	a.TopSourceClasses = normalizeToolRefinementSourceClasses(append(a.TopSourceClasses, b.TopSourceClasses...))
 	a.RequiredFields = normalizeToolHandoffStrings(append(a.RequiredFields, b.RequiredFields...), toolHandoffMaxFields, 160)
 	if len(b.PreferredParams) > 0 {
@@ -563,8 +573,9 @@ func mergeToolRefinementHint(a, b ToolRefinementHint) ToolRefinementHint {
 
 func toolRefinementKey(h ToolRefinementHint) string {
 	h = NormalizeToolRefinementHint(h)
-	parts := []string{h.ReasonCode, h.PreferredNextTool, h.NextCursor}
+	parts := []string{h.ReasonCode, h.UniverseExcludedReason, h.PreferredNextTool, h.NextCursor}
 	parts = append(parts, h.SkippedLargeCandidates...)
+	parts = append(parts, h.ExcludedRoots...)
 	parts = append(parts, stringMapKey(h.PreferredParams))
 	return strings.Join(parts, "|")
 }
