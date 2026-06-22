@@ -2800,6 +2800,89 @@ func TestNormalizeAggregateMemberSetCarriers_SystemRowSupplementPreventsDuplicat
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_RemovesRedundantPathOnlyDetailTable(t *testing.T) {
+	mu := types.NewMutableState("列出 foreign func")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("native_bridge", "native_add", "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6, "foreign func native_add，包路径 demo.bridge"),
+		enumEvidence("native_ffi", "native_add", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6, "foreign func native_add，包路径 demo.ffi"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func 声明（包路径）",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add (package demo.bridge) @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add (package demo.ffi) @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+		SupportRefs: []string{
+			"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+				RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+				Confidence:        0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "foreign-section",
+			Kind:        types.BlockSection,
+			Title:       "foreign func 声明",
+			SurfaceRole: types.SurfacePrincipal,
+			Text: strings.Join([]string{
+				"foreign func 声明共 2 处，函数名均为 native_add：",
+				"1. 位于 eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj，包声明为 demo.bridge。",
+				"2. 位于 internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj，包声明为 demo.ffi。",
+			}, "\n"),
+		}, {
+			ID:          "foreign-detail",
+			Kind:        types.BlockTable,
+			Title:       "foreign func 声明详情",
+			SurfaceRole: types.SurfacePrincipal,
+			Columns:     []string{"符号名", "文件路径", "包路径", "说明"},
+			Items: []types.AnswerBlockItem{
+				{ID: "bridge", Label: "native_add", CitationRef: 0},
+				{ID: "ffi", Label: "native_add", CitationRef: 1},
+			},
+		}},
+	}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected redundant empty table to be removed or principal blocks normalized")
+	}
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("path-only source-inventory section already covers member_set; no duplicate carrier expected, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if fixed := materializeRequiredModelSurfaceTerms(doc, ctx); fixed != 0 {
+		t.Fatalf("empty detail table was removed; surface-term materialization must not create label-only rows, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(visible, "foreign func 声明详情") || strings.Contains(visible, "source labels") || strings.Contains(visible, "系统按已验证证据补充成员") {
+		t.Fatalf("redundant table/supplement noise should be suppressed:\n%s", visible)
+	}
+	if !strings.Contains(visible, "demo.bridge") || !strings.Contains(visible, "demo.ffi") {
+		t.Fatalf("principal path/package answer should be preserved:\n%s", visible)
+	}
+}
+
 func enumEvidence(id, symbol, source string, line int, summary string) types.EvidenceItem {
 	return types.EvidenceItem{
 		ID:              id,

@@ -35,6 +35,9 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 		return 0
 	}
 	changed := normalizePrincipalEnumerationItemCitationRefs(doc, sets)
+	if removed := removeRedundantPrincipalEnumerationIncompleteTables(doc, sets); removed > 0 {
+		changed += removed
+	}
 	zh := principalEnumerationPrefersZH(ctx)
 	missingBySet := make(map[string][]types.EnumerationDisplayRow, len(sets))
 	for _, set := range sets {
@@ -83,6 +86,93 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 		}
 	}
 	return changed
+}
+
+func removeRedundantPrincipalEnumerationIncompleteTables(doc *types.AnswerDocumentV2, sets []types.EnumerationDisplaySet) int {
+	if doc == nil || len(sets) == 0 {
+		return 0
+	}
+	index := enumerationDisplayRowIndex(sets)
+	if len(index) == 0 {
+		return 0
+	}
+	out := doc.Blocks[:0]
+	removed := 0
+	for i, block := range doc.Blocks {
+		if principalEnumerationIncompleteTableCoveredOutsideBlock(doc, i, block) {
+			removed++
+			continue
+		}
+		rows, ok := enumerationDisplayRowsForIncompleteTable(block, index)
+		if ok && principalEnumerationRowsCoveredOutsideBlock(doc, i, rows) {
+			removed++
+			continue
+		}
+		out = append(out, block)
+	}
+	if removed > 0 {
+		doc.Blocks = out
+	}
+	return removed
+}
+
+func principalEnumerationIncompleteTableCoveredOutsideBlock(doc *types.AnswerDocumentV2, skip int, block types.AnswerBlock) bool {
+	if doc == nil || block.Kind != types.BlockTable || strings.TrimSpace(block.Text) != "" || len(block.Items) == 0 {
+		return false
+	}
+	for _, item := range block.Items {
+		if strings.TrimSpace(item.Label) == "" || strings.TrimSpace(item.Text) != "" || len(nonEmptyAnswerTableCompileCells(item.Cells)) > 0 {
+			return false
+		}
+		if !principalEnumerationIncompleteTableItemCoveredOutsideBlock(doc, skip, item) {
+			return false
+		}
+	}
+	return true
+}
+
+func principalEnumerationIncompleteTableItemCoveredOutsideBlock(doc *types.AnswerDocumentV2, skip int, item types.AnswerBlockItem) bool {
+	label := strings.TrimSpace(item.Label)
+	for i, block := range doc.Blocks {
+		if i == skip {
+			continue
+		}
+		surface := types.AnswerBlockVisibleSurface(block)
+		if !principalSupportSurfaceTermAppears(label, surface) {
+			continue
+		}
+		if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+			return true
+		}
+		cit := doc.Citations[item.CitationRef]
+		if principalSupportCitationSurfaceVisible(cit, surface) || strings.Contains(surface, strings.TrimSpace(cit.File)) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationRowsCoveredOutsideBlock(doc *types.AnswerDocumentV2, skip int, rows []types.EnumerationDisplayRow) bool {
+	if doc == nil || len(rows) == 0 {
+		return false
+	}
+	for _, row := range rows {
+		covered := false
+		for i, block := range doc.Blocks {
+			if i == skip {
+				continue
+			}
+			if principalEnumerationVisibleSurfaceCoversRow(types.AnswerBlockVisibleSurface(block), row) ||
+				principalEnumerationBlockCoversRow(block, doc, row) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return false
+		}
+	}
+	return true
 }
 
 type principalEnumerationSupplementMode int

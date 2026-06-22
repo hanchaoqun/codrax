@@ -2061,7 +2061,18 @@ func preEmitAggregateMemberLocationAppearsInSurface(fact types.AnswerAggregateFa
 	if file == "" || cit.Line <= 0 {
 		return preEmitAggregateFactHasOriginSpecificSupport(fact, ctx)
 	}
-	return strings.Contains(surface, fmt.Sprintf("%s:%d", file, cit.Line))
+	if strings.Contains(surface, fmt.Sprintf("%s:%d", file, cit.Line)) {
+		return true
+	}
+	return preEmitAggregateFactAllowsPathOnlyLocation(fact, ctx) && strings.Contains(surface, file)
+}
+
+func preEmitAggregateFactAllowsPathOnlyLocation(fact types.AnswerAggregateFact, ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil {
+		return false
+	}
+	return ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active() &&
+		types.AnswerAggregateFactCarriesCompleteMemberSet(fact)
 }
 
 func preEmitAggregateFactHasOriginSpecificSupport(fact types.AnswerAggregateFact, ctx *types.BusContext) bool {
@@ -2086,27 +2097,48 @@ func preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc *types.AnswerDoc
 		return false
 	}
 	for _, block := range doc.Blocks {
-		if !types.AnswerBlockKindRendersStructuredItems(block.Kind) {
-			continue
-		}
 		if block.SurfaceRole != types.SurfacePrincipal {
 			continue
 		}
 		if len(block.Items) == 0 && strings.TrimSpace(block.Text) == "" {
 			continue
 		}
-		if !preEmitBlockSharesFacet(block, []string{string(types.FacetEnumerationItem)}) {
+		combinedSurface := strings.TrimSpace(block.Title + "\n" + block.Text)
+		if combinedSurface == "" {
 			continue
 		}
-		surface := strings.TrimSpace(block.Title)
-		if surface == "" {
-			surface = strings.TrimSpace(block.Text)
+		if preEmitPrincipalStructuredBlockCategoryAppears(label, block) &&
+			preEmitPrincipalStructuredBlockMentionsAnyAggregateMember(block, fact, combinedSurface) {
+			return true
 		}
-		if surface == "" {
-			continue
-		}
+	}
+	return false
+}
+
+func preEmitPrincipalStructuredBlockCategoryAppears(label string, block types.AnswerBlock) bool {
+	for _, surface := range []string{block.Title, block.Text, block.Title + "\n" + block.Text} {
 		if preEmitAggregateLabelAppearsInSurface(label, surface) {
 			return true
+		}
+	}
+	return false
+}
+
+func preEmitPrincipalStructuredBlockMentionsAnyAggregateMember(block types.AnswerBlock, fact types.AnswerAggregateFact, surface string) bool {
+	if len(fact.Members) == 0 {
+		return true
+	}
+	for _, member := range fact.Members {
+		if preEmitAggregateMemberAppearsInText(member, surface) {
+			return true
+		}
+	}
+	for _, item := range block.Items {
+		itemSurface := types.AnswerBlockItemVisibleSurface(item)
+		for _, member := range fact.Members {
+			if preEmitAggregateMemberAppearsInText(member, itemSurface) {
+				return true
+			}
 		}
 	}
 	return false
@@ -6422,6 +6454,9 @@ func materializeRequiredModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *type
 		for ii := range block.Items {
 			item := &block.Items[ii]
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			if block.Kind == types.BlockTable && len(item.Cells) == 0 && strings.TrimSpace(item.Text) == "" {
 				continue
 			}
 			cite := doc.Citations[item.CitationRef]
