@@ -2326,6 +2326,74 @@ func TestPreCheckAggregateMemberSetCoverage_UsesProjectedSourceInventoryRowSet(t
 	}
 }
 
+func TestNormalizeAnswerDocumentForPreEmit_SourceInventoryRowSetCoversEnumerationFacet(t *testing.T) {
+	mu := types.NewMutableState("source inventory facet accounting")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "partial source inventory",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Run"},
+		SupportRefs: []string{"Run @ thirdparty/cangjie/run.cj:7"},
+	}})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Complete: true,
+		Scopes:   []string{"."},
+		SourceClasses: []types.SourceInventorySourceClassCount{
+			{Role: types.SourcePathRoleProduction, Count: 1, Complete: true},
+			{Role: types.SourcePathRoleThirdParty, Count: 1, Complete: true},
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Run", Role: types.AnswerCandidateRoleFunction, File: "thirdparty/cangjie/run.cj", Line: 7, Language: "cangjie", CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "Serve", Role: types.AnswerCandidateRoleFunction, File: "src/serve.cj", Line: 12, Language: "cangjie", CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	})
+	mu.SetInvestigationComplete("source inventory closed")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			},
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFEnumeration,
+		FacetCoverage: &types.FacetCoverageContract{
+			Family: types.QFEnumeration,
+			Required: []types.FacetRequirement{{
+				Kind:     types.FacetEnumerationItem,
+				Required: types.FacetHardRequired,
+			}},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "当前 source inventory 包含 Run 和 Serve。",
+	}}}
+
+	normalizeAnswerDocumentForPreEmit("test", doc, view, ctx, newPreEmitCheckContext(ctx))
+	if hints := preCheckFacetCoverage(doc, view); len(hints) != 0 {
+		t.Fatalf("projected source-inventory row-set should materialize enumeration facet metadata, got %+v doc=%+v", hints, doc.Blocks)
+	}
+	if !testStringSliceContains(doc.Blocks[0].FacetIDs, string(types.FacetEnumerationItem)) {
+		t.Fatalf("summary carrier should receive enumeration facet metadata, got %+v", doc.Blocks[0])
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_TotalCountPathMembersAreCoverageForArchitecture(t *testing.T) {
 	mu := types.NewMutableState("architecture count coverage aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
