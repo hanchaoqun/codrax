@@ -43,13 +43,14 @@ type standaloneSegment struct {
 }
 
 type traceBundleMetadata struct {
-	Version             string                 `json:"version"`
-	InputPath           string                 `json:"input_path"`
-	Systrace            string                 `json:"systrace,omitempty"`
-	Artifacts           []Artifact             `json:"artifacts,omitempty"`
-	ProviderDecisions   []PerfProviderDecision `json:"provider_decisions,omitempty"`
-	PerfClockAlignments []PerfClockAlignment   `json:"perf_clock_alignments,omitempty"`
-	Caveats             []string               `json:"caveats,omitempty"`
+	Version             string                  `json:"version"`
+	InputPath           string                  `json:"input_path"`
+	Systrace            string                  `json:"systrace,omitempty"`
+	Artifacts           []Artifact              `json:"artifacts,omitempty"`
+	ProviderDecisions   []PerfProviderDecision  `json:"provider_decisions,omitempty"`
+	TraceDecisions      []TraceProviderDecision `json:"trace_provider_decisions,omitempty"`
+	PerfClockAlignments []PerfClockAlignment    `json:"perf_clock_alignments,omitempty"`
+	Caveats             []string                `json:"caveats,omitempty"`
 }
 
 func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int64, outputPath string) ([]Artifact, []string, []PerfProviderDecision, error) {
@@ -250,7 +251,7 @@ func readStandaloneSegmentAt(f *os.File, off int64, fileSize int64) (standaloneS
 	}, true
 }
 
-func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision) (Artifact, error) {
+func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision) (Artifact, error) {
 	if len(artifacts) == 0 {
 		return Artifact{}, nil
 	}
@@ -265,6 +266,7 @@ func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []
 		Systrace:            outputPath,
 		Artifacts:           artifacts,
 		ProviderDecisions:   decisions,
+		TraceDecisions:      traceDecisions,
 		PerfClockAlignments: perfClockAlignmentsForArtifacts(artifacts),
 		Caveats:             caveats,
 	}

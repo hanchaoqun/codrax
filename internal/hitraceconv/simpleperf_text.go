@@ -70,7 +70,7 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, inp
 		result.Caveats = append(result.Caveats, caveat)
 		result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "official simpleperf adapter did not produce .perftrace")
 	}
-	if bundleArtifact, err := writeTraceBundle(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions); err != nil {
+	if bundleArtifact, err := writeTraceBundle(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions); err != nil {
 		return Result{}, true, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path

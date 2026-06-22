@@ -130,6 +130,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		InputBytes:         inputSize,
 		Artifacts:          append([]Artifact(nil), standaloneArtifacts...),
 		ProviderDecisions:  append([]PerfProviderDecision(nil), standaloneDecisions...),
+		TraceDecisions:     nil,
 		Caveats:            append([]string(nil), extracted.Caveats...),
 		MissingFormatCount: 0,
 		UnknownEventCount:  extracted.StructuredFtrace,
@@ -172,10 +173,33 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 			Converter: converterVersion + "+openharmony-profiler",
 			Caveats:   []string{"generated from OpenHarmony profiler/session text trace payloads"},
 		}}, result.Artifacts...)
+		result.TraceDecisions = append(result.TraceDecisions,
+			traceProviderSuccess(
+				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinModern), opts, opts.InputPath, output),
+				Artifact{Type: ArtifactSystrace, Path: output},
+			),
+		)
 	} else if len(result.Artifacts) == 0 {
-		result.Caveats = append(result.Caveats, "OpenHarmony profiler/session container was detected, but no renderable systrace text rows or sidecar artifacts were found")
+		caveat := "OpenHarmony profiler/session container was detected, but no renderable systrace text rows or sidecar artifacts were found"
+		result.Caveats = append(result.Caveats, caveat)
+		result.TraceDecisions = append(result.TraceDecisions,
+			traceProviderFailure(
+				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinModern), opts, opts.InputPath, output),
+				"no_renderable_trace_rows",
+				caveat,
+			),
+		)
+	} else {
+		caveat := "OpenHarmony profiler/session container was detected, but only sidecar artifacts were produced"
+		result.TraceDecisions = append(result.TraceDecisions,
+			traceProviderFailure(
+				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinModern), opts, opts.InputPath, output),
+				"sidecar_only",
+				caveat,
+			),
+		)
 	}
-	if bundleArtifact, err := writeTraceBundle(opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions); err != nil {
+	if bundleArtifact, err := writeTraceBundle(opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions); err != nil {
 		return Result{}, true, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path

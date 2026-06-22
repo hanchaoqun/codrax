@@ -242,6 +242,15 @@ func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
 	if len(idx.Events) != 3 {
 		t.Fatalf("profiler output did not round-trip through tracequery: %+v", idx.Events)
 	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"trace_provider_decisions"`, `"provider_name": "codrax_builtin_modern_profiler"`, `"trace_query_ready": true`} {
+		if !strings.Contains(string(bundle), want) {
+			t.Fatalf("profiler bundle missing trace provider provenance %q:\n%s", want, bundle)
+		}
+	}
 }
 
 func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testing.T) {

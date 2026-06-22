@@ -39,6 +39,9 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if err := validatePerfParserMode(opts.PerfParser); err != nil {
 		return Result{}, err
 	}
+	if err := validateTraceEngineMode(opts.TraceEngine); err != nil {
+		return Result{}, err
+	}
 	output := strings.TrimSpace(opts.OutputPath)
 	if output == "" {
 		output = DefaultOutputPath(input)
@@ -46,6 +49,9 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	info, err := os.Stat(input)
 	if err != nil {
 		return Result{}, err
+	}
+	if normalizeTraceEngineMode(opts.TraceEngine) == traceEngineTraceStreamer {
+		return Result{}, fmt.Errorf("trace_streamer trace engine provider execution is not enabled yet; run codrax trace convert --trace-tools-status to inspect trace_streamer availability")
 	}
 	if result, ok, err := maybeConvertDirectSimpleperfPerfData(ctx, opts, input, info.Size(), output); ok || err != nil {
 		return result, err
@@ -69,10 +75,17 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 				Artifacts:  append([]Artifact(nil), standaloneArtifacts...),
 				ProviderDecisions: append([]PerfProviderDecision(nil),
 					standaloneDecisions...),
+				TraceDecisions: []TraceProviderDecision{
+					traceProviderFailure(
+						newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameLegacySegment), opts, input, output),
+						"unsupported_legacy_event_segment_container",
+						fmt.Sprintf("legacy event-format segment parser could not render the trace body: %v", err),
+					),
+				},
 				Caveats: append(standaloneCaveats,
 					fmt.Sprintf("systrace output was not produced because the input did not match the supported binary hitrace event-format container: %v", err)),
 			}
-			if bundleArtifact, bundleErr := writeTraceBundle(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions); bundleErr != nil {
+			if bundleArtifact, bundleErr := writeTraceBundle(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions); bundleErr != nil {
 				return Result{}, bundleErr
 			} else if bundleArtifact.Path != "" {
 				result.BundlePath = bundleArtifact.Path
@@ -121,6 +134,12 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 			Bytes:     outInfo.Size(),
 			Converter: converterVersion,
 		}},
+		TraceDecisions: []TraceProviderDecision{
+			traceProviderSuccess(
+				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameLegacySegment), opts, input, output),
+				Artifact{Type: ArtifactSystrace, Path: output},
+			),
+		},
 		EventsWritten:      len(rows),
 		MissingFormatCount: missing,
 		UnknownEventCount:  unknown,
@@ -135,8 +154,9 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if unknown > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d event row(s) lacked an official-compatible renderer and were emitted as header-only rows", unknown))
 	}
+	result.Caveats = append(result.Caveats, "legacy event-format segment parser is an archival transition path and will be removed after trace_streamer and built-in modern parser migration")
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
-	if bundleArtifact, err := writeTraceBundle(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions); err != nil {
+	if bundleArtifact, err := writeTraceBundle(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions); err != nil {
 		return Result{}, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path

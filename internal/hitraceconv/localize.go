@@ -43,6 +43,14 @@ func localizeConvertMessageZh(message string) string {
 		return "由 Codrax raw perf.data fallback 生成；存在已保存的 hiperf 符号 section 时会使用其中的函数名，否则保留 IP/DSO 级上下文"
 	case strings.Contains(lower, "systrace output was not produced because"):
 		return strings.Replace(trimmed, "systrace output was not produced because", "未生成 systrace：", 1)
+	case strings.Contains(lower, "legacy event-format segment parser is an archival transition path"):
+		return "legacy event-format segment parser 仅作为迁移期 archival 路径；trace_streamer 和内置 modern parser 迁移完成后会移除"
+	case strings.Contains(lower, "legacy event-format segment parser could not render the trace body"):
+		return strings.Replace(trimmed, "legacy event-format segment parser could not render the trace body", "legacy event-format segment parser 无法渲染 trace body", 1)
+	case strings.Contains(lower, "openharmony profiler/session container was detected, but no renderable systrace"):
+		return "检测到 OpenHarmony profiler/session container，但没有可渲染的 systrace 文本行或 sidecar artifact"
+	case strings.Contains(lower, "openharmony profiler/session container was detected, but only sidecar artifacts"):
+		return "检测到 OpenHarmony profiler/session container，但只生成了 sidecar artifact"
 	case strings.Contains(lower, "raw fallback parsed perf feature metadata:"):
 		return strings.Replace(trimmed, "raw fallback parsed perf feature metadata:", "raw fallback 已解析 perf feature 元数据：", 1)
 	case strings.Contains(lower, "raw fallback detected hiperf_files_unistack_table"):

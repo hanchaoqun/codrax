@@ -10857,6 +10857,11 @@ func hitraceConvertArtifactFormatDetail(lang, typ string) string {
 			return "格式=文本 perftrace"
 		}
 		return "format=text_perftrace"
+	case hitraceconv.ArtifactTraceDB:
+		if isZh(lang) {
+			return "格式=trace_streamer SQLite DB"
+		}
+		return "format=trace_streamer_sqlite_db"
 	case hitraceconv.ArtifactTraceBundle:
 		if isZh(lang) {
 			return "格式=tracebundle 元数据"

@@ -96,7 +96,7 @@ Observed hmtrace model:
 
 ### Batch 1: Trace Engine and Tool Status Skeleton
 
-Status: planned.
+Status: delivered on 2026-06-22.
 
 Tasks:
 
@@ -137,9 +137,25 @@ Tasks:
 
 Exit criteria:
 
-- No trace_streamer execution yet required for production conversion.
-- Users can see whether trace_streamer is discoverable.
-- Trace provider provenance has a stable JSON home before DB export lands.
+- Delivered: no trace_streamer execution is required yet for production
+  conversion.
+- Delivered: users can inspect trace_streamer discovery through
+  `--trace-tools-status`.
+- Delivered: trace provider provenance has a stable JSON home through
+  `trace_provider_decisions` before DB export lands.
+- Delivered: CLI and REPL recognize the future `trace_db` artifact type.
+- Verified with:
+
+```bash
+go test ./internal/hitraceconv ./cmd ./internal/repl
+```
+
+Boundary that remains for Batch 2:
+
+- `--trace-engine=trace_streamer` is validated but intentionally fails conversion
+  until provider invocation is implemented. The status output says discovery is
+  present while DB provider execution will be enabled by the next batch, avoiding
+  a false claim that trace_streamer conversion already runs.
 
 ### Batch 2: trace_streamer Provider Invocation
 

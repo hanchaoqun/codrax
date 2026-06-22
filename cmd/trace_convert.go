@@ -10,18 +10,24 @@ import (
 )
 
 var (
-	traceConvertInput       string
-	traceConvertOutput      string
-	traceConvertFlavor      string
-	traceConvertHiperfHost  string
-	traceConvertSymbolDirs  []string
-	traceConvertSimpleperf  string
-	traceConvertSPPython    string
-	traceConvertSPSymfs     string
-	traceConvertSPKallsyms  string
-	traceConvertPerfParser  string
-	traceConvertNoPerfTrace bool
-	traceConvertToolsStatus bool
+	traceConvertInput               string
+	traceConvertOutput              string
+	traceConvertFlavor              string
+	traceConvertHiperfHost          string
+	traceConvertSymbolDirs          []string
+	traceConvertSimpleperf          string
+	traceConvertSPPython            string
+	traceConvertSPSymfs             string
+	traceConvertSPKallsyms          string
+	traceConvertPerfParser          string
+	traceConvertNoPerfTrace         bool
+	traceConvertToolsStatus         bool
+	traceConvertTraceToolsStatus    bool
+	traceConvertTraceEngine         string
+	traceConvertTraceStreamer       string
+	traceConvertTraceDBOutput       string
+	traceConvertKeepTraceDB         bool
+	traceConvertTraceStreamerSoDirs []string
 )
 
 var traceCmd = &cobra.Command{
@@ -41,9 +47,11 @@ correlate scheduler/running evidence with CPU samples.
 Perf sample conversion uses a two-engine strategy. In --perf-parser=auto,
 Codrax prefers official OpenHarmony hiperf or Android simpleperf adapters for
 symbolized output, then falls back to its built-in raw perf.data parser when
-possible. Use --perf-tools-status to inspect discovered tools, selected parser,
-raw fallback status, and install hints. Use --perf-parser=official to require
-official tooling or --perf-parser=raw for the built-in fallback only.
+possible. Use --trace-tools-status to inspect trace_streamer discovery and
+trace-engine selection. Use --perf-tools-status to inspect discovered perf
+tools, selected parser, raw fallback status, and install hints. Use
+--perf-parser=official to require official tooling or --perf-parser=raw for the
+built-in fallback only.
 
 The command is intentionally manual and does not attach the generated file.
 When --output is omitted, Codrax writes <input>.systrace. Existing output files
@@ -62,6 +70,23 @@ are never overwritten; delete the file first or choose another output path.`,
 			SimpleperfKallsymsPath: strings.TrimSpace(traceConvertSPKallsyms),
 			PerfParser:             strings.TrimSpace(traceConvertPerfParser),
 			DisablePerfAdapter:     traceConvertNoPerfTrace,
+			TraceEngine:            strings.TrimSpace(traceConvertTraceEngine),
+			TraceStreamerPath:      strings.TrimSpace(traceConvertTraceStreamer),
+			TraceDBOutputPath:      strings.TrimSpace(traceConvertTraceDBOutput),
+			KeepTraceDB:            traceConvertKeepTraceDB,
+			TraceStreamerSoDirs:    append([]string(nil), traceConvertTraceStreamerSoDirs...),
+		}
+		if traceConvertTraceToolsStatus {
+			status, err := hitraceconv.BuildTraceToolStatus(opts)
+			if err != nil {
+				return err
+			}
+			for _, line := range traceConvertTraceToolStatusLines(flagLang, status) {
+				fmt.Fprintln(cmd.OutOrStdout(), line)
+			}
+			if !traceConvertToolsStatus {
+				return nil
+			}
 		}
 		if traceConvertToolsStatus {
 			status, err := hitraceconv.BuildPerfToolStatus(opts)
@@ -91,6 +116,175 @@ are never overwritten; delete the file first or choose another output path.`,
 		fmt.Fprintln(cmd.OutOrStdout(), traceConvertNextLine(flagLang, result))
 		return nil
 	},
+}
+
+func traceConvertTraceToolStatusLines(lang string, status hitraceconv.TraceToolStatus) []string {
+	if traceConvertUseZh(lang) {
+		lines := []string{
+			fmt.Sprintf("trace 解析引擎：%s", status.EngineMode),
+			fmt.Sprintf("当前选择：%s", status.SelectedEngine),
+		}
+		lines = append(lines, traceConvertTraceProviderLine("zh", status.TraceStreamer))
+		lines = append(lines, traceConvertTraceProviderLine("zh", status.BuiltinModern))
+		for _, caveat := range status.Caveats {
+			lines = append(lines, "提示："+traceConvertTraceMessageZh(caveat))
+		}
+		return lines
+	}
+	lines := []string{
+		fmt.Sprintf("trace_engine: %s", status.EngineMode),
+		fmt.Sprintf("selected_engine: %s", status.SelectedEngine),
+	}
+	lines = append(lines, traceConvertTraceProviderLine("en", status.TraceStreamer))
+	lines = append(lines, traceConvertTraceProviderLine("en", status.BuiltinModern))
+	for _, caveat := range status.Caveats {
+		lines = append(lines, "caveat: "+caveat)
+	}
+	return lines
+}
+
+func traceConvertTraceProviderLine(lang string, item hitraceconv.TraceToolProviderStatus) string {
+	prefix := fmt.Sprintf("trace_provider[%s/%s]", item.Kind, item.Name)
+	if traceConvertUseZh(lang) {
+		return prefix + "：" + strings.Join(traceConvertTraceProviderDetailsZh(item), " ")
+	}
+	return prefix + ": " + strings.Join(traceConvertTraceProviderDetailsEn(item), " ")
+}
+
+func traceConvertTraceProviderDetailsEn(item hitraceconv.TraceToolProviderStatus) []string {
+	state := "missing"
+	if item.Available {
+		state = "available"
+	}
+	details := []string{fmt.Sprintf("state=%s", state)}
+	if item.Path != "" {
+		details = append(details, "path="+item.Path)
+	}
+	if item.Source != "" {
+		details = append(details, "source="+item.Source)
+	}
+	if item.Version != "" {
+		details = append(details, "version="+item.Version)
+	}
+	if item.CheckCommand != "" {
+		details = append(details, "check="+item.CheckCommand)
+	}
+	if len(item.AuxiliaryChecks) > 0 {
+		details = append(details, "aux_check="+strings.Join(item.AuxiliaryChecks, "; "))
+	}
+	if item.InstallCommand != "" {
+		details = append(details, "install="+item.InstallCommand)
+	}
+	if item.DocsURL != "" {
+		details = append(details, "docs="+item.DocsURL)
+	}
+	if len(item.Caveats) > 0 {
+		details = append(details, "caveat="+strings.Join(item.Caveats, "; "))
+	}
+	if !item.Available && item.InstallHint != "" {
+		details = append(details, "hint="+item.InstallHint)
+	}
+	return details
+}
+
+func traceConvertTraceProviderDetailsZh(item hitraceconv.TraceToolProviderStatus) []string {
+	state := "缺失"
+	if item.Available {
+		state = "可用"
+	}
+	details := []string{fmt.Sprintf("状态=%s", state)}
+	if item.Path != "" {
+		details = append(details, "路径="+item.Path)
+	}
+	if item.Source != "" {
+		details = append(details, "来源="+traceConvertTraceSourceZh(item.Source))
+	}
+	if item.Version != "" {
+		details = append(details, "版本="+item.Version)
+	}
+	if item.CheckCommand != "" {
+		details = append(details, "检查="+item.CheckCommand)
+	}
+	if len(item.AuxiliaryChecks) > 0 {
+		details = append(details, "辅助检查="+strings.Join(traceConvertTraceMessagesZh(item.AuxiliaryChecks), "; "))
+	}
+	if item.InstallCommand != "" {
+		details = append(details, "安装="+traceConvertTraceMessageZh(item.InstallCommand))
+	}
+	if item.DocsURL != "" {
+		details = append(details, "文档="+item.DocsURL)
+	}
+	if len(item.Caveats) > 0 {
+		details = append(details, "注意="+strings.Join(traceConvertTraceMessagesZh(item.Caveats), "; "))
+	}
+	if !item.Available && item.InstallHint != "" {
+		details = append(details, "提示="+traceConvertTraceMessageZh(item.InstallHint))
+	}
+	return details
+}
+
+func traceConvertTraceMessagesZh(messages []string) []string {
+	out := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		out = append(out, traceConvertTraceMessageZh(msg))
+	}
+	return out
+}
+
+func traceConvertTraceSourceZh(source string) string {
+	trimmed := strings.TrimSpace(source)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case trimmed == "":
+		return ""
+	case strings.EqualFold(trimmed, "built-in"):
+		return "内置"
+	case strings.Contains(lower, "configured trace_streamer"):
+		return "已配置 trace_streamer"
+	case strings.Contains(lower, "codrax_trace_streamer"):
+		return "CODRAX_TRACE_STREAMER"
+	case strings.Contains(lower, "on path"):
+		return trimmed + "（从 PATH 发现）"
+	case strings.Contains(lower, "known openharmony"):
+		return "常见 OpenHarmony/SmartPerf/hmtrace 位置"
+	default:
+		return trimmed
+	}
+}
+
+func traceConvertTraceMessageZh(message string) string {
+	trimmed := strings.TrimSpace(message)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case trimmed == "":
+		return ""
+	case strings.Contains(lower, "trace_streamer discovery is available"):
+		return "已支持 trace_streamer 发现；DB provider 执行会在 trace_streamer 转换批次中启用"
+	case strings.Contains(lower, "trace_streamer was discovered"):
+		return "已发现 trace_streamer；当前 auto 转换仍使用内置 fallback，直到 DB provider 执行启用"
+	case strings.Contains(lower, "trace_streamer was not discovered"):
+		return "未发现 trace_streamer；当前 auto 转换使用内置 fallback"
+	case strings.Contains(lower, "trace_streamer engine was selected but"):
+		return "已选择 trace_streamer 引擎，但 trace_streamer 当前不可用"
+	case strings.Contains(lower, "built-in modern parser"):
+		return "内置 modern parser 是当前 trace body fallback，trace_streamer DB 执行交付期间继续保底"
+	case strings.Contains(lower, "built into codrax"):
+		return "Codrax 内置；当前处理 modern profiler/session 文本载荷，内置 parser 完成后会共享 DB exporter schema"
+	case strings.Contains(lower, "pass --trace-streamer"):
+		return "传 --trace-streamer /path/to/trace_streamer 或设置 CODRAX_TRACE_STREAMER；确认可运行 trace_streamer --help，并支持 trace_streamer <input> -e <output.db>"
+	case strings.Contains(lower, "install openharmony/smartperf trace_streamer"):
+		return "安装 OpenHarmony/SmartPerf trace_streamer，或在 Codrax 启用内嵌后使用 hmtrace 风格的内嵌 trace_streamer"
+	case strings.Contains(lower, "so_dirs=not_configured"):
+		return "未配置 so_dir；native 符号 reload 需要时可传 --trace-streamer-so-dir /path/to/so"
+	case strings.Contains(lower, "configured path is not readable"):
+		return strings.Replace(trimmed, "configured path is not readable", "配置路径不可读", 1)
+	case strings.Contains(lower, "configured path is a directory"):
+		return "配置路径是目录，需要传 trace_streamer 可执行文件"
+	case strings.Contains(lower, "configured path is not executable"):
+		return "配置路径不可执行"
+	default:
+		return trimmed
+	}
 }
 
 func traceConvertPerfToolStatusLines(lang string, status hitraceconv.PerfToolStatus) []string {
@@ -341,6 +535,7 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 			lines = append(lines, "输出：未生成 systrace（仅抽取 sidecar artifact）")
 		}
 		lines = append(lines, traceConvertArtifactLines("zh", result.Artifacts)...)
+		lines = append(lines, traceConvertTraceProviderDecisionLines("zh", result.TraceDecisions)...)
 		lines = append(lines, traceConvertProviderDecisionLines("zh", result.ProviderDecisions)...)
 		return lines
 	}
@@ -354,6 +549,7 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 		lines = append(lines, "output: no systrace produced (sidecar artifacts only)")
 	}
 	lines = append(lines, traceConvertArtifactLines("en", result.Artifacts)...)
+	lines = append(lines, traceConvertTraceProviderDecisionLines("en", result.TraceDecisions)...)
 	lines = append(lines, traceConvertProviderDecisionLines("en", result.ProviderDecisions)...)
 	return lines
 }
@@ -429,6 +625,11 @@ func traceConvertArtifactFormatDetail(lang, typ string) string {
 			return "格式=文本 perftrace"
 		}
 		return "format=text_perftrace"
+	case hitraceconv.ArtifactTraceDB:
+		if traceConvertUseZh(lang) {
+			return "格式=trace_streamer SQLite DB"
+		}
+		return "format=trace_streamer_sqlite_db"
 	case hitraceconv.ArtifactTraceBundle:
 		if traceConvertUseZh(lang) {
 			return "格式=tracebundle 元数据"
@@ -467,6 +668,52 @@ func traceConvertPerfCapabilityDetails(lang string, cap hitraceconv.PerfArtifact
 	}
 	if cap.Degraded {
 		details = append(details, traceConvertDetailKV(lang, "perf_degraded", traceConvertBoolValue(lang, true)))
+	}
+	return details
+}
+
+func traceConvertTraceProviderDecisionLines(lang string, decisions []hitraceconv.TraceProviderDecision) []string {
+	var lines []string
+	for _, decision := range decisions {
+		details := traceConvertTraceProviderDecisionDetails(lang, decision)
+		prefix := fmt.Sprintf("trace_provider_decision[%s/%s]", decision.ProviderKind, decision.ProviderName)
+		if traceConvertUseZh(lang) {
+			lines = append(lines, prefix+"："+strings.Join(details, " "))
+		} else {
+			lines = append(lines, prefix+": "+strings.Join(details, " "))
+		}
+	}
+	return lines
+}
+
+func traceConvertTraceProviderDecisionDetails(lang string, decision hitraceconv.TraceProviderDecision) []string {
+	details := []string{
+		traceConvertDetailKV(lang, "selected", traceConvertBoolValue(lang, decision.Selected)),
+		traceConvertDetailKV(lang, "attempted", traceConvertBoolValue(lang, decision.Attempted)),
+		traceConvertDetailKV(lang, "succeeded", traceConvertBoolValue(lang, decision.Succeeded)),
+		traceConvertDetailKV(lang, "fallback", traceConvertBoolValue(lang, decision.Fallback)),
+		traceConvertDetailKV(lang, "trace_query_ready", traceConvertBoolValue(lang, decision.TraceQueryReady)),
+	}
+	if decision.Stage != "" {
+		details = append(details, traceConvertDetailKV(lang, "stage", decision.Stage))
+	}
+	if decision.EngineMode != "" {
+		details = append(details, traceConvertDetailKV(lang, "engine", decision.EngineMode))
+	}
+	if decision.OutputPath != "" {
+		details = append(details, traceConvertDetailKV(lang, "output", decision.OutputPath))
+	}
+	if decision.DBPath != "" {
+		details = append(details, traceConvertDetailKV(lang, "db", decision.DBPath))
+	}
+	if decision.ArtifactPath != "" {
+		details = append(details, traceConvertDetailKV(lang, "artifact", decision.ArtifactPath))
+	}
+	if decision.Reason != "" {
+		details = append(details, traceConvertDetailKV(lang, "reason", decision.Reason))
+	}
+	if decision.Caveat != "" {
+		details = append(details, traceConvertDetailKV(lang, "caveat", hitraceconv.LocalizeConvertMessage(lang, decision.Caveat)))
 	}
 	return details
 }
@@ -597,10 +844,14 @@ func traceConvertDetailKeyZh(key string) string {
 		return "阶段"
 	case "parser":
 		return "解析模式"
+	case "engine":
+		return "引擎"
 	case "input":
 		return "输入"
 	case "output":
 		return "输出"
+	case "db":
+		return "DB"
 	case "artifact":
 		return "artifact"
 	case "reason":
@@ -658,8 +909,14 @@ func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertSPPython, "simpleperf-python", "", "python executable used for report_sample.py; default discovers python3/python")
 	traceConvertCmd.Flags().StringVar(&traceConvertSPSymfs, "simpleperf-symfs", "", "symfs directory passed to simpleperf report_sample.py --symfs")
 	traceConvertCmd.Flags().StringVar(&traceConvertSPKallsyms, "simpleperf-kallsyms", "", "kallsyms file passed to simpleperf report_sample.py --kallsyms")
+	traceConvertCmd.Flags().StringVar(&traceConvertTraceEngine, "trace-engine", "auto", "trace body conversion engine: auto, trace_streamer, or builtin")
+	traceConvertCmd.Flags().StringVar(&traceConvertTraceStreamer, "trace-streamer", "", "OpenHarmony/SmartPerf trace_streamer executable used to export .htrace/perf.data into SQLite DB")
+	traceConvertCmd.Flags().StringVar(&traceConvertTraceDBOutput, "trace-db-output", "", "trace_streamer SQLite DB output path; default is derived from --output or input when DB export is enabled")
+	traceConvertCmd.Flags().BoolVar(&traceConvertKeepTraceDB, "keep-trace-db", false, "keep generated trace_streamer SQLite DB artifact in the tracebundle")
+	traceConvertCmd.Flags().StringSliceVar(&traceConvertTraceStreamerSoDirs, "trace-streamer-so-dir", nil, "native .so directories passed through to trace_streamer for symbol reload; repeat or comma-separate values")
 	traceConvertCmd.Flags().StringVar(&traceConvertPerfParser, "perf-parser", "auto", "perf.data parser strategy: auto uses official hiperf/simpleperf first then raw fallback; official disables raw fallback; raw uses Codrax raw perf.data fallback only")
 	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "preserve perf.data sidecars without generating .perftrace")
+	traceConvertCmd.Flags().BoolVar(&traceConvertTraceToolsStatus, "trace-tools-status", false, "print trace_streamer discovery, trace engine selection, DB export readiness, and install hints")
 	traceConvertCmd.Flags().BoolVar(&traceConvertToolsStatus, "perf-tools-status", false, "print discovered official perf tools, raw fallback availability, selected parser strategy, and install hints")
 	traceCmd.AddCommand(traceConvertCmd)
 	rootCmd.AddCommand(traceCmd)

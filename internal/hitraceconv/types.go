@@ -11,6 +11,7 @@ const (
 	ArtifactSystrace    = "systrace"
 	ArtifactPerfData    = "perf_data"
 	ArtifactPerfTrace   = "perftrace"
+	ArtifactTraceDB     = "trace_db"
 	ArtifactTraceBundle = "tracebundle"
 )
 
@@ -27,6 +28,11 @@ type Options struct {
 	SimpleperfKallsymsPath string
 	PerfParser             string
 	DisablePerfAdapter     bool
+	TraceEngine            string
+	TraceStreamerPath      string
+	TraceDBOutputPath      string
+	KeepTraceDB            bool
+	TraceStreamerSoDirs    []string
 }
 
 type Artifact struct {
@@ -82,6 +88,24 @@ type PerfProviderDecision struct {
 	Caveat          string `json:"caveat,omitempty"`
 }
 
+type TraceProviderDecision struct {
+	Stage           string `json:"stage,omitempty"`
+	ProviderKind    string `json:"provider_kind,omitempty"`
+	ProviderName    string `json:"provider_name,omitempty"`
+	InputPath       string `json:"input_path,omitempty"`
+	OutputPath      string `json:"output_path,omitempty"`
+	DBPath          string `json:"db_path,omitempty"`
+	EngineMode      string `json:"engine_mode,omitempty"`
+	Selected        bool   `json:"selected"`
+	Attempted       bool   `json:"attempted"`
+	Succeeded       bool   `json:"succeeded"`
+	Fallback        bool   `json:"fallback"`
+	TraceQueryReady bool   `json:"trace_query_ready"`
+	ArtifactPath    string `json:"artifact_path,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	Caveat          string `json:"caveat,omitempty"`
+}
+
 type PerfClockAlignment struct {
 	ArtifactPath    string   `json:"artifact_path,omitempty"`
 	PerfTimeDomain  string   `json:"perf_time_domain,omitempty"`
@@ -101,6 +125,7 @@ type Result struct {
 	BundlePath         string
 	Artifacts          []Artifact
 	ProviderDecisions  []PerfProviderDecision
+	TraceDecisions     []TraceProviderDecision
 	InputBytes         int64
 	OutputBytes        int64
 	EventsWritten      int
