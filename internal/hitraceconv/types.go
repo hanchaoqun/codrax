@@ -106,6 +106,14 @@ type TraceProviderDecision struct {
 	Caveat          string `json:"caveat,omitempty"`
 }
 
+type TraceDBCoverage struct {
+	Table       string `json:"table"`
+	Found       bool   `json:"found"`
+	RowsRead    int    `json:"rows_read,omitempty"`
+	RowsEmitted int    `json:"rows_emitted,omitempty"`
+	Skipped     string `json:"skipped,omitempty"`
+}
+
 type PerfClockAlignment struct {
 	ArtifactPath    string   `json:"artifact_path,omitempty"`
 	PerfTimeDomain  string   `json:"perf_time_domain,omitempty"`
@@ -126,6 +134,7 @@ type Result struct {
 	Artifacts          []Artifact
 	ProviderDecisions  []PerfProviderDecision
 	TraceDecisions     []TraceProviderDecision
+	TraceDBCoverage    []TraceDBCoverage
 	InputBytes         int64
 	OutputBytes        int64
 	EventsWritten      int

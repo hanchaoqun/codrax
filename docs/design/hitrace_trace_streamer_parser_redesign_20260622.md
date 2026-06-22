@@ -11,15 +11,17 @@ shape as `hmtrace`: first normalize the capture through `trace_streamer` into a
 structured database, then export Codrax-native `.systrace`, `.perftrace`, and
 `.tracebundle.json` artifacts for `trace_query`.
 
-This redesign also replaces the current built-in legacy event-format segment
-parser. The old `SEGMENT_EVENTS_FORMAT` + `SEGMENT_RAW_TRACE` container is no
-longer a production compatibility target. Codrax should not preserve the old
-parser as an automatic fallback, and tests should stop treating legacy segment
-fixtures as the canonical binary HiTrace shape.
+This redesign makes `trace_streamer` DB export the primary conversion engine for
+modern `.htrace` and `perf.data` captures. The existing
+`SEGMENT_EVENTS_FORMAT` + `SEGMENT_RAW_TRACE` parser remains a protected
+transition lane for no-perf Harmony/Donghu `.sys`-style binary captures until
+the DB engine proves full parity for that shape. Once parity is proven by
+round-trip tests and customer-style fixtures, Codrax can retire the built-in sys
+binary lane without keeping backward compatibility solely for its own sake.
 
 ## Current Gap
 
-The current converter still has a legacy path:
+The current converter still has a raw event-page path:
 
 ```text
 scanMetadata
@@ -38,7 +40,9 @@ That path assumes a file layout built around:
 - `SEGMENT_RAW_TRACE`
 - raw trace pages keyed by event id
 
-Customer profiler captures such as `hiprofiler_data.htrace` can carry modern
+This path is useful for existing no-perf Harmony/Donghu `.sys` binary traces,
+but it is not the right parser for modern profiler packages. Customer profiler
+captures such as `hiprofiler_data.htrace` can carry modern
 profiler/SmartPerf payloads and perf sidecars without matching that old segment
 layout. In that case Codrax can extract `perf.data`, but systrace generation
 fails with errors such as `invalid segment type=... at offset=...`. Treating this
@@ -84,24 +88,25 @@ Codrax should keep the same ingestion skeleton but adapt the output contract:
   validating license, platform coverage, hash/version provenance, and release
   size.
 
-## New Compatibility Contract
+## Compatibility and Retirement Contract
 
-The new contract is intentionally not backward compatible with the legacy
-event-format segment parser.
+The new contract is DB-first, with a measured retirement gate for the built-in
+sys binary parser.
 
 - Production conversion supports modern profiler/trace_streamer-compatible
   `.htrace`, `perf.data`, and generated DB surfaces.
+- Existing no-perf Harmony/Donghu `.sys` binary conversion remains supported by
+  the built-in sys binary parser until `trace_streamer` DB export demonstrates
+  equivalent or stronger coverage for the same inputs.
 - The built-in parser targets the same semantic model as `trace_streamer`, not
-  the old segment container.
-- Legacy segment-format fixtures may remain only as archival tests while the
-  migration is in progress. They must not drive public behavior, fallback
-  selection, prompt guidance, or user-facing success criteria.
+  a second public schema. Sys binary fixtures are parity guards, not the
+  long-term canonical format.
 - Unknown modern DB/profiler surfaces are reported as structured coverage
   caveats, not emitted as header-only systrace rows.
 - If neither `trace_streamer` nor the redesigned built-in parser can decode the
   trace body, the converter should fail or return an explicitly partial
-  tracebundle. It must not imply that the old segment parser is the expected
-  fallback path.
+  tracebundle. It must not imply that the sys binary parser is the expected
+  fallback for modern profiler captures.
 
 ## Engine Architecture
 
@@ -110,6 +115,7 @@ event-format segment parser.
   -> engine selection
       -> trace_streamer DB engine       primary
       -> built-in modern parser         offline fallback
+      -> built-in sys binary parser     no-perf .sys parity lane
       -> raw perf.data parser           perf-only fallback
   -> exporters
       -> systrace text
@@ -153,9 +159,23 @@ same semantic event families exported from the DB engine:
 The built-in parser should emit the same stable output fields as the DB exporter
 so downstream `trace_query` sees one schema regardless of the engine.
 
-Do not keep a second public schema for old segment field offsets. If a helper is
-temporarily needed during migration, isolate it behind internal tests and delete
-it once the modern parser has equivalent coverage.
+### Built-in Sys Binary Parser: Parity-Gated Lane
+
+The current `SEGMENT_EVENTS_FORMAT` + raw trace page parser is kept only for the
+existing no-perf Harmony/Donghu `.sys` binary capability. It must emit the same
+systrace fields and tracebundle provenance as the DB exporter, and it must be
+covered by round-trip tests. It can be removed after these gates pass:
+
+- `trace_streamer` DB engine accepts representative no-perf `.sys` captures.
+- DB exporter emits all event families currently rendered by the sys binary
+  parser.
+- Generated systrace round-trips through `trace_query` with no loss in scheduler,
+  wakeup, CPU, binder, IRQ, and IO evidence used by root-cause analysis.
+- User-facing output and tracebundle provenance make the engine switch explicit.
+
+Do not keep a second public schema for raw segment field offsets. While the sys
+binary lane exists, it is a compatibility implementation detail behind stable
+systrace/perftrace/tracebundle artifacts.
 
 ## Parser Migration Plan
 
@@ -167,10 +187,11 @@ it once the modern parser has equivalent coverage.
 - Add converter result metadata that distinguishes:
   - `trace_streamer_db`
   - `builtin_modern_profiler`
+  - `builtin_sys_binary`
   - `raw_perfdata_fallback`
-  - `legacy_event_segment_archival`
-- Ensure user-facing output never presents `legacy_event_segment_archival` as a
-  normal fallback.
+- Ensure user-facing output presents `builtin_sys_binary` only as the no-perf
+  sys binary lane or parity fallback, never as the expected parser for modern
+  profiler packages.
 
 ### Batch B: Add trace_streamer Provider
 
@@ -204,17 +225,19 @@ it once the modern parser has equivalent coverage.
   `trace_query`.
 - Normalize output through the same field names as the DB exporter.
 
-### Batch E: Remove Legacy Production Path
+### Batch E: Sys Binary Parity Gate and Retirement
 
-- Delete or quarantine old segment parser code:
+- Prove or disprove `trace_streamer` DB parity against no-perf Harmony/Donghu
+  `.sys` fixtures.
+- If parity is complete, delete the built-in sys binary parser code:
   - `scanMetadata`
   - `parseEventFormats`
   - raw page event-id rendering
   - header-only unknown-event systrace output
-- Rewrite tests that construct `SEGMENT_EVENTS_FORMAT`/`SEGMENT_RAW_TRACE`
-  fixtures into either synthetic DB fixtures or modern profiler fixtures.
-- Keep at most one archival test proving unsupported legacy segment input is
-  rejected with a clear message.
+- If parity is not complete, keep the built-in sys binary parser as a guarded
+  production lane and document the uncovered event families.
+- Rewrite old tests into DB/profiler fixtures only after parity is complete.
+  Until then, keep `.sys` round-trip tests as commercial regression guards.
 
 ### Batch F: Trace Query Round Trip
 
@@ -239,15 +262,15 @@ it once the modern parser has equivalent coverage.
   - raw perf preserved only
   - DB generated and kept
   - DB generated and cleaned
-  - unsupported legacy input rejected
+  - sys binary parser used
+  - sys binary parser unsupported for this input
 - When multiple logs/traces/perf artifacts are attached or named in the user
   request, the prompt and reports must preserve source provenance so the model
   can explain which file contributed which evidence.
 
 ## Non-Goals
 
-- Do not maintain the old event-format segment parser as a user-visible
-  compatibility lane.
+- Do not maintain the built-in sys binary parser after DB parity is proven.
 - Do not classify user intent through file suffixes or keywords. Artifact
   routing should remain model/request driven, with deterministic tooling only
   validating and opening the selected artifacts.
@@ -261,9 +284,10 @@ it once the modern parser has equivalent coverage.
 
 - `trace_streamer` path works for modern `.htrace` files and produces queryable
   systrace/perftrace artifacts.
-- Built-in parser no longer depends on old segment layout for production
-  conversion.
-- The old segment parser is removed or quarantined behind archival tests.
+- No-perf Harmony/Donghu `.sys` binary conversion is either fully covered by
+  `trace_streamer` DB export, or explicitly guarded by the built-in sys binary
+  parser with round-trip tests and transparent provenance.
+- The built-in sys binary parser is removed only after DB parity is proven.
 - Tracebundle provenance makes engine choice, coverage, caveats, and partial
   results transparent to users and to downstream model stages.
 - `trace_query` can consume generated artifacts without adding new model

@@ -5,11 +5,13 @@ Date: 2026-06-01
 Status: Superseded for production conversion by
 `docs/design/hitrace_trace_streamer_parser_redesign_20260622.md`.
 
-The original design targeted the legacy `SEGMENT_EVENTS_FORMAT` +
-`SEGMENT_RAW_TRACE` event-format segment container. That container is no longer
-the commercial compatibility target. New `.htrace` work must follow the
-trace_streamer/modern-profiler redesign and must not preserve the legacy segment
-parser as a public fallback lane.
+The original design targeted the `SEGMENT_EVENTS_FORMAT` + `SEGMENT_RAW_TRACE`
+event-format segment container. That container is no longer the canonical
+commercial target for modern `.htrace` work, which must follow the
+trace_streamer/modern-profiler redesign. The implementation can still keep this
+parser as the built-in sys binary lane for existing no-perf Harmony/Donghu
+`.sys` captures until trace_streamer DB parity is proven; after parity is
+proven, backward compatibility with this parser is not required.
 
 ## Problem
 

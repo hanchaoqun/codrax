@@ -64,6 +64,49 @@ func TestConvertFileWritesTextSystraceAndRefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestConvertFilePreservesNoPerfSysBinaryRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "donghu-no-perf.sys")
+	output := filepath.Join(dir, "donghu-no-perf.systrace")
+	if err := os.WriteFile(input, syntheticBinaryHitrace(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath:   input,
+		OutputPath:  output,
+		TraceEngine: traceEngineBuiltin,
+	})
+	if err != nil {
+		t.Fatalf("convert sys binary trace: %v", err)
+	}
+	if result.OutputPath != output || result.EventsWritten != 1 {
+		t.Fatalf("sys binary conversion lost systrace output: %+v", result)
+	}
+	if !hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) {
+		t.Fatalf("sys binary conversion should carry builtin sys provider provenance: %+v", result.TraceDecisions)
+	}
+	if containsString(result.Caveats, "archival") || containsString(result.Caveats, "will be removed") {
+		t.Fatalf("sys binary conversion should not tell users the capability is archival: %+v", result.Caveats)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), output)
+	if err != nil {
+		t.Fatalf("tracequery parse sys binary output: %v", err)
+	}
+	if len(idx.Events) != 1 || idx.Events[0].WakeePID != 36379 {
+		t.Fatalf("sys binary output did not round-trip through tracequery: %+v", idx.Events)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"provider_kind": "builtin_sys_binary"`, `"provider_name": "codrax_builtin_sys_binary"`, `"trace_query_ready": true`} {
+		if !strings.Contains(string(bundle), want) {
+			t.Fatalf("sys binary bundle missing %q:\n%s", want, bundle)
+		}
+	}
+}
+
 func TestConvertFileExtractsStandaloneHiperfDataAndBundle(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "sample-with-perf.htrace")
@@ -323,7 +366,7 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 		t.Fatalf("session package should produce systrace and bundle: %+v", result)
 	}
 	if !containsString(result.Caveats, "SessionJSON- detected") || containsString(result.Caveats, "invalid segment type") {
-		t.Fatalf("session package should not surface legacy segment-parser error: %+v", result.Caveats)
+		t.Fatalf("session package should not surface sys binary parser error: %+v", result.Caveats)
 	}
 	var perf Artifact
 	for _, artifact := range result.Artifacts {

@@ -95,13 +95,13 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 					standaloneDecisions...),
 				TraceDecisions: append(initialTraceDecisions,
 					traceProviderFailure(
-						newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameLegacySegment), opts, input, output),
-						"unsupported_legacy_event_segment_container",
-						fmt.Sprintf("legacy event-format segment parser could not render the trace body: %v", err),
+						newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinSys), opts, input, output),
+						"unsupported_sys_binary_container",
+						fmt.Sprintf("built-in sys binary parser could not render the trace body: %v", err),
 					),
 				),
 				Caveats: append(standaloneCaveats,
-					fmt.Sprintf("systrace output was not produced because the input did not match the supported binary hitrace event-format container: %v", err)),
+					fmt.Sprintf("systrace output was not produced because the input did not match the built-in sys binary trace container: %v", err)),
 			}
 			if bundleArtifact, bundleErr := writeTraceBundle(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions); bundleErr != nil {
 				return Result{}, bundleErr
@@ -154,7 +154,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		}},
 		TraceDecisions: append(initialTraceDecisions,
 			traceProviderSuccess(
-				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameLegacySegment), opts, input, output),
+				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinSys), opts, input, output),
 				Artifact{Type: ArtifactSystrace, Path: output},
 			),
 		),
@@ -172,7 +172,6 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if unknown > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d event row(s) lacked an official-compatible renderer and were emitted as header-only rows", unknown))
 	}
-	result.Caveats = append(result.Caveats, "legacy event-format segment parser is an archival transition path and will be removed after trace_streamer and built-in modern parser migration")
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	if bundleArtifact, err := writeTraceBundle(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions); err != nil {
 		return Result{}, err

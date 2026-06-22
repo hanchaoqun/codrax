@@ -14,11 +14,11 @@ const (
 
 	traceProviderKindOfficialDB = "official_trace_db"
 	traceProviderKindBuiltin    = "builtin_modern"
-	traceProviderKindLegacy     = "legacy_event_segment_archival"
+	traceProviderKindBuiltinSys = "builtin_sys_binary"
 
 	traceProviderNameTraceStreamer = "trace_streamer_db"
 	traceProviderNameBuiltinModern = "codrax_builtin_modern_profiler"
-	traceProviderNameLegacySegment = "codrax_legacy_event_segment_archival"
+	traceProviderNameBuiltinSys    = "codrax_builtin_sys_binary"
 )
 
 type traceProviderSpec struct {
@@ -41,8 +41,8 @@ var traceProviderRegistry = []traceProviderSpec{
 		Implemented: true,
 	},
 	{
-		Kind:        traceProviderKindLegacy,
-		Name:        traceProviderNameLegacySegment,
+		Kind:        traceProviderKindBuiltinSys,
+		Name:        traceProviderNameBuiltinSys,
 		Fallback:    true,
 		Implemented: true,
 	},

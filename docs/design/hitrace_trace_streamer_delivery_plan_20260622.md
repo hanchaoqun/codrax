@@ -16,9 +16,11 @@ Relevant Codrax surfaces:
 
 - `internal/hitraceconv/convert.go`
   - Still routes production conversion through `extractStandaloneArtifacts`,
-    `tryConvertProfilerContainer`, then legacy `scanMetadata -> renderRows`.
-  - Legacy failures can still surface as "supported binary hitrace event-format
-    container" misses.
+    `tryConvertProfilerContainer`, then `scanMetadata -> renderRows`.
+  - `scanMetadata -> renderRows` is still needed for existing no-perf
+    Harmony/Donghu `.sys` binary traces until trace_streamer DB parity is
+    proven. Its failures must not be presented as the expected path for modern
+    profiler `.htrace` packages.
 - `internal/hitraceconv/types.go`
   - `Options` has perf adapter knobs but no trace engine, trace_streamer path,
     DB output, keep-DB, trace provider decision, or DB artifact type.
@@ -34,8 +36,9 @@ Relevant Codrax surfaces:
   - Usage text points users toward perf tools but not trace_streamer.
 - `internal/hitraceconv/convert_test.go`
   - Many tests construct `SEGMENT_EVENTS_FORMAT` and `SEGMENT_RAW_TRACE`
-    fixtures. These are now archival only and must stop defining production
-    behavior.
+    fixtures. These remain `.sys` parity guards during the DB migration, and
+    can be retired only after trace_streamer DB export fully covers the same
+    event families.
 - `internal/tracequery`
   - Already consumes systrace/perftrace/tracebundle outputs, so the converter
     should keep exporting stable text artifacts instead of creating a new model
@@ -52,7 +55,11 @@ Observed hmtrace model:
 
 ## Delivery Rules
 
-- No production fallback to the old event-format segment parser.
+- No silent production fallback from modern profiler `.htrace` failures to the
+  sys binary parser.
+- No-perf Harmony/Donghu `.sys` binary conversion remains supported until
+  trace_streamer DB parity is proven. Once parity is proven, backward
+  compatibility for the old parser is not required.
 - No file-suffix or keyword intent routing for user requests. Deterministic code
   may validate selected artifacts and inspect content, but model/request routing
   remains outside converter internals.
@@ -78,19 +85,20 @@ Observed hmtrace model:
 
 - Query per table and stream rows into bounded event buffers.
 - For globally time-sorted systrace, use chunked external sort if row count grows
-  beyond an in-memory threshold. MVP may sort in memory only for synthetic tests,
-  but the commercial exit criterion requires a spillable plan before enabling
-  large-file default.
+  beyond an in-memory threshold. Commercial completion requires a spillable
+  implementation, not a test-only in-memory sorter.
 - Perftrace export should stream samples and callchains in row order; avoid
   materializing full callchain maps unless the DB row count is below a bounded
   threshold.
 - Emit coverage stats: table rows read, rows emitted, bytes written, elapsed time,
   peak in-memory row count when known.
 
-### Legacy Removal
+### Sys Binary Parser Retirement
 
-- Removing the old raw-page parser reduces memory pressure from synthetic raw
-  event-page decoding and eliminates unsupported header-only row churn.
+- Removing the raw-page parser is allowed only after the DB exporter proves
+  parity for no-perf `.sys` inputs. That reduces memory pressure from raw
+  event-page decoding and eliminates unsupported header-only row churn without
+  dropping customer-visible capability.
 
 ## Batch Plan
 
@@ -109,7 +117,7 @@ Tasks:
 - Add constants:
   - artifact type `trace_db`.
   - trace provider stages/kinds/names for `trace_streamer_db`,
-    `builtin_modern_profiler`, and `legacy_event_segment_archival`.
+    `builtin_modern_profiler`, and `builtin_sys_binary`.
 - Add trace provider decision struct and include it in `Result` and
   tracebundle JSON.
 - Add `BuildTraceToolStatus` or unified tool status reporting:
@@ -189,9 +197,10 @@ Tasks:
   - provider decisions for selected/attempted/succeeded/fallback/reason.
 - In `--trace-engine=trace_streamer`, fail fast if trace_streamer is missing or
   returns non-zero.
-- In `auto`, prefer trace_streamer. If it fails, fall back only to
-  `builtin_modern_profiler` or perf-only partial output. Do not fall back to
-  legacy segment parsing.
+- In `auto`, prefer trace_streamer. If it fails, fall back to
+  `builtin_modern_profiler`, perf-only partial output, or the built-in sys
+  binary parser only when the input structurally matches the no-perf sys binary
+  container and the parity gate has not been closed.
 - Add DB artifact to tracebundle when `KeepTraceDB` is enabled.
 - Tests:
   - fake trace_streamer writes a DB file and records args.
@@ -220,8 +229,10 @@ Detailed implementation checklist:
 - Add conversion selection:
   - `--trace-engine=trace_streamer`: run provider or hard fail.
   - `--trace-engine=auto`: try provider when available; if provider fails,
-    record a failed trace provider decision and continue only to
-    `builtin_modern_profiler` / perf-only partial output.
+    record a failed trace provider decision and continue to
+    `builtin_modern_profiler`, perf-only partial output, or the sys binary
+    parser for structurally matching no-perf `.sys` captures while parity is
+    incomplete.
   - `--trace-engine=builtin`: skip trace_streamer provider with an explicit
     skipped decision.
 - Add artifact behavior:
@@ -265,7 +276,7 @@ Boundary that remains for Batch 3/4:
   a DB-only tracebundle with a caveat that systrace/perftrace DB exporters are
   delivered by later batches.
 
-### Batch 3: DB Exporter MVP
+### Batch 3: DB Exporter Full Compatibility
 
 Status: dependency/algorithm plan in progress.
 
@@ -285,12 +296,24 @@ Exploration notes:
   - larger module graph and binary size;
   - better portability and deterministic tests;
   - no runtime dependency on system SQLite.
-- MVP exporter follows hmtrace table classes, but emits Codrax query-native
+- Full exporter follows hmtrace table classes, but emits Codrax query-native
   systrace text:
   - `sched_slice + thread` -> `sched_switch`;
   - `instant + thread` -> `sched_wakeup` and trace marker rows when present;
   - `irq` -> IRQ/softirq entry/exit;
   - CPU/clock/frame families after schema helpers are in place.
+- hmtrace compatibility tests reviewed on 2026-06-22:
+  - `/tmp/codrax-ref-hmtrace/tests/golden_diff.rs` compares Rust DB exporter
+    against the Python reference for covered, raw, and comprehensive fixtures.
+  - `/tmp/codrax-ref-hmtrace/reference/python/tests/test_db2systrace.py`
+    covers html/raw output, process/thread registration, process-name fallback,
+    CPU count derivation, async spans, `sched_wakeup` CPU/target metadata,
+    IRQ/softirq args, process counters, and extractor failure behavior.
+  - `/tmp/codrax-ref-hmtrace/tests/export_format.rs` covers perfetto export with
+    process tree, CPU frequency, running states, perf samples/callchains,
+    symbolized frames, and merged perf spans across running gaps.
+  - Codrax must construct analogous Go fixtures for each table family and compare
+    semantic output, not only assert non-empty files.
 
 Tasks:
 
@@ -302,7 +325,7 @@ Tasks:
   - column exists,
   - typed nullable reads,
   - coverage counters.
-- Export event families:
+- Export event families with hmtrace-compatible fixture coverage:
   - `thread`/process dump,
   - `sched_slice` -> `sched_switch`,
   - `instant` -> `sched_wakeup`/trace markers,
@@ -310,9 +333,24 @@ Tasks:
   - cpu idle/frequency,
   - clock rates,
   - frame slices.
+- Extend the family list to match hmtrace's comprehensive fixture before
+  declaring Batch 3 complete:
+  - `callstack`, `thread_state`, `raw`, `data_dict`, `args`,
+  - `measure`, `cpu_measure_filter`, `measure_filter`,
+    `process_measure_filter`, `process_measure`,
+  - `dma_fence`, `network`, `diskio`, `cpu_usage`, `live_process`,
+  - `log`, `syscall`, `task_pool`, `app_startup`, `static_initalize`,
+    `native_hook`, `hisys_all_event`, and `xpower_measure`.
 - Write systrace rows through existing official-compatible render shape.
 - Tests:
-  - synthetic DB per table family.
+  - synthetic DB per table family mirroring hmtrace reference tests.
+  - full comprehensive fixture matching hmtrace table coverage.
+  - raw systrace output and HTML-wrapped systrace output where Codrax exposes the
+    same mode.
+  - process/thread registration and rename metadata.
+  - wakeup CPU/target metadata from `instant`, `raw`, and next-run `sched_slice`.
+  - IRQ/softirq args via `data_dict`/`args`.
+  - negative extractor failure behavior.
   - systrace text round-trip through `tracequery.BuildIndex`.
   - coverage stats in tracebundle.
 
@@ -328,7 +366,8 @@ Detailed implementation checklist:
 - Add systrace writer:
   - reuse the existing `writeRows`/`renderedRow` path where possible;
   - render seconds with the same microsecond precision as current converter;
-  - sort events by timestamp/sequence for MVP.
+  - implement bounded global ordering with deterministic spill-to-disk when row
+    count exceeds memory limits.
 - Add scheduler exporter:
   - read `sched_slice(ts,dur,cpu,end_state,priority,itid)`;
   - join `thread(itid,tid,name)`;
@@ -348,13 +387,22 @@ Detailed implementation checklist:
   - rows emitted;
   - skipped reason.
 - Keep memory bounded:
-  - MVP in-memory sort is allowed only for tests/small DBs;
-  - add a row-count threshold and explicit caveat if large DB spill sort is not
-    implemented yet.
+  - stream DB reads per table and emit rows into a bounded sorter;
+  - spill sorted chunks to disk above the configured threshold;
+  - merge chunks by timestamp/sequence without loading all rows;
+  - record peak buffered rows, spill count, and elapsed time in coverage stats.
 
 Exit criteria:
 
-- Scheduler and frame trace bodies no longer depend on old binary segment pages.
+- Scheduler, wakeup, IRQ/softirq, trace marker, counter, frame, log/syscall, IO,
+  hisys/xpower, and process/thread metadata DB output are covered by hmtrace-like
+  fixtures and queryable by trace_query where relevant.
+- The comprehensive fixture passes semantic parity against the hmtrace reference
+  shape; any intentional Codrax output difference is documented as a stable
+  query-contract difference, not an unreviewed gap.
+- Large DB ordering is bounded by spill-to-disk behavior.
+- Add the first `.sys` DB-parity fixture if a local trace_streamer executable is
+  available; otherwise keep the explicit built-in sys binary round-trip guard.
 
 ### Batch 4: DB Perf Exporter
 
@@ -398,27 +446,32 @@ Exit criteria:
 - Builtin conversion handles modern text/profiler payloads without legacy
   segment parser fallback.
 
-### Batch 6: Remove/Quarantine Legacy Segment Parser
+### Batch 6: Sys Binary Parity Gate and Retirement
 
 Status: planned.
 
 Tasks:
 
-- Remove production call to `scanMetadata`.
-- Delete or isolate:
+- Build parity cases comparing built-in sys binary output with trace_streamer DB
+  export for representative no-perf Harmony/Donghu captures.
+- Verify both outputs round-trip through `trace_query` and preserve scheduler,
+  wakeup, CPU, binder, IRQ, IO, trace marker, and frame evidence.
+- If parity is complete, remove production call to `scanMetadata` and delete or
+  isolate:
   - `scanMetadata`,
   - `parseEventFormats`,
   - raw page event-id rendering,
   - header-only unknown event output.
-- Rewrite old tests into DB/profiler fixtures.
-- Keep one archival rejection test for legacy segment input.
-- Update CLI/REPL wording so legacy counters are not presented as normal
-  conversion metrics.
+- If parity is incomplete, keep the sys binary parser as a guarded production
+  lane and document missing DB event families in `TraceDBCoverage` caveats.
+- Rewrite old tests into DB/profiler fixtures only after parity is complete.
+- Update CLI/REPL wording so sys binary counters are transparent and not
+  confused with modern profiler coverage.
 
 Exit criteria:
 
-- Unsupported old event-format segment input is rejected or marked archival; it
-  is never a success path.
+- No-perf `.sys` conversion is either DB-backed with full parity, or guarded by
+  the built-in sys binary parser with explicit provenance and tests.
 
 ### Batch 7: Prompt, Handoff, JSON Repair, and UX Closure
 
@@ -460,9 +513,10 @@ completion, run at minimum:
 go test ./internal/hitraceconv ./cmd ./internal/repl ./internal/tracequery ./internal/agent ./internal/tool ./internal/types
 ```
 
-After legacy removal, also run any eval cases covering:
+After sys binary parity/retirement work, also run any eval cases covering:
 
 - text trace conversion,
+- no-perf Harmony/Donghu `.sys` binary conversion,
 - tracebundle attach,
 - perftrace CPU sample analysis,
 - runtime artifact path mentioned in user request,
@@ -476,5 +530,7 @@ After legacy removal, also run any eval cases covering:
   binary waits until license/hash/version governance is clear.
 - Large DB global ordering. Need streaming/spillable plan before declaring
   commercial readiness for very large captures.
+- trace_streamer `.sys` parity. Until this is proven, the built-in sys binary
+  parser remains a guarded capability rather than dead compatibility code.
 - Existing local worktree has unrelated modified/untracked files. Batch commits
   must stage only files touched by this delivery stream.
