@@ -232,6 +232,66 @@ func TestSourceInventoryObservation_MergeCompleteLensSupersedesEarlierTruncatedS
 	}
 }
 
+func TestSourceInventoryObservation_MergePreservesScopedCompleteLensProof(t *testing.T) {
+	prior := SourceInventoryObservation{
+		Active:     true,
+		Complete:   false,
+		Scopes:     []string{"."},
+		Provenance: []string{"repo_lens:tool_query", "repo_lens:candidate_budget_truncated"},
+		Execution:  &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: false,
+			Total:    200,
+			Members: []SourceInventoryObservationMember{{
+				Name:     "Run",
+				Key:      "Run",
+				Role:     AnswerCandidateRoleFunction,
+				File:     "cmd/root.go",
+				Line:     10,
+				Language: "go",
+			}},
+		}},
+	}
+	current := SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+		Provenance: []string{"repo_lens:tool_query", "repo_lens:scopes"},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{{
+				Name:     "GlobalCard",
+				Key:      "GlobalCard",
+				Role:     AnswerCandidateRoleFunction,
+				File:     "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+				Line:     26,
+				Language: "arkts",
+			}},
+		}},
+	}
+
+	merged := MergeSourceInventoryObservation(prior, current)
+	if !sourceInventoryCompletionObservationIncomplete(merged) {
+		t.Fatalf("merged observation should still remember broader incomplete root debt: %+v", merged)
+	}
+	found := false
+	for _, lens := range merged.CompleteLenses {
+		if lens.Role != AnswerCandidateRoleFunction {
+			continue
+		}
+		if len(lens.Languages) == 1 && lens.Languages[0] == "arkts" &&
+			len(lens.SourceClasses) == 1 && lens.SourceClasses[0] == SourcePathRoleThirdParty {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("complete scoped ArkTS lens proof should survive role-level merge: %+v", merged.CompleteLenses)
+	}
+}
+
 func TestSourceInventoryObservation_ClassUniverseCanBeActiveWithoutMemberRows(t *testing.T) {
 	classOnly := SourceInventoryObservation{
 		Active:       true,

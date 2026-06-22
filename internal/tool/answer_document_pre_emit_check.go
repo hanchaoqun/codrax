@@ -190,9 +190,32 @@ func (idx *preEmitEvidenceIndex) citedEvidenceItems(cit types.Citation) ([]types
 	}
 	candidates := idx.byFile[file]
 	if len(candidates) == 0 {
-		return nil, false
+		return idx.citedEvidenceItemsByUniqueEquivalentPath(file, cit.Line)
 	}
 	out := preEmitCitedEvidenceFromPool(candidates, file, cit.Line)
+	return out, len(out) > 0
+}
+
+func (idx *preEmitEvidenceIndex) citedEvidenceItemsByUniqueEquivalentPath(file string, line int) ([]types.EvidenceItem, bool) {
+	if idx == nil || strings.TrimSpace(file) == "" || line <= 0 {
+		return nil, false
+	}
+	var out []types.EvidenceItem
+	matchedFile := ""
+	for candidateFile, candidates := range idx.byFile {
+		if !preEmitPathMatches(candidateFile, file) {
+			continue
+		}
+		matches := preEmitCitedEvidenceFromPool(candidates, candidateFile, line)
+		if len(matches) == 0 {
+			continue
+		}
+		if matchedFile != "" && !preEmitPathMatches(matchedFile, candidateFile) {
+			return nil, false
+		}
+		matchedFile = candidateFile
+		out = append(out, matches...)
+	}
 	return out, len(out) > 0
 }
 
@@ -4303,14 +4326,13 @@ func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.A
 		if surface == "" {
 			continue
 		}
-		if !preEmitBlockBindsToAggregateCount(block, surface, fact, memberBindingMin) {
-			continue
-		}
-		for _, value := range preEmitScopedCountValues(surface, expected) {
-			out = append(out, preEmitAggregateCountClaim{
-				value:   value,
-				blockID: preEmitBlockCountSurfaceID(block),
-			})
+		for _, scopedSurface := range preEmitAggregateCountClaimSurfaces(block, surface, fact, memberBindingMin) {
+			for _, value := range preEmitScopedCountValues(scopedSurface, expected) {
+				out = append(out, preEmitAggregateCountClaim{
+					value:   value,
+					blockID: preEmitBlockCountSurfaceID(block),
+				})
+			}
 		}
 	}
 	return out
@@ -4354,6 +4376,45 @@ func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, 
 	default:
 		return false
 	}
+}
+
+func preEmitAggregateCountClaimSurfaces(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int) []string {
+	if block.Kind == types.BlockCaveat {
+		var out []string
+		for _, segment := range preEmitAggregateCountLocalSegments(surface) {
+			if preEmitBlockBindsToAggregateCount(block, segment, fact, memberBindingMin) {
+				out = append(out, segment)
+			}
+		}
+		return out
+	}
+	if !preEmitBlockBindsToAggregateCount(block, surface, fact, memberBindingMin) {
+		return nil
+	}
+	return []string{surface}
+}
+
+func preEmitAggregateCountLocalSegments(surface string) []string {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(surface, func(r rune) bool {
+		switch r {
+		case '\n', '\r', '。', '；', ';', '！', '!', '？', '?':
+			return true
+		default:
+			return false
+		}
+	})
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func preEmitBlockCountSurfaceID(block types.AnswerBlock) string {

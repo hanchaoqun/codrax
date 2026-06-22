@@ -9,6 +9,7 @@ func CloneSourceInventoryObservation(in SourceInventoryObservation) SourceInvent
 	out.Lens = append([]string(nil), in.Lens...)
 	out.SourceClasses = cloneSourceInventorySourceClassCounts(in.SourceClasses)
 	out.RepoLanguages = cloneSourceInventoryLanguageCounts(in.RepoLanguages)
+	out.CompleteLenses = cloneSourceInventoryCompleteLenses(in.CompleteLenses)
 	out.Page = cloneSourceInventoryObservationPage(in.Page)
 	out.Execution = cloneSourceInventoryExecutionState(in.Execution)
 	if in.Sets != nil {
@@ -38,6 +39,7 @@ func MergeSourceInventoryObservation(prior, current SourceInventoryObservation) 
 	merged.Lens = mergeSourceInventoryAdvisoryStrings(merged.Lens, current.Lens)
 	merged.SourceClasses = mergeSourceInventorySourceClassCounts(merged.SourceClasses, current.SourceClasses)
 	merged.RepoLanguages = mergeSourceInventoryLanguageCounts(merged.RepoLanguages, current.RepoLanguages)
+	merged.CompleteLenses = mergeSourceInventoryCompleteLenses(merged.CompleteLenses, current.CompleteLenses, sourceInventoryCompleteLensesFromObservation(current))
 	if current.Page != nil {
 		merged.Page = cloneSourceInventoryObservationPage(current.Page)
 	}

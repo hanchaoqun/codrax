@@ -2435,6 +2435,38 @@ func TestPreCheckAggregateCardinalityConsistency_MultipleSetsRequireExplicitLabe
 	}
 }
 
+func TestPreCheckAggregateCardinalityConsistency_CaveatScopeCountDoesNotBindDistantLabel(t *testing.T) {
+	mu := types.NewMutableState("source inventory member-set cardinality")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public class",
+		Value:   "8",
+		Members: []string{"App", "Greeter", "Bridge", "Cart", "Version", "Dog", "Animal", "Service"},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "caveat",
+		Kind: types.BlockCaveat,
+		Text: "搜索范围限于两个 Cangjie 目录中的 11 个 .cj 文件。public sealed class、public abstract class、public enum、public interface 等类型变体未计入 plain public class 统计。",
+	}}}
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("caveat scope/file counts must not bind to a later aggregate label segment, got %+v", got)
+	}
+
+	doc.Blocks[0].Text = "plain public class 有 11 个。"
+	hints := preCheckAggregateCardinalityConsistency(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("same-segment aggregate label count drift must still reject, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, `label="public class"`) ||
+		!strings.Contains(hints[0].ExpectedShape, "expected_count=8") ||
+		!strings.Contains(hints[0].ExpectedShape, "visible_count=11") {
+		t.Fatalf("hint should remain scoped to same-segment aggregate count, got %+v", hints[0])
+	}
+}
+
 func TestPreCheckRelationMemberSetAnswerShape_RequiresStructuredRowsForMultiMemberRelations(t *testing.T) {
 	mu := types.NewMutableState("relation aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

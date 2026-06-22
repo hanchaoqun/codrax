@@ -250,6 +250,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] preserved visible table-tail prose from previous block(s): %s",
 			strings.Join(fields, ", "))
 	}
+	if changed, fields := normalizeAnswerDocumentPatchCitationRefs(prev, patch, ctx); changed {
+		logging.Warning("[emit_answer_document_patch] citation_ref value(s) rebound by typed citation evidence: %s",
+			strings.Join(fields, ", "))
+	}
 
 	// v3 B4 (2026-05-04): route the patch-emit write through the
 	// unified mutation runtime — same chokepoint as the full path.
@@ -688,6 +692,175 @@ func remapPatchBlockCitationRefs(blocks []types.AnswerBlock, remap map[int]int) 
 		}
 	}
 	return changed
+}
+
+func normalizeAnswerDocumentPatchCitationRefs(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch, ctx *types.BusContext) (bool, []string) {
+	if prev == nil || patch == nil || ctx == nil || ctx.Mutable == nil {
+		return false, nil
+	}
+	pctx := newPreEmitCheckContext(ctx)
+	replacePool := patch.ReplaceCitations != nil
+	pool := answerDocumentPatchEffectiveCitationPool(prev, patch)
+	if len(pool) == 0 {
+		pool = []types.Citation{}
+	}
+	patchCitations := answerDocumentPatchDeclaredCitationPool(patch)
+	var fields []string
+	rebindBlocks := func(field string, blocks []types.AnswerBlock) {
+		for bi := range blocks {
+			block := &blocks[bi]
+			if !preEmitBlockRendersItemSurface(block.Kind) || preEmitBlockUsesNonSymbolLabelSurface(*block, nil) {
+				continue
+			}
+			for ii := range block.Items {
+				item := &block.Items[ii]
+				label := strings.TrimSpace(item.Label)
+				text := preEmitItemNonLabelSurface(*item)
+				if label == "" ||
+					(!preEmitLabelNeedsCitationAlignment(label) &&
+						!preEmitItemMatchesPrincipalAggregateMemberWithContext(pctx, label, text)) {
+					continue
+				}
+				if item.CitationRef >= 0 && item.CitationRef < len(pool) &&
+					preEmitItemCitationAlignedWithContext(pctx, label, text, pool[item.CitationRef]) {
+					continue
+				}
+				cit, ok := preEmitPatchCitationCandidateForItem(pctx, label, text, patchCitations)
+				if !ok {
+					continue
+				}
+				target := answerDocumentPatchCitationIndex(pool, cit)
+				if target < 0 {
+					if replacePool {
+						patch.ReplaceCitations = append(patch.ReplaceCitations, cit)
+					} else {
+						patch.AppendCitations = append(patch.AppendCitations, cit)
+					}
+					pool = append(pool, cit)
+					target = len(pool) - 1
+				}
+				if target == item.CitationRef {
+					continue
+				}
+				item.CitationRef = target
+				fields = append(fields, fmt.Sprintf("%s[%q].items[%q]→%d", field, block.ID, item.ID, target))
+			}
+		}
+	}
+	rebindBlocks("replace_blocks", patch.ReplaceBlocks)
+	rebindBlocks("add_blocks", patch.AddBlocks)
+	return len(fields) > 0, fields
+}
+
+func answerDocumentPatchDeclaredCitationPool(patch *types.AnswerDocumentV2Patch) []types.Citation {
+	if patch == nil {
+		return nil
+	}
+	if patch.ReplaceCitations != nil {
+		return append([]types.Citation(nil), patch.ReplaceCitations...)
+	}
+	return append([]types.Citation(nil), patch.AppendCitations...)
+}
+
+func answerDocumentPatchEffectiveCitationPool(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) []types.Citation {
+	if patch == nil {
+		return nil
+	}
+	if patch.ReplaceCitations != nil {
+		return append([]types.Citation(nil), patch.ReplaceCitations...)
+	}
+	var pool []types.Citation
+	if prev != nil && len(prev.Citations) > 0 {
+		pool = append(pool, prev.Citations...)
+	}
+	if len(patch.AppendCitations) > 0 {
+		pool = append(pool, patch.AppendCitations...)
+	}
+	return pool
+}
+
+func answerDocumentPatchCitationIndex(pool []types.Citation, cit types.Citation) int {
+	for i, existing := range pool {
+		if equivalentAnswerCitation(existing, cit) || preEmitCitationSameLocation(existing, cit) {
+			return i
+		}
+	}
+	return -1
+}
+
+func preEmitPatchCitationCandidateForItem(pctx *preEmitCheckContext, label, text string, patchCitations []types.Citation) (types.Citation, bool) {
+	if cit, ok := preEmitExplicitSourceLocationCitationForPatchItem(pctx, label, text); ok {
+		return cit, true
+	}
+	if cit, ok := preEmitUniqueAlignedPatchCitationForItem(pctx, label, text, patchCitations); ok {
+		return cit, true
+	}
+	if cit, ok := preEmitUniqueCandidateCitationForItemWithContext(pctx, label, text); ok {
+		return cit, true
+	}
+	return types.Citation{}, false
+}
+
+func preEmitUniqueAlignedPatchCitationForItem(pctx *preEmitCheckContext, label, text string, citations []types.Citation) (types.Citation, bool) {
+	var out []types.Citation
+	seen := map[string]bool{}
+	for _, cit := range citations {
+		if pctx != nil {
+			cit = pctx.canonicalCitation(cit)
+		}
+		if cit.File == "" || cit.Line <= 0 ||
+			(!preEmitItemCitationAlignedWithContext(pctx, label, text, cit) &&
+				!preEmitPatchCitationMatchesTypedCandidateLocation(pctx, label, text, cit)) {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, cit)
+	}
+	if len(out) != 1 {
+		return types.Citation{}, false
+	}
+	return out[0], true
+}
+
+func preEmitPatchCitationMatchesTypedCandidateLocation(pctx *preEmitCheckContext, label, text string, cit types.Citation) bool {
+	if pctx == nil || strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
+		return false
+	}
+	for _, loc := range preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 8) {
+		if preEmitLocationMatchesCitation(loc, cit) {
+			return true
+		}
+	}
+	for _, loc := range preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 8) {
+		if preEmitLocationMatchesCitation(loc, cit) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitExplicitSourceLocationCitationForPatchItem(pctx *preEmitCheckContext, label, text string) (types.Citation, bool) {
+	surfaces := preEmitExplicitSourceLocationSurfaces(label, text)
+	if len(surfaces) != 1 {
+		return types.Citation{}, false
+	}
+	surface := surfaces[0]
+	cit := types.Citation{
+		File:    surface.File,
+		Line:    surface.LineStart,
+		LineEnd: surface.LineEnd,
+	}
+	if pctx != nil {
+		cit = pctx.canonicalCitation(cit)
+	}
+	if !preEmitItemCitationAlignedWithContext(pctx, label, text, cit) {
+		return types.Citation{}, false
+	}
+	return cit, true
 }
 
 // recoverPrevFromRetryState attempts to decode the prev emit JSON

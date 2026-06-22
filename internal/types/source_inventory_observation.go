@@ -21,17 +21,18 @@ const (
 // for the model, and does not replace source-text citations for implementation
 // behavior claims.
 type SourceInventoryObservation struct {
-	Active        bool                              `json:"active"`
-	AdvisoryOnly  bool                              `json:"advisory_only,omitempty"`
-	Complete      bool                              `json:"complete,omitempty"`
-	Scopes        []string                          `json:"scopes,omitempty"`
-	Provenance    []string                          `json:"provenance,omitempty"`
-	Lens          []string                          `json:"lens,omitempty"`
-	SourceClasses []SourceInventorySourceClassCount `json:"source_classes,omitempty"`
-	RepoLanguages []SourceInventoryLanguageCount    `json:"repo_languages,omitempty"`
-	Page          *SourceInventoryObservationPage   `json:"page,omitempty"`
-	Execution     *SourceInventoryExecutionState    `json:"execution,omitempty"`
-	Sets          []SourceInventoryObservationSet   `json:"sets,omitempty"`
+	Active         bool                              `json:"active"`
+	AdvisoryOnly   bool                              `json:"advisory_only,omitempty"`
+	Complete       bool                              `json:"complete,omitempty"`
+	Scopes         []string                          `json:"scopes,omitempty"`
+	Provenance     []string                          `json:"provenance,omitempty"`
+	Lens           []string                          `json:"lens,omitempty"`
+	SourceClasses  []SourceInventorySourceClassCount `json:"source_classes,omitempty"`
+	RepoLanguages  []SourceInventoryLanguageCount    `json:"repo_languages,omitempty"`
+	CompleteLenses []SourceInventoryCompleteLens     `json:"complete_lenses,omitempty"`
+	Page           *SourceInventoryObservationPage   `json:"page,omitempty"`
+	Execution      *SourceInventoryExecutionState    `json:"execution,omitempty"`
+	Sets           []SourceInventoryObservationSet   `json:"sets,omitempty"`
 }
 
 // SourceInventoryObservationPage is the typed pagination companion for a

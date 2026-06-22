@@ -426,6 +426,9 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 	renderObservation = sourceInventoryObservationWithGraphContextAttributes(ctx, renderObservation)
 	renderObservation = sourceInventoryObservationWithSourceClassUniverse(ctx, renderObservation, query)
 	renderObservation = sourceInventoryObservationWithLensExecutionState(renderObservation, query)
+	if renderObservation.IsActive() {
+		persistSourceInventoryLensObservation(ctx, renderObservation)
+	}
 	if exact := sourceInventoryObservationFromLensDirectChildren(ctx, query); exact.IsActive() {
 		exact = sourceInventoryObservationWithGraphContextAttributes(ctx, exact)
 		exact = sourceInventoryObservationWithSourceClassUniverse(ctx, exact, query)

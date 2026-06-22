@@ -910,6 +910,227 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RebindsExplicitSourceLocationsAgainstInheritedCitationPool(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("enumerate source inventory classes")}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "eval/fixtures/testdata/cangjie_minimal/main.cj",
+			LineStart:       11,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "App",
+			AnchorSymbol:    "App",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj",
+			LineStart:       6,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "Greeter",
+			AnchorSymbol:    "Greeter",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "old/a.go", Line: 1},
+			{File: "old/b.go", Line: 2},
+			{File: "old/c.go", Line: 3},
+			{File: "old/d.go", Line: 4},
+			{File: "old/e.go", Line: 5},
+			{File: "eval/fixtures/ts-monorepo-ws/packages/cli/src/main.ts", Line: 4},
+			{File: "cmd/root.go", Line: 583},
+		},
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+			{ID: "l_class", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{
+				{ID: "c1", Label: "App", Text: "stale", CitationRef: 5},
+				{ID: "c2", Label: "Greeter", Text: "stale", CitationRef: 6},
+			}},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"replace_blocks": [{
+			"id": "l_class",
+			"kind": "ordered_list",
+			"items": [
+				{"id":"c1", "label":"App", "text":"文件路径 eval/fixtures/testdata/cangjie_minimal/main.cj:11，包路径 demo.app。", "citation_ref":5},
+				{"id":"c2", "label":"Greeter", "text":"文件路径 internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj:6，包路径 demo.greeter。", "citation_ref":6}
+			]
+		}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("explicit source-location evidence should rebind inherited stale citation refs, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 9 {
+		t.Fatalf("expected two typed citations appended to stale inherited pool, got %+v", doc)
+	}
+	var classBlock *types.AnswerBlock
+	for i := range doc.Blocks {
+		if doc.Blocks[i].ID == "l_class" {
+			classBlock = &doc.Blocks[i]
+			break
+		}
+	}
+	if classBlock == nil || len(classBlock.Items) != 2 {
+		t.Fatalf("missing replaced class block: %+v", doc)
+	}
+	if got := doc.Citations[classBlock.Items[0].CitationRef]; got.File != "eval/fixtures/testdata/cangjie_minimal/main.cj" || got.Line != 11 {
+		t.Fatalf("App citation not rebound to typed explicit location: ref=%d cit=%+v", classBlock.Items[0].CitationRef, got)
+	}
+	if got := doc.Citations[classBlock.Items[1].CitationRef]; got.File != "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj" || got.Line != 6 {
+		t.Fatalf("Greeter citation not rebound to typed explicit location: ref=%d cit=%+v", classBlock.Items[1].CitationRef, got)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_RebindsPatchAppendCitationWhenInheritedPoolIsLonger(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("enumerate source inventory classes")}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj",
+		LineStart:       14,
+		AnchorKind:      types.AnchorDefinition,
+		Subject:         "Cart",
+		AnchorSymbol:    "Cart",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	prevCitations := make([]types.Citation, 0, 12)
+	for i := 1; i <= 12; i++ {
+		prevCitations = append(prevCitations, types.Citation{File: "stale.go", Line: i})
+	}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     prevCitations,
+		Blocks: []types.AnswerBlock{{
+			ID:   "classes",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "class-cart",
+				Label:       "Cart",
+				Text:        "public class 声明，包路径 demo.cart",
+				CitationRef: 11,
+			}},
+		}},
+	})
+	params := json.RawMessage(`{
+		"replace_blocks": [{
+			"id": "classes",
+			"kind": "ordered_list",
+			"items": [{
+				"id":"class-cart",
+				"label":"Cart",
+				"text":"public class 声明，包路径 demo.cart",
+				"citation_ref": 12
+			}]
+		}],
+		"append_citations": [{"file":"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", "line":14}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch append citation should rebind item refs against the inherited pool, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 13 {
+		t.Fatalf("expected appended Cart citation after stale inherited pool, got %+v", doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 12 {
+		t.Fatalf("class-cart should point to appended citation index 12, got %d", got)
+	}
+	if got := doc.Citations[12]; got.File != "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj" || got.Line != 14 {
+		t.Fatalf("unexpected appended citation: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_AppendCitationStaysAlignedAcrossPathCanonicalization(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("enumerate source inventory classes"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+		}},
+	}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+		LineStart:       6,
+		AnchorKind:      types.AnchorDefinition,
+		Subject:         "native_add",
+		AnchorSymbol:    "native_add",
+		Snippet:         "foreign func native_add(a: Int64, b: Int64): Int64",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	prevCitations := []types.Citation{
+		{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 4, Quote: "package demo.bridge"},
+		{File: "old/a.go", Line: 1},
+		{File: "old/b.go", Line: 2},
+		{File: "old/c.go", Line: 3},
+		{File: "old/d.go", Line: 4},
+		{File: "old/e.go", Line: 5},
+		{File: "old/f.go", Line: 6},
+		{File: "old/g.go", Line: 7},
+	}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     prevCitations,
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+			{ID: "foreign-section", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{
+				ID:          "ff1",
+				Label:       "native_add",
+				Text:        "stale package citation",
+				CitationRef: 0,
+			}}},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"replace_blocks": [{
+			"id": "foreign-section",
+			"kind": "ordered_list",
+			"claim_uses": [{"claim_form": "definition_fact"}],
+			"facet_ids": ["enumeration_item"],
+			"items": [{
+				"id":"ff1",
+				"label":"native_add",
+				"text":"FFI 外部函数声明，签名 foreign func native_add(a: Int64, b: Int64): Int64，属于包 demo.bridge。",
+				"citation_ref": 8
+			}]
+		}],
+		"append_citations": [{"file":"eval/fixtures/testdata/cangjie_minimal/bridge/bridge.cj", "line":6, "quote":"foreign func native_add(a: Int64, b: Int64): Int64"}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch append citation should remain aligned after typed path canonicalization, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 9 {
+		t.Fatalf("expected appended native_add citation after inherited pool, got %+v", doc)
+	}
+	var section *types.AnswerBlock
+	for i := range doc.Blocks {
+		if doc.Blocks[i].ID == "foreign-section" {
+			section = &doc.Blocks[i]
+			break
+		}
+	}
+	if section == nil || len(section.Items) != 1 {
+		t.Fatalf("missing foreign-section block: %+v", doc)
+	}
+	if got := section.Items[0].CitationRef; got != 8 {
+		t.Fatalf("native_add should keep the appended definition citation index 8, got %d cit=%+v", got, doc.Citations[got])
+	}
+	if got := doc.Citations[section.Items[0].CitationRef]; got.Line != 6 || !strings.EqualFold(got.File, "eval/fixtures/testdata/cangjie_minimal/bridge/bridge.cj") {
+		t.Fatalf("native_add citation should point at line 6 append candidate, got %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_StringWrappedNestedDiagramAndExactResolution(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

@@ -960,6 +960,20 @@ func TestPublishSourceInventoryObservationFromLens_RenderIsCurrentQueryOnly(t *t
 	if !second.IsActive() || len(second.Sets) != 1 || second.Sets[0].Role != types.AnswerCandidateRoleType {
 		t.Fatalf("visible lens should not accumulate prior role sets: %+v", second)
 	}
+	stored := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	if len(stored.Sets) != 2 {
+		t.Fatalf("durable observation should retain both lens executions for completion gates: %+v", stored.Sets)
+	}
+	roles := map[types.AnswerCandidateRole]bool{}
+	for _, set := range stored.Sets {
+		roles[set.Role] = true
+	}
+	if !roles[types.AnswerCandidateRoleFunction] || !roles[types.AnswerCandidateRoleType] {
+		t.Fatalf("durable observation missing accumulated lens roles: %+v", stored.Sets)
+	}
+	if len(stored.CompleteLenses) < 2 {
+		t.Fatalf("durable observation should carry per-lens complete proofs: %+v", stored.CompleteLenses)
+	}
 }
 
 func TestSourceInventoryGraphSymbolIndexDedupeAndFileLookup(t *testing.T) {
@@ -1788,6 +1802,389 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ClassLanguageMatr
 	}}
 	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
 		t.Fatalf("class-language matrix should not treat unrelated production/test languages as same-family debt")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_BoundedLanguageDimensionsCloseRootDebt(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleProduction,
+		Count:     923,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 923, Samples: []string{"cmd/root.go"}}},
+	}, {
+		Role:      types.SourcePathRoleTest,
+		Count:     980,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 980, Samples: []string{"internal/tool/source_inventory_test.go"}}},
+	}, {
+		Role:      types.SourcePathRoleFixture,
+		Count:     3,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 3, Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"}}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     8,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 8, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"}}},
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func 声明（source_inventory complete=true）",
+		Value: "3",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "language", Value: "cangjie"},
+			{Name: "bounding_scope", Value: "*.cj files in tree-sitter-cangjie + cangjie_minimal"},
+			{Name: "repo_map_complete", Value: "true"},
+		},
+		Members: []string{
+			"foreign func native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+			"foreign func native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+			"foreign func runOnMainThread @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:16 (package demo.ffi)",
+		},
+		SupportRefs: []string{
+			"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+			"runOnMainThread: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:16",
+		},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "public class 含 public sealed/abstract class（source_inventory complete=true）",
+		Value: "8",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "language", Value: "cangjie"},
+			{Name: "bounding_scope", Value: "*.cj files in tree-sitter-cangjie + cangjie_minimal"},
+			{Name: "repo_map_complete", Value: "true"},
+		},
+		Members: []string{
+			"public class Greeter @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj:6 (package demo.greeter)",
+			"public class Version @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj:18 (package demo.generics)",
+			"public sealed class Animal @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:6 (package demo.modifiers)",
+			"public class Dog @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:22 (package demo.modifiers)",
+			"public abstract class Service @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:32 (package demo.modifiers)",
+			"public class Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15 (package demo.bridge)",
+			"public class Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14 (package demo.cart)",
+			"public class App @ eval/fixtures/testdata/cangjie_minimal/main.cj:11 (package demo.app)",
+		},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("bounded language/source-family aggregate facts should close root source-inventory debt for the requested universe")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_CompleteLensFamilyClosesBroaderExactRoleRows(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleProduction,
+		Count:     923,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 923, Samples: []string{"cmd/root.go"}}},
+	}, {
+		Role:      types.SourcePathRoleFixture,
+		Count:     3,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 3, Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"}}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     8,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 8, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj"}}},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles: []types.AnswerCandidateRole{
+			types.AnswerCandidateRoleFunction,
+			types.AnswerCandidateRoleType,
+			types.AnswerCandidateRoleConstant,
+			types.AnswerCandidateRoleVariable,
+			types.AnswerCandidateRoleField,
+		},
+		SourceQuotes: []string{"typed construct surface", "location", "package"},
+		Confidence:   0.95,
+	}
+	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	obs.Sets = []types.SourceInventoryObservationSet{{
+		Role:     types.AnswerCandidateRoleType,
+		Complete: true,
+		Count:    10,
+		Total:    10,
+		Members: []types.SourceInventoryObservationMember{
+			sourceInventoryRequestedUniverseMember("Greeter", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", 6),
+			sourceInventoryRequestedUniverseMember("Version", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj", 18),
+			sourceInventoryRequestedUniverseMember("Animal", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", 6),
+			sourceInventoryRequestedUniverseMember("Dog", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", 22),
+			sourceInventoryRequestedUniverseMember("Service", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj", 32),
+			sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15),
+			sourceInventoryRequestedUniverseMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 14),
+			sourceInventoryRequestedUniverseMember("App", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/main.cj", 11),
+			sourceInventoryRequestedUniverseMember("Drawable", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/03_interfaces.cj", 4),
+			sourceInventoryRequestedUniverseMember("Point", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/05_structs.cj", 4),
+		},
+	}, {
+		Role:     types.AnswerCandidateRoleFunction,
+		Complete: true,
+		Count:    5,
+		Total:    5,
+		Members: []types.SourceInventoryObservationMember{
+			sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6),
+			sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6),
+			sourceInventoryRequestedUniverseMember("runOnMainThread", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 16),
+			sourceInventoryRequestedUniverseMember("main", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/main.cj", 16),
+			sourceInventoryRequestedUniverseMember("helper", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/01_basic_functions.cj", 5),
+		},
+	}, {
+		Role:     types.AnswerCandidateRoleField,
+		Complete: false,
+		Count:    90,
+		Total:    200,
+		Members: []types.SourceInventoryObservationMember{
+			sourceInventoryRequestedUniverseMemberWithLanguage("Prompt", types.AnswerCandidateRoleField, "internal/agent/agent.go", 10, "go"),
+		},
+	}}
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func declarations",
+		Value: "3",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"foreign func native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6 (package demo.bridge)",
+			"foreign func native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 (package demo.ffi)",
+			"foreign func runOnMainThread @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:16 (package demo.ffi)",
+		},
+		SupportRefs: []string{
+			"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+			"runOnMainThread: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:16",
+		},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "public class declarations",
+		Value: "8",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"public class Greeter @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj:6 (package demo.greeter)",
+			"public class Version @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/06_generic_where.cj:18 (package demo.generics)",
+			"public sealed class Animal @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:6 (package demo.modifiers)",
+			"public class Dog @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:22 (package demo.modifiers)",
+			"public abstract class Service @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj:32 (package demo.modifiers)",
+			"public class Bridge @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15 (package demo.bridge)",
+			"public class Cart @ eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:14 (package demo.cart)",
+			"public class App @ eval/fixtures/testdata/cangjie_minimal/main.cj:11 (package demo.app)",
+		},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("complete typed source-family lens should close requested universe without enumerating unrelated repo-wide role debt")
+	}
+	if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts); downgrade != "" {
+		t.Fatalf("complete typed source-family closure should not downgrade:\n%s", downgrade)
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_CompleteLensSurvivesMergedRootDebt(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     6,
+		Complete:  true,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "arkts", Count: 6, Samples: []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"}}},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleMethod},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.95,
+	}
+	prior := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	prior.Sets = []types.SourceInventoryObservationSet{{
+		Role:     types.AnswerCandidateRoleFunction,
+		Complete: false,
+		Total:    200,
+		Members: []types.SourceInventoryObservationMember{
+			sourceInventoryRequestedUniverseMemberWithLanguage("runRoot", types.AnswerCandidateRoleFunction, "cmd/root.go", 10, "go"),
+		},
+	}, {
+		Role:     types.AnswerCandidateRoleType,
+		Complete: false,
+		Total:    200,
+		Members: []types.SourceInventoryObservationMember{
+			sourceInventoryRequestedUniverseMemberWithLanguage("Root", types.AnswerCandidateRoleType, "cmd/root.go", 12, "go"),
+		},
+	}}
+	prior.Complete = false
+	prior.Scopes = []string{"."}
+	prior.Execution = &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true}
+	currentFunction := types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+		Provenance: []string{"repo_lens:tool_query", "repo_lens:scopes"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{
+				sourceInventoryRequestedUniverseMemberWithLanguage("defaultHeader", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", 8, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("GlobalCard", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", 26, "arkts"),
+			},
+		}},
+	}
+	currentType := types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+		Provenance: []string{"repo_lens:tool_query", "repo_lens:scopes"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{
+				sourceInventoryRequestedUniverseMemberWithLanguage("Index", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", 5, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("ParentComponent", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets", 32, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("StyledPage", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", 17, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("ListPage", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets", 30, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("EntryAbility", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/06_entry_ability_stage_model.ets", 12, "arkts"),
+			},
+		}},
+	}
+	merged := types.MergeSourceInventoryObservation(prior, currentFunction)
+	merged = types.MergeSourceInventoryObservation(merged, currentType)
+	ctx.Mutable.SetSourceInventoryObservation(merged)
+
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "@Entry page entries",
+		Value: "4",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Index (internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:5)",
+			"ParentComponent (internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets:32)",
+			"StyledPage (internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets:17)",
+			"ListPage (internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets:30)",
+		},
+		SupportRefs: []string{
+			"Index: internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:5",
+			"ParentComponent: internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets:32",
+			"StyledPage: internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets:17",
+			"ListPage: internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets:30",
+		},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "@Builder fragments",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"defaultHeader (internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:8)",
+			"GlobalCard (internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:26)",
+		},
+		SupportRefs: []string{
+			"defaultHeader: internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:8",
+			"GlobalCard: internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:26",
+		},
+	}, {
+		Kind:     types.AnswerAggregateExcluded,
+		Label:    "non @Entry type",
+		Value:    "1",
+		Role:     types.AnswerAggregateRoleSupportingCoverage,
+		Excluded: []string{"EntryAbility (internal/thirdparty/tree-sitter-arkts/corpus/sources/06_entry_ability_stage_model.ets:12)"},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("complete scoped lens proof should close requested ArkTS family despite stale root role debt; lenses=%+v obs=%+v", types.SourceInventoryObservationFromMutable(ctx.Mutable).CompleteLenses, types.SourceInventoryObservationFromMutable(ctx.Mutable))
+	}
+	if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts); downgrade != "" {
+		t.Fatalf("complete scoped lens proof should not downgrade:\n%s", downgrade)
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_MemberLocationSurfacesCloseScopedLens(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     6,
+		Complete:  true,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "arkts", Count: 6, Samples: []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"}}},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleMethod},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.95,
+	}
+	prior := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	prior.Sets = []types.SourceInventoryObservationSet{{
+		Role:     types.AnswerCandidateRoleFunction,
+		Complete: false,
+		Total:    18,
+		Members: []types.SourceInventoryObservationMember{
+			sourceInventoryRequestedUniverseMemberWithLanguage("buildEntry", types.AnswerCandidateRoleFunction, "cmd/root.go", 10, "go"),
+		},
+	}, {
+		Role:     types.AnswerCandidateRoleType,
+		Complete: false,
+		Total:    8,
+		Members: []types.SourceInventoryObservationMember{
+			sourceInventoryRequestedUniverseMemberWithLanguage("EntryBuilder", types.AnswerCandidateRoleType, "cmd/root.go", 12, "go"),
+		},
+	}}
+	prior.Complete = false
+	prior.Scopes = []string{"."}
+	prior.Execution = &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true}
+	current := types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+		Provenance: []string{"repo_lens:tool_query", "repo_lens:auto_narrow_required_files", "repo_lens:scopes"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{
+				sourceInventoryRequestedUniverseMemberWithLanguage("defaultHeader", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", 8, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("GlobalCard", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", 26, "arkts"),
+			},
+		}, {
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{
+				sourceInventoryRequestedUniverseMemberWithLanguage("Index", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", 5, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("ParentComponent", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets", 32, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("StyledPage", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", 17, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("ListPage", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets", 30, "arkts"),
+				sourceInventoryRequestedUniverseMemberWithLanguage("EntryAbility", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-arkts/corpus/sources/06_entry_ability_stage_model.ets", 12, "arkts"),
+			},
+		}},
+	}
+	ctx.Mutable.SetSourceInventoryObservation(types.MergeSourceInventoryObservation(prior, current))
+
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "@Entry page entries",
+		Value: "4",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "bounded_scope", Value: "internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+			{Name: "language", Value: "arkts"},
+		},
+		Members: []string{
+			"Index (surface=@Component @Entry) @ internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:5",
+			"ParentComponent (surface=@Component @Entry) @ internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets:32",
+			"StyledPage (surface=@Component @Entry) @ internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets:17",
+			"ListPage (surface=@Component @Entry) @ internal/thirdparty/tree-sitter-arkts/corpus/sources/05_foreach_lazyforeach.ets:30",
+		},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "@Builder fragments",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "bounded_scope", Value: "internal/thirdparty/tree-sitter-arkts/corpus/sources"},
+			{Name: "language", Value: "arkts"},
+		},
+		Members: []string{
+			"defaultHeader (surface=@Builder, ArkTS member) @ internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:8",
+			"GlobalCard (surface=@Builder, ArkTS function) @ internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets:26",
+		},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("complete scoped lens proof should close from member location surfaces; lenses=%+v obs=%+v", types.SourceInventoryObservationFromMutable(ctx.Mutable).CompleteLenses, types.SourceInventoryObservationFromMutable(ctx.Mutable))
+	}
+	if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts); downgrade != "" {
+		t.Fatalf("complete scoped lens proof should not downgrade:\n%s", downgrade)
 	}
 }
 

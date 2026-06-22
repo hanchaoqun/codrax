@@ -31,7 +31,9 @@ func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext
 	if len(included) == 0 {
 		return sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation, aggregateFamily)
 	}
-	roleSet := sourceInventoryRequestedUniverseRoleSet(rm, observation)
+	roleSet := sourceInventoryRequestedUniverseRoleSet(rm, observation, included)
+	familyClosedByCompleteLens := sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation, aggregateFamily) &&
+		sourceInventoryRequestedUniverseFamilyBackedByCompleteLens(observation, aggregateFamily, roleSet)
 	covered := sourceInventoryRequestedUniverseFamily{
 		languages: map[string]bool{},
 		classes:   map[types.SourcePathRole]bool{},
@@ -48,6 +50,9 @@ func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext
 		}
 	}
 	if len(covered.languages) == 0 && len(covered.classes) == 0 {
+		if familyClosedByCompleteLens {
+			return true
+		}
 		return sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation, aggregateFamily)
 	}
 	for _, universe := range universes {
@@ -60,10 +65,13 @@ func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext
 		}
 		gap := sourceInventoryCoverageForUniverse(universe, included, excluded)
 		if gap.Count > 0 && gap.Covered+gap.Excluded < gap.Count {
-			return false
+			return familyClosedByCompleteLens
 		}
 	}
-	return !sourceInventoryRequestedUniverseCensusMissing(observation, covered)
+	if !sourceInventoryRequestedUniverseCensusMissing(observation, covered) {
+		return true
+	}
+	return familyClosedByCompleteLens
 }
 
 type sourceInventoryRequestedUniverseFamily struct {
@@ -96,7 +104,7 @@ func (f sourceInventoryRequestedUniverseFamily) intersectsUniverse(universe sour
 	return false
 }
 
-func sourceInventoryRequestedUniverseRoleSet(rm types.RequestModel, observation types.SourceInventoryObservation) map[types.AnswerCandidateRole]bool {
+func sourceInventoryRequestedUniverseRoleSet(rm types.RequestModel, observation types.SourceInventoryObservation, included map[string]bool) map[types.AnswerCandidateRole]bool {
 	roles := []types.AnswerCandidateRole{}
 	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
 		roles = rm.SourceInventoryProfile.PrincipalTargetRoles()
@@ -113,6 +121,17 @@ func sourceInventoryRequestedUniverseRoleSet(rm types.RequestModel, observation 
 	for _, role := range roles {
 		if role != "" && role != types.AnswerCandidateRoleUnknown {
 			out[role] = true
+		}
+	}
+	for _, set := range observation.Sets {
+		if set.Role == "" || set.Role == types.AnswerCandidateRoleUnknown {
+			continue
+		}
+		for _, member := range set.Members {
+			if sourceInventoryUniverseAnyKey(sourceInventoryUniverseMemberKeys(member), included) {
+				out[set.Role] = true
+				break
+			}
 		}
 	}
 	return out
