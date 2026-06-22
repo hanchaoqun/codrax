@@ -270,15 +270,16 @@ Exit criteria:
 go test ./internal/hitraceconv ./cmd ./internal/repl
 ```
 
-Boundary that remains for Batch 3/4:
+Boundary closed by Batch 3:
 
-- The DB is not parsed yet. Explicit trace_streamer conversion currently returns
-  a DB-only tracebundle with a caveat that systrace/perftrace DB exporters are
-  delivered by later batches.
+- The DB is now parsed by Codrax. Explicit trace_streamer conversion emits
+  systrace when rows are available, preserves the DB when requested, and writes
+  trace DB coverage into tracebundle. No-row DBs remain explicit partial bundles
+  with coverage and do not claim trace_query readiness.
 
 ### Batch 3: DB Exporter Full Compatibility
 
-Status: dependency/algorithm plan in progress.
+Status: delivered on 2026-06-22.
 
 Detailed execution plan:
 `docs/design/hitrace_trace_streamer_batch3_full_compat_plan_20260622.md`
@@ -409,22 +410,28 @@ Exit criteria:
 
 ### Batch 4: DB Perf Exporter
 
-Status: planned.
+Status: folded into Batch 3F and delivered on 2026-06-22.
 
 Tasks:
 
-- Export `perf_sample`, `perf_callchain`, `perf_thread`, `perf_report`,
+- Delivered export of `perf_sample`, `perf_callchain`, `perf_thread`, `perf_report`,
   `perf_files`, `data_dict`, and optional `hmtrace_perf_symbolized_frame`.
-- Prefer symbolized display names when present.
-- Preserve timestamp source:
+- Delivered symbolized display names preference when present.
+- Delivered timestamp source preference:
   - `timestamp_trace` when present,
   - `timeStamp`/`timestamp` with caveat otherwise.
-- Emit Codrax `.perftrace` rows, not only visual `hiperf:` spans.
-- Add perf/trace clock alignment notes.
-- Tests:
-  - synthetic DB sample with callchain and DSO.
-  - symbolized-frame preference.
-  - trace_query `perf_stats` round-trip from tracebundle.
+- Delivered Codrax query-native `perf_sample:` rows in the systrace output, plus
+  hmtrace-style `hiperf:` trace marker spans/counters for timeline visibility.
+  Codrax intentionally does not create a separate `.perftrace` sidecar for DB
+  perf rows because the generated systrace is already trace_query-ready and
+  tracebundle carries the provider/coverage provenance.
+- Delivered perf clock fields on DB perf rows:
+  `clock=trace_streamer_db clock_confidence=calibrated`.
+- Delivered tests:
+  - synthetic DB sample with callchain and DSO;
+  - symbolized-frame preference;
+  - trace_query `perf_samples` round-trip from generated systrace;
+  - hmtrace comprehensive schema fixture.
 
 Exit criteria:
 

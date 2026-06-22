@@ -2,7 +2,7 @@
 
 Date: 2026-06-22
 
-Status: planned, not yet implemented.
+Status: delivered on 2026-06-22.
 
 Parent plan:
 `docs/design/hitrace_trace_streamer_delivery_plan_20260622.md`
