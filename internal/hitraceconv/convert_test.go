@@ -396,6 +396,8 @@ func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testin
 		"end_commit_overrun=2",
 		"structured_event_records=2",
 		"detail_overwrite=4",
+		"event_families=block,sched",
+		"event_names=block_rq_issue,sched_switch",
 		"symbols=1",
 		"symbol_examples=0x1234=schedule",
 		"clock_details=MONOTONIC(time=10.000000020/res=0.000000001)",
@@ -416,6 +418,12 @@ func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testin
 	}
 	if !coverageHasSkipped(meta.TraceCoverage, "builtin_modern_profiler", "plugin:ftrace-plugin", "structured ftrace renderer pending") {
 		t.Fatalf("structured ftrace coverage should explain partial renderer: %+v", meta.TraceCoverage)
+	}
+	if !coverageHasSkipped(meta.TraceCoverage, "builtin_modern_ftrace:sched", "sched_switch", "structured ftrace renderer pending") {
+		t.Fatalf("structured ftrace coverage should name sched_switch: %+v", meta.TraceCoverage)
+	}
+	if !coverageHasSkipped(meta.TraceCoverage, "builtin_modern_ftrace:block", "block_rq_issue", "structured ftrace renderer pending") {
+		t.Fatalf("structured ftrace coverage should name block_rq_issue: %+v", meta.TraceCoverage)
 	}
 }
 
@@ -1233,8 +1241,35 @@ func syntheticTracePluginResultMetadata() []byte {
 	))
 	out.Write(protoMessage(2,
 		protoVarint(1, 0),
-		protoBytes(2, []byte{0x08, 0x01}),
-		protoBytes(2, []byte{0x08, 0x02}),
+		protoMessage(2,
+			protoVarint(1, 1),
+			protoVarint(2, 100),
+			protoBytes(3, []byte("prev")),
+			protoMessage(50, protoVarint(4, 100)),
+			protoMessage(2417,
+				protoBytes(1, []byte("prev")),
+				protoVarint(2, 100),
+				protoVarint(3, 120),
+				protoVarint(4, 1),
+				protoBytes(5, []byte("next")),
+				protoVarint(6, 101),
+				protoVarint(7, 118),
+			),
+		),
+		protoMessage(2,
+			protoVarint(1, 2),
+			protoVarint(2, 100),
+			protoBytes(3, []byte("io")),
+			protoMessage(50, protoVarint(4, 100)),
+			protoMessage(211,
+				protoVarint(1, 260),
+				protoVarint(2, 4096),
+				protoVarint(3, 8),
+				protoVarint(4, 4096),
+				protoBytes(5, []byte("WS")),
+				protoBytes(6, []byte("io")),
+			),
+		),
 		protoVarint(3, 4),
 	))
 	out.Write(protoMessage(5,

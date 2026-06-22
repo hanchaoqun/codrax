@@ -12,6 +12,10 @@ Reference snapshot audited locally:
 `/tmp/codrax-ref-hmtrace` at
 `6b05b2a60456910f05c149012b0d4833faa2d10e`.
 
+OpenHarmony profiler schema snapshot audited locally:
+`/tmp/codrax-ref-developtools_profiler` at
+`95b01b776dac22796e6c8e3ed8714aa3343978f8`.
+
 ## Objective
 
 Batch 5 must not stop at an MVP exporter. The built-in modern parser is a
@@ -243,22 +247,39 @@ Exit:
 
 ### Batch 5B: Structured ftrace Schema Audit and Decoder Skeleton
 
+Status: delivered on 2026-06-23 for schema audit and typed oneof coverage.
+Payload-field renderers remain in Batch 5C.
+
 Tasks:
 
-- Audit OpenHarmony profiler proto/schema definitions and record source paths or
-  commit hashes in this plan.
-- Add typed parsing structs for the structured ftrace message families needed by
-  trace_query.
-- Add parser tests using synthetic protobuf payloads that do not rely on user
-  question keywords.
-- Decode symbols/clocks/event-format metadata into a registry.
-- Preserve unsupported-family coverage without creating header-only rows.
+- Delivered audit of OpenHarmony profiler proto/schema definitions and recorded
+  source commit in this plan.
+  - `protos/services/common_types.proto` defines `ProfilerPluginData`.
+  - `protos/types/plugins/ftrace_data/default/trace_plugin_result.proto`
+    defines `TracePluginResult`.
+  - `protos/types/plugins/ftrace_data/default/ftrace_event.proto` defines the
+    `FtraceEvent` envelope and event oneof field numbers.
+  - `protos/types/plugins/ftrace_data/default/{sched,binder,block,irq,power,clk,f2fs,filemap,mmc,ftrace}.proto`
+    define the query-relevant event payload fields.
+- Delivered typed envelope parsing for
+  `TracePluginResult -> FtraceCpuDetailMsg -> FtraceEvent`.
+- Delivered official oneof field mapping for query-relevant families:
+  scheduler, binder, block, IRQ, CPU power, clock, trace marker, f2fs, filemap,
+  and mmc.
+- Delivered parser tests using synthetic protobuf payloads that do not rely on
+  user question keywords.
+- Delivered structured coverage for supported and unknown event oneof fields
+  without creating header-only rows.
+- Symbols and clocks continue to be decoded by the existing summary path; event
+  payload-field decoding/rendering is intentionally left to Batch 5C.
 
 Exit:
 
-- Structured ftrace payloads no longer collapse to a single summary-only caveat.
-  The parser can distinguish supported, unsupported, empty, and malformed
-  structured payloads in typed coverage.
+- Delivered: structured ftrace payloads no longer collapse to a single
+  summary-only caveat. The parser emits per-family typed coverage such as
+  `builtin_modern_ftrace:sched/sched_switch` and
+  `builtin_modern_ftrace:block/block_rq_issue`, with `renderer pending`
+  explicitly recorded until Batch 5C.
 
 ### Batch 5C: Structured Family Renderers
 

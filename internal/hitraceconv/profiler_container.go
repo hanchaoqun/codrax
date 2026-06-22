@@ -69,6 +69,7 @@ type profilerFtraceSummary struct {
 	SymbolCount       int
 	SymbolExamples    []string
 	ClockDetails      []string
+	EventFieldCounts  map[int]int
 	recognizedMessage bool
 }
 
@@ -99,9 +100,10 @@ type profilerFtracePerCPUStats struct {
 }
 
 type profilerFtraceCPUDetail struct {
-	CPU        uint64
-	EventCount int
-	Overwrite  uint64
+	CPU              uint64
+	EventCount       int
+	EventFieldCounts map[int]int
+	Overwrite        uint64
 }
 
 type profilerFtraceSymbolDetail struct {
@@ -117,6 +119,43 @@ type profilerFtraceClockDetail struct {
 	ResNsec  uint64
 	HasTime  bool
 	HasRes   bool
+}
+
+type profilerFtraceEventDescriptor struct {
+	Field  int
+	Family string
+	Name   string
+}
+
+var profilerFtraceEventDescriptors = map[int]profilerFtraceEventDescriptor{
+	113:  {Field: 113, Family: "binder", Name: "binder_transaction"},
+	119:  {Field: 119, Family: "binder", Name: "binder_transaction_received"},
+	209:  {Field: 209, Family: "block", Name: "block_rq_complete"},
+	210:  {Field: 210, Family: "block", Name: "block_rq_insert"},
+	211:  {Field: 211, Family: "block", Name: "block_rq_issue"},
+	212:  {Field: 212, Family: "block", Name: "block_rq_remap"},
+	410:  {Field: 410, Family: "clock", Name: "clock_set_rate"},
+	1000: {Field: 1000, Family: "filemap", Name: "mm_filemap_add_to_page_cache"},
+	1001: {Field: 1001, Family: "filemap", Name: "mm_filemap_delete_from_page_cache"},
+	1109: {Field: 1109, Family: "trace_marker", Name: "print"},
+	1500: {Field: 1500, Family: "irq", Name: "irq_handler_entry"},
+	1501: {Field: 1501, Family: "irq", Name: "irq_handler_exit"},
+	1502: {Field: 1502, Family: "irq", Name: "softirq_entry"},
+	1503: {Field: 1503, Family: "irq", Name: "softirq_exit"},
+	1504: {Field: 1504, Family: "irq", Name: "softirq_raise"},
+	2003: {Field: 2003, Family: "cpu", Name: "cpu_frequency"},
+	2004: {Field: 2004, Family: "cpu", Name: "cpu_frequency_limits"},
+	2005: {Field: 2005, Family: "cpu", Name: "cpu_idle"},
+	2417: {Field: 2417, Family: "sched", Name: "sched_switch"},
+	2420: {Field: 2420, Family: "sched", Name: "sched_wakeup"},
+	2421: {Field: 2421, Family: "sched", Name: "sched_wakeup_new"},
+	2422: {Field: 2422, Family: "sched", Name: "sched_waking"},
+	4009: {Field: 4009, Family: "f2fs", Name: "f2fs_sync_file_enter"},
+	4010: {Field: 4010, Family: "f2fs", Name: "f2fs_sync_file_exit"},
+	4011: {Field: 4011, Family: "f2fs", Name: "f2fs_write_begin"},
+	4012: {Field: 4012, Family: "f2fs", Name: "f2fs_write_end"},
+	4015: {Field: 4015, Family: "mmc", Name: "mmc_request_done"},
+	4016: {Field: 4016, Family: "mmc", Name: "mmc_request_start"},
 }
 
 func modernRowSorterCoverage(stats traceDBRowSortStats) TraceDBCoverage {
@@ -316,6 +355,7 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 					coverage.Error = summaryErr.Error()
 				} else if ok {
 					out.Caveats = append(out.Caveats, profilerFtraceSummaryCaveat(summary))
+					out.TraceCoverage = append(out.TraceCoverage, profilerFtraceEventCoverage(summary)...)
 					coverage.Skipped = "structured ftrace renderer pending"
 				} else {
 					coverage.Skipped = "ftrace-plugin payload was not recognized as text systrace or supported structured ftrace"
@@ -400,9 +440,10 @@ func profilerPluginClockName(id uint64) string {
 
 func decodeProfilerFtraceSummary(data []byte) (profilerFtraceSummary, bool, error) {
 	summary := profilerFtraceSummary{
-		TraceClocks: map[string]int{},
-		StatsCPUs:   map[uint64]bool{},
-		DetailCPUs:  map[uint64]bool{},
+		TraceClocks:      map[string]int{},
+		StatsCPUs:        map[uint64]bool{},
+		DetailCPUs:       map[uint64]bool{},
+		EventFieldCounts: map[int]int{},
 	}
 	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
 		switch field {
@@ -445,6 +486,9 @@ func decodeProfilerFtraceSummary(data []byte) (profilerFtraceSummary, bool, erro
 			summary.DetailCPUs[detail.CPU] = true
 			summary.DetailEventCount += detail.EventCount
 			summary.DetailOverwrite += detail.Overwrite
+			for eventField, count := range detail.EventFieldCounts {
+				summary.EventFieldCounts[eventField] += count
+			}
 		case 5:
 			if wire != 2 {
 				return nil
@@ -484,6 +528,40 @@ func decodeProfilerFtraceSummary(data []byte) (profilerFtraceSummary, bool, erro
 		return nil
 	})
 	return summary, summary.recognizedMessage, err
+}
+
+func profilerFtraceEventCoverage(summary profilerFtraceSummary) []TraceDBCoverage {
+	if len(summary.EventFieldCounts) == 0 {
+		return nil
+	}
+	fields := make([]int, 0, len(summary.EventFieldCounts))
+	for field := range summary.EventFieldCounts {
+		fields = append(fields, field)
+	}
+	sort.Ints(fields)
+	out := make([]TraceDBCoverage, 0, len(fields))
+	for _, field := range fields {
+		count := summary.EventFieldCounts[field]
+		desc, ok := profilerFtraceEventDescriptors[field]
+		if !ok {
+			out = append(out, TraceDBCoverage{
+				Family:   "builtin_modern_ftrace:unknown",
+				Table:    fmt.Sprintf("event_field:%d", field),
+				Found:    true,
+				RowsRead: count,
+				Skipped:  "unmapped structured ftrace event field",
+			})
+			continue
+		}
+		out = append(out, TraceDBCoverage{
+			Family:   "builtin_modern_ftrace:" + desc.Family,
+			Table:    desc.Name,
+			Found:    true,
+			RowsRead: count,
+			Skipped:  "structured ftrace renderer pending",
+		})
+	}
+	return out
 }
 
 func decodeProfilerFtraceCPUStats(data []byte) (profilerFtraceCPUStats, error) {
@@ -554,7 +632,7 @@ func decodeProfilerFtracePerCPUStats(data []byte) (profilerFtracePerCPUStats, er
 }
 
 func decodeProfilerFtraceCPUDetail(data []byte) (profilerFtraceCPUDetail, error) {
-	var detail profilerFtraceCPUDetail
+	detail := profilerFtraceCPUDetail{EventFieldCounts: map[int]int{}}
 	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
 		switch field {
 		case 1:
@@ -564,6 +642,13 @@ func decodeProfilerFtraceCPUDetail(data []byte) (profilerFtraceCPUDetail, error)
 		case 2:
 			if wire == 2 {
 				detail.EventCount++
+				fields, err := decodeProfilerFtraceEventFields(raw)
+				if err != nil {
+					return err
+				}
+				for _, eventField := range fields {
+					detail.EventFieldCounts[eventField]++
+				}
 			}
 		case 3:
 			if wire == 0 {
@@ -574,6 +659,24 @@ func decodeProfilerFtraceCPUDetail(data []byte) (profilerFtraceCPUDetail, error)
 		return nil
 	})
 	return detail, err
+}
+
+func decodeProfilerFtraceEventFields(data []byte) ([]int, error) {
+	var fields []int
+	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+		switch field {
+		case 1, 2, 3, 50:
+			return nil
+		default:
+			if field >= 100 && wire == 2 {
+				fields = append(fields, field)
+			}
+		}
+		_ = raw
+		_ = v
+		return nil
+	})
+	return fields, err
 }
 
 func decodeProfilerFtraceSymbolDetail(data []byte) (profilerFtraceSymbolDetail, error) {
@@ -686,6 +789,10 @@ func profilerFtraceSummaryCaveat(summary profilerFtraceSummary) string {
 		parts = append(parts, fmt.Sprintf("structured_event_records=%d", summary.DetailEventCount))
 		parts = append(parts, fmt.Sprintf("detail_overwrite=%d", summary.DetailOverwrite))
 	}
+	if len(summary.EventFieldCounts) > 0 {
+		parts = append(parts, "event_families="+joinStringCounts(profilerFtraceEventFamilyCounts(summary.EventFieldCounts)))
+		parts = append(parts, "event_names="+joinStringCounts(profilerFtraceEventNameCounts(summary.EventFieldCounts)))
+	}
 	if summary.SymbolCount > 0 {
 		parts = append(parts, fmt.Sprintf("symbols=%d", summary.SymbolCount))
 		if len(summary.SymbolExamples) > 0 {
@@ -696,6 +803,32 @@ func profilerFtraceSummaryCaveat(summary profilerFtraceSummary) string {
 		parts = append(parts, "clock_details="+strings.Join(summary.ClockDetails, ","))
 	}
 	return "ftrace-plugin structured metadata: " + strings.Join(parts, "; ")
+}
+
+func profilerFtraceEventFamilyCounts(counts map[int]int) map[string]int {
+	out := map[string]int{}
+	for field, count := range counts {
+		desc, ok := profilerFtraceEventDescriptors[field]
+		if !ok {
+			out["unknown"] += count
+			continue
+		}
+		out[desc.Family] += count
+	}
+	return out
+}
+
+func profilerFtraceEventNameCounts(counts map[int]int) map[string]int {
+	out := map[string]int{}
+	for field, count := range counts {
+		desc, ok := profilerFtraceEventDescriptors[field]
+		if !ok {
+			out[fmt.Sprintf("event_field_%d", field)] += count
+			continue
+		}
+		out[desc.Name] += count
+	}
+	return out
 }
 
 func joinStringCounts(values map[string]int) string {
