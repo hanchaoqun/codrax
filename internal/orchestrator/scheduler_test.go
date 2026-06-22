@@ -227,6 +227,107 @@ func TestGraphState_NodeReadinessUsesTypedAuthority(t *testing.T) {
 	}
 }
 
+func TestGraphState_NodeReadinessViewProjectsSchedulerAuthority(t *testing.T) {
+	t.Run("hard dependency wait", func(t *testing.T) {
+		s := newGraphState(smallChainGraph())
+		view, err := s.nodeReadinessViewContext(context.Background(), &s.graph.Nodes[1], emptyEnv())
+		if err != nil {
+			t.Fatalf("nodeReadinessViewContext: %v", err)
+		}
+		if !view.Blocked || view.ReasonCode != types.NodeReadinessReasonWaitingDependency ||
+			strings.Join(view.WaitingOn, ",") != "n0" {
+			t.Fatalf("waiting dependency view mismatch: %+v", view)
+		}
+	})
+	t.Run("failed hard dependency", func(t *testing.T) {
+		s := newGraphState(smallChainGraph())
+		s.markFailed("n0")
+		view, err := s.nodeReadinessViewContext(context.Background(), &s.graph.Nodes[1], emptyEnv())
+		if err != nil {
+			t.Fatalf("nodeReadinessViewContext: %v", err)
+		}
+		if !view.Blocked || view.ReasonCode != types.NodeReadinessReasonFailedDependency ||
+			strings.Join(view.FailedPredecessors, ",") != "n0" {
+			t.Fatalf("failed dependency view mismatch: %+v", view)
+		}
+	})
+	t.Run("entry condition", func(t *testing.T) {
+		g := smallChainGraph()
+		g.Nodes[1].EntryConditions = []types.Criterion{{Kind: types.CritHasEnoughFacts}}
+		s := newGraphState(g)
+		s.markRunning("n0")
+		s.markDone("n0")
+		view, err := s.nodeReadinessViewContext(context.Background(), &s.graph.Nodes[1], emptyEnv())
+		if err != nil {
+			t.Fatalf("nodeReadinessViewContext: %v", err)
+		}
+		if !view.Blocked || view.ReasonCode != types.NodeReadinessReasonEntryCondition ||
+			len(view.FailedCriteria) != 1 || view.FailedCriteria[0].Kind != string(types.CritHasEnoughFacts) {
+			t.Fatalf("entry-condition view mismatch: %+v", view)
+		}
+	})
+	t.Run("optional dependency silence", func(t *testing.T) {
+		g := smallChainGraph()
+		optional := types.TaskNode{
+			ID:       "n_opt_after_probe",
+			Type:     types.NodeProbe,
+			Optional: true,
+		}
+		g.Nodes = append([]types.TaskNode{optional}, g.Nodes...)
+		g.Edges = append(g.Edges, types.TaskEdge{From: "n0", To: "n_opt_after_probe", EdgeType: types.EdgeHardDependency})
+		s := newGraphState(g)
+		view, err := s.nodeReadinessViewContext(context.Background(), &s.graph.Nodes[0], emptyEnv())
+		if err != nil {
+			t.Fatalf("nodeReadinessViewContext: %v", err)
+		}
+		if !view.Skip || view.Blocked || view.ReasonCode != types.NodeReadinessReasonWaitingDependency ||
+			strings.Join(view.WaitingOn, ",") != "n0" {
+			t.Fatalf("optional wait view mismatch: %+v", view)
+		}
+	})
+	t.Run("max retries exhausted", func(t *testing.T) {
+		g := types.TaskGraph{Nodes: []types.TaskNode{{ID: "n0", Type: types.NodeEvidence, MaxRetries: 1}}}
+		s := newGraphState(g)
+		s.markRunning("n0")
+		s.requeue("n0")
+		s.markRunning("n0")
+		s.requeue("n0")
+		view, err := s.nodeReadinessViewContext(context.Background(), &s.graph.Nodes[0], emptyEnv())
+		if err != nil {
+			t.Fatalf("nodeReadinessViewContext: %v", err)
+		}
+		if !view.Blocked || view.ReasonCode != types.NodeReadinessReasonMaxRetriesExhausted ||
+			view.AttemptsUsed != 2 || view.MaxAttempts != 2 {
+			t.Fatalf("max-retries view mismatch: %+v", view)
+		}
+	})
+	t.Run("closure seeded status and attempts", func(t *testing.T) {
+		s := newGraphState(smallChainGraph())
+		closure := types.NewEvidenceClosure("")
+		closure.SetNodeExecStatus("n0", types.NodeExecDone)
+		closure.SetNodeExecAttempts(map[string]int{"n1": 2})
+		s.attachEvidenceClosure(closure)
+		s.status = map[string]nodeStatus{"n0": nodePending, "n1": nodeRequeued}
+		view, err := s.nodeReadinessViewContext(context.Background(), &s.graph.Nodes[1], emptyEnv())
+		if err != nil {
+			t.Fatalf("nodeReadinessViewContext: %v", err)
+		}
+		if !view.Ready || view.Status != types.NodeExecPending || view.AttemptsUsed != 2 ||
+			view.ReasonCode != types.NodeReadinessReasonReady {
+			t.Fatalf("closure-seeded view mismatch: %+v", view)
+		}
+	})
+}
+
+func TestGraphState_NodeReadinessViewPropagatesCancellation(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.nodeReadinessViewContext(ctx, &s.graph.Nodes[0], emptyEnv()); err == nil {
+		t.Fatal("nodeReadinessViewContext must report cancellation")
+	}
+}
+
 func TestGraphState_NodeAttemptAuthorityIncrementsAndAttaches(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	s.markRunning("n0")

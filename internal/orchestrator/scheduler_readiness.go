@@ -40,6 +40,30 @@ type nodeReadiness struct {
 	MaxAttempts        int
 }
 
+func (r nodeReadiness) toView() types.NodeReadinessView {
+	failures := make([]types.NodeReadinessCriterionFailure, 0, len(r.FailedCriteria))
+	for _, failed := range r.FailedCriteria {
+		failures = append(failures, types.NodeReadinessCriterionFailure{
+			Kind:   string(failed.Kind),
+			Expr:   failed.Expr,
+			Detail: failed.Detail,
+		})
+	}
+	return types.NormalizeNodeReadinessView(types.NodeReadinessView{
+		NodeID:             r.NodeID,
+		Status:             nodeStatusToExecStatus(r.Status),
+		Ready:              r.Ready,
+		Blocked:            r.Blocked,
+		Skip:               r.Skip,
+		ReasonCode:         types.NodeReadinessReasonCode(r.ReasonCode),
+		WaitingOn:          append([]string(nil), r.WaitingOn...),
+		FailedPredecessors: append([]string(nil), r.FailedPredecessors...),
+		FailedCriteria:     failures,
+		AttemptsUsed:       r.AttemptsUsed,
+		MaxAttempts:        r.MaxAttempts,
+	})
+}
+
 func (r nodeReadiness) toNodeBlock() nodeBlock {
 	return nodeBlock{
 		NodeID:                 r.NodeID,
@@ -124,6 +148,14 @@ func (s *graphState) evaluateNodeReadinessContext(ctx context.Context, n *types.
 	out.Ready = true
 	out.ReasonCode = nodeReadinessReasonReady
 	return out, nil
+}
+
+func (s *graphState) nodeReadinessViewContext(ctx context.Context, n *types.TaskNode, env criterion.Env) (types.NodeReadinessView, error) {
+	readiness, err := s.evaluateNodeReadinessContext(ctx, n, env)
+	if err != nil {
+		return types.NodeReadinessView{}, err
+	}
+	return readiness.toView(), nil
 }
 
 func maxDispatchAttemptsForNode(n *types.TaskNode) int {
