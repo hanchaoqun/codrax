@@ -441,6 +441,22 @@ Exit criteria:
 
 Status: planned.
 
+Detailed execution plan:
+`docs/design/hitrace_builtin_modern_parser_batch5_full_compat_plan_20260623.md`
+
+Compatibility bar:
+
+- This batch is not an MVP text exporter. It is complete only when the built-in
+  modern parser preserves the same trace_query-facing contract as the
+  trace_streamer DB exporter for supported event families.
+- `ftrace-plugin` structured payloads cannot remain summary-only for event
+  families consumed by root-cause analysis. Unsupported families must be
+  represented as typed coverage/partial results, not header-only systrace rows.
+- Text/session payload extraction must use bounded ordering through the shared
+  spillable row sink.
+- Tests must mirror hmtrace-style comprehensive fixtures and verify
+  trace_query round-trip semantics, not only non-empty output.
+
 Tasks:
 
 - Refactor current `tryConvertProfilerContainer` into the modern builtin lane.
@@ -455,6 +471,11 @@ Exit criteria:
 
 - Builtin conversion handles modern text/profiler payloads without legacy
   segment parser fallback.
+- Modern parser tracebundle output exposes machine-readable coverage, provider
+  decisions, sorter stats, and partial-vs-query-ready state.
+- Structured ftrace decoding/rendering covers the DB exporter event families
+  that `trace_query` uses for scheduler, wakeup, CPU, binder, IRQ, IO, trace
+  marker, frame, and perf-informed running analysis.
 
 ### Batch 6: Sys Binary Parity Gate and Retirement
 
