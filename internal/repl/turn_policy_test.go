@@ -394,6 +394,45 @@ func TestApplyTurnPolicyGuards(t *testing.T) {
 			wantNeedsRepo:  false,
 		},
 		{
+			name: "clarify + fresh investigate + no prior → repo safe default",
+			in: TurnPolicy{
+				Route:      RouteClarify,
+				Operation:  "investigate",
+				Source:     "current_message",
+				Confidence: 0.74,
+				Reason:     "current system not named",
+			},
+			hasPriorAnswer: false,
+			wantRoute:      RouteRepo,
+			wantNeedsRepo:  true,
+		},
+		{
+			name: "clarify + missing-prior transform remains clarify",
+			in: TurnPolicy{
+				Route:      RouteClarify,
+				Operation:  "transform",
+				Source:     "last_answer",
+				Confidence: 0.9,
+			},
+			hasPriorAnswer: false,
+			wantRoute:      RouteClarify,
+			wantNeedsRepo:  false,
+		},
+		{
+			name: "clarify + confirmation operation remains clarify",
+			in: TurnPolicy{
+				Route:                RouteClarify,
+				Operation:            "investigate",
+				Source:               "current_message",
+				RiskLevel:            "high",
+				RequiresConfirmation: true,
+				Confidence:           0.8,
+			},
+			hasPriorAnswer: false,
+			wantRoute:      RouteClarify,
+			wantNeedsRepo:  false,
+		},
+		{
 			name: "directive over the cap is truncated with ellipsis",
 			in: TurnPolicy{
 				Route:                 RouteLocal,
@@ -851,6 +890,9 @@ func TestClassifyPolicy_LocalTransform(t *testing.T) {
 	}
 	if !strings.Contains(user, "## last_answer_present: true") {
 		t.Errorf("user content must carry last_answer_present=true; got %q", user)
+	}
+	if !strings.Contains(user, "## current_repository_available: true") {
+		t.Errorf("user content must carry repository availability; got %q", user)
 	}
 	if !strings.Contains(user, "## priorTurn:") {
 		t.Errorf("user content must carry priorTurn header; got %q", user)

@@ -375,6 +375,15 @@ The seven routes:
             without changing files, use repo, not write. If the user asks for
             a non-code computer/artifact workflow, use operation.
 
+Current repository context:
+  This is a code-analysis REPL with a current repository available.
+  Fresh questions about the current project/system/codebase should use
+  route=repo even when the user does not spell out the project name.
+  Do NOT choose clarify merely because last_answer_present=false or
+  because the current system/project name is omitted. The missing-prior
+  signal only applies when the turn asks to transform, summarize,
+  translate, or elaborate a previous answer that does not exist.
+
 needs_repo_access is true iff route ∈ {repo, hybrid, write}, or
 route=operation needs fresh repository facts before producing an artifact.
 The dispatcher re-checks this and corrects mismatches.
@@ -686,6 +695,7 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 	} else {
 		b.WriteString("## last_answer_present: false\n\n")
 	}
+	b.WriteString("## current_repository_available: true\n\n")
 	b.WriteString("## current: ")
 	b.WriteString(userLine)
 
@@ -1231,6 +1241,31 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 		}
 	}
 
+	// Clarify is a narrow route, not a generic "missing project name" escape
+	// hatch. In the REPL the current repository is the default subject for
+	// fresh investigation. Preserve clarify only for structural cases the
+	// dispatcher can actually fix by asking the user: a previous-answer
+	// transform when no previous answer exists, or an operation/confirmation
+	// shape that needs user input before any tool/pipeline should run. Any
+	// other clarify drift falls back to repo, matching the classifier's
+	// fail-safe contract without reading user prose or model rationale.
+	if p.Route == RouteClarify && !clarifyPolicyHasStructuralReason(p, hasPriorAnswer) {
+		p.Route = RouteRepo
+		p.NeedsRepoAccess = true
+		p.NeedsOperationAccess = false
+		p.NeedsDataAccess = false
+		if strings.TrimSpace(p.Operation) == "" || p.Operation == "chat" {
+			p.Operation = "investigate"
+		}
+		if strings.TrimSpace(p.Source) == "" || p.Source == "current_message" {
+			p.Source = "repo"
+		}
+		p.RiskLevel = "none"
+		p.SideEffects = nil
+		p.TargetSurface = ""
+		p.RequiresConfirmation = false
+	}
+
 	// Missing prior-answer guard. When the LLM picks a route that
 	// references the previous answer (transform / summarize /
 	// translate / elaborate of "上面的") but no prior answer
@@ -1352,6 +1387,36 @@ func hasOperationSignal(p TurnPolicy) bool {
 
 func hasWriteSignal(p TurnPolicy) bool {
 	return strings.TrimSpace(p.Operation) == "code_change"
+}
+
+func clarifyPolicyHasStructuralReason(p TurnPolicy, hasPriorAnswer bool) bool {
+	if !hasPriorAnswer && policyReferencesPriorAnswer(p) {
+		return true
+	}
+	if p.RequiresConfirmation {
+		return true
+	}
+	switch strings.TrimSpace(p.RiskLevel) {
+	case "medium", "high":
+		return true
+	}
+	if hasConcreteSideEffect(p.SideEffects) {
+		return true
+	}
+	return false
+}
+
+func policyReferencesPriorAnswer(p TurnPolicy) bool {
+	switch strings.TrimSpace(p.Source) {
+	case "last_answer":
+		return true
+	}
+	switch strings.TrimSpace(p.Operation) {
+	case "transform", "summarize", "translate", "elaborate":
+		return true
+	default:
+		return false
+	}
 }
 
 // IsConcreteOperationPolicy reports whether a guarded TurnPolicy carries enough
