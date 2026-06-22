@@ -381,6 +381,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Success:      true,
 			Summary:      summary,
 			RawRef:       ref,
+			Refinement:   repoMapSourceInventoryRefinement(observation, lensQuery),
 			Observations: repoMapNavigationTypedObservation(p.View, ref, output, now),
 			Timestamp:    now,
 		}, nil
@@ -1448,6 +1449,116 @@ func prependRepoMapBudgetGuardAdvisory(output string, advisories []string) strin
 	b.WriteString("\n")
 	b.WriteString(output)
 	return b.String()
+}
+
+func repoMapSourceInventoryRefinement(observation ctypes.SourceInventoryObservation, query ctypes.SourceInventoryLensQuery) *ctypes.ToolRefinementHint {
+	if !observation.IsActive() {
+		return nil
+	}
+	candidateBudgetTruncated := sourceInventoryProvenanceContains(observation.Provenance, "repo_lens:candidate_budget_truncated")
+	if observation.Execution != nil && observation.Execution.CandidateBudgetTruncated {
+		candidateBudgetTruncated = true
+	}
+	nextCursor := ""
+	pageIncomplete := false
+	if observation.Page != nil {
+		nextCursor = strings.TrimSpace(observation.Page.NextCursor)
+		pageIncomplete = !observation.Page.Complete && nextCursor != ""
+	}
+	if !candidateBudgetTruncated && !pageIncomplete {
+		return nil
+	}
+	reasonCode := "source_inventory_page_incomplete"
+	if candidateBudgetTruncated {
+		reasonCode = "source_inventory_candidate_budget_truncated"
+	}
+	hint := ctypes.ToolRefinementHint{
+		ReasonCode:               reasonCode,
+		CandidateBudgetTruncated: candidateBudgetTruncated,
+		NextCursor:               nextCursor,
+		TopSourceClasses:         repoMapSourceInventoryTopSourceClasses(observation.SourceClasses),
+		PreferredNextTool:        "repo_map",
+		PreferredParams: map[string]string{
+			"view":               "source_inventory",
+			"include_attributes": "false",
+		},
+	}
+	if path := strings.TrimSpace(query.Path); path != "" && !repoMapParamPathIsRoot(path) {
+		hint.PreferredParams["path"] = path
+	}
+	if roles := repoMapSourceInventoryRolesParam(query.Roles); roles != "" {
+		hint.PreferredParams["roles"] = roles
+	}
+	if scopes := repoMapSourceInventoryScopesParam(query.Scopes); scopes != "" {
+		if strings.Contains(scopes, ",") {
+			hint.PreferredParams["scopes"] = scopes
+		} else {
+			hint.PreferredParams["scope"] = scopes
+		}
+	}
+	if candidateBudgetTruncated && repoMapSourceInventoryQueryIsBroad(query) {
+		hint.RequiredFields = []string{"scope"}
+		delete(hint.PreferredParams, "scope")
+		delete(hint.PreferredParams, "scopes")
+	} else if nextCursor != "" {
+		hint.PreferredParams["cursor"] = nextCursor
+	}
+	if query.TopN > 0 {
+		hint.PreferredParams["top_n"] = fmt.Sprintf("%d", query.TopN)
+	}
+	return &hint
+}
+
+func sourceInventoryProvenanceContains(provenance []string, want string) bool {
+	for _, value := range provenance {
+		if strings.TrimSpace(value) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func repoMapSourceInventoryTopSourceClasses(counts []ctypes.SourceInventorySourceClassCount) []ctypes.SourcePathRole {
+	out := make([]ctypes.SourcePathRole, 0, len(counts))
+	seen := map[ctypes.SourcePathRole]bool{}
+	for _, count := range counts {
+		if count.Role == "" || count.Count <= 0 || seen[count.Role] {
+			continue
+		}
+		seen[count.Role] = true
+		out = append(out, count.Role)
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
+}
+
+func repoMapSourceInventoryRolesParam(roles []ctypes.AnswerCandidateRole) string {
+	parts := make([]string, 0, len(roles))
+	seen := map[ctypes.AnswerCandidateRole]bool{}
+	for _, role := range roles {
+		if role == "" || seen[role] {
+			continue
+		}
+		seen[role] = true
+		parts = append(parts, string(role))
+	}
+	return strings.Join(parts, ",")
+}
+
+func repoMapSourceInventoryScopesParam(scopes []string) string {
+	parts := make([]string, 0, len(scopes))
+	seen := map[string]bool{}
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" || repoMapParamPathIsRoot(scope) || seen[scope] {
+			continue
+		}
+		seen[scope] = true
+		parts = append(parts, scope)
+	}
+	return strings.Join(parts, ",")
 }
 
 // repoMapUnknownViewRejection is the typed refusal for a view value
