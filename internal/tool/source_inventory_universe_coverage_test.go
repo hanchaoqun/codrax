@@ -1649,6 +1649,66 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_BlocksUncoveredSa
 	}
 }
 
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_PrincipalAggregateFamilyIgnoresSupportLanguageDebt(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMemberWithLanguage("runRoot", types.AnswerCandidateRoleFunction, "cmd/root.go", 10, "go"),
+		sourceInventoryRequestedUniverseMemberWithLanguage("parseCangjie", types.AnswerCandidateRoleFunction, "internal/tool/repomap/index/cangjie_parser.go", 20, "go"),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   3,
+		Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"},
+	}, {
+		Role:    types.SourcePathRoleThirdParty,
+		Count:   8,
+		Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"},
+	}, {
+		Role:    types.SourcePathRoleProduction,
+		Count:   155,
+		Samples: []string{"cmd/root.go", "internal/tool/repomap/index/cangjie_parser.go"},
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"runOnMainThread @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:12",
+		},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("line-backed principal source-family coverage should not be blocked by non-intersecting support-language inventory debt")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_PrincipalAggregateFamilyBlocksMissingSameLanguageClass(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMemberWithLanguage("runRoot", types.AnswerCandidateRoleFunction, "cmd/root.go", 10, "go"),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   3,
+		Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"},
+	}, {
+		Role:    types.SourcePathRoleThirdParty,
+		Count:   8,
+		Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"},
+	}, {
+		Role:    types.SourcePathRoleProduction,
+		Count:   155,
+		Samples: []string{"cmd/root.go"},
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "principal source constructs",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		},
+	}}
+	if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("principal source-family coverage must still block when a same-language source class remains uncovered")
+	}
+}
+
 func TestSourceInventoryAcceptedClosureCoversExactUniverse_RequiresFullCoverage(t *testing.T) {
 	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
 	partial := []types.AnswerAggregateFact{{
@@ -1786,6 +1846,10 @@ func sourceInventoryRequestedUniverseTestContext(members []types.SourceInventory
 }
 
 func sourceInventoryRequestedUniverseMember(name string, role types.AnswerCandidateRole, file string, line int) types.SourceInventoryObservationMember {
+	return sourceInventoryRequestedUniverseMemberWithLanguage(name, role, file, line, "cangjie")
+}
+
+func sourceInventoryRequestedUniverseMemberWithLanguage(name string, role types.AnswerCandidateRole, file string, line int, language string) types.SourceInventoryObservationMember {
 	return types.SourceInventoryObservationMember{
 		Name:          name,
 		Key:           name,
@@ -1794,7 +1858,7 @@ func sourceInventoryRequestedUniverseMember(name string, role types.AnswerCandid
 		Role:          role,
 		File:          file,
 		Line:          line,
-		Language:      "cangjie",
+		Language:      language,
 		CoverageState: types.SourceInventoryCoverageObserved,
 	}
 }

@@ -31,6 +31,7 @@ func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext
 		return false
 	}
 	roleSet := sourceInventoryRequestedUniverseRoleSet(rm, observation)
+	aggregateFamily := sourceInventoryAggregatePrincipalSourceFamily(facts, &rm)
 	covered := sourceInventoryRequestedUniverseFamily{
 		languages: map[string]bool{},
 		classes:   map[types.SourcePathRole]bool{},
@@ -47,7 +48,7 @@ func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext
 		}
 	}
 	if len(covered.languages) == 0 && len(covered.classes) == 0 {
-		return false
+		return sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation, aggregateFamily)
 	}
 	for _, universe := range universes {
 		if !sourceInventoryRequestedUniverseRoleAllowed(roleSet, universe.role) ||
