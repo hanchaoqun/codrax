@@ -8696,7 +8696,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 			Kind:       render.EventOrchestratorNotice,
 			Timestamp:  time.Now(),
 			Agent:      "orchestrator",
-			NoticeKind: render.NoticeRetry,
+			NoticeKind: softAgentOutputRetryNoticeKind(o.busCtx.PipelineStage, output.MissingPiece),
 			Reasoning:  softAgentOutputRetryMessage(o.busCtx, o.busCtx.Language, o.busCtx.PipelineStage, output.MissingPiece),
 		})
 	}

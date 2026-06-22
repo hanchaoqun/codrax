@@ -1964,6 +1964,11 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		NoticeRepoMapScanStart,
 		NoticeRepoMapScanProgress:
 		return statusObjective
+	case NoticeInvestigationSupplement:
+		// Missing-facts continuation is expected read-loop progress,
+		// not a transport/model retry. Keep it muted so the active
+		// forced-read / stage-start row owns the user's attention.
+		return statusMeta
 	case NoticeMultiRepoScanOK, NoticeRepoMapScanOK:
 		// Match the canonical glyphSuccess (✓) / statusSuccessMuted
 		// (FgGreen) pairing already used by the dock state row's

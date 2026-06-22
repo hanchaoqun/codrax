@@ -315,16 +315,23 @@ func softAgentOutputRetryMessage(bus *types.BusContext, lang string, stage types
 	if stage == types.StageExplore && missing == types.MissingFacts {
 		if preferZhMessage(lang) {
 			if exploreRuntimeTraceContinuationLikely(bus, nil) || exploreChainContinuationLikely(bus) {
-				return "⟳ 继续上次调查，沿已定位线索补齐关键链路"
+				return "· 继续上次调查，补强关键链路"
 			}
-			return "⟳ 正在补充关键信息"
+			return "· 证据仍需补强，准备补读"
 		}
 		if exploreRuntimeTraceContinuationLikely(bus, nil) || exploreChainContinuationLikely(bus) {
-			return "⟳ Continuing the prior investigation from located clues"
+			return "· Continuing the prior investigation from located clues"
 		}
-		return "⟳ Filling in key context"
+		return "· Evidence needs strengthening; scheduling follow-up reads"
 	}
 	return softRetryHintMessage(lang)
+}
+
+func softAgentOutputRetryNoticeKind(stage types.PipelineStage, missing types.MissingPiece) render.OrchestratorNoticeKind {
+	if stage == types.StageExplore && missing == types.MissingFacts {
+		return render.NoticeInvestigationSupplement
+	}
+	return render.NoticeRetry
 }
 
 // softInvestigationReadyMessage renders the user-visible line for

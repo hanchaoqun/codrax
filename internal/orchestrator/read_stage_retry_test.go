@@ -6,6 +6,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/loopkernel"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -368,5 +369,11 @@ func TestSoftAgentOutputRetryMessageRuntimeContinuationLocalized(t *testing.T) {
 	got := softAgentOutputRetryMessage(bus, "zh", types.StageExplore, types.MissingFacts)
 	if !strings.Contains(got, "继续上次调查") {
 		t.Fatalf("runtime retry UX should indicate continuation, got %q", got)
+	}
+	if strings.Contains(got, "⟳") {
+		t.Fatalf("missing-facts continuation should use a muted glyph, got %q", got)
+	}
+	if kind := softAgentOutputRetryNoticeKind(types.StageExplore, types.MissingFacts); kind != render.NoticeInvestigationSupplement {
+		t.Fatalf("missing-facts continuation notice kind = %v, want NoticeInvestigationSupplement", kind)
 	}
 }

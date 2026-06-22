@@ -283,6 +283,7 @@ const (
 	NoticeSelfConsistencyContradictionLogged // contradictions found, NOT rewriting (advisory only)
 	NoticeFinalizeRepairCap                  // P6/P7 (2026-05-10) — finalize repair-loop hard cap reached; ship doc + residual-concerns caveat (info-class ·)
 	NoticeLowGrounding                       // evidence groundedness below advisory profile floor; run continues
+	NoticeInvestigationSupplement            // explore missing-facts continuation (info-class ·)
 
 	// progress-class — cyan › (forward milestone / current work, not retry)
 	NoticeInvestigationReady // explorer signaled investigation_complete

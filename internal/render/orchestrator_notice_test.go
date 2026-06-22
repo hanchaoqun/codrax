@@ -40,6 +40,7 @@ func TestFormatOrchestratorNotice_BodyPreserved(t *testing.T) {
 	}{
 		{NoticeRetry, "⟳ 正在补齐调查证据"},
 		{NoticeForcedRead, "› 正在补充关键信息"},
+		{NoticeInvestigationSupplement, "· 证据仍需补强，准备补读"},
 		{NoticeConvergenceStall, "– 根据已有线索作答"},
 		{NoticeInvestigationReady, "› 调查就绪，准备作答"},
 		{NoticeAbandonRead, "⊘ 跳过 `foo.go` (does not exist), 继续推进"},
@@ -78,6 +79,7 @@ func TestFormatOrchestratorNotice_ColorByBucket(t *testing.T) {
 		{"no-tool-call", NoticeNoToolCall, statusRecoverable.Sprint(body)},
 
 		// info-class
+		{"investigation-supplement", NoticeInvestigationSupplement, statusMeta.Sprint(body)},
 		{"convergence-stall", NoticeConvergenceStall, statusMeta.Sprint(body)},
 		{"abandon-read", NoticeAbandonRead, statusMeta.Sprint(body)},
 		{"upstream-cap", NoticeUpstreamCap, statusMeta.Sprint(body)},
