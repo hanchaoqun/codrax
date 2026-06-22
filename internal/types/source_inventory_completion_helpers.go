@@ -13,7 +13,7 @@ func sourceInventoryCompletionObservationIncomplete(observation SourceInventoryO
 		return true
 	}
 	for _, set := range observation.Sets {
-		if !set.Complete {
+		if sourceInventoryObservationSetBlocksCompleteness(set) {
 			return true
 		}
 	}
@@ -23,7 +23,7 @@ func sourceInventoryCompletionObservationIncomplete(observation SourceInventoryO
 func sourceInventoryCompletionIncompleteSets(observation SourceInventoryObservation) []AnswerCandidateRole {
 	var out []AnswerCandidateRole
 	for _, set := range observation.Sets {
-		if set.Complete || set.Role == "" || set.Role == AnswerCandidateRoleUnknown {
+		if !sourceInventoryObservationSetBlocksCompleteness(set) || set.Role == "" || set.Role == AnswerCandidateRoleUnknown {
 			continue
 		}
 		out = append(out, set.Role)

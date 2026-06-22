@@ -140,6 +140,98 @@ func TestSourceInventoryObservation_CloneAndMergePreservesCountInvariant(t *test
 	}
 }
 
+func TestSourceInventoryObservation_MergeCompleteLensSupersedesEarlierTruncatedSameScope(t *testing.T) {
+	prior := SourceInventoryObservation{
+		Active:     true,
+		Complete:   false,
+		Scopes:     []string{"."},
+		Provenance: []string{"repo_lens:tool_query", "repo_lens:candidate_budget_truncated"},
+		Lens:       []string{"source_inventory", "count"},
+		Page: &SourceInventoryObservationPage{
+			Offset:     0,
+			Limit:      1,
+			Total:      2,
+			Emitted:    1,
+			NextCursor: "1",
+			Complete:   false,
+		},
+		Execution: &SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: false,
+			Total:    2,
+			Members: []SourceInventoryObservationMember{{
+				Name: "defaultHeader",
+				Key:  "defaultHeader",
+				Role: AnswerCandidateRoleFunction,
+				File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+				Line: 8,
+			}, {
+				Name: "GlobalCard",
+				Key:  "GlobalCard",
+				Role: AnswerCandidateRoleFunction,
+				File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+				Line: 26,
+			}},
+		}, {
+			Role:     AnswerCandidateRoleMethod,
+			Complete: false,
+		}},
+	}
+	current := SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"."},
+		Provenance: []string{"repo_lens:tool_query"},
+		Lens:       []string{"source_inventory", "count"},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: true,
+			Total:    2,
+			Members: []SourceInventoryObservationMember{{
+				Name: "defaultHeader",
+				Key:  "defaultHeader",
+				Role: AnswerCandidateRoleFunction,
+				File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+				Line: 8,
+			}, {
+				Name: "GlobalCard",
+				Key:  "GlobalCard",
+				Role: AnswerCandidateRoleFunction,
+				File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+				Line: 26,
+			}},
+		}},
+	}
+
+	merged := MergeSourceInventoryObservation(prior, current)
+	if !merged.Complete {
+		t.Fatalf("complete same-scope rerun should clear stale incomplete state: %+v", merged)
+	}
+	if merged.Page != nil {
+		t.Fatalf("complete rerun should clear stale pagination debt: %+v", merged.Page)
+	}
+	if merged.Execution != nil && merged.Execution.CandidateBudgetTruncated {
+		t.Fatalf("complete rerun should clear stale candidate-budget debt: %+v", merged.Execution)
+	}
+	var functionSet SourceInventoryObservationSet
+	for _, set := range merged.Sets {
+		if set.Role == AnswerCandidateRoleFunction {
+			functionSet = set
+			break
+		}
+	}
+	if !functionSet.Complete || functionSet.Count != 2 {
+		t.Fatalf("function set should be complete after covering rerun: %+v", functionSet)
+	}
+	if sourceInventoryCompletionObservationIncomplete(merged) {
+		t.Fatalf("merged observation should not be completion-incomplete: %+v", merged)
+	}
+}
+
 func TestSourceInventoryObservation_ClassUniverseCanBeActiveWithoutMemberRows(t *testing.T) {
 	classOnly := SourceInventoryObservation{
 		Active:       true,
@@ -218,6 +310,64 @@ func TestSourceInventoryObservation_SourceClassSamplesCloneMergeAndNormalize(t *
 	}
 	if merged.SourceClasses[0].Count != 3 {
 		t.Fatalf("merged count = %d, want 3", merged.SourceClasses[0].Count)
+	}
+}
+
+func TestSourceInventoryObservation_SourceClassCompletenessCanBeSuperseded(t *testing.T) {
+	prior := SourceInventoryObservation{
+		Active: true,
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:     SourcePathRoleThirdParty,
+			Count:    3,
+			Complete: false,
+			Samples:  []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/01_basic.cj"},
+		}},
+	}
+	current := SourceInventoryObservation{
+		Active: true,
+		SourceClasses: []SourceInventorySourceClassCount{{
+			Role:     SourcePathRoleThirdParty,
+			Count:    3,
+			Complete: true,
+			Samples:  []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj"},
+		}},
+	}
+
+	merged := MergeSourceInventoryObservation(prior, current)
+	if len(merged.SourceClasses) != 1 || !merged.SourceClasses[0].Complete {
+		t.Fatalf("equal-or-broader complete source-class census should supersede old incomplete row: %+v", merged.SourceClasses)
+	}
+}
+
+func TestSourceInventoryCompletionObservationIncompleteIgnoresZeroCountRole(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Lens:     []string{"source_inventory", "count"},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{{
+				Name: "GlobalCard",
+				Key:  "GlobalCard",
+				Role: AnswerCandidateRoleFunction,
+				File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets",
+				Line: 26,
+			}},
+		}, {
+			Role:     AnswerCandidateRoleMethod,
+			Complete: false,
+			Count:    0,
+			Total:    0,
+		}},
+	}
+
+	if sourceInventoryCompletionObservationIncomplete(obs) {
+		t.Fatalf("zero-count incomplete role must not block completion: %+v", obs)
+	}
+	if got := sourceInventoryCompletionIncompleteSets(obs); len(got) != 0 {
+		t.Fatalf("zero-count incomplete role should not surface as follow-up role debt: %+v", got)
 	}
 }
 

@@ -42,16 +42,22 @@ func MergeSourceInventoryObservation(prior, current SourceInventoryObservation) 
 		merged.Page = cloneSourceInventoryObservationPage(current.Page)
 	}
 	merged.Execution = mergeSourceInventoryExecutionState(merged.Execution, current.Execution)
+	currentSupersedesPrior := sourceInventoryObservationSupersedesPrior(prior, current)
+	if currentSupersedesPrior {
+		merged.Page = cloneSourceInventoryObservationPage(current.Page)
+		merged.Execution = cloneSourceInventoryExecutionState(current.Execution)
+	}
 	byRole := make(map[AnswerCandidateRole]int, len(merged.Sets))
 	for i := range merged.Sets {
 		byRole[merged.Sets[i].Role] = i
 	}
 	for _, set := range current.Sets {
 		if idx, ok := byRole[set.Role]; ok {
-			merged.Sets[idx].Complete = merged.Sets[idx].Complete && set.Complete
+			previous := merged.Sets[idx]
 			merged.Sets[idx].Members = mergeSourceInventoryObservationMembers(merged.Sets[idx].Members, set.Members)
 			merged.Sets[idx].Count = len(merged.Sets[idx].Members)
 			merged.Sets[idx].Total = maxSourceInventoryObservationTotal(merged.Sets[idx].Total, set.Total, merged.Sets[idx].Count)
+			merged.Sets[idx].Complete = sourceInventoryObservationMergedSetComplete(previous, set, merged.Sets[idx])
 			continue
 		}
 		byRole[set.Role] = len(merged.Sets)
@@ -67,22 +73,12 @@ func MergeSourceInventoryObservation(prior, current SourceInventoryObservation) 
 		}
 		merged.Sets = append(merged.Sets, cloned)
 	}
+	if currentSupersedesPrior {
+		merged.Complete = true
+	} else {
+		merged.Complete = sourceInventoryObservationStructurallyComplete(merged)
+	}
 	return normalizeSourceInventoryObservation(merged)
-}
-
-func normalizeSourceInventoryObservation(in SourceInventoryObservation) SourceInventoryObservation {
-	in.SourceClasses = normalizeSourceInventorySourceClassCounts(in.SourceClasses)
-	if len(in.Sets) == 0 && len(in.SourceClasses) == 0 {
-		return SourceInventoryObservation{}
-	}
-	in.Active = true
-	for i := range in.Sets {
-		in.Sets[i].Count = len(in.Sets[i].Members)
-		if in.Sets[i].Total < in.Sets[i].Count {
-			in.Sets[i].Total = in.Sets[i].Count
-		}
-	}
-	return in
 }
 
 func cloneSourceInventoryObservationMembers(in []SourceInventoryObservationMember) []SourceInventoryObservationMember {

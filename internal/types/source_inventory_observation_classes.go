@@ -34,7 +34,7 @@ func mergeSourceInventorySourceClassCounts(existing, incoming []SourceInventoryS
 			if item.Count > out[idx].Count {
 				out[idx].Count = item.Count
 			}
-			out[idx].Complete = out[idx].Complete && item.Complete
+			out[idx].Complete = sourceInventoryMergedClassComplete(out[idx], item)
 			out[idx].Samples = mergeSourceInventoryAdvisoryStrings(out[idx].Samples, item.Samples)
 			out[idx].Provenance = mergeSourceInventoryAdvisoryStrings(out[idx].Provenance, item.Provenance)
 			continue

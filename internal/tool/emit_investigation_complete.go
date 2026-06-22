@@ -3799,11 +3799,11 @@ func sourceInventoryObservationResolvedCompletionIncomplete(observation types.So
 	if observation.Execution != nil && observation.Execution.CandidateBudgetTruncated {
 		return true
 	}
-	if observation.Page != nil && !observation.Page.Complete {
+	if observation.Page != nil && (!observation.Page.Complete || strings.TrimSpace(observation.Page.NextCursor) != "") {
 		return true
 	}
 	for _, set := range observation.Sets {
-		if !set.Complete {
+		if !set.Complete && (set.Count > 0 || set.Total > 0 || len(set.Members) > 0) {
 			return true
 		}
 	}
