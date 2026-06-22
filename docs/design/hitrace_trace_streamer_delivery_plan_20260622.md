@@ -894,7 +894,8 @@ Verification for Batch 6C2:
 
 Next slice: Batch 6C3 representative capture closure gate.
 
-Status: planned on 2026-06-23.
+Status: in progress on 2026-06-23; manifest/test helper slice delivered,
+with a redistributable real `.sys` fixture still pending.
 
 Current resource audit:
 
@@ -947,6 +948,28 @@ Exit criteria for Batch 6C3:
   validation, not converter parity proof.
 - Batch 6 remains open until a real redistributable no-perf `.sys` fixture is
   available and passes the helper.
+
+Delivered Batch 6C3 slice on 2026-06-23:
+
+- Added `internal/hitraceconv/testdata/representative_sys_traces/README.md`
+  to define the required manifest shape for future redistributable `.sys`
+  fixtures, including provenance, trace kind, SQL DB sidecar, coverage, and
+  trace_query event expectations.
+- Added `TestRepresentativeSysTraceFixtures`, a hermetic fixture gate that
+  consumes only committed relative manifest paths under
+  `internal/hitraceconv/testdata/representative_sys_traces`.
+- The helper runs SQL conversion through a deterministic trace DB sidecar when
+  present, supports explicit real trace_streamer validation through
+  `CODRAX_REPRESENTATIVE_TRACE_STREAMER` when no sidecar is committed, and runs
+  built-in parity only for `trace_kind=no_perf_sys` fixtures that request it.
+- With no committed real fixture, the test skips loudly and keeps Batch 6C3
+  open. It does not scan `/Users/han/opt/customlogs` or any developer-local
+  absolute path.
+
+Verification for Batch 6C3 slice:
+
+- `go test ./internal/hitraceconv -run TestRepresentativeSysTraceFixtures -count=1 -v`
+- `go test ./internal/hitraceconv`
 
 Verification for delivered slice:
 
