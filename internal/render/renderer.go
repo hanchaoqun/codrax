@@ -2591,7 +2591,7 @@ func previewLineLastSnippetCols(total int) int {
 // arrival) and refreshPreviewLineLocked (per-animation-tick when no
 // new chunk has fired). The leading glyph cycles through
 // spinnerFrames so the ticker visibly animates between chunks
-// instead of staring at a static `⟳`.
+// instead of staring at a static `↻`.
 //
 // Caller MUST hold r.mu.
 
@@ -2605,7 +2605,7 @@ func previewLineLastSnippetCols(total int) int {
 // stylePreviewLine applies the per-segment colour scheme to the
 // already-truncated ticker line. The split logic recognises:
 //   - leading "  " indent (uncoloured)
-//   - the ⟳ glyph (statusRecoverable)
+//   - the ↻ glyph (statusRecoverable)
 //   - the primary running phrase (statusPrimary)
 //   - the meta segment between the two " · " separators (statusMeta)
 //   - the trailing snippet (statusDetail)

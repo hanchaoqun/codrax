@@ -213,7 +213,7 @@ const (
 	// (retry-class yellow / info-class gray / progress-class cyan).
 	// Reasoning carries the localized message body produced by
 	// internal/orchestrator/user_messages.go (each helper already
-	// embeds its own ⟳/·/–/›/⊘ glyph; the renderer adds no further
+	// embeds its own ↻/·/–/›/⊘ glyph; the renderer adds no further
 	// prefix).
 	EventOrchestratorNotice
 )
@@ -259,7 +259,7 @@ const (
 type OrchestratorNoticeKind int
 
 const (
-	// retry-class — yellow ⟳ (actual retry / re-run / rewrite)
+	// retry-class — yellow ↻ (actual retry / re-run / rewrite)
 	NoticeRetry                                 OrchestratorNoticeKind = iota // generic stage retry hint
 	NoticeForcedRead                                                          // CGEC E2 forced-read fill (progress-class ›)
 	NoticeAnswerCheckRetry                                                    // post-finalize answer-contract backtrack
@@ -293,7 +293,7 @@ const (
 	// a sub-repo graph and one post-event on completion. The
 	// scan-end is split by outcome so the dock can colour the
 	// glyph correctly: success → green ✓, failure → red ✗.
-	// scan-start uses gray · (in-progress, NOT retry — ⟳ is
+	// scan-start uses gray · (in-progress, NOT retry — ↻ is
 	// reserved for retry semantics).
 	NoticeMultiRepoScanStart // · scan begins for one sub-repo
 	NoticeMultiRepoScanOK    // ✓ scan complete (success)
@@ -492,7 +492,7 @@ type Event struct {
 	//                 progress) controlling glyph color without
 	//                 parsing the message body. Reasoning carries
 	//                 the localized text (with its own embedded
-	//                 ⟳/·/–/›/⊘ glyph chosen by user_messages.go).
+	//                 ↻/·/–/›/⊘ glyph chosen by user_messages.go).
 	NoticeKind OrchestratorNoticeKind
 }
 

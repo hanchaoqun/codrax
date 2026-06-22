@@ -1032,9 +1032,9 @@ func chainAgentToolCallDelta(first, second func(int, string, string)) func(int, 
 func softNoToolCallMessage(lang string) string {
 	switch strings.ToLower(strings.TrimSpace(lang)) {
 	case "zh", "zh-cn", "cn", "chinese", "简体中文":
-		return "⟳ 模型未返回工具调用，重新发起请求"
+		return render.RecoverableNoticeGlyph + " 模型未返回工具调用，重新发起请求"
 	}
-	return "⟳ Model returned no tool call — re-prompting"
+	return render.RecoverableNoticeGlyph + " Model returned no tool call — re-prompting"
 }
 
 // softMidLoopCapMessage renders the dock notice the BaseAgent emits

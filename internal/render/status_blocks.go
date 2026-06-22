@@ -214,7 +214,7 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	case anyRecoverable && !allDone:
 		// At least one child is mid-recovery (errored, retry pending)
 		// while others are still running or queued — group reads as
-		// "retrying". Glyph below switches to ⟳ in lockstep so the
+		// "retrying". Glyph below switches to ↻ in lockstep so the
 		// header agrees: "evidence (retrying)" without lying about
 		// any single child's state.
 		state = stagePhraseRetry
@@ -236,7 +236,7 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	// Override Icon / IconStyle / State to follow the aggregated
 	// state, not topicRows[0] alone. Six branches keep glyph +
 	// primary text + primary colour in lockstep:
-	//   - anyRecoverable (mid-flight) → ⟳ yellow + retry text
+	//   - anyRecoverable (mid-flight) → ↻ yellow + retry text
 	//   - allDone + anyFailed → ✗ red + failed text + red primary
 	//   - allDone (no fail)   → ✓ green + done text + gray primary
 	//   - allParked → · dim + pending text + dark-gray primary
@@ -349,7 +349,7 @@ func topicDisplayText(row *taskRow) string {
 // Six cases drive the result:
 //
 //  1. fatal error → ✗ in muted red, state="failed"
-//  2. recoverable error → ⟳ in muted amber, state="recoverable"
+//  2. recoverable error → ↻ in muted amber, state="recoverable"
 //  3. cancelled → ⊘ in dim grey, state="cancelled" — distinct from
 //     ✗ because user-initiated stop is NOT a system failure;
 //     mirrors the dock-shutdown summary's commitRowCancelled visual
@@ -390,10 +390,10 @@ func (r *Renderer) statusIcon(row *taskRow, frame string, errKind statusErrorKin
 // is going to retry this stage). errKind comes from the caller
 // (already computed by classifyStatusError on the same row); when
 // errKind is Recoverable the label resolves to the retry slot so
-// the ⟳ glyph and the text agree on lifecycle. When errKind is
+// the ↻ glyph and the text agree on lifecycle. When errKind is
 // Fatal/Cancelled the label still uses the failed slot — those
 // glyphs (✗ / ⊘) match "未能 X". This kills the pre-fix mismatch
-// of "⟳ + 未能 X" (icon: still working / label: gave up).
+// of "↻ + 未能 X" (icon: still working / label: gave up).
 func friendlyPrimaryText(row *taskRow, errKind statusErrorKind, lang string) string {
 	if row == nil {
 		return ""
@@ -415,7 +415,7 @@ func friendlyPrimaryText(row *taskRow, errKind statusErrorKind, lang string) str
 // (highest first):
 //
 //  1. Recoverable error → retry slot ("X 出错,正在重试"). The
-//     orchestrator may still be mid-retry; the ⟳ glyph + retry
+//     orchestrator may still be mid-retry; the ↻ glyph + retry
 //     label tell the user we have not given up.
 //  2. Pending / paused (live rows queued behind another dispatch)
 //     → pending slot ("待 X"). Recoverable beats pending so a row

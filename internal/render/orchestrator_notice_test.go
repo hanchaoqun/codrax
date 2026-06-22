@@ -18,7 +18,7 @@ import (
 // or a stage-round trace label for any NoticeKind.
 func TestFormatOrchestratorNotice_NoLLMThinkingPrefix(t *testing.T) {
 	for kind := NoticeRetry; kind <= NoticeRepoMapScanFail; kind++ {
-		out := formatOrchestratorNotice(kind, "⟳ test message")
+		out := formatOrchestratorNotice(kind, "↻ test message")
 		if strings.Contains(out, string(glyphReasoning)) {
 			t.Errorf("kind=%d: orchestrator notice MUST NOT carry the LLM-thinking glyph; got %q", kind, out)
 		}
@@ -30,7 +30,7 @@ func TestFormatOrchestratorNotice_NoLLMThinkingPrefix(t *testing.T) {
 
 // TestFormatOrchestratorNotice_BodyPreserved pins that the formatter
 // passes the message body through verbatim — the body already carries
-// its own kind glyph (⟳/·/–/›/⊘) chosen by user_messages.go and we
+// its own kind glyph (↻/·/–/›/⊘) chosen by user_messages.go and we
 // must not strip or rewrite it. The test feeds each glyph variant
 // and checks the output contains the same body.
 func TestFormatOrchestratorNotice_BodyPreserved(t *testing.T) {
@@ -38,7 +38,7 @@ func TestFormatOrchestratorNotice_BodyPreserved(t *testing.T) {
 		kind OrchestratorNoticeKind
 		body string
 	}{
-		{NoticeRetry, "⟳ 正在补齐调查证据"},
+		{NoticeRetry, "↻ 正在补齐调查证据"},
 		{NoticeForcedRead, "› 正在补充关键信息"},
 		{NoticeInvestigationSupplement, "· 证据仍需补强，准备补读"},
 		{NoticeConvergenceStall, "– 根据已有线索作答"},
@@ -132,7 +132,7 @@ func TestFormatOrchestratorNotice_ProgressNoticesDoNotUseRetryGlyph(t *testing.T
 			if out != "  "+c.want {
 				t.Fatalf("progress notice changed\nwant %q\ngot  %q", "  "+c.want, out)
 			}
-			if strings.Contains(out, "⟳") {
+			if strings.Contains(out, "↻") {
 				t.Fatalf("progress notice must not use retry glyph: %q", out)
 			}
 		})
@@ -163,7 +163,7 @@ func TestRenderer_OrchestratorNoticeDispatchNonTTY(t *testing.T) {
 	emit(Event{
 		Kind:       EventOrchestratorNotice,
 		NoticeKind: NoticeRetry,
-		Reasoning:  "⟳ 正在补齐调查证据",
+		Reasoning:  "↻ 正在补齐调查证据",
 	})
 	out := buf.String()
 	if !strings.Contains(out, "正在补齐调查证据") {

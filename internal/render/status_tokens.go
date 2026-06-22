@@ -99,10 +99,15 @@ var (
 // Status-line glyphs. Centralised so a future glyph change touches
 // one location and unit tests can pin the exact rune used.
 const (
+	// RecoverableNoticeGlyph is the user-facing prefix for retry /
+	// recoverable / rewrite notices. It is exported so orchestrator
+	// user-message helpers do not hard-code a parallel retry glyph.
+	RecoverableNoticeGlyph = "↻"
+
 	glyphRunning     = '⠇' // animated spinner frame placeholder; real frame comes from spinnerFrames
 	glyphSuccess     = '✓'
 	glyphFatal       = '✗'
-	glyphRecoverable = '⟳'
+	glyphRecoverable = '↻'
 	glyphCancelled   = '⊘' // user-initiated stop; distinct from ✗ (system failure)
 	glyphReasoning   = '⋯'
 	glyphToolCall    = '⇢'

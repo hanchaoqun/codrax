@@ -22,15 +22,15 @@ import (
 //
 // Design contract:
 //
-//   - Soft symbols (⟳, ›, ·, ⊘) only — aligned with the project-wide
+//   - Soft symbols (↻, ›, ·, ⊘) only — aligned with the project-wide
 //     palette (status_tokens.go: glyphRecoverable / glyphProgress /
-//     glyphPending / glyphCancelled). ⟳ is reserved for actual retry /
+//     glyphPending / glyphCancelled). ↻ is reserved for actual retry /
 //     re-run / rewrite. › means forward progress or active non-retry
 //     work. Bright glyphs (📊, ✅, 🔥) are avoided because they would
 //     dominate the TUI at the cadence the orchestrator emits these events.
 //   - The bucket color (yellow / gray / cyan, picked by the
 //     OrchestratorNoticeKind passed to formatOrchestratorNotice) is
-//     the primary semantic discriminator; the inline dot/⟳ glyph is
+//     the primary semantic discriminator; the inline dot/↻ glyph is
 //     a secondary anchor. So a cyan-color "· Investigation done"
 //     vs a gray-color "· Plan reviewed" share the same glyph but
 //     read distinctly thanks to color.
@@ -52,6 +52,14 @@ func preferZhMessage(lang string) bool {
 		return true
 	}
 	return false
+}
+
+func retryNotice(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return render.RecoverableNoticeGlyph
+	}
+	return render.RecoverableNoticeGlyph + " " + text
 }
 
 // softForcedReadMessage renders the user-visible line for the CGEC
@@ -150,12 +158,12 @@ func combinedAnswerReviewStartMessage(lang string) string {
 func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) string {
 	if preferZhMessage(lang) {
 		if rewrite {
-			return fmt.Sprintf("⟳ 检测到 %d 处前后不一致，正在重写答案", count)
+			return retryNotice(fmt.Sprintf("检测到 %d 处前后不一致，正在重写答案", count))
 		}
 		return fmt.Sprintf("· 检测到 %d 处前后不一致（仅记录，未重写）", count)
 	}
 	if rewrite {
-		return fmt.Sprintf("⟳ Found %d inconsistency(ies) — rewriting the answer", count)
+		return retryNotice(fmt.Sprintf("Found %d inconsistency(ies) — rewriting the answer", count))
 	}
 	return fmt.Sprintf("· Found %d inconsistency(ies) (logged, not rewritten)", count)
 }
@@ -180,9 +188,9 @@ func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) s
 // actual action: a validation pass needs steadier evidence.
 func softRetryHintMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 验证还不够稳，正在补一轮"
+		return retryNotice("验证还不够稳，正在补一轮")
 	}
-	return "⟳ Validation needs one more pass"
+	return retryNotice("Validation needs one more pass")
 }
 
 // plannerProseFallbackMessage is the user-visible explanation when
@@ -232,24 +240,24 @@ func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 	switch stage {
 	case types.StageAnalyze:
 		if zh {
-			return "⟳ 模型响应出错,正在重新理解问题"
+			return retryNotice("模型响应出错,正在重新理解问题")
 		}
-		return "⟳ Model response error, re-understanding the question"
+		return retryNotice("Model response error, re-understanding the question")
 	case types.StageExplore:
 		if zh {
-			return "⟳ 模型响应出错,正在重新收集证据"
+			return retryNotice("模型响应出错,正在重新收集证据")
 		}
-		return "⟳ Model response error, re-collecting evidence"
+		return retryNotice("Model response error, re-collecting evidence")
 	case types.StageExtract:
 		if zh {
-			return "⟳ 模型响应出错,正在重新提炼关键发现"
+			return retryNotice("模型响应出错,正在重新提炼关键发现")
 		}
-		return "⟳ Model response error, re-extracting key findings"
+		return retryNotice("Model response error, re-extracting key findings")
 	case types.StageFinalize:
 		if zh {
-			return "⟳ 模型响应出错,正在重新撰写答案"
+			return retryNotice("模型响应出错,正在重新撰写答案")
 		}
-		return "⟳ Model response error, re-composing the final answer"
+		return retryNotice("Model response error, re-composing the final answer")
 	case types.StagePlan:
 		// "正在补完" / "Refining" implied a plan was already drafted
 		// and we were just polishing it. On real plan-stage retries
@@ -257,19 +265,19 @@ func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 		// has landed yet — saying "refining" is a lie. Use neutral
 		// wording that matches reality on every retry occasion.
 		if zh {
-			return "⟳ 正在重新生成改动方案"
+			return retryNotice("正在重新生成改动方案")
 		}
-		return "⟳ Regenerating the change plan"
+		return retryNotice("Regenerating the change plan")
 	case types.StageApply:
 		if zh {
-			return "⟳ 正在重新应用改动"
+			return retryNotice("正在重新应用改动")
 		}
-		return "⟳ Re-applying changes"
+		return retryNotice("Re-applying changes")
 	case types.StageVerify:
 		if zh {
-			return "⟳ 正在重新跑测试"
+			return retryNotice("正在重新跑测试")
 		}
-		return "⟳ Re-running verification tests"
+		return retryNotice("Re-running verification tests")
 	}
 	return softRetryHintMessage(lang)
 }
@@ -277,17 +285,17 @@ func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 func softTransportRetryHintForStage(lang string, stage types.PipelineStage) string {
 	labelZh, labelEn := transportRetryStageLabel(stage)
 	if preferZhMessage(lang) {
-		return fmt.Sprintf("⟳ 连接/流式响应异常，正在重试模型请求（%s）", labelZh)
+		return retryNotice(fmt.Sprintf("连接/流式响应异常，正在重试模型请求（%s）", labelZh))
 	}
-	return fmt.Sprintf("⟳ Connection/stream issue; retrying model request (%s)", labelEn)
+	return retryNotice(fmt.Sprintf("Connection/stream issue; retrying model request (%s)", labelEn))
 }
 
 func softTransportCheckpointRetryHintForStage(lang string, stage types.PipelineStage) string {
 	labelZh, labelEn := transportRetryStageLabel(stage)
 	if preferZhMessage(lang) {
-		return fmt.Sprintf("⟳ 连接/流式响应异常，已保留阶段进展并续跑（%s）", labelZh)
+		return retryNotice(fmt.Sprintf("连接/流式响应异常，已保留阶段进展并续跑（%s）", labelZh))
 	}
-	return fmt.Sprintf("⟳ Connection/stream issue; continuing from preserved progress (%s)", labelEn)
+	return retryNotice(fmt.Sprintf("Connection/stream issue; continuing from preserved progress (%s)", labelEn))
 }
 
 func transportRetryStageLabel(stage types.PipelineStage) (zh, en string) {
@@ -380,9 +388,9 @@ func softProceedWithExtractedFindingsMessage(lang string) string {
 // CN+EN-only audit clean.
 func softAnswerCheckRetryMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 答案待完善，正在重新生成"
+		return retryNotice("答案待完善，正在重新生成")
 	}
-	return "⟳ Refining the answer — regenerating"
+	return retryNotice("Refining the answer — regenerating")
 }
 
 // softFallbackTargetMessage (B.7+ audit followup, 2026-05-02) renders a
@@ -414,14 +422,14 @@ func softFallbackTargetMessage(lang string, target FallbackTarget) string {
 		return "· Keeping the answer with unresolved-boundary notes"
 	case FallbackFinalizerOnly:
 		if zh {
-			return "⟳ 正在重写最终答案"
+			return retryNotice("正在重写最终答案")
 		}
-		return "⟳ Rewriting the final answer"
+		return retryNotice("Rewriting the final answer")
 	case FallbackBackToExtract:
 		if zh {
-			return "⟳ 正在重新整理答案结构"
+			return retryNotice("正在重新整理答案结构")
 		}
-		return "⟳ Reworking the answer structure"
+		return retryNotice("Reworking the answer structure")
 	case FallbackBackToExplore:
 		// P7 (2026-05-10) wording polish: "证据不足" was easily
 		// misread as "the user's input was insufficient" — actually
@@ -429,9 +437,9 @@ func softFallbackTargetMessage(lang string, target FallbackTarget) string {
 		// phrasing makes the subject explicit (the system, not the
 		// user) and avoids "探索" which sounds technical.
 		if zh {
-			return "⟳ 回到证据阶段补充关键上下文"
+			return retryNotice("回到证据阶段补充关键上下文")
 		}
-		return "⟳ Returning to evidence collection for key context"
+		return retryNotice("Returning to evidence collection for key context")
 	}
 	return softAnswerCheckRetryMessage(lang)
 }
@@ -606,9 +614,9 @@ func softCompletenessGapMessage(lang string, fail *agent.CompletenessFailure) st
 	// reads cleanly. "提示模型" leaked the internal "model" abstraction;
 	// "引导补足" stays at the user-vocabulary layer. R6 audit clean.
 	if preferZhMessage(lang) {
-		return "⟳ 答案在「" + dim + "」方面可能覆盖不足，正在引导补足"
+		return retryNotice("答案在「" + dim + "」方面可能覆盖不足，正在引导补足")
 	}
-	return "⟳ Answer may under-cover the " + dim + " aspect; guiding the next pass to fill the gap"
+	return retryNotice("Answer may under-cover the " + dim + " aspect; guiding the next pass to fill the gap")
 }
 
 // dimensionUserLabel converts a CompletionDimension into a user-
@@ -670,10 +678,10 @@ func softProceedingWithoutExtractMessage(lang string) string {
 //
 // 2026-05-08 glyph audit (operator feedback):
 //
-//	⟳ (yellow rotation arrow) → RETRY ONLY (planner regenerate /
-//	                            apply re-run / verify re-run /
-//	                            answer rewrite). NOT a generic
-//	                            "in-progress" cue.
+//	↻ (muted retry arrow) → RETRY ONLY (planner regenerate /
+//	                         apply re-run / verify re-run /
+//	                         answer rewrite). NOT a generic
+//	                         "in-progress" cue.
 //	· (gray dot)              → in-progress. The system is doing
 //	                            work that has not yet completed.
 //	✓ (checkmark)             → milestone complete (success).

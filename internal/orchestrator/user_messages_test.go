@@ -51,8 +51,8 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			}
 
 			got = softRetryHintMessage(c.lang)
-			if strings.HasPrefix(got, "⟳") == false {
-				t.Errorf("retry-hint must start with the ⟳ soft symbol, got %q", got)
+			if strings.HasPrefix(got, "↻") == false {
+				t.Errorf("retry-hint must start with the ↻ soft symbol, got %q", got)
 			}
 			// P7 follow-up (2026-05-17): keep retry copy
 			// user-facing, but avoid the vague "上下文信息"
@@ -88,8 +88,8 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			}
 
 			got = softAnswerCheckRetryMessage(c.lang)
-			if strings.HasPrefix(got, "⟳") == false {
-				t.Errorf("answer-check must start with the ⟳ soft symbol, got %q", got)
+			if strings.HasPrefix(got, "↻") == false {
+				t.Errorf("answer-check must start with the ↻ soft symbol, got %q", got)
 			}
 			// P7 wording polish: "再跑一轮" → "正在重新生成";
 			// "Answer needs another pass" → "Refining the answer".
@@ -310,7 +310,7 @@ func TestSoftPlanCriticReviewMessage_HonoursCount(t *testing.T) {
 
 // TestSoftMessages_NoVisualShockSymbols pins the operator-feedback
 // red line (2026-05-02): triangles / heavy alert glyphs are too
-// strong for the dock cadence — soft '·' / '⟳' / '–' / '›' only.
+// strong for the dock cadence — soft '·' / '↻' / '–' / '›' only.
 func TestSoftMessages_NoVisualShockSymbols(t *testing.T) {
 	visualShock := []string{"⚠", "❗", "‼", "⛔", "🚨", "🔴", "✘", "✗", "❌"}
 	messages := []string{
@@ -329,7 +329,7 @@ func TestSoftMessages_NoVisualShockSymbols(t *testing.T) {
 	for _, m := range messages {
 		for _, glyph := range visualShock {
 			if strings.Contains(m, glyph) {
-				t.Errorf("message %q contains visual-shock glyph %q (use soft '·' / '⟳' / '–' / '›' only)", m, glyph)
+				t.Errorf("message %q contains visual-shock glyph %q (use soft '·' / '↻' / '–' / '›' only)", m, glyph)
 			}
 		}
 	}
@@ -343,13 +343,13 @@ func TestSoftMessages_NoVisualShockSymbols(t *testing.T) {
 // notice strings to the canonical glyph semantics (operator
 // feedback, 2026-05-08 audit):
 //
-//	⟳ <prose>   RETRY only          (planner regenerate, apply re-run, …)
+//	↻ <prose>   RETRY only          (planner regenerate, apply re-run, …)
 //	· <prose>   in-progress         (canonical glyphPending)
 //	✓ <prose>   milestone complete  (canonical glyphSuccess)
 //	✗ <prose>   failure             (canonical glyphFatal)
 //
 // First-time scan is in-progress (NOT a retry) → · for start, ✓
-// for ok end, ✗ for fail. ⟳ MUST NOT appear here — that would
+// for ok end, ✗ for fail. ↻ MUST NOT appear here — that would
 // false-signal "we are retrying the scan" to the operator.
 //
 // Localisation parity check across zh / en.
@@ -360,7 +360,7 @@ func TestMultiRepoScanMessages_NoticeStyle(t *testing.T) {
 		endFail := multiRepoScanEndMessage(lang, "repo-x", 1234, false)
 		// Glyph contract.
 		if !strings.HasPrefix(start, "· ") {
-			t.Errorf("%s: scan-start %q must start with \"· \" (in-progress glyph, NOT ⟳ which is retry-only)", lang, start)
+			t.Errorf("%s: scan-start %q must start with \"· \" (in-progress glyph, NOT ↻ which is retry-only)", lang, start)
 		}
 		if !strings.HasPrefix(endOK, "✓ ") {
 			t.Errorf("%s: scan-end-ok %q must start with \"✓ \" (canonical success rune)", lang, endOK)
@@ -371,8 +371,8 @@ func TestMultiRepoScanMessages_NoticeStyle(t *testing.T) {
 		// Forbid the retry glyph anywhere in the scan messages —
 		// scans are first-time data loads, not retries.
 		for _, m := range []string{start, endOK, endFail} {
-			if strings.Contains(m, "⟳") {
-				t.Errorf("%s: %q leaks the retry glyph ⟳; first-time scans must not signal retry to the operator", lang, m)
+			if strings.Contains(m, "↻") {
+				t.Errorf("%s: %q leaks the retry glyph ↻; first-time scans must not signal retry to the operator", lang, m)
 			}
 		}
 		// Sub-repo path wrapped in backticks (consistent with
@@ -442,7 +442,7 @@ func TestRepoMapScanMessagesCarryFileCounts(t *testing.T) {
 	ev.Progress = true
 	ev.Phase = types.RepoMapScanPhaseParse
 	progress := repoMapScanMessage("zh", ev)
-	if !strings.Contains(progress, "已解析 4000/12000") || strings.Contains(progress, "⟳") {
+	if !strings.Contains(progress, "已解析 4000/12000") || strings.Contains(progress, "↻") {
 		t.Fatalf("scan progress should carry parsed/total without retry glyph, got %q", progress)
 	}
 	ev.Phase = types.RepoMapScanPhaseCacheWrite

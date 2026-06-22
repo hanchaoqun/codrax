@@ -217,14 +217,14 @@ func activityHasStreamTail(kind activityKind) bool {
 }
 
 // activityGlyphKind picks which glyph cluster the row-1 prefix uses.
-// Most kinds animate via spinnerFrames; retry / fallback freeze on ⟳;
+// Most kinds animate via spinnerFrames; retry / fallback freeze on ↻;
 // fatal / cancelled freeze on ✗. Caller still owns the actual glyph
 // string + style — this is just the policy gate.
 type activityGlyphKind int
 
 const (
 	activityGlyphSpinner     activityGlyphKind = iota // animated braille frame
-	activityGlyphRecoverable                          // ⟳ yellow frozen
+	activityGlyphRecoverable                          // ↻ yellow frozen
 	activityGlyphFatal                                // ✗ red frozen
 )
 
@@ -285,12 +285,12 @@ const (
 	commitRowSuccess        commitRowKind = iota // ✓ green
 	commitRowFailure                             // ✗ red (system failure)
 	commitRowCancelled                           // ⊘ gray (user-initiated stop, NOT a failure)
-	commitRowRetry                               // ⟳ yellow
+	commitRowRetry                               // ↻ yellow
 	commitRowReasoning                           // ⋯ light cyan glyph, muted body
 	commitRowQuestion                            // ❯ cyan
 	commitRowFinal                               // ◆ green muted (run summary)
 	commitRowFinalLight                          // ◇ green muted (light-route summary — local / chat / clarify)
-	commitRowNotice                              // ⟳ yellow (soft notice, e.g. "草稿被丢弃, 正在重写" — recoverable, not failure)
+	commitRowNotice                              // ↻ yellow (soft notice, e.g. "草稿被丢弃, 正在重写" — recoverable, not failure)
 	commitRowSubTopicHeader                      // (no glyph; the sub-topic enumeration block is multiline)
 )
 
@@ -312,7 +312,7 @@ type commitRow struct {
 //	✓ — statusSuccessMuted (green)
 //	✗ — statusFatal (red) for system failure
 //	⊘ — statusMeta (dark gray) for user-initiated cancellation (not failure)
-//	⟳ — statusRecoverable (yellow) for retry AND soft notice (recoverable)
+//	↻ — statusRecoverable (yellow) for retry AND soft notice (recoverable)
 //	⋯ — statusReasoningGlyph (light cyan marker only)
 //	❯ — statusObjective (light cyan)
 //	◆ — statusSuccessMuted (green)
@@ -334,7 +334,7 @@ func formatCommitRow(row commitRow) string {
 		b.WriteString(statusMeta.Sprint(string(glyphCancelled)))
 	case commitRowRetry, commitRowNotice:
 		// Both are "system is recovering / continuing" signals — same
-		// ⟳ + yellow palette. Notice is a one-shot soft message
+		// ↻ + yellow palette. Notice is a one-shot soft message
 		// (e.g. draft rewrite); Retry is an adapter-level retry. The
 		// shared visual reads as "we are still working on it".
 		b.WriteString(statusRecoverable.Sprint(string(glyphRecoverable)))

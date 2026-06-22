@@ -319,7 +319,7 @@ func TestComposeDockRow1_ParallelMultiReceivingSuppressesAmbiguousTail(t *testin
 }
 
 // TestComposeDockRow1_RetryFreezesGlyph confirms that retry / fatal
-// states freeze the spinner glyph to ⟳ / ✗ instead of cycling
+// states freeze the spinner glyph to ↻ / ✗ instead of cycling
 // through spinnerFrames. Animated braille on an error state would
 // be confusing — frozen glyphs read as "stuck on error".
 func TestComposeDockRow1_RetryFreezesGlyph(t *testing.T) {
@@ -330,8 +330,8 @@ func TestComposeDockRow1_RetryFreezesGlyph(t *testing.T) {
 	}
 	row := composeDockRow1(state)
 	plain := stripAnsiEscapes(row)
-	if !strings.Contains(plain, "⟳") {
-		t.Errorf("retry state must use frozen ⟳ glyph; got %q", plain)
+	if !strings.Contains(plain, "↻") {
+		t.Errorf("retry state must use frozen ↻ glyph; got %q", plain)
 	}
 	if strings.Contains(plain, "⠋") {
 		t.Errorf("retry state must NOT use spinner braille; got %q", plain)

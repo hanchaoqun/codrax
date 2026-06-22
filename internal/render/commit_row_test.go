@@ -7,7 +7,7 @@ import (
 
 // TestFormatCommitRow_NoticeUsesSoftRecoverable pins the post-fix
 // contract for commitRowNotice (e.g. "草稿被丢弃, 正在重写"): the
-// glyph is ⟳ (recoverable) NOT ✗ (fatal), and the color is the
+// glyph is ↻ (recoverable) NOT ✗ (fatal), and the color is the
 // muted yellow `statusRecoverable` — matching the soft "we are
 // continuing, the previous draft just needed redoing" semantics.
 //
@@ -24,7 +24,7 @@ func TestFormatCommitRow_NoticeUsesSoftRecoverable(t *testing.T) {
 	})
 	plain := stripAnsiEscapes(line)
 	if !strings.ContainsRune(plain, glyphRecoverable) {
-		t.Errorf("notice row must render with ⟳ glyph; got plain %q (raw %q)", plain, line)
+		t.Errorf("notice row must render with ↻ glyph; got plain %q (raw %q)", plain, line)
 	}
 	if strings.ContainsRune(plain, glyphFatal) {
 		t.Errorf("notice row must NOT render with ✗ glyph (recoverable, not failure); got plain %q", plain)

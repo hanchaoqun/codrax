@@ -291,7 +291,7 @@ func (r *Renderer) handleEvent(ev Event) {
 				// same fatalMarkers / cancelledMarkers / recoverable
 				// priority as classifyStatusError → dock row 1 reads
 				// the same severity as the just-committed scrollback
-				// line (no more ⟳ on row 1 + ✗ in scrollback for the
+				// line (no more ↻ on row 1 + ✗ in scrollback for the
 				// same event).
 				if ev.Error != "" {
 					switch classifyEventError(ev.Error) {
@@ -839,7 +839,7 @@ func (r *Renderer) dockHandlePreviewClear(ev Event) {
 //
 // Consecutive duplicate suppression: the orchestrator can emit the
 // same soft notice twice in a row (e.g. two forced-read passes both
-// firing "⟳ 正在补充关键信息" within the same dispatch). Compare the
+// firing "↻ 正在补充关键信息" within the same dispatch). Compare the
 // new line byte-identically to the immediately-prior committed line
 // and skip when they match — legitimate non-notice commits (per-stage
 // success / failure / question rows) carry distinguishing K/N or
@@ -1926,7 +1926,7 @@ func (r *Renderer) recordOrchestratorNoticeTelemetry(kind OrchestratorNoticeKind
 //	fallback-terminal-class → statusWarningMuted (yellow) — retry budget
 //	                         exhausted; the answer ships with what we
 //	                         have. Distinct GLYPH (·) from retry-class
-//	                         (⟳) so the visual still discriminates
+//	                         (↻) so the visual still discriminates
 //	                         "trying again" vs "giving up gracefully".
 //	info-class             → statusMeta (dark gray) — quiet informational
 //	progress-class         → statusObjective (cyan) — forward milestone
@@ -2016,7 +2016,7 @@ func formatOrchestratorNotice(kind OrchestratorNoticeKind, text string) string {
 //
 //   - 2-space leading indent (mirrors formatReasoning's "  " indent
 //     so the column-1 alignment with surrounding rows is preserved)
-//   - The message body carries its own kind glyph (⟳ / › / · / ⊘) chosen
+//   - The message body carries its own kind glyph (↻ / › / · / ⊘) chosen
 //     by internal/orchestrator/user_messages.go. The glyph keeps the
 //     bucket colour (yellow / gray / cyan); for retry-class notices
 //     we ALSO splice the current K/N stage progress between glyph
@@ -2031,7 +2031,7 @@ func formatOrchestratorNoticeWithProgress(kind OrchestratorNoticeKind, text, pro
 	}
 	style := orchestratorNoticeStyle(kind)
 	// Split the leading kind glyph (single rune followed by a space)
-	// from the prose body. user_messages.go produces "⟳ <text>" /
+	// from the prose body. user_messages.go produces "↻ <text>" /
 	// "› <text>" / "· <text>" / "⊘ <text>" for soft notices. When the head is a
 	// single rune + space, peel it so we can colour the glyph + the
 	// optional K/N progress in the bucket palette but dim the prose.
@@ -2060,7 +2060,7 @@ func formatOrchestratorNoticeWithProgress(kind OrchestratorNoticeKind, text, pro
 }
 
 // peelGlyphPrefix splits a soft-notice text into its leading glyph
-// (one rune, one of ⟳ / › / · / ⊘ / ✓ / ✗) and the rest of the body. The
+// (one rune, one of ↻ / › / · / ⊘ / ✓ / ✗) and the rest of the body. The
 // glyph and trailing space are stripped from the body. Returns
 // ("", text) when the head is not a recognised glyph + space.
 func peelGlyphPrefix(text string) (glyph, body string) {
@@ -2472,19 +2472,19 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		// retry SUBJECT explicit (the LLM call, not a tool retry
 		// or stage retry).
 		if isZh(r.lang) {
-			r.emitNonTTYLine(fmt.Sprintf("⟳ 正在重新请求模型 (第 %d 次,等 %v) · %s",
-				ev.RetryAttempt, ev.RetryDelay, localizeRetryReason(ev.RetryReason, r.lang)))
+			r.emitNonTTYLine(fmt.Sprintf("%s 正在重新请求模型 (第 %d 次,等 %v) · %s",
+				RecoverableNoticeGlyph, ev.RetryAttempt, ev.RetryDelay, localizeRetryReason(ev.RetryReason, r.lang)))
 		} else {
-			r.emitNonTTYLine(fmt.Sprintf("⟳ retrying model request (attempt %d, in %v) · %s",
-				ev.RetryAttempt, ev.RetryDelay, localizeRetryReason(ev.RetryReason, r.lang)))
+			r.emitNonTTYLine(fmt.Sprintf("%s retrying model request (attempt %d, in %v) · %s",
+				RecoverableNoticeGlyph, ev.RetryAttempt, ev.RetryDelay, localizeRetryReason(ev.RetryReason, r.lang)))
 		}
 	case EventAdapterFallback:
 		if isZh(r.lang) {
-			r.emitNonTTYLine(fmt.Sprintf("⟳ 切换 LLM 服务 %s → %s · %s",
-				ev.FallbackFrom, ev.FallbackTo, localizeRetryReason(ev.RetryReason, r.lang)))
+			r.emitNonTTYLine(fmt.Sprintf("%s 切换 LLM 服务 %s → %s · %s",
+				RecoverableNoticeGlyph, ev.FallbackFrom, ev.FallbackTo, localizeRetryReason(ev.RetryReason, r.lang)))
 		} else {
-			r.emitNonTTYLine(fmt.Sprintf("⟳ switching LLM provider %s → %s · %s",
-				ev.FallbackFrom, ev.FallbackTo, localizeRetryReason(ev.RetryReason, r.lang)))
+			r.emitNonTTYLine(fmt.Sprintf("%s switching LLM provider %s → %s · %s",
+				RecoverableNoticeGlyph, ev.FallbackFrom, ev.FallbackTo, localizeRetryReason(ev.RetryReason, r.lang)))
 		}
 	case EventPhaseGroupStart:
 		// Commit 43: render the full phase enumeration once

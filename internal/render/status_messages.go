@@ -99,7 +99,7 @@ func localizeRetryReason(reason, lang string) string {
 // stagePhraseRetry is the recoverable-error slot. Pre-this-fix the
 // renderer borrowed stagePhraseFailed text ("未能理解问题") for any
 // row that classifyStatusError flagged as Recoverable, which paired
-// the ⟳ glyph (yellow, "still working / will retry") with a label
+// the ↻ glyph (yellow, "still working / will retry") with a label
 // that said "could not / failed". Same lifecycle-mismatch bug as
 // the original failed-vs-done contradiction; same fix shape — give
 // recoverable its own column so the label agrees with the glyph.
@@ -187,7 +187,7 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 	// surface text reads as "<X> 出错,正在重试" — the user sees the
 	// exact same verb as the failed line (so the meaning is clear)
 	// but the trailing "正在重试" / "retrying" tells them the
-	// orchestrator has not given up. This is the column the ⟳ glyph
+	// orchestrator has not given up. This is the column the ↻ glyph
 	// resolves against: glyph + label both point at "still working".
 	// Retry-column phrasing (post-2026-05-06 audit): for LLM-dispatch
 	// stages the recoverable retry is overwhelmingly a model

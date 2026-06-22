@@ -1024,7 +1024,7 @@ func TestStatus_FooterLanguage(t *testing.T) {
 }
 
 // TestStatus_RecoverableErrors confirms recoverable signals classify
-// to recoverable + render the localized phrasing + use the ⟳ glyph.
+// to recoverable + render the localized phrasing + use the ↻ glyph.
 func TestStatus_RecoverableErrors(t *testing.T) {
 	cases := []struct {
 		errMsg string
@@ -1058,8 +1058,8 @@ func TestStatus_RecoverableErrors(t *testing.T) {
 		if !strings.Contains(zhOut, c.zhWant) {
 			t.Errorf("zh recoverable %q: expected %q in:\n%s", c.detail, c.zhWant, zhOut)
 		}
-		if !strings.Contains(zhOut, "⟳") {
-			t.Errorf("zh recoverable %q: expected ⟳ glyph in:\n%s", c.detail, zhOut)
+		if !strings.Contains(zhOut, "↻") {
+			t.Errorf("zh recoverable %q: expected ↻ glyph in:\n%s", c.detail, zhOut)
 		}
 		enOut := renderRows(t, "en", row)
 		if !strings.Contains(enOut, c.enWant) {
@@ -1131,10 +1131,10 @@ func TestStatus_CancelledClassification(t *testing.T) {
 }
 
 // TestStatus_RecoverableUsesRetryLabel pins the icon-label contract
-// for recoverable rows: glyph is ⟳ AND primary text is the retry
+// for recoverable rows: glyph is ↻ AND primary text is the retry
 // phrase ("X 出错,正在重试" / "X hit an error, retrying"), NEVER
 // the failed phrase ("未能 X" / "Could not X"). Pre-2026-05-06 the
-// renderer paired ⟳ with stagePhraseFailed text — icon said "still
+// renderer paired ↻ with stagePhraseFailed text — icon said "still
 // working", label said "gave up", and the user reasonably read it
 // as "状态说谎".
 func TestStatus_RecoverableUsesRetryLabel(t *testing.T) {
@@ -1149,8 +1149,8 @@ func TestStatus_RecoverableUsesRetryLabel(t *testing.T) {
 		t.Fatalf("expected recoverable; got %v", got)
 	}
 	zhOut := renderRows(t, "zh", row)
-	if !strings.Contains(zhOut, "⟳") {
-		t.Errorf("zh recoverable: expected ⟳ glyph in:\n%s", zhOut)
+	if !strings.Contains(zhOut, "↻") {
+		t.Errorf("zh recoverable: expected ↻ glyph in:\n%s", zhOut)
 	}
 	// Retry slot post-2026-05-06 fronts "模型响应出错,正在重新…" so
 	// the cause-side ("model response") and the recovery action read
@@ -1164,8 +1164,8 @@ func TestStatus_RecoverableUsesRetryLabel(t *testing.T) {
 		t.Errorf("zh recoverable MUST NOT use failed slot phrase; got:\n%s", zhOut)
 	}
 	enOut := renderRows(t, "en", row)
-	if !strings.Contains(enOut, "⟳") {
-		t.Errorf("en recoverable: expected ⟳ glyph in:\n%s", enOut)
+	if !strings.Contains(enOut, "↻") {
+		t.Errorf("en recoverable: expected ↻ glyph in:\n%s", enOut)
 	}
 	if !strings.Contains(enOut, "Model response error") || !strings.Contains(enOut, "re-running") {
 		t.Errorf("en recoverable: expected 'Model response error … re-running' phrase; got:\n%s", enOut)
@@ -1198,7 +1198,7 @@ func TestClassifyStatusError_UnknownErrorDefaultsRecoverable(t *testing.T) {
 // TestClassifyEventError_AlignsWithRowClassifier confirms the
 // raw-string classifier used by the dock-event handlers picks the
 // same severity bucket as classifyStatusError on the row built from
-// that same error. Pre-fix dock row 1 always rendered ⟳ for ANY
+// that same error. Pre-fix dock row 1 always rendered ↻ for ANY
 // ev.Error while the commit line could render ✗, producing visible
 // cross-talk between the two surfaces for the same event.
 func TestClassifyEventError_AlignsWithRowClassifier(t *testing.T) {

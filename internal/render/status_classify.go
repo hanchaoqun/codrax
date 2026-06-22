@@ -46,7 +46,7 @@ var (
 		"force finalize",
 		"force-finalize",
 		"forced-read",
-		"cgec e",                       // CGEC E1/E2/E3 violations are corrected, not fatal
+		"cgec e", // CGEC E1/E2/E3 violations are corrected, not fatal
 		"evidence insufficient",
 		"emit_answer_document rejected",
 		"quote length exceeds cap",
@@ -55,7 +55,7 @@ var (
 		"correcting",
 		"correction",
 		"transient",
-		"stream stalled",               // watchdog kill triggers a retry
+		"stream stalled", // watchdog kill triggers a retry
 		"stream first byte",
 		"alternate path",
 		"using syntax check instead",
@@ -78,7 +78,7 @@ var (
 		"verify failed",
 		"验证失败",
 		"worktree provisioning failed",
-		"plan stage: target",            // bare-dir refusal
+		"plan stage: target", // bare-dir refusal
 		"plan stage 拒绝",
 		"apply stage 拒绝",
 		"plan_pre_hook",
@@ -358,7 +358,7 @@ func cancelledDetailPhrase(lang string) string {
 // activityErrorRecoverable so dock row 1 reads the same severity as
 // the just-committed scrollback line — pre-fix dock row 1 always went
 // recoverable for ANY ev.Error while the commit line could go fatal,
-// producing a momentary "⟳ + ✗" cross-talk between the two surfaces.
+// producing a momentary "↻ + ✗" cross-talk between the two surfaces.
 //
 // Empty input returns statusErrorNone — caller should not have invoked
 // us in that case but the no-op return keeps the call site simple.
@@ -377,7 +377,7 @@ func classifyEventError(errMsg string) statusErrorKind {
 	// post-2026-05-06 default — orchestrator's retry decision is
 	// structural (stage retry loops, transient budget) and the
 	// renderer cannot tell from the message alone whether retry
-	// will fire, so the calmer ⟳ shape avoids screaming ✗ on a
+	// will fire, so the calmer ↻ shape avoids screaming ✗ on a
 	// recoverable mid-flight error.
 	return statusErrorRecoverable
 }

@@ -5666,7 +5666,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					// Soft notice so the user sees WHY the next event is
 					// "正在生成最终答案" instead of an extract success
 					// row. Without this the scrollback jumps from
-					// "✗/⟳ 未能提炼关键发现" straight to finalize with no
+					// "✗/↻ 未能提炼关键发现" straight to finalize with no
 					// explanation of the transition.
 					o.emit(render.Event{
 						Kind:       render.EventOrchestratorNotice,
