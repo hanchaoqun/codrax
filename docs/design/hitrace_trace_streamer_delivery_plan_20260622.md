@@ -519,6 +519,68 @@ Remaining gap:
   binder, IRQ, IO, trace marker, frame, CPU frequency, and constraint families
   before deleting or isolating the old sys-binary parser.
 
+#### Batch 6B: Root-Cause Evidence Parity Matrix
+
+Status: planned on 2026-06-23.
+
+Exploration notes:
+
+- Local hmtrace reference at `/tmp/codrax-ref-hmtrace` exposes a native extractor
+  registry covering `thread`, `callstack`, `perf_sample`, `sched_slice`,
+  `instant`, `irq`, `cpu_measure_filter`, `measure_filter`, `process_measure`,
+  `frame_slice`, `dma_fence`, `network`, `diskio`, `cpu_usage`,
+  `live_process`, `log`, `syscall`, `task_pool`, `app_startup`,
+  `static_initalize`, `native_hook`, `hisys_all_event`, and `xpower_measure`.
+- Codrax SQL exporter already has table-family exporters for the hmtrace
+  registry above and writes through the shared spillable row sink, with coverage
+  rows and trace_query cross-validation.
+- Codrax built-in sys binary renderer supports many official ftrace event
+  families through `renderOfficialOpenHarmonyBody`, including scheduler,
+  CPU/clock, IRQ/softirq/IPI, trace marker, block/file/storage IO, UFS/MMC/SCSI,
+  DMA fence, memory/rss, workqueue, thermal, and regulator families.
+- Batch 6A only compared one `sched_wakeup`. Batch 6B must prove a class-level
+  matrix for the root-cause evidence that model answers depend on, not a
+  one-case wakeup guard.
+
+Tasks:
+
+- Add a reusable parity harness that converts:
+  - a synthetic no-perf sys-binary fixture through the guarded built-in lane;
+  - an equivalent trace_streamer SQLite fixture through the SQL lane.
+- Compare the resulting `trace_query` events semantically rather than comparing
+  raw lines or relying on file suffixes.
+- First matrix slice:
+  - `sched_switch` for sleep/runnable/running state reconstruction;
+  - `sched_wakeup` / `sched_waking` for wakeup chains and priority relation;
+  - `cpu_frequency`, `cpu_idle`, and `clock_set_rate` for running supply and
+    frequency diagnostics;
+  - `tracing_mark_write` B/E/C for span pairing and user-supplied span windows;
+  - `irq_handler_*` / `softirq_*` for interrupt pressure context;
+  - frame-like B/E spans exported from DB `frame_slice`.
+- For each family, assert:
+  - converted systrace round-trips through `trace_query`;
+  - key typed fields are preserved;
+  - SQL coverage records the relevant table/family;
+  - provider decisions distinguish built-in sys from trace_streamer DB.
+- Keep performance/memory guards:
+  - fixtures must use the production spillable row sink path;
+  - tests must not introduce unbounded in-memory comparison of full trace text;
+  - compare bounded event projections derived from `trace_query` events.
+- Keep prompt/JSON contract unchanged:
+  - this batch adds no model tool-call input fields;
+  - no JSON repair aliases are required unless a future tool input changes;
+  - parity/provenance remains system output consumed through tracebundle and
+    `trace_query` caveats.
+
+Exit criteria:
+
+- The first root-cause evidence matrix is covered by an executable parity test.
+- Any remaining event-family gaps are documented as Batch 6C+ work, not hidden
+  behind the single wakeup parity guard.
+- The no-perf sys lane remains guarded until representative captures prove all
+  required families, but the SQL lane has explicit evidence for the core timing
+  and CPU-supply families.
+
 Tasks:
 
 - Build parity cases comparing built-in sys binary output with trace_streamer DB
