@@ -126,6 +126,36 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_IgnoresIncompleteOb
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PrincipleUsesRequestedRoleOnly(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "Run", Role: AnswerCandidateRoleFunction, File: "thirdparty/cangjie/run.cj", Line: 7, Language: "cangjie"},
+	)
+	obs.Sets = append(obs.Sets, SourceInventoryObservationSet{
+		Role:     AnswerCandidateRoleType,
+		Complete: true,
+		Members: []SourceInventoryObservationMember{{
+			Name:          "HelperType",
+			Role:          AnswerCandidateRoleType,
+			File:          "internal/support/helper.go",
+			Line:          22,
+			Language:      "go",
+			CoverageState: SourceInventoryCoverageObserved,
+		}},
+	})
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(nil, obs, rm)
+	if len(got) != 1 {
+		t.Fatalf("projected facts = %+v, want one function-only source-inventory aggregate", got)
+	}
+	if strings.Join(got[0].Members, ",") != "Run" {
+		t.Fatalf("projection must not import complete-but-unrequested support roles into the hard principal row-set: %+v", got[0])
+	}
+	if got[0].Provenance != SourceInventoryPrincipalRowSetAggregateProvenance {
+		t.Fatalf("projected fact provenance drifted: %+v", got[0])
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ProductionScopeExcludesAuxiliaryRows(t *testing.T) {
 	scope := SourceScopeProduction
 	rm := sourceInventoryProjectionRequestModel(&scope)

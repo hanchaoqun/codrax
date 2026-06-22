@@ -282,6 +282,20 @@ func TestIsSoftViolationKind_MapOverrideWins(t *testing.T) {
 	}
 }
 
+func TestIsSoftViolationKind_CitationDisplaySoftByDefault(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+
+	SetSoftViolationKinds(nil, nil)
+	if !isSoftViolationKind(types.ViolCitation) {
+		t.Fatal("citation display drift must be soft by default; pre-emit and contract recovery should repair/disclose rather than hard-block")
+	}
+
+	SetSoftViolationKinds(nil, []string{string(types.ViolCitation)})
+	if isSoftViolationKind(types.ViolCitation) {
+		t.Fatal("operator strict override should still be able to promote citation for controlled workloads")
+	}
+}
+
 // TestPopulateRetryState_PrimaryOwnerStability pins Phase 1-A2:
 // populateRetryState writes LastPrimaryOwner / OwnerStableAttempts /
 // LastPrimaryViolation from BuildRepairPlan. Stability counter

@@ -117,6 +117,42 @@ func TestCommercialGateKinds_DefaultToCaveat(t *testing.T) {
 	}
 }
 
+func TestPrinciplePresentationAndNoisyViolationKindsDefaultToSoftGuidance(t *testing.T) {
+	softByDefaultKinds := []ViolationKind{
+		ViolCitation,
+		ViolRichnessRegression,
+		ViolRichnessGlaringGap,
+		ViolPrincipalProseUnderfilled,
+		ViolStructuralEnumerationDivergence,
+		ViolDiagramEdgeEndpointHallucinated,
+		ViolDiagramRelationLabelOnly,
+	}
+	for _, kind := range softByDefaultKinds {
+		spec, ok := ViolKindSpecFor(kind)
+		if !ok {
+			t.Errorf("kind=%q: no registry spec", kind)
+			continue
+		}
+		if !spec.SoftByDefault {
+			t.Errorf("kind=%q: SoftByDefault=false; noisy/presentation signals must not hard-block by default", kind)
+		}
+	}
+	defaultNoRetryKinds := []ViolationKind{
+		ViolRichnessRegression,
+		ViolRichnessGlaringGap,
+		ViolPrincipalProseUnderfilled,
+		ViolStructuralEnumerationDivergence,
+		ViolDiagramEdgeEndpointHallucinated,
+		ViolDiagramRelationLabelOnly,
+	}
+	for _, kind := range defaultNoRetryKinds {
+		profile := ViolationProfileFor(kind, false)
+		if profile.RetryEligible {
+			t.Errorf("kind=%q: non-strict RetryEligible=true; noisy/presentation signals must ship as guidance/audit unless an explicit precise gate handles the content", kind)
+		}
+	}
+}
+
 // TestDiagramEdgeEndpointHallucinated_CaveatOnly locks the commercial
 // boundary for visual diagrams. Mermaid node identifiers are a carrier
 // for the rendered diagram, not always a direct code-symbol assertion,
