@@ -344,6 +344,16 @@ func filterAcceptedAnswerDisplayAttachments(doc *types.AnswerDocumentV2, in []ty
 	return out
 }
 
+// FilterAcceptedAnswerDisplayAttachments exposes the same accepted-document
+// attachment boundary used by the emit tools. Once a structured
+// AnswerDocumentV2 has been accepted, markdown/text recovered from failed
+// drafts is retry telemetry, not an additional answer carrier. Diagram
+// attachments survive because they can represent visible content that did not
+// fit the structured document.
+func FilterAcceptedAnswerDisplayAttachments(doc *types.AnswerDocumentV2, in []types.AnswerDisplayAttachment) []types.AnswerDisplayAttachment {
+	return filterAcceptedAnswerDisplayAttachments(doc, in)
+}
+
 func answerDisplayAttachmentSurvivesAcceptedDoc(doc *types.AnswerDocumentV2, att types.AnswerDisplayAttachment) bool {
 	switch strings.TrimSpace(att.Kind) {
 	case types.AnswerDisplayAttachmentDiagram:

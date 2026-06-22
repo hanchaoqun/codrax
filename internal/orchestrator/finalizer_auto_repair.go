@@ -42,11 +42,13 @@ func (o *Orchestrator) tryAutoRepairFinalizerAnswerDocument(out *agent.StageOutp
 		return false
 	}
 	o.busCtx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	attachments := answertool.FilterAcceptedAnswerDisplayAttachments(doc, o.busCtx.Mutable.AnswerDisplayAttachments())
+	o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
 	renderDoc := doc
 	render.ApplyAuthorityHedging(renderDoc, finalizerAutoRepairAuthorityEvidencePool(o.busCtx), o.busCtx.Language)
 	out.FinalAnswer = render.RenderAnswerDocumentWithAttachments(
 		renderDoc,
-		o.busCtx.Mutable.AnswerDisplayAttachments(),
+		attachments,
 		o.busCtx.Language,
 	)
 	out.Data = marshalFinalizerAutoRepairStageData(out.FinalAnswer)
@@ -260,11 +262,13 @@ func (o *Orchestrator) recoverRejectedFinalizerDraftAfterTransientFailure(c type
 	if !changed && source != "accepted" {
 		return nil
 	}
+	originalAttachments := o.busCtx.Mutable.AnswerDisplayAttachments()
 	renderDoc := doc
+	attachments := answertool.FilterAcceptedAnswerDisplayAttachments(renderDoc, originalAttachments)
 	render.ApplyAuthorityHedging(renderDoc, finalizerAutoRepairAuthorityEvidencePool(o.busCtx), o.busCtx.Language)
 	answer := render.RenderAnswerDocumentWithAttachments(
 		renderDoc,
-		o.busCtx.Mutable.AnswerDisplayAttachments(),
+		attachments,
 		o.busCtx.Language,
 	)
 	if strings.TrimSpace(answer) == "" {
@@ -275,6 +279,7 @@ func (o *Orchestrator) recoverRejectedFinalizerDraftAfterTransientFailure(c type
 		Data:        marshalFinalizerAutoRepairStageData(answer),
 	}
 	o.busCtx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
 	res := runContractCheck(out, c, o.busCtx.Mutable, o)
 	if len(res.Violations) > 0 {
 		// Do not turn a genuinely invalid structured draft into a final
@@ -282,6 +287,7 @@ func (o *Orchestrator) recoverRejectedFinalizerDraftAfterTransientFailure(c type
 		// repairs that pass the same contract check normal finalizer output
 		// must pass.
 		o.busCtx.Mutable.ResetAnswerDocumentV2()
+		o.busCtx.Mutable.SetAnswerDisplayAttachments(originalAttachments)
 		if source == "rejected" {
 			o.busCtx.Mutable.SetLastRejectedAnswerDocumentV2(doc)
 		}

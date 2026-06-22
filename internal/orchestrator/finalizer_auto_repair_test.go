@@ -158,6 +158,51 @@ func TestRecoverRejectedFinalizerDraftAfterTransientFailure_MetadataOnly(t *test
 	}
 }
 
+func TestRecoverRejectedFinalizerDraftAfterTransientFailure_DropsRejectedTextAttachments(t *testing.T) {
+	mut := types.NewMutableState("recover rejected draft")
+	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/foo.go", Line: 12}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "Current code path is already visible as internal/foo.go:12.",
+			Items: []types.AnswerBlockItem{{
+				ID:          "i1",
+				Label:       "Foo",
+				Text:        "grounded row",
+				CitationRef: 0,
+			}},
+		}},
+	})
+	mut.SetAnswerDisplayAttachments([]types.AnswerDisplayAttachment{{
+		Kind:   types.AnswerDisplayAttachmentMarkdown,
+		Body:   "stale rejected prose that failed validation",
+		Source: "emit_answer_document.rejected_payload",
+		Reason: "rejected structured answer draft contained user-visible text",
+	}})
+	mut.SetRetryState(&types.RetryState{
+		ActiveViolations: []types.ScoredViolation{{
+			Kind:   types.ViolFacetUncovered,
+			Detail: `required facet "current_code_path" is not covered`,
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut, Language: "zh"}}
+
+	out := o.recoverRejectedFinalizerDraftAfterTransientFailure(types.AnswerContract{})
+	if out == nil || strings.TrimSpace(out.FinalAnswer) == "" {
+		t.Fatal("expected rejected draft to recover after metadata-only repair")
+	}
+	if strings.Contains(out.FinalAnswer, "stale rejected prose") ||
+		strings.Contains(out.FinalAnswer, "系统保留内容") ||
+		strings.Contains(out.FinalAnswer, "保留的原文") {
+		t.Fatalf("rejected text attachment leaked into recovered final answer:\n%s", out.FinalAnswer)
+	}
+	if got := mut.AnswerDisplayAttachments(); len(got) != 0 {
+		t.Fatalf("accepted recovered doc should clear rejected text attachments, got %+v", got)
+	}
+}
+
 func TestRecoverRejectedFinalizerDraftAfterTransientFailure_RefusesShapeBearingFacet(t *testing.T) {
 	mut := types.NewMutableState("recover rejected draft")
 	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{
