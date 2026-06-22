@@ -267,7 +267,30 @@ Boundary that remains for Batch 3/4:
 
 ### Batch 3: DB Exporter MVP
 
-Status: planned.
+Status: dependency/algorithm plan in progress.
+
+Exploration notes:
+
+- Current Go module has no SQLite dependency and no existing `database/sql`
+  usage for SQLite.
+- hmtrace uses Rust `rusqlite`; Codrax needs a Go equivalent that preserves the
+  single-binary UX.
+- Chosen dependency strategy:
+  - use pure-Go `modernc.org/sqlite` behind `database/sql`;
+  - do not use `github.com/mattn/go-sqlite3`, because CGO would complicate
+    static/release builds;
+  - do not use external `sqlite3` CLI except as a manual diagnostic outside the
+    product path.
+- Expected tradeoff:
+  - larger module graph and binary size;
+  - better portability and deterministic tests;
+  - no runtime dependency on system SQLite.
+- MVP exporter follows hmtrace table classes, but emits Codrax query-native
+  systrace text:
+  - `sched_slice + thread` -> `sched_switch`;
+  - `instant + thread` -> `sched_wakeup` and trace marker rows when present;
+  - `irq` -> IRQ/softirq entry/exit;
+  - CPU/clock/frame families after schema helpers are in place.
 
 Tasks:
 
@@ -292,6 +315,42 @@ Tasks:
   - synthetic DB per table family.
   - systrace text round-trip through `tracequery.BuildIndex`.
   - coverage stats in tracebundle.
+
+Detailed implementation checklist:
+
+- Add `internal/hitraceconv/streamerdb` or equivalent internal package.
+- Add DB abstraction:
+  - `Open(path)` using `database/sql`;
+  - `TableExists`;
+  - `ColumnExists`;
+  - nullable string/int helpers;
+  - coverage collector.
+- Add systrace writer:
+  - reuse the existing `writeRows`/`renderedRow` path where possible;
+  - render seconds with the same microsecond precision as current converter;
+  - sort events by timestamp/sequence for MVP.
+- Add scheduler exporter:
+  - read `sched_slice(ts,dur,cpu,end_state,priority,itid)`;
+  - join `thread(itid,tid,name)`;
+  - produce the same `sched_switch` body as trace_query already parses.
+- Add wakeup/trace-marker exporter:
+  - read `instant(ts,name,ref,ref_type,wakeup_from)`;
+  - support `sched_wakeup` and `sched_waking`;
+  - support trace marker B/E/C/S/F if DB rows expose marker payloads through
+    stable name/arg columns.
+- Add IRQ exporter:
+  - read `irq(ts,dur,callid,cat,name,argsetid)`;
+  - use arg tables only through a generic argset loader, not event-specific
+    string matching.
+- Add tracebundle coverage:
+  - table found/missing;
+  - rows read;
+  - rows emitted;
+  - skipped reason.
+- Keep memory bounded:
+  - MVP in-memory sort is allowed only for tests/small DBs;
+  - add a row-count threshold and explicit caveat if large DB spill sort is not
+    implemented yet.
 
 Exit criteria:
 
