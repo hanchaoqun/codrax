@@ -50,6 +50,7 @@ type traceBundleMetadata struct {
 	ProviderDecisions   []PerfProviderDecision  `json:"provider_decisions,omitempty"`
 	TraceDecisions      []TraceProviderDecision `json:"trace_provider_decisions,omitempty"`
 	TraceDBCoverage     []TraceDBCoverage       `json:"trace_db_coverage,omitempty"`
+	TraceCoverage       []TraceDBCoverage       `json:"trace_coverage,omitempty"`
 	PerfClockAlignments []PerfClockAlignment    `json:"perf_clock_alignments,omitempty"`
 	Caveats             []string                `json:"caveats,omitempty"`
 }
@@ -257,8 +258,14 @@ func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []
 }
 
 func writeTraceBundleWithCoverage(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, coverage []TraceDBCoverage) (Artifact, error) {
+	return writeTraceBundleWithAllCoverage(input, outputPath, artifacts, caveats, decisions, traceDecisions, coverage, nil)
+}
+
+func writeTraceBundleWithAllCoverage(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage) (Artifact, error) {
 	if len(artifacts) == 0 {
-		return Artifact{}, nil
+		if len(decisions) == 0 && len(traceDecisions) == 0 && len(dbCoverage) == 0 && len(traceCoverage) == 0 && len(caveats) == 0 {
+			return Artifact{}, nil
+		}
 	}
 	base := traceSidecarBase(input, outputPath)
 	path := base + ".tracebundle.json"
@@ -272,7 +279,8 @@ func writeTraceBundleWithCoverage(input, outputPath string, artifacts []Artifact
 		Artifacts:           artifacts,
 		ProviderDecisions:   decisions,
 		TraceDecisions:      traceDecisions,
-		TraceDBCoverage:     coverage,
+		TraceDBCoverage:     dbCoverage,
+		TraceCoverage:       traceCoverage,
 		PerfClockAlignments: perfClockAlignmentsForArtifacts(artifacts),
 		Caveats:             caveats,
 	}

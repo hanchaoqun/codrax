@@ -16,6 +16,7 @@ import (
 const (
 	profilerDataTypeProtobuf = uint32(0)
 	profilerSessionJSONTag   = "SessionJSON-"
+	maxProfilerTextLineBytes = 1024 * 1024
 )
 
 type profilerTraceHeader struct {
@@ -42,12 +43,13 @@ type profilerPluginData struct {
 type profilerContainerExtraction struct {
 	Detected           bool
 	Kind               string
-	Rows               []renderedRow
 	Messages           int
 	PluginMessages     map[string]int
 	StructuredFtrace   int
 	TextPluginMessages int
+	TextRows           int
 	StandaloneDetected bool
+	TraceCoverage      []TraceDBCoverage
 	Caveats            []string
 }
 
@@ -117,8 +119,25 @@ type profilerFtraceClockDetail struct {
 	HasRes   bool
 }
 
+func modernRowSorterCoverage(stats traceDBRowSortStats) TraceDBCoverage {
+	coverage := stats.coverage()
+	coverage.Family = "builtin_modern_profiler"
+	coverage.Table = "__systrace_rows__"
+	return coverage
+}
+
 func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage) (Result, bool, error) {
-	extracted, err := extractProfilerContainerSystraceRows(ctx, opts.InputPath, inputSize)
+	sink, err := newTraceDBRowSink("", 0)
+	if err != nil {
+		return Result{}, false, err
+	}
+	sinkClosed := false
+	defer func() {
+		if !sinkClosed {
+			sink.cleanup()
+		}
+	}()
+	extracted, err := extractProfilerContainerSystraceRows(ctx, opts.InputPath, inputSize, sink)
 	if err != nil {
 		return Result{}, false, err
 	}
@@ -132,41 +151,40 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		ProviderDecisions:  append([]PerfProviderDecision(nil), standaloneDecisions...),
 		TraceDecisions:     append([]TraceProviderDecision(nil), initialTraceDecisions...),
 		TraceDBCoverage:    append([]TraceDBCoverage(nil), initialTraceDBCoverage...),
+		TraceCoverage:      append([]TraceDBCoverage(nil), extracted.TraceCoverage...),
 		Caveats:            append([]string(nil), extracted.Caveats...),
 		MissingFormatCount: 0,
 		UnknownEventCount:  extracted.StructuredFtrace,
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
-	if len(extracted.Rows) > 0 {
-		sort.SliceStable(extracted.Rows, func(i, j int) bool {
-			if extracted.Rows[i].tsNS == extracted.Rows[j].tsNS {
-				return extracted.Rows[i].seq < extracted.Rows[j].seq
-			}
-			return extracted.Rows[i].tsNS < extracted.Rows[j].tsNS
-		})
+	if sink.stats.RowsAccepted > 0 {
 		out, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err != nil {
 			return Result{}, true, err
 		}
-		writeErr := writeRows(out, extracted.Rows)
+		stats, writeErr := sink.writeTo(ctx, out)
+		sinkClosed = true
 		closeErr := out.Close()
 		if writeErr != nil {
 			_ = os.Remove(output)
+			result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
 			return Result{}, true, writeErr
 		}
 		if closeErr != nil {
 			_ = os.Remove(output)
+			result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
 			return Result{}, true, closeErr
 		}
 		info, err := os.Stat(output)
 		if err != nil {
 			return Result{}, true, err
 		}
+		result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
 		result.OutputPath = output
 		result.OutputBytes = info.Size()
-		result.EventsWritten = len(extracted.Rows)
-		result.FirstTimestampSec = float64(extracted.Rows[0].tsNS) / 1e9
-		result.LastTimestampSec = float64(extracted.Rows[len(extracted.Rows)-1].tsNS) / 1e9
+		result.EventsWritten = stats.RowsWritten
+		result.FirstTimestampSec = float64(stats.FirstTSNS) / 1e9
+		result.LastTimestampSec = float64(stats.LastTSNS) / 1e9
 		result.Artifacts = append([]Artifact{{
 			Type:      ArtifactSystrace,
 			Path:      output,
@@ -200,7 +218,10 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 			),
 		)
 	}
-	if bundleArtifact, err := writeTraceBundleWithCoverage(opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage); err != nil {
+	if sink.stats.RowsAccepted == 0 {
+		result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(sink.stats))
+	}
+	if bundleArtifact, err := writeTraceBundleWithAllCoverage(opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
 		return Result{}, true, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path
@@ -209,15 +230,15 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 	return result, true, nil
 }
 
-func extractProfilerContainerSystraceRows(ctx context.Context, path string, inputSize int64) (profilerContainerExtraction, error) {
+func extractProfilerContainerSystraceRows(ctx context.Context, path string, inputSize int64, sink *traceDBRowSink) (profilerContainerExtraction, error) {
 	header, ok, err := readProfilerTraceHeaderAtPath(path, 0, inputSize)
 	if err != nil {
 		return profilerContainerExtraction{}, err
 	}
 	if ok && header.DataType == profilerDataTypeProtobuf {
-		return extractProfilerTraceFile(ctx, path, inputSize, header)
+		return extractProfilerTraceFile(ctx, path, inputSize, header, sink)
 	}
-	session, err := extractProfilerSessionPackage(ctx, path)
+	session, err := extractProfilerSessionPackage(ctx, path, sink)
 	if err != nil {
 		return profilerContainerExtraction{}, err
 	}
@@ -227,7 +248,7 @@ func extractProfilerContainerSystraceRows(ctx context.Context, path string, inpu
 	return profilerContainerExtraction{}, nil
 }
 
-func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64, header profilerTraceHeader) (profilerContainerExtraction, error) {
+func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64, header profilerTraceHeader, sink *traceDBRowSink) (profilerContainerExtraction, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return profilerContainerExtraction{}, err
@@ -271,19 +292,40 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 			name := firstNonEmpty(plugin.Name, "unknown-plugin")
 			out.PluginMessages[name]++
 			out.Caveats = append(out.Caveats, profilerPluginMetadataCaveat(name, plugin))
-			rows := extractSystraceRowsFromBytes(plugin.Data, &seq)
-			if len(rows) > 0 {
-				out.Rows = append(out.Rows, rows...)
+			coverage := TraceDBCoverage{
+				Family:   "builtin_modern_profiler",
+				Table:    "plugin:" + name,
+				Found:    true,
+				RowsRead: 1,
+			}
+			rows, rowErr := addSystraceRowsFromBytes(plugin.Data, &seq, sink)
+			if rowErr != nil {
+				coverage.Error = rowErr.Error()
+				out.TraceCoverage = append(out.TraceCoverage, coverage)
+				return profilerContainerExtraction{}, rowErr
+			}
+			coverage.RowsEmitted = rows
+			if rows > 0 {
+				out.TextRows += rows
 				out.TextPluginMessages++
 			} else if strings.EqualFold(name, "ftrace-plugin") {
 				out.StructuredFtrace++
 				summary, ok, summaryErr := decodeProfilerFtraceSummary(plugin.Data)
 				if summaryErr != nil {
 					out.Caveats = append(out.Caveats, fmt.Sprintf("ftrace-plugin structured metadata parse failed: %v", summaryErr))
+					coverage.Error = summaryErr.Error()
 				} else if ok {
 					out.Caveats = append(out.Caveats, profilerFtraceSummaryCaveat(summary))
+					coverage.Skipped = "structured ftrace renderer pending"
+				} else {
+					coverage.Skipped = "ftrace-plugin payload was not recognized as text systrace or supported structured ftrace"
 				}
+			} else if len(plugin.Data) == 0 {
+				coverage.Skipped = "empty plugin payload"
+			} else {
+				coverage.Skipped = "plugin payload did not contain systrace-compatible text rows"
 			}
+			out.TraceCoverage = append(out.TraceCoverage, coverage)
 		}
 		off += 4 + n
 	}
@@ -293,8 +335,8 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 	if out.StructuredFtrace > 0 {
 		out.Caveats = append(out.Caveats, fmt.Sprintf("detected %d ftrace-plugin protobuf message(s); Codrax currently renders embedded text trace payloads and preserves sidecars, but does not inline the full generated OpenHarmony TracePluginResult formatter matrix", out.StructuredFtrace))
 	}
-	if len(out.Rows) > 0 {
-		out.Caveats = append(out.Caveats, fmt.Sprintf("extracted %d systrace text row(s) from %d profiler plugin message(s)", len(out.Rows), out.TextPluginMessages))
+	if out.TextRows > 0 {
+		out.Caveats = append(out.Caveats, fmt.Sprintf("extracted %d systrace text row(s) from %d profiler plugin message(s)", out.TextRows, out.TextPluginMessages))
 	}
 	return out, nil
 }
@@ -707,7 +749,7 @@ func profilerFtraceClockName(id uint64) string {
 	}
 }
 
-func extractProfilerSessionPackage(ctx context.Context, path string) (profilerContainerExtraction, error) {
+func extractProfilerSessionPackage(ctx context.Context, path string, sink *traceDBRowSink) (profilerContainerExtraction, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return profilerContainerExtraction{}, err
@@ -733,6 +775,11 @@ func extractProfilerSessionPackage(ctx context.Context, path string) (profilerCo
 		},
 	}
 	seq := 0
+	coverage := TraceDBCoverage{
+		Family: "builtin_modern_profiler",
+		Table:  "session:SessionJSON",
+		Found:  true,
+	}
 	reader := bufio.NewReaderSize(f, 256*1024)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -740,21 +787,32 @@ func extractProfilerSessionPackage(ctx context.Context, path string) (profilerCo
 		}
 		line, readErr := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			lineRows := extractSystraceRowsFromBytes(line, &seq)
-			out.Rows = append(out.Rows, lineRows...)
+			coverage.RowsRead++
+			lineRows, rowErr := addSystraceRowsFromBytes(line, &seq, sink)
+			if rowErr != nil {
+				coverage.Error = rowErr.Error()
+				out.TraceCoverage = append(out.TraceCoverage, coverage)
+				return profilerContainerExtraction{}, rowErr
+			}
+			coverage.RowsEmitted += lineRows
+			out.TextRows += lineRows
 		}
 		if readErr == io.EOF {
 			break
 		}
 		if readErr != nil {
+			coverage.Error = readErr.Error()
+			out.TraceCoverage = append(out.TraceCoverage, coverage)
 			return profilerContainerExtraction{}, readErr
 		}
 	}
-	if len(out.Rows) > 0 {
-		out.Caveats = append(out.Caveats, fmt.Sprintf("extracted %d systrace text row(s) from profiler session package payload", len(out.Rows)))
+	if out.TextRows > 0 {
+		out.Caveats = append(out.Caveats, fmt.Sprintf("extracted %d systrace text row(s) from profiler session package payload", out.TextRows))
 	} else {
+		coverage.Skipped = "session package did not contain directly renderable systrace text rows"
 		out.Caveats = append(out.Caveats, "session package did not contain directly renderable systrace text rows; attach extracted sidecars or export ftrace/bytrace text with the official profiler tooling")
 	}
+	out.TraceCoverage = append(out.TraceCoverage, coverage)
 	return out, nil
 }
 
@@ -842,16 +900,26 @@ func parseProfilerPluginData(data []byte) (profilerPluginData, bool) {
 	return out, out.Name != "" || len(out.Data) > 0
 }
 
-func extractSystraceRowsFromBytes(data []byte, seq *int) []renderedRow {
+func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int, error) {
 	if len(data) == 0 {
-		return nil
+		return 0, nil
 	}
-	normalized := bytes.ReplaceAll(data, []byte{0}, []byte{'\n'})
-	scanner := bufio.NewScanner(bytes.NewReader(normalized))
-	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
-	var rows []renderedRow
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	rows := 0
+	for start := 0; start < len(data); {
+		end := start
+		for end < len(data) && data[end] != '\n' && data[end] != 0 {
+			end++
+		}
+		part := bytes.TrimSpace(data[start:end])
+		if end < len(data) {
+			start = end + 1
+		} else {
+			start = len(data)
+		}
+		if len(part) == 0 || len(part) > maxProfilerTextLineBytes {
+			continue
+		}
+		line := string(part)
 		if line == "" {
 			continue
 		}
@@ -859,10 +927,16 @@ func extractSystraceRowsFromBytes(data []byte, seq *int) []renderedRow {
 		if !ok {
 			continue
 		}
-		rows = append(rows, renderedRow{tsNS: ts, seq: *seq, line: line})
-		*seq++
+		if sink == nil {
+			return rows, fmt.Errorf("systrace row sink is nil")
+		}
+		if err := sink.add(renderedRow{tsNS: ts, seq: *seq, line: line}); err != nil {
+			return rows, err
+		}
+		(*seq)++
+		rows++
 	}
-	return rows
+	return rows, nil
 }
 
 func systraceLineTimestampNS(line string) (uint64, bool) {

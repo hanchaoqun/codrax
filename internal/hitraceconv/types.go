@@ -142,6 +142,7 @@ type Result struct {
 	ProviderDecisions  []PerfProviderDecision
 	TraceDecisions     []TraceProviderDecision
 	TraceDBCoverage    []TraceDBCoverage
+	TraceCoverage      []TraceDBCoverage
 	InputBytes         int64
 	OutputBytes        int64
 	EventsWritten      int

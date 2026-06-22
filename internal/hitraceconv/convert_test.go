@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -294,6 +295,66 @@ func TestConvertFileRendersOfficialProfilerTraceFileTextPayload(t *testing.T) {
 			t.Fatalf("profiler bundle missing trace provider provenance %q:\n%s", want, bundle)
 		}
 	}
+	var meta struct {
+		TraceCoverage []TraceDBCoverage `json:"trace_coverage"`
+	}
+	if err := json.Unmarshal(bundle, &meta); err != nil {
+		t.Fatalf("decode tracebundle: %v", err)
+	}
+	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "plugin:bytrace_plugin", 3) {
+		t.Fatalf("profiler bundle missing modern plugin coverage: %+v", meta.TraceCoverage)
+	}
+	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "__systrace_rows__", 3) {
+		t.Fatalf("profiler bundle missing modern sorter coverage: %+v", meta.TraceCoverage)
+	}
+}
+
+func TestProfilerTextPayloadUsesBoundedSorter(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "profiler-large.htrace")
+	textTrace := strings.Join([]string{
+		"t-1  ( 1) [001] ....     3.000000: tracing_mark_write: B|1|late",
+		"t-1  ( 1) [001] ....     1.000000: tracing_mark_write: B|1|early",
+		"t-1  ( 1) [001] ....     2.000000: tracing_mark_write: B|1|middle",
+		"t-1  ( 1) [001] ....     4.000000: tracing_mark_write: B|1|last",
+		"t-1  ( 1) [001] ....     1.500000: tracing_mark_write: B|1|between",
+	}, "\n")
+	body := syntheticProfilerTraceFile(syntheticProfilerPluginData("bytrace_plugin", []byte(textTrace)))
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink, err := newTraceDBRowSink("", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	extracted, err := extractProfilerContainerSystraceRows(context.Background(), input, info.Size(), sink)
+	if err != nil {
+		t.Fatalf("extract profiler rows: %v", err)
+	}
+	if !extracted.Detected || extracted.TextRows != 5 || sink.stats.SpillChunks == 0 {
+		t.Fatalf("expected bounded sorter extraction with spill: extracted=%+v stats=%+v", extracted, sink.stats)
+	}
+	var out bytes.Buffer
+	stats, err := sink.writeTo(context.Background(), &out)
+	if err != nil {
+		t.Fatalf("write sorted rows: %v", err)
+	}
+	if stats.RowsWritten != 5 || stats.PeakBufferedRows > 2 {
+		t.Fatalf("bad sorter stats: %+v", stats)
+	}
+	text := out.String()
+	early := strings.Index(text, "B|1|early")
+	between := strings.Index(text, "B|1|between")
+	middle := strings.Index(text, "B|1|middle")
+	late := strings.Index(text, "B|1|late")
+	if early < 0 || between < early || middle < between || late < middle {
+		t.Fatalf("rows not globally sorted:\n%s", text)
+	}
 }
 
 func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testing.T) {
@@ -319,6 +380,9 @@ func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testin
 	if result.OutputPath != "" || result.EventsWritten != 0 || result.UnknownEventCount != 1 {
 		t.Fatalf("structured ftrace metadata should not pretend to render systrace rows: %+v", result)
 	}
+	if result.BundlePath == "" {
+		t.Fatalf("structured ftrace partial result should still emit tracebundle coverage: %+v", result)
+	}
 	for _, want := range []string{
 		"profiler plugin ftrace-plugin metadata: clock_id=MONOTONIC",
 		"tv=12.000000034",
@@ -339,6 +403,19 @@ func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testin
 		if !containsString(result.Caveats, want) {
 			t.Fatalf("structured profiler caveats missing %q:\n%v", want, result.Caveats)
 		}
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta struct {
+		TraceCoverage []TraceDBCoverage `json:"trace_coverage"`
+	}
+	if err := json.Unmarshal(bundle, &meta); err != nil {
+		t.Fatalf("decode tracebundle: %v", err)
+	}
+	if !coverageHasSkipped(meta.TraceCoverage, "builtin_modern_profiler", "plugin:ftrace-plugin", "structured ftrace renderer pending") {
+		t.Fatalf("structured ftrace coverage should explain partial renderer: %+v", meta.TraceCoverage)
 	}
 }
 
@@ -384,6 +461,19 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	}
 	if !strings.Contains(string(converted), "bindApplication") {
 		t.Fatalf("session systrace missing embedded text row:\n%s", converted)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta struct {
+		TraceCoverage []TraceDBCoverage `json:"trace_coverage"`
+	}
+	if err := json.Unmarshal(bundle, &meta); err != nil {
+		t.Fatalf("decode tracebundle: %v", err)
+	}
+	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "session:SessionJSON", 1) {
+		t.Fatalf("session bundle missing modern coverage: %+v", meta.TraceCoverage)
 	}
 }
 
@@ -1192,6 +1282,15 @@ func writeProfilerProtoVarint(out *bytes.Buffer, value uint64) {
 func containsString(items []string, needle string) bool {
 	for _, item := range items {
 		if strings.Contains(item, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func coverageHasEmitted(coverage []TraceDBCoverage, family, table string, minRows int) bool {
+	for _, item := range coverage {
+		if item.Family == family && item.Table == table && item.RowsEmitted >= minRows {
 			return true
 		}
 	}

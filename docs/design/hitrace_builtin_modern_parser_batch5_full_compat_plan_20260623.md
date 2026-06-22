@@ -212,18 +212,23 @@ outside trace_query's current consumption surface and explicitly documented.
 
 ### Batch 5A: Modern Parser Coverage and Bounded Text Extraction
 
+Status: delivered on 2026-06-23.
+
 Tasks:
 
-- Introduce modern parser coverage records and tracebundle serialization.
-- Stream text profiler payload rows into the shared spillable row sorter.
-- Stream SessionJSON/package text rows into the shared spillable row sorter.
-- Preserve first/last timestamps and event counts from sorter stats.
-- Keep provider decisions accurate:
+- Delivered modern parser coverage records through tracebundle
+  `trace_coverage`, while leaving `trace_db_coverage` dedicated to SQLite DB
+  table coverage.
+- Delivered text profiler payload rows through the shared spillable row sorter.
+- Delivered SessionJSON/package text rows through the shared spillable row
+  sorter.
+- Delivered first/last timestamps and event counts from sorter stats.
+- Delivered provider decisions accuracy:
   - success only when queryable rows were emitted;
   - partial when only sidecars/coverage were produced;
   - failure when a detected modern package cannot produce rows or useful
     sidecars.
-- Add tests:
+- Delivered tests:
   - text plugin with many out-of-order rows spills to disk and sorts;
   - SessionJSON package rows use the same sorter path;
   - tracebundle includes modern coverage and sorter stats;
@@ -231,9 +236,10 @@ Tasks:
 
 Exit:
 
-- Text/session modern payloads are production bounded and machine-readable in
-  tracebundle. Structured ftrace may still be partial, but the coverage must say
-  so precisely.
+- Delivered: text/session modern payloads are production bounded and
+  machine-readable in tracebundle. Structured ftrace remains partial pending
+  Batch 5B/5C, but the coverage now says so precisely and a partial structured
+  result still emits a tracebundle.
 
 ### Batch 5B: Structured ftrace Schema Audit and Decoder Skeleton
 
