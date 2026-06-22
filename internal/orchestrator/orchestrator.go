@@ -252,6 +252,8 @@ type Orchestrator struct {
 	readRunSnapshotSeed  *types.ReadRunSnapshot
 	readRunActiveState   types.ReadRunActiveState
 	readRunActiveSeed    types.ReadRunActiveState
+	readRunCodraxVersion string
+	readRunCodraxBuild   string
 	readStatusDebouncer  orchestratorStatusDebouncer
 	// nextPhaseHint is the consume-once carry-over from the
 	// previous phase's acceptance check (NextHint field). The

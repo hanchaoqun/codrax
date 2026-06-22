@@ -379,6 +379,76 @@ func TestReadRunSnapshotSeedRejectsRepoFingerprintMismatch(t *testing.T) {
 	}
 }
 
+func TestReadRunSnapshotSeedRejectsEnvironmentFingerprintMismatch(t *testing.T) {
+	repoRoot := "/tmp/codrax-read-seed"
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+	snapshot := readRunSnapshotSeedFixture(t, ir, repoRoot)
+	snapshot.Environment = types.ReadRunEnvironmentFingerprint{
+		Kind:      types.ReadRunEnvironmentKindCodrax,
+		Available: true,
+		Configs: []types.ReadRunConfigFingerprint{{
+			Name:      types.ReadRunConfigFingerprintSearchExcludeRoots,
+			Available: true,
+			Hash:      strings.Repeat("f", 64),
+		}},
+	}
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			Mode:       types.ModeRead,
+			RepoRoot:   repoRoot,
+			AnalysisIR: ir,
+			Mutable:    types.NewMutableState("resume typed snapshot"),
+		},
+	}
+	o.busCtx.Mutable.SetRepoRoot(repoRoot)
+	o.SetReadRunSnapshotSeed(&snapshot)
+	err := o.applyReadRunSnapshotSeed()
+	if err == nil || !strings.Contains(err.Error(), readRunSnapshotSeedReasonEnvironment) {
+		t.Fatalf("applyReadRunSnapshotSeed error = %v, want environment fingerprint mismatch", err)
+	}
+	if o.busCtx.Mutable.EvidenceClosure().HasRead("seeded.go") {
+		t.Fatal("environment fingerprint mismatch must not hydrate read coverage")
+	}
+}
+
+func TestReadRunSnapshotSeedAllowsUnavailableEnvironmentFingerprint(t *testing.T) {
+	repoRoot := "/tmp/codrax-read-seed"
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	compiler.EnsureReadStageNodes(&ir.TaskGraph)
+	snapshot := readRunSnapshotSeedFixture(t, ir, repoRoot)
+	snapshot.Environment = types.ReadRunEnvironmentFingerprint{
+		Kind:      types.ReadRunEnvironmentKindCodrax,
+		Available: true,
+		Tools: []types.ReadRunToolFingerprint{{
+			Name:       "git",
+			Available:  false,
+			ReasonCode: types.ReadRunFingerprintReasonNotFound,
+		}},
+		Configs: []types.ReadRunConfigFingerprint{{
+			Name:       types.ReadRunConfigFingerprintSearchExcludeRoots,
+			Available:  false,
+			ReasonCode: types.ReadRunFingerprintReasonUnavailable,
+		}},
+	}
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			Mode:       types.ModeRead,
+			RepoRoot:   repoRoot,
+			AnalysisIR: ir,
+			Mutable:    types.NewMutableState("resume typed snapshot"),
+		},
+	}
+	o.busCtx.Mutable.SetRepoRoot(repoRoot)
+	o.SetReadRunSnapshotSeed(&snapshot)
+	if err := o.applyReadRunSnapshotSeed(); err != nil {
+		t.Fatalf("unavailable environment fingerprint should be audit-only, got %v", err)
+	}
+	if !o.busCtx.Mutable.EvidenceClosure().HasRead("seeded.go") {
+		t.Fatal("unavailable environment fingerprint should allow hydration")
+	}
+}
+
 func TestReadRunSnapshotSeedAcceptsMatchingAttachmentFingerprint(t *testing.T) {
 	repoRoot := "/tmp/codrax-read-seed"
 	ir := dagIR(types.AnswerContract{Language: "en"})

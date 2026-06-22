@@ -25,6 +25,7 @@ type ReadRunSnapshot struct {
 	RequestHash      string                         `json:"request_hash,omitempty"`
 	RepoRoot         string                         `json:"repo_root,omitempty"`
 	RepoFingerprint  ReadRunRepoFingerprint         `json:"repo_fingerprint,omitempty"`
+	Environment      ReadRunEnvironmentFingerprint  `json:"environment_fingerprint,omitempty"`
 	Attachments      []ReadRunAttachmentFingerprint `json:"attachments,omitempty"`
 	TaskGraphHash    string                         `json:"task_graph_hash,omitempty"`
 	TaskNodeCount    int                            `json:"task_node_count,omitempty"`
@@ -96,6 +97,7 @@ func NormalizeReadRunSnapshot(snapshot ReadRunSnapshot) ReadRunSnapshot {
 	}
 	snapshot.RepoRoot = strings.TrimSpace(snapshot.RepoRoot)
 	snapshot.RepoFingerprint = NormalizeReadRunRepoFingerprint(snapshot.RepoFingerprint)
+	snapshot.Environment = NormalizeReadRunEnvironmentFingerprint(snapshot.Environment)
 	snapshot.Attachments = NormalizeReadRunAttachmentFingerprints(snapshot.Attachments)
 	snapshot.TaskGraphHash = strings.TrimSpace(snapshot.TaskGraphHash)
 	snapshot.NodeStatuses = cloneNodeExecStatusMap(snapshot.NodeStatuses)

@@ -111,6 +111,24 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 			Head:       "abcdef",
 			StatusHash: "123456",
 		},
+		Environment: ReadRunEnvironmentFingerprint{
+			Kind:            ReadRunEnvironmentKindCodrax,
+			Available:       true,
+			CodraxVersion:   "0.1.test",
+			CodraxBuildTime: "2026-06-22T00:00:00Z",
+			GoVersion:       "go1.22.5",
+			GOOS:            "darwin",
+			GOARCH:          "arm64",
+			Tools: []ReadRunToolFingerprint{{
+				Name:        "git",
+				Available:   true,
+				Executable:  "/usr/bin/git",
+				VersionHash: strings.Repeat("b", 64),
+			}},
+			Configs: []ReadRunConfigFingerprint{
+				ReadRunConfigFingerprintFromStringSlice(ReadRunConfigFingerprintSearchExcludeRoots, []string{"out", ".codrax"}),
+			},
+		},
 		Attachments: []ReadRunAttachmentFingerprint{
 			ReadRunAttachmentFingerprintFromPayload(ReadRunAttachmentKindLog, "panic: one\n", ""),
 			ReadRunAttachmentFingerprintFromPayload(ReadRunAttachmentKindTrace, "sched_switch\n", "harmony_hitrace"),
@@ -168,6 +186,10 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 	if !loaded.RepoFingerprint.Available || loaded.RepoFingerprint.Head != "abcdef" {
 		t.Fatalf("loaded repo fingerprint = %+v", loaded.RepoFingerprint)
 	}
+	if !loaded.Environment.Available || loaded.Environment.CodraxVersion != "0.1.test" ||
+		len(loaded.Environment.Tools) != 1 || len(loaded.Environment.Configs) != 1 {
+		t.Fatalf("loaded environment fingerprint = %+v", loaded.Environment)
+	}
 	if traceFP, ok := ReadRunAttachmentFingerprintByKind(loaded.Attachments, ReadRunAttachmentKindTrace); !ok || traceFP.Source != "harmony_hitrace" || traceFP.Hash == "" {
 		t.Fatalf("loaded attachments = %+v", loaded.Attachments)
 	}
@@ -182,6 +204,57 @@ func TestReadRunSnapshotFileRoundTrip(t *testing.T) {
 	}
 	if tmp := path + ".tmp"; fileExists(tmp) {
 		t.Fatalf("tmp file should not remain: %s", tmp)
+	}
+}
+
+func TestReadRunEnvironmentFingerprintEquality(t *testing.T) {
+	base := NormalizeReadRunEnvironmentFingerprint(ReadRunEnvironmentFingerprint{
+		Kind:            ReadRunEnvironmentKindCodrax,
+		Available:       true,
+		CodraxVersion:   "0.1.20260622",
+		CodraxBuildTime: "2026-06-22T00:00:00Z",
+		GoVersion:       "go1.22.5",
+		GOOS:            "darwin",
+		GOARCH:          "arm64",
+		Tools: []ReadRunToolFingerprint{{
+			Name:        "git",
+			Available:   true,
+			Executable:  "/usr/bin/git",
+			VersionHash: strings.Repeat("c", 64),
+			FileHash:    strings.Repeat("d", 64),
+		}},
+		Configs: []ReadRunConfigFingerprint{
+			ReadRunConfigFingerprintFromStringSlice(ReadRunConfigFingerprintSearchExcludeRoots, []string{"out", ".codrax"}),
+		},
+	})
+	same := base
+	same.Tools = append([]ReadRunToolFingerprint(nil), base.Tools...)
+	same.Tools = append(same.Tools, ReadRunToolFingerprint{Name: "missing", Available: false, ReasonCode: ReadRunFingerprintReasonNotFound})
+	if !ReadRunEnvironmentFingerprintsEqual(base, same) {
+		t.Fatalf("matching comparable environment should be equal: base=%+v same=%+v", base, same)
+	}
+	missingCurrentTool := base
+	missingCurrentTool.Tools = []ReadRunToolFingerprint{{Name: "git", Available: false, ReasonCode: ReadRunFingerprintReasonNotFound}}
+	if !ReadRunEnvironmentFingerprintsEqual(base, missingCurrentTool) {
+		t.Fatalf("unavailable current tool should be audit-only, not mismatch")
+	}
+	changedTool := base
+	changedTool.Tools = append([]ReadRunToolFingerprint(nil), base.Tools...)
+	changedTool.Tools[0].VersionHash = strings.Repeat("e", 64)
+	if ReadRunEnvironmentFingerprintsEqual(base, changedTool) {
+		t.Fatalf("available tool version mismatch should be detected")
+	}
+	changedConfig := base
+	changedConfig.Configs = []ReadRunConfigFingerprint{
+		ReadRunConfigFingerprintFromStringSlice(ReadRunConfigFingerprintSearchExcludeRoots, []string{"different"}),
+	}
+	if ReadRunEnvironmentFingerprintsEqual(base, changedConfig) {
+		t.Fatalf("available config hash mismatch should be detected")
+	}
+	changedRuntime := base
+	changedRuntime.CodraxVersion = "0.2.0"
+	if ReadRunEnvironmentFingerprintsEqual(base, changedRuntime) {
+		t.Fatalf("available runtime version mismatch should be detected")
 	}
 }
 

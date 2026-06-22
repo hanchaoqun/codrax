@@ -20,6 +20,17 @@ func (o *Orchestrator) SetReadRunSnapshotStore(s ReadRunSnapshotSaver) {
 	o.readRunSnapshotSaver = s
 }
 
+// SetReadRunEnvironmentBuildInfo installs build identity used only for typed
+// read-run snapshot environment fingerprints. Empty values remain audit-only
+// and never force a resume mismatch.
+func (o *Orchestrator) SetReadRunEnvironmentBuildInfo(version, buildTime string) {
+	if o == nil {
+		return
+	}
+	o.readRunCodraxVersion = strings.TrimSpace(version)
+	o.readRunCodraxBuild = strings.TrimSpace(buildTime)
+}
+
 func (o *Orchestrator) persistReadRunSnapshot() {
 	if o == nil || o.readRunSnapshotSaver == nil || o.busCtx == nil || o.busCtx.Mode != types.ModeRead {
 		return
@@ -30,6 +41,7 @@ func (o *Orchestrator) persistReadRunSnapshot() {
 	}
 	snapshot := types.ReadRunSnapshotFromBusContext(o.busCtx, runID)
 	snapshot.RepoFingerprint = readRunCurrentRepoFingerprint(o.busCtx.RepoRoot)
+	snapshot.Environment = o.readRunCurrentEnvironmentFingerprint()
 	snapshot.ActiveState = types.NormalizeReadRunActiveState(o.readRunActiveState)
 	path, err := o.readRunSnapshotSaver.Save(&snapshot)
 	if err != nil {

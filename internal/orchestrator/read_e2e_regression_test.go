@@ -522,6 +522,7 @@ func TestE2E_ReadMode_SavesTypedReadRunSnapshot(t *testing.T) {
 	ar, sr, sar := buildRegistries(agentFns)
 	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
 	o.SetReadRunSnapshotStore(saver)
+	o.SetReadRunEnvironmentBuildInfo("0.1.test", "2026-06-22T00:00:00Z")
 	o.SetMaxSteps(20)
 
 	busCtx, err := o.Run("explain read snapshots", "/tmp/repo", "main")
@@ -546,6 +547,11 @@ func TestE2E_ReadMode_SavesTypedReadRunSnapshot(t *testing.T) {
 	}
 	if len(snapshot.AcceptedEvidence) == 0 {
 		t.Fatalf("snapshot missing accepted evidence refs: %+v", snapshot)
+	}
+	if !snapshot.Environment.Available || snapshot.Environment.CodraxVersion != "0.1.test" ||
+		snapshot.Environment.GoVersion == "" || len(snapshot.Environment.Tools) == 0 ||
+		len(snapshot.Environment.Configs) == 0 {
+		t.Fatalf("snapshot missing environment fingerprint: %+v", snapshot.Environment)
 	}
 }
 

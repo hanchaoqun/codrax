@@ -27,6 +27,24 @@ func TestReadRunsListShowClear(t *testing.T) {
 			Head:       "abcdef1234567890",
 			StatusHash: "123456abcdef",
 		},
+		Environment: types.ReadRunEnvironmentFingerprint{
+			Kind:            types.ReadRunEnvironmentKindCodrax,
+			Available:       true,
+			CodraxVersion:   "0.1.test",
+			CodraxBuildTime: "2026-06-22T00:00:00Z",
+			GoVersion:       "go1.22.5",
+			GOOS:            "darwin",
+			GOARCH:          "arm64",
+			Tools: []types.ReadRunToolFingerprint{{
+				Name:        "git",
+				Available:   true,
+				Executable:  "/usr/bin/git",
+				VersionHash: strings.Repeat("d", 64),
+			}},
+			Configs: []types.ReadRunConfigFingerprint{
+				types.ReadRunConfigFingerprintFromStringSlice(types.ReadRunConfigFingerprintSearchExcludeRoots, []string{"out"}),
+			},
+		},
 		Attachments: []types.ReadRunAttachmentFingerprint{
 			types.ReadRunAttachmentFingerprintFromPayload(types.ReadRunAttachmentKindLog, "panic: sample\n", ""),
 			types.ReadRunAttachmentFingerprintFromPayload(types.ReadRunAttachmentKindTrace, "sched_switch\n", "android_atrace"),
@@ -109,6 +127,11 @@ func TestReadRunsListShowClear(t *testing.T) {
 		"Request fingerprint:",
 		"Repo fingerprint: kind=`git_head`",
 		"head=`abcdef123456`",
+		"Environment fingerprint: kind=`codrax_runtime`",
+		"tools=1",
+		"configs=1",
+		"tool_hashes=git=dddddddddddd",
+		"config_hashes=search_exclude_roots=",
 		"Attachment fingerprints:",
 		"log=",
 		"trace=",
@@ -134,6 +157,7 @@ func TestReadRunsListShowClear(t *testing.T) {
 	rawMarkdown := readRunSnapshotMarkdown(types.NormalizeReadRunSnapshot(*snapshot))
 	for _, want := range []string{
 		"Repo fingerprint: kind=`git_head` head=`abcdef123456` status=`123456abcdef`",
+		"Environment fingerprint: kind=`codrax_runtime` codrax=`0.1.test` build=`2026-06-22T00:00:00Z` go=`go1.22.5` platform=`darwin/arm64` tools=1 configs=1 tool_hashes=git=dddddddddddd config_hashes=search_exclude_roots=",
 		"Attachment fingerprints: log=",
 		"trace=421d10005960/13B source=android_atrace",
 		"Active state: transient_retry=present reason=`transient_retry_checkpoint` hint_hash=`cccccccccccc` hint_bytes=72",
@@ -144,6 +168,9 @@ func TestReadRunsListShowClear(t *testing.T) {
 	}
 	if strings.Contains(rawMarkdown, "raw retry hint") {
 		t.Fatalf("read-runs show must not expose raw retry hint text:\n%s", rawMarkdown)
+	}
+	if strings.Contains(rawMarkdown, "git version 2.") {
+		t.Fatalf("read-runs show must not expose raw tool version output:\n%s", rawMarkdown)
 	}
 
 	out.Reset()

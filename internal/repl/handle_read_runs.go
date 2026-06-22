@@ -204,6 +204,9 @@ func readRunSnapshotMarkdownWithReplayAudit(snapshot types.ReadRunSnapshot, prio
 	if repo := readRunRepoFingerprintSummary(snapshot.RepoFingerprint); repo != "" {
 		fmt.Fprintf(&b, "- Repo fingerprint: %s\n", repo)
 	}
+	if env := readRunEnvironmentFingerprintSummary(snapshot.Environment); env != "" {
+		fmt.Fprintf(&b, "- Environment fingerprint: %s\n", env)
+	}
 	if attachments := readRunAttachmentFingerprintSummary(snapshot.Attachments); attachments != "" {
 		fmt.Fprintf(&b, "- Attachment fingerprints: %s\n", attachments)
 	}
@@ -404,6 +407,104 @@ func readRunAttachmentFingerprintSummary(items []types.ReadRunAttachmentFingerpr
 		parts = append(parts, fmt.Sprintf("%s=unavailable(%s)", item.Kind, reason))
 	}
 	return strings.Join(parts, " ")
+}
+
+func readRunEnvironmentFingerprintSummary(fp types.ReadRunEnvironmentFingerprint) string {
+	fp = types.NormalizeReadRunEnvironmentFingerprint(fp)
+	if fp.Kind == "" {
+		return ""
+	}
+	if !fp.Available {
+		reason := strings.TrimSpace(fp.ReasonCode)
+		if reason == "" {
+			reason = "unavailable"
+		}
+		return fmt.Sprintf("kind=`%s` unavailable reason=`%s`", fp.Kind, reason)
+	}
+	var parts []string
+	identity := fmt.Sprintf("kind=`%s`", fp.Kind)
+	if fp.CodraxVersion != "" {
+		identity += " codrax=`" + fp.CodraxVersion + "`"
+	}
+	if fp.CodraxBuildTime != "" {
+		identity += " build=`" + fp.CodraxBuildTime + "`"
+	}
+	if fp.GoVersion != "" {
+		identity += " go=`" + fp.GoVersion + "`"
+	}
+	if fp.GOOS != "" || fp.GOARCH != "" {
+		identity += " platform=`" + strings.Trim(strings.Join([]string{fp.GOOS, fp.GOARCH}, "/"), "/") + "`"
+	}
+	parts = append(parts, identity)
+	if len(fp.Tools) > 0 {
+		parts = append(parts, fmt.Sprintf("tools=%d", len(fp.Tools)))
+	}
+	if len(fp.Configs) > 0 {
+		parts = append(parts, fmt.Sprintf("configs=%d", len(fp.Configs)))
+	}
+	if toolSummary := readRunToolFingerprintSummary(fp.Tools, 4); toolSummary != "" {
+		parts = append(parts, "tool_hashes="+toolSummary)
+	}
+	if configSummary := readRunConfigFingerprintSummary(fp.Configs, 3); configSummary != "" {
+		parts = append(parts, "config_hashes="+configSummary)
+	}
+	return strings.Join(parts, " ")
+}
+
+func readRunToolFingerprintSummary(items []types.ReadRunToolFingerprint, limit int) string {
+	items = types.NormalizeReadRunToolFingerprints(items)
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	var parts []string
+	for _, item := range items {
+		if len(parts) >= limit {
+			break
+		}
+		if item.Name == "" {
+			continue
+		}
+		if !item.Available {
+			reason := strings.TrimSpace(item.ReasonCode)
+			if reason == "" {
+				reason = "unavailable"
+			}
+			parts = append(parts, fmt.Sprintf("%s=unavailable(%s)", item.Name, reason))
+			continue
+		}
+		hash := readRunShortHash(item.VersionHash)
+		if hash == "" {
+			hash = readRunShortHash(item.FileHash)
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", item.Name, hash))
+	}
+	return strings.Join(parts, ",")
+}
+
+func readRunConfigFingerprintSummary(items []types.ReadRunConfigFingerprint, limit int) string {
+	items = types.NormalizeReadRunConfigFingerprints(items)
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	var parts []string
+	for _, item := range items {
+		if len(parts) >= limit {
+			break
+		}
+		if item.Name == "" {
+			continue
+		}
+		if !item.Available {
+			reason := strings.TrimSpace(item.ReasonCode)
+			if reason == "" {
+				reason = "unavailable"
+			}
+			parts = append(parts, fmt.Sprintf("%s=unavailable(%s)", item.Name, reason))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", item.Name, readRunShortHash(item.Hash)))
+	}
+	return strings.Join(parts, ",")
 }
 
 func readRunShortHash(hash string) string {

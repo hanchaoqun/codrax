@@ -19,6 +19,7 @@ const (
 	readRunSnapshotSeedReasonRequestFingerprint    = "request_fingerprint_mismatch"
 	readRunSnapshotSeedReasonRepoFingerprint       = "repo_fingerprint_mismatch"
 	readRunSnapshotSeedReasonAttachmentFingerprint = "attachment_fingerprint_mismatch"
+	readRunSnapshotSeedReasonEnvironment           = "environment_fingerprint_mismatch"
 	readRunSnapshotSeedReasonActiveStateMismatch   = "active_state_mismatch"
 	readRunSnapshotSeedReasonNoAnalysisIR          = "analysis_ir_missing"
 )
@@ -164,6 +165,11 @@ func (o *Orchestrator) validateReadRunSnapshotFingerprints(snapshot types.ReadRu
 	if !types.ReadRunRepoFingerprintsEqual(snapshot.RepoFingerprint, currentRepo) {
 		return readRunSnapshotSeedError(readRunSnapshotSeedReasonRepoFingerprint,
 			"snapshot repo fingerprint %+v does not match current %+v", snapshot.RepoFingerprint, currentRepo)
+	}
+	currentEnvironment := o.readRunCurrentEnvironmentFingerprint()
+	if !types.ReadRunEnvironmentFingerprintsEqual(snapshot.Environment, currentEnvironment) {
+		return readRunSnapshotSeedError(readRunSnapshotSeedReasonEnvironment,
+			"snapshot environment fingerprint %+v does not match current %+v", snapshot.Environment, currentEnvironment)
 	}
 	currentAttachments := types.ReadRunAttachmentFingerprintsFromBusContext(o.busCtx)
 	for _, snapAttachment := range types.NormalizeReadRunAttachmentFingerprints(snapshot.Attachments) {

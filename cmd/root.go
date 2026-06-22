@@ -3870,6 +3870,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	logging.Info("registered %d agents", len(agentRegistry.List()))
 
 	orch = orchestrator.New(pipelineSettings, agentRegistry, skillRegistry, subAgentRegistry)
+	orch.SetReadRunEnvironmentBuildInfo(version, buildTime)
 	orch.SetReasoningObserver(reasoningCollector)
 	orch.SetMaxSteps(flagMaxSteps)
 	orch.SetLanguage(flagLang)
