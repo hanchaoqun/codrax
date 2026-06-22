@@ -25,6 +25,11 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	if err != nil {
 		return coverage, err
 	}
+	perfCoverage, err := exportTraceDBPerfSamples(ctx, tdb, sink)
+	coverage = append(coverage, perfCoverage...)
+	if err != nil {
+		return coverage, err
+	}
 	exporters := []func(context.Context, *traceDB, *traceDBRowSink, traceDBThreadIndex, map[int64][]traceDBRunningInterval, map[int64]string) (TraceDBCoverage, error){
 		exportTraceDBCallstack,
 		exportTraceDBFrameSlice,
@@ -77,6 +82,277 @@ func (tdb *traceDB) loadDataDict(ctx context.Context) (map[int64]string, TraceDB
 		out[id] = data
 	}
 	return out, coverage, rows.Err()
+}
+
+type traceDBPerfFrame struct {
+	Name string
+	DSO  string
+	IP   string
+}
+
+func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) ([]TraceDBCoverage, error) {
+	sampleCoverage, err := tdb.inspectCoverage(ctx, "perf", "perf_sample", []string{"callchain_id", "thread_id"})
+	if err != nil || !sampleCoverage.Found || len(sampleCoverage.ColumnsMissing) > 0 {
+		return []TraceDBCoverage{sampleCoverage}, err
+	}
+	callchainCoverage, err := tdb.inspectCoverage(ctx, "perf", "perf_callchain", []string{"callchain_id", "depth"})
+	if err != nil || !callchainCoverage.Found || len(callchainCoverage.ColumnsMissing) > 0 {
+		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+	}
+	tsColumn, ok, err := traceDBFirstExistingColumn(ctx, tdb, "perf_sample", "timestamp_trace", "timeStamp", "timestamp", "ts")
+	if err != nil {
+		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+	}
+	if !ok {
+		sampleCoverage.ColumnsMissing = append(sampleCoverage.ColumnsMissing, "timestamp_trace|timeStamp|timestamp|ts")
+		sampleCoverage.Skipped = "missing required columns: " + strings.Join(sampleCoverage.ColumnsMissing, ",")
+		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, nil
+	}
+	cpuExpr := "0"
+	if column, ok, err := traceDBFirstExistingColumn(ctx, tdb, "perf_sample", "cpu_id", "cpu"); err != nil {
+		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+	} else if ok {
+		cpuExpr = "COALESCE(s." + quoteSQLiteIdent(column) + ", 0)"
+	}
+	eventCountExpr := "1"
+	if column, ok, err := traceDBFirstExistingColumn(ctx, tdb, "perf_sample", "event_count", "period", "sample_period", "sample_weight"); err != nil {
+		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+	} else if ok {
+		eventCountExpr = "COALESCE(s." + quoteSQLiteIdent(column) + ", 1)"
+	}
+	threadJoin := ""
+	pidExpr := "s." + quoteSQLiteIdent("thread_id")
+	threadNameExpr := "CAST(s." + quoteSQLiteIdent("thread_id") + " AS TEXT)"
+	if hasThread, err := tdb.tableExists(ctx, "perf_thread"); err != nil {
+		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+	} else if hasThread {
+		threadJoin = "LEFT JOIN perf_thread pt ON pt.thread_id = s." + quoteSQLiteIdent("thread_id")
+		if ok, err := tdb.columnExists(ctx, "perf_thread", "process_id"); err != nil {
+			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+		} else if ok {
+			pidExpr = "COALESCE(pt.process_id, s." + quoteSQLiteIdent("thread_id") + ")"
+		}
+		if ok, err := tdb.columnExists(ctx, "perf_thread", "thread_name"); err != nil {
+			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+		} else if ok {
+			threadNameExpr = "COALESCE(NULLIF(pt.thread_name, ''), CAST(s." + quoteSQLiteIdent("thread_id") + " AS TEXT))"
+		}
+	}
+	eventTypeJoin := ""
+	eventTypeExpr := "'perf'"
+	if hasReport, err := tdb.tableExists(ctx, "perf_report"); err != nil {
+		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+	} else if hasReport {
+		if hasEventTypeID, err := tdb.columnExists(ctx, "perf_sample", "event_type_id"); err != nil {
+			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+		} else if hasEventTypeID {
+			eventTypeJoin = "LEFT JOIN perf_report pr ON pr.id = s.event_type_id"
+			if ok, err := tdb.columnExists(ctx, "perf_report", "report_value"); err != nil {
+				return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+			} else if ok {
+				eventTypeExpr = "COALESCE(NULLIF(pr.report_value, ''), 'perf')"
+			}
+		}
+	}
+	frames, frameCoverage, err := tdb.loadPerfFrames(ctx)
+	if err != nil {
+		return []TraceDBCoverage{sampleCoverage, callchainCoverage, frameCoverage}, err
+	}
+	callchainCoverage.RowsEmitted = frameCoverage.RowsEmitted
+	query := fmt.Sprintf(`
+		SELECT COALESCE(s.%s, 0), %s, s.%s, %s, %s, %s, %s, s.%s
+		FROM perf_sample s
+		%s
+		%s
+		WHERE s.%s != -1
+	`, quoteSQLiteIdent(tsColumn), cpuExpr, quoteSQLiteIdent("thread_id"), pidExpr, threadNameExpr, eventCountExpr, eventTypeExpr, quoteSQLiteIdent("callchain_id"), threadJoin, eventTypeJoin, quoteSQLiteIdent("callchain_id"))
+	rows, err := tdb.db.QueryContext(ctx, query)
+	if err != nil {
+		sampleCoverage.Error = err.Error()
+		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+		}
+		var ts, cpu, tid, pid, callchainID int64
+		var threadName, eventType string
+		var eventCountRaw any
+		if err := rows.Scan(&ts, &cpu, &tid, &pid, &threadName, &eventCountRaw, &eventType, &callchainID); err != nil {
+			sampleCoverage.Error = err.Error()
+			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+		}
+		eventCount := traceDBInt64FromAny(eventCountRaw, 1)
+		if eventCount <= 0 {
+			eventCount = 1
+		}
+		sampleFrames := frames[callchainID]
+		leaf := traceDBPerfFrame{Name: "perf_sample"}
+		if len(sampleFrames) > 0 {
+			leaf = sampleFrames[0]
+		}
+		symbol := firstNonEmpty(leaf.Name, "perf_sample")
+		dso := firstNonEmpty(leaf.DSO, "unknown")
+		ip := firstNonEmpty(leaf.IP, "")
+		callchain := traceDBPerfCallchain(sampleFrames)
+		callchainStatus := "missing"
+		symbolizationStatus := "unsymbolized"
+		if callchain != "" {
+			callchainStatus = "symbolized"
+			symbolizationStatus = "symbolized"
+		}
+		label := traceDBPerfLabel("hiperf:" + firstNonEmpty(eventType, "perf") + ":" + symbol)
+		counter := traceDBPerfLabel("hiperf:" + firstNonEmpty(eventType, "perf") + ":event_count")
+		task := traceDBCommName(threadName, "perf")
+		if err := addTraceDBInstantRow(sink, ts, task, tid, pid, cpu, fmt.Sprintf("tracing_mark_write: B|%d|%s", pid, label)); err != nil {
+			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+		}
+		sampleCoverage.RowsEmitted++
+		if err := addTraceDBInstantRow(sink, ts+1_000, task, tid, pid, cpu, fmt.Sprintf("tracing_mark_write: E|%d|", pid)); err != nil {
+			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+		}
+		sampleCoverage.RowsEmitted++
+		if err := addTraceDBInstantRow(sink, ts, task, tid, pid, cpu, fmt.Sprintf("tracing_mark_write: C|%d|%s|%d", pid, counter, eventCount)); err != nil {
+			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+		}
+		sampleCoverage.RowsEmitted++
+		body := fmt.Sprintf("perf_sample: cpu=%d cpu_known=true pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=trace_streamer_db sample_kind=on_cpu symbolization_status=%s clock=trace_streamer_db clock_confidence=calibrated callchain_status=%s",
+			cpu, pid, tid, quoteTraceValue(task), eventCount, quoteTraceValue(firstNonEmpty(eventType, "perf")),
+			quoteTraceValue(symbol), quoteTraceValue(dso), quoteTraceValue(ip), quoteTraceValue(callchain),
+			symbolizationStatus, callchainStatus)
+		if err := addTraceDBInstantRow(sink, ts, task, tid, pid, cpu, body); err != nil {
+			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+		}
+		sampleCoverage.RowsEmitted++
+	}
+	if err := rows.Err(); err != nil {
+		sampleCoverage.Error = err.Error()
+		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+	}
+	return []TraceDBCoverage{sampleCoverage, callchainCoverage}, nil
+}
+
+func (tdb *traceDB) loadPerfFrames(ctx context.Context) (map[int64][]traceDBPerfFrame, TraceDBCoverage, error) {
+	coverage, err := tdb.inspectCoverage(ctx, "perf", "perf_callchain", []string{"callchain_id", "depth"})
+	out := map[int64][]traceDBPerfFrame{}
+	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
+		return out, coverage, err
+	}
+	hasID, err := tdb.columnExists(ctx, "perf_callchain", "id")
+	if err != nil {
+		return out, coverage, err
+	}
+	hasName, err := tdb.columnExists(ctx, "perf_callchain", "name")
+	if err != nil {
+		return out, coverage, err
+	}
+	hasIP, err := tdb.columnExists(ctx, "perf_callchain", "ip")
+	if err != nil {
+		return out, coverage, err
+	}
+	hasFileID, err := tdb.columnExists(ctx, "perf_callchain", "file_id")
+	if err != nil {
+		return out, coverage, err
+	}
+	hasSymbolID, err := tdb.columnExists(ctx, "perf_callchain", "symbol_id")
+	if err != nil {
+		return out, coverage, err
+	}
+	idExpr := "NULL"
+	if hasID {
+		idExpr = "c.id"
+	}
+	nameExpr := "NULL"
+	if hasName {
+		nameExpr = "c.name"
+	}
+	ipExpr := "NULL"
+	if hasIP {
+		ipExpr = "c.ip"
+	}
+	symbolJoin := ""
+	symbolExpr := "NULL"
+	if hasID {
+		if hasSymbols, err := tdb.tableExists(ctx, "hmtrace_perf_symbolized_frame"); err != nil {
+			return out, coverage, err
+		} else if hasSymbols {
+			symbolJoin = "LEFT JOIN hmtrace_perf_symbolized_frame sf ON sf.perf_callchain_row_id = c.id"
+			symbolExpr = "sf.display_name"
+		}
+	}
+	dictJoin := ""
+	dictExpr := "NULL"
+	if hasName {
+		if hasDict, err := tdb.tableExists(ctx, "data_dict"); err != nil {
+			return out, coverage, err
+		} else if hasDict {
+			dictJoin = "LEFT JOIN data_dict name_dict ON name_dict.id = c.name"
+			dictExpr = "name_dict.data"
+		}
+	}
+	fileJoin := ""
+	fileSymbolExpr := "NULL"
+	filePathExpr := "NULL"
+	if hasFileID && hasSymbolID {
+		if hasFiles, err := tdb.tableExists(ctx, "perf_files"); err != nil {
+			return out, coverage, err
+		} else if hasFiles {
+			fileJoin = "LEFT JOIN perf_files pf ON pf.file_id = c.file_id AND pf.serial_id = c.symbol_id"
+			if ok, err := tdb.columnExists(ctx, "perf_files", "symbol"); err != nil {
+				return out, coverage, err
+			} else if ok {
+				fileSymbolExpr = "pf.symbol"
+			}
+			if ok, err := tdb.columnExists(ctx, "perf_files", "path"); err != nil {
+				return out, coverage, err
+			} else if ok {
+				filePathExpr = "pf.path"
+			}
+		}
+	}
+	query := fmt.Sprintf(`
+		SELECT c.callchain_id, COALESCE(c.depth, 0), %s, %s, %s, %s, %s, %s, %s
+		FROM perf_callchain c
+		%s
+		%s
+		%s
+		ORDER BY c.callchain_id, COALESCE(c.depth, 0)
+	`, idExpr, nameExpr, ipExpr, symbolExpr, dictExpr, fileSymbolExpr, filePathExpr, symbolJoin, dictJoin, fileJoin)
+	rows, err := tdb.db.QueryContext(ctx, query)
+	if err != nil {
+		coverage.Error = err.Error()
+		return out, coverage, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var callchainID int64
+		var depth int64
+		var idRaw, nameRaw, ipRaw, symbolizedRaw, dictRaw, fileSymbolRaw, filePathRaw any
+		if err := rows.Scan(&callchainID, &depth, &idRaw, &nameRaw, &ipRaw, &symbolizedRaw, &dictRaw, &fileSymbolRaw, &filePathRaw); err != nil {
+			coverage.Error = err.Error()
+			return out, coverage, err
+		}
+		_ = idRaw
+		name := firstNonEmpty(
+			traceDBAnyText(symbolizedRaw, ""),
+			traceDBAnyText(dictRaw, ""),
+			traceDBAnyText(nameRaw, ""),
+			traceDBAnyText(fileSymbolRaw, ""),
+			"perf_sample",
+		)
+		out[callchainID] = append(out[callchainID], traceDBPerfFrame{
+			Name: traceDBPerfLabel(name),
+			DSO:  traceDBAnyText(filePathRaw, ""),
+			IP:   traceDBAnyText(ipRaw, ""),
+		})
+		coverage.RowsEmitted++
+	}
+	if err := rows.Err(); err != nil {
+		coverage.Error = err.Error()
+		return out, coverage, err
+	}
+	return out, coverage, nil
 }
 
 func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, running map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
@@ -740,6 +1016,60 @@ func traceDBAnyText(value any, fallback string) string {
 		}
 	}
 	return fmt.Sprint(value)
+}
+
+func traceDBFirstExistingColumn(ctx context.Context, tdb *traceDB, table string, names ...string) (string, bool, error) {
+	for _, name := range names {
+		ok, err := tdb.columnExists(ctx, table, name)
+		if err != nil {
+			return "", false, err
+		}
+		if ok {
+			return name, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func traceDBInt64FromAny(value any, fallback int64) int64 {
+	text := strings.TrimSpace(traceDBAnyText(value, ""))
+	if text == "" {
+		return fallback
+	}
+	if i, err := strconv.ParseInt(text, 10, 64); err == nil {
+		return i
+	}
+	if f, err := strconv.ParseFloat(text, 64); err == nil {
+		return int64(f)
+	}
+	return fallback
+}
+
+func traceDBPerfLabel(raw string) string {
+	label := strings.TrimSpace(raw)
+	label = strings.ReplaceAll(label, "\n", " ")
+	label = strings.ReplaceAll(label, "\r", " ")
+	label = strings.ReplaceAll(label, "|", "/")
+	label = strings.Join(strings.Fields(label), " ")
+	if label == "" {
+		return "perf_sample"
+	}
+	return label
+}
+
+func traceDBPerfCallchain(frames []traceDBPerfFrame) string {
+	if len(frames) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(frames))
+	for _, frame := range frames {
+		name := traceDBPerfLabel(frame.Name)
+		if name == "" {
+			continue
+		}
+		parts = append(parts, name)
+	}
+	return strings.Join(parts, ";")
 }
 
 func nullString(value sql.NullString) string {
