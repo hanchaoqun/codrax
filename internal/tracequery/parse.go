@@ -521,9 +521,14 @@ type traceBundleFile struct {
 	Systrace            string                          `json:"systrace"`
 	Artifacts           []traceBundleArtifact           `json:"artifacts"`
 	ProviderDecisions   []traceBundleProviderDecision   `json:"provider_decisions"`
+	TraceDecisions      []traceBundleTraceDecision      `json:"trace_provider_decisions"`
+	TraceDBCoverage     []traceBundleCoverage           `json:"trace_db_coverage"`
+	TraceCoverage       []traceBundleCoverage           `json:"trace_coverage"`
 	PerfClockAlignments []traceBundlePerfClockAlignment `json:"perf_clock_alignments"`
 	Caveats             []string                        `json:"caveats"`
 }
+
+const traceBundleCoverageCaveatLimit = 24
 
 type traceBundleArtifact struct {
 	Type      string                     `json:"type"`
@@ -568,6 +573,39 @@ type traceBundleProviderDecision struct {
 	ArtifactPath    string `json:"artifact_path,omitempty"`
 	Reason          string `json:"reason,omitempty"`
 	Caveat          string `json:"caveat,omitempty"`
+}
+
+type traceBundleTraceDecision struct {
+	Stage           string `json:"stage,omitempty"`
+	ProviderKind    string `json:"provider_kind,omitempty"`
+	ProviderName    string `json:"provider_name,omitempty"`
+	InputPath       string `json:"input_path,omitempty"`
+	OutputPath      string `json:"output_path,omitempty"`
+	DBPath          string `json:"db_path,omitempty"`
+	EngineMode      string `json:"engine_mode,omitempty"`
+	Selected        bool   `json:"selected"`
+	Attempted       bool   `json:"attempted"`
+	Succeeded       bool   `json:"succeeded"`
+	Fallback        bool   `json:"fallback"`
+	TraceQueryReady bool   `json:"trace_query_ready"`
+	ArtifactPath    string `json:"artifact_path,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	Caveat          string `json:"caveat,omitempty"`
+}
+
+type traceBundleCoverage struct {
+	Family         string   `json:"family,omitempty"`
+	Table          string   `json:"table,omitempty"`
+	Found          bool     `json:"found"`
+	ColumnsPresent []string `json:"columns_present,omitempty"`
+	ColumnsMissing []string `json:"columns_missing,omitempty"`
+	RowsRead       int      `json:"rows_read,omitempty"`
+	RowsEmitted    int      `json:"rows_emitted,omitempty"`
+	PeakBuffered   int      `json:"peak_buffered_rows,omitempty"`
+	SpillChunks    int      `json:"spill_chunks,omitempty"`
+	TempBytes      int64    `json:"temp_bytes,omitempty"`
+	Skipped        string   `json:"skipped,omitempty"`
+	Error          string   `json:"error,omitempty"`
 }
 
 type traceBundlePerfClockAlignment struct {
@@ -705,6 +743,18 @@ func traceBundleCaveats(bundle traceBundleFile) []string {
 		}
 		add(traceBundleProviderDecisionCaveat(decision))
 	}
+	for _, decision := range bundle.TraceDecisions {
+		if !decision.Selected && !decision.Attempted && decision.Caveat == "" && decision.Reason == "" {
+			continue
+		}
+		add(traceBundleTraceDecisionCaveat(decision))
+	}
+	for _, caveat := range traceBundleCoverageCaveats("tracebundle_trace_db_coverage", bundle.TraceDBCoverage) {
+		add(caveat)
+	}
+	for _, caveat := range traceBundleCoverageCaveats("tracebundle_trace_coverage", bundle.TraceCoverage) {
+		add(caveat)
+	}
 	for _, alignment := range bundle.PerfClockAlignments {
 		if alignment.Confidence == "" && len(alignment.Caveats) == 0 {
 			continue
@@ -767,6 +817,82 @@ func traceBundleProviderDecisionCaveat(decision traceBundleProviderDecision) str
 	return strings.Join(parts, " ")
 }
 
+func traceBundleTraceDecisionCaveat(decision traceBundleTraceDecision) string {
+	parts := []string{"tracebundle_trace_provider"}
+	appendKV := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, key+"="+traceBundleCompactValue(value))
+		}
+	}
+	appendKV("stage", decision.Stage)
+	appendKV("provider", firstNonEmpty(decision.ProviderName, decision.ProviderKind))
+	appendKV("input", traceBundlePathBase(decision.InputPath))
+	appendKV("output", traceBundlePathBase(decision.OutputPath))
+	appendKV("db", traceBundlePathBase(decision.DBPath))
+	appendKV("engine", decision.EngineMode)
+	appendKV("artifact", traceBundlePathBase(decision.ArtifactPath))
+	parts = append(parts, fmt.Sprintf("selected=%t", decision.Selected))
+	parts = append(parts, fmt.Sprintf("attempted=%t", decision.Attempted))
+	parts = append(parts, fmt.Sprintf("succeeded=%t", decision.Succeeded))
+	parts = append(parts, fmt.Sprintf("fallback=%t", decision.Fallback))
+	parts = append(parts, fmt.Sprintf("trace_query_ready=%t", decision.TraceQueryReady))
+	appendKV("reason", decision.Reason)
+	appendKV("caveat", decision.Caveat)
+	return strings.Join(parts, " ")
+}
+
+func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+	limit := traceBundleCoverageCaveatLimit
+	if len(rows) < limit {
+		limit = len(rows)
+	}
+	out := make([]string, 0, limit+1)
+	for i := 0; i < limit; i++ {
+		out = append(out, traceBundleCoverageCaveat(prefix, rows[i]))
+	}
+	if len(rows) > limit {
+		out = append(out, fmt.Sprintf("%s_compacted total=%d emitted=%d", prefix, len(rows), limit))
+	}
+	return out
+}
+
+func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) string {
+	parts := []string{prefix}
+	appendKV := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, key+"="+traceBundleCompactValue(value))
+		}
+	}
+	appendInt := func(key string, value int) {
+		if value != 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", key, value))
+		}
+	}
+	appendInt64 := func(key string, value int64) {
+		if value != 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", key, value))
+		}
+	}
+	appendKV("family", coverage.Family)
+	appendKV("table", coverage.Table)
+	parts = append(parts, fmt.Sprintf("found=%t", coverage.Found))
+	appendInt("rows_read", coverage.RowsRead)
+	appendInt("rows_emitted", coverage.RowsEmitted)
+	appendInt("peak_buffered_rows", coverage.PeakBuffered)
+	appendInt("spill_chunks", coverage.SpillChunks)
+	appendInt64("temp_bytes", coverage.TempBytes)
+	appendKV("columns_missing", traceBundleCompactList(coverage.ColumnsMissing, 8))
+	appendKV("columns_present", traceBundleCompactList(coverage.ColumnsPresent, 8))
+	appendKV("skipped", coverage.Skipped)
+	appendKV("error", coverage.Error)
+	return strings.Join(parts, " ")
+}
+
 func traceBundleClockAlignmentCaveat(alignment traceBundlePerfClockAlignment) string {
 	parts := []string{"tracebundle_perf_clock_alignment"}
 	appendKV := func(key, value string) {
@@ -782,6 +908,18 @@ func traceBundleClockAlignmentCaveat(alignment traceBundlePerfClockAlignment) st
 	parts = append(parts, fmt.Sprintf("calibrated=%t", alignment.Calibrated))
 	appendKV("source", alignment.Source)
 	return strings.Join(parts, " ")
+}
+
+func traceBundleCompactList(values []string, limit int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	if limit <= 0 || len(values) <= limit {
+		return strings.Join(values, ",")
+	}
+	out := append([]string(nil), values[:limit]...)
+	out = append(out, fmt.Sprintf("+%d", len(values)-limit))
+	return strings.Join(out, ",")
 }
 
 func traceBundleLabel(kind, path string) string {

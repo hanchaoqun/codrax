@@ -1428,6 +1428,16 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
   "provider_decisions": [
     {"stage": "perftrace", "provider_kind": "fallback", "provider_name": "raw_perfdata_fallback", "input_format": "perf.data", "parser_mode": "raw", "selected": true, "attempted": true, "succeeded": true, "fallback": true, "trace_query_ready": true, "artifact_path": "bundle.perftrace", "reason": "official adapter unavailable"}
   ],
+  "trace_provider_decisions": [
+    {"stage": "systrace", "provider_kind": "external", "provider_name": "trace_streamer_db", "input_path": "input.htrace", "output_path": "bundle.systrace", "db_path": "bundle.trace.db", "engine_mode": "auto", "selected": true, "attempted": true, "succeeded": true, "fallback": false, "trace_query_ready": true, "artifact_path": "bundle.systrace", "reason": "trace_streamer DB export succeeded"}
+  ],
+  "trace_db_coverage": [
+    {"family": "scheduler", "table": "sched_slice", "found": true, "columns_present": ["ts", "dur", "cpu", "itid", "end_state"], "rows_read": 2, "rows_emitted": 2},
+    {"family": "trace_marker", "table": "instant", "found": false, "columns_missing": ["ts", "name"], "skipped": "table_missing"}
+  ],
+  "trace_coverage": [
+    {"family": "trace_cross_validation", "table": "tracequery_build_index", "found": true, "rows_read": 2, "rows_emitted": 2}
+  ],
   "perf_clock_alignments": [
     {"artifact_path": "bundle.perftrace", "perf_time_domain": "perf_event_time", "trace_time_domain": "trace_seconds", "confidence": "assumed", "calibrated": false, "source": "tracebundle", "caveats": ["no capture-level trace/perf clock map is available"]}
   ],
@@ -1465,6 +1475,11 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
 		"tracebundle_perf_capability",
 		"time_alignment=assumed",
 		"tracebundle_perf_provider",
+		"tracebundle_trace_provider",
+		"trace_streamer_db",
+		"tracebundle_trace_db_coverage family=scheduler table=sched_slice",
+		"tracebundle_trace_db_coverage family=trace_marker table=instant found=false",
+		"tracebundle_trace_coverage family=trace_cross_validation table=tracequery_build_index",
 		"tracebundle_perf_clock_alignment",
 	} {
 		if !strings.Contains(caveats, want) {
@@ -1473,7 +1488,7 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
 	}
 	result := Run(idx, Query{View: "window_stats", TimeStart: 30.0, TimeEnd: 30.005})
 	resultCaveats := strings.Join(result.Caveats, "\n")
-	for _, want := range []string{"profiler plugin ftrace-plugin metadata", "tracebundle_perf_capability", "tracebundle_perf_clock_alignment"} {
+	for _, want := range []string{"profiler plugin ftrace-plugin metadata", "tracebundle_perf_capability", "tracebundle_trace_provider", "tracebundle_trace_db_coverage", "tracebundle_trace_coverage", "tracebundle_perf_clock_alignment"} {
 		if !strings.Contains(resultCaveats, want) {
 			t.Fatalf("result caveats missing %q:\n%s", want, resultCaveats)
 		}
@@ -1488,6 +1503,29 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(promoted.Caveats, "\n"), "tracebundle_perf_capability") {
 		t.Fatalf("promoted bundle should preserve caveats: %+v", promoted.Caveats)
+	}
+	if !strings.Contains(strings.Join(promoted.Caveats, "\n"), "tracebundle_trace_provider") {
+		t.Fatalf("promoted bundle should preserve trace provider caveats: %+v", promoted.Caveats)
+	}
+}
+
+func TestTraceBundleCoverageCaveatsAreBounded(t *testing.T) {
+	rows := make([]traceBundleCoverage, 0, traceBundleCoverageCaveatLimit+3)
+	for i := 0; i < traceBundleCoverageCaveatLimit+3; i++ {
+		rows = append(rows, traceBundleCoverage{
+			Family:      "family",
+			Table:       "table_" + strconv.Itoa(i),
+			Found:       true,
+			RowsRead:    i + 1,
+			RowsEmitted: i + 1,
+		})
+	}
+	caveats := traceBundleCoverageCaveats("tracebundle_trace_db_coverage", rows)
+	if len(caveats) != traceBundleCoverageCaveatLimit+1 {
+		t.Fatalf("coverage caveats should be bounded: got=%d want=%d", len(caveats), traceBundleCoverageCaveatLimit+1)
+	}
+	if !strings.Contains(caveats[len(caveats)-1], "tracebundle_trace_db_coverage_compacted total=27 emitted=24") {
+		t.Fatalf("missing compacted summary: %+v", caveats)
 	}
 }
 

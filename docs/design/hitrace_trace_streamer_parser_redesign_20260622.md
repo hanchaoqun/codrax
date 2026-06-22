@@ -251,6 +251,14 @@ systrace/perftrace/tracebundle artifacts.
 - Verify prompt/hint/query-result guidance names the stable artifacts and fields:
   `systrace`, `perftrace`, `tracebundle`, `trace_streamer_db`, and modern
   profiler coverage caveats.
+- Ensure tracebundle handoff is symmetric:
+  - perf provenance from `provider_decisions` and `perf_clock_alignments`;
+  - trace provenance from `trace_provider_decisions`;
+  - DB export coverage from `trace_db_coverage`;
+  - generated-trace/parser cross-validation from `trace_coverage`.
+- Keep these as query-result provenance fields, not model tool-call inputs.
+  Therefore they require prompt/hint teaching for interpretation, but no JSON
+  repair aliases unless a future tool input field is added.
 
 ## UX Requirements
 

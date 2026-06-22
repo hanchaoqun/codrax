@@ -403,6 +403,15 @@ func runtimeArtifactsForSegment(kind, source, body string) []RuntimeArtifact {
 	if bundle.Version != "" {
 		base.Detail = appendDetail(base.Detail, "version="+bundle.Version)
 	}
+	if detail := traceBundleProviderDetail(bundle.TraceDecisions); detail != "" {
+		base.Detail = appendDetail(base.Detail, detail)
+	}
+	if detail := traceBundleCoverageDetail("trace_db_coverage", bundle.TraceDBCoverage); detail != "" {
+		base.Detail = appendDetail(base.Detail, detail)
+	}
+	if detail := traceBundleCoverageDetail("trace_coverage", bundle.TraceCoverage); detail != "" {
+		base.Detail = appendDetail(base.Detail, detail)
+	}
 	if len(bundle.Caveats) > 0 {
 		base.Detail = appendDetail(base.Detail, "caveats="+joinDetailList(bundle.Caveats, 3))
 	}
@@ -458,11 +467,14 @@ func runtimeArtifactForSegment(kind, source, body string) RuntimeArtifact {
 }
 
 type traceBundleReportMetadata struct {
-	Version   string                      `json:"version"`
-	InputPath string                      `json:"input_path"`
-	Systrace  string                      `json:"systrace"`
-	Artifacts []traceBundleReportArtifact `json:"artifacts"`
-	Caveats   []string                    `json:"caveats"`
+	Version         string                           `json:"version"`
+	InputPath       string                           `json:"input_path"`
+	Systrace        string                           `json:"systrace"`
+	Artifacts       []traceBundleReportArtifact      `json:"artifacts"`
+	TraceDecisions  []traceBundleReportTraceDecision `json:"trace_provider_decisions"`
+	TraceDBCoverage []traceBundleReportTraceCoverage `json:"trace_db_coverage"`
+	TraceCoverage   []traceBundleReportTraceCoverage `json:"trace_coverage"`
+	Caveats         []string                         `json:"caveats"`
 }
 
 type traceBundleReportArtifact struct {
@@ -475,6 +487,29 @@ type traceBundleReportArtifact struct {
 	Caveats       []string `json:"caveats"`
 }
 
+type traceBundleReportTraceDecision struct {
+	ProviderKind    string `json:"provider_kind"`
+	ProviderName    string `json:"provider_name"`
+	EngineMode      string `json:"engine_mode"`
+	Selected        bool   `json:"selected"`
+	Attempted       bool   `json:"attempted"`
+	Succeeded       bool   `json:"succeeded"`
+	Fallback        bool   `json:"fallback"`
+	TraceQueryReady bool   `json:"trace_query_ready"`
+	Reason          string `json:"reason"`
+	Caveat          string `json:"caveat"`
+}
+
+type traceBundleReportTraceCoverage struct {
+	Family      string `json:"family"`
+	Table       string `json:"table"`
+	Found       bool   `json:"found"`
+	RowsRead    int    `json:"rows_read"`
+	RowsEmitted int    `json:"rows_emitted"`
+	Skipped     string `json:"skipped"`
+	Error       string `json:"error"`
+}
+
 func parseTraceBundleMetadata(body string) (traceBundleReportMetadata, bool) {
 	var bundle traceBundleReportMetadata
 	if err := json.Unmarshal([]byte(body), &bundle); err != nil {
@@ -484,6 +519,70 @@ func parseTraceBundleMetadata(body string) (traceBundleReportMetadata, bool) {
 		return traceBundleReportMetadata{}, false
 	}
 	return bundle, true
+}
+
+func traceBundleProviderDetail(decisions []traceBundleReportTraceDecision) string {
+	for _, decision := range decisions {
+		if !decision.Selected && !decision.Attempted {
+			continue
+		}
+		provider := firstNonEmpty(decision.ProviderName, decision.ProviderKind)
+		if provider == "" {
+			continue
+		}
+		detail := "trace_provider=" + provider
+		if decision.EngineMode != "" {
+			detail = appendDetail(detail, "engine="+decision.EngineMode)
+		}
+		detail = appendDetail(detail, fmt.Sprintf("trace_query_ready=%t", decision.TraceQueryReady))
+		detail = appendDetail(detail, fmt.Sprintf("succeeded=%t", decision.Succeeded))
+		if decision.Fallback {
+			detail = appendDetail(detail, "fallback=true")
+		}
+		if decision.Reason != "" {
+			detail = appendDetail(detail, "reason="+compactDetailValue(decision.Reason))
+		}
+		if decision.Caveat != "" {
+			detail = appendDetail(detail, "caveat="+compactDetailValue(decision.Caveat))
+		}
+		return detail
+	}
+	return ""
+}
+
+func traceBundleCoverageDetail(label string, rows []traceBundleReportTraceCoverage) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	const limit = 3
+	parts := make([]string, 0, limit+1)
+	for _, row := range rows {
+		if len(parts) >= limit {
+			break
+		}
+		name := firstNonEmpty(row.Family, row.Table, "unknown")
+		if row.Family != "" && row.Table != "" {
+			name = row.Family + "/" + row.Table
+		}
+		item := fmt.Sprintf("%s found=%t", compactDetailValue(name), row.Found)
+		if row.RowsRead != 0 {
+			item += fmt.Sprintf(" rows=%d", row.RowsRead)
+		}
+		if row.RowsEmitted != 0 {
+			item += fmt.Sprintf(" emitted=%d", row.RowsEmitted)
+		}
+		if row.Skipped != "" {
+			item += " skipped=" + compactDetailValue(row.Skipped)
+		}
+		if row.Error != "" {
+			item += " error=" + compactDetailValue(row.Error)
+		}
+		parts = append(parts, item)
+	}
+	if len(rows) > limit {
+		parts = append(parts, fmt.Sprintf("+%d more", len(rows)-limit))
+	}
+	return label + "=" + strings.Join(parts, "; ")
 }
 
 func joinDetailList(items []string, limit int) string {
@@ -563,6 +662,13 @@ func appendDetail(base, extra string) string {
 		return base
 	}
 	return base + "; " + extra
+}
+
+func compactDetailValue(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = strings.ReplaceAll(value, "\r", " ")
+	return strings.Join(strings.Fields(value), "_")
 }
 
 func escapeMarkdownTableCell(s string) string {

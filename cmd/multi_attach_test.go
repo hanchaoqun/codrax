@@ -217,6 +217,16 @@ func TestCLIRuntimeArtifactStatusLinesExpandTraceBundle(t *testing.T) {
 		`  "artifacts": [`,
 		`    {"type":"systrace","path":"capture.systrace","bytes":12,"converter":"hitraceconv-v1"},`,
 		`    {"type":"perftrace","path":"capture.perftrace","bytes":34,"converter":"hiperf_proto","caveats":["cpu id unavailable"]}`,
+		`  ],`,
+		`  "trace_provider_decisions": [`,
+		`    {"provider_name":"trace_streamer_db","engine_mode":"auto","selected":true,"attempted":true,"succeeded":true,"trace_query_ready":true}`,
+		`  ],`,
+		`  "trace_db_coverage": [`,
+		`    {"family":"scheduler","table":"sched_slice","found":true,"rows_read":2,"rows_emitted":2},`,
+		`    {"family":"trace_marker","table":"instant","found":false,"skipped":"table_missing"}`,
+		`  ],`,
+		`  "trace_coverage": [`,
+		`    {"family":"trace_cross_validation","table":"tracequery_build_index","found":true,"rows_read":2,"rows_emitted":2}`,
 		`  ]`,
 		`}`,
 	}, "\n")
@@ -228,12 +238,68 @@ func TestCLIRuntimeArtifactStatusLinesExpandTraceBundle(t *testing.T) {
 		"systrace=1",
 		"perftrace=1",
 		"primary: tracebundle capture.tracebundle.json",
+		"trace_provider=trace_streamer_db",
+		"trace_query_ready=true",
+		"trace_db_coverage=scheduler/sched_slice",
+		"trace_coverage=trace_cross_validation/tracequery_build_index",
 		"capture.perftrace",
 		"converter=hiperf_proto",
 		"cpu id unavailable",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("tracebundle status missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestCLIRuntimeArtifactStatusLinesIncludeRequestTraceBundleAndLogPaths(t *testing.T) {
+	dir := t.TempDir()
+	bundlePath := filepath.Join(dir, "capture.tracebundle.json")
+	logPath := filepath.Join(dir, "app.log")
+	if err := os.WriteFile(filepath.Join(dir, "capture.systrace"), []byte("sched_switch: prev_comm=app prev_pid=1 ==> next_comm=worker next_pid=2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bundle := `{
+  "version": "hitraceconv-v1",
+  "systrace": "capture.systrace",
+  "artifacts": [
+    {"type":"systrace","path":"capture.systrace","bytes":88,"converter":"trace_streamer_db"}
+  ],
+  "trace_provider_decisions": [
+    {"provider_name":"trace_streamer_db","engine_mode":"auto","selected":true,"attempted":true,"succeeded":true,"trace_query_ready":true}
+  ],
+  "trace_db_coverage": [
+    {"family":"scheduler","table":"sched_slice","found":true,"rows_read":2,"rows_emitted":2}
+  ],
+  "trace_coverage": [
+    {"family":"trace_cross_validation","table":"tracequery_build_index","found":true,"rows_read":2,"rows_emitted":2}
+  ]
+}
+`
+	if err := os.WriteFile(bundlePath, []byte(bundle), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, []byte("panic: boom\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	request := "分析 " + bundlePath + " 并结合 " + logPath
+	lines := cliRuntimeArtifactStatusLines("zh", cliRuntimeArtifacts(request, "", ""))
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"共 3 个",
+		"tracebundle=1",
+		"systrace=1",
+		"log=1",
+		"primary: tracebundle " + bundlePath,
+		"referenced in request",
+		"trace_provider=trace_streamer_db",
+		"trace_db_coverage=scheduler/sched_slice",
+		"trace_coverage=trace_cross_validation/tracequery_build_index",
+		logPath,
+		"runtime log",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("request path tracebundle/log status missing %q:\n%s", want, joined)
 		}
 	}
 }

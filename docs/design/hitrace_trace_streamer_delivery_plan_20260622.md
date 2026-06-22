@@ -439,7 +439,8 @@ Exit criteria:
 
 ### Batch 5: Built-in Modern Parser
 
-Status: planned.
+Status: delivered on 2026-06-23 for the supported modern-profiler and
+trace+perf routing contract.
 
 Detailed execution plan:
 `docs/design/hitrace_builtin_modern_parser_batch5_full_compat_plan_20260623.md`
@@ -476,6 +477,13 @@ Exit criteria:
 - Structured ftrace decoding/rendering covers the DB exporter event families
   that `trace_query` uses for scheduler, wakeup, CPU, binder, IRQ, IO, trace
   marker, frame, and perf-informed running analysis.
+- Delivered guard: trace+perf inputs no longer use the legacy built-in trace
+  body parser as a fallback. They use the SQL/trace_streamer lane when
+  available, otherwise produce explicit partial artifacts and provider decisions.
+- Delivered guard: pure no-perf trace inputs keep the protected dual path while
+  sys-binary DB parity remains open.
+- Delivered guard: SQL-generated trace text is cross-validated through
+  `trace_query` and recorded as `trace_cross_validation` coverage.
 
 ### Batch 6: Sys Binary Parity Gate and Retirement
 
@@ -506,7 +514,60 @@ Exit criteria:
 
 ### Batch 7: Prompt, Handoff, JSON Repair, and UX Closure
 
-Status: planned.
+Status: planned, with Batch 7A delivered on 2026-06-23.
+
+#### Batch 7A: Tracebundle Provenance Handoff
+
+Status: delivered on 2026-06-23.
+
+Gap:
+
+- The converter now writes `trace_provider_decisions`, `trace_db_coverage`, and
+  `trace_coverage` into `.tracebundle.json`.
+- `trace_query` currently surfaces perf provider decisions and perf clock
+  alignment from tracebundles, but not the trace engine decisions or DB/trace
+  coverage rows. This loses the SQL-vs-built-in routing evidence before the
+  model consumes query results.
+
+Tasks:
+
+- Extend tracebundle parsing in `internal/tracequery` with:
+  - `trace_provider_decisions`,
+  - `trace_db_coverage`,
+  - `trace_coverage`.
+- Surface each field into stable `Index.Caveats` / `Result.Caveats` entries,
+  matching the existing perf-provenance handoff pattern.
+- Bound coverage caveat fan-out and emit a compact summary when a bundle has
+  many coverage rows.
+- Add tests proving tracebundle results preserve:
+  - selected trace engine and SQL readiness,
+  - DB table coverage,
+  - trace cross-validation coverage.
+- Preserve the same transparency for both customer entry modes:
+  - explicit attachment (`--htrace`, `/htrace`, `--log`, `/log`);
+  - no attachment, with one or more readable runtime artifact paths named in the
+    request text.
+- JSON repair audit:
+  - no new model tool-call input fields are added in this batch;
+  - no new aliases or schema-repair entries are required;
+  - provenance remains system output consumed through `trace_query` results.
+- Prompt red-line audit:
+  - no keyword/prose matching is introduced;
+  - the model receives typed provenance as evidence, not a hard intent gate.
+
+Exit criteria:
+
+- A model querying a tracebundle can see whether trace+perf used SQL, whether
+  DB export was query-ready, and whether generated trace text passed
+  `trace_query` cross-validation without reading terminal prose.
+- Verified in `internal/tracequery`: trace provider decisions, DB coverage, and
+  trace cross-validation coverage now flow into both `Index.Caveats` and
+  `Result.Caveats`; coverage fan-out is bounded with a compacted summary.
+- Trace+perf old built-in parsing remains removed from the production fallback
+  decision. Any remaining legacy parser code is only reachable through the
+  protected pure-trace/no-perf lane until Batch 6 parity is closed.
+- CLI, markdown, and HTML runtime-artifact summaries now expand tracebundle
+  provider/coverage details for both attachment bodies and request-named paths.
 
 Tasks:
 
