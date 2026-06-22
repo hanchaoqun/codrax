@@ -22,7 +22,7 @@ func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext
 		return false
 	}
 	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
-	aggregateFamily := sourceInventoryAggregatePrincipalSourceFamily(facts, &rm)
+	aggregateFamily := sourceInventoryAggregatePrincipalSourceFamily(ctx, facts, &rm)
 	universes := sourceInventoryExactUniverseSets(observation)
 	if len(universes) == 0 {
 		return sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation, aggregateFamily)

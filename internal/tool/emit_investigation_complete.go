@@ -3751,7 +3751,7 @@ func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observa
 		AcceptedRequestedUniverse: acceptedRequested,
 	})
 	if authority.Blocking && !acceptedRequested {
-		if debt := sourceInventoryRequestedUniverseFollowupDebt(observation, ctx.AnalysisIR.RequestModel, aggregateFacts); debt.IsActive() {
+		if debt := sourceInventoryRequestedUniverseFollowupDebt(ctx, observation, ctx.AnalysisIR.RequestModel, aggregateFacts); debt.IsActive() {
 			authority.FollowupDebt = debt
 			authority.ReasonCode = types.SourceInventoryCompletionReasonFollowupDebt
 		}

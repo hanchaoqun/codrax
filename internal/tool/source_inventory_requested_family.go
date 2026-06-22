@@ -16,19 +16,18 @@ func sourceInventoryRequestedUniverseAggregateFamilyCoversCensus(observation typ
 	return !sourceInventoryRequestedUniverseCensusMissing(observation, covered)
 }
 
-func sourceInventoryAggregatePrincipalSourceFamily(facts []types.AnswerAggregateFact, rm *types.RequestModel) sourceInventoryRequestedUniverseFamily {
+func sourceInventoryAggregatePrincipalSourceFamily(ctx *types.BusContext, facts []types.AnswerAggregateFact, rm *types.RequestModel) sourceInventoryRequestedUniverseFamily {
 	out := sourceInventoryRequestedUniverseFamily{
 		languages: map[string]bool{},
 		classes:   map[types.SourcePathRole]bool{},
 	}
+	evidence := sourceInventoryAcceptedEvidenceFamilyIndex(ctx)
 	for _, fact := range facts {
 		if types.AnswerAggregateFactRoleForRequest(fact, rm) != types.AnswerAggregateRolePrincipalAnswer ||
 			!types.AnswerAggregateFactCarriesCompleteMemberSet(fact) {
 			continue
 		}
-		for _, surface := range append(append([]string(nil), fact.Members...), fact.SupportRefs...) {
-			sourceInventoryRequestedUniverseFamilyAddSurface(&out, surface)
-		}
+		sourceInventoryRequestedUniverseFamilyAddFact(&out, fact, evidence)
 	}
 	return out
 }

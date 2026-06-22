@@ -1891,6 +1891,57 @@ func TestSourceInventoryResolvedCompletionDowngrade_RendersFollowupDebtScope(t *
 	}
 }
 
+func TestSourceInventoryCompletionAuthorityForContext_UsesAcceptedEvidenceWhenFactMembersDropPaths(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMemberWithLanguage("RootType", types.AnswerCandidateRoleType, "cmd/root.go", 10, "go"),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleFixture,
+		Count:     3,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 3, Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"}}},
+	}, {
+		Role:      types.SourcePathRoleThirdParty,
+		Count:     8,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "cangjie", Count: 8, Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj"}}},
+	}, {
+		Role:      types.SourcePathRoleTest,
+		Count:     9,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 9, Samples: []string{"internal/tool/source_inventory_test.go"}}},
+	}})
+	ctx.Mutable.EvidenceClosure().AppendAcceptedEvidenceRefs([]types.AcceptedEvidenceRef{{
+		ID:              "ev-native-add",
+		Subject:         "native_add",
+		Source:          "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj",
+		LineStart:       6,
+		SourcePathRole:  types.SourcePathRoleThirdParty,
+		GroundingStatus: types.GroundingGrounded,
+	}, {
+		ID:              "ev-support-go",
+		Subject:         "parseCangjie",
+		Source:          "internal/tool/repomap/index/cangjie_parser.go",
+		LineStart:       20,
+		SourcePathRole:  types.SourcePathRoleProduction,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "foreign func 声明",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"native_add (package demo.ffi) @ line 6",
+		},
+	}}
+	authority := sourceInventoryCompletionAuthorityForContext(ctx, types.SourceInventoryObservationFromMutable(ctx.Mutable), facts)
+	if !authority.Blocking || !authority.FollowupDebt.IsActive() {
+		t.Fatalf("authority should use accepted evidence to derive missing same-language debt, got %+v", authority)
+	}
+	if !sourceInventoryTestStringSliceContains(authority.FollowupDebt.Query.Scopes, "eval/fixtures/testdata/cangjie_minimal/bridge") {
+		t.Fatalf("follow-up scopes should target missing fixture cangjie scope, got %+v", authority.FollowupDebt.Query.Scopes)
+	}
+	if sourceInventoryTestStringSliceContains(authority.FollowupDebt.Query.Scopes, "internal/tool") {
+		t.Fatalf("unmentioned support evidence must not inject Go test/tool debt: %+v", authority.FollowupDebt.Query.Scopes)
+	}
+}
+
 func sourceInventoryTestStringSliceContains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

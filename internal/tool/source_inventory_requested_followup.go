@@ -7,11 +7,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func sourceInventoryRequestedUniverseFollowupDebt(observation types.SourceInventoryObservation, rm types.RequestModel, facts []types.AnswerAggregateFact) types.SourceInventoryFollowupDebt {
+func sourceInventoryRequestedUniverseFollowupDebt(ctx *types.BusContext, observation types.SourceInventoryObservation, rm types.RequestModel, facts []types.AnswerAggregateFact) types.SourceInventoryFollowupDebt {
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return types.SourceInventoryFollowupDebt{}
 	}
-	covered := sourceInventoryAggregatePrincipalSourceFamily(facts, &rm)
+	covered := sourceInventoryAggregatePrincipalSourceFamily(ctx, facts, &rm)
 	if len(covered.languages) == 0 {
 		return types.SourceInventoryFollowupDebt{}
 	}

@@ -40,6 +40,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_symbol_sort.go":                          38,
 	"source_inventory_universe_coverage.go":                    644,
 	"source_inventory_requested_census.go":                     60,
+	"source_inventory_requested_family_evidence.go":            90,
 	"source_inventory_requested_followup.go":                   130,
 	"source_inventory_requested_universe.go":                   213,
 	"source_inventory_requested_family.go":                     60,
