@@ -541,8 +541,8 @@ func rememberRejectedAnswerDocumentDraft(ctx *types.BusContext, doc *types.Answe
 	if ctx == nil || ctx.Mutable == nil || doc == nil || len(doc.Blocks) == 0 {
 		return
 	}
-	if deduped := dedupeExactVisibleAnswerBlocks(doc); deduped > 0 {
-		logging.Warning("[emit_answer_document] dropped %d exact duplicate visible block(s) before storing rejected draft", deduped)
+	if deduped := dedupeVisibleAnswerBlocks(doc); deduped > 0 {
+		logging.Warning("[emit_answer_document] dropped %d duplicate visible block(s) before storing rejected draft", deduped)
 	}
 	ctx.Mutable.SetLastRejectedAnswerDocumentV2(doc)
 }

@@ -765,6 +765,239 @@ func TestApplyAndPersistMutation_DedupesExactVisibleDuplicateBlocks(t *testing.T
 	}
 }
 
+func TestApplyAndPersistMutation_DedupesSemanticEquivalentPrincipalBlocks(t *testing.T) {
+	bus := newBusForMutationTest()
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "internal/agent/subagent_runtime.go", Line: 218}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "aggregate-member-set-subagent_agent_1",
+			Kind:        types.BlockOrderedList,
+			Title:       "可调用 subagent 的 agent（1）",
+			Text:        "主体答案已经完整。",
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:            "orchestrator",
+				Label:         "Orchestrator",
+				Text:          "通过 SubAgentRuntime.Run 调度 SubAgent。",
+				CandidateRole: types.AnswerCandidateRoleAgent,
+				CitationRef:   0,
+			}},
+		}, {
+			ID:          "aggregate-member-set-subagent_agent_1_retry",
+			Kind:        types.BlockOrderedList,
+			Title:       "可调用 SubAgent 的组件",
+			Text:        "修复 citation 后重新追加的同一载体。",
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:            "orchestrator_retry",
+				Label:         "`Orchestrator`",
+				Text:          "通过 SubAgentRuntime.Run 调度 SubAgent。",
+				CandidateRole: types.AnswerCandidateRoleAgent,
+				CitationRef:   0,
+			}},
+		}},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected semantic duplicate block normalization to accept doc; got %q", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 1 {
+		t.Fatalf("expected semantic-equivalent principal block to be dropped, got %+v", got)
+	}
+	if got.Blocks[0].ID != "aggregate-member-set-subagent_agent_1" {
+		t.Fatalf("dedupe should keep first block for stable ordering, got %+v", got.Blocks)
+	}
+}
+
+func TestApplyAndPersistMutation_DedupesSemanticEquivalentPrincipalBlocksFromPatch(t *testing.T) {
+	bus := newBusForMutationTest()
+	initial := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "internal/agent/subagent_runtime.go", Line: 218}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "answer",
+		}, {
+			ID:          "aggregate-member-set-subagent_agent_1",
+			Kind:        types.BlockOrderedList,
+			Title:       "可调用 subagent 的 agent（1）",
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:            "orchestrator",
+				Label:         "Orchestrator",
+				Text:          "通过 SubAgentRuntime.Run 调度 SubAgent。",
+				CandidateRole: types.AnswerCandidateRoleAgent,
+				CitationRef:   0,
+			}},
+		}},
+	}
+	if res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(initial), nil, time.Now()); err != nil || !res.Success {
+		t.Fatalf("initial persist failed: res=%+v err=%v", res, err)
+	}
+	prev := bus.Mutable.AnswerDocumentV2()
+	patch := &types.AnswerDocumentV2Patch{
+		UnchangedBlockIDs: []string{"summary", "aggregate-member-set-subagent_agent_1"},
+		AddBlocks: []types.AnswerBlock{{
+			ID:          "aggregate-member-set-subagent_agent_1_retry",
+			Kind:        types.BlockOrderedList,
+			Title:       "重复的可调用 subagent agent",
+			Text:        "不同标题和说明，但同一 principal item/citation carrier。",
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:            "orchestrator_retry",
+				Label:         "Orchestrator",
+				Text:          "通过 SubAgentRuntime.Run 调度 SubAgent。",
+				CandidateRole: types.AnswerCandidateRoleAgent,
+				CitationRef:   0,
+			}},
+		}},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_patch", types.NewPartialMutation(patch), prev, time.Now())
+	if err != nil {
+		t.Fatalf("patch apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected semantic duplicate patch normalization to accept doc; got %q", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 {
+		t.Fatalf("expected summary + first principal block only, got %+v", got)
+	}
+	if got.Blocks[1].ID != "aggregate-member-set-subagent_agent_1" {
+		t.Fatalf("patch dedupe should keep original principal block, got %+v", got.Blocks)
+	}
+}
+
+func TestApplyAndPersistMutation_DoesNotDedupeSameLabelDifferentCitation(t *testing.T) {
+	bus := newBusForMutationTest()
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "pkg/first.go", Line: 12},
+			{File: "pkg/second.go", Line: 12},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "first",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "native_add_first",
+				Label:       "native_add",
+				CitationRef: 0,
+			}},
+		}, {
+			ID:          "second",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "native_add_second",
+				Label:       "native_add",
+				CitationRef: 1,
+			}},
+		}},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected distinct source locations to be accepted; got %q", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 {
+		t.Fatalf("same label at different citation anchors must remain distinct, got %+v", got)
+	}
+}
+
+func TestApplyAndPersistMutation_DoesNotSemanticallyDedupeNonPrincipalBlocks(t *testing.T) {
+	bus := newBusForMutationTest()
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "internal/agent/subagent_runtime.go", Line: 218}},
+		Blocks: []types.AnswerBlock{{
+			ID:    "support_a",
+			Kind:  types.BlockBulletList,
+			Title: "support a",
+			Text:  "first support block",
+			Items: []types.AnswerBlockItem{{
+				Label:       "Orchestrator",
+				Text:        "support detail",
+				CitationRef: 0,
+			}},
+		}, {
+			ID:    "support_b",
+			Kind:  types.BlockBulletList,
+			Title: "support b",
+			Text:  "second support block",
+			Items: []types.AnswerBlockItem{{
+				Label:       "Orchestrator",
+				Text:        "support detail",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected non-principal blocks to be accepted; got %q", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 {
+		t.Fatalf("non-principal blocks must not be semantically deduped, got %+v", got)
+	}
+}
+
+func TestRememberRejectedAnswerDocumentDraft_DedupesSemanticEquivalentPrincipalBlocks(t *testing.T) {
+	bus := newBusForMutationTest()
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "internal/agent/subagent_runtime.go", Line: 218}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "aggregate-member-set-subagent_agent_1",
+			Kind:        types.BlockOrderedList,
+			Title:       "可调用 subagent 的 agent（1）",
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				Label:       "Orchestrator",
+				Text:        "通过 SubAgentRuntime.Run 调度 SubAgent。",
+				CitationRef: 0,
+			}},
+		}, {
+			ID:          "aggregate-member-set-subagent_agent_1_retry",
+			Kind:        types.BlockOrderedList,
+			Title:       "repaired duplicate carrier",
+			Text:        "不同说明，同一载体。",
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				Label:       "Orchestrator",
+				Text:        "通过 SubAgentRuntime.Run 调度 SubAgent。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	rememberRejectedAnswerDocumentDraft(bus, doc)
+	got := bus.Mutable.LastRejectedAnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 1 {
+		t.Fatalf("expected rejected draft to share semantic duplicate normalization, got %+v", got)
+	}
+	if got.Blocks[0].ID != "aggregate-member-set-subagent_agent_1" {
+		t.Fatalf("rejected draft dedupe should keep first block, got %+v", got.Blocks)
+	}
+}
+
 // TestApplyAndPersistMutation_DiagramWithNilPayloadRejected — diagram
 // kind requires a non-nil Diagram payload.
 func TestApplyAndPersistMutation_DiagramWithNilPayloadRejected(t *testing.T) {

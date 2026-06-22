@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -168,8 +169,8 @@ func persistMergedAnswerDocument(
 	if stampReadReasoningGraph(ctx, merged) {
 		logging.Info("[%s] stamped read reasoning graph summary from typed read artifacts", toolName)
 	}
-	if deduped := dedupeExactVisibleAnswerBlocks(merged); deduped > 0 {
-		logging.Warning("[%s] dropped %d exact duplicate visible answer block(s) before persist", toolName, deduped)
+	if deduped := dedupeVisibleAnswerBlocks(merged); deduped > 0 {
+		logging.Warning("[%s] dropped %d duplicate visible answer block(s) before persist", toolName, deduped)
 	}
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
@@ -190,7 +191,7 @@ func persistMergedAnswerDocument(
 	}, nil
 }
 
-func dedupeExactVisibleAnswerBlocks(doc *types.AnswerDocumentV2) int {
+func dedupeVisibleAnswerBlocks(doc *types.AnswerDocumentV2) int {
 	if doc == nil || len(doc.Blocks) < 2 {
 		return 0
 	}
@@ -198,12 +199,12 @@ func dedupeExactVisibleAnswerBlocks(doc *types.AnswerDocumentV2) int {
 	seen := make(map[string]bool, len(doc.Blocks))
 	dropped := 0
 	for _, block := range doc.Blocks {
-		key := exactVisibleAnswerBlockDedupeKey(block)
-		if key != "" && seen[key] {
+		keys := visibleAnswerBlockDedupeKeys(block, doc.Citations)
+		if anyVisibleAnswerBlockDedupeKeySeen(seen, keys) {
 			dropped++
 			continue
 		}
-		if key != "" {
+		for _, key := range keys {
 			seen[key] = true
 		}
 		out = append(out, block)
@@ -214,7 +215,27 @@ func dedupeExactVisibleAnswerBlocks(doc *types.AnswerDocumentV2) int {
 	return dropped
 }
 
-func exactVisibleAnswerBlockDedupeKey(block types.AnswerBlock) string {
+func visibleAnswerBlockDedupeKeys(block types.AnswerBlock, citations []types.Citation) []string {
+	keys := make([]string, 0, 2)
+	if key := exactVisibleAnswerBlockDedupeKey(block, citations); key != "" {
+		keys = append(keys, "exact\x00"+key)
+	}
+	if key := semanticPrincipalAnswerBlockDedupeKey(block, citations); key != "" {
+		keys = append(keys, "semantic_principal\x00"+key)
+	}
+	return keys
+}
+
+func anyVisibleAnswerBlockDedupeKeySeen(seen map[string]bool, keys []string) bool {
+	for _, key := range keys {
+		if seen[key] {
+			return true
+		}
+	}
+	return false
+}
+
+func exactVisibleAnswerBlockDedupeKey(block types.AnswerBlock, citations []types.Citation) string {
 	if block.Kind == types.BlockDiagram {
 		return ""
 	}
@@ -229,7 +250,129 @@ func exactVisibleAnswerBlockDedupeKey(block types.AnswerBlock) string {
 		string(block.SurfaceRole) + "\x00" +
 		strings.Join(block.FacetIDs, "\x1f") + "\x00" +
 		strings.Join(answerBlockClaimUseKeys(block.ClaimUses), "\x1f") + "\x00" +
+		exactVisibleAnswerBlockCitationKey(block, citations) + "\x00" +
 		surface
+}
+
+func exactVisibleAnswerBlockCitationKey(block types.AnswerBlock, citations []types.Citation) string {
+	if len(block.Items) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(block.Items))
+	for _, item := range block.Items {
+		key := answerBlockItemCitationDedupeKey(item.CitationRef, citations)
+		if key == "" {
+			key = fmt.Sprintf("ref:%d", item.CitationRef)
+		}
+		out = append(out, key)
+	}
+	return strings.Join(out, "\x1f")
+}
+
+func semanticPrincipalAnswerBlockDedupeKey(block types.AnswerBlock, citations []types.Citation) string {
+	if block.SurfaceRole != types.SurfacePrincipal {
+		return ""
+	}
+	switch block.Kind {
+	case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+	default:
+		return ""
+	}
+	if len(block.Items) == 0 {
+		return ""
+	}
+	rows := make([]string, 0, len(block.Items))
+	for _, item := range block.Items {
+		row := semanticPrincipalAnswerItemDedupeKey(item, citations)
+		if row == "" {
+			return ""
+		}
+		rows = append(rows, row)
+	}
+	return string(block.Kind) + "\x00" +
+		string(block.SurfaceRole) + "\x00" +
+		strings.Join(sortedAnswerBlockStrings(block.FacetIDs), "\x1f") + "\x00" +
+		strings.Join(sortedAnswerBlockStrings(answerBlockClaimUseKeys(block.ClaimUses)), "\x1f") + "\x00" +
+		strings.Join(answerBlockNormalizedSurfaces(block.Columns), "\x1f") + "\x00" +
+		strings.Join(rows, "\x1f")
+}
+
+func semanticPrincipalAnswerItemDedupeKey(item types.AnswerBlockItem, citations []types.Citation) string {
+	label := normalizeAnswerBlockDedupeSurface(item.Label)
+	if label == "" {
+		return ""
+	}
+	citation := answerBlockItemCitationDedupeKey(item.CitationRef, citations)
+	if citation == "" {
+		return ""
+	}
+	return string(item.CandidateRole) + "\x1e" +
+		label + "\x1e" +
+		normalizeAnswerBlockDedupeSurface(item.Text) + "\x1e" +
+		strings.Join(answerBlockNormalizedSurfaces(item.Cells), "\x1d") + "\x1e" +
+		citation
+}
+
+func answerBlockItemCitationDedupeKey(ref int, citations []types.Citation) string {
+	if ref < 0 || ref >= len(citations) {
+		return ""
+	}
+	cit := citations[ref]
+	file := normalizeAnswerBlockDedupeFile(cit.File)
+	if file == "" || cit.Line <= 0 {
+		return ""
+	}
+	end := cit.LineEnd
+	if end < cit.Line {
+		end = 0
+	}
+	if end > cit.Line {
+		return fmt.Sprintf("%s:%d-%d", file, cit.Line, end)
+	}
+	return fmt.Sprintf("%s:%d", file, cit.Line)
+}
+
+func answerBlockNormalizedSurfaces(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		if s := normalizeAnswerBlockDedupeSurface(raw); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func normalizeAnswerBlockDedupeSurface(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if len(raw) >= 2 && strings.HasPrefix(raw, "`") && strings.HasSuffix(raw, "`") {
+		raw = strings.TrimSpace(strings.Trim(raw, "`"))
+	}
+	return strings.Join(strings.Fields(raw), " ")
+}
+
+func normalizeAnswerBlockDedupeFile(raw string) string {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/"))
+	for strings.HasPrefix(raw, "./") {
+		raw = strings.TrimPrefix(raw, "./")
+	}
+	return raw
+}
+
+func sortedAnswerBlockStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func answerBlockClaimUseKeys(in []types.RenderedClaimUse) []string {
