@@ -336,7 +336,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 
 func writeRows(w io.Writer, rows []renderedRow) error {
 	bw := bufio.NewWriterSize(w, 256*1024)
-	if _, err := bw.WriteString(systraceHeader); err != nil {
+	if err := writeSystraceHeader(bw); err != nil {
 		return err
 	}
 	for _, row := range rows {
@@ -348,4 +348,9 @@ func writeRows(w io.Writer, rows []renderedRow) error {
 		}
 	}
 	return bw.Flush()
+}
+
+func writeSystraceHeader(w io.Writer) error {
+	_, err := io.WriteString(w, systraceHeader)
+	return err
 }

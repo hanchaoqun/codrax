@@ -114,6 +114,9 @@ type TraceDBCoverage struct {
 	ColumnsMissing []string `json:"columns_missing,omitempty"`
 	RowsRead       int      `json:"rows_read,omitempty"`
 	RowsEmitted    int      `json:"rows_emitted,omitempty"`
+	PeakBuffered   int      `json:"peak_buffered_rows,omitempty"`
+	SpillChunks    int      `json:"spill_chunks,omitempty"`
+	TempBytes      int64    `json:"temp_bytes,omitempty"`
 	Skipped        string   `json:"skipped,omitempty"`
 	Error          string   `json:"error,omitempty"`
 }

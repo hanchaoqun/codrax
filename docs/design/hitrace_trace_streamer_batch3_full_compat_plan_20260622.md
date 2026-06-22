@@ -131,18 +131,21 @@ go test ./internal/hitraceconv ./cmd ./internal/repl
 
 ### Batch 3B: Bounded Row Sorter and Systrace Writer
 
+Status: delivered on 2026-06-22.
+
 Tasks:
 
-- Add a row sink that accepts `renderedRow` values from table extractors.
-- Keep an in-memory threshold for rows; spill sorted chunks to temp files when
+- Delivered a row sink that accepts `renderedRow` values from table extractors.
+- Delivered an in-memory threshold for rows; spill sorted chunks to temp files when
   exceeded.
-- Merge chunks by `(timestamp_ns, sequence)` into `writeRows`.
-- Emit sorter stats into coverage/caveats:
+- Delivered k-way merge of chunks by `(timestamp_ns, sequence)` into the systrace
+  writer.
+- Delivered sorter stats into coverage:
   - peak buffered rows,
   - spill chunk count,
   - rows merged,
   - temp bytes when known.
-- Tests:
+- Delivered tests:
   - stable ordering with same timestamp sequence;
   - forced spill with low threshold;
   - cleanup on success and on failure;
@@ -152,6 +155,12 @@ Performance and memory:
 
 - Large DB export must be O(threshold) memory plus resolver maps.
 - Temp files are deleted on all exits.
+
+Verified with:
+
+```bash
+go test ./internal/hitraceconv ./cmd ./internal/repl
+```
 
 ### Batch 3C: Scheduler, Wakeup, IRQ, and Metadata Families
 
