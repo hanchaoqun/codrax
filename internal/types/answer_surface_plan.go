@@ -1730,6 +1730,11 @@ func BuildAnswerSurfacePlan(
 			plan.StableAggregateFacts,
 			&ir.RequestModel,
 		)
+		plan.StableAggregateFacts = ProjectSourceInventoryPrincipalRowSetAggregateFacts(
+			plan.StableAggregateFacts,
+			plan.SourceInventoryObservation,
+			ir.RequestModel,
+		)
 		if logBundle == nil {
 			logBundle = mutable.LogTriage()
 		}
