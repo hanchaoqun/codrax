@@ -855,6 +855,85 @@ func TestPreCheckItemCitationAlignment_DoesNotPresentCurrentCitationAsTarget(t *
 	}
 }
 
+func TestPreCheckItemCitationAlignment_LabelOnlyAggregateSupportRefAligns(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "aggregate-member-set-subagent_agent_1",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "baseagent_explorer",
+				Label:       "BaseAgent (explorer)",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/agent.go", Line: 3502}},
+	}
+	mut := types.NewMutableState("which agents can call subagents")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "可调用 subagent 的 agent",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"BaseAgent (explorer)"},
+		SupportRefs: []string{
+			"BaseAgent (explorer) @ internal/agent/agent.go:3502",
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mut}
+
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("label-only aggregate member with explicit support_ref should align, got %+v", hints)
+	}
+}
+
+func TestPreCheckItemCitationAlignment_FiltersUnalignedAggregateCandidates(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "agents-calling-subagent",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "agent-1",
+				Label:       "BaseAgent (explorer)",
+				Text:        "BaseAgent injects propose_sub_agents when a matching sub-agent exists.",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/agent.go", Line: 3502}},
+	}
+	mut := types.NewMutableState("which agents can call subagents")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "可调用 subagent 的 agent",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"BaseAgent (explorer)"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		EvidenceItems: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/agent.go",
+			LineStart:       3502,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "BaseAgent",
+			AnchorSymbol:    "BaseAgent",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected one alignment hint, got %+v", hints)
+	}
+	if strings.Contains(hints[0].ExpectedShape, "candidate_citations=[internal/agent/agent.go:3502]") {
+		t.Fatalf("unaligned decorated candidate should not be offered as executable repair: %+v", hints[0])
+	}
+}
+
 func TestDetachInvalidItemCitationRefsWithoutSafeCandidate_DropsWrongCurrentCitation(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

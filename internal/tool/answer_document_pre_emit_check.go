@@ -1053,7 +1053,7 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 					itemID:     item.ID,
 					label:      label,
 					cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
-					candidates: preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 4),
+					candidates: preEmitAlignedCandidateCitationLocationsForLabelWithContext(pctx, label, text, 4),
 				})
 				continue
 			}
@@ -1069,28 +1069,30 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 					itemID:     item.ID,
 					label:      label,
 					cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
-					candidates: preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 4),
+					candidates: preEmitAlignedCandidateCitationLocationsForLabelWithContext(pctx, label, text, 4),
 				})
 				continue
 			}
 			evidence, found := pctx.citedEvidenceItems(cit)
 			if !found {
-				if candidates := preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 4); len(candidates) > 0 {
-					mismatches = append(mismatches, mismatch{
-						blockID:    b.ID,
-						itemID:     item.ID,
-						label:      label,
-						cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
-						candidates: candidates,
-					})
+				candidates := preEmitAlignedCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 4)
+				if len(candidates) == 0 && !preEmitItemMatchesPrincipalAggregateMemberWithContext(pctx, label, text) {
+					continue
 				}
+				mismatches = append(mismatches, mismatch{
+					blockID:    b.ID,
+					itemID:     item.ID,
+					label:      label,
+					cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+					candidates: candidates,
+				})
 				continue
 			}
 			if preEmitDecoratedItemLabelMatchesAnyEvidenceEndpoint(label, text, evidence) ||
 				preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
 				continue
 			}
-			if candidates := preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 4); len(candidates) > 0 {
+			if candidates := preEmitAlignedCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 4); len(candidates) > 0 {
 				mismatches = append(mismatches, mismatch{
 					blockID:    b.ID,
 					itemID:     item.ID,
@@ -1105,7 +1107,7 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 				itemID:     item.ID,
 				label:      label,
 				cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
-				candidates: preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 4),
+				candidates: preEmitAlignedCandidateCitationLocationsForLabelWithContext(pctx, label, text, 4),
 			})
 		}
 	}
@@ -5781,6 +5783,51 @@ func preEmitCandidateCitationLocationsForLabelWithContext(pctx *preEmitCheckCont
 	return out
 }
 
+func preEmitAlignedCandidateCitationLocationsForLabelWithContext(pctx *preEmitCheckContext, label, text string, limit int) []string {
+	return preEmitFilterAlignedCandidateCitationLocations(pctx, label, text,
+		preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, limit), limit)
+}
+
+func preEmitAlignedCandidateCitationLocationsForAggregateItemWithContext(pctx *preEmitCheckContext, label, text string, limit int) []string {
+	return preEmitFilterAlignedCandidateCitationLocations(pctx, label, text,
+		preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, limit), limit)
+}
+
+func preEmitFilterAlignedCandidateCitationLocations(pctx *preEmitCheckContext, label, text string, locs []string, limit int) []string {
+	if pctx == nil || len(locs) == 0 {
+		return nil
+	}
+	if limit <= 0 {
+		limit = 4
+	}
+	out := make([]string, 0, len(locs))
+	seen := make(map[string]bool, len(locs))
+	for _, loc := range locs {
+		surface, ok := types.ParseAnswerSourceLocationSurface(loc)
+		if !ok || surface.File == "" || surface.LineStart <= 0 {
+			continue
+		}
+		cit := pctx.canonicalCitation(types.Citation{
+			File:    surface.File,
+			Line:    surface.LineStart,
+			LineEnd: surface.LineEnd,
+		})
+		if !preEmitItemCitationAlignedWithContext(pctx, label, text, cit) {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, loc)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
 func preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx *preEmitCheckContext, label string) (types.Citation, bool) {
 	if pctx == nil {
 		return types.Citation{}, false
@@ -5944,7 +5991,7 @@ func preEmitCitationSupportsAggregateItemWithContext(pctx *preEmitCheckContext, 
 	ctx := pctx.ctx
 	label = strings.TrimSpace(label)
 	text = strings.TrimSpace(text)
-	if label == "" || text == "" {
+	if label == "" && text == "" {
 		return false
 	}
 	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, preEmitStableAggregateFacts(ctx)) {
@@ -5956,11 +6003,15 @@ func preEmitCitationSupportsAggregateItemWithContext(pctx *preEmitCheckContext, 
 			if preEmitAggregateMemberCitationMatchesExplicit(fact, idx, member, cit) {
 				return true
 			}
+			aggregateCitationMatches := preEmitAggregateMemberCitationMatches(fact, idx, member, cit)
 			evidence, found := pctx.citedEvidenceItems(cit)
+			if aggregateCitationMatches && !found {
+				return true
+			}
 			if !found {
 				continue
 			}
-			if preEmitAggregateMemberCitationMatches(fact, idx, member, cit) {
+			if aggregateCitationMatches {
 				if preEmitAggregateMemberCanUseInferredSupportRef(member) {
 					return true
 				}

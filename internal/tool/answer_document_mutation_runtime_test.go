@@ -723,6 +723,48 @@ func TestApplyAndPersistMutation_DuplicateBlockIDRejected(t *testing.T) {
 	}
 }
 
+func TestApplyAndPersistMutation_DedupesExactVisibleDuplicateBlocks(t *testing.T) {
+	bus := newBusForMutationTest()
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "internal/agent/agent.go", Line: 3502}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "aggregate-member-set-subagent_agent_1",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "baseagent_explorer",
+				Label:       "BaseAgent (explorer)",
+				CitationRef: 0,
+			}},
+		}, {
+			ID:          "aggregate-member-set-subagent_agent_1-2",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:          "baseagent_explorer_retry",
+				Label:       "BaseAgent (explorer)",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected duplicate visible block normalization to accept doc; got %q", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 1 {
+		t.Fatalf("expected exact visible duplicate block to be dropped, got %+v", got)
+	}
+	if got.Blocks[0].ID != "aggregate-member-set-subagent_agent_1" {
+		t.Fatalf("dedupe should keep first block for stable ordering, got %+v", got.Blocks)
+	}
+}
+
 // TestApplyAndPersistMutation_DiagramWithNilPayloadRejected — diagram
 // kind requires a non-nil Diagram payload.
 func TestApplyAndPersistMutation_DiagramWithNilPayloadRejected(t *testing.T) {

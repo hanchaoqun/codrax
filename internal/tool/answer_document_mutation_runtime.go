@@ -168,6 +168,9 @@ func persistMergedAnswerDocument(
 	if stampReadReasoningGraph(ctx, merged) {
 		logging.Info("[%s] stamped read reasoning graph summary from typed read artifacts", toolName)
 	}
+	if deduped := dedupeExactVisibleAnswerBlocks(merged); deduped > 0 {
+		logging.Warning("[%s] dropped %d exact duplicate visible answer block(s) before persist", toolName, deduped)
+	}
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
@@ -185,6 +188,59 @@ func persistMergedAnswerDocument(
 			summarizeV2Blocks(merged.Blocks)),
 		Timestamp: now,
 	}, nil
+}
+
+func dedupeExactVisibleAnswerBlocks(doc *types.AnswerDocumentV2) int {
+	if doc == nil || len(doc.Blocks) < 2 {
+		return 0
+	}
+	out := make([]types.AnswerBlock, 0, len(doc.Blocks))
+	seen := make(map[string]bool, len(doc.Blocks))
+	dropped := 0
+	for _, block := range doc.Blocks {
+		key := exactVisibleAnswerBlockDedupeKey(block)
+		if key != "" && seen[key] {
+			dropped++
+			continue
+		}
+		if key != "" {
+			seen[key] = true
+		}
+		out = append(out, block)
+	}
+	if dropped > 0 {
+		doc.Blocks = out
+	}
+	return dropped
+}
+
+func exactVisibleAnswerBlockDedupeKey(block types.AnswerBlock) string {
+	if block.Kind == types.BlockDiagram {
+		return ""
+	}
+	if !types.AnswerBlockKindRendersStructuredItems(block.Kind) || len(block.Items) == 0 {
+		return ""
+	}
+	surface := strings.TrimSpace(types.AnswerBlockVisibleSurface(block))
+	if surface == "" {
+		return ""
+	}
+	return string(block.Kind) + "\x00" +
+		string(block.SurfaceRole) + "\x00" +
+		strings.Join(block.FacetIDs, "\x1f") + "\x00" +
+		strings.Join(answerBlockClaimUseKeys(block.ClaimUses), "\x1f") + "\x00" +
+		surface
+}
+
+func answerBlockClaimUseKeys(in []types.RenderedClaimUse) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, claim := range in {
+		out = append(out, string(claim.ClaimForm)+"\x1e"+claim.FacetID+"\x1e"+claim.EvidenceID)
+	}
+	return out
 }
 
 func stampReadOwnerAnchorsFromTurnA(ctx *types.BusContext, doc *types.AnswerDocumentV2) int {
