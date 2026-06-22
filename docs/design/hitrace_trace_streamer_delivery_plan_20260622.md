@@ -523,7 +523,7 @@ Remaining gap:
 
 #### Batch 6B: Root-Cause Evidence Parity Matrix
 
-Status: planned on 2026-06-23.
+Status: in progress on 2026-06-23.
 
 Exploration notes:
 
@@ -577,6 +577,46 @@ Tasks:
   - no JSON repair aliases are required unless a future tool input changes;
   - parity/provenance remains system output consumed through tracebundle and
     `trace_query` caveats.
+
+Implementation checklist for the first executable slice:
+
+- Build a compact synthetic sys-binary fixture with one raw page and multiple
+  official-format events:
+  - `sched_switch` with `prev/next` fields for state reconstruction;
+  - `sched_wakeup` and `sched_waking` for wakeup-chain anchoring;
+  - `cpu_frequency`, `cpu_idle`, and `clock_set_rate` for running supply;
+  - `tracing_mark_write` B/E/C for span pairing and counters;
+  - `irq_handler_entry/exit` and `softirq_entry/exit` for interrupt context.
+- Build an equivalent trace_streamer SQLite fixture using hmtrace-style tables:
+  - `process`, `thread`, `sched_slice`, `instant`, `raw`, `irq`, `args`,
+    `data_dict`, `measure`, `cpu_measure_filter`, `measure_filter`,
+    `callstack`, and `frame_slice`.
+- Run both fixtures through `ConvertFile` with explicit engine selection:
+  - built-in lane: `TraceEngine=builtin`;
+  - SQL lane: `TraceEngine=trace_streamer` with a fake trace_streamer copying
+    the fixture DB.
+- Compare bounded semantic projections from `trace_query.BuildIndex`:
+  - counts by `EventType`;
+  - scheduler PIDs/priorities/states;
+  - wakeup comm/pid/priority/target CPU;
+  - CPU/clock names, CPU IDs, and frequencies/states;
+  - trace span/counter action/name/value fields;
+  - IRQ/softirq IDs/names and CPU placement.
+- Assert provenance and coverage:
+  - built-in result has `codrax_builtin_sys_binary`;
+  - SQL result has `trace_streamer_db` and trace DB artifact;
+  - SQL coverage emits `scheduler/sched_slice`, `scheduler/instant`,
+    `irq/irq`, `counter/measure`, `counter/measure_filter`,
+    `slice/callstack`, and `slice/frame_slice`.
+- Do not make this a production dual-run path. This harness is an offline
+  commercial parity guard only.
+
+Out of scope for Batch 6B and queued for Batch 6C+:
+
+- Binder parity, inode/page-cache/storage IO parity, DMA fence, workqueue, and
+  representative customer `.sys` captures. Those families remain required
+  before retiring the built-in sys parser; they are not hidden by the first
+  matrix slice.
 
 Exit criteria:
 
