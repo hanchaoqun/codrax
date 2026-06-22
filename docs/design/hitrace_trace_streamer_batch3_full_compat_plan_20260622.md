@@ -164,25 +164,35 @@ go test ./internal/hitraceconv ./cmd ./internal/repl
 
 ### Batch 3C: Scheduler, Wakeup, IRQ, and Metadata Families
 
+Status: delivered on 2026-06-22.
+
 Tasks:
 
-- Export `thread`/`process` registrations:
+- Delivered `thread`/`process` registrations:
   - process dump when wrapper mode is enabled,
   - `task_rename`,
   - process-name `tracing_mark_write` begin/end pairs.
-- Export `sched_slice -> sched_switch`.
-- Export `instant -> sched_wakeup/sched_waking` using:
+- Delivered `sched_slice -> sched_switch` with streaming per-CPU lookahead rather
+  than whole-table CPU grouping.
+- Delivered `instant -> sched_wakeup/sched_waking` using:
   - raw-event CPU from `raw`,
   - target CPU/priority from next `sched_slice`,
   - thread/process names from resolver maps.
-- Export `irq -> irq_handler_entry/exit` and softirq rows using generic argsets.
-- Tests mirror hmtrace:
+- Delivered `irq -> irq_handler_entry/exit` and softirq rows using generic
+  argsets.
+- Delivered tests mirroring hmtrace:
   - process name fallback,
   - main-thread process naming,
   - CPU count from trace data,
   - wakeup raw CPU and next-run target metadata,
   - IRQ/softirq arg decoding,
   - tracequery round trip.
+
+Verified with:
+
+```bash
+go test ./internal/hitraceconv ./cmd ./internal/repl
+```
 
 ### Batch 3D: Trace Marker, Slice, Counter, Log, and System Families
 
