@@ -46,6 +46,7 @@ type profilerContainerExtraction struct {
 	Messages           int
 	PluginMessages     map[string]int
 	StructuredFtrace   int
+	UnsupportedFtrace  int
 	TextPluginMessages int
 	TextRows           int
 	StandaloneDetected bool
@@ -193,7 +194,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		TraceCoverage:      append([]TraceDBCoverage(nil), extracted.TraceCoverage...),
 		Caveats:            append([]string(nil), extracted.Caveats...),
 		MissingFormatCount: 0,
-		UnknownEventCount:  extracted.StructuredFtrace,
+		UnknownEventCount:  extracted.UnsupportedFtrace,
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	if sink.stats.RowsAccepted > 0 {
@@ -353,12 +354,28 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 				if summaryErr != nil {
 					out.Caveats = append(out.Caveats, fmt.Sprintf("ftrace-plugin structured metadata parse failed: %v", summaryErr))
 					coverage.Error = summaryErr.Error()
+					out.UnsupportedFtrace++
 				} else if ok {
 					out.Caveats = append(out.Caveats, profilerFtraceSummaryCaveat(summary))
-					out.TraceCoverage = append(out.TraceCoverage, profilerFtraceEventCoverage(summary)...)
-					coverage.Skipped = "structured ftrace renderer pending"
+					structuredRows, structuredCoverage, renderErr := renderProfilerFtraceStructuredRows(plugin.Data, &seq, sink)
+					out.TraceCoverage = append(out.TraceCoverage, structuredCoverage...)
+					if renderErr != nil {
+						coverage.Error = renderErr.Error()
+						out.UnsupportedFtrace++
+						out.TraceCoverage = append(out.TraceCoverage, coverage)
+						return profilerContainerExtraction{}, renderErr
+					}
+					coverage.RowsEmitted = structuredRows
+					if structuredRows > 0 {
+						out.TextRows += structuredRows
+					}
+					if profilerFtraceCoverageHasSkipped(structuredCoverage) || structuredRows == 0 && summary.DetailEventCount > 0 {
+						coverage.Skipped = "structured ftrace renderer partial"
+						out.UnsupportedFtrace++
+					}
 				} else {
 					coverage.Skipped = "ftrace-plugin payload was not recognized as text systrace or supported structured ftrace"
+					out.UnsupportedFtrace++
 				}
 			} else if len(plugin.Data) == 0 {
 				coverage.Skipped = "empty plugin payload"

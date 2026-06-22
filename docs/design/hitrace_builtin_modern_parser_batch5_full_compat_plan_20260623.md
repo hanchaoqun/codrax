@@ -283,21 +283,31 @@ Exit:
 
 ### Batch 5C: Structured Family Renderers
 
+Status: delivered on 2026-06-23 for query-relevant built-in structured ftrace
+renderers.
+
 Tasks:
 
-- Render scheduler and wakeup families.
-- Render IRQ/softirq families.
-- Render CPU frequency/idle/clock counters.
-- Render binder transaction/reply families.
-- Render block/file IO/storage latency families.
-- Render trace marker/frame/app startup/callstack families.
-- Reuse DB exporter formatting helpers or extract shared helpers when needed.
-- Add `trace_query` round-trip assertions for each emitted family.
+- Delivered scheduler switch and wakeup family rendering from official
+  `FtraceEvent` oneof fields.
+- Delivered IRQ/softirq rendering.
+- Delivered CPU frequency/idle and clock-rate rendering.
+- Delivered binder transaction and received rendering.
+- Delivered block request rendering plus f2fs, filemap, and mmc storage-event
+  rendering into trace_query-compatible fields.
+- Delivered trace marker `print` rendering.
+- Reused existing systrace line formatting, timestamp formatting, scheduler
+  state formatting, and device-number formatting helpers.
+- Delivered `trace_query` round-trip assertions for a synthetic structured
+  `TracePluginResult` containing scheduler, block, binder, IRQ, CPU, f2fs,
+  filemap, and print events.
 
 Exit:
 
-- Built-in structured ftrace output is queryable for the same root-cause fields
-  as trace_streamer DB output for the covered families.
+- Delivered: built-in structured ftrace output is queryable for the same
+  root-cause fields as trace_streamer DB output for the covered families.
+  Unknown or not-yet-mapped oneof fields still become structured
+  `trace_coverage` rows with `skipped`, never header-only systrace rows.
 
 ### Batch 5D: hmtrace-Style Full Compatibility Tests
 

@@ -377,8 +377,8 @@ func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testin
 	if err != nil {
 		t.Fatalf("convert structured profiler trace file: %v", err)
 	}
-	if result.OutputPath != "" || result.EventsWritten != 0 || result.UnknownEventCount != 1 {
-		t.Fatalf("structured ftrace metadata should not pretend to render systrace rows: %+v", result)
+	if result.OutputPath == "" || result.EventsWritten != 10 || result.UnknownEventCount != 0 {
+		t.Fatalf("structured ftrace metadata should render supported systrace rows without unknown count: %+v", result)
 	}
 	if result.BundlePath == "" {
 		t.Fatalf("structured ftrace partial result should still emit tracebundle coverage: %+v", result)
@@ -394,10 +394,10 @@ func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testin
 		"end_dropped=3",
 		"end_overrun=1",
 		"end_commit_overrun=2",
-		"structured_event_records=2",
+		"structured_event_records=10",
 		"detail_overwrite=4",
-		"event_families=block,sched",
-		"event_names=block_rq_issue,sched_switch",
+		"event_families=binder:2,block,cpu,f2fs,filemap,irq:2,sched,trace_marker",
+		"event_names=",
 		"symbols=1",
 		"symbol_examples=0x1234=schedule",
 		"clock_details=MONOTONIC(time=10.000000020/res=0.000000001)",
@@ -416,14 +416,39 @@ func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testin
 	if err := json.Unmarshal(bundle, &meta); err != nil {
 		t.Fatalf("decode tracebundle: %v", err)
 	}
-	if !coverageHasSkipped(meta.TraceCoverage, "builtin_modern_profiler", "plugin:ftrace-plugin", "structured ftrace renderer pending") {
-		t.Fatalf("structured ftrace coverage should explain partial renderer: %+v", meta.TraceCoverage)
+	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "plugin:ftrace-plugin", 2) {
+		t.Fatalf("structured ftrace plugin coverage should count rendered rows: %+v", meta.TraceCoverage)
 	}
-	if !coverageHasSkipped(meta.TraceCoverage, "builtin_modern_ftrace:sched", "sched_switch", "structured ftrace renderer pending") {
+	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_ftrace:sched", "sched_switch", 1) {
 		t.Fatalf("structured ftrace coverage should name sched_switch: %+v", meta.TraceCoverage)
 	}
-	if !coverageHasSkipped(meta.TraceCoverage, "builtin_modern_ftrace:block", "block_rq_issue", "structured ftrace renderer pending") {
+	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_ftrace:block", "block_rq_issue", 1) {
 		t.Fatalf("structured ftrace coverage should name block_rq_issue: %+v", meta.TraceCoverage)
+	}
+	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_ftrace:binder", "binder_transaction", 1) {
+		t.Fatalf("structured ftrace coverage should name binder_transaction: %+v", meta.TraceCoverage)
+	}
+	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_ftrace:cpu", "cpu_frequency", 1) {
+		t.Fatalf("structured ftrace coverage should name cpu_frequency: %+v", meta.TraceCoverage)
+	}
+	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_ftrace:f2fs", "f2fs_write_begin", 1) {
+		t.Fatalf("structured ftrace coverage should name f2fs_write_begin: %+v", meta.TraceCoverage)
+	}
+	converted, err := os.ReadFile(result.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"sched_switch: prev_comm=prev", "block_rq_issue:", "binder_transaction: transaction=42", "cpu_frequency: state=2200000", "f2fs_write_begin: dev=", "print: B|100|Frame"} {
+		if !strings.Contains(string(converted), want) {
+			t.Fatalf("structured ftrace output missing %q:\n%s", want, converted)
+		}
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), result.OutputPath)
+	if err != nil {
+		t.Fatalf("tracequery parse structured ftrace output: %v", err)
+	}
+	if len(idx.Events) != 10 {
+		t.Fatalf("structured ftrace output did not round-trip through tracequery: %+v", idx.Events)
 	}
 }
 
@@ -1241,35 +1266,39 @@ func syntheticTracePluginResultMetadata() []byte {
 	))
 	out.Write(protoMessage(2,
 		protoVarint(1, 0),
-		protoMessage(2,
-			protoVarint(1, 1),
+		syntheticTracePluginFtraceEvent(1, 100, 100, "prev", 2417, protoPayload(
+			protoBytes(1, []byte("prev")),
 			protoVarint(2, 100),
-			protoBytes(3, []byte("prev")),
-			protoMessage(50, protoVarint(4, 100)),
-			protoMessage(2417,
-				protoBytes(1, []byte("prev")),
-				protoVarint(2, 100),
-				protoVarint(3, 120),
-				protoVarint(4, 1),
-				protoBytes(5, []byte("next")),
-				protoVarint(6, 101),
-				protoVarint(7, 118),
-			),
-		),
-		protoMessage(2,
-			protoVarint(1, 2),
-			protoVarint(2, 100),
-			protoBytes(3, []byte("io")),
-			protoMessage(50, protoVarint(4, 100)),
-			protoMessage(211,
-				protoVarint(1, 260),
-				protoVarint(2, 4096),
-				protoVarint(3, 8),
-				protoVarint(4, 4096),
-				protoBytes(5, []byte("WS")),
-				protoBytes(6, []byte("io")),
-			),
-		),
+			protoVarint(3, 120),
+			protoVarint(4, 1),
+			protoBytes(5, []byte("next")),
+			protoVarint(6, 101),
+			protoVarint(7, 118),
+		)),
+		syntheticTracePluginFtraceEvent(2, 100, 100, "io", 211, protoPayload(
+			protoVarint(1, 260),
+			protoVarint(2, 4096),
+			protoVarint(3, 8),
+			protoVarint(4, 4096),
+			protoBytes(5, []byte("WS")),
+			protoBytes(6, []byte("io")),
+		)),
+		syntheticTracePluginFtraceEvent(3, 100, 100, "client", 113, protoPayload(
+			protoVarint(1, 42),
+			protoVarint(2, 7),
+			protoVarint(3, 200),
+			protoVarint(4, 201),
+			protoVarint(5, 0),
+			protoVarint(6, 3),
+			protoVarint(7, 0x12),
+		)),
+		syntheticTracePluginFtraceEvent(4, 200, 201, "binder", 119, protoPayload(protoVarint(1, 42))),
+		syntheticTracePluginFtraceEvent(5, 0, 0, "irq", 1500, protoPayload(protoVarint(1, 32), protoBytes(2, []byte("uart")))),
+		syntheticTracePluginFtraceEvent(6, 0, 0, "irq", 1501, protoPayload(protoVarint(1, 32), protoVarint(2, 1))),
+		syntheticTracePluginFtraceEvent(7, 0, 0, "idle", 2003, protoPayload(protoVarint(1, 2200000), protoVarint(2, 4))),
+		syntheticTracePluginFtraceEvent(8, 100, 100, "io", 4011, protoPayload(protoVarint(1, 260), protoVarint(2, 0xb9b8e), protoVarint(3, 0), protoVarint(4, 4096))),
+		syntheticTracePluginFtraceEvent(9, 100, 100, "io", 1000, protoPayload(protoVarint(1, 0x123), protoVarint(2, 0xb9b8e), protoVarint(3, 1), protoVarint(4, 260))),
+		syntheticTracePluginFtraceEvent(10, 100, 100, "app", 1109, protoPayload(protoVarint(1, 0), protoBytes(2, []byte("B|100|Frame")))),
 		protoVarint(3, 4),
 	))
 	out.Write(protoMessage(5,
@@ -1288,6 +1317,24 @@ func syntheticTracePluginResultMetadata() []byte {
 		),
 	))
 	out.Write(protoBytes(7, []byte("trace-plugin-v1")))
+	return out.Bytes()
+}
+
+func syntheticTracePluginFtraceEvent(ts, tgid, pid uint64, comm string, eventField int, payload []byte) []byte {
+	return protoMessage(2,
+		protoVarint(1, ts),
+		protoVarint(2, tgid),
+		protoBytes(3, []byte(comm)),
+		protoMessage(50, protoVarint(4, pid)),
+		protoMessage(eventField, payload),
+	)
+}
+
+func protoPayload(parts ...[]byte) []byte {
+	var out bytes.Buffer
+	for _, part := range parts {
+		out.Write(part)
+	}
 	return out.Bytes()
 }
 
