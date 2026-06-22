@@ -2,6 +2,15 @@
 
 Date: 2026-06-01
 
+Status: Superseded for production conversion by
+`docs/design/hitrace_trace_streamer_parser_redesign_20260622.md`.
+
+The original design targeted the legacy `SEGMENT_EVENTS_FORMAT` +
+`SEGMENT_RAW_TRACE` event-format segment container. That container is no longer
+the commercial compatibility target. New `.htrace` work must follow the
+trace_streamer/modern-profiler redesign and must not preserve the legacy segment
+parser as a public fallback lane.
+
 ## Problem
 
 Codrax can already analyze ftrace-compatible text traces through `--htrace`,
