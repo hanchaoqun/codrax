@@ -51,7 +51,7 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			InstallCommand:  "Install OpenHarmony/SmartPerf trace_streamer, or use an hmtrace-style embedded trace_streamer binary once Codrax embedding is enabled.",
 			DocsURL:         "https://gitcode.com/diting/hmtrace/tree/main",
 			InstallHint:     "Pass --trace-streamer /path/to/trace_streamer or set CODRAX_TRACE_STREAMER; verify it can run `trace_streamer --help` and export DBs with `trace_streamer <input> -e <output.db>`.",
-			Caveats:         []string{"trace_streamer DB export can be normalized to systrace with tracebundle coverage for trace_query"},
+			Caveats:         []string{"trace_streamer DB export is the required trace body path for trace+perf htrace and can also normalize trace-only captures to systrace with tracebundle coverage for trace_query"},
 		},
 		BuiltinModern: TraceToolProviderStatus{
 			Name:           traceProviderNameBuiltinModern,
@@ -60,8 +60,8 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			Source:         "built-in",
 			CheckCommand:   "codrax trace convert --trace-engine=builtin",
 			InstallCommand: "built-in",
-			InstallHint:    "Built into Codrax; handles modern profiler/session text payloads and the sys binary fallback when trace_streamer is unavailable or emits no systrace rows.",
-			Caveats:        []string{"built-in modern/sys parser remains the fallback when trace_streamer is unavailable, fails, or emits no systrace rows"},
+			InstallHint:    "Built into Codrax; supports trace-only modern profiler/session text payloads and sys binary conversion. It is not used for trace+perf htrace trace body conversion.",
+			Caveats:        []string{"built-in modern/sys parser remains a trace-only compatibility path and fallback when trace_streamer is unavailable, fails, or emits no systrace rows for trace-only captures; trace+perf htrace requires trace_streamer/SQLite"},
 		},
 	}
 	if tool, source := resolveTraceStreamerTool(opts); tool != "" {
@@ -80,10 +80,10 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 	case traceEngineAuto:
 		if status.TraceStreamer.Available {
 			status.SelectedEngine = traceEngineTraceStreamer
-			status.Caveats = append(status.Caveats, "trace_streamer was discovered; auto conversion tries trace_streamer DB export before built-in fallback")
+			status.Caveats = append(status.Caveats, "trace_streamer was discovered; auto conversion tries trace_streamer DB export before built-in fallback for trace-only captures; trace+perf htrace stays on the SQL path")
 		} else {
 			status.SelectedEngine = traceEngineBuiltin
-			status.Caveats = append(status.Caveats, "trace_streamer was not discovered; current auto conversion uses built-in fallback")
+			status.Caveats = append(status.Caveats, "trace_streamer was not discovered; current auto conversion uses built-in fallback for trace-only captures; trace+perf htrace produces sidecar/tracebundle output until trace_streamer is configured")
 		}
 	}
 	return status, nil

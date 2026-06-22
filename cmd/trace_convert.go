@@ -258,20 +258,20 @@ func traceConvertTraceMessageZh(message string) string {
 	switch {
 	case trimmed == "":
 		return ""
-	case strings.Contains(lower, "trace_streamer db export can be normalized"):
-		return "trace_streamer DB export 可转换为 systrace，并将 coverage 写入 tracebundle 供 trace_query 使用"
+	case strings.Contains(lower, "trace_streamer db export is the required trace body path"):
+		return "trace_streamer DB export 是 trace+perf htrace 的必需 trace body 路径，也可把纯 trace 转成 systrace，并将 coverage 写入 tracebundle 供 trace_query 使用"
 	case strings.Contains(lower, "trace_streamer was discovered"):
-		return "已发现 trace_streamer；auto 转换会先尝试 trace_streamer DB export，再回退到内置 fallback"
+		return "已发现 trace_streamer；纯 trace 的 auto 转换会先尝试 trace_streamer DB export，再回退到内置 fallback；trace+perf htrace 保持 SQL 路径"
 	case strings.Contains(lower, "trace_streamer was not discovered"):
-		return "未发现 trace_streamer；当前 auto 转换使用内置 fallback"
+		return "未发现 trace_streamer；纯 trace 的 auto 转换使用内置 fallback；trace+perf htrace 会先生成 sidecar/tracebundle，直到配置 trace_streamer"
 	case strings.Contains(lower, "trace_streamer engine was selected but"):
 		return "已选择 trace_streamer 引擎，但 trace_streamer 当前不可用"
 	case strings.Contains(lower, "built-in modern/sys parser remains"):
-		return "trace_streamer 不可用、失败或未导出 systrace 行时，内置 modern/sys parser 继续保底"
+		return "内置 modern/sys parser 是纯 trace 兼容路径；纯 trace 在 trace_streamer 不可用、失败或未导出 systrace 行时可继续保底；trace+perf htrace 需要 trace_streamer/SQLite"
 	case strings.Contains(lower, "built-in modern parser"):
 		return "内置 modern parser 是 trace body fallback"
 	case strings.Contains(lower, "built into codrax"):
-		return "Codrax 内置；当前处理 modern profiler/session 文本载荷，内置 parser 完成后会共享 DB exporter schema"
+		return "Codrax 内置；支持纯 trace 的 modern profiler/session 文本载荷和 sys binary 转换；不用于 trace+perf htrace 的 trace body 转换"
 	case strings.Contains(lower, "pass --trace-streamer"):
 		return "传 --trace-streamer /path/to/trace_streamer 或设置 CODRAX_TRACE_STREAMER；确认可运行 trace_streamer --help，并支持 trace_streamer <input> -e <output.db>"
 	case strings.Contains(lower, "install openharmony/smartperf trace_streamer"):
@@ -537,6 +537,8 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 			lines = append(lines, "输出：未生成 systrace（仅抽取 sidecar artifact）")
 		}
 		lines = append(lines, traceConvertArtifactLines("zh", result.Artifacts)...)
+		lines = append(lines, traceConvertCoverageLines("zh", "trace_coverage", result.TraceCoverage)...)
+		lines = append(lines, traceConvertCoverageLines("zh", "trace_db_coverage", result.TraceDBCoverage)...)
 		lines = append(lines, traceConvertTraceProviderDecisionLines("zh", result.TraceDecisions)...)
 		lines = append(lines, traceConvertProviderDecisionLines("zh", result.ProviderDecisions)...)
 		return lines
@@ -551,8 +553,55 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 		lines = append(lines, "output: no systrace produced (sidecar artifacts only)")
 	}
 	lines = append(lines, traceConvertArtifactLines("en", result.Artifacts)...)
+	lines = append(lines, traceConvertCoverageLines("en", "trace_coverage", result.TraceCoverage)...)
+	lines = append(lines, traceConvertCoverageLines("en", "trace_db_coverage", result.TraceDBCoverage)...)
 	lines = append(lines, traceConvertTraceProviderDecisionLines("en", result.TraceDecisions)...)
 	lines = append(lines, traceConvertProviderDecisionLines("en", result.ProviderDecisions)...)
+	return lines
+}
+
+func traceConvertCoverageLines(lang, label string, coverage []hitraceconv.TraceDBCoverage) []string {
+	if len(coverage) == 0 {
+		return nil
+	}
+	emitted := 0
+	skipped := 0
+	for _, item := range coverage {
+		emitted += item.RowsEmitted
+		if strings.TrimSpace(item.Skipped) != "" || strings.TrimSpace(item.Error) != "" {
+			skipped++
+		}
+	}
+	var lines []string
+	if traceConvertUseZh(lang) {
+		lines = append(lines, fmt.Sprintf("%s：%d 项，输出=%d，跳过=%d", label, len(coverage), emitted, skipped))
+	} else {
+		lines = append(lines, fmt.Sprintf("%s: %d item(s), emitted=%d, skipped=%d", label, len(coverage), emitted, skipped))
+	}
+	limit := len(coverage)
+	if limit > 5 {
+		limit = 5
+	}
+	for i := 0; i < limit; i++ {
+		item := coverage[i]
+		details := []string{
+			traceConvertDetailKV(lang, "family", item.Family),
+			traceConvertDetailKV(lang, "table", item.Table),
+			traceConvertDetailKV(lang, "rows_read", fmt.Sprintf("%d", item.RowsRead)),
+			traceConvertDetailKV(lang, "rows_emitted", fmt.Sprintf("%d", item.RowsEmitted)),
+		}
+		if item.Skipped != "" {
+			details = append(details, traceConvertDetailKV(lang, "skipped", item.Skipped))
+		}
+		if item.Error != "" {
+			details = append(details, traceConvertDetailKV(lang, "error", item.Error))
+		}
+		if traceConvertUseZh(lang) {
+			lines = append(lines, fmt.Sprintf("%s[%d]：%s", label, i, strings.Join(details, " ")))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s[%d]: %s", label, i, strings.Join(details, " ")))
+		}
+	}
 	return lines
 }
 
@@ -858,6 +907,18 @@ func traceConvertDetailKeyZh(key string) string {
 		return "artifact"
 	case "reason":
 		return "原因"
+	case "family":
+		return "族"
+	case "table":
+		return "表"
+	case "rows_read":
+		return "读取行"
+	case "rows_emitted":
+		return "输出行"
+	case "skipped":
+		return "跳过原因"
+	case "error":
+		return "错误"
 	default:
 		return key
 	}

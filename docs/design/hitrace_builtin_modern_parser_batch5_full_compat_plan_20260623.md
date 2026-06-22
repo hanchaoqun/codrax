@@ -1,4 +1,4 @@
-# HiTrace Built-in Modern Parser Full Compatibility Plan
+# HiTrace Trace-Only Dual-Path and Trace+Perf hmtrace Alignment Plan
 
 Date: 2026-06-23
 
@@ -18,10 +18,23 @@ OpenHarmony profiler schema snapshot audited locally:
 
 ## Objective
 
-Batch 5 must not stop at an MVP exporter. The built-in modern parser is a
-production offline fallback for modern OpenHarmony/Harmony profiler packages
-when the primary `trace_streamer` DB engine is unavailable or cannot be used. It
-must therefore preserve the same downstream contract as the DB exporter:
+Batch 5 must not stop at an MVP exporter. The compatibility target has two
+explicit lanes:
+
+1. **Trace-only captures, without perf payloads** keep dual-path support. The
+   legacy built-in sys/profiler converter remains a supported compatibility
+   path, while the new `trace_streamer`/SQLite path is also available through
+   `auto` or explicit `--trace-engine=trace_streamer`.
+2. **Trace+perf htrace packages** align with the hmtrace/trace_streamer model as
+   the primary full-fidelity lane, because that package shape needs trace body,
+   perf provenance, perf samples, and clock alignment to move together. This
+   lane does not support the old built-in trace-body parser as a fallback.
+
+The built-in modern parser is still a production offline fallback for modern
+OpenHarmony/Harmony profiler packages **only for trace-only captures** when
+`trace_streamer` is unavailable or cannot produce queryable rows. It must
+preserve the same downstream contract as the DB exporter for the event families
+it renders:
 
 - stable systrace rows for event families consumed by `trace_query`;
 - stable `perf_sample:` rows when perf data can be normalized by the existing
@@ -80,32 +93,43 @@ Important existing strengths to reuse:
 
 ## Compatibility Definition
 
-The built-in modern parser is complete only when all of these are true:
+The conversion stack is complete only when all of these are true:
 
 1. Modern profiler/session packages are selected by structural content
    inspection, not by file suffix or user-intent keywords.
-2. Existing no-perf Harmony/Donghu `.sys` legacy conversion is not regressed
-   while Batch 6 parity is still open.
-3. Text profiler payloads and SessionJSON payloads are streamed into the shared
+2. Existing no-perf Harmony/Donghu `.sys` legacy conversion is not regressed.
+   This is a supported trace-only lane, not an archival stopgap.
+3. Trace-only captures can be converted through either supported lane:
+   `--trace-engine=builtin` for legacy built-in compatibility, and
+   `--trace-engine=trace_streamer` or `auto` when SQL export is available.
+4. Trace+perf htrace packages use the hmtrace-style trace_streamer/SQLite lane
+   for trace-body conversion. If SQL conversion is unavailable or cannot produce
+   queryable rows, the converter returns sidecar artifacts, tracebundle
+   provenance, provider decisions, and caveats; it must not run the old built-in
+   trace-body parser for that capture.
+5. Text profiler payloads and SessionJSON payloads are streamed into the shared
    bounded row sorter, not globally materialized before sorting.
-4. Structured profiler/ftrace payloads produce either:
+6. Structured profiler/ftrace payloads produce either:
    - normalized queryable rows for the event families already supported by the
      DB exporter, or
    - explicit structured coverage that marks the family as unsupported/partial
      and prevents the result from being mistaken for complete coverage.
-5. Modern parser coverage is serialized into tracebundle with the same
+7. Modern parser coverage is serialized into tracebundle with the same
    machine-readable style as DB coverage. It must tell the model which plugin,
    section, event family, row count, emitted count, skip reason, parser clock,
    and confidence were observed.
-6. Output rows use the same stable fields as the DB exporter. `trace_query`
+8. Output rows use the same stable fields as the DB exporter. `trace_query`
    should not need separate downstream logic for the same event family just
    because the source was built-in modern parser rather than trace_streamer DB.
-7. Tests include hmtrace-inspired fixtures for comprehensive family coverage,
+9. Tests include hmtrace-inspired fixtures for comprehensive family coverage,
    raw/text output, process/thread metadata, scheduler/wakeup, IRQ, CPU/clock,
    frame/callstack, IO/counter, log/hisys/xpower, perf samples, and negative
    structured partial coverage.
-8. Converted outputs round-trip through `tracequery.BuildIndex` and
+10. Converted outputs round-trip through `tracequery.BuildIndex` and
    `ComputeWindowStats` for the fields used by root-cause analysis.
+11. SQL-generated systrace text is cross-validated through the same pure-trace
+    `trace_query` parser used for no-perf traces. This is validation evidence,
+    not a trace+perf fallback path.
 
 ## Non-Goals and Red Lines
 
@@ -121,6 +145,11 @@ The built-in modern parser is complete only when all of these are true:
   be updated in the same batch.
 - Do not declare Batch 5 complete while structured ftrace remains summary-only
   for event families needed by scheduler/root-cause analysis.
+- Do not remove or silently demote the no-perf built-in sys conversion path when
+  adding SQL/trace_streamer coverage. Pure trace remains a dual-path surface.
+- Do not run the built-in trace-body parser for trace+perf captures. That lane
+  is SQL-only; partial sidecar/tracebundle output is preferable to a misleading
+  old-path systrace.
 
 ## Architecture
 
@@ -311,18 +340,30 @@ Exit:
 
 ### Batch 5D: hmtrace-Style Full Compatibility Tests
 
+Status: delivered on 2026-06-23 for built-in modern parser synthetic family
+coverage, negative partial coverage, no-perf trace dual-path protection, and
+trace+perf SQL-only protection.
+
 Tasks:
 
-- Mirror hmtrace `golden_diff.rs` coverage with Go fixtures:
-  - covered fixture;
-  - raw/text fixture;
-  - comprehensive fixture.
-- Add Codrax-specific checks for:
+- Delivered Go fixtures inspired by hmtrace coverage style:
+  - bounded text payload fixture;
+  - SessionJSON plus perf sidecar fixture;
+  - structured `TracePluginResult` fixture covering scheduler, block, binder,
+    IRQ, CPU, f2fs, filemap, and trace marker rows;
+  - negative unknown-oneof fixture that remains coverage-only.
+- Delivered Codrax-specific checks for:
   - tracebundle provenance;
-  - modern coverage;
-  - trace_query `window_stats` fields;
-  - perf sidecar merge;
-  - negative partial-structured payload.
+  - modern `trace_coverage`;
+  - trace_query round-trip for emitted structured ftrace rows;
+  - perf sidecar preservation;
+  - no-perf trace dual-path conversion through both built-in sys and
+    trace_streamer/SQLite engines;
+  - trace+perf conversion does not fall back to built-in trace body when SQL is
+    unavailable or when `--trace-engine=builtin` is requested;
+  - SQL-generated systrace is cross-validated through `trace_query` and exposed
+    as `trace_cross_validation/tracequery_build_index` coverage;
+  - no header-only systrace artifact for unknown structured payloads.
 - When a local `trace_streamer` binary is available, add optional parity tests:
   - run trace_streamer DB export;
   - run Codrax DB exporter;
@@ -331,32 +372,35 @@ Tasks:
 
 Exit:
 
-- Test coverage proves the built-in modern parser matches the DB export contract
-  for query-relevant semantics. Byte-for-byte equality is not required where
-  Codrax intentionally emits richer query fields, but every intentional
-  difference must be documented in the test.
+- Delivered: test coverage proves the built-in modern parser matches the DB
+  export contract for query-relevant semantics covered by the synthetic modern
+  fixtures. Byte-for-byte equality is not required where Codrax intentionally
+  emits richer query fields. Optional real-tool trace_streamer parity remains a
+  Batch 6/system-fixture activity because it requires a local official binary
+  and representative customer captures.
 
 ### Batch 5E: UX, Handoff, and Stability Closure
 
+Status: delivered on 2026-06-23 for converter trace coverage transparency.
+
 Tasks:
 
-- Ensure localized CLI/REPL conversion messages show:
+- Delivered localized CLI/REPL conversion messages showing:
   - selected trace engine;
   - generated systrace/perftrace/tracebundle;
   - modern parser coverage;
   - partial-vs-query-ready state;
   - next attach/query step.
-- Ensure markdown/html report provenance can surface the same artifact/coverage
-  information through existing handoff paths.
-- Audit prompts/hints only for stable artifact semantics. Do not add prompt
-  red-line keyword gates.
-- Audit JSON repair only if a model tool input changed. If not, document that no
-  new repair alias is required.
+- Delivered tracebundle `trace_coverage`, which gives markdown/html report and
+  handoff paths a typed provenance source without parsing terminal prose.
+- Audited prompts/hints scope: this batch adds converter result metadata only,
+  not model tool-call input fields, so no JSON repair alias is required.
+- No prompt red-line keyword gates were added.
 
 Exit:
 
-- Models and users see enough typed provenance to consume the artifacts without
-  guessing why a conversion is partial or complete.
+- Delivered: models and users see enough typed provenance to consume the
+  artifacts without guessing why a conversion is partial or complete.
 
 ## Verification Matrix
 
@@ -380,7 +424,10 @@ Required focused tests:
 - large-row spill/sort test for built-in modern text extraction
 - tracebundle modern coverage serialization test
 - trace_query round-trip for scheduler/wakeup/IRQ/CPU/binder/IO/frame/perf rows
-- no-perf `.sys` legacy guard tests until Batch 6 retires or gates the parser
+- no-perf `.sys` legacy guard tests for the supported built-in trace-only lane
+- no-perf `.sys` dual-path guard tests for built-in sys and trace_streamer/SQL
+- trace+perf SQL-only guard tests that forbid built-in trace-body fallback
+- SQL systrace cross-validation coverage test through trace_query
 
 Optional but preferred when tooling exists locally:
 
@@ -399,5 +446,7 @@ Batch 5 is not complete until:
 - hmtrace-style comprehensive fixtures pass;
 - trace_query consumes the generated artifacts without source-specific special
   cases;
+- trace+perf captures never use the old built-in trace-body parser; SQL output,
+  when present, is cross-validated by the pure-trace parser;
 - user-facing conversion output clearly distinguishes complete query-ready
   output from partial sidecar/coverage output.

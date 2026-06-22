@@ -9,6 +9,7 @@ import (
 type traceDBSystraceExport struct {
 	Artifact          Artifact
 	Coverage          []TraceDBCoverage
+	TraceCoverage     []TraceDBCoverage
 	EventsWritten     int
 	OutputBytes       int64
 	FirstTimestampSec float64
@@ -94,6 +95,7 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (traceD
 		FirstTimestampSec: float64(stats.FirstTSNS) / 1e9,
 		LastTimestampSec:  float64(stats.LastTSNS) / 1e9,
 	}
+	result.TraceCoverage = append(result.TraceCoverage, validateSystraceWithTraceQuery(ctx, output))
 	if result.EventsWritten == 0 {
 		return result, fmt.Errorf("trace DB sorter accepted rows but wrote none")
 	}

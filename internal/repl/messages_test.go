@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -1243,5 +1244,28 @@ func TestVerifyDispatchRequest_NotREPLControlInput(t *testing.T) {
 		if !strings.Contains(req, p.ID) {
 			t.Errorf("verify request %q missing plan id %s", req, p.ID)
 		}
+	}
+}
+
+func TestHtraceConvertCoverageMsgsFollowLanguage(t *testing.T) {
+	coverage := []hitraceconv.TraceDBCoverage{{
+		Family:      "builtin_modern_ftrace:sched",
+		Table:       "sched_switch",
+		RowsRead:    1,
+		RowsEmitted: 1,
+	}}
+	zh := strings.Join(htraceConvertCoverageMsgs("zh", "trace_coverage", coverage), "\n")
+	if !strings.Contains(zh, "trace_coverage：1 项，输出=1，跳过=0") ||
+		!strings.Contains(zh, "族=builtin_modern_ftrace:sched") ||
+		strings.Contains(zh, "rows_read=") ||
+		strings.Contains(zh, "emitted=") ||
+		strings.Contains(zh, "skipped=") {
+		t.Fatalf("zh coverage message malformed:\n%s", zh)
+	}
+	en := strings.Join(htraceConvertCoverageMsgs("en", "trace_coverage", coverage), "\n")
+	if !strings.Contains(en, "trace_coverage: 1 item") ||
+		!strings.Contains(en, "family=builtin_modern_ftrace:sched") ||
+		!strings.Contains(en, "rows_read=1") {
+		t.Fatalf("en coverage message malformed:\n%s", en)
 	}
 }

@@ -138,6 +138,19 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 	return artifacts, caveats, decisions, nil
 }
 
+func inputContainsStandalonePerfSidecar(ctx context.Context, input string, inputSize int64) (bool, error) {
+	segments, err := findStandaloneSegments(ctx, input, inputSize)
+	if err != nil {
+		return false, err
+	}
+	for _, seg := range segments {
+		if seg.DataType == profilerDataTypeHiperf {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func perfTraceProviderSummaryLabel(artifact Artifact) string {
 	if artifact.Perf != nil {
 		switch artifact.Perf.ProviderKind {

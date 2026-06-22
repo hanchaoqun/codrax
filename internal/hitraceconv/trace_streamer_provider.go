@@ -16,6 +16,7 @@ type traceStreamerExportResult struct {
 	SystraceArtifact  Artifact
 	Decision          TraceProviderDecision
 	Coverage          []TraceDBCoverage
+	TraceCoverage     []TraceDBCoverage
 	Caveats           []string
 	Cleanup           func()
 	Ran               bool
@@ -62,6 +63,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, i
 		ProviderDecisions:  append([]PerfProviderDecision(nil), standaloneDecisions...),
 		TraceDecisions:     []TraceProviderDecision{export.Decision},
 		TraceDBCoverage:    append([]TraceDBCoverage(nil), export.Coverage...),
+		TraceCoverage:      append([]TraceDBCoverage(nil), export.TraceCoverage...),
 		Caveats:            caveats,
 		EventsWritten:      export.EventsWritten,
 		FirstTimestampSec:  export.FirstTimestampSec,
@@ -69,7 +71,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, i
 		MissingFormatCount: 0,
 		UnknownEventCount:  0,
 	}
-	if bundleArtifact, err := writeTraceBundleWithCoverage(input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage); err != nil {
+	if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
 		return Result{}, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path
@@ -78,7 +80,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, i
 	return result, nil
 }
 
-func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, input, output string) (traceStreamerExportResult, error) {
+func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, input string, inputBytes int64, output string) (traceStreamerExportResult, error) {
 	if normalizeTraceEngineMode(opts.TraceEngine) != traceEngineAuto && normalizeTraceEngineMode(opts.TraceEngine) != "" {
 		return traceStreamerExportResult{}, nil
 	}
@@ -86,16 +88,24 @@ func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, input, output 
 	if err != nil {
 		return traceStreamerExportResult{}, err
 	}
+	hasTracePerfSidecar, err := inputContainsStandalonePerfSidecar(ctx, input, inputBytes)
+	if err != nil {
+		return traceStreamerExportResult{}, err
+	}
 	if !status.TraceStreamer.Available {
+		caveat := "trace_streamer was not discovered; auto conversion uses built-in fallback"
+		if hasTracePerfSidecar {
+			caveat = "trace_streamer was not discovered; trace+perf htrace requires trace_streamer/SQLite trace conversion"
+		}
 		decision := traceProviderSkipped(
 			newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameTraceStreamer), opts, input, output),
 			false,
 			"trace_streamer_unavailable",
-			"trace_streamer was not discovered; auto conversion uses built-in fallback",
+			caveat,
 		)
 		return traceStreamerExportResult{Decision: decision}, nil
 	}
-	return runTraceStreamerExport(ctx, opts, input, output, opts.KeepTraceDB)
+	return runTraceStreamerExport(ctx, opts, input, output, opts.KeepTraceDB || hasTracePerfSidecar)
 }
 
 func runTraceStreamerExport(ctx context.Context, opts Options, input, output string, keepDB bool) (traceStreamerExportResult, error) {
@@ -179,10 +189,11 @@ func runTraceStreamerExport(ctx context.Context, opts Options, input, output str
 				"trace_db_normalize_failed",
 				caveat,
 			),
-			Coverage: systraceExport.Coverage,
-			Caveats:  []string{caveat},
-			Cleanup:  cleanup,
-			Ran:      true,
+			Coverage:      systraceExport.Coverage,
+			TraceCoverage: systraceExport.TraceCoverage,
+			Caveats:       []string{caveat},
+			Cleanup:       cleanup,
+			Ran:           true,
 		}, nil
 	}
 	if systraceExport.Artifact.Path == "" {
@@ -198,10 +209,11 @@ func runTraceStreamerExport(ctx context.Context, opts Options, input, output str
 				"trace_db_no_rows",
 				caveat,
 			),
-			Coverage: systraceExport.Coverage,
-			Caveats:  []string{caveat},
-			Cleanup:  cleanup,
-			Ran:      true,
+			Coverage:      systraceExport.Coverage,
+			TraceCoverage: systraceExport.TraceCoverage,
+			Caveats:       []string{caveat},
+			Cleanup:       cleanup,
+			Ran:           true,
 		}, nil
 	}
 	success := traceProviderSuccess(decision, systraceExport.Artifact)
@@ -213,6 +225,7 @@ func runTraceStreamerExport(ctx context.Context, opts Options, input, output str
 		SystraceArtifact:  systraceExport.Artifact,
 		Decision:          success,
 		Coverage:          systraceExport.Coverage,
+		TraceCoverage:     systraceExport.TraceCoverage,
 		Caveats:           []string{"trace_streamer DB export succeeded and was normalized to systrace for trace_query"},
 		Cleanup:           cleanup,
 		Ran:               true,

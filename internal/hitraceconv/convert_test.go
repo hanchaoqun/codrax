@@ -65,6 +65,30 @@ func TestConvertFileWritesTextSystraceAndRefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestLocalizeConvertMessageTracePerfSQLOnly(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{
+			in:   "trace+perf htrace requires trace_streamer/SQLite trace conversion; built-in trace body conversion was not attempted",
+			want: "trace+perf htrace 需要通过 trace_streamer/SQLite 转换 trace body",
+		},
+		{
+			in:   "trace_streamer was not discovered; trace+perf htrace requires trace_streamer/SQLite trace conversion",
+			want: "未发现 trace_streamer；trace+perf htrace 需要通过 trace_streamer/SQLite 转换 trace body",
+		},
+	}
+	for _, tc := range cases {
+		if got := LocalizeConvertMessage("zh", tc.in); !strings.Contains(got, tc.want) {
+			t.Fatalf("localized message missing %q: %q", tc.want, got)
+		}
+		if got := LocalizeConvertMessage("en", tc.in); got != tc.in {
+			t.Fatalf("english localization should preserve stable caveat, got %q", got)
+		}
+	}
+}
+
 func TestConvertFilePreservesNoPerfSysBinaryRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "donghu-no-perf.sys")
@@ -122,8 +146,13 @@ func TestConvertFileExtractsStandaloneHiperfDataAndBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
-	if result.OutputPath != output || result.BundlePath != filepath.Join(dir, "out.tracebundle.json") {
+	if result.OutputPath != "" || result.EventsWritten != 0 || result.BundlePath != filepath.Join(dir, "out.tracebundle.json") {
 		t.Fatalf("unexpected output/bundle paths: %+v", result)
+	}
+	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameTraceStreamer, "trace_streamer_unavailable") ||
+		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) ||
+		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinModern, true) {
+		t.Fatalf("trace+perf without SQL must not fall back to built-in trace body: %+v", result.TraceDecisions)
 	}
 	var perf Artifact
 	for _, artifact := range result.Artifacts {
@@ -146,10 +175,13 @@ func TestConvertFileExtractsStandaloneHiperfDataAndBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"type": "perf_data"`, `"plugin_name": "hiperf-plugin"`, `"systrace": "` + output + `"`} {
+	for _, want := range []string{`"type": "perf_data"`, `"plugin_name": "hiperf-plugin"`, `trace+perf htrace requires trace_streamer/SQLite trace conversion`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("bundle missing %q:\n%s", want, bundle)
 		}
+	}
+	if strings.Contains(string(bundle), `"systrace":`) {
+		t.Fatalf("trace+perf without SQL must not claim systrace output:\n%s", bundle)
 	}
 }
 
@@ -188,7 +220,7 @@ func TestConvertFileReturnsStandalonePerfArtifactWithoutSystraceContainer(t *tes
 	if !bytes.Equal(gotPayload, perfPayload) {
 		t.Fatalf("perf payload mismatch: got %q want %q", gotPayload, perfPayload)
 	}
-	if !containsString(result.Caveats, "systrace output was not produced") {
+	if !containsString(result.Caveats, tracePerfSQLRequiredCaveat) {
 		t.Fatalf("partial conversion should carry caveat: %+v", result.Caveats)
 	}
 }
@@ -452,6 +484,51 @@ func TestConvertFileSummarizesOfficialProfilerStructuredFtraceMetadata(t *testin
 	}
 }
 
+func TestConvertFileKeepsUnknownStructuredFtraceAsCoverageOnly(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "profiler-unknown-structured.htrace")
+	unknownPayload := protoMessage(2,
+		protoVarint(1, 0),
+		syntheticTracePluginFtraceEvent(1, 100, 100, "unknown", 9999, protoPayload(protoVarint(1, 1))),
+	)
+	body := syntheticProfilerTraceFile(syntheticProfilerPluginDataWithTiming(
+		"ftrace-plugin",
+		unknownPayload,
+		1,
+		12,
+		34,
+		"1.03",
+		250,
+	))
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: filepath.Join(dir, "out.systrace")})
+	if err != nil {
+		t.Fatalf("convert unknown structured profiler trace file: %v", err)
+	}
+	if result.OutputPath != "" || result.EventsWritten != 0 || result.UnknownEventCount != 1 || result.BundlePath == "" {
+		t.Fatalf("unknown structured ftrace should remain coverage-only partial result: %+v", result)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta struct {
+		TraceCoverage []TraceDBCoverage `json:"trace_coverage"`
+	}
+	if err := json.Unmarshal(bundle, &meta); err != nil {
+		t.Fatalf("decode tracebundle: %v", err)
+	}
+	if !coverageHasSkipped(meta.TraceCoverage, "builtin_modern_ftrace:unknown", "event_field:9999", "unmapped structured ftrace event field") {
+		t.Fatalf("unknown structured ftrace coverage should name unmapped field: %+v", meta.TraceCoverage)
+	}
+	if strings.Contains(string(bundle), `"type": "systrace"`) {
+		t.Fatalf("unknown structured ftrace must not create header-only systrace artifact:\n%s", bundle)
+	}
+}
+
 func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "hiprofiler_data.htrace")
@@ -472,11 +549,13 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("convert SessionJSON package: %v", err)
 	}
-	if result.OutputPath != output || result.EventsWritten != 1 || result.BundlePath == "" {
-		t.Fatalf("session package should produce systrace and bundle: %+v", result)
+	if result.OutputPath != "" || result.EventsWritten != 0 || result.BundlePath == "" {
+		t.Fatalf("trace+perf session package should not use built-in trace body without SQL: %+v", result)
 	}
-	if !containsString(result.Caveats, "SessionJSON- detected") || containsString(result.Caveats, "invalid segment type") {
-		t.Fatalf("session package should not surface sys binary parser error: %+v", result.Caveats)
+	if containsString(result.Caveats, "SessionJSON- detected") ||
+		containsString(result.Caveats, "invalid segment type") ||
+		!containsString(result.Caveats, tracePerfSQLRequiredCaveat) {
+		t.Fatalf("trace+perf session package should surface SQL-only policy without built-in parsing: %+v", result.Caveats)
 	}
 	var perf Artifact
 	for _, artifact := range result.Artifacts {
@@ -488,12 +567,8 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	if perf.Path == "" || perf.PluginName != "hiperf-plugin" || perf.PluginVersion != "1.02" {
 		t.Fatalf("session package should preserve HIPERF_DATA sidecar: %+v", result.Artifacts)
 	}
-	converted, err := os.ReadFile(output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(converted), "bindApplication") {
-		t.Fatalf("session systrace missing embedded text row:\n%s", converted)
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("trace+perf session package should not write legacy systrace output, stat err=%v", err)
 	}
 	bundle, err := os.ReadFile(result.BundlePath)
 	if err != nil {
@@ -505,8 +580,8 @@ func TestConvertFileHandlesSessionJSONPackageWithPerfSidecar(t *testing.T) {
 	if err := json.Unmarshal(bundle, &meta); err != nil {
 		t.Fatalf("decode tracebundle: %v", err)
 	}
-	if !coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "session:SessionJSON", 1) {
-		t.Fatalf("session bundle missing modern coverage: %+v", meta.TraceCoverage)
+	if coverageHasEmitted(meta.TraceCoverage, "builtin_modern_profiler", "session:SessionJSON", 1) {
+		t.Fatalf("trace+perf should not report built-in SessionJSON coverage without SQL: %+v", meta.TraceCoverage)
 	}
 }
 

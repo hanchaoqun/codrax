@@ -10801,6 +10801,12 @@ func (r *REPL) handleHitraceConvert(args string) {
 		}
 		r.info(htraceConvertArtifactMsg(r.language, artifact.Type, artifact.Path, hitraceConvertArtifactDetail(r.language, artifact)))
 	}
+	for _, line := range htraceConvertCoverageMsgs(r.language, "trace_coverage", result.TraceCoverage) {
+		r.info(line)
+	}
+	for _, line := range htraceConvertCoverageMsgs(r.language, "trace_db_coverage", result.TraceDBCoverage) {
+		r.info(line)
+	}
 	if len(result.Caveats) > 0 {
 		for _, caveat := range result.Caveats {
 			r.warn("%s", htraceConvertCaveatMsg(r.language, caveat))

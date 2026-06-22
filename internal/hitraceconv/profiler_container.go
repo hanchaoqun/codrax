@@ -547,40 +547,6 @@ func decodeProfilerFtraceSummary(data []byte) (profilerFtraceSummary, bool, erro
 	return summary, summary.recognizedMessage, err
 }
 
-func profilerFtraceEventCoverage(summary profilerFtraceSummary) []TraceDBCoverage {
-	if len(summary.EventFieldCounts) == 0 {
-		return nil
-	}
-	fields := make([]int, 0, len(summary.EventFieldCounts))
-	for field := range summary.EventFieldCounts {
-		fields = append(fields, field)
-	}
-	sort.Ints(fields)
-	out := make([]TraceDBCoverage, 0, len(fields))
-	for _, field := range fields {
-		count := summary.EventFieldCounts[field]
-		desc, ok := profilerFtraceEventDescriptors[field]
-		if !ok {
-			out = append(out, TraceDBCoverage{
-				Family:   "builtin_modern_ftrace:unknown",
-				Table:    fmt.Sprintf("event_field:%d", field),
-				Found:    true,
-				RowsRead: count,
-				Skipped:  "unmapped structured ftrace event field",
-			})
-			continue
-		}
-		out = append(out, TraceDBCoverage{
-			Family:   "builtin_modern_ftrace:" + desc.Family,
-			Table:    desc.Name,
-			Found:    true,
-			RowsRead: count,
-			Skipped:  "structured ftrace renderer pending",
-		})
-	}
-	return out
-}
-
 func decodeProfilerFtraceCPUStats(data []byte) (profilerFtraceCPUStats, error) {
 	var stats profilerFtraceCPUStats
 	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {

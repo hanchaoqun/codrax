@@ -3269,6 +3269,71 @@ func htraceConvertCaveatMsg(lang, caveat string) string {
 	return formatN(lang, "hitrace convert caveat: %s\n", caveat)
 }
 
+func htraceConvertCoverageMsgs(lang, label string, coverage []hitraceconv.TraceDBCoverage) []string {
+	if len(coverage) == 0 {
+		return nil
+	}
+	emitted := 0
+	skipped := 0
+	for _, item := range coverage {
+		emitted += item.RowsEmitted
+		if strings.TrimSpace(item.Skipped) != "" || strings.TrimSpace(item.Error) != "" {
+			skipped++
+		}
+	}
+	var lines []string
+	if isZh(lang) {
+		lines = append(lines, formatN(lang, "%s：%d 项，输出=%d，跳过=%d", label, len(coverage), emitted, skipped))
+	} else {
+		lines = append(lines, formatN(lang, "%s: %d item(s), emitted=%d, skipped=%d", label, len(coverage), emitted, skipped))
+	}
+	limit := len(coverage)
+	if limit > 5 {
+		limit = 5
+	}
+	for i := 0; i < limit; i++ {
+		item := coverage[i]
+		details := []string{
+			htraceConvertCoverageKV(lang, "family", item.Family),
+			htraceConvertCoverageKV(lang, "table", item.Table),
+			htraceConvertCoverageKV(lang, "rows_read", fmt.Sprintf("%d", item.RowsRead)),
+			htraceConvertCoverageKV(lang, "rows_emitted", fmt.Sprintf("%d", item.RowsEmitted)),
+		}
+		if item.Skipped != "" {
+			details = append(details, htraceConvertCoverageKV(lang, "skipped", item.Skipped))
+		}
+		if item.Error != "" {
+			details = append(details, htraceConvertCoverageKV(lang, "error", item.Error))
+		}
+		if isZh(lang) {
+			lines = append(lines, formatN(lang, "%s[%d]：%s", label, i, strings.Join(details, " ")))
+		} else {
+			lines = append(lines, formatN(lang, "%s[%d]: %s", label, i, strings.Join(details, " ")))
+		}
+	}
+	return lines
+}
+
+func htraceConvertCoverageKV(lang, key, value string) string {
+	if isZh(lang) {
+		switch key {
+		case "family":
+			key = "族"
+		case "table":
+			key = "表"
+		case "rows_read":
+			key = "读取行"
+		case "rows_emitted":
+			key = "输出行"
+		case "skipped":
+			key = "跳过原因"
+		case "error":
+			key = "错误"
+		}
+	}
+	return key + "=" + value
+}
+
 func htraceConvertFailedMsg(lang string, err error) string {
 	if isZh(lang) {
 		return formatN(lang, "hitrace 转换失败：%v", err)
