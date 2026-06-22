@@ -126,6 +126,56 @@ func TestSourceInventoryCompletionAuthority_RequestedUniverseCanCloseRepoWideDeb
 	}
 }
 
+func TestSourceInventoryCompletionAuthority_ValueLookupSupportProfileIsInactive(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Scopes:   []string{"."},
+		Lens:     []string{"members"},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: false,
+			Members:  []SourceInventoryObservationMember{{Name: "Name", Role: AnswerCandidateRoleFunction, File: "internal/agent/sub_explorer.go"}},
+		}},
+	}
+	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction, AnswerCandidateRoleType},
+		RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation, SourceInventoryFieldValues},
+	}}
+
+	auth := BuildSourceInventoryCompletionAuthority(obs, rm, false)
+	if auth.Blocking || auth.ReasonCode != SourceInventoryCompletionReasonInactive {
+		t.Fatalf("value lookup support profile should not hard-block source-inventory completion, got %+v", auth)
+	}
+}
+
+func TestSourceInventoryCompletionAuthority_EnumValueInventoryStillBlocks(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Scopes:   []string{"."},
+		Lens:     []string{"members"},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleType,
+			Complete: false,
+			Members:  []SourceInventoryObservationMember{{Name: "Mode", Role: AnswerCandidateRoleType, File: "pkg/mode.go"}},
+		}},
+	}
+	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+		TypeUnderlying:    SourceInventoryTypeUnderlyingString,
+		RequiresConstSet:  true,
+		RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation, SourceInventoryFieldValues},
+	}}
+
+	auth := BuildSourceInventoryCompletionAuthority(obs, rm, false)
+	if !auth.Blocking || auth.ReasonCode != SourceInventoryCompletionReasonIncompleteObservation {
+		t.Fatalf("enum-like value inventory should remain blocking until complete, got %+v", auth)
+	}
+}
+
 func TestSourceInventoryCompletionAuthority_InactiveWithoutExecutableLens(t *testing.T) {
 	obs := SourceInventoryObservation{
 		Active:        true,

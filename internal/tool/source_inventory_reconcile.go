@@ -2021,12 +2021,6 @@ func sourceInventoryDefaultQueryEnumerationRoles() []types.AnswerCandidateRole {
 		types.AnswerCandidateRoleFunction,
 		types.AnswerCandidateRoleMethod,
 		types.AnswerCandidateRoleType,
-		types.AnswerCandidateRoleConstant,
-		types.AnswerCandidateRoleVariable,
-		types.AnswerCandidateRoleField,
-		types.AnswerCandidateRoleRoute,
-		types.AnswerCandidateRoleConfigKey,
-		types.AnswerCandidateRoleImportPath,
 	}
 }
 
