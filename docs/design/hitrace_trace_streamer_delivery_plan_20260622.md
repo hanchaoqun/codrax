@@ -650,7 +650,9 @@ Exit criteria:
 
 #### Batch 6C: Raw Ftrace Root-Cause Evidence Parity
 
-Status: planned from current-code audit on 2026-06-23.
+Status: in progress on 2026-06-23; raw-ftrace SQL exporter slice delivered,
+with explicit built-in-vs-SQL parity and representative customer `.sys`
+fixtures still pending.
 
 Exploration notes:
 
@@ -782,6 +784,29 @@ Exit criteria:
   SQL-generated rows without prompt hacks or new tool-call JSON burden.
 - Missing DB support is transparent through bounded coverage caveats, not
   silent evidence loss.
+
+Delivered slice on 2026-06-23:
+
+- Added a schema-introspecting SQL raw-ftrace exporter that reads `raw` plus
+  `args`/`data_dict`, uses structured ftrace event names for class routing, and
+  emits stable systrace rows for binder, block/storage, inode/file IO,
+  page-cache, workqueue, and DMA-fence families.
+- Added bounded `TraceDBCoverage` rows for `raw_ftrace/raw` and each emitted
+  class (`binder`, `block_storage`, `file_io`, `page_cache`, `workqueue`,
+  `dma_fence`), plus explicit skip coverage for missing `argset` or
+  `args/data_dict` dependencies.
+- Added tests proving SQL raw-ftrace rows round-trip through `trace_query` into:
+  binder IPC edges, `file_io_by_inode`, `page_cache_by_inode`,
+  `storage_latency_by_layer`, `io_pressure_summary`, `workqueue_activity`, and
+  `EventDMAFence`.
+- This slice does not yet close Batch 6C because the explicit
+  built-in-vs-SQL raw-ftrace parity fixture and representative customer `.sys`
+  validation are still required.
+
+Verification for delivered slice:
+
+- `go test ./internal/hitraceconv -run 'TestExportTraceDBRawFtrace' -count=1 -v`
+- `go test ./internal/hitraceconv ./internal/tracequery`
 
 Overall Batch 6 remaining tasks:
 

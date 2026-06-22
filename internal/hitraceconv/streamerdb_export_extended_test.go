@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -295,6 +296,234 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 	if len(idx.Events) < 20 {
 		t.Fatalf("tracequery should parse comprehensive fixture rows, got %d", len(idx.Events))
 	}
+}
+
+func TestExportTraceDBRawFtraceRootCauseEvidence(t *testing.T) {
+	path := createTraceDBFixture(t, rawFtraceRootCauseFixtureStatements())
+	outPath := filepath.Join(t.TempDir(), "raw-ftrace.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export raw ftrace fixture: %v", err)
+	}
+	for _, key := range []struct {
+		table string
+		min   int
+	}{
+		{"binder", 3},
+		{"block_storage", 4},
+		{"file_io", 2},
+		{"page_cache", 2},
+		{"workqueue", 2},
+		{"dma_fence", 1},
+	} {
+		assertCoverageEmitted(t, result.Coverage, "raw_ftrace", key.table, key.min)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	for _, want := range []string{
+		"binder_transaction: transaction=42 dest_node=9 dest_proc=500 dest_thread=700 reply=0 flags=0x12 code=0x4",
+		"android_fs_dataread_start: dev=260:136 ino=12345 entry_name=foo.db offset=0 bytes=4096 rw=read",
+		"block_rq_issue: 8,0 R 0 (READ) 128 + 8",
+		"scsi_dispatch_cmd_start: tag=7 dev=8:0 lba=4096 len=8 opcode=READ_10",
+		"mm_filemap_add_to_page_cache: dev=260:136 ino=12345",
+		"workqueue_execute_start: work=0xabc function=0xdef",
+		"dma_fence_signaled: driver=drv timeline=tl context=1 seqno=2",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("raw ftrace systrace missing %q:\n%s", want, body)
+		}
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("tracequery parse raw ftrace output: %v", err)
+	}
+	ipc := tracequery.BuildIPCGraph(idx, tracequery.Query{})
+	if len(ipc.Edges) != 1 || ipc.Edges[0].TransactionID != 42 || ipc.Edges[0].DestThread != 700 || ipc.Edges[0].Flags != "0x12" {
+		t.Fatalf("raw binder rows did not become IPC edge: %+v", ipc)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{})
+	if len(stats.FileIOByInode) == 0 || stats.FileIOByInode[0].Inode != "12345" || stats.FileIOByInode[0].Bytes != 4096 {
+		t.Fatalf("raw file IO did not aggregate by inode: %+v", stats.FileIOByInode)
+	}
+	if len(stats.PageCacheByInode) == 0 || stats.PageCacheByInode[0].Churn < 2 {
+		t.Fatalf("raw page cache did not aggregate by inode: %+v", stats.PageCacheByInode)
+	}
+	if len(stats.StorageLatencyByLayer) == 0 || stats.StorageLatencyByLayer[0].PairedCount == 0 {
+		t.Fatalf("raw storage events did not pair latency: %+v", stats.StorageLatencyByLayer)
+	}
+	if stats.IOPressureSummary == nil || stats.IOPressureSummary.TopInode != "12345" {
+		t.Fatalf("raw IO pressure summary missing hot inode: %+v", stats.IOPressureSummary)
+	}
+	if len(stats.WorkqueueActivity) == 0 || stats.WorkqueueActivity[0].PairedCount != 1 {
+		t.Fatalf("raw workqueue rows did not pair: %+v", stats.WorkqueueActivity)
+	}
+	foundDMAFence := false
+	for _, ev := range idx.Events {
+		if ev.Type == tracequery.EventDMAFence && ev.Name == "dma_fence_signaled" {
+			foundDMAFence = true
+			break
+		}
+	}
+	if !foundDMAFence {
+		t.Fatalf("raw dma_fence row did not remain queryable: %+v", idx.Events)
+	}
+}
+
+func TestExportTraceDBRawFtraceMissingArgsetCoverage(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (100)",
+		"CREATE TABLE raw (ts INT, name TEXT, cpu INT, itid INT)",
+		"INSERT INTO raw VALUES (1000, 'binder_transaction', 1, 1)",
+	})
+	outPath := filepath.Join(t.TempDir(), "raw-no-argset.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export raw ftrace missing argset fixture: %v", err)
+	}
+	if !coverageHasSkipped(result.Coverage, "raw_ftrace", "raw", "missing argset") {
+		t.Fatalf("missing raw argset coverage not exposed: %+v", result.Coverage)
+	}
+}
+
+func TestExportTraceDBRawFtraceMissingArgsDependencyCoverage(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (100)",
+		"CREATE TABLE raw (ts INT, name TEXT, cpu INT, itid INT, argsetid INT)",
+		"INSERT INTO raw VALUES (1000, 'binder_transaction', 1, 1, 7)",
+	})
+	outPath := filepath.Join(t.TempDir(), "raw-no-args.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export raw ftrace missing args fixture: %v", err)
+	}
+	if !coverageHasSkipped(result.Coverage, "raw_ftrace", "raw", "missing args/data_dict") {
+		t.Fatalf("missing args dependency coverage not exposed: %+v", result.Coverage)
+	}
+}
+
+func rawFtraceRootCauseFixtureStatements() []string {
+	stmts := []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (100)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 500, 'MainApp')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 500, 1, 'MainApp', 100, 1, 1)",
+		"INSERT INTO thread VALUES (2, 700, 1, 'BinderPeer', 100, 0, 1)",
+		"INSERT INTO thread VALUES (3, 800, 1, 'IOThread', 100, 0, 1)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (1, 900, 20000, 1, 'Running')",
+		"INSERT INTO thread_state VALUES (2, 900, 20000, 2, 'Running')",
+		"INSERT INTO thread_state VALUES (3, 900, 20000, 3, 'Running')",
+		"CREATE TABLE data_dict (id INT, data TEXT)",
+		"CREATE TABLE args (argset INT, key INT, datatype INT, value INT)",
+		"CREATE TABLE raw (id INT, ts INT, name TEXT, cpu INT, itid INT, argsetid INT)",
+	}
+	nextDict := 1
+	dict := map[string]int{}
+	dictID := func(text string) int {
+		if id, ok := dict[text]; ok {
+			return id
+		}
+		id := nextDict
+		nextDict++
+		dict[text] = id
+		stmts = append(stmts, fmt.Sprintf("INSERT INTO data_dict VALUES (%d, '%s')", id, strings.ReplaceAll(text, "'", "''")))
+		return id
+	}
+	addArg := func(argset int, key string, value int64) {
+		stmts = append(stmts, fmt.Sprintf("INSERT INTO args VALUES (%d, %d, 0, %d)", argset, dictID(key), value))
+	}
+	addTextArg := func(argset int, key, value string) {
+		stmts = append(stmts, fmt.Sprintf("INSERT INTO args VALUES (%d, %d, 1, %d)", argset, dictID(key), dictID(value)))
+	}
+	addRaw := func(id int, ts int64, name string, cpu, itid, argset int) {
+		stmts = append(stmts, fmt.Sprintf("INSERT INTO raw VALUES (%d, %d, '%s', %d, %d, %d)", id, ts, name, cpu, itid, argset))
+	}
+
+	addArg(100, "transaction", 42)
+	addArg(100, "dest_node", 9)
+	addArg(100, "dest_proc", 500)
+	addArg(100, "dest_thread", 700)
+	addArg(100, "reply", 0)
+	addArg(100, "flags", 18)
+	addArg(100, "code", 4)
+	addRaw(1, 1000, "binder_transaction", 1, 1, 100)
+
+	addArg(101, "transaction", 42)
+	addRaw(2, 1200, "binder_transaction_received", 2, 2, 101)
+
+	addArg(102, "transaction", 42)
+	addArg(102, "debug_id", 42)
+	addArg(102, "data_size", 128)
+	addArg(102, "offsets_size", 16)
+	addArg(102, "extra_buffers_size", 0)
+	addRaw(3, 1300, "binder_transaction_alloc_buf", 1, 1, 102)
+
+	for _, argset := range []int{200, 201} {
+		addTextArg(argset, "dev", "260:136")
+		addArg(argset, "ino", 12345)
+		addTextArg(argset, "entry_name", "foo.db")
+		addArg(argset, "offset", 0)
+		addArg(argset, "bytes", 4096)
+		addTextArg(argset, "rw", "read")
+	}
+	addRaw(4, 3000, "android_fs_dataread_start", 3, 3, 200)
+	addArg(201, "ret", 0)
+	addArg(201, "latency_us", 800)
+	addRaw(5, 3600, "android_fs_dataread_end", 3, 3, 201)
+
+	for _, argset := range []int{210, 211} {
+		addTextArg(argset, "dev", "260:136")
+		addArg(argset, "ino", 12345)
+		addArg(argset, "offset", 0)
+		addArg(argset, "bytes", 4096)
+	}
+	addRaw(6, 3900, "mm_filemap_add_to_page_cache", 3, 3, 210)
+	addRaw(7, 4000, "mm_filemap_delete_from_page_cache", 3, 3, 211)
+
+	for _, argset := range []int{300, 301} {
+		addTextArg(argset, "dev", "8,0")
+		addTextArg(argset, "rwbs", "R")
+		addTextArg(argset, "cmd", "READ")
+		addArg(argset, "sector", 128)
+		addArg(argset, "nr_sector", 8)
+	}
+	addRaw(8, 5000, "block_rq_issue", 3, 3, 300)
+	addArg(301, "error", 0)
+	addRaw(9, 9000, "block_rq_complete", 3, 3, 301)
+
+	for _, argset := range []int{310, 311} {
+		addArg(argset, "tag", 7)
+		addTextArg(argset, "dev", "8:0")
+		addArg(argset, "lba", 4096)
+		addArg(argset, "len", 8)
+		addTextArg(argset, "opcode", "READ_10")
+	}
+	addRaw(10, 6000, "scsi_dispatch_cmd_start", 3, 3, 310)
+	addArg(311, "ret", 0)
+	addArg(311, "latency_us", 900)
+	addRaw(11, 9600, "scsi_dispatch_cmd_done", 3, 3, 311)
+
+	for _, argset := range []int{400, 401} {
+		addArg(argset, "work", 0xabc)
+		addArg(argset, "function", 0xdef)
+	}
+	addRaw(12, 10000, "workqueue_execute_start", 3, 3, 400)
+	addRaw(13, 15000, "workqueue_execute_end", 3, 3, 401)
+
+	addTextArg(500, "driver", "drv")
+	addTextArg(500, "timeline", "tl")
+	addArg(500, "context", 1)
+	addArg(500, "seqno", 2)
+	addRaw(14, 16000, "dma_fence_signaled", 3, 3, 500)
+
+	return stmts
 }
 
 func hmtraceComprehensiveFixtureStatements() []string {

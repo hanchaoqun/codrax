@@ -31,6 +31,11 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	if err != nil {
 		return coverage, err
 	}
+	rawCoverage, err := exportTraceDBRawFtraceFamilies(ctx, tdb, sink, index, running)
+	coverage = append(coverage, rawCoverage...)
+	if err != nil {
+		return coverage, err
+	}
 	exporters := []func(context.Context, *traceDB, *traceDBRowSink, traceDBThreadIndex, map[int64][]traceDBRunningInterval, map[int64]string) (TraceDBCoverage, error){
 		exportTraceDBCallstack,
 		exportTraceDBFrameSlice,
