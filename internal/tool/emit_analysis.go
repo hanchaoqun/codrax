@@ -4760,10 +4760,13 @@ func reconcilePrincipalScopeIrrelevantFiles(
 			filtered = append(filtered, rel)
 			continue
 		}
-		demoted++
-		if types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(rel)) {
-			promotedAuxiliary = true
+		role := types.ClassifySourcePathRole(rel)
+		if !types.SourcePathRoleIsAuxiliary(role) {
+			filtered = append(filtered, rel)
+			continue
 		}
+		demoted++
+		promotedAuxiliary = true
 		if len(required) >= requiredFileHintsMax || requiredSeen[rel] {
 			continue
 		}

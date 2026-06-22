@@ -192,6 +192,42 @@ func TestReconcilePrincipalScopeIrrelevantFiles_SynthesizesAllScopeForAuxiliaryI
 	}
 }
 
+func TestReconcilePrincipalScopeIrrelevantFiles_KeepsProductionIrrelevantFilesNegative(t *testing.T) {
+	root := t.TempDir()
+	rel := "internal/tool/source_inventory_language_census.go"
+	mustWriteTestFile(t, root, rel, "package tool\n")
+
+	val := &analysisValidationResult{}
+	required, irrelevant, scope := reconcilePrincipalScopeIrrelevantFiles(
+		&types.BusContext{RepoRoot: root},
+		&types.SourceScopeProfile{
+			RequestedScope: types.SourceScopeProduction,
+			Confidence:     0.95,
+		},
+		&types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+		},
+		types.IntentEnumerate,
+		types.SemanticPredicates{IsCategoryEnumeration: true},
+		nil,
+		[]string{rel},
+		val,
+	)
+	if len(required) != 0 {
+		t.Fatalf("production irrelevant files must not become forced required_files, got %+v", required)
+	}
+	if len(irrelevant) != 1 || irrelevant[0] != rel {
+		t.Fatalf("production off-topic files should remain in negative channel, got %+v", irrelevant)
+	}
+	if scope == nil || scope.RequestedScope != types.SourceScopeProduction {
+		t.Fatalf("production scope should be preserved, got %+v", scope)
+	}
+	if len(val.Warnings) != 0 {
+		t.Fatalf("negative-channel production files should not be reported as repaired principal scope, got %+v", val.Warnings)
+	}
+}
+
 func TestReconcilePrincipalScopeIrrelevantFiles_KeepsQuotedProductionScopeAuxiliaryIrrelevant(t *testing.T) {
 	root := t.TempDir()
 	rel := "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"
