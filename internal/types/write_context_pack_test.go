@@ -679,6 +679,31 @@ func TestWriteContextPackFromPlannerToolResultsProjectsToolHandoffCarrier(t *tes
 	}
 }
 
+func TestWriteContextPackFromPlannerToolResultsProjectsToolRefinement(t *testing.T) {
+	result := AttachToolHandoffCarrier(ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Refinement: &ToolRefinementHint{
+			ReasonCode:        "grep_result_truncated",
+			ResultTruncated:   true,
+			PreferredNextTool: "grep",
+			PreferredParams: map[string]string{
+				"path":          "pkg/owner.py",
+				"context_lines": "3",
+			},
+			RequiredFields: []string{"pattern"},
+		},
+	})
+	pack := WriteContextPackFromPlannerToolResults("batch-1", "repair", []ToolResult{result})
+	view := pack.View(WriteConsumerPlanner, 10)
+	if !writeContextViewContains(view, "tool_refinement", "reason=grep_result_truncated") ||
+		!writeContextViewContains(view, "tool_refinement", "result_truncated=true") ||
+		!writeContextViewContains(view, "tool_refinement", "preferred_next_tool=grep") ||
+		!writeContextViewContains(view, "tool_refinement", "required_fields=pattern") {
+		t.Fatalf("tool refinement carrier not projected into planner context: %+v", view.Items)
+	}
+}
+
 func TestWriteContextPackFromRepoMapNavigationCoverageProjectsP1State(t *testing.T) {
 	coverage := RepoMapNavigationCoverage{
 		State:          RepoMapNavigationCoveragePartial,

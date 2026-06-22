@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -14,6 +15,7 @@ const (
 	toolHandoffMaxAcceptedEvidence = 64
 	toolHandoffMaxObservationRefs  = 64
 	toolHandoffMaxFields           = 48
+	toolHandoffMaxRefinementItems  = 16
 	toolHandoffMaxTextLen          = 240
 )
 
@@ -71,6 +73,7 @@ type ToolHandoffCarrier struct {
 	ReasonCode       string                     `json:"reason_code,omitempty"`
 	RepairCode       string                     `json:"repair_code,omitempty"`
 	Repair           *ToolRepair                `json:"repair,omitempty"`
+	Refinement       *ToolRefinementHint        `json:"refinement,omitempty"`
 	PlanRepairPack   *PlanRepairPack            `json:"plan_repair_pack,omitempty"`
 	SupportedJSON    *ToolJSONSurfaceDescriptor `json:"supported_json,omitempty"`
 	AcceptedEvidence []AcceptedEvidenceRef      `json:"accepted_evidence,omitempty"`
@@ -123,6 +126,14 @@ func ToolHandoffCarrierFromToolResult(result ToolResult) (ToolHandoffCarrier, bo
 			}
 		}
 	}
+	if result.Refinement != nil {
+		if refinement := NormalizeToolRefinementHint(*result.Refinement); !refinement.Empty() {
+			carrier.Refinement = &refinement
+			if carrier.ReasonCode == "" {
+				carrier.ReasonCode = refinement.ReasonCode
+			}
+		}
+	}
 	for _, obs := range result.Observations {
 		if ref, ok := ToolObservationRefFromObservationRecord(obs); ok {
 			carrier.ObservationRefs = append(carrier.ObservationRefs, ref)
@@ -132,6 +143,8 @@ func ToolHandoffCarrierFromToolResult(result ToolResult) (ToolHandoffCarrier, bo
 		switch {
 		case carrier.RepairCode != "":
 			carrier.ReasonCode = carrier.RepairCode
+		case carrier.Refinement != nil:
+			carrier.ReasonCode = carrier.Refinement.ReasonCode
 		case len(carrier.ObservationRefs) > 0:
 			carrier.ReasonCode = "tool_observation_handoff"
 		}
@@ -212,6 +225,17 @@ func NormalizeToolHandoffCarrier(in ToolHandoffCarrier) ToolHandoffCarrier {
 			in.PlanRepairPack = nil
 		}
 	}
+	if in.Refinement != nil {
+		refinement := NormalizeToolRefinementHint(*in.Refinement)
+		if refinement.Empty() {
+			in.Refinement = nil
+		} else {
+			in.Refinement = &refinement
+			if in.ReasonCode == "" {
+				in.ReasonCode = refinement.ReasonCode
+			}
+		}
+	}
 	if in.SupportedJSON != nil {
 		surface := NormalizeToolJSONSurfaceDescriptor(*in.SupportedJSON)
 		if surface.Empty() {
@@ -226,6 +250,8 @@ func NormalizeToolHandoffCarrier(in ToolHandoffCarrier) ToolHandoffCarrier {
 		switch {
 		case in.RepairCode != "":
 			in.ReasonCode = in.RepairCode
+		case in.Refinement != nil:
+			in.ReasonCode = in.Refinement.ReasonCode
 		case len(in.AcceptedEvidence) > 0:
 			in.ReasonCode = "accepted_evidence_handoff"
 		case len(in.ObservationRefs) > 0:
@@ -240,10 +266,63 @@ func (c ToolHandoffCarrier) Empty() bool {
 		c.ReasonCode == "" &&
 		c.RepairCode == "" &&
 		c.Repair == nil &&
+		c.Refinement == nil &&
 		c.PlanRepairPack == nil &&
 		c.SupportedJSON == nil &&
 		len(c.AcceptedEvidence) == 0 &&
 		len(c.ObservationRefs) == 0
+}
+
+func NormalizeToolRefinementHint(in ToolRefinementHint) ToolRefinementHint {
+	in.ReasonCode = trimToolHandoffText(in.ReasonCode)
+	in.NextCursor = trimToolHandoffText(in.NextCursor)
+	in.PreferredNextTool = trimToolHandoffText(in.PreferredNextTool)
+	in.SkippedLargeCandidates = normalizeToolHandoffStrings(in.SkippedLargeCandidates, toolHandoffMaxRefinementItems, 180)
+	in.TopSourceClasses = normalizeToolRefinementSourceClasses(in.TopSourceClasses)
+	in.RequiredFields = normalizeToolHandoffStrings(in.RequiredFields, toolHandoffMaxFields, 160)
+	for k, v := range in.PreferredParams {
+		key := trimToolHandoffText(k)
+		val := trimToolHandoffLongText(v, 240)
+		if key == "" || val == "" {
+			delete(in.PreferredParams, k)
+			continue
+		}
+		if key != k {
+			delete(in.PreferredParams, k)
+		}
+		if in.PreferredParams == nil {
+			in.PreferredParams = map[string]string{}
+		}
+		in.PreferredParams[key] = val
+	}
+	if len(in.PreferredParams) == 0 {
+		in.PreferredParams = nil
+	}
+	if in.ReasonCode == "" {
+		switch {
+		case in.ResultTruncated:
+			in.ReasonCode = "result_truncated"
+		case in.CandidateBudgetTruncated:
+			in.ReasonCode = "candidate_budget_truncated"
+		case len(in.SkippedLargeCandidates) > 0:
+			in.ReasonCode = "skipped_large_candidates"
+		case in.NextCursor != "":
+			in.ReasonCode = "next_cursor"
+		}
+	}
+	return in
+}
+
+func (h ToolRefinementHint) Empty() bool {
+	return h.ReasonCode == "" &&
+		!h.ResultTruncated &&
+		!h.CandidateBudgetTruncated &&
+		len(h.SkippedLargeCandidates) == 0 &&
+		h.NextCursor == "" &&
+		len(h.TopSourceClasses) == 0 &&
+		h.PreferredNextTool == "" &&
+		len(h.PreferredParams) == 0 &&
+		len(h.RequiredFields) == 0
 }
 
 func NormalizeToolJSONSurfaceDescriptor(in ToolJSONSurfaceDescriptor) ToolJSONSurfaceDescriptor {
@@ -400,6 +479,13 @@ func mergeToolHandoffCarrier(a, b ToolHandoffCarrier) ToolHandoffCarrier {
 	if a.Repair == nil {
 		a.Repair = cloneToolRepairPtr(b.Repair)
 	}
+	if a.Refinement == nil && b.Refinement != nil {
+		refinement := NormalizeToolRefinementHint(*b.Refinement)
+		a.Refinement = &refinement
+	} else if a.Refinement != nil && b.Refinement != nil {
+		refinement := mergeToolRefinementHint(*a.Refinement, *b.Refinement)
+		a.Refinement = &refinement
+	}
 	if a.PlanRepairPack == nil && b.PlanRepairPack != nil {
 		pack := NormalizePlanRepairPack(*b.PlanRepairPack)
 		a.PlanRepairPack = &pack
@@ -418,12 +504,69 @@ func toolHandoffCarrierKey(c ToolHandoffCarrier) string {
 		return "accepted_evidence:" + c.ToolName
 	}
 	if c.ToolName != "" && c.ReasonCode != "" {
+		if c.Refinement != nil {
+			return c.ToolName + ":" + c.ReasonCode + ":refine:" + toolRefinementKey(*c.Refinement)
+		}
 		return c.ToolName + ":" + c.ReasonCode
 	}
 	if c.ToolName != "" && c.RepairCode != "" {
 		return c.ToolName + ":" + c.RepairCode
 	}
 	return c.ToolName + ":" + strconv.Itoa(len(c.AcceptedEvidence)) + ":" + strconv.Itoa(len(c.ObservationRefs))
+}
+
+func normalizeToolRefinementSourceClasses(in []SourcePathRole) []SourcePathRole {
+	seen := map[SourcePathRole]bool{}
+	out := make([]SourcePathRole, 0, len(in))
+	for _, role := range in {
+		if role == "" || seen[role] {
+			continue
+		}
+		seen[role] = true
+		out = append(out, role)
+		if len(out) >= toolHandoffMaxRefinementItems {
+			break
+		}
+	}
+	return out
+}
+
+func mergeToolRefinementHint(a, b ToolRefinementHint) ToolRefinementHint {
+	a = NormalizeToolRefinementHint(a)
+	b = NormalizeToolRefinementHint(b)
+	if a.ReasonCode == "" {
+		a.ReasonCode = b.ReasonCode
+	}
+	a.ResultTruncated = a.ResultTruncated || b.ResultTruncated
+	a.CandidateBudgetTruncated = a.CandidateBudgetTruncated || b.CandidateBudgetTruncated
+	if a.NextCursor == "" {
+		a.NextCursor = b.NextCursor
+	}
+	if a.PreferredNextTool == "" {
+		a.PreferredNextTool = b.PreferredNextTool
+	}
+	a.SkippedLargeCandidates = normalizeToolHandoffStrings(append(a.SkippedLargeCandidates, b.SkippedLargeCandidates...), toolHandoffMaxRefinementItems, 180)
+	a.TopSourceClasses = normalizeToolRefinementSourceClasses(append(a.TopSourceClasses, b.TopSourceClasses...))
+	a.RequiredFields = normalizeToolHandoffStrings(append(a.RequiredFields, b.RequiredFields...), toolHandoffMaxFields, 160)
+	if len(b.PreferredParams) > 0 {
+		if a.PreferredParams == nil {
+			a.PreferredParams = map[string]string{}
+		}
+		for k, v := range b.PreferredParams {
+			if _, exists := a.PreferredParams[k]; !exists {
+				a.PreferredParams[k] = v
+			}
+		}
+	}
+	return NormalizeToolRefinementHint(a)
+}
+
+func toolRefinementKey(h ToolRefinementHint) string {
+	h = NormalizeToolRefinementHint(h)
+	parts := []string{h.ReasonCode, h.PreferredNextTool, h.NextCursor}
+	parts = append(parts, h.SkippedLargeCandidates...)
+	parts = append(parts, stringMapKey(h.PreferredParams))
+	return strings.Join(parts, "|")
 }
 
 func toolRepairReasonCode(repair *ToolRepair) string {
@@ -489,6 +632,17 @@ func cloneToolRepairPtr(in *ToolRepair) *ToolRepair {
 		for k, v := range in.Metadata {
 			out.Metadata[k] = v
 		}
+	}
+	return &out
+}
+
+func cloneToolRefinementHintPtr(in *ToolRefinementHint) *ToolRefinementHint {
+	if in == nil {
+		return nil
+	}
+	out := NormalizeToolRefinementHint(*in)
+	if out.Empty() {
+		return nil
 	}
 	return &out
 }
@@ -661,6 +815,22 @@ func cloneStringSliceMap(in map[string][]string) map[string][]string {
 		out[k] = append([]string(nil), vals...)
 	}
 	return out
+}
+
+func stringMapKey(in map[string]string) string {
+	if len(in) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(in))
+	for k := range in {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+in[k])
+	}
+	return strings.Join(parts, ",")
 }
 
 func intsKey(vals []int) string {

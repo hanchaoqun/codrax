@@ -2030,6 +2030,22 @@ func TestGrepTool(t *testing.T) {
 				t.Fatalf("skipped-runtime recovery missing %q:\n%s", want, got)
 			}
 		}
+		refinement := grepSkippedLargeRefinement([]string{"record_trace.systrace", "huge.generated"}, 2)
+		if refinement == nil {
+			t.Fatal("expected typed refinement")
+		}
+		if refinement.ReasonCode != "skipped_large_candidates" || refinement.PreferredNextTool != "grep" {
+			t.Fatalf("unexpected skipped-large refinement: %+v", refinement)
+		}
+		if got := refinement.PreferredParams["path"]; got != "record_trace.systrace" {
+			t.Fatalf("preferred path = %q", got)
+		}
+		if _, ok := refinement.PreferredParams["pattern"]; ok {
+			t.Fatalf("pattern should remain model-selected, not a placeholder param: %+v", refinement.PreferredParams)
+		}
+		if len(refinement.RequiredFields) != 1 || refinement.RequiredFields[0] != "pattern" {
+			t.Fatalf("required fields = %+v", refinement.RequiredFields)
+		}
 	})
 
 	t.Run("explicit ignore_case false overrides smart-case", func(t *testing.T) {
@@ -2521,6 +2537,18 @@ func TestGrepTool(t *testing.T) {
 		}
 		if !strings.Contains(string(raw), "prod 099") || !strings.Contains(string(raw), "ControllerTest.java") {
 			t.Fatalf("raw blob should preserve omitted production and auxiliary output:\n%s", string(raw))
+		}
+		if result.Refinement == nil {
+			t.Fatalf("expected typed refinement for compacted grep result")
+		}
+		if result.Refinement.ReasonCode != "grep_result_truncated" || !result.Refinement.ResultTruncated {
+			t.Fatalf("unexpected refinement: %+v", result.Refinement)
+		}
+		if result.Refinement.PreferredNextTool != "grep" {
+			t.Fatalf("preferred tool = %q", result.Refinement.PreferredNextTool)
+		}
+		if got := result.Refinement.PreferredParams["path"]; got != "./src/main/java/app/Controller.java" {
+			t.Fatalf("preferred path = %q; refinement=%+v", got, result.Refinement)
 		}
 	})
 

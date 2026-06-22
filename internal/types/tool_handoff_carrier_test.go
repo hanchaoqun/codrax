@@ -83,6 +83,39 @@ func TestToolHandoffCarrierFromToolResultUsesJSONSurfaceMetadata(t *testing.T) {
 	}
 }
 
+func TestToolHandoffCarrierFromToolResultUsesTypedRefinement(t *testing.T) {
+	result := AttachToolHandoffCarrier(ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Refinement: &ToolRefinementHint{
+			ReasonCode:        "grep_result_truncated",
+			ResultTruncated:   true,
+			PreferredNextTool: "grep",
+			PreferredParams: map[string]string{
+				"path":          "internal/app/main.py",
+				"context_lines": "3",
+			},
+			RequiredFields: []string{"pattern"},
+		},
+	})
+	if result.Handoff == nil || result.Handoff.Refinement == nil {
+		t.Fatalf("expected typed refinement carrier: %+v", result.Handoff)
+	}
+	if result.Handoff.ReasonCode != "grep_result_truncated" {
+		t.Fatalf("reason code = %q", result.Handoff.ReasonCode)
+	}
+	refinement := result.Handoff.Refinement
+	if !refinement.ResultTruncated || refinement.PreferredNextTool != "grep" {
+		t.Fatalf("refinement not carried: %+v", refinement)
+	}
+	if got := refinement.PreferredParams["path"]; got != "internal/app/main.py" {
+		t.Fatalf("preferred path = %q", got)
+	}
+	if len(refinement.RequiredFields) != 1 || refinement.RequiredFields[0] != "pattern" {
+		t.Fatalf("required fields = %+v", refinement.RequiredFields)
+	}
+}
+
 func TestSetTurnAArtifactsProjectsAcceptedEvidenceCarrier(t *testing.T) {
 	mut := NewMutableState("q")
 	mut.SetTurnAArtifacts(TurnAArtifacts{

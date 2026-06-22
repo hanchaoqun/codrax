@@ -972,11 +972,15 @@ func writeContextItemsFromToolHandoffCarrier(batchID string, carrier ToolHandoff
 		priority = WriteContextP1
 		kind = "tool_json_repair"
 		consumers = []WriteContextConsumer{WriteConsumerController, WriteConsumerPlanner}
+	} else if carrier.Refinement != nil {
+		priority = WriteContextP1
+		kind = "tool_refinement"
+		consumers = []WriteContextConsumer{WriteConsumerController, WriteConsumerPlanner}
 	}
 	item := writeContextItem(kind, priority, text, "planner_observation", consumers...)
 	item.BatchID = trimWriteContextText(batchID)
 	item.SourceID = trimWriteContextText(carrier.ToolName)
-	item.ID = writeContextStableID(kind, carrier.ToolName, carrier.ReasonCode, carrier.RepairCode, strings.Join(toolHandoffContextJSONFields(carrier), ","), strconv.Itoa(len(carrier.AcceptedEvidence)), strconv.Itoa(len(carrier.ObservationRefs)))
+	item.ID = writeContextStableID(kind, carrier.ToolName, carrier.ReasonCode, carrier.RepairCode, strings.Join(toolHandoffContextJSONFields(carrier), ","), toolHandoffContextRefinementKey(carrier), strconv.Itoa(len(carrier.AcceptedEvidence)), strconv.Itoa(len(carrier.ObservationRefs)))
 	return []WriteContextItem{item}
 }
 
@@ -1003,6 +1007,30 @@ func renderToolHandoffCarrierContext(carrier ToolHandoffCarrier) string {
 			parts = append(parts, "enum_fields="+strconv.Itoa(len(carrier.SupportedJSON.AcceptedEnums)))
 		}
 	}
+	if carrier.Refinement != nil {
+		refinement := NormalizeToolRefinementHint(*carrier.Refinement)
+		if refinement.ResultTruncated {
+			parts = append(parts, "result_truncated=true")
+		}
+		if refinement.CandidateBudgetTruncated {
+			parts = append(parts, "candidate_budget_truncated=true")
+		}
+		if refinement.PreferredNextTool != "" {
+			parts = append(parts, "preferred_next_tool="+refinement.PreferredNextTool)
+		}
+		if len(refinement.PreferredParams) > 0 {
+			parts = append(parts, "preferred_params="+strconv.Itoa(len(refinement.PreferredParams)))
+		}
+		if len(refinement.RequiredFields) > 0 {
+			parts = append(parts, "required_fields="+strings.Join(refinement.RequiredFields, ","))
+		}
+		if len(refinement.SkippedLargeCandidates) > 0 {
+			parts = append(parts, "skipped_large_candidates="+strconv.Itoa(len(refinement.SkippedLargeCandidates)))
+		}
+		if refinement.NextCursor != "" {
+			parts = append(parts, "next_cursor=true")
+		}
+	}
 	if len(carrier.AcceptedEvidence) > 0 {
 		parts = append(parts, "accepted_evidence="+strconv.Itoa(len(carrier.AcceptedEvidence)))
 	}
@@ -1024,6 +1052,23 @@ func toolHandoffContextJSONFields(carrier ToolHandoffCarrier) []string {
 		fields = fields[:6]
 	}
 	return fields
+}
+
+func toolHandoffContextRefinementKey(carrier ToolHandoffCarrier) string {
+	if carrier.Refinement == nil {
+		return ""
+	}
+	refinement := NormalizeToolRefinementHint(*carrier.Refinement)
+	parts := []string{
+		refinement.ReasonCode,
+		refinement.PreferredNextTool,
+		strconv.FormatBool(refinement.ResultTruncated),
+		strconv.FormatBool(refinement.CandidateBudgetTruncated),
+		strconv.Itoa(len(refinement.SkippedLargeCandidates)),
+		strconv.Itoa(len(refinement.PreferredParams)),
+		strings.Join(refinement.RequiredFields, ","),
+	}
+	return strings.Join(parts, ":")
 }
 
 func WriteContextPackFromRepoMapNavigationCoverage(batchID, goal string, coverage RepoMapNavigationCoverage) WriteContextPack {

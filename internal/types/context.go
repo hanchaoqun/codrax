@@ -5322,6 +5322,22 @@ type ToolRepair struct {
 	Metadata map[string]string  `json:"metadata,omitempty"`
 }
 
+// ToolRefinementHint is the typed, cross-stage advisory surface a tool may
+// attach when its result is too broad, truncated, paginated, or intentionally
+// skipped by a safety cap. Consumers may render or prioritize this hint, but
+// hard gates must still consume the underlying typed tool result fields.
+type ToolRefinementHint struct {
+	ReasonCode               string            `json:"reason_code,omitempty"`
+	ResultTruncated          bool              `json:"result_truncated,omitempty"`
+	CandidateBudgetTruncated bool              `json:"candidate_budget_truncated,omitempty"`
+	SkippedLargeCandidates   []string          `json:"skipped_large_candidates,omitempty"`
+	NextCursor               string            `json:"next_cursor,omitempty"`
+	TopSourceClasses         []SourcePathRole  `json:"top_source_classes,omitempty"`
+	PreferredNextTool        string            `json:"preferred_next_tool,omitempty"`
+	PreferredParams          map[string]string `json:"preferred_params,omitempty"`
+	RequiredFields           []string          `json:"required_fields,omitempty"`
+}
+
 type ToolRuntimeTiming struct {
 	Phase         string `json:"phase,omitempty"`
 	ElapsedMillis int64  `json:"elapsed_millis,omitempty"`
@@ -5330,11 +5346,12 @@ type ToolRuntimeTiming struct {
 }
 
 type ToolResult struct {
-	ToolName string              `json:"tool_name"`
-	Summary  string              `json:"summary"`
-	Repair   *ToolRepair         `json:"repair,omitempty"`
-	Handoff  *ToolHandoffCarrier `json:"handoff,omitempty"`
-	RawRef   string              `json:"raw_ref,omitempty"`
+	ToolName   string              `json:"tool_name"`
+	Summary    string              `json:"summary"`
+	Repair     *ToolRepair         `json:"repair,omitempty"`
+	Refinement *ToolRefinementHint `json:"refinement,omitempty"`
+	Handoff    *ToolHandoffCarrier `json:"handoff,omitempty"`
+	RawRef     string              `json:"raw_ref,omitempty"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

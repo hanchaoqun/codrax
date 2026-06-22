@@ -1815,24 +1815,28 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		if nres.Matches == 0 {
 			suffix := grepNoMatchBody(ctx, p)
+			var refinement *types.ToolRefinementHint
 			if nres.SkippedLargeFiles > 0 {
 				suffix = grepSkippedLargeFilesNoMatchBody(nres.SkippedLargeFilePaths, nres.SkippedLargeFiles)
+				refinement = grepSkippedLargeRefinement(nres.SkippedLargeFilePaths, nres.SkippedLargeFiles)
 			}
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   true,
-				Summary:   paramsBanner + suffix,
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    true,
+				Summary:    paramsBanner + suffix,
+				Refinement: refinement,
+				Timestamp:  time.Now(),
 			}, nil
 		}
 		countBanner := grepCountBanner(nres.Matches, p.FilesOnly, contextLines)
-		summary, ref := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, nres.Output)
+		summary, ref, refinement := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, nres.Output)
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   true,
-			Summary:   summary,
-			RawRef:    ref,
-			Timestamp: time.Now(),
+			ToolName:   t.Name(),
+			Success:    true,
+			Summary:    summary,
+			RawRef:     ref,
+			Refinement: refinement,
+			Timestamp:  time.Now(),
 		}, nil
 	}
 
@@ -1989,22 +1993,25 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		countBanner := grepCountBanner(capture.Lines, false, contextLines)
 		if capture.FullInMemory && capture.Lines <= grepGovernorLineEntryThreshold && capture.Bytes <= grepGovernorByteThreshold {
-			summary, ref := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, capture.InlineOutput)
+			summary, ref, refinement := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, capture.InlineOutput)
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   true,
-				Summary:   summary,
-				RawRef:    ref,
-				Timestamp: time.Now(),
+				ToolName:   t.Name(),
+				Success:    true,
+				Summary:    summary,
+				RawRef:     ref,
+				Refinement: refinement,
+				Timestamp:  time.Now(),
 			}, nil
 		}
 		summary, ref := compactStreamedRuntimeArtifactGrepOutput(ctx, p, countBanner, paramsBanner, capture)
+		refinement := grepBroadResultRefinement(ctx, p, strings.Join(capture.PreviewLines, "\n"))
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   true,
-			Summary:   summary,
-			RawRef:    ref,
-			Timestamp: time.Now(),
+			ToolName:   t.Name(),
+			Success:    true,
+			Summary:    summary,
+			RawRef:     ref,
+			Refinement: refinement,
+			Timestamp:  time.Now(),
 		}, nil
 	}
 
@@ -2056,13 +2063,14 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if lines > 0 {
 		countBanner = grepCountBanner(lines, p.FilesOnly, contextLines)
 	}
-	summary, ref := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, output)
+	summary, ref, refinement := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, output)
 	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   summary,
-		RawRef:    ref,
-		Timestamp: time.Now(),
+		ToolName:   t.Name(),
+		Success:    true,
+		Summary:    summary,
+		RawRef:     ref,
+		Refinement: refinement,
+		Timestamp:  time.Now(),
 	}, nil
 }
 
@@ -2086,17 +2094,18 @@ type grepLineWindow struct {
 	Count int
 }
 
-func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner, rawOutput string) (summary, ref string) {
+func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner, rawOutput string) (summary, ref string, refinement *types.ToolRefinementHint) {
 	annotated := annotateGrepOutputByRelevance(ctx, params, rawOutput)
 	if compacted, rawRef, ok := compactBroadGrepOutput(ctx, params, countBanner, paramsBanner, rawOutput, annotated); ok {
-		return compacted, rawRef
+		return compacted, rawRef, grepBroadResultRefinement(ctx, params, rawOutput)
 	}
 	payload := countBanner + paramsBanner
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
 		payload += grepRuntimeArtifactTraceSpanAdvisory(params, rawOutput)
 	}
 	payload += annotated
-	return StoreBlob(ctx, "grep", payload)
+	summary, ref = StoreBlob(ctx, "grep", payload)
+	return summary, ref, nil
 }
 
 func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner, rawOutput, annotatedOutput string) (summary, rawRef string, ok bool) {
@@ -2159,6 +2168,113 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 	writeCappedGrepSection(&b, auxiliaryHeader, auxiliary, grepGovernorAuxiliaryCap, "")
 	writeCappedGrepSection(&b, otherHeader, other, grepGovernorOtherCap, "")
 	return b.String(), rawRef, true
+}
+
+func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, rawOutput string) *types.ToolRefinementHint {
+	production, auxiliary, other, _ := partitionGrepOutputByRelevance(ctx, params, rawOutput)
+	entryCount := len(production) + len(auxiliary) + len(other)
+	threshold := grepGovernorLineEntryThreshold
+	if params.FilesOnly {
+		threshold = grepGovernorFileEntryThreshold
+	}
+	if entryCount <= threshold && len(rawOutput) <= grepGovernorByteThreshold {
+		return nil
+	}
+	ordered := make([]string, 0, len(production)+len(auxiliary)+len(other))
+	ordered = append(ordered, production...)
+	ordered = append(ordered, auxiliary...)
+	ordered = append(ordered, other...)
+	topPath := firstGrepOutputPath(ordered, params.FilesOnly)
+	hint := types.ToolRefinementHint{
+		ReasonCode:      "grep_result_truncated",
+		ResultTruncated: true,
+	}
+	if params.FilesOnly {
+		hint.PreferredNextTool = "read_file"
+		if topPath != "" {
+			hint.PreferredParams = map[string]string{"path": topPath}
+		}
+		return &hint
+	}
+	hint.PreferredNextTool = "grep"
+	hint.PreferredParams = map[string]string{
+		"files_only":    "false",
+		"context_lines": "3",
+	}
+	if topPath != "" {
+		hint.PreferredParams["path"] = topPath
+	} else if strings.TrimSpace(params.Path) != "" && strings.TrimSpace(params.Path) != "." {
+		hint.PreferredParams["path"] = strings.TrimSpace(params.Path)
+	}
+	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
+		hint.PreferredParams["context_lines"] = "0"
+		hint.RequiredFields = []string{"pattern"}
+		return &hint
+	}
+	if strings.TrimSpace(params.Pattern) != "" {
+		hint.PreferredParams["pattern"] = strings.TrimSpace(params.Pattern)
+	}
+	if strings.TrimSpace(params.FileType) != "" && topPath == "" {
+		hint.PreferredParams["file_type"] = strings.TrimSpace(params.FileType)
+	}
+	if strings.TrimSpace(params.Include) != "" && topPath == "" {
+		hint.PreferredParams["include"] = strings.TrimSpace(params.Include)
+	}
+	return &hint
+}
+
+func firstGrepOutputPath(lines []string, filesOnly bool) string {
+	for _, line := range lines {
+		if path, ok := grepOutputLinePath(line, filesOnly); ok {
+			return path
+		}
+	}
+	return ""
+}
+
+func grepSkippedLargeRefinement(paths []string, skippedTotal int) *types.ToolRefinementHint {
+	if skippedTotal <= 0 && len(paths) == 0 {
+		return nil
+	}
+	candidates := normalizeGrepSkippedLargeCandidates(paths, skippedTotal)
+	hint := types.ToolRefinementHint{
+		ReasonCode:             "skipped_large_candidates",
+		SkippedLargeCandidates: candidates,
+		PreferredNextTool:      "grep",
+		PreferredParams: map[string]string{
+			"files_only":    "false",
+			"context_lines": "0",
+		},
+		RequiredFields: []string{"pattern"},
+	}
+	if nextPath := firstNonEmptyString(paths); nextPath != "" {
+		hint.PreferredParams["path"] = nextPath
+	}
+	return &hint
+}
+
+func normalizeGrepSkippedLargeCandidates(paths []string, skippedTotal int) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	limit := len(paths)
+	if skippedTotal > 0 && skippedTotal < limit {
+		limit = skippedTotal
+	}
+	out := make([]string, 0, limit)
+	seen := map[string]bool{}
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
 
 type runtimeArtifactGrepCapture struct {
