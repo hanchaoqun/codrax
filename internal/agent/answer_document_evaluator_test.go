@@ -7063,6 +7063,106 @@ func TestAnswerDocumentEvaluator_ParseOutput_SuppressesReadSupplementsForGrounde
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_SuppressesReadSupplementsForCompleteSourceInventoryMemberSet(t *testing.T) {
+	mu := types.NewMutableState("grounded source inventory")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "Cangjie declarations",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Value: "2",
+		Members: []string{
+			"native_add (package demo.bridge) @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add (package demo.ffi) @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+		SupportRefs: []string{
+			"native_add: eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+			"native_add: internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal",
+			Kind:        types.BlockSection,
+			SurfaceRole: types.SurfacePrincipal,
+			Title:       "Cangjie declarations",
+			Text: strings.Join([]string{
+				"foreign func declarations:",
+				"1. native_add — eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj — demo.bridge",
+				"2. native_add — internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj — demo.ffi",
+			}, "\n"),
+		}},
+		Citations: []types.Citation{
+			{File: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", Line: 6},
+			{File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", Line: 6},
+		},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Source:      "read_turn_a",
+			Status:      types.SourceLocalizationObserved,
+			SourcePaths: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"},
+			Anchors: []types.SourceLocalizationAnchor{{
+				Path:     "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
+				Kind:     types.SourceLocalizationAnchorReadFile,
+				Strength: types.SourceLocalizationAnchorObserved,
+			}},
+		},
+		ReadNavigationCoverage: &types.RepoMapNavigationCoverage{
+			State:          types.RepoMapNavigationCoveragePartial,
+			ReasonCode:     "repo_map_navigation_partial",
+			RequiredRoutes: []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteSourceInventory, types.RepoMapNavigationRouteRelationMap},
+			CoveredRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteSourceInventory},
+			MissingRoutes:  []types.RepoMapNavigationRoute{types.RepoMapNavigationRouteRelationMap},
+			EvidenceRefs:   []string{"repo_map:source_inventory"},
+		},
+		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
+			Path:         "internal/tool/repomap/relation/typed_relation.go",
+			Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:     types.SourceLocalizationAnchorOwner,
+			OwnerSymbol:  "extendsCandidates",
+			AnchorSymbol: "extendsCandidates",
+			EvidenceRef: &types.WriteExplorationEvidenceRef{
+				ID:        "ev-owner",
+				Source:    "internal/tool/repomap/relation/typed_relation.go",
+				LineStart: 60,
+			},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldSummary,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if !strings.Contains(out.FinalAnswer, "demo.bridge") || !strings.Contains(out.FinalAnswer, "demo.ffi") {
+		t.Fatalf("principal source-inventory answer lost:\n%s", out.FinalAnswer)
+	}
+	for _, banned := range []string{
+		"系统补充：源码定位状态",
+		"系统补充：repo_map 导航覆盖",
+		"系统补充：读模式定位补充请求",
+		"系统补充：源码定位锚点核对",
+	} {
+		if strings.Contains(out.FinalAnswer, banned) {
+			t.Fatalf("complete source-inventory member_set should not append %q:\n%s", banned, out.FinalAnswer)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendRequestedDimensionWhenQuoteEqualsLabel(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

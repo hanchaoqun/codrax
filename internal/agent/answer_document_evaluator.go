@@ -10424,11 +10424,11 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 	return prose
 }
 
-func renderReadLocalizationAuthoritySupplement(_ *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+func renderReadLocalizationAuthoritySupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	if doc == nil || !types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
 		return ""
 	}
-	if answerDocPrincipalSourceSurfaceResolved(doc) {
+	if answerDocPrincipalSourceSurfaceResolvedForContext(ctx, doc) {
 		return ""
 	}
 	authority := loopkernel.DeriveLocalizationAuthority(doc.ReadSourceLocalization)
@@ -10475,11 +10475,11 @@ func readLocalizationAuthorityPathList(paths []string, limit int) string {
 	return strings.Join(parts, ", ")
 }
 
-func renderReadNavigationCoverageSupplement(_ *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+func renderReadNavigationCoverageSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	if doc == nil || doc.ReadNavigationCoverage == nil {
 		return ""
 	}
-	if answerDocPrincipalSourceSurfaceResolved(doc) {
+	if answerDocPrincipalSourceSurfaceResolvedForContext(ctx, doc) {
 		return ""
 	}
 	coverage := types.NormalizeRepoMapNavigationCoverage(*doc.ReadNavigationCoverage)
@@ -10539,11 +10539,11 @@ func readNavigationCoverageRouteList(routes []types.RepoMapNavigationRoute, limi
 	return strings.Join(parts, ", ")
 }
 
-func renderReadLocalizerFollowupSupplement(_ *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+func renderReadLocalizerFollowupSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	if doc == nil || doc.ReadLocalizerFollowup == nil {
 		return ""
 	}
-	if answerDocPrincipalSourceSurfaceResolved(doc) {
+	if answerDocPrincipalSourceSurfaceResolvedForContext(ctx, doc) {
 		return ""
 	}
 	followup := types.NormalizeReadLocalizerFollowup(*doc.ReadLocalizerFollowup)
@@ -10618,7 +10618,7 @@ type readOwnerAnchorSupplementRow struct {
 }
 
 func renderReadOwnerAnchorSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
-	if answerDocPrincipalSourceSurfaceResolved(doc) {
+	if answerDocPrincipalSourceSurfaceResolvedForContext(ctx, doc) {
 		return ""
 	}
 	rows := readOwnerAnchorSupplementRows(ctx, doc)
@@ -10662,6 +10662,93 @@ func answerDocPrincipalSourceSurfaceResolved(doc *types.AnswerDocumentV2) bool {
 	}
 	anchors := types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: doc.ReadOwnerAnchors}, 0)
 	return anchors.HasStrong
+}
+
+func answerDocPrincipalSourceSurfaceResolvedForContext(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	if answerDocPrincipalSourceSurfaceResolved(doc) {
+		return true
+	}
+	return answerDocSourceInventoryCompleteMemberSetCovered(ctx, doc)
+}
+
+func answerDocSourceInventoryCompleteMemberSetCovered(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || doc == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	files := types.PrincipalSourceInventoryMemberSetSourceFiles(answerDocStableAggregateFacts(ctx), &rm)
+	if len(files) == 0 {
+		return false
+	}
+	surface := answerDocPrincipalStructuredVisibleSurface(doc)
+	if strings.TrimSpace(surface) == "" {
+		return false
+	}
+	citedFiles := answerDocPrincipalCitationFileSet(doc)
+	for _, file := range files {
+		if !answerDocPrincipalSurfaceCoversSourceFile(file, surface, citedFiles) {
+			return false
+		}
+	}
+	return true
+}
+
+func answerDocPrincipalStructuredVisibleSurface(doc *types.AnswerDocumentV2) string {
+	if doc == nil {
+		return ""
+	}
+	var parts []string
+	for _, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		if surface := strings.TrimSpace(types.AnswerBlockVisibleSurface(block)); surface != "" {
+			parts = append(parts, surface)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func answerDocPrincipalCitationFileSet(doc *types.AnswerDocumentV2) map[string]bool {
+	out := map[string]bool{}
+	if doc == nil {
+		return out
+	}
+	for _, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		for _, item := range block.Items {
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			file := answerDocSourceFileKey(doc.Citations[item.CitationRef].File)
+			if file != "" {
+				out[file] = true
+			}
+		}
+	}
+	return out
+}
+
+func answerDocPrincipalSurfaceCoversSourceFile(file, surface string, citedFiles map[string]bool) bool {
+	key := answerDocSourceFileKey(file)
+	if key == "" {
+		return true
+	}
+	if citedFiles[key] {
+		return true
+	}
+	surface = strings.ToLower(strings.ReplaceAll(surface, `\`, `/`))
+	return strings.Contains(surface, key)
+}
+
+func answerDocSourceFileKey(raw string) string {
+	raw = strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`)), "/")
+	return strings.ToLower(raw)
 }
 
 func readOwnerAnchorSupplementRows(_ *types.AgentContext, doc *types.AnswerDocumentV2) []readOwnerAnchorSupplementRow {

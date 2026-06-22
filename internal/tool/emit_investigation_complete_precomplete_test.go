@@ -5578,6 +5578,69 @@ func TestPartitionPendingReadsForAcceptedClosure_KeepsRequiredCurrentSourceBlock
 	}
 }
 
+func TestPartitionPendingReadsForAcceptedClosure_SourceInventoryDemotesSupportRequiredReads(t *testing.T) {
+	const (
+		bridgeFile = "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"
+		nativeFile = "eval/fixtures/testdata/cangjie_minimal/native/Native.cj"
+		goSupport  = "internal/tool/repomap/index/extract_cangjie.go"
+		docSupport = "docs/design/cangjie_source_inventory.md"
+	)
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, bridgeFile, 15),
+		sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, nativeFile, 6),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   2,
+		Samples: []string{bridgeFile, nativeFile},
+	}, {
+		Role:    types.SourcePathRoleProduction,
+		Count:   20,
+		Samples: []string{goSupport},
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "Cangjie requested declarations",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Bridge @ " + bridgeFile + ":15",
+			"native_add @ " + nativeFile + ":6",
+		},
+		SupportRefs: []string{
+			"Bridge: " + bridgeFile + ":15",
+			"native_add: " + nativeFile + ":6",
+		},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatal("test setup must satisfy source-inventory accepted closure")
+	}
+	principalFiles := types.PrincipalSourceInventoryMemberSetSourceFiles(facts, &ctx.AnalysisIR.RequestModel)
+	if !containsStringFold(principalFiles, nativeFile) {
+		t.Fatalf("test setup must retain principal source files, got %+v", principalFiles)
+	}
+	pending := []types.PendingRead{
+		{File: goSupport, Origin: "required_file_hint_unread"},
+		{File: docSupport, Origin: "required_file_hint_unread"},
+		{File: nativeFile, Origin: "required_file_hint_unread"},
+	}
+	blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, pending, facts, nil)
+	if len(blocking) != 1 || blocking[0].File != nativeFile {
+		t.Fatalf("principal source file should remain blocking, got blocking=%+v advisory=%+v", blocking, advisory)
+	}
+	if len(advisory) != 2 || advisory[0].File != goSupport || advisory[1].File != docSupport {
+		t.Fatalf("support/docs required reads should become advisory after accepted source-inventory closure, got blocking=%+v advisory=%+v", blocking, advisory)
+	}
+}
+
+func containsStringFold(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, want) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPrimaryAnchorPendingRead_CapabilitySurfaceSkipsToolImplementationAnchor(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{

@@ -8752,6 +8752,10 @@ func partitionPendingReadsForAcceptedClosure(ctx *types.BusContext, pending []ty
 			advisory = append(advisory, p)
 			continue
 		}
+		if sourceInventoryAcceptedClosureDemotesPendingRead(ctx, aggregateFacts, p) {
+			advisory = append(advisory, p)
+			continue
+		}
 		if modelBoundary && (!types.PendingReadBlocksAcceptedClosure(p) || types.IsGenericForcedReadOrigin(p.Origin)) {
 			advisory = append(advisory, p)
 			continue
@@ -8759,6 +8763,42 @@ func partitionPendingReadsForAcceptedClosure(ctx *types.BusContext, pending []ty
 		blocking = append(blocking, p)
 	}
 	return blocking, advisory
+}
+
+func sourceInventoryAcceptedClosureDemotesPendingRead(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact, pending types.PendingRead) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(aggregateFacts) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, aggregateFacts) &&
+		!SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts) {
+		return false
+	}
+	principalFiles := types.PrincipalSourceInventoryMemberSetSourceFiles(aggregateFacts, &rm)
+	if len(principalFiles) == 0 {
+		return false
+	}
+	pendingFile := sourceInventoryAcceptedClosurePendingReadFileKey(pending.File, ctx.RepoRoot)
+	if pendingFile == "" {
+		return false
+	}
+	for _, file := range principalFiles {
+		if sourceInventoryAcceptedClosurePendingReadFileKey(file, ctx.RepoRoot) == pendingFile {
+			return false
+		}
+	}
+	return true
+}
+
+func sourceInventoryAcceptedClosurePendingReadFileKey(file, repoRoot string) string {
+	key := types.CanonicalRequiredFileHintPath(file, repoRoot)
+	if key == "" {
+		return ""
+	}
+	return strings.ToLower(key)
 }
 
 func aggregateFactCanDefineModelOwnedCompletionBoundary(fact types.AnswerAggregateFact) bool {

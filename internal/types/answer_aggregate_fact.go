@@ -2509,6 +2509,51 @@ func PrincipalSourceInventoryMemberSetScopeFiles(facts []AnswerAggregateFact, rm
 	return out
 }
 
+// PrincipalSourceInventoryMemberSetSourceFiles returns the source files carried
+// by accepted principal source-inventory member_set facts without applying the
+// scheduling-only source-scope filter used by
+// PrincipalSourceInventoryMemberSetScopeFiles. Final-answer display and
+// forced-read closure policy use this to recognize fixture/thirdparty/corpus
+// files that are the accepted principal answer surface. It consumes only typed
+// aggregate members/support refs/dimensions and request schema; it never reads
+// user prose, model rationale, rendered answer text, or language-specific
+// keywords.
+func PrincipalSourceInventoryMemberSetSourceFiles(facts []AnswerAggregateFact, rm *RequestModel) []string {
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return nil
+	}
+	if HasTypedRelationMemberSetShape(*rm) {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		for _, file := range answerAggregateFactSourceFilesPreserveCase(raw) {
+			if file == "" || seen[strings.ToLower(file)] {
+				continue
+			}
+			seen[strings.ToLower(file)] = true
+			out = append(out, file)
+		}
+	}
+	for _, ref := range PrincipalAggregateMemberSetFactRefsForRequest(facts, rm) {
+		if !answerAggregateFactCarriesCompleteMemberSet(ref.Fact) {
+			continue
+		}
+		for _, value := range ref.Fact.SupportRefs {
+			add(value)
+		}
+		for _, value := range ref.Fact.Members {
+			add(value)
+		}
+		for _, dim := range ref.Fact.Dimensions {
+			add(dim.Value)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func answerAggregateFactSourceFilesPreserveCase(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
