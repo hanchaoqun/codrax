@@ -1563,6 +1563,92 @@ func TestSourceInventoryAcceptedClosureCoversExactUniverse_RelationMemberSet(t *
 	}
 }
 
+func TestSourceInventoryAcceptedClosureCoversExactUniverse_SurvivesMergedIncompleteRoleSet(t *testing.T) {
+	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta"})
+	obs := ctx.Mutable.SourceInventoryObservation()
+	obs.Complete = false
+	obs.Sets[0].Complete = false
+	obs.Sets[0].Total = 20
+	obs.Sets[0].Members = append(obs.Sets[0].Members, types.SourceInventoryObservationMember{
+		Name:          "support",
+		Key:           "other/support",
+		SupportRef:    "other/support",
+		Role:          types.AnswerCandidateRolePackage,
+		File:          "other/support",
+		CoverageState: types.SourceInventoryCoverageObserved,
+	})
+	obs.Sets[0].Count = len(obs.Sets[0].Members)
+	ctx.Mutable.SetSourceInventoryObservation(obs)
+
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "packages",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"alpha", "beta"},
+	}}
+	if !SourceInventoryAcceptedClosureCoversExactUniverse(ctx, facts) {
+		t.Fatalf("member-level exact universe proof should survive a merged incomplete role set")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_AllSameLanguageFamiliesCovered(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15),
+		sourceInventoryRequestedUniverseMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 14),
+		sourceInventoryRequestedUniverseMember("Greeter", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", 6),
+		sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6),
+		sourceInventoryRequestedUniverseMember("runOnMainThread", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 12),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   3,
+		Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"},
+	}, {
+		Role:    types.SourcePathRoleThirdParty,
+		Count:   8,
+		Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj"},
+	}, {
+		Role:    types.SourcePathRoleProduction,
+		Count:   20,
+		Samples: []string{"internal/tool/source_inventory_universe_coverage.go"},
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Cangjie requested constructs",
+		Value:   "5",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Bridge", "Cart", "Greeter", "native_add", "runOnMainThread"},
+	}}
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("covered same-language fixture+thirdparty exact universes should close requested universe")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_BlocksUncoveredSameLanguageClass(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15),
+		sourceInventoryRequestedUniverseMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 14),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   3,
+		Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"},
+	}, {
+		Role:    types.SourcePathRoleThirdParty,
+		Count:   8,
+		Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj"},
+	}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Cangjie requested constructs",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Bridge", "Cart"},
+	}}
+	if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("fixture-only coverage must not close while same-language thirdparty census remains uncovered")
+	}
+}
+
 func TestSourceInventoryAcceptedClosureCoversExactUniverse_RequiresFullCoverage(t *testing.T) {
 	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
 	partial := []types.AnswerAggregateFact{{
@@ -1653,4 +1739,62 @@ func sourceInventoryUniverseTestContext(names []string) *types.BusContext {
 		}},
 	})
 	return &types.BusContext{Mutable: mut}
+}
+
+func sourceInventoryRequestedUniverseTestContext(members []types.SourceInventoryObservationMember, classes []types.SourceInventorySourceClassCount) *types.BusContext {
+	setsByRole := map[types.AnswerCandidateRole][]types.SourceInventoryObservationMember{}
+	var roles []types.AnswerCandidateRole
+	for _, member := range members {
+		if _, ok := setsByRole[member.Role]; !ok {
+			roles = append(roles, member.Role)
+		}
+		setsByRole[member.Role] = append(setsByRole[member.Role], member)
+	}
+	sets := make([]types.SourceInventoryObservationSet, 0, len(roles))
+	for _, role := range roles {
+		setMembers := setsByRole[role]
+		sets = append(sets, types.SourceInventoryObservationSet{
+			Role:     role,
+			Complete: false,
+			Count:    len(setMembers),
+			Total:    len(setMembers) + 20,
+			Members:  setMembers,
+		})
+	}
+	mut := types.NewMutableState("source inventory requested universe")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:        true,
+		AdvisoryOnly:  true,
+		Complete:      false,
+		Scopes:        []string{"."},
+		SourceClasses: classes,
+		Execution:     &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets:          sets,
+	})
+	return &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction},
+				Confidence:        0.95,
+			},
+		}},
+	}
+}
+
+func sourceInventoryRequestedUniverseMember(name string, role types.AnswerCandidateRole, file string, line int) types.SourceInventoryObservationMember {
+	return types.SourceInventoryObservationMember{
+		Name:          name,
+		Key:           name,
+		SupportRef:    name + ": " + file + ":" + strconv.Itoa(line),
+		Provenance:    []string{sourceInventoryExactUniverseProvenanceRepoLensDirectChildren},
+		Role:          role,
+		File:          file,
+		Line:          line,
+		Language:      "cangjie",
+		CoverageState: types.SourceInventoryCoverageObserved,
+	}
 }

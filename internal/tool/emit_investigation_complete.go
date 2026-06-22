@@ -3748,7 +3748,11 @@ func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observa
 		return types.SourceInventoryCompletionAuthority{}
 	}
 	acceptedExact := SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts)
-	authority := types.BuildSourceInventoryCompletionAuthority(observation, ctx.AnalysisIR.RequestModel, acceptedExact)
+	acceptedRequested := SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, aggregateFacts)
+	authority := types.BuildSourceInventoryCompletionAuthorityWithOptions(observation, ctx.AnalysisIR.RequestModel, types.SourceInventoryCompletionAuthorityOptions{
+		AcceptedExactUniverse:     acceptedExact,
+		AcceptedRequestedUniverse: acceptedRequested,
+	})
 	if authority.FollowupDebt.IsActive() {
 		debt := authority.FollowupDebt
 		debt.Query.Query = sourceInventoryResolvedCompletionRepairQuery(ctx)

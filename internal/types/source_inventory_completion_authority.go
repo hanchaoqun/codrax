@@ -3,11 +3,12 @@ package types
 import "strings"
 
 const (
-	SourceInventoryCompletionReasonInactive              = "inactive"
-	SourceInventoryCompletionReasonComplete              = "complete"
-	SourceInventoryCompletionReasonFollowupDebt          = "followup_debt"
-	SourceInventoryCompletionReasonIncompleteObservation = "incomplete_observation"
-	SourceInventoryCompletionReasonAcceptedExactUniverse = "accepted_exact_universe"
+	SourceInventoryCompletionReasonInactive                  = "inactive"
+	SourceInventoryCompletionReasonComplete                  = "complete"
+	SourceInventoryCompletionReasonFollowupDebt              = "followup_debt"
+	SourceInventoryCompletionReasonIncompleteObservation     = "incomplete_observation"
+	SourceInventoryCompletionReasonAcceptedExactUniverse     = "accepted_exact_universe"
+	SourceInventoryCompletionReasonAcceptedRequestedUniverse = "accepted_requested_universe"
 )
 
 // SourceInventoryCompletionAuthority is the typed pre-complete decision view
@@ -19,6 +20,7 @@ type SourceInventoryCompletionAuthority struct {
 	Blocking                   bool                              `json:"blocking,omitempty"`
 	ReasonCode                 string                            `json:"reason_code,omitempty"`
 	AcceptedExactUniverse      bool                              `json:"accepted_exact_universe,omitempty"`
+	AcceptedRequestedUniverse  bool                              `json:"accepted_requested_universe,omitempty"`
 	RepoWideRequired           bool                              `json:"repo_wide_required,omitempty"`
 	LensExecuted               bool                              `json:"lens_executed,omitempty"`
 	ObservationComplete        bool                              `json:"observation_complete,omitempty"`
@@ -59,6 +61,17 @@ func NormalizeSourceInventoryCompletionAuthority(a SourceInventoryCompletionAuth
 // package; the authority itself stays import-cycle-free and reusable by read
 // scheduler, write/report, and tests.
 func BuildSourceInventoryCompletionAuthority(observation SourceInventoryObservation, rm RequestModel, acceptedExactUniverse bool) SourceInventoryCompletionAuthority {
+	return BuildSourceInventoryCompletionAuthorityWithOptions(observation, rm, SourceInventoryCompletionAuthorityOptions{
+		AcceptedExactUniverse: acceptedExactUniverse,
+	})
+}
+
+type SourceInventoryCompletionAuthorityOptions struct {
+	AcceptedExactUniverse     bool
+	AcceptedRequestedUniverse bool
+}
+
+func BuildSourceInventoryCompletionAuthorityWithOptions(observation SourceInventoryObservation, rm RequestModel, opts SourceInventoryCompletionAuthorityOptions) SourceInventoryCompletionAuthority {
 	repoWideRequired := SourceInventoryRequiresRepoWideLens(rm)
 	roles := sourceInventoryCompletionRoles(observation, rm)
 	scopes := sourceInventoryFollowupScopes(observation.Scopes)
@@ -66,16 +79,17 @@ func BuildSourceInventoryCompletionAuthority(observation SourceInventoryObservat
 		scopes = []string{"."}
 	}
 	out := SourceInventoryCompletionAuthority{
-		Active:                rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() && observation.IsActive(),
-		AcceptedExactUniverse: acceptedExactUniverse,
-		RepoWideRequired:      repoWideRequired,
-		LensExecuted:          SourceInventoryLensExecuted(observation),
-		ObservationComplete:   observation.Complete,
-		Scopes:                scopes,
-		Roles:                 roles,
-		SourceClasses:         cloneSourceInventorySourceClassCounts(observation.SourceClasses),
-		RepoLanguages:         cloneSourceInventoryLanguageCounts(observation.RepoLanguages),
-		IncompleteSets:        sourceInventoryCompletionIncompleteSets(observation),
+		Active:                    rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() && observation.IsActive(),
+		AcceptedExactUniverse:     opts.AcceptedExactUniverse,
+		AcceptedRequestedUniverse: opts.AcceptedRequestedUniverse,
+		RepoWideRequired:          repoWideRequired,
+		LensExecuted:              SourceInventoryLensExecuted(observation),
+		ObservationComplete:       observation.Complete,
+		Scopes:                    scopes,
+		Roles:                     roles,
+		SourceClasses:             cloneSourceInventorySourceClassCounts(observation.SourceClasses),
+		RepoLanguages:             cloneSourceInventoryLanguageCounts(observation.RepoLanguages),
+		IncompleteSets:            sourceInventoryCompletionIncompleteSets(observation),
 	}
 	if observation.Execution != nil {
 		out.CandidateBudgetTruncated = observation.Execution.CandidateBudgetTruncated
@@ -92,8 +106,12 @@ func BuildSourceInventoryCompletionAuthority(observation SourceInventoryObservat
 		out.ReasonCode = SourceInventoryCompletionReasonComplete
 		return NormalizeSourceInventoryCompletionAuthority(out)
 	}
-	if acceptedExactUniverse && !repoWideRequired {
+	if opts.AcceptedExactUniverse && !repoWideRequired {
 		out.ReasonCode = SourceInventoryCompletionReasonAcceptedExactUniverse
+		return NormalizeSourceInventoryCompletionAuthority(out)
+	}
+	if opts.AcceptedRequestedUniverse {
+		out.ReasonCode = SourceInventoryCompletionReasonAcceptedRequestedUniverse
 		return NormalizeSourceInventoryCompletionAuthority(out)
 	}
 	out.RequiresExactUniverseProof = true
@@ -105,47 +123,4 @@ func BuildSourceInventoryCompletionAuthority(observation SourceInventoryObservat
 	}
 	out.ReasonCode = SourceInventoryCompletionReasonIncompleteObservation
 	return NormalizeSourceInventoryCompletionAuthority(out)
-}
-
-func sourceInventoryCompletionObservationIncomplete(observation SourceInventoryObservation) bool {
-	if !observation.Complete {
-		return true
-	}
-	if observation.Execution != nil && observation.Execution.CandidateBudgetTruncated {
-		return true
-	}
-	if observation.Page != nil && (!observation.Page.Complete || strings.TrimSpace(observation.Page.NextCursor) != "") {
-		return true
-	}
-	for _, set := range observation.Sets {
-		if !set.Complete {
-			return true
-		}
-	}
-	return false
-}
-
-func sourceInventoryCompletionIncompleteSets(observation SourceInventoryObservation) []AnswerCandidateRole {
-	var out []AnswerCandidateRole
-	for _, set := range observation.Sets {
-		if set.Complete || set.Role == "" || set.Role == AnswerCandidateRoleUnknown {
-			continue
-		}
-		out = append(out, set.Role)
-	}
-	return normalizeSourceInventoryFollowupRoles(out)
-}
-
-func sourceInventoryCompletionRoles(observation SourceInventoryObservation, rm RequestModel) []AnswerCandidateRole {
-	roles := sourceInventoryFollowupPrincipalRoles(observation, rm)
-	if len(roles) > 0 {
-		return roles
-	}
-	for _, set := range observation.Sets {
-		if set.Role == "" || set.Role == AnswerCandidateRoleUnknown {
-			continue
-		}
-		roles = append(roles, set.Role)
-	}
-	return normalizeSourceInventoryFollowupRoles(roles)
 }

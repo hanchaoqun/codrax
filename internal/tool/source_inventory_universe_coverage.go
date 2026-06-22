@@ -372,7 +372,7 @@ func sourceInventoryExactUniverseSets(observation types.SourceInventoryObservati
 	groups := map[string]*sourceInventoryExactUniverseSet{}
 	var order []string
 	for _, set := range observation.Sets {
-		if !set.Complete || len(set.Members) == 0 {
+		if len(set.Members) == 0 {
 			continue
 		}
 		for _, member := range set.Members {

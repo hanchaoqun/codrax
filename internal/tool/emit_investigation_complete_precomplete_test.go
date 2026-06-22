@@ -1974,6 +1974,54 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryRepoWideRepai
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryRequestedUniverseClosesRepoWideDebt(t *testing.T) {
+	bus := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15),
+		sourceInventoryRequestedUniverseMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 14),
+		sourceInventoryRequestedUniverseMember("Greeter", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj", 6),
+		sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6),
+		sourceInventoryRequestedUniverseMember("runOnMainThread", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 12),
+	}, []types.SourceInventorySourceClassCount{{
+		Role:    types.SourcePathRoleFixture,
+		Count:   3,
+		Samples: []string{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj"},
+	}, {
+		Role:    types.SourcePathRoleThirdParty,
+		Count:   8,
+		Samples: []string{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj"},
+	}, {
+		Role:    types.SourcePathRoleProduction,
+		Count:   20,
+		Samples: []string{"internal/tool/source_inventory_universe_coverage.go"},
+	}})
+	bus.AnalysisIR.AnswerContract = types.AnswerContract{CitationReq: types.CitationReq{Required: false}}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "requested language/source-class universe is covered",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "Cangjie requested constructs",
+			"value":   "5",
+			"role":    "principal_answer",
+			"members": []string{"Bridge", "Cart", "Greeter", "native_add", "runOnMainThread"},
+		}},
+	})
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "source-inventory result is still incomplete") {
+		t.Fatalf("requested-universe closure should not be downgraded:\n%s", res.Summary)
+	}
+	if !bus.Mutable.IsInvestigationComplete() {
+		t.Fatal("requested-universe closure should mark investigation complete")
+	}
+	if repairs := bus.Mutable.EvidenceClosure().PendingRepairs(); len(repairs) != 0 {
+		t.Fatalf("requested-universe closure should not queue repair, got %+v", repairs)
+	}
+}
+
 func TestSourceInventoryLensExecutionRepoMapCallShapeNormalizesFileScopes(t *testing.T) {
 	path, scopes := sourceInventoryLensExecutionRepoMapCallShape([]string{"internal/tool/repomap/index/extract_arkts.go"})
 	if path != "internal/tool/repomap/index" || len(scopes) != 1 || scopes[0] != "extract_arkts.go" {

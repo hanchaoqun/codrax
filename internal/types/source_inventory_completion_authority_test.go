@@ -93,6 +93,39 @@ func TestSourceInventoryCompletionAuthority_RepoWideStillBlocksAcceptedPartial(t
 	}
 }
 
+func TestSourceInventoryCompletionAuthority_RequestedUniverseCanCloseRepoWideDebt(t *testing.T) {
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Scopes:   []string{"."},
+		Lens:     []string{"members"},
+		Execution: &SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: false,
+			Members:  []SourceInventoryObservationMember{{Name: "Run", Role: AnswerCandidateRoleFunction, File: "pkg/a.go"}},
+		}},
+	}
+	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+	}}
+
+	auth := BuildSourceInventoryCompletionAuthorityWithOptions(obs, rm, SourceInventoryCompletionAuthorityOptions{
+		AcceptedExactUniverse:     true,
+		AcceptedRequestedUniverse: true,
+	})
+	if auth.Blocking || auth.ReasonCode != SourceInventoryCompletionReasonAcceptedRequestedUniverse {
+		t.Fatalf("requested universe should discharge repo-wide generic debt, got %+v", auth)
+	}
+	if !auth.AcceptedRequestedUniverse || !auth.RepoWideRequired {
+		t.Fatalf("authority should preserve requested-universe/repo-wide flags, got %+v", auth)
+	}
+}
+
 func TestSourceInventoryCompletionAuthority_InactiveWithoutExecutableLens(t *testing.T) {
 	obs := SourceInventoryObservation{
 		Active:        true,
