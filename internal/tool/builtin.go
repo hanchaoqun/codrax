@@ -687,7 +687,16 @@ func readModeExecFileDiscoveryRepair(ctx *types.BusContext, command string) *typ
 }
 
 func readModeExecSourceInventoryDebtRepair(ctx *types.BusContext, command string) *types.ToolResult {
-	if !execCommandActiveSourceInventoryDebt(ctx) || !execCommandLooksLikeFileSetMeasurement(command) {
+	if !execCommandActiveSourceInventoryDebt(ctx) {
+		return nil
+	}
+	reasonCode := ""
+	switch {
+	case execCommandLooksLikeFileSetMeasurement(command):
+		reasonCode = "source_inventory_debt_command_measurement"
+	case execCommandLooksLikeBroadRepoContentEnumeration(command):
+		reasonCode = "source_inventory_debt_broad_content_enumeration"
+	default:
 		return nil
 	}
 	hint := "Use repo_map with view=source_inventory and the scheduler/requested typed scope to close source-inventory debt; file-set shell counts do not prove membership coverage."
@@ -702,7 +711,7 @@ func readModeExecSourceInventoryDebtRepair(ctx *types.BusContext, command string
 			Hint:   hint,
 			Fields: []string{"view", "scope", "scopes", "roles", "include_counts"},
 			Metadata: map[string]string{
-				"reason_code":    "source_inventory_debt_command_measurement",
+				"reason_code":    reasonCode,
 				"preferred_tool": "repo_map",
 				"preferred_view": "source_inventory",
 			},
@@ -782,6 +791,116 @@ func execCommandLooksLikeFileSetMeasurement(command string) bool {
 		}
 	}
 	return false
+}
+
+func execCommandLooksLikeBroadRepoContentEnumeration(command string) bool {
+	if execCommandLooksLikeCountOnly(command) {
+		return false
+	}
+	for _, segment := range shellCommandSegments(command) {
+		tokens := shellWordsForOrigin(segment)
+		if len(tokens) == 0 {
+			continue
+		}
+		if execCommandSegmentLooksLikeBroadGrepEnumeration(tokens) {
+			return true
+		}
+	}
+	return false
+}
+
+func execCommandSegmentLooksLikeBroadGrepEnumeration(tokens []string) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	cmd := path.Base(strings.ToLower(tokens[0]))
+	switch cmd {
+	case "grep", "egrep", "fgrep":
+		return execCommandGrepTokensTargetRepoRoot(tokens[1:])
+	case "rg":
+		return execCommandRGTokensTargetRepoRoot(tokens[1:])
+	default:
+		return false
+	}
+}
+
+func execCommandGrepTokensTargetRepoRoot(tokens []string) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	sawRecursive := false
+	nonFlag := 0
+	for i := 0; i < len(tokens); i++ {
+		token := strings.TrimSpace(tokens[i])
+		if token == "" {
+			continue
+		}
+		switch {
+		case token == "--":
+			for _, rest := range tokens[i+1:] {
+				if execCommandTokenIsRepoRoot(rest) {
+					return true
+				}
+			}
+			return nonFlag <= 1
+		case token == "-R" || token == "-r" || strings.Contains(token, "R") && strings.HasPrefix(token, "-") && !strings.HasPrefix(token, "--"):
+			sawRecursive = true
+			continue
+		case strings.HasPrefix(token, "--include=") || strings.HasPrefix(token, "--exclude=") ||
+			strings.HasPrefix(token, "--exclude-dir=") || strings.HasPrefix(token, "--include-dir="):
+			continue
+		case token == "--include" || token == "--exclude" || token == "--exclude-dir" || token == "--include-dir" ||
+			token == "-e" || token == "-f" || token == "-m" || token == "-A" || token == "-B" || token == "-C":
+			i++
+			continue
+		case strings.HasPrefix(token, "-"):
+			continue
+		}
+		nonFlag++
+		if execCommandTokenIsRepoRoot(token) {
+			return true
+		}
+	}
+	return sawRecursive && nonFlag <= 1
+}
+
+func execCommandRGTokensTargetRepoRoot(tokens []string) bool {
+	if len(tokens) == 0 {
+		return true
+	}
+	nonFlag := 0
+	for i := 0; i < len(tokens); i++ {
+		token := strings.TrimSpace(tokens[i])
+		if token == "" {
+			continue
+		}
+		switch {
+		case token == "--":
+			for _, rest := range tokens[i+1:] {
+				if execCommandTokenIsRepoRoot(rest) {
+					return true
+				}
+			}
+			return nonFlag <= 1
+		case token == "-e" || token == "-f" || token == "-g" || token == "--glob" ||
+			token == "--type" || token == "-t" || token == "--type-not" || token == "-T" ||
+			token == "-m" || token == "-A" || token == "-B" || token == "-C":
+			i++
+			continue
+		case strings.HasPrefix(token, "-"):
+			continue
+		}
+		nonFlag++
+		if execCommandTokenIsRepoRoot(token) {
+			return true
+		}
+	}
+	return nonFlag <= 1
+}
+
+func execCommandTokenIsRepoRoot(token string) bool {
+	token = strings.Trim(strings.TrimSpace(strings.ReplaceAll(token, `\`, `/`)), `"'`)
+	return token == "" || token == "." || token == "./"
 }
 
 func execCommandPayloadWithTypedOrigins(banner, command, output string) string {

@@ -870,6 +870,90 @@ func TestExecCommandFindCountMeasurementBlockedDuringSourceInventoryDebt(t *test
 	}
 }
 
+func TestExecCommandBroadGrepBlockedDuringSourceInventoryDebt(t *testing.T) {
+	ctx := newBusContext()
+	ctx.RepoRoot = t.TempDir()
+	ctx.Mode = types.ModeRead
+	ctx.PipelineStage = types.StageExplore
+	ctx.Mutable = types.NewMutableState("source inventory debt")
+	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Execution: &types.SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: false,
+			Total:    20,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "observed",
+				Key:           "observed",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "internal/tool/builtin.go",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			Confidence:        0.9,
+		},
+	}}
+
+	tool := &ExecCommand{}
+	params, _ := json.Marshal(execCommandParams{Command: `grep -rn "^[[:space:]]*public[[:space:]]*class" --include="*.cj" . | head -80`})
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("active source-inventory debt should refuse broad root grep enumeration, got %q", result.Summary)
+	}
+	if result.Repair == nil || result.Repair.Code != "exec_command_source_inventory_debt_use_typed_inventory" {
+		t.Fatalf("expected source-inventory debt repair, got %+v", result.Repair)
+	}
+	if got := result.Repair.Metadata["reason_code"]; got != "source_inventory_debt_broad_content_enumeration" {
+		t.Fatalf("reason_code=%q, want broad content enumeration", got)
+	}
+	if !strings.Contains(result.Summary, "repo_map") || !strings.Contains(result.Summary, "source_inventory") {
+		t.Fatalf("repair should steer to typed source inventory route, got %q", result.Summary)
+	}
+}
+
+func TestExecCommandBroadContentEnumerationClassifier(t *testing.T) {
+	blocked := []string{
+		`grep -rn "needle" --include="*.cj" . | head -30`,
+		`grep -R "needle" .`,
+		`rg "needle" .`,
+		`rg -g '*.ets' '@Entry'`,
+	}
+	for _, command := range blocked {
+		if !execCommandLooksLikeBroadRepoContentEnumeration(command) {
+			t.Fatalf("expected broad repo content enumeration for %q", command)
+		}
+	}
+	allowed := []string{
+		`grep -rn "needle" internal/thirdparty/tree-sitter-cangjie/corpus/sources`,
+		`grep -rn "needle" eval/fixtures/testdata/cangjie_minimal internal/thirdparty/tree-sitter-cangjie/corpus/sources`,
+		`grep -c "needle" .`,
+		`rg "needle" internal/tool`,
+		`printf 'needle\n'`,
+	}
+	for _, command := range allowed {
+		if execCommandLooksLikeBroadRepoContentEnumeration(command) {
+			t.Fatalf("did not expect broad repo content enumeration for %q", command)
+		}
+	}
+}
+
 func TestExecCommandFileSetMeasurementClassifier(t *testing.T) {
 	cases := []string{
 		`find . -type f -name "*.go" | wc -l`,
