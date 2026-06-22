@@ -49,6 +49,7 @@ type traceBundleMetadata struct {
 	Artifacts           []Artifact              `json:"artifacts,omitempty"`
 	ProviderDecisions   []PerfProviderDecision  `json:"provider_decisions,omitempty"`
 	TraceDecisions      []TraceProviderDecision `json:"trace_provider_decisions,omitempty"`
+	TraceDBCoverage     []TraceDBCoverage       `json:"trace_db_coverage,omitempty"`
 	PerfClockAlignments []PerfClockAlignment    `json:"perf_clock_alignments,omitempty"`
 	Caveats             []string                `json:"caveats,omitempty"`
 }
@@ -252,6 +253,10 @@ func readStandaloneSegmentAt(f *os.File, off int64, fileSize int64) (standaloneS
 }
 
 func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision) (Artifact, error) {
+	return writeTraceBundleWithCoverage(input, outputPath, artifacts, caveats, decisions, traceDecisions, nil)
+}
+
+func writeTraceBundleWithCoverage(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, coverage []TraceDBCoverage) (Artifact, error) {
 	if len(artifacts) == 0 {
 		return Artifact{}, nil
 	}
@@ -267,6 +272,7 @@ func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []
 		Artifacts:           artifacts,
 		ProviderDecisions:   decisions,
 		TraceDecisions:      traceDecisions,
+		TraceDBCoverage:     coverage,
 		PerfClockAlignments: perfClockAlignmentsForArtifacts(artifacts),
 		Caveats:             caveats,
 	}

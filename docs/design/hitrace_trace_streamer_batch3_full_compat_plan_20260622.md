@@ -87,22 +87,24 @@ Needed changes:
 
 ### Batch 3A: DB Core, Resolver Layer, and Coverage
 
+Status: delivered on 2026-06-22.
+
 Tasks:
 
-- Add DB open/introspection helpers:
+- Delivered DB open/introspection helpers:
   - table exists,
   - column exists,
   - table row count,
   - safe typed nullable reads,
   - schema drift errors with table/column context.
-- Add resolver helpers:
+- Delivered resolver helpers:
   - process/thread maps,
   - `argsets` via `args + data_dict`,
   - raw event CPU map from `raw`,
   - sched starts from `sched_slice`,
   - running intervals from `thread_state`,
   - active thread ids from callstack/sched/thread_state/syscall/native/frame.
-- Add `TraceDBCoverage` fields sufficient for handoff:
+- Delivered `TraceDBCoverage` fields sufficient for handoff:
   - family,
   - table,
   - found,
@@ -110,8 +112,9 @@ Tasks:
   - rows read,
   - rows emitted,
   - skipped/error reason.
-- Thread coverage into `Result` and tracebundle JSON.
-- Add tests for introspection, schema drift, and coverage serialization.
+- Delivered coverage threading into `Result` and tracebundle JSON.
+- Delivered tests for introspection, schema drift, resolver loading, and coverage
+  serialization.
 
 Performance and memory:
 
@@ -119,6 +122,12 @@ Performance and memory:
 - Do not materialize full DB tables except bounded resolver maps whose key space
   is naturally limited by thread/argset counts.
 - Track resolver row counts for coverage.
+
+Verified with:
+
+```bash
+go test ./internal/hitraceconv ./cmd ./internal/repl
+```
 
 ### Batch 3B: Bounded Row Sorter and Systrace Writer
 

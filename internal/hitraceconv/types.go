@@ -107,11 +107,15 @@ type TraceProviderDecision struct {
 }
 
 type TraceDBCoverage struct {
-	Table       string `json:"table"`
-	Found       bool   `json:"found"`
-	RowsRead    int    `json:"rows_read,omitempty"`
-	RowsEmitted int    `json:"rows_emitted,omitempty"`
-	Skipped     string `json:"skipped,omitempty"`
+	Family         string   `json:"family,omitempty"`
+	Table          string   `json:"table"`
+	Found          bool     `json:"found"`
+	ColumnsPresent []string `json:"columns_present,omitempty"`
+	ColumnsMissing []string `json:"columns_missing,omitempty"`
+	RowsRead       int      `json:"rows_read,omitempty"`
+	RowsEmitted    int      `json:"rows_emitted,omitempty"`
+	Skipped        string   `json:"skipped,omitempty"`
+	Error          string   `json:"error,omitempty"`
 }
 
 type PerfClockAlignment struct {
