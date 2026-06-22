@@ -142,6 +142,60 @@ func TestConvertFileNoPerfTraceKeepsBuiltinAndTraceStreamerPaths(t *testing.T) {
 	}
 }
 
+func TestConvertFileNoPerfTraceBuiltinAndTraceStreamerWakeupParity(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "donghu-no-perf.sys")
+	if err := os.WriteFile(input, syntheticBinaryHitrace(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	builtinOutput := filepath.Join(dir, "builtin.systrace")
+	builtin, err := ConvertFile(context.Background(), Options{
+		InputPath:   input,
+		OutputPath:  builtinOutput,
+		TraceEngine: traceEngineBuiltin,
+	})
+	if err != nil {
+		t.Fatalf("convert no-perf trace with built-in engine: %v", err)
+	}
+	if !hasTraceDecision(builtin.TraceDecisions, traceProviderNameBuiltinSys, true) {
+		t.Fatalf("built-in provider decision missing: %+v", builtin.TraceDecisions)
+	}
+
+	fixtureDB := createTraceDBFixture(t, traceStreamerSysWakeupParityDBStatements())
+	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
+	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+
+	sqlOutput := filepath.Join(dir, "sql.systrace")
+	sqlResult, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		OutputPath:        sqlOutput,
+		TraceEngine:       "trace_streamer",
+		TraceStreamerPath: traceStreamer,
+		KeepTraceDB:       true,
+	})
+	if err != nil {
+		t.Fatalf("convert no-perf trace with trace_streamer engine: %v", err)
+	}
+	if !hasTraceDecision(sqlResult.TraceDecisions, traceProviderNameTraceStreamer, true) ||
+		!hasArtifact(sqlResult.Artifacts, ArtifactTraceDB) {
+		t.Fatalf("trace_streamer provider decision or DB artifact missing: %+v artifacts=%+v", sqlResult.TraceDecisions, sqlResult.Artifacts)
+	}
+	if !coverageHasEmitted(sqlResult.TraceDBCoverage, "scheduler", "instant", 1) {
+		t.Fatalf("SQL wakeup export coverage missing: %+v", sqlResult.TraceDBCoverage)
+	}
+	if !coverageHasEmitted(sqlResult.TraceCoverage, "trace_cross_validation", "tracequery_build_index", 1) {
+		t.Fatalf("SQL trace cross-validation coverage missing: %+v", sqlResult.TraceCoverage)
+	}
+
+	builtinWakeup := onlyWakeupEvent(t, builtinOutput)
+	sqlWakeup := onlyWakeupEvent(t, sqlOutput)
+	assertWakeupSemanticParity(t, builtinWakeup, sqlWakeup)
+}
+
 func TestConvertFileTraceStreamerExplicitNoRowsProducesPartialBundle(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
@@ -445,6 +499,57 @@ func traceStreamerIntegrationDBStatements() []string {
 		"INSERT INTO irq VALUES (1500000, 10000, 4, 'irq', 'uart', 10)",
 		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, cat TEXT, depth INT, cookie INT, itid INT)",
 		"INSERT INTO callstack VALUES (1, 1700000, 40000, 100, 'DoWork', 'slice', 0, NULL, 2)",
+	}
+}
+
+func traceStreamerSysWakeupParityDBStatements() []string {
+	return []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 36379, 'com.tencent.mm')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 36379, 1, 'com.tencent.mm', 0, 1, 1)",
+		"CREATE TABLE sched_slice (ts INT, dur INT, cpu INT, end_state TEXT, priority INT, itid INT)",
+		"INSERT INTO sched_slice VALUES (2942124416000, 1000000, 0, 'R', 53, 1)",
+		"CREATE TABLE instant (ts INT, name TEXT, ref INT, wakeup_from INT, ref_type TEXT, value REAL)",
+		"INSERT INTO instant VALUES (2942124416000, 'sched_wakeup', 1, 1, 'itid', NULL)",
+		"CREATE TABLE raw (ts INT, name TEXT, cpu INT, itid INT)",
+		"INSERT INTO raw VALUES (2942124416000, 'sched_wakeup', 4, 1)",
+	}
+}
+
+func onlyWakeupEvent(t *testing.T, path string) tracequery.Event {
+	t.Helper()
+	idx, err := tracequery.BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatalf("tracequery parse converted trace %s: %v", path, err)
+	}
+	var out []tracequery.Event
+	for _, ev := range idx.Events {
+		if ev.Type == tracequery.EventSchedWakeup {
+			out = append(out, ev)
+		}
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected exactly one sched_wakeup in %s, got %+v", path, out)
+	}
+	return out[0]
+}
+
+func assertWakeupSemanticParity(t *testing.T, builtin, sql tracequery.Event) {
+	t.Helper()
+	if builtin.WakeePID != sql.WakeePID ||
+		builtin.WakeeComm != sql.WakeeComm ||
+		builtin.WakeePrio != sql.WakeePrio ||
+		builtin.TargetCPU != sql.TargetCPU ||
+		builtin.PID != sql.PID ||
+		builtin.CPU != sql.CPU {
+		t.Fatalf("wakeup semantic mismatch:\nbuiltin=%+v\nsql=%+v", builtin, sql)
+	}
+	if builtin.WakeePID != 36379 || builtin.WakeeComm != "com.tencent.mm" ||
+		builtin.WakeePrio != 53 || builtin.TargetCPU != 0 {
+		t.Fatalf("synthetic wakeup guard drifted: %+v", builtin)
 	}
 }
 

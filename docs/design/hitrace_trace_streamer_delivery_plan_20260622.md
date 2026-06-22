@@ -487,7 +487,37 @@ Exit criteria:
 
 ### Batch 6: Sys Binary Parity Gate and Retirement
 
-Status: planned.
+Status: in progress, with Batch 6A delivered on 2026-06-23.
+
+#### Batch 6A: No-Perf Sys Wakeup Parity Guard
+
+Status: delivered on 2026-06-23.
+
+Scope:
+
+- Added the first executable no-perf `.sys` parity guard comparing:
+  - the protected built-in sys-binary conversion lane;
+  - the explicit `trace_streamer`/SQLite conversion lane.
+- The guard uses equivalent scheduler data and verifies that both converted
+  systrace outputs round-trip through `trace_query` with the same
+  `sched_wakeup` semantics:
+  - wakee pid/name/priority,
+  - event CPU,
+  - `target_cpu`,
+  - provider provenance,
+  - SQL `scheduler/instant` export coverage,
+  - generated-trace cross-validation coverage.
+- This protects the shared evidence layer after either customer entry mode:
+  - explicit attachment (`--htrace`, `/htrace`, `--log`, `/log`);
+  - no attachment, with one or more readable artifact paths named in the user
+    request.
+
+Remaining gap:
+
+- This is a scheduler wakeup parity slice, not full sys-binary retirement.
+- Representative no-perf Harmony/Donghu captures still need parity checks for
+  binder, IRQ, IO, trace marker, frame, CPU frequency, and constraint families
+  before deleting or isolating the old sys-binary parser.
 
 Tasks:
 
