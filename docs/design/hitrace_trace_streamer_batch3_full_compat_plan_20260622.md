@@ -196,17 +196,26 @@ go test ./internal/hitraceconv ./cmd ./internal/repl
 
 ### Batch 3D: Trace Marker, Slice, Counter, Log, and System Families
 
+Status: delivered on 2026-06-22.
+
 Tasks:
 
-- Export `callstack`, including async `S/F` and running CPU lookup.
-- Export `frame_slice`, `dma_fence`, `syscall`, `task_pool`, `app_startup`,
+- Delivered `callstack`, including async `S/F` and running CPU lookup.
+- Delivered `frame_slice`, `dma_fence`, `syscall`, `task_pool`, `app_startup`,
   `static_initalize`, and `native_hook`.
-- Export `measure + cpu_measure_filter` to `cpu_idle`, `cpu_frequency`, and CPU
-  limit events when schema exposes limit filters.
-- Export `measure + measure_filter` to `clock_set_rate` and generic counters.
-- Export `process_measure`, `network`, `diskio`, `cpu_usage`, `live_process`,
+- Delivered `measure + cpu_measure_filter` to `cpu_idle`, `cpu_frequency`, and
+  CPU limit events when schema exposes limit filters.
+- Delivered `measure + measure_filter` to `clock_set_rate` and generic counters.
+- Delivered `process_measure`, `network`, `diskio`, `cpu_usage`, `live_process`,
   `xpower_measure`, `log`, and `hisys_all_event`.
-- Tests mirror hmtrace comprehensive fixture and assert semantic rows.
+- Delivered a hmtrace-comprehensive-style Go fixture asserting semantic rows and
+  tracequery trace-marker round trip.
+
+Verified with:
+
+```bash
+go test ./internal/hitraceconv ./cmd ./internal/repl
+```
 
 ### Batch 3E: ConvertFile Integration
 
