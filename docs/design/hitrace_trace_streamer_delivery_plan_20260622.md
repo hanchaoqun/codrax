@@ -648,7 +648,142 @@ Exit criteria:
   prove all required families, but the default SQL lane has explicit evidence
   for the core timing and CPU-supply families.
 
-Tasks:
+#### Batch 6C: Raw Ftrace Root-Cause Evidence Parity
+
+Status: planned from current-code audit on 2026-06-23.
+
+Exploration notes:
+
+- Batch 6B proves the SQL/default path and explicit built-in path both
+  round-trip the timing, wakeup, CPU-supply, trace-marker, frame, IRQ, and
+  softirq evidence that `trace_query` consumes.
+- The remaining high-value root-cause families are not all represented by
+  hmtrace's high-level native extractors. The local hmtrace registry covers
+  `sched_slice`, `instant`, `irq`, `measure`, `measure_filter`, `process_measure`,
+  `frame_slice`, `dma_fence`, `network`, `diskio`, `cpu_usage`, `live_process`,
+  `log`, `syscall`, `task_pool`, `app_startup`, `static_initalize`,
+  `native_hook`, `hisys_all_event`, and `xpower_measure`, but does not expose a
+  dedicated binder or inode/file-IO extractor.
+- Codrax already has downstream consumers for these families:
+  - binder: `trace_query` parses binder transactions, receives, replies, locks,
+    allocation buffers, and chain-correlated binder waits;
+  - inode/file IO: `trace_query` aggregates `file_io_by_inode`,
+    `page_cache_by_inode`, `storage_latency_by_layer`, `io_pressure_summary`,
+    and `block_io_by_inode`;
+  - workqueue and DMA fence: `trace_query` computes workqueue activity and
+    classifies `dma_fence_*` events.
+- Codrax built-in sys rendering already has stable event renderers for many of
+  these ftrace families (`binder_*`, `block_*`, `mm_filemap_*`,
+  `android_fs_*`, `f2fs_*`, `scsi_*`, `mmc_*`, `ufshcd_*`, `workqueue_*`,
+  and `dma_fence_*`), but the SQL exporter currently emits only high-level DB
+  tables plus selected scheduler/IRQ rows. A trace_streamer DB that only keeps
+  low-level ftrace rows in `raw` + `args` can therefore lose queryable binder,
+  inode IO, page-cache, storage, and workqueue evidence.
+
+Design direction:
+
+- Add a schema-introspecting raw-ftrace exporter to the SQL path, not a
+  production dual-run against the built-in sys parser.
+- Treat trace event names and DB arg keys as structured trace data. Do not use
+  user-prose, model-output prose, filename suffixes, or question keywords to
+  route analysis or decide which events matter.
+- Reuse existing primitives:
+  - `loadArgsets` for key/value argument recovery;
+  - `traceDBThreadIndex` and running intervals for task/tid/tgid/cpu context;
+  - the spillable `traceDBRowSink` for bounded memory;
+  - existing trace_query parsers and aggregators as the end-to-end contract.
+- Implement renderer families by class:
+  - binder IPC: `binder_transaction`, `binder_transaction_received`,
+    `binder_transaction_alloc_buf`, `binder_transaction_reply`,
+    `binder_transaction_lock`, `binder_transaction_locked`,
+    `binder_transaction_unlock`;
+  - block/storage: `block_rq_issue`, `block_rq_insert`, `block_rq_complete`,
+    `block_bio_remap`, `ufshcd_*`, `mmc_request_*`, `scsi_dispatch_cmd_*`;
+  - inode/file IO: `android_fs_dataread_*`, `android_fs_datawrite_*`,
+    `f2fs_direct_IO_*`, `f2fs_sync_file_*`;
+  - page cache and memory-backed file activity:
+    `mm_filemap_add_to_page_cache`, `mm_filemap_delete_from_page_cache`,
+    `filemap_set_wb_err`;
+  - workqueue: `workqueue_execute_start`, `workqueue_execute_end`, and
+    `workqueue_execute` variants with work/function identity;
+  - DMA fence raw ftrace events when present in `raw`, while preserving the
+    existing hmtrace-compatible high-level `dma_fence` table exporter.
+- Normalize emitted SQL systrace rows to the same stable field names already
+  consumed by `trace_query`:
+  - binder fields: `transaction`, `dest_proc`, `dest_thread`, `reply`, `flags`,
+    `code`, `data_size`, `offsets_size`, `extra_buffers_size`, `debug_id`;
+  - file IO fields: `dev`, `ino`, `entry_name`, `offset`, `bytes`/`len`, `rw`,
+    `ret`, `latency_us`;
+  - storage fields: `dev`, `lba`/`sector`, `len`, `opcode`, `tag`, `ret`,
+    `latency_us`;
+  - workqueue fields: `work`, `function`;
+  - DMA fence fields: `driver`, `timeline`, `context`, `seqno`.
+- Emit bounded coverage rows for every raw-ftrace class:
+  - `raw_ftrace/binder`,
+  - `raw_ftrace/block_storage`,
+  - `raw_ftrace/file_io`,
+  - `raw_ftrace/page_cache`,
+  - `raw_ftrace/workqueue`,
+  - `raw_ftrace/dma_fence`.
+  Missing columns or unsupported raw schemas must be visible in
+  `TraceDBCoverage` caveats instead of silently producing a queryable-looking
+  partial trace.
+
+Implementation checklist:
+
+- Add a raw event loader that introspects the `raw` table for common columns:
+  - required: `ts`, `name`;
+  - optional: `cpu`, `itid`, `callid`, `tid`, `pid`, `argset`, `argsetid`,
+    `arg_set_id`.
+- Resolve thread context in priority order:
+  - raw `itid`/`callid` through `traceDBThreadIndex`;
+  - raw `tid`/`pid` columns when present;
+  - binder/event args only as typed fallback fields, not as user-intent signals.
+- Implement class renderers that accept a normalized `traceDBRawEvent` and
+  `map[string]traceDBValue`, then output systrace rows with existing stable
+  field names.
+- Keep the renderer allowlist based on structured ftrace event families, so the
+  exporter does not become a generic unknown-event dump.
+- Add SQL coverage counters for rows read, rows emitted, missing required
+  columns, unsupported names, and per-class skip reasons.
+- Add a parity test separate from 6B:
+  - synthetic built-in sys-binary fixture with binder, file IO, page cache,
+    storage latency, workqueue, and DMA fence raw events;
+  - equivalent trace_streamer SQLite fixture using `raw`, `args`, `data_dict`,
+    `thread`, `process`, and `thread_state`;
+  - run explicit `builtin` and explicit `trace_streamer` engines;
+  - compare bounded `trace_query` semantic output:
+    `IPCEdges`/binder waits, `file_io_by_inode`, `page_cache_by_inode`,
+    `storage_latency_by_layer`, `io_pressure_summary`, `block_io_by_inode`,
+    `workqueue_activity`, and `EventDMAFence`.
+- Add package tests for raw schema drift:
+  - missing `argset` columns produces explicit coverage skip;
+  - missing optional thread columns still emits rows with conservative task
+    context;
+  - unknown raw event names are counted/skipped without header-only output.
+- Keep JSON/prompt contracts stable:
+  - no new model tool-call input fields are introduced in Batch 6C;
+  - no JSON repair aliases are needed unless `trace_query` input schema changes;
+  - new evidence appears in query results and tracebundle coverage caveats.
+- Performance and memory requirements:
+  - stream DB rows ordered by timestamp;
+  - load argsets once through the existing bounded resolver;
+  - never compare full systrace text in tests;
+  - keep parity assertions as bounded semantic projections from `trace_query`.
+
+Exit criteria:
+
+- SQL/default pure-trace conversion emits queryable binder, inode/file IO,
+  page-cache, storage latency, workqueue, and DMA-fence evidence from
+  trace_streamer `raw` + `args` rows when high-level tables are absent.
+- Explicit built-in pure-trace conversion and SQL/default conversion are
+  guarded by a semantic parity test for these root-cause families.
+- `trace_query` window stats and root-cause supporting evidence can consume the
+  SQL-generated rows without prompt hacks or new tool-call JSON burden.
+- Missing DB support is transparent through bounded coverage caveats, not
+  silent evidence loss.
+
+Overall Batch 6 remaining tasks:
 
 - Build parity cases comparing explicit built-in sys binary output with
   trace_streamer DB export for representative no-perf Harmony/Donghu captures.
