@@ -10,8 +10,10 @@ import (
 )
 
 type orchestratorStatusDebouncer struct {
-	mu   sync.Mutex
-	seen map[string]string
+	mu             sync.Mutex
+	seen           map[string]string
+	lifecycleEnd   map[string]string
+	lifecycleError map[string]string
 }
 
 // SetEmitter attaches an event emitter for real-time CLI rendering.
@@ -36,6 +38,8 @@ func (d *orchestratorStatusDebouncer) Reset() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.seen = nil
+	d.lifecycleEnd = nil
+	d.lifecycleError = nil
 }
 
 func (d *orchestratorStatusDebouncer) Suppress(key, cursor string) bool {
@@ -66,7 +70,73 @@ func (o *Orchestrator) suppressReadStatusEvent(ev render.Event) bool {
 		return false
 	}
 	cursor := o.readStatusDebounceCursor(ev)
+	switch o.readStatusDebouncer.lifecycleDecision(ev, o.readStatusLifecycleCursor(ev)) {
+	case readStatusLifecycleSuppress:
+		return true
+	case readStatusLifecycleBypassGeneric:
+		return false
+	}
 	return o.readStatusDebouncer.Suppress(key, cursor)
+}
+
+type readStatusLifecycleDecision int
+
+const (
+	readStatusLifecycleNone readStatusLifecycleDecision = iota
+	readStatusLifecycleSuppress
+	readStatusLifecycleBypassGeneric
+)
+
+func (d *orchestratorStatusDebouncer) lifecycleDecision(ev render.Event, cursor string) readStatusLifecycleDecision {
+	if d == nil || cursor == "" {
+		return readStatusLifecycleNone
+	}
+	family, ok := readStatusLifecycleFamily(ev)
+	if !ok {
+		return readStatusLifecycleNone
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.lifecycleEnd == nil {
+		d.lifecycleEnd = make(map[string]string)
+	}
+	if d.lifecycleError == nil {
+		d.lifecycleError = make(map[string]string)
+	}
+	switch ev.Kind {
+	case render.EventTaskNodeEnd:
+		if strings.TrimSpace(ev.Error) != "" || ev.NodeSkipped {
+			delete(d.lifecycleEnd, family)
+			d.lifecycleError[family] = cursor
+			return readStatusLifecycleBypassGeneric
+		}
+		d.lifecycleEnd[family] = cursor
+		delete(d.lifecycleError, family)
+	case render.EventTaskNodeStart:
+		if d.lifecycleError[family] == cursor {
+			delete(d.lifecycleError, family)
+			return readStatusLifecycleBypassGeneric
+		}
+		if d.lifecycleEnd[family] == cursor {
+			return readStatusLifecycleSuppress
+		}
+	}
+	return readStatusLifecycleNone
+}
+
+func readStatusLifecycleFamily(ev render.Event) (string, bool) {
+	switch ev.Kind {
+	case render.EventTaskNodeStart, render.EventTaskNodeEnd:
+	default:
+		return "", false
+	}
+	kind := readStatusEventNodeKind(ev)
+	switch kind {
+	case types.NodeEvidence, types.NodeProbe, types.NodeReconcile:
+		return fmt.Sprintf("%s:%s", kind, strings.TrimSpace(ev.DispatchKind)), true
+	default:
+		return "", false
+	}
 }
 
 func readStatusDebounceKey(ev render.Event) (string, bool) {
@@ -82,7 +152,7 @@ func readStatusDebounceKey(ev render.Event) (string, bool) {
 			return "", false
 		}
 	case render.EventTaskNodeStart, render.EventTaskNodeEnd:
-		kind := types.TaskNodeType(strings.TrimSpace(ev.NodeKind))
+		kind := readStatusEventNodeKind(ev)
 		switch kind {
 		case types.NodeEvidence, types.NodeProbe, types.NodeReconcile:
 			return fmt.Sprintf("node:%d:%s:%s", ev.Kind, kind, ev.DispatchKind), true
@@ -94,7 +164,23 @@ func readStatusDebounceKey(ev render.Event) (string, bool) {
 	}
 }
 
+func readStatusEventNodeKind(ev render.Event) types.TaskNodeType {
+	kind := types.TaskNodeType(strings.TrimSpace(ev.NodeKind))
+	if kind == "" {
+		kind = types.TaskNodeType(strings.TrimSpace(ev.DispatchKind))
+	}
+	return kind
+}
+
 func (o *Orchestrator) readStatusDebounceCursor(ev render.Event) string {
+	return o.readStatusDebounceCursorWithEvent(ev, true)
+}
+
+func (o *Orchestrator) readStatusLifecycleCursor(ev render.Event) string {
+	return o.readStatusDebounceCursorWithEvent(ev, false)
+}
+
+func (o *Orchestrator) readStatusDebounceCursorWithEvent(ev render.Event, includeEvent bool) string {
 	if o == nil || o.busCtx == nil {
 		return ""
 	}
@@ -122,10 +208,14 @@ func (o *Orchestrator) readStatusDebounceCursor(ev render.Event) string {
 		}
 		sourceInventoryShape = readStatusSourceInventoryShape(types.SourceInventoryObservationFromMutable(mut))
 	}
+	eventPart := ""
+	if includeEvent {
+		eventPart = fmt.Sprintf("event=%d|", ev.Kind)
+	}
 	return fmt.Sprintf(
-		"stage=%s|event=%d|ev=%d|emit_ev=%d|flow=%d|chain=%d|sym=%d|fact=%d|tool=%d|dispatch_tool=%d|mcp=%d|pending=%d|complete=%t|stable_complete=%t|progress=%s|source_inventory=%s",
+		"stage=%s|%sev=%d|emit_ev=%d|flow=%d|chain=%d|sym=%d|fact=%d|tool=%d|dispatch_tool=%d|mcp=%d|pending=%d|complete=%t|stable_complete=%t|progress=%s|source_inventory=%s",
 		ctx.PipelineStage,
-		ev.Kind,
+		eventPart,
 		evidenceCount,
 		emittedEvidenceCount,
 		len(ctx.FlowFindings),
