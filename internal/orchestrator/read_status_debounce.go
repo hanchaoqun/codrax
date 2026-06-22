@@ -1,0 +1,176 @@
+package orchestrator
+
+import (
+	"fmt"
+	"strings"
+	"sync"
+
+	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+type orchestratorStatusDebouncer struct {
+	mu   sync.Mutex
+	seen map[string]string
+}
+
+// SetEmitter attaches an event emitter for real-time CLI rendering.
+// Must be called before Run(). Passing nil restores the no-op default.
+func (o *Orchestrator) SetEmitter(emit render.EventEmitter) {
+	if emit == nil {
+		emit = render.NopEmitter
+	}
+	o.readStatusDebouncer.Reset()
+	o.emit = func(ev render.Event) {
+		if o.suppressReadStatusEvent(ev) {
+			return
+		}
+		emit(ev)
+	}
+}
+
+func (d *orchestratorStatusDebouncer) Reset() {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.seen = nil
+}
+
+func (d *orchestratorStatusDebouncer) Suppress(key, cursor string) bool {
+	if d == nil || key == "" || cursor == "" {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.seen == nil {
+		d.seen = make(map[string]string)
+	}
+	if d.seen[key] == cursor {
+		return true
+	}
+	d.seen[key] = cursor
+	return false
+}
+
+func (o *Orchestrator) suppressReadStatusEvent(ev render.Event) bool {
+	if o == nil || o.busCtx == nil {
+		return false
+	}
+	if o.busCtx.Mode.Normalize() != types.ModeRead {
+		return false
+	}
+	key, ok := readStatusDebounceKey(ev)
+	if !ok {
+		return false
+	}
+	cursor := o.readStatusDebounceCursor(ev)
+	return o.readStatusDebouncer.Suppress(key, cursor)
+}
+
+func readStatusDebounceKey(ev render.Event) (string, bool) {
+	switch ev.Kind {
+	case render.EventOrchestratorNotice:
+		switch ev.NoticeKind {
+		case render.NoticeRetry,
+			render.NoticeInvestigationReady,
+			render.NoticeInvestigationSupplement,
+			render.NoticeConvergenceStall:
+			return fmt.Sprintf("notice:%d:%s:%s", ev.NoticeKind, ev.Stage, ev.Agent), true
+		default:
+			return "", false
+		}
+	case render.EventTaskNodeStart, render.EventTaskNodeEnd:
+		kind := types.TaskNodeType(strings.TrimSpace(ev.NodeKind))
+		switch kind {
+		case types.NodeEvidence, types.NodeProbe, types.NodeReconcile:
+			return fmt.Sprintf("node:%d:%s:%s", ev.Kind, kind, ev.DispatchKind), true
+		default:
+			return "", false
+		}
+	default:
+		return "", false
+	}
+}
+
+func (o *Orchestrator) readStatusDebounceCursor(ev render.Event) string {
+	if o == nil || o.busCtx == nil {
+		return ""
+	}
+	ctx := o.busCtx
+	mut := ctx.Mutable
+	evidenceCount := len(ctx.EvidenceItems)
+	emittedEvidenceCount := 0
+	aggregateFactCount := 0
+	dispatchToolCount := 0
+	pendingReadCount := 0
+	investigationComplete := false
+	stableCompleteReason := false
+	progressReason := ""
+	sourceInventoryShape := "inactive"
+	if mut != nil {
+		emittedEvidenceCount = len(mut.EmittedEvidence())
+		aggregateFactCount = len(mut.StableInvestigationAggregateFacts())
+		dispatchToolCount = len(mut.DispatchToolResults())
+		investigationComplete = mut.IsInvestigationComplete()
+		stableCompleteReason = strings.TrimSpace(mut.StableInvestigationCompleteReason()) != ""
+		if closure := mut.EvidenceClosure(); closure != nil {
+			pendingReadCount = len(closure.PendingReads())
+			progress := closure.LatestProgressDecision()
+			progressReason = strings.TrimSpace(progress.ReasonCode)
+		}
+		sourceInventoryShape = readStatusSourceInventoryShape(types.SourceInventoryObservationFromMutable(mut))
+	}
+	return fmt.Sprintf(
+		"stage=%s|event=%d|ev=%d|emit_ev=%d|flow=%d|chain=%d|sym=%d|fact=%d|tool=%d|dispatch_tool=%d|mcp=%d|pending=%d|complete=%t|stable_complete=%t|progress=%s|source_inventory=%s",
+		ctx.PipelineStage,
+		ev.Kind,
+		evidenceCount,
+		emittedEvidenceCount,
+		len(ctx.FlowFindings),
+		len(ctx.AnswerChains),
+		len(ctx.AnswerSymbols),
+		aggregateFactCount,
+		len(ctx.ToolResults),
+		dispatchToolCount,
+		len(ctx.MCPResponses),
+		pendingReadCount,
+		investigationComplete,
+		stableCompleteReason,
+		progressReason,
+		sourceInventoryShape,
+	)
+}
+
+func readStatusSourceInventoryShape(obs types.SourceInventoryObservation) string {
+	if !obs.IsActive() {
+		return "inactive"
+	}
+	memberCount := 0
+	completeSetCount := 0
+	for _, set := range obs.Sets {
+		memberCount += len(set.Members)
+		if set.Complete {
+			completeSetCount++
+		}
+	}
+	page := ""
+	if obs.Page != nil {
+		page = fmt.Sprintf(":%d:%d:%t:%s", obs.Page.Offset, obs.Page.Emitted, obs.Page.Complete, strings.TrimSpace(obs.Page.NextCursor))
+	}
+	exec := ""
+	if obs.Execution != nil {
+		exec = fmt.Sprintf(":%t:%t:%t", obs.Execution.Budgeted, obs.Execution.CandidateBudgetTruncated, obs.Execution.AttributesDeferred)
+	}
+	return fmt.Sprintf("active:%t:sets=%d:complete_sets=%d:members=%d:classes=%d:langs=%d%s%s",
+		obs.Complete,
+		len(obs.Sets),
+		completeSetCount,
+		memberCount,
+		len(obs.SourceClasses),
+		len(obs.RepoLanguages),
+		page,
+		exec,
+	)
+}

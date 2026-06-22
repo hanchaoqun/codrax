@@ -252,6 +252,7 @@ type Orchestrator struct {
 	readRunSnapshotSeed  *types.ReadRunSnapshot
 	readRunActiveState   types.ReadRunActiveState
 	readRunActiveSeed    types.ReadRunActiveState
+	readStatusDebouncer  orchestratorStatusDebouncer
 	// nextPhaseHint is the consume-once carry-over from the
 	// previous phase's acceptance check (NextHint field). The
 	// next phase's seedPlanningHintFromPhase reads this slot
@@ -589,15 +590,6 @@ func New(settings types.PipelineSettings, agents *agent.Registry, skills *skill.
 		emit:                render.NopEmitter,
 		writeApprovalPolicy: writeflow.ApprovalPolicyAutoSafe,
 	}
-}
-
-// SetEmitter attaches an event emitter for real-time CLI rendering.
-// Must be called before Run(). Passing nil restores the no-op default.
-func (o *Orchestrator) SetEmitter(emit render.EventEmitter) {
-	if emit == nil {
-		emit = render.NopEmitter
-	}
-	o.emit = emit
 }
 
 // SetReasoningObserver installs the append-only typed reasoning graph sink used
@@ -1709,6 +1701,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.phaseContextPrefix = ""
 	o.nextPhaseHint = ""
 	o.advisoryDebtNoticeEmitted = false
+	o.readStatusDebouncer.Reset()
 	o.continuationClassification = nil
 	o.readRunActiveState = types.ReadRunActiveState{}
 	o.readRunActiveSeed = types.ReadRunActiveState{}
