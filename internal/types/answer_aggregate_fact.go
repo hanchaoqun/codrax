@@ -3205,7 +3205,11 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
 		if fact.Value == "" {
 			fact.Value = strconv.Itoa(len(fact.Members))
-		} else if n, err := strconv.Atoi(fact.Value); err == nil && n >= 0 && n != len(fact.Members) {
+		} else if n, err := strconv.Atoi(fact.Value); err != nil || n < 0 || n != len(fact.Members) {
+			// member_set is an exact structured carrier: members[] is the
+			// authoritative boundary and value is derived metadata. Absorb
+			// schema-adjacent count surfaces such as "1+" locally instead of
+			// spending another model retry on a form-only correction.
 			fact.Value = strconv.Itoa(len(fact.Members))
 		}
 		fact.Label = normalizeAggregateMemberSetLabelCardinality(fact.Label, len(fact.Members))

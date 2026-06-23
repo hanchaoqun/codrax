@@ -1410,6 +1410,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(ctx, effectiveAggregateFacts, "optional aggregate handoff", true)
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	}
+	if len(effectiveAggregateFacts) > 0 {
+		var notes []string
+		effectiveAggregateFacts, notes = normalizeDecoratedMemberSetFormDebt(ctx, resultKind, effectiveAggregateFacts)
+		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
+	}
 	preflight = preflight.WithAggregateFacts(effectiveAggregateFacts, structuredRelationAuthorityFacts)
 	publishSourceInventoryAdvisory(ctx, effectiveAggregateFacts, evidenceSnapshot)
 	recordToolRuntimeTiming(&runtimeTimings, "aggregate_normalization", aggregateStart, len(effectiveAggregateFacts))
@@ -10467,6 +10472,107 @@ func dropUnsupportedDecoratedMemberSets(ctx *types.BusContext, facts []types.Ans
 		notes = append(notes, fmt.Sprintf("dropped %s member_set %q without support_refs from %s", role, label, contextLabel))
 	}
 	return out, notes
+}
+
+func normalizeDecoratedMemberSetFormDebt(ctx *types.BusContext, resultKind string, facts []types.AnswerAggregateFact) ([]types.AnswerAggregateFact, []string) {
+	if len(facts) == 0 {
+		return facts, nil
+	}
+	out := cloneCompletionAggregateFacts(facts)
+	var notes []string
+	changedAny := false
+	for i := range out {
+		fact := &out[i]
+		if fact.Kind != types.AnswerAggregateMemberSet ||
+			len(fact.Members) == 0 ||
+			len(fact.SupportRefs) > 0 {
+			continue
+		}
+		if !decoratedMemberSetFormRepairEligible(ctx, resultKind, *fact) {
+			continue
+		}
+		memberNotes := append([]string(nil), fact.MemberNotes...)
+		for len(memberNotes) < len(fact.Members) {
+			memberNotes = append(memberNotes, "")
+		}
+		changed := false
+		for j, member := range fact.Members {
+			if decoratedAggregateMemberCanRelyOnOriginSpecificProvenance(ctx, *fact, member) {
+				continue
+			}
+			base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(member)
+			base = strings.TrimSpace(base)
+			qualifier = strings.TrimSpace(qualifier)
+			if !ok || base == "" || !types.IsCodeIdentitySurface(base) {
+				continue
+			}
+			fact.Members[j] = base
+			if qualifier != "" && strings.TrimSpace(memberNotes[j]) == "" {
+				memberNotes[j] = qualifier
+			}
+			changed = true
+		}
+		if !changed {
+			continue
+		}
+		fact.MemberNotes = memberNotes
+		fact.Provenance = appendCompletionAggregateProvenance(fact.Provenance, "form_repair:decorated_member_base")
+		notes = append(notes, fmt.Sprintf("normalized member_set %q decorated member labels into bare member surfaces with member_notes", completionFirstNonEmptyString(fact.Label, "(unlabeled)")))
+		changedAny = true
+	}
+	if !changedAny {
+		return facts, nil
+	}
+	normalized, err := types.NormalizeAnswerAggregateFacts(out)
+	if err != nil {
+		notes = append(notes, fmt.Sprintf("ignored decorated member form repair after validation error: %v", err))
+		return facts, notes
+	}
+	return normalized, notes
+}
+
+func decoratedMemberSetFormRepairEligible(ctx *types.BusContext, resultKind string, fact types.AnswerAggregateFact) bool {
+	if !strings.EqualFold(strings.TrimSpace(resultKind), "resolved") {
+		return false
+	}
+	rm := requestModelForAggregateSupport(ctx)
+	if aggregateMemberSetOriginRequiresCurrentSource(ctx, rm) {
+		return false
+	}
+	origins := types.AnswerAggregateFactEvidenceOrigins(fact, rm)
+	for _, origin := range origins {
+		if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			return false
+		}
+	}
+	return true
+}
+
+func completionFirstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func appendCompletionAggregateProvenance(current, addition string) string {
+	current = strings.TrimSpace(current)
+	addition = strings.TrimSpace(addition)
+	if addition == "" {
+		return current
+	}
+	if current == "" {
+		return addition
+	}
+	for _, part := range strings.Split(current, ";") {
+		if strings.TrimSpace(part) == addition {
+			return current
+		}
+	}
+	return current + "; " + addition
 }
 
 func aggregateMemberSetHasUnsupportedDecoratedCodeMembers(fact types.AnswerAggregateFact) bool {

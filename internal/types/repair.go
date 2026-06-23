@@ -76,6 +76,14 @@ const (
 	RepairForceCompleteDowngrade RepairKind = "force_complete_downgrade"
 )
 
+const (
+	// RepairOriginCompletionFormPrefix marks framework-owned completion-form
+	// repair debt from emit_investigation_complete. These repairs describe
+	// schema/aggregate handoff shape after evidence has already been collected;
+	// they must not be interpreted as a demand to reopen broad code exploration.
+	RepairOriginCompletionFormPrefix = "emit_investigation_complete.completion_form."
+)
+
 // AllRepairKinds returns every legal RepairKind in declaration order.
 // Used by tests that assert no enforcer raises an unknown kind.
 func AllRepairKinds() []RepairKind {
@@ -142,7 +150,12 @@ func ClassifyRepairDirective(r RepairDirective) RepairDebtClass {
 			return RepairDebtSurgicalGrounding
 		}
 		return RepairDebtPrincipalBlocking
-	case RepairStructuredHandoff, RepairSwapView, RepairRebindSubject:
+	case RepairStructuredHandoff:
+		if RepairDirectiveIsCompletionFormDebt(r) {
+			return RepairDebtAdvisory
+		}
+		return RepairDebtPrincipalBlocking
+	case RepairSwapView, RepairRebindSubject:
 		return RepairDebtPrincipalBlocking
 	default:
 		if r.Kind == "" {
@@ -227,7 +240,17 @@ func RepairBlocksAcceptedClosure(r RepairDirective) bool {
 	if r.Advisory || r.Kind == RepairReadFile {
 		return false
 	}
+	if RepairDirectiveIsCompletionFormDebt(r) {
+		return false
+	}
 	return r.Kind != ""
+}
+
+func RepairDirectiveIsCompletionFormDebt(r RepairDirective) bool {
+	if r.Kind != RepairStructuredHandoff {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(r.Origin), RepairOriginCompletionFormPrefix)
 }
 
 // RepairDirective is the structured payload one enforcer hands the

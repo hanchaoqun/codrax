@@ -30,6 +30,22 @@ func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_AllowsSupportOnlyDeb
 	}
 }
 
+func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_AllowsCompletionFormDebt(t *testing.T) {
+	mut := types.NewMutableState("accepted closure with completion-form debt")
+	mut.SetInvestigationComplete("accepted closure already covers the answer")
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:      types.RepairStructuredHandoff,
+		Origin:    types.RepairOriginCompletionFormPrefix + "aggregate_facts",
+		Subject:   "repair aggregate_facts shape",
+		Rationale: "completion form needs local schema repair, not new evidence",
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("completion-form debt must not reopen exploration after accepted closure")
+	}
+}
+
 func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_BlocksLoadBearingDebt(t *testing.T) {
 	tests := []struct {
 		name    string

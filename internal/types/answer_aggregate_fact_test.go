@@ -59,7 +59,6 @@ func TestNormalizeAnswerAggregateFacts_RejectsInvalid(t *testing.T) {
 		{name: "value", in: []AnswerAggregateFact{{Kind: AnswerAggregateTotalCount, Label: "x"}}},
 		{name: "count value unit drift", in: []AnswerAggregateFact{{Kind: AnswerAggregateTotalCount, Label: "x", Value: "3 files"}}},
 		{name: "member set requires members", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "2"}}},
-		{name: "member set noninteger value", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "two", Members: []string{"Intent"}}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -67,6 +66,24 @@ func TestNormalizeAnswerAggregateFacts_RejectsInvalid(t *testing.T) {
 				t.Fatalf("expected validation error")
 			}
 		})
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_CanonicalizesNonIntegerMemberSetValueFromMembers(t *testing.T) {
+	out, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "agent types",
+		Value:   "1+",
+		Members: []string{"Analyzer", "Explorer", "Extractor"},
+	}})
+	if err != nil {
+		t.Fatalf("member_set value should be canonicalized from members, not rejected: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("len(out) = %d, want 1", len(out))
+	}
+	if got := out[0].Value; got != "3" {
+		t.Fatalf("member_set value = %q, want len(members)=3", got)
 	}
 }
 

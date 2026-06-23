@@ -5512,18 +5512,13 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsPositiveSubstituteFromPri
 	}
 }
 
-// TestEmitInvestigationComplete_RejectsDecoratedMemberSetWithoutSupportRefs
-// is the B regression for the 2026-05-16 architectural-comparison
-// loop. A member_set whose members are shaped
-// "<code identifier> (<CJK qualifier>)" cannot auto-resolve against
-// evidence anchors (the decorator changes the surface), so the
-// finalizer's row-item alignment oracle rejects every row that
-// quotes such a member with candidate_citations=[]. The schema marks
-// support_refs `omitempty` but the downstream answer-document
-// rendering REQUIRES per-member grounding; close the asymmetry at
-// emit time so the model fixes it in the next emit, not after
-// burning four finalize iterations.
-func TestEmitInvestigationComplete_RejectsDecoratedMemberSetWithoutSupportRefs(t *testing.T) {
+// TestEmitInvestigationComplete_RepairsDecoratedMemberSetWithoutSupportRefs
+// pins the completion-form debt policy: when a member_set uses
+// "<code identifier> (<qualifier>)" labels but omits support_refs, the tool
+// repairs the form locally by keeping the bare citable member surface and moving
+// the qualifier into member_notes. This avoids turning answer-presentation debt
+// into another exploration round.
+func TestEmitInvestigationComplete_RepairsDecoratedMemberSetWithoutSupportRefs(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
 	tool := &EmitInvestigationComplete{}
@@ -5548,18 +5543,26 @@ func TestEmitInvestigationComplete_RejectsDecoratedMemberSetWithoutSupportRefs(t
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("decorated member_set without support_refs must be rejected; got success: %s", res.Summary)
+	if !res.Success {
+		t.Fatalf("decorated member_set without support_refs should be repaired locally: %s", res.Summary)
 	}
 	for _, want := range []string{
-		"member_set",
-		"support_refs is empty",
-		"Gate.Run",
-		"<file>:<line>",
+		"aggregate_facts normalized",
+		"decorated member labels",
 	} {
 		if !strings.Contains(res.Summary, want) {
-			t.Errorf("reject summary missing %q in:\n%s", want, res.Summary)
+			t.Errorf("repair summary missing %q in:\n%s", want, res.Summary)
 		}
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 {
+		t.Fatalf("stable aggregate facts = %+v, want one repaired member_set", got)
+	}
+	if got[0].Members[0] != "Gate.Run" || got[0].Members[2] != "Orchestrator" {
+		t.Fatalf("decorated members were not canonicalized to bare citable surfaces: %+v", got[0].Members)
+	}
+	if len(got[0].MemberNotes) < 3 || got[0].MemberNotes[0] != "8个独立检查" || got[0].MemberNotes[2] != "4阶段管道整合" {
+		t.Fatalf("decorator qualifiers not preserved in member_notes: %+v", got[0].MemberNotes)
 	}
 }
 

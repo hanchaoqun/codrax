@@ -32,6 +32,14 @@ func TestClassifyRepairDirective(t *testing.T) {
 			want: RepairDebtPrincipalBlocking,
 		},
 		{
+			name: "completion form handoff is advisory",
+			in: RepairDirective{
+				Kind:   RepairStructuredHandoff,
+				Origin: RepairOriginCompletionFormPrefix + "aggregate_facts",
+			},
+			want: RepairDebtAdvisory,
+		},
+		{
 			name: "surgical read is surgical grounding",
 			in:   RepairDirective{Kind: RepairReadFile, Files: []string{"a.go"}, LineRanges: []LineRange{{Start: 10, End: 12}}},
 			want: RepairDebtSurgicalGrounding,
@@ -104,6 +112,16 @@ func TestClassifyPendingReadRepair(t *testing.T) {
 				t.Fatalf("ClassifyPendingReadRepair()=%q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRepairBlocksAcceptedClosure_CompletionFormDebtDoesNotBlock(t *testing.T) {
+	r := RepairDirective{
+		Kind:   RepairStructuredHandoff,
+		Origin: RepairOriginCompletionFormPrefix + "aggregate_facts",
+	}
+	if RepairBlocksAcceptedClosure(r) {
+		t.Fatal("completion-form repair debt must not reopen exploration after accepted closure")
 	}
 }
 
