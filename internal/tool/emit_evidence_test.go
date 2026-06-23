@@ -1236,6 +1236,58 @@ func TestEmitEvidence_RejectsRequestedDecoratorObjectMismatch(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_DecoratorMismatchDoesNotHardRejectBareAnalyzerEntity(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Entities: []string{"Builder"}},
+			SubTopics:     []types.SubTopic{{Summary: "list builder fragments", Entities: []string{"Builder"}}},
+		},
+	}
+	if requested := requestedDecoratorSurfaceTerms(ctx); len(requested) != 0 {
+		t.Fatalf("bare analyzer entities must not become hard requested decorators, got %+v", requested)
+	}
+	seedReadFileHistory(ctx, "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", 1,
+		"// Source: openharmony @Styles and @Extend decorators",
+		"// Surface: @Styles function + @Extend(Type) attribute method chains",
+		"",
+		"@Styles function commonCardStyle() {",
+		"  .width('100%')",
+		"}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "registration", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", "line_start": 4, "summary": "@Styles function commonCardStyle", "anchor_kind": "definition", "anchor_symbol": "commonCardStyle", "surface_terms": ["@Styles", "commonCardStyle"]}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("bare analyzer entity should stay advisory/search-only, got rejection: %s", res.Summary)
+	}
+}
+
+func TestRequestedDecoratorSurfaceTermsConsumesExplicitTypedQuotes(t *testing.T) {
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Entities: []string{"Builder"}},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				SourceQuotes:      []string{"explicit decorator @Builder"},
+			},
+		},
+	}
+	requested := requestedDecoratorSurfaceTerms(ctx)
+	if len(requested) != 1 || !requested["@Builder"] {
+		t.Fatalf("explicit typed source quote should carry requested decorator, got %+v", requested)
+	}
+}
+
 func TestEmitEvidence_SurfaceTermReviewIgnoresUnrelatedSourcePathLabels(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

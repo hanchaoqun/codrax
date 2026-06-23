@@ -3474,10 +3474,11 @@ func TestPreCheckRequiredBlocks_MinCount(t *testing.T) {
 
 func TestPreEmitBlockCoverageMissingIsHardAtToolBoundary(t *testing.T) {
 	hints := []emitFixHint{{
-		Field:         "blocks[].kind=diagram",
-		ExpectedShape: "emit at least 1 block(s) of kind=diagram",
-		Reason:        "explicit diagram request",
-		Kind:          types.ViolBlockCoverageMissing,
+		Field:              "blocks[].kind=diagram",
+		ExpectedShape:      "emit at least 1 block(s) of kind=diagram",
+		Reason:             "explicit diagram request",
+		Kind:               types.ViolBlockCoverageMissing,
+		ExpectedBlockKinds: []types.AnswerBlockKind{types.BlockDiagram},
 	}}
 	hard, advisory := splitPreEmitHintsByGate(hints)
 	if len(hard) != 1 || len(advisory) != 0 {

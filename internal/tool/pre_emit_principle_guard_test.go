@@ -36,6 +36,35 @@ func TestPrincipleCitationCarrierPreEmitHintsStayAdvisoryAtBoundary(t *testing.T
 	}
 }
 
+func TestPrinciplePreEmitBlockHardGateUsesTypedBlockKindNotHintText(t *testing.T) {
+	proseOnly := emitFixHint{
+		Kind:          types.ViolBlockCoverageMissing,
+		Field:         "blocks[].kind=diagram",
+		ExpectedShape: "emit kind=diagram",
+		Reason:        "prose alone must not control hard routing",
+	}
+	if preEmitMissingBlockRequiresSameTurnRetry(proseOnly) {
+		t.Fatal("missing-block same-turn retry must not be driven by Field/ExpectedShape prose")
+	}
+	if preEmitHintHardByDefault(proseOnly) {
+		t.Fatal("block coverage hint without typed block kind should follow registry soft default, not prose")
+	}
+
+	typed := emitFixHint{
+		Kind:               types.ViolBlockCoverageMissing,
+		Field:              "blocks[].kind=visual",
+		ExpectedShape:      "emit the requested visual surface",
+		ExpectedBlockKinds: []types.AnswerBlockKind{types.BlockDiagram},
+		Reason:             "typed block kind controls this local hard gate",
+	}
+	if !preEmitMissingBlockRequiresSameTurnRetry(typed) {
+		t.Fatal("typed diagram block requirement should require same-turn retry")
+	}
+	if !preEmitHintHardByDefault(typed) {
+		t.Fatal("typed diagram block requirement should remain a same-turn hard gate")
+	}
+}
+
 func TestPrincipleCompleteTypedPrincipalRowSetMissingMemberRemainsHard(t *testing.T) {
 	mu := types.NewMutableState("source inventory principle guard")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

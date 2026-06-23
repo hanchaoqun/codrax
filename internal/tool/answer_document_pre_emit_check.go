@@ -230,11 +230,12 @@ func (idx *preEmitEvidenceIndex) citedEvidenceItemsByUniqueEquivalentPath(file s
 // should emit; Reason is the one-sentence "why" so the LLM
 // understands the structural requirement, not just the literal fix.
 type emitFixHint struct {
-	Field         string
-	ExpectedShape string
-	Reason        string
-	Kind          types.ViolationKind
-	ForceHard     bool
+	Field              string
+	ExpectedShape      string
+	Reason             string
+	Kind               types.ViolationKind
+	ForceHard          bool
+	ExpectedBlockKinds []types.AnswerBlockKind
 }
 
 func tagPreEmitHints(kind types.ViolationKind, hints []emitFixHint) []emitFixHint {
@@ -287,10 +288,12 @@ func preEmitHintHardByDefault(hint emitFixHint) bool {
 }
 
 func preEmitMissingBlockRequiresSameTurnRetry(hint emitFixHint) bool {
-	field := strings.ToLower(strings.TrimSpace(hint.Field))
-	shape := strings.ToLower(strings.TrimSpace(hint.ExpectedShape))
-	return strings.Contains(field, "blocks[].kind=diagram") ||
-		strings.Contains(shape, "kind=diagram")
+	for _, kind := range hint.ExpectedBlockKinds {
+		if kind == types.BlockDiagram {
+			return true
+		}
+	}
+	return false
 }
 
 func preEmitCitationHintRequiresSameTurnRetry(hint emitFixHint) bool {
@@ -7634,7 +7637,8 @@ func preCheckRequiredBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSeman
 		}
 		if got < req.MinCount {
 			out = append(out, emitFixHint{
-				Field: fmt.Sprintf("blocks[].kind=%s", req.Kind),
+				Field:              fmt.Sprintf("blocks[].kind=%s", req.Kind),
+				ExpectedBlockKinds: req.AcceptedKinds(),
 				ExpectedShape: fmt.Sprintf(
 					"emit at least %d block(s) of kind=%s (currently emitted: %d)",
 					req.MinCount, kindLabel, got),
@@ -7644,7 +7648,8 @@ func preCheckRequiredBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSeman
 		}
 		if req.MaxCount > 0 && got > req.MaxCount {
 			out = append(out, emitFixHint{
-				Field: fmt.Sprintf("blocks[].kind=%s", req.Kind),
+				Field:              fmt.Sprintf("blocks[].kind=%s", req.Kind),
+				ExpectedBlockKinds: req.AcceptedKinds(),
 				ExpectedShape: fmt.Sprintf(
 					"reduce kind=%s blocks to at most %d (currently emitted: %d)",
 					kindLabel, req.MaxCount, got),

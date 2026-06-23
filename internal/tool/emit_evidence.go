@@ -4483,8 +4483,11 @@ func requestedDecoratorSurfaceTerms(ctx *types.BusContext) map[string]bool {
 	rm := ctx.AnalysisIR.RequestModel
 	out := make(map[string]bool)
 	add := func(raw string) {
-		term := decoratorSurfaceTermFromLabel(raw)
-		if term != "" {
+		// Hard decorator-alignment gates require exact decorator syntax from a
+		// typed request carrier. Generic analyzer entities such as "Builder" are
+		// useful search hints, but they are too noisy to authorize rejection as
+		// if the user had precisely requested "@Builder".
+		for _, term := range decoratorSurfaceTermRe.FindAllString(raw, -1) {
 			out[term] = true
 		}
 	}
@@ -4497,6 +4500,35 @@ func requestedDecoratorSurfaceTerms(ctx *types.BusContext) map[string]bool {
 	for _, st := range rm.SubTopics {
 		for _, raw := range st.Entities {
 			add(raw)
+		}
+	}
+	if rm.SourceInventoryProfile != nil {
+		for _, raw := range rm.SourceInventoryProfile.SourceQuotes {
+			add(raw)
+		}
+	}
+	if rm.AnswerVisibilityProfile != nil {
+		for _, raw := range rm.AnswerVisibilityProfile.SourceQuotes {
+			add(raw)
+		}
+	}
+	if rm.CurrentSourceExplanationProfile != nil {
+		for _, raw := range rm.CurrentSourceExplanationProfile.SourceQuotes {
+			add(raw)
+		}
+		for _, raw := range rm.CurrentSourceExplanationProfile.TargetTerms {
+			add(raw)
+		}
+	}
+	if rm.ExternalObservationPolicy != nil {
+		for _, raw := range rm.ExternalObservationPolicy.SourceQuotes {
+			add(raw)
+		}
+	}
+	if rm.RequestedAnswerDimensions != nil {
+		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+			add(dim.SourceQuote)
+			add(dim.Label)
 		}
 	}
 	if len(out) == 0 {
